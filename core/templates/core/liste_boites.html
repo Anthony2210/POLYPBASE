@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <title>POLYPBASE - Boîtes</title>
+</head>
+
+<body>
+    <h1>Boîtes POLYPBASE</h1>
+
+    {% for boite in boites %}
+    <div style="border: 1px solid #ccc; padding: 16px; margin-bottom: 12px;">
+        <h2>{{ boite.global_code }}</h2>
+        <p>Espèce : {{ boite.souche.espece.nom_scientifique }}</p>
+        <p>Souche : {{ boite.souche.code }}</p>
+        <p>Zone : {{ boite.zone_thermique }}</p>
+        <p>Statut : {{ boite.get_statut_display }}</p>
+
+        <a href="{% url 'detail_boite' boite.id %}">
+            Voir la fiche boîte
+        </a>
+    </div>
+    {% empty %}
+    <p>Aucune boîte enregistrée.</p>
+    {% endfor %}
+</body>
+
+</html>
