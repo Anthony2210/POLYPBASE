@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Ajouter un relevé</title>
+</head>
+
+<body>
+    <a href="{% url 'detail_boite' boite.id %}">← Retour à la fiche boîte</a>
+
+    <h1>Ajouter un relevé pour {{ boite.global_code }}</h1>
+
+    <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+
+        <button type="submit">
+            Enregistrer le relevé
+        </button>
+    </form>
+</body>
+
+</html>
