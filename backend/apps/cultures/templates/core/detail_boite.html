@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <title>POLYPBASE - {{ boite.global_code }}</title>
+</head>
+
+<body>
+    <a href="{% url 'liste_boites' %}">← Retour aux boîtes</a>
+
+    <h1>Fiche boîte : {{ boite.global_code }}</h1>
+
+    <p><strong>Code local :</strong> {{ boite.code_local }}</p>
+    <p><strong>Numéro boîte :</strong> {{ boite.numero_boite }}</p>
+    <p><strong>Espèce :</strong> {{ boite.souche.espece.nom_scientifique }}</p>
+    <p><strong>Souche :</strong> {{ boite.souche.code }}</p>
+    <p><strong>Zone thermique :</strong> {{ boite.zone_thermique }}</p>
+    <p><strong>Statut :</strong> {{ boite.get_statut_display }}</p>
+
+    <p>
+        <a href="{% url 'ajouter_releve' boite.id %}">
+            Ajouter un relevé biologique
+        </a>
+    </p>
+
+    <h2>Historique des relevés</h2>
+
+    {% for releve in releves %}
+    <div style="border: 1px solid #ccc; padding: 12px; margin-bottom: 10px;">
+        <p><strong>Date :</strong> {{ releve.date_releve }}</p>
+        <p><strong>Polypes :</strong> {{ releve.nombre_polypes }}</p>
+        <p><strong>Éphyrules :</strong> {{ releve.nombre_ephyres }}</p>
+        <p><strong>Strobiles :</strong> {{ releve.nombre_strobiles }}</p>
+        <p><strong>État :</strong> {{ releve.get_etat_culture_display }}</p>
+        <p><strong>Vigilance :</strong> {{ releve.vigilance|yesno:"oui,non" }}</p>
+        <p><strong>Commentaire :</strong> {{ releve.commentaire }}</p>
+        <p><strong>Saisi par :</strong> {{ releve.utilisateur }}</p>
+    </div>
+    {% empty %}
+    <p>Aucun relevé biologique pour cette boîte.</p>
+    {% endfor %}
+</body>
+
+</html>
