@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <title>POLYPBASE - Connexion</title>
+</head>
+
+<body>
+    <h1>Connexion POLYPBASE</h1>
+
+    {% if form.errors %}
+    <p>Identifiants invalides.</p>
+    {% endif %}
+
+    <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+
+        <button type="submit">Se connecter</button>
+    </form>
+</body>
+
+</html>

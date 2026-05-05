@@ -1,6 +1,19 @@
 .venv/
 __pycache__/
 *.pyc
+
+# Local databases are development artifacts.
 db.sqlite3
+backend/db.sqlite3
+
+# Local environment files must not be committed.
 .env
 .vscode/
+
+# Real Aquarium files and temporary prototypes stay outside Git.
+/data/
+/docs/maquette_figma/
+
+# Frontend build artifacts and dependencies.
+frontend/node_modules/
+frontend/dist/
