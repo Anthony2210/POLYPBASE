@@ -1,44 +1,52 @@
+{% load i18n %}
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="{{ request.LANGUAGE_CODE|slice:':2' }}">
 
 <head>
     <meta charset="UTF-8">
-    <title>POLYPBASE - {{ boite.global_code }}</title>
+    <title>POLYPBASE - {{ box.global_code }}</title>
 </head>
 
 <body>
-    <a href="{% url 'liste_boites' %}">← Retour aux boîtes</a>
+    <a href="{% url 'liste_boites' %}">{% trans "Retour aux boîtes" %}</a>
 
-    <h1>Fiche boîte : {{ boite.global_code }}</h1>
+    <h1>{% trans "Fiche boîte :" %} {{ box.global_code }}</h1>
 
-    <p><strong>Code local :</strong> {{ boite.code_local }}</p>
-    <p><strong>Numéro boîte :</strong> {{ boite.numero_boite }}</p>
-    <p><strong>Espèce :</strong> {{ boite.souche.espece.nom_scientifique }}</p>
-    <p><strong>Souche :</strong> {{ boite.souche.code }}</p>
-    <p><strong>Zone thermique :</strong> {{ boite.zone_thermique }}</p>
-    <p><strong>Statut :</strong> {{ boite.get_statut_display }}</p>
+    <p><strong>{% trans "Code local :" %}</strong> {{ box.local_code }}</p>
+    <p><strong>{% trans "Numéro boîte :" %}</strong> {{ box.box_number }}</p>
+    <p><strong>{% trans "Espèce :" %}</strong> {{ box.strain.species.scientific_name }}</p>
+    <p><strong>{% trans "Souche :" %}</strong> {{ box.strain.code }}</p>
+    <p><strong>{% trans "Zone thermique :" %}</strong> {{ box.thermal_zone }}</p>
+    <p><strong>{% trans "Statut :" %}</strong> {{ box.get_status_display }}</p>
 
     <p>
-        <a href="{% url 'ajouter_releve' boite.id %}">
-            Ajouter un relevé biologique
+        <a href="{% url 'ajouter_releve' box.id %}">
+            {% trans "Ajouter un relevé biologique" %}
         </a>
     </p>
 
-    <h2>Historique des relevés</h2>
+    <h2>{% trans "Historique des relevés" %}</h2>
 
-    {% for releve in releves %}
+    {% for measurement in measurements %}
     <div style="border: 1px solid #ccc; padding: 12px; margin-bottom: 10px;">
-        <p><strong>Date :</strong> {{ releve.date_releve }}</p>
-        <p><strong>Polypes :</strong> {{ releve.nombre_polypes }}</p>
-        <p><strong>Éphyrules :</strong> {{ releve.nombre_ephyres }}</p>
-        <p><strong>Strobiles :</strong> {{ releve.nombre_strobiles }}</p>
-        <p><strong>État :</strong> {{ releve.get_etat_culture_display }}</p>
-        <p><strong>Vigilance :</strong> {{ releve.vigilance|yesno:"oui,non" }}</p>
-        <p><strong>Commentaire :</strong> {{ releve.commentaire }}</p>
-        <p><strong>Saisi par :</strong> {{ releve.utilisateur }}</p>
+        <p><strong>{% trans "Date :" %}</strong> {{ measurement.measured_on }}</p>
+        <p><strong>{% trans "Polypes :" %}</strong> {{ measurement.polyp_count }}</p>
+        <p><strong>{% trans "Éphyrules :" %}</strong> {{ measurement.ephyrae_count }}</p>
+        <p><strong>{% trans "Strobiles :" %}</strong> {{ measurement.strobila_count }}</p>
+        <p><strong>{% trans "État :" %}</strong> {{ measurement.get_culture_status_display }}</p>
+        <p>
+            <strong>{% trans "Vigilance :" %}</strong>
+            {% if measurement.needs_attention %}
+                {% trans "oui" %}
+            {% else %}
+                {% trans "non" %}
+            {% endif %}
+        </p>
+        <p><strong>{% trans "Commentaire :" %}</strong> {{ measurement.notes }}</p>
+        <p><strong>{% trans "Saisi par :" %}</strong> {{ measurement.user }}</p>
     </div>
     {% empty %}
-    <p>Aucun relevé biologique pour cette boîte.</p>
+    <p>{% trans "Aucun relevé biologique pour cette boîte." %}</p>
     {% endfor %}
 </body>
 

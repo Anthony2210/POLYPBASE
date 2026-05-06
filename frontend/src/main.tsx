@@ -1,9 +1,8 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 
-function App() {
-  return <main>Polypbase frontend will be built here.</main>;
-}
+import App from './App';
+import './styles/app.css';
 
 const root = document.getElementById('root');
 

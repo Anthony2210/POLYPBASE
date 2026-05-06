@@ -1,0 +1,169 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: Polypbase\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-05-06 00:00+0200\n"
+"PO-Revision-Date: 2026-05-06 00:00+0200\n"
+"Last-Translator: Polypbase Team\n"
+"Language-Team: Polypbase Team\n"
+"Language: fr\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "POLYPBASE - Mon profil"
+msgstr "POLYPBASE - Mon profil"
+
+msgid "Retour aux boîtes"
+msgstr "Retour aux boîtes"
+
+msgid "Mon profil"
+msgstr "Mon profil"
+
+msgid "Utilisateur :"
+msgstr "Utilisateur :"
+
+msgid "Préférences"
+msgstr "Préférences"
+
+msgid "Enregistrer"
+msgstr "Enregistrer"
+
+msgid "POLYPBASE - Boîtes"
+msgstr "POLYPBASE - Boîtes"
+
+msgid "Boîtes POLYPBASE"
+msgstr "Boîtes POLYPBASE"
+
+msgid "Espèce :"
+msgstr "Espèce :"
+
+msgid "Souche :"
+msgstr "Souche :"
+
+msgid "Zone :"
+msgstr "Zone :"
+
+msgid "Statut :"
+msgstr "Statut :"
+
+msgid "Voir la fiche boîte"
+msgstr "Voir la fiche boîte"
+
+msgid "Aucune boîte enregistrée."
+msgstr "Aucune boîte enregistrée."
+
+msgid "Fiche boîte :"
+msgstr "Fiche boîte :"
+
+msgid "Code local :"
+msgstr "Code local :"
+
+msgid "Numéro boîte :"
+msgstr "Numéro boîte :"
+
+msgid "Zone thermique :"
+msgstr "Zone thermique :"
+
+msgid "Ajouter un relevé biologique"
+msgstr "Ajouter un relevé biologique"
+
+msgid "Historique des relevés"
+msgstr "Historique des relevés"
+
+msgid "Date :"
+msgstr "Date :"
+
+msgid "Polypes :"
+msgstr "Polypes :"
+
+msgid "Éphyrules :"
+msgstr "Éphyrules :"
+
+msgid "Strobiles :"
+msgstr "Strobiles :"
+
+msgid "État :"
+msgstr "État :"
+
+msgid "Vigilance :"
+msgstr "Vigilance :"
+
+msgid "oui"
+msgstr "oui"
+
+msgid "non"
+msgstr "non"
+
+msgid "Commentaire :"
+msgstr "Commentaire :"
+
+msgid "Saisi par :"
+msgstr "Saisi par :"
+
+msgid "Aucun relevé biologique pour cette boîte."
+msgstr "Aucun relevé biologique pour cette boîte."
+
+msgid "Ajouter un relevé"
+msgstr "Ajouter un relevé"
+
+msgid "Retour à la fiche boîte"
+msgstr "Retour à la fiche boîte"
+
+msgid "Ajouter un relevé pour"
+msgstr "Ajouter un relevé pour"
+
+msgid "Enregistrer le relevé"
+msgstr "Enregistrer le relevé"
+
+msgid "POLYPBASE - Connexion"
+msgstr "POLYPBASE - Connexion"
+
+msgid "Connexion POLYPBASE"
+msgstr "Connexion POLYPBASE"
+
+msgid "Identifiants invalides."
+msgstr "Identifiants invalides."
+
+msgid "Se connecter"
+msgstr "Se connecter"
+
+msgid "POLYPBASE - Politique de confidentialité"
+msgstr "POLYPBASE - Politique de confidentialité"
+
+msgid "Politique de confidentialité"
+msgstr "Politique de confidentialité"
+
+msgid "Données collectées"
+msgstr "Données collectées"
+
+msgid "Finalités"
+msgstr "Finalités"
+
+msgid "Droits des utilisateurs"
+msgstr "Droits des utilisateurs"
+
+msgid "Sécurité"
+msgstr "Sécurité"
+
+msgid "Langue de l'interface"
+msgstr "Langue de l'interface"
+
+msgid "Langue de l'interface mise à jour."
+msgstr "Langue de l'interface mise à jour."
+
+msgid "Français"
+msgstr "Français"
+
+msgid "Anglais"
+msgstr "Anglais"
+
+msgid "Date du relevé"
+msgstr "Date du relevé"
+
+msgid "État de la culture"
+msgstr "État de la culture"
+
+msgid "Salinité (PSU)"
+msgstr "Salinité (PSU)"
+

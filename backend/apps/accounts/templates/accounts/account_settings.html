@@ -1,0 +1,40 @@
+{% load i18n %}
+<!DOCTYPE html>
+<html lang="{{ request.LANGUAGE_CODE|slice:':2' }}">
+
+<head>
+    <meta charset="UTF-8">
+    <title>{% trans "POLYPBASE - Mon profil" %}</title>
+</head>
+
+<body>
+    <a href="{% url 'liste_boites' %}">{% trans "Retour aux boîtes" %}</a>
+
+    <h1>{% trans "Mon profil" %}</h1>
+
+    <p>
+        <strong>{% trans "Utilisateur :" %}</strong>
+        {{ request.user.get_username }}
+    </p>
+
+    <h2>{% trans "Préférences" %}</h2>
+
+    {% if messages %}
+    <ul>
+        {% for message in messages %}
+        <li>{{ message }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+
+    <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+
+        <button type="submit">
+            {% trans "Enregistrer" %}
+        </button>
+    </form>
+</body>
+
+</html>

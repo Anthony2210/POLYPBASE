@@ -1,28 +1,31 @@
+{% load i18n %}
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="{{ request.LANGUAGE_CODE|slice:':2' }}">
 
 <head>
     <meta charset="UTF-8">
-    <title>POLYPBASE - Boîtes</title>
+    <title>{% trans "POLYPBASE - Boîtes" %}</title>
 </head>
 
 <body>
-    <h1>Boîtes POLYPBASE</h1>
+    <p><a href="{% url 'account_settings' %}">{% trans "Mon profil" %}</a></p>
 
-    {% for boite in boites %}
+    <h1>{% trans "Boîtes POLYPBASE" %}</h1>
+
+    {% for box in boxes %}
     <div style="border: 1px solid #ccc; padding: 16px; margin-bottom: 12px;">
-        <h2>{{ boite.global_code }}</h2>
-        <p>Espèce : {{ boite.souche.espece.nom_scientifique }}</p>
-        <p>Souche : {{ boite.souche.code }}</p>
-        <p>Zone : {{ boite.zone_thermique }}</p>
-        <p>Statut : {{ boite.get_statut_display }}</p>
+        <h2>{{ box.global_code }}</h2>
+        <p>{% trans "Espèce :" %} {{ box.strain.species.scientific_name }}</p>
+        <p>{% trans "Souche :" %} {{ box.strain.code }}</p>
+        <p>{% trans "Zone :" %} {{ box.thermal_zone }}</p>
+        <p>{% trans "Statut :" %} {{ box.get_status_display }}</p>
 
-        <a href="{% url 'detail_boite' boite.id %}">
-            Voir la fiche boîte
+        <a href="{% url 'detail_boite' box.id %}">
+            {% trans "Voir la fiche boîte" %}
         </a>
     </div>
     {% empty %}
-    <p>Aucune boîte enregistrée.</p>
+    <p>{% trans "Aucune boîte enregistrée." %}</p>
     {% endfor %}
 </body>
 
