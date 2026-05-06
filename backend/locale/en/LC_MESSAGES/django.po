@@ -1,0 +1,261 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: Polypbase\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-05-06 00:00+0200\n"
+"PO-Revision-Date: 2026-05-06 00:00+0200\n"
+"Last-Translator: Polypbase Team\n"
+"Language-Team: Polypbase Team\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "POLYPBASE - Mon profil"
+msgstr "POLYPBASE - My profile"
+
+msgid "Retour aux boîtes"
+msgstr "Back to boxes"
+
+msgid "Mon profil"
+msgstr "My profile"
+
+msgid "Utilisateur :"
+msgstr "User:"
+
+msgid "Préférences"
+msgstr "Preferences"
+
+msgid "Enregistrer"
+msgstr "Save"
+
+msgid "POLYPBASE - Boîtes"
+msgstr "POLYPBASE - Boxes"
+
+msgid "Boîtes POLYPBASE"
+msgstr "POLYPBASE boxes"
+
+msgid "Espèce :"
+msgstr "Species:"
+
+msgid "Souche :"
+msgstr "Strain:"
+
+msgid "Zone :"
+msgstr "Zone:"
+
+msgid "Statut :"
+msgstr "Status:"
+
+msgid "Voir la fiche boîte"
+msgstr "Open box detail"
+
+msgid "Aucune boîte enregistrée."
+msgstr "No box recorded."
+
+msgid "Fiche boîte :"
+msgstr "Box detail:"
+
+msgid "Code local :"
+msgstr "Local code:"
+
+msgid "Numéro boîte :"
+msgstr "Box number:"
+
+msgid "Zone thermique :"
+msgstr "Thermal zone:"
+
+msgid "Ajouter un relevé biologique"
+msgstr "Add a biological measurement"
+
+msgid "Historique des relevés"
+msgstr "Measurement history"
+
+msgid "Date :"
+msgstr "Date:"
+
+msgid "Polypes :"
+msgstr "Polyps:"
+
+msgid "Éphyrules :"
+msgstr "Ephyrae:"
+
+msgid "Strobiles :"
+msgstr "Strobilae:"
+
+msgid "État :"
+msgstr "Status:"
+
+msgid "Vigilance :"
+msgstr "Attention:"
+
+msgid "oui"
+msgstr "yes"
+
+msgid "non"
+msgstr "no"
+
+msgid "Commentaire :"
+msgstr "Notes:"
+
+msgid "Saisi par :"
+msgstr "Entered by:"
+
+msgid "Aucun relevé biologique pour cette boîte."
+msgstr "No biological measurement for this box."
+
+msgid "Ajouter un relevé"
+msgstr "Add a measurement"
+
+msgid "Retour à la fiche boîte"
+msgstr "Back to box detail"
+
+msgid "Ajouter un relevé pour"
+msgstr "Add a measurement for"
+
+msgid "Enregistrer le relevé"
+msgstr "Save measurement"
+
+msgid "POLYPBASE - Connexion"
+msgstr "POLYPBASE - Login"
+
+msgid "Connexion POLYPBASE"
+msgstr "POLYPBASE login"
+
+msgid "Identifiants invalides."
+msgstr "Invalid credentials."
+
+msgid "Se connecter"
+msgstr "Log in"
+
+msgid "POLYPBASE - Politique de confidentialité"
+msgstr "POLYPBASE - Privacy policy"
+
+msgid "Politique de confidentialité"
+msgstr "Privacy policy"
+
+msgid "POLYPBASE collecte uniquement les informations nécessaires au suivi des cultures de polypes, à la gestion des comptes utilisateurs et à la traçabilité scientifique des actions réalisées."
+msgstr "POLYPBASE only collects information needed to track polyp cultures, manage user accounts, and keep scientific traceability of performed actions."
+
+msgid "Données collectées"
+msgstr "Collected data"
+
+msgid "Identité de compte : nom d'utilisateur, adresse email si renseignée, rôle et organisation."
+msgstr "Account identity: username, email address when provided, role, and organization."
+
+msgid "Données métier : boîtes, espèces, souches, relevés biologiques, salinités, températures et mouvements."
+msgstr "Business data: boxes, species, strains, biological measurements, salinity, temperature, and movements."
+
+msgid "Traçabilité : date, utilisateur et description des créations, modifications, imports, exports et scans."
+msgstr "Traceability: date, user, and description of creations, updates, imports, exports, and scans."
+
+msgid "Finalités"
+msgstr "Purposes"
+
+msgid "Ces données servent à exécuter le service de suivi de collection, sécuriser l'accès aux informations, produire des exports scientifiques ou réglementaires et conserver l'historique nécessaire à l'exploitation du laboratoire."
+msgstr "This data is used to run the collection tracking service, secure access to information, produce scientific or regulatory exports, and keep the history needed by the laboratory."
+
+msgid "Droits des utilisateurs"
+msgstr "User rights"
+
+msgid "Chaque utilisateur peut demander l'accès, la rectification ou la suppression de ses données de compte auprès de l'administrateur de son organisation. Les données scientifiques déjà associées à un historique de laboratoire peuvent être anonymisées lorsque leur suppression compromettrait la traçabilité de la collection."
+msgstr "Each user can request access, correction, or deletion of account data from the administrator of their organization. Scientific data already linked to laboratory history may be anonymized when deletion would compromise collection traceability."
+
+msgid "Sécurité"
+msgstr "Security"
+
+msgid "L'application limite l'accès par compte, rôle et organisation. En production, elle doit être servie en HTTPS, avec des sauvegardes régulières et une base de données non exposée directement aux terminaux du laboratoire."
+msgstr "The application limits access by account, role, and organization. In production, it must be served over HTTPS, with regular backups and a database that is not directly exposed to laboratory devices."
+
+msgid "Langue de l'interface"
+msgstr "Interface language"
+
+msgid "Langue de l'interface mise à jour."
+msgstr "Interface language updated."
+
+msgid "Français"
+msgstr "French"
+
+msgid "Anglais"
+msgstr "English"
+
+msgid "Date du relevé"
+msgstr "Measurement date"
+
+msgid "État de la culture"
+msgstr "Culture status"
+
+msgid "Salinité (PSU)"
+msgstr "Salinity (PSU)"
+
+msgid "Administrateur"
+msgstr "Administrator"
+
+msgid "Technicien laboratoire"
+msgstr "Lab technician"
+
+msgid "Lecture seule"
+msgstr "Viewer"
+
+msgid "Armoire"
+msgstr "Cabinet"
+
+msgid "Étuve"
+msgstr "Incubator"
+
+msgid "Autre"
+msgstr "Other"
+
+msgid "Archivée"
+msgstr "Archived"
+
+msgid "Perdue"
+msgstr "Lost"
+
+msgid "Arrêtée"
+msgstr "Stopped"
+
+msgid "Repiquage"
+msgstr "Subculture"
+
+msgid "Reproduction sexuée"
+msgstr "Sexual reproduction"
+
+msgid "Import historique"
+msgstr "Historical import"
+
+msgid "Prévu"
+msgstr "Planned"
+
+msgid "Terminé"
+msgstr "Completed"
+
+msgid "Annulé"
+msgstr "Cancelled"
+
+msgid "Bon"
+msgstr "Good"
+
+msgid "Moyen"
+msgstr "Medium"
+
+msgid "Mauvais"
+msgstr "Bad"
+
+msgid "Mort"
+msgstr "Dead"
+
+msgid "Non précisé"
+msgstr "Not specified"
+
+msgid "Générale"
+msgstr "General"
+
+msgid "Repiquage à prévoir"
+msgstr "Subculture needed"
+
+msgid "Mortalité"
+msgstr "Mortality"
+
+msgid "Saisie manuelle"
+msgstr "Manual entry"

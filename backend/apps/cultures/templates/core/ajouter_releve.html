@@ -1,22 +1,23 @@
+{% load i18n %}
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="{{ request.LANGUAGE_CODE|slice:':2' }}">
 
 <head>
     <meta charset="UTF-8">
-    <title>Ajouter un relevé</title>
+    <title>{% trans "Ajouter un relevé" %}</title>
 </head>
 
 <body>
-    <a href="{% url 'detail_boite' boite.id %}">← Retour à la fiche boîte</a>
+    <a href="{% url 'detail_boite' box.id %}">{% trans "Retour à la fiche boîte" %}</a>
 
-    <h1>Ajouter un relevé pour {{ boite.global_code }}</h1>
+    <h1>{% trans "Ajouter un relevé pour" %} {{ box.global_code }}</h1>
 
     <form method="post">
         {% csrf_token %}
         {{ form.as_p }}
 
         <button type="submit">
-            Enregistrer le relevé
+            {% trans "Enregistrer le relevé" %}
         </button>
     </form>
 </body>

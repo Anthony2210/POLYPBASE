@@ -1,23 +1,24 @@
+{% load i18n %}
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="{{ request.LANGUAGE_CODE|slice:':2' }}">
 
 <head>
     <meta charset="UTF-8">
-    <title>POLYPBASE - Connexion</title>
+    <title>{% trans "POLYPBASE - Connexion" %}</title>
 </head>
 
 <body>
-    <h1>Connexion POLYPBASE</h1>
+    <h1>{% trans "Connexion POLYPBASE" %}</h1>
 
     {% if form.errors %}
-    <p>Identifiants invalides.</p>
+    <p>{% trans "Identifiants invalides." %}</p>
     {% endif %}
 
     <form method="post">
         {% csrf_token %}
         {{ form.as_p }}
 
-        <button type="submit">Se connecter</button>
+        <button type="submit">{% trans "Se connecter" %}</button>
     </form>
 </body>
 
