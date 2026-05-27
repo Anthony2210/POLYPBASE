@@ -15,6 +15,39 @@ POLYPBASE/
 `-- .gitignore
 ```
 
+## Python Environment
+
+Python dependencies are managed with `uv`. The virtual environment is local to
+each developer machine and must not be committed.
+
+Install `uv` on Windows PowerShell:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Create the local environment and install the locked dependencies:
+
+```powershell
+uv venv
+uv sync
+```
+
+Add a Python package:
+
+```powershell
+uv add package-name
+```
+
+Add a development-only package:
+
+```powershell
+uv add --dev package-name
+```
+
+Commit `pyproject.toml` and `uv.lock` after changing dependencies. Do not edit
+`uv.lock` manually.
+
 ## Backend
 
 The backend uses Django. It stores the data, exposes API endpoints, manages
@@ -25,16 +58,23 @@ Run backend commands from the `backend/` directory:
 
 ```powershell
 cd backend
-..\.venv\Scripts\python.exe manage.py check
-..\.venv\Scripts\python.exe manage.py test
+uv run python manage.py check
+uv run python manage.py test
 ```
 
 Create local demo data:
 
 ```powershell
 cd backend
-..\.venv\Scripts\python.exe manage.py migrate
-..\.venv\Scripts\python.exe manage.py seed_demo_data
+uv run python manage.py migrate
+uv run python manage.py seed_demo_data
+```
+
+Start the Django development server:
+
+```powershell
+cd backend
+uv run python manage.py runserver
 ```
 
 The demo command is idempotent: it can be run again without creating duplicate
@@ -78,7 +118,7 @@ After editing a `.po` file, compile the messages:
 
 ```powershell
 cd backend
-..\.venv\Scripts\python.exe ..\scripts\compile_django_messages.py
+uv run python ..\scripts\compile_django_messages.py
 ```
 
 The script exists because the official Django `compilemessages` command needs
@@ -121,4 +161,34 @@ or migrate it carefully before relying on existing data.
 
 ## Frontend
 
-The final frontend will live in `frontend/`.
+The React frontend lives in `frontend/`.
+
+Install frontend dependencies:
+
+```powershell
+cd frontend
+npm install
+```
+
+Start the React development server:
+
+```powershell
+cd frontend
+npm run dev
+```
+
+The usual local URL is:
+
+```txt
+http://127.0.0.1:5173/
+```
+
+The Django backend must also be running so React can call the `/api/...`
+endpoints.
+
+Check the production build:
+
+```powershell
+cd frontend
+npm run build
+```
