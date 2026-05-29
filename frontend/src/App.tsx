@@ -41,7 +41,10 @@ const translations = {
     boxNotFoundText: 'Cette boîte n’existe pas dans les données chargées.',
     boxSheet: 'Fiche de la boîte',
     boxes: 'Boîtes',
+    close: 'Fermer',
     ephyrae: 'Éphyr.',
+    ephyraeFull: 'Éphyrules',
+    historyButton: 'Voir relevés',
     lastComment: 'Dernier commentaire',
     lastMeasurement: 'Dernier relevé',
     laboratoryTracking: 'Suivi laboratoire',
@@ -85,7 +88,10 @@ const translations = {
     boxNotFoundText: 'This box does not exist in the loaded data.',
     boxSheet: 'Box sheet',
     boxes: 'Boxes',
+    close: 'Close',
     ephyrae: 'Ephyrae',
+    ephyraeFull: 'Ephyrae',
+    historyButton: 'View records',
     lastComment: 'Last comment',
     lastMeasurement: 'Last measurement',
     laboratoryTracking: 'Lab tracking',
@@ -557,11 +563,13 @@ function BoxPage({
 }) {
   const [form, setForm] = useState(() => getInitialMeasurementForm());
   const [isSaving, setIsSaving] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
   useEffect(() => {
     setForm(getInitialMeasurementForm());
+    setIsHistoryOpen(false);
     setSaveError(null);
     setSaveMessage(null);
   }, [box?.id]);
@@ -621,7 +629,7 @@ function BoxPage({
 
       <p className="box-page-label">{t('boxSheet')}</p>
 
-      <header className="box-page-heading">
+      <header className="box-page-heading desktop-box-heading">
         <div>
           <div className="box-code-line">
             <h2>{box.global_code}</h2>
@@ -636,7 +644,36 @@ function BoxPage({
       </header>
 
       <div className="box-page-grid">
-        <section className="box-section">
+        <header className="box-page-heading tablet-box-heading">
+          <div className="box-identity">
+            <div className="box-code-line">
+              <h2>{box.global_code}</h2>
+              <span>{formatStatus(box.status)}</span>
+            </div>
+            <p>{box.species.scientific_name}</p>
+          </div>
+
+          <div className="last-measurement-summary">
+            <div>
+              <h2>{t('lastMeasurement')}</h2>
+              <span>{box.latest_measurement ? formatDisplayDate(box.latest_measurement.measured_on) : t('noDate')}</span>
+            </div>
+
+            <Metric label={t('polyps')} value={String(box.latest_measurement?.polyp_count ?? '-')} />
+            <Metric label={t('ephyrae')} value={String(box.latest_measurement?.ephyrae_count ?? '-')} />
+          </div>
+
+          <div className="box-meta">
+            <span>{box.thermal_zone?.name ?? t('noZone')}</span>
+            <small>{box.organization.name}</small>
+            <button className="history-trigger" type="button" onClick={() => setIsHistoryOpen(true)}>
+              <span>{t('historyButton')}</span>
+              <strong>{measurements.length}</strong>
+            </button>
+          </div>
+        </header>
+
+        <section className="box-section desktop-last-measurement">
           <div className="section-title">
             <h2>{t('lastMeasurement')}</h2>
             <span>{box.latest_measurement?.measured_on ?? t('noDate')}</span>
@@ -648,24 +685,24 @@ function BoxPage({
           </div>
         </section>
 
-        <section className="box-section">
+        <section className="box-section measurement-form-section">
           <form className="fake-form" onSubmit={handleSubmit}>
             <div className="section-title">
               <h2>{t('newMeasurement')}</h2>
-              <span>{form.measuredOn}</span>
+              <span>{formatDisplayDate(form.measuredOn)}</span>
             </div>
 
-            <label>
-              {t('measurementDate')}
-              <input
-                required
-                type="date"
-                value={form.measuredOn}
-                onChange={(event) => setForm((current) => ({ ...current, measuredOn: event.target.value }))}
-              />
-            </label>
+            <div className="measurement-entry-grid">
+              <label className="measurement-date-field">
+                {t('measurementDate')}
+                <input
+                  required
+                  type="date"
+                  value={form.measuredOn}
+                  onChange={(event) => setForm((current) => ({ ...current, measuredOn: event.target.value }))}
+                />
+              </label>
 
-            <div className="form-grid two-columns">
               <label>
                 {t('polyps')}
                 <input
@@ -685,8 +722,9 @@ function BoxPage({
                   }))}
                 />
               </label>
+
               <label>
-                {t('ephyrae')}
+                {t('ephyraeFull')}
                 <input
                   min="0"
                   required
@@ -730,30 +768,90 @@ function BoxPage({
           </form>
         </section>
 
-        <section className="box-section">
+        <section className="box-section desktop-measurement-history">
           <div className="section-title">
             <h2>{t('measurementHistory')}</h2>
             <span>{measurements.length}</span>
           </div>
 
-          <div className="measurement-history">
-            {!measurements.length ? <p className="muted compact-text">{t('noMeasurementHistory')}</p> : null}
-
-            {measurements.slice(0, 6).map((measurement) => (
-              <article key={measurement.id} className="measurement-row">
-                <div>
-                  <strong>{formatDisplayDate(measurement.measured_on)}</strong>
-                  <small>{measurement.user ?? '-'}</small>
-                </div>
-                <span>{measurement.polyp_count} {t('polyps')}</span>
-                <span>{measurement.ephyrae_count} {t('ephyrae')}</span>
-                <p>{measurement.notes?.trim() || t('noComment')}</p>
-              </article>
-            ))}
-          </div>
+          <MeasurementHistoryList measurements={measurements.slice(0, 6)} t={t} />
         </section>
+
+        {isHistoryOpen ? (
+          <MeasurementHistoryModal
+            measurements={measurements}
+            onClose={() => setIsHistoryOpen(false)}
+            t={t}
+          />
+        ) : null}
       </div>
     </section>
+  );
+}
+
+function MeasurementHistoryList({
+  measurements,
+  t,
+}: {
+  measurements: BiologicalMeasurement[];
+  t: TFunction;
+}) {
+  return (
+    <div className="measurement-history">
+      {!measurements.length ? <p className="muted compact-text">{t('noMeasurementHistory')}</p> : null}
+
+      {measurements.map((measurement) => (
+        <article key={measurement.id} className="measurement-row">
+          <div>
+            <strong>{formatDisplayDate(measurement.measured_on)}</strong>
+            <small>{measurement.user ?? '-'}</small>
+          </div>
+          <span>
+            <strong>{measurement.polyp_count}</strong>
+            <small>{t('polyps')}</small>
+          </span>
+          <span>
+            <strong>{measurement.ephyrae_count}</strong>
+            <small>{t('ephyrae')}</small>
+          </span>
+          <p>{measurement.notes?.trim() || t('noComment')}</p>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function MeasurementHistoryModal({
+  measurements,
+  onClose,
+  t,
+}: {
+  measurements: BiologicalMeasurement[];
+  onClose: () => void;
+  t: TFunction;
+}) {
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+      <section
+        className="history-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('measurementHistory')}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="modal-heading">
+          <div>
+            <h2>{t('measurementHistory')}</h2>
+            <span>{measurements.length}</span>
+          </div>
+          <button type="button" onClick={onClose}>
+            {t('close')}
+          </button>
+        </div>
+
+        <MeasurementHistoryList measurements={measurements} t={t} />
+      </section>
+    </div>
   );
 }
 
@@ -967,7 +1065,11 @@ function incrementCountValue(currentValue: string, increment: number) {
 }
 
 function formatDisplayDate(value: string) {
-  return new Intl.DateTimeFormat('fr-FR').format(new Date(`${value}T00:00:00`));
+  return new Intl.DateTimeFormat('fr-FR', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  }).format(new Date(`${value}T00:00:00`));
 }
 
 function getMeasurementSaveError(error: unknown, t: TFunction) {
