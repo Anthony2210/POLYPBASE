@@ -41,6 +41,7 @@ export type BiologicalMeasurement = {
   measured_on: string;
   polyp_count: number;
   ephyrae_count: number;
+  strobila_count: number;
   culture_status: string;
   needs_attention: boolean;
   notes: string;
@@ -61,6 +62,14 @@ export type BoxItem = {
   entered_on: string | null;
   latest_measurement: BiologicalMeasurement | null;
   active_alert_count: number;
+};
+
+export type BoxDetail = BoxItem & {
+  created_on: string;
+  volume_liters: string | null;
+  stop_reason: string;
+  notes: string;
+  biological_measurements: BiologicalMeasurement[];
 };
 
 export type Probe = {
