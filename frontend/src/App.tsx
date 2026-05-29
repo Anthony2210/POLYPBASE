@@ -660,7 +660,7 @@ function BoxPage({
             </div>
 
             <Metric label={t('polyps')} value={String(box.latest_measurement?.polyp_count ?? '-')} />
-            <Metric label={t('ephyrae')} value={String(box.latest_measurement?.ephyrae_count ?? '-')} />
+            <Metric label={t('ephyraeFull')} value={String(box.latest_measurement?.ephyrae_count ?? '-')} />
           </div>
 
           <div className="box-meta">
@@ -681,7 +681,7 @@ function BoxPage({
 
           <div className="metric-grid compact two-columns">
             <Metric label={t('polyps')} value={String(box.latest_measurement?.polyp_count ?? '-')} />
-            <Metric label={t('ephyrae')} value={String(box.latest_measurement?.ephyrae_count ?? '-')} />
+            <Metric label={t('ephyraeFull')} value={String(box.latest_measurement?.ephyrae_count ?? '-')} />
           </div>
         </section>
 
@@ -812,7 +812,7 @@ function MeasurementHistoryList({
           </span>
           <span>
             <strong>{measurement.ephyrae_count}</strong>
-            <small>{t('ephyrae')}</small>
+            <small>{t('ephyraeFull')}</small>
           </span>
           <p>{measurement.notes?.trim() || t('noComment')}</p>
         </article>
