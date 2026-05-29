@@ -656,6 +656,28 @@ button:disabled {
   font-weight: 720;
 }
 
+.quick-counts {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.quick-counts button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--primary);
+  font-size: 0.78rem;
+  font-weight: 760;
+}
+
+.quick-counts button:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
 .compact-heading {
   display: flex;
   align-items: center;
@@ -712,6 +734,50 @@ button:disabled {
   flex-basis: 100%;
   color: var(--coral);
   font-size: 0.84rem;
+}
+
+.inline-success {
+  color: var(--primary);
+  font-size: 0.84rem;
+}
+
+.form-feedback {
+  margin: 0;
+}
+
+.measurement-history {
+  display: grid;
+  gap: 8px;
+  max-width: 700px;
+}
+
+.measurement-row {
+  display: grid;
+  grid-template-columns: minmax(115px, 1fr) auto auto;
+  gap: 10px 16px;
+  align-items: baseline;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.measurement-row strong,
+.measurement-row small {
+  display: block;
+}
+
+.measurement-row small,
+.measurement-row p {
+  color: var(--muted);
+}
+
+.measurement-row span {
+  color: var(--ink);
+  font-weight: 680;
+}
+
+.measurement-row p {
+  grid-column: 1 / -1;
+  margin: 0;
 }
 
 .language-switch {
@@ -817,7 +883,8 @@ button:disabled {
 
   .box-row,
   .suggestion-row,
-  .zone-row {
+  .zone-row,
+  .measurement-row {
     grid-template-columns: 1fr;
   }
 

@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { type FormEvent, useEffect, useMemo, useState } from 'react';
 
-import { ApiError, apiGet, apiPatch } from './api/client';
+import { ApiError, apiGet, apiPatch, apiPost } from './api/client';
 import type {
+  BiologicalMeasurement,
+  BoxDetail,
   BoxItem,
   Dashboard,
   PaginatedResponse,
@@ -13,9 +15,17 @@ type TabId = 'pilotage' | 'zones' | 'profile';
 
 type AppData = {
   boxes: BoxItem[];
+  boxDetails: Record<number, BoxDetail>;
   zones: ThermalZone[];
   dashboard: Dashboard | null;
   profile: UserProfile | null;
+};
+
+type MeasurementPayload = {
+  measured_on: string;
+  polyp_count: number;
+  ephyrae_count: number;
+  notes: string;
 };
 
 type RouteState = {
@@ -37,9 +47,14 @@ const translations = {
     laboratoryTracking: 'Suivi laboratoire',
     loginAction: 'Se connecter',
     loginRequired: 'Connexion requise',
+    measurementDate: 'Date du relevé',
+    measurementForbidden: 'Ce compte ne peut pas créer de relevé.',
+    measurementHistory: 'Historique des relevés',
+    measurementSaved: 'Relevé enregistré',
     newMeasurement: 'Nouveau relevé',
     noComment: 'Aucun commentaire récent pour cette boîte.',
     noDate: 'aucune date',
+    noMeasurementHistory: 'Aucun relevé pour cette boîte.',
     noRecentScans: 'Aucun scan récent pour l’instant.',
     noZone: 'Sans zone',
     observation: 'Observation',
@@ -52,7 +67,8 @@ const translations = {
     profileTitle: 'Mon profil',
     prototype: 'prototype',
     recentAccess: 'Derniers accès',
-    saveLater: 'Enregistrer plus tard',
+    saveMeasurement: 'Enregistrer le relevé',
+    saving: 'Enregistrement...',
     scanSearch: 'scan / recherche',
     searchOrScan: 'Recherche ou scan',
     searchPlaceholder: 'Code boîte, espèce, souche',
@@ -75,9 +91,14 @@ const translations = {
     laboratoryTracking: 'Lab tracking',
     loginAction: 'Sign in',
     loginRequired: 'Sign-in required',
+    measurementDate: 'Measurement date',
+    measurementForbidden: 'This account cannot create measurements.',
+    measurementHistory: 'Measurement history',
+    measurementSaved: 'Measurement saved',
     newMeasurement: 'New measurement',
     noComment: 'No recent comment for this box.',
     noDate: 'no date',
+    noMeasurementHistory: 'No measurement for this box.',
     noRecentScans: 'No recent scan yet.',
     noZone: 'No zone',
     observation: 'Observation',
@@ -90,7 +111,8 @@ const translations = {
     profileTitle: 'My profile',
     prototype: 'prototype',
     recentAccess: 'Recent access',
-    saveLater: 'Save later',
+    saveMeasurement: 'Save measurement',
+    saving: 'Saving...',
     scanSearch: 'scan / search',
     searchOrScan: 'Search or scan',
     searchPlaceholder: 'Box code, species, strain',
@@ -114,6 +136,7 @@ export default function App() {
   const [recentBoxIds, setRecentBoxIds] = useState<number[]>([]);
   const [data, setData] = useState<AppData>({
     boxes: [],
+    boxDetails: {},
     zones: [],
     dashboard: null,
     profile: null,
@@ -153,6 +176,7 @@ export default function App() {
 
         setData({
           boxes: boxes.results,
+          boxDetails: {},
           zones: zones.results,
           dashboard,
           profile,
@@ -198,6 +222,31 @@ export default function App() {
     if (!route.boxCode) return null;
     return data.boxes.find((box) => box.global_code === route.boxCode) ?? null;
   }, [data.boxes, route.boxCode]);
+
+  const selectedBoxDetail = selectedBox ? data.boxDetails[selectedBox.id] ?? null : null;
+
+  useEffect(() => {
+    let isActive = true;
+
+    async function loadBoxDetail(boxId: number) {
+      try {
+        const detail = await apiGet<BoxDetail>(`/api/boxes/${boxId}/`);
+        if (!isActive) return;
+        setData((current) => mergeBoxDetail(current, detail));
+      } catch (requestError) {
+        if (!isActive) return;
+        setError(getErrorMessage(requestError));
+      }
+    }
+
+    if (selectedBox && !selectedBoxDetail) {
+      loadBoxDetail(selectedBox.id);
+    }
+
+    return () => {
+      isActive = false;
+    };
+  }, [selectedBox?.id, Boolean(selectedBoxDetail)]);
 
   const recentBoxes = useMemo(() => {
     return recentBoxIds
@@ -247,6 +296,13 @@ export default function App() {
     }));
   }
 
+  async function createMeasurement(boxId: number, payload: MeasurementPayload) {
+    await apiPost<BiologicalMeasurement>(`/api/boxes/${boxId}/measurements/`, payload);
+    const detail = await apiGet<BoxDetail>(`/api/boxes/${boxId}/`);
+
+    setData((current) => mergeBoxDetail(current, detail));
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -285,8 +341,9 @@ export default function App() {
           <>
             {activeTab === 'pilotage' && route.boxCode && (
               <BoxPage
-                box={selectedBox}
+                box={selectedBoxDetail ?? selectedBox}
                 isLoading={isLoading}
+                onCreateMeasurement={createMeasurement}
                 onBack={closeBoxPage}
                 t={t}
               />
@@ -488,14 +545,27 @@ function JellyfishPattern() {
 function BoxPage({
   box,
   isLoading,
+  onCreateMeasurement,
   onBack,
   t,
 }: {
-  box: BoxItem | null;
+  box: BoxItem | BoxDetail | null;
   isLoading: boolean;
+  onCreateMeasurement: (boxId: number, payload: MeasurementPayload) => Promise<void>;
   onBack: () => void;
   t: TFunction;
 }) {
+  const [form, setForm] = useState(() => getInitialMeasurementForm());
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setForm(getInitialMeasurementForm());
+    setSaveError(null);
+    setSaveMessage(null);
+  }, [box?.id]);
+
   if (isLoading) {
     return (
       <section className="box-page">
@@ -516,7 +586,32 @@ function BoxPage({
     );
   }
 
-  const lastComment = box.latest_measurement?.notes?.trim();
+  const measurements = getMeasurementHistory(box);
+  const lastComment = getLatestComment(measurements, box);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!box || isSaving) return;
+
+    setIsSaving(true);
+    setSaveError(null);
+    setSaveMessage(null);
+
+    try {
+      await onCreateMeasurement(box.id, {
+        measured_on: form.measuredOn,
+        polyp_count: parsePositiveInteger(form.polypCount),
+        ephyrae_count: parsePositiveInteger(form.ephyraeCount),
+        notes: form.notes.trim(),
+      });
+      setForm(getInitialMeasurementForm());
+      setSaveMessage(t('measurementSaved'));
+    } catch (requestError) {
+      setSaveError(getMeasurementSaveError(requestError, t));
+    } finally {
+      setIsSaving(false);
+    }
+  }
 
   return (
     <section className="box-page">
@@ -554,20 +649,60 @@ function BoxPage({
         </section>
 
         <section className="box-section">
-          <form className="fake-form" onSubmit={(event) => event.preventDefault()}>
+          <form className="fake-form" onSubmit={handleSubmit}>
             <div className="section-title">
               <h2>{t('newMeasurement')}</h2>
-              <span>{t('prototype')}</span>
+              <span>{form.measuredOn}</span>
             </div>
+
+            <label>
+              {t('measurementDate')}
+              <input
+                required
+                type="date"
+                value={form.measuredOn}
+                onChange={(event) => setForm((current) => ({ ...current, measuredOn: event.target.value }))}
+              />
+            </label>
 
             <div className="form-grid two-columns">
               <label>
                 {t('polyps')}
-                <input inputMode="numeric" placeholder="0" type="number" />
+                <input
+                  min="0"
+                  required
+                  inputMode="numeric"
+                  placeholder="0"
+                  type="number"
+                  value={form.polypCount}
+                  onChange={(event) => setForm((current) => ({ ...current, polypCount: event.target.value }))}
+                />
+                <QuickCountButtons
+                  values={[50, 100]}
+                  onAdd={(value) => setForm((current) => ({
+                    ...current,
+                    polypCount: incrementCountValue(current.polypCount, value),
+                  }))}
+                />
               </label>
               <label>
                 {t('ephyrae')}
-                <input inputMode="numeric" placeholder="0" type="number" />
+                <input
+                  min="0"
+                  required
+                  inputMode="numeric"
+                  placeholder="0"
+                  type="number"
+                  value={form.ephyraeCount}
+                  onChange={(event) => setForm((current) => ({ ...current, ephyraeCount: event.target.value }))}
+                />
+                <QuickCountButtons
+                  values={[10, 25]}
+                  onAdd={(value) => setForm((current) => ({
+                    ...current,
+                    ephyraeCount: incrementCountValue(current.ephyraeCount, value),
+                  }))}
+                />
               </label>
             </div>
 
@@ -578,11 +713,44 @@ function BoxPage({
 
             <label className="notes-field">
               {t('observation')}
-              <textarea placeholder={t('observationPlaceholder')} rows={3} />
+              <textarea
+                placeholder={t('observationPlaceholder')}
+                rows={3}
+                value={form.notes}
+                onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
+              />
             </label>
 
-            <button type="submit">{t('saveLater')}</button>
+            {saveError ? <p className="inline-error form-feedback">{saveError}</p> : null}
+            {saveMessage ? <p className="inline-success form-feedback">{saveMessage}</p> : null}
+
+            <button type="submit" disabled={isSaving}>
+              {isSaving ? t('saving') : t('saveMeasurement')}
+            </button>
           </form>
+        </section>
+
+        <section className="box-section">
+          <div className="section-title">
+            <h2>{t('measurementHistory')}</h2>
+            <span>{measurements.length}</span>
+          </div>
+
+          <div className="measurement-history">
+            {!measurements.length ? <p className="muted compact-text">{t('noMeasurementHistory')}</p> : null}
+
+            {measurements.slice(0, 6).map((measurement) => (
+              <article key={measurement.id} className="measurement-row">
+                <div>
+                  <strong>{formatDisplayDate(measurement.measured_on)}</strong>
+                  <small>{measurement.user ?? '-'}</small>
+                </div>
+                <span>{measurement.polyp_count} {t('polyps')}</span>
+                <span>{measurement.ephyrae_count} {t('ephyrae')}</span>
+                <p>{measurement.notes?.trim() || t('noComment')}</p>
+              </article>
+            ))}
+          </div>
         </section>
       </div>
     </section>
@@ -718,6 +886,18 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
+function QuickCountButtons({ values, onAdd }: { values: number[]; onAdd: (value: number) => void }) {
+  return (
+    <span className="quick-counts">
+      {values.map((value) => (
+        <button key={value} type="button" onClick={() => onAdd(value)}>
+          +{value}
+        </button>
+      ))}
+    </span>
+  );
+}
+
 function LoginNotice({ message, t }: { message: string; t: TFunction }) {
   return (
     <section className="login-notice">
@@ -736,6 +916,66 @@ function SkeletonRows({ count }: { count: number }) {
       ))}
     </div>
   );
+}
+
+function mergeBoxDetail(current: AppData, detail: BoxDetail): AppData {
+  return {
+    ...current,
+    boxes: current.boxes.map((box) => (box.id === detail.id ? detail : box)),
+    boxDetails: {
+      ...current.boxDetails,
+      [detail.id]: detail,
+    },
+  };
+}
+
+function getInitialMeasurementForm() {
+  return {
+    measuredOn: getTodayDateValue(),
+    polypCount: '',
+    ephyraeCount: '',
+    notes: '',
+  };
+}
+
+function getTodayDateValue() {
+  const today = new Date();
+  today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
+  return today.toISOString().slice(0, 10);
+}
+
+function getMeasurementHistory(box: BoxItem | BoxDetail) {
+  if ('biological_measurements' in box) {
+    return box.biological_measurements;
+  }
+
+  return box.latest_measurement ? [box.latest_measurement] : [];
+}
+
+function getLatestComment(measurements: BiologicalMeasurement[], box: BoxItem | BoxDetail) {
+  const measurementWithComment = measurements.find((measurement) => measurement.notes?.trim());
+  return measurementWithComment?.notes.trim() || box.latest_measurement?.notes?.trim();
+}
+
+function parsePositiveInteger(value: string) {
+  const parsedValue = Number.parseInt(value, 10);
+  return Number.isFinite(parsedValue) && parsedValue >= 0 ? parsedValue : 0;
+}
+
+function incrementCountValue(currentValue: string, increment: number) {
+  return String(parsePositiveInteger(currentValue) + increment);
+}
+
+function formatDisplayDate(value: string) {
+  return new Intl.DateTimeFormat('fr-FR').format(new Date(`${value}T00:00:00`));
+}
+
+function getMeasurementSaveError(error: unknown, t: TFunction) {
+  if (error instanceof ApiError && error.status === 403) {
+    return t('measurementForbidden');
+  }
+
+  return getErrorMessage(error);
 }
 
 function formatTemperature(value: number | undefined) {

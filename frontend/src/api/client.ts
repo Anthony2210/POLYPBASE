@@ -15,6 +15,17 @@ export async function apiGet<T>(path: string): Promise<T> {
   return apiRequest<T>(path);
 }
 
+export async function apiPost<T>(path: string, payload: unknown): Promise<T> {
+  return apiRequest<T>(path, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRFToken': getCookie('csrftoken'),
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function apiPatch<T>(path: string, payload: unknown): Promise<T> {
   return apiRequest<T>(path, {
     method: 'PATCH',
