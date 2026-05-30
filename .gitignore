@@ -13,6 +13,12 @@ backend/db.sqlite3
 # Real Aquarium files and temporary prototypes stay outside Git.
 /data/
 /docs/maquette_figma/
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.toc
 
 # Frontend build artifacts and dependencies.
 frontend/node_modules/
