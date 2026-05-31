@@ -18,6 +18,7 @@ backend/db.sqlite3
 *.fls
 *.log
 *.out
+*.synctex.gz
 *.toc
 
 # Frontend build artifacts and dependencies.
