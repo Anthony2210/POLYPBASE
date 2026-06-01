@@ -28,7 +28,6 @@
 \graphicspath{{../}}
 \usepackage{float}
 \usepackage{caption}
-\usepackage{subcaption}
 \captionsetup{font=small,labelfont=bf}
 \usepackage{tabularx}
 \usepackage{booktabs}
@@ -66,7 +65,22 @@
 \begin{titlepage}
   \thispagestyle{empty}
   \centering
-  \vspace*{0.4cm}
+  \vspace*{0.2cm}
+
+  \begin{minipage}{0.30\textwidth}
+  \centering
+  \includegraphics[height=1.35cm,keepaspectratio]{assets/logo_upvm.jpg}
+  \end{minipage}
+  \begin{minipage}{0.30\textwidth}
+  \centering
+  \includegraphics[height=1.35cm,keepaspectratio]{assets/logo_miashs.pdf}
+  \end{minipage}
+  \begin{minipage}{0.30\textwidth}
+  \centering
+  \includegraphics[height=1.35cm,keepaspectratio]{assets/logo-aquarium-3.png}
+  \end{minipage}
+
+  \vspace{0.65cm}
 
   {\Large Université Paul-Valéry Montpellier 3\\}
   \vspace{0.15cm}
@@ -117,7 +131,11 @@ Nous tenons à remercier Anaïs Courtet et Étienne Bourgouin pour leur accueil 
 
 Nous les remercions aussi pour leur sympathie et pour la visite guidée de l’Aquarium. Cette découverte du lieu, des espaces ouverts au public et des coulisses nous a aidés à mieux situer notre travail. Polypbase accompagne un travail quotidien en laboratoire, dans un environnement vivant, précis et déjà très organisé.
 
-Nous remercions également Madame Sophie Lebre, qui nous a transmis cette offre de stage. Son partage nous a permis de rejoindre un projet concret, utile et directement lié à des problématiques de données, de suivi scientifique et de développement web.
+Nous remercions Madame Sandra Bringay pour son aide sur la reprise du modèle conceptuel de données et pour les nombreux renseignements qu’elle nous a apportés sur le projet. Ses retours nous ont aidés à mieux structurer les entités importantes et à prendre plus de recul sur la manière de modéliser les données.
+
+Nous remercions également Monsieur Servajean pour ses conseils sur l’usage de Git, des branches et de l’organisation du dépôt. Ces remarques nous ont permis de corriger notre manière de travailler et de préparer une base plus propre pour la suite du stage.
+
+Enfin, nous remercions Madame Sophie Lebre, qui nous a transmis cette offre de stage. Son partage nous a permis de rejoindre un projet concret, utile et directement lié à des problématiques de données, de suivi scientifique et de développement web.
 
 \newpage
 \hypersetup{pageanchor=true}
@@ -205,10 +223,21 @@ La troisième référence concerne la taxonomie. Une application utilisée par p
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.62\textwidth]{docs/cahier_des_charges/photo/IMG_1532.jpg}
-\caption{Note de cadrage autour de la taxonomie WoRMS et des informations d’origine d’une souche.}
+\schemaBox{0.22\textwidth}{nom saisi\\dans Polypbase}
+$\longrightarrow$
+\schemaBox{0.22\textwidth}{référence WoRMS\\si disponible}
+$\longrightarrow$
+\schemaBox{0.22\textwidth}{nom validé\\et identifiant stable}
+
+\vspace{0.35cm}
+\schemaBox{0.28\textwidth}{synonymes}
+\hspace{0.04\textwidth}
+\schemaBox{0.28\textwidth}{classification}
+\hspace{0.04\textwidth}
+\schemaBox{0.28\textwidth}{espèces non décrites à cadrer}
+\caption{Rôle de la taxonomie dans une base utilisée par plusieurs aquariums.}
 \vspace{-0.35cm}
-\caption*{\footnotesize Source : \texttt{docs/cahier\_des\_charges/photo/IMG\_1532.jpg}.}
+\caption*{\footnotesize Source : schéma réalisé à partir du cadrage sur la taxonomie et de la référence WoRMS.}
 \label{fig:cadrage-worms}
 \end{figure}
 
@@ -230,18 +259,29 @@ Le projet reste en construction. Le travail réalisé pose une base technique et
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.62\textwidth]{docs/cahier_des_charges/photo/IMG_1535.jpg}
-\caption{Trace de cadrage sur la fiche boîte, l’usage tablette, les QR codes, les droits et le partage multi-structures.}
+\schemaBox{0.26\textwidth}{laboratoire\\scan et saisie rapide}
+\hspace{0.03\textwidth}
+\schemaBox{0.26\textwidth}{ordinateur\\consultation et exports}
+\hspace{0.03\textwidth}
+\schemaBox{0.26\textwidth}{administration\\droits et données}
+
+\vspace{0.35cm}
+\schemaBox{0.25\textwidth}{QR codes}
+\hspace{0.04\textwidth}
+\schemaBox{0.25\textwidth}{zones thermiques}
+\hspace{0.04\textwidth}
+\schemaBox{0.25\textwidth}{partage entre structures}
+\caption{Contraintes principales prises en compte dans la conception de Polypbase.}
 \vspace{-0.35cm}
-\caption*{\footnotesize Source : \texttt{docs/cahier\_des\_charges/photo/IMG\_1535.jpg}.}
+\caption*{\footnotesize Source : schéma réalisé à partir du cahier de cadrage et des notes de travail du projet.}
 \label{fig:cadrage-fiche-boite}
 \end{figure}
 
 \section{Organisation du projet et méthode de travail}
 
-Nous avons mené ce travail à trois, avec Anthony Combes-Aguéra, Ayoub Akkouh et Clément Romanet. À l’Aquarium de Paris, Anaïs Courtet et Étienne Bourgouin nous ont accompagnés dans la compréhension du besoin métier. Les échanges avec eux ont permis de clarifier les contraintes du laboratoire et de vérifier que les premiers choix d’interface restaient cohérents avec l’usage attendu.
+Nous avons organisé le travail autour d’échanges réguliers avec l’équipe de l’Aquarium de Paris. Anaïs Courtet et Étienne Bourgouin nous ont accompagnés dans la compréhension du besoin métier. Ces échanges ont permis de clarifier les contraintes du laboratoire, de corriger certains choix de conception et de vérifier que les premiers écrans restaient cohérents avec l’usage attendu.
 
-Le projet a été organisé autour d’un dépôt GitHub privé. Le code est séparé en dossiers fonctionnels. Le dossier \texttt{backend} contient Django, les modèles, les API et les tests. Le dossier \texttt{frontend} contient l’application React. Le dossier \texttt{docs} contient les notes, les maquettes et le MCD. Le dossier \texttt{notebooks} contient l’analyse exploratoire des fichiers Excel. Le dossier \texttt{scripts} contient les points d’entrée prévus pour l’import Excel et la génération de QR codes.
+Le projet a été organisé autour d’un dépôt GitHub public. Le code est séparé en dossiers fonctionnels afin de faciliter la lecture et la reprise. Le dossier \texttt{backend} contient Django, les modèles, les API et les tests. Le dossier \texttt{frontend} contient l’application React. Le dossier \texttt{docs} contient les notes, les maquettes et le MCD. Le dossier \texttt{notebooks} contient l’analyse exploratoire des fichiers Excel. Le dossier \texttt{scripts} contient les points d’entrée prévus pour l’import Excel et la génération de QR codes.
 
 Un espace Notion a aussi été utilisé pour garder les décisions, les commandes utiles et les notes de travail. Ce support facilite la reprise par les membres du groupe et par les personnes qui interviendront après le stage. Le README complète cette organisation en expliquant les commandes, la structure du projet, les endpoints API, les comptes de démonstration et la gestion des dépendances avec \texttt{uv}.
 
@@ -359,33 +399,25 @@ La seconde situation se passe sur ordinateur. L’objectif est alors de consulte
 
 \begin{figure}[H]
 \centering
-\includegraphics[page=1,width=0.78\textwidth]{docs/maquette_papier/maquette.pdf}
-\caption{Extrait de la maquette papier utilisée pour cadrer les premiers écrans.}
+\schemaBox{0.22\textwidth}{maquette papier\\idées et parcours}
+$\longrightarrow$
+\schemaBox{0.22\textwidth}{prototype React\\écrans testés}
+$\longrightarrow$
+\schemaBox{0.22\textwidth}{interface cible\\tablette et ordinateur}
+
+\vspace{0.35cm}
+\schemaBox{0.26\textwidth}{pilotage}
+\hspace{0.03\textwidth}
+\schemaBox{0.26\textwidth}{fiche boîte}
+\hspace{0.03\textwidth}
+\schemaBox{0.26\textwidth}{zones et profil}
+\caption{Passage des premiers croquis vers les écrans de l’application.}
 \vspace{-0.35cm}
-\caption*{\footnotesize Source : \texttt{docs/maquette\_papier/maquette.pdf}.}
+\caption*{\footnotesize Source : schéma réalisé à partir de \texttt{docs/maquette\_papier/maquette.pdf} et de l’interface React.}
 \label{fig:maquette-papier}
 \end{figure}
 
-La maquette papier a servi à clarifier les usages. Elle distingue les rôles, le laboratoire sur tablette, les tâches d’administration sur ordinateur, le scan, l’historique et la saisie d’un relevé. La maquette Figma a été utilisée comme inspiration visuelle ponctuelle, puis le projet a évolué vers une interface différente, plus sobre et plus adaptée aux contraintes du laboratoire.
-
-\begin{figure}[H]
-\centering
-\begin{subfigure}{0.46\textwidth}
-\centering
-\includegraphics[angle=90,width=0.92\textwidth]{docs/maquette_papier/photos/IMG_1703.jpg}
-\caption{Connexion et accès utilisateur.}
-\end{subfigure}
-\hfill
-\begin{subfigure}{0.46\textwidth}
-\centering
-\includegraphics[angle=90,width=0.92\textwidth]{docs/maquette_papier/photos/IMG_1707.jpg}
-\caption{Création d’une nouvelle boîte.}
-\end{subfigure}
-\caption{Photographies des premiers croquis utilisés pour discuter les écrans.}
-\vspace{-0.35cm}
-\caption*{\footnotesize Source : \texttt{docs/maquette\_papier/photos/IMG\_1703.jpg} et \texttt{docs/maquette\_papier/photos/IMG\_1707.jpg}.}
-\label{fig:photos-maquette-papier}
-\end{figure}
+La maquette papier a servi à clarifier les usages sans imposer un rendu final. Elle a surtout permis d’identifier les parcours principaux : accéder rapidement à une boîte, saisir un relevé, revoir l’historique, consulter les zones thermiques et gérer le profil. La maquette Figma a été utilisée comme inspiration visuelle ponctuelle, puis le projet a évolué vers une interface différente, plus sobre et plus adaptée aux contraintes du laboratoire.
 
 \section{Réalisations techniques}
 
