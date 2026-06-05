@@ -1,4 +1,4 @@
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+﻿%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Memoire de stage - Polypbase
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \documentclass{article}
@@ -37,6 +37,7 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Liens et titres
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\usepackage{xcolor}
 \usepackage{hyperref}
 \hypersetup{pdfborder={0 0 0}}
 \usepackage{titlesec}
@@ -128,7 +129,7 @@ Nous tenons à remercier Anaïs Courtet et Étienne Bourgouin pour leur accueil 
 Nous les remercions aussi pour leur sympathie et pour la visite guidée de l’Aquarium. Cette découverte du lieu, des espaces ouverts au public et des coulisses nous a aidés à mieux situer notre travail. Polypbase accompagne un travail quotidien en laboratoire, dans un environnement vivant, précis et déjà très organisé.
 Nous remercions Madame Sandra Bringay pour son aide sur la reprise du modèle conceptuel de données et pour les nombreux renseignements qu’elle nous a apportés sur le projet. Ses retours nous ont aidés à mieux structurer les entités importantes et à prendre plus de recul sur la manière de modéliser les données.
 Nous remercions également Monsieur Servajean pour ses conseils sur l’usage de Git, des branches et de l’organisation du dépôt. Ces remarques nous ont permis de corriger notre approche et de préparer une base plus propre pour la suite du stage.
-Enfin, nous remercions Madame Sophie Lebre, qui nous a transmis cette offre de stage. Son partage nous a permis de rejoindre un projet concret, utile et directement lié à des problématiques de données, de suivi scientifique et de développement web.
+Enfin, nous remercions Madame Sophie Lebre, qui nous a transmis cette offre de stage et nous a soutenue pendant toute la durée du stage. Son partage nous a permis de rejoindre un projet concret, utile et directement lié à des problématiques de données, de suivi scientifique et de développement web.
 
 \newpage
 \hypersetup{pageanchor=true}
@@ -146,21 +147,23 @@ Enfin, nous remercions Madame Sophie Lebre, qui nous a transmis cette offre de s
 
 Le service des méduses de l'Aquarium de Paris suit des cultures de polypes depuis plusieurs années à l'aide de fichiers Excel annuels. Ces fichiers conservent un historique précieux, mais leur forme rend la recherche, la comparaison entre années et le partage avec d'autres structures difficiles à mesure que le nombre de boîtes croît et que plusieurs personnes interviennent.
 
-Ce stage a pour objectif de concevoir Polypbase, une application web destinée à remplacer ce suivi dispersé. L'application doit permettre à un technicien de retrouver rapidement une boîte en laboratoire, de saisir un relevé sur tablette, de consulter l'historique sur ordinateur et de suivre dans quelles armoires ils se trouvent.
-Le travail réalisé repose sur une architecture hybride Django et React. Le backend expose une API REST structurée autour des boîtes, des relevés biologiques, des zones thermiques et des profils utilisateurs. 
+Ce stage a pour objectif de concevoir Polypbase, une application web destinée à remplacer ce suivi dispersé. L'application doit permettre à un technicien de retrouver rapidement une boîte en laboratoire, de saisir un relevé sur tablette, de consulter l'historique sur ordinateur et de suivre dans quelles armoires ils se trouvent. L'apparition d'éphyrules dans une boîte est un signal important pour le laboratoire : elle indique que des polypes sont entrés en strobilation et déclenche généralement un abaissement de la température pour stopper la production d'éphyrules, donc un déplacement de la boîte vers une armoire plus froide ou plus chaude, ce choix étant déterminé par la famille de l'espèce, la latitude d'origine et l'histoire en captivité de la souche. Polypbase intègre à cette fin un outil de prédiction qui, à partir des relevés historiques et des conditions thermiques, identifie les boîtes susceptibles de produire prochainement des éphyrules, afin de les surveiller en priorité.
+
+Le travail réalisé repose sur une architecture hybride Django et React. Le backend expose une API REST structurée autour des boîtes, des relevés biologiques, des zones thermiques et des profils utilisateurs.
 Le frontend React assure la navigation, la recherche, la saisie des relevés et l'adaptation à la tablette. Une analyse exploratoire des fichiers historiques, menée dans un notebook Python, a permis de comprendre la structure des données sources, d'identifier les ambiguïtés de saisie et de préparer la transformation vers un format long exploitable par l'application.
 
 Le projet pose une base technique et méthodologique solide. L'import des données historiques, la génération des QR codes, les exports filtrés et l'intégration des sondes de température actuelle et futures constituent les principales étapes à finaliser pour rendre Polypbase pleinement opérationnel au laboratoire.
 
 \vspace{0.8cm}
-\noindent\textbf{Mots-clés :} application web, suivi de relevé de  laboratoire, polypes de méduses, Django, React, données historiques, aquarium.
+\noindent\textbf{Mots-clés :} application web, suivi de laboratoire, polypes de méduses, prédiction d'éphyrules, Django, React, données historiques, aquarium.
 
 \newpage
 
 \section{Introduction}
 
 Notre travail part d’un besoin très concret de l’Aquarium de Paris. Le service des méduses suit des cultures de polypes dans le temps, avec des espèces, des souches, des boîtes, des températures et des observations régulières. Ce suivi existe déjà sous forme de fichiers Excel. Ces fichiers ont une valeur importante, car ils conservent plusieurs années d’observations. Leur forme rend cependant la recherche, l’historisation, le partage et la reprise difficiles dès que le nombre de boîtes augmente ou que plusieurs personnes interviennent. La première ambition de Polypbase est de créer un outil commun entre plusieurs aquariums. Chaque structure doit pouvoir conserver ses propres données, tout en utilisant une manière partagée de nommer les espèces, de noter les boîtes, de saisir les relevés et d’échanger certaines informations. Cette cohérence est essentielle pour que les données puissent être comprises ailleurs qu’au laboratoire qui les a produites. Elle demande une gestion des organisations, des droits, des espèces, des souches, des transferts et des règles de partage.
-Le stage consiste à transformer ce suivi dispersé en une application web utilisable au laboratoire et sur ordinateur. L’outil doit permettre de retrouver rapidement une boîte, de saisir un relevé, de consulter l’historique, de suivre les zones thermiques, de préparer des exports et de garder une trace des actions. La boîte de culture reste le point de repère principal. Elle relie l’espèce, la souche, la localisation, la température, les relevés, les observations, les repiquages et les échanges éventuels entre structures.
+Le stage consiste à transformer ce suivi dispersé en une application web utilisable au laboratoire et sur ordinateur. L’outil doit permettre de retrouver rapidement une boîte, de saisir un relevé, de consulter l’historique, de suivre les différentes armoires qui sont utilisées à différentes températures, de préparer des exports et de garder une trace des actions. La boîte de culture reste le point de repère principal. Elle relie l’espèce, la souche, la localisation, la température, les relevés, les observations, les repiquages et les échanges éventuels entre structures.
+L’apparition d’éphyrules dans une boîte est un événement clé du cycle biologique : elle signale que des polypes sont entrés en strobilation et conduit généralement à un abaissement de la température pour stopper la production d'éphyrules, donc à un déplacement de la boîte vers une armoire plus froide ou plus chaude, ce choix étant déterminé par la famille de l'espèce, la latitude d'origine et l'histoire en captivité de la souche. Polypbase intègre à cette fin un outil de prédiction qui, à partir des relevés historiques et des conditions thermiques enregistrées, identifie les boîtes susceptibles de produire prochainement des éphyrules. Cet outil permet à l’équipe de concentrer sa surveillance sur les boîtes prioritaires, d’anticiper les changements d’armoire et de mieux planifier les interventions en laboratoire.
 Ce mémoire présente le contexte scientifique et professionnel du stage, puis l’état de l’art utilisé pour cadrer le projet. Il expose ensuite la problématique, l’organisation du travail, l’analyse des fichiers historiques, la conception de Polypbase, les réalisations techniques, les questions de confidentialité et de durabilité, puis les limites et perspectives du projet.
 
 
