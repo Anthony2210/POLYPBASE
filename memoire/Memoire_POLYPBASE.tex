@@ -128,7 +128,7 @@
 Nous tenons à remercier Anaïs Courtet et Étienne Bourgouin pour leur accueil au sein de l’Aquarium de Paris et pour le temps qu’ils nous ont accordé depuis le début du stage. Leur disponibilité, leurs explications et leurs retours nous ont permis de mieux comprendre le fonctionnement du service des méduses et les besoins réels derrière Polypbase.
 Nous les remercions aussi pour leur sympathie et pour la visite guidée de l’Aquarium. Cette découverte du lieu, des espaces ouverts au public et des coulisses nous a aidés à mieux situer notre travail. Polypbase accompagne un travail quotidien en laboratoire, dans un environnement vivant, précis et déjà très organisé.
 Nous remercions Madame Sandra Bringay pour son aide sur la reprise du modèle conceptuel de données et pour les nombreux renseignements qu’elle nous a apportés sur le projet. Ses retours nous ont aidés à mieux structurer les entités importantes et à prendre plus de recul sur la manière de modéliser les données.
-Nous remercions également Monsieur Servajean pour ses conseils sur l’usage de Git, des branches et de l’organisation du dépôt. Ces remarques nous ont permis de corriger notre approche et de préparer une base plus propre pour la suite du stage.
+Nous remercions également Monsieur Maximilien Servajean pour ses conseils sur l’usage de Git, des branches et de l’organisation du dépôt. Ces remarques nous ont permis de corriger notre approche et de préparer une base plus propre pour la suite du stage.
 Enfin, nous remercions Madame Sophie Lebre, qui nous a transmis cette offre de stage et nous a soutenus pendant toute la durée du stage. Son partage nous a permis de rejoindre un projet concret, utile et directement lié à des problématiques de données, de suivi scientifique et de développement web.
 
 \newpage
@@ -146,12 +146,9 @@ Enfin, nous remercions Madame Sophie Lebre, qui nous a transmis cette offre de s
 \vspace{0.8cm}
 
 Le service des méduses de l'Aquarium de Paris suit des cultures de polypes depuis plusieurs années à l'aide de fichiers Excel annuels. Ces fichiers conservent un historique précieux, mais leur forme rend la recherche, la comparaison entre années et le partage avec d'autres structures difficiles à mesure que le nombre de boîtes croît et que plusieurs personnes interviennent.
-
 Ce stage a pour objectif de concevoir Polypbase, une application web destinée à remplacer ce suivi dispersé. L'application doit permettre à un technicien de retrouver rapidement une boîte en laboratoire, de saisir un relevé sur tablette, de consulter l'historique sur ordinateur et de suivre dans quelles armoires les boîtes se trouvent. L'apparition d'éphyrules est un signal important pour le laboratoire. Elle indique que des polypes sont entrés en strobilation et peut conduire à un changement de température adapté à l'espèce, à son origine et à l'histoire de la souche. Une première exploration prédictive a été menée dans des notebooks à partir des relevés historiques. Elle cherche à déterminer si les comptages, la température et la période de l'année contiennent un signal utile pour repérer l'apparition d'éphyrules. Ce travail reste séparé de l'application et doit encore être consolidé avant tout usage opérationnel.
-
 Le travail réalisé repose sur une architecture hybride Django et React. Le backend expose une API REST structurée autour des boîtes, des relevés biologiques, des zones thermiques et des profils utilisateurs.
 Le frontend React assure la navigation, la recherche, la saisie des relevés et l'adaptation à la tablette. Une analyse exploratoire des fichiers historiques, menée dans un notebook Python, a permis de comprendre la structure des données sources, d'identifier les ambiguïtés de saisie et de préparer la transformation vers un format long exploitable par l'application.
-
 Le projet pose une première base technique et méthodologique. L'import des données historiques, la génération des QR codes, les exports filtrés, les actions de repiquage et la collecte des températures depuis les sondes constituent les principales étapes à finaliser avant une utilisation complète au laboratoire.
 
 \vspace{0.8cm}
@@ -162,49 +159,137 @@ Le projet pose une première base technique et méthodologique. L'import des don
 \section{Introduction}
 
 Notre travail part d’un besoin très concret de l’Aquarium de Paris. Le service des méduses suit des cultures de polypes dans le temps, avec des espèces, des souches, des boîtes, des températures et des observations régulières. Ce suivi existe déjà sous forme de fichiers Excel. Ces fichiers ont une valeur importante, car ils conservent plusieurs années d’observations. Leur forme rend cependant la recherche, l’historisation, le partage et la reprise difficiles dès que le nombre de boîtes augmente ou que plusieurs personnes interviennent. La première ambition de Polypbase est de créer un outil commun entre plusieurs aquariums. Chaque structure doit pouvoir conserver ses propres données, tout en utilisant une manière partagée de nommer les espèces, de noter les boîtes, de saisir les relevés et d’échanger certaines informations. Cette cohérence est essentielle pour que les données puissent être comprises ailleurs qu’au laboratoire qui les a produites. Elle demande une gestion des organisations, des droits, des espèces, des souches, des transferts et des règles de partage.
+
+\vspace{0.15cm}
+\begin{figure}[H]
+\centering
+\begin{subfigure}{0.46\textwidth}
+  \centering
+  \includegraphics[height=6.5cm]{assets/aquarium/meduse_upright.jpg}
+  \caption{\footnotesize Méduse présentée au public}
+\end{subfigure}
+\vspace{0.15cm}
+\begin{subfigure}{0.46\textwidth}
+  \centering
+  \includegraphics[height=6.5cm]{assets/aquarium/meduses_upright.jpg}
+  \caption{\footnotesize Bassin du Médusarium}
+\end{subfigure}
+\caption{Découverte du Médusarium de l’Aquarium de Paris.}
+\vspace{-0.35cm}
+\caption*{\footnotesize Source : photographies prises à l’Aquarium de Paris le 28 avril 2026.}
+\label{fig:aquarium-medusarium}
+\end{figure}
+
+\subsection{Une première immersion pour comprendre le besoin}
+
+Avant de commencer la conception technique, Anaïs Courtet et Étienne Bourgouin nous ont accueillis à l’Aquarium de Paris afin de nous présenter le contexte du stage. Cette première rencontre sur place nous a permis de découvrir le Médusarium, les espaces techniques et le fonctionnement général du service des méduses. Elle a donné une réalité immédiate au projet. Les données présentes dans les fichiers Excel correspondent à des cultures vivantes, observées et déplacées dans un environnement de travail précis.
+
+Nous avons ensuite échangé avec eux sur les actions que l’application devait rendre possibles. Les discussions ont porté sur la recherche d’une boîte, la saisie d’un relevé, la consultation de son historique, le repiquage, le suivi de sa localisation et l’identification par QR code. Nous avons aussi travaillé sur la forme des pages, la quantité d’informations à afficher et la position des principaux boutons. Des maquettes papier ont été dessinées avec eux pour organiser les parcours avant de construire l’interface React.
+
+L’immersion s’est poursuivie dans le laboratoire afin de nous placer au plus près de la future situation d’utilisation. Nous avons découvert les espaces où les cultures sont suivies et les installations associées au maintien des méduses. Cette mise en situation a montré que l’application devait rester rapide à lire et simple à manipuler sur tablette. Elle a orienté le projet vers des écrans courts, des actions visibles et une fiche de boîte centrée sur le dernier relevé et la nouvelle saisie.
+\vspace{0.15cm}\begin{figure}[H]
+\centering
+\begin{subfigure}{0.46\textwidth}
+  \centering
+  \includegraphics[height=6.5cm]{assets/aquarium/labo1_upright.jpg}
+  \caption{\footnotesize Espace technique du service}
+\end{subfigure}
+\vspace{0.15cm}
+\begin{subfigure}{0.46\textwidth}
+  \centering
+  \includegraphics[height=6.5cm]{assets/aquarium/labo2_upright.jpg}
+  \caption{\footnotesize Installations observées pendant l’immersion}
+\end{subfigure}
+\caption{Découverte des espaces techniques associés au service des méduses.}
+\vspace{-0.35cm}
+\caption*{\footnotesize Source : photographies prises à l’Aquarium de Paris le 28 avril 2026.}
+\label{fig:aquarium-installations}
+\end{figure}
+
 Le stage consiste à transformer ce suivi dispersé en une application web utilisable au laboratoire et sur ordinateur. L’outil doit permettre de retrouver rapidement une boîte, de saisir un relevé, de consulter l’historique, de suivre les différentes armoires qui sont utilisées à différentes températures, de préparer des exports et de garder une trace des actions. La boîte de culture reste le point de repère principal. Elle relie l’espèce, la souche, la localisation, la température, les relevés, les observations, les repiquages et les échanges éventuels entre structures.
 L’apparition d’éphyrules dans une boîte est un événement clé du cycle biologique. Elle signale que des polypes sont entrés en strobilation et peut conduire l’équipe à modifier les conditions thermiques de la culture. Dans le prolongement de l’analyse historique, deux notebooks exploratoires ont testé la possibilité de repérer ce phénomène à partir des comptages, de la température et de la période de l’année. Cette étude constitue une piste de travail. Elle n’est pas encore reliée à l’API ni à l’interface de Polypbase.
-Ce mémoire présente le contexte scientifique et professionnel du stage, puis l’état de l’art utilisé pour cadrer le projet. Il expose ensuite la problématique, l’organisation du travail, l’analyse des fichiers historiques, la conception et la réalisation de Polypbase, les choix liés aux droits et à la confidentialité, puis les limites et perspectives du projet.
+Ce mémoire présente le contexte scientifique et professionnel du stage, puis l’état de l’art utilisé pour situer Polypbase et formuler la problématique. Il expose ensuite l’organisation du travail, l’analyse des fichiers historiques, la conception et la réalisation de l’application, les choix liés aux droits et à la confidentialité, puis les limites et perspectives du projet.
 
 
 \section{Contexte de l’Aquarium de Paris et du service méduses}
 
 L’Aquarium de Paris est un lieu de présentation, de médiation et de travail scientifique autour du monde aquatique. Situé dans les Jardins du Trocadéro, il accueille le public tout en maintenant en coulisses des espaces techniques et des élevages spécialisés. Son Médusarium occupe une place importante dans cette identité. L’établissement présente une grande collection de méduses en Europe, avec des espèces montrées par roulement, et ses biologistes travaillent sur l’entretien, le maintien et la reproduction de ces animaux \cite{aquarium-medusarium}.
-Le stage se déroule au contact du service des méduses. Ce service suit des cultures de polypes dans le temps. Pour comprendre l’intérêt de Polypbase, il faut rappeler le cycle que l’application accompagne. La méduse correspond au stade libre et visible de l’animal. Le polype est un stade fixé, plus discret, qui peut rester dans une boîte de culture et produire de nouveaux individus. L’éphyrule est le jeune stade libéré lors du passage du polype vers la forme méduse. Dans la littérature scientifique, on parle souvent d’éphyra. Dans le laboratoire et dans les fichiers de suivi, le terme éphyrule est utilisé pour le comptage quotidien.
-Le passage du polype vers l’éphyrule est appelé strobilation. Helm décrit ce processus comme la métamorphose d’un polype en jeune méduse, avec une production possible d’une ou plusieurs éphyras selon les espèces \cite{helm2018}. Cette étape explique pourquoi le suivi doit dépasser le simple nombre de boîtes. Il faut savoir quelle souche est observée, dans quelle armoire elle se trouve, combien de polypes sont présents, combien d’éphyrules sont produites et quels événements ont eu lieu autour de la boîte.
-Les cultures suivies correspondent à des souches et à des espèces différentes. Elles sont placées dans des boîtes, puis maintenues dans des conditions contrôlées, notamment avec des températures différentes selon les besoins du suivi. Le rôle de l’équipe est d’observer régulièrement ces boîtes, de compter les polypes, de relever les éphyrules et de noter les événements importants. Ces informations servent à comprendre l’évolution des cultures, à garder un historique fiable et à préparer les décisions de laboratoire.
+Le stage se déroule au contact du service des méduses. Ce service suit des cultures de polypes dans le temps. Pour comprendre l’intérêt de Polypbase, il faut distinguer plusieurs stades du cycle biologique. La méduse correspond au stade libre et visible de l’animal. Après la reproduction, une larve appelée planula peut se fixer sur un support et devenir un polype. Ce polype est un organisme de petite taille, fixé et muni de tentacules. Il peut rester longtemps sous cette forme et se multiplier. Lorsque certaines conditions biologiques et environnementales sont réunies, il entre en strobilation. Une ou plusieurs éphyras se détachent alors du polype avant de poursuivre leur développement vers la forme méduse \cite{helm2018}.
+
+\vspace{0.15cm}
+\begin{figure}[H]
+\centering
+\begin{subfigure}{0.32\textwidth}
+  \centering
+  \includegraphics[height=3.25cm]{assets/cycle_meduse/méduse.png}
+  \caption{\footnotesize Méduse}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.32\textwidth}
+  \centering
+  \includegraphics[height=3.25cm]{assets/cycle_meduse/polypse.png}
+  \caption{\footnotesize Polype}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.32\textwidth}
+  \centering
+  \includegraphics[height=3.25cm]{assets/cycle_meduse/ephyrrules.png}
+  \caption{\footnotesize Éphyrules}
+\end{subfigure}
+\caption{Repères visuels des formes biologiques mentionnées dans le suivi.}
+\vspace{-0.35cm}
+\caption*{\footnotesize Sources : NowNews pour la méduse \cite{image-meduse}, site pédagogique \textit{Phylum Cnidarian} pour la forme polype \cite{image-polype} et LBDV pour l’éphyrule \cite{image-ephyrule}. Les photographies proviennent d’espèces différentes et ne représentent pas le cycle complet d’une même espèce.}
+\label{fig:cycle-meduse}
+\end{figure}
+
+La figure~\ref{fig:cycle-meduse} donne des repères visuels sur les trois formes directement utiles pour comprendre l’application. Elle ne représente ni toutes les étapes du cycle ni le développement d’une seule espèce. La planula et la strobilation n’y apparaissent pas non plus. Dans la littérature scientifique, le jeune stade libre est appelé \textit{éphyra}. Dans le laboratoire et dans les fichiers de suivi, le terme éphyrule est utilisé. Polypbase reprend ce vocabulaire métier dans l’interface française afin de rester cohérent avec les habitudes de saisie.
+Les cultures suivies correspondent à des espèces et à des souches différentes. Une souche représente une lignée biologique conservée par le laboratoire. Plusieurs boîtes peuvent appartenir à une même souche, notamment après un repiquage. Les boîtes sont rangées dans des armoires maintenues à différentes températures. L’équipe les observe régulièrement, compte les polypes et les éphyrules, puis ajoute un commentaire lorsqu’un événement doit être conservé. Un repiquage crée une nouvelle boîte à partir d’une boîte existante. Un changement d’armoire modifie les conditions thermiques de la culture. Ces opérations expliquent pourquoi un relevé isolé ne suffit pas. Il doit rester relié à la boîte, à sa souche, à sa parenté, à son emplacement et à l’historique de ses changements.
+Le suivi actuel est reporté dans les fichiers Excel annuels. Chaque observation demande de retrouver la bonne feuille, la bonne boîte et la bonne période avant de saisir les valeurs. Polypbase cherche à raccourcir cette opération sur tablette, tout en conservant sur ordinateur une vue plus complète de l’historique. L’application concerne donc principalement les cultures de polypes et la production d’éphyrules. Elle ne remplace pas les outils utilisés pour gérer les méduses adultes présentées dans les bassins.
 
 \section{État de l’art}
 
 Le projet s’inscrit dans plusieurs familles de références. La première est celle de la numérisation d’un suivi de laboratoire. L’objectif est de rendre les données plus traçables, de conserver leur historique, de retrouver rapidement une boîte et de préparer une réutilisation scientifique ou réglementaire des relevés.
+
+\subsection{Outils de gestion et de suivi}
+
 La deuxième référence est celle des plateformes existantes pour aquariums. Fauniabase, développé par Luxaqua, est présenté comme un logiciel de gestion et de suivi des animaux pour les aquariums publics. Il met en avant la centralisation des données, le suivi des animaux et des bacs, la traçabilité, la planification de tâches et l’usage de QR codes \cite{fauniabase}. Cette référence montre l’existence d’outils professionnels autour de la gestion d’inventaires vivants en aquarium.
 Fauniabase apporte une référence utile pour Polypbase. Polypbase cible toutefois un besoin plus spécialisé : les cultures de polypes de méduses, leurs relevés réguliers, leur historique, les repiquages, les conditions de température et l’usage en laboratoire sur tablette. Le travail retient surtout certaines idées utiles, comme la centralisation des données, la traçabilité, la recherche rapide et l’identification par QR code.
 ZIMS (Zoological Information Management System), développé par Species360, est utilisé par des centaines d'établissements zoologiques et aquariums dans le monde. Il couvre la gestion des dossiers individuels des animaux, les transferts entre institutions, le suivi médical, la reproduction et la généalogie \cite{zims}. Sa couverture internationale en fait une référence pour l'interopérabilité entre structures.
 ZIMS illustre cependant les difficultés à éviter pour Polypbase. Conçu pour gérer des animaux individuels dans de grandes institutions, il rassemble un grand nombre d'informations avec une navigation complexe et de nombreuses références croisées. Cette étendue ne correspond pas au besoin du laboratoire, où l'unité de suivi est une boîte de culture et non un individu, et où l'interface doit rester utilisable rapidement sur tablette. L'application doit privilégier des codes clairs, des écrans courts et des actions évidentes.
+
+\vspace{0.15cm}
+\begin{figure}[H]
+\centering
+\begin{subfigure}{0.34\textwidth}
+  \centering
+  \includegraphics[height=5.2cm]{assets/exemple_webapp/lxa.png}
+  \caption{\footnotesize Présentation de LXA Fauniabase}
+\end{subfigure}
+\hfill
+\begin{subfigure}{0.62\textwidth}
+  \centering
+  \includegraphics[height=5.2cm]{assets/exemple_webapp/Zims-species360.png}
+  \caption{\footnotesize Écran d’accueil de ZIMS}
+\end{subfigure}
+\caption{Deux références étudiées pour situer Polypbase parmi les outils de gestion zoologique.}
+\vspace{-0.35cm}
+\caption*{\footnotesize Sources : Luxaqua, \textit{Fauniabase} \cite{fauniabase} et Species360, \textit{ZIMS for Aquariums} \cite{zims}.}
+\label{fig:outils-existants}
+\end{figure}
+
+\subsection{Références taxonomiques et biologiques}
+
 La troisième référence concerne la taxonomie. Une application utilisée par plusieurs structures doit éviter les ambiguïtés sur les noms d’espèces. Le World Register of Marine Species, ou WoRMS, donne accès à des noms valides, des synonymes, des noms vernaculaires et des identifiants stables pour les organismes marins \cite{worms}. Polypbase peut ainsi relier ses espèces à des références reconnues sans porter toute la complexité taxonomique. C’est pour cette raison que le modèle \texttt{Species} prévoit un identifiant WoRMS éventuel.
 La quatrième référence vient de la biologie des méduses. Les articles sur les polypes et les éphyrules aident à justifier les données suivies. Helm rappelle que beaucoup de scyphozoaires ont un cycle comprenant une larve planula, un polype benthique et une méduse, et que la transformation du polype en éphyra s’appelle la strobilation \cite{helm2018}. Fuchs et ses coauteurs montrent aussi que, chez \textit{Aurelia aurita}, la transition du polype vers la méduse est déclenchée par des signaux environnementaux et que des protéines sont fortement activées avant la métamorphose en réponse aux changements saisonniers de température \cite{fuchs2014}.
 La température apparaît donc comme une donnée importante à conserver. Une étude expérimentale sur trois espèces de scyphozoaires indique que la température peut jouer un rôle dans la reproduction asexuée des polypes, le moment de la strobilation et la production d’éphyras \cite{scypho2019}. Ces résultats expliquent l’intérêt de relier les comptages biologiques aux zones thermiques, aux sondes, aux changements de température et aux historiques de boîtes.
 Le contexte scientifique de l’Aquarium donne aussi du sens au projet. Le LabCom Jellyfish and Polyps Academy explique que l’Aquarium de Paris maintient une grande collection de polypes de méduses et travaille avec MARBEC sur la culture des méduses, la création d’une banque de référence de polypes et la compréhension des paramètres qui influencent leurs proliférations \cite{jpa-laboratoire}. Polypbase s’inscrit dans cette logique. L’application doit aider à conserver des données plus propres, plus faciles à retrouver et plus adaptées à une analyse future.
 
-\newpage
+\subsection{Positionnement de Polypbase}
 
-Aucun de ces outils ne répond pleinement au besoin de l'Aquarium de Paris. Fauniabase s'approche le plus du contexte aquarium, mais reste centré sur la gestion générale des animaux et des bacs, sans adresser le suivi fin de cultures de polypes, les relevés hebdomadaires, les repiquages ou la prédiction d'éphyrules. ZIMS couvre un périmètre bien plus large mais impose une complexité d'usage incompatible avec un laboratoire sur tablette. WoRMS apporte la référence taxonomique mais ne constitue pas un outil de suivi. Polypbase se positionne donc dans un espace non couvert : une application légère, spécialisée pour le suivi de cultures de polypes de méduses, conçue pour être utilisée au quotidien en laboratoire et partagée entre structures partenaires.
-
-\begin{figure}[H]
-\centering
-\includegraphics[width=0.82\textwidth]{assets/exemple_webapp/Zims-species360.png}
-\caption{Interface de ZIMS (Species360), exemple de plateforme de gestion animale pour aquariums et zoos.}
-\vspace{-0.35cm}
-\caption*{\footnotesize Source : Species360, \textit{ZIMS for Aquariums} \cite{zims}.}
-\label{fig:zims-interface}
-\end{figure}
-
-\section{Problématique et objectifs du stage}
-
-La problématique du stage peut se formuler ainsi : comment concevoir une application web maintenable capable de remplacer un suivi Excel historique, avec une saisie simple en laboratoire, une consultation claire sur ordinateur et une base commune utilisable par plusieurs aquariums.
-Cette problématique contient plusieurs contraintes. La première est métier. L’application doit respecter la façon dont le service des méduses suit ses cultures. Elle doit donc intégrer les boîtes, les souches, les espèces, les températures, les observations, les repiquages, les éphyrules et l’historique. La deuxième contrainte est ergonomique. Une tablette utilisée en laboratoire doit afficher peu d’informations et permettre une saisie rapide. La troisième contrainte est technique. Le projet doit rester compréhensible par des développeurs qui reprendront le code après le stage. La quatrième contrainte concerne la donnée. Les fichiers Excel anciens doivent être compris avant toute tentative d’import.
-Nous avons avancé par étapes. Il fallait d’abord cadrer le besoin et comprendre les données existantes. Il fallait ensuite structurer le projet avec une architecture claire, créer les premiers modèles Django, stabiliser une API propre et produire une première interface React orientée tablette et ordinateur. La suite du travail prépare aussi les données de démonstration, la documentation, le notebook d’analyse exploratoire et les scripts d’import ou de QR codes à compléter.
-Le projet reste en construction. Le travail réalisé pose une base technique et méthodologique. Les imports réels, les QR codes, les exports, l’administration métier complète et l’intégration des sondes doivent encore être finalisés.
+Aucun de ces outils ne répond pleinement au besoin de l'Aquarium de Paris. Fauniabase s'approche le plus du contexte aquarium, mais reste centré sur la gestion générale des animaux et des bassins. ZIMS couvre un périmètre bien plus large, avec une densité d’informations peu adaptée à une saisie rapide sur tablette. WoRMS apporte une référence taxonomique, sans assurer le suivi quotidien des cultures. Polypbase occupe donc un périmètre plus ciblé : le suivi de boîtes de polypes, des comptages, des repiquages, des conditions thermiques et de la parenté, avec une base commune pouvant être utilisée par plusieurs structures.
+Ce positionnement conduit à la problématique suivante : comment concevoir une application web maintenable capable de reprendre un suivi Excel historique, de simplifier la saisie en laboratoire, d’offrir une consultation plus complète sur ordinateur et de préparer un langage commun entre plusieurs aquariums.
+Cette question réunit quatre dimensions. La première concerne le métier. L’application doit relier les boîtes, les souches, les espèces, les températures, les observations, les repiquages, les éphyrules et l’historique des actions. La deuxième concerne l’usage. La tablette doit proposer un parcours court, lisible et adapté à une manipulation en laboratoire, tandis que l’ordinateur doit faciliter la recherche, l’administration, l’analyse et les exports. La troisième concerne la donnée. Les fichiers historiques doivent être compris et contrôlés avant leur import, car une cellule vide, un zéro et un changement de température ne portent pas la même information. La quatrième concerne la continuité du projet. Le code, la documentation et les procédures d’installation doivent permettre une reprise par de futurs développeurs.
+Les objectifs du stage découlent de ces contraintes. Il faut comprendre le fonctionnement du laboratoire et les données existantes, définir un modèle commun, construire un backend qui contrôle les droits et les organisations, proposer une interface adaptée aux deux contextes d’utilisation, puis préparer les fonctions qui permettront les échanges, la traçabilité et l’exploitation des données. Le périmètre réalisé pendant la première partie du stage vise donc un socle complet et testable autour de la recherche d’une boîte, de sa consultation et de la saisie d’un relevé.
 
 
 \section{Organisation du projet et méthode de travail}
@@ -222,6 +307,18 @@ Cette organisation répond aussi à une contrainte de maintenance. Le tuteur de 
 
 Les fichiers de suivi historiques montrent comment les données sont réellement notées par l’équipe. Les fichiers \texttt{Suivi\_2019.xlsx} à \texttt{Suivi\_2026.xlsx} sont organisés par années. Dans ces fichiers, les feuilles correspondent à de grands groupes comme Aurelia, Hydrozoa, Cubozoa, Rhizostomae, Semaestomeae ou Coronatae. Certaines années ajoutent aussi d’autres feuilles, comme UMR\_MARBEC ou Staurozoa. Le fichier \texttt{Suivi\_2019.xlsx} est vide : l’analyse porte donc sur les années 2020 à 2026.
 Dans les feuilles annuelles, les premières colonnes décrivent l’espèce, le numéro de boîte et la température. Les colonnes suivantes correspondent aux semaines ou aux mois de suivi. Pour une même boîte, les données sont notées sur plusieurs lignes, avec une ligne pour le nombre de polypes et une autre pour le nombre d’éphyrules. La collecte suit donc une logique de tableau de laboratoire. L’équipe observe les boîtes, note les comptages dans la cellule correspondant à la période de suivi, puis conserve l’historique dans le même fichier annuel. Cette forme facilite la saisie dans Excel semaine après semaine. Elle devient cependant plus difficile à exploiter quand il faut retrouver une boîte précise, comparer plusieurs années ou préparer un import dans une base de données.
+
+La figure~\ref{fig:excel-suivi-2023} montre cette organisation dans une feuille de suivi de 2023. Une boîte peut apparaître à plusieurs températures et chaque période ajoute de nouvelles colonnes. Les couleurs facilitent la lecture quotidienne, mais leur signification n’est pas portée par une structure de données explicite. Les cellules grises, blanches, nulles ou renseignées doivent être replacées dans le contexte de la boîte et de la période. Cette présentation explique une partie des difficultés rencontrées lors de la consolidation automatique des fichiers.
+\vspace{0.15cm}
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{assets/excel/excel_2023.png}
+\caption{Extrait d’une feuille Excel utilisée pour le suivi des polypes et des éphyrules en 2023.}
+\vspace{-0.35cm}
+\caption*{\footnotesize Source : fichier de suivi transmis par le service des méduses de l’Aquarium de Paris.}
+\label{fig:excel-suivi-2023}
+\end{figure}
+
 Le dossier de données contient aussi des fichiers complémentaires. Un fichier est consacré aux repiquages et aux changements de température. Le fichier \texttt{SuiviStrobilation.xlsx} contient des informations liées à la strobilation, avec des colonnes comme l’espèce, la température, la salinité et des conditions expérimentales. Le fichier \texttt{A.limbata.xlsx} reprend une structure déjà plus normalisée, avec une colonne de date et des groupes de colonnes associant une boîte, les polypes, les éphyrules et la température. Ces différences imposent un import plus fin qu’un simple copier-coller. Il faudra reconnaître plusieurs formes de fichiers.
 
 \subsection{Création du CSV complet}
@@ -260,6 +357,7 @@ Au total, le tableau consolidé rassemble 237\,848 lignes décrivant 573 boîtes
 
 Le notebook \texttt{notebooks/excel\_eda.ipynb} documente cette première analyse exploratoire. Son rôle est de comprendre la structure des fichiers, d’identifier les colonnes, de repérer les valeurs réellement saisies et de préparer une transformation utilisable par l’application. Il insiste aussi sur un point important. Une cellule vide peut avoir un sens différent de zéro. Elle peut correspondre à une absence de suivi, à une boîte inactive, à une période avant ou après un changement de température, ou à un repiquage qui a modifié le suivi. Un zéro saisi et une absence de valeur portent donc deux informations différentes.
 
+\vspace{0.15cm}
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.88\textwidth]{../notebooks/figures/eda_empty_zero_positive_by_year.png}
@@ -271,6 +369,7 @@ Le notebook \texttt{notebooks/excel\_eda.ipynb} documente cette première analys
 
 La figure montre que les cellules vides occupent une part importante des tableaux. Ce constat oriente directement la conception de l’import. Il ne faudra pas transformer automatiquement ces vides en zéros. Le notebook produit aussi une figure de couverture hebdomadaire. Elle permet de repérer les périodes où les fichiers sont moins remplis et les années qui ne couvrent pas toutes les semaines de la même façon.
 
+\vspace{0.15cm}
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.92\textwidth]{../notebooks/figures/eda_control_weekly_value_coverage.png}
@@ -283,7 +382,7 @@ La figure montre que les cellules vides occupent une part importante des tableau
 \subsection{Périmètre du suivi}
 
 Les figures issues du notebook montrent aussi que le périmètre de suivi varie selon les années. Le nombre de boîtes présentes dans les fichiers augmente jusqu’en 2025, puis diminue dans le fichier 2026 disponible au moment de l’analyse. Cette observation aide à rester prudent dans les comparaisons entre années. Une variation peut venir d’un changement biologique, mais aussi d’une différence de périmètre, de durée de suivi ou de saisie.
-
+\vspace{0.15cm}
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.82\textwidth]{../notebooks/figures/eda_boxes_by_year.png}
@@ -294,7 +393,7 @@ Les figures issues du notebook montrent aussi que le périmètre de suivi varie 
 \end{figure}
 
 Le nombre d’espèces présentes varie aussi selon les fichiers. Ce point justifie l’importance d’une gestion claire des espèces et des souches dans Polypbase. Une application multi-structures doit donc distinguer les variations biologiques réelles des variations liées aux pratiques de saisie ou à l’écriture des noms dans les fichiers.
-
+\vspace{0.15cm}
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.82\textwidth]{../notebooks/figures/eda_species_by_year.png}
@@ -307,10 +406,10 @@ Le nombre d’espèces présentes varie aussi selon les fichiers. Ce point justi
 \subsection{Premiers constats exploitables}
 
 L’analyse ne sert pas seulement à préparer un import technique. Elle aide aussi à comprendre quels écrans seront utiles dans l’application. La durée de suivi des boîtes montre que certaines cultures apparaissent sur de nombreuses semaines. Cela confirme l’intérêt d’une fiche boîte avec un historique accessible rapidement.
-
+\vspace{0.15cm}
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.78\textwidth]{../notebooks/figures/eda_box_tracking_duration.png}
+\includegraphics[width=0.75\textwidth]{../notebooks/figures/eda_box_tracking_duration.png}
 \caption{Durée de suivi des boîtes, estimée à partir des semaines avec une valeur saisie.}
 \vspace{-0.35cm}
 \caption*{\footnotesize Source : figure générée depuis \texttt{notebooks/excel\_eda.ipynb}.}
@@ -318,10 +417,10 @@ L’analyse ne sert pas seulement à préparer un import technique. Elle aide au
 \end{figure}
 
 Le notebook repère aussi les espèces les plus suivies. Cette figure ne dit pas quelles espèces sont les plus importantes biologiquement. Elle montre plutôt quelles espèces pèsent le plus dans les fichiers disponibles. Cette information est utile pour choisir les premiers cas de test de l’import et de l’interface.
-
+\vspace{0.15cm}
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.86\textwidth]{../notebooks/figures/eda_top_tracked_species.png}
+\includegraphics[width=0.75\textwidth]{../notebooks/figures/eda_top_tracked_species.png}
 \caption{Espèces les plus représentées dans les valeurs saisies.}
 \vspace{-0.35cm}
 \caption*{\footnotesize Source : figure générée depuis \texttt{notebooks/excel\_eda.ipynb}.}
@@ -329,7 +428,7 @@ Le notebook repère aussi les espèces les plus suivies. Cette figure ne dit pas
 \end{figure}
 
 Une dernière lecture exploratoire compare la température indiquée dans Excel et la moyenne d’éphyrules pour quelques espèces bien représentées. Cette figure doit être interprétée avec prudence. Les données ne suffisent pas à isoler un effet biologique de la température, car les espèces, les boîtes, les périodes et les conditions de suivi changent aussi. Elle montre cependant pourquoi Polypbase doit relier les relevés à une armoire, à des changements de température et à un historique de boîte.
-
+\vspace{0.15cm}
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.86\textwidth]{../notebooks/figures/eda_temperature_ephyrae_selected_species.png}
@@ -340,34 +439,41 @@ Une dernière lecture exploratoire compare la température indiquée dans Excel 
 \end{figure}
 
 Cette analyse joue un rôle important dans la conception de Polypbase. Elle montre que l’application doit stocker les relevés dans un format plus structuré que les fichiers Excel, en distinguant clairement les boîtes, les espèces, les souches, les températures, les dates de suivi et les types de mesures. Elle montre aussi que l’import historique ne peut pas être entièrement automatisé sans validation métier. Certaines décisions, comme l’interprétation d’une cellule vide, la correction d’un nom d’espèce ou le rattachement d’une boîte à une souche, demandent une confirmation de l’équipe de l’Aquarium.
-
 Le notebook sert donc de pont entre les fichiers historiques et le futur import serveur. Il permet à la fois de documenter l’état initial des données, d’identifier les limites des fichiers source et de préparer les règles nécessaires pour intégrer progressivement ces données dans Polypbase.
 
 \subsection{Première exploration prédictive}
 
 Le CSV consolidé a aussi servi à tester une première question de modélisation. Nous avons cherché à savoir si les informations disponibles pouvaient aider à repérer les relevés associés à la présence d’éphyrules. Deux notebooks ont été consacrés à cette exploration sur \textit{Aurelia labiata}, l’espèce retenue car elle disposait d’un historique suffisamment fourni dans les fichiers disponibles.
-Le notebook simplifié construit 635 observations hebdomadaires à partir de huit boîtes suivies entre 2020 et 2026. Parmi ces observations, 168 contiennent au moins une éphyrule. Les variables utilisées comprennent le nombre de polypes, la température, la position dans l’année et des statistiques glissantes calculées sur les comptages de polypes. Un classifieur par gradient boosting est ensuite entraîné sur un découpage aléatoire stratifié. Sur le jeu de test, le notebook indique une aire sous la courbe ROC de 0,867 et un rappel de 0,65 pour la classe correspondant à la présence d’éphyrules.
+Le notebook construit 635 observations hebdomadaires à partir de huit boîtes suivies entre 2020 et 2026. Parmi ces observations, 168 contiennent au moins une éphyrule. Après le calcul des variables glissantes, 627 lignes peuvent être utilisées pour l'entraînement. Les variables comprennent le nombre de polypes, la température, la position dans l’année et des statistiques calculées sur les quatre derniers comptages de polypes. Un classifieur par gradient boosting est ensuite entraîné sur un découpage aléatoire stratifié. Sur les 126 observations du jeu de test, le notebook indique une aire sous la courbe ROC de 0,840 et un rappel de 0,62 pour la classe correspondant à la présence d’éphyrules.
+La figure~\ref{fig:ml-exploratoire} permet de lire deux résultats complémentaires. La fréquence des relevés contenant des éphyrules varie nettement selon les boîtes, de 0\,\% à près de 47\,\% dans cet échantillon. La matrice de confusion montre que le modèle classe correctement 21 des 34 observations du jeu de test dans lesquelles des éphyrules sont présentes. Il en manque encore 13 et produit 8 alertes positives alors qu’aucune éphyrule n’est observée. Le notebook montre aussi que la température et la période de l’année occupent une place importante dans les décisions du modèle. Ces importances décrivent son fonctionnement sur cet échantillon. Elles ne démontrent pas à elles seules une relation biologique de causalité.
 Ces résultats montrent qu’un signal statistique existe dans cet échantillon. Ils ne suffisent pas à valider un outil d’aide à la décision. Le découpage utilisé est aléatoire et ne sépare ni les boîtes ni les années. Des observations provenant d’une même boîte peuvent donc se retrouver dans l’entraînement et dans le test. Le second notebook devait aussi intégrer les événements de repiquage et de changement de température, mais son exécution enregistrée indique qu’aucun marqueur d’événement n’a été chargé pour l’espèce étudiée. L’échantillon reste limité à huit boîtes et les données historiques contiennent les ambiguïtés décrites précédemment.
-Cette exploration doit donc être lue comme une preuve de faisabilité technique. Aucun score prédictif n’est actuellement exposé par l’API ou affiché dans la webapp. Une validation plus solide demanderait des données nettoyées, des événements mieux reliés aux relevés, une séparation temporelle ou par boîte et une discussion avec l’équipe du laboratoire sur l’usage réel d’une éventuelle alerte.
-
-\begin{figure}[H]
-\centering
-\begin{subfigure}{0.72\textwidth}
-  \centering
-  \includegraphics[width=\textwidth]{../notebooks/figures/ml_simple_feature_importance_aurelia_labiata.png}
-  \caption{\footnotesize Importance calculée des variables}
-\end{subfigure}
+Cette première expérience a surtout permis de préciser la stratégie à suivre. Les données exploratoires montrent que les espèces ne réagissent pas de la même manière à la température et que leur production d’éphyrules varie fortement. Deux cultures d’une même espèce peuvent aussi avoir des origines, des repiquages et des historiques différents. Le modèle actuel regroupe plusieurs boîtes sous le nom \textit{Aurelia labiata}, car le CSV ne contient pas encore un identifiant de souche validé. Il constitue donc un prototype méthodologique au niveau de l’espèce.
+Pour la suite, nous ne prévoyons pas d’entraîner un modèle unique sur l’ensemble des cultures. Chaque souche devra disposer d’un modèle entraîné et validé sur son propre historique, à condition de réunir assez d’observations fiables. Cette approche permettra de respecter les différences de réaction entre les espèces, puis entre les souches d’une même espèce. Lorsqu’une souche ne possède pas assez de données, aucun score automatique ne devra être présenté comme une alerte fiable.
+Cette exploration reste une preuve de faisabilité technique. Aucun score prédictif n’est actuellement exposé par l’API ou affiché dans la webapp. Une validation plus solide demandera des données nettoyées, un identifiant de souche fiable, des événements mieux reliés aux relevés, une séparation temporelle ou par boîte et une discussion avec l’équipe du laboratoire sur l’usage réel d’une éventuelle alerte.
 
 \vspace{0.15cm}
-
-\begin{subfigure}{0.72\textwidth}
-  \centering
-  \includegraphics[width=\textwidth]{../notebooks/figures/ml_simple_roc_curve_aurelia_labiata.png}
-  \caption{\footnotesize Courbe ROC sur le jeu de test}
+\begin{figure}[H]
+\centering
+\begin{subfigure}[t]{0.60\textwidth}
+\centering
+\includegraphics[width=\textwidth]{../notebooks/figures/ml_prediction_ephyrae_rate_by_box_aurelia_labiata.png}
+\caption{Fréquence des relevés contenant des éphyrules pour chaque boîte.}
 \end{subfigure}
-\caption{Résultats du premier modèle exploratoire sur \textit{Aurelia labiata}.}
+\hfill
+\begin{subfigure}[t]{0.34\textwidth}
+\centering
+\includegraphics[width=\textwidth]{../notebooks/figures/ml_prediction_confusion_matrix_aurelia_labiata.png}
+\caption{Matrice de confusion obtenue sur le jeu de test.}
+\end{subfigure}
+\par\medskip
+\begin{subfigure}[t]{0.72\textwidth}
+\centering
+\includegraphics[width=\textwidth]{../notebooks/figures/ml_prediction_feature_importance_aurelia_labiata.png}
+\caption{Importance relative des variables utilisées par le modèle.}
+\end{subfigure}
+\caption{Résultats de la première exploration prédictive sur \textit{Aurelia labiata}.}
 \vspace{-0.35cm}
-\caption*{\footnotesize Source : figures générées depuis \texttt{notebooks/ml\_ephyrae\_simple.ipynb}.}
+\caption*{\footnotesize Source : figures générées dans \texttt{notebooks/ml\_ephyrae\_prediction.ipynb}.}
 \label{fig:ml-exploratoire}
 \end{figure}
 
@@ -376,23 +482,19 @@ Cette exploration doit donc être lue comme une preuve de faisabilité technique
 \subsection{Partir des usages pour choisir l’architecture}
 
 Nous avons retenu une architecture hybride après avoir distingué les deux principaux contextes d’utilisation. Au laboratoire, le technicien doit pouvoir retrouver une boîte et saisir un relevé rapidement sur une tablette. Sur ordinateur, les besoins concernent davantage la consultation, l’administration, les exports et la préparation des données. Ces usages reposent sur la même base métier, mais ils n’imposent pas la même interface.
-
-Dans cette architecture, \texttt{Django} prend en charge les modèles, l’authentification, les permissions, l’administration et les API. \texttt{React} porte l’application principale et les interactions qui demandent plus de fluidité. Cette répartition permet de conserver les règles sensibles dans le backend, tout en adaptant précisément l’affichage à la tablette et à l’ordinateur.
-
-Le frontend ne décide donc pas seul si un utilisateur peut accéder à une boîte ou créer un relevé. Il demande les données au backend, qui applique les règles avant de répondre. Cette séparation limite les risques d’incohérence et permet de centraliser les contrôles d’accès dans la partie serveur.
-
+Dans cette architecture, \texttt{Django} prend en charge les modèles, l’authentification, les permissions, l’administration et les API. \texttt{React} porte l’application principale et les interactions qui demandent plus de fluidité. Cette répartition permet de conserver les règles sensibles dans le backend, tout en adaptant précisément l’affichage à la tablette et à l’ordinateur.Le frontend ne décide donc pas seul si un utilisateur peut accéder à une boîte ou créer un relevé. 
+Il demande les données au backend, qui applique les règles avant de répondre. Cette séparation limite les risques d’incohérence et permet de centraliser les contrôles d’accès dans la partie serveur.
 Le backend et le frontend restent réunis dans un même dépôt. Ce choix facilite le suivi des évolutions qui touchent à la fois l’API et l’interface. Le dossier \texttt{backend} contient l’application \texttt{Django}, le dossier \texttt{frontend} contient l’application \texttt{React}, tandis que les dossiers \texttt{docs}, \texttt{notebooks} et \texttt{scripts} conservent les éléments nécessaires à la compréhension et au suivi du projet.
-
 La configuration de la base de données accompagne aussi les différentes étapes du développement. En local, \texttt{Django} utilise \texttt{SQLite} si aucune variable \texttt{POSTGRES\_DB} n’est définie. Lorsque les variables PostgreSQL sont présentes, la même application utilise \texttt{PostgreSQL} avec \texttt{psycopg}. \texttt{SQLite} simplifie les essais sur les postes de développement, tandis que \texttt{PostgreSQL} reste la solution visée pour une base partagée et déployée.
 
 
 
 \subsection{Organiser les données autour des boîtes et des structures}
 
-Le modèle de données a été travaillé avant la poursuite des écrans. Cette étape était nécessaire pour relier correctement les espèces, les souches, les boîtes, les relevés, les températures et les organisations. Le MCD a été repris avec l’aide de Madame Sandra Bringay afin de clarifier les entités principales et leurs relations.
+Le modèle de données a été travaillé avant la poursuite des écrans. Cette étape était nécessaire pour relier correctement les espèces, les souches, les boîtes, les relevés, les températures et les organisations. Le MCD utilisé pour le projet a été discuté et repris avec Madame Sandra Bringay afin de clarifier les entités principales, leurs responsabilités et leurs relations.
+Le modèle est divisé en trois volets afin de rendre les relations plus lisibles. Le volet métier décrit principalement les boîtes, les souches, les espèces, les relevés biologiques, les observations et la parenté entre boîtes. Le volet gestion porte sur les structures, les utilisateurs, les fichiers et le journal des actions. Le volet environnement décrit les zones thermiques, les sondes, les rangements et les mesures de température ou de salinité.
 
-La version actuelle est divisée en trois volets afin de rendre les relations plus lisibles. Le volet métier décrit principalement les boîtes, les souches, les espèces, les relevés biologiques, les observations et la parenté entre boîtes. Le volet gestion porte sur les structures, les utilisateurs, les fichiers et le journal des actions. Le volet environnement décrit les zones thermiques, les sondes, les rangements et les mesures de température ou de salinité.
-
+\vspace{0.15cm}
 \begin{figure}[H]
 \centering
 \captionsetup{skip=2pt}
@@ -418,7 +520,7 @@ La version actuelle est divisée en trois volets afin de rendre les relations pl
 
 \vspace{0.10cm}
 
-\caption{Version de travail du modèle conceptuel de données.}
+\caption{Modèle conceptuel de données utilisé pour Polypbase.}
 \label{fig:mcd-volets}
 \vspace{-0.20cm}
 \caption*{\footnotesize Source : schémas réalisés avec Mocodo.}
@@ -426,11 +528,8 @@ La version actuelle est divisée en trois volets afin de rendre les relations pl
 \end{figure}
 
 Cette organisation se retrouve dans les applications Django. L’application de gestion des organisations (\texttt{organizations}) représente les aquariums, les partenaires et les accords de partage. L’application de gestion des comptes (\texttt{accounts}) relie les utilisateurs à leurs organisations et à leurs rôles. L’application de taxonomie (\texttt{taxonomy}) contient les taxons, les espèces, les origines et les souches. L’application de suivi des cultures (\texttt{cultures}) regroupe les boîtes, les zones thermiques, les localisations, les mouvements, les repiquages, la parenté, les identifiants et les transferts. L’application des mesures (\texttt{measurements}) contient les relevés biologiques, les observations, les sondes, les températures et les salinités. Enfin, les applications d’export et d’audit (\texttt{exports} et \texttt{audit}) préparent les imports, les exports, les alertes et la traçabilité.
-
 La boîte constitue le point de liaison principal dans l’usage quotidien. Elle appartient à une organisation, correspond à une souche et se trouve dans une armoire associée à une température de consigne. Ses relevés sont datés et associés à l’utilisateur qui les a saisis. Le modèle conserve aussi les informations nécessaires pour enregistrer ses changements de localisation, ses relations de parenté et un éventuel transfert vers un autre aquarium.
-
 Le besoin multi-structures a influencé le modèle dès le départ. Le champ d’identifiant global (\texttt{global\_code}) fournit un identifiant commun entre structures, tandis que le champ d’identifiant local (\texttt{local\_code}) permet de conserver une notation propre à chaque établissement. Les modèles de données liés aux organisations, aux appartenances, aux accords de partage et aux transferts de boîtes (\texttt{Organization}, \texttt{OrganizationMembership}, \texttt{SharingAgreement} et \texttt{BoxTransfer}) donnent une base pour séparer les données locales et préparer des échanges entre aquariums.
-
 À ce stade, les règles complètes de partage et le parcours de transfert ne sont pas encore entièrement reliés à l’interface. Ils constituent donc une base de conception déjà prévue dans le modèle, mais encore à finaliser dans les usages applicatifs.
 
 \subsection{Intégrer les droits et la confidentialité dans le fonctionnement}
@@ -444,10 +543,9 @@ Ces choix répondent à la fois à une exigence de confidentialité et à un bes
 
 \subsection{Construire un parcours court pour le laboratoire}
 
-La maquette papier présentée en annexe a été construite sur place avec Étienne Bourgouin et Anaïs Courtet, pendant notre séjour à l’Aquarium. Réalisée en commun avec l’équipe, elle nous a servi de base pour mettre les actions dans un ordre compréhensible avant de travailler le style visuel. 
-Elle a permis de retenir un parcours court autour de la recherche, de la fiche boîte, du dernier relevé et de la saisie. Les écrans React ont ensuite été repris plusieurs fois à partir des retours formulés pendant le développement.
+Les échanges et la mise en situation dans le laboratoire ont d’abord été traduits dans une maquette papier, présentée en annexe. Construite sur place avec Étienne Bourgouin et Anaïs Courtet, elle a permis de mettre les actions dans un ordre compréhensible avant de travailler le style visuel. Le parcours retenu s’organise autour de la recherche, de la fiche boîte, du dernier relevé et de la nouvelle saisie. Les écrans React ont ensuite été repris plusieurs fois à partir des retours formulés pendant le développement.
 L’écran de pilotage sert maintenant de point d’entrée. La version actuelle permet de rechercher une boîte par son code, son espèce ou sa souche. Elle affiche des accès récents et des suggestions afin d’éviter une longue liste générale. La zone d’accueil est aussi destinée au futur scan de QR code, mais l’accès à la caméra et la lecture d’un code ne sont pas encore développés.
-
+\vspace{0.15cm}
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.99\textwidth]{assets/screen_webapp/accueil.png}
@@ -459,7 +557,7 @@ L’écran de pilotage sert maintenant de point d’entrée. La version actuelle
 
 La fiche boîte rassemble les informations nécessaires avant une saisie. Elle affiche le code global, l’espèce, l’état de la boîte, l'armoire, l’organisation et le dernier relevé. Le formulaire contient les nombres de polypes et d’éphyrules, le dernier commentaire disponible et une zone d’observation. Des boutons ajoutent rapidement 50 ou 100 polypes et 10 ou 25 éphyrules. Sur tablette, la date du jour est utilisée sans afficher un champ supplémentaire. L’historique complet s’ouvre dans une fenêtre depuis la bande supérieure, ce qui libère de la place pour la saisie.
 La version ordinateur conserve une présentation plus développée. Elle affiche le dernier relevé, le formulaire et une partie de l’historique dans la page. Cette différence est gérée avec les mêmes données et le même composant React, puis adaptée par les règles de mise en page.
-
+\vspace{0.15cm}
 \begin{figure}[H]
 \centering
 \begin{subfigure}{0.99\textwidth}
@@ -513,7 +611,7 @@ Les tests couvrent les points les plus sensibles de cette première API. Ils vé
 \subsection{Préparer la traduction, les essais et la reprise du projet}
 
 Le français reste la langue par défaut, l’anglais étant proposé comme seconde langue. 
-Ce choix est enregistré dans le modèle \texttt{UserPreference} et reste modifiable depuis le profil, si bien qu’une même préférence pilote l’ensemble de l’application. Du côté serveur, les pages Django s’appuient sur leur système de traduction et les fichiers \texttt{.po} et \texttt{.mo} ; du côté client, React puise ses textes dans deux dictionnaires français et anglais. Comme les deux parties lisent la même préférence renvoyée par l’API, la langue change partout sans qu’il faille maintenir deux interfaces distinctes.
+Ce choix est enregistré dans le modèle \texttt{UserPreference} et reste modifiable depuis le profil, si bien qu’une même préférence pilote l’ensemble de l’application. Du côté serveur, les pages Django s’appuient sur leur système de traduction et les fichiers \texttt{.po} et \texttt{.mo}. Du côté client, React puise ses textes dans deux dictionnaires français et anglais. Comme les deux parties lisent la même préférence renvoyée par l’API, la langue change partout sans qu’il faille maintenir deux interfaces distinctes.
 Une commande \texttt{seed\_demo\_data} prépare un environnement d’essai reproductible. Elle crée trois comptes correspondant aux rôles administrateur, technicien et lecteur, puis ajoute deux organisations et des exemples de taxonomie, de boîtes, de zones, de sondes, de relevés, d’observations, d’alertes, de parenté et de transferts. La commande utilise des mises à jour contrôlées afin de pouvoir être relancée sans multiplier les données de démonstration.
 Les dépendances Python sont gérées avec \texttt{uv}. Le fichier \texttt{pyproject.toml} décrit les bibliothèques utilisées et \texttt{uv.lock} fixe leurs versions résolues. Le README explique la création de l’environnement, les migrations, les tests, le chargement des données de démonstration et le lancement de Django et React. Des pages Notion complètent ces indications avec les commandes courantes et les choix liés à la traduction.
 Nous avons aussi fixé une règle simple pour la reprise du code. Les noms de variables, les identifiants et les commentaires techniques utilisent un anglais simple. Les textes visibles par les utilisateurs restent traduits. Les vrais fichiers de l’Aquarium et la base locale sont exclus du dépôt. Cette organisation réduit le risque de publier des données de travail et aide un futur développeur à retrouver les éléments nécessaires sans dépendre de nos environnements personnels.
@@ -527,119 +625,173 @@ La durabilité de Polypbase dépendra autant de cette progression maîtrisée qu
 
 \section{Bilan critique et perspectives}
 
-\subsection{Résultats obtenus}
+\subsection{Un socle fonctionnel qui valide les choix principaux}
 
-Le projet permet désormais de tester un premier parcours cohérent. Un utilisateur peut se connecter avec une session Django, accéder aux données de ses organisations, rechercher une boîte, consulter son dernier relevé, afficher son historique et enregistrer les nombres de polypes et d’éphyrules avec une observation. Les zones thermiques et les informations de profil sont aussi accessibles depuis React. Le rôle en lecture seule est bloqué lors d’une tentative de saisie et chaque création ou modification de relevé ajoute une trace dans le journal.
-Cette réalisation reste limitée, mais elle relie déjà les différentes couches du projet. Les modèles Django, les sérialiseurs, les permissions, les endpoints, le client React et le formulaire travaillent sur les mêmes objets. Les données de démonstration rendent ce parcours reproductible sans utiliser les fichiers réels de l’Aquarium. L’analyse exploratoire apporte en parallèle une première compréhension des données historiques et de leurs difficultés d’import.
+Le premier résultat du stage est un parcours relié de bout en bout. Un utilisateur authentifié peut accéder aux données de ses organisations, rechercher une boîte, consulter son dernier relevé et son historique, puis enregistrer un comptage de polypes et d’éphyrules accompagné d’une observation. Le backend contrôle le rôle de l’utilisateur avant la création du relevé et conserve une trace de l’action. Les zones thermiques, les sondes associées et la préférence de langue sont également exposées par l’API et affichées dans React.
+Ce parcours permet de vérifier que l’architecture hybride répond au besoin initial. Django centralise les objets métier, les droits, les organisations et la persistance. React adapte la présentation au contexte d’utilisation. Une même fiche de boîte peut ainsi proposer une consultation détaillée sur ordinateur et une saisie plus compacte sur tablette. Les données de démonstration rendent ce fonctionnement reproductible sans mobiliser les fichiers réels du laboratoire.
+Le travail réalisé sur les données complète ce socle applicatif. Le notebook d’analyse exploratoire documente la structure des fichiers annuels, distingue les cellules vides des zéros saisis et produit un tableau long commun aux différentes années. Cette étape a permis de mesurer le volume disponible, de repérer les changements de périmètre et de préciser les règles nécessaires au futur import. L’exploration prédictive a ensuite montré qu’un signal statistique existe pour \textit{Aurelia labiata}, tout en mettant en évidence les limites d’une évaluation qui mélange encore les boîtes et les années.
 
-\subsection{Points à consolider}
+\subsection{Écarts entre la conception et l’implémentation actuelle}
 
-Le modèle métier doit encore être validé. Le MCD version 2 a amélioré la séparation des domaines, mais certaines décisions restent ouvertes autour des rangements, des localisations, des repiquages, des codes et des règles de partage. Le backend conserve aussi des champs issus d’une étape antérieure, comme le nombre de strobiles, l’état de culture et l’indicateur de vigilance. Ils sont encore présents dans le modèle et dans les sérialiseurs, alors que le formulaire React actuel ne demande plus ces informations. Cette différence doit être tranchée avec l’équipe du laboratoire avant d’importer les vraies données.
-Le frontend a grandi rapidement pendant les itérations sur ordinateur et tablette. Une grande partie de l’application reste regroupée dans \texttt{App.tsx} et le fichier de style contient de nombreuses règles responsives. Cette organisation a permis de faire évoluer vite le prototype. La prochaine étape de maintenance devra séparer les vues, les composants de formulaire, la navigation et les fonctions de traduction sans modifier le comportement validé par les utilisateurs.
-Les tests automatiques actuels concernent surtout le backend. Ils contrôlent les permissions et les principaux endpoints, mais aucun test frontend ne vérifie encore la recherche, la navigation, la saisie ou le changement de langue. Les essais visuels ont été réalisés avec un format simulé dans les outils du navigateur. Le parcours doit encore être testé sur une Samsung Galaxy Tab Active 5 en orientation paysage, dans les conditions réelles du laboratoire.
-L’import historique reste un chantier sensible. Le format long facilite l’analyse, mais les cellules vides, les zéros, les changements de température et les repiquages ne peuvent pas être interprétés automatiquement sans règles validées. Le script \texttt{scripts/import\_excel.py} ne réalise encore aucun import. Une première reprise devra utiliser un petit échantillon contrôlé et comparer chaque résultat aux fichiers sources.
-La même prudence s’applique aux QR codes, aux sondes et au modèle prédictif. Les identifiants QR sont prévus dans la base, mais leur génération et leur lecture restent à développer. Les modèles de températures existent, mais le collecteur iMinilide dépend du XML réel de la sonde. Les notebooks de prédiction montrent une piste statistique, mais leur évaluation ne permet pas encore de produire une alerte fiable dans l’application.
+Le MCD présenté dans ce mémoire constitue la référence de conception du projet. Les modèles Django en implémentent déjà les principaux domaines, notamment les organisations, les utilisateurs, la taxonomie, les souches, les boîtes, les relevés, les observations, les zones thermiques, les sondes, les repiquages, la parenté, les transferts, les imports, les exports et le journal des actions. Une partie de ces objets est déjà utilisée par l’API et l’interface. D’autres sont pour l’instant accessibles par l’administration ou présents dans la base sans parcours complet dans React.
+Un travail d’alignement reste nécessaire dans le code. Certains champs introduits lors des premières étapes, comme le nombre de strobiles, l’état de culture ou l’indicateur de vigilance, sont encore présents dans les modèles et les sérialiseurs alors qu’ils ont été retirés du formulaire React après les échanges sur le besoin. Leur maintien ou leur suppression devra suivre le modèle retenu et les règles confirmées avec l’équipe du laboratoire avant l’import des données réelles.
+Le frontend porte aussi les traces des nombreuses itérations menées sur l’ergonomie. La majorité de l’application se trouve encore dans \texttt{App.tsx}, avec un fichier de style qui rassemble les comportements pour ordinateur et tablette. Cette organisation a facilité les ajustements rapides du prototype. Pour la maintenance, les vues, les formulaires, la navigation, les fenêtres modales et les fonctions de traduction devront être séparés en composants plus ciblés.
+Les tests automatiques couvrent principalement le backend. Ils vérifient les endpoints essentiels, le cloisonnement entre organisations, les permissions de saisie et la mise à jour de la langue. Le frontend ne dispose pas encore de tests automatisés pour la recherche, la navigation ou le formulaire. Les essais sur tablette ont été réalisés avec une simulation de la Samsung Galaxy Tab Active 5 en orientation paysage. Un test sur l’appareil utilisé au laboratoire reste indispensable pour observer la lisibilité, les zones tactiles, le clavier virtuel, la caméra et la qualité de la connexion. L’import des fichiers historiques constitue une autre limite importante. Le CSV au format long prépare le travail, mais il ne résout pas seul la signification des cases vides, des changements de température, des repiquages et des variations de nomenclature. Le premier import devra porter sur un échantillon réduit, contrôlé avec l’équipe de l’Aquarium, puis comparé aux feuilles Excel d’origine avant d’élargir le traitement.
 
-\subsection{Enseignements du stage}
+\subsection{Enseignements tirés du projet}
 
-L’exploration prédictive a aussi clarifié une limite de fond. Vouloir un modèle unique, capable de prédire l’apparition d’éphyrules pour toutes les familles de polypes à la fois, paraît aujourd’hui presque impossible. Chaque famille réagit différemment à la température et aux conditions de culture, les historiques sont hétérogènes et les fichiers comportent les ambiguïtés déjà décrites, à commencer par le fichier de suivi 2019 entièrement vide. Une piste plus réaliste pour la suite serait de viser d’abord un modèle sur la production de polypes, par famille ou par souche, plutôt qu’une alerte universelle sur les éphyrules.
-Le stage a aussi confirmé l’intérêt d’un découpage net des tâches. En séparant clairement l’analyse des données, le backend et l’API, puis l’interface React, chaque membre du groupe a pu avancer sur sa partie sans dépendre en permanence des autres. Cette organisation a apporté de l’agilité sur une durée courte et a limité les blocages, à condition de garder une base de données et une API communes comme point de rencontre.
-\subsection{Prochaines étapes}
+L’immersion dans le laboratoire a montré que la qualité d’une application métier dépend directement de la compréhension des gestes réalisés autour des boîtes. La recherche, la lecture du dernier relevé et la nouvelle saisie doivent rester visibles sans multiplier les écrans. Les échanges avec Anaïs Courtet et Étienne Bourgouin ont donc orienté la conception autant que les choix techniques. Les maquettes papier et les essais responsifs ont servi à transformer ces observations en parcours concrets.
+Le travail sur les fichiers a également montré que la standardisation recherchée entre aquariums commence par une définition commune des données. Un code de boîte, un nom d’espèce, une souche, une température ou un relevé doivent conserver le même sens d’une structure à l’autre. Les références taxonomiques, les identifiants globaux et locaux, les organisations et les règles de partage sont donc au cœur du projet. L’interface seule ne peut pas garantir cette cohérence.
+L’exploration prédictive apporte le même enseignement sous un autre angle. Les réactions observées varient entre les espèces, les boîtes et les conditions de culture. Le prototype sur \textit{Aurelia labiata} teste une méthode, mais il ne peut pas être généralisé à toutes les cultures. Une éventuelle prédiction devra être étudiée souche par souche, lorsque l’historique est assez complet et que l’identifiant de souche est fiable. Polypbase devra alors conserver les conditions de culture et les événements avec suffisamment de précision pour permettre une validation temporelle.
+Enfin, la maintenance a été intégrée dès la construction du dépôt. La séparation entre les applications Django, l’API REST, React, les notebooks et la documentation donne des repères aux futurs développeurs. L’utilisation de \texttt{uv}, des migrations, des données de démonstration et des commandes documentées facilite la reproduction de l’environnement. Cette organisation devra être entretenue à mesure que de nouvelles fonctions seront ajoutées.
 
-La prochaine priorité fonctionnelle est le repiquage. Cette action doit créer une nouvelle boîte à partir d’une boîte parent, reprendre les informations utiles, conserver le lien de parenté et enregistrer l’utilisateur, la date et le motif. Le modèle contient déjà \texttt{SubcultureEvent} et \texttt{BoxLineage}. Il reste à définir précisément le formulaire, l’API, les permissions et l’affichage de l’historique.
-La stabilisation des codes permettra ensuite de générer les QR codes et de faire ouvrir directement la fiche correspondante depuis la tablette. Le parcours devra garder la recherche manuelle comme solution de secours. Les changements d'armoires pourront alors être journalisés afin de relier les comptages biologiques aux conditions de culture.
-Les fonctions de consultation viendront compléter ce socle avec des graphiques, des filtres cumulables et des exports CSV ou XLSX. Les règles de partage entre structures devront être définies avant d’activer les accords et les transferts présents dans le modèle. Enfin, le déploiement demandera un choix d’hébergement, PostgreSQL, HTTPS, une gestion rigoureuse des variables d’environnement, des sauvegardes régulières et un test de restauration.
-Ces étapes garderont la même méthode. Chaque fonction devra partir d’une règle métier confirmée, être protégée selon le rôle et l’organisation, être testée sur le backend et l’interface, puis être documentée pour la reprise du projet.
+\subsection{Perspectives de développement}
+
+La prochaine priorité fonctionnelle concerne le repiquage. Le parcours devra créer une nouvelle boîte à partir d’une boîte parent, reprendre les informations utiles, enregistrer la date, le motif et l’utilisateur, puis conserver le lien de parenté. Les modèles \texttt{SubcultureEvent} et \texttt{BoxLineage} donnent déjà une base à cette fonction. Son interface devra rester aussi rapide que la saisie d’un relevé.
+La stabilisation des codes de boîtes permettra ensuite de générer les QR codes et d’ouvrir directement une fiche depuis la tablette. La recherche manuelle restera nécessaire lorsque la caméra ou l’étiquette ne peut pas être utilisée. Les mouvements entre armoires et les changements de localisation devront être enregistrés afin de relier les relevés aux conditions thermiques réellement rencontrées par la culture.
+Les fonctions de consultation pourront alors s’enrichir avec des graphiques d’évolution, des filtres cumulables et des exports CSV ou XLSX par boîte, souche, espèce, zone et période. L’import historique devra progresser en parallèle avec des tables intermédiaires, des contrôles de doublons et une validation des lignes ambiguës. Les mesures issues des sondes pourront compléter ces informations lorsque le format réel transmis par l’iMinilide aura été observé.
+La dimension multi-structures demandera ensuite de mettre en œuvre les accords de partage et les transferts déjà représentés dans le modèle. Les règles devront préciser quelles données restent privées, lesquelles peuvent être consultées par un partenaire et comment une boîte change de structure sans perdre son historique. Cette étape donnera sa portée internationale à Polypbase.
+Le déploiement clôturera cette progression avec une base PostgreSQL partagée, HTTPS, une gestion rigoureuse des secrets, des sauvegardes régulières et un test de restauration. Les rôles devront être vérifiés sur chaque action sensible. La politique de confidentialité devra expliquer les données personnelles collectées, leur utilité, leur durée de conservation et les moyens d’exercer les droits associés.
+La figure~\ref{fig:roadmap-polypbase} rassemble cette trajectoire. Les premières semaines ont été consacrées à l’immersion, aux fichiers historiques, à la modélisation et au socle technique. Le trait noir situe l’état présenté dans ce mémoire au début du mois de juin 2026. Les chantiers suivants prolongent les structures déjà mises en place et conduisent progressivement vers un outil utilisable au laboratoire, puis partageable entre plusieurs aquariums.
+
+\vspace{0.15cm}
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\textwidth]{assets/roadmap_polypbase.png}
+\caption{Calendrier et perspectives de développement du projet Polypbase.}
+\vspace{-0.35cm}
+\caption*{\footnotesize Source : figure réalisée à partir des tâches prévues et suivies pendant le stage.}
+\label{fig:roadmap-polypbase}
+\end{figure}
 
 \section{Conclusion}
 
-Polypbase est passé d’un besoin exprimé autour de plusieurs fichiers Excel à un premier parcours web relié à une base structurée. Le projet permet déjà de tester la recherche d’une boîte, la consultation de son historique, la saisie d’un relevé sur une interface adaptée à la tablette, l’affichage des zones thermiques et le choix de la langue. Le backend contrôle les organisations et les rôles, puis conserve une trace lors de l’ajout ou de la modification d’un relevé.
-Le travail sur les données historiques a montré pourquoi cette application demande plus qu’une simple reprise des tableaux existants. Les cellules vides, les changements de périmètre, les noms d’espèces, les températures et les événements de culture doivent être interprétés avant leur import. Le CSV au format long et les notebooks fournissent une base pour ce travail. L’exploration prédictive ouvre aussi une piste, mais elle reste volontairement séparée de l’application tant que sa validation n’est pas suffisante.
-Les choix techniques préparent la maintenance après le stage. Les domaines sont répartis dans plusieurs applications Django, l’API utilise Django REST Framework, React porte l’interface principale et \texttt{uv} permet de recréer l’environnement Python. Le dépôt, le README, les tests, les données de démonstration et la documentation donnent des points de repère aux futurs développeurs.
-La suite devra transformer les structures déjà préparées en parcours complets. Le repiquage, les QR codes, les mouvements de boîtes, les exports, les sondes, les accords de partage et le déploiement restent à consolider. Leur réalisation devra conserver la simplicité recherchée au laboratoire et la séparation des données entre aquariums. C’est cette continuité entre biologie, traçabilité et usage quotidien qui donnera à Polypbase sa valeur réelle.
+La problématique du stage portait sur la conception d’une application maintenable capable de reprendre un suivi Excel historique, de simplifier les actions réalisées au laboratoire et de préparer un outil commun à plusieurs aquariums. Le travail mené montre qu’une telle application peut reposer sur une architecture unique tout en proposant des usages différents sur tablette et sur ordinateur. La séparation entre Django et React permet de centraliser les données et les droits dans le backend, puis d’adapter l’interface aux contraintes de chaque situation.
+Cette première partie du stage a produit un socle cohérent. Le modèle conceptuel relie les structures, les utilisateurs, les espèces, les souches, les boîtes, les relevés et leur environnement. L’API contrôle l’accès aux données selon l’organisation et le rôle. L’interface permet déjà de rechercher une boîte, de consulter son historique, d’enregistrer un relevé, d’afficher les zones thermiques et de changer de langue. Les tests, les données de démonstration, la documentation et la gestion des dépendances rendent ce parcours reproductible.
+L’analyse historique occupe une place tout aussi importante dans le résultat. Les fichiers Excel conservent plusieurs années d’observations, mais leur structure dépend fortement du contexte de saisie. Le format long produit dans le notebook facilite les contrôles et les comparaisons sans effacer les valeurs manquantes. Il prépare un futur import qui devra rester progressif et validé avec le laboratoire. L’exploration prédictive a permis d’identifier un signal pour une espèce et surtout de comprendre les précautions nécessaires avant toute utilisation dans l’application.
+Le projet doit maintenant relier les structures déjà préparées à des parcours complets. Le repiquage, la parenté, les QR codes, les mouvements de boîtes, les graphiques, les imports, les exports et les sondes prolongeront directement le suivi quotidien. Les accords de partage, les transferts et le cloisonnement des données donneront ensuite une réalité à l’objectif multi-structures. Le déploiement devra apporter les garanties attendues en matière de sécurité, de sauvegarde et de confidentialité.
+Polypbase prend ainsi la forme d’un outil construit à partir du fonctionnement réel du service des méduses. Sa réussite dépendra de la qualité des données, de la simplicité de la saisie et de la capacité des différentes structures à partager les mêmes définitions. Le travail réalisé fournit les bases techniques et méthodologiques nécessaires pour poursuivre cette construction sans perdre le lien entre les cultures observées, leur histoire et les personnes qui les suivent.
 
 \appendix
 \section{Maquette papier}
+\label{anx:maquettes}
 
-La maquette papier a servi à clarifier les parcours avant de stabiliser l’interface React. Elle présente les premières idées d’écrans autour du pilotage, de la fiche boîte, de la saisie d’un relevé, de l’historique et des zones thermiques. Elle n’est pas utilisée comme rendu final. Elle reste utile pour comprendre le cheminement entre le besoin exprimé au laboratoire et les premiers choix d’interface.
+% Configuration des bordures pour détacher proprement le fond des scans
+\setlength{\fboxsep}{0pt}
+\setlength{\fboxrule}{0.6pt}
+\definecolor{lightgrey}{rgb}{0.85, 0.85, 0.85}
 
-\enlargethispage{3cm}
-
-\begin{figure}[H]
+% --- PAGE 30 (PAGE 1 DE L'ANNEXE) : Le titre + la Planche 1 seule ---
+\begin{figure}[htbp]
 \centering
-\captionsetup{skip=2pt}
-\begin{subfigure}{0.37\textwidth}
+\captionsetup{skip=8pt}
+
+\fcolorbox{lightgrey}{white}{\includegraphics[width=0.85\textwidth]{assets/maquette_papier_pages/maquette_papier-1.jpg}}
+\caption{Page 1 : Écran de connexion au système (Authentification multi-rôles)}
+\label{fig:maq-connexion}
+\end{figure}
+\clearpage % On force le passage à la page suivante après la première planche
+
+% --- PAGE 31 : Planches 2 & 3 ---
+\begin{figure}[htbp]
+\centering
+\captionsetup{skip=8pt}
+
+\begin{subfigure}{0.85\textwidth}
   \centering
-  \includegraphics[width=\textwidth]{assets/maquette_papier_pages/maquette_papier-1.jpg}
-  \caption{\footnotesize Page 1}
-\end{subfigure}
-\hfill
-\begin{subfigure}{0.37\textwidth}
-  \centering
-  \includegraphics[width=\textwidth]{assets/maquette_papier_pages/maquette_papier-2.jpg}
-  \caption{\footnotesize Page 2}
+  \fcolorbox{lightgrey}{white}{\includegraphics[width=\linewidth]{assets/maquette_papier_pages/maquette_papier-2.jpg}}
+  \caption{Page 2 : Écran de pilotage principal (Dashboard global)}
+  \label{fig:maq-pilotage}
 \end{subfigure}
 
-\vspace{0.12cm}
+\vspace{1cm}
 
-\begin{subfigure}{0.37\textwidth}
+\begin{subfigure}{0.85\textwidth}
   \centering
-  \includegraphics[width=\textwidth]{assets/maquette_papier_pages/maquette_papier-3.jpg}
-  \caption{\footnotesize Page 3}
+  \fcolorbox{lightgrey}{white}{\includegraphics[width=\linewidth]{assets/maquette_papier_pages/maquette_papier-3.jpg}}
+  \caption{Page 3 : Formulaire de saisie des relevés sur tablette}
+  \label{fig:maq-saisie}
 \end{subfigure}
-\hfill
-\begin{subfigure}{0.37\textwidth}
+
+\caption{Maquettes de l'interface d'accueil et du formulaire de saisie terrain au laboratoire.}
+\end{figure}
+\clearpage
+
+% --- PAGE 32 : Planches 4 & 5 ---
+\begin{figure}[htbp]
+\centering
+\captionsetup{skip=8pt}
+
+\begin{subfigure}{0.85\textwidth}
   \centering
-  \includegraphics[width=\textwidth]{assets/maquette_papier_pages/maquette_papier-4.jpg}
-  \caption{\footnotesize Page 4}
+  \fcolorbox{lightgrey}{white}{\includegraphics[width=\linewidth]{assets/maquette_papier_pages/maquette_papier-4.jpg}}
+  \caption{Page 4 : Vue de l'historique de culture et journal d'audit}
+  \label{fig:maq-historique}
 \end{subfigure}
-\caption{Premières pages de la maquette papier.}
-\vspace{-0.20cm}
-\caption*{\footnotesize Source : \texttt{docs/maquette\_papier/maquette.pdf}.}
-\label{fig:maquette-papier-premieres-pages}
+
+\vspace{1cm}
+
+\begin{subfigure}{0.85\textwidth}
+  \centering
+  \fcolorbox{lightgrey}{white}{\includegraphics[width=\linewidth]{assets/maquette_papier_pages/maquette_papier-5.jpg}}
+  \caption{Page 5 : Gestion et état des zones thermiques et armoires}
+  \label{fig:maq-zones}
+\end{subfigure}
+
+\caption{Maquettes du cœur métier : traçabilité des boîtes et suivi environnemental.}
+\end{figure}
+\clearpage
+
+% --- PAGE 33 : Planches 6 & 7 ---
+\begin{figure}[htbp]
+\centering
+\captionsetup{skip=8pt}
+
+\begin{subfigure}{0.85\textwidth}
+  \centering
+  \fcolorbox{lightgrey}{white}{\includegraphics[width=\linewidth]{assets/maquette_papier_pages/maquette_papier-6.jpg}}
+  \caption{Page 6 : Préférences et paramètres de profil utilisateur}
+  \label{fig:maq-profil}
+\end{subfigure}
+
+\vspace{1cm}
+
+\begin{subfigure}{0.85\textwidth}
+  \centering
+  \fcolorbox{lightgrey}{white}{\includegraphics[width=\linewidth]{assets/maquette_papier_pages/maquette_papier-7.jpg}}
+  \caption{Page 7 : Écran de transfert de boîtes inter-structures}
+  \label{fig:maq-transfert}
+\end{subfigure}
+
+\caption{Maquettes des modules de configuration personnelle et de coopération inter-organisations.}
+\end{figure}
+\clearpage
+
+% --- PAGE 34 : Planches 8 & 9 ---
+\begin{figure}[htbp]
+\centering
+\captionsetup{skip=8pt}
+
+\begin{subfigure}{0.85\textwidth}
+  \centering
+  \fcolorbox{lightgrey}{white}{\includegraphics[width=\linewidth]{assets/maquette_papier_pages/maquette_papier-8.jpg}}
+  \caption{Page 8 : Historique détaillé et graphes de suivi des sondes}
+  \label{fig:maq-sondes}
+\end{subfigure}
+
+\vspace{1cm}
+
+\begin{subfigure}{0.85\textwidth}
+  \centering
+  \fcolorbox{lightgrey}{white}{\includegraphics[width=\linewidth]{assets/maquette_papier_pages/maquette_papier-9.jpg}}
+  \caption{Page 9 : Formulaire d'importation de fichiers historiques Excel}
+  \label{fig:maq-imports}
+\end{subfigure}
+
+\caption{Maquettes des fonctionnalités d'administration : télémétrie et reprise des données.}
 \end{figure}
 
-\begin{figure}[H]
-\centering
-\captionsetup{skip=2pt}
-\begin{subfigure}{0.30\textwidth}
-  \centering
-  \includegraphics[width=\textwidth]{assets/maquette_papier_pages/maquette_papier-5.jpg}
-  \caption{\footnotesize Page 5}
-\end{subfigure}
-\hfill
-\begin{subfigure}{0.30\textwidth}
-  \centering
-  \includegraphics[width=\textwidth]{assets/maquette_papier_pages/maquette_papier-6.jpg}
-  \caption{\footnotesize Page 6}
-\end{subfigure}
-\hfill
-\begin{subfigure}{0.30\textwidth}
-  \centering
-  \includegraphics[width=\textwidth]{assets/maquette_papier_pages/maquette_papier-7.jpg}
-  \caption{\footnotesize Page 7}
-\end{subfigure}
-
-\vspace{0.22cm}
-
-\begin{subfigure}{0.42\textwidth}
-  \centering
-  \includegraphics[width=\textwidth]{assets/maquette_papier_pages/maquette_papier-8.jpg}
-  \caption{\footnotesize Page 8}
-\end{subfigure}
-\hfill
-\begin{subfigure}{0.42\textwidth}
-  \centering
-  \includegraphics[width=\textwidth]{assets/maquette_papier_pages/maquette_papier-9.jpg}
-  \caption{\footnotesize Page 9}
-\end{subfigure}
-\caption{Pages complémentaires de la maquette papier.}
-\vspace{-0.20cm}
-\caption*{\footnotesize Source : \texttt{docs/maquette\_papier/maquette.pdf}.}
-\label{fig:maquette-papier-pages-complementaires}
-\end{figure}
-
-\begin{thebibliography}{9}
+\begin{thebibliography}{99}
 
 \bibitem{zims}
 Species360.
@@ -660,6 +812,21 @@ Jellyfish and Polyps Academy.
 Luxaqua.
 \textit{LXA Fauniabase}.
 \url{https://www.luxaqua.tech/fr/fauniabase/}.
+
+\bibitem{image-meduse}
+Seoul Newspaper NowNews.
+\textit{Photographie de méduse}.
+\url{https://nownews.seoul.co.kr/news/newsView.php?id=20210220601001}.
+
+\bibitem{image-polype}
+Phylum Cnidarian.
+\textit{Medusa and Polyp}.
+\url{https://383774061747737279.weebly.com/medusa--polyp.html}.
+
+\bibitem{image-ephyrule}
+Laboratoire de Biologie du Développement de Villefranche-sur-Mer.
+\textit{Nos organismes favoris}.
+\url{https://lbdv.imev-mer.fr/accueil-fr/science-et-vous/organismes-favoris/}.
 
 \bibitem{worms}
 World Register of Marine Species.
