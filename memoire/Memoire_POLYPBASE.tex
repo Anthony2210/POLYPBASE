@@ -186,7 +186,19 @@ La quatrième référence vient de la biologie des méduses. Les articles sur le
 La température apparaît donc comme une donnée importante à conserver. Une étude expérimentale sur trois espèces de scyphozoaires indique que la température peut jouer un rôle dans la reproduction asexuée des polypes, le moment de la strobilation et la production d’éphyras \cite{scypho2019}. Ces résultats expliquent l’intérêt de relier les comptages biologiques aux zones thermiques, aux sondes, aux changements de température et aux historiques de boîtes.
 Le contexte scientifique de l’Aquarium donne aussi du sens au projet. Le LabCom Jellyfish and Polyps Academy explique que l’Aquarium de Paris maintient une grande collection de polypes de méduses et travaille avec MARBEC sur la culture des méduses, la création d’une banque de référence de polypes et la compréhension des paramètres qui influencent leurs proliférations \cite{jpa-laboratoire}. Polypbase s’inscrit dans cette logique. L’application doit aider à conserver des données plus propres, plus faciles à retrouver et plus adaptées à une analyse future.
 
+\newpage
+
 Aucun de ces outils ne répond pleinement au besoin de l'Aquarium de Paris. Fauniabase s'approche le plus du contexte aquarium, mais reste centré sur la gestion générale des animaux et des bacs, sans adresser le suivi fin de cultures de polypes, les relevés hebdomadaires, les repiquages ou la prédiction d'éphyrules. ZIMS couvre un périmètre bien plus large mais impose une complexité d'usage incompatible avec un laboratoire sur tablette. WoRMS apporte la référence taxonomique mais ne constitue pas un outil de suivi. Polypbase se positionne donc dans un espace non couvert : une application légère, spécialisée pour le suivi de cultures de polypes de méduses, conçue pour être utilisée au quotidien en laboratoire et partagée entre structures partenaires.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.82\textwidth]{assets/exemple_webapp/Zims-species360.png}
+\caption{Interface de ZIMS (Species360), exemple de plateforme de gestion animale pour aquariums et zoos.}
+\vspace{-0.35cm}
+\caption*{\footnotesize Source : Species360, \textit{ZIMS for Aquariums} \cite{zims}.}
+\label{fig:zims-interface}
+\end{figure}
+
 \section{Problématique et objectifs du stage}
 
 La problématique du stage peut se formuler ainsi : comment concevoir une application web maintenable capable de remplacer un suivi Excel historique, avec une saisie simple en laboratoire, une consultation claire sur ordinateur et une base commune utilisable par plusieurs aquariums.
@@ -208,14 +220,16 @@ Cette organisation répond aussi à une contrainte de maintenance. Le tuteur de 
 
 \subsection{Structure des fichiers source}
 
-Les fichiers de suivi historiques montrent comment les données sont réellement notées par l’équipe. Les fichiers \texttt{Suivi\_2019.xlsx} à \texttt{Suivi\_2026.xlsx} sont organisés par années. Dans ces fichiers, les feuilles correspondent à de grands groupes comme Aurelia, Hydrozoa, Cubozoa, Rhizostomae, Semaestomeae ou Coronatae. Certaines années ajoutent aussi d’autres feuilles, comme UMR\_MARBEC ou Staurozoa.
+Les fichiers de suivi historiques montrent comment les données sont réellement notées par l’équipe. Les fichiers \texttt{Suivi\_2019.xlsx} à \texttt{Suivi\_2026.xlsx} sont organisés par années. Dans ces fichiers, les feuilles correspondent à de grands groupes comme Aurelia, Hydrozoa, Cubozoa, Rhizostomae, Semaestomeae ou Coronatae. Certaines années ajoutent aussi d’autres feuilles, comme UMR\_MARBEC ou Staurozoa. Le fichier \texttt{Suivi\_2019.xlsx} est vide : l’analyse porte donc sur les années 2020 à 2026.
 Dans les feuilles annuelles, les premières colonnes décrivent l’espèce, le numéro de boîte et la température. Les colonnes suivantes correspondent aux semaines ou aux mois de suivi. Pour une même boîte, les données sont notées sur plusieurs lignes, avec une ligne pour le nombre de polypes et une autre pour le nombre d’éphyrules. La collecte suit donc une logique de tableau de laboratoire. L’équipe observe les boîtes, note les comptages dans la cellule correspondant à la période de suivi, puis conserve l’historique dans le même fichier annuel. Cette forme facilite la saisie dans Excel semaine après semaine. Elle devient cependant plus difficile à exploiter quand il faut retrouver une boîte précise, comparer plusieurs années ou préparer un import dans une base de données.
 Le dossier de données contient aussi des fichiers complémentaires. Un fichier est consacré aux repiquages et aux changements de température. Le fichier \texttt{SuiviStrobilation.xlsx} contient des informations liées à la strobilation, avec des colonnes comme l’espèce, la température, la salinité et des conditions expérimentales. Le fichier \texttt{A.limbata.xlsx} reprend une structure plus déjà normalisée, avec une colonne de date et des groupes de colonnes associant une boîte, les polypes, les éphyrules et la température. Ces différences demandent un import plus fin qu’un simple copier coller. Il faudra reconnaître plusieurs formes de fichiers.
 
 \subsection{Création du CSV complet}
 
 Nous avons créé le fichier \texttt{polyp\_tracking\_long\_format.csv} avec le notebook afin de rassembler toutes les mesures dans un seul tableau. Dans ce format long, chaque ligne correspond à une mesure possible pour une boîte, une année, une semaine et un type de mesure. La colonne \texttt{file\_year} vient du nom du fichier annuel. La colonne \texttt{group} vient de la feuille Excel. Les colonnes \texttt{species}, \texttt{box} et \texttt{temperature} reprennent les informations associées à la boîte. La colonne \texttt{measurement\_type} conserve le libellé présent dans Excel, tandis que \texttt{normalized\_measurement\_type} simplifie ce libellé en deux familles principales, \texttt{polyps} et \texttt{ephyrae}. La colonne \texttt{week\_index} indique la semaine reconstruite, \texttt{excel\_column} garde la position de la colonne source et \texttt{value} contient la valeur numérique quand elle existe.
-Le CSV garde les cellules vides comme des absences de valeur. Cette décision est importante pour ne pas confondre une case vide avec un zéro saisi. Le zéro indique qu’un relevé a été fait avec une valeur nulle. Une cellule vide peut venir d’une absence de suivi, d’une boîte non active, d’un changement de température ou d’un repiquage. Ce fichier sert de support de travail pour comprendre l’import futur. Il ne remplace pas encore les modèles Django, mais il rapproche les données historiques d’une structure exploitable par l’application.
+Le CSV garde les cellules vides comme des absences de valeur. Cette décision est importante pour ne pas confondre une case vide avec un zéro saisi. 
+Le zéro indique qu’un relevé a été fait avec une valeur nulle. Une cellule vide peut venir d’une absence de suivi, d’une boîte non active, d’un changement de température ou d’un repiquage. Ce fichier sert de support de travail pour comprendre l’import futur. Il ne remplace pas encore les modèles Django, mais il rapproche les données historiques d’une structure exploitable par l’application. 
+Au total, le tableau consolidé rassemble 237\,848 lignes décrivant 573 boîtes, 146 espèces et 8 groupes sur les années 2020 à 2026. Parmi ces lignes, 76\,404 seulement portent une valeur numérique, ce qui confirme la part importante des cellules laissées vides dans les fichiers.
 
 \begin{table}[H]
 \centering
@@ -415,7 +429,8 @@ Ces choix répondent à la fois à une exigence de confidentialité et à un bes
 
 \subsection{Construire un parcours court pour le laboratoire}
 
-La maquette papier présentée en annexe a servi à mettre les actions dans un ordre compréhensible avant de travailler le style visuel. Elle a permis de retenir un parcours court autour de la recherche, de la fiche boîte, du dernier relevé et de la saisie. Les écrans React ont ensuite été repris plusieurs fois à partir des retours formulés pendant le développement.
+La maquette papier présentée en annexe a été construite sur place avec Étienne Bourgouin et Anaïs Courtet, pendant notre séjour à l’Aquarium. Réalisée en commun avec l’équipe, elle nous a servi de base pour mettre les actions dans un ordre compréhensible avant de travailler le style visuel. 
+Elle a permis de retenir un parcours court autour de la recherche, de la fiche boîte, du dernier relevé et de la saisie. Les écrans React ont ensuite été repris plusieurs fois à partir des retours formulés pendant le développement.
 L’écran de pilotage sert maintenant de point d’entrée. La version actuelle permet de rechercher une boîte par son code, son espèce ou sa souche. Elle affiche des accès récents et des suggestions afin d’éviter une longue liste générale. La zone d’accueil est aussi destinée au futur scan de QR code, mais l’accès à la caméra et la lecture d’un code ne sont pas encore développés.
 
 \begin{figure}[H]
@@ -453,7 +468,7 @@ Les onglets Zones et Profil complètent cette première interface. La page Zones
 
 \subsection{Relier l’interface à une API contrôlée}
 
-Le frontend React communique avec une API mise en place avec Django REST Framework. Les anciens endpoints prototypes en français ont été retirés. Les routes actuelles utilisent des noms anglais et renvoient des objets structurés par des sérialiseurs.
+Le frontend React communique avec une API construite avec Django REST Framework. Les anciens endpoints prototypes en français ont été remplacés par des routes aux noms anglais, plus stables, qui renvoient des objets structurés par des sérialiseurs. Cette base commune garantit que l’interface et le serveur manipulent les mêmes représentations des boîtes, des relevés et des zones thermiques.
 
 \begin{table}[H]
 \centering
@@ -482,7 +497,8 @@ Les tests couvrent les points les plus sensibles de cette première API. Ils vé
 
 \subsection{Préparer la traduction, les essais et la reprise du projet}
 
-Le français est la langue utilisée par défaut. Le choix de langue est enregistré dans le modèle \texttt{UserPreference} et modifiable depuis le profil. Les pages rendues par Django utilisent son système de traduction avec les fichiers \texttt{.po} et \texttt{.mo}. L’interface React contient actuellement les textes français et anglais dans deux dictionnaires du frontend. Les deux parties utilisent la même préférence récupérée par l’API, ce qui permet de changer la langue sans créer deux interfaces distinctes.
+Le français reste la langue par défaut, l’anglais étant proposé comme seconde langue. 
+Ce choix est enregistré dans le modèle \texttt{UserPreference} et reste modifiable depuis le profil, si bien qu’une même préférence pilote l’ensemble de l’application. Du côté serveur, les pages Django s’appuient sur leur système de traduction et les fichiers \texttt{.po} et \texttt{.mo} ; du côté client, React puise ses textes dans deux dictionnaires français et anglais. Comme les deux parties lisent la même préférence renvoyée par l’API, la langue change partout sans qu’il faille maintenir deux interfaces distinctes.
 Une commande \texttt{seed\_demo\_data} prépare un environnement d’essai reproductible. Elle crée trois comptes correspondant aux rôles administrateur, technicien et lecteur, puis ajoute deux organisations et des exemples de taxonomie, de boîtes, de zones, de sondes, de relevés, d’observations, d’alertes, de parenté et de transferts. La commande utilise des mises à jour contrôlées afin de pouvoir être relancée sans multiplier les données de démonstration.
 Les dépendances Python sont gérées avec \texttt{uv}. Le fichier \texttt{pyproject.toml} décrit les bibliothèques utilisées et \texttt{uv.lock} fixe leurs versions résolues. Le README explique la création de l’environnement, les migrations, les tests, le chargement des données de démonstration et le lancement de Django et React. Des pages Notion complètent ces indications avec les commandes courantes et les choix liés à la traduction.
 Nous avons aussi fixé une règle simple pour la reprise du code. Les noms de variables, les identifiants et les commentaires techniques utilisent un anglais simple. Les textes visibles par les utilisateurs restent traduits. Les vrais fichiers de l’Aquarium et la base locale sont exclus du dépôt. Cette organisation réduit le risque de publier des données de travail et aide un futur développeur à retrouver les éléments nécessaires sans dépendre de nos environnements personnels.
@@ -509,6 +525,10 @@ Les tests automatiques actuels concernent surtout le backend. Ils contrôlent le
 L’import historique reste un chantier sensible. Le format long facilite l’analyse, mais les cellules vides, les zéros, les changements de température et les repiquages ne peuvent pas être interprétés automatiquement sans règles validées. Le script \texttt{scripts/import\_excel.py} ne réalise encore aucun import. Une première reprise devra utiliser un petit échantillon contrôlé et comparer chaque résultat aux fichiers sources.
 La même prudence s’applique aux QR codes, aux sondes et au modèle prédictif. Les identifiants QR sont prévus dans la base, mais leur génération et leur lecture restent à développer. Les modèles de températures existent, mais le collecteur iMinilide dépend du XML réel de la sonde. Les notebooks de prédiction montrent une piste statistique, mais leur évaluation ne permet pas encore de produire une alerte fiable dans l’application.
 
+\subsection{Enseignements du stage}
+
+L’exploration prédictive a aussi clarifié une limite de fond. Vouloir un modèle unique, capable de prédire l’apparition d’éphyrules pour toutes les familles de polypes à la fois, paraît aujourd’hui presque impossible. Chaque famille réagit différemment à la température et aux conditions de culture, les historiques sont hétérogènes et les fichiers comportent les ambiguïtés déjà décrites, à commencer par le fichier de suivi 2019 entièrement vide. Une piste plus réaliste pour la suite serait de viser d’abord un modèle sur la production de polypes, par famille ou par souche, plutôt qu’une alerte universelle sur les éphyrules.
+Le stage a aussi confirmé l’intérêt d’un découpage net des tâches. En séparant clairement l’analyse des données, le backend et l’API, puis l’interface React, chaque membre du groupe a pu avancer sur sa partie sans dépendre en permanence des autres. Cette organisation a apporté de l’agilité sur une durée courte et a limité les blocages, à condition de garder une base de données et une API communes comme point de rencontre.
 \subsection{Prochaines étapes}
 
 La prochaine priorité fonctionnelle est le repiquage. Cette action doit créer une nouvelle boîte à partir d’une boîte parent, reprendre les informations utiles, conserver le lien de parenté et enregistrer l’utilisateur, la date et le motif. Le modèle contient déjà \texttt{SubcultureEvent} et \texttt{BoxLineage}. Il reste à définir précisément le formulaire, l’API, les permissions et l’affichage de l’historique.
