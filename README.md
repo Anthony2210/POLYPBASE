@@ -159,6 +159,31 @@ This repository now uses clean initial migrations for the split Django apps.
 If a local development database was created before this refactor, recreate it
 or migrate it carefully before relying on existing data.
 
+## QR codes
+
+Each box has a permanent QR code that encodes a short public URL:
+
+```txt
+{PUBLIC_BASE_URL}/bac/<id>/
+```
+
+Scanning it opens the box detail sheet directly. `/bac/<id>/` is a stable alias
+(it logs the access and redirects to the detail page), so printed labels keep
+working even if the internal page route changes. Set `PUBLIC_BASE_URL` in
+`backend/.env` to the address phones can reach (the production domain in prod,
+the dev server otherwise).
+
+The QR image is available per box at `GET /boites/<id>/qr.svg` and is shown on
+the box detail page. The box detail API (`GET /api/boxes/<id>/`) also returns
+`scan_url` and `qr_image_url`.
+
+Batch-generate printable label images (git-ignored `data/qr_codes/` by default):
+
+```powershell
+uv run python scripts/generate_qr_codes.py
+uv run python scripts/generate_qr_codes.py --format png --sync-tags
+```
+
 ## Frontend
 
 The React frontend lives in `frontend/`.

@@ -25,6 +25,18 @@
         </a>
     </p>
 
+    <h2>{% trans "QR code" %}</h2>
+    <div style="border: 1px solid #ccc; padding: 12px; margin-bottom: 10px; max-width: 320px;">
+        <img src="{% url 'qr_boite' box.id %}" alt="{% trans 'QR code de la boîte' %} {{ box.global_code }}"
+             width="180" height="180" style="display: block;">
+        <p style="word-break: break-all;"><a href="{{ scan_url }}">{{ scan_url }}</a></p>
+        <p>
+            <a href="{% url 'qr_boite' box.id %}" download="bac-{{ box.id }}.svg">
+                {% trans "Télécharger le QR code (SVG)" %}
+            </a>
+        </p>
+    </div>
+
     <h2>{% trans "Historique des relevés" %}</h2>
 
     {% for measurement in measurements %}

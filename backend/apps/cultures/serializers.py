@@ -2,6 +2,7 @@ from rest_framework import serializers
 
 from apps.accounts.models import UserPreference
 from apps.audit.models import Alert, AuditLog
+from apps.cultures import qr
 from apps.cultures.models import Box, IdentificationTag, ThermalZone
 from apps.measurements.models import BiologicalMeasurement
 from apps.organizations.serializers import OrganizationSummarySerializer
@@ -109,6 +110,8 @@ class BoxDetailSerializer(BoxListSerializer):
     active_alerts = serializers.SerializerMethodField()
     lineage = serializers.SerializerMethodField()
     biological_measurements = BiologicalMeasurementSerializer(many=True, read_only=True)
+    scan_url = serializers.SerializerMethodField()
+    qr_image_url = serializers.SerializerMethodField()
 
     class Meta(BoxListSerializer.Meta):
         fields = BoxListSerializer.Meta.fields + [
@@ -120,7 +123,15 @@ class BoxDetailSerializer(BoxListSerializer):
             "active_alerts",
             "lineage",
             "biological_measurements",
+            "scan_url",
+            "qr_image_url",
         ]
+
+    def get_scan_url(self, obj):
+        return qr.box_scan_url(obj)
+
+    def get_qr_image_url(self, obj):
+        return qr.box_qr_image_url(obj)
 
     def get_active_alerts(self, obj):
         alerts = _prefetched_list(obj, "alerts")

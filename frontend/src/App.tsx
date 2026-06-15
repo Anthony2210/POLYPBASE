@@ -31,6 +31,7 @@ type MeasurementPayload = {
 type RouteState = {
   tab: TabId;
   boxCode: string | null;
+  boxId: number | null;
 };
 
 const translations = {
@@ -69,6 +70,9 @@ const translations = {
     profile: 'Profil',
     profileTitle: 'Mon profil',
     prototype: 'prototype',
+    qrCode: 'QR code',
+    qrDownload: 'Télécharger (SVG)',
+    qrScanHint: 'Scannez pour ouvrir cette fiche',
     recentAccess: 'Derniers accès',
     saveMeasurement: 'Enregistrer le relevé',
     saving: 'Enregistrement...',
@@ -116,6 +120,9 @@ const translations = {
     profile: 'Profile',
     profileTitle: 'My profile',
     prototype: 'prototype',
+    qrCode: 'QR code',
+    qrDownload: 'Download (SVG)',
+    qrScanHint: 'Scan to open this sheet',
     recentAccess: 'Recent access',
     saveMeasurement: 'Save measurement',
     saving: 'Saving...',
@@ -148,9 +155,11 @@ export default function App() {
     profile: null,
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [isBoxLoading, setIsBoxLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const activeTab = route.tab;
+  const isBoxRoute = route.boxCode != null || route.boxId != null;
   const language = getLanguage(data.profile);
   const t: TFunction = (key) => translations[language][key];
 
@@ -224,35 +233,46 @@ export default function App() {
     });
   }, [data.boxes, search]);
 
-  const selectedBox = useMemo(() => {
-    if (!route.boxCode) return null;
-    return data.boxes.find((box) => box.global_code === route.boxCode) ?? null;
-  }, [data.boxes, route.boxCode]);
+  const selectedBoxId = useMemo(() => {
+    if (route.boxId != null) return route.boxId;
+    if (route.boxCode) {
+      return data.boxes.find((box) => box.global_code === route.boxCode)?.id ?? null;
+    }
+    return null;
+  }, [data.boxes, route.boxCode, route.boxId]);
 
-  const selectedBoxDetail = selectedBox ? data.boxDetails[selectedBox.id] ?? null : null;
+  const selectedBox = useMemo(() => {
+    if (selectedBoxId == null) return null;
+    return data.boxes.find((box) => box.id === selectedBoxId) ?? null;
+  }, [data.boxes, selectedBoxId]);
+
+  const selectedBoxDetail = selectedBoxId != null ? data.boxDetails[selectedBoxId] ?? null : null;
 
   useEffect(() => {
     let isActive = true;
 
     async function loadBoxDetail(boxId: number) {
       try {
+        setIsBoxLoading(true);
         const detail = await apiGet<BoxDetail>(`/api/boxes/${boxId}/`);
         if (!isActive) return;
         setData((current) => mergeBoxDetail(current, detail));
       } catch (requestError) {
         if (!isActive) return;
         setError(getErrorMessage(requestError));
+      } finally {
+        if (isActive) setIsBoxLoading(false);
       }
     }
 
-    if (selectedBox && !selectedBoxDetail) {
-      loadBoxDetail(selectedBox.id);
+    if (selectedBoxId != null && !selectedBoxDetail) {
+      loadBoxDetail(selectedBoxId);
     }
 
     return () => {
       isActive = false;
     };
-  }, [selectedBox?.id, Boolean(selectedBoxDetail)]);
+  }, [selectedBoxId, Boolean(selectedBoxDetail)]);
 
   const recentBoxes = useMemo(() => {
     return recentBoxIds
@@ -270,7 +290,10 @@ export default function App() {
       ...currentIds.filter((currentId) => currentId !== boxId),
     ].slice(0, 5));
     setSearch(box.global_code);
-    navigateTo({ tab: 'pilotage', boxCode: box.global_code }, `/boxes/${encodeURIComponent(box.global_code)}`);
+    navigateTo(
+      { tab: 'pilotage', boxCode: box.global_code, boxId: null },
+      `/boxes/${encodeURIComponent(box.global_code)}`,
+    );
   }
 
   function openTab(tab: TabId) {
@@ -279,11 +302,11 @@ export default function App() {
       zones: '/zones',
       profile: '/profile',
     };
-    navigateTo({ tab, boxCode: null }, paths[tab]);
+    navigateTo({ tab, boxCode: null, boxId: null }, paths[tab]);
   }
 
   function closeBoxPage() {
-    navigateTo({ tab: 'pilotage', boxCode: null }, '/');
+    navigateTo({ tab: 'pilotage', boxCode: null, boxId: null }, '/');
   }
 
   function navigateTo(nextRoute: RouteState, path: string) {
@@ -335,7 +358,7 @@ export default function App() {
       </aside>
 
       <section className="workspace">
-        {!route.boxCode ? (
+        {!isBoxRoute ? (
           <header className="page-heading">
             <h1>{getTitle(activeTab, t)}</h1>
           </header>
@@ -345,17 +368,17 @@ export default function App() {
 
         {!error && (
           <>
-            {activeTab === 'pilotage' && route.boxCode && (
+            {activeTab === 'pilotage' && isBoxRoute && (
               <BoxPage
                 box={selectedBoxDetail ?? selectedBox}
-                isLoading={isLoading}
+                isLoading={isLoading || isBoxLoading}
                 onCreateMeasurement={createMeasurement}
                 onBack={closeBoxPage}
                 t={t}
               />
             )}
 
-            {activeTab === 'pilotage' && !route.boxCode && (
+            {activeTab === 'pilotage' && !isBoxRoute && (
               <PilotageView
                 isLoading={isLoading}
                 search={search}
@@ -596,6 +619,7 @@ function BoxPage({
 
   const measurements = getMeasurementHistory(box);
   const lastComment = getLatestComment(measurements, box);
+  const qr = 'qr_image_url' in box ? { imageUrl: box.qr_image_url, scanUrl: box.scan_url } : null;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -776,6 +800,22 @@ function BoxPage({
 
           <MeasurementHistoryList measurements={measurements.slice(0, 6)} t={t} />
         </section>
+
+        {qr ? (
+          <section className="box-section box-qr-section">
+            <div className="section-title">
+              <h2>{t('qrCode')}</h2>
+              <span>{qr.scanUrl}</span>
+            </div>
+            <div className="box-qr">
+              <img src={qr.imageUrl} alt={`${t('qrCode')} ${box.global_code}`} width={160} height={160} />
+              <p>{t('qrScanHint')}</p>
+              <a href={qr.imageUrl} download={`bac-${box.id}.svg`}>
+                {t('qrDownload')}
+              </a>
+            </div>
+          </section>
+        ) : null}
 
         {isHistoryOpen ? (
           <MeasurementHistoryModal
@@ -1117,22 +1157,29 @@ function formatStatus(status: string) {
 function getCurrentRoute(): RouteState {
   const path = window.location.pathname;
 
+  // Stable QR scan target: /bac/<id> opens the box sheet directly.
+  const scanMatch = path.match(/^\/bac\/(\d+)\/?$/);
+  if (scanMatch) {
+    return { tab: 'pilotage', boxCode: null, boxId: Number(scanMatch[1]) };
+  }
+
   if (path.startsWith('/boxes/')) {
     return {
       tab: 'pilotage',
       boxCode: decodeURIComponent(path.replace('/boxes/', '').replace(/\/$/, '')),
+      boxId: null,
     };
   }
 
   if (path === '/zones') {
-    return { tab: 'zones', boxCode: null };
+    return { tab: 'zones', boxCode: null, boxId: null };
   }
 
   if (path === '/profile') {
-    return { tab: 'profile', boxCode: null };
+    return { tab: 'profile', boxCode: null, boxId: null };
   }
 
-  return { tab: 'pilotage', boxCode: null };
+  return { tab: 'pilotage', boxCode: null, boxId: null };
 }
 
 function getErrorMessage(error: unknown) {
