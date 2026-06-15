@@ -47,11 +47,41 @@ async function apiRequest<T>(path: string, options: RequestOptions = {}): Promis
   const data = contentType.includes('application/json') ? await response.json() : null;
 
   if (!response.ok) {
-    const detail = data?.detail ?? data?.error ?? 'La requête a échoué.';
+    const detail = getErrorDetail(data) ?? 'La requête a échoué.';
     throw new ApiError(response.status, detail);
   }
 
   return data as T;
+}
+
+function getErrorDetail(value: unknown): string | null {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const detail = getErrorDetail(item);
+      if (detail) return detail;
+    }
+    return null;
+  }
+
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+
+    for (const key of ['detail', 'error']) {
+      const detail = getErrorDetail(record[key]);
+      if (detail) return detail;
+    }
+
+    for (const item of Object.values(record)) {
+      const detail = getErrorDetail(item);
+      if (detail) return detail;
+    }
+  }
+
+  return null;
 }
 
 function getCookie(name: string) {

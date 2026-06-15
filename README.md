@@ -148,6 +148,7 @@ stable endpoints are:
 - `GET /api/boxes/<id>/`: box detail with measurement history.
 - `GET /api/boxes/<id>/measurements/`: biological measurement history for one box.
 - `POST /api/boxes/<id>/measurements/`: create or update the measurement for one date.
+- `POST /api/boxes/<id>/subcultures/`: create a subculture event and one or more child boxes.
 - `GET /api/thermal-zones/`: thermal zones with probes and latest readings.
 - `GET /api/profile/`: current user profile, organizations, and interface language.
 - `PATCH /api/profile/`: update account preferences such as interface language.

@@ -72,6 +72,33 @@ export type BoxDetail = BoxItem & {
   biological_measurements: BiologicalMeasurement[];
 };
 
+export type SubcultureChildPayload = {
+  global_code: string;
+  local_code: string;
+  box_number: string;
+  thermal_zone_id: number;
+  copy_origin: boolean;
+  copy_volume_liters: boolean;
+  notes: string;
+};
+
+export type SubculturePayload = {
+  event_date: string;
+  reason: string;
+  notes: string;
+  children: SubcultureChildPayload[];
+};
+
+export type SubcultureResult = {
+  id: number;
+  parent_box: string;
+  event_date: string;
+  reason: string;
+  notes: string;
+  user: string | null;
+  children: BoxItem[];
+};
+
 export type Probe = {
   id: number;
   code: string;

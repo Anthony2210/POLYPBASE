@@ -24,8 +24,11 @@ from .serializers import (
     BiologicalMeasurementSerializer,
     BoxDetailSerializer,
     BoxListSerializer,
+    SubcultureCreateSerializer,
+    SubcultureEventSerializer,
     ThermalZoneSerializer,
 )
+from .services import create_subculture
 
 
 def box_queryset_for_user(user):
@@ -207,6 +210,31 @@ class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
 
     def _get_box(self, user, box_id):
         return get_object_or_404(box_queryset_for_user(user), id=box_id)
+
+
+class BoxSubcultureCreateAPIView(generics.GenericAPIView):
+    serializer_class = SubcultureCreateSerializer
+
+    def post(self, request, box_id):
+        parent_box = get_object_or_404(box_queryset_for_user(request.user), id=box_id)
+        if not user_can_write_lab_data(request.user, parent_box.organization):
+            raise PermissionDenied("This user cannot create subculture events.")
+
+        serializer = self.get_serializer(
+            data=request.data,
+            context={"parent_box": parent_box},
+        )
+        serializer.is_valid(raise_exception=True)
+        event, child_boxes = create_subculture(
+            parent_box=parent_box,
+            user=request.user,
+            **serializer.validated_data,
+        )
+        response_serializer = SubcultureEventSerializer(
+            event,
+            context={"child_boxes": child_boxes},
+        )
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
 
 class ThermalZoneListAPIView(generics.ListAPIView):

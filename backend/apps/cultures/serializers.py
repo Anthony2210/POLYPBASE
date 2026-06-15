@@ -1,8 +1,9 @@
+from django.utils import timezone
 from rest_framework import serializers
 
 from apps.accounts.models import UserPreference
 from apps.audit.models import Alert, AuditLog
-from apps.cultures.models import Box, IdentificationTag, ThermalZone
+from apps.cultures.models import Box, IdentificationTag, SubcultureEvent, ThermalZone
 from apps.measurements.models import BiologicalMeasurement
 from apps.organizations.serializers import OrganizationSummarySerializer
 from apps.taxonomy.models import Species, Strain
@@ -159,6 +160,83 @@ class BiologicalMeasurementCreateSerializer(serializers.ModelSerializer):
             "needs_attention",
             "notes",
         ]
+
+
+class SubcultureChildCreateSerializer(serializers.Serializer):
+    global_code = serializers.CharField(max_length=100)
+    local_code = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    box_number = serializers.CharField(max_length=80)
+    thermal_zone_id = serializers.PrimaryKeyRelatedField(
+        queryset=ThermalZone.objects.filter(is_active=True),
+        source="thermal_zone",
+    )
+    copy_origin = serializers.BooleanField(default=True)
+    copy_volume_liters = serializers.BooleanField(default=True)
+    notes = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_global_code(self, value):
+        if Box.objects.filter(global_code=value).exists():
+            raise serializers.ValidationError("A box already uses this global code.")
+        return value
+
+    def validate_thermal_zone_id(self, thermal_zone):
+        parent_box = self.context["parent_box"]
+        if thermal_zone.organization_id != parent_box.organization_id:
+            raise serializers.ValidationError(
+                "The thermal zone must belong to the parent box organization."
+            )
+        return thermal_zone
+
+
+class SubcultureCreateSerializer(serializers.Serializer):
+    event_date = serializers.DateField(default=timezone.localdate)
+    reason = serializers.CharField(max_length=180, required=False, allow_blank=True, default="")
+    notes = serializers.CharField(required=False, allow_blank=True, default="")
+    children = SubcultureChildCreateSerializer(many=True, min_length=1, max_length=20)
+
+    def validate_children(self, children):
+        global_codes = [child["global_code"] for child in children]
+        if len(global_codes) != len(set(global_codes)):
+            raise serializers.ValidationError(
+                "Each child box must have a different global code."
+            )
+        return children
+
+
+class SubcultureEventSerializer(serializers.ModelSerializer):
+    parent_box = serializers.CharField(source="parent_box.global_code", read_only=True)
+    user = serializers.SerializerMethodField()
+    children = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SubcultureEvent
+        fields = [
+            "id",
+            "parent_box",
+            "event_date",
+            "reason",
+            "notes",
+            "user",
+            "children",
+        ]
+
+    def get_user(self, obj):
+        return obj.user.get_username() if obj.user else None
+
+    def get_children(self, obj):
+        child_boxes = self.context.get("child_boxes")
+        if child_boxes is None:
+            child_boxes = [
+                lineage.child_box
+                for lineage in obj.lineages.select_related(
+                    "child_box",
+                    "child_box__organization",
+                    "child_box__strain",
+                    "child_box__strain__species",
+                    "child_box__thermal_zone",
+                )
+            ]
+        return BoxListSerializer(child_boxes, many=True).data
 
 
 class ThermalZoneSerializer(serializers.ModelSerializer):
