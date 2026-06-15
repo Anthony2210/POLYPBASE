@@ -3,11 +3,14 @@
 from datetime import datetime, time
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.audit.models import AuditLog
 
 from .models import Box, BoxLineage, BoxLocation, SubcultureEvent
+
+LINEAGE_GRAPH_MAX_NODES = 250
 
 
 @transaction.atomic
@@ -74,3 +77,105 @@ def create_subculture(*, parent_box, user, event_date, reason, notes, children):
     )
 
     return event, child_boxes
+
+
+def build_lineage_graph(*, root_box, organization_ids, max_nodes=LINEAGE_GRAPH_MAX_NODES):
+    """Return the connected lineage graph visible to the current user."""
+    visited_box_ids = {root_box.id}
+    pending_box_ids = {root_box.id}
+    lineages_by_id = {}
+    truncated = False
+
+    while pending_box_ids:
+        current_box_ids = pending_box_ids
+        pending_box_ids = set()
+        lineages = BoxLineage.objects.filter(
+            Q(parent_box_id__in=current_box_ids) | Q(child_box_id__in=current_box_ids),
+            parent_box__organization_id__in=organization_ids,
+            child_box__organization_id__in=organization_ids,
+        ).select_related(
+            "parent_box",
+            "parent_box__organization",
+            "parent_box__strain",
+            "parent_box__strain__species",
+            "parent_box__thermal_zone",
+            "child_box",
+            "child_box__organization",
+            "child_box__strain",
+            "child_box__strain__species",
+            "child_box__thermal_zone",
+            "subculture_event",
+            "subculture_event__user",
+        )
+
+        for lineage in lineages:
+            lineages_by_id[lineage.id] = lineage
+            for box_id in (lineage.parent_box_id, lineage.child_box_id):
+                if box_id in visited_box_ids:
+                    continue
+                if len(visited_box_ids) >= max_nodes:
+                    truncated = True
+                    continue
+                visited_box_ids.add(box_id)
+                pending_box_ids.add(box_id)
+
+    visible_lineages = [
+        lineage
+        for lineage in lineages_by_id.values()
+        if (
+            lineage.parent_box_id in visited_box_ids
+            and lineage.child_box_id in visited_box_ids
+        )
+    ]
+    boxes_by_id = {root_box.id: root_box}
+    for lineage in visible_lineages:
+        boxes_by_id[lineage.parent_box_id] = lineage.parent_box
+        boxes_by_id[lineage.child_box_id] = lineage.child_box
+
+    return {
+        "root_box_id": root_box.id,
+        "nodes": [
+            _serialize_lineage_graph_box(box, is_root=box.id == root_box.id)
+            for box in boxes_by_id.values()
+        ],
+        "edges": [
+            _serialize_lineage_graph_edge(lineage)
+            for lineage in visible_lineages
+        ],
+        "truncated": truncated,
+        "max_nodes": max_nodes,
+    }
+
+
+def _serialize_lineage_graph_box(box, *, is_root):
+    return {
+        "id": box.id,
+        "global_code": box.global_code,
+        "local_code": box.local_code,
+        "status": box.status,
+        "species_name": box.strain.species.scientific_name,
+        "thermal_zone_name": box.thermal_zone.name if box.thermal_zone else None,
+        "organization_name": box.organization.name,
+        "is_root": is_root,
+    }
+
+
+def _serialize_lineage_graph_edge(lineage):
+    event = lineage.subculture_event
+    return {
+        "id": lineage.id,
+        "source": lineage.parent_box_id,
+        "target": lineage.child_box_id,
+        "relationship_type": lineage.relationship_type,
+        "event": (
+            {
+                "id": event.id,
+                "event_date": event.event_date,
+                "reason": event.reason,
+                "notes": event.notes,
+                "user": event.user.get_username() if event.user else None,
+            }
+            if event
+            else None
+        ),
+    }

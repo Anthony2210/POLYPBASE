@@ -145,13 +145,21 @@ stable endpoints are:
 - `GET /api/health/`: public health check.
 - `GET /api/dashboard/`: overview data for the first app screen.
 - `GET /api/boxes/`: paginated box list, with `q`, `status`, and `organization` filters.
-- `GET /api/boxes/<id>/`: box detail with measurement history.
+- `GET /api/boxes/<id>/`: box detail with measurement history and parent-child lineage.
+- `GET /api/boxes/<id>/lineage/`: complete accessible family graph for interactive navigation.
 - `GET /api/boxes/<id>/measurements/`: biological measurement history for one box.
 - `POST /api/boxes/<id>/measurements/`: create or update the measurement for one date.
 - `POST /api/boxes/<id>/subcultures/`: create a subculture event and one or more child boxes.
 - `GET /api/thermal-zones/`: thermal zones with probes and latest readings.
+- `GET /api/exports/options/`: values available in the cumulative export filters.
+- `GET /api/exports/measurements.csv`: weekly biological tracking export in CSV format.
 - `GET /api/profile/`: current user profile, organizations, and interface language.
 - `PATCH /api/profile/`: update account preferences such as interface language.
+
+The CSV export uses one row per ISO week. Each selected box produces three
+columns for polyp count, ephyrae count, and temperature. Missing measurements
+stay empty, while a recorded zero remains `0`. Filters for organizations,
+species, strains, thermal zones, boxes, and dates can be combined.
 
 French prototype endpoints such as `/api/boites/` and `/api/zones/` have been
 removed. New frontend code should only use the English DRF routes above.
@@ -186,6 +194,9 @@ http://127.0.0.1:5173/
 
 The Django backend must also be running so React can call the `/api/...`
 endpoints.
+
+The export screen is available in the desktop interface. It is intentionally
+hidden from the laboratory tablet navigation.
 
 Check the production build:
 

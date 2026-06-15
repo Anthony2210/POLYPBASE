@@ -9,12 +9,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@xyflow/react": "^12.11.0",
     "react": "18.3.1",
     "react-dom": "18.3.1"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "4.7.0",
+    "@vitejs/plugin-react": "^6.0.2",
     "typescript": "5.8.3",
-    "vite": "6.3.5"
+    "vite": "^8.0.16"
   }
 }
