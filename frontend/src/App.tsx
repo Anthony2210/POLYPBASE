@@ -1,12 +1,15 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
 
 import { ApiError, apiGet, apiPatch, apiPost } from './api/client';
+import SubcultureModal from './components/SubcultureModal';
 import type {
   BiologicalMeasurement,
   BoxDetail,
   BoxItem,
   Dashboard,
   PaginatedResponse,
+  SubculturePayload,
+  SubcultureResult,
   ThermalZone,
   UserProfile,
 } from './types';
@@ -76,6 +79,9 @@ const translations = {
     searchOrScan: 'Recherche ou scan',
     searchPlaceholder: 'Code boîte, espèce, souche',
     suggestions: 'Suggestions',
+    subcultureAction: 'Repiquer',
+    subcultureForbidden: 'Ce compte ne peut pas créer de repiquage.',
+    subcultureSaved: 'Repiquage enregistré',
     temperatureShort: 'Temp.',
     salinityShort: 'Sal.',
     zones: 'Zones',
@@ -123,6 +129,9 @@ const translations = {
     searchOrScan: 'Search or scan',
     searchPlaceholder: 'Box code, species, strain',
     suggestions: 'Suggestions',
+    subcultureAction: 'Subculture',
+    subcultureForbidden: 'This account cannot create subculture events.',
+    subcultureSaved: 'Subculture created',
     temperatureShort: 'Temp.',
     salinityShort: 'Sal.',
     zones: 'Zones',
@@ -309,6 +318,21 @@ export default function App() {
     setData((current) => mergeBoxDetail(current, detail));
   }
 
+  async function createSubculture(boxId: number, payload: SubculturePayload) {
+    await apiPost<SubcultureResult>(`/api/boxes/${boxId}/subcultures/`, payload);
+    const [boxes, detail, dashboard] = await Promise.all([
+      apiGet<PaginatedResponse<BoxItem>>('/api/boxes/?limit=80'),
+      apiGet<BoxDetail>(`/api/boxes/${boxId}/`),
+      apiGet<Dashboard>('/api/dashboard/'),
+    ]);
+
+    setData((current) => ({
+      ...mergeBoxDetail(current, detail),
+      boxes: boxes.results,
+      dashboard,
+    }));
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -348,8 +372,12 @@ export default function App() {
             {activeTab === 'pilotage' && route.boxCode && (
               <BoxPage
                 box={selectedBoxDetail ?? selectedBox}
+                boxes={data.boxes}
+                zones={data.zones}
+                language={language}
                 isLoading={isLoading}
                 onCreateMeasurement={createMeasurement}
+                onCreateSubculture={createSubculture}
                 onBack={closeBoxPage}
                 t={t}
               />
@@ -550,28 +578,43 @@ function JellyfishPattern() {
 
 function BoxPage({
   box,
+  boxes,
+  zones,
+  language,
   isLoading,
   onCreateMeasurement,
+  onCreateSubculture,
   onBack,
   t,
 }: {
   box: BoxItem | BoxDetail | null;
+  boxes: BoxItem[];
+  zones: ThermalZone[];
+  language: Language;
   isLoading: boolean;
   onCreateMeasurement: (boxId: number, payload: MeasurementPayload) => Promise<void>;
+  onCreateSubculture: (boxId: number, payload: SubculturePayload) => Promise<void>;
   onBack: () => void;
   t: TFunction;
 }) {
   const [form, setForm] = useState(() => getInitialMeasurementForm());
   const [isSaving, setIsSaving] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isSubcultureOpen, setIsSubcultureOpen] = useState(false);
+  const [isSavingSubculture, setIsSavingSubculture] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [subcultureError, setSubcultureError] = useState<string | null>(null);
+  const [subcultureMessage, setSubcultureMessage] = useState<string | null>(null);
 
   useEffect(() => {
     setForm(getInitialMeasurementForm());
     setIsHistoryOpen(false);
+    setIsSubcultureOpen(false);
     setSaveError(null);
     setSaveMessage(null);
+    setSubcultureError(null);
+    setSubcultureMessage(null);
   }, [box?.id]);
 
   if (isLoading) {
@@ -621,6 +664,24 @@ function BoxPage({
     }
   }
 
+  async function handleSubculture(payload: SubculturePayload) {
+    if (!box || isSavingSubculture) return;
+
+    setIsSavingSubculture(true);
+    setSubcultureError(null);
+    setSubcultureMessage(null);
+
+    try {
+      await onCreateSubculture(box.id, payload);
+      setIsSubcultureOpen(false);
+      setSubcultureMessage(t('subcultureSaved'));
+    } catch (requestError) {
+      setSubcultureError(getSubcultureSaveError(requestError, t));
+    } finally {
+      setIsSavingSubculture(false);
+    }
+  }
+
   return (
     <section className="box-page">
       <button className="text-button" type="button" onClick={onBack}>
@@ -640,8 +701,15 @@ function BoxPage({
         <div className="box-meta">
           <span>{box.thermal_zone?.name ?? t('noZone')}</span>
           <small>{box.organization.name}</small>
+          <button className="subculture-trigger" type="button" onClick={() => setIsSubcultureOpen(true)}>
+            {t('subcultureAction')}
+          </button>
         </div>
       </header>
+
+      {subcultureMessage ? (
+        <p className="inline-success box-action-feedback">{subcultureMessage}</p>
+      ) : null}
 
       <div className="box-page-grid">
         <header className="box-page-heading tablet-box-heading">
@@ -669,6 +737,9 @@ function BoxPage({
             <button className="history-trigger" type="button" onClick={() => setIsHistoryOpen(true)}>
               <span>{t('historyButton')}</span>
               <strong>{measurements.length}</strong>
+            </button>
+            <button className="subculture-trigger" type="button" onClick={() => setIsSubcultureOpen(true)}>
+              {t('subcultureAction')}
             </button>
           </div>
         </header>
@@ -782,6 +853,19 @@ function BoxPage({
             measurements={measurements}
             onClose={() => setIsHistoryOpen(false)}
             t={t}
+          />
+        ) : null}
+
+        {isSubcultureOpen ? (
+          <SubcultureModal
+            box={box}
+            existingBoxes={boxes}
+            zones={zones}
+            language={language}
+            isSaving={isSavingSubculture}
+            error={subcultureError}
+            onClose={() => setIsSubcultureOpen(false)}
+            onSubmit={handleSubculture}
           />
         ) : null}
       </div>
@@ -1075,6 +1159,14 @@ function formatDisplayDate(value: string) {
 function getMeasurementSaveError(error: unknown, t: TFunction) {
   if (error instanceof ApiError && error.status === 403) {
     return t('measurementForbidden');
+  }
+
+  return getErrorMessage(error);
+}
+
+function getSubcultureSaveError(error: unknown, t: TFunction) {
+  if (error instanceof ApiError && error.status === 403) {
+    return t('subcultureForbidden');
   }
 
   return getErrorMessage(error);
