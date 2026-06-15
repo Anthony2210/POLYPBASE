@@ -70,6 +70,8 @@ export type BoxDetail = BoxItem & {
   stop_reason: string;
   notes: string;
   biological_measurements: BiologicalMeasurement[];
+  scan_url: string;
+  qr_image_url: string;
 };
 
 export type Probe = {

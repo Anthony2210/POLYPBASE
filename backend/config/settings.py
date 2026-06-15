@@ -49,6 +49,11 @@ CSRF_TRUSTED_ORIGINS = [
     if origin.strip()
 ]
 
+# Public base URL embedded in QR codes (no trailing slash). A scanned QR code
+# points to {PUBLIC_BASE_URL}/bac/<id>/, so this must be the address the
+# biologist's phone can reach (the production domain, or the dev server).
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+
 
 # Application definition
 

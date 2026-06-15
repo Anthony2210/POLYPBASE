@@ -191,3 +191,62 @@ class PolypbaseApiTests(TestCase):
         payload = response.json()
         self.assertEqual(payload["interface_language"], UserPreference.InterfaceLanguage.ENGLISH)
         self.assertEqual(payload["organizations"][0]["name"], "Aquarium de Paris")
+
+    def test_box_detail_api_exposes_qr_urls(self):
+        self.client.login(username="tech", password="secret")
+
+        response = self.client.get(reverse("api_box_detail", args=[self.box.id]))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["scan_url"].endswith(f"/bac/{self.box.id}/"))
+        self.assertTrue(payload["qr_image_url"].endswith(f"/boites/{self.box.id}/qr.svg"))
+
+    def test_scan_redirects_to_detail_and_logs_scan(self):
+        self.client.login(username="tech", password="secret")
+
+        response = self.client.get(reverse("scan_boite", args=[self.box.id]))
+
+        self.assertRedirects(
+            response,
+            reverse("detail_boite", args=[self.box.id]),
+            target_status_code=200,
+        )
+        self.assertEqual(
+            AuditLog.objects.filter(
+                action=AuditLog.Action.SCAN, object_id=self.box.global_code
+            ).count(),
+            1,
+        )
+
+    def test_scan_requires_login(self):
+        response = self.client.get(reverse("scan_boite", args=[self.box.id]))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/accounts/login/", response["Location"])
+
+    def test_scan_is_scoped_to_authorized_boxes(self):
+        other_box = Box.objects.get(global_code="AAU-1.001-TKY")
+        self.client.login(username="tech", password="secret")
+
+        response = self.client.get(reverse("scan_boite", args=[other_box.id]))
+
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(AuditLog.objects.filter(action=AuditLog.Action.SCAN).exists())
+
+    def test_qr_endpoint_returns_svg(self):
+        self.client.login(username="tech", password="secret")
+
+        response = self.client.get(reverse("qr_boite", args=[self.box.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "image/svg+xml")
+        self.assertIn(b"svg", response.content)
+
+    def test_qr_endpoint_is_scoped_to_authorized_boxes(self):
+        other_box = Box.objects.get(global_code="AAU-1.001-TKY")
+        self.client.login(username="tech", password="secret")
+
+        response = self.client.get(reverse("qr_boite", args=[other_box.id]))
+
+        self.assertEqual(response.status_code, 404)
