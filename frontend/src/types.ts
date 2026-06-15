@@ -69,7 +69,62 @@ export type BoxDetail = BoxItem & {
   volume_liters: string | null;
   stop_reason: string;
   notes: string;
+  lineage: BoxLineage;
   biological_measurements: BiologicalMeasurement[];
+};
+
+export type LineageEvent = {
+  id: number;
+  event_date: string;
+  reason: string;
+  notes: string;
+  user: string | null;
+};
+
+export type LineageRelation = {
+  id: number;
+  relationship_type: string;
+  box: {
+    id: number;
+    global_code: string;
+    local_code: string;
+    status: string;
+    species_name: string;
+    thermal_zone_name: string | null;
+  };
+  event: LineageEvent | null;
+};
+
+export type BoxLineage = {
+  parents: LineageRelation[];
+  children: LineageRelation[];
+};
+
+export type LineageGraphNode = {
+  id: number;
+  global_code: string;
+  local_code: string;
+  status: string;
+  species_name: string;
+  thermal_zone_name: string | null;
+  organization_name: string;
+  is_root: boolean;
+};
+
+export type LineageGraphEdge = {
+  id: number;
+  source: number;
+  target: number;
+  relationship_type: string;
+  event: LineageEvent | null;
+};
+
+export type LineageGraph = {
+  root_box_id: number;
+  nodes: LineageGraphNode[];
+  edges: LineageGraphEdge[];
+  truncated: boolean;
+  max_nodes: number;
 };
 
 export type SubcultureChildPayload = {
@@ -160,5 +215,36 @@ export type UserProfile = {
   available_languages: Array<{
     code: string;
     label: string;
+  }>;
+};
+
+export type ExportOptions = {
+  organizations: Array<{
+    id: number;
+    name: string;
+  }>;
+  species: Array<{
+    id: number;
+    name: string;
+  }>;
+  strains: Array<{
+    id: number;
+    code: string;
+    species_id: number;
+    species_name: string;
+  }>;
+  boxes: Array<{
+    id: number;
+    global_code: string;
+    local_code: string;
+    species_id: number;
+    strain_id: number;
+    thermal_zone_id: number | null;
+    organization_id: number;
+  }>;
+  zones: Array<{
+    id: number;
+    name: string;
+    organization_id: number;
   }>;
 };

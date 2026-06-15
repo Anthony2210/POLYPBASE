@@ -28,11 +28,12 @@ from .serializers import (
     SubcultureEventSerializer,
     ThermalZoneSerializer,
 )
-from .services import create_subculture
+from .services import build_lineage_graph, create_subculture
 
 
 def box_queryset_for_user(user):
     """Return boxes the user can access, with data needed by serializers."""
+    organization_ids = get_authorized_organization_ids(user)
     return Box.objects.select_related(
         "organization",
         "strain",
@@ -51,14 +52,32 @@ def box_queryset_for_user(user):
         ),
         Prefetch(
             "parent_lineages",
-            queryset=BoxLineage.objects.select_related("parent_box", "child_box"),
+            queryset=BoxLineage.objects.filter(
+                parent_box__organization_id__in=organization_ids,
+            ).select_related(
+                "parent_box",
+                "parent_box__strain",
+                "parent_box__strain__species",
+                "parent_box__thermal_zone",
+                "subculture_event",
+                "subculture_event__user",
+            ),
         ),
         Prefetch(
             "child_lineages",
-            queryset=BoxLineage.objects.select_related("parent_box", "child_box"),
+            queryset=BoxLineage.objects.filter(
+                child_box__organization_id__in=organization_ids,
+            ).select_related(
+                "child_box",
+                "child_box__strain",
+                "child_box__strain__species",
+                "child_box__thermal_zone",
+                "subculture_event",
+                "subculture_event__user",
+            ),
         ),
         "tags",
-    ).filter(organization_id__in=get_authorized_organization_ids(user))
+    ).filter(organization_id__in=organization_ids)
 
 
 class HealthAPIView(APIView):
@@ -235,6 +254,17 @@ class BoxSubcultureCreateAPIView(generics.GenericAPIView):
             context={"child_boxes": child_boxes},
         )
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+
+class BoxLineageGraphAPIView(APIView):
+    def get(self, request, box_id):
+        root_box = get_object_or_404(box_queryset_for_user(request.user), id=box_id)
+        return Response(
+            build_lineage_graph(
+                root_box=root_box,
+                organization_ids=get_authorized_organization_ids(request.user),
+            )
+        )
 
 
 class ThermalZoneListAPIView(generics.ListAPIView):

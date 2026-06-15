@@ -135,17 +135,33 @@ class BoxDetailSerializer(BoxListSerializer):
         parent_lineages = _prefetched_list(obj, "parent_lineages")
         child_lineages = _prefetched_list(obj, "child_lineages")
         if parent_lineages is None:
-            parent_lineages = obj.parent_lineages.select_related("parent_box", "child_box")
+            parent_lineages = obj.parent_lineages.select_related(
+                "parent_box",
+                "parent_box__strain",
+                "parent_box__strain__species",
+                "parent_box__thermal_zone",
+                "subculture_event",
+                "subculture_event__user",
+            )
         if child_lineages is None:
-            child_lineages = obj.child_lineages.select_related("parent_box", "child_box")
-        return [
-            {
-                "parent": lineage.parent_box.global_code,
-                "child": lineage.child_box.global_code,
-                "relationship_type": lineage.relationship_type,
-            }
-            for lineage in list(parent_lineages) + list(child_lineages)
-        ]
+            child_lineages = obj.child_lineages.select_related(
+                "child_box",
+                "child_box__strain",
+                "child_box__strain__species",
+                "child_box__thermal_zone",
+                "subculture_event",
+                "subculture_event__user",
+            )
+        return {
+            "parents": [
+                _serialize_lineage_relation(lineage, lineage.parent_box)
+                for lineage in parent_lineages
+            ],
+            "children": [
+                _serialize_lineage_relation(lineage, lineage.child_box)
+                for lineage in child_lineages
+            ],
+        }
 
 
 class BiologicalMeasurementCreateSerializer(serializers.ModelSerializer):
@@ -345,3 +361,34 @@ def _first_prefetched(obj, related_name):
     if values is None:
         return None
     return next(iter(values), None)
+
+
+def _serialize_lineage_relation(lineage, related_box):
+    event = lineage.subculture_event
+    return {
+        "id": lineage.id,
+        "relationship_type": lineage.relationship_type,
+        "box": {
+            "id": related_box.id,
+            "global_code": related_box.global_code,
+            "local_code": related_box.local_code,
+            "status": related_box.status,
+            "species_name": related_box.strain.species.scientific_name,
+            "thermal_zone_name": (
+                related_box.thermal_zone.name
+                if related_box.thermal_zone
+                else None
+            ),
+        },
+        "event": (
+            {
+                "id": event.id,
+                "event_date": event.event_date,
+                "reason": event.reason,
+                "notes": event.notes,
+                "user": event.user.get_username() if event.user else None,
+            }
+            if event
+            else None
+        ),
+    }

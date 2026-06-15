@@ -105,6 +105,144 @@ class PolypbaseApiTests(TestCase):
         self.assertEqual(payload["global_code"], "AAU-1.001-ATL")
         self.assertEqual(payload["biological_measurements"][0]["polyp_count"], 42)
 
+    def test_drf_box_detail_returns_parent_and_child_lineage(self):
+        child_box = Box.objects.create(
+            organization=self.organization,
+            global_code="AAU-1.004-ATL",
+            box_number="004",
+            strain=self.strain,
+            thermal_zone=self.zone,
+        )
+        event = SubcultureEvent.objects.create(
+            parent_box=self.box,
+            event_date=date(2026, 6, 15),
+            user=self.user,
+            reason="High polyp density",
+            notes="Child box created during the weekly check.",
+        )
+        BoxLineage.objects.create(
+            parent_box=self.box,
+            child_box=child_box,
+            subculture_event=event,
+        )
+        self.client.login(username="tech", password="secret")
+
+        parent_response = self.client.get(reverse("api_box_detail", args=[self.box.id]))
+        child_response = self.client.get(reverse("api_box_detail", args=[child_box.id]))
+
+        self.assertEqual(parent_response.status_code, 200)
+        parent_lineage = parent_response.json()["lineage"]
+        self.assertEqual(parent_lineage["parents"], [])
+        self.assertEqual(parent_lineage["children"][0]["box"]["global_code"], child_box.global_code)
+        self.assertEqual(parent_lineage["children"][0]["event"]["event_date"], "2026-06-15")
+        self.assertEqual(parent_lineage["children"][0]["event"]["user"], self.user.username)
+
+        self.assertEqual(child_response.status_code, 200)
+        child_lineage = child_response.json()["lineage"]
+        self.assertEqual(child_lineage["children"], [])
+        self.assertEqual(child_lineage["parents"][0]["box"]["global_code"], self.box.global_code)
+        self.assertEqual(
+            child_lineage["parents"][0]["event"]["reason"],
+            "High polyp density",
+        )
+
+    def test_drf_box_detail_hides_lineage_from_another_organization(self):
+        foreign_box = Box.objects.get(global_code="AAU-1.001-TKY")
+        event = SubcultureEvent.objects.create(
+            parent_box=self.box,
+            event_date=date(2026, 6, 15),
+            user=self.user,
+        )
+        BoxLineage.objects.create(
+            parent_box=self.box,
+            child_box=foreign_box,
+            subculture_event=event,
+        )
+        self.client.login(username="tech", password="secret")
+
+        response = self.client.get(reverse("api_box_detail", args=[self.box.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["lineage"]["children"], [])
+
+    def test_drf_lineage_graph_returns_all_accessible_generations(self):
+        child_box = Box.objects.create(
+            organization=self.organization,
+            global_code="AAU-1.004-ATL",
+            box_number="004",
+            strain=self.strain,
+            thermal_zone=self.zone,
+        )
+        grandchild_box = Box.objects.create(
+            organization=self.organization,
+            global_code="AAU-1.005-ATL",
+            box_number="005",
+            strain=self.strain,
+            thermal_zone=self.zone,
+            status=Box.Status.STOPPED,
+        )
+        first_event = SubcultureEvent.objects.create(
+            parent_box=self.box,
+            event_date=date(2026, 6, 10),
+            user=self.user,
+        )
+        second_event = SubcultureEvent.objects.create(
+            parent_box=child_box,
+            event_date=date(2026, 6, 15),
+            user=self.user,
+        )
+        BoxLineage.objects.create(
+            parent_box=self.box,
+            child_box=child_box,
+            subculture_event=first_event,
+        )
+        BoxLineage.objects.create(
+            parent_box=child_box,
+            child_box=grandchild_box,
+            subculture_event=second_event,
+        )
+        self.client.login(username="tech", password="secret")
+
+        response = self.client.get(reverse("api_box_lineage", args=[child_box.id]))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["root_box_id"], child_box.id)
+        self.assertEqual(
+            {node["global_code"] for node in payload["nodes"]},
+            {self.box.global_code, child_box.global_code, grandchild_box.global_code},
+        )
+        self.assertEqual(len(payload["edges"]), 2)
+        self.assertFalse(payload["truncated"])
+        self.assertTrue(
+            next(node for node in payload["nodes"] if node["id"] == child_box.id)["is_root"]
+        )
+        self.assertEqual(
+            next(node for node in payload["nodes"] if node["id"] == grandchild_box.id)["status"],
+            Box.Status.STOPPED,
+        )
+
+    def test_drf_lineage_graph_excludes_other_organizations(self):
+        foreign_box = Box.objects.get(global_code="AAU-1.001-TKY")
+        event = SubcultureEvent.objects.create(
+            parent_box=self.box,
+            event_date=date(2026, 6, 15),
+            user=self.user,
+        )
+        BoxLineage.objects.create(
+            parent_box=self.box,
+            child_box=foreign_box,
+            subculture_event=event,
+        )
+        self.client.login(username="tech", password="secret")
+
+        response = self.client.get(reverse("api_box_lineage", args=[self.box.id]))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual([node["global_code"] for node in payload["nodes"]], [self.box.global_code])
+        self.assertEqual(payload["edges"], [])
+
     def test_drf_measurement_endpoint_creates_a_measurement(self):
         self.client.login(username="tech", password="secret")
 

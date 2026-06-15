@@ -1,1 +1,203 @@
-"""CSV and XLSX export logic will live here."""
+import csv
+from collections import Counter
+from datetime import timedelta
+from io import StringIO
+
+from django.db.models import Prefetch
+from django.utils import timezone
+
+from apps.cultures.models import BoxLocation
+from apps.measurements.models import BiologicalMeasurement, DailyTemperature
+
+
+def build_weekly_measurement_csv(*, boxes, date_from=None, date_to=None):
+    """Build a weekly wide CSV similar to the historical tracking workbooks."""
+    selected_boxes = list(
+        boxes.select_related(
+            "organization",
+            "strain",
+            "strain__species",
+            "thermal_zone",
+        ).prefetch_related(
+            Prefetch(
+                "locations",
+                queryset=BoxLocation.objects.select_related("thermal_zone"),
+            )
+        )
+    )
+    export_codes = _build_export_codes(selected_boxes)
+    selected_boxes.sort(key=lambda box: export_codes[box.id])
+
+    measurements = BiologicalMeasurement.objects.filter(
+        box_id__in=[box.id for box in selected_boxes],
+    ).select_related(
+        "box",
+        "box__thermal_zone",
+    ).order_by(
+        "measured_on",
+        "created_at",
+    )
+
+    if date_from:
+        measurements = measurements.filter(measured_on__gte=date_from)
+    if date_to:
+        measurements = measurements.filter(measured_on__lte=date_to)
+
+    measurement_list = list(measurements)
+    measurement_by_week_and_box = {}
+    for measurement in measurement_list:
+        week_key = _iso_week_key(measurement.measured_on)
+        measurement_by_week_and_box[(week_key, measurement.box_id)] = measurement
+
+    effective_start, effective_end = _get_effective_period(
+        measurement_list=measurement_list,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    week_keys = _iter_iso_weeks(effective_start, effective_end)
+
+    zone_ids = {
+        zone_id
+        for box in selected_boxes
+        for zone_id in _box_zone_ids(box)
+    }
+    temperature_dates = {
+        measurement.measured_on
+        for measurement in measurement_list
+    }
+    daily_temperatures = {
+        (temperature.thermal_zone_id, temperature.date): temperature.average_temperature_c
+        for temperature in DailyTemperature.objects.filter(
+            thermal_zone_id__in=zone_ids,
+            date__in=temperature_dates,
+        )
+    }
+
+    output = StringIO(newline="")
+    writer = csv.writer(output, lineterminator="\n")
+    header = ["Date"]
+    for box in selected_boxes:
+        code = export_codes[box.id]
+        header.extend(
+            [
+                f"{code}_polypes",
+                f"{code}_ephyrules",
+                f"{code}_temperature",
+            ]
+        )
+    writer.writerow(header)
+
+    for week_key in week_keys:
+        row = [f"{week_key[0]}_S{week_key[1]}"]
+        for box in selected_boxes:
+            measurement = measurement_by_week_and_box.get((week_key, box.id))
+            if measurement is None:
+                row.extend(["", "", ""])
+                continue
+
+            temperature = _measurement_temperature(
+                box=box,
+                measured_on=measurement.measured_on,
+                daily_temperatures=daily_temperatures,
+            )
+            row.extend(
+                [
+                    measurement.polyp_count,
+                    measurement.ephyrae_count,
+                    _format_decimal(temperature),
+                ]
+            )
+        writer.writerow(row)
+
+    return output.getvalue(), {
+        "box_count": len(selected_boxes),
+        "measurement_count": len(measurement_list),
+        "week_count": len(week_keys),
+        "date_from": effective_start,
+        "date_to": effective_end,
+    }
+
+
+def _build_export_codes(boxes):
+    local_code_counts = Counter(
+        box.local_code.strip()
+        for box in boxes
+        if box.local_code.strip()
+    )
+    return {
+        box.id: (
+            box.local_code.strip()
+            if box.local_code.strip() and local_code_counts[box.local_code.strip()] == 1
+            else box.global_code
+        )
+        for box in boxes
+    }
+
+
+def _get_effective_period(*, measurement_list, date_from, date_to):
+    measurement_dates = [measurement.measured_on for measurement in measurement_list]
+    first_measurement = min(measurement_dates) if measurement_dates else None
+    last_measurement = max(measurement_dates) if measurement_dates else None
+
+    effective_start = date_from or first_measurement or date_to
+    effective_end = date_to or last_measurement or date_from
+    return effective_start, effective_end
+
+
+def _iter_iso_weeks(start_date, end_date):
+    if not start_date or not end_date:
+        return []
+
+    current_monday = start_date - timedelta(days=start_date.weekday())
+    end_monday = end_date - timedelta(days=end_date.weekday())
+    week_keys = []
+
+    while current_monday <= end_monday:
+        week_keys.append(_iso_week_key(current_monday))
+        current_monday += timedelta(days=7)
+
+    return week_keys
+
+
+def _iso_week_key(value):
+    iso_calendar = value.isocalendar()
+    return iso_calendar.year, iso_calendar.week
+
+
+def _box_zone_ids(box):
+    zone_ids = {box.thermal_zone_id} if box.thermal_zone_id else set()
+    zone_ids.update(location.thermal_zone_id for location in box.locations.all())
+    return zone_ids
+
+
+def _measurement_temperature(*, box, measured_on, daily_temperatures):
+    thermal_zone = _thermal_zone_for_date(box, measured_on)
+    if thermal_zone is None:
+        return None
+
+    measured_temperature = daily_temperatures.get((thermal_zone.id, measured_on))
+    if measured_temperature is not None:
+        return measured_temperature
+    return thermal_zone.target_temperature_c
+
+
+def _thermal_zone_for_date(box, measured_on):
+    for location in box.locations.all():
+        starts_on = _local_date(location.starts_at)
+        ends_on = _local_date(location.ends_at) if location.ends_at else None
+        if starts_on <= measured_on and (ends_on is None or measured_on <= ends_on):
+            return location.thermal_zone
+    return box.thermal_zone
+
+
+def _local_date(value):
+    if timezone.is_aware(value):
+        return timezone.localtime(value).date()
+    return value.date()
+
+
+def _format_decimal(value):
+    if value is None:
+        return ""
+    text = format(value, "f")
+    return text.rstrip("0").rstrip(".") if "." in text else text
