@@ -1,23 +1,35 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
 
 import { ApiError, apiGet, apiPatch, apiPost } from './api/client';
+import { getBoxStatusPresentation } from './boxStatus';
+import ExportsView from './components/ExportsView';
+import LineageModal from './components/LineageModal';
+import MoveBoxModal from './components/MoveBoxModal';
+import SubcultureModal from './components/SubcultureModal';
 import type {
   BiologicalMeasurement,
   BoxDetail,
   BoxItem,
+  BoxLineage,
+  BoxMovePayload,
   Dashboard,
+  ExportOptions,
+  LineageGraph,
   PaginatedResponse,
+  SubculturePayload,
+  SubcultureResult,
   ThermalZone,
   UserProfile,
 } from './types';
 
-type TabId = 'pilotage' | 'zones' | 'profile';
+type TabId = 'pilotage' | 'zones' | 'exports' | 'profile';
 
 type AppData = {
   boxes: BoxItem[];
   boxDetails: Record<number, BoxDetail>;
   zones: ThermalZone[];
   dashboard: Dashboard | null;
+  exportOptions: ExportOptions | null;
   profile: UserProfile | null;
 };
 
@@ -45,16 +57,22 @@ const translations = {
     close: 'Fermer',
     ephyrae: 'Éphyr.',
     ephyraeFull: 'Éphyrules',
+    exports: 'Exports',
+    exportsTitle: 'Exporter les données',
     historyButton: 'Voir relevés',
     lastComment: 'Dernier commentaire',
     lastMeasurement: 'Dernier relevé',
     laboratoryTracking: 'Suivi laboratoire',
+    lineageAction: 'Parenté',
     loginAction: 'Se connecter',
     loginRequired: 'Connexion requise',
     measurementDate: 'Date du relevé',
     measurementForbidden: 'Ce compte ne peut pas créer de relevé.',
     measurementHistory: 'Historique des relevés',
     measurementSaved: 'Relevé enregistré',
+    moveAction: 'Déplacer',
+    moveForbidden: 'Ce compte ne peut pas déplacer de boîte.',
+    moveSaved: 'Déplacement enregistré',
     newMeasurement: 'Nouveau relevé',
     noComment: 'Aucun commentaire récent pour cette boîte.',
     noDate: 'aucune date',
@@ -80,6 +98,9 @@ const translations = {
     searchOrScan: 'Recherche ou scan',
     searchPlaceholder: 'Code boîte, espèce, souche',
     suggestions: 'Suggestions',
+    subcultureAction: 'Repiquer',
+    subcultureForbidden: 'Ce compte ne peut pas créer de repiquage.',
+    subcultureSaved: 'Repiquage enregistré',
     temperatureShort: 'Temp.',
     salinityShort: 'Sal.',
     zones: 'Zones',
@@ -95,16 +116,22 @@ const translations = {
     close: 'Close',
     ephyrae: 'Ephyrae',
     ephyraeFull: 'Ephyrae',
+    exports: 'Exports',
+    exportsTitle: 'Export data',
     historyButton: 'View records',
     lastComment: 'Last comment',
     lastMeasurement: 'Last measurement',
     laboratoryTracking: 'Lab tracking',
+    lineageAction: 'Lineage',
     loginAction: 'Sign in',
     loginRequired: 'Sign-in required',
     measurementDate: 'Measurement date',
     measurementForbidden: 'This account cannot create measurements.',
     measurementHistory: 'Measurement history',
     measurementSaved: 'Measurement saved',
+    moveAction: 'Move',
+    moveForbidden: 'This account cannot move boxes.',
+    moveSaved: 'Movement saved',
     newMeasurement: 'New measurement',
     noComment: 'No recent comment for this box.',
     noDate: 'no date',
@@ -130,6 +157,9 @@ const translations = {
     searchOrScan: 'Search or scan',
     searchPlaceholder: 'Box code, species, strain',
     suggestions: 'Suggestions',
+    subcultureAction: 'Subculture',
+    subcultureForbidden: 'This account cannot create subculture events.',
+    subcultureSaved: 'Subculture created',
     temperatureShort: 'Temp.',
     salinityShort: 'Sal.',
     zones: 'Zones',
@@ -141,7 +171,7 @@ type Language = keyof typeof translations;
 type TranslationKey = keyof typeof translations.fr;
 type TFunction = (key: TranslationKey) => string;
 
-const tabs: TabId[] = ['pilotage', 'zones', 'profile'];
+const tabs: TabId[] = ['pilotage', 'zones', 'exports', 'profile'];
 
 export default function App() {
   const [route, setRoute] = useState<RouteState>(() => getCurrentRoute());
@@ -152,6 +182,7 @@ export default function App() {
     boxDetails: {},
     zones: [],
     dashboard: null,
+    exportOptions: null,
     profile: null,
   });
   const [isLoading, setIsLoading] = useState(true);
@@ -180,10 +211,11 @@ export default function App() {
         setIsLoading(true);
         setError(null);
 
-        const [boxes, zones, dashboard, profile] = await Promise.all([
+        const [boxes, zones, dashboard, exportOptions, profile] = await Promise.all([
           apiGet<PaginatedResponse<BoxItem>>('/api/boxes/?limit=80'),
           apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80'),
           apiGet<Dashboard>('/api/dashboard/'),
+          apiGet<ExportOptions>('/api/exports/options/'),
           apiGet<UserProfile>('/api/profile/'),
         ]);
 
@@ -194,6 +226,7 @@ export default function App() {
           boxDetails: {},
           zones: zones.results,
           dashboard,
+          exportOptions,
           profile,
         });
         setRecentBoxIds((currentIds) => {
@@ -281,25 +314,41 @@ export default function App() {
       .slice(0, 5);
   }, [data.boxes, recentBoxIds]);
 
-  function openBox(boxId: number) {
+  function openBox(boxId: number, fallbackCode?: string) {
     const box = data.boxes.find((item) => item.id === boxId);
-    if (!box) return;
+    const globalCode = box?.global_code ?? fallbackCode;
+    if (!globalCode) return;
 
-    setRecentBoxIds((currentIds) => [
-      boxId,
-      ...currentIds.filter((currentId) => currentId !== boxId),
-    ].slice(0, 5));
-    setSearch(box.global_code);
-    navigateTo(
-      { tab: 'pilotage', boxCode: box.global_code, boxId: null },
-      `/boxes/${encodeURIComponent(box.global_code)}`,
-    );
+    if (box) {
+      setRecentBoxIds((currentIds) => [
+        boxId,
+        ...currentIds.filter((currentId) => currentId !== boxId),
+      ].slice(0, 5));
+    } else {
+      void apiGet<BoxDetail>(`/api/boxes/${boxId}/`)
+        .then((detail) => {
+          setData((current) => ({
+            ...current,
+            boxes: current.boxes.some((item) => item.id === detail.id)
+              ? current.boxes
+              : [...current.boxes, detail],
+            boxDetails: {
+              ...current.boxDetails,
+              [detail.id]: detail,
+            },
+          }));
+        })
+        .catch((requestError) => setError(getErrorMessage(requestError)));
+    }
+    setSearch(globalCode);
+    navigateTo({ tab: 'pilotage', boxCode: globalCode, boxId: null }, `/boxes/${encodeURIComponent(globalCode)}`);
   }
 
   function openTab(tab: TabId) {
     const paths: Record<TabId, string> = {
       pilotage: '/',
       zones: '/zones',
+      exports: '/exports',
       profile: '/profile',
     };
     navigateTo({ tab, boxCode: null, boxId: null }, paths[tab]);
@@ -332,6 +381,45 @@ export default function App() {
     setData((current) => mergeBoxDetail(current, detail));
   }
 
+  async function createSubculture(boxId: number, payload: SubculturePayload) {
+    await apiPost<SubcultureResult>(`/api/boxes/${boxId}/subcultures/`, payload);
+    const [boxes, detail, dashboard, exportOptions] = await Promise.all([
+      apiGet<PaginatedResponse<BoxItem>>('/api/boxes/?limit=80'),
+      apiGet<BoxDetail>(`/api/boxes/${boxId}/`),
+      apiGet<Dashboard>('/api/dashboard/'),
+      apiGet<ExportOptions>('/api/exports/options/'),
+    ]);
+
+    setData((current) => ({
+      ...mergeBoxDetail(current, detail),
+      boxes: boxes.results,
+      dashboard,
+      exportOptions,
+    }));
+  }
+
+  async function moveBox(boxId: number, payload: BoxMovePayload) {
+    const detail = await apiPost<BoxDetail>(`/api/boxes/${boxId}/move/`, payload);
+    const [boxes, zones, dashboard, exportOptions] = await Promise.all([
+      apiGet<PaginatedResponse<BoxItem>>('/api/boxes/?limit=80'),
+      apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80'),
+      apiGet<Dashboard>('/api/dashboard/'),
+      apiGet<ExportOptions>('/api/exports/options/'),
+    ]);
+
+    setData((current) => ({
+      ...mergeBoxDetail(current, detail),
+      boxes: boxes.results,
+      zones: zones.results,
+      dashboard,
+      exportOptions,
+    }));
+  }
+
+  async function loadLineageGraph(boxId: number) {
+    return apiGet<LineageGraph>(`/api/boxes/${boxId}/lineage/`);
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -347,7 +435,7 @@ export default function App() {
           {tabs.map((tab) => (
             <button
               key={tab}
-              className={tab === activeTab ? 'tab is-active' : 'tab'}
+              className={tab === activeTab ? `tab tab-${tab} is-active` : `tab tab-${tab}`}
               type="button"
               onClick={() => openTab(tab)}
             >
@@ -371,8 +459,15 @@ export default function App() {
             {activeTab === 'pilotage' && isBoxRoute && (
               <BoxPage
                 box={selectedBoxDetail ?? selectedBox}
+                boxes={data.boxes}
+                zones={data.zones}
+                language={language}
                 isLoading={isLoading || isBoxLoading}
                 onCreateMeasurement={createMeasurement}
+                onCreateSubculture={createSubculture}
+                onMoveBox={moveBox}
+                onLoadLineageGraph={loadLineageGraph}
+                onOpenBox={openBox}
                 onBack={closeBoxPage}
                 t={t}
               />
@@ -391,6 +486,14 @@ export default function App() {
             )}
 
             {activeTab === 'zones' && <ZonesView isLoading={isLoading} zones={data.zones} t={t} />}
+
+            {activeTab === 'exports' && (
+              <ExportsView
+                isLoading={isLoading}
+                options={data.exportOptions}
+                language={language}
+              />
+            )}
 
             {activeTab === 'profile' && (
               <ProfileView
@@ -573,28 +676,65 @@ function JellyfishPattern() {
 
 function BoxPage({
   box,
+  boxes,
+  zones,
+  language,
   isLoading,
   onCreateMeasurement,
+  onCreateSubculture,
+  onMoveBox,
+  onLoadLineageGraph,
+  onOpenBox,
   onBack,
   t,
 }: {
   box: BoxItem | BoxDetail | null;
+  boxes: BoxItem[];
+  zones: ThermalZone[];
+  language: Language;
   isLoading: boolean;
   onCreateMeasurement: (boxId: number, payload: MeasurementPayload) => Promise<void>;
+  onCreateSubculture: (boxId: number, payload: SubculturePayload) => Promise<void>;
+  onMoveBox: (boxId: number, payload: BoxMovePayload) => Promise<void>;
+  onLoadLineageGraph: (boxId: number) => Promise<LineageGraph>;
+  onOpenBox: (boxId: number, globalCode: string) => void;
   onBack: () => void;
   t: TFunction;
 }) {
   const [form, setForm] = useState(() => getInitialMeasurementForm());
   const [isSaving, setIsSaving] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isLineageOpen, setIsLineageOpen] = useState(false);
+  const [lineageGraph, setLineageGraph] = useState<LineageGraph | null>(null);
+  const [isLineageGraphLoading, setIsLineageGraphLoading] = useState(false);
+  const [lineageGraphError, setLineageGraphError] = useState<string | null>(null);
+  const [isMoveOpen, setIsMoveOpen] = useState(false);
+  const [isSavingMove, setIsSavingMove] = useState(false);
+  const [moveError, setMoveError] = useState<string | null>(null);
+  const [moveMessage, setMoveMessage] = useState<string | null>(null);
+  const [isSubcultureOpen, setIsSubcultureOpen] = useState(false);
+  const [isSavingSubculture, setIsSavingSubculture] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [subcultureError, setSubcultureError] = useState<string | null>(null);
+  const [subcultureMessage, setSubcultureMessage] = useState<string | null>(null);
 
   useEffect(() => {
     setForm(getInitialMeasurementForm());
     setIsHistoryOpen(false);
+    setIsLineageOpen(false);
+    setLineageGraph(null);
+    setIsLineageGraphLoading(false);
+    setLineageGraphError(null);
+    setIsMoveOpen(false);
+    setIsSavingMove(false);
+    setMoveError(null);
+    setMoveMessage(null);
+    setIsSubcultureOpen(false);
     setSaveError(null);
     setSaveMessage(null);
+    setSubcultureError(null);
+    setSubcultureMessage(null);
   }, [box?.id]);
 
   if (isLoading) {
@@ -620,6 +760,8 @@ function BoxPage({
   const measurements = getMeasurementHistory(box);
   const lastComment = getLatestComment(measurements, box);
   const qr = 'qr_image_url' in box ? { imageUrl: box.qr_image_url, scanUrl: box.scan_url } : null;
+  const lineage = getBoxLineage(box);
+  const lineageCount = lineage.parents.length + lineage.children.length;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -645,6 +787,58 @@ function BoxPage({
     }
   }
 
+  async function handleSubculture(payload: SubculturePayload) {
+    if (!box || isSavingSubculture) return;
+
+    setIsSavingSubculture(true);
+    setSubcultureError(null);
+    setSubcultureMessage(null);
+
+    try {
+      await onCreateSubculture(box.id, payload);
+      setIsSubcultureOpen(false);
+      setSubcultureMessage(t('subcultureSaved'));
+    } catch (requestError) {
+      setSubcultureError(getSubcultureSaveError(requestError, t));
+    } finally {
+      setIsSavingSubculture(false);
+    }
+  }
+
+  async function handleMove(payload: BoxMovePayload) {
+    if (!box || isSavingMove) return;
+
+    setIsSavingMove(true);
+    setMoveError(null);
+    setMoveMessage(null);
+
+    try {
+      await onMoveBox(box.id, payload);
+      setIsMoveOpen(false);
+      setMoveMessage(t('moveSaved'));
+    } catch (requestError) {
+      setMoveError(getMoveSaveError(requestError, t));
+    } finally {
+      setIsSavingMove(false);
+    }
+  }
+
+  async function handleOpenLineage() {
+    if (!box) return;
+
+    setIsLineageOpen(true);
+    setIsLineageGraphLoading(true);
+    setLineageGraphError(null);
+
+    try {
+      setLineageGraph(await onLoadLineageGraph(box.id));
+    } catch (requestError) {
+      setLineageGraphError(getErrorMessage(requestError));
+    } finally {
+      setIsLineageGraphLoading(false);
+    }
+  }
+
   return (
     <section className="box-page">
       <button className="text-button" type="button" onClick={onBack}>
@@ -657,7 +851,13 @@ function BoxPage({
         <div>
           <div className="box-code-line">
             <h2>{box.global_code}</h2>
-            <span>{formatStatus(box.status)}</span>
+            <span
+              className={`box-life-status is-${
+                getBoxStatusPresentation(box.status, language).tone
+              }`}
+            >
+              {getBoxStatusPresentation(box.status, language).label}
+            </span>
           </div>
           <p>{box.species.scientific_name}</p>
         </div>
@@ -669,15 +869,38 @@ function BoxPage({
         <div className="box-meta">
           <span>{box.thermal_zone?.name ?? t('noZone')}</span>
           <small>{box.organization.name}</small>
+          <button className="lineage-trigger" type="button" onClick={handleOpenLineage}>
+            <span>{t('lineageAction')}</span>
+            <strong>{lineageCount}</strong>
+          </button>
+          <button className="move-trigger" type="button" onClick={() => setIsMoveOpen(true)}>
+            {t('moveAction')}
+          </button>
+          <button className="subculture-trigger" type="button" onClick={() => setIsSubcultureOpen(true)}>
+            {t('subcultureAction')}
+          </button>
         </div>
       </header>
+
+      {subcultureMessage ? (
+        <p className="inline-success box-action-feedback">{subcultureMessage}</p>
+      ) : null}
+      {moveMessage ? (
+        <p className="inline-success box-action-feedback">{moveMessage}</p>
+      ) : null}
 
       <div className="box-page-grid">
         <header className="box-page-heading tablet-box-heading">
           <div className="box-identity">
             <div className="box-code-line">
               <h2>{box.global_code}</h2>
-              <span>{formatStatus(box.status)}</span>
+              <span
+                className={`box-life-status is-${
+                  getBoxStatusPresentation(box.status, language).tone
+                }`}
+              >
+                {getBoxStatusPresentation(box.status, language).label}
+              </span>
             </div>
             <p>{box.species.scientific_name}</p>
           </div>
@@ -698,6 +921,16 @@ function BoxPage({
             <button className="history-trigger" type="button" onClick={() => setIsHistoryOpen(true)}>
               <span>{t('historyButton')}</span>
               <strong>{measurements.length}</strong>
+            </button>
+            <button className="lineage-trigger" type="button" onClick={handleOpenLineage}>
+              <span>{t('lineageAction')}</span>
+              <strong>{lineageCount}</strong>
+            </button>
+            <button className="move-trigger" type="button" onClick={() => setIsMoveOpen(true)}>
+              {t('moveAction')}
+            </button>
+            <button className="subculture-trigger" type="button" onClick={() => setIsSubcultureOpen(true)}>
+              {t('subcultureAction')}
             </button>
           </div>
         </header>
@@ -826,6 +1059,46 @@ function BoxPage({
             measurements={measurements}
             onClose={() => setIsHistoryOpen(false)}
             t={t}
+          />
+        ) : null}
+
+        {isLineageOpen ? (
+          <LineageModal
+            lineage={lineage}
+            graph={lineageGraph}
+            isGraphLoading={isLineageGraphLoading}
+            graphError={lineageGraphError}
+            language={language}
+            onClose={() => setIsLineageOpen(false)}
+            onSelectBox={(boxId, globalCode) => {
+              setIsLineageOpen(false);
+              onOpenBox(boxId, globalCode);
+            }}
+          />
+        ) : null}
+
+        {isMoveOpen ? (
+          <MoveBoxModal
+            box={box}
+            zones={zones}
+            language={language}
+            isSaving={isSavingMove}
+            error={moveError}
+            onClose={() => setIsMoveOpen(false)}
+            onSubmit={handleMove}
+          />
+        ) : null}
+
+        {isSubcultureOpen ? (
+          <SubcultureModal
+            box={box}
+            existingBoxes={boxes}
+            zones={zones}
+            language={language}
+            isSaving={isSavingSubculture}
+            error={subcultureError}
+            onClose={() => setIsSubcultureOpen(false)}
+            onSubmit={handleSubculture}
           />
         ) : null}
       </div>
@@ -1124,6 +1397,30 @@ function getMeasurementSaveError(error: unknown, t: TFunction) {
   return getErrorMessage(error);
 }
 
+function getBoxLineage(box: BoxItem | BoxDetail): BoxLineage {
+  if ('lineage' in box) {
+    return box.lineage;
+  }
+
+  return { parents: [], children: [] };
+}
+
+function getSubcultureSaveError(error: unknown, t: TFunction) {
+  if (error instanceof ApiError && error.status === 403) {
+    return t('subcultureForbidden');
+  }
+
+  return getErrorMessage(error);
+}
+
+function getMoveSaveError(error: unknown, t: TFunction) {
+  if (error instanceof ApiError && error.status === 403) {
+    return t('moveForbidden');
+  }
+
+  return getErrorMessage(error);
+}
+
 function formatTemperature(value: number | undefined) {
   return value === undefined ? '-' : `${value.toFixed(1)}°C`;
 }
@@ -1151,11 +1448,8 @@ function getLanguage(profile: UserProfile | null): Language {
 function getTitle(tab: TabId, t: TFunction) {
   if (tab === 'pilotage') return t('pilotageTitle');
   if (tab === 'zones') return t('zonesTitle');
+  if (tab === 'exports') return t('exportsTitle');
   return t('profileTitle');
-}
-
-function formatStatus(status: string) {
-  return status.replaceAll('_', ' ');
 }
 
 function getCurrentRoute(): RouteState {
@@ -1177,6 +1471,10 @@ function getCurrentRoute(): RouteState {
 
   if (path === '/zones') {
     return { tab: 'zones', boxCode: null, boxId: null };
+  }
+
+  if (path === '/exports') {
+    return { tab: 'exports', boxCode: null, boxId: null };
   }
 
   if (path === '/profile') {

@@ -3,11 +3,18 @@ from django.urls import path
 from apps.accounts.api_views import UserProfileAPIView
 from apps.cultures.api_views import (
     BoxDetailAPIView,
+    BoxLineageGraphAPIView,
     BoxListAPIView,
     BoxMeasurementListCreateAPIView,
+    BoxMoveAPIView,
+    BoxSubcultureCreateAPIView,
     DashboardAPIView,
     HealthAPIView,
     ThermalZoneListAPIView,
+)
+from apps.exports.views import (
+    MeasurementExportOptionsAPIView,
+    WeeklyMeasurementCSVExportAPIView,
 )
 
 urlpatterns = [
@@ -20,6 +27,31 @@ urlpatterns = [
         BoxMeasurementListCreateAPIView.as_view(),
         name="api_box_measurements",
     ),
+    path(
+        "boxes/<int:box_id>/subcultures/",
+        BoxSubcultureCreateAPIView.as_view(),
+        name="api_box_subcultures",
+    ),
+    path(
+        "boxes/<int:box_id>/move/",
+        BoxMoveAPIView.as_view(),
+        name="api_box_move",
+    ),
+    path(
+        "boxes/<int:box_id>/lineage/",
+        BoxLineageGraphAPIView.as_view(),
+        name="api_box_lineage",
+    ),
     path("thermal-zones/", ThermalZoneListAPIView.as_view(), name="api_thermal_zone_list"),
+    path(
+        "exports/options/",
+        MeasurementExportOptionsAPIView.as_view(),
+        name="api_export_options",
+    ),
+    path(
+        "exports/measurements.csv",
+        WeeklyMeasurementCSVExportAPIView.as_view(),
+        name="api_export_measurements_csv",
+    ),
     path("profile/", UserProfileAPIView.as_view(), name="api_profile"),
 ]
