@@ -661,6 +661,11 @@ function BoxPage({
           </div>
           <p>{box.species.scientific_name}</p>
         </div>
+        {qr ? (
+          <div className="box-heading-qr">
+            <img src={qr.imageUrl} alt={`${t('qrCode')} ${box.global_code}`} width={96} height={96} />
+          </div>
+        ) : null}
         <div className="box-meta">
           <span>{box.thermal_zone?.name ?? t('noZone')}</span>
           <small>{box.organization.name}</small>
@@ -808,9 +813,8 @@ function BoxPage({
               <span>{qr.scanUrl}</span>
             </div>
             <div className="box-qr">
-              <img src={qr.imageUrl} alt={`${t('qrCode')} ${box.global_code}`} width={160} height={160} />
               <p>{t('qrScanHint')}</p>
-              <a href={qr.imageUrl} download={`bac-${box.id}.svg`}>
+              <a className="qr-download" href={qr.imageUrl} download={`bac-${box.id}.svg`}>
                 {t('qrDownload')}
               </a>
             </div>
