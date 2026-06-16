@@ -1,11 +1,12 @@
 import json
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.accounts.models import OrganizationMembership, UserPreference
 from apps.audit.models import AuditLog
@@ -43,6 +44,12 @@ class PolypbaseApiTests(TestCase):
             name="Cabinet-15",
             zone_type=ThermalZone.ZoneType.CABINET,
             target_temperature_c=15,
+        )
+        self.second_zone = ThermalZone.objects.create(
+            organization=self.organization,
+            name="Cabinet-20",
+            zone_type=ThermalZone.ZoneType.CABINET,
+            target_temperature_c=20,
         )
         self.other_zone = ThermalZone.objects.create(
             organization=self.other_organization,
@@ -477,6 +484,90 @@ class PolypbaseApiTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertFalse(Box.objects.filter(global_code="AAU-1.004-ATL").exists())
         self.assertFalse(SubcultureEvent.objects.filter(parent_box=self.box).exists())
+
+    def test_drf_move_endpoint_moves_box_and_keeps_location_history(self):
+        initial_location = BoxLocation.objects.create(
+            box=self.box,
+            thermal_zone=self.zone,
+            starts_at=timezone.now() - timedelta(days=10),
+            notes="Initial test location.",
+        )
+        self.client.login(username="tech", password="secret")
+
+        response = self.client.post(
+            reverse("api_box_move", args=[self.box.id]),
+            data=json.dumps(
+                {
+                    "thermal_zone_id": self.second_zone.id,
+                    "notes": "Moved after temperature adjustment.",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.box.refresh_from_db()
+        initial_location.refresh_from_db()
+        self.assertEqual(self.box.thermal_zone, self.second_zone)
+        self.assertIsNotNone(initial_location.ends_at)
+        self.assertEqual(
+            BoxLocation.objects.filter(
+                box=self.box,
+                thermal_zone=self.second_zone,
+                ends_at__isnull=True,
+            ).count(),
+            1,
+        )
+        movement = self.box.movements.get()
+        self.assertEqual(movement.from_thermal_zone, self.zone)
+        self.assertEqual(movement.to_thermal_zone, self.second_zone)
+        self.assertEqual(movement.user, self.user)
+
+        payload = response.json()
+        self.assertEqual(payload["thermal_zone"]["name"], self.second_zone.name)
+        self.assertEqual(len(payload["locations"]), 2)
+        self.assertEqual(payload["movements"][0]["to_thermal_zone"]["name"], self.second_zone.name)
+        self.assertEqual(
+            AuditLog.objects.filter(
+                action=AuditLog.Action.UPDATE,
+                object_id=self.box.global_code,
+                metadata__to_thermal_zone_id=self.second_zone.id,
+            ).count(),
+            1,
+        )
+
+    def test_drf_move_endpoint_blocks_read_only_users(self):
+        user_model = get_user_model()
+        viewer = user_model.objects.create_user(username="move_viewer", password="secret")
+        OrganizationMembership.objects.create(
+            user=viewer,
+            organization=self.organization,
+            role=OrganizationMembership.Role.VIEWER,
+        )
+        self.client.login(username="move_viewer", password="secret")
+
+        response = self.client.post(
+            reverse("api_box_move", args=[self.box.id]),
+            data=json.dumps({"thermal_zone_id": self.second_zone.id}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.box.refresh_from_db()
+        self.assertEqual(self.box.thermal_zone, self.zone)
+
+    def test_drf_move_endpoint_rejects_zone_from_another_organization(self):
+        self.client.login(username="tech", password="secret")
+
+        response = self.client.post(
+            reverse("api_box_move", args=[self.box.id]),
+            data=json.dumps({"thermal_zone_id": self.other_zone.id}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.box.refresh_from_db()
+        self.assertEqual(self.box.thermal_zone, self.zone)
 
     def test_subculture_transaction_rolls_back_if_lineage_creation_fails(self):
         self.client.login(username="tech", password="secret")

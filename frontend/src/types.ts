@@ -70,7 +70,26 @@ export type BoxDetail = BoxItem & {
   stop_reason: string;
   notes: string;
   lineage: BoxLineage;
+  locations: BoxLocation[];
+  movements: BoxMovement[];
   biological_measurements: BiologicalMeasurement[];
+};
+
+export type BoxLocation = {
+  id: number;
+  thermal_zone: ThermalZoneSummary;
+  starts_at: string;
+  ends_at: string | null;
+  notes: string;
+};
+
+export type BoxMovement = {
+  id: number;
+  from_thermal_zone: ThermalZoneSummary | null;
+  to_thermal_zone: ThermalZoneSummary;
+  moved_at: string;
+  notes: string;
+  user: string | null;
 };
 
 export type LineageEvent = {
@@ -152,6 +171,12 @@ export type SubcultureResult = {
   notes: string;
   user: string | null;
   children: BoxItem[];
+};
+
+export type BoxMovePayload = {
+  thermal_zone_id: number;
+  moved_at: string;
+  notes: string;
 };
 
 export type Probe = {

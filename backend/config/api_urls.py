@@ -6,6 +6,7 @@ from apps.cultures.api_views import (
     BoxLineageGraphAPIView,
     BoxListAPIView,
     BoxMeasurementListCreateAPIView,
+    BoxMoveAPIView,
     BoxSubcultureCreateAPIView,
     DashboardAPIView,
     HealthAPIView,
@@ -30,6 +31,11 @@ urlpatterns = [
         "boxes/<int:box_id>/subcultures/",
         BoxSubcultureCreateAPIView.as_view(),
         name="api_box_subcultures",
+    ),
+    path(
+        "boxes/<int:box_id>/move/",
+        BoxMoveAPIView.as_view(),
+        name="api_box_move",
     ),
     path(
         "boxes/<int:box_id>/lineage/",

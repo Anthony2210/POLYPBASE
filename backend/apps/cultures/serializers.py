@@ -3,7 +3,14 @@ from rest_framework import serializers
 
 from apps.accounts.models import UserPreference
 from apps.audit.models import Alert, AuditLog
-from apps.cultures.models import Box, IdentificationTag, SubcultureEvent, ThermalZone
+from apps.cultures.models import (
+    Box,
+    BoxLocation,
+    BoxMovement,
+    IdentificationTag,
+    SubcultureEvent,
+    ThermalZone,
+)
 from apps.measurements.models import BiologicalMeasurement
 from apps.organizations.serializers import OrganizationSummarySerializer
 from apps.taxonomy.models import Species, Strain
@@ -33,6 +40,27 @@ class IdentificationTagSerializer(serializers.ModelSerializer):
     class Meta:
         model = IdentificationTag
         fields = ["id", "tag_type", "code", "url", "is_active"]
+
+
+class BoxLocationSerializer(serializers.ModelSerializer):
+    thermal_zone = ThermalZoneSummarySerializer(read_only=True)
+
+    class Meta:
+        model = BoxLocation
+        fields = ["id", "thermal_zone", "starts_at", "ends_at", "notes"]
+
+
+class BoxMovementSerializer(serializers.ModelSerializer):
+    from_thermal_zone = ThermalZoneSummarySerializer(read_only=True)
+    to_thermal_zone = ThermalZoneSummarySerializer(read_only=True)
+    user = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BoxMovement
+        fields = ["id", "from_thermal_zone", "to_thermal_zone", "moved_at", "notes", "user"]
+
+    def get_user(self, obj):
+        return obj.user.get_username() if obj.user else None
 
 
 class AlertSummarySerializer(serializers.ModelSerializer):
@@ -109,6 +137,8 @@ class BoxDetailSerializer(BoxListSerializer):
     tags = IdentificationTagSerializer(many=True, read_only=True)
     active_alerts = serializers.SerializerMethodField()
     lineage = serializers.SerializerMethodField()
+    locations = BoxLocationSerializer(many=True, read_only=True)
+    movements = BoxMovementSerializer(many=True, read_only=True)
     biological_measurements = BiologicalMeasurementSerializer(many=True, read_only=True)
 
     class Meta(BoxListSerializer.Meta):
@@ -120,6 +150,8 @@ class BoxDetailSerializer(BoxListSerializer):
             "tags",
             "active_alerts",
             "lineage",
+            "locations",
+            "movements",
             "biological_measurements",
         ]
 
@@ -176,6 +208,25 @@ class BiologicalMeasurementCreateSerializer(serializers.ModelSerializer):
             "needs_attention",
             "notes",
         ]
+
+
+class BoxMoveCreateSerializer(serializers.Serializer):
+    thermal_zone_id = serializers.PrimaryKeyRelatedField(
+        queryset=ThermalZone.objects.filter(is_active=True),
+        source="thermal_zone",
+    )
+    moved_at = serializers.DateTimeField(required=False, default=timezone.now)
+    notes = serializers.CharField(required=False, allow_blank=True, default="")
+
+    def validate_thermal_zone_id(self, thermal_zone):
+        box = self.context["box"]
+        if thermal_zone.organization_id != box.organization_id:
+            raise serializers.ValidationError(
+                "The thermal zone must belong to the box organization."
+            )
+        if box.thermal_zone_id == thermal_zone.id:
+            raise serializers.ValidationError("The box is already in this thermal zone.")
+        return thermal_zone
 
 
 class SubcultureChildCreateSerializer(serializers.Serializer):

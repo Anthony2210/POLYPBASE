@@ -289,7 +289,8 @@ button:disabled {
 }
 
 .history-trigger,
-.lineage-trigger {
+.lineage-trigger,
+.move-trigger {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -316,12 +317,14 @@ button:disabled {
 }
 
 .history-trigger:hover,
-.lineage-trigger:hover {
+.lineage-trigger:hover,
+.move-trigger:hover {
   border-color: var(--primary);
   background: var(--primary-soft);
 }
 
-.lineage-trigger {
+.lineage-trigger,
+.move-trigger {
   margin-top: 7px;
 }
 
@@ -905,6 +908,15 @@ button:disabled {
   background: #ffffff;
 }
 
+.move-modal {
+  width: min(720px, 100%);
+  max-height: min(720px, calc(100vh - 36px));
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
 .subculture-heading {
   display: flex;
   align-items: center;
@@ -953,13 +965,52 @@ button:disabled {
   padding: 16px 18px 18px;
 }
 
+.move-form {
+  display: grid;
+  gap: 14px;
+  max-height: calc(min(720px, 100vh - 36px) - 70px);
+  overflow: auto;
+  padding: 16px 18px 18px;
+}
+
+.current-zone-card {
+  display: grid;
+  gap: 3px;
+  padding: 14px 15px;
+  border-left: 3px solid var(--primary);
+  border-radius: 0 8px 8px 0;
+  background: #eef7fa;
+}
+
+.current-zone-card span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 720;
+}
+
+.current-zone-card strong {
+  color: var(--primary-strong);
+  font-size: 1.05rem;
+}
+
+.current-zone-card small {
+  color: var(--muted);
+}
+
+.move-fields {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 190px;
+  gap: 12px;
+}
+
 .subculture-event-fields {
   display: grid;
   grid-template-columns: 170px minmax(220px, 0.8fr) minmax(260px, 1fr);
   gap: 12px;
 }
 
-.subculture-form label {
+.subculture-form label,
+.move-form label {
   display: grid;
   gap: 5px;
   color: var(--muted);
@@ -968,7 +1019,10 @@ button:disabled {
 }
 
 .subculture-form input,
-.subculture-form select {
+.subculture-form select,
+.move-form input,
+.move-form select,
+.move-form textarea {
   width: 100%;
   min-height: 42px;
   padding: 7px 9px;
@@ -979,9 +1033,61 @@ button:disabled {
   color: var(--ink);
 }
 
+.move-form textarea {
+  resize: vertical;
+}
+
 .subculture-form input:focus,
-.subculture-form select:focus {
+.subculture-form select:focus,
+.move-form input:focus,
+.move-form select:focus,
+.move-form textarea:focus {
   border-color: var(--primary);
+}
+
+.location-history {
+  display: grid;
+  gap: 0;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
+.location-history h3 {
+  margin: 0 0 7px;
+  font-size: 0.92rem;
+  font-style: italic;
+}
+
+.location-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  padding: 9px 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.location-row:first-of-type {
+  border-top: 0;
+}
+
+.location-row strong,
+.location-row small {
+  display: block;
+}
+
+.location-row small {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.location-row p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.move-form .subculture-actions button.is-primary {
+  border-color: var(--primary);
+  background: var(--primary);
 }
 
 .subculture-children-heading {

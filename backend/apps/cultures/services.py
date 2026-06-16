@@ -2,13 +2,14 @@
 
 from datetime import datetime, time
 
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
 from apps.audit.models import AuditLog
 
-from .models import Box, BoxLineage, BoxLocation, SubcultureEvent
+from .models import Box, BoxLineage, BoxLocation, BoxMovement, SubcultureEvent
 
 LINEAGE_GRAPH_MAX_NODES = 250
 
@@ -77,6 +78,66 @@ def create_subculture(*, parent_box, user, event_date, reason, notes, children):
     )
 
     return event, child_boxes
+
+
+@transaction.atomic
+def move_box_to_thermal_zone(*, box, thermal_zone, moved_at, user, notes):
+    """Move a box to another thermal zone and keep a location history."""
+    if thermal_zone.organization_id != box.organization_id:
+        raise ValidationError("The thermal zone must belong to the box organization.")
+    if box.thermal_zone_id == thermal_zone.id:
+        raise ValidationError("The box is already in this thermal zone.")
+
+    moved_at = moved_at or timezone.now()
+    from_thermal_zone = box.thermal_zone
+    active_locations = list(
+        BoxLocation.objects.select_for_update()
+        .filter(box=box, ends_at__isnull=True)
+        .order_by("-starts_at")
+    )
+
+    if active_locations and active_locations[0].starts_at > moved_at:
+        raise ValidationError("The movement date cannot be before the current location start.")
+
+    for location in active_locations:
+        location.ends_at = moved_at
+        location.save(update_fields=["ends_at"])
+
+    BoxLocation.objects.create(
+        box=box,
+        thermal_zone=thermal_zone,
+        starts_at=moved_at,
+        notes=notes,
+    )
+    movement = BoxMovement.objects.create(
+        box=box,
+        from_thermal_zone=from_thermal_zone,
+        to_thermal_zone=thermal_zone,
+        moved_at=moved_at,
+        user=user,
+        notes=notes,
+    )
+    box.thermal_zone = thermal_zone
+    box.save(update_fields=["thermal_zone"])
+
+    AuditLog.objects.create(
+        organization=box.organization,
+        user=user,
+        action=AuditLog.Action.UPDATE,
+        object_type="box",
+        object_id=box.global_code,
+        description=f"Box moved to {thermal_zone.name}",
+        metadata={
+            "movement_id": movement.id,
+            "from_thermal_zone_id": from_thermal_zone.id if from_thermal_zone else None,
+            "from_thermal_zone_name": from_thermal_zone.name if from_thermal_zone else None,
+            "to_thermal_zone_id": thermal_zone.id,
+            "to_thermal_zone_name": thermal_zone.name,
+            "moved_at": moved_at.isoformat(),
+        },
+    )
+
+    return movement
 
 
 def build_lineage_graph(*, root_box, organization_ids, max_nodes=LINEAGE_GRAPH_MAX_NODES):
