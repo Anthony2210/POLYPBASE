@@ -1,8 +1,9 @@
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Count, Prefetch, Q, Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, status
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError as DRFValidationError
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -16,7 +17,7 @@ from apps.audit.models import Alert, AuditLog
 from apps.measurements.models import BiologicalMeasurement, DailyTemperature, SalinityMeasurement
 from apps.organizations.serializers import OrganizationSummarySerializer
 
-from .models import Box, BoxLineage, ThermalZone
+from .models import Box, BoxLineage, BoxLocation, BoxMovement, ThermalZone
 from .serializers import (
     AlertSummarySerializer,
     AuditLogScanSerializer,
@@ -24,11 +25,12 @@ from .serializers import (
     BiologicalMeasurementSerializer,
     BoxDetailSerializer,
     BoxListSerializer,
+    BoxMoveCreateSerializer,
     SubcultureCreateSerializer,
     SubcultureEventSerializer,
     ThermalZoneSerializer,
 )
-from .services import build_lineage_graph, create_subculture
+from .services import build_lineage_graph, create_subculture, move_box_to_thermal_zone
 
 
 def box_queryset_for_user(user):
@@ -75,6 +77,18 @@ def box_queryset_for_user(user):
                 "subculture_event",
                 "subculture_event__user",
             ),
+        ),
+        Prefetch(
+            "locations",
+            queryset=BoxLocation.objects.select_related("thermal_zone").order_by("-starts_at"),
+        ),
+        Prefetch(
+            "movements",
+            queryset=BoxMovement.objects.select_related(
+                "from_thermal_zone",
+                "to_thermal_zone",
+                "user",
+            ).order_by("-moved_at"),
         ),
         "tags",
     ).filter(organization_id__in=organization_ids)
@@ -254,6 +268,30 @@ class BoxSubcultureCreateAPIView(generics.GenericAPIView):
             context={"child_boxes": child_boxes},
         )
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+
+class BoxMoveAPIView(generics.GenericAPIView):
+    serializer_class = BoxMoveCreateSerializer
+
+    def post(self, request, box_id):
+        box = get_object_or_404(box_queryset_for_user(request.user), id=box_id)
+        if not user_can_write_lab_data(request.user, box.organization):
+            raise PermissionDenied("This user cannot move boxes.")
+
+        serializer = self.get_serializer(data=request.data, context={"box": box})
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            move_box_to_thermal_zone(
+                box=box,
+                user=request.user,
+                **serializer.validated_data,
+            )
+        except DjangoValidationError as error:
+            raise DRFValidationError(error.messages) from error
+
+        updated_box = get_object_or_404(box_queryset_for_user(request.user), id=box.id)
+        return Response(BoxDetailSerializer(updated_box).data, status=status.HTTP_200_OK)
 
 
 class BoxLineageGraphAPIView(APIView):

@@ -4,12 +4,14 @@ import { ApiError, apiGet, apiPatch, apiPost } from './api/client';
 import { getBoxStatusPresentation } from './boxStatus';
 import ExportsView from './components/ExportsView';
 import LineageModal from './components/LineageModal';
+import MoveBoxModal from './components/MoveBoxModal';
 import SubcultureModal from './components/SubcultureModal';
 import type {
   BiologicalMeasurement,
   BoxDetail,
   BoxItem,
   BoxLineage,
+  BoxMovePayload,
   Dashboard,
   ExportOptions,
   LineageGraph,
@@ -67,6 +69,9 @@ const translations = {
     measurementForbidden: 'Ce compte ne peut pas créer de relevé.',
     measurementHistory: 'Historique des relevés',
     measurementSaved: 'Relevé enregistré',
+    moveAction: 'Déplacer',
+    moveForbidden: 'Ce compte ne peut pas déplacer de boîte.',
+    moveSaved: 'Déplacement enregistré',
     newMeasurement: 'Nouveau relevé',
     noComment: 'Aucun commentaire récent pour cette boîte.',
     noDate: 'aucune date',
@@ -120,6 +125,9 @@ const translations = {
     measurementForbidden: 'This account cannot create measurements.',
     measurementHistory: 'Measurement history',
     measurementSaved: 'Measurement saved',
+    moveAction: 'Move',
+    moveForbidden: 'This account cannot move boxes.',
+    moveSaved: 'Movement saved',
     newMeasurement: 'New measurement',
     noComment: 'No recent comment for this box.',
     noDate: 'no date',
@@ -370,6 +378,24 @@ export default function App() {
     }));
   }
 
+  async function moveBox(boxId: number, payload: BoxMovePayload) {
+    const detail = await apiPost<BoxDetail>(`/api/boxes/${boxId}/move/`, payload);
+    const [boxes, zones, dashboard, exportOptions] = await Promise.all([
+      apiGet<PaginatedResponse<BoxItem>>('/api/boxes/?limit=80'),
+      apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80'),
+      apiGet<Dashboard>('/api/dashboard/'),
+      apiGet<ExportOptions>('/api/exports/options/'),
+    ]);
+
+    setData((current) => ({
+      ...mergeBoxDetail(current, detail),
+      boxes: boxes.results,
+      zones: zones.results,
+      dashboard,
+      exportOptions,
+    }));
+  }
+
   async function loadLineageGraph(boxId: number) {
     return apiGet<LineageGraph>(`/api/boxes/${boxId}/lineage/`);
   }
@@ -419,6 +445,7 @@ export default function App() {
                 isLoading={isLoading}
                 onCreateMeasurement={createMeasurement}
                 onCreateSubculture={createSubculture}
+                onMoveBox={moveBox}
                 onLoadLineageGraph={loadLineageGraph}
                 onOpenBox={openBox}
                 onBack={closeBoxPage}
@@ -635,6 +662,7 @@ function BoxPage({
   isLoading,
   onCreateMeasurement,
   onCreateSubculture,
+  onMoveBox,
   onLoadLineageGraph,
   onOpenBox,
   onBack,
@@ -647,6 +675,7 @@ function BoxPage({
   isLoading: boolean;
   onCreateMeasurement: (boxId: number, payload: MeasurementPayload) => Promise<void>;
   onCreateSubculture: (boxId: number, payload: SubculturePayload) => Promise<void>;
+  onMoveBox: (boxId: number, payload: BoxMovePayload) => Promise<void>;
   onLoadLineageGraph: (boxId: number) => Promise<LineageGraph>;
   onOpenBox: (boxId: number, globalCode: string) => void;
   onBack: () => void;
@@ -659,6 +688,10 @@ function BoxPage({
   const [lineageGraph, setLineageGraph] = useState<LineageGraph | null>(null);
   const [isLineageGraphLoading, setIsLineageGraphLoading] = useState(false);
   const [lineageGraphError, setLineageGraphError] = useState<string | null>(null);
+  const [isMoveOpen, setIsMoveOpen] = useState(false);
+  const [isSavingMove, setIsSavingMove] = useState(false);
+  const [moveError, setMoveError] = useState<string | null>(null);
+  const [moveMessage, setMoveMessage] = useState<string | null>(null);
   const [isSubcultureOpen, setIsSubcultureOpen] = useState(false);
   const [isSavingSubculture, setIsSavingSubculture] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -673,6 +706,10 @@ function BoxPage({
     setLineageGraph(null);
     setIsLineageGraphLoading(false);
     setLineageGraphError(null);
+    setIsMoveOpen(false);
+    setIsSavingMove(false);
+    setMoveError(null);
+    setMoveMessage(null);
     setIsSubcultureOpen(false);
     setSaveError(null);
     setSaveMessage(null);
@@ -747,6 +784,24 @@ function BoxPage({
     }
   }
 
+  async function handleMove(payload: BoxMovePayload) {
+    if (!box || isSavingMove) return;
+
+    setIsSavingMove(true);
+    setMoveError(null);
+    setMoveMessage(null);
+
+    try {
+      await onMoveBox(box.id, payload);
+      setIsMoveOpen(false);
+      setMoveMessage(t('moveSaved'));
+    } catch (requestError) {
+      setMoveError(getMoveSaveError(requestError, t));
+    } finally {
+      setIsSavingMove(false);
+    }
+  }
+
   async function handleOpenLineage() {
     if (!box) return;
 
@@ -792,6 +847,9 @@ function BoxPage({
             <span>{t('lineageAction')}</span>
             <strong>{lineageCount}</strong>
           </button>
+          <button className="move-trigger" type="button" onClick={() => setIsMoveOpen(true)}>
+            {t('moveAction')}
+          </button>
           <button className="subculture-trigger" type="button" onClick={() => setIsSubcultureOpen(true)}>
             {t('subcultureAction')}
           </button>
@@ -800,6 +858,9 @@ function BoxPage({
 
       {subcultureMessage ? (
         <p className="inline-success box-action-feedback">{subcultureMessage}</p>
+      ) : null}
+      {moveMessage ? (
+        <p className="inline-success box-action-feedback">{moveMessage}</p>
       ) : null}
 
       <div className="box-page-grid">
@@ -838,6 +899,9 @@ function BoxPage({
             <button className="lineage-trigger" type="button" onClick={handleOpenLineage}>
               <span>{t('lineageAction')}</span>
               <strong>{lineageCount}</strong>
+            </button>
+            <button className="move-trigger" type="button" onClick={() => setIsMoveOpen(true)}>
+              {t('moveAction')}
             </button>
             <button className="subculture-trigger" type="button" onClick={() => setIsSubcultureOpen(true)}>
               {t('subcultureAction')}
@@ -969,6 +1033,18 @@ function BoxPage({
               setIsLineageOpen(false);
               onOpenBox(boxId, globalCode);
             }}
+          />
+        ) : null}
+
+        {isMoveOpen ? (
+          <MoveBoxModal
+            box={box}
+            zones={zones}
+            language={language}
+            isSaving={isSavingMove}
+            error={moveError}
+            onClose={() => setIsMoveOpen(false)}
+            onSubmit={handleMove}
           />
         ) : null}
 
@@ -1291,6 +1367,14 @@ function getBoxLineage(box: BoxItem | BoxDetail): BoxLineage {
 function getSubcultureSaveError(error: unknown, t: TFunction) {
   if (error instanceof ApiError && error.status === 403) {
     return t('subcultureForbidden');
+  }
+
+  return getErrorMessage(error);
+}
+
+function getMoveSaveError(error: unknown, t: TFunction) {
+  if (error instanceof ApiError && error.status === 403) {
+    return t('moveForbidden');
   }
 
   return getErrorMessage(error);
