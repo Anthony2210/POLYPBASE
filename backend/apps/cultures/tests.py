@@ -326,7 +326,7 @@ class PolypbaseApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertEqual(payload["count"], 2)
-        zone = payload["results"][0]
+        zone = next(item for item in payload["results"] if item["id"] == self.zone.id)
         self.assertEqual(zone["probes"][0]["code"], "PROBE-15-A")
         self.assertEqual(zone["latest_temperature"]["measurement_count"], 24)
         self.assertEqual(zone["latest_salinity"]["salinity_psu"], 33.5)
@@ -344,6 +344,7 @@ class PolypbaseApiTests(TestCase):
         payload = response.json()
         self.assertEqual(payload["interface_language"], UserPreference.InterfaceLanguage.ENGLISH)
         self.assertEqual(payload["organizations"][0]["name"], "Aquarium de Paris")
+        self.assertEqual(payload["memberships"][0]["role"], OrganizationMembership.Role.LAB_TECHNICIAN)
 
     def test_drf_subculture_endpoint_creates_multiple_child_boxes(self):
         self.client.login(username="tech", password="secret")

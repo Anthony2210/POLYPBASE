@@ -22,7 +22,8 @@ import type {
   UserProfile,
 } from './types';
 
-type TabId = 'pilotage' | 'zones' | 'exports' | 'profile';
+type TabId = 'pilotage' | 'zones' | 'exports' | 'admin' | 'profile';
+type BoxInsightTab = 'measurements' | 'observations' | 'lineage';
 
 type AppData = {
   boxes: BoxItem[];
@@ -59,7 +60,24 @@ const translations = {
     ephyraeFull: 'Éphyrules',
     exports: 'Exports',
     exportsTitle: 'Exporter les données',
+    admin: 'Administration',
+    adminTitle: 'Administration',
+    adminOpenDjango: 'Ouvrir Django admin',
+    adminUsers: 'Comptes et rôles',
+    adminOrganizations: 'Structures partenaires',
+    adminReferences: 'Espèces et souches',
+    adminEnvironment: 'Zones et sondes',
+    adminRights: 'Réservé admin',
+    profileRoles: 'Rôles',
     historyButton: 'Voir relevés',
+    analysisTabLineage: 'Parenté',
+    analysisTabMeasurements: 'Relevés',
+    analysisTabObservations: 'Observations',
+    boxLocalCode: 'Code local',
+    boxStrain: 'Souche',
+    chartEmpty: 'Pas assez de relevés pour tracer une tendance.',
+    chartTitle: 'Évolution des relevés',
+    createdOn: 'Créée le',
     lastComment: 'Dernier commentaire',
     lastMeasurement: 'Dernier relevé',
     laboratoryTracking: 'Suivi laboratoire',
@@ -84,6 +102,8 @@ const translations = {
     pilotage: 'Pilotage',
     pilotageTitle: 'Pilotage labo',
     polyps: 'Polypes',
+    parents: 'Parents',
+    children: 'Enfants',
     probes: 'Sondes',
     profile: 'Profil',
     profileTitle: 'Mon profil',
@@ -102,6 +122,7 @@ const translations = {
     subcultureForbidden: 'Ce compte ne peut pas créer de repiquage.',
     subcultureSaved: 'Repiquage enregistré',
     temperatureShort: 'Temp.',
+    targetTemperature: 'Consigne',
     salinityShort: 'Sal.',
     zones: 'Zones',
     zonesTitle: 'Zones thermiques',
@@ -118,7 +139,24 @@ const translations = {
     ephyraeFull: 'Ephyrae',
     exports: 'Exports',
     exportsTitle: 'Export data',
+    admin: 'Administration',
+    adminTitle: 'Administration',
+    adminOpenDjango: 'Open Django admin',
+    adminUsers: 'Accounts and roles',
+    adminOrganizations: 'Partner organizations',
+    adminReferences: 'Species and strains',
+    adminEnvironment: 'Zones and probes',
+    adminRights: 'Admin only',
+    profileRoles: 'Roles',
     historyButton: 'View records',
+    analysisTabLineage: 'Lineage',
+    analysisTabMeasurements: 'Measurements',
+    analysisTabObservations: 'Observations',
+    boxLocalCode: 'Local code',
+    boxStrain: 'Strain',
+    chartEmpty: 'Not enough measurements to draw a trend.',
+    chartTitle: 'Measurement trend',
+    createdOn: 'Created on',
     lastComment: 'Last comment',
     lastMeasurement: 'Last measurement',
     laboratoryTracking: 'Lab tracking',
@@ -143,6 +181,8 @@ const translations = {
     pilotage: 'Pilotage',
     pilotageTitle: 'Lab pilotage',
     polyps: 'Polyps',
+    parents: 'Parents',
+    children: 'Children',
     probes: 'Probes',
     profile: 'Profile',
     profileTitle: 'My profile',
@@ -161,6 +201,7 @@ const translations = {
     subcultureForbidden: 'This account cannot create subculture events.',
     subcultureSaved: 'Subculture created',
     temperatureShort: 'Temp.',
+    targetTemperature: 'Target',
     salinityShort: 'Sal.',
     zones: 'Zones',
     zonesTitle: 'Thermal zones',
@@ -171,7 +212,8 @@ type Language = keyof typeof translations;
 type TranslationKey = keyof typeof translations.fr;
 type TFunction = (key: TranslationKey) => string;
 
-const tabs: TabId[] = ['pilotage', 'zones', 'exports', 'profile'];
+const labTabs: TabId[] = ['pilotage', 'zones', 'profile'];
+const desktopTabs: TabId[] = ['pilotage', 'zones', 'exports', 'profile'];
 
 export default function App() {
   const [route, setRoute] = useState<RouteState>(() => getCurrentRoute());
@@ -193,6 +235,14 @@ export default function App() {
   const isBoxRoute = route.boxCode != null || route.boxId != null;
   const language = getLanguage(data.profile);
   const t: TFunction = (key) => translations[language][key];
+  const isDesktopApp = useIsDesktopApp();
+  const canUseAdmin = userHasAdminRole(data.profile);
+  const availableTabs = useMemo(() => {
+    if (!isDesktopApp) return labTabs;
+    return canUseAdmin
+      ? [...desktopTabs.slice(0, -1), 'admin', 'profile']
+      : desktopTabs;
+  }, [canUseAdmin, isDesktopApp]);
 
   useEffect(() => {
     function syncRoute() {
@@ -349,10 +399,19 @@ export default function App() {
       pilotage: '/',
       zones: '/zones',
       exports: '/exports',
+      admin: '/administration',
       profile: '/profile',
     };
     navigateTo({ tab, boxCode: null, boxId: null }, paths[tab]);
   }
+
+  useEffect(() => {
+    const shouldWaitForProfile = activeTab === 'admin' && isLoading && !data.profile;
+    if (shouldWaitForProfile) return;
+    if (availableTabs.includes(activeTab)) return;
+
+    navigateTo({ tab: 'pilotage', boxCode: null }, '/');
+  }, [activeTab, availableTabs, data.profile, isLoading]);
 
   function closeBoxPage() {
     navigateTo({ tab: 'pilotage', boxCode: null, boxId: null }, '/');
@@ -432,7 +491,7 @@ export default function App() {
         </div>
 
         <nav className="tabbar" aria-label="Navigation principale">
-          {tabs.map((tab) => (
+          {availableTabs.map((tab) => (
             <button
               key={tab}
               className={tab === activeTab ? `tab tab-${tab} is-active` : `tab tab-${tab}`}
@@ -492,6 +551,14 @@ export default function App() {
                 isLoading={isLoading}
                 options={data.exportOptions}
                 language={language}
+              />
+            )}
+
+            {activeTab === 'admin' && (
+              <AdminView
+                isLoading={isLoading}
+                profile={data.profile}
+                t={t}
               />
             )}
 
@@ -718,6 +785,7 @@ function BoxPage({
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [subcultureError, setSubcultureError] = useState<string | null>(null);
   const [subcultureMessage, setSubcultureMessage] = useState<string | null>(null);
+  const [activeInsightTab, setActiveInsightTab] = useState<BoxInsightTab>('measurements');
 
   useEffect(() => {
     setForm(getInitialMeasurementForm());
@@ -735,6 +803,7 @@ function BoxPage({
     setSaveMessage(null);
     setSubcultureError(null);
     setSubcultureMessage(null);
+    setActiveInsightTab('measurements');
   }, [box?.id]);
 
   if (isLoading) {
@@ -762,6 +831,8 @@ function BoxPage({
   const qr = 'qr_image_url' in box ? { imageUrl: box.qr_image_url, scanUrl: box.scan_url } : null;
   const lineage = getBoxLineage(box);
   const lineageCount = lineage.parents.length + lineage.children.length;
+  const currentZone = getCurrentThermalZone(box, zones);
+  const createdOn = getBoxCreatedDate(box);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -845,10 +916,9 @@ function BoxPage({
         {t('backToPilotage')}
       </button>
 
-      <p className="box-page-label">{t('boxSheet')}</p>
-
-      <header className="box-page-heading desktop-box-heading">
-        <div>
+      <header className="box-sheet-hero">
+        <div className="box-sheet-identity">
+          <p className="box-page-label">{t('boxSheet')}</p>
           <div className="box-code-line">
             <h2>{box.global_code}</h2>
             <span
@@ -860,18 +930,37 @@ function BoxPage({
             </span>
           </div>
           <p>{box.species.scientific_name}</p>
-        </div>
-        {qr ? (
-          <div className="box-heading-qr">
-            <img src={qr.imageUrl} alt={`${t('qrCode')} ${box.global_code}`} width={96} height={96} />
+          <div className="box-small-facts">
+            <InfoPill label={t('boxLocalCode')} value={box.local_code || '-'} />
+            <InfoPill label={t('boxStrain')} value={box.strain.code} />
+            <InfoPill label={t('createdOn')} value={createdOn ? formatDisplayDate(createdOn) : t('noDate')} />
           </div>
-        ) : null}
-        <div className="box-meta">
-          <span>{box.thermal_zone?.name ?? t('noZone')}</span>
-          <small>{box.organization.name}</small>
+        </div>
+
+        <div className="box-zone-summary">
+          <InfoPill label={t('zones')} value={box.thermal_zone?.name ?? t('noZone')} strong />
+          <InfoPill
+            label={t('targetTemperature')}
+            value={formatTemperatureValue(currentZone?.target_temperature_c ?? box.thermal_zone?.target_temperature_c)}
+          />
+          <InfoPill label={t('temperatureShort')} value={formatTemperature(currentZone?.latest_temperature?.average_temperature_c)} />
+          <InfoPill label={t('salinityShort')} value={formatSalinity(currentZone?.latest_salinity?.salinity_psu)} />
+        </div>
+
+        <div className="box-action-stack">
+          {qr ? (
+            <a className="box-hero-qr" href={qr.imageUrl} download={`bac-${box.id}.svg`}>
+              <img src={qr.imageUrl} alt={`${t('qrCode')} ${box.global_code}`} width={74} height={74} />
+              <span>{t('qrCode')}</span>
+            </a>
+          ) : null}
           <button className="lineage-trigger" type="button" onClick={handleOpenLineage}>
             <span>{t('lineageAction')}</span>
             <strong>{lineageCount}</strong>
+          </button>
+          <button className="history-trigger" type="button" onClick={() => setIsHistoryOpen(true)}>
+            <span>{t('historyButton')}</span>
+            <strong>{measurements.length}</strong>
           </button>
           <button className="move-trigger" type="button" onClick={() => setIsMoveOpen(true)}>
             {t('moveAction')}
@@ -890,61 +979,13 @@ function BoxPage({
       ) : null}
 
       <div className="box-page-grid">
-        <header className="box-page-heading tablet-box-heading">
-          <div className="box-identity">
-            <div className="box-code-line">
-              <h2>{box.global_code}</h2>
-              <span
-                className={`box-life-status is-${
-                  getBoxStatusPresentation(box.status, language).tone
-                }`}
-              >
-                {getBoxStatusPresentation(box.status, language).label}
-              </span>
-            </div>
-            <p>{box.species.scientific_name}</p>
-          </div>
-
-          <div className="last-measurement-summary">
-            <div>
-              <h2>{t('lastMeasurement')}</h2>
-              <span>{box.latest_measurement ? formatDisplayDate(box.latest_measurement.measured_on) : t('noDate')}</span>
-            </div>
-
-            <Metric label={t('polyps')} value={String(box.latest_measurement?.polyp_count ?? '-')} />
-            <Metric label={t('ephyraeFull')} value={String(box.latest_measurement?.ephyrae_count ?? '-')} />
-          </div>
-
-          <div className="box-meta">
-            <span>{box.thermal_zone?.name ?? t('noZone')}</span>
-            <small>{box.organization.name}</small>
-            <button className="history-trigger" type="button" onClick={() => setIsHistoryOpen(true)}>
-              <span>{t('historyButton')}</span>
-              <strong>{measurements.length}</strong>
-            </button>
-            <button className="lineage-trigger" type="button" onClick={handleOpenLineage}>
-              <span>{t('lineageAction')}</span>
-              <strong>{lineageCount}</strong>
-            </button>
-            <button className="move-trigger" type="button" onClick={() => setIsMoveOpen(true)}>
-              {t('moveAction')}
-            </button>
-            <button className="subculture-trigger" type="button" onClick={() => setIsSubcultureOpen(true)}>
-              {t('subcultureAction')}
-            </button>
-          </div>
-        </header>
-
-        <section className="box-section desktop-last-measurement">
-          <div className="section-title">
+        <section className="last-reading-card">
+          <div>
             <h2>{t('lastMeasurement')}</h2>
-            <span>{box.latest_measurement?.measured_on ?? t('noDate')}</span>
+            <span>{box.latest_measurement ? formatDisplayDate(box.latest_measurement.measured_on) : t('noDate')}</span>
           </div>
-
-          <div className="metric-grid compact two-columns">
-            <Metric label={t('polyps')} value={String(box.latest_measurement?.polyp_count ?? '-')} />
-            <Metric label={t('ephyraeFull')} value={String(box.latest_measurement?.ephyrae_count ?? '-')} />
-          </div>
+          <Metric label={t('polyps')} value={String(box.latest_measurement?.polyp_count ?? '-')} />
+          <Metric label={t('ephyraeFull')} value={String(box.latest_measurement?.ephyrae_count ?? '-')} />
         </section>
 
         <section className="box-section measurement-form-section">
@@ -1030,13 +1071,16 @@ function BoxPage({
           </form>
         </section>
 
-        <section className="box-section desktop-measurement-history">
-          <div className="section-title">
-            <h2>{t('measurementHistory')}</h2>
-            <span>{measurements.length}</span>
-          </div>
-
-          <MeasurementHistoryList measurements={measurements.slice(0, 6)} t={t} />
+        <section className="box-insights-section">
+          <BoxInsights
+            activeTab={activeInsightTab}
+            lineage={lineage}
+            measurements={measurements}
+            onOpenHistory={() => setIsHistoryOpen(true)}
+            onOpenLineage={handleOpenLineage}
+            onSelectTab={setActiveInsightTab}
+            t={t}
+          />
         </section>
 
         {qr ? (
@@ -1103,6 +1147,187 @@ function BoxPage({
         ) : null}
       </div>
     </section>
+  );
+}
+
+function InfoPill({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <span className={strong ? 'info-pill is-strong' : 'info-pill'}>
+      <small>{label}</small>
+      <strong>{value}</strong>
+    </span>
+  );
+}
+
+function BoxInsights({
+  activeTab,
+  lineage,
+  measurements,
+  onOpenHistory,
+  onOpenLineage,
+  onSelectTab,
+  t,
+}: {
+  activeTab: BoxInsightTab;
+  lineage: BoxLineage;
+  measurements: BiologicalMeasurement[];
+  onOpenHistory: () => void;
+  onOpenLineage: () => void;
+  onSelectTab: (tab: BoxInsightTab) => void;
+  t: TFunction;
+}) {
+  const tabs: Array<{ id: BoxInsightTab; label: string }> = [
+    { id: 'measurements', label: t('analysisTabMeasurements') },
+    { id: 'observations', label: t('analysisTabObservations') },
+    { id: 'lineage', label: t('analysisTabLineage') },
+  ];
+
+  return (
+    <div className="box-insights">
+      <div className="insight-tabs" role="tablist" aria-label={t('chartTitle')}>
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            className={activeTab === tab.id ? 'is-active' : ''}
+            role="tab"
+            type="button"
+            aria-selected={activeTab === tab.id}
+            onClick={() => onSelectTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'measurements' ? (
+        <div className="insight-panel">
+          <div className="insight-heading">
+            <h2>{t('chartTitle')}</h2>
+            <button type="button" onClick={onOpenHistory}>{t('historyButton')}</button>
+          </div>
+          <MeasurementTrendChart measurements={measurements} t={t} />
+        </div>
+      ) : null}
+
+      {activeTab === 'observations' ? (
+        <div className="insight-panel">
+          <div className="insight-heading">
+            <h2>{t('analysisTabObservations')}</h2>
+            <button type="button" onClick={onOpenHistory}>{t('historyButton')}</button>
+          </div>
+          <ObservationPreview measurements={measurements} t={t} />
+        </div>
+      ) : null}
+
+      {activeTab === 'lineage' ? (
+        <div className="insight-panel">
+          <div className="insight-heading">
+            <h2>{t('analysisTabLineage')}</h2>
+            <button type="button" onClick={onOpenLineage}>{t('lineageAction')}</button>
+          </div>
+          <div className="lineage-preview">
+            <Metric label={t('analysisTabLineage')} value={String(lineage.parents.length + lineage.children.length)} />
+            <Metric label={t('parents')} value={String(lineage.parents.length)} />
+            <Metric label={t('children')} value={String(lineage.children.length)} />
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function MeasurementTrendChart({
+  measurements,
+  t,
+}: {
+  measurements: BiologicalMeasurement[];
+  t: TFunction;
+}) {
+  const chartMeasurements = [...measurements]
+    .sort((left, right) => left.measured_on.localeCompare(right.measured_on))
+    .slice(-12);
+
+  if (chartMeasurements.length < 2) {
+    return <p className="muted compact-text chart-empty">{t('chartEmpty')}</p>;
+  }
+
+  const width = 720;
+  const height = 250;
+  const padding = { top: 20, right: 28, bottom: 38, left: 42 };
+  const maxValue = Math.max(
+    1,
+    ...chartMeasurements.flatMap((measurement) => [
+      measurement.polyp_count,
+      measurement.ephyrae_count,
+    ]),
+  );
+  const xStep = (width - padding.left - padding.right) / (chartMeasurements.length - 1);
+  const yScale = (value: number) => (
+    height - padding.bottom - (value / maxValue) * (height - padding.top - padding.bottom)
+  );
+  const toPoints = (selector: (measurement: BiologicalMeasurement) => number) => (
+    chartMeasurements
+      .map((measurement, index) => `${padding.left + index * xStep},${yScale(selector(measurement))}`)
+      .join(' ')
+  );
+  const firstDate = chartMeasurements[0].measured_on;
+  const lastDate = chartMeasurements[chartMeasurements.length - 1].measured_on;
+
+  return (
+    <div className="measurement-chart" aria-label={t('chartTitle')}>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img">
+        <line className="chart-axis" x1={padding.left} y1={height - padding.bottom} x2={width - padding.right} y2={height - padding.bottom} />
+        <line className="chart-axis" x1={padding.left} y1={padding.top} x2={padding.left} y2={height - padding.bottom} />
+        {[0.25, 0.5, 0.75].map((ratio) => {
+          const y = padding.top + ratio * (height - padding.top - padding.bottom);
+          return <line key={ratio} className="chart-grid-line" x1={padding.left} y1={y} x2={width - padding.right} y2={y} />;
+        })}
+        <polyline className="chart-line is-polyps" points={toPoints((measurement) => measurement.polyp_count)} />
+        <polyline className="chart-line is-ephyrae" points={toPoints((measurement) => measurement.ephyrae_count)} />
+        {chartMeasurements.map((measurement, index) => (
+          <g key={measurement.id}>
+            <circle className="chart-dot is-polyps" cx={padding.left + index * xStep} cy={yScale(measurement.polyp_count)} r="3.5" />
+            <circle className="chart-dot is-ephyrae" cx={padding.left + index * xStep} cy={yScale(measurement.ephyrae_count)} r="3.5" />
+          </g>
+        ))}
+        <text className="chart-label" x={padding.left} y={height - 12}>{formatDisplayDate(firstDate)}</text>
+        <text className="chart-label is-end" x={width - padding.right} y={height - 12}>{formatDisplayDate(lastDate)}</text>
+        <text className="chart-y-label" x={padding.left - 8} y={padding.top + 4}>{maxValue}</text>
+        <text className="chart-y-label" x={padding.left - 8} y={height - padding.bottom + 4}>0</text>
+      </svg>
+
+      <div className="chart-legend">
+        <span className="is-polyps">{t('polyps')}</span>
+        <span className="is-ephyrae">{t('ephyraeFull')}</span>
+      </div>
+    </div>
+  );
+}
+
+function ObservationPreview({
+  measurements,
+  t,
+}: {
+  measurements: BiologicalMeasurement[];
+  t: TFunction;
+}) {
+  const observations = measurements
+    .filter((measurement) => measurement.notes?.trim())
+    .slice(0, 4);
+
+  if (!observations.length) {
+    return <p className="muted compact-text">{t('noComment')}</p>;
+  }
+
+  return (
+    <div className="observation-preview">
+      {observations.map((measurement) => (
+        <article key={measurement.id}>
+          <strong>{formatDisplayDate(measurement.measured_on)}</strong>
+          <p>{measurement.notes}</p>
+        </article>
+      ))}
+    </div>
   );
 }
 
@@ -1241,6 +1466,17 @@ function ProfileView({
         <p>{profile.organizations.map((organization) => organization.name).join(', ')}</p>
       </div>
 
+      {profile.memberships.length ? (
+        <div className="profile-roles" aria-label={t('profileRoles')}>
+          {profile.memberships.map((membership) => (
+            <span key={`${membership.organization.id}-${membership.role}`}>
+              <strong>{membership.organization.name}</strong>
+              {membership.role_label}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
       <div className="language-switch">
         {profile.available_languages.map((language) => (
           <button
@@ -1256,6 +1492,50 @@ function ProfileView({
       </div>
 
       {saveError ? <p className="inline-error">{saveError}</p> : null}
+    </section>
+  );
+}
+
+function AdminView({
+  isLoading,
+  profile,
+  t,
+}: {
+  isLoading: boolean;
+  profile: UserProfile | null;
+  t: TFunction;
+}) {
+  if (isLoading) {
+    return (
+      <section className="single-panel">
+        <SkeletonRows count={4} />
+      </section>
+    );
+  }
+
+  if (!profile || !userHasAdminRole(profile)) return null;
+
+  const adminItems = [
+    t('adminUsers'),
+    t('adminOrganizations'),
+    t('adminReferences'),
+    t('adminEnvironment'),
+  ];
+
+  return (
+    <section className="admin-panel">
+      <div className="admin-grid">
+        {adminItems.map((item) => (
+          <article key={item} className="admin-item">
+            <span>{item}</span>
+            <strong>{t('adminRights')}</strong>
+          </article>
+        ))}
+      </div>
+
+      <a className="admin-link" href="/admin/">
+        {t('adminOpenDjango')}
+      </a>
     </section>
   );
 }
@@ -1372,6 +1652,13 @@ function getLatestComment(measurements: BiologicalMeasurement[], box: BoxItem | 
   return measurementWithComment?.notes.trim() || box.latest_measurement?.notes?.trim();
 }
 
+function getBoxCreatedDate(box: BoxItem | BoxDetail) {
+  if ('created_on' in box) {
+    return box.created_on;
+  }
+  return box.entered_on;
+}
+
 function parsePositiveInteger(value: string) {
   const parsedValue = Number.parseInt(value, 10);
   return Number.isFinite(parsedValue) && parsedValue >= 0 ? parsedValue : 0;
@@ -1405,6 +1692,11 @@ function getBoxLineage(box: BoxItem | BoxDetail): BoxLineage {
   return { parents: [], children: [] };
 }
 
+function getCurrentThermalZone(box: BoxItem | BoxDetail, zones: ThermalZone[]) {
+  if (!box.thermal_zone) return null;
+  return zones.find((zone) => zone.id === box.thermal_zone?.id) ?? null;
+}
+
 function getSubcultureSaveError(error: unknown, t: TFunction) {
   if (error instanceof ApiError && error.status === 403) {
     return t('subcultureForbidden');
@@ -1423,6 +1715,12 @@ function getMoveSaveError(error: unknown, t: TFunction) {
 
 function formatTemperature(value: number | undefined) {
   return value === undefined ? '-' : `${value.toFixed(1)}°C`;
+}
+
+function formatTemperatureValue(value: string | number | null | undefined) {
+  if (value === null || value === undefined || value === '') return '-';
+  const numericValue = typeof value === 'number' ? value : Number.parseFloat(value);
+  return Number.isFinite(numericValue) ? `${numericValue.toFixed(1)}°C` : '-';
 }
 
 function formatSalinity(value: number | undefined) {
@@ -1445,10 +1743,39 @@ function getLanguage(profile: UserProfile | null): Language {
   return profile?.interface_language === 'en' ? 'en' : 'fr';
 }
 
+function useIsDesktopApp() {
+  const [isDesktop, setIsDesktop] = useState(() => getIsDesktopApp());
+
+  useEffect(() => {
+    const media = window.matchMedia('(min-width: 1181px), (min-width: 841px) and (min-height: 761px)');
+
+    function syncDesktopState() {
+      setIsDesktop(media.matches);
+    }
+
+    syncDesktopState();
+    media.addEventListener('change', syncDesktopState);
+    return () => media.removeEventListener('change', syncDesktopState);
+  }, []);
+
+  return isDesktop;
+}
+
+function getIsDesktopApp() {
+  return window.matchMedia('(min-width: 1181px), (min-width: 841px) and (min-height: 761px)').matches;
+}
+
+function userHasAdminRole(profile: UserProfile | null) {
+  if (!profile) return false;
+  if (profile.is_superuser) return true;
+  return profile.memberships.some((membership) => membership.role === 'admin');
+}
+
 function getTitle(tab: TabId, t: TFunction) {
   if (tab === 'pilotage') return t('pilotageTitle');
   if (tab === 'zones') return t('zonesTitle');
   if (tab === 'exports') return t('exportsTitle');
+  if (tab === 'admin') return t('adminTitle');
   return t('profileTitle');
 }
 
@@ -1475,6 +1802,10 @@ function getCurrentRoute(): RouteState {
 
   if (path === '/exports') {
     return { tab: 'exports', boxCode: null, boxId: null };
+  }
+
+  if (path === '/administration') {
+    return { tab: 'admin', boxCode: null };
   }
 
   if (path === '/profile') {
