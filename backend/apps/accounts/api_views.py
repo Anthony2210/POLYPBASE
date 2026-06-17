@@ -6,7 +6,7 @@ from rest_framework.views import APIView
 
 from apps.accounts.permissions import get_authorized_organizations
 
-from .models import UserPreference
+from .models import OrganizationMembership, UserPreference
 from .serializers import (
     UserPreferenceSerializer,
     UserProfileSerializer,
@@ -44,6 +44,11 @@ class UserProfileAPIView(APIView):
 
     def _profile_data(self, user, preference):
         organizations = get_authorized_organizations(user).order_by("name")
+        memberships = OrganizationMembership.objects.filter(
+            user=user,
+            is_active=True,
+            organization__is_active=True,
+        ).select_related("organization").order_by("organization__name")
         serializer = UserProfileSerializer(
             {
                 "id": user.id,
@@ -51,8 +56,21 @@ class UserProfileAPIView(APIView):
                 "email": user.email,
                 "first_name": user.first_name,
                 "last_name": user.last_name,
+                "is_superuser": user.is_superuser,
                 "interface_language": preference.interface_language,
                 "organizations": organizations,
+                "memberships": [
+                    {
+                        "organization": {
+                            "id": membership.organization.id,
+                            "name": membership.organization.name,
+                            "slug": membership.organization.slug,
+                        },
+                        "role": membership.role,
+                        "role_label": membership.get_role_display(),
+                    }
+                    for membership in memberships
+                ],
                 "available_languages": available_interface_languages(),
             }
         )

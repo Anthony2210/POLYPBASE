@@ -30,6 +30,8 @@ class UserProfileSerializer(serializers.Serializer):
     email = serializers.EmailField(allow_blank=True)
     first_name = serializers.CharField(allow_blank=True)
     last_name = serializers.CharField(allow_blank=True)
+    is_superuser = serializers.BooleanField()
     interface_language = serializers.CharField()
     organizations = OrganizationSummarySerializer(many=True)
+    memberships = serializers.ListField()
     available_languages = serializers.ListField()

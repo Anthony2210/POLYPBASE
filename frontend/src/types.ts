@@ -237,8 +237,18 @@ export type UserProfile = {
   email: string;
   first_name: string;
   last_name: string;
+  is_superuser: boolean;
   interface_language: string;
   organizations: Organization[];
+  memberships: Array<{
+    organization: {
+      id: number;
+      name: string;
+      slug: string | null;
+    };
+    role: 'admin' | 'lab_technician' | 'viewer';
+    role_label: string;
+  }>;
   available_languages: Array<{
     code: string;
     label: string;
