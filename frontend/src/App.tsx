@@ -1,9 +1,9 @@
-import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ApiError, apiGet, apiPatch, apiPost } from './api/client';
 import { getBoxStatusPresentation } from './boxStatus';
 import ExportsView from './components/ExportsView';
-import LineageModal from './components/LineageModal';
+import InteractiveLineageGraph from './components/InteractiveLineageGraph';
 import MoveBoxModal from './components/MoveBoxModal';
 import SubcultureModal from './components/SubcultureModal';
 import type {
@@ -70,7 +70,7 @@ const translations = {
     adminRights: 'Réservé admin',
     profileRoles: 'Rôles',
     historyButton: 'Voir relevés',
-    analysisTabLineage: 'Parenté',
+    analysisTabLineage: 'Graphique parenté',
     analysisTabMeasurements: 'Relevés',
     analysisTabObservations: 'Observations',
     boxLocalCode: 'Code local',
@@ -82,6 +82,9 @@ const translations = {
     lastMeasurement: 'Dernier relevé',
     laboratoryTracking: 'Suivi laboratoire',
     lineageAction: 'Parenté',
+    lineageEmptyGraph: 'Le graphique de parenté sera affiché ici.',
+    lineageLoading: 'Chargement de la parenté...',
+    lineageRetry: 'Recharger',
     loginAction: 'Se connecter',
     loginRequired: 'Connexion requise',
     measurementDate: 'Date du relevé',
@@ -111,12 +114,20 @@ const translations = {
     qrCode: 'QR code',
     qrDownload: 'Télécharger (SVG)',
     qrScanHint: 'Scannez pour ouvrir cette fiche',
+    qrScannerFound: 'Boîte détectée',
+    qrScannerPermission: 'Impossible d’ouvrir la caméra.',
+    qrScannerStart: 'Scanner',
+    qrScannerStop: 'Arrêter',
+    qrScannerText: 'Scannez le QR code d’une boîte pour ouvrir directement sa fiche.',
+    qrScannerTitle: 'Scan QR code',
+    qrScannerUnsupported: 'Scanner indisponible sur ce navigateur.',
     recentAccess: 'Derniers accès',
     saveMeasurement: 'Enregistrer le relevé',
     saving: 'Enregistrement...',
     scanSearch: 'scan / recherche',
     searchOrScan: 'Recherche ou scan',
     searchPlaceholder: 'Code boîte, espèce, souche',
+    searchTab: 'Recherche',
     suggestions: 'Suggestions',
     subcultureAction: 'Repiquer',
     subcultureForbidden: 'Ce compte ne peut pas créer de repiquage.',
@@ -149,7 +160,7 @@ const translations = {
     adminRights: 'Admin only',
     profileRoles: 'Roles',
     historyButton: 'View records',
-    analysisTabLineage: 'Lineage',
+    analysisTabLineage: 'Lineage graph',
     analysisTabMeasurements: 'Measurements',
     analysisTabObservations: 'Observations',
     boxLocalCode: 'Local code',
@@ -161,6 +172,9 @@ const translations = {
     lastMeasurement: 'Last measurement',
     laboratoryTracking: 'Lab tracking',
     lineageAction: 'Lineage',
+    lineageEmptyGraph: 'The lineage graph will be shown here.',
+    lineageLoading: 'Loading lineage...',
+    lineageRetry: 'Reload',
     loginAction: 'Sign in',
     loginRequired: 'Sign-in required',
     measurementDate: 'Measurement date',
@@ -190,12 +204,20 @@ const translations = {
     qrCode: 'QR code',
     qrDownload: 'Download (SVG)',
     qrScanHint: 'Scan to open this sheet',
+    qrScannerFound: 'Box detected',
+    qrScannerPermission: 'Unable to open the camera.',
+    qrScannerStart: 'Scan',
+    qrScannerStop: 'Stop',
+    qrScannerText: 'Scan a box QR code to open its sheet directly.',
+    qrScannerTitle: 'QR code scan',
+    qrScannerUnsupported: 'Scanner unavailable in this browser.',
     recentAccess: 'Recent access',
     saveMeasurement: 'Save measurement',
     saving: 'Saving...',
     scanSearch: 'scan / search',
     searchOrScan: 'Search or scan',
     searchPlaceholder: 'Box code, species, strain',
+    searchTab: 'Search',
     suggestions: 'Suggestions',
     subcultureAction: 'Subculture',
     subcultureForbidden: 'This account cannot create subculture events.',
@@ -534,6 +556,7 @@ export default function App() {
 
             {activeTab === 'pilotage' && !isBoxRoute && (
               <PilotageView
+                boxes={data.boxes}
                 isLoading={isLoading}
                 search={search}
                 suggestions={filteredBoxes.slice(0, 5)}
@@ -578,6 +601,7 @@ export default function App() {
 }
 
 function PilotageView({
+  boxes,
   isLoading,
   recentBoxes,
   search,
@@ -586,6 +610,7 @@ function PilotageView({
   onSearch,
   onSelectBox,
 }: {
+  boxes: BoxItem[];
   isLoading: boolean;
   recentBoxes: BoxItem[];
   search: string;
@@ -595,6 +620,7 @@ function PilotageView({
   onSelectBox: (id: number) => void;
 }) {
   const visibleSuggestions = search.trim() ? suggestions : [];
+  const [tabletLookupMode, setTabletLookupMode] = useState<'qr' | 'search'>('qr');
 
   function selectFirstSuggestion() {
     if (visibleSuggestions[0]) {
@@ -606,20 +632,72 @@ function PilotageView({
   return (
     <section className="pilotage-flow">
       <div className="lookup-panel">
-        <SearchField value={search} onChange={onSearch} onSubmit={selectFirstSuggestion} t={t} />
+        <div className="desktop-search-panel">
+          <SearchField value={search} onChange={onSearch} onSubmit={selectFirstSuggestion} t={t} />
+        </div>
 
-        {isLoading ? <SkeletonRows count={3} /> : null}
+        <section className="tablet-lookup-panel">
+          <div className="tablet-lookup-tabs" role="tablist" aria-label={t('searchOrScan')}>
+            <button
+              className={tabletLookupMode === 'qr' ? 'is-active' : ''}
+              type="button"
+              role="tab"
+              aria-selected={tabletLookupMode === 'qr'}
+              onClick={() => setTabletLookupMode('qr')}
+            >
+              {t('qrCode')}
+            </button>
+            <button
+              className={tabletLookupMode === 'search' ? 'is-active' : ''}
+              type="button"
+              role="tab"
+              aria-selected={tabletLookupMode === 'search'}
+              onClick={() => setTabletLookupMode('search')}
+            >
+              {t('searchTab')}
+            </button>
+          </div>
+
+          {tabletLookupMode === 'qr' ? (
+            <TabletQrScanner boxes={boxes} onSelectBox={onSelectBox} t={t} />
+          ) : (
+            <div className="tablet-manual-search">
+              <SearchField value={search} onChange={onSearch} onSubmit={selectFirstSuggestion} t={t} />
+            </div>
+          )}
+        </section>
+
+        <div className="mobile-suggestion-slot">
+          {tabletLookupMode === 'search' && visibleSuggestions.length > 0 ? (
+            <SuggestionList
+              boxes={visibleSuggestions}
+              selectedBoxId={null}
+              onSelectBox={onSelectBox}
+              t={t}
+            />
+          ) : null}
+        </div>
+
+        <div className="desktop-suggestion-slot">
+          {!isLoading && visibleSuggestions.length > 0 ? (
+            <SuggestionList
+              boxes={visibleSuggestions}
+              selectedBoxId={null}
+              onSelectBox={onSelectBox}
+              t={t}
+            />
+          ) : null}
+        </div>
+
+        <div className="desktop-only-loading">
+          {isLoading ? <SkeletonRows count={3} /> : null}
+        </div>
+
+        <div className="tablet-only-loading">
+          {isLoading ? <SkeletonRows count={2} /> : null}
+        </div>
 
         {!isLoading && <RecentAccessList boxes={recentBoxes} onSelectBox={onSelectBox} t={t} />}
-
-        {!isLoading && visibleSuggestions.length > 0 ? (
-          <SuggestionList
-            boxes={visibleSuggestions}
-            selectedBoxId={null}
-            onSelectBox={onSelectBox}
-            t={t}
-          />
-        ) : null}
       </div>
 
       <JellyfishPattern />
@@ -771,7 +849,6 @@ function BoxPage({
   const [form, setForm] = useState(() => getInitialMeasurementForm());
   const [isSaving, setIsSaving] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const [isLineageOpen, setIsLineageOpen] = useState(false);
   const [lineageGraph, setLineageGraph] = useState<LineageGraph | null>(null);
   const [isLineageGraphLoading, setIsLineageGraphLoading] = useState(false);
   const [lineageGraphError, setLineageGraphError] = useState<string | null>(null);
@@ -790,7 +867,6 @@ function BoxPage({
   useEffect(() => {
     setForm(getInitialMeasurementForm());
     setIsHistoryOpen(false);
-    setIsLineageOpen(false);
     setLineageGraph(null);
     setIsLineageGraphLoading(false);
     setLineageGraphError(null);
@@ -805,6 +881,37 @@ function BoxPage({
     setSubcultureMessage(null);
     setActiveInsightTab('measurements');
   }, [box?.id]);
+
+  useEffect(() => {
+    if (activeInsightTab !== 'lineage' || !box?.id || lineageGraph || isLineageGraphLoading) {
+      return;
+    }
+
+    let ignoreResult = false;
+    setIsLineageGraphLoading(true);
+    setLineageGraphError(null);
+
+    void onLoadLineageGraph(box.id)
+      .then((graph) => {
+        if (!ignoreResult) {
+          setLineageGraph(graph);
+        }
+      })
+      .catch((requestError) => {
+        if (!ignoreResult) {
+          setLineageGraphError(getErrorMessage(requestError));
+        }
+      })
+      .finally(() => {
+        if (!ignoreResult) {
+          setIsLineageGraphLoading(false);
+        }
+      });
+
+    return () => {
+      ignoreResult = true;
+    };
+  }, [activeInsightTab, box?.id, lineageGraph]);
 
   if (isLoading) {
     return (
@@ -830,9 +937,9 @@ function BoxPage({
   const lastComment = getLatestComment(measurements, box);
   const qr = 'qr_image_url' in box ? { imageUrl: box.qr_image_url, scanUrl: box.scan_url } : null;
   const lineage = getBoxLineage(box);
-  const lineageCount = lineage.parents.length + lineage.children.length;
   const currentZone = getCurrentThermalZone(box, zones);
   const createdOn = getBoxCreatedDate(box);
+  const statusPresentation = getBoxStatusPresentation(box.status, language);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -894,10 +1001,10 @@ function BoxPage({
     }
   }
 
-  async function handleOpenLineage() {
+  async function handleLoadLineageGraph() {
     if (!box) return;
 
-    setIsLineageOpen(true);
+    setLineageGraph(null);
     setIsLineageGraphLoading(true);
     setLineageGraphError(null);
 
@@ -916,20 +1023,33 @@ function BoxPage({
         {t('backToPilotage')}
       </button>
 
-      <header className="box-sheet-hero">
+      <header className={`box-sheet-hero is-status-${statusPresentation.tone}`}>
         <div className="box-sheet-identity">
-          <p className="box-page-label">{t('boxSheet')}</p>
-          <div className="box-code-line">
-            <h2>{box.global_code}</h2>
-            <span
-              className={`box-life-status is-${
-                getBoxStatusPresentation(box.status, language).tone
-              }`}
-            >
-              {getBoxStatusPresentation(box.status, language).label}
-            </span>
+          <div className="box-identity-heading">
+            <div>
+              <p className="box-page-label">{t('boxSheet')}</p>
+              <div className="box-code-line">
+                <h2>{box.global_code}</h2>
+                <span className={`box-life-status is-${statusPresentation.tone}`}>
+                  {statusPresentation.label}
+                </span>
+              </div>
+              <p>{box.species.scientific_name}</p>
+            </div>
+
+            {qr ? (
+              <a
+                className="box-hero-qr"
+                href={qr.imageUrl}
+                download={`bac-${box.id}.svg`}
+                title={qr.scanUrl}
+              >
+                <img src={qr.imageUrl} alt={`${t('qrCode')} ${box.global_code}`} width={58} height={58} />
+                <span>{t('qrCode')}</span>
+              </a>
+            ) : null}
           </div>
-          <p>{box.species.scientific_name}</p>
+
           <div className="box-small-facts">
             <InfoPill label={t('boxLocalCode')} value={box.local_code || '-'} />
             <InfoPill label={t('boxStrain')} value={box.strain.code} />
@@ -948,20 +1068,6 @@ function BoxPage({
         </div>
 
         <div className="box-action-stack">
-          {qr ? (
-            <a className="box-hero-qr" href={qr.imageUrl} download={`bac-${box.id}.svg`}>
-              <img src={qr.imageUrl} alt={`${t('qrCode')} ${box.global_code}`} width={74} height={74} />
-              <span>{t('qrCode')}</span>
-            </a>
-          ) : null}
-          <button className="lineage-trigger" type="button" onClick={handleOpenLineage}>
-            <span>{t('lineageAction')}</span>
-            <strong>{lineageCount}</strong>
-          </button>
-          <button className="history-trigger" type="button" onClick={() => setIsHistoryOpen(true)}>
-            <span>{t('historyButton')}</span>
-            <strong>{measurements.length}</strong>
-          </button>
           <button className="move-trigger" type="button" onClick={() => setIsMoveOpen(true)}>
             {t('moveAction')}
           </button>
@@ -1074,50 +1180,25 @@ function BoxPage({
         <section className="box-insights-section">
           <BoxInsights
             activeTab={activeInsightTab}
+            graph={lineageGraph}
+            graphError={lineageGraphError}
+            isGraphLoading={isLineageGraphLoading}
+            language={language}
             lineage={lineage}
             measurements={measurements}
+            onLoadLineageGraph={handleLoadLineageGraph}
             onOpenHistory={() => setIsHistoryOpen(true)}
-            onOpenLineage={handleOpenLineage}
+            onSelectBox={onOpenBox}
             onSelectTab={setActiveInsightTab}
             t={t}
           />
         </section>
-
-        {qr ? (
-          <section className="box-section box-qr-section">
-            <div className="section-title">
-              <h2>{t('qrCode')}</h2>
-              <span>{qr.scanUrl}</span>
-            </div>
-            <div className="box-qr">
-              <p>{t('qrScanHint')}</p>
-              <a className="qr-download" href={qr.imageUrl} download={`bac-${box.id}.svg`}>
-                {t('qrDownload')}
-              </a>
-            </div>
-          </section>
-        ) : null}
 
         {isHistoryOpen ? (
           <MeasurementHistoryModal
             measurements={measurements}
             onClose={() => setIsHistoryOpen(false)}
             t={t}
-          />
-        ) : null}
-
-        {isLineageOpen ? (
-          <LineageModal
-            lineage={lineage}
-            graph={lineageGraph}
-            isGraphLoading={isLineageGraphLoading}
-            graphError={lineageGraphError}
-            language={language}
-            onClose={() => setIsLineageOpen(false)}
-            onSelectBox={(boxId, globalCode) => {
-              setIsLineageOpen(false);
-              onOpenBox(boxId, globalCode);
-            }}
           />
         ) : null}
 
@@ -1161,18 +1242,28 @@ function InfoPill({ label, value, strong = false }: { label: string; value: stri
 
 function BoxInsights({
   activeTab,
+  graph,
+  graphError,
+  isGraphLoading,
+  language,
   lineage,
   measurements,
+  onLoadLineageGraph,
   onOpenHistory,
-  onOpenLineage,
+  onSelectBox,
   onSelectTab,
   t,
 }: {
   activeTab: BoxInsightTab;
+  graph: LineageGraph | null;
+  graphError: string | null;
+  isGraphLoading: boolean;
+  language: Language;
   lineage: BoxLineage;
   measurements: BiologicalMeasurement[];
+  onLoadLineageGraph: () => void;
   onOpenHistory: () => void;
-  onOpenLineage: () => void;
+  onSelectBox: (boxId: number, globalCode: string) => void;
   onSelectTab: (tab: BoxInsightTab) => void;
   t: TFunction;
 }) {
@@ -1223,13 +1314,29 @@ function BoxInsights({
         <div className="insight-panel">
           <div className="insight-heading">
             <h2>{t('analysisTabLineage')}</h2>
-            <button type="button" onClick={onOpenLineage}>{t('lineageAction')}</button>
+            <span className="insight-count">{lineage.parents.length + lineage.children.length}</span>
           </div>
-          <div className="lineage-preview">
-            <Metric label={t('analysisTabLineage')} value={String(lineage.parents.length + lineage.children.length)} />
-            <Metric label={t('parents')} value={String(lineage.parents.length)} />
-            <Metric label={t('children')} value={String(lineage.children.length)} />
-          </div>
+          {isGraphLoading ? <p className="lineage-inline-status">{t('lineageLoading')}</p> : null}
+          {graphError ? (
+            <div className="lineage-inline-status is-error">
+              <p>{graphError}</p>
+              <button type="button" onClick={onLoadLineageGraph}>{t('lineageRetry')}</button>
+            </div>
+          ) : null}
+          {graph ? (
+            <InteractiveLineageGraph
+              graph={graph}
+              language={language}
+              onSelectBox={onSelectBox}
+            />
+          ) : null}
+          {!graph && !isGraphLoading && !graphError ? (
+            <div className="lineage-preview">
+              <Metric label={t('parents')} value={String(lineage.parents.length)} />
+              <Metric label={t('children')} value={String(lineage.children.length)} />
+              <p>{t('lineageEmptyGraph')}</p>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -1243,6 +1350,7 @@ function MeasurementTrendChart({
   measurements: BiologicalMeasurement[];
   t: TFunction;
 }) {
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const chartMeasurements = [...measurements]
     .sort((left, right) => left.measured_on.localeCompare(right.measured_on))
     .slice(-12);
@@ -1272,9 +1380,14 @@ function MeasurementTrendChart({
   );
   const firstDate = chartMeasurements[0].measured_on;
   const lastDate = chartMeasurements[chartMeasurements.length - 1].measured_on;
+  const hoveredMeasurement = hoveredIndex != null ? chartMeasurements[hoveredIndex] : null;
+  const hoverX = hoveredIndex != null ? padding.left + hoveredIndex * xStep : null;
+  const hoverTop = hoveredMeasurement
+    ? Math.min(yScale(hoveredMeasurement.polyp_count), yScale(hoveredMeasurement.ephyrae_count))
+    : null;
 
   return (
-    <div className="measurement-chart" aria-label={t('chartTitle')}>
+    <div className="measurement-chart" aria-label={t('chartTitle')} onPointerLeave={() => setHoveredIndex(null)}>
       <svg viewBox={`0 0 ${width} ${height}`} role="img">
         <line className="chart-axis" x1={padding.left} y1={height - padding.bottom} x2={width - padding.right} y2={height - padding.bottom} />
         <line className="chart-axis" x1={padding.left} y1={padding.top} x2={padding.left} y2={height - padding.bottom} />
@@ -1284,17 +1397,69 @@ function MeasurementTrendChart({
         })}
         <polyline className="chart-line is-polyps" points={toPoints((measurement) => measurement.polyp_count)} />
         <polyline className="chart-line is-ephyrae" points={toPoints((measurement) => measurement.ephyrae_count)} />
+        {hoveredMeasurement && hoverX != null ? (
+          <line
+            className="chart-hover-line"
+            x1={hoverX}
+            y1={padding.top}
+            x2={hoverX}
+            y2={height - padding.bottom}
+          />
+        ) : null}
         {chartMeasurements.map((measurement, index) => (
           <g key={measurement.id}>
-            <circle className="chart-dot is-polyps" cx={padding.left + index * xStep} cy={yScale(measurement.polyp_count)} r="3.5" />
-            <circle className="chart-dot is-ephyrae" cx={padding.left + index * xStep} cy={yScale(measurement.ephyrae_count)} r="3.5" />
+            <circle
+              className={hoveredIndex === index ? 'chart-dot is-polyps is-active' : 'chart-dot is-polyps'}
+              cx={padding.left + index * xStep}
+              cy={yScale(measurement.polyp_count)}
+              r={hoveredIndex === index ? '5' : '3.5'}
+            />
+            <circle
+              className={hoveredIndex === index ? 'chart-dot is-ephyrae is-active' : 'chart-dot is-ephyrae'}
+              cx={padding.left + index * xStep}
+              cy={yScale(measurement.ephyrae_count)}
+              r={hoveredIndex === index ? '5' : '3.5'}
+            />
           </g>
         ))}
+        {chartMeasurements.map((measurement, index) => {
+          const x = padding.left + index * xStep;
+          const hitWidth = Math.max(26, xStep * 0.82);
+
+          return (
+            <rect
+              key={`hit-${measurement.id}`}
+              className="chart-hit-area"
+              x={x - hitWidth / 2}
+              y={padding.top}
+              width={hitWidth}
+              height={height - padding.top - padding.bottom}
+              tabIndex={0}
+              onBlur={() => setHoveredIndex(null)}
+              onFocus={() => setHoveredIndex(index)}
+              onPointerEnter={() => setHoveredIndex(index)}
+            />
+          );
+        })}
         <text className="chart-label" x={padding.left} y={height - 12}>{formatDisplayDate(firstDate)}</text>
         <text className="chart-label is-end" x={width - padding.right} y={height - 12}>{formatDisplayDate(lastDate)}</text>
         <text className="chart-y-label" x={padding.left - 8} y={padding.top + 4}>{maxValue}</text>
         <text className="chart-y-label" x={padding.left - 8} y={height - padding.bottom + 4}>0</text>
       </svg>
+
+      {hoveredMeasurement && hoverX != null && hoverTop != null ? (
+        <div
+          className="chart-tooltip"
+          style={{
+            left: `${(hoverX / width) * 100}%`,
+            top: `${Math.max(8, (hoverTop / height) * 100 - 8)}%`,
+          }}
+        >
+          <strong>{formatDisplayDate(hoveredMeasurement.measured_on)}</strong>
+          <span>{t('polyps')} : {hoveredMeasurement.polyp_count}</span>
+          <span>{t('ephyraeFull')} : {hoveredMeasurement.ephyrae_count}</span>
+        </div>
+      ) : null}
 
       <div className="chart-legend">
         <span className="is-polyps">{t('polyps')}</span>
@@ -1572,6 +1737,123 @@ function SearchField({
   );
 }
 
+function TabletQrScanner({
+  boxes,
+  onSelectBox,
+  t,
+}: {
+  boxes: BoxItem[];
+  onSelectBox: (id: number) => void;
+  t: TFunction;
+}) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const intervalRef = useRef<number | null>(null);
+  const [isScanning, setIsScanning] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isScanning) {
+      stopQrScanner(streamRef, intervalRef);
+      return;
+    }
+
+    let isCancelled = false;
+
+    async function startScanner() {
+      const Detector = (window as unknown as {
+        BarcodeDetector?: new (options?: { formats?: string[] }) => {
+          detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue: string }>>;
+        };
+      }).BarcodeDetector;
+
+      if (!Detector || !navigator.mediaDevices?.getUserMedia) {
+        setMessage(t('qrScannerUnsupported'));
+        setIsScanning(false);
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' } },
+          audio: false,
+        });
+        if (isCancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
+
+        const detector = new Detector({ formats: ['qr_code'] });
+        intervalRef.current = window.setInterval(async () => {
+          const video = videoRef.current;
+          if (!video || video.readyState < 2) return;
+
+          try {
+            const codes = await detector.detect(video);
+            const scannedValue = codes[0]?.rawValue;
+            const scannedBoxId = scannedValue ? getBoxIdFromQrValue(scannedValue, boxes) : null;
+
+            if (scannedBoxId != null) {
+              setMessage(t('qrScannerFound'));
+              setIsScanning(false);
+              onSelectBox(scannedBoxId);
+            }
+          } catch {
+            // Some browsers throw while the video frame is not ready yet.
+          }
+        }, 650);
+      } catch {
+        setMessage(t('qrScannerPermission'));
+        setIsScanning(false);
+      }
+    }
+
+    void startScanner();
+
+    return () => {
+      isCancelled = true;
+      stopQrScanner(streamRef, intervalRef);
+    };
+  }, [isScanning, boxes, onSelectBox, t]);
+
+  return (
+    <section className={isScanning ? 'tablet-scanner-panel is-scanning' : 'tablet-scanner-panel'}>
+      <div className="scanner-copy">
+        <h2>{t('qrScannerTitle')}</h2>
+        <p aria-live="polite">{message ?? t('qrScannerText')}</p>
+      </div>
+
+      <button
+        className="scanner-preview"
+        type="button"
+        aria-label={isScanning ? t('qrScannerStop') : t('qrScannerStart')}
+        onClick={() => {
+          setMessage(null);
+          setIsScanning((current) => !current);
+        }}
+      >
+        {isScanning ? (
+          <>
+            <video ref={videoRef} muted playsInline />
+            <span className="scanner-live-label">{t('qrScannerStop')}</span>
+          </>
+        ) : (
+          <span className="scanner-placeholder">
+            <span>{t('qrCode')}</span>
+            <strong>{t('qrScannerStart')}</strong>
+          </span>
+        )}
+      </button>
+    </section>
+  );
+}
+
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <span className="metric">
@@ -1591,6 +1873,41 @@ function QuickCountButtons({ values, onAdd }: { values: number[]; onAdd: (value:
       ))}
     </span>
   );
+}
+
+function stopQrScanner(
+  streamRef: { current: MediaStream | null },
+  intervalRef: { current: number | null },
+) {
+  if (intervalRef.current != null) {
+    window.clearInterval(intervalRef.current);
+    intervalRef.current = null;
+  }
+
+  streamRef.current?.getTracks().forEach((track) => track.stop());
+  streamRef.current = null;
+}
+
+function getBoxIdFromQrValue(value: string, boxes: BoxItem[]) {
+  const trimmedValue = value.trim();
+  const routeMatch = trimmedValue.match(/\/bac\/(\d+)\/?/) ?? trimmedValue.match(/\/boxes\/([^/?#]+)\/?/);
+
+  if (routeMatch?.[1]) {
+    const routeValue = decodeURIComponent(routeMatch[1]);
+    const routeId = Number(routeValue);
+    if (Number.isInteger(routeId)) return routeId;
+
+    const routeBox = boxes.find((box) => box.global_code.toLowerCase() === routeValue.toLowerCase());
+    if (routeBox) return routeBox.id;
+  }
+
+  const normalizedValue = trimmedValue.toLowerCase();
+  const directBox = boxes.find((box) => (
+    box.global_code.toLowerCase() === normalizedValue ||
+    box.local_code.toLowerCase() === normalizedValue
+  ));
+
+  return directBox?.id ?? null;
 }
 
 function LoginNotice({ message, t }: { message: string; t: TFunction }) {
