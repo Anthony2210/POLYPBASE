@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
-import { apiDownload } from '../api/client';
+import { apiDownload, apiGet } from '../api/client';
 import type { ExportOptions } from '../types';
 
 type Language = 'fr' | 'en';
@@ -15,6 +15,25 @@ type FilterOption = {
   id: number;
   label: string;
   detail?: string;
+};
+
+type ExportPreviewPoint = {
+  label: string;
+  polyp_count: number;
+  ephyrae_count: number;
+  average_temperature_c: number | null;
+  measurement_count: number;
+};
+
+type ExportPreview = {
+  points: ExportPreviewPoint[];
+  metadata: {
+    box_count: number;
+    measurement_count: number;
+    week_count: number;
+    date_from: string | null;
+    date_to: string | null;
+  };
 };
 
 const emptyFilters: ExportFilters = {
@@ -50,11 +69,18 @@ const copy = {
     organizations: 'Structures',
     organizationsFound: 'structures',
     optionCount: 'valeurs',
+    previewEmpty: 'Aucune donnée à afficher avec cette sélection.',
+    previewError: 'Impossible de charger l’aperçu.',
+    previewHelp: 'Le graphique se met à jour avec la période et les filtres choisis.',
+    previewLoading: 'Chargement de l’aperçu...',
+    previewMeasurements: 'relevés',
+    previewTitle: 'Aperçu des données sélectionnées',
     reset: 'Tout réinitialiser',
     selected: 'sélection',
     species: 'Espèces',
     speciesFound: 'espèces',
     strains: 'Souches',
+    temperature: 'Température',
     success: 'Fichier téléchargé',
     verify: '3. Vérifier puis exporter',
     zones: 'Zones thermiques',
@@ -81,11 +107,18 @@ const copy = {
     organizations: 'Organizations',
     organizationsFound: 'organizations',
     optionCount: 'values',
+    previewEmpty: 'No data to show for this selection.',
+    previewError: 'Unable to load the preview.',
+    previewHelp: 'The chart updates with the selected period and filters.',
+    previewLoading: 'Loading preview...',
+    previewMeasurements: 'measurements',
+    previewTitle: 'Selected data preview',
     reset: 'Reset all',
     selected: 'selected',
     species: 'Species',
     speciesFound: 'species',
     strains: 'Strains',
+    temperature: 'Temperature',
     success: 'File downloaded',
     verify: '3. Review and export',
     zones: 'Thermal zones',
@@ -103,6 +136,9 @@ export default function ExportsView({
 }) {
   const [filters, setFilters] = useState<ExportFilters>(emptyFilters);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [preview, setPreview] = useState<ExportPreview | null>(null);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const labels = copy[language];
@@ -151,6 +187,45 @@ export default function ExportsView({
     return Array.isArray(value) ? value.length > 0 : Boolean(value);
   });
 
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadPreview() {
+      if (!exportState?.matchingBoxes.length || invalidPeriod) {
+        setPreview(null);
+        setPreviewError(null);
+        setIsPreviewLoading(false);
+        return;
+      }
+
+      setIsPreviewLoading(true);
+      setPreviewError(null);
+
+      try {
+        const query = buildExportQuery(filters);
+        const data = await apiGet<ExportPreview>(
+          `/api/exports/measurements/preview/${query ? `?${query}` : ''}`,
+        );
+        if (!ignore) setPreview(data);
+      } catch (previewLoadError) {
+        if (!ignore) {
+          setPreview(null);
+          setPreviewError(
+            previewLoadError instanceof Error ? previewLoadError.message : labels.previewError,
+          );
+        }
+      } finally {
+        if (!ignore) setIsPreviewLoading(false);
+      }
+    }
+
+    void loadPreview();
+
+    return () => {
+      ignore = true;
+    };
+  }, [exportState?.matchingBoxes.length, filters, invalidPeriod, labels.previewError]);
+
   function updateDate(key: 'dateFrom' | 'dateTo', value: string) {
     setFilters((current) => ({ ...current, [key]: value }));
     clearFeedback();
@@ -183,14 +258,7 @@ export default function ExportsView({
     clearFeedback();
 
     try {
-      const params = new URLSearchParams();
-      for (const key of ['organizations', 'species', 'strains', 'boxes', 'zones'] as FilterKey[]) {
-        if (filters[key].length) params.set(key, filters[key].join(','));
-      }
-      if (filters.dateFrom) params.set('date_from', filters.dateFrom);
-      if (filters.dateTo) params.set('date_to', filters.dateTo);
-
-      const query = params.toString();
+      const query = buildExportQuery(filters);
       const fileName = await apiDownload(
         `/api/exports/measurements.csv${query ? `?${query}` : ''}`,
       );
@@ -313,6 +381,28 @@ export default function ExportsView({
         </div>
       </section>
 
+      <section className="export-preview">
+        <header className="export-step-heading">
+          <div>
+            <h2>{labels.previewTitle}</h2>
+            <p>{labels.previewHelp}</p>
+          </div>
+          {preview ? (
+            <span>
+              {preview.metadata.measurement_count} {labels.previewMeasurements}
+            </span>
+          ) : null}
+        </header>
+
+        <ExportPreviewChart
+          labels={labels}
+          language={language}
+          isLoading={isPreviewLoading}
+          error={previewError}
+          points={preview?.points ?? []}
+        />
+      </section>
+
       <section className="export-review">
         <div>
           <span className="export-review-label">{labels.verify}</span>
@@ -345,6 +435,144 @@ export default function ExportsView({
       {message ? <p className="inline-success export-feedback">{message}</p> : null}
       {error ? <p className="inline-error export-feedback">{error}</p> : null}
     </section>
+  );
+}
+
+function ExportPreviewChart({
+  points,
+  labels,
+  language,
+  isLoading,
+  error,
+}: {
+  points: ExportPreviewPoint[];
+  labels: (typeof copy)[Language];
+  language: Language;
+  isLoading: boolean;
+  error: string | null;
+}) {
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+
+  if (isLoading) {
+    return <div className="export-chart-state">{labels.previewLoading}</div>;
+  }
+
+  if (error) {
+    return <div className="export-chart-state is-error">{error}</div>;
+  }
+
+  if (!points.length) {
+    return <div className="export-chart-state">{labels.previewEmpty}</div>;
+  }
+
+  const width = 760;
+  const height = 250;
+  const padding = { top: 26, right: 28, bottom: 44, left: 52 };
+  const innerWidth = width - padding.left - padding.right;
+  const innerHeight = height - padding.top - padding.bottom;
+  const maxCount = Math.max(1, ...points.flatMap((point) => [point.polyp_count, point.ephyrae_count]));
+  const activeIndex = hoveredIndex ?? points.length - 1;
+  const activePoint = points[activeIndex];
+  const polypLabel = language === 'fr' ? 'Polypes' : 'Polyps';
+  const ephyraeLabel = language === 'fr' ? 'Éphyrules' : 'Ephyrae';
+
+  function xPosition(index: number) {
+    if (points.length === 1) return padding.left + innerWidth / 2;
+    return padding.left + (index / (points.length - 1)) * innerWidth;
+  }
+
+  function yPosition(value: number) {
+    return padding.top + innerHeight - (value / maxCount) * innerHeight;
+  }
+
+  function linePath(field: 'polyp_count' | 'ephyrae_count') {
+    return points
+      .map((point, index) => `${index === 0 ? 'M' : 'L'} ${xPosition(index)} ${yPosition(point[field])}`)
+      .join(' ');
+  }
+
+  return (
+    <div className="export-chart-card">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={labels.previewTitle}>
+        <line
+          className="export-chart-axis"
+          x1={padding.left}
+          x2={padding.left}
+          y1={padding.top}
+          y2={height - padding.bottom}
+        />
+        <line
+          className="export-chart-axis"
+          x1={padding.left}
+          x2={width - padding.right}
+          y1={height - padding.bottom}
+          y2={height - padding.bottom}
+        />
+        {[0, 0.5, 1].map((ratio) => {
+          const y = padding.top + innerHeight - ratio * innerHeight;
+          return (
+            <g key={ratio}>
+              <line
+                className="export-chart-grid"
+                x1={padding.left}
+                x2={width - padding.right}
+                y1={y}
+                y2={y}
+              />
+              <text className="export-chart-label" x={padding.left - 10} y={y + 4}>
+                {Math.round(maxCount * ratio)}
+              </text>
+            </g>
+          );
+        })}
+        <path className="export-chart-line is-polyps" d={linePath('polyp_count')} />
+        <path className="export-chart-line is-ephyrae" d={linePath('ephyrae_count')} />
+        {points.map((point, index) => {
+          const x = xPosition(index);
+          return (
+            <g
+              key={point.label}
+              className={index === activeIndex ? 'export-chart-hit is-active' : 'export-chart-hit'}
+              tabIndex={0}
+              onBlur={() => setHoveredIndex(null)}
+              onFocus={() => setHoveredIndex(index)}
+              onMouseEnter={() => setHoveredIndex(index)}
+              onMouseLeave={() => setHoveredIndex(null)}
+            >
+              <rect
+                x={x - 18}
+                y={padding.top}
+                width={36}
+                height={innerHeight}
+                rx={8}
+              />
+              <circle className="export-chart-dot is-polyps" cx={x} cy={yPosition(point.polyp_count)} r={5} />
+              <circle className="export-chart-dot is-ephyrae" cx={x} cy={yPosition(point.ephyrae_count)} r={5} />
+              <text className="export-chart-week" x={x} y={height - 16}>
+                {formatWeekLabel(point.label)}
+              </text>
+              <title>
+                {`${formatWeekLabel(point.label)} · ${polypLabel}: ${point.polyp_count} · ${ephyraeLabel}: ${point.ephyrae_count}`}
+              </title>
+            </g>
+          );
+        })}
+      </svg>
+
+      <div className="export-chart-details">
+        <strong>{formatWeekLabel(activePoint.label)}</strong>
+        <span>{polypLabel} : {activePoint.polyp_count}</span>
+        <span>{ephyraeLabel} : {activePoint.ephyrae_count}</span>
+        <span>
+          {labels.temperature} : {activePoint.average_temperature_c === null ? '-' : `${activePoint.average_temperature_c.toFixed(1)}°C`}
+        </span>
+      </div>
+
+      <div className="chart-legend export-chart-legend">
+        <span className="is-polyps">{polypLabel}</span>
+        <span className="is-ephyrae">{ephyraeLabel}</span>
+      </div>
+    </div>
   );
 }
 
@@ -429,6 +657,16 @@ function matchesFilter(values: number[], value: number | null, excluded: boolean
   return excluded || values.length === 0 || (value !== null && values.includes(value));
 }
 
+function buildExportQuery(filters: ExportFilters) {
+  const params = new URLSearchParams();
+  for (const key of ['organizations', 'species', 'strains', 'boxes', 'zones'] as FilterKey[]) {
+    if (filters[key].length) params.set(key, filters[key].join(','));
+  }
+  if (filters.dateFrom) params.set('date_from', filters.dateFrom);
+  if (filters.dateTo) params.set('date_to', filters.dateTo);
+  return params.toString();
+}
+
 function availableIds(
   options: ExportOptions,
   filters: ExportFilters,
@@ -492,6 +730,10 @@ function buildBoxOptions(options: ExportOptions, available: Set<number>): Filter
 
 function getOrganizationName(options: ExportOptions, organizationId: number) {
   return options.organizations.find((organization) => organization.id === organizationId)?.name;
+}
+
+function formatWeekLabel(label: string) {
+  return label.replace('_S', ' S');
 }
 
 function formatPeriod(dateFrom: string, dateTo: string, language: Language) {

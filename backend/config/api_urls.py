@@ -15,6 +15,7 @@ from apps.cultures.api_views import (
 from apps.exports.views import (
     MeasurementExportOptionsAPIView,
     WeeklyMeasurementCSVExportAPIView,
+    WeeklyMeasurementPreviewAPIView,
 )
 
 urlpatterns = [
@@ -52,6 +53,11 @@ urlpatterns = [
         "exports/measurements.csv",
         WeeklyMeasurementCSVExportAPIView.as_view(),
         name="api_export_measurements_csv",
+    ),
+    path(
+        "exports/measurements/preview/",
+        WeeklyMeasurementPreviewAPIView.as_view(),
+        name="api_export_measurements_preview",
     ),
     path("profile/", UserProfileAPIView.as_view(), name="api_profile"),
 ]

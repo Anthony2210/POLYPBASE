@@ -118,6 +118,63 @@ def build_weekly_measurement_csv(*, boxes, date_from=None, date_to=None):
     }
 
 
+def build_weekly_measurement_preview(*, boxes, date_from=None, date_to=None):
+    """Build aggregated chart data from the same selection as the CSV export."""
+    csv_content, metadata = build_weekly_measurement_csv(
+        boxes=boxes,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    rows = list(csv.reader(StringIO(csv_content)))
+    if not rows:
+        return {"points": [], "metadata": metadata}
+
+    header = rows[0]
+    polyp_columns = [
+        index for index, column in enumerate(header) if column.endswith("_polypes")
+    ]
+    ephyrae_columns = [
+        index for index, column in enumerate(header) if column.endswith("_ephyrules")
+    ]
+    temperature_columns = [
+        index for index, column in enumerate(header) if column.endswith("_temperature")
+    ]
+
+    points = []
+    for row in rows[1:]:
+        if not row:
+            continue
+
+        polyp_total = sum(_parse_int(row, index) for index in polyp_columns)
+        ephyrae_total = sum(_parse_int(row, index) for index in ephyrae_columns)
+        temperatures = [
+            value
+            for value in (_parse_float(row, index) for index in temperature_columns)
+            if value is not None
+        ]
+        measurement_count = sum(
+            1
+            for index in polyp_columns
+            if index < len(row) and row[index] not in ("", None)
+        )
+
+        points.append(
+            {
+                "label": row[0],
+                "polyp_count": polyp_total,
+                "ephyrae_count": ephyrae_total,
+                "average_temperature_c": (
+                    round(sum(temperatures) / len(temperatures), 2)
+                    if temperatures
+                    else None
+                ),
+                "measurement_count": measurement_count,
+            }
+        )
+
+    return {"points": points, "metadata": metadata}
+
+
 def _build_export_codes(boxes):
     local_code_counts = Counter(
         box.local_code.strip()
@@ -201,3 +258,21 @@ def _format_decimal(value):
         return ""
     text = format(value, "f")
     return text.rstrip("0").rstrip(".") if "." in text else text
+
+
+def _parse_int(row, index):
+    if index >= len(row) or row[index] == "":
+        return 0
+    try:
+        return int(row[index])
+    except ValueError:
+        return 0
+
+
+def _parse_float(row, index):
+    if index >= len(row) or row[index] == "":
+        return None
+    try:
+        return float(row[index])
+    except ValueError:
+        return None
