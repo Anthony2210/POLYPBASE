@@ -48,6 +48,13 @@ type RouteState = {
   zoneId?: number | null;
 };
 
+type QrLabelItem = {
+  id: number;
+  globalCode: string;
+  speciesName: string;
+  qrImageUrl: string;
+};
+
 const translations = {
   fr: {
     account: 'Compte',
@@ -118,6 +125,11 @@ const translations = {
     adminKeepTransferDate: 'Conserver la date du transfert',
     adminPrepareTransfer: 'Préparer le transfert',
     adminDjangoHint: 'Les actions sensibles restent accessibles dans Django admin tant que les API dédiées ne sont pas créées.',
+    adminPrintLabelsAction: 'Imprimer les étiquettes',
+    adminPrintLabelsClear: 'Tout décocher',
+    adminPrintLabelsHelp: 'Sélectionnez les boîtes à imprimer sur une même feuille.',
+    adminPrintLabelsSelectAll: 'Tout sélectionner',
+    adminPrintLabelsTitle: 'Étiquettes des boîtes',
     profileRoles: 'Rôles',
     historyButton: 'Voir relevés',
     analysisTabLineage: 'Graphique parenté',
@@ -160,9 +172,13 @@ const translations = {
     probes: 'Sondes',
     profile: 'Profil',
     profileTitle: 'Mon profil',
+    print: 'Imprimer',
     prototype: 'prototype',
     qrCode: 'QR code',
-    qrDownload: 'Télécharger (SVG)',
+    qrLabelDownload: 'Télécharger',
+    qrLabelHelp: 'Étiquette prête à imprimer et coller sur la boîte.',
+    qrLabelTitle: 'Étiquette QR code',
+    qrDownload: 'Télécharger',
     qrScanHint: 'Scannez pour ouvrir cette fiche',
     qrScannerFound: 'Boîte détectée',
     qrScannerPermission: 'Impossible d’ouvrir la caméra.',
@@ -280,6 +296,11 @@ const translations = {
     adminKeepTransferDate: 'Keep transfer date',
     adminPrepareTransfer: 'Prepare transfer',
     adminDjangoHint: 'Sensitive actions remain available in Django admin until dedicated APIs are created.',
+    adminPrintLabelsAction: 'Print labels',
+    adminPrintLabelsClear: 'Clear all',
+    adminPrintLabelsHelp: 'Select the boxes to print on the same sheet.',
+    adminPrintLabelsSelectAll: 'Select all',
+    adminPrintLabelsTitle: 'Box labels',
     profileRoles: 'Roles',
     historyButton: 'View records',
     analysisTabLineage: 'Lineage graph',
@@ -322,9 +343,13 @@ const translations = {
     probes: 'Probes',
     profile: 'Profile',
     profileTitle: 'My profile',
+    print: 'Print',
     prototype: 'prototype',
     qrCode: 'QR code',
-    qrDownload: 'Download (SVG)',
+    qrLabelDownload: 'Download',
+    qrLabelHelp: 'Label ready to print and attach to the box.',
+    qrLabelTitle: 'QR code label',
+    qrDownload: 'Download',
     qrScanHint: 'Scan to open this sheet',
     qrScannerFound: 'Box detected',
     qrScannerPermission: 'Unable to open the camera.',
@@ -1035,6 +1060,7 @@ function BoxPage({
   const [moveMessage, setMoveMessage] = useState<string | null>(null);
   const [isSubcultureOpen, setIsSubcultureOpen] = useState(false);
   const [isSavingSubculture, setIsSavingSubculture] = useState(false);
+  const [isQrLabelOpen, setIsQrLabelOpen] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [subcultureError, setSubcultureError] = useState<string | null>(null);
@@ -1052,6 +1078,7 @@ function BoxPage({
     setMoveError(null);
     setMoveMessage(null);
     setIsSubcultureOpen(false);
+    setIsQrLabelOpen(false);
     setSaveError(null);
     setSaveMessage(null);
     setSubcultureError(null);
@@ -1215,15 +1242,15 @@ function BoxPage({
             </div>
 
             {qr ? (
-              <a
+              <button
                 className="box-hero-qr"
-                href={qr.imageUrl}
-                download={`bac-${box.id}.svg`}
+                type="button"
                 title={qr.scanUrl}
+                onClick={() => setIsQrLabelOpen(true)}
               >
                 <img src={qr.imageUrl} alt={`${t('qrCode')} ${box.global_code}`} width={58} height={58} />
                 <span>{t('qrCode')}</span>
-              </a>
+              </button>
             ) : null}
           </div>
 
@@ -1403,9 +1430,206 @@ function BoxPage({
             onSubmit={handleSubculture}
           />
         ) : null}
+
+        {isQrLabelOpen && qr ? (
+          <QrLabelModal
+            box={box}
+            qrImageUrl={qr.imageUrl}
+            onClose={() => setIsQrLabelOpen(false)}
+            t={t}
+          />
+        ) : null}
       </div>
     </section>
   );
+}
+
+function QrLabelModal({
+  box,
+  qrImageUrl,
+  onClose,
+  t,
+}: {
+  box: BoxItem | BoxDetail;
+  qrImageUrl: string;
+  onClose: () => void;
+  t: TFunction;
+}) {
+  const label = buildQrLabelItem(box, qrImageUrl);
+
+  return (
+    <div className="modal-backdrop qr-print-backdrop" role="presentation" onClick={onClose}>
+      <section
+        className="qr-label-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="qr-label-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="modal-heading qr-label-modal-heading">
+          <div>
+            <h2 id="qr-label-title">{t('qrLabelTitle')}</h2>
+            <span>{t('qrLabelHelp')}</span>
+          </div>
+          <button type="button" aria-label={t('close')} onClick={onClose}>
+            ×
+          </button>
+        </header>
+
+        <div className="qr-label-print-sheet">
+      <div className="qr-label-main">
+        <strong>{label.globalCode}</strong>
+        <span>{label.speciesName}</span>
+      </div>
+
+          <div className="qr-label-code">
+            <img src={label.qrImageUrl} alt={`${t('qrCode')} ${label.globalCode}`} />
+            <strong>{t('qrCode')}</strong>
+          </div>
+        </div>
+
+        <footer className="qr-label-modal-actions">
+          <button type="button" className="is-secondary" onClick={() => void downloadQrLabel(label)}>
+            {t('qrLabelDownload')}
+          </button>
+          <button type="button" onClick={() => printQrLabels([label])}>
+            {t('print')}
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function buildQrLabelItem(box: BoxItem | BoxDetail, qrImageUrl?: string): QrLabelItem {
+  return {
+    id: box.id,
+    globalCode: box.global_code,
+    speciesName: box.species.scientific_name,
+    qrImageUrl: getBoxQrImageUrl(box, qrImageUrl),
+  };
+}
+
+function getBoxQrImageUrl(box: BoxItem | BoxDetail, explicitUrl?: string) {
+  if (explicitUrl) return explicitUrl;
+  if ('qr_image_url' in box && box.qr_image_url) return box.qr_image_url;
+  return `/boites/${box.id}/qr.svg`;
+}
+
+function printQrLabels(labels: QrLabelItem[]) {
+  if (!labels.length) return;
+
+  const printWindow = window.open('', '_blank', 'width=980,height=720');
+  if (!printWindow) return;
+
+  printWindow.document.write(buildQrPrintDocument(labels));
+  printWindow.document.close();
+
+  window.setTimeout(() => {
+    printWindow.focus();
+    printWindow.print();
+  }, 350);
+}
+
+async function downloadQrLabel(label: QrLabelItem) {
+  const qrDataUrl = await getQrDataUrl(label.qrImageUrl);
+  const svg = buildQrLabelSvg(label, qrDataUrl);
+  downloadTextFile(svg, `${label.globalCode}_etiquette.svg`, 'image/svg+xml;charset=utf-8');
+}
+
+async function getQrDataUrl(qrImageUrl: string) {
+  try {
+    const response = await fetch(qrImageUrl, { credentials: 'include' });
+    if (!response.ok) throw new Error('QR unavailable');
+    const svgText = await response.text();
+    return `data:image/svg+xml;base64,${window.btoa(unescape(encodeURIComponent(svgText)))}`;
+  } catch {
+    return new URL(qrImageUrl, window.location.origin).href;
+  }
+}
+
+function buildQrPrintDocument(labels: QrLabelItem[]) {
+  const labelMarkup = labels.map(renderPrintableQrLabel).join('');
+
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Étiquettes Polypbase</title>
+<style>
+  @page { size: A4; margin: 10mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; color: #000; font-family: Arial, sans-serif; }
+  .sheet { display: grid; grid-template-columns: repeat(2, 92mm); gap: 7mm; align-items: start; }
+  .label { display: grid; grid-template-columns: 1fr 30mm; gap: 5mm; min-height: 38mm; padding: 4.5mm; border: 0.35mm solid #000; border-radius: 2mm; break-inside: avoid; page-break-inside: avoid; }
+  .label-main { display: grid; align-content: center; gap: 1.2mm; min-width: 0; }
+  .label-code { display: block; width: 100%; font-size: 19pt; font-style: italic; font-weight: 900; line-height: 0.95; overflow-wrap: anywhere; }
+  .label-species { font-size: 8.5pt; }
+  .label-qr { display: grid; justify-items: center; gap: 1mm; font-size: 7pt; font-weight: 800; text-align: center; }
+  .label-qr img { width: 27mm; height: 27mm; image-rendering: pixelated; }
+</style>
+</head>
+<body>
+  <main class="sheet">${labelMarkup}</main>
+</body>
+</html>`;
+}
+
+function renderPrintableQrLabel(label: QrLabelItem) {
+  return `<section class="label">
+  <div class="label-main">
+    <strong class="label-code">${escapeHtml(label.globalCode)}</strong>
+    <span class="label-species">${escapeHtml(label.speciesName)}</span>
+  </div>
+  <div class="label-qr">
+    <img src="${escapeAttribute(new URL(label.qrImageUrl, window.location.origin).href)}" alt="">
+    <span>QR code</span>
+  </div>
+</section>`;
+}
+
+function buildQrLabelSvg(label: QrLabelItem, qrImageUrl: string) {
+  const width = 720;
+  const height = 300;
+  const code = escapeXml(label.globalCode);
+  const species = escapeXml(label.speciesName);
+  const image = escapeXml(qrImageUrl);
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <rect x="8" y="8" width="704" height="284" rx="18" fill="#fff" stroke="#000" stroke-width="3"/>
+  <text x="34" y="92" font-family="Arial, sans-serif" font-size="56" font-style="italic" font-weight="900" fill="#000">${code}</text>
+  <text x="36" y="136" font-family="Arial, sans-serif" font-size="25" fill="#000">${species}</text>
+  <rect x="514" y="40" width="154" height="184" rx="14" fill="#fff" stroke="#000" stroke-width="2"/>
+  <image href="${image}" x="534" y="58" width="114" height="114"/>
+  <text x="591" y="204" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" font-weight="800" fill="#000">QR code</text>
+</svg>`;
+}
+
+function downloadTextFile(content: string, fileName: string, type: string) {
+  const blob = new Blob([content], { type });
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function escapeXml(value: string) {
+  return escapeHtml(value).replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+}
+
+function escapeAttribute(value: string) {
+  return escapeXml(value);
 }
 
 function InfoPill({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
@@ -2122,6 +2346,8 @@ function AdminView({
   t: TFunction;
   zones: ThermalZone[];
 }) {
+  const [selectedLabelBoxIds, setSelectedLabelBoxIds] = useState<number[]>([]);
+
   if (isLoading) {
     return (
       <section className="single-panel">
@@ -2142,6 +2368,7 @@ function AdminView({
   const userRoles = profile.memberships.map((membership) => membership.role_label).join(', ');
   const userOrganizations = profile.memberships.map((membership) => membership.organization.name).join(', ');
   const activeBoxes = boxes.filter((box) => box.status === 'active');
+  const selectedLabelBoxes = boxes.filter((box) => selectedLabelBoxIds.includes(box.id));
   const zoneChoices = zones.filter((zone) => zone.is_active);
 
   const roleCards = [
@@ -2149,6 +2376,18 @@ function AdminView({
     { label: t('adminRoleTechnician'), value: roleCounts.technician },
     { label: t('adminRoleViewer'), value: roleCounts.viewer },
   ];
+
+  function toggleLabelBox(boxId: number) {
+    setSelectedLabelBoxIds((current) => (
+      current.includes(boxId)
+        ? current.filter((id) => id !== boxId)
+        : [...current, boxId]
+    ));
+  }
+
+  function printSelectedLabels() {
+    printQrLabels(selectedLabelBoxes.map((box) => buildQrLabelItem(box)));
+  }
 
   return (
     <section className="admin-panel">
@@ -2194,6 +2433,49 @@ function AdminView({
             </span>
           </div>
         </div>
+      </section>
+
+      <section className="admin-section admin-label-section">
+        <div className="admin-section-heading">
+          <div>
+            <h2>{t('adminPrintLabelsTitle')}</h2>
+            <p>{t('adminPrintLabelsHelp')}</p>
+          </div>
+          <div className="admin-label-actions">
+            <button type="button" onClick={() => setSelectedLabelBoxIds(boxes.map((box) => box.id))}>
+              {t('adminPrintLabelsSelectAll')}
+            </button>
+            <button type="button" onClick={() => setSelectedLabelBoxIds([])}>
+              {t('adminPrintLabelsClear')}
+            </button>
+          </div>
+        </div>
+
+        <div className="admin-label-selector">
+          {boxes.map((box) => (
+            <label key={box.id}>
+              <input
+                type="checkbox"
+                checked={selectedLabelBoxIds.includes(box.id)}
+                onChange={() => toggleLabelBox(box.id)}
+              />
+              <span>
+                <strong>{box.global_code}</strong>
+                <small>{box.species.scientific_name}</small>
+              </span>
+              <em>{box.thermal_zone?.name ?? t('noZone')}</em>
+            </label>
+          ))}
+        </div>
+
+        <button
+          className="admin-print-labels-button"
+          type="button"
+          disabled={!selectedLabelBoxes.length}
+          onClick={printSelectedLabels}
+        >
+          {t('adminPrintLabelsAction')} ({selectedLabelBoxes.length})
+        </button>
       </section>
 
       <div className="admin-two-columns">
