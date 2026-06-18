@@ -45,6 +45,7 @@ type RouteState = {
   tab: TabId;
   boxCode: string | null;
   boxId: number | null;
+  zoneId?: number | null;
 };
 
 const translations = {
@@ -135,6 +136,29 @@ const translations = {
     temperatureShort: 'Temp.',
     targetTemperature: 'Consigne',
     salinityShort: 'Sal.',
+    aliveBoxes: 'Vivantes',
+    backToZones: 'Retour aux zones',
+    boxAttention: 'À surveiller',
+    boxesHealthy: 'Sans alerte',
+    deadBoxes: 'Mortes',
+    emptyZone: 'Aucune boîte dans cette zone.',
+    latestCounts: 'Derniers comptages',
+    latestReadingDate: 'Dernière mesure',
+    maxTemperature: 'Max.',
+    measuredTemperature: 'Température relevée',
+    minTemperature: 'Min.',
+    noZoneChart: 'Pas assez de relevés récents pour tracer un graphique.',
+    openBox: 'Ouvrir',
+    problemSummary: 'Surveillance',
+    recentMeasurementMissing: 'Sans relevé',
+    temperatureControl: 'Contrôle thermique',
+    temperatureGap: 'Écart',
+    temperatureMissing: 'Aucune température relevée',
+    temperatureOk: 'Proche de la consigne',
+    temperatureWatch: 'Écart à surveiller',
+    zoneSheet: 'Fiche zone thermique',
+    zoneBoxesTitle: 'Boîtes dans la zone',
+    zoneProbesTitle: 'Sondes associées',
     zones: 'Zones',
     zonesTitle: 'Zones thermiques',
   },
@@ -225,6 +249,29 @@ const translations = {
     temperatureShort: 'Temp.',
     targetTemperature: 'Target',
     salinityShort: 'Sal.',
+    aliveBoxes: 'Alive',
+    backToZones: 'Back to zones',
+    boxAttention: 'Needs attention',
+    boxesHealthy: 'No alert',
+    deadBoxes: 'Dead',
+    emptyZone: 'No box in this zone.',
+    latestCounts: 'Latest counts',
+    latestReadingDate: 'Latest reading',
+    maxTemperature: 'Max.',
+    measuredTemperature: 'Measured temperature',
+    minTemperature: 'Min.',
+    noZoneChart: 'Not enough recent measurements to draw a chart.',
+    openBox: 'Open',
+    problemSummary: 'Monitoring',
+    recentMeasurementMissing: 'No measurement',
+    temperatureControl: 'Thermal control',
+    temperatureGap: 'Gap',
+    temperatureMissing: 'No temperature reading',
+    temperatureOk: 'Close to target',
+    temperatureWatch: 'Gap to watch',
+    zoneSheet: 'Thermal zone sheet',
+    zoneBoxesTitle: 'Boxes in this zone',
+    zoneProbesTitle: 'Linked probes',
     zones: 'Zones',
     zonesTitle: 'Thermal zones',
   },
@@ -255,6 +302,7 @@ export default function App() {
 
   const activeTab = route.tab;
   const isBoxRoute = route.boxCode != null || route.boxId != null;
+  const isZoneRoute = activeTab === 'zones' && route.zoneId != null;
   const language = getLanguage(data.profile);
   const t: TFunction = (key) => translations[language][key];
   const isDesktopApp = useIsDesktopApp();
@@ -416,6 +464,10 @@ export default function App() {
     navigateTo({ tab: 'pilotage', boxCode: globalCode, boxId: null }, `/boxes/${encodeURIComponent(globalCode)}`);
   }
 
+  function openZone(zoneId: number) {
+    navigateTo({ tab: 'zones', boxCode: null, boxId: null, zoneId }, `/zones/${zoneId}`);
+  }
+
   function openTab(tab: TabId) {
     const paths: Record<TabId, string> = {
       pilotage: '/',
@@ -437,6 +489,10 @@ export default function App() {
 
   function closeBoxPage() {
     navigateTo({ tab: 'pilotage', boxCode: null, boxId: null }, '/');
+  }
+
+  function closeZonePage() {
+    navigateTo({ tab: 'zones', boxCode: null, boxId: null, zoneId: null }, '/zones');
   }
 
   function navigateTo(nextRoute: RouteState, path: string) {
@@ -527,7 +583,7 @@ export default function App() {
       </aside>
 
       <section className="workspace">
-        {!isBoxRoute ? (
+        {!isBoxRoute && !isZoneRoute ? (
           <header className="page-heading">
             <h1>{getTitle(activeTab, t)}</h1>
           </header>
@@ -567,7 +623,27 @@ export default function App() {
               />
             )}
 
-            {activeTab === 'zones' && <ZonesView isLoading={isLoading} zones={data.zones} t={t} />}
+            {activeTab === 'zones' && (
+              route.zoneId != null ? (
+                <ZoneDetailPage
+                  boxes={data.boxes}
+                  isLoading={isLoading}
+                  language={language}
+                  zone={data.zones.find((zone) => zone.id === route.zoneId) ?? null}
+                  onBack={closeZonePage}
+                  onOpenBox={openBox}
+                  t={t}
+                />
+              ) : (
+                <ZonesView
+                  boxes={data.boxes}
+                  isLoading={isLoading}
+                  zones={data.zones}
+                  onOpenZone={openZone}
+                  t={t}
+                />
+              )
+            )}
 
             {activeTab === 'exports' && (
               <ExportsView
@@ -1562,28 +1638,297 @@ function MeasurementHistoryModal({
   );
 }
 
-function ZonesView({ isLoading, zones, t }: { isLoading: boolean; zones: ThermalZone[]; t: TFunction }) {
+function ZonesView({
+  boxes,
+  isLoading,
+  zones,
+  onOpenZone,
+  t,
+}: {
+  boxes: BoxItem[];
+  isLoading: boolean;
+  zones: ThermalZone[];
+  onOpenZone: (id: number) => void;
+  t: TFunction;
+}) {
   return (
     <section className="single-panel">
       {isLoading ? (
         <SkeletonRows count={5} />
       ) : (
-        <div className="zone-list">
-          {zones.map((zone) => (
-            <article className="zone-row" key={zone.id}>
-              <div>
-                <strong>{zone.name}</strong>
-                <small>{zone.organization.name}</small>
-              </div>
-              <Metric label={t('temperatureShort')} value={formatTemperature(zone.latest_temperature?.average_temperature_c)} />
-              <Metric label={t('salinityShort')} value={formatSalinity(zone.latest_salinity?.salinity_psu)} />
-              <Metric label={t('probes')} value={String(zone.probes.length)} />
-              <Metric label={t('boxes')} value={String(zone.box_count)} />
-            </article>
-          ))}
+        <div className="zone-overview-grid">
+          {zones.map((zone) => {
+            const zoneBoxes = boxes.filter((box) => box.thermal_zone?.id === zone.id);
+            const zoneAliveCount = zoneBoxes.filter((box) => box.status === 'active').length;
+
+            return (
+              <button
+                className="zone-card"
+                key={zone.id}
+                type="button"
+                onClick={() => onOpenZone(zone.id)}
+              >
+                <span className="zone-card-heading">
+                  <span>
+                    <strong>{zone.name}</strong>
+                    <small>{zone.organization.name}</small>
+                  </span>
+                  <span className={zone.is_active ? 'zone-state is-active' : 'zone-state'}>
+                    {zone.zone_type}
+                  </span>
+                </span>
+                <span className="zone-card-metrics">
+                  <Metric label={t('temperatureShort')} value={formatTemperature(zone.latest_temperature?.average_temperature_c)} />
+                  <Metric label={t('salinityShort')} value={formatSalinity(zone.latest_salinity?.salinity_psu)} />
+                  <Metric label={t('aliveBoxes')} value={String(zoneAliveCount)} />
+                  <Metric label={t('boxes')} value={String(zone.box_count)} />
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
     </section>
+  );
+}
+
+function ZoneDetailPage({
+  boxes,
+  isLoading,
+  language,
+  zone,
+  onBack,
+  onOpenBox,
+  t,
+}: {
+  boxes: BoxItem[];
+  isLoading: boolean;
+  language: Language;
+  zone: ThermalZone | null;
+  onBack: () => void;
+  onOpenBox: (id: number) => void;
+  t: TFunction;
+}) {
+  if (isLoading) {
+    return (
+      <section className="zone-page">
+        <SkeletonRows count={4} />
+      </section>
+    );
+  }
+
+  if (!zone) {
+    return (
+      <section className="zone-page">
+        <button className="text-button" type="button" onClick={onBack}>{t('backToZones')}</button>
+        <p className="muted compact-text">{t('noZone')}</p>
+      </section>
+    );
+  }
+
+  const zoneBoxes = boxes.filter((box) => box.thermal_zone?.id === zone.id);
+
+  return (
+    <section className="zone-page">
+      <button className="text-button zone-back-button" type="button" onClick={onBack}>
+        {t('backToZones')}
+      </button>
+
+      <header className="zone-sheet-hero">
+        <div>
+          <p className="box-page-label">{t('zoneSheet')}</p>
+          <h2>{zone.name}</h2>
+          <span>{zone.organization.name}</span>
+        </div>
+        <span className={zone.is_active ? 'zone-state is-active' : 'zone-state'}>
+          {zone.zone_type}
+        </span>
+      </header>
+
+      <TemperatureControlPanel zone={zone} t={t} />
+
+      <div className="zone-page-grid">
+        <section className="zone-page-section zone-boxes-section">
+          <div className="section-title">
+            <h2>{t('zoneBoxesTitle')}</h2>
+            <span>{zoneBoxes.length}</span>
+          </div>
+          {zoneBoxes.length ? (
+            <div className="zone-box-list">
+              {zoneBoxes.map((box) => {
+                const status = getBoxStatusPresentation(box.status, language);
+
+                return (
+                  <button
+                    className={`zone-box-row is-${status.tone}`}
+                    key={box.id}
+                    type="button"
+                    onClick={() => onOpenBox(box.id)}
+                  >
+                    <span className="zone-box-main">
+                      <strong>{box.global_code}</strong>
+                      <small>{box.species.scientific_name}</small>
+                    </span>
+                    <span className="zone-box-reading">
+                      {box.latest_measurement ? (
+                        <>
+                          <strong>
+                            {box.latest_measurement.polyp_count} {t('polyps')} / {box.latest_measurement.ephyrae_count} {t('ephyrae')}
+                          </strong>
+                          <small>{formatDisplayDate(box.latest_measurement.measured_on)}</small>
+                        </>
+                      ) : (
+                        <strong>{t('recentMeasurementMissing')}</strong>
+                      )}
+                    </span>
+                    {box.active_alert_count > 0 ? (
+                      <span className="zone-alert-pill">{box.active_alert_count}</span>
+                    ) : null}
+                    <span className={`box-life-status is-${status.tone}`}>
+                      {status.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="muted compact-text">{t('emptyZone')}</p>
+          )}
+        </section>
+
+        <div className="zone-secondary-stack">
+          <section className="zone-page-section zone-chart-section">
+            <div className="section-title">
+              <h2>{t('latestCounts')}</h2>
+              <span>{zoneBoxes.length}</span>
+            </div>
+            <ZoneLatestCountsChart boxes={zoneBoxes} t={t} />
+          </section>
+
+          <section className="zone-page-section">
+            <div className="section-title">
+              <h2>{t('zoneProbesTitle')}</h2>
+              <span>{zone.probes.length}</span>
+            </div>
+            <div className="probe-list">
+              {zone.probes.length ? zone.probes.map((probe) => (
+                <p key={probe.id}>
+                  <strong>{probe.code}</strong>
+                  <span>{probe.probe_type}</span>
+                </p>
+              )) : <p className="muted compact-text">-</p>}
+            </div>
+          </section>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function TemperatureControlPanel({ zone, t }: { zone: ThermalZone; t: TFunction }) {
+  const targetTemperature = parseTemperatureNumber(zone.target_temperature_c);
+  const measuredTemperature = zone.latest_temperature?.average_temperature_c ?? null;
+  const minTemperature = zone.latest_temperature?.min_temperature_c ?? null;
+  const maxTemperature = zone.latest_temperature?.max_temperature_c ?? null;
+  const hasTemperature = measuredTemperature !== null && targetTemperature !== null;
+  const delta = hasTemperature ? measuredTemperature - targetTemperature : null;
+  const absoluteDelta = delta === null ? null : Math.abs(delta);
+  const statusClass = absoluteDelta === null
+    ? 'is-missing'
+    : absoluteDelta <= 0.5
+      ? 'is-ok'
+      : 'is-watch';
+  const measuredLeft = hasTemperature ? getTemperatureMarkerPosition(measuredTemperature, targetTemperature) : 50;
+  const minLeft = hasTemperature && minTemperature !== null
+    ? getTemperatureMarkerPosition(minTemperature, targetTemperature)
+    : null;
+  const maxLeft = hasTemperature && maxTemperature !== null
+    ? getTemperatureMarkerPosition(maxTemperature, targetTemperature)
+    : null;
+
+  return (
+    <section className={`zone-temperature-panel ${statusClass}`}>
+      <div className="zone-temperature-heading">
+        <div>
+          <h2>{t('temperatureControl')}</h2>
+          <p>{zone.latest_temperature ? formatDisplayDate(zone.latest_temperature.date) : t('temperatureMissing')}</p>
+        </div>
+      </div>
+
+      <div className="temperature-balance-chart" aria-label={t('temperatureControl')}>
+        <span className="temperature-target-line" style={{ left: '50%' }} />
+        {minLeft !== null ? <span className="temperature-range-dot is-min" style={{ left: `${minLeft}%` }} /> : null}
+        {maxLeft !== null ? <span className="temperature-range-dot is-max" style={{ left: `${maxLeft}%` }} /> : null}
+        {hasTemperature ? (
+          <span className="temperature-measured-dot" style={{ left: `${measuredLeft}%` }}>
+            {measuredTemperature === null ? '-' : formatTemperature(measuredTemperature)}
+          </span>
+        ) : null}
+      </div>
+
+      <div className="temperature-scale-labels">
+        <span>-3°C</span>
+        <strong>{t('targetTemperature')}</strong>
+        <span>+3°C</span>
+      </div>
+
+      <div className="temperature-details-grid">
+        <Metric label={t('targetTemperature')} value={formatTemperatureValue(zone.target_temperature_c)} />
+        <Metric label={t('measuredTemperature')} value={formatTemperature(measuredTemperature ?? undefined)} />
+        <Metric label={t('minTemperature')} value={formatTemperature(minTemperature ?? undefined)} />
+        <Metric label={t('maxTemperature')} value={formatTemperature(maxTemperature ?? undefined)} />
+      </div>
+    </section>
+  );
+}
+
+function ZoneLatestCountsChart({ boxes, t }: { boxes: BoxItem[]; t: TFunction }) {
+  const measuredBoxes = boxes
+    .filter((box) => box.latest_measurement)
+    .slice(0, 8);
+
+  if (!measuredBoxes.length) {
+    return <p className="muted compact-text chart-empty">{t('noZoneChart')}</p>;
+  }
+
+  const maxValue = Math.max(
+    1,
+    ...measuredBoxes.flatMap((box) => [
+      box.latest_measurement?.polyp_count ?? 0,
+      box.latest_measurement?.ephyrae_count ?? 0,
+    ]),
+  );
+
+  return (
+    <div className="zone-count-chart">
+      {measuredBoxes.map((box) => {
+        const measurement = box.latest_measurement;
+        if (!measurement) return null;
+        const polypWidth = `${Math.max(2, (measurement.polyp_count / maxValue) * 100)}%`;
+        const ephyraeWidth = `${Math.max(2, (measurement.ephyrae_count / maxValue) * 100)}%`;
+
+        return (
+          <div className="zone-count-row" key={box.id}>
+            <div>
+              <strong>{box.global_code}</strong>
+              <small>{formatDisplayDate(measurement.measured_on)}</small>
+            </div>
+            <div className="zone-count-bars">
+              <span className="zone-count-bar is-polyps" style={{ width: polypWidth }}>
+                {measurement.polyp_count}
+              </span>
+              <span className="zone-count-bar is-ephyrae" style={{ width: ephyraeWidth }}>
+                {measurement.ephyrae_count}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+      <div className="chart-legend">
+        <span className="is-polyps">{t('polyps')}</span>
+        <span className="is-ephyrae">{t('ephyraeFull')}</span>
+      </div>
+    </div>
   );
 }
 
@@ -2043,6 +2388,17 @@ function formatTemperatureValue(value: string | number | null | undefined) {
   return Number.isFinite(numericValue) ? `${numericValue.toFixed(1)}°C` : '-';
 }
 
+function parseTemperatureNumber(value: string | number | null | undefined) {
+  if (value === null || value === undefined || value === '') return null;
+  const numericValue = typeof value === 'number' ? value : Number.parseFloat(value);
+  return Number.isFinite(numericValue) ? numericValue : null;
+}
+
+function getTemperatureMarkerPosition(value: number, target: number) {
+  const relativePosition = 50 + ((value - target) / 3) * 50;
+  return Math.min(100, Math.max(0, relativePosition));
+}
+
 function formatSalinity(value: number | undefined) {
   return value === undefined ? '-' : `${value.toFixed(1)}`;
 }
@@ -2118,6 +2474,16 @@ function getCurrentRoute(): RouteState {
 
   if (path === '/zones') {
     return { tab: 'zones', boxCode: null, boxId: null };
+  }
+
+  const zoneMatch = path.match(/^\/zones\/(\d+)\/?$/);
+  if (zoneMatch) {
+    return {
+      tab: 'zones',
+      boxCode: null,
+      boxId: null,
+      zoneId: Number(zoneMatch[1]),
+    };
   }
 
   if (path === '/exports') {

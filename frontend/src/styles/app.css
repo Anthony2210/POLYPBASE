@@ -1035,14 +1035,514 @@ button:disabled {
   border-bottom: 0;
 }
 
+.zones-layout {
+  display: grid;
+  grid-template-columns: minmax(430px, 1fr) minmax(300px, 380px);
+  gap: 28px;
+  align-items: start;
+}
+
 .zone-row {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) repeat(4, minmax(86px, auto));
+  grid-template-columns: minmax(180px, 1fr) repeat(4, minmax(76px, auto));
   gap: 14px;
   align-items: center;
-  min-height: 66px;
-  padding: 10px 0;
+  width: 100%;
+  min-height: 68px;
+  padding: 10px 8px;
+  border: 0;
   border-bottom: 1px solid var(--line-soft);
+  border-left: 3px solid transparent;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.zone-row:hover,
+.zone-row.is-selected {
+  border-left-color: var(--primary);
+  background: linear-gradient(90deg, rgba(224, 246, 250, 0.74), transparent 86%);
+}
+
+.zone-row.is-selected {
+  color: var(--primary-strong);
+}
+
+.zone-main {
+  min-width: 0;
+}
+
+.zone-detail-panel {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background:
+    linear-gradient(135deg, rgba(224, 246, 250, 0.55), rgba(255, 255, 255, 0.94) 42%),
+    #ffffff;
+}
+
+.zone-detail-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.zone-detail-heading h2,
+.zone-detail-heading p,
+.zone-boxes-heading h3 {
+  margin: 0;
+}
+
+.zone-detail-heading h2 {
+  color: var(--ink);
+  font-size: 1.35rem;
+  font-style: italic;
+  line-height: 1.08;
+}
+
+.zone-detail-heading p {
+  margin-top: 3px;
+  color: var(--muted);
+}
+
+.zone-state {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 760;
+  text-transform: lowercase;
+}
+
+.zone-state.is-active {
+  border-color: rgba(0, 112, 140, 0.2);
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.zone-detail-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.zone-boxes-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 2px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.zone-boxes-heading h3 {
+  font-size: 0.94rem;
+  font-style: italic;
+}
+
+.zone-boxes-heading span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.zone-box-list {
+  display: grid;
+  gap: 8px;
+}
+
+.zone-box-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, auto) auto auto;
+  gap: 14px;
+  align-items: center;
+  width: 100%;
+  min-height: 68px;
+  padding: 10px 12px;
+  border: 0;
+  border-left: 3px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--ink);
+  text-align: left;
+}
+
+.zone-box-row:hover {
+  background: #ffffff;
+}
+
+.zone-box-row.is-alive {
+  border-left-color: #258050;
+}
+
+.zone-box-row.is-dead {
+  border-left-color: #c4574e;
+}
+
+.zone-box-row.is-warning {
+  border-left-color: #c18a2b;
+}
+
+.zone-box-row strong,
+.zone-box-row small {
+  display: block;
+}
+
+.zone-box-row small {
+  color: var(--muted);
+}
+
+.zone-box-main,
+.zone-box-reading {
+  min-width: 0;
+}
+
+.zone-box-reading {
+  text-align: right;
+}
+
+.zone-alert-pill {
+  display: inline-flex;
+  min-width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--coral);
+  color: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.zone-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+  max-width: 980px;
+}
+
+.zone-card {
+  display: grid;
+  gap: 18px;
+  width: 100%;
+  min-height: 170px;
+  padding: 16px;
+  border: 1px solid var(--line-soft);
+  border-left: 4px solid transparent;
+  border-radius: 10px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(229, 246, 251, 0.5)),
+    #ffffff;
+  color: var(--ink);
+  text-align: left;
+}
+
+.zone-card:hover {
+  border-left-color: var(--primary);
+  border-color: rgba(0, 112, 140, 0.28);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 1), rgba(214, 242, 247, 0.76)),
+    #ffffff;
+}
+
+.zone-card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.zone-card-heading strong,
+.zone-card-heading small {
+  display: block;
+}
+
+.zone-card-heading strong {
+  font-size: 1.06rem;
+}
+
+.zone-card-heading small {
+  margin-top: 3px;
+  color: var(--muted);
+}
+
+.zone-card-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.zone-page {
+  display: grid;
+  gap: 14px;
+  max-width: 1120px;
+}
+
+.zone-back-button {
+  justify-self: start;
+}
+
+.zone-sheet-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 20px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.99), rgba(229, 246, 251, 0.68)),
+    #ffffff;
+  box-shadow: inset 4px 0 0 var(--primary);
+}
+
+.zone-sheet-hero .box-page-label {
+  margin-bottom: 6px;
+  font-size: 0.9rem;
+}
+
+.zone-sheet-hero h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: clamp(2rem, 4vw, 3.05rem);
+  font-style: italic;
+  line-height: 1;
+}
+
+.zone-sheet-hero span {
+  color: var(--muted);
+}
+
+.zone-sheet-hero .zone-state {
+  color: var(--primary);
+}
+
+.zone-temperature-panel {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.zone-temperature-panel.is-ok {
+  box-shadow: inset 4px 0 0 #258050;
+}
+
+.zone-temperature-panel.is-watch {
+  box-shadow: inset 4px 0 0 #c18a2b;
+}
+
+.zone-temperature-panel.is-missing {
+  box-shadow: inset 4px 0 0 #87939b;
+}
+
+.zone-temperature-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.zone-temperature-heading h2,
+.zone-temperature-heading p {
+  margin: 0;
+}
+
+.zone-temperature-heading h2 {
+  font-size: 1rem;
+  font-style: italic;
+}
+
+.zone-temperature-heading p {
+  margin-top: 3px;
+  color: var(--muted);
+}
+
+.temperature-balance-chart {
+  position: relative;
+  height: 82px;
+  margin: 4px 12px 0;
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, rgba(193, 138, 43, 0.13), rgba(37, 128, 80, 0.14) 46%, rgba(37, 128, 80, 0.14) 54%, rgba(193, 138, 43, 0.13)),
+    #f7fbfc;
+}
+
+.temperature-balance-chart::before {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  left: 14px;
+  height: 8px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: #dcebef;
+  content: "";
+}
+
+.temperature-target-line {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: var(--ink);
+}
+
+.temperature-measured-dot {
+  position: absolute;
+  top: 50%;
+  display: inline-flex;
+  min-width: 58px;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: var(--primary);
+  color: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.temperature-range-dot {
+  position: absolute;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: var(--muted);
+}
+
+.temperature-scale-labels {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: -4px 12px 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.temperature-scale-labels strong {
+  color: var(--ink);
+}
+
+.temperature-details-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.zone-page-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(310px, 0.8fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.zone-secondary-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.zone-page-section {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.zone-chart-section {
+  min-height: 260px;
+}
+
+.zone-boxes-section {
+  min-height: 420px;
+}
+
+.zone-count-chart {
+  display: grid;
+  gap: 11px;
+}
+
+.zone-count-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.32fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.zone-count-row strong,
+.zone-count-row small {
+  display: block;
+}
+
+.zone-count-row small {
+  color: var(--muted);
+}
+
+.zone-count-bars {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.zone-count-bar {
+  display: flex;
+  min-width: 24px;
+  height: 18px;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 6px;
+  border-radius: 999px;
+  color: #ffffff;
+  font-size: 0.72rem;
+  font-weight: 780;
+}
+
+.zone-count-bar.is-polyps {
+  background: var(--primary);
+}
+
+.zone-count-bar.is-ephyrae {
+  background: var(--coral);
+}
+
+.probe-list {
+  display: grid;
+  gap: 8px;
+}
+
+.probe-list p {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.probe-list p:last-child {
+  border-bottom: 0;
+}
+
+.probe-list span {
+  color: var(--muted);
+  font-size: 0.82rem;
 }
 
 .profile-panel,
@@ -2518,6 +3018,29 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
+  .zone-overview-grid,
+  .zone-page-grid,
+  .temperature-details-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .zone-card {
+    min-height: 0;
+  }
+
+  .zone-sheet-hero {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .zone-count-row {
+    grid-template-columns: 1fr;
+  }
+
+  .zone-box-row {
+    grid-template-columns: 1fr;
+  }
+
   .recent-strip,
   .form-grid,
   .measurement-entry-grid {
@@ -3094,14 +3617,39 @@ button:disabled {
     gap: 4px;
   }
 
+  .zones-layout {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .zone-overview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .zone-page-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .temperature-details-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
   .zone-row {
-    grid-template-columns: minmax(220px, 1fr) repeat(4, minmax(84px, auto));
+    grid-template-columns: minmax(210px, 1fr) repeat(4, minmax(70px, auto));
     min-height: 68px;
-    padding: 8px 0;
+    padding: 8px 6px;
   }
 
   .zone-row .metric {
     min-height: 56px;
+  }
+
+  .zone-detail-panel {
+    padding: 14px;
+  }
+
+  .zone-detail-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .profile-panel,
