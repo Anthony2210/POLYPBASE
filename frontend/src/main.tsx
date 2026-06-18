@@ -4,6 +4,7 @@ import '@xyflow/react/dist/style.css';
 
 import App from './App';
 import './styles/app.css';
+import './styles/phone.css';
 
 const root = document.getElementById('root');
 
