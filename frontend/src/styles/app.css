@@ -752,6 +752,7 @@ button:disabled {
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.78);
   color: var(--primary);
+  cursor: pointer;
   text-align: center;
   text-decoration: none;
   font-size: 0.7rem;
@@ -2284,6 +2285,107 @@ button:disabled {
   padding: 6px 16px 14px;
 }
 
+.qr-label-modal {
+  display: grid;
+  gap: 18px;
+  width: min(760px, 96vw);
+  padding: 20px;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 22px 70px rgba(21, 25, 34, 0.18);
+}
+
+.qr-label-modal-heading {
+  align-items: flex-start;
+  padding: 0;
+  border-bottom: 0;
+}
+
+.qr-label-print-sheet {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 178px;
+  gap: 22px;
+  align-items: center;
+  min-height: 230px;
+  padding: 22px 24px;
+  border: 2px solid #111111;
+  border-radius: 14px;
+  background: #ffffff;
+  color: #111111;
+}
+
+.qr-label-main {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.qr-label-main > strong {
+  color: var(--ink);
+  font-size: clamp(2.7rem, 8vw, 4.9rem);
+  font-style: italic;
+  font-weight: 900;
+  line-height: 0.9;
+  overflow-wrap: anywhere;
+}
+
+.qr-label-main > span:not(.box-life-status) {
+  color: var(--muted);
+  font-size: 1.12rem;
+}
+
+.qr-label-code {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #ffffff;
+  color: var(--primary);
+  font-weight: 820;
+  text-align: center;
+}
+
+.qr-label-code img {
+  width: 142px;
+  height: 142px;
+  image-rendering: crisp-edges;
+}
+
+.qr-label-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.qr-label-modal-actions a,
+.qr-label-modal-actions button {
+  display: inline-grid;
+  min-height: 42px;
+  place-items: center;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--primary);
+  font-weight: 780;
+  text-decoration: none;
+}
+
+.qr-label-modal-actions button {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #ffffff;
+}
+
+.qr-label-modal-actions button.is-secondary {
+  border-color: var(--line);
+  background: #ffffff;
+  color: var(--primary);
+}
+
 .lineage-modal-body {
   max-height: min(720px, calc(100vh - 106px));
   overflow-y: auto;
@@ -2751,6 +2853,105 @@ button:disabled {
   min-height: 34px;
   padding: 0 10px;
   font-size: 0.78rem;
+}
+
+.admin-label-section {
+  gap: 14px;
+}
+
+.admin-label-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.admin-label-actions button,
+.admin-print-labels-button {
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--primary);
+  font-weight: 760;
+}
+
+.admin-label-selector {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  max-height: 260px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.admin-label-selector label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px 10px;
+  align-items: start;
+  min-height: 68px;
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.78);
+  cursor: pointer;
+}
+
+.admin-label-selector label:has(input:checked) {
+  border-color: rgba(16, 107, 135, 0.34);
+  background: var(--primary-soft);
+}
+
+.admin-label-selector input {
+  width: 16px;
+  height: 16px;
+  margin: 3px 0 0;
+  accent-color: var(--primary);
+}
+
+.admin-label-selector span {
+  min-width: 0;
+}
+
+.admin-label-selector strong,
+.admin-label-selector small,
+.admin-label-selector em {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-label-selector strong {
+  color: var(--ink);
+  font-size: 0.88rem;
+}
+
+.admin-label-selector small,
+.admin-label-selector em {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-style: normal;
+}
+
+.admin-label-selector em {
+  grid-column: 2;
+}
+
+.admin-print-labels-button {
+  justify-self: end;
+  min-width: 190px;
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #ffffff;
+}
+
+.admin-print-labels-button:disabled {
+  border-color: #ccd5de;
+  background: #dce3e9;
+  color: #7b8794;
+  cursor: not-allowed;
 }
 
 .admin-two-columns {
@@ -3377,6 +3578,7 @@ button:disabled {
   .admin-role-summary,
   .admin-two-columns,
   .admin-form-grid,
+  .admin-label-selector,
   .admin-organization-form,
   .admin-transfer-form {
     grid-template-columns: 1fr;
@@ -4620,5 +4822,78 @@ button:disabled {
 
   .measurement-chart svg {
     min-height: 190px;
+  }
+}
+
+@media print {
+  @page {
+    margin: 8mm;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  .qr-label-print-sheet,
+  .qr-label-print-sheet * {
+    visibility: visible !important;
+  }
+
+  .qr-print-backdrop {
+    position: static;
+    display: block;
+    padding: 0;
+    background: #ffffff;
+  }
+
+  .qr-label-modal {
+    display: block;
+    width: auto;
+    padding: 0;
+    box-shadow: none;
+  }
+
+  .qr-label-modal-heading,
+  .qr-label-modal-actions {
+    display: none !important;
+  }
+
+  .qr-label-print-sheet {
+    position: fixed;
+    top: 0;
+    left: 0;
+    grid-template-columns: 1fr 32mm;
+    width: 92mm;
+    min-height: 38mm;
+    padding: 5mm;
+    border: 0.4mm solid #000000;
+    border-radius: 3mm;
+    background: #ffffff !important;
+    color: #000000;
+    print-color-adjust: exact;
+  }
+
+  .qr-label-main {
+    gap: 1.2mm;
+  }
+
+  .qr-label-main > strong {
+    font-size: 22pt;
+    line-height: 0.95;
+  }
+
+  .qr-label-main > span:not(.box-life-status) {
+    font-size: 9pt;
+  }
+
+  .qr-label-code {
+    gap: 1mm;
+    padding: 2mm;
+    border: 0.25mm solid #000000;
+  }
+
+  .qr-label-code img {
+    width: 27mm;
+    height: 27mm;
   }
 }
