@@ -1824,11 +1824,6 @@ function TabletQrScanner({
 
   return (
     <section className={isScanning ? 'tablet-scanner-panel is-scanning' : 'tablet-scanner-panel'}>
-      <div className="scanner-copy">
-        <h2>{t('qrScannerTitle')}</h2>
-        <p aria-live="polite">{message ?? t('qrScannerText')}</p>
-      </div>
-
       <button
         className="scanner-preview"
         type="button"
@@ -1845,11 +1840,19 @@ function TabletQrScanner({
           </>
         ) : (
           <span className="scanner-placeholder">
-            <span>{t('qrCode')}</span>
-            <strong>{t('qrScannerStart')}</strong>
+            <span className="scanner-frame" aria-hidden="true">
+              <span className="scanner-corner is-top-left" />
+              <span className="scanner-corner is-top-right" />
+              <span className="scanner-corner is-bottom-left" />
+              <span className="scanner-corner is-bottom-right" />
+              <span className="scanner-dash is-left" />
+              <span className="scanner-dash is-right" />
+            </span>
           </span>
         )}
       </button>
+
+      {message ? <p className="scanner-status" aria-live="polite">{message}</p> : null}
     </section>
   );
 }
