@@ -15,7 +15,7 @@ from apps.taxonomy.models import Species, Strain
 
 from .models import DataExport
 from .serializers import MeasurementExportFilterSerializer
-from .services import build_weekly_measurement_csv
+from .services import build_weekly_measurement_csv, build_weekly_measurement_preview
 
 
 class MeasurementExportOptionsAPIView(APIView):
@@ -87,18 +87,8 @@ class WeeklyMeasurementCSVExportAPIView(APIView):
     """Export biological measurements in the historical weekly wide format."""
 
     def get(self, request):
-        serializer = MeasurementExportFilterSerializer(data=request.query_params)
-        serializer.is_valid(raise_exception=True)
-        filters = serializer.validated_data
-
-        authorized_organization_ids = set(get_authorized_organization_ids(request.user))
-        requested_organization_ids = set(filters["organizations"])
-        if requested_organization_ids - authorized_organization_ids:
-            raise PermissionDenied("This user cannot export data from the requested organization.")
-
-        organization_ids = requested_organization_ids or authorized_organization_ids
-        boxes = Box.objects.filter(organization_id__in=organization_ids)
-        boxes = self._apply_filters(boxes, filters)
+        filters = _get_validated_export_filters(request)
+        boxes = _get_filtered_export_boxes(request.user, filters)
 
         if not boxes.exists():
             return Response(
@@ -152,13 +142,61 @@ class WeeklyMeasurementCSVExportAPIView(APIView):
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
 
-    def _apply_filters(self, boxes, filters):
-        if filters["species"]:
-            boxes = boxes.filter(strain__species_id__in=filters["species"])
-        if filters["strains"]:
-            boxes = boxes.filter(strain_id__in=filters["strains"])
-        if filters["boxes"]:
-            boxes = boxes.filter(id__in=filters["boxes"])
-        if filters["zones"]:
-            boxes = boxes.filter(thermal_zone_id__in=filters["zones"])
-        return boxes.distinct()
+
+class WeeklyMeasurementPreviewAPIView(APIView):
+    """Return aggregated values used by the export preview chart."""
+
+    def get(self, request):
+        filters = _get_validated_export_filters(request)
+        boxes = _get_filtered_export_boxes(request.user, filters)
+
+        if not boxes.exists():
+            return Response(
+                {
+                    "points": [],
+                    "metadata": {
+                        "box_count": 0,
+                        "measurement_count": 0,
+                        "week_count": 0,
+                        "date_from": None,
+                        "date_to": None,
+                    },
+                }
+            )
+
+        return Response(
+            build_weekly_measurement_preview(
+                boxes=boxes,
+                date_from=filters.get("date_from"),
+                date_to=filters.get("date_to"),
+            )
+        )
+
+
+def _get_validated_export_filters(request):
+    serializer = MeasurementExportFilterSerializer(data=request.query_params)
+    serializer.is_valid(raise_exception=True)
+    return serializer.validated_data
+
+
+def _get_filtered_export_boxes(user, filters):
+    authorized_organization_ids = set(get_authorized_organization_ids(user))
+    requested_organization_ids = set(filters["organizations"])
+    if requested_organization_ids - authorized_organization_ids:
+        raise PermissionDenied("This user cannot export data from the requested organization.")
+
+    organization_ids = requested_organization_ids or authorized_organization_ids
+    boxes = Box.objects.filter(organization_id__in=organization_ids)
+    return _apply_measurement_export_filters(boxes, filters)
+
+
+def _apply_measurement_export_filters(boxes, filters):
+    if filters["species"]:
+        boxes = boxes.filter(strain__species_id__in=filters["species"])
+    if filters["strains"]:
+        boxes = boxes.filter(strain_id__in=filters["strains"])
+    if filters["boxes"]:
+        boxes = boxes.filter(id__in=filters["boxes"])
+    if filters["zones"]:
+        boxes = boxes.filter(thermal_zone_id__in=filters["zones"])
+    return boxes.distinct()

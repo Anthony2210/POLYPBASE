@@ -69,6 +69,55 @@ const translations = {
     adminReferences: 'Espèces et souches',
     adminEnvironment: 'Zones et sondes',
     adminRights: 'Réservé admin',
+    adminSubtitle: 'Gestion disponible sur ordinateur',
+    adminDesktopOnly: 'Les fonctionnalités admin sont pensées pour la version ordinateur.',
+    adminAccountsTitle: 'Gestion des comptes',
+    adminAccountsText: 'Créer les accès, vérifier les rôles et préparer les modifications.',
+    adminNewUser: '+ Nouvel utilisateur',
+    adminRoleAdmin: 'Administrateurs',
+    adminRoleTechnician: 'Techniciens',
+    adminRoleViewer: 'Lecteurs',
+    adminUserColumn: 'Utilisateur',
+    adminRoleColumn: 'Rôle',
+    adminEmailColumn: 'Email',
+    adminLastLoginColumn: 'Dernière connexion',
+    adminActionsColumn: 'Actions',
+    adminCurrentSession: 'Session active',
+    adminChangeRole: 'Modifier rôle',
+    adminRemoveAccess: 'Supprimer accès',
+    adminNotConnected: 'API à connecter',
+    adminZonesProbesTitle: 'Zones thermiques et sondes',
+    adminZonesProbesText: 'Créer une armoire ou une étuve, puis y associer une ou plusieurs sondes.',
+    adminZoneName: 'Nom de la zone',
+    adminZoneType: 'Type de zone',
+    adminZoneTypeCabinet: 'Armoire',
+    adminZoneTypeIncubator: 'Étuve',
+    adminTargetTemperature: 'Température consigne',
+    adminCreateZone: 'Créer la zone',
+    adminProbeCode: 'Code sonde',
+    adminProbeType: 'Type de sonde',
+    adminProbeZone: 'Zone associée',
+    adminProbeApiUrl: 'URL API',
+    adminAddProbe: 'Ajouter la sonde',
+    adminOrganizationsTitle: 'Nouvelles institutions',
+    adminOrganizationsText: 'Préparer l’ajout d’un aquarium partenaire avec ses informations de contact.',
+    adminCountry: 'Pays',
+    adminCity: 'Ville',
+    adminOrganizationName: 'Nom de l’institution',
+    adminContactName: 'Personne contact',
+    adminPostalAddress: 'Adresse postale',
+    adminContactEmail: 'Email',
+    adminContactPhone: 'Téléphone',
+    adminAddOrganization: 'Ajouter l’institution',
+    adminExistingOrganizations: 'Structures connues',
+    adminTransferTitle: 'Transfert entre structures',
+    adminTransferText: 'Préparer le transfert d’une boîte vers un autre aquarium sans perdre l’historique.',
+    adminTransferBox: 'Boîte à transférer',
+    adminTransferTarget: 'Institution destinataire',
+    adminTransferPolyps: 'Nombre de polypes transmis',
+    adminKeepTransferDate: 'Conserver la date du transfert',
+    adminPrepareTransfer: 'Préparer le transfert',
+    adminDjangoHint: 'Les actions sensibles restent accessibles dans Django admin tant que les API dédiées ne sont pas créées.',
     profileRoles: 'Rôles',
     historyButton: 'Voir relevés',
     analysisTabLineage: 'Graphique parenté',
@@ -182,6 +231,55 @@ const translations = {
     adminReferences: 'Species and strains',
     adminEnvironment: 'Zones and probes',
     adminRights: 'Admin only',
+    adminSubtitle: 'Desktop administration',
+    adminDesktopOnly: 'Administration features are designed for the desktop version.',
+    adminAccountsTitle: 'Account management',
+    adminAccountsText: 'Create access, check roles and prepare account changes.',
+    adminNewUser: '+ New user',
+    adminRoleAdmin: 'Administrators',
+    adminRoleTechnician: 'Technicians',
+    adminRoleViewer: 'Viewers',
+    adminUserColumn: 'User',
+    adminRoleColumn: 'Role',
+    adminEmailColumn: 'Email',
+    adminLastLoginColumn: 'Last login',
+    adminActionsColumn: 'Actions',
+    adminCurrentSession: 'Active session',
+    adminChangeRole: 'Change role',
+    adminRemoveAccess: 'Remove access',
+    adminNotConnected: 'API to connect',
+    adminZonesProbesTitle: 'Thermal zones and probes',
+    adminZonesProbesText: 'Create a cabinet or incubator, then link one or several probes to it.',
+    adminZoneName: 'Zone name',
+    adminZoneType: 'Zone type',
+    adminZoneTypeCabinet: 'Cabinet',
+    adminZoneTypeIncubator: 'Incubator',
+    adminTargetTemperature: 'Target temperature',
+    adminCreateZone: 'Create zone',
+    adminProbeCode: 'Probe code',
+    adminProbeType: 'Probe type',
+    adminProbeZone: 'Linked zone',
+    adminProbeApiUrl: 'API URL',
+    adminAddProbe: 'Add probe',
+    adminOrganizationsTitle: 'New institutions',
+    adminOrganizationsText: 'Prepare a partner aquarium with its contact information.',
+    adminCountry: 'Country',
+    adminCity: 'City',
+    adminOrganizationName: 'Institution name',
+    adminContactName: 'Contact person',
+    adminPostalAddress: 'Postal address',
+    adminContactEmail: 'Email',
+    adminContactPhone: 'Phone',
+    adminAddOrganization: 'Add institution',
+    adminExistingOrganizations: 'Known organizations',
+    adminTransferTitle: 'Transfer between organizations',
+    adminTransferText: 'Prepare a box transfer to another aquarium without losing history.',
+    adminTransferBox: 'Box to transfer',
+    adminTransferTarget: 'Target institution',
+    adminTransferPolyps: 'Transferred polyps',
+    adminKeepTransferDate: 'Keep transfer date',
+    adminPrepareTransfer: 'Prepare transfer',
+    adminDjangoHint: 'Sensitive actions remain available in Django admin until dedicated APIs are created.',
     profileRoles: 'Roles',
     historyButton: 'View records',
     analysisTabLineage: 'Lineage graph',
@@ -655,9 +753,12 @@ export default function App() {
 
             {activeTab === 'admin' && (
               <AdminView
+                boxes={data.boxes}
+                exportOptions={data.exportOptions}
                 isLoading={isLoading}
                 profile={data.profile}
                 t={t}
+                zones={data.zones}
               />
             )}
 
@@ -2007,13 +2108,19 @@ function ProfileView({
 }
 
 function AdminView({
+  boxes,
+  exportOptions,
   isLoading,
   profile,
   t,
+  zones,
 }: {
+  boxes: BoxItem[];
+  exportOptions: ExportOptions | null;
   isLoading: boolean;
   profile: UserProfile | null;
   t: TFunction;
+  zones: ThermalZone[];
 }) {
   if (isLoading) {
     return (
@@ -2025,27 +2132,220 @@ function AdminView({
 
   if (!profile || !userHasAdminRole(profile)) return null;
 
-  const adminItems = [
-    t('adminUsers'),
-    t('adminOrganizations'),
-    t('adminReferences'),
-    t('adminEnvironment'),
+  const organizations = exportOptions?.organizations ?? profile.organizations;
+  const roleCounts = {
+    admin: profile.memberships.filter((membership) => membership.role === 'admin').length,
+    technician: profile.memberships.filter((membership) => membership.role === 'lab_technician').length,
+    viewer: profile.memberships.filter((membership) => membership.role === 'viewer').length,
+  };
+  const userName = [profile.first_name, profile.last_name].filter(Boolean).join(' ') || profile.username;
+  const userRoles = profile.memberships.map((membership) => membership.role_label).join(', ');
+  const userOrganizations = profile.memberships.map((membership) => membership.organization.name).join(', ');
+  const activeBoxes = boxes.filter((box) => box.status === 'active');
+  const zoneChoices = zones.filter((zone) => zone.is_active);
+
+  const roleCards = [
+    { label: t('adminRoleAdmin'), value: roleCounts.admin },
+    { label: t('adminRoleTechnician'), value: roleCounts.technician },
+    { label: t('adminRoleViewer'), value: roleCounts.viewer },
   ];
 
   return (
     <section className="admin-panel">
-      <div className="admin-grid">
-        {adminItems.map((item) => (
-          <article key={item} className="admin-item">
-            <span>{item}</span>
-            <strong>{t('adminRights')}</strong>
-          </article>
-        ))}
+      <section className="admin-section admin-accounts-section">
+        <div className="admin-section-heading">
+          <div>
+            <h2>{t('adminAccountsTitle')}</h2>
+            <p>{t('adminAccountsText')}</p>
+          </div>
+          <button className="admin-secondary-action" type="button" disabled>
+            {t('adminNewUser')}
+          </button>
+        </div>
+
+        <div className="admin-role-summary">
+          {roleCards.map((card) => (
+            <article key={card.label}>
+              <strong>{card.value}</strong>
+              <span>{card.label}</span>
+            </article>
+          ))}
+        </div>
+
+        <div className="admin-table">
+          <div className="admin-table-head">
+            <span>{t('adminUserColumn')}</span>
+            <span>{t('adminRoleColumn')}</span>
+            <span>{t('adminEmailColumn')}</span>
+            <span>{t('adminLastLoginColumn')}</span>
+            <span>{t('adminActionsColumn')}</span>
+          </div>
+          <div className="admin-table-row">
+            <span>
+              <strong>{userName}</strong>
+              <small>{userOrganizations}</small>
+            </span>
+            <span>{userRoles || t('adminRights')}</span>
+            <span>{profile.email || '-'}</span>
+            <span>{t('adminCurrentSession')}</span>
+            <span className="admin-row-actions">
+              <button type="button" disabled>{t('adminChangeRole')}</button>
+              <button type="button" disabled>{t('adminRemoveAccess')}</button>
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <div className="admin-two-columns">
+        <section className="admin-section">
+          <div className="admin-section-heading">
+            <div>
+              <h2>{t('adminZonesProbesTitle')}</h2>
+              <p>{t('adminZonesProbesText')}</p>
+            </div>
+          </div>
+
+          <div className="admin-form-grid">
+            <form className="admin-form" onSubmit={(event) => event.preventDefault()}>
+              <label>
+                <span>{t('adminZoneName')}</span>
+                <input placeholder="Étuve 13" type="text" />
+              </label>
+              <label>
+                <span>{t('adminZoneType')}</span>
+                <select defaultValue="cabinet">
+                  <option value="cabinet">{t('adminZoneTypeCabinet')}</option>
+                  <option value="incubator">{t('adminZoneTypeIncubator')}</option>
+                </select>
+              </label>
+              <label>
+                <span>{t('adminTargetTemperature')}</span>
+                <input placeholder="15.0" type="number" />
+              </label>
+              <button type="submit" disabled>{t('adminCreateZone')}</button>
+            </form>
+
+            <form className="admin-form" onSubmit={(event) => event.preventDefault()}>
+              <label>
+                <span>{t('adminProbeCode')}</span>
+                <input placeholder="SONDE-15-01" type="text" />
+              </label>
+              <label>
+                <span>{t('adminProbeType')}</span>
+                <input placeholder="température" type="text" />
+              </label>
+              <label>
+                <span>{t('adminProbeZone')}</span>
+                <select defaultValue="">
+                  <option value="" disabled>{t('noZone')}</option>
+                  {zoneChoices.map((zone) => (
+                    <option key={zone.id} value={zone.id}>{zone.name}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>{t('adminProbeApiUrl')}</span>
+                <input placeholder="https://..." type="url" />
+              </label>
+              <button type="submit" disabled>{t('adminAddProbe')}</button>
+            </form>
+          </div>
+        </section>
+
+        <section className="admin-section">
+          <div className="admin-section-heading">
+            <div>
+              <h2>{t('adminOrganizationsTitle')}</h2>
+              <p>{t('adminOrganizationsText')}</p>
+            </div>
+          </div>
+
+          <form className="admin-form admin-organization-form" onSubmit={(event) => event.preventDefault()}>
+            <label>
+              <span>{t('adminOrganizationName')}</span>
+              <input type="text" />
+            </label>
+            <label>
+              <span>{t('adminCountry')}</span>
+              <input type="text" />
+            </label>
+            <label>
+              <span>{t('adminCity')}</span>
+              <input type="text" />
+            </label>
+            <label>
+              <span>{t('adminContactName')}</span>
+              <input type="text" />
+            </label>
+            <label>
+              <span>{t('adminContactEmail')}</span>
+              <input type="email" />
+            </label>
+            <label>
+              <span>{t('adminContactPhone')}</span>
+              <input type="tel" />
+            </label>
+            <label className="admin-wide-field">
+              <span>{t('adminPostalAddress')}</span>
+              <textarea rows={3} />
+            </label>
+            <button type="submit" disabled>{t('adminAddOrganization')}</button>
+          </form>
+
+          <div className="admin-inline-list">
+            <strong>{t('adminExistingOrganizations')}</strong>
+            <div>
+              {organizations.slice(0, 4).map((organization) => (
+                <span key={organization.id}>{organization.name}</span>
+              ))}
+            </div>
+          </div>
+        </section>
       </div>
 
-      <a className="admin-link" href="/admin/">
-        {t('adminOpenDjango')}
-      </a>
+      <section className="admin-section admin-transfer-section">
+        <div className="admin-section-heading">
+          <div>
+            <h2>{t('adminTransferTitle')}</h2>
+            <p>{t('adminTransferText')}</p>
+          </div>
+        </div>
+
+        <form className="admin-transfer-form" onSubmit={(event) => event.preventDefault()}>
+          <label>
+            <span>{t('adminTransferBox')}</span>
+            <select defaultValue="">
+              <option value="" disabled>{t('boxes')}</option>
+              {activeBoxes.slice(0, 12).map((box) => (
+                <option key={box.id} value={box.id}>{box.global_code}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>{t('adminTransferTarget')}</span>
+            <select defaultValue="">
+              <option value="" disabled>{t('adminOrganizations')}</option>
+              {organizations.map((organization) => (
+                <option key={organization.id} value={organization.id}>{organization.name}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>{t('adminTransferPolyps')}</span>
+            <input min="0" placeholder="0" type="number" />
+          </label>
+          <label className="admin-checkbox">
+            <input defaultChecked type="checkbox" />
+            <span>{t('adminKeepTransferDate')}</span>
+          </label>
+          <button type="submit" disabled>{t('adminPrepareTransfer')}</button>
+        </form>
+      </section>
+
+      <p className="admin-api-note">
+        {t('adminDjangoHint')} <strong>{t('adminNotConnected')}</strong>
+        <a href="/admin/">{t('adminOpenDjango')}</a>
+      </p>
     </section>
   );
 }

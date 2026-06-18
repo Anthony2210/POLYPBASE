@@ -144,6 +144,51 @@ class MeasurementExportApiTests(TestCase):
             1,
         )
 
+    def test_preview_returns_aggregated_values_without_recording_an_export(self):
+        self.client.login(username="exporter", password="secret")
+
+        response = self.client.get(
+            reverse("api_export_measurements_preview"),
+            {
+                "boxes": str(self.box.id),
+                "date_from": "2026-05-01",
+                "date_to": "2026-05-17",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["metadata"]["box_count"], 1)
+        self.assertEqual(payload["metadata"]["measurement_count"], 3)
+        self.assertEqual(
+            payload["points"],
+            [
+                {
+                    "label": "2026_S18",
+                    "polyp_count": 0,
+                    "ephyrae_count": 0,
+                    "average_temperature_c": None,
+                    "measurement_count": 0,
+                },
+                {
+                    "label": "2026_S19",
+                    "polyp_count": 100,
+                    "ephyrae_count": 5,
+                    "average_temperature_c": 10.25,
+                    "measurement_count": 1,
+                },
+                {
+                    "label": "2026_S20",
+                    "polyp_count": 0,
+                    "ephyrae_count": 0,
+                    "average_temperature_c": 10.0,
+                    "measurement_count": 1,
+                },
+            ],
+        )
+        self.assertEqual(DataExport.objects.count(), 0)
+        self.assertEqual(AuditLog.objects.filter(action=AuditLog.Action.EXPORT).count(), 0)
+
     def test_csv_filters_are_cumulative(self):
         other_species = Species.objects.create(scientific_name="Cassiopea andromeda")
         other_strain = Strain.objects.create(species=other_species, code="2-MED")
