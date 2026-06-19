@@ -255,6 +255,49 @@ export type UserProfile = {
   }>;
 };
 
+export type MembershipRole = 'admin' | 'lab_technician' | 'viewer';
+
+export type AccountMember = {
+  membership_id: number;
+  user_id: number;
+  username: string;
+  full_name: string;
+  email: string;
+  organization: {
+    id: number;
+    name: string;
+  };
+  role: MembershipRole;
+  role_label: string;
+  is_active: boolean;
+  last_login: string | null;
+  is_self: boolean;
+};
+
+export type RoleOption = {
+  value: MembershipRole;
+  label: string;
+};
+
+export type AccountMembers = {
+  members: AccountMember[];
+  manageable_organizations: Array<{
+    id: number;
+    name: string;
+  }>;
+  roles: RoleOption[];
+};
+
+export type NewMemberPayload = {
+  username: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  password: string;
+  organization_id: number;
+  role: MembershipRole;
+};
+
 export type ExportOptions = {
   organizations: Array<{
     id: number;

@@ -1,6 +1,10 @@
 from django.urls import path
 
-from apps.accounts.api_views import UserProfileAPIView
+from apps.accounts.api_views import (
+    OrganizationMemberListCreateAPIView,
+    OrganizationMembershipDetailAPIView,
+    UserProfileAPIView,
+)
 from apps.cultures.api_views import (
     BoxDetailAPIView,
     BoxLineageGraphAPIView,
@@ -60,4 +64,14 @@ urlpatterns = [
         name="api_export_measurements_preview",
     ),
     path("profile/", UserProfileAPIView.as_view(), name="api_profile"),
+    path(
+        "accounts/members/",
+        OrganizationMemberListCreateAPIView.as_view(),
+        name="api_account_members",
+    ),
+    path(
+        "accounts/members/<int:pk>/",
+        OrganizationMembershipDetailAPIView.as_view(),
+        name="api_account_member_detail",
+    ),
 ]

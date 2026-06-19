@@ -7,6 +7,8 @@ import InteractiveLineageGraph from './components/InteractiveLineageGraph';
 import MoveBoxModal from './components/MoveBoxModal';
 import SubcultureModal from './components/SubcultureModal';
 import type {
+  AccountMember,
+  AccountMembers,
   BiologicalMeasurement,
   BoxDetail,
   BoxItem,
@@ -15,6 +17,8 @@ import type {
   Dashboard,
   ExportOptions,
   LineageGraph,
+  MembershipRole,
+  NewMemberPayload,
   PaginatedResponse,
   SubculturePayload,
   SubcultureResult,
@@ -131,6 +135,43 @@ const translations = {
     adminPrintLabelsSelectAll: 'Tout sélectionner',
     adminPrintLabelsTitle: 'Étiquettes des boîtes',
     profileRoles: 'Rôles',
+    profileEmail: 'Email',
+    profileNoEmail: 'Non renseigné',
+    profileSuperuser: 'Super-administrateur',
+    profileMemberships: 'Structures et rôles',
+    profileNoMembership: 'Aucune structure rattachée à ce compte.',
+    profilePreferences: 'Préférences',
+    profileLanguage: 'Langue de l’interface',
+    roleDescAdmin: 'Accès complet : laboratoire, exports et administration.',
+    roleDescTechnician: 'Saisie et suivi du laboratoire, sans administration.',
+    roleDescViewer: 'Consultation seule des données.',
+    manageAccountsTitle: 'Gestion des comptes',
+    manageAccountsSubtitle: 'Ajoutez des accès et ajustez les rôles dans vos structures.',
+    manageAddTitle: 'Nouvel accès',
+    manageColUser: 'Utilisateur',
+    manageColOrganization: 'Structure',
+    manageColRole: 'Rôle',
+    manageColStatus: 'Statut',
+    manageColLastLogin: 'Dernière connexion',
+    manageStatusActive: 'Actif',
+    manageStatusInactive: 'Désactivé',
+    manageStatusSelf: 'Vous',
+    manageNeverConnected: 'Jamais connecté',
+    manageNoMembers: 'Aucun compte à afficher pour vos structures.',
+    manageFieldUsername: 'Identifiant',
+    manageFieldFirstName: 'Prénom',
+    manageFieldLastName: 'Nom',
+    manageFieldEmail: 'Email',
+    manageFieldPassword: 'Mot de passe initial',
+    manageFieldOrganization: 'Structure',
+    manageFieldRole: 'Rôle',
+    managePasswordHint: 'Requis uniquement pour un nouvel identifiant (8 caractères min.).',
+    manageAddAction: 'Ajouter l’accès',
+    manageAdding: 'Ajout...',
+    manageMemberAdded: 'Accès enregistré.',
+    manageRoleUpdated: 'Rôle mis à jour.',
+    manageDeactivate: 'Désactiver',
+    manageReactivate: 'Réactiver',
     historyButton: 'Voir relevés',
     analysisTabLineage: 'Graphique parenté',
     analysisTabMeasurements: 'Relevés',
@@ -302,6 +343,43 @@ const translations = {
     adminPrintLabelsSelectAll: 'Select all',
     adminPrintLabelsTitle: 'Box labels',
     profileRoles: 'Roles',
+    profileEmail: 'Email',
+    profileNoEmail: 'Not provided',
+    profileSuperuser: 'Superuser',
+    profileMemberships: 'Organizations and roles',
+    profileNoMembership: 'No organization linked to this account.',
+    profilePreferences: 'Preferences',
+    profileLanguage: 'Interface language',
+    roleDescAdmin: 'Full access: lab, exports and administration.',
+    roleDescTechnician: 'Lab data entry and tracking, no administration.',
+    roleDescViewer: 'Read-only access to the data.',
+    manageAccountsTitle: 'Account management',
+    manageAccountsSubtitle: 'Add access and adjust roles within your organizations.',
+    manageAddTitle: 'New access',
+    manageColUser: 'User',
+    manageColOrganization: 'Organization',
+    manageColRole: 'Role',
+    manageColStatus: 'Status',
+    manageColLastLogin: 'Last login',
+    manageStatusActive: 'Active',
+    manageStatusInactive: 'Disabled',
+    manageStatusSelf: 'You',
+    manageNeverConnected: 'Never connected',
+    manageNoMembers: 'No account to display for your organizations.',
+    manageFieldUsername: 'Username',
+    manageFieldFirstName: 'First name',
+    manageFieldLastName: 'Last name',
+    manageFieldEmail: 'Email',
+    manageFieldPassword: 'Initial password',
+    manageFieldOrganization: 'Organization',
+    manageFieldRole: 'Role',
+    managePasswordHint: 'Only required for a new username (min. 8 characters).',
+    manageAddAction: 'Add access',
+    manageAdding: 'Adding...',
+    manageMemberAdded: 'Access saved.',
+    manageRoleUpdated: 'Role updated.',
+    manageDeactivate: 'Disable',
+    manageReactivate: 'Re-enable',
     historyButton: 'View records',
     analysisTabLineage: 'Lineage graph',
     analysisTabMeasurements: 'Measurements',
@@ -2293,42 +2371,423 @@ function ProfileView({
 
   if (!profile) return null;
 
-  return (
-    <section className="profile-panel">
-      <div>
-        <p className="eyebrow">{t('account')}</p>
-        <h2>{profile.username}</h2>
-        <p>{profile.organizations.map((organization) => organization.name).join(', ')}</p>
-      </div>
+  const fullName = [profile.first_name, profile.last_name].filter(Boolean).join(' ') || profile.username;
+  const initials = getProfileInitials(profile);
+  const highestRoleLabel = getHighestRoleLabel(profile);
 
-      {profile.memberships.length ? (
-        <div className="profile-roles" aria-label={t('profileRoles')}>
-          {profile.memberships.map((membership) => (
-            <span key={`${membership.organization.id}-${membership.role}`}>
-              <strong>{membership.organization.name}</strong>
-              {membership.role_label}
+  return (
+    <section className="profile-page">
+      <header className="profile-identity-card">
+        <div className="profile-avatar" aria-hidden="true">
+          {initials}
+        </div>
+        <div className="profile-identity-main">
+          <p className="eyebrow">{t('account')}</p>
+          <h2>{fullName}</h2>
+          <p className="profile-username">@{profile.username}</p>
+          <div className="profile-identity-meta">
+            <span className="profile-meta-item">
+              <small>{t('profileEmail')}</small>
+              {profile.email || t('profileNoEmail')}
             </span>
+            {highestRoleLabel ? <span className="profile-badge">{highestRoleLabel}</span> : null}
+            {profile.is_superuser ? (
+              <span className="profile-badge is-super">{t('profileSuperuser')}</span>
+            ) : null}
+          </div>
+        </div>
+      </header>
+
+      <section className="profile-block">
+        <div className="section-title">
+          <h2>{t('profileMemberships')}</h2>
+          <span>{profile.memberships.length}</span>
+        </div>
+
+        {profile.memberships.length ? (
+          <div className="profile-membership-list">
+            {profile.memberships.map((membership) => (
+              <article
+                key={`${membership.organization.id}-${membership.role}`}
+                className="profile-membership-card"
+              >
+                <div className="profile-membership-head">
+                  <strong>{membership.organization.name}</strong>
+                  <span className={`profile-role-tag is-${membership.role}`}>
+                    {membership.role_label}
+                  </span>
+                </div>
+                <p>{t(getRoleDescriptionKey(membership.role))}</p>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="muted compact-text">{t('profileNoMembership')}</p>
+        )}
+      </section>
+
+      {userHasAdminRole(profile) ? <AccountManagementSection t={t} /> : null}
+
+      <section className="profile-block">
+        <div className="section-title">
+          <h2>{t('profilePreferences')}</h2>
+        </div>
+        <p className="muted compact-text">{t('profileLanguage')}</p>
+
+        <div className="language-switch">
+          {profile.available_languages.map((language) => (
+            <button
+              key={language.code}
+              className={profile.interface_language === language.code ? 'pill is-active' : 'pill'}
+              type="button"
+              disabled={isSaving}
+              onClick={() => handleLanguage(language.code)}
+            >
+              {language.label}
+            </button>
           ))}
         </div>
-      ) : null}
 
-      <div className="language-switch">
-        {profile.available_languages.map((language) => (
-          <button
-            key={language.code}
-            className={profile.interface_language === language.code ? 'pill is-active' : 'pill'}
-            type="button"
-            disabled={isSaving}
-            onClick={() => handleLanguage(language.code)}
-          >
-            {language.label}
-          </button>
-        ))}
-      </div>
-
-      {saveError ? <p className="inline-error">{saveError}</p> : null}
+        {saveError ? <p className="inline-error">{saveError}</p> : null}
+      </section>
     </section>
   );
+}
+
+const emptyMemberForm = {
+  username: '',
+  first_name: '',
+  last_name: '',
+  email: '',
+  password: '',
+};
+
+function AccountManagementSection({ t }: { t: TFunction }) {
+  const [data, setData] = useState<AccountMembers | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [form, setForm] = useState(emptyMemberForm);
+  const [organizationId, setOrganizationId] = useState<number | null>(null);
+  const [role, setRole] = useState<MembershipRole>('viewer');
+  const [isAdding, setIsAdding] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [rowBusyId, setRowBusyId] = useState<number | null>(null);
+
+  useEffect(() => {
+    let isActive = true;
+
+    async function loadMembers() {
+      try {
+        setIsLoading(true);
+        const response = await apiGet<AccountMembers>('/api/accounts/members/');
+        if (!isActive) return;
+        setData(response);
+        setOrganizationId(response.manageable_organizations[0]?.id ?? null);
+      } catch (requestError) {
+        if (!isActive) return;
+        setLoadError(getErrorMessage(requestError));
+      } finally {
+        if (isActive) setIsLoading(false);
+      }
+    }
+
+    loadMembers();
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  function upsertMember(updated: AccountMember) {
+    setData((current) => {
+      if (!current) return current;
+      const exists = current.members.some((member) => member.membership_id === updated.membership_id);
+      const members = exists
+        ? current.members.map((member) =>
+            member.membership_id === updated.membership_id ? updated : member,
+          )
+        : [...current.members, updated];
+      members.sort(
+        (a, b) =>
+          a.organization.name.localeCompare(b.organization.name) ||
+          a.username.localeCompare(b.username),
+      );
+      return { ...current, members };
+    });
+  }
+
+  async function handleAddMember(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isAdding || organizationId == null) return;
+
+    setIsAdding(true);
+    setFormError(null);
+    setMessage(null);
+
+    const payload: NewMemberPayload = {
+      ...form,
+      username: form.username.trim(),
+      organization_id: organizationId,
+      role,
+    };
+
+    try {
+      const member = await apiPost<AccountMember>('/api/accounts/members/', payload);
+      upsertMember(member);
+      setForm(emptyMemberForm);
+      setRole('viewer');
+      setMessage(t('manageMemberAdded'));
+    } catch (requestError) {
+      setFormError(getErrorMessage(requestError));
+    } finally {
+      setIsAdding(false);
+    }
+  }
+
+  async function handleRoleChange(member: AccountMember, nextRole: MembershipRole) {
+    if (nextRole === member.role) return;
+    setRowBusyId(member.membership_id);
+    setMessage(null);
+    setLoadError(null);
+    try {
+      const updated = await apiPatch<AccountMember>(
+        `/api/accounts/members/${member.membership_id}/`,
+        { role: nextRole },
+      );
+      upsertMember(updated);
+      setMessage(t('manageRoleUpdated'));
+    } catch (requestError) {
+      setLoadError(getErrorMessage(requestError));
+    } finally {
+      setRowBusyId(null);
+    }
+  }
+
+  async function handleToggleActive(member: AccountMember) {
+    setRowBusyId(member.membership_id);
+    setMessage(null);
+    setLoadError(null);
+    try {
+      const updated = await apiPatch<AccountMember>(
+        `/api/accounts/members/${member.membership_id}/`,
+        { is_active: !member.is_active },
+      );
+      upsertMember(updated);
+    } catch (requestError) {
+      setLoadError(getErrorMessage(requestError));
+    } finally {
+      setRowBusyId(null);
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <section className="profile-block">
+        <div className="section-title">
+          <h2>{t('manageAccountsTitle')}</h2>
+        </div>
+        <SkeletonRows count={3} />
+      </section>
+    );
+  }
+
+  if (loadError && !data) {
+    return (
+      <section className="profile-block">
+        <div className="section-title">
+          <h2>{t('manageAccountsTitle')}</h2>
+        </div>
+        <p className="inline-error">{loadError}</p>
+      </section>
+    );
+  }
+
+  if (!data) return null;
+
+  const organizations = data.manageable_organizations;
+  const roles = data.roles;
+
+  return (
+    <section className="profile-block account-management">
+      <div className="section-title">
+        <h2>{t('manageAccountsTitle')}</h2>
+        <span>{data.members.length}</span>
+      </div>
+      <p className="muted compact-text">{t('manageAccountsSubtitle')}</p>
+
+      <form className="member-add-form" onSubmit={handleAddMember}>
+        <p className="member-add-title">{t('manageAddTitle')}</p>
+        <div className="member-add-grid">
+          <label>
+            {t('manageFieldUsername')}
+            <input
+              required
+              value={form.username}
+              onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))}
+            />
+          </label>
+          <label>
+            {t('manageFieldFirstName')}
+            <input
+              value={form.first_name}
+              onChange={(event) => setForm((current) => ({ ...current, first_name: event.target.value }))}
+            />
+          </label>
+          <label>
+            {t('manageFieldLastName')}
+            <input
+              value={form.last_name}
+              onChange={(event) => setForm((current) => ({ ...current, last_name: event.target.value }))}
+            />
+          </label>
+          <label>
+            {t('manageFieldEmail')}
+            <input
+              type="email"
+              value={form.email}
+              onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
+            />
+          </label>
+          <label className="member-add-password">
+            {t('manageFieldPassword')}
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={form.password}
+              onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
+            />
+            <small>{t('managePasswordHint')}</small>
+          </label>
+          {organizations.length > 1 ? (
+            <label>
+              {t('manageFieldOrganization')}
+              <select
+                value={organizationId ?? ''}
+                onChange={(event) => setOrganizationId(Number(event.target.value))}
+              >
+                {organizations.map((organization) => (
+                  <option key={organization.id} value={organization.id}>
+                    {organization.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <label>
+            {t('manageFieldRole')}
+            <select value={role} onChange={(event) => setRole(event.target.value as MembershipRole)}>
+              {roles.map((roleOption) => (
+                <option key={roleOption.value} value={roleOption.value}>
+                  {roleOption.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        {formError ? <p className="inline-error">{formError}</p> : null}
+
+        <button type="submit" disabled={isAdding || organizationId == null}>
+          {isAdding ? t('manageAdding') : t('manageAddAction')}
+        </button>
+      </form>
+
+      {message ? <p className="inline-success">{message}</p> : null}
+      {loadError && data ? <p className="inline-error">{loadError}</p> : null}
+
+      {data.members.length ? (
+        <div className="member-table">
+          <div className="member-table-head">
+            <span>{t('manageColUser')}</span>
+            <span>{t('manageColOrganization')}</span>
+            <span>{t('manageColRole')}</span>
+            <span>{t('manageColLastLogin')}</span>
+            <span>{t('manageColStatus')}</span>
+          </div>
+          {data.members.map((member) => (
+            <div
+              key={member.membership_id}
+              className={member.is_active ? 'member-table-row' : 'member-table-row is-inactive'}
+            >
+              <span className="member-identity">
+                <strong>{member.full_name}</strong>
+                <small>
+                  @{member.username}
+                  {member.email ? ` · ${member.email}` : ''}
+                </small>
+              </span>
+              <span>{member.organization.name}</span>
+              <span>
+                <select
+                  value={member.role}
+                  disabled={member.is_self || rowBusyId === member.membership_id}
+                  onChange={(event) =>
+                    handleRoleChange(member, event.target.value as MembershipRole)
+                  }
+                >
+                  {roles.map((roleOption) => (
+                    <option key={roleOption.value} value={roleOption.value}>
+                      {roleOption.label}
+                    </option>
+                  ))}
+                </select>
+              </span>
+              <span className="member-last-login">
+                {member.last_login ? formatDisplayDate(member.last_login) : t('manageNeverConnected')}
+              </span>
+              <span className="member-status">
+                {member.is_self ? (
+                  <em className="member-self-tag">{t('manageStatusSelf')}</em>
+                ) : (
+                  <button
+                    type="button"
+                    className="member-toggle"
+                    disabled={rowBusyId === member.membership_id}
+                    onClick={() => handleToggleActive(member)}
+                  >
+                    {member.is_active ? t('manageDeactivate') : t('manageReactivate')}
+                  </button>
+                )}
+                <span className={member.is_active ? 'member-state is-on' : 'member-state is-off'}>
+                  {member.is_active ? t('manageStatusActive') : t('manageStatusInactive')}
+                </span>
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="muted compact-text">{t('manageNoMembers')}</p>
+      )}
+    </section>
+  );
+}
+
+function getRoleDescriptionKey(role: UserProfile['memberships'][number]['role']): TranslationKey {
+  switch (role) {
+    case 'admin':
+      return 'roleDescAdmin';
+    case 'lab_technician':
+      return 'roleDescTechnician';
+    default:
+      return 'roleDescViewer';
+  }
+}
+
+function getHighestRoleLabel(profile: UserProfile): string | null {
+  const priority: Record<string, number> = { admin: 3, lab_technician: 2, viewer: 1 };
+  const ranked = [...profile.memberships].sort(
+    (a, b) => (priority[b.role] ?? 0) - (priority[a.role] ?? 0),
+  );
+  return ranked[0]?.role_label ?? null;
+}
+
+function getProfileInitials(profile: UserProfile): string {
+  const fromName = [profile.first_name, profile.last_name]
+    .filter(Boolean)
+    .map((part) => part.charAt(0))
+    .join('');
+  const initials = fromName || profile.username.slice(0, 2);
+  return initials.toUpperCase();
 }
 
 function AdminView({
