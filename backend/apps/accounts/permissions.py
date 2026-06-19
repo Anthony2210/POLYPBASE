@@ -35,3 +35,34 @@ def user_can_write_lab_data(user, organization):
             OrganizationMembership.Role.LAB_TECHNICIAN,
         ],
     ).exists()
+
+
+def get_admin_organizations(user):
+    """Return organizations where the user can manage accounts and roles."""
+    if user.is_superuser:
+        return Organization.objects.filter(is_active=True)
+
+    return Organization.objects.filter(
+        memberships__user=user,
+        memberships__is_active=True,
+        memberships__role=OrganizationMembership.Role.ADMIN,
+        is_active=True,
+    ).distinct()
+
+
+def get_admin_organization_ids(user):
+    """Return IDs of the organizations the user administers."""
+    return list(get_admin_organizations(user).values_list("id", flat=True))
+
+
+def user_is_org_admin(user):
+    """Return True when the user administers at least one organization."""
+    if user.is_superuser:
+        return True
+
+    return OrganizationMembership.objects.filter(
+        user=user,
+        is_active=True,
+        role=OrganizationMembership.Role.ADMIN,
+        organization__is_active=True,
+    ).exists()
