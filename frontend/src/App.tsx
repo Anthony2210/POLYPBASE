@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import type { IScannerControls } from '@zxing/browser';
 
 import { ApiError, apiGet, apiPatch, apiPost } from './api/client';
 import { getBoxStatusPresentation } from './boxStatus';
@@ -235,6 +236,7 @@ const translations = {
     qrScanHint: 'Scannez pour ouvrir cette fiche',
     qrScannerFound: 'Boîte détectée',
     qrScannerPermission: 'Impossible d’ouvrir la caméra.',
+    qrScannerSecureContext: 'Le scan caméra sur téléphone nécessite une adresse HTTPS.',
     qrScannerStart: 'Scanner',
     qrScannerStop: 'Arrêter',
     qrScannerText: 'Scannez le QR code d’une boîte pour ouvrir directement sa fiche.',
@@ -244,7 +246,7 @@ const translations = {
     holdToSave: 'Maintenir pour enregistrer',
     saveMeasurement: 'Enregistrer le relevé',
     saving: 'Enregistrement...',
-    scanSearch: 'scan / recherche',
+    scanSearch: 'compte actuel',
     searchOrScan: 'Recherche ou scan',
     searchPlaceholder: 'Code boîte, espèce, souche',
     searchTab: 'Recherche',
@@ -447,6 +449,7 @@ const translations = {
     qrScanHint: 'Scan to open this sheet',
     qrScannerFound: 'Box detected',
     qrScannerPermission: 'Unable to open the camera.',
+    qrScannerSecureContext: 'Camera scanning on a phone requires an HTTPS address.',
     qrScannerStart: 'Scan',
     qrScannerStop: 'Stop',
     qrScannerText: 'Scan a box QR code to open its sheet directly.',
@@ -456,7 +459,7 @@ const translations = {
     holdToSave: 'Hold to save',
     saveMeasurement: 'Save measurement',
     saving: 'Saving...',
-    scanSearch: 'scan / search',
+    scanSearch: 'current account',
     searchOrScan: 'Search or scan',
     searchPlaceholder: 'Box code, species, strain',
     searchTab: 'Search',
@@ -506,6 +509,7 @@ export default function App() {
   const [route, setRoute] = useState<RouteState>(() => getCurrentRoute());
   const [search, setSearch] = useState('');
   const [recentBoxIds, setRecentBoxIds] = useState<number[]>([]);
+  const lastRecordedBoxIdRef = useRef<number | null>(null);
   const [data, setData] = useState<AppData>({
     boxes: [],
     boxDetails: {},
@@ -567,10 +571,7 @@ export default function App() {
           exportOptions,
           profile,
         });
-        setRecentBoxIds((currentIds) => {
-          if (currentIds.length) return currentIds;
-          return buildRecentBoxIds(boxes.results, dashboard);
-        });
+        setRecentBoxIds(buildRecentBoxIds(boxes.results, dashboard));
       } catch (requestError) {
         if (!isActive) return;
         setError(getErrorMessage(requestError));
@@ -645,6 +646,28 @@ export default function App() {
     };
   }, [selectedBoxId, Boolean(selectedBoxDetail)]);
 
+  useEffect(() => {
+    if (selectedBoxId == null) {
+      lastRecordedBoxIdRef.current = null;
+      return;
+    }
+
+    setRecentBoxIds((currentIds) => [
+      selectedBoxId,
+      ...currentIds.filter((currentId) => currentId !== selectedBoxId),
+    ].slice(0, 5));
+
+    if (lastRecordedBoxIdRef.current === selectedBoxId) return;
+    lastRecordedBoxIdRef.current = selectedBoxId;
+
+    // Access tracking must never prevent someone from opening a box.
+    void apiPost<void>(`/api/boxes/${selectedBoxId}/access/`, {}).catch(() => {
+      if (lastRecordedBoxIdRef.current === selectedBoxId) {
+        lastRecordedBoxIdRef.current = null;
+      }
+    });
+  }, [selectedBoxId]);
+
   const recentBoxes = useMemo(() => {
     return recentBoxIds
       .map((boxId) => data.boxes.find((box) => box.id === boxId))
@@ -657,12 +680,7 @@ export default function App() {
     const globalCode = box?.global_code ?? fallbackCode;
     if (!globalCode) return;
 
-    if (box) {
-      setRecentBoxIds((currentIds) => [
-        boxId,
-        ...currentIds.filter((currentId) => currentId !== boxId),
-      ].slice(0, 5));
-    } else {
+    if (!box) {
       void apiGet<BoxDetail>(`/api/boxes/${boxId}/`)
         .then((detail) => {
           setData((current) => ({
@@ -3158,68 +3176,64 @@ function TabletQrScanner({
   t: TFunction;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const intervalRef = useRef<number | null>(null);
+  const scannerControlsRef = useRef<IScannerControls | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isScanning) {
-      stopQrScanner(streamRef, intervalRef);
+      stopQrScanner(scannerControlsRef);
       return;
     }
 
     let isCancelled = false;
 
     async function startScanner() {
-      const Detector = (window as unknown as {
-        BarcodeDetector?: new (options?: { formats?: string[] }) => {
-          detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue: string }>>;
-        };
-      }).BarcodeDetector;
+      if (!window.isSecureContext) {
+        setMessage(t('qrScannerSecureContext'));
+        setIsScanning(false);
+        return;
+      }
 
-      if (!Detector || !navigator.mediaDevices?.getUserMedia) {
+      if (!navigator.mediaDevices?.getUserMedia) {
         setMessage(t('qrScannerUnsupported'));
         setIsScanning(false);
         return;
       }
 
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: 'environment' } },
-          audio: false,
-        });
-        if (isCancelled) {
-          stream.getTracks().forEach((track) => track.stop());
+        const video = videoRef.current;
+        if (!video) return;
+
+        const { BrowserQRCodeReader } = await import('@zxing/browser');
+        const reader = new BrowserQRCodeReader();
+        let hasDetectedBox = false;
+        const controls = await reader.decodeFromConstraints(
+          {
+            video: { facingMode: { ideal: 'environment' } },
+            audio: false,
+          },
+          video,
+          (result) => {
+            if (!result || isCancelled || hasDetectedBox) return;
+
+            const scannedBoxId = getBoxIdFromQrValue(result.getText(), boxes);
+            if (scannedBoxId == null) return;
+
+            hasDetectedBox = true;
+            triggerHaptic([10, 34, 12]);
+            setMessage(t('qrScannerFound'));
+            setIsScanning(false);
+            onSelectBox(scannedBoxId);
+          },
+        );
+
+        if (isCancelled || hasDetectedBox) {
+          controls.stop();
           return;
         }
 
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
-        }
-
-        const detector = new Detector({ formats: ['qr_code'] });
-        intervalRef.current = window.setInterval(async () => {
-          const video = videoRef.current;
-          if (!video || video.readyState < 2) return;
-
-          try {
-            const codes = await detector.detect(video);
-            const scannedValue = codes[0]?.rawValue;
-            const scannedBoxId = scannedValue ? getBoxIdFromQrValue(scannedValue, boxes) : null;
-
-            if (scannedBoxId != null) {
-              triggerHaptic([10, 34, 12]);
-              setMessage(t('qrScannerFound'));
-              setIsScanning(false);
-              onSelectBox(scannedBoxId);
-            }
-          } catch {
-            // Some browsers throw while the video frame is not ready yet.
-          }
-        }, 650);
+        scannerControlsRef.current = controls;
       } catch {
         setMessage(t('qrScannerPermission'));
         setIsScanning(false);
@@ -3230,7 +3244,7 @@ function TabletQrScanner({
 
     return () => {
       isCancelled = true;
-      stopQrScanner(streamRef, intervalRef);
+      stopQrScanner(scannerControlsRef);
     };
   }, [isScanning, boxes, onSelectBox, t]);
 
@@ -3422,17 +3436,9 @@ function MeasurementSaveButton({
   );
 }
 
-function stopQrScanner(
-  streamRef: { current: MediaStream | null },
-  intervalRef: { current: number | null },
-) {
-  if (intervalRef.current != null) {
-    window.clearInterval(intervalRef.current);
-    intervalRef.current = null;
-  }
-
-  streamRef.current?.getTracks().forEach((track) => track.stop());
-  streamRef.current = null;
+function stopQrScanner(scannerControlsRef: { current: IScannerControls | null }) {
+  scannerControlsRef.current?.stop();
+  scannerControlsRef.current = null;
 }
 
 function getBoxIdFromQrValue(value: string, boxes: BoxItem[]) {
@@ -3462,7 +3468,7 @@ function LoginNotice({ message, t }: { message: string; t: TFunction }) {
     <section className="login-notice">
       <h2>{t('loginRequired')}</h2>
       <p>{message}</p>
-      <a href="http://127.0.0.1:8000/accounts/login/">{t('loginAction')}</a>
+      <a href="/accounts/login/">{t('loginAction')}</a>
     </section>
   );
 }
@@ -3543,11 +3549,13 @@ function triggerHaptic(pattern: number | number[]) {
 }
 
 function formatDisplayDate(value: string) {
+  const normalizedValue = value.includes('T') ? value : `${value}T00:00:00`;
+
   return new Intl.DateTimeFormat('fr-FR', {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
-  }).format(new Date(`${value}T00:00:00`));
+  }).format(new Date(normalizedValue));
 }
 
 function getMeasurementSaveError(error: unknown, t: TFunction) {
@@ -3617,11 +3625,11 @@ function formatSalinity(value: number | undefined) {
 }
 
 function buildRecentBoxIds(boxes: BoxItem[], dashboard: Dashboard) {
-  const idsFromScans = dashboard.latest_scans
-    .map((scan) => boxes.find((box) => box.global_code === scan.object_id)?.id)
+  const idsFromAccesses = dashboard.recent_accesses
+    .map((access) => boxes.find((box) => box.global_code === access.object_id)?.id)
     .filter((boxId): boxId is number => Boolean(boxId));
 
-  return uniqueNumbers([...idsFromScans, ...boxes.slice(0, 5).map((box) => box.id)]).slice(0, 5);
+  return uniqueNumbers(idsFromAccesses).slice(0, 5);
 }
 
 function uniqueNumbers(values: number[]) {

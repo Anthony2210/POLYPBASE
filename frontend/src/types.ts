@@ -222,7 +222,7 @@ export type Dashboard = {
     measured_ephyrae: number;
   };
   latest_entries: BiologicalMeasurement[];
-  latest_scans: Array<{
+  recent_accesses: Array<{
     id: number;
     object_id: string;
     description: string;

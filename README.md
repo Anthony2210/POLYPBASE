@@ -220,6 +220,40 @@ http://127.0.0.1:5173/
 The Django backend must also be running so React can call the `/api/...`
 endpoints.
 
+### Test from a phone on the local network
+
+For a visual test on a phone, connect the computer and phone to the same Wi-Fi
+network. Start Django normally, then start the frontend with:
+
+```powershell
+cd frontend
+npm run dev:lan
+```
+
+Open the network address shown by Vite on the phone, usually
+`http://<computer-ip>:5173/`. The address changes with the Wi-Fi network and
+must not be written into the source code. Vite forwards the API requests to
+the Django server running locally on the computer.
+
+Camera access on iPhone and iPad requires an HTTPS address. A local HTTP
+address is suitable for checking the interface and manual search, but not for
+testing QR-code scanning. Use an HTTPS staging or production address to test
+the camera on Safari.
+
+### Temporary HTTPS tunnel
+
+For a short mobile camera test before deployment, start a Cloudflare Quick
+Tunnel in a separate terminal while the frontend is running:
+
+```powershell
+cloudflared tunnel --url http://127.0.0.1:5173
+```
+
+Cloudflare prints a temporary `https://...trycloudflare.com` address. It can
+be opened on the phone to test the QR scanner. This address is public and
+expires when the tunnel stops, so it must only be used with demonstration
+data, never as a deployment solution.
+
 The export screen is available in the desktop interface. It is intentionally
 hidden from the laboratory tablet navigation.
 

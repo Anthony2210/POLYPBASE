@@ -20,7 +20,7 @@ from apps.organizations.serializers import OrganizationSummarySerializer
 from .models import Box, BoxLineage, BoxLocation, BoxMovement, ThermalZone
 from .serializers import (
     AlertSummarySerializer,
-    AuditLogScanSerializer,
+    AuditLogAccessSerializer,
     BiologicalMeasurementCreateSerializer,
     BiologicalMeasurementSerializer,
     BoxDetailSerializer,
@@ -122,10 +122,21 @@ class DashboardAPIView(APIView):
             organization_id__in=organization_ids,
             resolved_at__isnull=True,
         ).select_related("box", "thermal_zone")
-        latest_scans = AuditLog.objects.filter(
+        access_candidates = AuditLog.objects.filter(
             organization_id__in=organization_ids,
-            action=AuditLog.Action.SCAN,
-        ).select_related("user").order_by("-created_at")[:8]
+            user=request.user,
+            action__in=[AuditLog.Action.SCAN, AuditLog.Action.VIEW],
+            object_type="box",
+        ).select_related("user").order_by("-created_at")[:40]
+        recent_accesses = []
+        accessed_box_codes = set()
+        for access in access_candidates:
+            if access.object_id in accessed_box_codes:
+                continue
+            recent_accesses.append(access)
+            accessed_box_codes.add(access.object_id)
+            if len(recent_accesses) == 8:
+                break
         latest_entries = measurements.select_related("user").order_by("-measured_on", "-created_at")[:8]
         measurement_totals = measurements.aggregate(
             polyps=Sum("polyp_count"),
@@ -147,7 +158,7 @@ class DashboardAPIView(APIView):
                     "measured_strobilae": measurement_totals["strobilae"] or 0,
                 },
                 "latest_entries": BiologicalMeasurementSerializer(latest_entries, many=True).data,
-                "latest_scans": AuditLogScanSerializer(latest_scans, many=True).data,
+                "recent_accesses": AuditLogAccessSerializer(recent_accesses, many=True).data,
                 "alerts": self._alert_payload(alerts[:12]),
             }
         )
@@ -197,6 +208,23 @@ class BoxDetailAPIView(generics.RetrieveAPIView):
 
     def get_queryset(self):
         return box_queryset_for_user(self.request.user)
+
+
+class BoxAccessAPIView(APIView):
+    """Store a box consultation for the current account across devices."""
+
+    def post(self, request, box_id):
+        box = get_object_or_404(box_queryset_for_user(request.user), id=box_id)
+        AuditLog.objects.create(
+            organization=box.organization,
+            user=request.user,
+            action=AuditLog.Action.VIEW,
+            object_type="box",
+            object_id=box.global_code,
+            description=f"Box opened: {box.global_code}",
+            metadata={"box_id": box.id, "source": "web_app"},
+        )
+        return Response(status=status.HTTP_201_CREATED)
 
 
 class BoxMeasurementListCreateAPIView(generics.GenericAPIView):

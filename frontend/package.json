@@ -5,11 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:lan": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
     "@xyflow/react": "^12.11.0",
+    "@zxing/browser": "^0.1.5",
     "react": "18.3.1",
     "react-dom": "18.3.1"
   },

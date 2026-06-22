@@ -75,6 +75,7 @@ class AuditLog(models.Model):
         IMPORT = "import", "Import"
         EXPORT = "export", "Export"
         SCAN = "scan", "Scan"
+        VIEW = "view", "View"
         LOGIN = "login", "Login"
 
     organization = models.ForeignKey(
