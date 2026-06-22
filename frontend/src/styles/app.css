@@ -1005,6 +1005,148 @@ button:disabled {
   background: var(--primary-soft);
 }
 
+.quick-counts button.is-pressed {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  animation: quick-count-feedback 180ms ease-out;
+}
+
+.measurement-save-button {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  transition:
+    background 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+.measurement-save-button > span:last-child {
+  position: relative;
+  z-index: 1;
+}
+
+.measurement-save-button.is-hold-action {
+  touch-action: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.hold-save-progress {
+  position: absolute;
+  inset: 2px;
+  z-index: 0;
+  padding: 2px;
+  border-radius: inherit;
+  background: conic-gradient(
+    from -90deg,
+    rgba(255, 255, 255, 0.98) var(--hold-progress, 0deg),
+    rgba(255, 255, 255, 0.18) 0
+  );
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+.measurement-save-button.is-holding {
+  background: var(--coral);
+  color: #ffffff;
+  box-shadow: 0 0 0 4px rgba(224, 95, 69, 0.12), 0 12px 26px rgba(224, 95, 69, 0.24);
+  transform: scale(0.985);
+}
+
+.measurement-save-button.is-holding .hold-save-progress {
+  opacity: 1;
+}
+
+.measurement-save-button.is-success {
+  background: #258050 !important;
+  color: #ffffff !important;
+  box-shadow: 0 10px 24px rgba(37, 128, 80, 0.2);
+  animation: save-confirmation 420ms ease-out;
+}
+
+.measurement-save-button.is-success > span:last-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.measurement-save-button.is-success > span:last-child::before {
+  width: 6px;
+  height: 11px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  content: '';
+  transform: rotate(45deg) translateY(-1px);
+}
+
+.last-reading-card.is-fresh {
+  animation: reading-refresh 480ms ease-out;
+}
+
+@keyframes quick-count-feedback {
+  0% { transform: scale(1); }
+  45% { transform: scale(0.94); }
+  100% { transform: scale(1); }
+}
+
+@keyframes save-confirmation {
+  0% { transform: scale(0.985); }
+  55% { transform: scale(1.02); }
+  100% { transform: scale(1); }
+}
+
+@keyframes reading-refresh {
+  0% { box-shadow: 0 0 0 0 rgba(16, 107, 135, 0.24); }
+  100% { box-shadow: 0 0 0 12px rgba(16, 107, 135, 0); }
+}
+
+.tablet-scanner-panel.is-scanning .scanner-preview::after {
+  position: absolute;
+  z-index: 2;
+  top: 16%;
+  right: 10%;
+  left: 10%;
+  height: 2px;
+  border-radius: 999px;
+  background: rgba(41, 171, 205, 0.96);
+  box-shadow: 0 0 14px rgba(41, 171, 205, 0.9);
+  content: '';
+  pointer-events: none;
+  animation: scanner-sweep 1.7s ease-in-out infinite;
+}
+
+.tablet-scanner-panel.is-scanning .scanner-live-label {
+  z-index: 3;
+}
+
+@keyframes scanner-sweep {
+  0%,
+  100% { transform: translateY(0); opacity: 0.25; }
+  50% { transform: translateY(185px); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quick-counts button.is-pressed,
+  .measurement-save-button.is-success,
+  .last-reading-card.is-fresh,
+  .tablet-scanner-panel.is-scanning .scanner-preview::after {
+    animation: none;
+  }
+
+  .measurement-save-button,
+  .hold-save-progress {
+    transition: none;
+  }
+}
+
 .compact-heading {
   display: flex;
   align-items: center;
