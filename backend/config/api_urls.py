@@ -7,6 +7,7 @@ from apps.accounts.api_views import (
 )
 from apps.cultures.api_views import (
     BoxDetailAPIView,
+    BoxAccessAPIView,
     BoxLineageGraphAPIView,
     BoxListAPIView,
     BoxMeasurementListCreateAPIView,
@@ -27,6 +28,11 @@ urlpatterns = [
     path("dashboard/", DashboardAPIView.as_view(), name="api_dashboard"),
     path("boxes/", BoxListAPIView.as_view(), name="api_box_list"),
     path("boxes/<int:pk>/", BoxDetailAPIView.as_view(), name="api_box_detail"),
+    path(
+        "boxes/<int:box_id>/access/",
+        BoxAccessAPIView.as_view(),
+        name="api_box_access",
+    ),
     path(
         "boxes/<int:box_id>/measurements/",
         BoxMeasurementListCreateAPIView.as_view(),

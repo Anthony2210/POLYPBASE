@@ -402,7 +402,7 @@ class UserProfileSerializer(serializers.Serializer):
     available_languages = serializers.ListField()
 
 
-class AuditLogScanSerializer(serializers.ModelSerializer):
+class AuditLogAccessSerializer(serializers.ModelSerializer):
     user = serializers.SerializerMethodField()
 
     class Meta:

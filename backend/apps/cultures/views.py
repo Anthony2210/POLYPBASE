@@ -95,7 +95,7 @@ def scan_box(request, box_id):
     """Stable target encoded in a box QR code.
 
     Scanning ``/bac/<id>/`` lands here, records the access, and redirects to the
-    box detail page. The scan shows up in the dashboard's recent scans.
+    box detail page. The access is visible on every device using the same account.
     """
     box = get_object_or_404(_box_queryset_for_user(request.user), id=box_id)
     AuditLog.objects.create(
@@ -105,6 +105,7 @@ def scan_box(request, box_id):
         object_type="box",
         object_id=box.global_code,
         description=f"QR scan of {box.global_code}",
+        metadata={"box_id": box.id, "source": "qr_link"},
     )
     return redirect("detail_boite", box_id=box.id)
 

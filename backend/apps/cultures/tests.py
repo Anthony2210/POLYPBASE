@@ -112,6 +112,40 @@ class PolypbaseApiTests(TestCase):
         self.assertEqual(payload["global_code"], "AAU-1.001-ATL")
         self.assertEqual(payload["biological_measurements"][0]["polyp_count"], 42)
 
+    def test_box_accesses_are_saved_for_the_current_account_only(self):
+        user_model = get_user_model()
+        other_user = user_model.objects.create_user(username="other_tech", password="secret")
+        OrganizationMembership.objects.create(
+            user=other_user,
+            organization=self.organization,
+            role=OrganizationMembership.Role.LAB_TECHNICIAN,
+        )
+        AuditLog.objects.create(
+            organization=self.organization,
+            user=other_user,
+            action=AuditLog.Action.VIEW,
+            object_type="box",
+            object_id=self.box.global_code,
+            description="Box opened by another account.",
+        )
+
+        self.client.login(username="tech", password="secret")
+        response = self.client.post(reverse("api_box_access", args=[self.box.id]))
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(
+            AuditLog.objects.filter(
+                user=self.user,
+                action=AuditLog.Action.VIEW,
+                object_id=self.box.global_code,
+            ).count(),
+            1,
+        )
+
+        dashboard = self.client.get(reverse("api_dashboard")).json()
+        self.assertEqual(len(dashboard["recent_accesses"]), 1)
+        self.assertEqual(dashboard["recent_accesses"][0]["object_id"], self.box.global_code)
+
     def test_drf_box_detail_returns_parent_and_child_lineage(self):
         child_box = Box.objects.create(
             organization=self.organization,
