@@ -23,6 +23,10 @@
   text-rendering: optimizeLegibility;
 }
 
+html {
+  scrollbar-gutter: stable;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -631,6 +635,40 @@ button:disabled {
   color: var(--primary-strong);
 }
 
+.box-zone-link {
+  position: relative;
+  border: 0;
+  padding-right: 22px;
+  text-align: left;
+}
+
+.box-zone-link::after {
+  position: absolute;
+  top: 50%;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border-top: 1.5px solid var(--primary);
+  border-right: 1.5px solid var(--primary);
+  content: '';
+  transform: translateY(-50%) rotate(45deg);
+  transition: transform 160ms ease;
+}
+
+.box-zone-link:hover strong {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.box-zone-link:hover::after {
+  transform: translate(3px, -50%) rotate(45deg);
+}
+
+.box-zone-link:focus-visible {
+  outline: 2px solid rgba(16, 107, 135, 0.34);
+  outline-offset: 4px;
+}
+
 .box-action-stack {
   display: grid;
   align-content: center;
@@ -1137,12 +1175,16 @@ button:disabled {
   .quick-counts button.is-pressed,
   .measurement-save-button.is-success,
   .last-reading-card.is-fresh,
-  .tablet-scanner-panel.is-scanning .scanner-preview::after {
+  .tablet-scanner-panel.is-scanning .scanner-preview::after,
+  .temperature-gauge-range {
     animation: none;
   }
 
   .measurement-save-button,
-  .hold-save-progress {
+  .hold-save-progress,
+  .temperature-gauge-range,
+  .temperature-gauge-cap,
+  .temperature-gauge-current {
     transition: none;
   }
 }
@@ -1510,69 +1552,145 @@ button:disabled {
   color: var(--muted);
 }
 
-.temperature-balance-chart {
-  position: relative;
-  height: 82px;
-  margin: 4px 12px 0;
-  border-radius: 999px;
-  background:
-    linear-gradient(90deg, rgba(193, 138, 43, 0.13), rgba(37, 128, 80, 0.14) 46%, rgba(37, 128, 80, 0.14) 54%, rgba(193, 138, 43, 0.13)),
-    #f7fbfc;
+.zone-temperature-panel {
+  --temperature-accent: #258050;
+  --temperature-range: rgba(37, 128, 80, 0.72);
 }
 
-.temperature-balance-chart::before {
+.zone-temperature-panel.is-watch {
+  --temperature-accent: #c18a2b;
+  --temperature-range: rgba(193, 138, 43, 0.72);
+}
+
+.zone-temperature-panel.is-missing {
+  --temperature-accent: #687282;
+  --temperature-range: rgba(104, 114, 130, 0.45);
+}
+
+.temperature-gauge {
+  position: relative;
+  height: 132px;
+  margin: 2px 12px 0;
+  overflow: hidden;
+  border: 1px solid #e0e9ed;
+  border-radius: 18px;
+  background: #f9fcfd;
+}
+
+.temperature-gauge-safe-band {
   position: absolute;
-  top: 50%;
-  right: 14px;
-  left: 14px;
-  height: 8px;
-  transform: translateY(-50%);
+  top: 18px;
+  bottom: 18px;
+  left: 41.666%;
+  width: 16.667%;
+  border-radius: 12px;
+  background: rgba(37, 128, 80, 0.12);
+}
+
+.temperature-gauge-track {
+  position: absolute;
+  top: 62px;
+  right: 24px;
+  left: 24px;
+  height: 7px;
   border-radius: 999px;
   background: #dcebef;
-  content: "";
 }
 
-.temperature-target-line {
+.temperature-gauge-range {
   position: absolute;
-  top: 12px;
-  bottom: 12px;
+  top: 62px;
+  left: var(--temperature-range-start);
+  width: var(--temperature-range-width);
+  height: 7px;
+  transform: translateY(0) scaleX(0);
+  transform-origin: left;
+  border-radius: 999px;
+  background: var(--temperature-range);
+  opacity: 0;
+  transition: transform 700ms cubic-bezier(0.2, 0.78, 0.28, 1), opacity 180ms ease;
+}
+
+.temperature-gauge-target {
+  position: absolute;
+  top: 28px;
+  bottom: 29px;
+  left: 50%;
   width: 2px;
   transform: translateX(-50%);
   border-radius: 999px;
   background: var(--ink);
 }
 
-.temperature-measured-dot {
+.temperature-gauge-target span {
   position: absolute;
-  top: 50%;
-  display: inline-flex;
-  min-width: 58px;
-  min-height: 34px;
-  align-items: center;
-  justify-content: center;
-  transform: translate(-50%, -50%);
-  border-radius: 999px;
-  background: var(--primary);
-  color: #ffffff;
-  font-size: 0.78rem;
-  font-weight: 800;
+  bottom: -19px;
+  left: 50%;
+  padding: 0 5px;
+  transform: translateX(-50%);
+  border-radius: 4px;
+  background: #f9fcfd;
+  color: var(--ink);
+  font-size: 0.7rem;
+  font-weight: 820;
+  white-space: nowrap;
 }
 
-.temperature-range-dot {
+.temperature-gauge-cap {
   position: absolute;
-  top: 50%;
-  width: 9px;
-  height: 9px;
-  transform: translate(-50%, -50%);
+  top: 61px;
+  width: 11px;
+  height: 11px;
+  transform: translate(-50%, -50%) scale(0);
+  border: 3px solid var(--temperature-range);
+  border-radius: 50%;
+  background: #ffffff;
+  opacity: 0;
+  transition: transform 420ms ease 190ms, opacity 180ms ease 190ms;
+}
+
+.temperature-gauge-current {
+  position: absolute;
+  top: 62px;
+  left: 50%;
+  z-index: 2;
+  display: inline-flex;
+  min-width: 64px;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  transform: translate(-50%, -50%) scale(0.92);
   border-radius: 999px;
-  background: var(--muted);
+  background: var(--temperature-accent);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--temperature-accent) 24%, transparent);
+  color: #ffffff;
+  font-size: 0.8rem;
+  font-weight: 820;
+  opacity: 0;
+  transition: left 760ms cubic-bezier(0.2, 0.78, 0.28, 1), transform 280ms ease 330ms, opacity 180ms ease 330ms;
+}
+
+.temperature-gauge.is-ready .temperature-gauge-range {
+  transform: scaleX(1);
+  opacity: 1;
+}
+
+.temperature-gauge.is-ready .temperature-gauge-cap {
+  transform: translate(-50%, -50%) scale(1);
+  opacity: 1;
+}
+
+.temperature-gauge.is-ready .temperature-gauge-current {
+  left: var(--temperature-current-position);
+  transform: translate(-50%, -50%) scale(1);
+  opacity: 1;
 }
 
 .temperature-scale-labels {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin: -4px 12px 0;
+  margin: -4px 16px 0;
   color: var(--muted);
   font-size: 0.76rem;
 }
@@ -1771,10 +1889,10 @@ button:disabled {
 }
 
 .insight-tabs {
-  display: inline-flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  width: fit-content;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  width: min(100%, 430px);
   padding: 3px;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -1783,7 +1901,8 @@ button:disabled {
 
 .insight-tabs button {
   min-height: 32px;
-  padding: 0 13px;
+  min-width: 0;
+  padding: 0 10px;
   border: 0;
   border-radius: 999px;
   background: transparent;
@@ -1801,6 +1920,7 @@ button:disabled {
   display: grid;
   gap: 10px;
   min-width: 0;
+  align-content: start;
 }
 
 .insight-heading {
@@ -1968,30 +2088,56 @@ button:disabled {
   border-radius: 8px;
 }
 
-.observation-preview {
+.movement-timeline {
   display: grid;
-  gap: 8px;
+  gap: 0;
+  min-height: 180px;
 }
 
-.observation-preview article {
+.movement-timeline article {
   display: grid;
-  gap: 3px;
-  padding: 10px 0;
+  grid-template-columns: 108px minmax(0, 1fr);
+  gap: 12px;
+  padding: 13px 0;
   border-bottom: 1px solid var(--line-soft);
 }
 
-.observation-preview article:last-child {
+.movement-timeline article:last-child {
   border-bottom: 0;
 }
 
-.observation-preview strong {
+.movement-timeline time {
   color: var(--primary-strong);
-  font-size: 0.84rem;
+  font-size: 0.82rem;
+  font-weight: 780;
 }
 
-.observation-preview p {
+.movement-timeline article > div {
+  display: grid;
+  gap: 3px;
+}
+
+.movement-timeline strong {
+  color: var(--primary-strong);
+  font-size: 0.88rem;
+}
+
+.movement-timeline small {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.movement-timeline p {
   margin: 0;
   color: var(--ink);
+}
+
+.movement-empty {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
 }
 
 .lineage-preview {
@@ -2008,8 +2154,8 @@ button:disabled {
 }
 
 .box-insights .interactive-lineage {
-  height: min(420px, 48vh);
-  min-height: 300px;
+  height: min(390px, 46vh);
+  min-height: 350px;
   overflow: hidden;
   border: 1px solid var(--line-soft);
   border-radius: 9px;

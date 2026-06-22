@@ -713,9 +713,24 @@
     flex-direction: column;
   }
 
-  .temperature-balance-chart {
-    height: 74px;
+  .temperature-gauge {
+    height: 116px;
     margin-inline: 4px;
+  }
+
+  .temperature-gauge-track,
+  .temperature-gauge-range {
+    top: 54px;
+  }
+
+  .temperature-gauge-target {
+    top: 20px;
+    bottom: 24px;
+  }
+
+  .temperature-gauge-cap,
+  .temperature-gauge-current {
+    top: 54px;
   }
 
   .temperature-scale-labels {
