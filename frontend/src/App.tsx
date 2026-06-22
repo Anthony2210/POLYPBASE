@@ -1,4 +1,12 @@
-import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type CSSProperties,
+  type FormEvent,
+  type PointerEvent as ReactPointerEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import { ApiError, apiGet, apiPatch, apiPost } from './api/client';
 import { getBoxStatusPresentation } from './boxStatus';
@@ -229,6 +237,7 @@ const translations = {
     qrScannerTitle: 'Scan QR code',
     qrScannerUnsupported: 'Scanner indisponible sur ce navigateur.',
     recentAccess: 'Derniers accès',
+    holdToSave: 'Maintenir pour enregistrer',
     saveMeasurement: 'Enregistrer le relevé',
     saving: 'Enregistrement...',
     scanSearch: 'scan / recherche',
@@ -437,6 +446,7 @@ const translations = {
     qrScannerTitle: 'QR code scan',
     qrScannerUnsupported: 'Scanner unavailable in this browser.',
     recentAccess: 'Recent access',
+    holdToSave: 'Hold to save',
     saveMeasurement: 'Save measurement',
     saving: 'Saving...',
     scanSearch: 'scan / search',
@@ -1128,6 +1138,7 @@ function BoxPage({
 }) {
   const [form, setForm] = useState(() => getInitialMeasurementForm());
   const [isSaving, setIsSaving] = useState(false);
+  const isDesktopApp = useIsDesktopApp();
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [lineageGraph, setLineageGraph] = useState<LineageGraph | null>(null);
   const [isLineageGraphLoading, setIsLineageGraphLoading] = useState(false);
@@ -1223,9 +1234,8 @@ function BoxPage({
   const createdOn = getBoxCreatedDate(box);
   const statusPresentation = getBoxStatusPresentation(box.status, language);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!box || isSaving) return;
+  async function saveMeasurement(): Promise<boolean> {
+    if (!box || isSaving) return false;
 
     setIsSaving(true);
     setSaveError(null);
@@ -1240,11 +1250,20 @@ function BoxPage({
       });
       setForm(getInitialMeasurementForm());
       setSaveMessage(t('measurementSaved'));
+      triggerHaptic([12, 28, 12]);
+      return true;
     } catch (requestError) {
       setSaveError(getMeasurementSaveError(requestError, t));
+      return false;
     } finally {
       setIsSaving(false);
     }
+  }
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!isDesktopApp) return;
+    void saveMeasurement();
   }
 
   async function handleSubculture(payload: SubculturePayload) {
@@ -1367,7 +1386,7 @@ function BoxPage({
       ) : null}
 
       <div className="box-page-grid">
-        <section className="last-reading-card">
+        <section className={saveMessage ? 'last-reading-card is-fresh' : 'last-reading-card'}>
           <div>
             <h2>{t('lastMeasurement')}</h2>
             <span>{box.latest_measurement ? formatDisplayDate(box.latest_measurement.measured_on) : t('noDate')}</span>
@@ -1451,11 +1470,14 @@ function BoxPage({
             </label>
 
             {saveError ? <p className="inline-error form-feedback">{saveError}</p> : null}
-            {saveMessage ? <p className="inline-success form-feedback">{saveMessage}</p> : null}
 
-            <button type="submit" disabled={isSaving}>
-              {isSaving ? t('saving') : t('saveMeasurement')}
-            </button>
+            <MeasurementSaveButton
+              isDesktop={isDesktopApp}
+              isSaving={isSaving}
+              isSuccess={Boolean(saveMessage)}
+              onSave={saveMeasurement}
+              t={t}
+            />
           </form>
         </section>
 
@@ -3130,6 +3152,7 @@ function TabletQrScanner({
             const scannedBoxId = scannedValue ? getBoxIdFromQrValue(scannedValue, boxes) : null;
 
             if (scannedBoxId != null) {
+              triggerHaptic([10, 34, 12]);
               setMessage(t('qrScannerFound'));
               setIsScanning(false);
               onSelectBox(scannedBoxId);
@@ -3197,14 +3220,146 @@ function Metric({ label, value }: { label: string; value: string }) {
 }
 
 function QuickCountButtons({ values, onAdd }: { values: number[]; onAdd: (value: number) => void }) {
+  const [lastPressed, setLastPressed] = useState<number | null>(null);
+  const resetTimerRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (resetTimerRef.current != null) {
+      window.clearTimeout(resetTimerRef.current);
+    }
+  }, []);
+
+  function handleAdd(value: number) {
+    triggerHaptic(8);
+    onAdd(value);
+    setLastPressed(value);
+    if (resetTimerRef.current != null) {
+      window.clearTimeout(resetTimerRef.current);
+    }
+    resetTimerRef.current = window.setTimeout(() => setLastPressed(null), 180);
+  }
+
   return (
     <span className="quick-counts">
       {values.map((value) => (
-        <button key={value} type="button" onClick={() => onAdd(value)}>
+        <button
+          key={value}
+          className={lastPressed === value ? 'is-pressed' : ''}
+          type="button"
+          onClick={() => handleAdd(value)}
+        >
           +{value}
         </button>
       ))}
     </span>
+  );
+}
+
+function MeasurementSaveButton({
+  isDesktop,
+  isSaving,
+  isSuccess,
+  onSave,
+  t,
+}: {
+  isDesktop: boolean;
+  isSaving: boolean;
+  isSuccess: boolean;
+  onSave: () => Promise<boolean>;
+  t: TFunction;
+}) {
+  const holdDuration = 950;
+  const frameRef = useRef<number | null>(null);
+  const holdStartRef = useRef<number | null>(null);
+  const [isHolding, setIsHolding] = useState(false);
+  const [holdProgress, setHoldProgress] = useState(0);
+
+  useEffect(() => () => {
+    if (frameRef.current != null) {
+      window.cancelAnimationFrame(frameRef.current);
+    }
+  }, []);
+
+  function cancelHold() {
+    if (frameRef.current != null) {
+      window.cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
+    }
+    holdStartRef.current = null;
+    setIsHolding(false);
+    setHoldProgress(0);
+  }
+
+  function completeHold() {
+    frameRef.current = null;
+    holdStartRef.current = null;
+    setHoldProgress(1);
+    setIsHolding(false);
+    triggerHaptic(10);
+    void onSave();
+  }
+
+  function updateHoldProgress(timestamp: number) {
+    if (holdStartRef.current == null) return;
+
+    const progress = Math.min((timestamp - holdStartRef.current) / holdDuration, 1);
+    setHoldProgress(progress);
+
+    if (progress >= 1) {
+      completeHold();
+      return;
+    }
+
+    frameRef.current = window.requestAnimationFrame(updateHoldProgress);
+  }
+
+  function startHold(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (isSaving) return;
+
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    holdStartRef.current = performance.now();
+    setIsHolding(true);
+    setHoldProgress(0);
+    frameRef.current = window.requestAnimationFrame(updateHoldProgress);
+  }
+
+  if (isDesktop) {
+    return (
+      <button className={isSuccess ? 'measurement-save-button is-success' : 'measurement-save-button'} type="submit" disabled={isSaving}>
+        <span>{isSaving ? t('saving') : isSuccess ? t('measurementSaved') : t('saveMeasurement')}</span>
+      </button>
+    );
+  }
+
+  const buttonClass = [
+    'measurement-save-button',
+    'is-hold-action',
+    isHolding ? 'is-holding' : '',
+    isSuccess ? 'is-success' : '',
+  ].filter(Boolean).join(' ');
+
+  return (
+    <button
+      className={buttonClass}
+      type="button"
+      disabled={isSaving}
+      title={t('holdToSave')}
+      aria-label={t('holdToSave')}
+      style={{ '--hold-progress': `${holdProgress * 360}deg` } as CSSProperties}
+      onPointerDown={startHold}
+      onPointerUp={cancelHold}
+      onPointerCancel={cancelHold}
+      onPointerLeave={cancelHold}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          void onSave();
+        }
+      }}
+    >
+      <span className="hold-save-progress" aria-hidden="true" />
+      <span>{isSaving ? t('saving') : isSuccess ? t('measurementSaved') : t('saveMeasurement')}</span>
+    </button>
   );
 }
 
@@ -3316,6 +3471,16 @@ function parsePositiveInteger(value: string) {
 
 function incrementCountValue(currentValue: string, increment: number) {
   return String(parsePositiveInteger(currentValue) + increment);
+}
+
+function triggerHaptic(pattern: number | number[]) {
+  if (typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') return;
+
+  try {
+    navigator.vibrate(pattern);
+  } catch {
+    // Haptic feedback is optional and unsupported by several browsers.
+  }
 }
 
 function formatDisplayDate(value: string) {
