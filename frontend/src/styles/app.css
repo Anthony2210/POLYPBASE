@@ -2819,16 +2819,33 @@ button:disabled {
 
 /* Account management */
 .account-management {
-  gap: 12px;
+  gap: 16px;
+}
+
+.account-management-heading {
+  align-items: center;
+}
+
+.account-count {
+  display: inline-grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+  font-size: 0.88rem;
+  font-weight: 820;
 }
 
 .member-add-form {
   display: grid;
   gap: 12px;
-  padding: 16px;
-  border: 1px solid var(--line);
+  padding: 18px;
+  border: 1px solid var(--line-soft);
   border-radius: 12px;
-  background: var(--surface);
+  background: #f8fbfd;
 }
 
 .member-add-title {
@@ -2913,11 +2930,22 @@ button:disabled {
 }
 
 .member-table-row {
-  padding: 10px 12px;
+  min-height: 62px;
+  padding: 11px 12px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface);
   font-size: 0.85rem;
+}
+
+.account-management .member-table {
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.account-management .member-table-head,
+.account-management .member-table-row {
+  min-width: 900px;
 }
 
 .member-table-row.is-inactive {
@@ -2973,6 +3001,7 @@ button:disabled {
 }
 
 .member-toggle {
+  min-height: 32px;
   padding: 5px 10px;
   border: 1px solid var(--line);
   border-radius: 999px;
