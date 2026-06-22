@@ -2426,8 +2426,6 @@ function ProfileView({
         )}
       </section>
 
-      {userHasAdminRole(profile) ? <AccountManagementSection t={t} /> : null}
-
       <section className="profile-block">
         <div className="section-title">
           <h2>{t('profilePreferences')}</h2>
@@ -2608,12 +2606,14 @@ function AccountManagementSection({ t }: { t: TFunction }) {
   const roles = data.roles;
 
   return (
-    <section className="profile-block account-management">
-      <div className="section-title">
-        <h2>{t('manageAccountsTitle')}</h2>
-        <span>{data.members.length}</span>
+    <section className="admin-section account-management">
+      <div className="admin-section-heading account-management-heading">
+        <div>
+          <h2>{t('manageAccountsTitle')}</h2>
+          <p>{t('manageAccountsSubtitle')}</p>
+        </div>
+        <span className="account-count">{data.members.length}</span>
       </div>
-      <p className="muted compact-text">{t('manageAccountsSubtitle')}</p>
 
       <form className="member-add-form" onSubmit={handleAddMember}>
         <p className="member-add-title">{t('manageAddTitle')}</p>
@@ -2818,23 +2818,9 @@ function AdminView({
   if (!profile || !userHasAdminRole(profile)) return null;
 
   const organizations = exportOptions?.organizations ?? profile.organizations;
-  const roleCounts = {
-    admin: profile.memberships.filter((membership) => membership.role === 'admin').length,
-    technician: profile.memberships.filter((membership) => membership.role === 'lab_technician').length,
-    viewer: profile.memberships.filter((membership) => membership.role === 'viewer').length,
-  };
-  const userName = [profile.first_name, profile.last_name].filter(Boolean).join(' ') || profile.username;
-  const userRoles = profile.memberships.map((membership) => membership.role_label).join(', ');
-  const userOrganizations = profile.memberships.map((membership) => membership.organization.name).join(', ');
   const activeBoxes = boxes.filter((box) => box.status === 'active');
   const selectedLabelBoxes = boxes.filter((box) => selectedLabelBoxIds.includes(box.id));
   const zoneChoices = zones.filter((zone) => zone.is_active);
-
-  const roleCards = [
-    { label: t('adminRoleAdmin'), value: roleCounts.admin },
-    { label: t('adminRoleTechnician'), value: roleCounts.technician },
-    { label: t('adminRoleViewer'), value: roleCounts.viewer },
-  ];
 
   function toggleLabelBox(boxId: number) {
     setSelectedLabelBoxIds((current) => (
@@ -2850,49 +2836,7 @@ function AdminView({
 
   return (
     <section className="admin-panel">
-      <section className="admin-section admin-accounts-section">
-        <div className="admin-section-heading">
-          <div>
-            <h2>{t('adminAccountsTitle')}</h2>
-            <p>{t('adminAccountsText')}</p>
-          </div>
-          <button className="admin-secondary-action" type="button" disabled>
-            {t('adminNewUser')}
-          </button>
-        </div>
-
-        <div className="admin-role-summary">
-          {roleCards.map((card) => (
-            <article key={card.label}>
-              <strong>{card.value}</strong>
-              <span>{card.label}</span>
-            </article>
-          ))}
-        </div>
-
-        <div className="admin-table">
-          <div className="admin-table-head">
-            <span>{t('adminUserColumn')}</span>
-            <span>{t('adminRoleColumn')}</span>
-            <span>{t('adminEmailColumn')}</span>
-            <span>{t('adminLastLoginColumn')}</span>
-            <span>{t('adminActionsColumn')}</span>
-          </div>
-          <div className="admin-table-row">
-            <span>
-              <strong>{userName}</strong>
-              <small>{userOrganizations}</small>
-            </span>
-            <span>{userRoles || t('adminRights')}</span>
-            <span>{profile.email || '-'}</span>
-            <span>{t('adminCurrentSession')}</span>
-            <span className="admin-row-actions">
-              <button type="button" disabled>{t('adminChangeRole')}</button>
-              <button type="button" disabled>{t('adminRemoveAccess')}</button>
-            </span>
-          </div>
-        </div>
-      </section>
+      <AccountManagementSection t={t} />
 
       <section className="admin-section admin-label-section">
         <div className="admin-section-heading">
@@ -3464,7 +3408,7 @@ function useIsDesktopApp() {
   const [isDesktop, setIsDesktop] = useState(() => getIsDesktopApp());
 
   useEffect(() => {
-    const media = window.matchMedia('(min-width: 1181px), (min-width: 841px) and (min-height: 761px)');
+    const media = window.matchMedia('(min-width: 1024px) and (hover: hover) and (pointer: fine)');
 
     function syncDesktopState() {
       setIsDesktop(media.matches);
@@ -3479,7 +3423,7 @@ function useIsDesktopApp() {
 }
 
 function getIsDesktopApp() {
-  return window.matchMedia('(min-width: 1181px), (min-width: 841px) and (min-height: 761px)').matches;
+  return window.matchMedia('(min-width: 1024px) and (hover: hover) and (pointer: fine)').matches;
 }
 
 function userHasAdminRole(profile: UserProfile | null) {
