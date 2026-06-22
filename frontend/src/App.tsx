@@ -21,6 +21,7 @@ import type {
   BoxDetail,
   BoxItem,
   BoxLineage,
+  BoxMovement,
   BoxMovePayload,
   Dashboard,
   ExportOptions,
@@ -35,7 +36,7 @@ import type {
 } from './types';
 
 type TabId = 'pilotage' | 'zones' | 'exports' | 'admin' | 'profile';
-type BoxInsightTab = 'measurements' | 'observations' | 'lineage';
+type BoxInsightTab = 'measurements' | 'movements' | 'lineage';
 
 type AppData = {
   boxes: BoxItem[];
@@ -181,9 +182,9 @@ const translations = {
     manageDeactivate: 'Désactiver',
     manageReactivate: 'Réactiver',
     historyButton: 'Voir relevés',
-    analysisTabLineage: 'Graphique parenté',
+    analysisTabLineage: 'Parenté',
     analysisTabMeasurements: 'Relevés',
-    analysisTabObservations: 'Observations',
+    analysisTabMovements: 'Mouvements',
     boxLocalCode: 'Code local',
     boxStrain: 'Souche',
     chartEmpty: 'Pas assez de relevés pour tracer une tendance.',
@@ -205,6 +206,9 @@ const translations = {
     moveAction: 'Déplacer',
     moveForbidden: 'Ce compte ne peut pas déplacer de boîte.',
     moveSaved: 'Déplacement enregistré',
+    movementHistoryTitle: 'Historique des emplacements',
+    noMovementHistory: 'Aucun déplacement enregistré pour cette boîte.',
+    movedTo: 'Déplacée vers',
     newMeasurement: 'Nouveau relevé',
     noComment: 'Aucun commentaire récent pour cette boîte.',
     noDate: 'aucune date',
@@ -390,9 +394,9 @@ const translations = {
     manageDeactivate: 'Disable',
     manageReactivate: 'Re-enable',
     historyButton: 'View records',
-    analysisTabLineage: 'Lineage graph',
+    analysisTabLineage: 'Lineage',
     analysisTabMeasurements: 'Measurements',
-    analysisTabObservations: 'Observations',
+    analysisTabMovements: 'Moves',
     boxLocalCode: 'Local code',
     boxStrain: 'Strain',
     chartEmpty: 'Not enough measurements to draw a trend.',
@@ -414,6 +418,9 @@ const translations = {
     moveAction: 'Move',
     moveForbidden: 'This account cannot move boxes.',
     moveSaved: 'Movement saved',
+    movementHistoryTitle: 'Location history',
+    noMovementHistory: 'No movement recorded for this box.',
+    movedTo: 'Moved to',
     newMeasurement: 'New measurement',
     noComment: 'No recent comment for this box.',
     noDate: 'no date',
@@ -816,6 +823,7 @@ export default function App() {
                 onMoveBox={moveBox}
                 onLoadLineageGraph={loadLineageGraph}
                 onOpenBox={openBox}
+                onOpenZone={openZone}
                 onBack={closeBoxPage}
                 t={t}
               />
@@ -1120,6 +1128,7 @@ function BoxPage({
   onMoveBox,
   onLoadLineageGraph,
   onOpenBox,
+  onOpenZone,
   onBack,
   t,
 }: {
@@ -1133,6 +1142,7 @@ function BoxPage({
   onMoveBox: (boxId: number, payload: BoxMovePayload) => Promise<void>;
   onLoadLineageGraph: (boxId: number) => Promise<LineageGraph>;
   onOpenBox: (boxId: number, globalCode: string) => void;
+  onOpenZone: (zoneId: number) => void;
   onBack: () => void;
   t: TFunction;
 }) {
@@ -1359,7 +1369,18 @@ function BoxPage({
         </div>
 
         <div className="box-zone-summary">
-          <InfoPill label={t('zones')} value={box.thermal_zone?.name ?? t('noZone')} strong />
+          {box.thermal_zone ? (
+            <button
+              className="info-pill is-strong box-zone-link"
+              type="button"
+              onClick={() => onOpenZone(box.thermal_zone!.id)}
+            >
+              <small>{t('zones')}</small>
+              <strong>{box.thermal_zone.name}</strong>
+            </button>
+          ) : (
+            <InfoPill label={t('zones')} value={t('noZone')} strong />
+          )}
           <InfoPill
             label={t('targetTemperature')}
             value={formatTemperatureValue(currentZone?.target_temperature_c ?? box.thermal_zone?.target_temperature_c)}
@@ -1490,6 +1511,7 @@ function BoxPage({
             language={language}
             lineage={lineage}
             measurements={measurements}
+            movements={getBoxMovements(box)}
             onLoadLineageGraph={handleLoadLineageGraph}
             onOpenHistory={() => setIsHistoryOpen(true)}
             onSelectBox={onOpenBox}
@@ -1749,6 +1771,7 @@ function BoxInsights({
   language,
   lineage,
   measurements,
+  movements,
   onLoadLineageGraph,
   onOpenHistory,
   onSelectBox,
@@ -1762,6 +1785,7 @@ function BoxInsights({
   language: Language;
   lineage: BoxLineage;
   measurements: BiologicalMeasurement[];
+  movements: BoxMovement[];
   onLoadLineageGraph: () => void;
   onOpenHistory: () => void;
   onSelectBox: (boxId: number, globalCode: string) => void;
@@ -1770,7 +1794,7 @@ function BoxInsights({
 }) {
   const tabs: Array<{ id: BoxInsightTab; label: string }> = [
     { id: 'measurements', label: t('analysisTabMeasurements') },
-    { id: 'observations', label: t('analysisTabObservations') },
+    { id: 'movements', label: t('analysisTabMovements') },
     { id: 'lineage', label: t('analysisTabLineage') },
   ];
 
@@ -1801,13 +1825,12 @@ function BoxInsights({
         </div>
       ) : null}
 
-      {activeTab === 'observations' ? (
+      {activeTab === 'movements' ? (
         <div className="insight-panel">
           <div className="insight-heading">
-            <h2>{t('analysisTabObservations')}</h2>
-            <button type="button" onClick={onOpenHistory}>{t('historyButton')}</button>
+            <h2>{t('movementHistoryTitle')}</h2>
           </div>
-          <ObservationPreview measurements={measurements} t={t} />
+          <MovementTimeline movements={movements} t={t} />
         </div>
       ) : null}
 
@@ -1815,7 +1838,6 @@ function BoxInsights({
         <div className="insight-panel">
           <div className="insight-heading">
             <h2>{t('analysisTabLineage')}</h2>
-            <span className="insight-count">{lineage.parents.length + lineage.children.length}</span>
           </div>
           {isGraphLoading ? <p className="lineage-inline-status">{t('lineageLoading')}</p> : null}
           {graphError ? (
@@ -1970,27 +1992,34 @@ function MeasurementTrendChart({
   );
 }
 
-function ObservationPreview({
-  measurements,
+function MovementTimeline({
+  movements,
   t,
 }: {
-  measurements: BiologicalMeasurement[];
+  movements: BoxMovement[];
   t: TFunction;
 }) {
-  const observations = measurements
-    .filter((measurement) => measurement.notes?.trim())
-    .slice(0, 4);
+  const sortedMovements = [...movements]
+    .sort((left, right) => right.moved_at.localeCompare(left.moved_at));
 
-  if (!observations.length) {
-    return <p className="muted compact-text">{t('noComment')}</p>;
+  if (!sortedMovements.length) {
+    return <p className="muted compact-text movement-empty">{t('noMovementHistory')}</p>;
   }
 
   return (
-    <div className="observation-preview">
-      {observations.map((measurement) => (
-        <article key={measurement.id}>
-          <strong>{formatDisplayDate(measurement.measured_on)}</strong>
-          <p>{measurement.notes}</p>
+    <div className="movement-timeline">
+      {sortedMovements.map((movement) => (
+        <article key={movement.id}>
+          <time>{formatDisplayDate(movement.moved_at)}</time>
+          <div>
+            <strong>
+              {movement.from_thermal_zone
+                ? `${movement.from_thermal_zone.name} → ${movement.to_thermal_zone.name}`
+                : `${t('movedTo')} ${movement.to_thermal_zone.name}`}
+            </strong>
+            {movement.user ? <small>{movement.user}</small> : null}
+            {movement.notes ? <p>{movement.notes}</p> : null}
+          </div>
         </article>
       ))}
     </div>
@@ -2270,6 +2299,25 @@ function TemperatureControlPanel({ zone, t }: { zone: ThermalZone; t: TFunction 
   const maxLeft = hasTemperature && maxTemperature !== null
     ? getTemperatureMarkerPosition(maxTemperature, targetTemperature)
     : null;
+  const rangeStart = minLeft !== null && maxLeft !== null
+    ? Math.min(minLeft, maxLeft)
+    : measuredLeft;
+  const rangeWidth = minLeft !== null && maxLeft !== null
+    ? Math.max(Math.abs(maxLeft - minLeft), 0.6)
+    : 0.6;
+  const [isGaugeReady, setIsGaugeReady] = useState(false);
+
+  useEffect(() => {
+    setIsGaugeReady(false);
+    const animationFrame = window.requestAnimationFrame(() => setIsGaugeReady(true));
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [zone.id, targetTemperature, measuredTemperature, minTemperature, maxTemperature]);
+
+  const gaugeStyle = {
+    '--temperature-current-position': `${measuredLeft}%`,
+    '--temperature-range-start': `${rangeStart}%`,
+    '--temperature-range-width': `${rangeWidth}%`,
+  } as CSSProperties;
 
   return (
     <section className={`zone-temperature-panel ${statusClass}`}>
@@ -2280,21 +2328,32 @@ function TemperatureControlPanel({ zone, t }: { zone: ThermalZone; t: TFunction 
         </div>
       </div>
 
-      <div className="temperature-balance-chart" aria-label={t('temperatureControl')}>
-        <span className="temperature-target-line" style={{ left: '50%' }} />
-        {minLeft !== null ? <span className="temperature-range-dot is-min" style={{ left: `${minLeft}%` }} /> : null}
-        {maxLeft !== null ? <span className="temperature-range-dot is-max" style={{ left: `${maxLeft}%` }} /> : null}
+      <div
+        className={isGaugeReady ? 'temperature-gauge is-ready' : 'temperature-gauge'}
+        style={gaugeStyle}
+        aria-label={t('temperatureControl')}
+      >
+        <span className="temperature-gauge-safe-band" aria-hidden="true" />
+        <span className="temperature-gauge-track" aria-hidden="true" />
+        {hasTemperature ? <span className="temperature-gauge-range" aria-hidden="true" /> : null}
+        {targetTemperature !== null ? (
+          <span className="temperature-gauge-target" aria-hidden="true">
+            <span>{formatTemperature(targetTemperature)}</span>
+          </span>
+        ) : null}
+        {minLeft !== null ? <span className="temperature-gauge-cap is-min" style={{ left: `${minLeft}%` }} aria-hidden="true" /> : null}
+        {maxLeft !== null ? <span className="temperature-gauge-cap is-max" style={{ left: `${maxLeft}%` }} aria-hidden="true" /> : null}
         {hasTemperature ? (
-          <span className="temperature-measured-dot" style={{ left: `${measuredLeft}%` }}>
+          <span className="temperature-gauge-current">
             {measuredTemperature === null ? '-' : formatTemperature(measuredTemperature)}
           </span>
         ) : null}
       </div>
 
       <div className="temperature-scale-labels">
-        <span>-3°C</span>
+        <span>{targetTemperature === null ? '-' : formatTemperature(targetTemperature - 3)}</span>
         <strong>{t('targetTemperature')}</strong>
-        <span>+3°C</span>
+        <span>{targetTemperature === null ? '-' : formatTemperature(targetTemperature + 3)}</span>
       </div>
 
       <div className="temperature-details-grid">
@@ -3505,6 +3564,10 @@ function getBoxLineage(box: BoxItem | BoxDetail): BoxLineage {
   }
 
   return { parents: [], children: [] };
+}
+
+function getBoxMovements(box: BoxItem | BoxDetail): BoxMovement[] {
+  return 'movements' in box ? box.movements : [];
 }
 
 function getCurrentThermalZone(box: BoxItem | BoxDetail, zones: ThermalZone[]) {
