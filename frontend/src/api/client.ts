@@ -15,6 +15,10 @@ export async function apiGet<T>(path: string): Promise<T> {
   return apiRequest<T>(path);
 }
 
+export async function apiEnsureCsrfCookie() {
+  return apiGet<{ detail: string }>('/api/auth/session/');
+}
+
 export async function apiPost<T>(path: string, payload: unknown): Promise<T> {
   return apiRequest<T>(path, {
     method: 'POST',

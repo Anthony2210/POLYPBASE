@@ -1,5 +1,5 @@
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import Client, TestCase
 from django.urls import reverse
 
 from apps.organizations.models import Organization
@@ -44,6 +44,51 @@ class AccountPreferenceTests(TestCase):
         response = self.client.post("/accounts/api/preferences/")
 
         self.assertEqual(response.status_code, 404)
+
+
+class SessionLoginApiTests(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.user = user_model.objects.create_user(username="tech", password="secret")
+        self.login_url = reverse("api_session_login")
+
+    def test_session_login_sets_an_authenticated_session(self):
+        client = Client(enforce_csrf_checks=True)
+        csrf_response = client.get(self.login_url)
+        csrf_token = csrf_response.cookies["csrftoken"].value
+
+        response = client.post(
+            self.login_url,
+            data={"username": "tech", "password": "secret"},
+            HTTP_X_CSRFTOKEN=csrf_token,
+        )
+
+        self.assertEqual(response.status_code, 204)
+        profile_response = client.get(reverse("api_profile"))
+        self.assertEqual(profile_response.status_code, 200)
+        self.assertEqual(profile_response.json()["username"], self.user.username)
+
+    def test_session_login_rejects_invalid_credentials(self):
+        response = self.client.post(
+            self.login_url,
+            data={"username": "tech", "password": "invalid"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_session_logout_clears_the_current_session(self):
+        client = Client(enforce_csrf_checks=True)
+        client.login(username="tech", password="secret")
+
+        profile_response = client.get(reverse("api_profile"))
+        csrf_token = profile_response.cookies["csrftoken"].value
+        response = client.post(
+            reverse("api_session_logout"),
+            HTTP_X_CSRFTOKEN=csrf_token,
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(client.get(reverse("api_profile")).status_code, 403)
 
 
 class AccountMemberManagementTests(TestCase):
