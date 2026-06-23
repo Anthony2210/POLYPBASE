@@ -2240,6 +2240,16 @@ button:disabled {
   color: var(--coral);
 }
 
+.chart-legend .is-temperature {
+  color: #687c52;
+}
+
+.chart-legend .is-missing::before {
+  height: 0;
+  border-top: 2px dashed currentColor;
+  background: transparent;
+}
+
 .chart-empty {
   display: grid;
   min-height: 180px;
@@ -4342,6 +4352,10 @@ button:disabled {
   stroke: var(--coral);
 }
 
+.export-chart-line.is-temperature {
+  stroke: #687c52;
+}
+
 .export-chart-hit {
   outline: none;
 }
@@ -4366,6 +4380,31 @@ button:disabled {
 
 .export-chart-dot.is-ephyrae {
   fill: var(--coral);
+}
+
+.export-chart-dot.is-temperature {
+  fill: #687c52;
+}
+
+.export-chart-missing {
+  color: #a5afb8;
+}
+
+.export-chart-missing line {
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.export-chart-missing circle {
+  fill: #ffffff;
+  stroke: currentColor;
+  stroke-width: 1.8;
+}
+
+.export-chart-details .is-missing {
+  color: #7b8794;
+  font-style: italic;
 }
 
 .export-chart-hit.is-active .export-chart-dot,
@@ -4415,6 +4454,12 @@ button:disabled {
   gap: 14px;
 }
 
+.export-chart-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .export-comparison-tabs {
   display: inline-flex;
   gap: 3px;
@@ -4425,6 +4470,7 @@ button:disabled {
 }
 
 .export-comparison-tabs button,
+.export-metric-tabs button,
 .export-all-charts {
   min-height: 34px;
   border: 0;
@@ -4439,7 +4485,21 @@ button:disabled {
   padding: 0 12px;
 }
 
-.export-comparison-tabs button.is-active {
+.export-metric-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.export-metric-tabs button {
+  padding: 0 10px;
+}
+
+.export-comparison-tabs button.is-active,
+.export-metric-tabs button.is-active {
   background: var(--primary);
   color: white;
 }
