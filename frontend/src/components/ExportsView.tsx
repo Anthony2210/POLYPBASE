@@ -57,6 +57,9 @@ const emptyFilters: ExportFilters = {
   dateTo: '',
 };
 
+const DEFAULT_WEEKS_WINDOW = 20;
+const MIN_WEEKS_WINDOW = 4;
+
 const copy = {
   fr: {
     all: 'Toutes',
@@ -69,6 +72,10 @@ const copy = {
     periodTitle: 'P\u00e9riode',
     selectedMeasurementsTitle: 'Relev\u00e9s s\u00e9lectionn\u00e9s',
     allHistory: "Tout l'historique",
+    weeksWindowLabel: 'Semaines affich\u00e9es',
+    weeksShown: 'derni\u00e8res semaines',
+    allWeeksShort: "Tout l'historique",
+    selectFilterPrompt: 'S\u00e9lectionnez au moins un filtre (structure, esp\u00e8ce, souche, zone, bo\u00eete ou p\u00e9riode) pour afficher les graphiques.',
     boxes: 'Boîtes',
     boxesFound: 'boîtes',
     clear: 'Effacer',
@@ -112,6 +119,10 @@ const copy = {
     periodTitle: 'Period',
     selectedMeasurementsTitle: 'Selected measurements',
     allHistory: 'Full history',
+    weeksWindowLabel: 'Weeks shown',
+    weeksShown: 'last weeks',
+    allWeeksShort: 'Full history',
+    selectFilterPrompt: 'Select at least one filter (organization, species, strain, zone, box or period) to display the charts.',
     boxes: 'Boxes',
     boxesFound: 'boxes',
     clear: 'Clear',
@@ -162,6 +173,7 @@ export default function ExportsView({
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [comparisonMode, setComparisonMode] = useState<ComparisonMode>('boxes');
   const [previewMetric, setPreviewMetric] = useState<PreviewMetric>('polyps');
+  const [weeksWindow, setWeeksWindow] = useState(DEFAULT_WEEKS_WINDOW);
   const [comparisonPreviews, setComparisonPreviews] = useState<Record<string, ExportPreview>>({});
   const [isComparisonLoading, setIsComparisonLoading] = useState(false);
   const [isAllComparisonsOpen, setIsAllComparisonsOpen] = useState(false);
@@ -231,7 +243,7 @@ export default function ExportsView({
     let ignore = false;
 
     async function loadPreview() {
-      if (!exportState?.matchingBoxes.length || invalidPeriod) {
+      if (!hasFilters || !exportState?.matchingBoxes.length || invalidPeriod) {
         setPreview(null);
         setPreviewError(null);
         setIsPreviewLoading(false);
@@ -270,7 +282,7 @@ export default function ExportsView({
     let ignore = false;
 
     async function loadComparisons() {
-      if (!requestedComparisonGroups.length || invalidPeriod) {
+      if (!hasFilters || !requestedComparisonGroups.length || invalidPeriod) {
         setComparisonPreviews({});
         setIsComparisonLoading(false);
         return;
@@ -357,6 +369,10 @@ export default function ExportsView({
       </section>
     );
   }
+
+  const totalWeeks = preview?.points.length ?? 0;
+  const effectiveWeeks = totalWeeks ? Math.min(weeksWindow, totalWeeks) : weeksWindow;
+  const primaryPoints = preview ? preview.points.slice(-effectiveWeeks) : [];
 
   return (
     <section className="export-page">
@@ -465,6 +481,8 @@ export default function ExportsView({
           ) : null}
         </header>
 
+        {hasFilters ? (
+          <>
         <div className="export-comparison-toolbar">
           <div className="export-chart-tabs">
             <div className="export-comparison-tabs" role="tablist" aria-label={labels.comparisonTitle}>
@@ -521,8 +539,28 @@ export default function ExportsView({
               isLoading={isPreviewLoading}
               error={previewError}
               metric={previewMetric}
-              points={preview?.points ?? []}
+              points={primaryPoints}
             />
+            {totalWeeks > MIN_WEEKS_WINDOW ? (
+              <div className="export-weeks-window">
+                <label>
+                  <span>{labels.weeksWindowLabel}</span>
+                  <input
+                    type="range"
+                    min={MIN_WEEKS_WINDOW}
+                    max={totalWeeks}
+                    step={1}
+                    value={effectiveWeeks}
+                    onChange={(event) => setWeeksWindow(Number(event.target.value))}
+                  />
+                </label>
+                <span className="export-weeks-window-value">
+                  {effectiveWeeks >= totalWeeks
+                    ? labels.allWeeksShort
+                    : `${effectiveWeeks} ${labels.weeksShown}`}
+                </span>
+              </div>
+            ) : null}
           </div>
 
           {sidebarComparisonGroups.length ? (
@@ -540,13 +578,17 @@ export default function ExportsView({
                     isLoading={isComparisonLoading}
                     error={null}
                     metric={previewMetric}
-                    points={comparisonPreviews[group.key]?.points ?? []}
+                    points={(comparisonPreviews[group.key]?.points ?? []).slice(-effectiveWeeks)}
                   />
                 </article>
               ))}
             </aside>
           ) : null}
         </div>
+          </>
+        ) : (
+          <p className="export-chart-state export-charts-prompt">{labels.selectFilterPrompt}</p>
+        )}
       </section>
 
       <section className="export-review">
@@ -588,6 +630,7 @@ export default function ExportsView({
           language={language}
           isLoading={isComparisonLoading}
           metric={previewMetric}
+          weeksWindow={effectiveWeeks}
           onClose={() => setIsAllComparisonsOpen(false)}
         />
       ) : null}
@@ -840,6 +883,7 @@ function ExportChartsModal({
   language,
   isLoading,
   metric,
+  weeksWindow,
   onClose,
 }: {
   groups: ComparisonGroup[];
@@ -848,6 +892,7 @@ function ExportChartsModal({
   language: Language;
   isLoading: boolean;
   metric: PreviewMetric;
+  weeksWindow: number;
   onClose: () => void;
 }) {
   return (
@@ -879,7 +924,7 @@ function ExportChartsModal({
                 isLoading={isLoading}
                 error={null}
                 metric={metric}
-                points={previews[group.key]?.points ?? []}
+                points={(previews[group.key]?.points ?? []).slice(-weeksWindow)}
               />
             </article>
           ))}
