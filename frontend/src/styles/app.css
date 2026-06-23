@@ -5144,9 +5144,9 @@ button:disabled {
     grid-template-columns: minmax(0, 1fr) 230px;
     grid-template-areas:
       "form-title form-title"
-      "counts comment"
       "counts notes"
-      "action notes";
+      "feedback feedback"
+      "action action";
     gap: 10px 14px;
     padding: 12px 14px;
     border-radius: 8px;
@@ -5176,7 +5176,7 @@ button:disabled {
   }
 
   .form-feedback {
-    grid-column: 1 / -1;
+    grid-area: feedback;
   }
 
   .fake-form input,
