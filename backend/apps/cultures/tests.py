@@ -692,14 +692,21 @@ class PolypbaseApiTests(TestCase):
         self.assertEqual(response.status_code, 404)
         self.assertFalse(AuditLog.objects.filter(action=AuditLog.Action.SCAN).exists())
 
-    def test_qr_endpoint_returns_svg(self):
+    @patch("apps.cultures.views.qr.render_qr_svg", return_value=b"<svg></svg>")
+    def test_qr_endpoint_returns_svg_for_the_current_public_app_address(self, render_qr_svg):
         self.client.login(username="tech", password="secret")
 
-        response = self.client.get(reverse("qr_boite", args=[self.box.id]))
+        response = self.client.get(
+            reverse("qr_boite", args=[self.box.id]),
+            {"public_base_url": "https://polypbase-demo.trycloudflare.com"},
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "image/svg+xml")
         self.assertIn(b"svg", response.content)
+        render_qr_svg.assert_called_once_with(
+            f"https://polypbase-demo.trycloudflare.com/bac/{self.box.id}/"
+        )
 
     def test_qr_endpoint_is_scoped_to_authorized_boxes(self):
         other_box = Box.objects.get(global_code="AAU-1.001-TKY")
