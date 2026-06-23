@@ -1,10 +1,11 @@
-from django.contrib.auth import get_user_model
+from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.db import transaction
 from django.utils import translation
 from django.utils.decorators import method_decorator
-from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -22,6 +23,40 @@ from .serializers import (
     UserProfileSerializer,
     available_interface_languages,
 )
+
+
+@method_decorator(ensure_csrf_cookie, name="dispatch")
+@method_decorator(csrf_protect, name="dispatch")
+class SessionLoginAPIView(APIView):
+    """Create a Django session for the React login form."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        return Response({"detail": "CSRF cookie set."})
+
+    def post(self, request):
+        username = str(request.data.get("username", "")).strip()
+        password = str(request.data.get("password", ""))
+        user = authenticate(request, username=username, password=password)
+
+        if user is None or not user.is_active:
+            return Response(
+                {"detail": "Invalid credentials."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        login(request, user)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class SessionLogoutAPIView(APIView):
+    """End the current Django session from the React profile page."""
+
+    def post(self, request):
+        logout(request)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @method_decorator(ensure_csrf_cookie, name="dispatch")

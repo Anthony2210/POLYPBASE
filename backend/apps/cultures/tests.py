@@ -96,6 +96,22 @@ class PolypbaseApiTests(TestCase):
         self.assertEqual(payload["count"], 1)
         self.assertEqual(payload["results"][0]["global_code"], "AAU-1.001-ATL")
 
+    def test_drf_box_list_allows_read_only_users_to_consult_their_organization(self):
+        user_model = get_user_model()
+        viewer = user_model.objects.create_user(username="box_viewer", password="secret")
+        OrganizationMembership.objects.create(
+            user=viewer,
+            organization=self.organization,
+            role=OrganizationMembership.Role.VIEWER,
+        )
+        self.client.login(username="box_viewer", password="secret")
+
+        response = self.client.get(reverse("api_box_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], self.box.id)
+
     def test_drf_box_detail_returns_measurement_history(self):
         BiologicalMeasurement.objects.create(
             box=self.box,

@@ -3,6 +3,8 @@ from django.urls import path
 from apps.accounts.api_views import (
     OrganizationMemberListCreateAPIView,
     OrganizationMembershipDetailAPIView,
+    SessionLoginAPIView,
+    SessionLogoutAPIView,
     UserProfileAPIView,
 )
 from apps.cultures.api_views import (
@@ -25,6 +27,8 @@ from apps.exports.views import (
 
 urlpatterns = [
     path("health/", HealthAPIView.as_view(), name="api_health"),
+    path("auth/session/", SessionLoginAPIView.as_view(), name="api_session_login"),
+    path("auth/logout/", SessionLogoutAPIView.as_view(), name="api_session_logout"),
     path("dashboard/", DashboardAPIView.as_view(), name="api_dashboard"),
     path("boxes/", BoxListAPIView.as_view(), name="api_box_list"),
     path("boxes/<int:pk>/", BoxDetailAPIView.as_view(), name="api_box_detail"),

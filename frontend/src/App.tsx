@@ -13,6 +13,7 @@ import { ApiError, apiGet, apiPatch, apiPost } from './api/client';
 import { getBoxStatusPresentation } from './boxStatus';
 import ExportsView from './components/ExportsView';
 import InteractiveLineageGraph from './components/InteractiveLineageGraph';
+import LoginPage from './components/LoginPage';
 import MoveBoxModal from './components/MoveBoxModal';
 import SubcultureModal from './components/SubcultureModal';
 import type {
@@ -200,6 +201,8 @@ const translations = {
     lineageRetry: 'Recharger',
     loginAction: 'Se connecter',
     loginRequired: 'Connexion requise',
+    logoutAction: 'Se d\u00e9connecter',
+    logoutError: 'D\u00e9connexion impossible pour le moment.',
     measurementDate: 'Date du relevé',
     measurementForbidden: 'Ce compte ne peut pas créer de relevé.',
     measurementHistory: 'Historique des relevés',
@@ -413,6 +416,8 @@ const translations = {
     lineageRetry: 'Reload',
     loginAction: 'Sign in',
     loginRequired: 'Sign-in required',
+    logoutAction: 'Sign out',
+    logoutError: 'Unable to sign out at the moment.',
     measurementDate: 'Measurement date',
     measurementForbidden: 'This account cannot create measurements.',
     measurementHistory: 'Measurement history',
@@ -507,6 +512,7 @@ const desktopTabs: TabId[] = ['pilotage', 'zones', 'exports', 'profile'];
 
 export default function App() {
   const [route, setRoute] = useState<RouteState>(() => getCurrentRoute());
+  const [isLoginRoute, setIsLoginRoute] = useState(() => window.location.pathname === '/login');
   const [search, setSearch] = useState('');
   const [recentBoxIds, setRecentBoxIds] = useState<number[]>([]);
   const lastRecordedBoxIdRef = useRef<number | null>(null);
@@ -539,6 +545,7 @@ export default function App() {
   useEffect(() => {
     function syncRoute() {
       setRoute(getCurrentRoute());
+      setIsLoginRoute(window.location.pathname === '/login');
     }
 
     window.addEventListener('popstate', syncRoute);
@@ -546,6 +553,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (isLoginRoute) {
+      setError(null);
+      setIsLoading(false);
+      return;
+    }
+
     let isActive = true;
 
     async function loadData() {
@@ -574,6 +587,14 @@ export default function App() {
         setRecentBoxIds(buildRecentBoxIds(boxes.results, dashboard));
       } catch (requestError) {
         if (!isActive) return;
+
+        if (requestError instanceof ApiError && [401, 403].includes(requestError.status)) {
+          window.history.replaceState(null, '', '/login');
+          setIsLoginRoute(true);
+          setError(null);
+          return;
+        }
+
         setError(getErrorMessage(requestError));
       } finally {
         if (isActive) {
@@ -587,7 +608,7 @@ export default function App() {
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [isLoginRoute]);
 
   const filteredBoxes = useMemo(() => {
     const value = search.trim().toLowerCase();
@@ -747,6 +768,24 @@ export default function App() {
     }));
   }
 
+  async function logoutCurrentUser() {
+    await apiPost<void>('/api/auth/logout/', {});
+
+    setData({
+      boxes: [],
+      boxDetails: {},
+      zones: [],
+      dashboard: null,
+      exportOptions: null,
+      profile: null,
+    });
+    setRecentBoxIds([]);
+    window.history.replaceState(null, '', '/login');
+    setRoute(getCurrentRoute());
+    setError(null);
+    setIsLoginRoute(true);
+  }
+
   async function createMeasurement(boxId: number, payload: MeasurementPayload) {
     await apiPost<BiologicalMeasurement>(`/api/boxes/${boxId}/measurements/`, payload);
     const detail = await apiGet<BoxDetail>(`/api/boxes/${boxId}/`);
@@ -793,6 +832,17 @@ export default function App() {
     return apiGet<LineageGraph>(`/api/boxes/${boxId}/lineage/`);
   }
 
+  function handleAuthenticated() {
+    window.history.replaceState(null, '', '/');
+    setRoute(getCurrentRoute());
+    setError(null);
+    setIsLoginRoute(false);
+  }
+
+  if (isLoginRoute) {
+    return <LoginPage onAuthenticated={handleAuthenticated} />;
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -834,6 +884,7 @@ export default function App() {
                 box={selectedBoxDetail ?? selectedBox}
                 boxes={data.boxes}
                 zones={data.zones}
+                profile={data.profile}
                 language={language}
                 isLoading={isLoading || isBoxLoading}
                 onCreateMeasurement={createMeasurement}
@@ -905,6 +956,7 @@ export default function App() {
               <ProfileView
                 isLoading={isLoading}
                 profile={data.profile}
+                onLogout={logoutCurrentUser}
                 onUpdateLanguage={updateLanguage}
                 t={t}
               />
@@ -1139,6 +1191,7 @@ function BoxPage({
   box,
   boxes,
   zones,
+  profile,
   language,
   isLoading,
   onCreateMeasurement,
@@ -1153,6 +1206,7 @@ function BoxPage({
   box: BoxItem | BoxDetail | null;
   boxes: BoxItem[];
   zones: ThermalZone[];
+  profile: UserProfile | null;
   language: Language;
   isLoading: boolean;
   onCreateMeasurement: (boxId: number, payload: MeasurementPayload) => Promise<void>;
@@ -1261,6 +1315,7 @@ function BoxPage({
   const currentZone = getCurrentThermalZone(box, zones);
   const createdOn = getBoxCreatedDate(box);
   const statusPresentation = getBoxStatusPresentation(box.status, language);
+  const canWriteLabData = userCanWriteLabData(profile, box.organization.id);
 
   async function saveMeasurement(): Promise<boolean> {
     if (!box || isSaving) return false;
@@ -1347,7 +1402,7 @@ function BoxPage({
   }
 
   return (
-    <section className="box-page">
+    <section className={canWriteLabData ? 'box-page' : 'box-page is-read-only'}>
       <button className="text-button" type="button" onClick={onBack}>
         {t('backToPilotage')}
       </button>
@@ -1407,14 +1462,16 @@ function BoxPage({
           <InfoPill label={t('salinityShort')} value={formatSalinity(currentZone?.latest_salinity?.salinity_psu)} />
         </div>
 
-        <div className="box-action-stack">
-          <button className="move-trigger" type="button" onClick={() => setIsMoveOpen(true)}>
-            {t('moveAction')}
-          </button>
-          <button className="subculture-trigger" type="button" onClick={() => setIsSubcultureOpen(true)}>
-            {t('subcultureAction')}
-          </button>
-        </div>
+        {canWriteLabData ? (
+          <div className="box-action-stack">
+            <button className="move-trigger" type="button" onClick={() => setIsMoveOpen(true)}>
+              {t('moveAction')}
+            </button>
+            <button className="subculture-trigger" type="button" onClick={() => setIsSubcultureOpen(true)}>
+              {t('subcultureAction')}
+            </button>
+          </div>
+        ) : null}
       </header>
 
       {subcultureMessage ? (
@@ -1432,9 +1489,14 @@ function BoxPage({
           </div>
           <Metric label={t('polyps')} value={String(box.latest_measurement?.polyp_count ?? '-')} />
           <Metric label={t('ephyraeFull')} value={String(box.latest_measurement?.ephyrae_count ?? '-')} />
+          <div className="last-reading-comment">
+            <small>{t('lastComment')}</small>
+            <p>{lastComment || t('noComment')}</p>
+          </div>
         </section>
 
-        <section className="box-section measurement-form-section">
+        {canWriteLabData ? (
+          <section className="box-section measurement-form-section">
           <form className="fake-form" onSubmit={handleSubmit}>
             <div className="section-title">
               <h2>{t('newMeasurement')}</h2>
@@ -1493,12 +1555,7 @@ function BoxPage({
               </label>
             </div>
 
-            <div className="last-comment">
-              <span>{t('lastComment')}</span>
-              <p>{lastComment || t('noComment')}</p>
-            </div>
-
-            <label className="notes-field">
+              <label className="notes-field">
               {t('observation')}
               <textarea
                 placeholder={t('observationPlaceholder')}
@@ -1518,7 +1575,8 @@ function BoxPage({
               t={t}
             />
           </form>
-        </section>
+          </section>
+        ) : null}
 
         <section className="box-insights-section">
           <BoxInsights
@@ -2437,16 +2495,20 @@ function ZoneLatestCountsChart({ boxes, t }: { boxes: BoxItem[]; t: TFunction })
 function ProfileView({
   isLoading,
   profile,
+  onLogout,
   onUpdateLanguage,
   t,
 }: {
   isLoading: boolean;
   profile: UserProfile | null;
+  onLogout: () => Promise<void>;
   onUpdateLanguage: (language: string) => Promise<void>;
   t: TFunction;
 }) {
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
 
   async function handleLanguage(language: string) {
     setIsSaving(true);
@@ -2457,6 +2519,19 @@ function ProfileView({
       setSaveError(getErrorMessage(requestError));
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function handleLogout() {
+    if (isLoggingOut) return;
+
+    setIsLoggingOut(true);
+    setLogoutError(null);
+    try {
+      await onLogout();
+    } catch {
+      setLogoutError(t('logoutError'));
+      setIsLoggingOut(false);
     }
   }
 
@@ -2546,6 +2621,18 @@ function ProfileView({
         </div>
 
         {saveError ? <p className="inline-error">{saveError}</p> : null}
+      </section>
+
+      <section className="profile-block profile-session-block">
+        <button
+          className="profile-sign-out"
+          type="button"
+          disabled={isLoggingOut}
+          onClick={handleLogout}
+        >
+          {isLoggingOut ? t('saving') : t('logoutAction')}
+        </button>
+        {logoutError ? <p className="inline-error">{logoutError}</p> : null}
       </section>
     </section>
   );
@@ -3468,7 +3555,7 @@ function LoginNotice({ message, t }: { message: string; t: TFunction }) {
     <section className="login-notice">
       <h2>{t('loginRequired')}</h2>
       <p>{message}</p>
-      <a href="/accounts/login/">{t('loginAction')}</a>
+      <a href="/login">{t('loginAction')}</a>
     </section>
   );
 }
@@ -3666,6 +3753,16 @@ function userHasAdminRole(profile: UserProfile | null) {
   if (!profile) return false;
   if (profile.is_superuser) return true;
   return profile.memberships.some((membership) => membership.role === 'admin');
+}
+
+function userCanWriteLabData(profile: UserProfile | null, organizationId: number) {
+  if (!profile) return false;
+  if (profile.is_superuser) return true;
+
+  return profile.memberships.some(
+    (membership) => membership.organization.id === organizationId
+      && ['admin', 'lab_technician'].includes(membership.role),
+  );
 }
 
 function getTitle(tab: TabId, t: TFunction) {
