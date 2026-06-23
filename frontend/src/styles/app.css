@@ -4901,6 +4901,51 @@ button.zone-attention-item:hover {
   color: var(--primary-strong);
 }
 
+.export-charts-prompt {
+  display: grid;
+  place-items: center;
+  min-height: 140px;
+  padding: 24px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--muted);
+  text-align: center;
+}
+
+.export-weeks-window {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin: 10px 8px 4px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.export-weeks-window label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1 1 260px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.export-weeks-window input[type='range'] {
+  flex: 1 1 auto;
+  min-width: 140px;
+  direction: rtl;
+  accent-color: var(--primary);
+}
+
+.export-weeks-window-value {
+  color: var(--primary);
+  font-size: 0.8rem;
+  font-weight: 640;
+  white-space: nowrap;
+}
+
 .export-chart-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(268px, 320px);
