@@ -143,6 +143,8 @@ const translations = {
     adminPrintLabelsAction: 'Imprimer les étiquettes',
     adminPrintLabelsClear: 'Tout décocher',
     adminPrintLabelsHelp: 'Sélectionnez les boîtes à imprimer sur une même feuille.',
+    adminPrintLabelsSearch: 'Rechercher une boîte',
+    adminPrintLabelsSearchPlaceholder: 'Code, espèce ou souche',
     adminPrintLabelsSelectAll: 'Tout sélectionner',
     adminPrintLabelsTitle: 'Étiquettes des boîtes',
     profileRoles: 'Rôles',
@@ -358,6 +360,8 @@ const translations = {
     adminPrintLabelsAction: 'Print labels',
     adminPrintLabelsClear: 'Clear all',
     adminPrintLabelsHelp: 'Select the boxes to print on the same sheet.',
+    adminPrintLabelsSearch: 'Search for a box',
+    adminPrintLabelsSearchPlaceholder: 'Code, species or strain',
     adminPrintLabelsSelectAll: 'Select all',
     adminPrintLabelsTitle: 'Box labels',
     profileRoles: 'Roles',
@@ -589,7 +593,9 @@ export default function App() {
         if (!isActive) return;
 
         if (requestError instanceof ApiError && [401, 403].includes(requestError.status)) {
-          window.history.replaceState(null, '', '/login');
+          const requestedPath = `${window.location.pathname}${window.location.search}`;
+          const loginPath = `/login?next=${encodeURIComponent(requestedPath)}`;
+          window.history.replaceState(null, '', loginPath);
           setIsLoginRoute(true);
           setError(null);
           return;
@@ -833,7 +839,12 @@ export default function App() {
   }
 
   function handleAuthenticated() {
-    window.history.replaceState(null, '', '/');
+    const nextPath = new URLSearchParams(window.location.search).get('next');
+    const destination = nextPath?.startsWith('/') && !nextPath.startsWith('//')
+      ? nextPath
+      : '/';
+
+    window.history.replaceState(null, '', destination);
     setRoute(getCurrentRoute());
     setError(null);
     setIsLoginRoute(false);
@@ -1004,7 +1015,7 @@ function PilotageView({
           <SearchField value={search} onChange={onSearch} onSubmit={selectFirstSuggestion} t={t} />
         </div>
 
-        <section className="tablet-lookup-panel">
+        <section className={`tablet-lookup-panel is-${tabletLookupMode}-mode`}>
           <div className="tablet-lookup-tabs" role="tablist" aria-label={t('searchOrScan')}>
             <button
               className={tabletLookupMode === 'qr' ? 'is-active' : ''}
@@ -1310,7 +1321,9 @@ function BoxPage({
 
   const measurements = getMeasurementHistory(box);
   const lastComment = getLatestComment(measurements, box);
-  const qr = 'qr_image_url' in box ? { imageUrl: box.qr_image_url, scanUrl: box.scan_url } : null;
+  const qr = 'qr_image_url' in box
+    ? { imageUrl: getBoxQrImageUrl(box), scanUrl: getBoxScanUrl(box) }
+    : null;
   const lineage = getBoxLineage(box);
   const currentZone = getCurrentThermalZone(box, zones);
   const createdOn = getBoxCreatedDate(box);
@@ -1709,9 +1722,23 @@ function buildQrLabelItem(box: BoxItem | BoxDetail, qrImageUrl?: string): QrLabe
 }
 
 function getBoxQrImageUrl(box: BoxItem | BoxDetail, explicitUrl?: string) {
-  if (explicitUrl) return explicitUrl;
-  if ('qr_image_url' in box && box.qr_image_url) return box.qr_image_url;
-  return `/boites/${box.id}/qr.svg`;
+  const source = explicitUrl
+    || ('qr_image_url' in box && box.qr_image_url)
+    || `/boites/${box.id}/qr.svg`;
+
+  try {
+    const url = new URL(source, window.location.origin);
+    if (!/^\/boites\/\d+\/qr\.svg$/.test(url.pathname)) return source;
+
+    url.searchParams.set('public_base_url', window.location.origin);
+    return `${url.pathname}?${url.searchParams.toString()}`;
+  } catch {
+    return source;
+  }
+}
+
+function getBoxScanUrl(box: BoxDetail) {
+  return new URL(`/bac/${box.id}/`, window.location.origin).href;
 }
 
 function printQrLabels(labels: QrLabelItem[]) {
@@ -1720,13 +1747,37 @@ function printQrLabels(labels: QrLabelItem[]) {
   const printWindow = window.open('', '_blank', 'width=980,height=720');
   if (!printWindow) return;
 
-  printWindow.document.write(buildQrPrintDocument(labels));
+  void prepareQrPrint(labels, printWindow);
+}
+
+async function prepareQrPrint(labels: QrLabelItem[], printWindow: Window) {
+  const printableLabels = await Promise.all(
+    labels.map(async (label) => ({
+      ...label,
+      // Embed each QR image so the print document does not depend on a session request.
+      qrImageUrl: await getQrDataUrl(label.qrImageUrl),
+    })),
+  );
+
+  if (printWindow.closed) return;
+
+  printWindow.document.write(buildQrPrintDocument(printableLabels));
   printWindow.document.close();
 
-  window.setTimeout(() => {
+  await Promise.all(
+    Array.from(printWindow.document.images).map((image) => {
+      if (image.complete) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        image.addEventListener('load', () => resolve(), { once: true });
+        image.addEventListener('error', () => resolve(), { once: true });
+      });
+    }),
+  );
+
+  if (!printWindow.closed) {
     printWindow.focus();
     printWindow.print();
-  }, 350);
+  }
 }
 
 async function downloadQrLabel(label: QrLabelItem) {
@@ -2203,9 +2254,6 @@ function ZonesView({
                     <strong>{zone.name}</strong>
                     <small>{zone.organization.name}</small>
                   </span>
-                  <span className={zone.is_active ? 'zone-state is-active' : 'zone-state'}>
-                    {zone.zone_type}
-                  </span>
                 </span>
                 <span className="zone-card-metrics">
                   <Metric label={t('temperatureShort')} value={formatTemperature(zone.latest_temperature?.average_temperature_c)} />
@@ -2270,9 +2318,6 @@ function ZoneDetailPage({
           <h2>{zone.name}</h2>
           <span>{zone.organization.name}</span>
         </div>
-        <span className={zone.is_active ? 'zone-state is-active' : 'zone-state'}>
-          {zone.zone_type}
-        </span>
       </header>
 
       <TemperatureControlPanel zone={zone} t={t} />
@@ -2547,8 +2592,6 @@ function ProfileView({
 
   const fullName = [profile.first_name, profile.last_name].filter(Boolean).join(' ') || profile.username;
   const initials = getProfileInitials(profile);
-  const highestRoleLabel = getHighestRoleLabel(profile);
-
   return (
     <section className="profile-page">
       <header className="profile-identity-card">
@@ -2564,10 +2607,6 @@ function ProfileView({
               <small>{t('profileEmail')}</small>
               {profile.email || t('profileNoEmail')}
             </span>
-            {highestRoleLabel ? <span className="profile-badge">{highestRoleLabel}</span> : null}
-            {profile.is_superuser ? (
-              <span className="profile-badge is-super">{t('profileSuperuser')}</span>
-            ) : null}
           </div>
         </div>
       </header>
@@ -2604,21 +2643,18 @@ function ProfileView({
         <div className="section-title">
           <h2>{t('profilePreferences')}</h2>
         </div>
-        <p className="muted compact-text">{t('profileLanguage')}</p>
-
-        <div className="language-switch">
-          {profile.available_languages.map((language) => (
-            <button
-              key={language.code}
-              className={profile.interface_language === language.code ? 'pill is-active' : 'pill'}
-              type="button"
-              disabled={isSaving}
-              onClick={() => handleLanguage(language.code)}
-            >
-              {language.label}
-            </button>
-          ))}
-        </div>
+        <label className="profile-language-select">
+          <span>{t('profileLanguage')}</span>
+          <select
+            value={profile.interface_language}
+            disabled={isSaving}
+            onChange={(event) => void handleLanguage(event.target.value)}
+          >
+            {profile.available_languages.map((language) => (
+              <option key={language.code} value={language.code}>{language.label}</option>
+            ))}
+          </select>
+        </label>
 
         {saveError ? <p className="inline-error">{saveError}</p> : null}
       </section>
@@ -2959,14 +2995,6 @@ function getRoleDescriptionKey(role: UserProfile['memberships'][number]['role'])
   }
 }
 
-function getHighestRoleLabel(profile: UserProfile): string | null {
-  const priority: Record<string, number> = { admin: 3, lab_technician: 2, viewer: 1 };
-  const ranked = [...profile.memberships].sort(
-    (a, b) => (priority[b.role] ?? 0) - (priority[a.role] ?? 0),
-  );
-  return ranked[0]?.role_label ?? null;
-}
-
 function getProfileInitials(profile: UserProfile): string {
   const fromName = [profile.first_name, profile.last_name]
     .filter(Boolean)
@@ -2992,6 +3020,7 @@ function AdminView({
   zones: ThermalZone[];
 }) {
   const [selectedLabelBoxIds, setSelectedLabelBoxIds] = useState<number[]>([]);
+  const [labelBoxSearch, setLabelBoxSearch] = useState('');
 
   if (isLoading) {
     return (
@@ -3007,6 +3036,18 @@ function AdminView({
   const activeBoxes = boxes.filter((box) => box.status === 'active');
   const selectedLabelBoxes = boxes.filter((box) => selectedLabelBoxIds.includes(box.id));
   const zoneChoices = zones.filter((zone) => zone.is_active);
+  const normalizedLabelSearch = labelBoxSearch.trim().toLocaleLowerCase();
+  const labelBoxes = boxes.filter((box) => {
+    if (!normalizedLabelSearch) return true;
+    return [
+      box.global_code,
+      box.local_code,
+      box.species.scientific_name,
+      box.strain.code,
+    ]
+      .filter(Boolean)
+      .some((value) => value!.toLocaleLowerCase().includes(normalizedLabelSearch));
+  });
 
   function toggleLabelBox(boxId: number) {
     setSelectedLabelBoxIds((current) => (
@@ -3031,7 +3072,7 @@ function AdminView({
             <p>{t('adminPrintLabelsHelp')}</p>
           </div>
           <div className="admin-label-actions">
-            <button type="button" onClick={() => setSelectedLabelBoxIds(boxes.map((box) => box.id))}>
+            <button type="button" onClick={() => setSelectedLabelBoxIds(labelBoxes.map((box) => box.id))}>
               {t('adminPrintLabelsSelectAll')}
             </button>
             <button type="button" onClick={() => setSelectedLabelBoxIds([])}>
@@ -3040,8 +3081,18 @@ function AdminView({
           </div>
         </div>
 
+        <label className="admin-label-search">
+          <span>{t('adminPrintLabelsSearch')}</span>
+          <input
+            type="search"
+            value={labelBoxSearch}
+            placeholder={t('adminPrintLabelsSearchPlaceholder')}
+            onChange={(event) => setLabelBoxSearch(event.target.value)}
+          />
+        </label>
+
         <div className="admin-label-selector">
-          {boxes.map((box) => (
+          {labelBoxes.map((box) => (
             <label key={box.id}>
               <input
                 type="checkbox"
@@ -3510,6 +3561,8 @@ function MeasurementSaveButton({
       onPointerUp={cancelHold}
       onPointerCancel={cancelHold}
       onPointerLeave={cancelHold}
+      onContextMenu={(event) => event.preventDefault()}
+      onSelectStart={(event) => event.preventDefault()}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();

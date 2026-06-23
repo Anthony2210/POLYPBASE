@@ -36,6 +36,16 @@ type ExportPreview = {
   };
 };
 
+type ComparisonMode = 'boxes' | 'strains';
+
+type ComparisonGroup = {
+  id: number;
+  key: string;
+  label: string;
+  detail: string;
+  mode: ComparisonMode;
+};
+
 const emptyFilters: ExportFilters = {
   organizations: [],
   species: [],
@@ -49,10 +59,17 @@ const emptyFilters: ExportFilters = {
 const copy = {
   fr: {
     all: 'Toutes',
-    allHistory: 'Tout l’historique',
+    allCharts: 'Voir tous les graphiques',
+    comparisonByBoxes: 'Par bo\u00eete',
+    comparisonByStrains: 'Par souche',
+    comparisonTitle: 'Comparer les relev\u00e9s',
+    close: 'Fermer',
+    filtersTitle: 'Filtres',
+    periodTitle: 'P\u00e9riode',
+    selectedMeasurementsTitle: 'Relev\u00e9s s\u00e9lectionn\u00e9s',
+    allHistory: "Tout l'historique",
     boxes: 'Boîtes',
     boxesFound: 'boîtes',
-    choosePeriod: '1. Choisir une période',
     clear: 'Effacer',
     dateFrom: 'Date de début',
     dateTo: 'Date de fin',
@@ -60,8 +77,6 @@ const copy = {
     downloading: 'Préparation...',
     empty: 'Aucune valeur disponible',
     error: 'Impossible de générer le fichier.',
-    filterHelp: 'Ouvrez seulement les filtres dont vous avez besoin.',
-    filters: '2. Affiner les données',
     format: 'CSV hebdomadaire',
     formatHelp: 'Polypes, éphyrules et température pour chaque boîte.',
     invalidPeriod: 'La date de fin doit être postérieure à la date de début.',
@@ -71,26 +86,33 @@ const copy = {
     optionCount: 'valeurs',
     previewEmpty: 'Aucune donnée à afficher avec cette sélection.',
     previewError: 'Impossible de charger l’aperçu.',
-    previewHelp: 'Le graphique se met à jour avec la période et les filtres choisis.',
     previewLoading: 'Chargement de l’aperçu...',
     previewMeasurements: 'relevés',
     previewTitle: 'Aperçu des données sélectionnées',
     reset: 'Tout réinitialiser',
+    searchBoxes: 'Rechercher une boîte',
+    searchBoxesPlaceholder: 'Code global, local, espèce ou souche',
     selected: 'sélection',
     species: 'Espèces',
     speciesFound: 'espèces',
     strains: 'Souches',
     temperature: 'Température',
     success: 'Fichier téléchargé',
-    verify: '3. Vérifier puis exporter',
     zones: 'Zones thermiques',
   },
   en: {
     all: 'All',
+    allCharts: 'View all charts',
+    comparisonByBoxes: 'By box',
+    comparisonByStrains: 'By strain',
+    comparisonTitle: 'Compare measurements',
+    close: 'Close',
+    filtersTitle: 'Filters',
+    periodTitle: 'Period',
+    selectedMeasurementsTitle: 'Selected measurements',
     allHistory: 'Full history',
     boxes: 'Boxes',
     boxesFound: 'boxes',
-    choosePeriod: '1. Choose a period',
     clear: 'Clear',
     dateFrom: 'Start date',
     dateTo: 'End date',
@@ -98,8 +120,6 @@ const copy = {
     downloading: 'Preparing...',
     empty: 'No value available',
     error: 'The file could not be generated.',
-    filterHelp: 'Open only the filters you need.',
-    filters: '2. Refine the data',
     format: 'Weekly CSV',
     formatHelp: 'Polyps, ephyrae and temperature for each box.',
     invalidPeriod: 'The end date must be after the start date.',
@@ -109,18 +129,18 @@ const copy = {
     optionCount: 'values',
     previewEmpty: 'No data to show for this selection.',
     previewError: 'Unable to load the preview.',
-    previewHelp: 'The chart updates with the selected period and filters.',
     previewLoading: 'Loading preview...',
     previewMeasurements: 'measurements',
     previewTitle: 'Selected data preview',
     reset: 'Reset all',
+    searchBoxes: 'Search for a box',
+    searchBoxesPlaceholder: 'Global code, local code, species or strain',
     selected: 'selected',
     species: 'Species',
     speciesFound: 'species',
     strains: 'Strains',
     temperature: 'Temperature',
     success: 'File downloaded',
-    verify: '3. Review and export',
     zones: 'Thermal zones',
   },
 };
@@ -139,6 +159,10 @@ export default function ExportsView({
   const [preview, setPreview] = useState<ExportPreview | null>(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [comparisonMode, setComparisonMode] = useState<ComparisonMode>('boxes');
+  const [comparisonPreviews, setComparisonPreviews] = useState<Record<string, ExportPreview>>({});
+  const [isComparisonLoading, setIsComparisonLoading] = useState(false);
+  const [isAllComparisonsOpen, setIsAllComparisonsOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const labels = copy[language];
@@ -186,6 +210,20 @@ export default function ExportsView({
     const value = filters[key];
     return Array.isArray(value) ? value.length > 0 : Boolean(value);
   });
+  const comparisonGroups = useMemo(
+    () => (exportState && options
+      ? buildComparisonGroups(exportState.matchingBoxes, options, comparisonMode)
+      : []),
+    [comparisonMode, exportState, options],
+  );
+  const sidebarComparisonGroups = useMemo(
+    () => comparisonGroups.slice(0, 3),
+    [comparisonGroups],
+  );
+  const requestedComparisonGroups = useMemo(
+    () => (isAllComparisonsOpen ? comparisonGroups : sidebarComparisonGroups),
+    [comparisonGroups, isAllComparisonsOpen, sidebarComparisonGroups],
+  );
 
   useEffect(() => {
     let ignore = false;
@@ -225,6 +263,42 @@ export default function ExportsView({
       ignore = true;
     };
   }, [exportState?.matchingBoxes.length, filters, invalidPeriod, labels.previewError]);
+
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadComparisons() {
+      if (!requestedComparisonGroups.length || invalidPeriod) {
+        setComparisonPreviews({});
+        setIsComparisonLoading(false);
+        return;
+      }
+
+      setIsComparisonLoading(true);
+      try {
+        const loadedPreviews = await Promise.all(
+          requestedComparisonGroups.map(async (group) => {
+            const query = buildExportQuery(buildComparisonFilters(filters, group));
+            const preview = await apiGet<ExportPreview>(
+              `/api/exports/measurements/preview/${query ? `?${query}` : ''}`,
+            );
+            return [group.key, preview] as const;
+          }),
+        );
+        if (!ignore) setComparisonPreviews(Object.fromEntries(loadedPreviews));
+      } catch {
+        if (!ignore) setComparisonPreviews({});
+      } finally {
+        if (!ignore) setIsComparisonLoading(false);
+      }
+    }
+
+    void loadComparisons();
+
+    return () => {
+      ignore = true;
+    };
+  }, [filters, invalidPeriod, requestedComparisonGroups]);
 
   function updateDate(key: 'dateFrom' | 'dateTo', value: string) {
     setFilters((current) => ({ ...current, [key]: value }));
@@ -286,7 +360,7 @@ export default function ExportsView({
     <section className="export-page">
       <section className="export-step">
         <header className="export-step-heading">
-          <h2>{labels.choosePeriod}</h2>
+          <h2>{labels.periodTitle}</h2>
           <span>
             {filters.dateFrom || filters.dateTo
               ? formatPeriod(filters.dateFrom, filters.dateTo, language)
@@ -319,10 +393,7 @@ export default function ExportsView({
 
       <section className="export-step">
         <header className="export-step-heading">
-          <div>
-            <h2>{labels.filters}</h2>
-            <p>{labels.filterHelp}</p>
-          </div>
+          <h2>{labels.filtersTitle}</h2>
           {hasFilters ? (
             <button
               className="export-reset"
@@ -375,6 +446,7 @@ export default function ExportsView({
             options={exportState.groups.boxes}
             selectedIds={filters.boxes}
             labels={labels}
+            searchable
             onToggle={(id) => toggleFilter('boxes', id)}
             onClear={() => clearFilter('boxes')}
           />
@@ -383,10 +455,7 @@ export default function ExportsView({
 
       <section className="export-preview">
         <header className="export-step-heading">
-          <div>
-            <h2>{labels.previewTitle}</h2>
-            <p>{labels.previewHelp}</p>
-          </div>
+          <h2>{labels.selectedMeasurementsTitle}</h2>
           {preview ? (
             <span>
               {preview.metadata.measurement_count} {labels.previewMeasurements}
@@ -394,18 +463,74 @@ export default function ExportsView({
           ) : null}
         </header>
 
-        <ExportPreviewChart
-          labels={labels}
-          language={language}
-          isLoading={isPreviewLoading}
-          error={previewError}
-          points={preview?.points ?? []}
-        />
+        <div className="export-comparison-toolbar">
+          <div className="export-comparison-tabs" role="tablist" aria-label={labels.comparisonTitle}>
+            <button
+              className={comparisonMode === 'boxes' ? 'is-active' : ''}
+              type="button"
+              role="tab"
+              aria-selected={comparisonMode === 'boxes'}
+              onClick={() => setComparisonMode('boxes')}
+            >
+              {labels.comparisonByBoxes}
+            </button>
+            <button
+              className={comparisonMode === 'strains' ? 'is-active' : ''}
+              type="button"
+              role="tab"
+              aria-selected={comparisonMode === 'strains'}
+              onClick={() => setComparisonMode('strains')}
+            >
+              {labels.comparisonByStrains}
+            </button>
+          </div>
+          {comparisonGroups.length > 3 ? (
+            <button
+              className="export-all-charts"
+              type="button"
+              onClick={() => setIsAllComparisonsOpen(true)}
+            >
+              {labels.allCharts} ({comparisonGroups.length})
+            </button>
+          ) : null}
+        </div>
+
+        <div className="export-chart-layout">
+          <div className="export-chart-primary">
+            <ExportPreviewChart
+              labels={labels}
+              language={language}
+              isLoading={isPreviewLoading}
+              error={previewError}
+              points={preview?.points ?? []}
+            />
+          </div>
+
+          {sidebarComparisonGroups.length ? (
+            <aside className="export-chart-comparisons" aria-label={labels.comparisonTitle}>
+              {sidebarComparisonGroups.map((group) => (
+                <article className="export-comparison-card" key={group.key}>
+                  <header>
+                    <strong>{group.label}</strong>
+                    <span>{group.detail}</span>
+                  </header>
+                  <ExportPreviewChart
+                    compact
+                    labels={labels}
+                    language={language}
+                    isLoading={isComparisonLoading}
+                    error={null}
+                    points={comparisonPreviews[group.key]?.points ?? []}
+                  />
+                </article>
+              ))}
+            </aside>
+          ) : null}
+        </div>
       </section>
 
       <section className="export-review">
         <div>
-          <span className="export-review-label">{labels.verify}</span>
           {exportState.matchingBoxes.length ? (
             <p className="export-review-count">
               <strong>{exportState.matchingBoxes.length}</strong> {labels.boxesFound}
@@ -434,6 +559,17 @@ export default function ExportsView({
 
       {message ? <p className="inline-success export-feedback">{message}</p> : null}
       {error ? <p className="inline-error export-feedback">{error}</p> : null}
+
+      {isAllComparisonsOpen ? (
+        <ExportChartsModal
+          groups={comparisonGroups}
+          previews={comparisonPreviews}
+          labels={labels}
+          language={language}
+          isLoading={isComparisonLoading}
+          onClose={() => setIsAllComparisonsOpen(false)}
+        />
+      ) : null}
     </section>
   );
 }
@@ -444,12 +580,14 @@ function ExportPreviewChart({
   language,
   isLoading,
   error,
+  compact = false,
 }: {
   points: ExportPreviewPoint[];
   labels: (typeof copy)[Language];
   language: Language;
   isLoading: boolean;
   error: string | null;
+  compact?: boolean;
 }) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
@@ -465,9 +603,11 @@ function ExportPreviewChart({
     return <div className="export-chart-state">{labels.previewEmpty}</div>;
   }
 
-  const width = 760;
-  const height = 250;
-  const padding = { top: 26, right: 28, bottom: 44, left: 52 };
+  const width = compact ? 440 : 900;
+  const height = compact ? 180 : 320;
+  const padding = compact
+    ? { top: 18, right: 20, bottom: 32, left: 40 }
+    : { top: 30, right: 34, bottom: 48, left: 58 };
   const innerWidth = width - padding.left - padding.right;
   const innerHeight = height - padding.top - padding.bottom;
   const maxCount = Math.max(1, ...points.flatMap((point) => [point.polyp_count, point.ephyrae_count]));
@@ -492,7 +632,7 @@ function ExportPreviewChart({
   }
 
   return (
-    <div className="export-chart-card">
+    <div className={compact ? 'export-chart-card is-compact' : 'export-chart-card'}>
       <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={labels.previewTitle}>
         <line
           className="export-chart-axis"
@@ -576,11 +716,65 @@ function ExportPreviewChart({
   );
 }
 
+function ExportChartsModal({
+  groups,
+  previews,
+  labels,
+  language,
+  isLoading,
+  onClose,
+}: {
+  groups: ComparisonGroup[];
+  previews: Record<string, ExportPreview>;
+  labels: (typeof copy)[Language];
+  language: Language;
+  isLoading: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <div className="modal-backdrop export-charts-backdrop" onMouseDown={onClose}>
+      <section
+        className="export-charts-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="export-charts-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header>
+          <h2 id="export-charts-title">{labels.comparisonTitle}</h2>
+          <button type="button" onClick={onClose}>
+            {labels.close}
+          </button>
+        </header>
+        <div className="export-charts-modal-grid">
+          {groups.map((group) => (
+            <article className="export-comparison-card" key={group.key}>
+              <header>
+                <strong>{group.label}</strong>
+                <span>{group.detail}</span>
+              </header>
+              <ExportPreviewChart
+                compact
+                labels={labels}
+                language={language}
+                isLoading={isLoading}
+                error={null}
+                points={previews[group.key]?.points ?? []}
+              />
+            </article>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function FilterDisclosure({
   title,
   options,
   selectedIds,
   labels,
+  searchable = false,
   onToggle,
   onClear,
 }: {
@@ -588,10 +782,18 @@ function FilterDisclosure({
   options: FilterOption[];
   selectedIds: number[];
   labels: (typeof copy)[Language];
+  searchable?: boolean;
   onToggle: (id: number) => void;
   onClear: () => void;
 }) {
+  const [query, setQuery] = useState('');
   const selectedOptions = options.filter((option) => selectedIds.includes(option.id));
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const visibleOptions = normalizedQuery
+    ? options.filter((option) => [option.label, option.detail]
+      .filter(Boolean)
+      .some((value) => value!.toLocaleLowerCase().includes(normalizedQuery)))
+    : options;
   const summary =
     selectedOptions.length === 0
       ? labels.all
@@ -608,7 +810,7 @@ function FilterDisclosure({
       <div className="export-filter-content">
         <div className="export-filter-actions">
           <span>
-            {options.length} {labels.optionCount}
+            {visibleOptions.length} {labels.optionCount}
           </span>
           {selectedIds.length ? (
             <button type="button" onClick={onClear}>
@@ -616,9 +818,20 @@ function FilterDisclosure({
             </button>
           ) : null}
         </div>
+        {searchable ? (
+          <label className="export-box-search">
+            <span>{labels.searchBoxes}</span>
+            <input
+              type="search"
+              value={query}
+              placeholder={labels.searchBoxesPlaceholder}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
+        ) : null}
         <div className="export-filter-options">
-          {!options.length ? <span className="muted">{labels.empty}</span> : null}
-          {options.map((option) => (
+          {!visibleOptions.length ? <span className="muted">{labels.empty}</span> : null}
+          {visibleOptions.map((option) => (
             <label key={option.id}>
               <input
                 type="checkbox"
@@ -726,6 +939,46 @@ function buildBoxOptions(options: ExportOptions, available: Set<number>): Filter
       label: box.global_code,
       detail: box.local_code || undefined,
     }));
+}
+
+function buildComparisonGroups(
+  boxes: ExportOptions['boxes'],
+  options: ExportOptions,
+  mode: ComparisonMode,
+): ComparisonGroup[] {
+  if (mode === 'boxes') {
+    return boxes.map((box) => {
+      const strain = options.strains.find((candidate) => candidate.id === box.strain_id);
+      return {
+        id: box.id,
+        key: `box-${box.id}`,
+        label: box.global_code,
+        detail: strain ? `${strain.species_name} · ${strain.code}` : box.local_code || '',
+        mode,
+      };
+    });
+  }
+
+  return Array.from(new Set(boxes.map((box) => box.strain_id)))
+    .filter((strainId): strainId is number => strainId !== null)
+    .map((strainId) => {
+      const strain = options.strains.find((candidate) => candidate.id === strainId);
+      return {
+        id: strainId,
+        key: `strain-${strainId}`,
+        label: strain?.code || String(strainId),
+        detail: strain?.species_name || '',
+        mode,
+      };
+    });
+}
+
+function buildComparisonFilters(filters: ExportFilters, group: ComparisonGroup): ExportFilters {
+  return {
+    ...filters,
+    boxes: group.mode === 'boxes' ? [group.id] : filters.boxes,
+    strains: group.mode === 'strains' ? [group.id] : filters.strains,
+  };
 }
 
 function getOrganizationName(options: ExportOptions, organizationId: number) {
