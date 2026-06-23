@@ -70,6 +70,18 @@ type QrLabelItem = {
   qrImageUrl: string;
 };
 
+type ZoneOverviewEntry = {
+  zone: ThermalZone;
+  zoneBoxes: BoxItem[];
+  livingBoxes: number;
+  missingMeasurements: number;
+  targetTemperature: number | null;
+  measuredTemperature: number | null;
+  referenceTemperature: number | null;
+  temperatureNeedsAttention: boolean;
+  needsAttention: boolean;
+};
+
 const translations = {
   fr: {
     account: 'Compte',
@@ -266,6 +278,23 @@ const translations = {
     backToZones: 'Retour aux zones',
     boxAttention: 'À surveiller',
     boxesHealthy: 'Sans alerte',
+    zoneActivityTitle: 'Activité récente',
+    zoneAttentionTitle: 'À vérifier',
+    zoneFilterAll: 'Toutes',
+    zoneFilterAttention: 'À vérifier',
+    zoneFilterLiving: 'Vivantes',
+    zoneOverviewAttentionDetails: 'Consultez les zones qui demandent une vérification.',
+    zoneOverviewAttentionTitle: 'À vérifier',
+    zoneOverviewNoProbe: 'Aucune sonde',
+    zoneOverviewSortLocation: 'Rangement',
+    zoneOverviewSortTemperature: 'Température',
+    zoneOverviewThermalGap: 'Écart thermique',
+    zoneOverviewMissingMeasurements: 'relevé(s) manquant(s)',
+    zoneTarget: 'Consigne',
+    zoneNoAttention: 'Aucune action à prévoir dans cette zone.',
+    zoneNoRecentActivity: 'Aucun relevé récent dans cette zone.',
+    zoneSummaryAlive: 'Vivantes',
+    zoneSummaryAttention: 'À vérifier',
     deadBoxes: 'Mortes',
     emptyZone: 'Aucune boîte dans cette zone.',
     latestCounts: 'Derniers comptages',
@@ -483,6 +512,23 @@ const translations = {
     backToZones: 'Back to zones',
     boxAttention: 'Needs attention',
     boxesHealthy: 'No alert',
+    zoneActivityTitle: 'Recent activity',
+    zoneAttentionTitle: 'Needs review',
+    zoneFilterAll: 'All',
+    zoneFilterAttention: 'Needs review',
+    zoneFilterLiving: 'Living',
+    zoneOverviewAttentionDetails: 'Review the zones that need attention.',
+    zoneOverviewAttentionTitle: 'Needs review',
+    zoneOverviewNoProbe: 'No probe',
+    zoneOverviewSortLocation: 'Location',
+    zoneOverviewSortTemperature: 'Temperature',
+    zoneOverviewThermalGap: 'Thermal gap',
+    zoneOverviewMissingMeasurements: 'missing measurement(s)',
+    zoneTarget: 'Target',
+    zoneNoAttention: 'No action is needed for this zone.',
+    zoneNoRecentActivity: 'No recent measurement in this zone.',
+    zoneSummaryAlive: 'Living',
+    zoneSummaryAttention: 'Needs review',
     deadBoxes: 'Dead',
     emptyZone: 'No box in this zone.',
     latestCounts: 'Latest counts',
@@ -2232,42 +2278,163 @@ function ZonesView({
   onOpenZone: (id: number) => void;
   t: TFunction;
 }) {
+  const [sortMode, setSortMode] = useState<'location' | 'temperature'>('location');
+  const zoneEntries = zones.map((zone) => buildZoneOverviewEntry(zone, boxes));
+  const attentionEntries = zoneEntries.filter((entry) => entry.needsAttention);
+  const sortedEntries = sortMode === 'location'
+    ? zoneEntries
+    : [...zoneEntries].sort(
+      (first, second) => (first.referenceTemperature ?? Number.POSITIVE_INFINITY)
+        - (second.referenceTemperature ?? Number.POSITIVE_INFINITY),
+    );
+
   return (
     <section className="single-panel">
       {isLoading ? (
         <SkeletonRows count={5} />
       ) : (
-        <div className="zone-overview-grid">
-          {zones.map((zone) => {
-            const zoneBoxes = boxes.filter((box) => box.thermal_zone?.id === zone.id);
-            const zoneAliveCount = zoneBoxes.filter((box) => box.status === 'active').length;
+        <div className="zone-overview">
+          {attentionEntries.length ? (
+            <section className="zone-overview-attention">
+              <header>
+                <div>
+                  <h2>{t('zoneOverviewAttentionTitle')}</h2>
+                  <p>{t('zoneOverviewAttentionDetails')}</p>
+                </div>
+                <span>{attentionEntries.length}</span>
+              </header>
+              <div className="zone-overview-attention-list">
+                {attentionEntries.map((entry) => (
+                  <button key={entry.zone.id} type="button" onClick={() => onOpenZone(entry.zone.id)}>
+                    <strong>{entry.zone.name}</strong>
+                    <small>{getZoneAttentionReasons(entry, t).join(' · ')}</small>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
-            return (
+          <div className="zone-overview-heading">
+            <span>{sortedEntries.length}</span>
+            <div className="zone-overview-sort" role="tablist" aria-label={t('zonesTitle')}>
               <button
-                className="zone-card"
-                key={zone.id}
+                className={sortMode === 'location' ? 'is-active' : ''}
                 type="button"
-                onClick={() => onOpenZone(zone.id)}
+                role="tab"
+                aria-selected={sortMode === 'location'}
+                onClick={() => setSortMode('location')}
+              >
+                {t('zoneOverviewSortLocation')}
+              </button>
+              <button
+                className={sortMode === 'temperature' ? 'is-active' : ''}
+                type="button"
+                role="tab"
+                aria-selected={sortMode === 'temperature'}
+                onClick={() => setSortMode('temperature')}
+              >
+                {t('zoneOverviewSortTemperature')}
+              </button>
+            </div>
+          </div>
+
+          <div className="zone-overview-grid">
+            {sortedEntries.map((entry) => (
+              <button
+                className={entry.needsAttention ? 'zone-card is-attention' : 'zone-card'}
+                key={entry.zone.id}
+                type="button"
+                onClick={() => onOpenZone(entry.zone.id)}
               >
                 <span className="zone-card-heading">
                   <span>
-                    <strong>{zone.name}</strong>
-                    <small>{zone.organization.name}</small>
+                    <strong>{entry.zone.name}</strong>
+                    <small>{entry.zone.organization.name}</small>
+                  </span>
+                  <span className="zone-card-arrow" aria-hidden="true" />
+                </span>
+
+                <span className="zone-card-temperature">
+                  <span>
+                    <small>{t('temperatureShort')}</small>
+                    <strong>{formatTemperature(entry.measuredTemperature ?? undefined)}</strong>
+                  </span>
+                  <span>
+                    <small>{t('zoneTarget')}</small>
+                    <strong>{formatTemperature(entry.targetTemperature ?? undefined)}</strong>
                   </span>
                 </span>
-                <span className="zone-card-metrics">
-                  <Metric label={t('temperatureShort')} value={formatTemperature(zone.latest_temperature?.average_temperature_c)} />
-                  <Metric label={t('salinityShort')} value={formatSalinity(zone.latest_salinity?.salinity_psu)} />
-                  <Metric label={t('aliveBoxes')} value={String(zoneAliveCount)} />
-                  <Metric label={t('boxes')} value={String(zone.box_count)} />
+
+                <span className="zone-card-thermal-line" aria-hidden="true">
+                  <span className="zone-card-target" />
+                  {entry.measuredTemperature !== null && entry.targetTemperature !== null ? (
+                    <span
+                      className="zone-card-current"
+                      style={{
+                        '--zone-temperature-position': `${getTemperatureMarkerPosition(
+                          entry.measuredTemperature,
+                          entry.targetTemperature,
+                        )}%`,
+                      } as CSSProperties}
+                    />
+                  ) : null}
+                </span>
+
+                <span className="zone-card-facts">
+                  <span>
+                    <small>{t('salinityShort')}</small>
+                    <strong>{formatSalinity(entry.zone.latest_salinity?.salinity_psu)}</strong>
+                  </span>
+                  <span>
+                    <small>{t('zoneSummaryAlive')}</small>
+                    <strong>{entry.livingBoxes} / {entry.zoneBoxes.length}</strong>
+                  </span>
                 </span>
               </button>
-            );
-          })}
+            ))}
+          </div>
         </div>
       )}
     </section>
   );
+}
+
+function buildZoneOverviewEntry(zone: ThermalZone, boxes: BoxItem[]): ZoneOverviewEntry {
+  const zoneBoxes = boxes.filter((box) => box.thermal_zone?.id === zone.id);
+  const targetTemperature = parseTemperatureNumber(zone.target_temperature_c);
+  const measuredTemperature = zone.latest_temperature?.average_temperature_c ?? null;
+  const missingMeasurements = zoneBoxes.filter((box) => !box.latest_measurement).length;
+  const temperatureNeedsAttention = targetTemperature === null
+    || measuredTemperature === null
+    || Math.abs(measuredTemperature - targetTemperature) > 0.5;
+
+  return {
+    zone,
+    zoneBoxes,
+    livingBoxes: zoneBoxes.filter((box) => box.status === 'active').length,
+    missingMeasurements,
+    targetTemperature,
+    measuredTemperature,
+    referenceTemperature: targetTemperature ?? measuredTemperature,
+    temperatureNeedsAttention,
+    needsAttention: temperatureNeedsAttention || zone.probes.length === 0 || missingMeasurements > 0,
+  };
+}
+
+function getZoneAttentionReasons(entry: ZoneOverviewEntry, t: TFunction) {
+  const reasons: string[] = [];
+  if (entry.temperatureNeedsAttention) {
+    reasons.push(
+      entry.targetTemperature === null || entry.measuredTemperature === null
+        ? t('temperatureMissing')
+        : t('zoneOverviewThermalGap'),
+    );
+  }
+  if (!entry.zone.probes.length) reasons.push(t('zoneOverviewNoProbe'));
+  if (entry.missingMeasurements) {
+    reasons.push(`${entry.missingMeasurements} ${t('zoneOverviewMissingMeasurements')}`);
+  }
+  return reasons;
 }
 
 function ZoneDetailPage({
@@ -2287,6 +2454,8 @@ function ZoneDetailPage({
   onOpenBox: (id: number) => void;
   t: TFunction;
 }) {
+  const [boxFilter, setBoxFilter] = useState<'all' | 'living' | 'attention'>('all');
+
   if (isLoading) {
     return (
       <section className="zone-page">
@@ -2305,6 +2474,20 @@ function ZoneDetailPage({
   }
 
   const zoneBoxes = boxes.filter((box) => box.thermal_zone?.id === zone.id);
+  const livingBoxes = zoneBoxes.filter((box) => box.status === 'active');
+  const attentionBoxes = zoneBoxes.filter(
+    (box) => box.active_alert_count > 0 || !box.latest_measurement,
+  );
+  const filteredBoxes = boxFilter === 'living'
+    ? livingBoxes
+    : boxFilter === 'attention'
+      ? attentionBoxes
+      : zoneBoxes;
+  const targetTemperature = parseTemperatureNumber(zone.target_temperature_c);
+  const measuredTemperature = zone.latest_temperature?.average_temperature_c ?? null;
+  const temperatureNeedsAttention = targetTemperature === null
+    || measuredTemperature === null
+    || Math.abs(measuredTemperature - targetTemperature) > 0.5;
 
   return (
     <section className="zone-page">
@@ -2318,19 +2501,65 @@ function ZoneDetailPage({
           <h2>{zone.name}</h2>
           <span>{zone.organization.name}</span>
         </div>
+        <div className="zone-hero-summary" aria-label={t('zoneBoxesTitle')}>
+          <Metric label={t('boxes')} value={String(zoneBoxes.length)} />
+          <Metric label={t('zoneSummaryAlive')} value={String(livingBoxes.length)} />
+          <Metric label={t('zoneSummaryAttention')} value={String(attentionBoxes.length)} />
+          <Metric label={t('probes')} value={String(zone.probes.length)} />
+        </div>
       </header>
 
       <TemperatureControlPanel zone={zone} t={t} />
 
+      {temperatureNeedsAttention || attentionBoxes.length ? (
+        <ZoneAttentionPanel
+          boxes={attentionBoxes}
+          temperatureNeedsAttention={temperatureNeedsAttention}
+          onOpenBox={onOpenBox}
+          t={t}
+        />
+      ) : null}
+
       <div className="zone-page-grid">
         <section className="zone-page-section zone-boxes-section">
-          <div className="section-title">
-            <h2>{t('zoneBoxesTitle')}</h2>
-            <span>{zoneBoxes.length}</span>
+          <div className="zone-boxes-heading">
+            <div className="section-title">
+              <h2>{t('zoneBoxesTitle')}</h2>
+              <span>{filteredBoxes.length}</span>
+            </div>
+            <div className="zone-filter-tabs" role="tablist" aria-label={t('zoneBoxesTitle')}>
+              <button
+                className={boxFilter === 'all' ? 'is-active' : ''}
+                type="button"
+                role="tab"
+                aria-selected={boxFilter === 'all'}
+                onClick={() => setBoxFilter('all')}
+              >
+                {t('zoneFilterAll')}
+              </button>
+              <button
+                className={boxFilter === 'living' ? 'is-active' : ''}
+                type="button"
+                role="tab"
+                aria-selected={boxFilter === 'living'}
+                onClick={() => setBoxFilter('living')}
+              >
+                {t('zoneFilterLiving')}
+              </button>
+              <button
+                className={boxFilter === 'attention' ? 'is-active' : ''}
+                type="button"
+                role="tab"
+                aria-selected={boxFilter === 'attention'}
+                onClick={() => setBoxFilter('attention')}
+              >
+                {t('zoneFilterAttention')}
+              </button>
+            </div>
           </div>
-          {zoneBoxes.length ? (
+          {filteredBoxes.length ? (
             <div className="zone-box-list">
-              {zoneBoxes.map((box) => {
+              {filteredBoxes.map((box) => {
                 const status = getBoxStatusPresentation(box.status, language);
 
                 return (
@@ -2367,7 +2596,7 @@ function ZoneDetailPage({
               })}
             </div>
           ) : (
-            <p className="muted compact-text">{t('emptyZone')}</p>
+            <p className="muted compact-text">{boxFilter === 'all' ? t('emptyZone') : t('zoneNoAttention')}</p>
           )}
         </section>
 
@@ -2396,6 +2625,108 @@ function ZoneDetailPage({
           </section>
         </div>
       </div>
+
+      <ZoneRecentActivity boxes={zoneBoxes} onOpenBox={onOpenBox} t={t} />
+    </section>
+  );
+}
+
+function ZoneAttentionPanel({
+  boxes,
+  temperatureNeedsAttention,
+  onOpenBox,
+  t,
+}: {
+  boxes: BoxItem[];
+  temperatureNeedsAttention: boolean;
+  onOpenBox: (id: number) => void;
+  t: TFunction;
+}) {
+  return (
+    <section className="zone-attention-panel">
+      <div className="zone-attention-heading">
+        <h2>{t('zoneAttentionTitle')}</h2>
+        <span>{boxes.length + Number(temperatureNeedsAttention)}</span>
+      </div>
+      <div className="zone-attention-items">
+        {temperatureNeedsAttention ? (
+          <article className="zone-attention-item is-temperature">
+            <strong>{t('temperatureControl')}</strong>
+            <span>{t('boxAttention')}</span>
+          </article>
+        ) : null}
+        {boxes.map((box) => (
+          <button
+            className="zone-attention-item"
+            key={box.id}
+            type="button"
+            onClick={() => onOpenBox(box.id)}
+          >
+            <strong>{box.global_code}</strong>
+            <span>
+              {!box.latest_measurement
+                ? t('recentMeasurementMissing')
+                : `${box.active_alert_count} ${t('boxAttention').toLocaleLowerCase()}`}
+            </span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ZoneRecentActivity({
+  boxes,
+  onOpenBox,
+  t,
+}: {
+  boxes: BoxItem[];
+  onOpenBox: (id: number) => void;
+  t: TFunction;
+}) {
+  const recentMeasurements = boxes
+    .filter((box) => box.latest_measurement)
+    .sort((first, second) => {
+      const firstDate = first.latest_measurement?.measured_on ?? '';
+      const secondDate = second.latest_measurement?.measured_on ?? '';
+      return secondDate.localeCompare(firstDate);
+    })
+    .slice(0, 5);
+
+  return (
+    <section className="zone-page-section zone-activity-section">
+      <div className="section-title">
+        <h2>{t('zoneActivityTitle')}</h2>
+        <span>{recentMeasurements.length}</span>
+      </div>
+      {recentMeasurements.length ? (
+        <div className="zone-activity-list">
+          {recentMeasurements.map((box) => {
+            const measurement = box.latest_measurement;
+            if (!measurement) return null;
+
+            return (
+              <button key={box.id} type="button" onClick={() => onOpenBox(box.id)}>
+                <span className="zone-activity-date">{formatDisplayDate(measurement.measured_on)}</span>
+                <span>
+                  <strong>{box.global_code}</strong>
+                  <small>{box.species.scientific_name}</small>
+                </span>
+                <span className="zone-activity-values">
+                  <strong>{measurement.polyp_count}</strong>
+                  <small>{t('polyps')}</small>
+                </span>
+                <span className="zone-activity-values">
+                  <strong>{measurement.ephyrae_count}</strong>
+                  <small>{t('ephyrae')}</small>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="muted compact-text">{t('zoneNoRecentActivity')}</p>
+      )}
     </section>
   );
 }
