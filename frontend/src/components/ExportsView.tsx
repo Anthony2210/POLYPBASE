@@ -37,6 +37,7 @@ type ExportPreview = {
 };
 
 type ComparisonMode = 'boxes' | 'strains';
+type PreviewMetric = 'polyps' | 'ephyrae' | 'temperature';
 
 type ComparisonGroup = {
   id: number;
@@ -160,6 +161,7 @@ export default function ExportsView({
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [comparisonMode, setComparisonMode] = useState<ComparisonMode>('boxes');
+  const [previewMetric, setPreviewMetric] = useState<PreviewMetric>('polyps');
   const [comparisonPreviews, setComparisonPreviews] = useState<Record<string, ExportPreview>>({});
   const [isComparisonLoading, setIsComparisonLoading] = useState(false);
   const [isAllComparisonsOpen, setIsAllComparisonsOpen] = useState(false);
@@ -464,25 +466,41 @@ export default function ExportsView({
         </header>
 
         <div className="export-comparison-toolbar">
-          <div className="export-comparison-tabs" role="tablist" aria-label={labels.comparisonTitle}>
-            <button
-              className={comparisonMode === 'boxes' ? 'is-active' : ''}
-              type="button"
-              role="tab"
-              aria-selected={comparisonMode === 'boxes'}
-              onClick={() => setComparisonMode('boxes')}
-            >
-              {labels.comparisonByBoxes}
-            </button>
-            <button
-              className={comparisonMode === 'strains' ? 'is-active' : ''}
-              type="button"
-              role="tab"
-              aria-selected={comparisonMode === 'strains'}
-              onClick={() => setComparisonMode('strains')}
-            >
-              {labels.comparisonByStrains}
-            </button>
+          <div className="export-chart-tabs">
+            <div className="export-comparison-tabs" role="tablist" aria-label={labels.comparisonTitle}>
+              <button
+                className={comparisonMode === 'boxes' ? 'is-active' : ''}
+                type="button"
+                role="tab"
+                aria-selected={comparisonMode === 'boxes'}
+                onClick={() => setComparisonMode('boxes')}
+              >
+                {labels.comparisonByBoxes}
+              </button>
+              <button
+                className={comparisonMode === 'strains' ? 'is-active' : ''}
+                type="button"
+                role="tab"
+                aria-selected={comparisonMode === 'strains'}
+                onClick={() => setComparisonMode('strains')}
+              >
+                {labels.comparisonByStrains}
+              </button>
+            </div>
+            <div className="export-metric-tabs" role="tablist" aria-label={labels.selectedMeasurementsTitle}>
+              {(['polyps', 'ephyrae', 'temperature'] as PreviewMetric[]).map((metric) => (
+                <button
+                  className={previewMetric === metric ? 'is-active' : ''}
+                  key={metric}
+                  type="button"
+                  role="tab"
+                  aria-selected={previewMetric === metric}
+                  onClick={() => setPreviewMetric(metric)}
+                >
+                  {getPreviewMetricLabel(metric, language, labels)}
+                </button>
+              ))}
+            </div>
           </div>
           {comparisonGroups.length > 3 ? (
             <button
@@ -502,6 +520,7 @@ export default function ExportsView({
               language={language}
               isLoading={isPreviewLoading}
               error={previewError}
+              metric={previewMetric}
               points={preview?.points ?? []}
             />
           </div>
@@ -520,6 +539,7 @@ export default function ExportsView({
                     language={language}
                     isLoading={isComparisonLoading}
                     error={null}
+                    metric={previewMetric}
                     points={comparisonPreviews[group.key]?.points ?? []}
                   />
                 </article>
@@ -567,6 +587,7 @@ export default function ExportsView({
           labels={labels}
           language={language}
           isLoading={isComparisonLoading}
+          metric={previewMetric}
           onClose={() => setIsAllComparisonsOpen(false)}
         />
       ) : null}
@@ -580,6 +601,7 @@ function ExportPreviewChart({
   language,
   isLoading,
   error,
+  metric,
   compact = false,
 }: {
   points: ExportPreviewPoint[];
@@ -587,6 +609,7 @@ function ExportPreviewChart({
   language: Language;
   isLoading: boolean;
   error: string | null;
+  metric: PreviewMetric;
   compact?: boolean;
 }) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
@@ -599,7 +622,8 @@ function ExportPreviewChart({
     return <div className="export-chart-state is-error">{error}</div>;
   }
 
-  if (!points.length) {
+  const hasMeasurement = points.some((point) => !isMissingMeasurement(point, metric));
+  if (!points.length || !hasMeasurement) {
     return <div className="export-chart-state">{labels.previewEmpty}</div>;
   }
 
@@ -610,11 +634,20 @@ function ExportPreviewChart({
     : { top: 30, right: 34, bottom: 48, left: 58 };
   const innerWidth = width - padding.left - padding.right;
   const innerHeight = height - padding.top - padding.bottom;
-  const maxCount = Math.max(1, ...points.flatMap((point) => [point.polyp_count, point.ephyrae_count]));
-  const activeIndex = hoveredIndex ?? points.length - 1;
+  const measuredValues = points
+    .map((point) => getPreviewMetricValue(point, metric))
+    .filter((value): value is number => value !== null);
+  const [domainMin, domainMax] = getChartDomain(measuredValues, metric);
+  const lastMeasuredIndex = points.reduce(
+    (lastIndex, point, index) => (!isMissingMeasurement(point, metric) ? index : lastIndex),
+    -1,
+  );
+  const activeIndex = hoveredIndex ?? lastMeasuredIndex;
   const activePoint = points[activeIndex];
-  const polypLabel = language === 'fr' ? 'Polypes' : 'Polyps';
-  const ephyraeLabel = language === 'fr' ? 'Éphyrules' : 'Ephyrae';
+  const metricLabel = getPreviewMetricLabel(metric, language, labels);
+  const metricClass = `is-${metric}`;
+  const activeValue = getPreviewMetricValue(activePoint, metric);
+  const activeIsMissing = isMissingMeasurement(activePoint, metric);
 
   function xPosition(index: number) {
     if (points.length === 1) return padding.left + innerWidth / 2;
@@ -622,18 +655,27 @@ function ExportPreviewChart({
   }
 
   function yPosition(value: number) {
-    return padding.top + innerHeight - (value / maxCount) * innerHeight;
+    return padding.top + innerHeight - ((value - domainMin) / (domainMax - domainMin)) * innerHeight;
   }
 
-  function linePath(field: 'polyp_count' | 'ephyrae_count') {
-    return points
-      .map((point, index) => `${index === 0 ? 'M' : 'L'} ${xPosition(index)} ${yPosition(point[field])}`)
-      .join(' ');
+  function linePath() {
+    let previousPointWasMissing = true;
+    return points.map((point, index) => {
+      const value = getPreviewMetricValue(point, metric);
+      if (value === null) {
+        previousPointWasMissing = true;
+        return '';
+      }
+
+      const command = previousPointWasMissing ? 'M' : 'L';
+      previousPointWasMissing = false;
+      return `${command} ${xPosition(index)} ${yPosition(value)}`;
+    }).join(' ');
   }
 
   return (
     <div className={compact ? 'export-chart-card is-compact' : 'export-chart-card'}>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={labels.previewTitle}>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={metricLabel}>
         <line
           className="export-chart-axis"
           x1={padding.left}
@@ -648,8 +690,9 @@ function ExportPreviewChart({
           y1={height - padding.bottom}
           y2={height - padding.bottom}
         />
-        {[0, 0.5, 1].map((ratio) => {
+        {[0, 1 / 3, 2 / 3, 1].map((ratio) => {
           const y = padding.top + innerHeight - ratio * innerHeight;
+          const value = domainMin + (domainMax - domainMin) * ratio;
           return (
             <g key={ratio}>
               <line
@@ -660,15 +703,16 @@ function ExportPreviewChart({
                 y2={y}
               />
               <text className="export-chart-label" x={padding.left - 10} y={y + 4}>
-                {Math.round(maxCount * ratio)}
+                {formatAxisValue(value, metric)}
               </text>
             </g>
           );
         })}
-        <path className="export-chart-line is-polyps" d={linePath('polyp_count')} />
-        <path className="export-chart-line is-ephyrae" d={linePath('ephyrae_count')} />
+        <path className={`export-chart-line ${metricClass}`} d={linePath()} />
         {points.map((point, index) => {
           const x = xPosition(index);
+          const value = getPreviewMetricValue(point, metric);
+          const isMissing = value === null;
           return (
             <g
               key={point.label}
@@ -686,34 +730,107 @@ function ExportPreviewChart({
                 height={innerHeight}
                 rx={8}
               />
-              <circle className="export-chart-dot is-polyps" cx={x} cy={yPosition(point.polyp_count)} r={5} />
-              <circle className="export-chart-dot is-ephyrae" cx={x} cy={yPosition(point.ephyrae_count)} r={5} />
-              <text className="export-chart-week" x={x} y={height - 16}>
-                {formatWeekLabel(point.label)}
-              </text>
-              <title>
-                {`${formatWeekLabel(point.label)} · ${polypLabel}: ${point.polyp_count} · ${ephyraeLabel}: ${point.ephyrae_count}`}
-              </title>
+              {isMissing ? (
+                <g className="export-chart-missing" aria-hidden="true">
+                  <line x1={x - 5} x2={x + 5} y1={height - padding.bottom - 8} y2={height - padding.bottom - 8} />
+                  <circle cx={x} cy={height - padding.bottom - 8} r={3.5} />
+                </g>
+              ) : (
+                <circle className={`export-chart-dot ${metricClass}`} cx={x} cy={yPosition(value)} r={5} />
+              )}
+              {shouldShowWeekLabel(index, points.length, compact) ? (
+                <text className="export-chart-week" x={x} y={height - 16}>
+                  {formatWeekLabel(point.label)}
+                </text>
+              ) : null}
+              <title>{isMissing
+                ? `${formatWeekDetail(point.label, language)} · ${getNoMeasurementLabel(language)}`
+                : `${formatWeekDetail(point.label, language)} · ${metricLabel}: ${formatPreviewMetricValue(value, metric)}`}</title>
             </g>
           );
         })}
       </svg>
 
       <div className="export-chart-details">
-        <strong>{formatWeekLabel(activePoint.label)}</strong>
-        <span>{polypLabel} : {activePoint.polyp_count}</span>
-        <span>{ephyraeLabel} : {activePoint.ephyrae_count}</span>
-        <span>
-          {labels.temperature} : {activePoint.average_temperature_c === null ? '-' : `${activePoint.average_temperature_c.toFixed(1)}°C`}
-        </span>
+        <strong>{formatWeekDetail(activePoint.label, language)}</strong>
+        {activeIsMissing ? (
+          <span className="is-missing">{getNoMeasurementLabel(language)}</span>
+        ) : (
+          <>
+            <span>{metricLabel} : {formatPreviewMetricValue(activeValue, metric)}</span>
+            <span>{activePoint.measurement_count} {labels.previewMeasurements}</span>
+          </>
+        )}
       </div>
 
       <div className="chart-legend export-chart-legend">
-        <span className="is-polyps">{polypLabel}</span>
-        <span className="is-ephyrae">{ephyraeLabel}</span>
+        <span className={metricClass}>{metricLabel}</span>
+        <span className="is-missing">{getNoMeasurementLabel(language)}</span>
       </div>
     </div>
   );
+}
+
+function getPreviewMetricValue(point: ExportPreviewPoint | undefined, metric: PreviewMetric) {
+  if (!point) return null;
+  if (metric === 'temperature') return point.average_temperature_c;
+  return metric === 'polyps' ? point.polyp_count : point.ephyrae_count;
+}
+
+function isMissingMeasurement(point: ExportPreviewPoint | undefined, metric: PreviewMetric) {
+  if (!point) return true;
+  if (metric === 'temperature') return point.average_temperature_c === null;
+  return point.measurement_count === 0;
+}
+
+function getChartDomain(values: number[], metric: PreviewMetric): [number, number] {
+  const minimum = Math.min(...values);
+  const maximum = Math.max(...values);
+
+  if (metric !== 'temperature') {
+    return [0, Math.max(1, maximum * 1.08)];
+  }
+
+  const padding = Math.max(0.25, (maximum - minimum) * 0.16);
+  return [minimum - padding, maximum + padding];
+}
+
+function formatAxisValue(value: number, metric: PreviewMetric) {
+  return metric === 'temperature' ? `${value.toFixed(1)}°` : String(Math.round(value));
+}
+
+function formatPreviewMetricValue(value: number | null, metric: PreviewMetric) {
+  if (value === null) return '-';
+  return metric === 'temperature' ? `${value.toFixed(1)}°C` : String(value);
+}
+
+function getPreviewMetricLabel(
+  metric: PreviewMetric,
+  language: Language,
+  labels: (typeof copy)[Language],
+) {
+  if (metric === 'polyps') return language === 'fr' ? 'Polypes' : 'Polyps';
+  if (metric === 'ephyrae') return language === 'fr' ? 'Éphyrules' : 'Ephyrae';
+  return labels.temperature;
+}
+
+function getNoMeasurementLabel(language: Language) {
+  return language === 'fr' ? 'Aucun relevé' : 'No measurement';
+}
+
+function shouldShowWeekLabel(index: number, total: number, compact: boolean) {
+  if (total <= (compact ? 3 : 7)) return true;
+  const targetLabelCount = compact ? 3 : 6;
+  const interval = Math.ceil((total - 1) / (targetLabelCount - 1));
+  return index === 0 || index === total - 1 || index % interval === 0;
+}
+
+function formatWeekDetail(label: string, language: Language) {
+  const match = label.match(/^(\d{4})_S(\d{1,2})$/);
+  if (!match) return label;
+  return language === 'fr'
+    ? `Semaine ${match[2]} · ${match[1]}`
+    : `Week ${match[2]} · ${match[1]}`;
 }
 
 function ExportChartsModal({
@@ -722,6 +839,7 @@ function ExportChartsModal({
   labels,
   language,
   isLoading,
+  metric,
   onClose,
 }: {
   groups: ComparisonGroup[];
@@ -729,6 +847,7 @@ function ExportChartsModal({
   labels: (typeof copy)[Language];
   language: Language;
   isLoading: boolean;
+  metric: PreviewMetric;
   onClose: () => void;
 }) {
   return (
@@ -759,6 +878,7 @@ function ExportChartsModal({
                 language={language}
                 isLoading={isLoading}
                 error={null}
+                metric={metric}
                 points={previews[group.key]?.points ?? []}
               />
             </article>
@@ -986,7 +1106,8 @@ function getOrganizationName(options: ExportOptions, organizationId: number) {
 }
 
 function formatWeekLabel(label: string) {
-  return label.replace('_S', ' S');
+  const match = label.match(/^\d{4}_S(\d{1,2})$/);
+  return match ? `S${match[1]}` : label;
 }
 
 function formatPeriod(dateFrom: string, dateTo: string, language: Language) {
