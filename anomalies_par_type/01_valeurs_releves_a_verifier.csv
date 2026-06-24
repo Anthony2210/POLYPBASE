@@ -1,0 +1,5 @@
+﻿type_anomalie;fichier;feuille;ligne_excel;colonne_excel;espece;code_boite;temperature;type_mesure;valeur_brute;correction_encadrant;commentaire_encadrant
+Valeurs de relevés à vérifier;Suivi_2021.xlsx;Rhizostomae;47;AV;;CTU-FCF-2.02;20;Nb polypes;2°°;;
+Valeurs de relevés à vérifier;Suivi_2023.xlsx;Hydrozoa;36;AP;;;;Nb éphyrules;#;;
+Valeurs de relevés à vérifier;Suivi_2025.xlsx;Hydrozoa;133;AA;Kirchenpaueria pinnata;KPI-NBE-1.01;10;Nb polypes;?;;
+Valeurs de relevés à vérifier;Suivi_2025.xlsx;Hydrozoa;211;AA;Thyroscyphus sp.1 (white);THY-FGU-1.01;25;Nb polypes;?;;

@@ -1,0 +1,15 @@
+﻿type_anomalie;nom_scientifique;code_espece;fichiers_concernes;feuilles_concernees;exemples_codes_boite;nb_lignes_excel;correction_encadrant;commentaire_encadrant
+Même nom scientifique avec plusieurs codes espèce;Aurelia sp.4;APH;Suivi_2025.xlsx;Aurelia;APH-PHI-1.01;1;;
+Même nom scientifique avec plusieurs codes espèce;Aurelia sp.4;ATH;Suivi_2026.xlsx;Aurelia;ATH-THA-1.01;1;;
+Même nom scientifique avec plusieurs codes espèce;"Chrysaora chesapeakei ""white""";CAC;Suivi_2026.xlsx;Semaestomeae;CAC-JKA-2.04;1;;
+Même nom scientifique avec plusieurs codes espèce;"Chrysaora chesapeakei ""white""";CCP;Suivi_2025.xlsx;Semaestomeae;CCP-TPR-1.08;1;;
+Même nom scientifique avec plusieurs codes espèce;Hydrozoa sp.;Station n°1;Suivi_2025.xlsx | Suivi_2026.xlsx;Hydrozoa;Station n°1;2;;
+Même nom scientifique avec plusieurs codes espèce;Hydrozoa sp.;Station n°2;Suivi_2025.xlsx | Suivi_2026.xlsx;Hydrozoa;Station n°2;2;;
+Même nom scientifique avec plusieurs codes espèce;Hydrozoa sp.;Station n°3;Suivi_2025.xlsx | Suivi_2026.xlsx;Hydrozoa;Station n°3;2;;
+Même nom scientifique avec plusieurs codes espèce;Hydrozoa sp.;Station n°5;Suivi_2025.xlsx | Suivi_2026.xlsx;Hydrozoa;Station n°5;2;;
+Même nom scientifique avec plusieurs codes espèce;Jane Doe;JANEDOE;Suivi_2025.xlsx | Suivi_2026.xlsx;Hydrozoa;JANEDOE-FBA-1.03;2;;
+Même nom scientifique avec plusieurs codes espèce;Jane Doe;JND;Suivi_2024.xlsx;Hydrozoa;JND-FBA-1.03;1;;
+Même nom scientifique avec plusieurs codes espèce;Obelia sp.;OBE;Suivi_2025.xlsx;Hydrozoa;OBE-NBE-1.01 | OBE-TAI-2.01;2;;
+Même nom scientifique avec plusieurs codes espèce;Obelia sp.;OSP;Suivi_2024.xlsx;Hydrozoa;OSP-JKA-1.01;1;;
+Même nom scientifique avec plusieurs codes espèce;Stomolophus sp.2;SME;Suivi_2021.xlsx;Rhizostomae;SME-JKA-1.01;1;;
+Même nom scientifique avec plusieurs codes espèce;Stomolophus sp.2;SSP;Suivi_2024.xlsx | Suivi_2025.xlsx | Suivi_2026.xlsx;Rhizostomae;SSP-JKA-1.08 | SSP-JKA-1.11;3;;

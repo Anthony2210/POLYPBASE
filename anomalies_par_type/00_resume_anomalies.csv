@@ -1,0 +1,8 @@
+﻿type_anomalie;fichier_csv;nombre_de_cas
+Valeurs de relevés à vérifier;01_valeurs_releves_a_verifier.csv;4
+Températures à vérifier;02_temperatures_a_verifier.csv;5
+Codes boîte et espèces à vérifier;03_codes_boite_et_especes_a_verifier.csv;32
+Même code espèce avec plusieurs noms;04_code_espece_plusieurs_noms.csv;39
+Même nom scientifique avec plusieurs codes espèce;05_nom_scientifique_plusieurs_codes.csv;14
+Même code souche avec plusieurs espèces;06_code_souche_plusieurs_especes.csv;28
+Même code boîte avec plusieurs espèces;07_code_boite_plusieurs_especes.csv;16

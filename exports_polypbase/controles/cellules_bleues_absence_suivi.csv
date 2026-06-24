@@ -1,0 +1,18 @@
+﻿annee,groupe,espece,code_boite,temperature_cible,semaine,type_mesure,valeur_brute,valeur,statut_cellule,couleur_cellule,fichier_source,feuille_source,ligne_source,colonne_source
+2020,Rhizostomae,Rhizostoma octopus,ROC-AHM-1.01,15,23,polypes,1.0,1.0,absence_suivi,4A86E8,Suivi_2020.xlsx,Rhizostomae,107,27
+2020,Rhizostomae,Rhizostoma octopus,ROC-AHM-1.01,15,24,polypes,1.0,1.0,absence_suivi,4A86E8,Suivi_2020.xlsx,Rhizostomae,107,28
+2020,Rhizostomae,Rhizostoma octopus,ROC-AHM-1.01,15,25,polypes,1.0,1.0,absence_suivi,4A86E8,Suivi_2020.xlsx,Rhizostomae,107,29
+2020,Rhizostomae,Rhizostoma octopus,ROC-AHM-1.01,15,23,ephyrules,0.0,0.0,absence_suivi,4A86E8,Suivi_2020.xlsx,Rhizostomae,108,27
+2020,Rhizostomae,Rhizostoma octopus,ROC-AHM-1.01,15,24,ephyrules,0.0,0.0,absence_suivi,4A86E8,Suivi_2020.xlsx,Rhizostomae,108,28
+2020,Rhizostomae,Rhizostoma octopus,ROC-AHM-1.01,15,25,ephyrules,0.0,0.0,absence_suivi,4A86E8,Suivi_2020.xlsx,Rhizostomae,108,29
+2020,Rhizostomae,Rhizostoma octopus,ROC-AHM-1.02,10,23,polypes,1.0,1.0,absence_suivi,4A86E8,Suivi_2020.xlsx,Rhizostomae,109,27
+2020,Rhizostomae,Rhizostoma octopus,ROC-AHM-1.02,10,24,polypes,1.0,1.0,absence_suivi,4A86E8,Suivi_2020.xlsx,Rhizostomae,109,28
+2020,Rhizostomae,Rhizostoma octopus,ROC-AHM-1.02,10,25,polypes,1.0,1.0,absence_suivi,4A86E8,Suivi_2020.xlsx,Rhizostomae,109,29
+2020,Rhizostomae,Rhizostoma octopus,ROC-AHM-1.02,10,23,ephyrules,0.0,0.0,absence_suivi,4A86E8,Suivi_2020.xlsx,Rhizostomae,110,27
+2020,Rhizostomae,Rhizostoma octopus,ROC-AHM-1.02,10,24,ephyrules,0.0,0.0,absence_suivi,4A86E8,Suivi_2020.xlsx,Rhizostomae,110,28
+2020,Rhizostomae,Rhizostoma octopus,ROC-AHM-1.02,10,25,ephyrules,0.0,0.0,absence_suivi,4A86E8,Suivi_2020.xlsx,Rhizostomae,110,29
+2023,Rhizostomeae,Mastigias papua,MPA-JKA-3.04,30,49,ephyrules,,,absence_suivi,00B0F0,Suivi_2023.xlsx,Rhizostomeae,76,53
+2023,Rhizostomeae,Mastigias papua,MPA-JKA-3.05,25,49,polypes,,,absence_suivi,00B0F0,Suivi_2023.xlsx,Rhizostomeae,77,53
+2023,Rhizostomeae,Mastigias papua,MPA-JKA-3.05,25,49,ephyrules,,,absence_suivi,00B0F0,Suivi_2023.xlsx,Rhizostomeae,78,53
+2023,Rhizostomeae,Mastigias papua,MPA-JKA-3.05,30,49,polypes,200,200,absence_suivi,00B0F0,Suivi_2023.xlsx,Rhizostomeae,79,53
+2023,Rhizostomeae,Mastigias papua,MPA-JKA-3.05,30,49,ephyrules,0,0,absence_suivi,00B0F0,Suivi_2023.xlsx,Rhizostomeae,80,53

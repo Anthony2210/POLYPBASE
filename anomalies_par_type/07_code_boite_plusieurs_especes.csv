@@ -1,0 +1,17 @@
+﻿type_anomalie;code_boite;espece_detectee;fichiers_concernes;feuilles_concernees;lignes_excel;nb_lignes_excel;correction_encadrant;commentaire_encadrant
+Même code boîte avec plusieurs espèces;ATH-THA-1.01;Aurelia sp. THAI;Suivi_2025.xlsx;Aurelia;83;1;;
+Même code boîte avec plusieurs espèces;ATH-THA-1.01;Aurelia sp.4;Suivi_2026.xlsx;Aurelia;73;1;;
+Même code boîte avec plusieurs espèces;AVA-TAI-1.01;Aurelia malayensis;Suivi_2026.xlsx;Aurelia;53;1;;
+Même code boîte avec plusieurs espèces;AVA-TAI-1.01;"Aurelia sp.2 ""Valentine""";Suivi_2024.xlsx | Suivi_2025.xlsx;Aurelia;55 | 65;2;;
+Même code boîte avec plusieurs espèces;CLH-FVI-1.01;Clytia hemisphaerica;Suivi_2020.xlsx;Hydrozoa;19;1;;
+Même code boîte avec plusieurs espèces;CLH-FVI-1.01;Clytia hemispherica;Suivi_2021.xlsx | Suivi_2022.xlsx;Hydrozoa;23 | 31;2;;
+Même code boîte avec plusieurs espèces;CNO-JKA-1.02;Cyanea nozakii;Suivi_2025.xlsx;Semaestomeae;129;1;;
+Même code boîte avec plusieurs espèces;CNO-JKA-1.02;Cyanea nozakii Kishinouye;Suivi_2023.xlsx | Suivi_2024.xlsx;Semaestomeae;131 | 145;2;;
+Même code boîte avec plusieurs espèces;LRO-MAL-1.01;Lobonemoides gracilis;Suivi_2026.xlsx;Rhizostomae;67;1;;
+Même code boîte avec plusieurs espèces;LRO-MAL-1.01;Lobonemoides robustus;Suivi_2025.xlsx;Rhizostomae;79;1;;
+Même code boîte avec plusieurs espèces;SMA-JKA-2.05;Sanderia malayensis;Suivi_2023.xlsx;Semaestomeae;187;1;;
+Même code boîte avec plusieurs espèces;SMA-JKA-2.05;"Sanderia malayensis ""brown""";Suivi_2024.xlsx | Suivi_2025.xlsx | Suivi_2026.xlsx;Semaestomeae;135 | 157 | 163;3;;
+Même code boîte avec plusieurs espèces;SME-JKA-1.01;Stomolophus meleagris;Suivi_2020.xlsx;Rhizostomae;141;1;;
+Même code boîte avec plusieurs espèces;SME-JKA-1.01;Stomolophus sp.2;Suivi_2021.xlsx;Rhizostomae;135;1;;
+Même code boîte avec plusieurs espèces;THY-FGU-1.01;Thyroscyphus sp.1 (white);Suivi_2025.xlsx;Hydrozoa;211;1;;
+Même code boîte avec plusieurs espèces;THY-FGU-1.01;Thyroscyphus sp.2 (red);Suivi_2025.xlsx;Hydrozoa;213;1;;

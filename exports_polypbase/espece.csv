@@ -1,0 +1,142 @@
+﻿id_espece,code_espece,nom_scientifique
+1,ACROMITUS_FLAGELLATUS,Acromitus flagellatus
+2,ACROMITUS_HARDENBERGI,Acromitus hardenbergi
+3,AEQUOREA_COERULESCENS,Aequorea coerulescens
+4,AEQUOREA_MACRODACTYLA,Aequorea macrodactyla
+5,AEQUOREA_VICTORIA,Aequorea victoria
+6,AGLAOPHENIA_DIEGENSIS,Aglaophenia diegensis
+7,ALATINA_ALATA,Alatina alata
+8,ALATINA_MORANDINII,Alatina morandinii
+9,ANOMALORHIZA_SHAWI,Anomalorhiza shawi
+10,AURELIA_AURITA,Aurelia aurita
+11,AURELIA_COERULEA,Aurelia coerulea
+12,AURELIA_COERULEA_DD,Aurelia coerulea DD
+13,AURELIA_LABIATA,Aurelia labiata
+14,AURELIA_LIMBATA,Aurelia limbata
+15,AURELIA_MALAYENSIS,Aurelia malayensis
+16,AURELIA_MALDIVENSIS,Aurelia maldivensis
+17,AURELIA_MARGINALIS,Aurelia marginalis
+18,AURELIA_SP_THAI,Aurelia sp. THAI
+19,AURELIA_SP1,Aurelia sp.1
+20,"AURELIA_SP2_""VALENTINE""","Aurelia sp.2 ""Valentine"""
+21,AURELIA_SP3,Aurelia sp.3
+22,AURELIA_SP4,Aurelia sp.4
+23,BLACKFORDIA_SP,Blackfordia sp.
+24,BOUGAINVILLIA_MUSCUS,Bougainvillia muscus
+25,CARYBDEA_BREVIPEDALIA,Carybdea brevipedalia
+26,CARYBDEA_MARSUPIALIS,Carybdea marsupialis
+27,CARYBDEA_XAYMACANA,Carybdea xaymacana
+28,CASSIOPEA_FRONDOSA,Cassiopea frondosa
+29,CASSIOPEA_SP,Cassiopea sp.
+30,CASSIOPEA_XAMACHANA,Cassiopea xamachana
+31,CATABLEMA_MULTICIRRATUM,Catablema multicirratum
+32,CATOSTYLUS_MOSAICUS,Catostylus mosaicus
+33,CATOSTYLUS_TAGI,Catostylus tagi
+34,CATOSTYLUS_TOWNSENDI,Catostylus townsendi
+35,CEPHEA_CEPHEA,Cephea cephea
+36,CHRYSAORA_ACHLYOS,Chrysaora achlyos
+37,CHRYSAORA_CHESAPEAKEI,Chrysaora chesapeakei
+38,"CHRYSAORA_CHESAPEAKEI_""PINK_STRIPED""","Chrysaora chesapeakei ""pink striped"""
+39,"CHRYSAORA_CHESAPEAKEI_""PINK""","Chrysaora chesapeakei ""pink"""
+40,"CHRYSAORA_CHESAPEAKEI_""WHITE""","Chrysaora chesapeakei ""white"""
+41,CHRYSAORA_CHINENSIS,Chrysaora chinensis
+42,CHRYSAORA_COLORATA,Chrysaora colorata
+43,CHRYSAORA_FUSCESCENS,Chrysaora fuscescens
+44,CHRYSAORA_HELVOLA,Chrysaora helvola
+45,CHRYSAORA_HYSOSCELLA,Chrysaora hysoscella
+46,CHRYSAORA_LACTEA,Chrysaora lactea
+47,CHRYSAORA_MELANASTER,Chrysaora melanaster
+48,CHRYSAORA_PACIFICA,Chrysaora pacifica
+49,CHRYSAORA_PLOCAMIA,Chrysaora plocamia
+50,CHRYSAORA_QUINQUECIRRHA,Chrysaora quinquecirrha
+51,CHRYSAORA_SP2,Chrysaora sp.2
+52,CLADONEMA_SP,Cladonema sp.
+53,CLAVA_MULTICORNIS,Clava multicornis
+54,CLYTIA_HEMISPHAERICA,Clytia hemisphaerica
+55,CORONATAE_SP,Coronatae sp.
+56,CORYMORPHA_NUTANS,Corymorpha nutans
+57,CORYNIDAE_SP,Corynidae sp.
+58,COTYLORHIZA_TUBERCULATA,Cotylorhiza tuberculata
+59,CRASPEDACUSTA_SOWERBII,Craspedacusta sowerbii
+60,CYANEA_CAPILLATA,Cyanea capillata
+61,"CYANEA_FULVA_""HYBRID""","Cyanea fulva ""hybrid"""
+62,"CYANEA_FULVA_""YELLOW""","Cyanea fulva ""yellow"""
+63,CYANEA_LAMARCKII,Cyanea lamarckii
+64,CYANEA_NOZAKII,Cyanea nozakii
+65,CYANEA_VERSICOLOR,Cyanea versicolor
+66,DYNAMENA_DISTICHA,Dynamena disticha
+67,DYNAMENA_PUMILA,Dynamena pumila
+68,ECTOPLEURA_LARYNX,Ectopleura larynx
+69,ECTOPLEURA_MAYERI,Ectopleura mayeri
+70,ECTOPLEURA_SP,Ectopleura sp.
+71,EIRENE_HEXANEMALIS,Eirene hexanemalis
+72,EIRENE_LACTEOIDES,Eirene lacteoides
+73,EUDENDRIUM_SP,Eudendrium sp.
+74,EUTONINA_INDICANS,Eutonina indicans
+75,GONIONEMUS_VERTENS,Gonionemus vertens
+76,HALECIUM_SP,Halecium sp.
+77,HYDRACTINIA_SP,Hydractinia sp.
+78,HYDROCORYNE_MURIENSIS,Hydrocoryne muriensis
+79,HYDROZOA_BANYULS,Hydrozoa Banyuls
+80,HYDROZOA_SP,Hydrozoa sp.
+81,JANE_DOE,Jane Doe
+82,KIRCHENPAUERIA_HALECIOIDES,Kirchenpaueria halecioides
+83,KIRCHENPAUERIA_PINNATA,Kirchenpaueria pinnata
+84,LAODICEA_SP,Laodicea sp.
+85,LEUCKARTIARA_SP,Leuckartiara sp.
+86,LINUCHE_AQUILA,Linuche aquila
+87,LINUCHE_DRACO,Linuche draco
+88,LINUCHE_SP,Linuche sp.
+89,LINUCHE_UNGUICULATA,Linuche unguiculata
+90,LOBONEMOIDES_GRACILIS,Lobonemoides gracilis
+91,LOBONEMOIDES_ROBUSTUS,Lobonemoides robustus
+92,LUCERNARIA_QUADRICORNIS,Lucernaria quadricornis
+93,LYCHNORHIZA_LUCERNA,Lychnorhiza lucerna
+94,LYCHNORHIZA_MALAYENSIS,Lychnorhiza malayensis
+95,MASTIGIAS_PAPUA,Mastigias papua
+96,MELICERTUM_OCTOCOSTATUM,Melicertum octocostatum
+97,MERGA_GALLERI,Merga galleri
+98,MYRIONEMA_SP,Myrionema sp.
+99,NEOTURRIS_BREVICONIS,Neoturris breviconis
+100,NETROSTOMA_SETOUCHIANUM,Netrostoma setouchianum
+101,OBELIA_SP,Obelia sp.
+102,OCEANIIDAE_SP,Oceaniidae sp.
+103,PANDEA_RUBRA,Pandea rubra
+104,PARUMBROSA_POLYLOBATA,Parumbrosa polylobata
+105,PENNARIA_DISTICHA,Pennaria disticha
+106,PENNARIA_SP,Pennaria sp.
+107,PHACELLOPHORA_CAMTSCHATICA,Phacellophora camtschatica
+108,PHYLLORHIZA_PUNCTATA,Phyllorhiza punctata
+109,PHYLLORHIZA_YURENA,Phyllorhiza yurena
+110,RALPHARIA_GORGONIAE,Ralpharia gorgoniae
+111,RHIZOSTOMA_LUTEUM,Rhizostoma luteum
+112,RHIZOSTOMA_OCTOPUS,Rhizostoma octopus
+113,RHIZOSTOMA_PULMO,Rhizostoma pulmo
+114,RHOPILEMA_ASAMUSHI,Rhopilema asamushi
+115,RHOPILEMA_ESCULENTUM,Rhopilema esculentum
+116,RHOPILEMA_VERRILLI,Rhopilema verrilli
+117,SANDERIA_MALAYENSIS,Sanderia malayensis
+118,"SANDERIA_MALAYENSIS_""BROWN""","Sanderia malayensis ""brown"""
+119,"SANDERIA_MALAYENSIS_""WHITE""","Sanderia malayensis ""white"""
+120,SARSIA_SP,Sarsia sp.
+121,SARSIA_TUBULOSA,Sarsia tubulosa
+122,STAUROZOA_SP,Staurozoa sp.
+123,STOMOLOPHUS_MELEAGRIS,Stomolophus meleagris
+124,STOMOLOPHUS_SP1,Stomolophus sp.1
+125,STOMOLOPHUS_SP2,Stomolophus sp.2
+126,THYROSCYPHUS_SP1_(WHITE),Thyroscyphus sp.1 (white)
+127,THYROSCYPHUS_SP2_(RED),Thyroscyphus sp.2 (red)
+128,THYSANOSTOMA_THYSANURA,Thysanostoma thysanura
+129,TIAROPSIS_MULTICIRRATA,Tiaropsis multicirrata
+130,TIMA_FORMOSA,Tima formosa
+131,TIMA_NIGROANNULATA,Tima nigroannulata
+132,TRIPEDALIA_BINATA,Tripedalia binata
+133,TRIPEDALIA_CYSTOPHORA,Tripedalia cystophora
+134,TUBULARIA_BELLIS,Tubularia bellis
+135,TUBULARIA_INDIVISA,Tubularia indivisa
+136,TUBULARIIDAE_SP,Tubulariidae sp.
+137,TURRITOPSIS_PACIFICA,Turritopsis pacifica
+138,TURRITOPSIS_SP,Turritopsis sp.
+139,TURRITOPSIS_SP_1,Turritopsis sp. 1
+140,VERSURIGA_ANADYOMENE,Versuriga anadyomene
+141,ZANCLEIDAE_SP,Zancleidae sp.

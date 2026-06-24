@@ -1,0 +1,7 @@
+﻿id_zone,nom_zone,type_zone,temperature_cible
+1,Zone 5.0°C,historique_excel,5.0
+2,Zone 10.0°C,historique_excel,10.0
+3,Zone 15.0°C,historique_excel,15.0
+4,Zone 20.0°C,historique_excel,20.0
+5,Zone 25.0°C,historique_excel,25.0
+6,Zone 30.0°C,historique_excel,30.0
