@@ -113,6 +113,7 @@ type ZoneOverviewEntry = {
   measuredTemperature: number | null;
   referenceTemperature: number | null;
   temperatureNeedsAttention: boolean;
+  salinityNeedsAttention: boolean;
   needsAttention: boolean;
 };
 
@@ -1451,6 +1452,23 @@ function BoxPage({
 
   const measurements = getMeasurementHistory(box);
   const lastComment = getLatestComment(measurements, box);
+  const sortedMeasurements = [...measurements].sort(
+  (first, second) =>
+    new Date(second.measured_on).getTime() - new Date(first.measured_on).getTime(),
+);
+
+const latestMeasurement = sortedMeasurements[0];
+const previousMeasurement = sortedMeasurements[1];
+
+const polypDropDetected =
+  latestMeasurement &&
+  previousMeasurement &&
+  latestMeasurement.polyp_count < previousMeasurement.polyp_count;
+
+const subcultureSuggested =
+  latestMeasurement &&
+  latestMeasurement.polyp_count >= 100;
+
   const qr = 'qr_image_url' in box
     ? { imageUrl: getBoxQrImageUrl(box), scanUrl: getBoxScanUrl(box) }
     : null;
@@ -1603,6 +1621,10 @@ function BoxPage({
           />
           <InfoPill label={t('temperatureShort')} value={formatTemperature(currentZone?.latest_temperature?.average_temperature_c)} />
           <InfoPill label={t('salinityShort')} value={formatSalinity(currentZone?.latest_salinity?.salinity_psu)} />
+
+{currentZone && currentZone.latest_salinity?.salinity_psu == null ? (
+  <p className="inline-error">Salinité manquante</p>
+) : null}
         </div>
 
         {canWriteLabData ? (
@@ -1632,6 +1654,22 @@ function BoxPage({
           </div>
           <Metric label={t('polyps')} value={String(box.latest_measurement?.polyp_count ?? '-')} />
           <Metric label={t('ephyraeFull')} value={String(box.latest_measurement?.ephyrae_count ?? '-')} />
+          {polypDropDetected ? (
+  <p className="inline-error form-feedback">
+    Baisse de polypes détectée : {previousMeasurement.polyp_count} → {latestMeasurement.polyp_count}
+  </p>
+) : null}
+
+{subcultureSuggested ? (
+  <p className="inline-error form-feedback">
+    Repiquage à envisager : {latestMeasurement.polyp_count} polypes.
+  </p>
+) : null}
+
+<div className="last-reading-comment">
+  <small>{t('lastComment')}</small>
+  <p>{lastComment || t('noComment')}</p>
+</div>
           <div className="last-reading-comment">
             <small>{t('lastComment')}</small>
             <p>{lastComment || t('noComment')}</p>
@@ -1710,13 +1748,17 @@ function BoxPage({
 
             {saveError ? <p className="inline-error form-feedback">{saveError}</p> : null}
 
-            <MeasurementSaveButton
-              isDesktop={isDesktopApp}
-              isSaving={isSaving}
-              isSuccess={Boolean(saveMessage)}
-              onSave={saveMeasurement}
-              t={t}
-            />
+{saveMessage ? (
+  <p className="inline-success form-feedback">{saveMessage}</p>
+) : null}
+
+<MeasurementSaveButton
+  isDesktop={isDesktopApp}
+  isSaving={isSaving}
+  isSuccess={Boolean(saveMessage)}
+  onSave={saveMeasurement}
+  t={t}
+/>
           </form>
           </section>
         ) : null}
@@ -2468,6 +2510,9 @@ function ZonesView({
                   <span>
                     <small>{t('salinityShort')}</small>
                     <strong>{formatSalinity(entry.zone.latest_salinity?.salinity_psu)}</strong>
+                    {entry.zone.latest_salinity == null ? (
+  <p className="inline-error">Salinité manquante</p>
+) : null}
                   </span>
                   <span>
                     <small>{t('zoneSummaryAlive')}</small>
@@ -2490,23 +2535,30 @@ function buildZoneOverviewEntry(zone: ThermalZone, boxes: BoxItem[]): ZoneOvervi
   const missingMeasurements = zoneBoxes.filter((box) => !box.latest_measurement).length;
   const temperatureNeedsAttention = targetTemperature === null
     || measuredTemperature === null
-    || Math.abs(measuredTemperature - targetTemperature) > 0.5;
+    || Math.abs(measuredTemperature - targetTemperature) > 1;
+    const salinityNeedsAttention = zone.latest_salinity?.salinity_psu == null;
 
   return {
-    zone,
-    zoneBoxes,
-    livingBoxes: zoneBoxes.filter((box) => box.status === 'active').length,
-    missingMeasurements,
-    targetTemperature,
-    measuredTemperature,
-    referenceTemperature: targetTemperature ?? measuredTemperature,
-    temperatureNeedsAttention,
-    needsAttention: temperatureNeedsAttention || zone.probes.length === 0 || missingMeasurements > 0,
-  };
+  zone,
+  zoneBoxes,
+  livingBoxes: zoneBoxes.filter((box) => box.status === 'active').length,
+  missingMeasurements,
+  targetTemperature,
+  measuredTemperature,
+  referenceTemperature: targetTemperature ?? measuredTemperature,
+  temperatureNeedsAttention,
+  salinityNeedsAttention,
+  needsAttention:
+    temperatureNeedsAttention
+    || salinityNeedsAttention
+    || zone.probes.length === 0
+    || missingMeasurements > 0,
+};
 }
 
 function getZoneAttentionReasons(entry: ZoneOverviewEntry, t: TFunction) {
   const reasons: string[] = [];
+
   if (entry.temperatureNeedsAttention) {
     reasons.push(
       entry.targetTemperature === null || entry.measuredTemperature === null
@@ -2514,10 +2566,17 @@ function getZoneAttentionReasons(entry: ZoneOverviewEntry, t: TFunction) {
         : t('zoneOverviewThermalGap'),
     );
   }
+
+  if (entry.salinityNeedsAttention) {
+    reasons.push('Salinité manquante');
+  }
+
   if (!entry.zone.probes.length) reasons.push(t('zoneOverviewNoProbe'));
+
   if (entry.missingMeasurements) {
     reasons.push(`${entry.missingMeasurements} ${t('zoneOverviewMissingMeasurements')}`);
   }
+
   return reasons;
 }
 
@@ -2571,7 +2630,7 @@ function ZoneDetailPage({
   const measuredTemperature = zone.latest_temperature?.average_temperature_c ?? null;
   const temperatureNeedsAttention = targetTemperature === null
     || measuredTemperature === null
-    || Math.abs(measuredTemperature - targetTemperature) > 0.5;
+    || Math.abs(measuredTemperature - targetTemperature) > 1;
 
   return (
     <section className="zone-page">
