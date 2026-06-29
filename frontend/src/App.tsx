@@ -30,7 +30,9 @@ import type {
   LineageGraph,
   MembershipRole,
   NewMemberPayload,
+  Organization,
   PaginatedResponse,
+  Probe,
   SubculturePayload,
   SubcultureResult,
   ThermalZone,
@@ -57,6 +59,34 @@ type MeasurementPayload = {
   measured_on: string;
   polyp_count: number;
   ephyrae_count: number;
+  notes: string;
+};
+
+type ThermalZonePayload = {
+  organization: number;
+  name: string;
+  zone_type: string;
+  target_temperature_c: string | null;
+};
+
+type ProbePayload = {
+  thermal_zone: number;
+  code: string;
+  probe_type: string;
+  location: string;
+};
+
+type OrganizationPayload = {
+  name: string;
+  city: string;
+  country: string;
+  contact_email: string;
+  notes: string;
+};
+
+type BoxTransferPayload = {
+  box: number;
+  to_organization: number;
   notes: string;
 };
 
@@ -131,7 +161,18 @@ const translations = {
     adminZoneTypeCabinet: 'Armoire',
     adminZoneTypeIncubator: 'Étuve',
     adminTargetTemperature: 'Température consigne',
+    adminZoneOrganization: 'Structure',
     adminCreateZone: 'Créer la zone',
+    adminZoneCreated: 'Zone créée.',
+    adminZoneNoOrganization: 'Aucune structure que vous administrez.',
+    adminProbeLocation: 'Emplacement',
+    adminProbeCreated: 'Sonde ajoutée.',
+    adminProbeNoZone: 'Aucune zone que vous administrez.',
+    adminOrganizationCreated: 'Structure créée.',
+    adminSuperuserOnly: 'Réservé au super-administrateur.',
+    adminTransferNotes: 'Notes',
+    adminTransferCreated: 'Transfert enregistré.',
+    adminTransferNoBox: 'Aucune boîte que vous administrez.',
     adminProbeCode: 'Code sonde',
     adminProbeType: 'Type de sonde',
     adminProbeZone: 'Zone associée',
@@ -365,7 +406,18 @@ const translations = {
     adminZoneTypeCabinet: 'Cabinet',
     adminZoneTypeIncubator: 'Incubator',
     adminTargetTemperature: 'Target temperature',
+    adminZoneOrganization: 'Organization',
     adminCreateZone: 'Create zone',
+    adminZoneCreated: 'Zone created.',
+    adminZoneNoOrganization: 'No organization you administer.',
+    adminProbeLocation: 'Location',
+    adminProbeCreated: 'Probe added.',
+    adminProbeNoZone: 'No zone you administer.',
+    adminOrganizationCreated: 'Organization created.',
+    adminSuperuserOnly: 'Superuser only.',
+    adminTransferNotes: 'Notes',
+    adminTransferCreated: 'Transfer recorded.',
+    adminTransferNoBox: 'No box you administer.',
     adminProbeCode: 'Probe code',
     adminProbeType: 'Probe type',
     adminProbeZone: 'Linked zone',
@@ -888,6 +940,30 @@ export default function App() {
     return apiGet<LineageGraph>(`/api/boxes/${boxId}/lineage/`);
   }
 
+  async function createThermalZone(payload: ThermalZonePayload) {
+    await apiPost<ThermalZone>('/api/thermal-zones/', payload);
+    const zones = await apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80');
+    setData((current) => ({ ...current, zones: zones.results }));
+  }
+
+  async function createProbe(payload: ProbePayload) {
+    await apiPost<Probe>('/api/probes/', payload);
+    // Probes are nested inside the zone payload, so refresh the zones list.
+    const zones = await apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80');
+    setData((current) => ({ ...current, zones: zones.results }));
+  }
+
+  async function createOrganization(payload: OrganizationPayload) {
+    await apiPost<Organization>('/api/organizations/', payload);
+    // Refresh export options so the new organization appears in the lists.
+    const exportOptions = await apiGet<ExportOptions>('/api/exports/options/');
+    setData((current) => ({ ...current, exportOptions }));
+  }
+
+  async function createBoxTransfer(payload: BoxTransferPayload) {
+    await apiPost<unknown>('/api/box-transfers/', payload);
+  }
+
   function handleAuthenticated() {
     const nextPath = new URLSearchParams(window.location.search).get('next');
     const destination = nextPath?.startsWith('/') && !nextPath.startsWith('//')
@@ -1008,6 +1084,10 @@ export default function App() {
                 exportOptions={data.exportOptions}
                 isLoading={isLoading}
                 profile={data.profile}
+                onCreateZone={createThermalZone}
+                onCreateProbe={createProbe}
+                onCreateOrganization={createOrganization}
+                onCreateTransfer={createBoxTransfer}
                 t={t}
                 zones={data.zones}
               />
@@ -3339,11 +3419,439 @@ function getProfileInitials(profile: UserProfile): string {
   return initials.toUpperCase();
 }
 
+const PROBE_TYPE_OPTIONS = [
+  { value: 'lorawan', label: 'LoRaWAN' },
+  { value: 'iminilide', label: 'iMinilide' },
+  { value: 'manual', label: 'Manuel / Manual' },
+  { value: 'other', label: 'Autre / Other' },
+];
+
+function getAdminOrganizationIds(profile: UserProfile): Set<number> | null {
+  // null means "all organizations" (superuser).
+  if (profile.is_superuser) return null;
+  return new Set(
+    profile.memberships
+      .filter((membership) => membership.role === 'admin')
+      .map((membership) => membership.organization.id),
+  );
+}
+
+function ZoneCreateForm({
+  profile,
+  onCreateZone,
+  t,
+}: {
+  profile: UserProfile;
+  onCreateZone: (payload: ThermalZonePayload) => Promise<void>;
+  t: TFunction;
+}) {
+  const adminOrganizations = useMemo(() => {
+    const adminOrgIds = getAdminOrganizationIds(profile);
+    if (adminOrgIds === null) return profile.organizations;
+    return profile.organizations.filter((organization) => adminOrgIds.has(organization.id));
+  }, [profile]);
+
+  const [organizationId, setOrganizationId] = useState<number | null>(
+    adminOrganizations[0]?.id ?? null,
+  );
+  const [name, setName] = useState('');
+  const [zoneType, setZoneType] = useState('cabinet');
+  const [targetTemperature, setTargetTemperature] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  if (!adminOrganizations.length) {
+    return <p className="muted compact-text">{t('adminZoneNoOrganization')}</p>;
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isSaving || organizationId == null) return;
+
+    setIsSaving(true);
+    setError(null);
+    setMessage(null);
+
+    try {
+      await onCreateZone({
+        organization: organizationId,
+        name: name.trim(),
+        zone_type: zoneType,
+        target_temperature_c: targetTemperature.trim() || null,
+      });
+      setName('');
+      setTargetTemperature('');
+      setMessage(t('adminZoneCreated'));
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <form className="admin-form" onSubmit={handleSubmit}>
+      {adminOrganizations.length > 1 ? (
+        <label>
+          <span>{t('adminZoneOrganization')}</span>
+          <select
+            value={organizationId ?? ''}
+            onChange={(event) => setOrganizationId(Number(event.target.value))}
+          >
+            {adminOrganizations.map((organization) => (
+              <option key={organization.id} value={organization.id}>
+                {organization.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+      <label>
+        <span>{t('adminZoneName')}</span>
+        <input
+          required
+          placeholder="Étuve 13"
+          type="text"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
+      </label>
+      <label>
+        <span>{t('adminZoneType')}</span>
+        <select value={zoneType} onChange={(event) => setZoneType(event.target.value)}>
+          <option value="cabinet">{t('adminZoneTypeCabinet')}</option>
+          <option value="incubator">{t('adminZoneTypeIncubator')}</option>
+        </select>
+      </label>
+      <label>
+        <span>{t('adminTargetTemperature')}</span>
+        <input
+          placeholder="15.0"
+          type="number"
+          step="0.1"
+          value={targetTemperature}
+          onChange={(event) => setTargetTemperature(event.target.value)}
+        />
+      </label>
+      <button type="submit" disabled={isSaving || !name.trim()}>
+        {isSaving ? t('saving') : t('adminCreateZone')}
+      </button>
+      {message ? <p className="inline-success">{message}</p> : null}
+      {error ? <p className="inline-error">{error}</p> : null}
+    </form>
+  );
+}
+
+function ProbeCreateForm({
+  profile,
+  zones,
+  onCreateProbe,
+  t,
+}: {
+  profile: UserProfile;
+  zones: ThermalZone[];
+  onCreateProbe: (payload: ProbePayload) => Promise<void>;
+  t: TFunction;
+}) {
+  const zoneChoices = useMemo(() => {
+    const adminOrgIds = getAdminOrganizationIds(profile);
+    return zones.filter(
+      (zone) => zone.is_active && (adminOrgIds === null || adminOrgIds.has(zone.organization.id)),
+    );
+  }, [profile, zones]);
+
+  const [zoneId, setZoneId] = useState<number | null>(zoneChoices[0]?.id ?? null);
+  const [code, setCode] = useState('');
+  const [probeType, setProbeType] = useState('lorawan');
+  const [location, setLocation] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  if (!zoneChoices.length) {
+    return <p className="muted compact-text">{t('adminProbeNoZone')}</p>;
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isSaving || zoneId == null) return;
+
+    setIsSaving(true);
+    setError(null);
+    setMessage(null);
+
+    try {
+      await onCreateProbe({
+        thermal_zone: zoneId,
+        code: code.trim(),
+        probe_type: probeType,
+        location: location.trim(),
+      });
+      setCode('');
+      setLocation('');
+      setMessage(t('adminProbeCreated'));
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <form className="admin-form" onSubmit={handleSubmit}>
+      <label>
+        <span>{t('adminProbeCode')}</span>
+        <input
+          required
+          placeholder="SONDE-15-01"
+          type="text"
+          value={code}
+          onChange={(event) => setCode(event.target.value)}
+        />
+      </label>
+      <label>
+        <span>{t('adminProbeType')}</span>
+        <select value={probeType} onChange={(event) => setProbeType(event.target.value)}>
+          {PROBE_TYPE_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>{t('adminProbeZone')}</span>
+        <select
+          value={zoneId ?? ''}
+          onChange={(event) => setZoneId(Number(event.target.value))}
+        >
+          {zoneChoices.map((zone) => (
+            <option key={zone.id} value={zone.id}>{zone.name}</option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>{t('adminProbeLocation')}</span>
+        <input
+          type="text"
+          value={location}
+          onChange={(event) => setLocation(event.target.value)}
+        />
+      </label>
+      <button type="submit" disabled={isSaving || !code.trim()}>
+        {isSaving ? t('saving') : t('adminAddProbe')}
+      </button>
+      {message ? <p className="inline-success">{message}</p> : null}
+      {error ? <p className="inline-error">{error}</p> : null}
+    </form>
+  );
+}
+
+function OrganizationCreateForm({
+  profile,
+  onCreateOrganization,
+  t,
+}: {
+  profile: UserProfile;
+  onCreateOrganization: (payload: OrganizationPayload) => Promise<void>;
+  t: TFunction;
+}) {
+  const [name, setName] = useState('');
+  const [country, setCountry] = useState('');
+  const [city, setCity] = useState('');
+  const [contactName, setContactName] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
+  const [contactPhone, setContactPhone] = useState('');
+  const [postalAddress, setPostalAddress] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  if (!profile.is_superuser) {
+    return <p className="muted compact-text">{t('adminSuperuserOnly')}</p>;
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isSaving) return;
+
+    setIsSaving(true);
+    setError(null);
+    setMessage(null);
+
+    // The model has no phone/address/contact-name fields: fold them into notes.
+    const notes = [
+      contactName.trim() && `Contact : ${contactName.trim()}`,
+      contactPhone.trim() && `Tél : ${contactPhone.trim()}`,
+      postalAddress.trim() && `Adresse : ${postalAddress.trim()}`,
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    try {
+      await onCreateOrganization({
+        name: name.trim(),
+        city: city.trim(),
+        country: country.trim(),
+        contact_email: contactEmail.trim(),
+        notes,
+      });
+      setName('');
+      setCountry('');
+      setCity('');
+      setContactName('');
+      setContactEmail('');
+      setContactPhone('');
+      setPostalAddress('');
+      setMessage(t('adminOrganizationCreated'));
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <form className="admin-form admin-organization-form" onSubmit={handleSubmit}>
+      <label>
+        <span>{t('adminOrganizationName')}</span>
+        <input required type="text" value={name} onChange={(event) => setName(event.target.value)} />
+      </label>
+      <label>
+        <span>{t('adminCountry')}</span>
+        <input type="text" value={country} onChange={(event) => setCountry(event.target.value)} />
+      </label>
+      <label>
+        <span>{t('adminCity')}</span>
+        <input type="text" value={city} onChange={(event) => setCity(event.target.value)} />
+      </label>
+      <label>
+        <span>{t('adminContactName')}</span>
+        <input type="text" value={contactName} onChange={(event) => setContactName(event.target.value)} />
+      </label>
+      <label>
+        <span>{t('adminContactEmail')}</span>
+        <input type="email" value={contactEmail} onChange={(event) => setContactEmail(event.target.value)} />
+      </label>
+      <label>
+        <span>{t('adminContactPhone')}</span>
+        <input type="tel" value={contactPhone} onChange={(event) => setContactPhone(event.target.value)} />
+      </label>
+      <label className="admin-wide-field">
+        <span>{t('adminPostalAddress')}</span>
+        <textarea rows={3} value={postalAddress} onChange={(event) => setPostalAddress(event.target.value)} />
+      </label>
+      <button type="submit" disabled={isSaving || !name.trim()}>
+        {isSaving ? t('saving') : t('adminAddOrganization')}
+      </button>
+      {message ? <p className="inline-success">{message}</p> : null}
+      {error ? <p className="inline-error">{error}</p> : null}
+    </form>
+  );
+}
+
+function TransferCreateForm({
+  profile,
+  boxes,
+  organizations,
+  onCreateTransfer,
+  t,
+}: {
+  profile: UserProfile;
+  boxes: BoxItem[];
+  organizations: Array<{ id: number; name: string }>;
+  onCreateTransfer: (payload: BoxTransferPayload) => Promise<void>;
+  t: TFunction;
+}) {
+  const transferableBoxes = useMemo(() => {
+    const adminOrgIds = getAdminOrganizationIds(profile);
+    return boxes.filter(
+      (box) =>
+        box.status === 'active' &&
+        (adminOrgIds === null || adminOrgIds.has(box.organization.id)),
+    );
+  }, [profile, boxes]);
+
+  const [boxId, setBoxId] = useState<number | null>(transferableBoxes[0]?.id ?? null);
+  const [targetOrgId, setTargetOrgId] = useState<number | null>(null);
+  const [notes, setNotes] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const selectedBox = transferableBoxes.find((box) => box.id === boxId) ?? null;
+  // The target cannot be the box's current organization.
+  const targetOrganizations = organizations.filter(
+    (organization) => organization.id !== selectedBox?.organization.id,
+  );
+
+  if (!transferableBoxes.length) {
+    return <p className="muted compact-text">{t('adminTransferNoBox')}</p>;
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isSaving || boxId == null || targetOrgId == null) return;
+
+    setIsSaving(true);
+    setError(null);
+    setMessage(null);
+
+    try {
+      await onCreateTransfer({ box: boxId, to_organization: targetOrgId, notes: notes.trim() });
+      setNotes('');
+      setTargetOrgId(null);
+      setMessage(t('adminTransferCreated'));
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <form className="admin-transfer-form" onSubmit={handleSubmit}>
+      <label>
+        <span>{t('adminTransferBox')}</span>
+        <select value={boxId ?? ''} onChange={(event) => setBoxId(Number(event.target.value))}>
+          {transferableBoxes.map((box) => (
+            <option key={box.id} value={box.id}>{box.global_code}</option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>{t('adminTransferTarget')}</span>
+        <select
+          value={targetOrgId ?? ''}
+          onChange={(event) => setTargetOrgId(event.target.value ? Number(event.target.value) : null)}
+        >
+          <option value="" disabled>{t('adminOrganizations')}</option>
+          {targetOrganizations.map((organization) => (
+            <option key={organization.id} value={organization.id}>{organization.name}</option>
+          ))}
+        </select>
+      </label>
+      <label className="admin-wide-field">
+        <span>{t('adminTransferNotes')}</span>
+        <textarea rows={2} value={notes} onChange={(event) => setNotes(event.target.value)} />
+      </label>
+      <button type="submit" disabled={isSaving || targetOrgId == null}>
+        {isSaving ? t('saving') : t('adminPrepareTransfer')}
+      </button>
+      {message ? <p className="inline-success">{message}</p> : null}
+      {error ? <p className="inline-error">{error}</p> : null}
+    </form>
+  );
+}
+
 function AdminView({
   boxes,
   exportOptions,
   isLoading,
   profile,
+  onCreateZone,
+  onCreateProbe,
+  onCreateOrganization,
+  onCreateTransfer,
   t,
   zones,
 }: {
@@ -3351,6 +3859,10 @@ function AdminView({
   exportOptions: ExportOptions | null;
   isLoading: boolean;
   profile: UserProfile | null;
+  onCreateZone: (payload: ThermalZonePayload) => Promise<void>;
+  onCreateProbe: (payload: ProbePayload) => Promise<void>;
+  onCreateOrganization: (payload: OrganizationPayload) => Promise<void>;
+  onCreateTransfer: (payload: BoxTransferPayload) => Promise<void>;
   t: TFunction;
   zones: ThermalZone[];
 }) {
@@ -3368,9 +3880,7 @@ function AdminView({
   if (!profile || !userHasAdminRole(profile)) return null;
 
   const organizations = exportOptions?.organizations ?? profile.organizations;
-  const activeBoxes = boxes.filter((box) => box.status === 'active');
   const selectedLabelBoxes = boxes.filter((box) => selectedLabelBoxIds.includes(box.id));
-  const zoneChoices = zones.filter((zone) => zone.is_active);
   const normalizedLabelSearch = labelBoxSearch.trim().toLocaleLowerCase();
   const labelBoxes = boxes.filter((box) => {
     if (!normalizedLabelSearch) return true;
@@ -3463,49 +3973,8 @@ function AdminView({
           </div>
 
           <div className="admin-form-grid">
-            <form className="admin-form" onSubmit={(event) => event.preventDefault()}>
-              <label>
-                <span>{t('adminZoneName')}</span>
-                <input placeholder="Étuve 13" type="text" />
-              </label>
-              <label>
-                <span>{t('adminZoneType')}</span>
-                <select defaultValue="cabinet">
-                  <option value="cabinet">{t('adminZoneTypeCabinet')}</option>
-                  <option value="incubator">{t('adminZoneTypeIncubator')}</option>
-                </select>
-              </label>
-              <label>
-                <span>{t('adminTargetTemperature')}</span>
-                <input placeholder="15.0" type="number" />
-              </label>
-              <button type="submit" disabled>{t('adminCreateZone')}</button>
-            </form>
-
-            <form className="admin-form" onSubmit={(event) => event.preventDefault()}>
-              <label>
-                <span>{t('adminProbeCode')}</span>
-                <input placeholder="SONDE-15-01" type="text" />
-              </label>
-              <label>
-                <span>{t('adminProbeType')}</span>
-                <input placeholder="température" type="text" />
-              </label>
-              <label>
-                <span>{t('adminProbeZone')}</span>
-                <select defaultValue="">
-                  <option value="" disabled>{t('noZone')}</option>
-                  {zoneChoices.map((zone) => (
-                    <option key={zone.id} value={zone.id}>{zone.name}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                <span>{t('adminProbeApiUrl')}</span>
-                <input placeholder="https://..." type="url" />
-              </label>
-              <button type="submit" disabled>{t('adminAddProbe')}</button>
-            </form>
+            <ZoneCreateForm profile={profile} onCreateZone={onCreateZone} t={t} />
+            <ProbeCreateForm profile={profile} zones={zones} onCreateProbe={onCreateProbe} t={t} />
           </div>
         </section>
 
@@ -3517,37 +3986,11 @@ function AdminView({
             </div>
           </div>
 
-          <form className="admin-form admin-organization-form" onSubmit={(event) => event.preventDefault()}>
-            <label>
-              <span>{t('adminOrganizationName')}</span>
-              <input type="text" />
-            </label>
-            <label>
-              <span>{t('adminCountry')}</span>
-              <input type="text" />
-            </label>
-            <label>
-              <span>{t('adminCity')}</span>
-              <input type="text" />
-            </label>
-            <label>
-              <span>{t('adminContactName')}</span>
-              <input type="text" />
-            </label>
-            <label>
-              <span>{t('adminContactEmail')}</span>
-              <input type="email" />
-            </label>
-            <label>
-              <span>{t('adminContactPhone')}</span>
-              <input type="tel" />
-            </label>
-            <label className="admin-wide-field">
-              <span>{t('adminPostalAddress')}</span>
-              <textarea rows={3} />
-            </label>
-            <button type="submit" disabled>{t('adminAddOrganization')}</button>
-          </form>
+          <OrganizationCreateForm
+            profile={profile}
+            onCreateOrganization={onCreateOrganization}
+            t={t}
+          />
 
           <div className="admin-inline-list">
             <strong>{t('adminExistingOrganizations')}</strong>
@@ -3568,41 +4011,14 @@ function AdminView({
           </div>
         </div>
 
-        <form className="admin-transfer-form" onSubmit={(event) => event.preventDefault()}>
-          <label>
-            <span>{t('adminTransferBox')}</span>
-            <select defaultValue="">
-              <option value="" disabled>{t('boxes')}</option>
-              {activeBoxes.slice(0, 12).map((box) => (
-                <option key={box.id} value={box.id}>{box.global_code}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>{t('adminTransferTarget')}</span>
-            <select defaultValue="">
-              <option value="" disabled>{t('adminOrganizations')}</option>
-              {organizations.map((organization) => (
-                <option key={organization.id} value={organization.id}>{organization.name}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>{t('adminTransferPolyps')}</span>
-            <input min="0" placeholder="0" type="number" />
-          </label>
-          <label className="admin-checkbox">
-            <input defaultChecked type="checkbox" />
-            <span>{t('adminKeepTransferDate')}</span>
-          </label>
-          <button type="submit" disabled>{t('adminPrepareTransfer')}</button>
-        </form>
+        <TransferCreateForm
+          profile={profile}
+          boxes={boxes}
+          organizations={organizations}
+          onCreateTransfer={onCreateTransfer}
+          t={t}
+        />
       </section>
-
-      <p className="admin-api-note">
-        {t('adminDjangoHint')} <strong>{t('adminNotConnected')}</strong>
-        <a href="/admin/">{t('adminOpenDjango')}</a>
-      </p>
     </section>
   );
 }

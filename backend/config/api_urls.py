@@ -15,10 +15,13 @@ from apps.cultures.api_views import (
     BoxMeasurementListCreateAPIView,
     BoxMoveAPIView,
     BoxSubcultureCreateAPIView,
+    BoxTransferCreateAPIView,
     DashboardAPIView,
     HealthAPIView,
-    ThermalZoneListAPIView,
+    ProbeCreateAPIView,
+    ThermalZoneListCreateAPIView,
 )
+from apps.organizations.api_views import OrganizationCreateAPIView
 from apps.exports.views import (
     MeasurementExportOptionsAPIView,
     WeeklyMeasurementCSVExportAPIView,
@@ -57,7 +60,10 @@ urlpatterns = [
         BoxLineageGraphAPIView.as_view(),
         name="api_box_lineage",
     ),
-    path("thermal-zones/", ThermalZoneListAPIView.as_view(), name="api_thermal_zone_list"),
+    path("thermal-zones/", ThermalZoneListCreateAPIView.as_view(), name="api_thermal_zone_list"),
+    path("probes/", ProbeCreateAPIView.as_view(), name="api_probe_create"),
+    path("box-transfers/", BoxTransferCreateAPIView.as_view(), name="api_box_transfer_create"),
+    path("organizations/", OrganizationCreateAPIView.as_view(), name="api_organization_create"),
     path(
         "exports/options/",
         MeasurementExportOptionsAPIView.as_view(),

@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.permissions import (
+    get_admin_organization_ids,
     get_authorized_organization_ids,
     get_authorized_organizations,
     user_can_write_lab_data,
@@ -26,8 +27,11 @@ from .serializers import (
     BoxDetailSerializer,
     BoxListSerializer,
     BoxMoveCreateSerializer,
+    BoxTransferCreateSerializer,
+    ProbeCreateSerializer,
     SubcultureCreateSerializer,
     SubcultureEventSerializer,
+    ThermalZoneCreateSerializer,
     ThermalZoneSerializer,
 )
 from .services import build_lineage_graph, create_subculture, move_box_to_thermal_zone
@@ -333,8 +337,11 @@ class BoxLineageGraphAPIView(APIView):
         )
 
 
-class ThermalZoneListAPIView(generics.ListAPIView):
-    serializer_class = ThermalZoneSerializer
+class ThermalZoneListCreateAPIView(generics.ListCreateAPIView):
+    def get_serializer_class(self):
+        if self.request.method == "POST":
+            return ThermalZoneCreateSerializer
+        return ThermalZoneSerializer
 
     def get_queryset(self):
         organization_ids = get_authorized_organization_ids(self.request.user)
@@ -356,3 +363,34 @@ class ThermalZoneListAPIView(generics.ListAPIView):
             "organization__name",
             "name",
         )
+
+    def perform_create(self, serializer):
+        # Creating a zone is reserved to administrators of the owning organization.
+        organization = serializer.validated_data["organization"]
+        if organization.id not in get_admin_organization_ids(self.request.user):
+            raise PermissionDenied("Ce compte ne peut pas créer de zone pour cette structure.")
+        serializer.save()
+
+
+class ProbeCreateAPIView(generics.CreateAPIView):
+    serializer_class = ProbeCreateSerializer
+
+    def perform_create(self, serializer):
+        # A probe inherits its organization from the chosen zone; only that
+        # organization's admins may register it.
+        zone = serializer.validated_data["thermal_zone"]
+        if zone.organization_id not in get_admin_organization_ids(self.request.user):
+            raise PermissionDenied("Ce compte ne peut pas ajouter de sonde à cette zone.")
+        serializer.save(organization=zone.organization)
+
+
+class BoxTransferCreateAPIView(generics.CreateAPIView):
+    serializer_class = BoxTransferCreateSerializer
+
+    def perform_create(self, serializer):
+        # The source organization is the box owner; only its admins may record
+        # a transfer out of it. The box itself is not reassigned here.
+        box = serializer.validated_data["box"]
+        if box.organization_id not in get_admin_organization_ids(self.request.user):
+            raise PermissionDenied("Ce compte ne peut pas transférer cette boîte.")
+        serializer.save(from_organization=box.organization, user=self.request.user)
