@@ -8,11 +8,13 @@ from apps.cultures.models import (
     Box,
     BoxLocation,
     BoxMovement,
+    BoxTransfer,
     IdentificationTag,
     SubcultureEvent,
     ThermalZone,
 )
-from apps.measurements.models import BiologicalMeasurement
+from apps.measurements.models import BiologicalMeasurement, Probe
+from apps.organizations.models import Organization
 from apps.organizations.serializers import OrganizationSummarySerializer
 from apps.taxonomy.models import Species, Strain
 
@@ -375,6 +377,89 @@ class ThermalZoneSerializer(serializers.ModelSerializer):
             }
             for probe in obj.probes.all()
         ]
+
+
+class ThermalZoneCreateSerializer(serializers.ModelSerializer):
+    """Write serializer used by organization admins to create a thermal zone."""
+
+    organization = serializers.PrimaryKeyRelatedField(
+        queryset=Organization.objects.filter(is_active=True)
+    )
+
+    class Meta:
+        model = ThermalZone
+        fields = ["id", "organization", "name", "zone_type", "target_temperature_c"]
+
+    def validate_name(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Le nom de la zone est requis.")
+        return value
+
+    def validate(self, attrs):
+        # Mirror the model's unique (organization, name) constraint with a clean
+        # error instead of a database IntegrityError.
+        if ThermalZone.objects.filter(
+            organization=attrs["organization"], name=attrs["name"]
+        ).exists():
+            raise serializers.ValidationError(
+                {"name": "Une zone porte déjà ce nom dans cette structure."}
+            )
+        return attrs
+
+
+class ProbeCreateSerializer(serializers.ModelSerializer):
+    """Write serializer used by org admins to register a probe in a zone.
+
+    The owning organization is derived from the selected thermal zone in the view.
+    """
+
+    thermal_zone = serializers.PrimaryKeyRelatedField(
+        queryset=ThermalZone.objects.filter(is_active=True)
+    )
+
+    class Meta:
+        model = Probe
+        fields = ["id", "thermal_zone", "code", "probe_type", "location"]
+
+    def validate_code(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Le code de la sonde est requis.")
+        return value
+
+    def validate(self, attrs):
+        zone = attrs["thermal_zone"]
+        if Probe.objects.filter(organization=zone.organization, code=attrs["code"]).exists():
+            raise serializers.ValidationError(
+                {"code": "Une sonde porte déjà ce code dans cette structure."}
+            )
+        return attrs
+
+
+class BoxTransferCreateSerializer(serializers.ModelSerializer):
+    """Write serializer to record a planned box transfer to another organization.
+
+    The source organization is derived from the box; the transfer only logs the
+    intent (status defaults to PLANNED) and does not reassign the box.
+    """
+
+    box = serializers.PrimaryKeyRelatedField(queryset=Box.objects.all())
+    to_organization = serializers.PrimaryKeyRelatedField(
+        queryset=Organization.objects.filter(is_active=True)
+    )
+
+    class Meta:
+        model = BoxTransfer
+        fields = ["id", "box", "to_organization", "transfer_date", "notes"]
+        extra_kwargs = {"transfer_date": {"required": False}}
+
+    def validate(self, attrs):
+        if attrs["to_organization"] == attrs["box"].organization:
+            raise serializers.ValidationError(
+                {"to_organization": "La structure cible doit différer de la structure actuelle."}
+            )
+        return attrs
 
 
 class UserPreferenceSerializer(serializers.ModelSerializer):
