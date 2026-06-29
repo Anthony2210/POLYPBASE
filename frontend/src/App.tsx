@@ -37,6 +37,10 @@ import type {
   UserProfile,
 } from './types';
 
+// Boxes are filtered client-side, so the whole collection must be loaded.
+// Kept well above the current box count to leave room for growth.
+const BOX_LIST_LIMIT = 10000;
+
 type TabId = 'pilotage' | 'zones' | 'exports' | 'admin' | 'profile';
 type BoxInsightTab = 'measurements' | 'movements' | 'lineage';
 
@@ -617,7 +621,7 @@ export default function App() {
         setError(null);
 
         const [boxes, zones, dashboard, exportOptions, profile] = await Promise.all([
-          apiGet<PaginatedResponse<BoxItem>>('/api/boxes/?limit=80'),
+          apiGet<PaginatedResponse<BoxItem>>(`/api/boxes/?limit=${BOX_LIST_LIMIT}`),
           apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80'),
           apiGet<Dashboard>('/api/dashboard/'),
           apiGet<ExportOptions>('/api/exports/options/'),
@@ -848,7 +852,7 @@ export default function App() {
   async function createSubculture(boxId: number, payload: SubculturePayload) {
     await apiPost<SubcultureResult>(`/api/boxes/${boxId}/subcultures/`, payload);
     const [boxes, detail, dashboard, exportOptions] = await Promise.all([
-      apiGet<PaginatedResponse<BoxItem>>('/api/boxes/?limit=80'),
+      apiGet<PaginatedResponse<BoxItem>>(`/api/boxes/?limit=${BOX_LIST_LIMIT}`),
       apiGet<BoxDetail>(`/api/boxes/${boxId}/`),
       apiGet<Dashboard>('/api/dashboard/'),
       apiGet<ExportOptions>('/api/exports/options/'),
@@ -865,7 +869,7 @@ export default function App() {
   async function moveBox(boxId: number, payload: BoxMovePayload) {
     const detail = await apiPost<BoxDetail>(`/api/boxes/${boxId}/move/`, payload);
     const [boxes, zones, dashboard, exportOptions] = await Promise.all([
-      apiGet<PaginatedResponse<BoxItem>>('/api/boxes/?limit=80'),
+      apiGet<PaginatedResponse<BoxItem>>(`/api/boxes/?limit=${BOX_LIST_LIMIT}`),
       apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80'),
       apiGet<Dashboard>('/api/dashboard/'),
       apiGet<ExportOptions>('/api/exports/options/'),
