@@ -22,7 +22,13 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
-from apps.cultures.models import Box, BoxLocation, ThermalZone
+from apps.cultures.models import (
+    Box,
+    BoxLineage,
+    BoxLocation,
+    SubcultureEvent,
+    ThermalZone,
+)
 from apps.measurements.models import BiologicalMeasurement
 from apps.organizations.models import Organization
 from apps.taxonomy.models import Species, Strain
@@ -49,6 +55,15 @@ class Command(BaseCommand):
             action="store_true",
             help="Roll back at the end: import is simulated, nothing is saved.",
         )
+        parser.add_argument(
+            "--reset-boxes",
+            action="store_true",
+            help=(
+                "Delete all existing boxes (and their lineage, subculture "
+                "events, locations, movements, measurements...) before importing, "
+                "so boxes are recreated with fresh global codes."
+            ),
+        )
 
     def handle(self, *args, **options):
         csv_dir = Path(options["path"])
@@ -60,6 +75,8 @@ class Command(BaseCommand):
 
         try:
             with transaction.atomic():
+                if options["reset_boxes"]:
+                    self._reset_boxes()
                 organization = self._get_organization(options["organization"])
                 species = self._import_species(csv_dir)
                 strains = self._import_strains(csv_dir, species)
@@ -114,6 +131,17 @@ class Command(BaseCommand):
         self.counts["organization_created"] += int(created)
         return organization
 
+    def _reset_boxes(self):
+        """Delete every box so they can be recreated with fresh global codes.
+
+        Lineage and subculture events point at boxes with on_delete=PROTECT,
+        so they must be removed first. Everything else (locations, movements,
+        measurements, transfers, alerts, tags) cascades with the box.
+        """
+        self.counts["lineages_deleted"] = BoxLineage.objects.all().delete()[0]
+        self.counts["subcultures_deleted"] = SubcultureEvent.objects.all().delete()[0]
+        self.counts["boxes_deleted"] = Box.objects.all().delete()[0]
+
     def _import_species(self, csv_dir):
         mapping = {}
         for row in self._read(csv_dir, "espece.csv"):
@@ -161,11 +189,32 @@ class Command(BaseCommand):
             self.counts["zones_total"] += 1
         return mapping
 
-    def _resolve_global_codes(self, rows):
-        """Build {id_boite: global_code}, suffixing duplicates with the box id."""
+    def _build_base_code(self, row, strain):
+        """Compose ORG-ESPECE-SOUCHE.NNN for a box from its strain and row.
+
+        ORG     = strain provenance code (code_provenance, e.g. JKA)
+        ESPECE  = species code (code_espece, e.g. ALA)
+        SOUCHE  = local strain number (numero_souche_local)
+        NNN     = local box number, zero-padded to 3 digits
+        """
+        org = (strain.origin_code or "").strip()
+        species = (strain.species.genus_species_code or "").strip()
+        souche = strain.number if strain.number is not None else ""
+        nnn = f"{self._as_int(row.get('numero_boite_local')):03d}"
+        return f"{org}-{species}-{souche}.{nnn}"
+
+    def _resolve_global_codes(self, rows, strains):
+        """Build {id_boite: global_code} as ORG-ESPECE-SOUCHE.NNN.
+
+        Duplicates (should not happen in clean data) are suffixed with the
+        box id to keep the code unique.
+        """
         by_code = defaultdict(list)
         for row in rows:
-            by_code[row["code_local"].strip()].append(row["id_boite"])
+            strain = strains.get(row["id_souche"])
+            if strain is None:
+                continue
+            by_code[self._build_base_code(row, strain)].append(row["id_boite"])
 
         global_codes = {}
         for code, ids in by_code.items():
@@ -179,7 +228,7 @@ class Command(BaseCommand):
 
     def _import_boxes(self, csv_dir, organization, strains):
         rows = list(self._read(csv_dir, "boite.csv"))
-        global_codes = self._resolve_global_codes(rows)
+        global_codes = self._resolve_global_codes(rows, strains)
         mapping = {}
         for row in rows:
             strain = strains.get(row["id_souche"])
