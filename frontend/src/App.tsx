@@ -645,7 +645,7 @@ export default function App() {
   const availableTabs = useMemo(() => {
     if (!isDesktopApp) return labTabs;
     return canUseAdmin
-      ? [...desktopTabs.slice(0, -1), 'admin', 'profile']
+      ? ([...desktopTabs.slice(0, -1), 'admin', 'profile'] as TabId[])
       : desktopTabs;
   }, [canUseAdmin, isDesktopApp]);
 
@@ -850,7 +850,7 @@ export default function App() {
     if (shouldWaitForProfile) return;
     if (availableTabs.includes(activeTab)) return;
 
-    navigateTo({ tab: 'pilotage', boxCode: null }, '/');
+    navigateTo({ tab: 'pilotage', boxCode: null, boxId: null }, '/');
   }, [activeTab, availableTabs, data.profile, isLoading]);
 
   function closeBoxPage() {
@@ -4366,13 +4366,16 @@ function MeasurementSaveButton({
       disabled={isSaving}
       title={t('holdToSave')}
       aria-label={t('holdToSave')}
-      style={{ '--hold-progress': `${holdProgress * 360}deg` } as CSSProperties}
+      style={{
+        '--hold-progress': `${holdProgress * 360}deg`,
+        userSelect: 'none',
+        WebkitUserSelect: 'none',
+      } as CSSProperties}
       onPointerDown={startHold}
       onPointerUp={cancelHold}
       onPointerCancel={cancelHold}
       onPointerLeave={cancelHold}
       onContextMenu={(event) => event.preventDefault()}
-      onSelectStart={(event) => event.preventDefault()}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
@@ -4672,7 +4675,7 @@ function getCurrentRoute(): RouteState {
   }
 
   if (path === '/administration') {
-    return { tab: 'admin', boxCode: null };
+    return { tab: 'admin', boxCode: null, boxId: null };
   }
 
   if (path === '/profile') {
