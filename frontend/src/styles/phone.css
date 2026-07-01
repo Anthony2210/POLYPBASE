@@ -442,25 +442,35 @@
     display: none;
   }
 
-  .box-zone-summary .info-pill.is-strong {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 14px;
-    padding: 0;
-    border-bottom: 0;
-  }
+  .box-zone-summary .box-zone-link.info-pill.is-strong {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
+  padding: 0;
+  padding-right: 0;
+  border-bottom: 0;
+}
 
-  .box-zone-summary .info-pill.is-strong small {
-    flex: 0 0 auto;
-    color: var(--muted);
-  }
+.box-zone-summary .box-zone-link.info-pill.is-strong::after {
+  display: none;
+}
 
-  .box-zone-summary .info-pill.is-strong strong {
-    min-width: 0;
-    color: var(--primary-strong);
-    text-align: right;
-  }
+.box-zone-summary .box-zone-link.info-pill.is-strong small {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.box-zone-summary .box-zone-link.info-pill.is-strong strong {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: visible;
+  color: var(--primary-strong);
+  text-align: left;
+  text-overflow: initial;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 
   .box-page-grid {
     grid-template-columns: 1fr;
