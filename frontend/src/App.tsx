@@ -41,7 +41,7 @@ import type {
 
 // Boxes are filtered client-side, so the whole collection must be loaded.
 // Kept well above the current box count to leave room for growth.
-const BOX_LIST_LIMIT = 10000;
+const BOX_LIST_LIMIT = 1000;
 
 type TabId = 'pilotage' | 'zones' | 'exports' | 'admin' | 'profile';
 type BoxInsightTab = 'measurements' | 'movements' | 'lineage';

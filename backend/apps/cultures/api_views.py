@@ -1,5 +1,6 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Count, Prefetch, Q, Sum
+from django.db.models import Count, OuterRef, Prefetch, Q, Subquery, Sum
+from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, status
@@ -98,6 +99,57 @@ def box_queryset_for_user(user):
     ).filter(organization_id__in=organization_ids)
 
 
+def box_list_queryset_for_user(user):
+    """Lightweight queryset for the box list.
+
+    The list serializer only needs the latest measurement and the active alert
+    count, so we avoid the heavy detail prefetches (full history, lineages,
+    movements, locations, tags). Instead we prefetch only the 10 most recent
+    measurements per box and annotate the active alert count via subqueries.
+    Both subqueries are portable (correlated with LIMIT), so they run on
+    PostgreSQL and SQLite alike.
+    """
+    organization_ids = get_authorized_organization_ids(user)
+
+    recent_measurement_ids = Subquery(
+        BiologicalMeasurement.objects.filter(box_id=OuterRef("box_id"))
+        .order_by("-measured_on", "-created_at")
+        .values("id")[:10]
+    )
+    recent_measurements = (
+        BiologicalMeasurement.objects.filter(id__in=recent_measurement_ids)
+        .select_related("user")
+        .order_by("-measured_on", "-created_at")
+    )
+
+    active_alert_count = Coalesce(
+        Subquery(
+            Alert.objects.filter(box_id=OuterRef("pk"), resolved_at__isnull=True)
+            .order_by()
+            .values("box_id")
+            .annotate(count=Count("*"))
+            .values("count")
+        ),
+        0,
+    )
+
+    return (
+        Box.objects.select_related(
+            "organization",
+            "strain",
+            "strain__species",
+            "strain__origin",
+            "origin",
+            "thermal_zone",
+        )
+        .annotate(active_alert_count_annotation=active_alert_count)
+        .prefetch_related(
+            Prefetch("biological_measurements", queryset=recent_measurements)
+        )
+        .filter(organization_id__in=organization_ids)
+    )
+
+
 class HealthAPIView(APIView):
     """Small public endpoint used by deployments and local checks."""
 
@@ -179,7 +231,7 @@ class BoxListAPIView(generics.ListAPIView):
     serializer_class = BoxListSerializer
 
     def get_queryset(self):
-        queryset = box_queryset_for_user(self.request.user).order_by("global_code")
+        queryset = box_list_queryset_for_user(self.request.user).order_by("global_code")
 
         status_filter = self.request.query_params.get("status")
         if status_filter:

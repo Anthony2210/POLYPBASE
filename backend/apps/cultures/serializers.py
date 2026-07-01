@@ -130,6 +130,10 @@ class BoxListSerializer(serializers.ModelSerializer):
         return BiologicalMeasurementSerializer(measurement).data if measurement else None
 
     def get_active_alert_count(self, obj):
+        # The light list queryset annotates the count to avoid loading alerts.
+        annotated = getattr(obj, "active_alert_count_annotation", None)
+        if annotated is not None:
+            return annotated
         alerts = _prefetched_list(obj, "alerts")
         if alerts is not None:
             return sum(1 for alert in alerts if alert.is_active)
