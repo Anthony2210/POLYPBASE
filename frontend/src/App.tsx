@@ -1670,10 +1670,7 @@ const subcultureSuggested =
   <small>{t('lastComment')}</small>
   <p>{lastComment || t('noComment')}</p>
 </div>
-          <div className="last-reading-comment">
-            <small>{t('lastComment')}</small>
-            <p>{lastComment || t('noComment')}</p>
-          </div>
+          
         </section>
 
         {canWriteLabData ? (
