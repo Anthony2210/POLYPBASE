@@ -59,6 +59,7 @@ type MeasurementPayload = {
   measured_on: string;
   polyp_count: number;
   ephyrae_count: number;
+  salinity_psu: string | null;
   notes: string;
 };
 
@@ -320,6 +321,7 @@ const translations = {
     temperatureShort: 'Temp.',
     targetTemperature: 'Consigne',
     salinityShort: 'Sal.',
+    salinityFull: 'Salinité (PSU)',
     aliveBoxes: 'Vivantes',
     backToZones: 'Retour aux zones',
     boxAttention: 'À surveiller',
@@ -565,6 +567,7 @@ const translations = {
     temperatureShort: 'Temp.',
     targetTemperature: 'Target',
     salinityShort: 'Sal.',
+    salinityFull: 'Salinity (PSU)',
     aliveBoxes: 'Alive',
     backToZones: 'Back to zones',
     boxAttention: 'Needs attention',
@@ -1490,6 +1493,7 @@ const subcultureSuggested =
         measured_on: form.measuredOn,
         polyp_count: parsePositiveInteger(form.polypCount),
         ephyrae_count: parsePositiveInteger(form.ephyraeCount),
+        salinity_psu: form.salinity.trim() || null,
         notes: form.notes.trim(),
       });
       setForm(getInitialMeasurementForm());
@@ -1620,11 +1624,7 @@ const subcultureSuggested =
             value={formatTemperatureValue(currentZone?.target_temperature_c ?? box.thermal_zone?.target_temperature_c)}
           />
           <InfoPill label={t('temperatureShort')} value={formatTemperature(currentZone?.latest_temperature?.average_temperature_c)} />
-          <InfoPill label={t('salinityShort')} value={formatSalinity(currentZone?.latest_salinity?.salinity_psu)} />
-
-{currentZone && currentZone.latest_salinity?.salinity_psu == null ? (
-  <p className="inline-error">Salinité manquante</p>
-) : null}
+          <InfoPill label={t('salinityShort')} value={formatSalinity(box.latest_measurement?.salinity_psu)} />
         </div>
 
         {canWriteLabData ? (
@@ -1729,6 +1729,19 @@ const subcultureSuggested =
                     ...current,
                     ephyraeCount: incrementCountValue(current.ephyraeCount, value),
                   }))}
+                />
+              </label>
+
+              <label>
+                {t('salinityFull')}
+                <input
+                  min="0"
+                  step="0.1"
+                  inputMode="decimal"
+                  placeholder="35"
+                  type="number"
+                  value={form.salinity}
+                  onChange={(event) => setForm((current) => ({ ...current, salinity: event.target.value }))}
                 />
               </label>
             </div>
@@ -4449,6 +4462,7 @@ function getInitialMeasurementForm() {
     measuredOn: getTodayDateValue(),
     polypCount: '',
     ephyraeCount: '',
+    salinity: '',
     notes: '',
   };
 }
@@ -4570,8 +4584,10 @@ function getTemperatureMarkerPosition(value: number, target: number) {
   return Math.min(100, Math.max(0, relativePosition));
 }
 
-function formatSalinity(value: number | undefined) {
-  return value === undefined ? '-' : `${value.toFixed(1)}`;
+function formatSalinity(value: string | number | null | undefined) {
+  if (value === null || value === undefined || value === '') return '-';
+  const numeric = typeof value === 'string' ? Number.parseFloat(value) : value;
+  return Number.isNaN(numeric) ? '-' : numeric.toFixed(1);
 }
 
 function buildRecentBoxIds(boxes: BoxItem[], dashboard: Dashboard) {

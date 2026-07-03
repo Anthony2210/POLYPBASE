@@ -1,4 +1,4 @@
-"""Import the normalized POLYPBASE CSV files (data/bdd/) into the database.
+"""Import the normalized POLYPBASE CSV files (data/tables/) into the database.
 
 Source files (one row per entity / association, matching the validated MCD):
     espece.csv          -> taxonomy.Species
@@ -33,17 +33,17 @@ from apps.measurements.models import BiologicalMeasurement
 from apps.organizations.models import Organization
 from apps.taxonomy.models import Species, Strain
 
-DEFAULT_CSV_DIR = Path(settings.BASE_DIR).parent / "data" / "bdd"
+DEFAULT_CSV_DIR = Path(settings.BASE_DIR).parent / "data" / "tables"
 
 
 class Command(BaseCommand):
-    help = "Import the normalized CSV files from data/bdd/ into the database."
+    help = "Import the normalized CSV files from data/tables/ into the database."
 
     def add_arguments(self, parser):
         parser.add_argument(
             "--path",
             default=str(DEFAULT_CSV_DIR),
-            help="Directory containing the CSV files (default: data/bdd/).",
+            help="Directory containing the CSV files (default: data/tables/).",
         )
         parser.add_argument(
             "--organization",

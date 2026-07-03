@@ -21,6 +21,7 @@ class BiologicalMeasurement(models.Model):
     polyp_count = models.PositiveIntegerField(default=0)
     ephyrae_count = models.PositiveIntegerField(default=0)
     strobila_count = models.PositiveIntegerField(default=0)
+    salinity_psu = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     culture_status = models.CharField(
         max_length=30,
         choices=CultureStatus.choices,

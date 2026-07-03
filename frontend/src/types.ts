@@ -42,6 +42,7 @@ export type BiologicalMeasurement = {
   polyp_count: number;
   ephyrae_count: number;
   strobila_count: number;
+  salinity_psu: string | null;
   culture_status: string;
   needs_attention: boolean;
   notes: string;
