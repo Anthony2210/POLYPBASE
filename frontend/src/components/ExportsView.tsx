@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { scaleLinear, scalePoint, type ScaleLinear } from 'd3-scale';
+import { line } from 'd3-shape';
 
 import { apiDownload, apiGet } from '../api/client';
 import type { ExportOptions } from '../types';
@@ -78,7 +80,7 @@ const copy = {
     weeksWindowLabel: 'Semaines affich\u00e9es',
     weeksShown: 'derni\u00e8res semaines',
     allWeeksShort: "Tout l'historique",
-    selectFilterPrompt: 'S\u00e9lectionnez au moins un filtre (structure, esp\u00e8ce, souche, zone, bo\u00eete ou p\u00e9riode) pour afficher les graphiques.',
+    selectFilterPrompt: 'S\u00e9lectionnez au moins un filtre (structure, esp\u00e8ce, souche, armoire, bo\u00eete ou p\u00e9riode) pour afficher les graphiques.',
     boxes: 'Boîtes',
     boxesFound: 'boîtes',
     clear: 'Effacer',
@@ -109,7 +111,7 @@ const copy = {
     strains: 'Souches',
     temperature: 'Température',
     success: 'Fichier téléchargé',
-    zones: 'Zones thermiques',
+    zones: 'Armoires thermiques',
   },
   en: {
     all: 'All',
@@ -682,7 +684,6 @@ function ExportPreviewChart({
   const padding = compact
     ? { top: 18, right: 20, bottom: 32, left: isGeneral ? 20 : 40 }
     : { top: 30, right: 34, bottom: 48, left: isGeneral ? 34 : 58 };
-  const innerWidth = width - padding.left - padding.right;
   const innerHeight = height - padding.top - padding.bottom;
 
   // Each metric keeps its own scale so trends stay readable side by side.
@@ -705,29 +706,29 @@ function ExportPreviewChart({
     ? getPreviewMetricLabel('general', language, labels)
     : getPreviewMetricLabel(metric, language, labels);
 
-  function xPosition(index: number) {
-    if (points.length === 1) return padding.left + innerWidth / 2;
-    return padding.left + (index / (points.length - 1)) * innerWidth;
+  // D3 scales: x maps the week index to a pixel, y is per-metric (each series
+  // keeps its own domain). The d3 line generator draws the path and breaks it
+  // on missing weeks via .defined().
+  const indices = points.map((_, index) => index);
+  const xScale = scalePoint<number>()
+    .domain(indices)
+    .range([padding.left, width - padding.right]);
+  const yScales = {} as Record<PreviewMetric, ScaleLinear<number, number>>;
+  for (const drawn of drawnMetrics) {
+    yScales[drawn] = scaleLinear()
+      .domain(domains[drawn])
+      .range([height - padding.bottom, padding.top]);
   }
 
-  function yPosition(value: number, [domainMin, domainMax]: [number, number]) {
-    return padding.top + innerHeight - ((value - domainMin) / (domainMax - domainMin)) * innerHeight;
-  }
+  const xPosition = (index: number) => xScale(index) ?? padding.left;
 
   function linePath(drawn: PreviewMetric) {
-    const domain = domains[drawn];
-    let previousPointWasMissing = true;
-    return points.map((point, index) => {
-      const value = getPreviewMetricValue(point, drawn);
-      if (value === null) {
-        previousPointWasMissing = true;
-        return '';
-      }
-
-      const command = previousPointWasMissing ? 'M' : 'L';
-      previousPointWasMissing = false;
-      return `${command} ${xPosition(index)} ${yPosition(value, domain)}`;
-    }).join(' ');
+    const yScale = yScales[drawn];
+    const generator = line<number>()
+      .defined((index) => getPreviewMetricValue(points[index], drawn) !== null)
+      .x((index) => xPosition(index))
+      .y((index) => yScale(getPreviewMetricValue(points[index], drawn) as number));
+    return generator(indices) ?? '';
   }
 
   const dotRadius = compact ? 3.5 : 5;
@@ -806,7 +807,7 @@ function ExportPreviewChart({
                       key={drawn}
                       className={`export-chart-dot is-${drawn}`}
                       cx={x}
-                      cy={yPosition(value, domains[drawn])}
+                      cy={yScales[drawn](value)}
                       r={dotRadius}
                     />
                   );

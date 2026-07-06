@@ -16,7 +16,7 @@
     <p><strong>{% trans "Numéro boîte :" %}</strong> {{ box.box_number }}</p>
     <p><strong>{% trans "Espèce :" %}</strong> {{ box.strain.species.scientific_name }}</p>
     <p><strong>{% trans "Souche :" %}</strong> {{ box.strain.code }}</p>
-    <p><strong>{% trans "Zone thermique :" %}</strong> {{ box.thermal_zone }}</p>
+    <p><strong>{% trans "Armoire thermique :" %}</strong> {{ box.thermal_zone }}</p>
     <p><strong>{% trans "Statut :" %}</strong> {{ box.get_status_display }}</p>
 
     <p>
