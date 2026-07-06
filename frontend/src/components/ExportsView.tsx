@@ -37,7 +37,10 @@ type ExportPreview = {
 };
 
 type ComparisonMode = 'boxes' | 'strains';
-type PreviewMetric = 'polyps' | 'ephyrae' | 'temperature';
+type PreviewMetric = 'general' | 'polyps' | 'ephyrae' | 'temperature';
+
+// Metrics overlaid when the "general" view is selected.
+const GENERAL_METRICS: PreviewMetric[] = ['polyps', 'ephyrae', 'temperature'];
 
 type ComparisonGroup = {
   id: number;
@@ -172,7 +175,7 @@ export default function ExportsView({
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [comparisonMode, setComparisonMode] = useState<ComparisonMode>('boxes');
-  const [previewMetric, setPreviewMetric] = useState<PreviewMetric>('polyps');
+  const [previewMetric, setPreviewMetric] = useState<PreviewMetric>('general');
   const [weeksWindow, setWeeksWindow] = useState(DEFAULT_WEEKS_WINDOW);
   const [comparisonPreviews, setComparisonPreviews] = useState<Record<string, ExportPreview>>({});
   const [isComparisonLoading, setIsComparisonLoading] = useState(false);
@@ -506,7 +509,7 @@ export default function ExportsView({
               </button>
             </div>
             <div className="export-metric-tabs" role="tablist" aria-label={labels.selectedMeasurementsTitle}>
-              {(['polyps', 'ephyrae', 'temperature'] as PreviewMetric[]).map((metric) => (
+              {(['general', 'polyps', 'ephyrae', 'temperature'] as PreviewMetric[]).map((metric) => (
                 <button
                   className={previewMetric === metric ? 'is-active' : ''}
                   key={metric}
@@ -665,7 +668,11 @@ function ExportPreviewChart({
     return <div className="export-chart-state is-error">{error}</div>;
   }
 
-  const hasMeasurement = points.some((point) => !isMissingMeasurement(point, metric));
+  const isGeneral = metric === 'general';
+  const drawnMetrics: PreviewMetric[] = isGeneral ? GENERAL_METRICS : [metric];
+
+  const hasMeasurement = points.some((point) =>
+    drawnMetrics.some((drawn) => !isMissingMeasurement(point, drawn)));
   if (!points.length || !hasMeasurement) {
     return <div className="export-chart-state">{labels.previewEmpty}</div>;
   }
@@ -673,38 +680,45 @@ function ExportPreviewChart({
   const width = compact ? 440 : 900;
   const height = compact ? 180 : 320;
   const padding = compact
-    ? { top: 18, right: 20, bottom: 32, left: 40 }
-    : { top: 30, right: 34, bottom: 48, left: 58 };
+    ? { top: 18, right: 20, bottom: 32, left: isGeneral ? 20 : 40 }
+    : { top: 30, right: 34, bottom: 48, left: isGeneral ? 34 : 58 };
   const innerWidth = width - padding.left - padding.right;
   const innerHeight = height - padding.top - padding.bottom;
-  const measuredValues = points
-    .map((point) => getPreviewMetricValue(point, metric))
-    .filter((value): value is number => value !== null);
-  const [domainMin, domainMax] = getChartDomain(measuredValues, metric);
+
+  // Each metric keeps its own scale so trends stay readable side by side.
+  const domains = {} as Record<PreviewMetric, [number, number]>;
+  for (const drawn of drawnMetrics) {
+    const values = points
+      .map((point) => getPreviewMetricValue(point, drawn))
+      .filter((value): value is number => value !== null);
+    domains[drawn] = getChartDomain(values, drawn);
+  }
+
   const lastMeasuredIndex = points.reduce(
-    (lastIndex, point, index) => (!isMissingMeasurement(point, metric) ? index : lastIndex),
+    (lastIndex, point, index) =>
+      (drawnMetrics.some((drawn) => !isMissingMeasurement(point, drawn)) ? index : lastIndex),
     -1,
   );
   const activeIndex = hoveredIndex ?? lastMeasuredIndex;
   const activePoint = points[activeIndex];
-  const metricLabel = getPreviewMetricLabel(metric, language, labels);
-  const metricClass = `is-${metric}`;
-  const activeValue = getPreviewMetricValue(activePoint, metric);
-  const activeIsMissing = isMissingMeasurement(activePoint, metric);
+  const ariaLabel = isGeneral
+    ? getPreviewMetricLabel('general', language, labels)
+    : getPreviewMetricLabel(metric, language, labels);
 
   function xPosition(index: number) {
     if (points.length === 1) return padding.left + innerWidth / 2;
     return padding.left + (index / (points.length - 1)) * innerWidth;
   }
 
-  function yPosition(value: number) {
+  function yPosition(value: number, [domainMin, domainMax]: [number, number]) {
     return padding.top + innerHeight - ((value - domainMin) / (domainMax - domainMin)) * innerHeight;
   }
 
-  function linePath() {
+  function linePath(drawn: PreviewMetric) {
+    const domain = domains[drawn];
     let previousPointWasMissing = true;
     return points.map((point, index) => {
-      const value = getPreviewMetricValue(point, metric);
+      const value = getPreviewMetricValue(point, drawn);
       if (value === null) {
         previousPointWasMissing = true;
         return '';
@@ -712,13 +726,15 @@ function ExportPreviewChart({
 
       const command = previousPointWasMissing ? 'M' : 'L';
       previousPointWasMissing = false;
-      return `${command} ${xPosition(index)} ${yPosition(value)}`;
+      return `${command} ${xPosition(index)} ${yPosition(value, domain)}`;
     }).join(' ');
   }
 
+  const dotRadius = compact ? 3.5 : 5;
+
   return (
     <div className={compact ? 'export-chart-card is-compact' : 'export-chart-card'}>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={metricLabel}>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={ariaLabel}>
         <line
           className="export-chart-axis"
           x1={padding.left}
@@ -735,7 +751,6 @@ function ExportPreviewChart({
         />
         {[0, 1 / 3, 2 / 3, 1].map((ratio) => {
           const y = padding.top + innerHeight - ratio * innerHeight;
-          const value = domainMin + (domainMax - domainMin) * ratio;
           return (
             <g key={ratio}>
               <line
@@ -745,17 +760,21 @@ function ExportPreviewChart({
                 y1={y}
                 y2={y}
               />
-              <text className="export-chart-label" x={padding.left - 10} y={y + 4}>
-                {formatAxisValue(value, metric)}
-              </text>
+              {/* Axis numbers only make sense for a single scale. */}
+              {!isGeneral ? (
+                <text className="export-chart-label" x={padding.left - 10} y={y + 4}>
+                  {formatAxisValue(domains[metric][0] + (domains[metric][1] - domains[metric][0]) * ratio, metric)}
+                </text>
+              ) : null}
             </g>
           );
         })}
-        <path className={`export-chart-line ${metricClass}`} d={linePath()} />
+        {drawnMetrics.map((drawn) => (
+          <path key={drawn} className={`export-chart-line is-${drawn}`} d={linePath(drawn)} />
+        ))}
         {points.map((point, index) => {
           const x = xPosition(index);
-          const value = getPreviewMetricValue(point, metric);
-          const isMissing = value === null;
+          const allMissing = drawnMetrics.every((drawn) => isMissingMeasurement(point, drawn));
           return (
             <g
               key={point.label}
@@ -773,22 +792,32 @@ function ExportPreviewChart({
                 height={innerHeight}
                 rx={8}
               />
-              {isMissing ? (
+              {allMissing ? (
                 <g className="export-chart-missing" aria-hidden="true">
                   <line x1={x - 5} x2={x + 5} y1={height - padding.bottom - 8} y2={height - padding.bottom - 8} />
                   <circle cx={x} cy={height - padding.bottom - 8} r={3.5} />
                 </g>
               ) : (
-                <circle className={`export-chart-dot ${metricClass}`} cx={x} cy={yPosition(value)} r={5} />
+                drawnMetrics.map((drawn) => {
+                  const value = getPreviewMetricValue(point, drawn);
+                  if (value === null) return null;
+                  return (
+                    <circle
+                      key={drawn}
+                      className={`export-chart-dot is-${drawn}`}
+                      cx={x}
+                      cy={yPosition(value, domains[drawn])}
+                      r={dotRadius}
+                    />
+                  );
+                })
               )}
               {shouldShowWeekLabel(index, points.length, compact) ? (
                 <text className="export-chart-week" x={x} y={height - 16}>
                   {formatWeekLabel(point.label)}
                 </text>
               ) : null}
-              <title>{isMissing
-                ? `${formatWeekDetail(point.label, language)} · ${getNoMeasurementLabel(language)}`
-                : `${formatWeekDetail(point.label, language)} · ${metricLabel}: ${formatPreviewMetricValue(value, metric)}`}</title>
+              <title>{buildPointTooltip(point, drawnMetrics, language, labels)}</title>
             </g>
           );
         })}
@@ -796,22 +825,55 @@ function ExportPreviewChart({
 
       <div className="export-chart-details">
         <strong>{formatWeekDetail(activePoint.label, language)}</strong>
-        {activeIsMissing ? (
+        {drawnMetrics.every((drawn) => isMissingMeasurement(activePoint, drawn)) ? (
           <span className="is-missing">{getNoMeasurementLabel(language)}</span>
         ) : (
           <>
-            <span>{metricLabel} : {formatPreviewMetricValue(activeValue, metric)}</span>
-            <span>{activePoint.measurement_count} {labels.previewMeasurements}</span>
+            {drawnMetrics.map((drawn) => {
+              const value = getPreviewMetricValue(activePoint, drawn);
+              return (
+                <span key={drawn} className={`is-${drawn}`}>
+                  {getPreviewMetricLabel(drawn, language, labels)} : {value === null
+                    ? getNoMeasurementLabel(language)
+                    : formatPreviewMetricValue(value, drawn)}
+                </span>
+              );
+            })}
+            {!isGeneral ? (
+              <span>{activePoint.measurement_count} {labels.previewMeasurements}</span>
+            ) : null}
           </>
         )}
       </div>
 
       <div className="chart-legend export-chart-legend">
-        <span className={metricClass}>{metricLabel}</span>
+        {drawnMetrics.map((drawn) => (
+          <span key={drawn} className={`is-${drawn}`}>
+            {getPreviewMetricLabel(drawn, language, labels)}
+          </span>
+        ))}
         <span className="is-missing">{getNoMeasurementLabel(language)}</span>
       </div>
     </div>
   );
+}
+
+function buildPointTooltip(
+  point: ExportPreviewPoint,
+  drawnMetrics: PreviewMetric[],
+  language: Language,
+  labels: (typeof copy)[Language],
+) {
+  const week = formatWeekDetail(point.label, language);
+  const parts = drawnMetrics
+    .map((drawn) => {
+      const value = getPreviewMetricValue(point, drawn);
+      if (value === null) return null;
+      return `${getPreviewMetricLabel(drawn, language, labels)}: ${formatPreviewMetricValue(value, drawn)}`;
+    })
+    .filter((part): part is string => part !== null);
+  if (!parts.length) return `${week} · ${getNoMeasurementLabel(language)}`;
+  return `${week} · ${parts.join(' · ')}`;
 }
 
 function getPreviewMetricValue(point: ExportPreviewPoint | undefined, metric: PreviewMetric) {
@@ -852,6 +914,7 @@ function getPreviewMetricLabel(
   language: Language,
   labels: (typeof copy)[Language],
 ) {
+  if (metric === 'general') return language === 'fr' ? 'Général' : 'General';
   if (metric === 'polyps') return language === 'fr' ? 'Polypes' : 'Polyps';
   if (metric === 'ephyrae') return language === 'fr' ? 'Éphyrules' : 'Ephyrae';
   return labels.temperature;

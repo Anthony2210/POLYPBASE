@@ -62,6 +62,7 @@ export type BoxItem = {
   thermal_zone: ThermalZoneSummary | null;
   entered_on: string | null;
   latest_measurement: BiologicalMeasurement | null;
+  latest_salinity_psu: string | null;
   active_alert_count: number;
 };
 
