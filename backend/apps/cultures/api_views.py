@@ -133,6 +133,12 @@ def box_list_queryset_for_user(user):
         0,
     )
 
+    latest_salinity = Subquery(
+        BiologicalMeasurement.objects.filter(box_id=OuterRef("pk"), salinity_psu__isnull=False)
+        .order_by("-measured_on", "-created_at")
+        .values("salinity_psu")[:1]
+    )
+
     return (
         Box.objects.select_related(
             "organization",
@@ -142,7 +148,10 @@ def box_list_queryset_for_user(user):
             "origin",
             "thermal_zone",
         )
-        .annotate(active_alert_count_annotation=active_alert_count)
+        .annotate(
+            active_alert_count_annotation=active_alert_count,
+            latest_salinity_annotation=latest_salinity,
+        )
         .prefetch_related(
             Prefetch("biological_measurements", queryset=recent_measurements)
         )

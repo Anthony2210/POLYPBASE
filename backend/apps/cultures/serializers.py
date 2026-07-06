@@ -102,6 +102,7 @@ class BoxListSerializer(serializers.ModelSerializer):
     strain = StrainSummarySerializer(read_only=True)
     thermal_zone = ThermalZoneSummarySerializer(read_only=True)
     latest_measurement = serializers.SerializerMethodField()
+    latest_salinity_psu = serializers.SerializerMethodField()
     active_alert_count = serializers.SerializerMethodField()
 
     class Meta:
@@ -118,6 +119,7 @@ class BoxListSerializer(serializers.ModelSerializer):
             "thermal_zone",
             "entered_on",
             "latest_measurement",
+            "latest_salinity_psu",
             "active_alert_count",
         ]
 
@@ -129,6 +131,26 @@ class BoxListSerializer(serializers.ModelSerializer):
         if measurement is None:
             measurement = obj.biological_measurements.order_by("-measured_on", "-created_at").first()
         return BiologicalMeasurementSerializer(measurement).data if measurement else None
+
+    def get_latest_salinity_psu(self, obj):
+        # Salinity is entered per measurement but rarely changes, so we surface
+        # the most recent measurement that actually recorded one. This keeps the
+        # value visible even when later measurements leave salinity blank.
+        annotated = getattr(obj, "latest_salinity_annotation", None)
+        if annotated is not None:
+            return annotated
+        measurements = _prefetched_list(obj, "biological_measurements")
+        if measurements is not None:
+            for measurement in measurements:  # ordered most-recent first
+                if measurement.salinity_psu is not None:
+                    return measurement.salinity_psu
+            return None
+        latest = (
+            obj.biological_measurements.filter(salinity_psu__isnull=False)
+            .order_by("-measured_on", "-created_at")
+            .first()
+        )
+        return latest.salinity_psu if latest else None
 
     def get_active_alert_count(self, obj):
         # The light list queryset annotates the count to avoid loading alerts.

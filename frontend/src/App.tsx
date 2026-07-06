@@ -1600,7 +1600,6 @@ const subcultureSuggested =
           </div>
 
           <div className="box-small-facts">
-            <InfoPill label={t('boxLocalCode')} value={box.local_code || '-'} />
             <InfoPill label={t('boxStrain')} value={box.strain.code} />
             <InfoPill label={t('createdOn')} value={createdOn ? formatDisplayDate(createdOn) : t('noDate')} />
           </div>
@@ -1624,7 +1623,7 @@ const subcultureSuggested =
             value={formatTemperatureValue(currentZone?.target_temperature_c ?? box.thermal_zone?.target_temperature_c)}
           />
           <InfoPill label={t('temperatureShort')} value={formatTemperature(currentZone?.latest_temperature?.average_temperature_c)} />
-          <InfoPill label={t('salinityShort')} value={formatSalinity(box.latest_measurement?.salinity_psu)} />
+          <InfoPill label={t('salinityShort')} value={formatSalinity(box.latest_salinity_psu)} />
         </div>
 
         {canWriteLabData ? (
