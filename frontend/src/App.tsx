@@ -8,6 +8,8 @@ import {
   useState,
 } from 'react';
 import type { IScannerControls } from '@zxing/browser';
+import { scaleLinear, scalePoint } from 'd3-scale';
+import { line } from 'd3-shape';
 
 import { ApiError, apiGet, apiPatch, apiPost } from './api/client';
 import { getBoxStatusPresentation } from './boxStatus';
@@ -137,7 +139,7 @@ const translations = {
     adminUsers: 'Comptes et rôles',
     adminOrganizations: 'Structures partenaires',
     adminReferences: 'Espèces et souches',
-    adminEnvironment: 'Zones et sondes',
+    adminEnvironment: 'Armoires et sondes',
     adminRights: 'Réservé admin',
     adminSubtitle: 'Gestion disponible sur ordinateur',
     adminDesktopOnly: 'Les fonctionnalités admin sont pensées pour la version ordinateur.',
@@ -156,20 +158,20 @@ const translations = {
     adminChangeRole: 'Modifier rôle',
     adminRemoveAccess: 'Supprimer accès',
     adminNotConnected: 'API à connecter',
-    adminZonesProbesTitle: 'Zones thermiques et sondes',
+    adminZonesProbesTitle: 'Armoires thermiques et sondes',
     adminZonesProbesText: 'Créer une armoire ou une étuve, puis y associer une ou plusieurs sondes.',
-    adminZoneName: 'Nom de la zone',
-    adminZoneType: 'Type de zone',
+    adminZoneName: 'Nom de l’armoire',
+    adminZoneType: 'Type d’armoire',
     adminZoneTypeCabinet: 'Armoire',
     adminZoneTypeIncubator: 'Étuve',
     adminTargetTemperature: 'Température consigne',
     adminZoneOrganization: 'Structure',
-    adminCreateZone: 'Créer la zone',
-    adminZoneCreated: 'Zone créée.',
+    adminCreateZone: 'Créer l’armoire',
+    adminZoneCreated: 'Armoire créée.',
     adminZoneNoOrganization: 'Aucune structure que vous administrez.',
     adminProbeLocation: 'Emplacement',
     adminProbeCreated: 'Sonde ajoutée.',
-    adminProbeNoZone: 'Aucune zone que vous administrez.',
+    adminProbeNoZone: 'Aucune armoire que vous administrez.',
     adminOrganizationCreated: 'Structure créée.',
     adminSuperuserOnly: 'Réservé au super-administrateur.',
     adminTransferNotes: 'Notes',
@@ -177,7 +179,7 @@ const translations = {
     adminTransferNoBox: 'Aucune boîte que vous administrez.',
     adminProbeCode: 'Code sonde',
     adminProbeType: 'Type de sonde',
-    adminProbeZone: 'Zone associée',
+    adminProbeZone: 'Armoire associée',
     adminProbeApiUrl: 'URL API',
     adminAddProbe: 'Ajouter la sonde',
     adminOrganizationsTitle: 'Nouvelles institutions',
@@ -279,7 +281,7 @@ const translations = {
     noDate: 'aucune date',
     noMeasurementHistory: 'Aucun relevé pour cette boîte.',
     noRecentScans: 'Aucun scan récent pour l’instant.',
-    noZone: 'Sans zone',
+    noZone: 'Sans armoire',
     observation: 'Observation',
     observationPlaceholder: 'Note rapide pour le laboratoire',
     pilotage: 'Pilotage',
@@ -323,7 +325,7 @@ const translations = {
     salinityShort: 'Sal.',
     salinityFull: 'Salinité (PSU)',
     aliveBoxes: 'Vivantes',
-    backToZones: 'Retour aux zones',
+    backToZones: 'Retour aux armoires',
     boxAttention: 'À surveiller',
     boxesHealthy: 'Sans alerte',
     zoneActivityTitle: 'Activité récente',
@@ -331,7 +333,7 @@ const translations = {
     zoneFilterAll: 'Toutes',
     zoneFilterAttention: 'À vérifier',
     zoneFilterLiving: 'Vivantes',
-    zoneOverviewAttentionDetails: 'Consultez les zones qui demandent une vérification.',
+    zoneOverviewAttentionDetails: 'Consultez les armoires qui demandent une vérification.',
     zoneOverviewAttentionTitle: 'À vérifier',
     zoneOverviewNoProbe: 'Aucune sonde',
     zoneOverviewSortLocation: 'Rangement',
@@ -339,12 +341,12 @@ const translations = {
     zoneOverviewThermalGap: 'Écart thermique',
     zoneOverviewMissingMeasurements: 'relevé(s) manquant(s)',
     zoneTarget: 'Consigne',
-    zoneNoAttention: 'Aucune action à prévoir dans cette zone.',
-    zoneNoRecentActivity: 'Aucun relevé récent dans cette zone.',
+    zoneNoAttention: 'Aucune action à prévoir dans cette armoire.',
+    zoneNoRecentActivity: 'Aucun relevé récent dans cette armoire.',
     zoneSummaryAlive: 'Vivantes',
     zoneSummaryAttention: 'À vérifier',
     deadBoxes: 'Mortes',
-    emptyZone: 'Aucune boîte dans cette zone.',
+    emptyZone: 'Aucune boîte dans cette armoire.',
     latestCounts: 'Derniers comptages',
     latestReadingDate: 'Dernière mesure',
     maxTemperature: 'Max.',
@@ -359,11 +361,11 @@ const translations = {
     temperatureMissing: 'Aucune température relevée',
     temperatureOk: 'Proche de la consigne',
     temperatureWatch: 'Écart à surveiller',
-    zoneSheet: 'Fiche zone thermique',
-    zoneBoxesTitle: 'Boîtes dans la zone',
+    zoneSheet: 'Fiche armoire thermique',
+    zoneBoxesTitle: 'Boîtes dans l’armoire',
     zoneProbesTitle: 'Sondes associées',
-    zones: 'Zones',
-    zonesTitle: 'Zones thermiques',
+    zones: 'Armoires',
+    zonesTitle: 'Armoires thermiques',
   },
   en: {
     account: 'Account',
@@ -2200,19 +2202,22 @@ function MeasurementTrendChart({
       measurement.ephyrae_count,
     ]),
   );
-  const xStep = (width - padding.left - padding.right) / (chartMeasurements.length - 1);
-  const yScale = (value: number) => (
-    height - padding.bottom - (value / maxValue) * (height - padding.top - padding.bottom)
-  );
-  const toPoints = (selector: (measurement: BiologicalMeasurement) => number) => (
-    chartMeasurements
-      .map((measurement, index) => `${padding.left + index * xStep},${yScale(selector(measurement))}`)
-      .join(' ')
-  );
+  // D3 scales + line generator (React still renders the SVG).
+  const indices = chartMeasurements.map((_, index) => index);
+  const xScale = scalePoint<number>()
+    .domain(indices)
+    .range([padding.left, width - padding.right]);
+  const yScale = scaleLinear().domain([0, maxValue]).range([height - padding.bottom, padding.top]);
+  const xStep = xScale.step();
+  const xPosition = (index: number) => xScale(index) ?? padding.left;
+  const buildLinePath = (selector: (measurement: BiologicalMeasurement) => number) =>
+    line<number>()
+      .x((index) => xPosition(index))
+      .y((index) => yScale(selector(chartMeasurements[index])))(indices) ?? '';
   const firstDate = chartMeasurements[0].measured_on;
   const lastDate = chartMeasurements[chartMeasurements.length - 1].measured_on;
   const hoveredMeasurement = hoveredIndex != null ? chartMeasurements[hoveredIndex] : null;
-  const hoverX = hoveredIndex != null ? padding.left + hoveredIndex * xStep : null;
+  const hoverX = hoveredIndex != null ? xPosition(hoveredIndex) : null;
   const hoverTop = hoveredMeasurement
     ? Math.min(yScale(hoveredMeasurement.polyp_count), yScale(hoveredMeasurement.ephyrae_count))
     : null;
@@ -2226,8 +2231,8 @@ function MeasurementTrendChart({
           const y = padding.top + ratio * (height - padding.top - padding.bottom);
           return <line key={ratio} className="chart-grid-line" x1={padding.left} y1={y} x2={width - padding.right} y2={y} />;
         })}
-        <polyline className="chart-line is-polyps" points={toPoints((measurement) => measurement.polyp_count)} />
-        <polyline className="chart-line is-ephyrae" points={toPoints((measurement) => measurement.ephyrae_count)} />
+        <path className="chart-line is-polyps" d={buildLinePath((measurement) => measurement.polyp_count)} />
+        <path className="chart-line is-ephyrae" d={buildLinePath((measurement) => measurement.ephyrae_count)} />
         {hoveredMeasurement && hoverX != null ? (
           <line
             className="chart-hover-line"
@@ -2241,20 +2246,20 @@ function MeasurementTrendChart({
           <g key={measurement.id}>
             <circle
               className={hoveredIndex === index ? 'chart-dot is-polyps is-active' : 'chart-dot is-polyps'}
-              cx={padding.left + index * xStep}
+              cx={xPosition(index)}
               cy={yScale(measurement.polyp_count)}
               r={hoveredIndex === index ? '5' : '3.5'}
             />
             <circle
               className={hoveredIndex === index ? 'chart-dot is-ephyrae is-active' : 'chart-dot is-ephyrae'}
-              cx={padding.left + index * xStep}
+              cx={xPosition(index)}
               cy={yScale(measurement.ephyrae_count)}
               r={hoveredIndex === index ? '5' : '3.5'}
             />
           </g>
         ))}
         {chartMeasurements.map((measurement, index) => {
-          const x = padding.left + index * xStep;
+          const x = xPosition(index);
           const hitWidth = Math.max(26, xStep * 0.82);
 
           return (
@@ -2986,14 +2991,17 @@ function ZoneLatestCountsChart({ boxes, t }: { boxes: BoxItem[]; t: TFunction })
       box.latest_measurement?.ephyrae_count ?? 0,
     ]),
   );
+  // D3 scale maps a count to a bar width (in %), with a small minimum so an
+  // empty bar stays visible.
+  const widthScale = scaleLinear().domain([0, maxValue]).range([2, 100]);
 
   return (
     <div className="zone-count-chart">
       {measuredBoxes.map((box) => {
         const measurement = box.latest_measurement;
         if (!measurement) return null;
-        const polypWidth = `${Math.max(2, (measurement.polyp_count / maxValue) * 100)}%`;
-        const ephyraeWidth = `${Math.max(2, (measurement.ephyrae_count / maxValue) * 100)}%`;
+        const polypWidth = `${widthScale(measurement.polyp_count)}%`;
+        const ephyraeWidth = `${widthScale(measurement.ephyrae_count)}%`;
 
         return (
           <div className="zone-count-row" key={box.id}>
