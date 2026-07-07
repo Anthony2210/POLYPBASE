@@ -295,7 +295,7 @@ export type NewMemberPayload = {
   first_name: string;
   last_name: string;
   email: string;
-  password: string;
+  password?: string;
   organization_id: number;
   role: MembershipRole;
 };

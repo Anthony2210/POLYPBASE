@@ -44,7 +44,9 @@ export default function LoginPage({ onAuthenticated }: Props) {
     <main className="login-screen">
       <section className="login-content" aria-labelledby="login-title">
         <div className="login-brand">
-          <span className="brand-mark" aria-hidden="true">P</span>
+          <span className="brand-mark" aria-hidden="true">
+            <img src="/jellyfish.svg" alt="" />
+          </span>
           <div>
             <p className="eyebrow">Polypbase</p>
             <strong>Suivi laboratoire</strong>

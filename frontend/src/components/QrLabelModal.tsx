@@ -9,33 +9,30 @@ import {
 type QrLabelModalLabels = {
   addToSelection: string;
   alreadySelected: string;
-  clearSelection: string;
   close: string;
   download: string;
   help: string;
   print: string;
-  printSelection: string;
   qrCode: string;
   selectionCount: string;
   title: string;
+  viewSelection: string;
 };
 
 export default function QrLabelModal({
   box,
   labels,
   onAddToSelection,
-  onClearSelection,
   onClose,
-  onPrintSelection,
+  onViewSelection,
   qrImageUrl,
   selectedLabels,
 }: {
   box: BoxItem | BoxDetail;
   labels: QrLabelModalLabels;
   onAddToSelection: (label: QrLabelItem) => void;
-  onClearSelection: () => void;
   onClose: () => void;
-  onPrintSelection: () => void;
+  onViewSelection: () => void;
   qrImageUrl: string;
   selectedLabels: QrLabelItem[];
 }) {
@@ -87,16 +84,8 @@ export default function QrLabelModal({
             >
               {isSelected ? labels.alreadySelected : labels.addToSelection}
             </button>
-            <button type="button" disabled={!selectedLabels.length} onClick={onPrintSelection}>
-              {labels.printSelection}
-            </button>
-            <button
-              type="button"
-              className="is-ghost"
-              disabled={!selectedLabels.length}
-              onClick={onClearSelection}
-            >
-              {labels.clearSelection}
+            <button type="button" disabled={!selectedLabels.length} onClick={onViewSelection}>
+              {labels.viewSelection}
             </button>
           </div>
         </section>

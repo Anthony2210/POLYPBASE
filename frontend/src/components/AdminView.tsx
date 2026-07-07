@@ -21,7 +21,6 @@ import type {
 } from '../types/admin';
 import { formatDisplayDate } from '../utils/dateFormat';
 import { getErrorMessage } from '../utils/errors';
-import { buildQrLabelItem, printQrLabels } from '../utils/qrLabels';
 import PageLoader from './PageLoader';
 import SkeletonRows from './SkeletonRows';
 
@@ -38,7 +37,6 @@ const emptyMemberForm = {
   first_name: '',
   last_name: '',
   email: '',
-  password: '',
 };
 
 function AccountManagementSection({ t }: { t: TFunction }) {
@@ -185,6 +183,12 @@ function AccountManagementSection({ t }: { t: TFunction }) {
 
   const organizations = data.manageable_organizations;
   const roles = data.roles;
+  const activeMemberCount = data.members.filter((member) => member.is_active).length;
+  const adminMemberCount = data.members.filter((member) => member.role === 'admin').length;
+  const technicianMemberCount = data.members.filter(
+    (member) => member.role === 'lab_technician',
+  ).length;
+  const viewerMemberCount = data.members.filter((member) => member.role === 'viewer').length;
 
   return (
     <section className="admin-section account-management">
@@ -196,8 +200,33 @@ function AccountManagementSection({ t }: { t: TFunction }) {
         <span className="account-count">{data.members.length}</span>
       </div>
 
+      <div className="account-overview">
+        <article>
+          <strong>{activeMemberCount}</strong>
+          <span>{t('manageActiveAccounts')}</span>
+        </article>
+        <article>
+          <strong>{adminMemberCount}</strong>
+          <span>{t('manageAdminAccounts')}</span>
+        </article>
+        <article>
+          <strong>{technicianMemberCount}</strong>
+          <span>{t('manageTechnicianAccounts')}</span>
+        </article>
+        <article>
+          <strong>{viewerMemberCount}</strong>
+          <span>{t('manageViewerAccounts')}</span>
+        </article>
+      </div>
+
       <form className="member-add-form" onSubmit={handleAddMember}>
-        <p className="member-add-title">{t('manageAddTitle')}</p>
+        <div className="member-add-header">
+          <p className="member-add-title">{t('manageAddTitle')}</p>
+          <div className="member-password-flow">
+            <strong>{t('manageTemporaryPasswordTitle')}</strong>
+            <span>{t('manageTemporaryPasswordText')}</span>
+          </div>
+        </div>
         <div className="member-add-grid">
           <label>
             {t('manageFieldUsername')}
@@ -224,20 +253,11 @@ function AccountManagementSection({ t }: { t: TFunction }) {
           <label>
             {t('manageFieldEmail')}
             <input
+              required
               type="email"
               value={form.email}
               onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
             />
-          </label>
-          <label className="member-add-password">
-            {t('manageFieldPassword')}
-            <input
-              type="password"
-              autoComplete="new-password"
-              value={form.password}
-              onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
-            />
-            <small>{t('managePasswordHint')}</small>
           </label>
           {organizations.length > 1 ? (
             <label>
@@ -790,9 +810,6 @@ export default function AdminView({
   t: TFunction;
   zones: ThermalZone[];
 }) {
-  const [selectedLabelBoxIds, setSelectedLabelBoxIds] = useState<number[]>([]);
-  const [labelBoxSearch, setLabelBoxSearch] = useState('');
-
   if (isLoading) {
     return <PageLoader variant="admin" label={t('adminTitle')} />;
   }
@@ -800,88 +817,10 @@ export default function AdminView({
   if (!profile || !userHasAdminRole(profile)) return null;
 
   const organizations = exportOptions?.organizations ?? profile.organizations;
-  const selectedLabelBoxes = boxes.filter((box) => selectedLabelBoxIds.includes(box.id));
-  const normalizedLabelSearch = labelBoxSearch.trim().toLocaleLowerCase();
-  const labelBoxes = boxes.filter((box) => {
-    if (!normalizedLabelSearch) return true;
-    return [
-      box.global_code,
-      box.local_code,
-      box.species.scientific_name,
-      box.strain.code,
-    ]
-      .filter(Boolean)
-      .some((value) => value!.toLocaleLowerCase().includes(normalizedLabelSearch));
-  });
-
-  function toggleLabelBox(boxId: number) {
-    setSelectedLabelBoxIds((current) => (
-      current.includes(boxId)
-        ? current.filter((id) => id !== boxId)
-        : [...current, boxId]
-    ));
-  }
-
-  function printSelectedLabels() {
-    printQrLabels(selectedLabelBoxes.map((box) => buildQrLabelItem(box)));
-  }
 
   return (
     <section className="admin-panel">
       <AccountManagementSection t={t} />
-
-      <section className="admin-section admin-label-section">
-        <div className="admin-section-heading">
-          <div>
-            <h2>{t('adminPrintLabelsTitle')}</h2>
-            <p>{t('adminPrintLabelsHelp')}</p>
-          </div>
-          <div className="admin-label-actions">
-            <button type="button" onClick={() => setSelectedLabelBoxIds(labelBoxes.map((box) => box.id))}>
-              {t('adminPrintLabelsSelectAll')}
-            </button>
-            <button type="button" onClick={() => setSelectedLabelBoxIds([])}>
-              {t('adminPrintLabelsClear')}
-            </button>
-          </div>
-        </div>
-
-        <label className="admin-label-search">
-          <span>{t('adminPrintLabelsSearch')}</span>
-          <input
-            type="search"
-            value={labelBoxSearch}
-            placeholder={t('adminPrintLabelsSearchPlaceholder')}
-            onChange={(event) => setLabelBoxSearch(event.target.value)}
-          />
-        </label>
-
-        <div className="admin-label-selector">
-          {labelBoxes.map((box) => (
-            <label key={box.id}>
-              <input
-                type="checkbox"
-                checked={selectedLabelBoxIds.includes(box.id)}
-                onChange={() => toggleLabelBox(box.id)}
-              />
-              <span>
-                <strong>{box.global_code}</strong>
-                <small>{box.species.scientific_name}</small>
-              </span>
-              <em>{box.thermal_zone?.name ?? t('noZone')}</em>
-            </label>
-          ))}
-        </div>
-
-        <button
-          className="admin-print-labels-button"
-          type="button"
-          disabled={!selectedLabelBoxes.length}
-          onClick={printSelectedLabels}
-        >
-          {t('adminPrintLabelsAction')} ({selectedLabelBoxes.length})
-        </button>
-      </section>
 
       <div className="admin-two-columns">
         <section className="admin-section">

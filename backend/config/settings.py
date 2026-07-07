@@ -183,6 +183,14 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# In development, emails are printed in the terminal. Production should set a
+# real SMTP backend through environment variables.
+EMAIL_BACKEND = os.getenv(
+    "EMAIL_BACKEND",
+    "django.core.mail.backends.console.EmailBackend",
+)
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "Polypbase <no-reply@polypbase.local>")
+
 LOGIN_REDIRECT_URL = "/boites/"
 LOGOUT_REDIRECT_URL = "/accounts/login/"
 
