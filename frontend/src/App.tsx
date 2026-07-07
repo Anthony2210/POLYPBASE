@@ -1570,11 +1570,7 @@ function BoxPage({
     ? previousMeasurement.polyp_count - latestMeasurement.polyp_count
     : 0;
 
-  const subcultureSuggested =
-    latestMeasurement &&
-    latestMeasurement.polyp_count >= 100;
-
-  const checkCount = Number(Boolean(polypDropDetected)) + Number(Boolean(subcultureSuggested));
+  const checkCount = Number(Boolean(polypDropDetected));
 
   const qr = 'qr_image_url' in box
     ? { imageUrl: getBoxQrImageUrl(box), scanUrl: getBoxScanUrl(box) }
