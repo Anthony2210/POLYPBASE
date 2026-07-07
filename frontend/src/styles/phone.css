@@ -130,7 +130,6 @@
   .desktop-only-loading,
   .box-small-facts,
   .box-hero-qr,
-  .box-action-stack,
   .box-insights-section,
   .measurement-date-field,
   .zone-secondary-stack .zone-page-section:not(.zone-chart-section) {
@@ -407,10 +406,7 @@
   }
 
   .box-code-line {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 10px;
-    align-items: start;
+    display: block;
   }
 
   .box-sheet-identity h2 {
@@ -460,7 +456,7 @@
   white-space: nowrap;
 }
 
-.box-zone-summary .box-zone-link.info-pill.is-strong strong {
+  .box-zone-summary .box-zone-link.info-pill.is-strong strong {
   display: block;
   min-width: 0;
   max-width: 100%;
@@ -471,6 +467,24 @@
   white-space: normal;
   overflow-wrap: anywhere;
 }
+
+  .box-action-stack {
+    display: grid;
+    width: 100%;
+    gap: 8px;
+  }
+
+  .box-action-stack .move-trigger,
+  .box-action-stack .subculture-trigger {
+    display: none;
+  }
+
+  .box-alert-trigger {
+    justify-self: start;
+    width: 48px;
+    min-height: 48px;
+    border-radius: 14px;
+  }
 
   .box-page-grid {
     grid-template-columns: 1fr;
@@ -794,14 +808,15 @@
   }
 
   .modal-backdrop {
-    align-items: stretch;
-    padding: 8px;
+    place-items: center;
+    padding: 12px;
   }
 
   .history-modal,
   .lineage-modal,
   .subculture-modal,
   .move-modal,
+  .box-checks-modal,
   .qr-label-modal {
     width: 100%;
     max-height: calc(100svh - 16px);
@@ -811,6 +826,23 @@
 
   .modal-heading {
     gap: 10px;
+  }
+
+  .box-checks-heading {
+    grid-template-columns: minmax(0, 1fr) 36px;
+    padding: 14px;
+  }
+
+  .box-checks-list {
+    padding: 0 14px 14px;
+  }
+
+  .box-check-item {
+    grid-template-columns: 1fr;
+  }
+
+  .box-check-item > div:last-child {
+    grid-column: auto;
   }
 
   .subculture-event-fields,

@@ -1,27 +1,46 @@
 import type { BoxDetail, BoxItem } from '../types';
-import { buildQrLabelItem, downloadQrLabel, printQrLabels } from '../utils/qrLabels';
+import {
+  buildQrLabelItem,
+  downloadQrLabel,
+  printQrLabels,
+  type QrLabelItem,
+} from '../utils/qrLabels';
 
 type QrLabelModalLabels = {
+  addToSelection: string;
+  alreadySelected: string;
+  clearSelection: string;
   close: string;
   download: string;
   help: string;
   print: string;
+  printSelection: string;
   qrCode: string;
+  selectionCount: string;
   title: string;
 };
 
 export default function QrLabelModal({
   box,
   labels,
+  onAddToSelection,
+  onClearSelection,
   onClose,
+  onPrintSelection,
   qrImageUrl,
+  selectedLabels,
 }: {
   box: BoxItem | BoxDetail;
   labels: QrLabelModalLabels;
+  onAddToSelection: (label: QrLabelItem) => void;
+  onClearSelection: () => void;
   onClose: () => void;
+  onPrintSelection: () => void;
   qrImageUrl: string;
+  selectedLabels: QrLabelItem[];
 }) {
   const label = buildQrLabelItem(box, qrImageUrl);
+  const isSelected = selectedLabels.some((item) => item.id === label.id);
 
   return (
     <div className="modal-backdrop qr-print-backdrop" role="presentation" onClick={onClose}>
@@ -53,6 +72,34 @@ export default function QrLabelModal({
             <strong>{labels.qrCode}</strong>
           </div>
         </div>
+
+        <section className="qr-label-selection-panel">
+          <div>
+            <strong>{selectedLabels.length}</strong>
+            <span>{labels.selectionCount}</span>
+          </div>
+          <div className="qr-label-selection-actions">
+            <button
+              type="button"
+              className={isSelected ? 'is-secondary is-selected' : 'is-secondary'}
+              disabled={isSelected}
+              onClick={() => onAddToSelection(label)}
+            >
+              {isSelected ? labels.alreadySelected : labels.addToSelection}
+            </button>
+            <button type="button" disabled={!selectedLabels.length} onClick={onPrintSelection}>
+              {labels.printSelection}
+            </button>
+            <button
+              type="button"
+              className="is-ghost"
+              disabled={!selectedLabels.length}
+              onClick={onClearSelection}
+            >
+              {labels.clearSelection}
+            </button>
+          </div>
+        </section>
 
         <footer className="qr-label-modal-actions">
           <button type="button" className="is-secondary" onClick={() => void downloadQrLabel(label)}>
