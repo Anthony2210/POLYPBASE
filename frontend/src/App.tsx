@@ -52,7 +52,7 @@ import { upsertBoxes } from './utils/boxCollection';
 import { formatDisplayDate } from './utils/dateFormat';
 import { getErrorMessage } from './utils/errors';
 import { triggerHaptic } from './utils/haptics';
-import { getBoxQrImageUrl, getBoxScanUrl } from './utils/qrLabels';
+import { getBoxQrImageUrl, getBoxScanUrl, printQrLabels, type QrLabelItem } from './utils/qrLabels';
 
 // Boxes are filtered client-side, so the whole collection must be loaded.
 // Kept well above the current box count to leave room for growth.
@@ -216,6 +216,10 @@ const translations = {
     analysisTabMovements: 'Mouvements',
     boxLocalCode: 'Code local',
     boxStrain: 'Souche',
+    boxAttentionTitle: 'Suivi prioritaire',
+    boxChecksButton: 'Alertes',
+    boxChecksIntro: 'Signaux détectés à partir des derniers relevés.',
+    boxChecksTitle: 'Alertes de la boîte',
     chartEmpty: 'Pas assez de relevés pour tracer une tendance.',
     chartTitle: 'Évolution des relevés',
     createdOn: 'Créée le',
@@ -259,8 +263,13 @@ const translations = {
     print: 'Imprimer',
     prototype: 'prototype',
     qrCode: 'QR code',
+    qrLabelAddToSelection: 'Ajouter à la sélection',
+    qrLabelAlreadySelected: 'Déjà dans la sélection',
+    qrLabelClearSelection: 'Vider',
     qrLabelDownload: 'Télécharger',
     qrLabelHelp: 'Étiquette prête à imprimer et coller sur la boîte.',
+    qrLabelPrintSelection: 'Imprimer la sélection',
+    qrLabelSelectionCount: 'étiquette(s) sélectionnée(s)',
     qrLabelTitle: 'Étiquette QR code',
     qrDownload: 'Télécharger',
     qrScanHint: 'Scannez pour ouvrir cette fiche',
@@ -282,8 +291,19 @@ const translations = {
     searchTab: 'Recherche',
     suggestions: 'Suggestions',
     subcultureAction: 'Repiquer',
+    subcultureAdviceAction: 'Préparer le repiquage',
+    subcultureAdviceModalAction: 'Ouvrir le repiquage',
+    subcultureAdviceText: 'polypes comptés au dernier relevé. La boîte peut être prête à être repiquée.',
+    subcultureAdviceTitle: 'Repiquage conseillé',
     subcultureForbidden: 'Ce compte ne peut pas créer de repiquage.',
     subcultureSaved: 'Repiquage enregistré',
+    polypDropAdviceText: 'polypes de moins que le relevé précédent. Vérifier la boîte avant la prochaine saisie.',
+    polypDropAdviceAction: 'Contrôler la boîte au prochain passage.',
+    polypDropAdviceTitle: 'Baisse de polypes',
+    checkImportanceHigh: 'Important',
+    checkImportanceMedium: 'À surveiller',
+    detectedSignal: 'Signal détecté',
+    suggestedAction: 'Action proposée',
     temperatureShort: 'Temp.',
     targetTemperature: 'Consigne',
     salinityShort: 'Sal.',
@@ -462,6 +482,10 @@ const translations = {
     analysisTabMovements: 'Moves',
     boxLocalCode: 'Local code',
     boxStrain: 'Strain',
+    boxAttentionTitle: 'Priority follow-up',
+    boxChecksButton: 'Alerts',
+    boxChecksIntro: 'Signals detected from the latest measurements.',
+    boxChecksTitle: 'Box alerts',
     chartEmpty: 'Not enough measurements to draw a trend.',
     chartTitle: 'Measurement trend',
     createdOn: 'Created on',
@@ -505,8 +529,13 @@ const translations = {
     print: 'Print',
     prototype: 'prototype',
     qrCode: 'QR code',
+    qrLabelAddToSelection: 'Add to selection',
+    qrLabelAlreadySelected: 'Already selected',
+    qrLabelClearSelection: 'Clear',
     qrLabelDownload: 'Download',
     qrLabelHelp: 'Label ready to print and attach to the box.',
+    qrLabelPrintSelection: 'Print selection',
+    qrLabelSelectionCount: 'selected label(s)',
     qrLabelTitle: 'QR code label',
     qrDownload: 'Download',
     qrScanHint: 'Scan to open this sheet',
@@ -528,8 +557,19 @@ const translations = {
     searchTab: 'Search',
     suggestions: 'Suggestions',
     subcultureAction: 'Subculture',
+    subcultureAdviceAction: 'Prepare subculture',
+    subcultureAdviceModalAction: 'Open subculture',
+    subcultureAdviceText: 'polyps counted in the latest measurement. This box may be ready for subculture.',
+    subcultureAdviceTitle: 'Subculture recommended',
     subcultureForbidden: 'This account cannot create subculture events.',
     subcultureSaved: 'Subculture created',
+    polypDropAdviceText: 'fewer polyps than the previous measurement. Check the box before the next entry.',
+    polypDropAdviceAction: 'Check this box during the next lab round.',
+    polypDropAdviceTitle: 'Polyp decrease',
+    checkImportanceHigh: 'Important',
+    checkImportanceMedium: 'Monitor',
+    detectedSignal: 'Detected signal',
+    suggestedAction: 'Suggested action',
     temperatureShort: 'Temp.',
     targetTemperature: 'Target',
     salinityShort: 'Sal.',
@@ -591,6 +631,7 @@ export default function App() {
   const [isLoginRoute, setIsLoginRoute] = useState(() => window.location.pathname === '/login');
   const [search, setSearch] = useState('');
   const [recentBoxIds, setRecentBoxIds] = useState<number[]>([]);
+  const [qrLabelSelection, setQrLabelSelection] = useState<QrLabelItem[]>([]);
   const lastRecordedBoxIdRef = useRef<number | null>(null);
   const [data, setData] = useState<AppData>({
     boxes: [],
@@ -814,6 +855,20 @@ export default function App() {
     navigateTo({ tab, boxCode: null, boxId: null }, paths[tab]);
   }
 
+  function addQrLabelToSelection(label: QrLabelItem) {
+    setQrLabelSelection((current) => (
+      current.some((item) => item.id === label.id) ? current : [...current, label]
+    ));
+  }
+
+  function clearQrLabelSelection() {
+    setQrLabelSelection([]);
+  }
+
+  function printQrLabelSelection() {
+    printQrLabels(qrLabelSelection);
+  }
+
   useEffect(() => {
     const shouldWaitForProfile = activeTab === 'admin' && isLoading && !data.profile;
     if (shouldWaitForProfile) return;
@@ -1010,6 +1065,7 @@ export default function App() {
                 zones={data.zones}
                 profile={data.profile}
                 language={language}
+                qrLabelSelection={qrLabelSelection}
                 isLoading={isLoading || isBoxLoading}
                 onCreateMeasurement={createMeasurement}
                 onCreateSubculture={createSubculture}
@@ -1017,7 +1073,10 @@ export default function App() {
                 onLoadLineageGraph={loadLineageGraph}
                 onOpenBox={openBox}
                 onOpenZone={openZone}
+                onAddQrLabel={addQrLabelToSelection}
                 onBack={closeBoxPage}
+                onClearQrLabelSelection={clearQrLabelSelection}
+                onPrintQrLabelSelection={printQrLabelSelection}
                 t={t}
               />
             )}
@@ -1344,6 +1403,7 @@ function BoxPage({
   zones,
   profile,
   language,
+  qrLabelSelection,
   isLoading,
   onCreateMeasurement,
   onCreateSubculture,
@@ -1351,7 +1411,10 @@ function BoxPage({
   onLoadLineageGraph,
   onOpenBox,
   onOpenZone,
+  onAddQrLabel,
   onBack,
+  onClearQrLabelSelection,
+  onPrintQrLabelSelection,
   t,
 }: {
   box: BoxItem | BoxDetail | null;
@@ -1359,6 +1422,7 @@ function BoxPage({
   zones: ThermalZone[];
   profile: UserProfile | null;
   language: Language;
+  qrLabelSelection: QrLabelItem[];
   isLoading: boolean;
   onCreateMeasurement: (boxId: number, payload: MeasurementPayload) => Promise<void>;
   onCreateSubculture: (boxId: number, payload: SubculturePayload) => Promise<void>;
@@ -1366,7 +1430,10 @@ function BoxPage({
   onLoadLineageGraph: (boxId: number) => Promise<LineageGraph>;
   onOpenBox: (boxId: number, globalCode: string) => void;
   onOpenZone: (zoneId: number) => void;
+  onAddQrLabel: (label: QrLabelItem) => void;
   onBack: () => void;
+  onClearQrLabelSelection: () => void;
+  onPrintQrLabelSelection: () => void;
   t: TFunction;
 }) {
   const [form, setForm] = useState(() => getInitialMeasurementForm());
@@ -1383,6 +1450,7 @@ function BoxPage({
   const [isSubcultureOpen, setIsSubcultureOpen] = useState(false);
   const [isSavingSubculture, setIsSavingSubculture] = useState(false);
   const [isQrLabelOpen, setIsQrLabelOpen] = useState(false);
+  const [isChecksOpen, setIsChecksOpen] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [subcultureError, setSubcultureError] = useState<string | null>(null);
@@ -1401,6 +1469,7 @@ function BoxPage({
     setMoveMessage(null);
     setIsSubcultureOpen(false);
     setIsQrLabelOpen(false);
+    setIsChecksOpen(false);
     setSaveError(null);
     setSaveMessage(null);
     setSubcultureError(null);
@@ -1460,21 +1529,26 @@ function BoxPage({
   const measurements = getMeasurementHistory(box);
   const lastComment = getLatestComment(measurements, box);
   const sortedMeasurements = [...measurements].sort(
-  (first, second) =>
-    new Date(second.measured_on).getTime() - new Date(first.measured_on).getTime(),
-);
+    (first, second) =>
+      new Date(second.measured_on).getTime() - new Date(first.measured_on).getTime(),
+  );
 
-const latestMeasurement = sortedMeasurements[0];
-const previousMeasurement = sortedMeasurements[1];
+  const latestMeasurement = sortedMeasurements[0];
+  const previousMeasurement = sortedMeasurements[1];
 
-const polypDropDetected =
-  latestMeasurement &&
-  previousMeasurement &&
-  latestMeasurement.polyp_count < previousMeasurement.polyp_count;
+  const polypDropDetected =
+    latestMeasurement &&
+    previousMeasurement &&
+    latestMeasurement.polyp_count < previousMeasurement.polyp_count;
 
-const subcultureSuggested =
-  latestMeasurement &&
-  latestMeasurement.polyp_count >= 100;
+  const polypDropCount = polypDropDetected
+    ? previousMeasurement.polyp_count - latestMeasurement.polyp_count
+    : 0;
+
+  const subcultureSuggested =
+    latestMeasurement &&
+    latestMeasurement.polyp_count >= 100;
+  const checkCount = Number(Boolean(polypDropDetected)) + Number(Boolean(subcultureSuggested));
 
   const qr = 'qr_image_url' in box
     ? { imageUrl: getBoxQrImageUrl(box), scanUrl: getBoxScanUrl(box) }
@@ -1497,7 +1571,7 @@ const subcultureSuggested =
         measured_on: form.measuredOn,
         polyp_count: parsePositiveInteger(form.polypCount),
         ephyrae_count: parsePositiveInteger(form.ephyraeCount),
-        salinity_psu: form.salinity.trim() || null,
+        salinity_psu: null,
         notes: form.notes.trim(),
       });
       setForm(getInitialMeasurementForm());
@@ -1583,11 +1657,11 @@ const subcultureSuggested =
               <p className="box-page-label">{t('boxSheet')}</p>
               <div className="box-code-line">
                 <h2>{box.global_code}</h2>
-                <span className={`box-life-status is-${statusPresentation.tone}`}>
-                  {statusPresentation.label}
-                </span>
               </div>
-              <p>{box.species.scientific_name}</p>
+              <p className="box-species-name">{box.species.scientific_name}</p>
+              <span className={`box-life-status is-${statusPresentation.tone}`}>
+                {statusPresentation.label}
+              </span>
             </div>
 
             {qr ? (
@@ -1630,14 +1704,31 @@ const subcultureSuggested =
           <InfoPill label={t('salinityShort')} value={formatSalinity(box.latest_salinity_psu)} />
         </div>
 
-        {canWriteLabData ? (
+        {(checkCount > 0 || canWriteLabData) ? (
           <div className="box-action-stack">
-            <button className="move-trigger" type="button" onClick={() => setIsMoveOpen(true)}>
-              {t('moveAction')}
-            </button>
-            <button className="subculture-trigger" type="button" onClick={() => setIsSubcultureOpen(true)}>
-              {t('subcultureAction')}
-            </button>
+            {checkCount > 0 ? (
+              <button
+                className="box-alert-trigger"
+                type="button"
+                aria-label={`${t('boxChecksButton')} (${checkCount})`}
+                title={`${t('boxChecksButton')} (${checkCount})`}
+                onClick={() => setIsChecksOpen(true)}
+              >
+                <BellIcon />
+                <strong>{checkCount}</strong>
+              </button>
+            ) : null}
+
+            {canWriteLabData ? (
+              <>
+                <button className="move-trigger" type="button" onClick={() => setIsMoveOpen(true)}>
+                  {t('moveAction')}
+                </button>
+                <button className="subculture-trigger" type="button" onClick={() => setIsSubcultureOpen(true)}>
+                  {t('subcultureAction')}
+                </button>
+              </>
+            ) : null}
           </div>
         ) : null}
       </header>
@@ -1657,124 +1748,98 @@ const subcultureSuggested =
           </div>
           <Metric label={t('polyps')} value={String(box.latest_measurement?.polyp_count ?? '-')} />
           <Metric label={t('ephyraeFull')} value={String(box.latest_measurement?.ephyrae_count ?? '-')} />
-          {polypDropDetected ? (
-  <p className="inline-error form-feedback">
-    Baisse de polypes détectée : {previousMeasurement.polyp_count} → {latestMeasurement.polyp_count}
-  </p>
-) : null}
 
-{subcultureSuggested ? (
-  <p className="inline-error form-feedback">
-    Repiquage à envisager : {latestMeasurement.polyp_count} polypes.
-  </p>
-) : null}
-
-<div className="last-reading-comment">
-  <small>{t('lastComment')}</small>
-  <p>{lastComment || t('noComment')}</p>
-</div>
-          
+          <div className="last-reading-comment">
+            <small>{t('lastComment')}</small>
+            <p>{lastComment || t('noComment')}</p>
+          </div>
         </section>
 
         {canWriteLabData ? (
           <section className="box-section measurement-form-section">
-          <form className="fake-form" onSubmit={handleSubmit}>
-            <div className="section-title">
-              <h2>{t('newMeasurement')}</h2>
-              <span>{formatDisplayDate(form.measuredOn)}</span>
-            </div>
+            <form className="fake-form" onSubmit={handleSubmit}>
+              <div className="section-title">
+                <h2>{t('newMeasurement')}</h2>
+                <span>{formatDisplayDate(form.measuredOn)}</span>
+              </div>
 
-            <div className="measurement-entry-grid">
-              <label className="measurement-date-field">
-                {t('measurementDate')}
-                <input
-                  required
-                  type="date"
-                  value={form.measuredOn}
-                  onChange={(event) => setForm((current) => ({ ...current, measuredOn: event.target.value }))}
-                />
-              </label>
+              <div className="measurement-entry-grid">
+                <label className="measurement-date-field">
+                  {t('measurementDate')}
+                  <input
+                    required
+                    type="date"
+                    value={form.measuredOn}
+                    onChange={(event) => setForm((current) => ({ ...current, measuredOn: event.target.value }))}
+                  />
+                </label>
 
-              <label>
-                {t('polyps')}
-                <input
-                  min="0"
-                  required
-                  inputMode="numeric"
-                  placeholder="0"
-                  type="number"
-                  value={form.polypCount}
-                  onChange={(event) => setForm((current) => ({ ...current, polypCount: event.target.value }))}
-                />
-                <QuickCountButtons
-                  values={[50, 100]}
-                  onAdd={(value) => setForm((current) => ({
-                    ...current,
-                    polypCount: incrementCountValue(current.polypCount, value),
-                  }))}
-                />
-              </label>
+                <label>
+                  {t('polyps')}
+                  <input
+                    min="0"
+                    required
+                    inputMode="numeric"
+                    placeholder="0"
+                    type="number"
+                    value={form.polypCount}
+                    onChange={(event) => setForm((current) => ({ ...current, polypCount: event.target.value }))}
+                  />
+                  <QuickCountButtons
+                    values={[50, 100]}
+                    onAdd={(value) => setForm((current) => ({
+                      ...current,
+                      polypCount: incrementCountValue(current.polypCount, value),
+                    }))}
+                  />
+                </label>
 
-              <label>
-                {t('ephyraeFull')}
-                <input
-                  min="0"
-                  required
-                  inputMode="numeric"
-                  placeholder="0"
-                  type="number"
-                  value={form.ephyraeCount}
-                  onChange={(event) => setForm((current) => ({ ...current, ephyraeCount: event.target.value }))}
-                />
-                <QuickCountButtons
-                  values={[10, 25]}
-                  onAdd={(value) => setForm((current) => ({
-                    ...current,
-                    ephyraeCount: incrementCountValue(current.ephyraeCount, value),
-                  }))}
-                />
-              </label>
-
-              <label>
-                {t('salinityFull')}
-                <input
-                  min="0"
-                  step="0.1"
-                  inputMode="decimal"
-                  placeholder="35"
-                  type="number"
-                  value={form.salinity}
-                  onChange={(event) => setForm((current) => ({ ...current, salinity: event.target.value }))}
-                />
-              </label>
-            </div>
+                <label>
+                  {t('ephyraeFull')}
+                  <input
+                    min="0"
+                    required
+                    inputMode="numeric"
+                    placeholder="0"
+                    type="number"
+                    value={form.ephyraeCount}
+                    onChange={(event) => setForm((current) => ({ ...current, ephyraeCount: event.target.value }))}
+                  />
+                  <QuickCountButtons
+                    values={[10, 25]}
+                    onAdd={(value) => setForm((current) => ({
+                      ...current,
+                      ephyraeCount: incrementCountValue(current.ephyraeCount, value),
+                    }))}
+                  />
+                </label>
+              </div>
 
               <label className="notes-field">
-              {t('observation')}
-              <textarea
-                placeholder={t('observationPlaceholder')}
-                rows={3}
-                value={form.notes}
-                onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
+                {t('observation')}
+                <textarea
+                  placeholder={t('observationPlaceholder')}
+                  rows={3}
+                  value={form.notes}
+                  onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
+                />
+              </label>
+
+              {saveError ? <p className="inline-error form-feedback">{saveError}</p> : null}
+
+              <MeasurementSaveButton
+                isDesktop={isDesktopApp}
+                isSaving={isSaving}
+                isSuccess={Boolean(saveMessage)}
+                labels={{
+                  hold: t('holdToSave'),
+                  save: t('saveMeasurement'),
+                  saved: t('measurementSaved'),
+                  saving: t('saving'),
+                }}
+                onSave={saveMeasurement}
               />
-            </label>
-
-            {saveError ? <p className="inline-error form-feedback">{saveError}</p> : null}
-            {saveMessage ? <p className="inline-success form-feedback">{saveMessage}</p> : null}
-
-            <MeasurementSaveButton
-              isDesktop={isDesktopApp}
-              isSaving={isSaving}
-              isSuccess={Boolean(saveMessage)}
-              labels={{
-                hold: t('holdToSave'),
-                save: t('saveMeasurement'),
-                saved: t('measurementSaved'),
-                saving: t('saving'),
-              }}
-              onSave={saveMeasurement}
-            />
-          </form>
+            </form>
           </section>
         ) : null}
 
@@ -1829,23 +1894,144 @@ const subcultureSuggested =
           />
         ) : null}
 
+        {isChecksOpen && checkCount > 0 ? (
+          <BoxChecksModal
+            canPrepareSubculture={canWriteLabData}
+            latestMeasurement={latestMeasurement}
+            polypDropCount={polypDropCount}
+            polypDropDetected={Boolean(polypDropDetected)}
+            subcultureSuggested={Boolean(subcultureSuggested)}
+            t={t}
+            onClose={() => setIsChecksOpen(false)}
+            onOpenSubculture={() => {
+              setIsChecksOpen(false);
+              setIsSubcultureOpen(true);
+            }}
+          />
+        ) : null}
+
         {isQrLabelOpen && qr ? (
           <QrLabelModal
             box={box}
             labels={{
+              addToSelection: t('qrLabelAddToSelection'),
+              alreadySelected: t('qrLabelAlreadySelected'),
+              clearSelection: t('qrLabelClearSelection'),
               close: t('close'),
               download: t('qrLabelDownload'),
               help: t('qrLabelHelp'),
               print: t('print'),
+              printSelection: t('qrLabelPrintSelection'),
               qrCode: t('qrCode'),
+              selectionCount: t('qrLabelSelectionCount'),
               title: t('qrLabelTitle'),
             }}
             qrImageUrl={qr.imageUrl}
+            selectedLabels={qrLabelSelection}
+            onAddToSelection={onAddQrLabel}
+            onClearSelection={onClearQrLabelSelection}
             onClose={() => setIsQrLabelOpen(false)}
+            onPrintSelection={onPrintQrLabelSelection}
           />
         ) : null}
       </div>
     </section>
+  );
+}
+
+function BellIcon() {
+  return (
+    <svg className="bell-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path
+        d="M12 21a2.6 2.6 0 0 0 2.45-1.75h-4.9A2.6 2.6 0 0 0 12 21Z"
+        fill="currentColor"
+      />
+      <path
+        d="M18 10.15c0-3.05-1.66-5.18-4.22-5.88A1.84 1.84 0 0 0 12 3a1.84 1.84 0 0 0-1.78 1.27C7.66 4.97 6 7.1 6 10.15v2.45c0 1.1-.43 2.14-1.2 2.92l-.52.52a.9.9 0 0 0 .64 1.54h14.16a.9.9 0 0 0 .64-1.54l-.52-.52A4.13 4.13 0 0 1 18 12.6v-2.45Z"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  );
+}
+
+function BoxChecksModal({
+  canPrepareSubculture,
+  latestMeasurement,
+  polypDropCount,
+  polypDropDetected,
+  subcultureSuggested,
+  t,
+  onClose,
+  onOpenSubculture,
+}: {
+  canPrepareSubculture: boolean;
+  latestMeasurement: BiologicalMeasurement | undefined;
+  polypDropCount: number;
+  polypDropDetected: boolean;
+  subcultureSuggested: boolean;
+  t: TFunction;
+  onClose: () => void;
+  onOpenSubculture: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <section
+        className="box-checks-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="box-checks-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="box-checks-heading">
+          <div>
+            <h2 id="box-checks-title">{t('boxChecksTitle')}</h2>
+          </div>
+          <button type="button" aria-label={t('close')} onClick={onClose}>×</button>
+        </header>
+
+        <div className="box-checks-list">
+          {polypDropDetected ? (
+            <article className="box-check-item is-medium">
+              <span className="check-severity">{t('checkImportanceMedium')}</span>
+              <div>
+                <small>{t('detectedSignal')}</small>
+                <strong>{t('polypDropAdviceTitle')}</strong>
+                <p>{polypDropCount} {t('polypDropAdviceText')}</p>
+              </div>
+              <div>
+                <small>{t('suggestedAction')}</small>
+                <p>{t('polypDropAdviceAction')}</p>
+              </div>
+            </article>
+          ) : null}
+
+          {subcultureSuggested && latestMeasurement ? (
+            <article className="box-check-item is-high">
+              <span className="check-severity">{t('checkImportanceHigh')}</span>
+              <div>
+                <small>{t('detectedSignal')}</small>
+                <strong>{t('subcultureAdviceTitle')}</strong>
+                <p>{latestMeasurement.polyp_count} {t('subcultureAdviceText')}</p>
+              </div>
+              <div>
+                <small>{t('suggestedAction')}</small>
+                {canPrepareSubculture ? (
+                  <button type="button" onClick={onOpenSubculture}>
+                    {t('subcultureAdviceModalAction')}
+                  </button>
+                ) : (
+                  <p>{t('subcultureAdviceAction')}</p>
+                )}
+              </div>
+            </article>
+          ) : null}
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -1926,7 +2112,6 @@ function getInitialMeasurementForm() {
     measuredOn: getTodayDateValue(),
     polypCount: '',
     ephyraeCount: '',
-    salinity: '',
     notes: '',
   };
 }
