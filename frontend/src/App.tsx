@@ -1,26 +1,30 @@
-import {
-  type CSSProperties,
+﻿import {
   type FormEvent,
-  type PointerEvent as ReactPointerEvent,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
-import type { IScannerControls } from '@zxing/browser';
-import { scaleLinear, scalePoint } from 'd3-scale';
-import { line } from 'd3-shape';
 
 import { ApiError, apiGet, apiPatch, apiPost } from './api/client';
 import { getBoxStatusPresentation } from './boxStatus';
+import AdminView from './components/AdminView';
+import BoxInsights, { MeasurementHistoryModal, type BoxInsightTab } from './components/BoxInsights';
 import ExportsView from './components/ExportsView';
-import InteractiveLineageGraph from './components/InteractiveLineageGraph';
 import LoginPage from './components/LoginPage';
+import LoginNotice from './components/LoginNotice';
+import MeasurementSaveButton from './components/MeasurementSaveButton';
 import MoveBoxModal from './components/MoveBoxModal';
+import PageLoader from './components/PageLoader';
+import ProfileView from './components/ProfileView';
+import QuickCountButtons from './components/QuickCountButtons';
+import QrLabelModal from './components/QrLabelModal';
+import SearchField from './components/SearchField';
 import SubcultureModal from './components/SubcultureModal';
+import TabletQrScanner from './components/TabletQrScanner';
+import { ZoneDetailPage, ZonesView } from './components/ZonesView';
+import { useIsDesktopApp } from './hooks/useIsDesktopApp';
 import type {
-  AccountMember,
-  AccountMembers,
   BiologicalMeasurement,
   BoxDetail,
   BoxItem,
@@ -30,8 +34,6 @@ import type {
   Dashboard,
   ExportOptions,
   LineageGraph,
-  MembershipRole,
-  NewMemberPayload,
   Organization,
   PaginatedResponse,
   Probe,
@@ -40,13 +42,23 @@ import type {
   ThermalZone,
   UserProfile,
 } from './types';
+import type {
+  BoxTransferPayload,
+  OrganizationPayload,
+  ProbePayload,
+  ThermalZonePayload,
+} from './types/admin';
+import { upsertBoxes } from './utils/boxCollection';
+import { formatDisplayDate } from './utils/dateFormat';
+import { getErrorMessage } from './utils/errors';
+import { triggerHaptic } from './utils/haptics';
+import { getBoxQrImageUrl, getBoxScanUrl } from './utils/qrLabels';
 
 // Boxes are filtered client-side, so the whole collection must be loaded.
 // Kept well above the current box count to leave room for growth.
 const BOX_LIST_LIMIT = 1000;
 
 type TabId = 'pilotage' | 'zones' | 'exports' | 'admin' | 'profile';
-type BoxInsightTab = 'measurements' | 'movements' | 'lineage';
 
 type AppData = {
   boxes: BoxItem[];
@@ -65,59 +77,11 @@ type MeasurementPayload = {
   notes: string;
 };
 
-type ThermalZonePayload = {
-  organization: number;
-  name: string;
-  zone_type: string;
-  target_temperature_c: string | null;
-};
-
-type ProbePayload = {
-  thermal_zone: number;
-  code: string;
-  probe_type: string;
-  location: string;
-};
-
-type OrganizationPayload = {
-  name: string;
-  city: string;
-  country: string;
-  contact_email: string;
-  notes: string;
-};
-
-type BoxTransferPayload = {
-  box: number;
-  to_organization: number;
-  notes: string;
-};
-
 type RouteState = {
   tab: TabId;
   boxCode: string | null;
   boxId: number | null;
   zoneId?: number | null;
-};
-
-type QrLabelItem = {
-  id: number;
-  globalCode: string;
-  speciesName: string;
-  qrImageUrl: string;
-};
-
-type ZoneOverviewEntry = {
-  zone: ThermalZone;
-  zoneBoxes: BoxItem[];
-  livingBoxes: number;
-  missingMeasurements: number;
-  targetTemperature: number | null;
-  measuredTemperature: number | null;
-  referenceTemperature: number | null;
-  temperatureNeedsAttention: boolean;
-  salinityNeedsAttention: boolean;
-  needsAttention: boolean;
 };
 
 const translations = {
@@ -647,6 +611,8 @@ export default function App() {
   const t: TFunction = (key) => translations[language][key];
   const isDesktopApp = useIsDesktopApp();
   const canUseAdmin = userHasAdminRole(data.profile);
+  const isExportOptionsLoading = ['exports', 'admin'].includes(activeTab) && data.exportOptions === null;
+  const workspacePageKey = `${activeTab}-${route.boxCode ?? route.boxId ?? 'list'}-${route.zoneId ?? 'list'}`;
   const availableTabs = useMemo(() => {
     if (!isDesktopApp) return labTabs;
     return canUseAdmin
@@ -678,11 +644,10 @@ export default function App() {
         setIsLoading(true);
         setError(null);
 
-        const [boxes, zones, dashboard, exportOptions, profile] = await Promise.all([
+        const [boxes, zones, dashboard, profile] = await Promise.all([
           apiGet<PaginatedResponse<BoxItem>>(`/api/boxes/?limit=${BOX_LIST_LIMIT}`),
           apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80'),
           apiGet<Dashboard>('/api/dashboard/'),
-          apiGet<ExportOptions>('/api/exports/options/'),
           apiGet<UserProfile>('/api/profile/'),
         ]);
 
@@ -693,7 +658,7 @@ export default function App() {
           boxDetails: {},
           zones: zones.results,
           dashboard,
-          exportOptions,
+          exportOptions: null,
           profile,
         });
         setRecentBoxIds(buildRecentBoxIds(boxes.results, dashboard));
@@ -812,27 +777,26 @@ export default function App() {
 
   function openBox(boxId: number, fallbackCode?: string) {
     const box = data.boxes.find((item) => item.id === boxId);
-    const globalCode = box?.global_code ?? fallbackCode;
-    if (!globalCode) return;
-
-    if (!box) {
-      void apiGet<BoxDetail>(`/api/boxes/${boxId}/`)
-        .then((detail) => {
-          setData((current) => ({
-            ...current,
-            boxes: current.boxes.some((item) => item.id === detail.id)
-              ? current.boxes
-              : [...current.boxes, detail],
-            boxDetails: {
-              ...current.boxDetails,
-              [detail.id]: detail,
-            },
-          }));
-        })
-        .catch((requestError) => setError(getErrorMessage(requestError)));
+    if (box) {
+      setSearch(box.global_code);
+      navigateTo({ tab: 'pilotage', boxCode: box.global_code, boxId: null }, `/boxes/${encodeURIComponent(box.global_code)}`);
+      return;
     }
-    setSearch(globalCode);
-    navigateTo({ tab: 'pilotage', boxCode: globalCode, boxId: null }, `/boxes/${encodeURIComponent(globalCode)}`);
+
+    if (fallbackCode) {
+      setSearch(fallbackCode);
+      navigateTo({ tab: 'pilotage', boxCode: fallbackCode, boxId: null }, `/boxes/${encodeURIComponent(fallbackCode)}`);
+    }
+
+    setIsBoxLoading(true);
+    void apiGet<BoxDetail>(`/api/boxes/${boxId}/`)
+      .then((detail) => {
+        setData((current) => mergeBoxDetail(current, detail));
+        setSearch(detail.global_code);
+        navigateTo({ tab: 'pilotage', boxCode: detail.global_code, boxId: null }, `/boxes/${encodeURIComponent(detail.global_code)}`);
+      })
+      .catch((requestError) => setError(getErrorMessage(requestError)))
+      .finally(() => setIsBoxLoading(false));
   }
 
   function openZone(zoneId: number) {
@@ -857,6 +821,28 @@ export default function App() {
 
     navigateTo({ tab: 'pilotage', boxCode: null, boxId: null }, '/');
   }, [activeTab, availableTabs, data.profile, isLoading]);
+
+  useEffect(() => {
+    if (isLoginRoute || data.exportOptions || !['exports', 'admin'].includes(activeTab)) return;
+
+    let isActive = true;
+
+    async function loadExportOptions() {
+      try {
+        const exportOptions = await apiGet<ExportOptions>('/api/exports/options/');
+        if (!isActive) return;
+        setData((current) => ({ ...current, exportOptions }));
+      } catch (requestError) {
+        if (isActive) setError(getErrorMessage(requestError));
+      }
+    }
+
+    void loadExportOptions();
+
+    return () => {
+      isActive = false;
+    };
+  }, [activeTab, data.exportOptions, isLoginRoute]);
 
   function closeBoxPage() {
     navigateTo({ tab: 'pilotage', boxCode: null, boxId: null }, '/');
@@ -908,37 +894,24 @@ export default function App() {
   }
 
   async function createSubculture(boxId: number, payload: SubculturePayload) {
-    await apiPost<SubcultureResult>(`/api/boxes/${boxId}/subcultures/`, payload);
-    const [boxes, detail, dashboard, exportOptions] = await Promise.all([
-      apiGet<PaginatedResponse<BoxItem>>(`/api/boxes/?limit=${BOX_LIST_LIMIT}`),
-      apiGet<BoxDetail>(`/api/boxes/${boxId}/`),
-      apiGet<Dashboard>('/api/dashboard/'),
-      apiGet<ExportOptions>('/api/exports/options/'),
-    ]);
+    const result = await apiPost<SubcultureResult>(`/api/boxes/${boxId}/subcultures/`, payload);
+    const detail = await apiGet<BoxDetail>(`/api/boxes/${boxId}/`);
 
     setData((current) => ({
       ...mergeBoxDetail(current, detail),
-      boxes: boxes.results,
-      dashboard,
-      exportOptions,
+      boxes: upsertBoxes(current.boxes, [detail, ...result.children]),
+      exportOptions: null,
     }));
   }
 
   async function moveBox(boxId: number, payload: BoxMovePayload) {
     const detail = await apiPost<BoxDetail>(`/api/boxes/${boxId}/move/`, payload);
-    const [boxes, zones, dashboard, exportOptions] = await Promise.all([
-      apiGet<PaginatedResponse<BoxItem>>(`/api/boxes/?limit=${BOX_LIST_LIMIT}`),
-      apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80'),
-      apiGet<Dashboard>('/api/dashboard/'),
-      apiGet<ExportOptions>('/api/exports/options/'),
-    ]);
+    const zones = await apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80');
 
     setData((current) => ({
       ...mergeBoxDetail(current, detail),
-      boxes: boxes.results,
       zones: zones.results,
-      dashboard,
-      exportOptions,
+      exportOptions: null,
     }));
   }
 
@@ -1018,10 +991,18 @@ export default function App() {
           </header>
         ) : null}
 
-        {error ? <LoginNotice message={error} t={t} /> : null}
+        {error ? (
+          <LoginNotice
+            labels={{
+              action: t('loginAction'),
+              title: t('loginRequired'),
+            }}
+            message={error}
+          />
+        ) : null}
 
         {!error && (
-          <>
+          <div className="workspace-page" key={workspacePageKey}>
             {activeTab === 'pilotage' && isBoxRoute && (
               <BoxPage
                 box={selectedBoxDetail ?? selectedBox}
@@ -1078,7 +1059,7 @@ export default function App() {
 
             {activeTab === 'exports' && (
               <ExportsView
-                isLoading={isLoading}
+                isLoading={isLoading || isExportOptionsLoading}
                 options={data.exportOptions}
                 language={language}
               />
@@ -1088,7 +1069,7 @@ export default function App() {
               <AdminView
                 boxes={data.boxes}
                 exportOptions={data.exportOptions}
-                isLoading={isLoading}
+                isLoading={isLoading || isExportOptionsLoading}
                 profile={data.profile}
                 onCreateZone={createThermalZone}
                 onCreateProbe={createProbe}
@@ -1102,13 +1083,13 @@ export default function App() {
             {activeTab === 'profile' && (
               <ProfileView
                 isLoading={isLoading}
+                labels={getProfileLabels(t)}
                 profile={data.profile}
                 onLogout={logoutCurrentUser}
                 onUpdateLanguage={updateLanguage}
-                t={t}
               />
             )}
-          </>
+          </div>
         )}
       </section>
     </main>
@@ -1144,11 +1125,23 @@ function PilotageView({
     }
   }
 
+  if (isLoading) {
+    return <PageLoader variant="pilotage" label={t('pilotageTitle')} />;
+  }
+
   return (
     <section className="pilotage-flow">
       <div className="lookup-panel">
         <div className="desktop-search-panel">
-          <SearchField value={search} onChange={onSearch} onSubmit={selectFirstSuggestion} t={t} />
+          <SearchField
+            labels={{
+              label: t('searchOrScan'),
+              placeholder: t('searchPlaceholder'),
+            }}
+            value={search}
+            onChange={onSearch}
+            onSubmit={selectFirstSuggestion}
+          />
         </div>
 
         <section className={`tablet-lookup-panel is-${tabletLookupMode}-mode`}>
@@ -1174,10 +1167,29 @@ function PilotageView({
           </div>
 
           {tabletLookupMode === 'qr' ? (
-            <TabletQrScanner boxes={boxes} onSelectBox={onSelectBox} t={t} />
+            <TabletQrScanner
+              boxes={boxes}
+              labels={{
+                found: t('qrScannerFound'),
+                permission: t('qrScannerPermission'),
+                secureContext: t('qrScannerSecureContext'),
+                start: t('qrScannerStart'),
+                stop: t('qrScannerStop'),
+                unsupported: t('qrScannerUnsupported'),
+              }}
+              onSelectBox={onSelectBox}
+            />
           ) : (
             <div className="tablet-manual-search">
-              <SearchField value={search} onChange={onSearch} onSubmit={selectFirstSuggestion} t={t} />
+              <SearchField
+                labels={{
+                  label: t('searchOrScan'),
+                  placeholder: t('searchPlaceholder'),
+                }}
+                value={search}
+                onChange={onSearch}
+                onSubmit={selectFirstSuggestion}
+              />
             </div>
           )}
         </section>
@@ -1204,15 +1216,7 @@ function PilotageView({
           ) : null}
         </div>
 
-        <div className="desktop-only-loading">
-          {isLoading ? <SkeletonRows count={3} /> : null}
-        </div>
-
-        <div className="tablet-only-loading">
-          {isLoading ? <SkeletonRows count={2} /> : null}
-        </div>
-
-        {!isLoading && <RecentAccessList boxes={recentBoxes} onSelectBox={onSelectBox} t={t} />}
+        <RecentAccessList boxes={recentBoxes} onSelectBox={onSelectBox} t={t} />
       </div>
 
       <JellyfishPattern />
@@ -1437,9 +1441,7 @@ function BoxPage({
 
   if (isLoading) {
     return (
-      <section className="box-page">
-        <SkeletonRows count={4} />
-      </section>
+      <PageLoader variant="box" label={t('boxSheet')} />
     );
   }
 
@@ -1758,18 +1760,20 @@ const subcultureSuggested =
             </label>
 
             {saveError ? <p className="inline-error form-feedback">{saveError}</p> : null}
+            {saveMessage ? <p className="inline-success form-feedback">{saveMessage}</p> : null}
 
-{saveMessage ? (
-  <p className="inline-success form-feedback">{saveMessage}</p>
-) : null}
-
-<MeasurementSaveButton
-  isDesktop={isDesktopApp}
-  isSaving={isSaving}
-  isSuccess={Boolean(saveMessage)}
-  onSave={saveMeasurement}
-  t={t}
-/>
+            <MeasurementSaveButton
+              isDesktop={isDesktopApp}
+              isSaving={isSaving}
+              isSuccess={Boolean(saveMessage)}
+              labels={{
+                hold: t('holdToSave'),
+                save: t('saveMeasurement'),
+                saved: t('measurementSaved'),
+                saving: t('saving'),
+              }}
+              onSave={saveMeasurement}
+            />
           </form>
           </section>
         ) : null}
@@ -1780,6 +1784,7 @@ const subcultureSuggested =
             graph={lineageGraph}
             graphError={lineageGraphError}
             isGraphLoading={isLineageGraphLoading}
+            labels={getBoxInsightsLabels(t)}
             language={language}
             lineage={lineage}
             measurements={measurements}
@@ -1788,15 +1793,14 @@ const subcultureSuggested =
             onOpenHistory={() => setIsHistoryOpen(true)}
             onSelectBox={onOpenBox}
             onSelectTab={setActiveInsightTab}
-            t={t}
           />
         </section>
 
         {isHistoryOpen ? (
           <MeasurementHistoryModal
+            labels={getBoxInsightsLabels(t)}
             measurements={measurements}
             onClose={() => setIsHistoryOpen(false)}
-            t={t}
           />
         ) : null}
 
@@ -1828,240 +1832,21 @@ const subcultureSuggested =
         {isQrLabelOpen && qr ? (
           <QrLabelModal
             box={box}
+            labels={{
+              close: t('close'),
+              download: t('qrLabelDownload'),
+              help: t('qrLabelHelp'),
+              print: t('print'),
+              qrCode: t('qrCode'),
+              title: t('qrLabelTitle'),
+            }}
             qrImageUrl={qr.imageUrl}
             onClose={() => setIsQrLabelOpen(false)}
-            t={t}
           />
         ) : null}
       </div>
     </section>
   );
-}
-
-function QrLabelModal({
-  box,
-  qrImageUrl,
-  onClose,
-  t,
-}: {
-  box: BoxItem | BoxDetail;
-  qrImageUrl: string;
-  onClose: () => void;
-  t: TFunction;
-}) {
-  const label = buildQrLabelItem(box, qrImageUrl);
-
-  return (
-    <div className="modal-backdrop qr-print-backdrop" role="presentation" onClick={onClose}>
-      <section
-        className="qr-label-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="qr-label-title"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <header className="modal-heading qr-label-modal-heading">
-          <div>
-            <h2 id="qr-label-title">{t('qrLabelTitle')}</h2>
-            <span>{t('qrLabelHelp')}</span>
-          </div>
-          <button type="button" aria-label={t('close')} onClick={onClose}>
-            ×
-          </button>
-        </header>
-
-        <div className="qr-label-print-sheet">
-      <div className="qr-label-main">
-        <strong>{label.globalCode}</strong>
-        <span>{label.speciesName}</span>
-      </div>
-
-          <div className="qr-label-code">
-            <img src={label.qrImageUrl} alt={`${t('qrCode')} ${label.globalCode}`} />
-            <strong>{t('qrCode')}</strong>
-          </div>
-        </div>
-
-        <footer className="qr-label-modal-actions">
-          <button type="button" className="is-secondary" onClick={() => void downloadQrLabel(label)}>
-            {t('qrLabelDownload')}
-          </button>
-          <button type="button" onClick={() => printQrLabels([label])}>
-            {t('print')}
-          </button>
-        </footer>
-      </section>
-    </div>
-  );
-}
-
-function buildQrLabelItem(box: BoxItem | BoxDetail, qrImageUrl?: string): QrLabelItem {
-  return {
-    id: box.id,
-    globalCode: box.global_code,
-    speciesName: box.species.scientific_name,
-    qrImageUrl: getBoxQrImageUrl(box, qrImageUrl),
-  };
-}
-
-function getBoxQrImageUrl(box: BoxItem | BoxDetail, explicitUrl?: string) {
-  const source = explicitUrl
-    || ('qr_image_url' in box && box.qr_image_url)
-    || `/boites/${box.id}/qr.svg`;
-
-  try {
-    const url = new URL(source, window.location.origin);
-    if (!/^\/boites\/\d+\/qr\.svg$/.test(url.pathname)) return source;
-
-    url.searchParams.set('public_base_url', window.location.origin);
-    return `${url.pathname}?${url.searchParams.toString()}`;
-  } catch {
-    return source;
-  }
-}
-
-function getBoxScanUrl(box: BoxDetail) {
-  return new URL(`/bac/${box.id}/`, window.location.origin).href;
-}
-
-function printQrLabels(labels: QrLabelItem[]) {
-  if (!labels.length) return;
-
-  const printWindow = window.open('', '_blank', 'width=980,height=720');
-  if (!printWindow) return;
-
-  void prepareQrPrint(labels, printWindow);
-}
-
-async function prepareQrPrint(labels: QrLabelItem[], printWindow: Window) {
-  const printableLabels = await Promise.all(
-    labels.map(async (label) => ({
-      ...label,
-      // Embed each QR image so the print document does not depend on a session request.
-      qrImageUrl: await getQrDataUrl(label.qrImageUrl),
-    })),
-  );
-
-  if (printWindow.closed) return;
-
-  printWindow.document.write(buildQrPrintDocument(printableLabels));
-  printWindow.document.close();
-
-  await Promise.all(
-    Array.from(printWindow.document.images).map((image) => {
-      if (image.complete) return Promise.resolve();
-      return new Promise<void>((resolve) => {
-        image.addEventListener('load', () => resolve(), { once: true });
-        image.addEventListener('error', () => resolve(), { once: true });
-      });
-    }),
-  );
-
-  if (!printWindow.closed) {
-    printWindow.focus();
-    printWindow.print();
-  }
-}
-
-async function downloadQrLabel(label: QrLabelItem) {
-  const qrDataUrl = await getQrDataUrl(label.qrImageUrl);
-  const svg = buildQrLabelSvg(label, qrDataUrl);
-  downloadTextFile(svg, `${label.globalCode}_etiquette.svg`, 'image/svg+xml;charset=utf-8');
-}
-
-async function getQrDataUrl(qrImageUrl: string) {
-  try {
-    const response = await fetch(qrImageUrl, { credentials: 'include' });
-    if (!response.ok) throw new Error('QR unavailable');
-    const svgText = await response.text();
-    return `data:image/svg+xml;base64,${window.btoa(unescape(encodeURIComponent(svgText)))}`;
-  } catch {
-    return new URL(qrImageUrl, window.location.origin).href;
-  }
-}
-
-function buildQrPrintDocument(labels: QrLabelItem[]) {
-  const labelMarkup = labels.map(renderPrintableQrLabel).join('');
-
-  return `<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Étiquettes Polypbase</title>
-<style>
-  @page { size: A4; margin: 10mm; }
-  * { box-sizing: border-box; }
-  body { margin: 0; color: #000; font-family: Arial, sans-serif; }
-  .sheet { display: grid; grid-template-columns: repeat(2, 92mm); gap: 7mm; align-items: start; }
-  .label { display: grid; grid-template-columns: 1fr 30mm; gap: 5mm; min-height: 38mm; padding: 4.5mm; border: 0.35mm solid #000; border-radius: 2mm; break-inside: avoid; page-break-inside: avoid; }
-  .label-main { display: grid; align-content: center; gap: 1.2mm; min-width: 0; }
-  .label-code { display: block; width: 100%; font-size: 19pt; font-style: italic; font-weight: 900; line-height: 0.95; overflow-wrap: anywhere; }
-  .label-species { font-size: 8.5pt; }
-  .label-qr { display: grid; justify-items: center; gap: 1mm; font-size: 7pt; font-weight: 800; text-align: center; }
-  .label-qr img { width: 27mm; height: 27mm; image-rendering: pixelated; }
-</style>
-</head>
-<body>
-  <main class="sheet">${labelMarkup}</main>
-</body>
-</html>`;
-}
-
-function renderPrintableQrLabel(label: QrLabelItem) {
-  return `<section class="label">
-  <div class="label-main">
-    <strong class="label-code">${escapeHtml(label.globalCode)}</strong>
-    <span class="label-species">${escapeHtml(label.speciesName)}</span>
-  </div>
-  <div class="label-qr">
-    <img src="${escapeAttribute(new URL(label.qrImageUrl, window.location.origin).href)}" alt="">
-    <span>QR code</span>
-  </div>
-</section>`;
-}
-
-function buildQrLabelSvg(label: QrLabelItem, qrImageUrl: string) {
-  const width = 720;
-  const height = 300;
-  const code = escapeXml(label.globalCode);
-  const species = escapeXml(label.speciesName);
-  const image = escapeXml(qrImageUrl);
-
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-  <rect x="8" y="8" width="704" height="284" rx="18" fill="#fff" stroke="#000" stroke-width="3"/>
-  <text x="34" y="92" font-family="Arial, sans-serif" font-size="56" font-style="italic" font-weight="900" fill="#000">${code}</text>
-  <text x="36" y="136" font-family="Arial, sans-serif" font-size="25" fill="#000">${species}</text>
-  <rect x="514" y="40" width="154" height="184" rx="14" fill="#fff" stroke="#000" stroke-width="2"/>
-  <image href="${image}" x="534" y="58" width="114" height="114"/>
-  <text x="591" y="204" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" font-weight="800" fill="#000">QR code</text>
-</svg>`;
-}
-
-function downloadTextFile(content: string, fileName: string, type: string) {
-  const blob = new Blob([content], { type });
-  const objectUrl = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = objectUrl;
-  link.download = fileName;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(objectUrl);
-}
-
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
-
-function escapeXml(value: string) {
-  return escapeHtml(value).replace(/"/g, '&quot;').replace(/'/g, '&apos;');
-}
-
-function escapeAttribute(value: string) {
-  return escapeXml(value);
 }
 
 function InfoPill({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
@@ -2073,2179 +1858,47 @@ function InfoPill({ label, value, strong = false }: { label: string; value: stri
   );
 }
 
-function BoxInsights({
-  activeTab,
-  graph,
-  graphError,
-  isGraphLoading,
-  language,
-  lineage,
-  measurements,
-  movements,
-  onLoadLineageGraph,
-  onOpenHistory,
-  onSelectBox,
-  onSelectTab,
-  t,
-}: {
-  activeTab: BoxInsightTab;
-  graph: LineageGraph | null;
-  graphError: string | null;
-  isGraphLoading: boolean;
-  language: Language;
-  lineage: BoxLineage;
-  measurements: BiologicalMeasurement[];
-  movements: BoxMovement[];
-  onLoadLineageGraph: () => void;
-  onOpenHistory: () => void;
-  onSelectBox: (boxId: number, globalCode: string) => void;
-  onSelectTab: (tab: BoxInsightTab) => void;
-  t: TFunction;
-}) {
-  const tabs: Array<{ id: BoxInsightTab; label: string }> = [
-    { id: 'measurements', label: t('analysisTabMeasurements') },
-    { id: 'movements', label: t('analysisTabMovements') },
-    { id: 'lineage', label: t('analysisTabLineage') },
-  ];
-
-  return (
-    <div className="box-insights">
-      <div className="insight-tabs" role="tablist" aria-label={t('chartTitle')}>
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            className={activeTab === tab.id ? 'is-active' : ''}
-            role="tab"
-            type="button"
-            aria-selected={activeTab === tab.id}
-            onClick={() => onSelectTab(tab.id)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {activeTab === 'measurements' ? (
-        <div className="insight-panel">
-          <div className="insight-heading">
-            <h2>{t('chartTitle')}</h2>
-            <button type="button" onClick={onOpenHistory}>{t('historyButton')}</button>
-          </div>
-          <MeasurementTrendChart measurements={measurements} t={t} />
-        </div>
-      ) : null}
-
-      {activeTab === 'movements' ? (
-        <div className="insight-panel">
-          <div className="insight-heading">
-            <h2>{t('movementHistoryTitle')}</h2>
-          </div>
-          <MovementTimeline movements={movements} t={t} />
-        </div>
-      ) : null}
-
-      {activeTab === 'lineage' ? (
-        <div className="insight-panel">
-          <div className="insight-heading">
-            <h2>{t('analysisTabLineage')}</h2>
-          </div>
-          {isGraphLoading ? <p className="lineage-inline-status">{t('lineageLoading')}</p> : null}
-          {graphError ? (
-            <div className="lineage-inline-status is-error">
-              <p>{graphError}</p>
-              <button type="button" onClick={onLoadLineageGraph}>{t('lineageRetry')}</button>
-            </div>
-          ) : null}
-          {graph ? (
-            <InteractiveLineageGraph
-              graph={graph}
-              language={language}
-              onSelectBox={onSelectBox}
-            />
-          ) : null}
-          {!graph && !isGraphLoading && !graphError ? (
-            <div className="lineage-preview">
-              <Metric label={t('parents')} value={String(lineage.parents.length)} />
-              <Metric label={t('children')} value={String(lineage.children.length)} />
-              <p>{t('lineageEmptyGraph')}</p>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function MeasurementTrendChart({
-  measurements,
-  t,
-}: {
-  measurements: BiologicalMeasurement[];
-  t: TFunction;
-}) {
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
-  const chartMeasurements = [...measurements]
-    .sort((left, right) => left.measured_on.localeCompare(right.measured_on))
-    .slice(-12);
-
-  if (chartMeasurements.length < 2) {
-    return <p className="muted compact-text chart-empty">{t('chartEmpty')}</p>;
-  }
-
-  const width = 720;
-  const height = 250;
-  const padding = { top: 20, right: 28, bottom: 38, left: 42 };
-  const maxValue = Math.max(
-    1,
-    ...chartMeasurements.flatMap((measurement) => [
-      measurement.polyp_count,
-      measurement.ephyrae_count,
-    ]),
-  );
-  // D3 scales + line generator (React still renders the SVG).
-  const indices = chartMeasurements.map((_, index) => index);
-  const xScale = scalePoint<number>()
-    .domain(indices)
-    .range([padding.left, width - padding.right]);
-  const yScale = scaleLinear().domain([0, maxValue]).range([height - padding.bottom, padding.top]);
-  const xStep = xScale.step();
-  const xPosition = (index: number) => xScale(index) ?? padding.left;
-  const buildLinePath = (selector: (measurement: BiologicalMeasurement) => number) =>
-    line<number>()
-      .x((index) => xPosition(index))
-      .y((index) => yScale(selector(chartMeasurements[index])))(indices) ?? '';
-  const firstDate = chartMeasurements[0].measured_on;
-  const lastDate = chartMeasurements[chartMeasurements.length - 1].measured_on;
-  const hoveredMeasurement = hoveredIndex != null ? chartMeasurements[hoveredIndex] : null;
-  const hoverX = hoveredIndex != null ? xPosition(hoveredIndex) : null;
-  const hoverTop = hoveredMeasurement
-    ? Math.min(yScale(hoveredMeasurement.polyp_count), yScale(hoveredMeasurement.ephyrae_count))
-    : null;
-
-  return (
-    <div className="measurement-chart" aria-label={t('chartTitle')} onPointerLeave={() => setHoveredIndex(null)}>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img">
-        <line className="chart-axis" x1={padding.left} y1={height - padding.bottom} x2={width - padding.right} y2={height - padding.bottom} />
-        <line className="chart-axis" x1={padding.left} y1={padding.top} x2={padding.left} y2={height - padding.bottom} />
-        {[0.25, 0.5, 0.75].map((ratio) => {
-          const y = padding.top + ratio * (height - padding.top - padding.bottom);
-          return <line key={ratio} className="chart-grid-line" x1={padding.left} y1={y} x2={width - padding.right} y2={y} />;
-        })}
-        <path className="chart-line is-polyps" d={buildLinePath((measurement) => measurement.polyp_count)} />
-        <path className="chart-line is-ephyrae" d={buildLinePath((measurement) => measurement.ephyrae_count)} />
-        {hoveredMeasurement && hoverX != null ? (
-          <line
-            className="chart-hover-line"
-            x1={hoverX}
-            y1={padding.top}
-            x2={hoverX}
-            y2={height - padding.bottom}
-          />
-        ) : null}
-        {chartMeasurements.map((measurement, index) => (
-          <g key={measurement.id}>
-            <circle
-              className={hoveredIndex === index ? 'chart-dot is-polyps is-active' : 'chart-dot is-polyps'}
-              cx={xPosition(index)}
-              cy={yScale(measurement.polyp_count)}
-              r={hoveredIndex === index ? '5' : '3.5'}
-            />
-            <circle
-              className={hoveredIndex === index ? 'chart-dot is-ephyrae is-active' : 'chart-dot is-ephyrae'}
-              cx={xPosition(index)}
-              cy={yScale(measurement.ephyrae_count)}
-              r={hoveredIndex === index ? '5' : '3.5'}
-            />
-          </g>
-        ))}
-        {chartMeasurements.map((measurement, index) => {
-          const x = xPosition(index);
-          const hitWidth = Math.max(26, xStep * 0.82);
-
-          return (
-            <rect
-              key={`hit-${measurement.id}`}
-              className="chart-hit-area"
-              x={x - hitWidth / 2}
-              y={padding.top}
-              width={hitWidth}
-              height={height - padding.top - padding.bottom}
-              tabIndex={0}
-              onBlur={() => setHoveredIndex(null)}
-              onFocus={() => setHoveredIndex(index)}
-              onPointerEnter={() => setHoveredIndex(index)}
-            />
-          );
-        })}
-        <text className="chart-label" x={padding.left} y={height - 12}>{formatDisplayDate(firstDate)}</text>
-        <text className="chart-label is-end" x={width - padding.right} y={height - 12}>{formatDisplayDate(lastDate)}</text>
-        <text className="chart-y-label" x={padding.left - 8} y={padding.top + 4}>{maxValue}</text>
-        <text className="chart-y-label" x={padding.left - 8} y={height - padding.bottom + 4}>0</text>
-      </svg>
-
-      {hoveredMeasurement && hoverX != null && hoverTop != null ? (
-        <div
-          className="chart-tooltip"
-          style={{
-            left: `${(hoverX / width) * 100}%`,
-            top: `${Math.max(8, (hoverTop / height) * 100 - 8)}%`,
-          }}
-        >
-          <strong>{formatDisplayDate(hoveredMeasurement.measured_on)}</strong>
-          <span>{t('polyps')} : {hoveredMeasurement.polyp_count}</span>
-          <span>{t('ephyraeFull')} : {hoveredMeasurement.ephyrae_count}</span>
-        </div>
-      ) : null}
-
-      <div className="chart-legend">
-        <span className="is-polyps">{t('polyps')}</span>
-        <span className="is-ephyrae">{t('ephyraeFull')}</span>
-      </div>
-    </div>
-  );
-}
-
-function MovementTimeline({
-  movements,
-  t,
-}: {
-  movements: BoxMovement[];
-  t: TFunction;
-}) {
-  const sortedMovements = [...movements]
-    .sort((left, right) => right.moved_at.localeCompare(left.moved_at));
-
-  if (!sortedMovements.length) {
-    return <p className="muted compact-text movement-empty">{t('noMovementHistory')}</p>;
-  }
-
-  return (
-    <div className="movement-timeline">
-      {sortedMovements.map((movement) => (
-        <article key={movement.id}>
-          <time>{formatDisplayDate(movement.moved_at)}</time>
-          <div>
-            <strong>
-              {movement.from_thermal_zone
-                ? `${movement.from_thermal_zone.name} → ${movement.to_thermal_zone.name}`
-                : `${t('movedTo')} ${movement.to_thermal_zone.name}`}
-            </strong>
-            {movement.user ? <small>{movement.user}</small> : null}
-            {movement.notes ? <p>{movement.notes}</p> : null}
-          </div>
-        </article>
-      ))}
-    </div>
-  );
-}
-
-function MeasurementHistoryList({
-  measurements,
-  t,
-}: {
-  measurements: BiologicalMeasurement[];
-  t: TFunction;
-}) {
-  return (
-    <div className="measurement-history">
-      {!measurements.length ? <p className="muted compact-text">{t('noMeasurementHistory')}</p> : null}
-
-      {measurements.map((measurement) => (
-        <article key={measurement.id} className="measurement-row">
-          <div>
-            <strong>{formatDisplayDate(measurement.measured_on)}</strong>
-            <small>{measurement.user ?? '-'}</small>
-          </div>
-          <span>
-            <strong>{measurement.polyp_count}</strong>
-            <small>{t('polyps')}</small>
-          </span>
-          <span>
-            <strong>{measurement.ephyrae_count}</strong>
-            <small>{t('ephyraeFull')}</small>
-          </span>
-          <p>{measurement.notes?.trim() || t('noComment')}</p>
-        </article>
-      ))}
-    </div>
-  );
-}
-
-function MeasurementHistoryModal({
-  measurements,
-  onClose,
-  t,
-}: {
-  measurements: BiologicalMeasurement[];
-  onClose: () => void;
-  t: TFunction;
-}) {
-  return (
-    <div className="modal-backdrop" role="presentation" onClick={onClose}>
-      <section
-        className="history-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={t('measurementHistory')}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="modal-heading">
-          <div>
-            <h2>{t('measurementHistory')}</h2>
-            <span>{measurements.length}</span>
-          </div>
-          <button type="button" onClick={onClose}>
-            {t('close')}
-          </button>
-        </div>
-
-        <MeasurementHistoryList measurements={measurements} t={t} />
-      </section>
-    </div>
-  );
-}
-
-function ZonesView({
-  boxes,
-  isLoading,
-  zones,
-  onOpenZone,
-  t,
-}: {
-  boxes: BoxItem[];
-  isLoading: boolean;
-  zones: ThermalZone[];
-  onOpenZone: (id: number) => void;
-  t: TFunction;
-}) {
-  const [sortMode, setSortMode] = useState<'location' | 'temperature'>('location');
-  const zoneEntries = zones.map((zone) => buildZoneOverviewEntry(zone, boxes));
-  const attentionEntries = zoneEntries.filter((entry) => entry.needsAttention);
-  const sortedEntries = sortMode === 'location'
-    ? zoneEntries
-    : [...zoneEntries].sort(
-      (first, second) => (first.referenceTemperature ?? Number.POSITIVE_INFINITY)
-        - (second.referenceTemperature ?? Number.POSITIVE_INFINITY),
-    );
-
-  return (
-    <section className="single-panel">
-      {isLoading ? (
-        <SkeletonRows count={5} />
-      ) : (
-        <div className="zone-overview">
-          {attentionEntries.length ? (
-            <section className="zone-overview-attention">
-              <header>
-                <div>
-                  <h2>{t('zoneOverviewAttentionTitle')}</h2>
-                  <p>{t('zoneOverviewAttentionDetails')}</p>
-                </div>
-                <span>{attentionEntries.length}</span>
-              </header>
-              <div className="zone-overview-attention-list">
-                {attentionEntries.map((entry) => (
-                  <button key={entry.zone.id} type="button" onClick={() => onOpenZone(entry.zone.id)}>
-                    <strong>{entry.zone.name}</strong>
-                    <small>{getZoneAttentionReasons(entry, t).join(' · ')}</small>
-                  </button>
-                ))}
-              </div>
-            </section>
-          ) : null}
-
-          <div className="zone-overview-heading">
-            <span>{sortedEntries.length}</span>
-            <div className="zone-overview-sort" role="tablist" aria-label={t('zonesTitle')}>
-              <button
-                className={sortMode === 'location' ? 'is-active' : ''}
-                type="button"
-                role="tab"
-                aria-selected={sortMode === 'location'}
-                onClick={() => setSortMode('location')}
-              >
-                {t('zoneOverviewSortLocation')}
-              </button>
-              <button
-                className={sortMode === 'temperature' ? 'is-active' : ''}
-                type="button"
-                role="tab"
-                aria-selected={sortMode === 'temperature'}
-                onClick={() => setSortMode('temperature')}
-              >
-                {t('zoneOverviewSortTemperature')}
-              </button>
-            </div>
-          </div>
-
-          <div className="zone-overview-grid">
-            {sortedEntries.map((entry) => (
-              <button
-                className={entry.needsAttention ? 'zone-card is-attention' : 'zone-card'}
-                key={entry.zone.id}
-                type="button"
-                onClick={() => onOpenZone(entry.zone.id)}
-              >
-                <span className="zone-card-heading">
-                  <span>
-                    <strong>{entry.zone.name}</strong>
-                    <small>{entry.zone.organization.name}</small>
-                  </span>
-                  <span className="zone-card-arrow" aria-hidden="true" />
-                </span>
-
-                <span className="zone-card-temperature">
-                  <span>
-                    <small>{t('temperatureShort')}</small>
-                    <strong>{formatTemperature(entry.measuredTemperature ?? undefined)}</strong>
-                  </span>
-                  <span>
-                    <small>{t('zoneTarget')}</small>
-                    <strong>{formatTemperature(entry.targetTemperature ?? undefined)}</strong>
-                  </span>
-                </span>
-
-                <span className="zone-card-thermal-line" aria-hidden="true">
-                  <span className="zone-card-target" />
-                  {entry.measuredTemperature !== null && entry.targetTemperature !== null ? (
-                    <span
-                      className="zone-card-current"
-                      style={{
-                        '--zone-temperature-position': `${getTemperatureMarkerPosition(
-                          entry.measuredTemperature,
-                          entry.targetTemperature,
-                        )}%`,
-                      } as CSSProperties}
-                    />
-                  ) : null}
-                </span>
-
-                <span className="zone-card-facts">
-                  <span>
-                    <small>{t('salinityShort')}</small>
-                    <strong>{formatSalinity(entry.zone.latest_salinity?.salinity_psu)}</strong>
-                    {entry.zone.latest_salinity == null ? (
-  <p className="inline-error">Salinité manquante</p>
-) : null}
-                  </span>
-                  <span>
-                    <small>{t('zoneSummaryAlive')}</small>
-                    <strong>{entry.livingBoxes} / {entry.zoneBoxes.length}</strong>
-                  </span>
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-    </section>
-  );
-}
-
-function buildZoneOverviewEntry(zone: ThermalZone, boxes: BoxItem[]): ZoneOverviewEntry {
-  const zoneBoxes = boxes.filter((box) => box.thermal_zone?.id === zone.id);
-  const targetTemperature = parseTemperatureNumber(zone.target_temperature_c);
-  const measuredTemperature = zone.latest_temperature?.average_temperature_c ?? null;
-  const missingMeasurements = zoneBoxes.filter((box) => !box.latest_measurement).length;
-  const temperatureNeedsAttention = targetTemperature === null
-    || measuredTemperature === null
-    || Math.abs(measuredTemperature - targetTemperature) > 1;
-    const salinityNeedsAttention = zone.latest_salinity?.salinity_psu == null;
-
+function getBoxInsightsLabels(t: TFunction) {
   return {
-  zone,
-  zoneBoxes,
-  livingBoxes: zoneBoxes.filter((box) => box.status === 'active').length,
-  missingMeasurements,
-  targetTemperature,
-  measuredTemperature,
-  referenceTemperature: targetTemperature ?? measuredTemperature,
-  temperatureNeedsAttention,
-  salinityNeedsAttention,
-  needsAttention:
-    temperatureNeedsAttention
-    || salinityNeedsAttention
-    || zone.probes.length === 0
-    || missingMeasurements > 0,
-};
+    chartEmpty: t('chartEmpty'),
+    chartTitle: t('chartTitle'),
+    children: t('children'),
+    close: t('close'),
+    ephyraeFull: t('ephyraeFull'),
+    historyButton: t('historyButton'),
+    lineageEmptyGraph: t('lineageEmptyGraph'),
+    lineageLoading: t('lineageLoading'),
+    lineageRetry: t('lineageRetry'),
+    lineageTab: t('analysisTabLineage'),
+    measurementHistory: t('measurementHistory'),
+    measurementsTab: t('analysisTabMeasurements'),
+    movedTo: t('movedTo'),
+    movementHistoryTitle: t('movementHistoryTitle'),
+    movementsTab: t('analysisTabMovements'),
+    noComment: t('noComment'),
+    noMeasurementHistory: t('noMeasurementHistory'),
+    noMovementHistory: t('noMovementHistory'),
+    parents: t('parents'),
+    polyps: t('polyps'),
+  };
 }
 
-function getZoneAttentionReasons(entry: ZoneOverviewEntry, t: TFunction) {
-  const reasons: string[] = [];
-
-  if (entry.temperatureNeedsAttention) {
-    reasons.push(
-      entry.targetTemperature === null || entry.measuredTemperature === null
-        ? t('temperatureMissing')
-        : t('zoneOverviewThermalGap'),
-    );
-  }
-
-  if (entry.salinityNeedsAttention) {
-    reasons.push('Salinité manquante');
-  }
-
-  if (!entry.zone.probes.length) reasons.push(t('zoneOverviewNoProbe'));
-
-  if (entry.missingMeasurements) {
-    reasons.push(`${entry.missingMeasurements} ${t('zoneOverviewMissingMeasurements')}`);
-  }
-
-  return reasons;
-}
-
-function ZoneDetailPage({
-  boxes,
-  isLoading,
-  language,
-  zone,
-  onBack,
-  onOpenBox,
-  t,
-}: {
-  boxes: BoxItem[];
-  isLoading: boolean;
-  language: Language;
-  zone: ThermalZone | null;
-  onBack: () => void;
-  onOpenBox: (id: number) => void;
-  t: TFunction;
-}) {
-  const [boxFilter, setBoxFilter] = useState<'all' | 'living' | 'attention'>('all');
-
-  if (isLoading) {
-    return (
-      <section className="zone-page">
-        <SkeletonRows count={4} />
-      </section>
-    );
-  }
-
-  if (!zone) {
-    return (
-      <section className="zone-page">
-        <button className="text-button" type="button" onClick={onBack}>{t('backToZones')}</button>
-        <p className="muted compact-text">{t('noZone')}</p>
-      </section>
-    );
-  }
-
-  const zoneBoxes = boxes.filter((box) => box.thermal_zone?.id === zone.id);
-  const livingBoxes = zoneBoxes.filter((box) => box.status === 'active');
-  const attentionBoxes = zoneBoxes.filter(
-    (box) => box.active_alert_count > 0 || !box.latest_measurement,
-  );
-  const filteredBoxes = boxFilter === 'living'
-    ? livingBoxes
-    : boxFilter === 'attention'
-      ? attentionBoxes
-      : zoneBoxes;
-  const targetTemperature = parseTemperatureNumber(zone.target_temperature_c);
-  const measuredTemperature = zone.latest_temperature?.average_temperature_c ?? null;
-  const temperatureNeedsAttention = targetTemperature === null
-    || measuredTemperature === null
-    || Math.abs(measuredTemperature - targetTemperature) > 1;
-
-  return (
-    <section className="zone-page">
-      <button className="text-button zone-back-button" type="button" onClick={onBack}>
-        {t('backToZones')}
-      </button>
-
-      <header className="zone-sheet-hero">
-        <div>
-          <p className="box-page-label">{t('zoneSheet')}</p>
-          <h2>{zone.name}</h2>
-          <span>{zone.organization.name}</span>
-        </div>
-        <div className="zone-hero-summary" aria-label={t('zoneBoxesTitle')}>
-          <Metric label={t('boxes')} value={String(zoneBoxes.length)} />
-          <Metric label={t('zoneSummaryAlive')} value={String(livingBoxes.length)} />
-          <Metric label={t('zoneSummaryAttention')} value={String(attentionBoxes.length)} />
-          <Metric label={t('probes')} value={String(zone.probes.length)} />
-        </div>
-      </header>
-
-      <TemperatureControlPanel zone={zone} t={t} />
-
-      {temperatureNeedsAttention || attentionBoxes.length ? (
-        <ZoneAttentionPanel
-          boxes={attentionBoxes}
-          temperatureNeedsAttention={temperatureNeedsAttention}
-          onOpenBox={onOpenBox}
-          t={t}
-        />
-      ) : null}
-
-      <div className="zone-page-grid">
-        <section className="zone-page-section zone-boxes-section">
-          <div className="zone-boxes-heading">
-            <div className="section-title">
-              <h2>{t('zoneBoxesTitle')}</h2>
-              <span>{filteredBoxes.length}</span>
-            </div>
-            <div className="zone-filter-tabs" role="tablist" aria-label={t('zoneBoxesTitle')}>
-              <button
-                className={boxFilter === 'all' ? 'is-active' : ''}
-                type="button"
-                role="tab"
-                aria-selected={boxFilter === 'all'}
-                onClick={() => setBoxFilter('all')}
-              >
-                {t('zoneFilterAll')}
-              </button>
-              <button
-                className={boxFilter === 'living' ? 'is-active' : ''}
-                type="button"
-                role="tab"
-                aria-selected={boxFilter === 'living'}
-                onClick={() => setBoxFilter('living')}
-              >
-                {t('zoneFilterLiving')}
-              </button>
-              <button
-                className={boxFilter === 'attention' ? 'is-active' : ''}
-                type="button"
-                role="tab"
-                aria-selected={boxFilter === 'attention'}
-                onClick={() => setBoxFilter('attention')}
-              >
-                {t('zoneFilterAttention')}
-              </button>
-            </div>
-          </div>
-          {filteredBoxes.length ? (
-            <div className="zone-box-list">
-              {filteredBoxes.map((box) => {
-                const status = getBoxStatusPresentation(box.status, language);
-
-                return (
-                  <button
-                    className={`zone-box-row is-${status.tone}`}
-                    key={box.id}
-                    type="button"
-                    onClick={() => onOpenBox(box.id)}
-                  >
-                    <span className="zone-box-main">
-                      <strong>{box.global_code}</strong>
-                      <small>{box.species.scientific_name}</small>
-                    </span>
-                    <span className="zone-box-reading">
-                      {box.latest_measurement ? (
-                        <>
-                          <strong>
-                            {box.latest_measurement.polyp_count} {t('polyps')} / {box.latest_measurement.ephyrae_count} {t('ephyrae')}
-                          </strong>
-                          <small>{formatDisplayDate(box.latest_measurement.measured_on)}</small>
-                        </>
-                      ) : (
-                        <strong>{t('recentMeasurementMissing')}</strong>
-                      )}
-                    </span>
-                    {box.active_alert_count > 0 ? (
-                      <span className="zone-alert-pill">{box.active_alert_count}</span>
-                    ) : null}
-                    <span className={`box-life-status is-${status.tone}`}>
-                      {status.label}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="muted compact-text">{boxFilter === 'all' ? t('emptyZone') : t('zoneNoAttention')}</p>
-          )}
-        </section>
-
-        <div className="zone-secondary-stack">
-          <section className="zone-page-section zone-chart-section">
-            <div className="section-title">
-              <h2>{t('latestCounts')}</h2>
-              <span>{zoneBoxes.length}</span>
-            </div>
-            <ZoneLatestCountsChart boxes={zoneBoxes} t={t} />
-          </section>
-
-          <section className="zone-page-section">
-            <div className="section-title">
-              <h2>{t('zoneProbesTitle')}</h2>
-              <span>{zone.probes.length}</span>
-            </div>
-            <div className="probe-list">
-              {zone.probes.length ? zone.probes.map((probe) => (
-                <p key={probe.id}>
-                  <strong>{probe.code}</strong>
-                  <span>{probe.probe_type}</span>
-                </p>
-              )) : <p className="muted compact-text">-</p>}
-            </div>
-          </section>
-        </div>
-      </div>
-
-      <ZoneRecentActivity boxes={zoneBoxes} onOpenBox={onOpenBox} t={t} />
-    </section>
-  );
-}
-
-function ZoneAttentionPanel({
-  boxes,
-  temperatureNeedsAttention,
-  onOpenBox,
-  t,
-}: {
-  boxes: BoxItem[];
-  temperatureNeedsAttention: boolean;
-  onOpenBox: (id: number) => void;
-  t: TFunction;
-}) {
-  return (
-    <section className="zone-attention-panel">
-      <div className="zone-attention-heading">
-        <h2>{t('zoneAttentionTitle')}</h2>
-        <span>{boxes.length + Number(temperatureNeedsAttention)}</span>
-      </div>
-      <div className="zone-attention-items">
-        {temperatureNeedsAttention ? (
-          <article className="zone-attention-item is-temperature">
-            <strong>{t('temperatureControl')}</strong>
-            <span>{t('boxAttention')}</span>
-          </article>
-        ) : null}
-        {boxes.map((box) => (
-          <button
-            className="zone-attention-item"
-            key={box.id}
-            type="button"
-            onClick={() => onOpenBox(box.id)}
-          >
-            <strong>{box.global_code}</strong>
-            <span>
-              {!box.latest_measurement
-                ? t('recentMeasurementMissing')
-                : `${box.active_alert_count} ${t('boxAttention').toLocaleLowerCase()}`}
-            </span>
-          </button>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function ZoneRecentActivity({
-  boxes,
-  onOpenBox,
-  t,
-}: {
-  boxes: BoxItem[];
-  onOpenBox: (id: number) => void;
-  t: TFunction;
-}) {
-  const recentMeasurements = boxes
-    .filter((box) => box.latest_measurement)
-    .sort((first, second) => {
-      const firstDate = first.latest_measurement?.measured_on ?? '';
-      const secondDate = second.latest_measurement?.measured_on ?? '';
-      return secondDate.localeCompare(firstDate);
-    })
-    .slice(0, 5);
-
-  return (
-    <section className="zone-page-section zone-activity-section">
-      <div className="section-title">
-        <h2>{t('zoneActivityTitle')}</h2>
-        <span>{recentMeasurements.length}</span>
-      </div>
-      {recentMeasurements.length ? (
-        <div className="zone-activity-list">
-          {recentMeasurements.map((box) => {
-            const measurement = box.latest_measurement;
-            if (!measurement) return null;
-
-            return (
-              <button key={box.id} type="button" onClick={() => onOpenBox(box.id)}>
-                <span className="zone-activity-date">{formatDisplayDate(measurement.measured_on)}</span>
-                <span>
-                  <strong>{box.global_code}</strong>
-                  <small>{box.species.scientific_name}</small>
-                </span>
-                <span className="zone-activity-values">
-                  <strong>{measurement.polyp_count}</strong>
-                  <small>{t('polyps')}</small>
-                </span>
-                <span className="zone-activity-values">
-                  <strong>{measurement.ephyrae_count}</strong>
-                  <small>{t('ephyrae')}</small>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      ) : (
-        <p className="muted compact-text">{t('zoneNoRecentActivity')}</p>
-      )}
-    </section>
-  );
-}
-
-function TemperatureControlPanel({ zone, t }: { zone: ThermalZone; t: TFunction }) {
-  const targetTemperature = parseTemperatureNumber(zone.target_temperature_c);
-  const measuredTemperature = zone.latest_temperature?.average_temperature_c ?? null;
-  const minTemperature = zone.latest_temperature?.min_temperature_c ?? null;
-  const maxTemperature = zone.latest_temperature?.max_temperature_c ?? null;
-  const hasTemperature = measuredTemperature !== null && targetTemperature !== null;
-  const delta = hasTemperature ? measuredTemperature - targetTemperature : null;
-  const absoluteDelta = delta === null ? null : Math.abs(delta);
-  const statusClass = absoluteDelta === null
-    ? 'is-missing'
-    : absoluteDelta <= 0.5
-      ? 'is-ok'
-      : 'is-watch';
-  const measuredLeft = hasTemperature ? getTemperatureMarkerPosition(measuredTemperature, targetTemperature) : 50;
-  const minLeft = hasTemperature && minTemperature !== null
-    ? getTemperatureMarkerPosition(minTemperature, targetTemperature)
-    : null;
-  const maxLeft = hasTemperature && maxTemperature !== null
-    ? getTemperatureMarkerPosition(maxTemperature, targetTemperature)
-    : null;
-  const rangeStart = minLeft !== null && maxLeft !== null
-    ? Math.min(minLeft, maxLeft)
-    : measuredLeft;
-  const rangeWidth = minLeft !== null && maxLeft !== null
-    ? Math.max(Math.abs(maxLeft - minLeft), 0.6)
-    : 0.6;
-  const [isGaugeReady, setIsGaugeReady] = useState(false);
-
-  useEffect(() => {
-    setIsGaugeReady(false);
-    const animationFrame = window.requestAnimationFrame(() => setIsGaugeReady(true));
-    return () => window.cancelAnimationFrame(animationFrame);
-  }, [zone.id, targetTemperature, measuredTemperature, minTemperature, maxTemperature]);
-
-  const gaugeStyle = {
-    '--temperature-current-position': `${measuredLeft}%`,
-    '--temperature-range-start': `${rangeStart}%`,
-    '--temperature-range-width': `${rangeWidth}%`,
-  } as CSSProperties;
-
-  return (
-    <section className={`zone-temperature-panel ${statusClass}`}>
-      <div className="zone-temperature-heading">
-        <div>
-          <h2>{t('temperatureControl')}</h2>
-          <p>{zone.latest_temperature ? formatDisplayDate(zone.latest_temperature.date) : t('temperatureMissing')}</p>
-        </div>
-      </div>
-
-      <div
-        className={isGaugeReady ? 'temperature-gauge is-ready' : 'temperature-gauge'}
-        style={gaugeStyle}
-        aria-label={t('temperatureControl')}
-      >
-        <span className="temperature-gauge-safe-band" aria-hidden="true" />
-        <span className="temperature-gauge-track" aria-hidden="true" />
-        {hasTemperature ? <span className="temperature-gauge-range" aria-hidden="true" /> : null}
-        {targetTemperature !== null ? (
-          <span className="temperature-gauge-target" aria-hidden="true">
-            <span>{formatTemperature(targetTemperature)}</span>
-          </span>
-        ) : null}
-        {minLeft !== null ? <span className="temperature-gauge-cap is-min" style={{ left: `${minLeft}%` }} aria-hidden="true" /> : null}
-        {maxLeft !== null ? <span className="temperature-gauge-cap is-max" style={{ left: `${maxLeft}%` }} aria-hidden="true" /> : null}
-        {hasTemperature ? (
-          <span className="temperature-gauge-current">
-            {measuredTemperature === null ? '-' : formatTemperature(measuredTemperature)}
-          </span>
-        ) : null}
-      </div>
-
-      <div className="temperature-scale-labels">
-        <span>{targetTemperature === null ? '-' : formatTemperature(targetTemperature - 3)}</span>
-        <strong>{t('targetTemperature')}</strong>
-        <span>{targetTemperature === null ? '-' : formatTemperature(targetTemperature + 3)}</span>
-      </div>
-
-      <div className="temperature-details-grid">
-        <Metric label={t('targetTemperature')} value={formatTemperatureValue(zone.target_temperature_c)} />
-        <Metric label={t('measuredTemperature')} value={formatTemperature(measuredTemperature ?? undefined)} />
-        <Metric label={t('minTemperature')} value={formatTemperature(minTemperature ?? undefined)} />
-        <Metric label={t('maxTemperature')} value={formatTemperature(maxTemperature ?? undefined)} />
-      </div>
-    </section>
-  );
-}
-
-function ZoneLatestCountsChart({ boxes, t }: { boxes: BoxItem[]; t: TFunction }) {
-  const measuredBoxes = boxes
-    .filter((box) => box.latest_measurement)
-    .slice(0, 8);
-
-  if (!measuredBoxes.length) {
-    return <p className="muted compact-text chart-empty">{t('noZoneChart')}</p>;
-  }
-
-  const maxValue = Math.max(
-    1,
-    ...measuredBoxes.flatMap((box) => [
-      box.latest_measurement?.polyp_count ?? 0,
-      box.latest_measurement?.ephyrae_count ?? 0,
-    ]),
-  );
-  // D3 scale maps a count to a bar width (in %), with a small minimum so an
-  // empty bar stays visible.
-  const widthScale = scaleLinear().domain([0, maxValue]).range([2, 100]);
-
-  return (
-    <div className="zone-count-chart">
-      {measuredBoxes.map((box) => {
-        const measurement = box.latest_measurement;
-        if (!measurement) return null;
-        const polypWidth = `${widthScale(measurement.polyp_count)}%`;
-        const ephyraeWidth = `${widthScale(measurement.ephyrae_count)}%`;
-
-        return (
-          <div className="zone-count-row" key={box.id}>
-            <div>
-              <strong>{box.global_code}</strong>
-              <small>{formatDisplayDate(measurement.measured_on)}</small>
-            </div>
-            <div className="zone-count-bars">
-              <span className="zone-count-bar is-polyps" style={{ width: polypWidth }}>
-                {measurement.polyp_count}
-              </span>
-              <span className="zone-count-bar is-ephyrae" style={{ width: ephyraeWidth }}>
-                {measurement.ephyrae_count}
-              </span>
-            </div>
-          </div>
-        );
-      })}
-      <div className="chart-legend">
-        <span className="is-polyps">{t('polyps')}</span>
-        <span className="is-ephyrae">{t('ephyraeFull')}</span>
-      </div>
-    </div>
-  );
-}
-
-function ProfileView({
-  isLoading,
-  profile,
-  onLogout,
-  onUpdateLanguage,
-  t,
-}: {
-  isLoading: boolean;
-  profile: UserProfile | null;
-  onLogout: () => Promise<void>;
-  onUpdateLanguage: (language: string) => Promise<void>;
-  t: TFunction;
-}) {
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const [logoutError, setLogoutError] = useState<string | null>(null);
-
-  async function handleLanguage(language: string) {
-    setIsSaving(true);
-    setSaveError(null);
-    try {
-      await onUpdateLanguage(language);
-    } catch (requestError) {
-      setSaveError(getErrorMessage(requestError));
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  async function handleLogout() {
-    if (isLoggingOut) return;
-
-    setIsLoggingOut(true);
-    setLogoutError(null);
-    try {
-      await onLogout();
-    } catch {
-      setLogoutError(t('logoutError'));
-      setIsLoggingOut(false);
-    }
-  }
-
-  if (isLoading) {
-    return (
-      <section className="single-panel">
-        <SkeletonRows count={3} />
-      </section>
-    );
-  }
-
-  if (!profile) return null;
-
-  const fullName = [profile.first_name, profile.last_name].filter(Boolean).join(' ') || profile.username;
-  const initials = getProfileInitials(profile);
-  return (
-    <section className="profile-page">
-      <header className="profile-identity-card">
-        <div className="profile-avatar" aria-hidden="true">
-          {initials}
-        </div>
-        <div className="profile-identity-main">
-          <p className="eyebrow">{t('account')}</p>
-          <h2>{fullName}</h2>
-          <p className="profile-username">@{profile.username}</p>
-          <div className="profile-identity-meta">
-            <span className="profile-meta-item">
-              <small>{t('profileEmail')}</small>
-              {profile.email || t('profileNoEmail')}
-            </span>
-          </div>
-        </div>
-      </header>
-
-      <section className="profile-block">
-        <div className="section-title">
-          <h2>{t('profileMemberships')}</h2>
-          <span>{profile.memberships.length}</span>
-        </div>
-
-        {profile.memberships.length ? (
-          <div className="profile-membership-list">
-            {profile.memberships.map((membership) => (
-              <article
-                key={`${membership.organization.id}-${membership.role}`}
-                className="profile-membership-card"
-              >
-                <div className="profile-membership-head">
-                  <strong>{membership.organization.name}</strong>
-                  <span className={`profile-role-tag is-${membership.role}`}>
-                    {membership.role_label}
-                  </span>
-                </div>
-                <p>{t(getRoleDescriptionKey(membership.role))}</p>
-              </article>
-            ))}
-          </div>
-        ) : (
-          <p className="muted compact-text">{t('profileNoMembership')}</p>
-        )}
-      </section>
-
-      <section className="profile-block">
-        <div className="section-title">
-          <h2>{t('profilePreferences')}</h2>
-        </div>
-        <label className="profile-language-select">
-          <span>{t('profileLanguage')}</span>
-          <select
-            value={profile.interface_language}
-            disabled={isSaving}
-            onChange={(event) => void handleLanguage(event.target.value)}
-          >
-            {profile.available_languages.map((language) => (
-              <option key={language.code} value={language.code}>{language.label}</option>
-            ))}
-          </select>
-        </label>
-
-        {saveError ? <p className="inline-error">{saveError}</p> : null}
-      </section>
-
-      <section className="profile-block profile-session-block">
-        <button
-          className="profile-sign-out"
-          type="button"
-          disabled={isLoggingOut}
-          onClick={handleLogout}
-        >
-          {isLoggingOut ? t('saving') : t('logoutAction')}
-        </button>
-        {logoutError ? <p className="inline-error">{logoutError}</p> : null}
-      </section>
-    </section>
-  );
-}
-
-const emptyMemberForm = {
-  username: '',
-  first_name: '',
-  last_name: '',
-  email: '',
-  password: '',
-};
-
-function AccountManagementSection({ t }: { t: TFunction }) {
-  const [data, setData] = useState<AccountMembers | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [form, setForm] = useState(emptyMemberForm);
-  const [organizationId, setOrganizationId] = useState<number | null>(null);
-  const [role, setRole] = useState<MembershipRole>('viewer');
-  const [isAdding, setIsAdding] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [rowBusyId, setRowBusyId] = useState<number | null>(null);
-
-  useEffect(() => {
-    let isActive = true;
-
-    async function loadMembers() {
-      try {
-        setIsLoading(true);
-        const response = await apiGet<AccountMembers>('/api/accounts/members/');
-        if (!isActive) return;
-        setData(response);
-        setOrganizationId(response.manageable_organizations[0]?.id ?? null);
-      } catch (requestError) {
-        if (!isActive) return;
-        setLoadError(getErrorMessage(requestError));
-      } finally {
-        if (isActive) setIsLoading(false);
-      }
-    }
-
-    loadMembers();
-    return () => {
-      isActive = false;
-    };
-  }, []);
-
-  function upsertMember(updated: AccountMember) {
-    setData((current) => {
-      if (!current) return current;
-      const exists = current.members.some((member) => member.membership_id === updated.membership_id);
-      const members = exists
-        ? current.members.map((member) =>
-            member.membership_id === updated.membership_id ? updated : member,
-          )
-        : [...current.members, updated];
-      members.sort(
-        (a, b) =>
-          a.organization.name.localeCompare(b.organization.name) ||
-          a.username.localeCompare(b.username),
-      );
-      return { ...current, members };
-    });
-  }
-
-  async function handleAddMember(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (isAdding || organizationId == null) return;
-
-    setIsAdding(true);
-    setFormError(null);
-    setMessage(null);
-
-    const payload: NewMemberPayload = {
-      ...form,
-      username: form.username.trim(),
-      organization_id: organizationId,
-      role,
-    };
-
-    try {
-      const member = await apiPost<AccountMember>('/api/accounts/members/', payload);
-      upsertMember(member);
-      setForm(emptyMemberForm);
-      setRole('viewer');
-      setMessage(t('manageMemberAdded'));
-    } catch (requestError) {
-      setFormError(getErrorMessage(requestError));
-    } finally {
-      setIsAdding(false);
-    }
-  }
-
-  async function handleRoleChange(member: AccountMember, nextRole: MembershipRole) {
-    if (nextRole === member.role) return;
-    setRowBusyId(member.membership_id);
-    setMessage(null);
-    setLoadError(null);
-    try {
-      const updated = await apiPatch<AccountMember>(
-        `/api/accounts/members/${member.membership_id}/`,
-        { role: nextRole },
-      );
-      upsertMember(updated);
-      setMessage(t('manageRoleUpdated'));
-    } catch (requestError) {
-      setLoadError(getErrorMessage(requestError));
-    } finally {
-      setRowBusyId(null);
-    }
-  }
-
-  async function handleToggleActive(member: AccountMember) {
-    setRowBusyId(member.membership_id);
-    setMessage(null);
-    setLoadError(null);
-    try {
-      const updated = await apiPatch<AccountMember>(
-        `/api/accounts/members/${member.membership_id}/`,
-        { is_active: !member.is_active },
-      );
-      upsertMember(updated);
-    } catch (requestError) {
-      setLoadError(getErrorMessage(requestError));
-    } finally {
-      setRowBusyId(null);
-    }
-  }
-
-  if (isLoading) {
-    return (
-      <section className="profile-block">
-        <div className="section-title">
-          <h2>{t('manageAccountsTitle')}</h2>
-        </div>
-        <SkeletonRows count={3} />
-      </section>
-    );
-  }
-
-  if (loadError && !data) {
-    return (
-      <section className="profile-block">
-        <div className="section-title">
-          <h2>{t('manageAccountsTitle')}</h2>
-        </div>
-        <p className="inline-error">{loadError}</p>
-      </section>
-    );
-  }
-
-  if (!data) return null;
-
-  const organizations = data.manageable_organizations;
-  const roles = data.roles;
-
-  return (
-    <section className="admin-section account-management">
-      <div className="admin-section-heading account-management-heading">
-        <div>
-          <h2>{t('manageAccountsTitle')}</h2>
-          <p>{t('manageAccountsSubtitle')}</p>
-        </div>
-        <span className="account-count">{data.members.length}</span>
-      </div>
-
-      <form className="member-add-form" onSubmit={handleAddMember}>
-        <p className="member-add-title">{t('manageAddTitle')}</p>
-        <div className="member-add-grid">
-          <label>
-            {t('manageFieldUsername')}
-            <input
-              required
-              value={form.username}
-              onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))}
-            />
-          </label>
-          <label>
-            {t('manageFieldFirstName')}
-            <input
-              value={form.first_name}
-              onChange={(event) => setForm((current) => ({ ...current, first_name: event.target.value }))}
-            />
-          </label>
-          <label>
-            {t('manageFieldLastName')}
-            <input
-              value={form.last_name}
-              onChange={(event) => setForm((current) => ({ ...current, last_name: event.target.value }))}
-            />
-          </label>
-          <label>
-            {t('manageFieldEmail')}
-            <input
-              type="email"
-              value={form.email}
-              onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
-            />
-          </label>
-          <label className="member-add-password">
-            {t('manageFieldPassword')}
-            <input
-              type="password"
-              autoComplete="new-password"
-              value={form.password}
-              onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
-            />
-            <small>{t('managePasswordHint')}</small>
-          </label>
-          {organizations.length > 1 ? (
-            <label>
-              {t('manageFieldOrganization')}
-              <select
-                value={organizationId ?? ''}
-                onChange={(event) => setOrganizationId(Number(event.target.value))}
-              >
-                {organizations.map((organization) => (
-                  <option key={organization.id} value={organization.id}>
-                    {organization.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          <label>
-            {t('manageFieldRole')}
-            <select value={role} onChange={(event) => setRole(event.target.value as MembershipRole)}>
-              {roles.map((roleOption) => (
-                <option key={roleOption.value} value={roleOption.value}>
-                  {roleOption.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        {formError ? <p className="inline-error">{formError}</p> : null}
-
-        <button type="submit" disabled={isAdding || organizationId == null}>
-          {isAdding ? t('manageAdding') : t('manageAddAction')}
-        </button>
-      </form>
-
-      {message ? <p className="inline-success">{message}</p> : null}
-      {loadError && data ? <p className="inline-error">{loadError}</p> : null}
-
-      {data.members.length ? (
-        <div className="member-table">
-          <div className="member-table-head">
-            <span>{t('manageColUser')}</span>
-            <span>{t('manageColOrganization')}</span>
-            <span>{t('manageColRole')}</span>
-            <span>{t('manageColLastLogin')}</span>
-            <span>{t('manageColStatus')}</span>
-          </div>
-          {data.members.map((member) => (
-            <div
-              key={member.membership_id}
-              className={member.is_active ? 'member-table-row' : 'member-table-row is-inactive'}
-            >
-              <span className="member-identity">
-                <strong>{member.full_name}</strong>
-                <small>
-                  @{member.username}
-                  {member.email ? ` · ${member.email}` : ''}
-                </small>
-              </span>
-              <span>{member.organization.name}</span>
-              <span>
-                <select
-                  value={member.role}
-                  disabled={member.is_self || rowBusyId === member.membership_id}
-                  onChange={(event) =>
-                    handleRoleChange(member, event.target.value as MembershipRole)
-                  }
-                >
-                  {roles.map((roleOption) => (
-                    <option key={roleOption.value} value={roleOption.value}>
-                      {roleOption.label}
-                    </option>
-                  ))}
-                </select>
-              </span>
-              <span className="member-last-login">
-                {member.last_login ? formatDisplayDate(member.last_login) : t('manageNeverConnected')}
-              </span>
-              <span className="member-status">
-                {member.is_self ? (
-                  <em className="member-self-tag">{t('manageStatusSelf')}</em>
-                ) : (
-                  <button
-                    type="button"
-                    className="member-toggle"
-                    disabled={rowBusyId === member.membership_id}
-                    onClick={() => handleToggleActive(member)}
-                  >
-                    {member.is_active ? t('manageDeactivate') : t('manageReactivate')}
-                  </button>
-                )}
-                <span className={member.is_active ? 'member-state is-on' : 'member-state is-off'}>
-                  {member.is_active ? t('manageStatusActive') : t('manageStatusInactive')}
-                </span>
-              </span>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="muted compact-text">{t('manageNoMembers')}</p>
-      )}
-    </section>
-  );
-}
-
-function getRoleDescriptionKey(role: UserProfile['memberships'][number]['role']): TranslationKey {
-  switch (role) {
-    case 'admin':
-      return 'roleDescAdmin';
-    case 'lab_technician':
-      return 'roleDescTechnician';
-    default:
-      return 'roleDescViewer';
-  }
-}
-
-function getProfileInitials(profile: UserProfile): string {
-  const fromName = [profile.first_name, profile.last_name]
-    .filter(Boolean)
-    .map((part) => part.charAt(0))
-    .join('');
-  const initials = fromName || profile.username.slice(0, 2);
-  return initials.toUpperCase();
-}
-
-const PROBE_TYPE_OPTIONS = [
-  { value: 'lorawan', label: 'LoRaWAN' },
-  { value: 'iminilide', label: 'iMinilide' },
-  { value: 'manual', label: 'Manuel / Manual' },
-  { value: 'other', label: 'Autre / Other' },
-];
-
-function getAdminOrganizationIds(profile: UserProfile): Set<number> | null {
-  // null means "all organizations" (superuser).
-  if (profile.is_superuser) return null;
-  return new Set(
-    profile.memberships
-      .filter((membership) => membership.role === 'admin')
-      .map((membership) => membership.organization.id),
-  );
-}
-
-function ZoneCreateForm({
-  profile,
-  onCreateZone,
-  t,
-}: {
-  profile: UserProfile;
-  onCreateZone: (payload: ThermalZonePayload) => Promise<void>;
-  t: TFunction;
-}) {
-  const adminOrganizations = useMemo(() => {
-    const adminOrgIds = getAdminOrganizationIds(profile);
-    if (adminOrgIds === null) return profile.organizations;
-    return profile.organizations.filter((organization) => adminOrgIds.has(organization.id));
-  }, [profile]);
-
-  const [organizationId, setOrganizationId] = useState<number | null>(
-    adminOrganizations[0]?.id ?? null,
-  );
-  const [name, setName] = useState('');
-  const [zoneType, setZoneType] = useState('cabinet');
-  const [targetTemperature, setTargetTemperature] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-
-  if (!adminOrganizations.length) {
-    return <p className="muted compact-text">{t('adminZoneNoOrganization')}</p>;
-  }
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (isSaving || organizationId == null) return;
-
-    setIsSaving(true);
-    setError(null);
-    setMessage(null);
-
-    try {
-      await onCreateZone({
-        organization: organizationId,
-        name: name.trim(),
-        zone_type: zoneType,
-        target_temperature_c: targetTemperature.trim() || null,
-      });
-      setName('');
-      setTargetTemperature('');
-      setMessage(t('adminZoneCreated'));
-    } catch (requestError) {
-      setError(getErrorMessage(requestError));
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  return (
-    <form className="admin-form" onSubmit={handleSubmit}>
-      {adminOrganizations.length > 1 ? (
-        <label>
-          <span>{t('adminZoneOrganization')}</span>
-          <select
-            value={organizationId ?? ''}
-            onChange={(event) => setOrganizationId(Number(event.target.value))}
-          >
-            {adminOrganizations.map((organization) => (
-              <option key={organization.id} value={organization.id}>
-                {organization.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
-      <label>
-        <span>{t('adminZoneName')}</span>
-        <input
-          required
-          placeholder="Étuve 13"
-          type="text"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-        />
-      </label>
-      <label>
-        <span>{t('adminZoneType')}</span>
-        <select value={zoneType} onChange={(event) => setZoneType(event.target.value)}>
-          <option value="cabinet">{t('adminZoneTypeCabinet')}</option>
-          <option value="incubator">{t('adminZoneTypeIncubator')}</option>
-        </select>
-      </label>
-      <label>
-        <span>{t('adminTargetTemperature')}</span>
-        <input
-          placeholder="15.0"
-          type="number"
-          step="0.1"
-          value={targetTemperature}
-          onChange={(event) => setTargetTemperature(event.target.value)}
-        />
-      </label>
-      <button type="submit" disabled={isSaving || !name.trim()}>
-        {isSaving ? t('saving') : t('adminCreateZone')}
-      </button>
-      {message ? <p className="inline-success">{message}</p> : null}
-      {error ? <p className="inline-error">{error}</p> : null}
-    </form>
-  );
-}
-
-function ProbeCreateForm({
-  profile,
-  zones,
-  onCreateProbe,
-  t,
-}: {
-  profile: UserProfile;
-  zones: ThermalZone[];
-  onCreateProbe: (payload: ProbePayload) => Promise<void>;
-  t: TFunction;
-}) {
-  const zoneChoices = useMemo(() => {
-    const adminOrgIds = getAdminOrganizationIds(profile);
-    return zones.filter(
-      (zone) => zone.is_active && (adminOrgIds === null || adminOrgIds.has(zone.organization.id)),
-    );
-  }, [profile, zones]);
-
-  const [zoneId, setZoneId] = useState<number | null>(zoneChoices[0]?.id ?? null);
-  const [code, setCode] = useState('');
-  const [probeType, setProbeType] = useState('lorawan');
-  const [location, setLocation] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-
-  if (!zoneChoices.length) {
-    return <p className="muted compact-text">{t('adminProbeNoZone')}</p>;
-  }
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (isSaving || zoneId == null) return;
-
-    setIsSaving(true);
-    setError(null);
-    setMessage(null);
-
-    try {
-      await onCreateProbe({
-        thermal_zone: zoneId,
-        code: code.trim(),
-        probe_type: probeType,
-        location: location.trim(),
-      });
-      setCode('');
-      setLocation('');
-      setMessage(t('adminProbeCreated'));
-    } catch (requestError) {
-      setError(getErrorMessage(requestError));
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  return (
-    <form className="admin-form" onSubmit={handleSubmit}>
-      <label>
-        <span>{t('adminProbeCode')}</span>
-        <input
-          required
-          placeholder="SONDE-15-01"
-          type="text"
-          value={code}
-          onChange={(event) => setCode(event.target.value)}
-        />
-      </label>
-      <label>
-        <span>{t('adminProbeType')}</span>
-        <select value={probeType} onChange={(event) => setProbeType(event.target.value)}>
-          {PROBE_TYPE_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
-          ))}
-        </select>
-      </label>
-      <label>
-        <span>{t('adminProbeZone')}</span>
-        <select
-          value={zoneId ?? ''}
-          onChange={(event) => setZoneId(Number(event.target.value))}
-        >
-          {zoneChoices.map((zone) => (
-            <option key={zone.id} value={zone.id}>{zone.name}</option>
-          ))}
-        </select>
-      </label>
-      <label>
-        <span>{t('adminProbeLocation')}</span>
-        <input
-          type="text"
-          value={location}
-          onChange={(event) => setLocation(event.target.value)}
-        />
-      </label>
-      <button type="submit" disabled={isSaving || !code.trim()}>
-        {isSaving ? t('saving') : t('adminAddProbe')}
-      </button>
-      {message ? <p className="inline-success">{message}</p> : null}
-      {error ? <p className="inline-error">{error}</p> : null}
-    </form>
-  );
-}
-
-function OrganizationCreateForm({
-  profile,
-  onCreateOrganization,
-  t,
-}: {
-  profile: UserProfile;
-  onCreateOrganization: (payload: OrganizationPayload) => Promise<void>;
-  t: TFunction;
-}) {
-  const [name, setName] = useState('');
-  const [country, setCountry] = useState('');
-  const [city, setCity] = useState('');
-  const [contactName, setContactName] = useState('');
-  const [contactEmail, setContactEmail] = useState('');
-  const [contactPhone, setContactPhone] = useState('');
-  const [postalAddress, setPostalAddress] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-
-  if (!profile.is_superuser) {
-    return <p className="muted compact-text">{t('adminSuperuserOnly')}</p>;
-  }
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (isSaving) return;
-
-    setIsSaving(true);
-    setError(null);
-    setMessage(null);
-
-    // The model has no phone/address/contact-name fields: fold them into notes.
-    const notes = [
-      contactName.trim() && `Contact : ${contactName.trim()}`,
-      contactPhone.trim() && `Tél : ${contactPhone.trim()}`,
-      postalAddress.trim() && `Adresse : ${postalAddress.trim()}`,
-    ]
-      .filter(Boolean)
-      .join('\n');
-
-    try {
-      await onCreateOrganization({
-        name: name.trim(),
-        city: city.trim(),
-        country: country.trim(),
-        contact_email: contactEmail.trim(),
-        notes,
-      });
-      setName('');
-      setCountry('');
-      setCity('');
-      setContactName('');
-      setContactEmail('');
-      setContactPhone('');
-      setPostalAddress('');
-      setMessage(t('adminOrganizationCreated'));
-    } catch (requestError) {
-      setError(getErrorMessage(requestError));
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  return (
-    <form className="admin-form admin-organization-form" onSubmit={handleSubmit}>
-      <label>
-        <span>{t('adminOrganizationName')}</span>
-        <input required type="text" value={name} onChange={(event) => setName(event.target.value)} />
-      </label>
-      <label>
-        <span>{t('adminCountry')}</span>
-        <input type="text" value={country} onChange={(event) => setCountry(event.target.value)} />
-      </label>
-      <label>
-        <span>{t('adminCity')}</span>
-        <input type="text" value={city} onChange={(event) => setCity(event.target.value)} />
-      </label>
-      <label>
-        <span>{t('adminContactName')}</span>
-        <input type="text" value={contactName} onChange={(event) => setContactName(event.target.value)} />
-      </label>
-      <label>
-        <span>{t('adminContactEmail')}</span>
-        <input type="email" value={contactEmail} onChange={(event) => setContactEmail(event.target.value)} />
-      </label>
-      <label>
-        <span>{t('adminContactPhone')}</span>
-        <input type="tel" value={contactPhone} onChange={(event) => setContactPhone(event.target.value)} />
-      </label>
-      <label className="admin-wide-field">
-        <span>{t('adminPostalAddress')}</span>
-        <textarea rows={3} value={postalAddress} onChange={(event) => setPostalAddress(event.target.value)} />
-      </label>
-      <button type="submit" disabled={isSaving || !name.trim()}>
-        {isSaving ? t('saving') : t('adminAddOrganization')}
-      </button>
-      {message ? <p className="inline-success">{message}</p> : null}
-      {error ? <p className="inline-error">{error}</p> : null}
-    </form>
-  );
-}
-
-function TransferCreateForm({
-  profile,
-  boxes,
-  organizations,
-  onCreateTransfer,
-  t,
-}: {
-  profile: UserProfile;
-  boxes: BoxItem[];
-  organizations: Array<{ id: number; name: string }>;
-  onCreateTransfer: (payload: BoxTransferPayload) => Promise<void>;
-  t: TFunction;
-}) {
-  const transferableBoxes = useMemo(() => {
-    const adminOrgIds = getAdminOrganizationIds(profile);
-    return boxes.filter(
-      (box) =>
-        box.status === 'active' &&
-        (adminOrgIds === null || adminOrgIds.has(box.organization.id)),
-    );
-  }, [profile, boxes]);
-
-  const [boxId, setBoxId] = useState<number | null>(transferableBoxes[0]?.id ?? null);
-  const [targetOrgId, setTargetOrgId] = useState<number | null>(null);
-  const [notes, setNotes] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-
-  const selectedBox = transferableBoxes.find((box) => box.id === boxId) ?? null;
-  // The target cannot be the box's current organization.
-  const targetOrganizations = organizations.filter(
-    (organization) => organization.id !== selectedBox?.organization.id,
-  );
-
-  if (!transferableBoxes.length) {
-    return <p className="muted compact-text">{t('adminTransferNoBox')}</p>;
-  }
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (isSaving || boxId == null || targetOrgId == null) return;
-
-    setIsSaving(true);
-    setError(null);
-    setMessage(null);
-
-    try {
-      await onCreateTransfer({ box: boxId, to_organization: targetOrgId, notes: notes.trim() });
-      setNotes('');
-      setTargetOrgId(null);
-      setMessage(t('adminTransferCreated'));
-    } catch (requestError) {
-      setError(getErrorMessage(requestError));
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  return (
-    <form className="admin-transfer-form" onSubmit={handleSubmit}>
-      <label>
-        <span>{t('adminTransferBox')}</span>
-        <select value={boxId ?? ''} onChange={(event) => setBoxId(Number(event.target.value))}>
-          {transferableBoxes.map((box) => (
-            <option key={box.id} value={box.id}>{box.global_code}</option>
-          ))}
-        </select>
-      </label>
-      <label>
-        <span>{t('adminTransferTarget')}</span>
-        <select
-          value={targetOrgId ?? ''}
-          onChange={(event) => setTargetOrgId(event.target.value ? Number(event.target.value) : null)}
-        >
-          <option value="" disabled>{t('adminOrganizations')}</option>
-          {targetOrganizations.map((organization) => (
-            <option key={organization.id} value={organization.id}>{organization.name}</option>
-          ))}
-        </select>
-      </label>
-      <label className="admin-wide-field">
-        <span>{t('adminTransferNotes')}</span>
-        <textarea rows={2} value={notes} onChange={(event) => setNotes(event.target.value)} />
-      </label>
-      <button type="submit" disabled={isSaving || targetOrgId == null}>
-        {isSaving ? t('saving') : t('adminPrepareTransfer')}
-      </button>
-      {message ? <p className="inline-success">{message}</p> : null}
-      {error ? <p className="inline-error">{error}</p> : null}
-    </form>
-  );
-}
-
-function AdminView({
-  boxes,
-  exportOptions,
-  isLoading,
-  profile,
-  onCreateZone,
-  onCreateProbe,
-  onCreateOrganization,
-  onCreateTransfer,
-  t,
-  zones,
-}: {
-  boxes: BoxItem[];
-  exportOptions: ExportOptions | null;
-  isLoading: boolean;
-  profile: UserProfile | null;
-  onCreateZone: (payload: ThermalZonePayload) => Promise<void>;
-  onCreateProbe: (payload: ProbePayload) => Promise<void>;
-  onCreateOrganization: (payload: OrganizationPayload) => Promise<void>;
-  onCreateTransfer: (payload: BoxTransferPayload) => Promise<void>;
-  t: TFunction;
-  zones: ThermalZone[];
-}) {
-  const [selectedLabelBoxIds, setSelectedLabelBoxIds] = useState<number[]>([]);
-  const [labelBoxSearch, setLabelBoxSearch] = useState('');
-
-  if (isLoading) {
-    return (
-      <section className="single-panel">
-        <SkeletonRows count={4} />
-      </section>
-    );
-  }
-
-  if (!profile || !userHasAdminRole(profile)) return null;
-
-  const organizations = exportOptions?.organizations ?? profile.organizations;
-  const selectedLabelBoxes = boxes.filter((box) => selectedLabelBoxIds.includes(box.id));
-  const normalizedLabelSearch = labelBoxSearch.trim().toLocaleLowerCase();
-  const labelBoxes = boxes.filter((box) => {
-    if (!normalizedLabelSearch) return true;
-    return [
-      box.global_code,
-      box.local_code,
-      box.species.scientific_name,
-      box.strain.code,
-    ]
-      .filter(Boolean)
-      .some((value) => value!.toLocaleLowerCase().includes(normalizedLabelSearch));
-  });
-
-  function toggleLabelBox(boxId: number) {
-    setSelectedLabelBoxIds((current) => (
-      current.includes(boxId)
-        ? current.filter((id) => id !== boxId)
-        : [...current, boxId]
-    ));
-  }
-
-  function printSelectedLabels() {
-    printQrLabels(selectedLabelBoxes.map((box) => buildQrLabelItem(box)));
-  }
-
-  return (
-    <section className="admin-panel">
-      <AccountManagementSection t={t} />
-
-      <section className="admin-section admin-label-section">
-        <div className="admin-section-heading">
-          <div>
-            <h2>{t('adminPrintLabelsTitle')}</h2>
-            <p>{t('adminPrintLabelsHelp')}</p>
-          </div>
-          <div className="admin-label-actions">
-            <button type="button" onClick={() => setSelectedLabelBoxIds(labelBoxes.map((box) => box.id))}>
-              {t('adminPrintLabelsSelectAll')}
-            </button>
-            <button type="button" onClick={() => setSelectedLabelBoxIds([])}>
-              {t('adminPrintLabelsClear')}
-            </button>
-          </div>
-        </div>
-
-        <label className="admin-label-search">
-          <span>{t('adminPrintLabelsSearch')}</span>
-          <input
-            type="search"
-            value={labelBoxSearch}
-            placeholder={t('adminPrintLabelsSearchPlaceholder')}
-            onChange={(event) => setLabelBoxSearch(event.target.value)}
-          />
-        </label>
-
-        <div className="admin-label-selector">
-          {labelBoxes.map((box) => (
-            <label key={box.id}>
-              <input
-                type="checkbox"
-                checked={selectedLabelBoxIds.includes(box.id)}
-                onChange={() => toggleLabelBox(box.id)}
-              />
-              <span>
-                <strong>{box.global_code}</strong>
-                <small>{box.species.scientific_name}</small>
-              </span>
-              <em>{box.thermal_zone?.name ?? t('noZone')}</em>
-            </label>
-          ))}
-        </div>
-
-        <button
-          className="admin-print-labels-button"
-          type="button"
-          disabled={!selectedLabelBoxes.length}
-          onClick={printSelectedLabels}
-        >
-          {t('adminPrintLabelsAction')} ({selectedLabelBoxes.length})
-        </button>
-      </section>
-
-      <div className="admin-two-columns">
-        <section className="admin-section">
-          <div className="admin-section-heading">
-            <div>
-              <h2>{t('adminZonesProbesTitle')}</h2>
-              <p>{t('adminZonesProbesText')}</p>
-            </div>
-          </div>
-
-          <div className="admin-form-grid">
-            <ZoneCreateForm profile={profile} onCreateZone={onCreateZone} t={t} />
-            <ProbeCreateForm profile={profile} zones={zones} onCreateProbe={onCreateProbe} t={t} />
-          </div>
-        </section>
-
-        <section className="admin-section">
-          <div className="admin-section-heading">
-            <div>
-              <h2>{t('adminOrganizationsTitle')}</h2>
-              <p>{t('adminOrganizationsText')}</p>
-            </div>
-          </div>
-
-          <OrganizationCreateForm
-            profile={profile}
-            onCreateOrganization={onCreateOrganization}
-            t={t}
-          />
-
-          <div className="admin-inline-list">
-            <strong>{t('adminExistingOrganizations')}</strong>
-            <div>
-              {organizations.slice(0, 4).map((organization) => (
-                <span key={organization.id}>{organization.name}</span>
-              ))}
-            </div>
-          </div>
-        </section>
-      </div>
-
-      <section className="admin-section admin-transfer-section">
-        <div className="admin-section-heading">
-          <div>
-            <h2>{t('adminTransferTitle')}</h2>
-            <p>{t('adminTransferText')}</p>
-          </div>
-        </div>
-
-        <TransferCreateForm
-          profile={profile}
-          boxes={boxes}
-          organizations={organizations}
-          onCreateTransfer={onCreateTransfer}
-          t={t}
-        />
-      </section>
-    </section>
-  );
-}
-
-function SearchField({
-  value,
-  onChange,
-  onSubmit,
-  t,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  onSubmit?: () => void;
-  t: TFunction;
-}) {
-  return (
-    <form
-      className="search-field"
-      onSubmit={(event) => {
-        event.preventDefault();
-        onSubmit?.();
-      }}
-    >
-      <label>
-        <span>{t('searchOrScan')}</span>
-        <input
-          value={value}
-          placeholder={t('searchPlaceholder')}
-          type="search"
-          onChange={(event) => onChange(event.target.value)}
-        />
-      </label>
-    </form>
-  );
-}
-
-function TabletQrScanner({
-  boxes,
-  onSelectBox,
-  t,
-}: {
-  boxes: BoxItem[];
-  onSelectBox: (id: number) => void;
-  t: TFunction;
-}) {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const scannerControlsRef = useRef<IScannerControls | null>(null);
-  const [isScanning, setIsScanning] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!isScanning) {
-      stopQrScanner(scannerControlsRef);
-      return;
-    }
-
-    let isCancelled = false;
-
-    async function startScanner() {
-      if (!window.isSecureContext) {
-        setMessage(t('qrScannerSecureContext'));
-        setIsScanning(false);
-        return;
-      }
-
-      if (!navigator.mediaDevices?.getUserMedia) {
-        setMessage(t('qrScannerUnsupported'));
-        setIsScanning(false);
-        return;
-      }
-
-      try {
-        const video = videoRef.current;
-        if (!video) return;
-
-        const { BrowserQRCodeReader } = await import('@zxing/browser');
-        const reader = new BrowserQRCodeReader();
-        let hasDetectedBox = false;
-        const controls = await reader.decodeFromConstraints(
-          {
-            video: { facingMode: { ideal: 'environment' } },
-            audio: false,
-          },
-          video,
-          (result) => {
-            if (!result || isCancelled || hasDetectedBox) return;
-
-            const scannedBoxId = getBoxIdFromQrValue(result.getText(), boxes);
-            if (scannedBoxId == null) return;
-
-            hasDetectedBox = true;
-            triggerHaptic([10, 34, 12]);
-            setMessage(t('qrScannerFound'));
-            setIsScanning(false);
-            onSelectBox(scannedBoxId);
-          },
-        );
-
-        if (isCancelled || hasDetectedBox) {
-          controls.stop();
-          return;
-        }
-
-        scannerControlsRef.current = controls;
-      } catch {
-        setMessage(t('qrScannerPermission'));
-        setIsScanning(false);
-      }
-    }
-
-    void startScanner();
-
-    return () => {
-      isCancelled = true;
-      stopQrScanner(scannerControlsRef);
-    };
-  }, [isScanning, boxes, onSelectBox, t]);
-
-  return (
-    <section className={isScanning ? 'tablet-scanner-panel is-scanning' : 'tablet-scanner-panel'}>
-      <button
-        className="scanner-preview"
-        type="button"
-        aria-label={isScanning ? t('qrScannerStop') : t('qrScannerStart')}
-        onClick={() => {
-          setMessage(null);
-          setIsScanning((current) => !current);
-        }}
-      >
-        {isScanning ? (
-          <>
-            <video ref={videoRef} muted playsInline />
-            <span className="scanner-live-label">{t('qrScannerStop')}</span>
-          </>
-        ) : (
-          <span className="scanner-placeholder">
-            <span className="scanner-frame" aria-hidden="true">
-              <span className="scanner-corner is-top-left" />
-              <span className="scanner-corner is-top-right" />
-              <span className="scanner-corner is-bottom-left" />
-              <span className="scanner-corner is-bottom-right" />
-              <span className="scanner-dash is-left" />
-              <span className="scanner-dash is-right" />
-            </span>
-          </span>
-        )}
-      </button>
-
-      {message ? <p className="scanner-status" aria-live="polite">{message}</p> : null}
-    </section>
-  );
+function getProfileLabels(t: TFunction) {
+  return {
+    account: t('account'),
+    logoutAction: t('logoutAction'),
+    logoutError: t('logoutError'),
+    profileEmail: t('profileEmail'),
+    profileLanguage: t('profileLanguage'),
+    profileMemberships: t('profileMemberships'),
+    profileNoEmail: t('profileNoEmail'),
+    profileNoMembership: t('profileNoMembership'),
+    profilePreferences: t('profilePreferences'),
+    roleDescAdmin: t('roleDescAdmin'),
+    roleDescTechnician: t('roleDescTechnician'),
+    roleDescViewer: t('roleDescViewer'),
+    saving: t('saving'),
+  };
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
@@ -4257,206 +1910,10 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function QuickCountButtons({ values, onAdd }: { values: number[]; onAdd: (value: number) => void }) {
-  const [lastPressed, setLastPressed] = useState<number | null>(null);
-  const resetTimerRef = useRef<number | null>(null);
-
-  useEffect(() => () => {
-    if (resetTimerRef.current != null) {
-      window.clearTimeout(resetTimerRef.current);
-    }
-  }, []);
-
-  function handleAdd(value: number) {
-    triggerHaptic(8);
-    onAdd(value);
-    setLastPressed(value);
-    if (resetTimerRef.current != null) {
-      window.clearTimeout(resetTimerRef.current);
-    }
-    resetTimerRef.current = window.setTimeout(() => setLastPressed(null), 180);
-  }
-
-  return (
-    <span className="quick-counts">
-      {values.map((value) => (
-        <button
-          key={value}
-          className={lastPressed === value ? 'is-pressed' : ''}
-          type="button"
-          onClick={() => handleAdd(value)}
-        >
-          +{value}
-        </button>
-      ))}
-    </span>
-  );
-}
-
-function MeasurementSaveButton({
-  isDesktop,
-  isSaving,
-  isSuccess,
-  onSave,
-  t,
-}: {
-  isDesktop: boolean;
-  isSaving: boolean;
-  isSuccess: boolean;
-  onSave: () => Promise<boolean>;
-  t: TFunction;
-}) {
-  const holdDuration = 950;
-  const frameRef = useRef<number | null>(null);
-  const holdStartRef = useRef<number | null>(null);
-  const [isHolding, setIsHolding] = useState(false);
-  const [holdProgress, setHoldProgress] = useState(0);
-
-  useEffect(() => () => {
-    if (frameRef.current != null) {
-      window.cancelAnimationFrame(frameRef.current);
-    }
-  }, []);
-
-  function cancelHold() {
-    if (frameRef.current != null) {
-      window.cancelAnimationFrame(frameRef.current);
-      frameRef.current = null;
-    }
-    holdStartRef.current = null;
-    setIsHolding(false);
-    setHoldProgress(0);
-  }
-
-  function completeHold() {
-    frameRef.current = null;
-    holdStartRef.current = null;
-    setHoldProgress(1);
-    setIsHolding(false);
-    triggerHaptic(10);
-    void onSave();
-  }
-
-  function updateHoldProgress(timestamp: number) {
-    if (holdStartRef.current == null) return;
-
-    const progress = Math.min((timestamp - holdStartRef.current) / holdDuration, 1);
-    setHoldProgress(progress);
-
-    if (progress >= 1) {
-      completeHold();
-      return;
-    }
-
-    frameRef.current = window.requestAnimationFrame(updateHoldProgress);
-  }
-
-  function startHold(event: ReactPointerEvent<HTMLButtonElement>) {
-    if (isSaving) return;
-
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    holdStartRef.current = performance.now();
-    setIsHolding(true);
-    setHoldProgress(0);
-    frameRef.current = window.requestAnimationFrame(updateHoldProgress);
-  }
-
-  if (isDesktop) {
-    return (
-      <button className={isSuccess ? 'measurement-save-button is-success' : 'measurement-save-button'} type="submit" disabled={isSaving}>
-        <span>{isSaving ? t('saving') : isSuccess ? t('measurementSaved') : t('saveMeasurement')}</span>
-      </button>
-    );
-  }
-
-  const buttonClass = [
-    'measurement-save-button',
-    'is-hold-action',
-    isHolding ? 'is-holding' : '',
-    isSuccess ? 'is-success' : '',
-  ].filter(Boolean).join(' ');
-
-  return (
-    <button
-      className={buttonClass}
-      type="button"
-      disabled={isSaving}
-      title={t('holdToSave')}
-      aria-label={t('holdToSave')}
-      style={{
-        '--hold-progress': `${holdProgress * 360}deg`,
-        userSelect: 'none',
-        WebkitUserSelect: 'none',
-      } as CSSProperties}
-      onPointerDown={startHold}
-      onPointerUp={cancelHold}
-      onPointerCancel={cancelHold}
-      onPointerLeave={cancelHold}
-      onContextMenu={(event) => event.preventDefault()}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          void onSave();
-        }
-      }}
-    >
-      <span className="hold-save-progress" aria-hidden="true" />
-      <span>{isSaving ? t('saving') : isSuccess ? t('measurementSaved') : t('saveMeasurement')}</span>
-    </button>
-  );
-}
-
-function stopQrScanner(scannerControlsRef: { current: IScannerControls | null }) {
-  scannerControlsRef.current?.stop();
-  scannerControlsRef.current = null;
-}
-
-function getBoxIdFromQrValue(value: string, boxes: BoxItem[]) {
-  const trimmedValue = value.trim();
-  const routeMatch = trimmedValue.match(/\/bac\/(\d+)\/?/) ?? trimmedValue.match(/\/boxes\/([^/?#]+)\/?/);
-
-  if (routeMatch?.[1]) {
-    const routeValue = decodeURIComponent(routeMatch[1]);
-    const routeId = Number(routeValue);
-    if (Number.isInteger(routeId)) return routeId;
-
-    const routeBox = boxes.find((box) => box.global_code.toLowerCase() === routeValue.toLowerCase());
-    if (routeBox) return routeBox.id;
-  }
-
-  const normalizedValue = trimmedValue.toLowerCase();
-  const directBox = boxes.find((box) => (
-    box.global_code.toLowerCase() === normalizedValue ||
-    box.local_code.toLowerCase() === normalizedValue
-  ));
-
-  return directBox?.id ?? null;
-}
-
-function LoginNotice({ message, t }: { message: string; t: TFunction }) {
-  return (
-    <section className="login-notice">
-      <h2>{t('loginRequired')}</h2>
-      <p>{message}</p>
-      <a href="/login">{t('loginAction')}</a>
-    </section>
-  );
-}
-
-function SkeletonRows({ count }: { count: number }) {
-  return (
-    <div className="skeleton-stack">
-      {Array.from({ length: count }, (_, index) => (
-        <span className="skeleton-row" key={index} />
-      ))}
-    </div>
-  );
-}
-
 function mergeBoxDetail(current: AppData, detail: BoxDetail): AppData {
   return {
     ...current,
-    boxes: current.boxes.map((box) => (box.id === detail.id ? detail : box)),
+    boxes: upsertBoxes(current.boxes, [detail]),
     boxDetails: {
       ...current.boxDetails,
       [detail.id]: detail,
@@ -4507,26 +1964,6 @@ function parsePositiveInteger(value: string) {
 
 function incrementCountValue(currentValue: string, increment: number) {
   return String(parsePositiveInteger(currentValue) + increment);
-}
-
-function triggerHaptic(pattern: number | number[]) {
-  if (typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') return;
-
-  try {
-    navigator.vibrate(pattern);
-  } catch {
-    // Haptic feedback is optional and unsupported by several browsers.
-  }
-}
-
-function formatDisplayDate(value: string) {
-  const normalizedValue = value.includes('T') ? value : `${value}T00:00:00`;
-
-  return new Intl.DateTimeFormat('fr-FR', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  }).format(new Date(normalizedValue));
 }
 
 function getMeasurementSaveError(error: unknown, t: TFunction) {
@@ -4580,17 +2017,6 @@ function formatTemperatureValue(value: string | number | null | undefined) {
   return Number.isFinite(numericValue) ? `${numericValue.toFixed(1)}°C` : '-';
 }
 
-function parseTemperatureNumber(value: string | number | null | undefined) {
-  if (value === null || value === undefined || value === '') return null;
-  const numericValue = typeof value === 'number' ? value : Number.parseFloat(value);
-  return Number.isFinite(numericValue) ? numericValue : null;
-}
-
-function getTemperatureMarkerPosition(value: number, target: number) {
-  const relativePosition = 50 + ((value - target) / 3) * 50;
-  return Math.min(100, Math.max(0, relativePosition));
-}
-
 function formatSalinity(value: string | number | null | undefined) {
   if (value === null || value === undefined || value === '') return '-';
   const numeric = typeof value === 'string' ? Number.parseFloat(value) : value;
@@ -4611,28 +2037,6 @@ function uniqueNumbers(values: number[]) {
 
 function getLanguage(profile: UserProfile | null): Language {
   return profile?.interface_language === 'en' ? 'en' : 'fr';
-}
-
-function useIsDesktopApp() {
-  const [isDesktop, setIsDesktop] = useState(() => getIsDesktopApp());
-
-  useEffect(() => {
-    const media = window.matchMedia('(min-width: 1024px) and (hover: hover) and (pointer: fine)');
-
-    function syncDesktopState() {
-      setIsDesktop(media.matches);
-    }
-
-    syncDesktopState();
-    media.addEventListener('change', syncDesktopState);
-    return () => media.removeEventListener('change', syncDesktopState);
-  }, []);
-
-  return isDesktop;
-}
-
-function getIsDesktopApp() {
-  return window.matchMedia('(min-width: 1024px) and (hover: hover) and (pointer: fine)').matches;
 }
 
 function userHasAdminRole(profile: UserProfile | null) {
@@ -4703,15 +2107,4 @@ function getCurrentRoute(): RouteState {
   }
 
   return { tab: 'pilotage', boxCode: null, boxId: null };
-}
-
-function getErrorMessage(error: unknown) {
-  if (error instanceof ApiError) {
-    if (error.status === 401 || error.status === 403) {
-      return 'Connecte-toi avec un compte demo pour voir les données.';
-    }
-    return error.message;
-  }
-
-  return 'Impossible de joindre l’API Django.';
 }
