@@ -4,6 +4,7 @@ import { line } from 'd3-shape';
 
 import { apiDownload, apiGet } from '../api/client';
 import type { ExportOptions } from '../types';
+import PageLoader from './PageLoader';
 
 type Language = 'fr' | 'en';
 type FilterKey = 'organizations' | 'species' | 'strains' | 'boxes' | 'zones';
@@ -364,15 +365,7 @@ export default function ExportsView({
   }
 
   if (isLoading || !exportState) {
-    return (
-      <section className="export-page" aria-busy="true">
-        <div className="skeleton-stack">
-          <span className="skeleton-row" />
-          <span className="skeleton-row" />
-          <span className="skeleton-row" />
-        </div>
-      </section>
-    );
+    return <PageLoader variant="exports" label={labels.previewLoading} />;
   }
 
   const totalWeeks = preview?.points.length ?? 0;
@@ -663,7 +656,11 @@ function ExportPreviewChart({
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
   if (isLoading) {
-    return <div className="export-chart-state">{labels.previewLoading}</div>;
+    return (
+      <div className="export-chart-state export-chart-loading" aria-busy="true">
+        <span className="sr-only">{labels.previewLoading}</span>
+      </div>
+    );
   }
 
   if (error) {
