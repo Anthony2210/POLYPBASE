@@ -338,6 +338,35 @@ class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
         return get_object_or_404(box_queryset_for_user(user), id=box_id)
 
 
+class BoxMeasurementDetailAPIView(generics.GenericAPIView):
+    """Edit a single existing measurement (used by the 'Modifier' action)."""
+
+    serializer_class = BiologicalMeasurementSerializer
+
+    def patch(self, request, box_id, pk):
+        box = get_object_or_404(box_queryset_for_user(request.user), id=box_id)
+        if not user_can_write_lab_data(request.user, box.organization):
+            raise PermissionDenied("This user cannot update lab measurements.")
+
+        measurement = get_object_or_404(box.biological_measurements, id=pk)
+        serializer = BiologicalMeasurementCreateSerializer(
+            measurement, data=request.data, partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        measurement = serializer.save(user=request.user)
+
+        AuditLog.objects.create(
+            organization=box.organization,
+            user=request.user,
+            action=AuditLog.Action.UPDATE,
+            object_type="box",
+            object_id=box.global_code,
+            description=f"Biological measurement edited for {measurement.measured_on}",
+            metadata={"measurement_id": measurement.id},
+        )
+        return Response(BiologicalMeasurementSerializer(measurement).data)
+
+
 class BoxSubcultureCreateAPIView(generics.GenericAPIView):
     serializer_class = SubcultureCreateSerializer
 

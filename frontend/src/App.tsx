@@ -238,6 +238,10 @@ const translations = {
     measurementForbidden: 'Ce compte ne peut pas créer de relevé.',
     measurementHistory: 'Historique des relevés',
     measurementSaved: 'Relevé enregistré',
+    measurementUpdated: 'Relevé modifié',
+    editMeasurement: 'Modifier',
+    cancelEdit: 'Annuler la modification',
+    measurementEditing: 'Modification du relevé en cours',
     moveAction: 'Déplacer',
     moveForbidden: 'Ce compte ne peut pas déplacer de boîte.',
     moveSaved: 'Déplacement enregistré',
@@ -504,6 +508,10 @@ const translations = {
     measurementForbidden: 'This account cannot create measurements.',
     measurementHistory: 'Measurement history',
     measurementSaved: 'Measurement saved',
+    measurementUpdated: 'Measurement updated',
+    editMeasurement: 'Edit',
+    cancelEdit: 'Cancel edit',
+    measurementEditing: 'Editing the measurement',
     moveAction: 'Move',
     moveForbidden: 'This account cannot move boxes.',
     moveSaved: 'Movement saved',
@@ -942,10 +950,22 @@ export default function App() {
   }
 
   async function createMeasurement(boxId: number, payload: MeasurementPayload) {
-    await apiPost<BiologicalMeasurement>(`/api/boxes/${boxId}/measurements/`, payload);
+    const created = await apiPost<BiologicalMeasurement>(`/api/boxes/${boxId}/measurements/`, payload);
     const detail = await apiGet<BoxDetail>(`/api/boxes/${boxId}/`);
 
     setData((current) => mergeBoxDetail(current, detail));
+    return created;
+  }
+
+  async function updateMeasurement(boxId: number, measurementId: number, payload: MeasurementPayload) {
+    const updated = await apiPatch<BiologicalMeasurement>(
+      `/api/boxes/${boxId}/measurements/${measurementId}/`,
+      payload,
+    );
+    const detail = await apiGet<BoxDetail>(`/api/boxes/${boxId}/`);
+
+    setData((current) => mergeBoxDetail(current, detail));
+    return updated;
   }
 
   async function createSubculture(boxId: number, payload: SubculturePayload) {
@@ -1068,6 +1088,7 @@ export default function App() {
                 qrLabelSelection={qrLabelSelection}
                 isLoading={isLoading || isBoxLoading}
                 onCreateMeasurement={createMeasurement}
+                onUpdateMeasurement={updateMeasurement}
                 onCreateSubculture={createSubculture}
                 onMoveBox={moveBox}
                 onLoadLineageGraph={loadLineageGraph}
@@ -1406,6 +1427,7 @@ function BoxPage({
   qrLabelSelection,
   isLoading,
   onCreateMeasurement,
+  onUpdateMeasurement,
   onCreateSubculture,
   onMoveBox,
   onLoadLineageGraph,
@@ -1424,7 +1446,12 @@ function BoxPage({
   language: Language;
   qrLabelSelection: QrLabelItem[];
   isLoading: boolean;
-  onCreateMeasurement: (boxId: number, payload: MeasurementPayload) => Promise<void>;
+  onCreateMeasurement: (boxId: number, payload: MeasurementPayload) => Promise<BiologicalMeasurement>;
+  onUpdateMeasurement: (
+    boxId: number,
+    measurementId: number,
+    payload: MeasurementPayload,
+  ) => Promise<BiologicalMeasurement>;
   onCreateSubculture: (boxId: number, payload: SubculturePayload) => Promise<void>;
   onMoveBox: (boxId: number, payload: BoxMovePayload) => Promise<void>;
   onLoadLineageGraph: (boxId: number) => Promise<LineageGraph>;
@@ -1453,6 +1480,10 @@ function BoxPage({
   const [isChecksOpen, setIsChecksOpen] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  // Measurement saved during this visit (enables the "Modifier" button) and the
+  // one currently being edited (null = creating a new measurement).
+  const [lastSavedMeasurementId, setLastSavedMeasurementId] = useState<number | null>(null);
+  const [editingMeasurementId, setEditingMeasurementId] = useState<number | null>(null);
   const [subcultureError, setSubcultureError] = useState<string | null>(null);
   const [subcultureMessage, setSubcultureMessage] = useState<string | null>(null);
   const [activeInsightTab, setActiveInsightTab] = useState<BoxInsightTab>('measurements');
@@ -1472,6 +1503,8 @@ function BoxPage({
     setIsChecksOpen(false);
     setSaveError(null);
     setSaveMessage(null);
+    setLastSavedMeasurementId(null);
+    setEditingMeasurementId(null);
     setSubcultureError(null);
     setSubcultureMessage(null);
     setActiveInsightTab('measurements');
@@ -1545,6 +1578,10 @@ function BoxPage({
     ? previousMeasurement.polyp_count - latestMeasurement.polyp_count
     : 0;
 
+  const subcultureSuggested =
+    latestMeasurement &&
+    latestMeasurement.polyp_count >= 100;
+
   const checkCount = Number(Boolean(polypDropDetected)) + Number(Boolean(subcultureSuggested));
 
   const qr = 'qr_image_url' in box
@@ -1563,16 +1600,26 @@ function BoxPage({
     setSaveError(null);
     setSaveMessage(null);
 
+    const payload: MeasurementPayload = {
+      measured_on: form.measuredOn,
+      polyp_count: parsePositiveInteger(form.polypCount),
+      ephyrae_count: parsePositiveInteger(form.ephyraeCount),
+      salinity_psu: form.salinity.trim() || null,
+      notes: form.notes.trim(),
+    };
+
     try {
-      await onCreateMeasurement(box.id, {
-        measured_on: form.measuredOn,
-        polyp_count: parsePositiveInteger(form.polypCount),
-        ephyrae_count: parsePositiveInteger(form.ephyraeCount),
-        salinity_psu: null,
-        notes: form.notes.trim(),
-      });
+      if (editingMeasurementId != null) {
+        await onUpdateMeasurement(box.id, editingMeasurementId, payload);
+        setLastSavedMeasurementId(editingMeasurementId);
+        setEditingMeasurementId(null);
+        setSaveMessage(t('measurementUpdated'));
+      } else {
+        const created = await onCreateMeasurement(box.id, payload);
+        setLastSavedMeasurementId(created.id);
+        setSaveMessage(t('measurementSaved'));
+      }
       setForm(getInitialMeasurementForm());
-      setSaveMessage(t('measurementSaved'));
       triggerHaptic([12, 28, 12]);
       return true;
     } catch (requestError) {
@@ -1581,6 +1628,30 @@ function BoxPage({
     } finally {
       setIsSaving(false);
     }
+  }
+
+  // Load the just-saved measurement back into the form to correct it (mobile).
+  function startEditingLastMeasurement() {
+    if (lastSavedMeasurementId == null) return;
+    const target = measurements.find((measurement) => measurement.id === lastSavedMeasurementId);
+    if (!target) return;
+    setForm({
+      measuredOn: target.measured_on,
+      polypCount: String(target.polyp_count),
+      ephyraeCount: String(target.ephyrae_count),
+      salinity: target.salinity_psu ?? '',
+      notes: target.notes ?? '',
+    });
+    setEditingMeasurementId(lastSavedMeasurementId);
+    setSaveError(null);
+    setSaveMessage(null);
+  }
+
+  function cancelEditingMeasurement() {
+    setEditingMeasurementId(null);
+    setForm(getInitialMeasurementForm());
+    setSaveError(null);
+    setSaveMessage(null);
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1810,6 +1881,19 @@ function BoxPage({
                     }))}
                   />
                 </label>
+
+                <label>
+                  {t('salinityFull')}
+                  <input
+                    min="0"
+                    step="0.1"
+                    inputMode="decimal"
+                    placeholder="35"
+                    type="number"
+                    value={form.salinity}
+                    onChange={(event) => setForm((current) => ({ ...current, salinity: event.target.value }))}
+                  />
+                </label>
               </div>
 
               <label className="notes-field">
@@ -1836,6 +1920,28 @@ function BoxPage({
                 }}
                 onSave={saveMeasurement}
               />
+
+              {!isDesktopApp ? (
+                <div className="measurement-edit-actions">
+                  {editingMeasurementId != null ? (
+                    <div className="measurement-edit-row">
+                      <span className="measurement-edit-hint">{t('measurementEditing')}</span>
+                      <button type="button" className="text-button" onClick={cancelEditingMeasurement}>
+                        {t('cancelEdit')}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="measurement-save-button measurement-edit-button"
+                      disabled={lastSavedMeasurementId == null}
+                      onClick={startEditingLastMeasurement}
+                    >
+                      <span>{t('editMeasurement')}</span>
+                    </button>
+                  )}
+                </div>
+              ) : null}
             </form>
           </section>
         ) : null}
@@ -2109,6 +2215,7 @@ function getInitialMeasurementForm() {
     measuredOn: getTodayDateValue(),
     polypCount: '',
     ephyraeCount: '',
+    salinity: '',
     notes: '',
   };
 }

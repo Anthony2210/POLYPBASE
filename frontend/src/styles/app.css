@@ -688,15 +688,16 @@ button:disabled {
 .box-sheet-identity h2 {
   margin: 0;
   color: var(--ink);
-  font-size: clamp(2.2rem, 3.85vw, 3.38rem);
+  font-size: clamp(1.9rem, 2.8vw, 2.6rem);
   font-style: italic;
   font-weight: 820;
-  line-height: 0.98;
+  line-height: 1.02;
   letter-spacing: 0;
-  overflow: hidden;
-  overflow-wrap: normal;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* The global code is the box identifier: never truncate it. It fits on one
+     line at typical lengths and wraps (rather than showing "…") if longer. */
+  overflow: visible;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .box-species-name {
@@ -1324,6 +1325,32 @@ button:disabled {
 
 .measurement-entry-grid .measurement-date-field {
   grid-column: 1 / -1;
+}
+
+.measurement-edit-actions {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* Same look as "Enregistrer le relevé" (.measurement-save-button), just grayed
+   out until a measurement has been saved. */
+.measurement-edit-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.measurement-edit-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.measurement-edit-hint {
+  color: var(--coral);
+  font-weight: 700;
+  font-size: 0.92rem;
 }
 
 .last-comment {
@@ -7302,11 +7329,10 @@ button.zone-attention-item:hover {
   }
 
   .box-sheet-identity h2 {
-    overflow: hidden;
-    font-size: clamp(2rem, 9vw, 2.4rem);
-    overflow-wrap: normal;
-    text-overflow: clip;
-    white-space: nowrap;
+    overflow: visible;
+    font-size: clamp(1.7rem, 7.5vw, 2.2rem);
+    overflow-wrap: anywhere;
+    white-space: normal;
   }
 
   .box-code-line span {
