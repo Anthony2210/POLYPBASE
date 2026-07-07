@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model
-from django.test import Client, TestCase
+from django.core import mail
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
 from apps.organizations.models import Organization
@@ -91,6 +92,7 @@ class SessionLoginApiTests(TestCase):
         self.assertEqual(client.get(reverse("api_profile")).status_code, 403)
 
 
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
 class AccountMemberManagementTests(TestCase):
     def setUp(self):
         user_model = get_user_model()
@@ -157,12 +159,30 @@ class AccountMemberManagementTests(TestCase):
         )
         self.assertEqual(membership.role, OrganizationMembership.Role.LAB_TECHNICIAN)
 
-    def test_admin_create_requires_password_for_new_user(self):
+    def test_admin_creates_new_member_with_generated_password(self):
         self.client.login(username="admin", password="secret")
 
         response = self.client.post(
             self.list_url,
-            data={"username": "nopwd", "organization_id": self.paris.id, "role": "viewer"},
+            data={
+                "username": "nopwd",
+                "email": "nopwd@example.test",
+                "organization_id": self.paris.id,
+                "role": "viewer",
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("Mot de passe temporaire", mail.outbox[0].body)
+
+    def test_admin_create_requires_email_for_generated_password(self):
+        self.client.login(username="admin", password="secret")
+
+        response = self.client.post(
+            self.list_url,
+            data={"username": "noemail", "organization_id": self.paris.id, "role": "viewer"},
             content_type="application/json",
         )
 

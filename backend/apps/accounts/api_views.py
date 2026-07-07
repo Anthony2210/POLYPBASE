@@ -1,6 +1,9 @@
+from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login, logout
+from django.core.mail import send_mail
 from django.db import transaction
 from django.utils import translation
+from django.utils.crypto import get_random_string
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from rest_framework import status
@@ -243,23 +246,51 @@ class OrganizationMemberListCreateAPIView(APIView):
 
     def _create_user(self, user_model, username, data):
         password = (data.get("password") or "").strip()
+        generated_password = False
+        email = (data.get("email") or "").strip()
         if not password:
-            raise ValidationError(
-                {"password": "Un mot de passe initial est requis pour un nouveau compte."}
+            if not email:
+                raise ValidationError(
+                    {"email": "Un email est requis pour envoyer le mot de passe temporaire."}
+                )
+            password = get_random_string(
+                14,
+                allowed_chars="abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789",
             )
+            generated_password = True
         if len(password) < 8:
             raise ValidationError(
                 {"password": "Le mot de passe doit contenir au moins 8 caractères."}
             )
         user = user_model(
             username=username,
-            email=(data.get("email") or "").strip(),
+            email=email,
             first_name=(data.get("first_name") or "").strip(),
             last_name=(data.get("last_name") or "").strip(),
         )
         user.set_password(password)
         user.save()
+        if generated_password:
+            self._send_temporary_password(user, password)
         return user
+
+    def _send_temporary_password(self, user, password):
+        if not user.email:
+            return
+        message = (
+            "Bonjour,\n\n"
+            "Un compte Polypbase vient d'etre cree pour vous.\n"
+            f"Identifiant : {user.username}\n"
+            f"Mot de passe temporaire : {password}\n\n"
+            "Connectez-vous, puis remplacez ce mot de passe par un mot de passe personnel.\n"
+        )
+        send_mail(
+            "Acces Polypbase",
+            message,
+            settings.DEFAULT_FROM_EMAIL,
+            [user.email],
+            fail_silently=True,
+        )
 
 
 @method_decorator(ensure_csrf_cookie, name="dispatch")

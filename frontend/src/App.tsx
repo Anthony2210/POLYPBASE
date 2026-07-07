@@ -184,8 +184,12 @@ const translations = {
     roleDescTechnician: 'Saisie et suivi du laboratoire, sans administration.',
     roleDescViewer: 'Consultation seule des données.',
     manageAccountsTitle: 'Gestion des comptes',
-    manageAccountsSubtitle: 'Ajoutez des accès et ajustez les rôles dans vos structures.',
+    manageAccountsSubtitle: 'Créer les accès, ajuster les rôles et couper rapidement un compte si nécessaire.',
     manageAddTitle: 'Nouvel accès',
+    manageActiveAccounts: 'Comptes actifs',
+    manageAdminAccounts: 'Admins',
+    manageTechnicianAccounts: 'Techniciens',
+    manageViewerAccounts: 'Lecteurs',
     manageColUser: 'Utilisateur',
     manageColOrganization: 'Structure',
     manageColRole: 'Rôle',
@@ -203,10 +207,12 @@ const translations = {
     manageFieldPassword: 'Mot de passe initial',
     manageFieldOrganization: 'Structure',
     manageFieldRole: 'Rôle',
-    managePasswordHint: 'Requis uniquement pour un nouvel identifiant (8 caractères min.).',
+    manageTemporaryPasswordTitle: 'Mot de passe temporaire',
+    manageTemporaryPasswordText: 'Polypbase génère un mot de passe aléatoire et l’envoie à l’adresse indiquée.',
+    managePasswordHint: 'L’utilisateur pourra ensuite choisir un mot de passe personnel.',
     manageAddAction: 'Ajouter l’accès',
     manageAdding: 'Ajout...',
-    manageMemberAdded: 'Accès enregistré.',
+    manageMemberAdded: 'Accès enregistré. Le mot de passe temporaire est envoyé par email.',
     manageRoleUpdated: 'Rôle mis à jour.',
     manageDeactivate: 'Désactiver',
     manageReactivate: 'Réactiver',
@@ -218,6 +224,8 @@ const translations = {
     boxStrain: 'Souche',
     boxAttentionTitle: 'Suivi prioritaire',
     boxChecksButton: 'Alertes',
+    boxChecksEmptyText: 'Aucun signal particulier sur les derniers relevés.',
+    boxChecksEmptyTitle: 'Aucune alerte active',
     boxChecksIntro: 'Signaux détectés à partir des derniers relevés.',
     boxChecksTitle: 'Alertes de la boîte',
     chartEmpty: 'Pas assez de relevés pour tracer une tendance.',
@@ -239,9 +247,12 @@ const translations = {
     measurementHistory: 'Historique des relevés',
     measurementSaved: 'Relevé enregistré',
     measurementUpdated: 'Relevé modifié',
-    editMeasurement: 'Modifier',
+    editLastMeasurement: 'Corriger le relevé enregistré',
+    editLastMeasurementHelp: 'Une erreur de saisie ? Recharger le dernier relevé dans le formulaire.',
     cancelEdit: 'Annuler la modification',
+    holdToUpdate: 'Maintenir pour modifier',
     measurementEditing: 'Modification du relevé en cours',
+    saveMeasurementEdit: 'Enregistrer la modification',
     moveAction: 'Déplacer',
     moveForbidden: 'Ce compte ne peut pas déplacer de boîte.',
     moveSaved: 'Déplacement enregistré',
@@ -274,7 +285,12 @@ const translations = {
     qrLabelHelp: 'Étiquette prête à imprimer et coller sur la boîte.',
     qrLabelPrintSelection: 'Imprimer la sélection',
     qrLabelSelectionCount: 'étiquette(s) sélectionnée(s)',
+    qrLabelSelectionEmpty: 'Aucune étiquette sélectionnée.',
+    qrLabelSelectionHelp: 'Ajoutez des boîtes depuis leur fiche ou depuis la recherche ci-dessous, puis imprimez-les sur une même feuille.',
+    qrLabelSelectionSearch: 'Ajouter une boîte',
+    qrLabelSelectionTitle: 'Sélection d’étiquettes',
     qrLabelTitle: 'Étiquette QR code',
+    qrLabelViewSelection: 'Voir la sélection',
     qrDownload: 'Télécharger',
     qrScanHint: 'Scannez pour ouvrir cette fiche',
     qrScannerFound: 'Boîte détectée',
@@ -450,8 +466,12 @@ const translations = {
     roleDescTechnician: 'Lab data entry and tracking, no administration.',
     roleDescViewer: 'Read-only access to the data.',
     manageAccountsTitle: 'Account management',
-    manageAccountsSubtitle: 'Add access and adjust roles within your organizations.',
+    manageAccountsSubtitle: 'Create access, adjust roles and quickly disable an account when needed.',
     manageAddTitle: 'New access',
+    manageActiveAccounts: 'Active accounts',
+    manageAdminAccounts: 'Admins',
+    manageTechnicianAccounts: 'Technicians',
+    manageViewerAccounts: 'Viewers',
     manageColUser: 'User',
     manageColOrganization: 'Organization',
     manageColRole: 'Role',
@@ -469,10 +489,12 @@ const translations = {
     manageFieldPassword: 'Initial password',
     manageFieldOrganization: 'Organization',
     manageFieldRole: 'Role',
-    managePasswordHint: 'Only required for a new username (min. 8 characters).',
+    manageTemporaryPasswordTitle: 'Temporary password',
+    manageTemporaryPasswordText: 'Polypbase generates a random password and sends it to the provided email address.',
+    managePasswordHint: 'The user can then choose a personal password.',
     manageAddAction: 'Add access',
     manageAdding: 'Adding...',
-    manageMemberAdded: 'Access saved.',
+    manageMemberAdded: 'Access saved. The temporary password is sent by email.',
     manageRoleUpdated: 'Role updated.',
     manageDeactivate: 'Disable',
     manageReactivate: 'Re-enable',
@@ -484,6 +506,8 @@ const translations = {
     boxStrain: 'Strain',
     boxAttentionTitle: 'Priority follow-up',
     boxChecksButton: 'Alerts',
+    boxChecksEmptyText: 'No specific signal in the latest measurements.',
+    boxChecksEmptyTitle: 'No active alert',
     boxChecksIntro: 'Signals detected from the latest measurements.',
     boxChecksTitle: 'Box alerts',
     chartEmpty: 'Not enough measurements to draw a trend.',
@@ -505,9 +529,12 @@ const translations = {
     measurementHistory: 'Measurement history',
     measurementSaved: 'Measurement saved',
     measurementUpdated: 'Measurement updated',
-    editMeasurement: 'Edit',
+    editLastMeasurement: 'Correct saved measurement',
+    editLastMeasurementHelp: 'Need to fix a value? Load the saved measurement back into the form.',
     cancelEdit: 'Cancel edit',
+    holdToUpdate: 'Hold to update',
     measurementEditing: 'Editing the measurement',
+    saveMeasurementEdit: 'Save update',
     moveAction: 'Move',
     moveForbidden: 'This account cannot move boxes.',
     moveSaved: 'Movement saved',
@@ -540,7 +567,12 @@ const translations = {
     qrLabelHelp: 'Label ready to print and attach to the box.',
     qrLabelPrintSelection: 'Print selection',
     qrLabelSelectionCount: 'selected label(s)',
+    qrLabelSelectionEmpty: 'No label selected.',
+    qrLabelSelectionHelp: 'Add boxes from their sheet or from the search below, then print them on the same sheet.',
+    qrLabelSelectionSearch: 'Add a box',
+    qrLabelSelectionTitle: 'Label selection',
     qrLabelTitle: 'QR code label',
+    qrLabelViewSelection: 'View selection',
     qrDownload: 'Download',
     qrScanHint: 'Scan to open this sheet',
     qrScannerFound: 'Box detected',
@@ -654,6 +686,7 @@ export default function App() {
   const canUseAdmin = userHasAdminRole(data.profile);
   const isExportOptionsLoading = ['exports', 'admin'].includes(activeTab) && data.exportOptions === null;
   const workspacePageKey = `${activeTab}-${route.boxCode ?? route.boxId ?? 'list'}-${route.zoneId ?? 'list'}`;
+  const brandOrganizationName = getBrandOrganizationName(data.profile, t);
   const availableTabs = useMemo(() => {
     if (!isDesktopApp) return labTabs;
     return canUseAdmin
@@ -865,8 +898,16 @@ export default function App() {
     setQrLabelSelection([]);
   }
 
+  function removeQrLabelFromSelection(labelId: number) {
+    setQrLabelSelection((current) => current.filter((label) => label.id !== labelId));
+  }
+
   function printQrLabelSelection() {
     printQrLabels(qrLabelSelection);
+  }
+
+  function openQrLabelSelection() {
+    openTab('profile');
   }
 
   useEffect(() => {
@@ -1030,10 +1071,12 @@ export default function App() {
     <main className="app-shell">
       <aside className="sidebar">
         <div className="brand-block">
-          <span className="brand-mark">P</span>
+          <span className="brand-mark" aria-hidden="true">
+            <img src="/jellyfish.svg" alt="" />
+          </span>
           <div>
             <p className="eyebrow">Polypbase</p>
-            <strong>{t('laboratoryTracking')}</strong>
+            <strong>{brandOrganizationName}</strong>
           </div>
         </div>
 
@@ -1088,8 +1131,7 @@ export default function App() {
                 onOpenZone={openZone}
                 onAddQrLabel={addQrLabelToSelection}
                 onBack={closeBoxPage}
-                onClearQrLabelSelection={clearQrLabelSelection}
-                onPrintQrLabelSelection={printQrLabelSelection}
+                onOpenQrLabelSelection={openQrLabelSelection}
                 t={t}
               />
             )}
@@ -1154,10 +1196,16 @@ export default function App() {
 
             {activeTab === 'profile' && (
               <ProfileView
+                boxes={data.boxes}
                 isLoading={isLoading}
                 labels={getProfileLabels(t)}
                 profile={data.profile}
+                qrLabelSelection={qrLabelSelection}
+                onAddQrLabel={addQrLabelToSelection}
+                onClearQrLabelSelection={clearQrLabelSelection}
                 onLogout={logoutCurrentUser}
+                onPrintQrLabelSelection={printQrLabelSelection}
+                onRemoveQrLabel={removeQrLabelFromSelection}
                 onUpdateLanguage={updateLanguage}
               />
             )}
@@ -1427,8 +1475,7 @@ function BoxPage({
   onOpenZone,
   onAddQrLabel,
   onBack,
-  onClearQrLabelSelection,
-  onPrintQrLabelSelection,
+  onOpenQrLabelSelection,
   t,
 }: {
   box: BoxItem | BoxDetail | null;
@@ -1451,8 +1498,7 @@ function BoxPage({
   onOpenZone: (zoneId: number) => void;
   onAddQrLabel: (label: QrLabelItem) => void;
   onBack: () => void;
-  onClearQrLabelSelection: () => void;
-  onPrintQrLabelSelection: () => void;
+  onOpenQrLabelSelection: () => void;
   t: TFunction;
 }) {
   const [form, setForm] = useState(() => getInitialMeasurementForm());
@@ -1708,29 +1754,12 @@ function BoxPage({
 
       <header className={`box-sheet-hero is-status-${statusPresentation.tone}`}>
         <div className="box-sheet-identity">
-          <div className="box-identity-heading">
-            <div>
-              <p className="box-page-label">{t('boxSheet')}</p>
-              <div className="box-code-line">
-                <h2>{box.global_code}</h2>
-              </div>
-              <p className="box-species-name">{box.species.scientific_name}</p>
-              <span className={`box-life-status is-${statusPresentation.tone}`}>
-                {statusPresentation.label}
-              </span>
+          <div>
+            <p className="box-page-label">{t('boxSheet')}</p>
+            <div className="box-code-line">
+              <h2>{box.global_code}</h2>
             </div>
-
-            {qr ? (
-              <button
-                className="box-hero-qr"
-                type="button"
-                title={qr.scanUrl}
-                onClick={() => setIsQrLabelOpen(true)}
-              >
-                <img src={qr.imageUrl} alt={`${t('qrCode')} ${box.global_code}`} width={58} height={58} />
-                <span>{t('qrCode')}</span>
-              </button>
-            ) : null}
+            <p className="box-species-name">{box.species.scientific_name}</p>
           </div>
 
           <div className="box-small-facts">
@@ -1738,6 +1767,18 @@ function BoxPage({
             <InfoPill label={t('createdOn')} value={createdOn ? formatDisplayDate(createdOn) : t('noDate')} />
           </div>
         </div>
+
+        {qr && canWriteLabData ? (
+          <button
+            className="box-hero-qr"
+            type="button"
+            title={qr.scanUrl}
+            onClick={() => setIsQrLabelOpen(true)}
+          >
+            <img src={qr.imageUrl} alt={`${t('qrCode')} ${box.global_code}`} width={58} height={58} />
+            <span>{t('qrCode')}</span>
+          </button>
+        ) : null}
 
         <div className="box-zone-summary">
           {box.thermal_zone ? (
@@ -1752,41 +1793,33 @@ function BoxPage({
           ) : (
             <InfoPill label={t('zones')} value={t('noZone')} strong />
           )}
-          <InfoPill
-            label={t('targetTemperature')}
-            value={formatTemperatureValue(currentZone?.target_temperature_c ?? box.thermal_zone?.target_temperature_c)}
-          />
           <InfoPill label={t('temperatureShort')} value={formatTemperature(currentZone?.latest_temperature?.average_temperature_c)} />
           <InfoPill label={t('salinityShort')} value={formatSalinity(box.latest_salinity_psu)} />
         </div>
 
-        {(checkCount > 0 || canWriteLabData) ? (
-          <div className="box-action-stack">
-            {checkCount > 0 ? (
-              <button
-                className="box-alert-trigger"
-                type="button"
-                aria-label={`${t('boxChecksButton')} (${checkCount})`}
-                title={`${t('boxChecksButton')} (${checkCount})`}
-                onClick={() => setIsChecksOpen(true)}
-              >
-                <BellIcon />
-                <strong>{checkCount}</strong>
-              </button>
-            ) : null}
+        <div className="box-action-stack">
+          <button
+            className={checkCount > 0 ? 'box-alert-trigger' : 'box-alert-trigger is-empty'}
+            type="button"
+            aria-label={`${t('boxChecksButton')} (${checkCount})`}
+            title={`${t('boxChecksButton')} (${checkCount})`}
+            onClick={() => setIsChecksOpen(true)}
+          >
+            <BellIcon />
+            <strong>{checkCount}</strong>
+          </button>
 
-            {canWriteLabData ? (
-              <>
-                <button className="move-trigger" type="button" onClick={() => setIsMoveOpen(true)}>
-                  {t('moveAction')}
-                </button>
-                <button className="subculture-trigger" type="button" onClick={() => setIsSubcultureOpen(true)}>
-                  {t('subcultureAction')}
-                </button>
-              </>
-            ) : null}
-          </div>
-        ) : null}
+          {canWriteLabData ? (
+            <>
+              <button className="move-trigger" type="button" onClick={() => setIsMoveOpen(true)}>
+                {t('moveAction')}
+              </button>
+              <button className="subculture-trigger" type="button" onClick={() => setIsSubcultureOpen(true)}>
+                {t('subcultureAction')}
+              </button>
+            </>
+          ) : null}
+        </div>
       </header>
 
       {subcultureMessage ? (
@@ -1830,7 +1863,7 @@ function BoxPage({
                   />
                 </label>
 
-                <label>
+                <label className="measurement-count-field measurement-polyp-field">
                   {t('polyps')}
                   <input
                     min="0"
@@ -1850,7 +1883,7 @@ function BoxPage({
                   />
                 </label>
 
-                <label>
+                <label className="measurement-count-field measurement-ephyrae-field">
                   {t('ephyraeFull')}
                   <input
                     min="0"
@@ -1870,7 +1903,7 @@ function BoxPage({
                   />
                 </label>
 
-                <label>
+                <label className="measurement-salinity-field">
                   {t('salinityFull')}
                   <input
                     min="0"
@@ -1896,40 +1929,44 @@ function BoxPage({
 
               {saveError ? <p className="inline-error form-feedback">{saveError}</p> : null}
 
-              <MeasurementSaveButton
-                isDesktop={isDesktopApp}
-                isSaving={isSaving}
-                isSuccess={Boolean(saveMessage)}
-                labels={{
-                  hold: t('holdToSave'),
-                  save: t('saveMeasurement'),
-                  saved: t('measurementSaved'),
-                  saving: t('saving'),
-                }}
-                onSave={saveMeasurement}
-              />
+              <div className="measurement-actions-row">
+                <MeasurementSaveButton
+                  isDesktop={isDesktopApp}
+                  isSaving={isSaving}
+                  isSuccess={Boolean(saveMessage)}
+                  labels={{
+                    hold: editingMeasurementId != null ? t('holdToUpdate') : t('holdToSave'),
+                    save: editingMeasurementId != null ? t('saveMeasurementEdit') : t('saveMeasurement'),
+                    saved: saveMessage || t('measurementSaved'),
+                    saving: t('saving'),
+                  }}
+                  onSave={saveMeasurement}
+                />
 
-              {!isDesktopApp ? (
-                <div className="measurement-edit-actions">
-                  {editingMeasurementId != null ? (
-                    <div className="measurement-edit-row">
-                      <span className="measurement-edit-hint">{t('measurementEditing')}</span>
-                      <button type="button" className="text-button" onClick={cancelEditingMeasurement}>
-                        {t('cancelEdit')}
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      className="measurement-save-button measurement-edit-button"
-                      disabled={lastSavedMeasurementId == null}
-                      onClick={startEditingLastMeasurement}
-                    >
-                      <span>{t('editMeasurement')}</span>
-                    </button>
-                  )}
-                </div>
-              ) : null}
+                {lastSavedMeasurementId != null || editingMeasurementId != null ? (
+                  <div className={editingMeasurementId != null ? 'measurement-edit-actions is-editing' : 'measurement-edit-actions'}>
+                    {editingMeasurementId != null ? (
+                      <>
+                        <span className="measurement-edit-hint">{t('measurementEditing')}</span>
+                        <button type="button" className="measurement-edit-cancel" onClick={cancelEditingMeasurement}>
+                          {t('cancelEdit')}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="measurement-edit-hint">{t('editLastMeasurementHelp')}</span>
+                        <button
+                          type="button"
+                          className="measurement-edit-button"
+                          onClick={startEditingLastMeasurement}
+                        >
+                          {t('editLastMeasurement')}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ) : null}
+              </div>
             </form>
           </section>
         ) : null}
@@ -1985,7 +2022,7 @@ function BoxPage({
           />
         ) : null}
 
-        {isChecksOpen && checkCount > 0 ? (
+        {isChecksOpen ? (
           <BoxChecksModal
             polypDropCount={polypDropCount}
             polypDropDetected={Boolean(polypDropDetected)}
@@ -2000,22 +2037,23 @@ function BoxPage({
             labels={{
               addToSelection: t('qrLabelAddToSelection'),
               alreadySelected: t('qrLabelAlreadySelected'),
-              clearSelection: t('qrLabelClearSelection'),
               close: t('close'),
               download: t('qrLabelDownload'),
               help: t('qrLabelHelp'),
               print: t('print'),
-              printSelection: t('qrLabelPrintSelection'),
               qrCode: t('qrCode'),
               selectionCount: t('qrLabelSelectionCount'),
               title: t('qrLabelTitle'),
+              viewSelection: t('qrLabelViewSelection'),
             }}
             qrImageUrl={qr.imageUrl}
             selectedLabels={qrLabelSelection}
             onAddToSelection={onAddQrLabel}
-            onClearSelection={onClearQrLabelSelection}
             onClose={() => setIsQrLabelOpen(false)}
-            onPrintSelection={onPrintQrLabelSelection}
+            onViewSelection={() => {
+              setIsQrLabelOpen(false);
+              onOpenQrLabelSelection();
+            }}
           />
         ) : null}
       </div>
@@ -2083,7 +2121,17 @@ function BoxChecksModal({
                 <p>{t('polypDropAdviceAction')}</p>
               </div>
             </article>
-          ) : null}
+          ) : (
+            <article className="box-check-empty">
+              <span className="check-empty-icon">
+                <BellIcon />
+              </span>
+              <div>
+                <strong>{t('boxChecksEmptyTitle')}</strong>
+                <p>{t('boxChecksEmptyText')}</p>
+              </div>
+            </article>
+          )}
 
         </div>
       </section>
@@ -2130,12 +2178,23 @@ function getProfileLabels(t: TFunction) {
     account: t('account'),
     logoutAction: t('logoutAction'),
     logoutError: t('logoutError'),
+    noZone: t('noZone'),
     profileEmail: t('profileEmail'),
     profileLanguage: t('profileLanguage'),
     profileMemberships: t('profileMemberships'),
     profileNoEmail: t('profileNoEmail'),
     profileNoMembership: t('profileNoMembership'),
     profilePreferences: t('profilePreferences'),
+    qrLabelAddToSelection: t('qrLabelAddToSelection'),
+    qrLabelAlreadySelected: t('qrLabelAlreadySelected'),
+    qrLabelClearSelection: t('qrLabelClearSelection'),
+    qrLabelPrintSelection: t('qrLabelPrintSelection'),
+    qrLabelSelectionCount: t('qrLabelSelectionCount'),
+    qrLabelSelectionEmpty: t('qrLabelSelectionEmpty'),
+    qrLabelSelectionHelp: t('qrLabelSelectionHelp'),
+    qrLabelSelectionSearch: t('qrLabelSelectionSearch'),
+    qrLabelSelectionTitle: t('qrLabelSelectionTitle'),
+    qrLabelSearchPlaceholder: t('adminPrintLabelsSearchPlaceholder'),
     roleDescAdmin: t('roleDescAdmin'),
     roleDescTechnician: t('roleDescTechnician'),
     roleDescViewer: t('roleDescViewer'),
@@ -2279,6 +2338,24 @@ function uniqueNumbers(values: number[]) {
 
 function getLanguage(profile: UserProfile | null): Language {
   return profile?.interface_language === 'en' ? 'en' : 'fr';
+}
+
+function getBrandOrganizationName(profile: UserProfile | null, t: TFunction) {
+  if (!profile) return t('laboratoryTracking');
+
+  const organizations = profile.memberships.length > 0
+    ? profile.memberships.map((membership) => membership.organization)
+    : profile.organizations;
+
+  const uniqueOrganizations = organizations.filter(
+    (organization, index) =>
+      organizations.findIndex((candidate) => candidate.id === organization.id) === index,
+  );
+
+  if (uniqueOrganizations.length === 0) return t('laboratoryTracking');
+  if (uniqueOrganizations.length === 1) return uniqueOrganizations[0].name;
+
+  return `${uniqueOrganizations[0].name} +${uniqueOrganizations.length - 1}`;
 }
 
 function userHasAdminRole(profile: UserProfile | null) {

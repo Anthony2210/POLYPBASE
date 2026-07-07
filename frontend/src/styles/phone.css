@@ -422,12 +422,6 @@
     font-size: 0.98rem;
   }
 
-  .box-life-status {
-    align-self: start;
-    margin-top: 3px;
-    white-space: nowrap;
-  }
-
   .box-zone-summary {
     display: block;
     padding: 10px 0 0;
@@ -649,13 +643,18 @@
     margin: 0;
   }
 
-  .fake-form > button,
-  .fake-form .form-submit {
+  .fake-form .measurement-actions-row {
     position: sticky;
     bottom: calc(78px + env(safe-area-inset-bottom));
     z-index: 10;
+    display: grid;
+    gap: 10px;
     justify-self: stretch;
     width: 100%;
+  }
+
+  .fake-form .measurement-actions-row .measurement-save-button,
+  .fake-form .form-submit {
     min-height: 58px;
     border-radius: 16px;
     background: var(--coral);
@@ -664,7 +663,7 @@
     box-shadow: 0 12px 26px rgba(224, 95, 69, 0.22);
   }
 
-  .fake-form > button:disabled,
+  .fake-form .measurement-actions-row .measurement-save-button:disabled,
   .fake-form .form-submit:disabled {
     background: #d8e0e6;
     color: #77828d;
@@ -886,6 +885,32 @@
     min-height: 48px;
   }
 
+  .profile-label-section {
+    padding: 14px;
+    border-radius: 18px;
+  }
+
+  .profile-label-toolbar,
+  .profile-selected-labels {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .profile-label-selector {
+    grid-template-columns: 1fr;
+    max-height: 300px;
+  }
+
+  .profile-selected-labels ul {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .profile-selected-labels li {
+    max-width: none;
+    border-radius: 14px;
+  }
+
   .export-page,
   .admin-panel {
     max-width: none;
@@ -901,11 +926,6 @@
   .last-reading-card,
   .zone-card-metrics {
     grid-template-columns: 1fr;
-  }
-
-  .box-life-status {
-    justify-self: start;
-    margin-top: 0;
   }
 
   .box-sheet-identity h2 {
