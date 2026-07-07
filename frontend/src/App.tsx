@@ -291,10 +291,6 @@ const translations = {
     searchTab: 'Recherche',
     suggestions: 'Suggestions',
     subcultureAction: 'Repiquer',
-    subcultureAdviceAction: 'Préparer le repiquage',
-    subcultureAdviceModalAction: 'Ouvrir le repiquage',
-    subcultureAdviceText: 'polypes comptés au dernier relevé. La boîte peut être prête à être repiquée.',
-    subcultureAdviceTitle: 'Repiquage conseillé',
     subcultureForbidden: 'Ce compte ne peut pas créer de repiquage.',
     subcultureSaved: 'Repiquage enregistré',
     polypDropAdviceText: 'polypes de moins que le relevé précédent. Vérifier la boîte avant la prochaine saisie.',
@@ -557,10 +553,6 @@ const translations = {
     searchTab: 'Search',
     suggestions: 'Suggestions',
     subcultureAction: 'Subculture',
-    subcultureAdviceAction: 'Prepare subculture',
-    subcultureAdviceModalAction: 'Open subculture',
-    subcultureAdviceText: 'polyps counted in the latest measurement. This box may be ready for subculture.',
-    subcultureAdviceTitle: 'Subculture recommended',
     subcultureForbidden: 'This account cannot create subculture events.',
     subcultureSaved: 'Subculture created',
     polypDropAdviceText: 'fewer polyps than the previous measurement. Check the box before the next entry.',
@@ -1545,7 +1537,7 @@ function BoxPage({
     ? previousMeasurement.polyp_count - latestMeasurement.polyp_count
     : 0;
 
-  const checkCount = Number(Boolean(polypDropDetected)) + Number(Boolean(subcultureSuggested));
+  const checkCount = Number(Boolean(polypDropDetected));
 
   const qr = 'qr_image_url' in box
     ? { imageUrl: getBoxQrImageUrl(box), scanUrl: getBoxScanUrl(box) }
@@ -1893,17 +1885,10 @@ function BoxPage({
 
         {isChecksOpen && checkCount > 0 ? (
           <BoxChecksModal
-            canPrepareSubculture={canWriteLabData}
-            latestMeasurement={latestMeasurement}
             polypDropCount={polypDropCount}
             polypDropDetected={Boolean(polypDropDetected)}
-            subcultureSuggested={Boolean(subcultureSuggested)}
             t={t}
             onClose={() => setIsChecksOpen(false)}
-            onOpenSubculture={() => {
-              setIsChecksOpen(false);
-              setIsSubcultureOpen(true);
-            }}
           />
         ) : null}
 
@@ -1956,23 +1941,15 @@ function BellIcon() {
 }
 
 function BoxChecksModal({
-  canPrepareSubculture,
-  latestMeasurement,
   polypDropCount,
   polypDropDetected,
-  subcultureSuggested,
   t,
   onClose,
-  onOpenSubculture,
 }: {
-  canPrepareSubculture: boolean;
-  latestMeasurement: BiologicalMeasurement | undefined;
   polypDropCount: number;
   polypDropDetected: boolean;
-  subcultureSuggested: boolean;
   t: TFunction;
   onClose: () => void;
-  onOpenSubculture: () => void;
 }) {
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
@@ -2006,26 +1983,6 @@ function BoxChecksModal({
             </article>
           ) : null}
 
-          {subcultureSuggested && latestMeasurement ? (
-            <article className="box-check-item is-high">
-              <span className="check-severity">{t('checkImportanceHigh')}</span>
-              <div>
-                <small>{t('detectedSignal')}</small>
-                <strong>{t('subcultureAdviceTitle')}</strong>
-                <p>{latestMeasurement.polyp_count} {t('subcultureAdviceText')}</p>
-              </div>
-              <div>
-                <small>{t('suggestedAction')}</small>
-                {canPrepareSubculture ? (
-                  <button type="button" onClick={onOpenSubculture}>
-                    {t('subcultureAdviceModalAction')}
-                  </button>
-                ) : (
-                  <p>{t('subcultureAdviceAction')}</p>
-                )}
-              </div>
-            </article>
-          ) : null}
         </div>
       </section>
     </div>
