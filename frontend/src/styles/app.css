@@ -1043,6 +1043,7 @@ button:disabled {
 
 .last-reading-comment {
   display: grid;
+  grid-column: 1 / -1;
   gap: 4px;
   padding-top: 10px;
   border-top: 1px solid rgba(18, 113, 140, 0.12);
@@ -1055,10 +1056,14 @@ button:disabled {
 }
 
 .last-reading-comment p {
+  max-width: 100%;
   margin: 0;
   color: var(--ink);
   font-size: 0.88rem;
   line-height: 1.4;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .box-checks-modal {
@@ -1368,8 +1373,12 @@ button:disabled {
 }
 
 .last-comment p {
+  max-width: 100%;
   margin: 0;
   color: var(--ink);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .fake-form label {
@@ -1395,6 +1404,9 @@ button:disabled {
 
 .fake-form textarea {
   resize: vertical;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .fake-form input:focus,
@@ -2671,7 +2683,11 @@ button.zone-attention-item:hover {
 
 .measurement-row p {
   grid-column: 1 / -1;
+  max-width: 100%;
   margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .box-insights {
