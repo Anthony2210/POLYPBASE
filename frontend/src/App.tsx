@@ -235,6 +235,7 @@ const translations = {
     logoutAction: 'Se d\u00e9connecter',
     logoutError: 'D\u00e9connexion impossible pour le moment.',
     measurementDate: 'Date du relevé',
+    measurementCountsRequired: 'Polypes et éphyrules sont obligatoires.',
     measurementForbidden: 'Ce compte ne peut pas créer de relevé.',
     measurementHistory: 'Historique des relevés',
     measurementSaved: 'Relevé enregistré',
@@ -501,6 +502,7 @@ const translations = {
     logoutAction: 'Sign out',
     logoutError: 'Unable to sign out at the moment.',
     measurementDate: 'Measurement date',
+    measurementCountsRequired: 'Polyps and ephyrae are required.',
     measurementForbidden: 'This account cannot create measurements.',
     measurementHistory: 'Measurement history',
     measurementSaved: 'Measurement saved',
@@ -1584,6 +1586,12 @@ function BoxPage({
   async function saveMeasurement(): Promise<boolean> {
     if (!box || isSaving) return false;
 
+    if (!form.polypCount.trim() || !form.ephyraeCount.trim()) {
+      setSaveMessage(null);
+      setSaveError(t('measurementCountsRequired'));
+      return false;
+    }
+
     setIsSaving(true);
     setSaveError(null);
     setSaveMessage(null);
@@ -1831,16 +1839,38 @@ function BoxPage({
                 </label>
 
                 <label>
-                  {t('polyps')}
-                  <input
-                    min="0"
-                    required
-                    inputMode="numeric"
-                    placeholder="0"
-                    type="number"
-                    value={form.polypCount}
-                    onChange={(event) => setForm((current) => ({ ...current, polypCount: event.target.value }))}
-                  />
+                  <span className="measurement-field-label">{t('polyps')}</span>
+                  <div className="count-stepper">
+                    <button
+                      type="button"
+                      aria-label={`${t('polyps')} -1`}
+                      onClick={() => setForm((current) => ({
+                        ...current,
+                        polypCount: decrementCountValue(current.polypCount),
+                      }))}
+                    >
+                      -
+                    </button>
+                    <input
+                      min="0"
+                      required
+                      inputMode="numeric"
+                      placeholder="0"
+                      type="number"
+                      value={form.polypCount}
+                      onChange={(event) => setForm((current) => ({ ...current, polypCount: event.target.value }))}
+                    />
+                    <button
+                      type="button"
+                      aria-label={`${t('polyps')} +1`}
+                      onClick={() => setForm((current) => ({
+                        ...current,
+                        polypCount: incrementCountValue(current.polypCount, 1),
+                      }))}
+                    >
+                      +
+                    </button>
+                  </div>
                   <QuickCountButtons
                     values={[50, 100]}
                     onAdd={(value) => setForm((current) => ({
@@ -1851,16 +1881,38 @@ function BoxPage({
                 </label>
 
                 <label>
-                  {t('ephyraeFull')}
-                  <input
-                    min="0"
-                    required
-                    inputMode="numeric"
-                    placeholder="0"
-                    type="number"
-                    value={form.ephyraeCount}
-                    onChange={(event) => setForm((current) => ({ ...current, ephyraeCount: event.target.value }))}
-                  />
+                  <span className="measurement-field-label">{t('ephyraeFull')}</span>
+                  <div className="count-stepper">
+                    <button
+                      type="button"
+                      aria-label={`${t('ephyraeFull')} -1`}
+                      onClick={() => setForm((current) => ({
+                        ...current,
+                        ephyraeCount: decrementCountValue(current.ephyraeCount),
+                      }))}
+                    >
+                      -
+                    </button>
+                    <input
+                      min="0"
+                      required
+                      inputMode="numeric"
+                      placeholder="0"
+                      type="number"
+                      value={form.ephyraeCount}
+                      onChange={(event) => setForm((current) => ({ ...current, ephyraeCount: event.target.value }))}
+                    />
+                    <button
+                      type="button"
+                      aria-label={`${t('ephyraeFull')} +1`}
+                      onClick={() => setForm((current) => ({
+                        ...current,
+                        ephyraeCount: incrementCountValue(current.ephyraeCount, 1),
+                      }))}
+                    >
+                      +
+                    </button>
+                  </div>
                   <QuickCountButtons
                     values={[10, 25]}
                     onAdd={(value) => setForm((current) => ({
@@ -1871,7 +1923,7 @@ function BoxPage({
                 </label>
 
                 <label>
-                  {t('salinityFull')}
+                  <span className="measurement-field-label">{t('salinityFull')}</span>
                   <input
                     min="0"
                     step="0.1"
@@ -1885,7 +1937,7 @@ function BoxPage({
               </div>
 
               <label className="notes-field">
-                {t('observation')}
+                <span className="measurement-field-label">{t('observation')}</span>
                 <textarea
                   placeholder={t('observationPlaceholder')}
                   rows={3}
@@ -2206,6 +2258,10 @@ function parsePositiveInteger(value: string) {
 
 function incrementCountValue(currentValue: string, increment: number) {
   return String(parsePositiveInteger(currentValue) + increment);
+}
+
+function decrementCountValue(currentValue: string) {
+  return String(Math.max(parsePositiveInteger(currentValue) - 1, 0));
 }
 
 function getMeasurementSaveError(error: unknown, t: TFunction) {
