@@ -28,9 +28,10 @@ export default function MeasurementSaveButton({
   labels: MeasurementSaveButtonLabels;
   onSave: () => Promise<boolean>;
 }) {
-  const holdDuration = 950;
+  const holdDuration = 700;
   const frameRef = useRef<number | null>(null);
   const holdStartRef = useRef<number | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
   const [isHolding, setIsHolding] = useState(false);
   const [holdProgress, setHoldProgress] = useState(0);
 
@@ -55,6 +56,10 @@ export default function MeasurementSaveButton({
     holdStartRef.current = null;
     setHoldProgress(1);
     setIsHolding(false);
+    if (buttonRef.current?.form && !buttonRef.current.form.reportValidity()) {
+      setHoldProgress(0);
+      return;
+    }
     triggerHaptic(10);
     void onSave();
   }
@@ -100,6 +105,7 @@ export default function MeasurementSaveButton({
 
   return (
     <button
+      ref={buttonRef}
       className={buttonClass}
       type="button"
       disabled={isSaving}
@@ -118,6 +124,9 @@ export default function MeasurementSaveButton({
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
+          if (event.currentTarget.form && !event.currentTarget.form.reportValidity()) {
+            return;
+          }
           void onSave();
         }
       }}

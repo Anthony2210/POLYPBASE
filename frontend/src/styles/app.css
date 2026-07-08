@@ -1402,6 +1402,39 @@ button:disabled {
   color: var(--ink);
 }
 
+.count-stepper {
+  display: block;
+}
+
+.count-stepper input {
+  min-width: 0;
+  width: 100%;
+}
+
+.count-stepper button {
+  display: none;
+  min-width: 0;
+  min-height: 38px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--primary);
+  font-size: 1.2rem;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.count-stepper button:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.count-stepper button:active {
+  transform: scale(0.98);
+}
+
 .fake-form textarea {
   resize: vertical;
   overflow-wrap: anywhere;
@@ -6271,6 +6304,9 @@ button.zone-attention-item:hover {
 
   .notes-field {
     grid-area: notes;
+    align-self: start;
+    align-content: start;
+    gap: 4px;
   }
 
   .fake-form > button[type='submit'] {
@@ -6307,17 +6343,45 @@ button.zone-attention-item:hover {
   }
 
   .measurement-entry-grid label {
-    gap: 7px;
+    gap: 5px;
     min-width: 0;
     color: var(--ink);
     font-size: 0.86rem;
   }
 
+  .measurement-entry-grid label:nth-child(2) .measurement-field-label,
+  .measurement-entry-grid label:nth-child(3) .measurement-field-label {
+    justify-self: center;
+    text-align: center;
+  }
+
   .measurement-entry-grid input[type='number'] {
+    appearance: textfield;
+    -moz-appearance: textfield;
     min-height: 64px;
     text-align: center;
     font-size: 1.72rem;
     font-weight: 780;
+  }
+
+  .measurement-entry-grid input[type='number']::-webkit-inner-spin-button,
+  .measurement-entry-grid input[type='number']::-webkit-outer-spin-button {
+    margin: 0;
+    appearance: none;
+    -webkit-appearance: none;
+  }
+
+  .count-stepper {
+    display: grid;
+    grid-template-columns: 58px minmax(0, 1fr) 58px;
+    gap: 8px;
+  }
+
+  .count-stepper button {
+    display: grid;
+    min-height: 64px;
+    border-radius: 14px;
+    font-size: 1.7rem;
   }
 
   .last-comment {
@@ -6333,8 +6397,8 @@ button.zone-attention-item:hover {
   }
 
   .fake-form textarea {
-    min-height: 116px;
-    max-height: 132px;
+    min-height: 104px;
+    max-height: 124px;
   }
 
   .quick-counts button {
