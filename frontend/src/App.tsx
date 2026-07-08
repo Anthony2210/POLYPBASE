@@ -1,5 +1,7 @@
 ﻿import {
   type FormEvent,
+  type KeyboardEvent,
+  type PointerEvent,
   useEffect,
   useMemo,
   useRef,
@@ -243,6 +245,7 @@ const translations = {
     logoutAction: 'Se d\u00e9connecter',
     logoutError: 'D\u00e9connexion impossible pour le moment.',
     measurementDate: 'Date du relevé',
+    measurementCountsRequired: 'Polypes et éphyrules sont obligatoires.',
     measurementForbidden: 'Ce compte ne peut pas créer de relevé.',
     measurementHistory: 'Historique des relevés',
     measurementSaved: 'Relevé enregistré',
@@ -525,6 +528,7 @@ const translations = {
     logoutAction: 'Sign out',
     logoutError: 'Unable to sign out at the moment.',
     measurementDate: 'Measurement date',
+    measurementCountsRequired: 'Polyps and ephyrae are required.',
     measurementForbidden: 'This account cannot create measurements.',
     measurementHistory: 'Measurement history',
     measurementSaved: 'Measurement saved',
@@ -1630,6 +1634,12 @@ function BoxPage({
   async function saveMeasurement(): Promise<boolean> {
     if (!box || isSaving) return false;
 
+    if (!form.polypCount.trim() || !form.ephyraeCount.trim()) {
+      setSaveMessage(null);
+      setSaveError(t('measurementCountsRequired'));
+      return false;
+    }
+
     setIsSaving(true);
     setSaveError(null);
     setSaveMessage(null);
@@ -1864,16 +1874,36 @@ function BoxPage({
                 </label>
 
                 <label className="measurement-count-field measurement-polyp-field">
-                  {t('polyps')}
-                  <input
-                    min="0"
-                    required
-                    inputMode="numeric"
-                    placeholder="0"
-                    type="number"
-                    value={form.polypCount}
-                    onChange={(event) => setForm((current) => ({ ...current, polypCount: event.target.value }))}
-                  />
+                  <span className="measurement-field-label">{t('polyps')}</span>
+                  <div className="count-stepper">
+                    <StepperButton
+                      aria-label={`${t('polyps')} -1`}
+                      onStep={() => setForm((current) => ({
+                        ...current,
+                        polypCount: decrementCountValue(current.polypCount),
+                      }))}
+                    >
+                      -
+                    </StepperButton>
+                    <input
+                      min="0"
+                      required
+                      inputMode="numeric"
+                      placeholder="0"
+                      type="number"
+                      value={form.polypCount}
+                      onChange={(event) => setForm((current) => ({ ...current, polypCount: event.target.value }))}
+                    />
+                    <StepperButton
+                      aria-label={`${t('polyps')} +1`}
+                      onStep={() => setForm((current) => ({
+                        ...current,
+                        polypCount: incrementCountValue(current.polypCount, 1),
+                      }))}
+                    >
+                      +
+                    </StepperButton>
+                  </div>
                   <QuickCountButtons
                     values={[50, 100]}
                     onAdd={(value) => setForm((current) => ({
@@ -1884,16 +1914,36 @@ function BoxPage({
                 </label>
 
                 <label className="measurement-count-field measurement-ephyrae-field">
-                  {t('ephyraeFull')}
-                  <input
-                    min="0"
-                    required
-                    inputMode="numeric"
-                    placeholder="0"
-                    type="number"
-                    value={form.ephyraeCount}
-                    onChange={(event) => setForm((current) => ({ ...current, ephyraeCount: event.target.value }))}
-                  />
+                  <span className="measurement-field-label">{t('ephyraeFull')}</span>
+                  <div className="count-stepper">
+                    <StepperButton
+                      aria-label={`${t('ephyraeFull')} -1`}
+                      onStep={() => setForm((current) => ({
+                        ...current,
+                        ephyraeCount: decrementCountValue(current.ephyraeCount),
+                      }))}
+                    >
+                      -
+                    </StepperButton>
+                    <input
+                      min="0"
+                      required
+                      inputMode="numeric"
+                      placeholder="0"
+                      type="number"
+                      value={form.ephyraeCount}
+                      onChange={(event) => setForm((current) => ({ ...current, ephyraeCount: event.target.value }))}
+                    />
+                    <StepperButton
+                      aria-label={`${t('ephyraeFull')} +1`}
+                      onStep={() => setForm((current) => ({
+                        ...current,
+                        ephyraeCount: incrementCountValue(current.ephyraeCount, 1),
+                      }))}
+                    >
+                      +
+                    </StepperButton>
+                  </div>
                   <QuickCountButtons
                     values={[10, 25]}
                     onAdd={(value) => setForm((current) => ({
@@ -1904,21 +1954,41 @@ function BoxPage({
                 </label>
 
                 <label className="measurement-salinity-field">
-                  {t('salinityFull')}
-                  <input
-                    min="0"
-                    step="0.1"
-                    inputMode="decimal"
-                    placeholder="35"
-                    type="number"
-                    value={form.salinity}
-                    onChange={(event) => setForm((current) => ({ ...current, salinity: event.target.value }))}
-                  />
+                  <span className="measurement-field-label">{t('salinityFull')}</span>
+                  <div className="count-stepper count-stepper-salinity">
+                    <StepperButton
+                      aria-label={`${t('salinityFull')} -0.1`}
+                      onStep={() => setForm((current) => ({
+                        ...current,
+                        salinity: decrementDecimalValue(current.salinity, 0.1),
+                      }))}
+                    >
+                      -
+                    </StepperButton>
+                    <input
+                      min="0"
+                      step="0.1"
+                      inputMode="decimal"
+                      placeholder="35"
+                      type="number"
+                      value={form.salinity}
+                      onChange={(event) => setForm((current) => ({ ...current, salinity: event.target.value }))}
+                    />
+                    <StepperButton
+                      aria-label={`${t('salinityFull')} +0.1`}
+                      onStep={() => setForm((current) => ({
+                        ...current,
+                        salinity: incrementDecimalValue(current.salinity, 0.1),
+                      }))}
+                    >
+                      +
+                    </StepperButton>
+                  </div>
                 </label>
               </div>
 
               <label className="notes-field">
-                {t('observation')}
+                <span className="measurement-field-label">{t('observation')}</span>
                 <textarea
                   placeholder={t('observationPlaceholder')}
                   rows={3}
@@ -2077,6 +2147,67 @@ function BellIcon() {
         strokeWidth="1.8"
       />
     </svg>
+  );
+}
+
+function StepperButton({
+  'aria-label': ariaLabel,
+  children,
+  onStep,
+}: {
+  'aria-label': string;
+  children: string;
+  onStep: () => void;
+}) {
+  const delayRef = useRef<number | null>(null);
+  const intervalRef = useRef<number | null>(null);
+
+  function clearRepeat() {
+    if (delayRef.current != null) {
+      window.clearTimeout(delayRef.current);
+      delayRef.current = null;
+    }
+
+    if (intervalRef.current != null) {
+      window.clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  }
+
+  useEffect(() => clearRepeat, []);
+
+  function startRepeat(event: PointerEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    clearRepeat();
+    onStep();
+
+    delayRef.current = window.setTimeout(() => {
+      intervalRef.current = window.setInterval(onStep, 95);
+    }, 340);
+  }
+
+  function handleKeyboard(event: KeyboardEvent<HTMLButtonElement>) {
+    if ((event.key === 'Enter' || event.key === ' ') && !event.repeat) {
+      event.preventDefault();
+      onStep();
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      className="count-stepper-button"
+      aria-label={ariaLabel}
+      onPointerDown={startRepeat}
+      onPointerUp={clearRepeat}
+      onPointerLeave={clearRepeat}
+      onPointerCancel={clearRepeat}
+      onBlur={clearRepeat}
+      onKeyDown={handleKeyboard}
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -2265,6 +2396,28 @@ function parsePositiveInteger(value: string) {
 
 function incrementCountValue(currentValue: string, increment: number) {
   return String(parsePositiveInteger(currentValue) + increment);
+}
+
+function decrementCountValue(currentValue: string) {
+  return String(Math.max(parsePositiveInteger(currentValue) - 1, 0));
+}
+
+function parsePositiveDecimal(value: string) {
+  const parsedValue = Number.parseFloat(value.replace(',', '.'));
+  return Number.isFinite(parsedValue) && parsedValue >= 0 ? parsedValue : 0;
+}
+
+function formatDecimalValue(value: number) {
+  const roundedValue = Math.max(Math.round(value * 10) / 10, 0);
+  return Number.isInteger(roundedValue) ? String(roundedValue) : roundedValue.toFixed(1);
+}
+
+function incrementDecimalValue(currentValue: string, increment: number) {
+  return formatDecimalValue(parsePositiveDecimal(currentValue) + increment);
+}
+
+function decrementDecimalValue(currentValue: string, decrement: number) {
+  return formatDecimalValue(parsePositiveDecimal(currentValue) - decrement);
 }
 
 function getMeasurementSaveError(error: unknown, t: TFunction) {

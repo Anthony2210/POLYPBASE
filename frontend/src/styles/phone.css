@@ -567,13 +567,19 @@
 
   .measurement-entry-grid > label {
     display: grid;
-    gap: 9px;
+    gap: 6px;
     padding: 13px;
     border: 1px solid #e0eaf0;
     border-radius: 18px;
     background: #fbfdff;
     color: #52616c;
     font-size: 0.9rem;
+  }
+
+  .measurement-entry-grid > label:nth-child(2) .measurement-field-label,
+  .measurement-entry-grid > label:nth-child(3) .measurement-field-label {
+    justify-self: center;
+    text-align: center;
   }
 
   .measurement-entry-grid input {
@@ -586,6 +592,46 @@
     font-size: 1.7rem;
     font-weight: 820;
     text-align: center;
+  }
+
+  .measurement-entry-grid input[type='number'] {
+    appearance: textfield;
+    -moz-appearance: textfield;
+  }
+
+  .measurement-entry-grid input[type='number']::-webkit-inner-spin-button,
+  .measurement-entry-grid input[type='number']::-webkit-outer-spin-button {
+    margin: 0;
+    appearance: none;
+    -webkit-appearance: none;
+  }
+
+  .count-stepper {
+    display: grid;
+    grid-template-columns: 58px minmax(170px, 360px) 58px;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .count-stepper button {
+    display: grid;
+    min-height: 68px;
+    border-color: rgba(18, 113, 140, 0.18);
+    border-radius: 18px;
+    background: linear-gradient(180deg, #ffffff 0%, #f5fbfd 100%);
+    color: var(--primary-strong);
+    font-size: 1.65rem;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .count-stepper-salinity {
+    grid-template-columns: 52px minmax(170px, 360px) 52px;
+  }
+
+  .count-stepper-salinity button {
+    font-size: 1.45rem;
   }
 
   .quick-counts {
@@ -629,11 +675,12 @@
   }
 
   .notes-field {
-    gap: 8px;
+    align-content: start;
+    gap: 4px;
   }
 
   .notes-field textarea {
-    min-height: 96px;
+    min-height: 84px;
     padding: 12px;
     border-radius: 16px;
     resize: none;
