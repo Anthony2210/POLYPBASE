@@ -204,12 +204,10 @@ button:disabled {
   width: 40px;
   height: 40px;
   place-items: center;
-  overflow: hidden;
-  border: 1px solid rgba(13, 122, 146, 0.18);
-  border-radius: 13px;
-  background:
-    radial-gradient(circle at 62% 20%, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0) 32%),
-    linear-gradient(145deg, #ecfbff 0%, #d6f2f8 45%, #0d7a92 100%);
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .brand-mark img {
@@ -1524,6 +1522,43 @@ button:disabled {
   outline: none;
   background: #ffffff;
   color: var(--ink);
+}
+
+.count-stepper {
+  display: block;
+}
+
+.count-stepper input {
+  min-width: 0;
+  width: 100%;
+}
+
+.count-stepper button {
+  display: none;
+  min-width: 0;
+  min-height: 38px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--primary);
+  font-size: 1.2rem;
+  font-weight: 850;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.count-stepper button:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.count-stepper button:active {
+  transform: scale(0.98);
 }
 
 .fake-form textarea {
@@ -6589,6 +6624,9 @@ button.zone-attention-item:hover {
 
   .notes-field {
     grid-area: notes;
+    align-self: start;
+    align-content: start;
+    gap: 4px;
   }
 
   .fake-form > button[type='submit'] {
@@ -6633,17 +6671,66 @@ button.zone-attention-item:hover {
   }
 
   .measurement-entry-grid label {
-    gap: 7px;
+    gap: 5px;
     min-width: 0;
     color: var(--ink);
     font-size: 0.86rem;
   }
 
+  .measurement-entry-grid label:nth-child(2) .measurement-field-label,
+  .measurement-entry-grid label:nth-child(3) .measurement-field-label {
+    justify-self: center;
+    text-align: center;
+  }
+
   .measurement-entry-grid input[type='number'] {
+    appearance: textfield;
+    -moz-appearance: textfield;
     min-height: 64px;
     text-align: center;
     font-size: 1.72rem;
     font-weight: 780;
+  }
+
+  .measurement-entry-grid input[type='number']::-webkit-inner-spin-button,
+  .measurement-entry-grid input[type='number']::-webkit-outer-spin-button {
+    margin: 0;
+    appearance: none;
+    -webkit-appearance: none;
+  }
+
+  .count-stepper {
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr) 64px;
+    gap: 10px;
+  }
+
+  .count-stepper button {
+    display: grid;
+    min-height: 66px;
+    border-color: rgba(18, 113, 140, 0.18);
+    border-radius: 16px;
+    background: linear-gradient(180deg, #ffffff 0%, #f5fbfd 100%);
+    color: var(--primary-strong);
+    font-size: 1.8rem;
+  }
+
+  .count-stepper button:hover {
+    border-color: rgba(18, 113, 140, 0.32);
+    background: #eef9fc;
+  }
+
+  .count-stepper button:active {
+    transform: translateY(1px) scale(0.99);
+    background: #e5f6fa;
+  }
+
+  .count-stepper-salinity {
+    grid-template-columns: 58px minmax(0, 1fr) 58px;
+  }
+
+  .count-stepper-salinity button {
+    font-size: 1.55rem;
   }
 
   .last-comment {
@@ -6659,8 +6746,8 @@ button.zone-attention-item:hover {
   }
 
   .fake-form textarea {
-    min-height: 84px;
-    max-height: 108px;
+    min-height: 104px;
+    max-height: 124px;
   }
 
   .quick-counts button {
