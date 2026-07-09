@@ -6708,16 +6708,16 @@ button.zone-attention-item:hover {
   .count-stepper button {
     display: grid;
     min-height: 66px;
-    border-color: rgba(18, 113, 140, 0.18);
+    border-color: rgba(16, 107, 135, 0.32);
     border-radius: 16px;
-    background: linear-gradient(180deg, #ffffff 0%, #f5fbfd 100%);
+    background: #e5f6fb;
     color: var(--primary-strong);
     font-size: 1.8rem;
   }
 
   .count-stepper button:hover {
-    border-color: rgba(18, 113, 140, 0.32);
-    background: #eef9fc;
+    border-color: rgba(16, 107, 135, 0.46);
+    background: #d7eef6;
   }
 
   .count-stepper button:active {
