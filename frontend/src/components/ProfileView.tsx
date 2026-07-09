@@ -14,6 +14,7 @@ type ProfileLabels = {
   profileMemberships: string;
   profileNoEmail: string;
   profileNoMembership: string;
+  profileSuperuserAllOrganizations: string;
   profilePreferences: string;
   noZone: string;
   qrLabelAddToSelection: string;
@@ -154,7 +155,10 @@ export default function ProfileView({
       <section className="profile-block">
         <div className="section-title">
           <h2>{labels.profileMemberships}</h2>
-          <span>{profile.memberships.length}</span>
+          {/* Superusers bypass memberships: show how many organizations they reach. */}
+          <span>
+            {profile.memberships.length || (profile.is_superuser ? profile.organizations.length : 0)}
+          </span>
         </div>
 
         {profile.memberships.length ? (
@@ -174,6 +178,8 @@ export default function ProfileView({
               </article>
             ))}
           </div>
+        ) : profile.is_superuser ? (
+          <p className="muted compact-text">{labels.profileSuperuserAllOrganizations}</p>
         ) : (
           <p className="muted compact-text">{labels.profileNoMembership}</p>
         )}

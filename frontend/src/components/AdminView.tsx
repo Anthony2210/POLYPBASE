@@ -822,45 +822,19 @@ export default function AdminView({
     <section className="admin-panel">
       <AccountManagementSection t={t} />
 
-      <div className="admin-two-columns">
-        <section className="admin-section">
-          <div className="admin-section-heading">
-            <div>
-              <h2>{t('adminZonesProbesTitle')}</h2>
-              <p>{t('adminZonesProbesText')}</p>
-            </div>
+      <section className="admin-section">
+        <div className="admin-section-heading">
+          <div>
+            <h2>{t('adminZonesProbesTitle')}</h2>
+            <p>{t('adminZonesProbesText')}</p>
           </div>
+        </div>
 
-          <div className="admin-form-grid">
-            <ZoneCreateForm profile={profile} onCreateZone={onCreateZone} t={t} />
-            <ProbeCreateForm profile={profile} zones={zones} onCreateProbe={onCreateProbe} t={t} />
-          </div>
-        </section>
-
-        <section className="admin-section">
-          <div className="admin-section-heading">
-            <div>
-              <h2>{t('adminOrganizationsTitle')}</h2>
-              <p>{t('adminOrganizationsText')}</p>
-            </div>
-          </div>
-
-          <OrganizationCreateForm
-            profile={profile}
-            onCreateOrganization={onCreateOrganization}
-            t={t}
-          />
-
-          <div className="admin-inline-list">
-            <strong>{t('adminExistingOrganizations')}</strong>
-            <div>
-              {organizations.slice(0, 4).map((organization) => (
-                <span key={organization.id}>{organization.name}</span>
-              ))}
-            </div>
-          </div>
-        </section>
-      </div>
+        <div className="admin-form-grid">
+          <ZoneCreateForm profile={profile} onCreateZone={onCreateZone} t={t} />
+          <ProbeCreateForm profile={profile} zones={zones} onCreateProbe={onCreateProbe} t={t} />
+        </div>
+      </section>
 
       <section className="admin-section admin-transfer-section">
         <div className="admin-section-heading">
@@ -877,6 +851,30 @@ export default function AdminView({
           onCreateTransfer={onCreateTransfer}
           t={t}
         />
+      </section>
+
+      <section className="admin-section">
+        <div className="admin-section-heading">
+          <div>
+            <h2>{t('adminOrganizationsTitle')}</h2>
+            <p>{t('adminOrganizationsText')}</p>
+          </div>
+        </div>
+
+        <OrganizationCreateForm
+          profile={profile}
+          onCreateOrganization={onCreateOrganization}
+          t={t}
+        />
+
+        <div className="admin-inline-list">
+          <strong>{t('adminExistingOrganizations')}</strong>
+          <div>
+            {organizations.slice(0, 4).map((organization) => (
+              <span key={organization.id}>{organization.name}</span>
+            ))}
+          </div>
+        </div>
       </section>
     </section>
   );
