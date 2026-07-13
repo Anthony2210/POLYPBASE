@@ -1,0 +1,68 @@
+name: CI
+
+# Garde-fous: empeche de pousser du code qui casse l'app.
+# - frontend: tsc --noEmit (attrape variable supprimee, prop manquante, mauvais type)
+#   Vite/esbuild ne type-check PAS, donc sans ca les bugs passent en prod.
+# - backend: migration oubliee + suite de tests.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  frontend:
+    name: Frontend (typecheck + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      # Le garde-fou principal: bloque les erreurs de type.
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Build
+        run: npx vite build
+
+  backend:
+    name: Backend (migrations + tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    # Pas de POSTGRES_DB => settings.py bascule sur SQLite, pas besoin de service Postgres.
+    env:
+      DJANGO_SECRET_KEY: ci-secret-key-not-used-in-production
+      DJANGO_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+        working-directory: .
+
+      - name: Django checks
+        run: uv run python manage.py check
+
+      # Bloque un changement de modele sans sa migration (le bug qui a casse
+      # le migrate de l'equipe avec salinity_psu).
+      - name: Missing migrations?
+        run: uv run python manage.py makemigrations --check --dry-run
+
+      - name: Tests
+        run: uv run python manage.py test
