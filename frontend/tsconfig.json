@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2021",
+    "lib": ["ES2021", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+
+    /* Volontairement non-strict: le but est de bloquer les vrais bugs
+       (variable supprimee, prop manquante, mauvais type) sans noyer l'equipe
+       sous des milliers d'erreurs sur le code existant. On pourra durcir
+       progressivement (strict, noUnusedLocals...). */
+    "strict": false,
+    "noImplicitAny": false,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src"]
+}
