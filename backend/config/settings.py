@@ -73,8 +73,10 @@ CSRF_TRUSTED_ORIGINS = [
 
 # Public base URL embedded in QR codes (no trailing slash). A scanned QR code
 # points to {PUBLIC_BASE_URL}/bac/<id>/, so this must be the address the
-# biologist's phone can reach (the production domain, or the dev server).
-PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+# biologist's phone can reach: the address of the *app* (production domain, or
+# the Vite dev server), not of the Django server. Pointing it at Django used to
+# make a scanned code land on a bare server-rendered page instead of the app.
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "http://localhost:5173").rstrip("/")
 
 
 # -- Security -----------------------------------------------------------------
@@ -254,8 +256,11 @@ EMAIL_BACKEND = os.getenv(
 )
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "Polypbase <no-reply@polypbase.local>")
 
-LOGIN_REDIRECT_URL = "/boites/"
-LOGOUT_REDIRECT_URL = "/accounts/login/"
+# The React app owns the UI: authentication redirects must land there, never on
+# a server-rendered page (the old HTML pages have been removed).
+LOGIN_URL = "/login"
+LOGIN_REDIRECT_URL = "/"
+LOGOUT_REDIRECT_URL = "/login"
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [

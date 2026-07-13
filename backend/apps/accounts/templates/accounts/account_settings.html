@@ -8,7 +8,8 @@
 </head>
 
 <body>
-    <a href="{% url 'liste_boites' %}">{% trans "Retour aux boîtes" %}</a>
+    {# The box list is served by the React app, not by Django any more. #}
+    <a href="/">{% trans "Retour aux boîtes" %}</a>
 
     <h1>{% trans "Mon profil" %}</h1>
 

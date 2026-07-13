@@ -1,3 +1,19 @@
+"""Server-rendered views kept alongside the React app.
+
+Only three remain, and each has a reason to exist outside the SPA:
+
+* ``scan_box`` — the stable ``/bac/<id>/`` target printed on QR labels. It is a
+  server route so that a scan is recorded even before the app boots, then it
+  hands over to the React box sheet.
+* ``box_qr`` — renders the QR code itself as an SVG.
+* ``privacy_policy`` — a standalone legal page.
+
+The old HTML pages (box list, box detail, measurement form) were removed: they
+duplicated the React app, and a scanned QR code used to land on them.
+"""
+
+from urllib.parse import quote
+
 from django.contrib.auth.decorators import login_required
 from django.db.models import Prefetch
 from django.http import HttpResponse
@@ -6,7 +22,6 @@ from urllib.parse import urlparse
 
 from apps.accounts.permissions import get_authorized_organization_ids
 from apps.audit.models import AuditLog
-from apps.measurements.forms import BiologicalMeasurementForm
 from apps.measurements.models import BiologicalMeasurement
 
 from . import qr
@@ -51,72 +66,18 @@ def _qr_scan_url(request, box):
     return qr.box_scan_url(box)
 
 
-@login_required
-def box_list(request):
-    boxes = _box_queryset_for_user(request.user).order_by("global_code")
-
-    return render(request, "core/liste_boites.html", {"boxes": boxes})
-
-
-@login_required
-def box_detail(request, box_id):
-    box = get_object_or_404(
-        _box_queryset_for_user(request.user),
-        id=box_id,
-    )
-
-    measurements = box.biological_measurements.all()
-
-    return render(
-        request,
-        "core/detail_boite.html",
-        {
-            "box": box,
-            "measurements": measurements,
-            "scan_url": qr.box_scan_url(box),
-        },
-    )
-
-
-@login_required
-def add_measurement(request, box_id):
-    box = get_object_or_404(_box_queryset_for_user(request.user), id=box_id)
-
-    if request.method == "POST":
-        form = BiologicalMeasurementForm(request.POST)
-        if form.is_valid():
-            measurement = form.save(commit=False)
-            measurement.box = box
-            measurement.user = request.user
-            measurement.save()
-            AuditLog.objects.create(
-                organization=box.organization,
-                user=request.user,
-                action=AuditLog.Action.ENTRY,
-                object_type="box",
-                object_id=box.global_code,
-                description=f"Biological measurement for {measurement.measured_on}",
-            )
-            return redirect("detail_boite", box_id=box.id)
-    else:
-        form = BiologicalMeasurementForm()
-
-    return render(
-        request,
-        "core/ajouter_releve.html",
-        {
-            "box": box,
-            "form": form,
-        },
-    )
+def box_app_url(box):
+    """URL of the box sheet in the React app."""
+    return f"/boxes/{quote(box.global_code, safe='')}"
 
 
 @login_required
 def scan_box(request, box_id):
     """Stable target encoded in a box QR code.
 
-    Scanning ``/bac/<id>/`` lands here, records the access, and redirects to the
-    box detail page. The access is visible on every device using the same account.
+    Scanning ``/bac/<id>/`` lands here, records the scan, then redirects to the
+    box sheet **in the React app**. Keeping the QR target decoupled from the app
+    route means printed labels keep working even if that route changes.
     """
     box = get_object_or_404(_box_queryset_for_user(request.user), id=box_id)
     AuditLog.objects.create(
@@ -128,7 +89,7 @@ def scan_box(request, box_id):
         description=f"QR scan of {box.global_code}",
         metadata={"box_id": box.id, "source": "qr_link"},
     )
-    return redirect("detail_boite", box_id=box.id)
+    return redirect(box_app_url(box))
 
 
 @login_required

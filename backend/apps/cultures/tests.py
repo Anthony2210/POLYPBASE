@@ -660,15 +660,19 @@ class PolypbaseApiTests(TestCase):
         self.assertTrue(payload["scan_url"].endswith(f"/bac/{self.box.id}/"))
         self.assertTrue(payload["qr_image_url"].endswith(f"/boites/{self.box.id}/qr.svg"))
 
-    def test_scan_redirects_to_detail_and_logs_scan(self):
+    def test_scan_redirects_to_the_react_box_sheet_and_logs_scan(self):
+        """A scanned QR code must open the React app, never a server-rendered page."""
         self.client.login(username="tech", password="secret")
 
         response = self.client.get(reverse("scan_boite", args=[self.box.id]))
 
+        self.assertEqual(response.status_code, 302)
+        # The React app serves /boxes/<global_code>; Django has no such route,
+        # so fetch_redirect_response must stay off.
         self.assertRedirects(
             response,
-            reverse("detail_boite", args=[self.box.id]),
-            target_status_code=200,
+            f"/boxes/{self.box.global_code}",
+            fetch_redirect_response=False,
         )
         self.assertEqual(
             AuditLog.objects.filter(
@@ -677,11 +681,13 @@ class PolypbaseApiTests(TestCase):
             1,
         )
 
-    def test_scan_requires_login(self):
+    def test_scan_requires_login_and_sends_to_the_react_login(self):
         response = self.client.get(reverse("scan_boite", args=[self.box.id]))
 
         self.assertEqual(response.status_code, 302)
-        self.assertIn("/accounts/login/", response["Location"])
+        self.assertIn("/login", response["Location"])
+        # The scan target is preserved so the user lands on the box after login.
+        self.assertIn(f"/bac/{self.box.id}/", response["Location"])
 
     def test_scan_is_scoped_to_authorized_boxes(self):
         other_box = Box.objects.get(global_code="AAU-1.001-TKY")
