@@ -1,23 +1,28 @@
 # Tests automatisés — backend POLYPBASE
 
-Récapitulatif lisible des **46 tests** de la suite Django, avec ce que chacun
+Récapitulatif lisible des **68 tests** de la suite Django, avec ce que chacun
 vérifie. Les tests couvrent l'API REST, les permissions par rôle et par
 organisation, le cycle de vie des boîtes (relevés, repiquage, déplacement,
-lignée), les QR codes, la gestion des comptes et les exports.
+lignée), les QR codes, la gestion des comptes, les exports, les écrans
+d'administration (armoires, sondes, structures, transferts) et la salinité.
 
-- **Fichiers source** : `backend/apps/<app>/tests.py`
+- **Fichiers source** : `backend/apps/<app>/tests*.py`
 - **Lancer toute la suite** : `python manage.py test` (depuis `backend/`)
-- **Note base de données** : le runner crée une base de test. En local, si
-  l'utilisateur PostgreSQL n'a pas le droit `CREATEDB`, lancer les tests sur
-  SQLite via un settings dédié (`--settings=config.test_settings` pointant sur
-  `sqlite3 :memory:`).
+- **CI** : la suite tourne automatiquement sur chaque push/PR
+  (`.github/workflows/ci.yml`), avec `makemigrations --check` pour bloquer une
+  migration oubliée.
+- **Note base de données** : sans `POSTGRES_DB`, `settings.py` bascule sur
+  SQLite — c'est ce que fait la CI (aucun service Postgres requis). En local,
+  si l'utilisateur PostgreSQL n'a pas le droit `CREATEDB`, faire pareil.
 
 | Domaine | Fichier | Nombre |
 |---|---|---|
 | Cultures (boîtes, relevés, lignée, QR) | `apps/cultures/tests.py` | 28 |
-| Comptes (auth, rôles, membres) | `apps/accounts/tests.py` | 13 |
+| Administration (armoires, sondes, structures, transferts) | `apps/cultures/tests_admin_api.py` | 13 |
+| Comptes (auth, rôles, membres) | `apps/accounts/tests.py` | 14 |
+| Relevés (édition + salinité) | `apps/measurements/tests.py` | 8 |
 | Exports (CSV) | `apps/exports/tests.py` | 5 |
-| **Total** | | **46** |
+| **Total** | | **68** |
 
 ---
 
@@ -83,7 +88,7 @@ lignée), les QR codes, la gestion des comptes et les exports.
 
 ---
 
-## 2. Comptes — `apps/accounts/tests.py` (13 tests)
+## 2. Comptes — `apps/accounts/tests.py` (14 tests)
 
 ### Préférences & session
 
@@ -110,7 +115,64 @@ lignée), les QR codes, la gestion des comptes et les exports.
 
 ---
 
-## 3. Exports — `apps/exports/tests.py` (5 tests)
+## 3. Administration — `apps/cultures/tests_admin_api.py` (13 tests)
+
+Endpoints de création réservés aux administrateurs. Le fil rouge : **qui a le
+droit de créer quoi**, et **on ne peut jamais atteindre une autre structure**.
+
+### Armoires thermiques
+
+| Test | Vérifie que… |
+|---|---|
+| `test_admin_creates_a_thermal_zone` | un admin crée une armoire dans sa structure. |
+| `test_lab_technician_cannot_create_a_thermal_zone` | un technicien ne peut pas (403). |
+| `test_admin_cannot_create_a_zone_in_another_organization` | un admin ne peut pas créer dans une structure qu'il n'administre pas (403). |
+| `test_duplicate_zone_name_in_the_same_organization_is_rejected` | deux armoires ne peuvent pas porter le même nom dans une structure (400). |
+
+### Sondes
+
+| Test | Vérifie que… |
+|---|---|
+| `test_admin_creates_a_probe_inheriting_the_zone_organization` | la sonde **hérite** de la structure de son armoire (jamais envoyée par le client). |
+| `test_admin_cannot_add_a_probe_to_another_organization_zone` | impossible d'ajouter une sonde à l'armoire d'une autre structure (403). |
+| `test_duplicate_probe_code_in_the_same_organization_is_rejected` | code de sonde unique par structure (400). |
+
+### Structures
+
+| Test | Vérifie que… |
+|---|---|
+| `test_superuser_creates_an_organization` | seul un super-administrateur crée une structure. |
+| `test_organization_admin_cannot_create_an_organization` | même un admin de structure ne peut pas (403). |
+| `test_duplicate_organization_name_is_rejected_case_insensitively` | nom de structure unique, casse ignorée (400). |
+
+### Transferts de boîtes
+
+| Test | Vérifie que… |
+|---|---|
+| `test_admin_records_a_planned_transfer_without_reassigning_the_box` | le transfert **enregistre l'intention** (statut « Prévu ») **sans changer le propriétaire** de la boîte. |
+| `test_transfer_to_the_same_organization_is_rejected` | on ne transfère pas vers sa propre structure (400). |
+| `test_lab_technician_cannot_transfer_a_box` | un technicien ne peut pas transférer (403). |
+
+---
+
+## 4. Relevés — `apps/measurements/tests.py` (8 tests)
+
+Édition d'un relevé existant (action « Modifier ») et **salinité par boîte**.
+
+| Test | Vérifie que… |
+|---|---|
+| `test_measurement_can_be_created_with_a_salinity` | un relevé accepte une salinité (PSU). |
+| `test_technician_updates_a_measurement_and_untouched_fields_are_kept` | le PATCH est **partiel** : un champ non envoyé n'est pas écrasé. |
+| `test_read_only_user_cannot_update_a_measurement` | un lecteur seul ne peut pas modifier (403). |
+| `test_a_measurement_cannot_be_updated_through_another_box` | on ne modifie pas le relevé d'une boîte via une autre (404). |
+| `test_updating_a_measurement_of_another_organization_is_refused` | cloisonnement entre structures (404). |
+| `test_latest_salinity_survives_a_newer_measurement_without_salinity` | **régression signalée** : la salinité affichée ne disparaît plus quand un relevé plus récent n'en contient pas. |
+| `test_box_list_also_exposes_the_last_recorded_salinity` | idem côté liste des boîtes (via annotation, sans N+1). |
+| `test_box_without_any_salinity_reports_none` | une boîte sans aucune salinité renvoie bien `null`. |
+
+---
+
+## 5. Exports — `apps/exports/tests.py` (5 tests)
 
 | Test | Vérifie que… |
 |---|---|
@@ -132,7 +194,9 @@ lignée), les QR codes, la gestion des comptes et les exports.
 - **Intégrité transactionnelle** : le repiquage est vérifié pour son rollback en
   cas d'échec partiel.
 - **Traçabilité** : scans QR et accès aux boîtes sont journalisés et testés.
+- **Non-régression** : les bugs signalés par les utilisateurs sont figés en test
+  (ex. la salinité qui disparaissait après un relevé sans salinité).
 
-> Apps sans tests dédiés à ce jour : `audit`, `measurements`, `organizations`,
-> `taxonomy` (leurs comportements sont indirectement couverts par les tests des
-> apps `cultures`, `accounts` et `exports`).
+> Apps sans tests dédiés à ce jour : `audit`, `organizations`, `taxonomy` (leurs
+> comportements sont couverts indirectement par les tests des autres apps —
+> `organizations` l'est par `tests_admin_api.py`).
