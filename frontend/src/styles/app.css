@@ -7911,3 +7911,74 @@ button.zone-attention-item:hover {
     height: 27mm;
   }
 }
+
+/* Fallback shown by <ErrorBoundary> when the UI crashes. Kept self-contained
+   (no dependency on app layout classes) so it renders even when the app is
+   broken. */
+.error-boundary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+  background: #f6f8fa;
+}
+
+.error-boundary-card {
+  width: 100%;
+  max-width: 440px;
+  padding: 28px;
+  border: 1px solid var(--line, #e1e6ef);
+  border-radius: 16px;
+  background: var(--surface, #ffffff);
+  box-shadow: 0 12px 32px rgba(21, 25, 34, 0.08);
+  text-align: center;
+}
+
+.error-boundary-card h1 {
+  margin: 0 0 10px;
+  color: var(--ink, #151922);
+  font-size: 1.35rem;
+}
+
+.error-boundary-card p {
+  margin: 0 0 20px;
+  color: var(--muted, #687282);
+  font-size: 0.98rem;
+  line-height: 1.45;
+}
+
+.error-boundary-card button {
+  min-height: 46px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--primary, #106b87);
+  color: #ffffff;
+  font-weight: 720;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.error-boundary-card details {
+  margin-top: 18px;
+  text-align: left;
+}
+
+.error-boundary-card summary {
+  color: var(--muted, #687282);
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+
+.error-boundary-card pre {
+  overflow-x: auto;
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #f1f4f6;
+  color: var(--ink, #151922);
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

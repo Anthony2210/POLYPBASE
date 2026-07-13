@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -17,6 +19,19 @@ from apps.measurements.models import BiologicalMeasurement, Probe
 from apps.organizations.models import Organization
 from apps.organizations.serializers import OrganizationSummarySerializer
 from apps.taxonomy.models import Species, Strain
+
+
+#: Salinity can reach the serializer as a Decimal (model field, PostgreSQL) or
+#: as a float (subquery annotation on SQLite). Render it through a real
+#: DecimalField so the API always answers the same way ("35.00"), whatever the
+#: database.
+_SALINITY_FIELD = serializers.DecimalField(max_digits=5, decimal_places=2)
+
+
+def _render_salinity(value):
+    if value is None:
+        return None
+    return _SALINITY_FIELD.to_representation(Decimal(str(value)))
 
 
 class SpeciesSummarySerializer(serializers.ModelSerializer):
@@ -138,19 +153,21 @@ class BoxListSerializer(serializers.ModelSerializer):
         # value visible even when later measurements leave salinity blank.
         annotated = getattr(obj, "latest_salinity_annotation", None)
         if annotated is not None:
-            return annotated
+            return _render_salinity(annotated)
+
         measurements = _prefetched_list(obj, "biological_measurements")
         if measurements is not None:
             for measurement in measurements:  # ordered most-recent first
                 if measurement.salinity_psu is not None:
-                    return measurement.salinity_psu
+                    return _render_salinity(measurement.salinity_psu)
             return None
+
         latest = (
             obj.biological_measurements.filter(salinity_psu__isnull=False)
             .order_by("-measured_on", "-created_at")
             .first()
         )
-        return latest.salinity_psu if latest else None
+        return _render_salinity(latest.salinity_psu) if latest else None
 
     def get_active_alert_count(self, obj):
         # The light list queryset annotates the count to avoid loading alerts.
