@@ -59,6 +59,11 @@ jobs:
       - name: Django checks
         run: uv run python manage.py check
 
+      # Production security audit (HTTPS, secure cookies, secret key...).
+      # DEBUG is already 0 here, so this reflects the real production posture.
+      - name: Security checks (deploy)
+        run: uv run python manage.py check --deploy
+
       # Bloque un changement de modele sans sa migration (le bug qui a casse
       # le migrate de l'equipe avec salinity_psu).
       - name: Missing migrations?

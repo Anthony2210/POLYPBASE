@@ -11,8 +11,10 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -22,17 +24,37 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
+def env_flag(name, default=False):
+    """Read a boolean from the environment ("1"/"true"/"yes" are all true)."""
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+# Django forces DEBUG=False while running tests, but this module is imported
+# before that happens: without this flag the production hardening below would
+# turn on SECURE_SSL_REDIRECT and every test request would get a 301.
+RUNNING_TESTS = "test" in sys.argv
+
+# Defaults to False so that a forgotten environment variable in production is
+# safe (no debug pages, no source leak) rather than dangerous. Development sets
+# DJANGO_DEBUG=1 in backend/.env.
+DEBUG = env_flag("DJANGO_DEBUG", default=False)
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv(
-    "DJANGO_SECRET_KEY",
-    "django-insecure-=xd0+u+l*ro@)ghp_k+(j_7!8e6lzy61litekh^84f4)s9j@3*",
-)
-
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv("DJANGO_DEBUG", "1") == "1"
+# In production the key MUST come from the environment. There is deliberately no
+# fallback: a hardcoded key committed to the repository would let anyone forge
+# sessions. Startup fails loudly instead of running insecurely.
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
+if not SECRET_KEY:
+    if DEBUG or RUNNING_TESTS:
+        SECRET_KEY = "django-insecure-development-only-key-do-not-use-in-production"
+    else:
+        raise ImproperlyConfigured(
+            "DJANGO_SECRET_KEY must be set when DEBUG is off. "
+            "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(64))\""
+        )
 
 ALLOWED_HOSTS = [
     host.strip()
@@ -53,6 +75,47 @@ CSRF_TRUSTED_ORIGINS = [
 # points to {PUBLIC_BASE_URL}/bac/<id>/, so this must be the address the
 # biologist's phone can reach (the production domain, or the dev server).
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+
+
+# -- Security -----------------------------------------------------------------
+
+# Always on: the app is never displayed inside a frame, so refuse to be framed
+# (clickjacking) and never let the browser guess a content type.
+X_FRAME_OPTIONS = "DENY"
+SECURE_CONTENT_TYPE_NOSNIFF = True
+
+# The session cookie is never read from JavaScript.
+SESSION_COOKIE_HTTPONLY = True
+
+# The CSRF cookie, on the contrary, MUST stay readable from JavaScript: the
+# React app reads it to send the X-CSRFToken header. Setting
+# CSRF_COOKIE_HTTPONLY = True here would silently break every login.
+CSRF_COOKIE_HTTPONLY = False
+
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Lax"
+
+# Production only. In development everything is served over plain HTTP on
+# localhost, so forcing HTTPS would make the app unreachable.
+if not DEBUG and not RUNNING_TESTS:
+    # TLS is terminated by the platform (Render, Railway, Fly, nginx...), which
+    # forwards the original scheme in this header.
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+    SECURE_SSL_REDIRECT = env_flag("DJANGO_SECURE_SSL_REDIRECT", default=True)
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+
+    # HSTS tells browsers to only ever use HTTPS for this domain. It is cached
+    # by the browser, so a too-long value is hard to undo: start at one day and
+    # raise it (via the env var) once HTTPS is proven stable.
+    SECURE_HSTS_SECONDS = int(os.getenv("DJANGO_SECURE_HSTS_SECONDS", "86400"))
+    # Off by default: it would also force HTTPS on every sibling subdomain of
+    # the organisation, which we do not control.
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = env_flag(
+        "DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS", default=False
+    )
+    SECURE_HSTS_PRELOAD = env_flag("DJANGO_SECURE_HSTS_PRELOAD", default=False)
 
 
 # Application definition
