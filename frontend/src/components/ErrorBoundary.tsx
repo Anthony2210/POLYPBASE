@@ -37,6 +37,8 @@ function getLanguage(): keyof typeof copy {
 }
 
 export default class ErrorBoundary extends Component<Props, State> {
+  declare props: Readonly<Props>;
+
   state: State = { error: null };
 
   static getDerivedStateFromError(error: Error): State {
