@@ -19,6 +19,7 @@ from apps.cultures.api_views import (
     BoxTransferCreateAPIView,
     DashboardAPIView,
     HealthAPIView,
+    OverviewActiveBoxesAPIView,
     ProbeCreateAPIView,
     ThermalZoneListCreateAPIView,
 )
@@ -34,6 +35,7 @@ urlpatterns = [
     path("auth/session/", SessionLoginAPIView.as_view(), name="api_session_login"),
     path("auth/logout/", SessionLogoutAPIView.as_view(), name="api_session_logout"),
     path("dashboard/", DashboardAPIView.as_view(), name="api_dashboard"),
+    path("overview/active-boxes/", OverviewActiveBoxesAPIView.as_view(), name="api_overview_active_boxes"),
     path("boxes/", BoxListAPIView.as_view(), name="api_box_list"),
     path("boxes/<int:pk>/", BoxDetailAPIView.as_view(), name="api_box_detail"),
     path(
