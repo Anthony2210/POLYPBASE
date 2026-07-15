@@ -5368,6 +5368,49 @@ button.zone-attention-item:hover {
   resize: vertical;
 }
 
+.admin-suggest-field {
+  position: relative;
+  min-width: 0;
+}
+
+.admin-suggest-menu {
+  position: absolute;
+  z-index: 40;
+  right: 0;
+  left: 0;
+  display: grid;
+  overflow: auto;
+  max-height: 220px;
+  margin-top: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 14px 30px rgba(31, 56, 74, 0.16);
+}
+
+.admin-suggest-menu button {
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  background: #ffffff;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+}
+
+.admin-suggest-menu button:last-child {
+  border-bottom: 0;
+}
+
+.admin-suggest-menu button:hover,
+.admin-suggest-menu button:focus {
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+  outline: none;
+}
+
 .admin-wide-field,
 .admin-organization-form button {
   grid-column: 1 / -1;
