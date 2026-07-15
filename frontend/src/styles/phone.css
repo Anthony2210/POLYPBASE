@@ -1077,6 +1077,33 @@
     max-width: none;
   }
 
+  .admin-audit-head {
+    display: none;
+  }
+
+  .admin-audit-toggle {
+    width: 100%;
+    min-height: 46px;
+    border-radius: 14px;
+  }
+
+  .admin-audit-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    align-items: stretch;
+    padding: 14px;
+  }
+
+  .admin-audit-details {
+    grid-template-columns: 1fr;
+    padding: 14px;
+  }
+
+  .admin-audit-details dl > div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
   .admin-organization-item {
     align-items: stretch;
     flex-direction: column;

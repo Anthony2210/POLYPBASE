@@ -41,6 +41,45 @@ from .serializers import (
 from .services import build_lineage_graph, create_subculture, move_box_to_thermal_zone
 
 
+def _json_value(value):
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    return str(value)
+
+
+def _measurement_audit_values(measurement):
+    return {
+        "date": _json_value(measurement.measured_on),
+        "polypes": measurement.polyp_count,
+        "ephyrules": measurement.ephyrae_count,
+        "strobiles": measurement.strobila_count,
+        "salinite_psu": _json_value(measurement.salinity_psu),
+        "statut_culture": measurement.culture_status,
+        "a_verifier": measurement.needs_attention,
+        "note": measurement.notes,
+    }
+
+
+def _changed_values(before, after):
+    return {
+        key: {"avant": before.get(key), "apres": after.get(key)}
+        for key in after
+        if before.get(key) != after.get(key)
+    }
+
+
+def _thermal_zone_audit_values(zone):
+    return {
+        "nom": zone.name,
+        "type": zone.zone_type,
+        "temperature_consigne": _json_value(zone.target_temperature_c),
+        "capacite": zone.capacity,
+        "active": zone.is_active,
+    }
+
+
 def box_queryset_for_user(user):
     """Return boxes the user can access, with data needed by serializers."""
     organization_ids = get_authorized_organization_ids(user)
@@ -405,12 +444,25 @@ class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data.copy()
         measured_on = data.pop("measured_on")
+        existing_measurement = BiologicalMeasurement.objects.filter(
+            box=box,
+            measured_on=measured_on,
+        ).first()
+        before_values = _measurement_audit_values(existing_measurement) if existing_measurement else None
 
         measurement, created = BiologicalMeasurement.objects.update_or_create(
             box=box,
             measured_on=measured_on,
             defaults={**data, "user": request.user},
         )
+        after_values = _measurement_audit_values(measurement)
+        metadata = {
+            "measurement_id": measurement.id,
+            "valeurs": after_values,
+        }
+        if before_values is not None:
+            metadata["modifications"] = _changed_values(before_values, after_values)
+
         AuditLog.objects.create(
             organization=box.organization,
             user=request.user,
@@ -418,7 +470,7 @@ class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
             object_type="box",
             object_id=box.global_code,
             description=f"Biological measurement for {measurement.measured_on}",
-            metadata={"measurement_id": measurement.id},
+            metadata=metadata,
         )
 
         response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
@@ -443,7 +495,9 @@ class BoxMeasurementDetailAPIView(generics.GenericAPIView):
             measurement, data=request.data, partial=True
         )
         serializer.is_valid(raise_exception=True)
+        before_values = _measurement_audit_values(measurement)
         measurement = serializer.save(user=request.user)
+        after_values = _measurement_audit_values(measurement)
 
         AuditLog.objects.create(
             organization=box.organization,
@@ -452,7 +506,11 @@ class BoxMeasurementDetailAPIView(generics.GenericAPIView):
             object_type="box",
             object_id=box.global_code,
             description=f"Biological measurement edited for {measurement.measured_on}",
-            metadata={"measurement_id": measurement.id},
+            metadata={
+                "measurement_id": measurement.id,
+                "valeurs": after_values,
+                "modifications": _changed_values(before_values, after_values),
+            },
         )
         return Response(BiologicalMeasurementSerializer(measurement).data)
 
@@ -563,7 +621,22 @@ class ThermalZoneDetailAPIView(generics.RetrieveUpdateAPIView):
         zone = self.get_object()
         if zone.organization_id not in get_admin_organization_ids(self.request.user):
             raise PermissionDenied("Ce compte ne peut pas modifier cette zone.")
-        serializer.save(organization=zone.organization)
+        before_values = _thermal_zone_audit_values(zone)
+        zone = serializer.save(organization=zone.organization)
+        after_values = _thermal_zone_audit_values(zone)
+        AuditLog.objects.create(
+            organization=zone.organization,
+            user=self.request.user,
+            action=AuditLog.Action.UPDATE,
+            object_type="thermal_zone",
+            object_id=zone.name,
+            description=f"Thermal zone updated: {zone.name}",
+            metadata={
+                "thermal_zone_id": zone.id,
+                "valeurs": after_values,
+                "modifications": _changed_values(before_values, after_values),
+            },
+        )
 
 
 class ProbeCreateAPIView(generics.CreateAPIView):
