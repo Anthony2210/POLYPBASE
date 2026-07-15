@@ -729,16 +729,15 @@ export default function App() {
   const t: TFunction = (key) => translations[language][key];
   const isDesktopApp = useIsDesktopApp();
   const canUseAdmin = userHasAdminRole(data.profile);
-  const isExportOptionsLoading = ['exports', 'admin'].includes(activeTab) && data.exportOptions === null;
+  const isProfileAdminLoading = activeTab === 'profile' && canUseAdmin && data.exportOptions === null;
+  const isExportOptionsLoading = (activeTab === 'exports' || isProfileAdminLoading) && data.exportOptions === null;
   const isOverviewLoading = activeTab === 'overview' && data.overview === null;
   const workspacePageKey = `${activeTab}-${route.boxCode ?? route.boxId ?? 'list'}-${route.zoneId ?? 'list'}`;
   const brandOrganizationName = getBrandOrganizationName(data.profile, t);
   const availableTabs = useMemo(() => {
     if (!isDesktopApp) return labTabs;
-    return canUseAdmin
-      ? ([...desktopTabs.slice(0, -1), 'admin', 'profile'] as TabId[])
-      : desktopTabs;
-  }, [canUseAdmin, isDesktopApp]);
+    return desktopTabs;
+  }, [isDesktopApp]);
 
   useEffect(() => {
     function syncRoute() {
@@ -983,15 +982,14 @@ export default function App() {
   }
 
   useEffect(() => {
-    const shouldWaitForProfile = activeTab === 'admin' && isLoading && !data.profile;
-    if (shouldWaitForProfile) return;
     if (availableTabs.includes(activeTab)) return;
 
     navigateTo({ tab: 'pilotage', boxCode: null, boxId: null }, '/');
-  }, [activeTab, availableTabs, data.profile, isLoading]);
+  }, [activeTab, availableTabs]);
 
   useEffect(() => {
-    if (isLoginRoute || data.exportOptions || !['exports', 'admin'].includes(activeTab)) return;
+    const shouldLoadExportOptions = activeTab === 'exports' || (activeTab === 'profile' && canUseAdmin);
+    if (isLoginRoute || data.exportOptions || !shouldLoadExportOptions) return;
 
     let isActive = true;
 
@@ -1010,7 +1008,7 @@ export default function App() {
     return () => {
       isActive = false;
     };
-  }, [activeTab, data.exportOptions, isLoginRoute]);
+  }, [activeTab, canUseAdmin, data.exportOptions, isLoginRoute]);
 
   function closeBoxPage() {
     navigateTo({ tab: 'pilotage', boxCode: null, boxId: null }, '/');
@@ -1303,6 +1301,20 @@ export default function App() {
                 isLoading={isLoading}
                 labels={getProfileLabels(t)}
                 profile={data.profile}
+                adminSection={canUseAdmin ? (
+                  <AdminView
+                    boxes={data.boxes}
+                    exportOptions={data.exportOptions}
+                    isLoading={isLoading || isProfileAdminLoading}
+                    profile={data.profile}
+                    onCreateZone={createThermalZone}
+                    onCreateProbe={createProbe}
+                    onCreateOrganization={createOrganization}
+                    onCreateTransfer={createBoxTransfer}
+                    t={t}
+                    zones={data.zones}
+                  />
+                ) : null}
                 onLogout={logoutCurrentUser}
                 onUpdateLanguage={updateLanguage}
               />
@@ -2891,7 +2903,7 @@ function getCurrentRoute(): RouteState {
   }
 
   if (path === '/administration') {
-    return { tab: 'admin', boxCode: null, boxId: null };
+    return { tab: 'profile', boxCode: null, boxId: null };
   }
 
   if (path === '/profile') {

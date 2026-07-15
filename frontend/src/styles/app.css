@@ -4402,6 +4402,7 @@ button.zone-attention-item:hover {
   display: flex;
   align-items: center;
   gap: 18px;
+  justify-content: space-between;
   padding: 18px 20px;
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -4424,8 +4425,16 @@ button.zone-attention-item:hover {
 
 .profile-identity-main {
   display: grid;
+  flex: 1;
   gap: 2px;
   min-width: 0;
+}
+
+.profile-identity-actions {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .profile-username {
@@ -4485,6 +4494,13 @@ button.zone-attention-item:hover {
   color: var(--muted);
   font-size: 0.82rem;
   line-height: 1.45;
+}
+
+.profile-admin-section {
+  display: grid;
+  gap: 16px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line-soft);
 }
 
 .profile-session-block {
