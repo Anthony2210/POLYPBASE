@@ -8,7 +8,7 @@
   useState,
 } from 'react';
 
-import { ApiError, apiGet, apiPatch, apiPost } from './api/client';
+import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from './api/client';
 import { getBoxStatusPresentation } from './boxStatus';
 import AdminView from './components/AdminView';
 import BoxInsights, { MeasurementHistoryModal, type BoxInsightTab } from './components/BoxInsights';
@@ -143,6 +143,13 @@ const translations = {
     adminProbeCreated: 'Sonde ajoutée.',
     adminProbeNoZone: 'Aucun emplacement que vous administrez.',
     adminOrganizationCreated: 'Structure créée.',
+    adminOrganizationDeleted: 'Structure supprimée.',
+    adminOrganizationUpdated: 'Structure modifiée.',
+    adminEditOrganization: 'Modifier',
+    adminDeleteOrganization: 'Supprimer',
+    adminCancelEdit: 'Annuler',
+    adminSaveOrganization: 'Enregistrer',
+    adminConfirmDeleteOrganization: 'Supprimer cette structure ?',
     adminSuperuserOnly: 'Réservé au super-administrateur.',
     adminTransferNotes: 'Notes',
     adminTransferCreated: 'Transfert enregistré.',
@@ -444,6 +451,13 @@ const translations = {
     adminProbeCreated: 'Probe added.',
     adminProbeNoZone: 'No zone you administer.',
     adminOrganizationCreated: 'Organization created.',
+    adminOrganizationDeleted: 'Organization deleted.',
+    adminOrganizationUpdated: 'Organization updated.',
+    adminEditOrganization: 'Edit',
+    adminDeleteOrganization: 'Delete',
+    adminCancelEdit: 'Cancel',
+    adminSaveOrganization: 'Save',
+    adminConfirmDeleteOrganization: 'Delete this organization?',
     adminSuperuserOnly: 'Superuser only.',
     adminTransferNotes: 'Notes',
     adminTransferCreated: 'Transfer recorded.',
@@ -1126,6 +1140,20 @@ export default function App() {
     setData((current) => ({ ...current, exportOptions }));
   }
 
+  async function updateOrganization(organizationId: number, payload: OrganizationPayload) {
+    await apiPatch<Organization>(`/api/organizations/${organizationId}/`, payload);
+    const exportOptions = await apiGet<ExportOptions>('/api/exports/options/');
+    const profile = await apiGet<UserProfile>('/api/profile/');
+    setData((current) => ({ ...current, exportOptions, profile }));
+  }
+
+  async function deleteOrganization(organizationId: number) {
+    await apiDelete<void>(`/api/organizations/${organizationId}/`);
+    const exportOptions = await apiGet<ExportOptions>('/api/exports/options/');
+    const profile = await apiGet<UserProfile>('/api/profile/');
+    setData((current) => ({ ...current, exportOptions, profile }));
+  }
+
   async function createBoxTransfer(payload: BoxTransferPayload) {
     await apiPost<unknown>('/api/box-transfers/', payload);
   }
@@ -1276,6 +1304,8 @@ export default function App() {
                 onCreateZone={createThermalZone}
                 onCreateProbe={createProbe}
                 onCreateOrganization={createOrganization}
+                onUpdateOrganization={updateOrganization}
+                onDeleteOrganization={deleteOrganization}
                 onCreateTransfer={createBoxTransfer}
                 t={t}
                 zones={data.zones}
@@ -1310,6 +1340,8 @@ export default function App() {
                     onCreateZone={createThermalZone}
                     onCreateProbe={createProbe}
                     onCreateOrganization={createOrganization}
+                    onUpdateOrganization={updateOrganization}
+                    onDeleteOrganization={deleteOrganization}
                     onCreateTransfer={createBoxTransfer}
                     t={t}
                     zones={data.zones}

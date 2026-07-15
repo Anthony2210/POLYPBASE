@@ -11,6 +11,8 @@ export type Organization = {
   slug: string | null;
   city: string;
   country: string;
+  contact_email: string;
+  notes: string;
 };
 
 export type Species = {
@@ -333,6 +335,11 @@ export type ExportOptions = {
   organizations: Array<{
     id: number;
     name: string;
+    slug: string | null;
+    city: string;
+    country: string;
+    contact_email: string;
+    notes: string;
   }>;
   species: Array<{
     id: number;

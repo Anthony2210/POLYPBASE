@@ -41,6 +41,15 @@ export async function apiPatch<T>(path: string, payload: unknown): Promise<T> {
   });
 }
 
+export async function apiDelete<T>(path: string): Promise<T> {
+  return apiRequest<T>(path, {
+    method: 'DELETE',
+    headers: {
+      'X-CSRFToken': getCookie('csrftoken'),
+    },
+  });
+}
+
 export async function apiDownload(path: string): Promise<string> {
   const response = await fetch(path, {
     credentials: 'include',

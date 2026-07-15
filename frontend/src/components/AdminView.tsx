@@ -693,6 +693,166 @@ function OrganizationCreateForm({
   );
 }
 
+function OrganizationManagementList({
+  organizations,
+  profile,
+  onDeleteOrganization,
+  onUpdateOrganization,
+  t,
+}: {
+  organizations: Organization[];
+  profile: UserProfile;
+  onDeleteOrganization: (organizationId: number) => Promise<void>;
+  onUpdateOrganization: (organizationId: number, payload: OrganizationPayload) => Promise<void>;
+  t: TFunction;
+}) {
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [name, setName] = useState('');
+  const [city, setCity] = useState('');
+  const [country, setCountry] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
+  const [notes, setNotes] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!profile.is_superuser) return null;
+
+  function startEdit(organization: Organization) {
+    setEditingId(organization.id);
+    setName(organization.name);
+    setCity(organization.city ?? '');
+    setCountry(organization.country ?? '');
+    setContactEmail(organization.contact_email ?? '');
+    setNotes(organization.notes ?? '');
+    setMessage(null);
+    setError(null);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setName('');
+    setCity('');
+    setCountry('');
+    setContactEmail('');
+    setNotes('');
+    setError(null);
+  }
+
+  async function handleUpdate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (editingId == null || isSaving || !name.trim()) return;
+
+    setIsSaving(true);
+    setError(null);
+    setMessage(null);
+
+    try {
+      await onUpdateOrganization(editingId, {
+        name: name.trim(),
+        city: city.trim(),
+        country: country.trim(),
+        contact_email: contactEmail.trim(),
+        notes: notes.trim(),
+      });
+      cancelEdit();
+      setMessage(t('adminOrganizationUpdated'));
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleDelete(organization: Organization) {
+    if (isSaving || !window.confirm(t('adminConfirmDeleteOrganization'))) return;
+
+    setIsSaving(true);
+    setError(null);
+    setMessage(null);
+
+    try {
+      await onDeleteOrganization(organization.id);
+      if (editingId === organization.id) cancelEdit();
+      setMessage(t('adminOrganizationDeleted'));
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <div className="admin-organization-manager">
+      <strong>{t('adminExistingOrganizations')}</strong>
+
+      <div className="admin-organization-list">
+        {organizations.map((organization) => (
+          <article className="admin-organization-item" key={organization.id}>
+            {editingId === organization.id ? (
+              <form className="admin-form admin-organization-edit-form" onSubmit={handleUpdate}>
+                <label>
+                  <span>{t('adminOrganizationName')}</span>
+                  <input required type="text" value={name} onChange={(event) => setName(event.target.value)} />
+                </label>
+                <label>
+                  <span>{t('adminCountry')}</span>
+                  <input type="text" value={country} onChange={(event) => setCountry(event.target.value)} />
+                </label>
+                <label>
+                  <span>{t('adminCity')}</span>
+                  <input type="text" value={city} onChange={(event) => setCity(event.target.value)} />
+                </label>
+                <label>
+                  <span>{t('adminContactEmail')}</span>
+                  <input type="email" value={contactEmail} onChange={(event) => setContactEmail(event.target.value)} />
+                </label>
+                <label className="admin-wide-field">
+                  <span>{t('adminTransferNotes')}</span>
+                  <textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} />
+                </label>
+                <div className="admin-organization-actions">
+                  <button type="submit" disabled={isSaving || !name.trim()}>
+                    {isSaving ? t('saving') : t('adminSaveOrganization')}
+                  </button>
+                  <button type="button" className="is-secondary" onClick={cancelEdit}>
+                    {t('adminCancelEdit')}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <>
+                <div>
+                  <strong>{organization.name}</strong>
+                  <span>
+                    {[organization.city, organization.country].filter(Boolean).join(' - ') || organization.contact_email || '-'}
+                  </span>
+                </div>
+                <div className="admin-organization-actions">
+                  <button type="button" onClick={() => startEdit(organization)}>
+                    {t('adminEditOrganization')}
+                  </button>
+                  <button
+                    type="button"
+                    className="is-danger"
+                    disabled={isSaving}
+                    onClick={() => void handleDelete(organization)}
+                  >
+                    {t('adminDeleteOrganization')}
+                  </button>
+                </div>
+              </>
+            )}
+          </article>
+        ))}
+      </div>
+
+      {message ? <p className="inline-success">{message}</p> : null}
+      {error ? <p className="inline-error">{error}</p> : null}
+    </div>
+  );
+}
+
 function TransferCreateForm({
   profile,
   boxes,
@@ -795,6 +955,8 @@ export default function AdminView({
   onCreateZone,
   onCreateProbe,
   onCreateOrganization,
+  onDeleteOrganization,
+  onUpdateOrganization,
   onCreateTransfer,
   t,
   zones,
@@ -806,6 +968,8 @@ export default function AdminView({
   onCreateZone: (payload: ThermalZonePayload) => Promise<void>;
   onCreateProbe: (payload: ProbePayload) => Promise<void>;
   onCreateOrganization: (payload: OrganizationPayload) => Promise<void>;
+  onDeleteOrganization: (organizationId: number) => Promise<void>;
+  onUpdateOrganization: (organizationId: number, payload: OrganizationPayload) => Promise<void>;
   onCreateTransfer: (payload: BoxTransferPayload) => Promise<void>;
   t: TFunction;
   zones: ThermalZone[];
@@ -867,16 +1031,14 @@ export default function AdminView({
           t={t}
         />
 
-        <div className="admin-inline-list">
-          <strong>{t('adminExistingOrganizations')}</strong>
-          <div>
-            {organizations.slice(0, 4).map((organization) => (
-              <span key={organization.id}>{organization.name}</span>
-            ))}
-          </div>
-        </div>
+        <OrganizationManagementList
+          organizations={organizations}
+          profile={profile}
+          onDeleteOrganization={onDeleteOrganization}
+          onUpdateOrganization={onUpdateOrganization}
+          t={t}
+        />
       </section>
     </section>
   );
 }
-

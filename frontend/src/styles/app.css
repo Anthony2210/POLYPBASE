@@ -5418,6 +5418,88 @@ button.zone-attention-item:hover {
   font-weight: 760;
 }
 
+.admin-organization-manager {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-organization-manager > strong {
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-style: italic;
+}
+
+.admin-organization-list {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-organization-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.admin-organization-item > div:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.admin-organization-item > div:first-child strong {
+  color: var(--ink);
+}
+
+.admin-organization-item > div:first-child span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.admin-organization-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.admin-organization-actions button {
+  min-height: 34px;
+  padding: 0 11px;
+  border: 1px solid rgba(16, 107, 135, 0.22);
+  border-radius: 7px;
+  background: #ffffff;
+  color: var(--primary);
+  font-weight: 780;
+}
+
+.admin-organization-actions button:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.admin-organization-actions button.is-secondary {
+  color: var(--muted);
+}
+
+.admin-organization-actions button.is-danger {
+  border-color: #e9b1a6;
+  color: #b94737;
+}
+
+.admin-organization-actions button.is-danger:hover:not(:disabled) {
+  border-color: var(--coral);
+  background: var(--coral-soft);
+}
+
+.admin-organization-edit-form {
+  width: 100%;
+}
+
 .admin-api-note {
   margin: 0;
   color: var(--muted);

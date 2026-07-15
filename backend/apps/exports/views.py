@@ -39,7 +39,15 @@ class MeasurementExportOptionsAPIView(APIView):
         return Response(
             {
                 "organizations": [
-                    {"id": organization.id, "name": organization.name}
+                    {
+                        "id": organization.id,
+                        "name": organization.name,
+                        "slug": organization.slug,
+                        "city": organization.city,
+                        "country": organization.country,
+                        "contact_email": organization.contact_email,
+                        "notes": organization.notes,
+                    }
                     for organization in get_authorized_organizations(request.user).order_by("name")
                 ],
                 "species": [
