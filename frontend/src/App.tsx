@@ -135,9 +135,12 @@ const translations = {
     adminZoneTypeCabinet: 'Emplacement',
     adminZoneTypeIncubator: 'Étuve',
     adminTargetTemperature: 'Température consigne',
+    adminZoneCapacity: 'Capacité',
     adminZoneOrganization: 'Structure',
     adminCreateZone: 'Créer l’emplacement',
     adminZoneCreated: 'Emplacement créé.',
+    adminZoneUpdated: 'Emplacement modifié.',
+    adminSaveZone: 'Enregistrer',
     adminZoneNoOrganization: 'Aucune structure que vous administrez.',
     adminProbeLocation: 'Emplacement',
     adminProbeCreated: 'Sonde ajoutée.',
@@ -375,6 +378,8 @@ const translations = {
     zoneOverviewThermalGap: 'Écart thermique',
     zoneOverviewMissingMeasurements: 'relevé(s) manquant(s)',
     zoneTarget: 'Consigne',
+    zoneCapacity: 'Capacité',
+    zoneOccupancy: 'Remplissage',
     zoneNoAttention: 'Aucune action à prévoir dans cet emplacement.',
     zoneNoRecentActivity: 'Aucun relevé récent dans cet emplacement.',
     zoneSummaryAlive: 'Vivantes',
@@ -445,9 +450,12 @@ const translations = {
     adminZoneTypeCabinet: 'Cabinet',
     adminZoneTypeIncubator: 'Incubator',
     adminTargetTemperature: 'Target temperature',
+    adminZoneCapacity: 'Capacity',
     adminZoneOrganization: 'Organization',
     adminCreateZone: 'Create zone',
     adminZoneCreated: 'Zone created.',
+    adminZoneUpdated: 'Zone updated.',
+    adminSaveZone: 'Save',
     adminZoneNoOrganization: 'No organization you administer.',
     adminProbeLocation: 'Location',
     adminProbeCreated: 'Probe added.',
@@ -685,6 +693,8 @@ const translations = {
     zoneOverviewThermalGap: 'Thermal gap',
     zoneOverviewMissingMeasurements: 'missing measurement(s)',
     zoneTarget: 'Target',
+    zoneCapacity: 'Capacity',
+    zoneOccupancy: 'Occupancy',
     zoneNoAttention: 'No action is needed for this zone.',
     zoneNoRecentActivity: 'No recent measurement in this zone.',
     zoneSummaryAlive: 'Living',
@@ -1130,6 +1140,12 @@ export default function App() {
     setData((current) => ({ ...current, zones: zones.results }));
   }
 
+  async function updateThermalZone(zoneId: number, payload: ThermalZonePayload) {
+    await apiPatch<ThermalZone>(`/api/thermal-zones/${zoneId}/`, payload);
+    const zones = await apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80');
+    setData((current) => ({ ...current, zones: zones.results }));
+  }
+
   async function createProbe(payload: ProbePayload) {
     await apiPost<Probe>('/api/probes/', payload);
     // Probes are nested inside the zone payload, so refresh the zones list.
@@ -1306,6 +1322,7 @@ export default function App() {
                 isLoading={isLoading || isExportOptionsLoading}
                 profile={data.profile}
                 onCreateZone={createThermalZone}
+                onUpdateZone={updateThermalZone}
                 onCreateProbe={createProbe}
                 onCreateOrganization={createOrganization}
                 onUpdateOrganization={updateOrganization}
@@ -1342,6 +1359,7 @@ export default function App() {
                     isLoading={isLoading || isProfileAdminLoading}
                     profile={data.profile}
                     onCreateZone={createThermalZone}
+                    onUpdateZone={updateThermalZone}
                     onCreateProbe={createProbe}
                     onCreateOrganization={createOrganization}
                     onUpdateOrganization={updateOrganization}

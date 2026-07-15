@@ -146,8 +146,8 @@ export function ZonesView({
                     ) : null}
                   </span>
                   <span>
-                    <small>{t('zoneSummaryAlive')}</small>
-                    <strong>{entry.livingBoxes} / {entry.zoneBoxes.length}</strong>
+                    <small>{t('zoneOccupancy')}</small>
+                    <strong>{formatZoneOccupancy(entry.zoneBoxes.length, entry.zone.capacity)}</strong>
                   </span>
                 </span>
               </button>
@@ -223,6 +223,7 @@ export function ZoneDetailPage({
         </div>
         <div className="zone-hero-summary" aria-label={t('zoneBoxesTitle')}>
           <Metric label={t('boxes')} value={String(zoneBoxes.length)} />
+          <Metric label={t('zoneCapacity')} value={formatZoneCapacity(zone.capacity)} />
           <Metric label={t('zoneSummaryAlive')} value={String(livingBoxes.length)} />
           <Metric label={t('zoneSummaryAttention')} value={String(attentionBoxes.length)} />
           <Metric label={t('probes')} value={String(zone.probes.length)} />
@@ -401,6 +402,14 @@ function getZoneAttentionReasons(entry: ZoneOverviewEntry, t: TFunction) {
   }
 
   return reasons;
+}
+
+function formatZoneCapacity(capacity: number | null | undefined) {
+  return capacity ? String(capacity) : '-';
+}
+
+function formatZoneOccupancy(boxCount: number, capacity: number | null | undefined) {
+  return capacity ? `${boxCount} / ${capacity}` : String(boxCount);
 }
 
 function ZoneAttentionPanel({

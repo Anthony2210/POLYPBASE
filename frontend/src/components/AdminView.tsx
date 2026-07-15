@@ -556,6 +556,7 @@ function ZoneCreateForm({
   const [name, setName] = useState('');
   const [zoneType, setZoneType] = useState('cabinet');
   const [targetTemperature, setTargetTemperature] = useState('');
+  const [capacity, setCapacity] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -578,9 +579,11 @@ function ZoneCreateForm({
         name: name.trim(),
         zone_type: zoneType,
         target_temperature_c: targetTemperature.trim() || null,
+        capacity: capacity ? Number(capacity) : null,
       });
       setName('');
       setTargetTemperature('');
+      setCapacity('');
       setMessage(t('adminZoneCreated'));
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -631,6 +634,16 @@ function ZoneCreateForm({
           step="0.1"
           value={targetTemperature}
           onChange={(event) => setTargetTemperature(event.target.value)}
+        />
+      </label>
+      <label>
+        <span>{t('adminZoneCapacity')}</span>
+        <input
+          min="1"
+          type="number"
+          step="1"
+          value={capacity}
+          onChange={(event) => setCapacity(event.target.value)}
         />
       </label>
       <button type="submit" disabled={isSaving || !name.trim()}>
@@ -742,6 +755,85 @@ function ProbeCreateForm({
       {message ? <p className="inline-success">{message}</p> : null}
       {error ? <p className="inline-error">{error}</p> : null}
     </form>
+  );
+}
+
+function ZoneCapacityManager({
+  profile,
+  zones,
+  onUpdateZone,
+  t,
+}: {
+  profile: UserProfile;
+  zones: ThermalZone[];
+  onUpdateZone: (zoneId: number, payload: ThermalZonePayload) => Promise<void>;
+  t: TFunction;
+}) {
+  const adminOrgIds = getAdminOrganizationIds(profile);
+  const editableZones = zones.filter((zone) => adminOrgIds === null || adminOrgIds.has(zone.organization.id));
+  const [drafts, setDrafts] = useState<Record<number, string>>(() =>
+    Object.fromEntries(editableZones.map((zone) => [zone.id, zone.capacity?.toString() ?? ''])),
+  );
+  const [busyZoneId, setBusyZoneId] = useState<number | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDrafts(Object.fromEntries(editableZones.map((zone) => [zone.id, zone.capacity?.toString() ?? ''])));
+  }, [zones]);
+
+  if (!editableZones.length) return null;
+
+  async function saveZone(zone: ThermalZone) {
+    const capacityValue = drafts[zone.id]?.trim() ?? '';
+    setBusyZoneId(zone.id);
+    setMessage(null);
+    setError(null);
+
+    try {
+      await onUpdateZone(zone.id, {
+        organization: zone.organization.id,
+        name: zone.name,
+        zone_type: zone.zone_type,
+        target_temperature_c: zone.target_temperature_c,
+        capacity: capacityValue ? Number(capacityValue) : null,
+      });
+      setMessage(t('adminZoneUpdated'));
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setBusyZoneId(null);
+    }
+  }
+
+  return (
+    <div className="zone-capacity-manager">
+      <strong>{t('zoneCapacity')}</strong>
+      <div>
+        {editableZones.map((zone) => (
+          <label key={zone.id}>
+            <span>
+              <strong>{zone.name}</strong>
+              <small>{zone.box_count}{zone.capacity ? ` / ${zone.capacity}` : ''}</small>
+            </span>
+            <input
+              min="1"
+              type="number"
+              step="1"
+              value={drafts[zone.id] ?? ''}
+              onChange={(event) =>
+                setDrafts((current) => ({ ...current, [zone.id]: event.target.value }))
+              }
+            />
+            <button type="button" disabled={busyZoneId === zone.id} onClick={() => void saveZone(zone)}>
+              {busyZoneId === zone.id ? t('saving') : t('adminSaveZone')}
+            </button>
+          </label>
+        ))}
+      </div>
+      {message ? <p className="inline-success">{message}</p> : null}
+      {error ? <p className="inline-error">{error}</p> : null}
+    </div>
   );
 }
 
@@ -1164,6 +1256,7 @@ export default function AdminView({
   isLoading,
   profile,
   onCreateZone,
+  onUpdateZone,
   onCreateProbe,
   onCreateOrganization,
   onDeleteOrganization,
@@ -1177,6 +1270,7 @@ export default function AdminView({
   isLoading: boolean;
   profile: UserProfile | null;
   onCreateZone: (payload: ThermalZonePayload) => Promise<void>;
+  onUpdateZone: (zoneId: number, payload: ThermalZonePayload) => Promise<void>;
   onCreateProbe: (payload: ProbePayload) => Promise<void>;
   onCreateOrganization: (payload: OrganizationPayload) => Promise<void>;
   onDeleteOrganization: (organizationId: number) => Promise<void>;
@@ -1209,6 +1303,7 @@ export default function AdminView({
           <ZoneCreateForm profile={profile} onCreateZone={onCreateZone} t={t} />
           <ProbeCreateForm profile={profile} zones={zones} onCreateProbe={onCreateProbe} t={t} />
         </div>
+        <ZoneCapacityManager profile={profile} zones={zones} onUpdateZone={onUpdateZone} t={t} />
       </section>
 
       <section className="admin-section admin-transfer-section">

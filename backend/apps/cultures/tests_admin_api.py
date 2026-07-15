@@ -89,6 +89,7 @@ class AdminResourceCreationApiTests(TestCase):
                 "name": "Etuve-25",
                 "zone_type": ThermalZone.ZoneType.INCUBATOR,
                 "target_temperature_c": "25.0",
+                "capacity": 42,
             },
         )
 
@@ -96,6 +97,31 @@ class AdminResourceCreationApiTests(TestCase):
         zone = ThermalZone.objects.get(name="Etuve-25")
         self.assertEqual(zone.organization, self.organization)
         self.assertEqual(zone.zone_type, ThermalZone.ZoneType.INCUBATOR)
+        self.assertEqual(zone.capacity, 42)
+
+    def test_admin_updates_thermal_zone_capacity(self):
+        self.client.login(username="org_admin", password="secret")
+
+        response = self.client.patch(
+            reverse("api_thermal_zone_detail", args=[self.zone.id]),
+            {"capacity": 30},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.zone.refresh_from_db()
+        self.assertEqual(self.zone.capacity, 30)
+
+    def test_lab_technician_cannot_update_thermal_zone_capacity(self):
+        self.client.login(username="tech", password="secret")
+
+        response = self.client.patch(
+            reverse("api_thermal_zone_detail", args=[self.zone.id]),
+            {"capacity": 30},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 403)
 
     def test_lab_technician_cannot_create_a_thermal_zone(self):
         self.client.login(username="tech", password="secret")

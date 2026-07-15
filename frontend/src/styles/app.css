@@ -5368,6 +5368,71 @@ button.zone-attention-item:hover {
   resize: vertical;
 }
 
+.zone-capacity-manager {
+  display: grid;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.zone-capacity-manager > strong {
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-style: italic;
+}
+
+.zone-capacity-manager > div {
+  display: grid;
+  gap: 8px;
+}
+
+.zone-capacity-manager label {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(90px, 120px) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.zone-capacity-manager label > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.zone-capacity-manager label > span strong {
+  color: var(--ink);
+}
+
+.zone-capacity-manager label > span small {
+  color: var(--muted);
+}
+
+.zone-capacity-manager input {
+  width: 100%;
+  min-height: 38px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.zone-capacity-manager button {
+  min-height: 38px;
+  padding: 0 11px;
+  border: 1px solid rgba(16, 107, 135, 0.22);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--primary);
+  font-weight: 780;
+}
+
+.zone-capacity-manager button:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
 .admin-suggest-field {
   position: relative;
   min-width: 0;

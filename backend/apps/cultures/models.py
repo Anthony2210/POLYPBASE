@@ -21,6 +21,7 @@ class ThermalZone(models.Model):
     name = models.CharField(max_length=120)
     zone_type = models.CharField(max_length=30, choices=ZoneType.choices, default=ZoneType.CABINET)
     target_temperature_c = models.DecimalField(max_digits=4, decimal_places=1, null=True, blank=True)
+    capacity = models.PositiveIntegerField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
     notes = models.TextField(blank=True)
 

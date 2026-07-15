@@ -1093,6 +1093,17 @@
     border-radius: 14px;
   }
 
+  .zone-capacity-manager label {
+    grid-template-columns: 1fr;
+    border-radius: 14px;
+  }
+
+  .zone-capacity-manager input,
+  .zone-capacity-manager button {
+    min-height: 46px;
+    border-radius: 14px;
+  }
+
   .admin-suggest-menu {
     max-height: 260px;
     border-radius: 14px;

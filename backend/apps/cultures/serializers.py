@@ -379,6 +379,7 @@ class ThermalZoneSerializer(serializers.ModelSerializer):
             "zone_type",
             "organization",
             "target_temperature_c",
+            "capacity",
             "is_active",
             "box_count",
             "latest_temperature",
@@ -433,7 +434,7 @@ class ThermalZoneCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ThermalZone
-        fields = ["id", "organization", "name", "zone_type", "target_temperature_c"]
+        fields = ["id", "organization", "name", "zone_type", "target_temperature_c", "capacity"]
 
     def validate_name(self, value):
         value = value.strip()
@@ -444,9 +445,12 @@ class ThermalZoneCreateSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         # Mirror the model's unique (organization, name) constraint with a clean
         # error instead of a database IntegrityError.
-        if ThermalZone.objects.filter(
-            organization=attrs["organization"], name=attrs["name"]
-        ).exists():
+        organization = attrs.get("organization", getattr(self.instance, "organization", None))
+        name = attrs.get("name", getattr(self.instance, "name", None))
+        queryset = ThermalZone.objects.filter(organization=organization, name=name)
+        if self.instance is not None:
+            queryset = queryset.exclude(pk=self.instance.pk)
+        if queryset.exists():
             raise serializers.ValidationError(
                 {"name": "Une zone porte déjà ce nom dans cette structure."}
             )
