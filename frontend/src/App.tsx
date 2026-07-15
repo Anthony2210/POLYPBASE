@@ -290,6 +290,8 @@ const translations = {
     overviewHideChart: 'Masquer tendance',
     overviewNoHistory: 'Pas assez de données pour tracer la tendance.',
     overviewEmpty: 'Aucune boîte vivante à afficher.',
+    labels: 'Étiquettes',
+    labelsTitle: 'Étiquettes',
     pilotage: 'Suivi',
     pilotageTitle: 'Suivi labo',
     polyps: 'Polypes',
@@ -589,6 +591,8 @@ const translations = {
     overviewHideChart: 'Hide trend',
     overviewNoHistory: 'Not enough data to draw the trend.',
     overviewEmpty: 'No living box to display.',
+    labels: 'Labels',
+    labelsTitle: 'Labels',
     pilotage: 'Tracking',
     pilotageTitle: 'Lab tracking',
     polyps: 'Polyps',
@@ -695,8 +699,8 @@ type Language = keyof typeof translations;
 type TranslationKey = keyof typeof translations.fr;
 type TFunction = (key: TranslationKey) => string;
 
-const labTabs: TabId[] = ['pilotage', 'overview', 'zones', 'profile'];
-const desktopTabs: TabId[] = ['pilotage', 'overview', 'zones', 'exports', 'profile'];
+const labTabs: TabId[] = ['pilotage', 'overview', 'zones', 'labels', 'profile'];
+const desktopTabs: TabId[] = ['pilotage', 'overview', 'zones', 'exports', 'labels', 'profile'];
 
 export default function App() {
   const [route, setRoute] = useState<RouteState>(() => getCurrentRoute());
@@ -949,6 +953,7 @@ export default function App() {
       overview: '/overview',
       zones: '/zones',
       exports: '/exports',
+      labels: '/labels',
       admin: '/administration',
       profile: '/profile',
     };
@@ -974,7 +979,7 @@ export default function App() {
   }
 
   function openQrLabelSelection() {
-    openTab('profile');
+    openTab('labels');
   }
 
   useEffect(() => {
@@ -1279,18 +1284,26 @@ export default function App() {
               />
             )}
 
-            {activeTab === 'profile' && (
-              <ProfileView
+            {activeTab === 'labels' && (
+              <LabelsView
                 boxes={data.boxes}
                 isLoading={isLoading}
-                labels={getProfileLabels(t)}
+                labels={getLabelsViewLabels(t)}
                 profile={data.profile}
                 qrLabelSelection={qrLabelSelection}
                 onAddQrLabel={addQrLabelToSelection}
                 onClearQrLabelSelection={clearQrLabelSelection}
-                onLogout={logoutCurrentUser}
                 onPrintQrLabelSelection={printQrLabelSelection}
                 onRemoveQrLabel={removeQrLabelFromSelection}
+              />
+            )}
+
+            {activeTab === 'profile' && (
+              <ProfileView
+                isLoading={isLoading}
+                labels={getProfileLabels(t)}
+                profile={data.profile}
+                onLogout={logoutCurrentUser}
                 onUpdateLanguage={updateLanguage}
               />
             )}
@@ -2601,7 +2614,6 @@ function getProfileLabels(t: TFunction) {
     account: t('account'),
     logoutAction: t('logoutAction'),
     logoutError: t('logoutError'),
-    noZone: t('noZone'),
     profileEmail: t('profileEmail'),
     profileLanguage: t('profileLanguage'),
     profileMemberships: t('profileMemberships'),
@@ -2609,8 +2621,17 @@ function getProfileLabels(t: TFunction) {
     profileNoMembership: t('profileNoMembership'),
     profileSuperuserAllOrganizations: t('profileSuperuserAllOrganizations'),
     profilePreferences: t('profilePreferences'),
+    roleDescAdmin: t('roleDescAdmin'),
+    roleDescTechnician: t('roleDescTechnician'),
+    roleDescViewer: t('roleDescViewer'),
+    saving: t('saving'),
+  };
+}
+
+function getLabelsViewLabels(t: TFunction) {
+  return {
+    noZone: t('noZone'),
     qrLabelAddToSelection: t('qrLabelAddToSelection'),
-    qrLabelAlreadySelected: t('qrLabelAlreadySelected'),
     qrLabelClearSelection: t('qrLabelClearSelection'),
     qrLabelPrintSelection: t('qrLabelPrintSelection'),
     qrLabelSelectionCount: t('qrLabelSelectionCount'),
@@ -2619,10 +2640,6 @@ function getProfileLabels(t: TFunction) {
     qrLabelSelectionSearch: t('qrLabelSelectionSearch'),
     qrLabelSelectionTitle: t('qrLabelSelectionTitle'),
     qrLabelSearchPlaceholder: t('adminPrintLabelsSearchPlaceholder'),
-    roleDescAdmin: t('roleDescAdmin'),
-    roleDescTechnician: t('roleDescTechnician'),
-    roleDescViewer: t('roleDescViewer'),
-    saving: t('saving'),
   };
 }
 
@@ -2825,6 +2842,7 @@ function getTitle(tab: TabId, t: TFunction) {
   if (tab === 'overview') return t('overviewTitle');
   if (tab === 'zones') return t('zonesTitle');
   if (tab === 'exports') return t('exportsTitle');
+  if (tab === 'labels') return t('labelsTitle');
   if (tab === 'admin') return t('adminTitle');
   return t('profileTitle');
 }
@@ -2852,6 +2870,10 @@ function getCurrentRoute(): RouteState {
 
   if (path === '/overview') {
     return { tab: 'overview', boxCode: null, boxId: null };
+  }
+
+  if (path === '/labels') {
+    return { tab: 'labels', boxCode: null, boxId: null };
   }
 
   const zoneMatch = path.match(/^\/zones\/(\d+)\/?$/);
