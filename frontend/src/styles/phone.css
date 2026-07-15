@@ -1076,6 +1076,22 @@
   .admin-panel {
     max-width: none;
   }
+
+  .admin-organization-item {
+    align-items: stretch;
+    flex-direction: column;
+    border-radius: 14px;
+  }
+
+  .admin-organization-actions {
+    justify-content: stretch;
+  }
+
+  .admin-organization-actions button {
+    flex: 1;
+    min-height: 44px;
+    border-radius: 14px;
+  }
 }
 
 @media (max-width: 420px) {

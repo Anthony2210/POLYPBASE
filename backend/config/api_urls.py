@@ -23,7 +23,7 @@ from apps.cultures.api_views import (
     ProbeCreateAPIView,
     ThermalZoneListCreateAPIView,
 )
-from apps.organizations.api_views import OrganizationCreateAPIView
+from apps.organizations.api_views import OrganizationCreateAPIView, OrganizationDetailAPIView
 from apps.exports.views import (
     MeasurementExportOptionsAPIView,
     WeeklyMeasurementCSVExportAPIView,
@@ -72,6 +72,7 @@ urlpatterns = [
     path("probes/", ProbeCreateAPIView.as_view(), name="api_probe_create"),
     path("box-transfers/", BoxTransferCreateAPIView.as_view(), name="api_box_transfer_create"),
     path("organizations/", OrganizationCreateAPIView.as_view(), name="api_organization_create"),
+    path("organizations/<int:pk>/", OrganizationDetailAPIView.as_view(), name="api_organization_detail"),
     path(
         "exports/options/",
         MeasurementExportOptionsAPIView.as_view(),

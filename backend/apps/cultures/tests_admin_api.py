@@ -207,6 +207,48 @@ class AdminResourceCreationApiTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Organization.objects.filter(name__iexact="aquarium de paris").count(), 1)
 
+    def test_superuser_updates_an_organization(self):
+        self.client.login(username="root", password="secret")
+
+        response = self.client.patch(
+            reverse("api_organization_detail", args=[self.other_organization.id]),
+            {"name": "Aquarium de La Rochelle", "city": "La Rochelle"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.other_organization.refresh_from_db()
+        self.assertEqual(self.other_organization.name, "Aquarium de La Rochelle")
+        self.assertEqual(self.other_organization.city, "La Rochelle")
+
+    def test_organization_admin_cannot_update_an_organization(self):
+        self.client.login(username="org_admin", password="secret")
+
+        response = self.client.patch(
+            reverse("api_organization_detail", args=[self.organization.id]),
+            {"name": "Renamed"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_superuser_deletes_an_unused_organization(self):
+        organization = Organization.objects.create(name="Aquarium vide")
+        self.client.login(username="root", password="secret")
+
+        response = self.client.delete(reverse("api_organization_detail", args=[organization.id]))
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(Organization.objects.filter(id=organization.id).exists())
+
+    def test_superuser_cannot_delete_organization_with_lab_data(self):
+        self.client.login(username="root", password="secret")
+
+        response = self.client.delete(reverse("api_organization_detail", args=[self.organization.id]))
+
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(Organization.objects.filter(id=self.organization.id).exists())
+
     # -- box transfers -----------------------------------------------------
 
     def test_admin_records_a_planned_transfer_without_reassigning_the_box(self):
