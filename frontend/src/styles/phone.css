@@ -940,6 +940,22 @@
     justify-content: flex-start;
   }
 
+  .profile-identity-card {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .profile-identity-actions {
+    justify-items: stretch;
+    width: 100%;
+  }
+
+  .profile-sign-out {
+    width: 100%;
+    min-height: 46px;
+    border-radius: 14px;
+  }
+
   .language-switch {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

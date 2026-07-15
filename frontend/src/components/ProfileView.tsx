@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 
 import type { UserProfile } from '../types';
 import { getErrorMessage } from '../utils/errors';
@@ -26,12 +26,14 @@ export default function ProfileView({
   labels,
   onLogout,
   onUpdateLanguage,
+  adminSection,
   profile,
 }: {
   isLoading: boolean;
   labels: ProfileLabels;
   onLogout: () => Promise<void>;
   onUpdateLanguage: (language: string) => Promise<void>;
+  adminSection?: ReactNode;
   profile: UserProfile | null;
 }) {
   const [isSaving, setIsSaving] = useState(false);
@@ -92,6 +94,17 @@ export default function ProfileView({
             </span>
           </div>
         </div>
+        <div className="profile-identity-actions">
+          <button
+            className="profile-sign-out"
+            type="button"
+            disabled={isLoggingOut}
+            onClick={handleLogout}
+          >
+            {isLoggingOut ? labels.saving : labels.logoutAction}
+          </button>
+          {logoutError ? <p className="inline-error">{logoutError}</p> : null}
+        </div>
       </header>
 
       <section className="profile-block">
@@ -147,17 +160,11 @@ export default function ProfileView({
         {saveError ? <p className="inline-error">{saveError}</p> : null}
       </section>
 
-      <section className="profile-block profile-session-block">
-        <button
-          className="profile-sign-out"
-          type="button"
-          disabled={isLoggingOut}
-          onClick={handleLogout}
-        >
-          {isLoggingOut ? labels.saving : labels.logoutAction}
-        </button>
-        {logoutError ? <p className="inline-error">{logoutError}</p> : null}
-      </section>
+      {adminSection ? (
+        <section className="profile-admin-section">
+          {adminSection}
+        </section>
+      ) : null}
     </section>
   );
 }
