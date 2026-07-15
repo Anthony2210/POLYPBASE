@@ -11,7 +11,8 @@ from django.test import TestCase
 from django.urls import reverse
 
 from apps.accounts.models import OrganizationMembership
-from apps.measurements.models import Probe
+from apps.audit.models import AuditLog
+from apps.measurements.models import BiologicalMeasurement, Probe
 from apps.organizations.models import Organization
 from apps.taxonomy.models import Species, Strain
 
@@ -155,6 +156,81 @@ class AdminResourceCreationApiTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(ThermalZone.objects.filter(name="Cabinet-15").count(), 1)
+
+    # -- audit log --------------------------------------------------------
+
+    def test_admin_can_view_organization_audit_log(self):
+        measurement = BiologicalMeasurement.objects.create(
+            box=self.box,
+            measured_on="2026-07-15",
+            polyp_count=12,
+            ephyrae_count=4,
+            salinity_psu="35.00",
+            notes="Test admin audit",
+            user=self.technician,
+        )
+        AuditLog.objects.create(
+            organization=self.organization,
+            user=self.technician,
+            action=AuditLog.Action.ENTRY,
+            object_type="box",
+            object_id=self.box.global_code,
+            description="Biological measurement for today",
+            metadata={"measurement_id": measurement.id},
+        )
+        AuditLog.objects.create(
+            organization=self.organization,
+            user=self.technician,
+            action=AuditLog.Action.VIEW,
+            object_type="box",
+            object_id=self.box.global_code,
+            description="Box opened",
+        )
+        self.client.login(username="org_admin", password="secret")
+
+        response = self.client.get(reverse("api_account_audit_log"))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(len(payload["results"]), 1)
+        self.assertEqual(payload["results"][0]["object_id"], self.box.global_code)
+        self.assertEqual(payload["results"][0]["metadata"]["valeurs"]["polypes"], 12)
+        self.assertEqual(payload["results"][0]["metadata"]["valeurs"]["ephyrules"], 4)
+
+    def test_admin_audit_log_recovers_measurement_values_from_box_and_date(self):
+        BiologicalMeasurement.objects.create(
+            box=self.box,
+            measured_on="2026-07-08",
+            polyp_count=18,
+            ephyrae_count=7,
+            salinity_psu="35.00",
+            notes="Recovered from box and date",
+            user=self.technician,
+        )
+        AuditLog.objects.create(
+            organization=self.organization,
+            user=self.technician,
+            action=AuditLog.Action.UPDATE,
+            object_type="box",
+            object_id=self.box.global_code,
+            description="Biological measurement for 2026-07-08",
+            metadata={"measurement_id": 999999},
+        )
+        self.client.login(username="org_admin", password="secret")
+
+        response = self.client.get(reverse("api_account_audit_log"))
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["results"][0]["metadata"]["valeurs"]["polypes"], 18)
+        self.assertEqual(payload["results"][0]["metadata"]["valeurs"]["ephyrules"], 7)
+
+    def test_lab_technician_cannot_view_organization_audit_log(self):
+        self.client.login(username="tech", password="secret")
+
+        response = self.client.get(reverse("api_account_audit_log"))
+
+        self.assertEqual(response.status_code, 403)
 
     # -- probes ------------------------------------------------------------
 

@@ -1,3 +1,5 @@
+import re
+
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.core.mail import send_mail
@@ -18,6 +20,8 @@ from apps.accounts.permissions import (
     get_authorized_organizations,
     user_is_org_admin,
 )
+from apps.audit.models import AuditLog
+from apps.measurements.models import BiologicalMeasurement
 from apps.organizations.models import Organization
 
 from .models import OrganizationMembership, UserPreference
@@ -333,3 +337,107 @@ class OrganizationMembershipDetailAPIView(APIView):
         if role not in valid_roles:
             raise ValidationError({"role": "Rôle invalide."})
         return role
+
+
+@method_decorator(ensure_csrf_cookie, name="dispatch")
+class AdminAuditLogListAPIView(APIView):
+    """Return recent audit trail entries for organizations administered by the user."""
+
+    def get(self, request):
+        if not user_is_org_admin(request.user):
+            raise PermissionDenied("This account cannot view the audit log.")
+
+        try:
+            limit = int(request.query_params.get("limit", 80))
+        except (TypeError, ValueError):
+            limit = 80
+        limit = max(1, min(limit, 200))
+
+        organization_ids = get_admin_organization_ids(request.user)
+        impactful_actions = [
+            AuditLog.Action.CREATION,
+            AuditLog.Action.UPDATE,
+            AuditLog.Action.ARCHIVE,
+            AuditLog.Action.ENTRY,
+            AuditLog.Action.SUBCULTURE,
+            AuditLog.Action.TRANSFER,
+            AuditLog.Action.IMPORT,
+            AuditLog.Action.EXPORT,
+        ]
+        logs = (
+            AuditLog.objects.filter(
+                organization_id__in=organization_ids,
+                action__in=impactful_actions,
+            )
+            .select_related("organization", "user")
+            .order_by("-created_at")[:limit]
+        )
+        measurement_ids = [
+            log.metadata.get("measurement_id")
+            for log in logs
+            if isinstance(log.metadata, dict) and log.metadata.get("measurement_id")
+        ]
+        measurements_by_id = {
+            measurement.id: measurement
+            for measurement in BiologicalMeasurement.objects.filter(id__in=measurement_ids)
+        }
+
+        return Response(
+            {
+                "results": [
+                    self._serialize_log(log, measurements_by_id)
+                    for log in logs
+                ]
+            }
+        )
+
+    def _serialize_log(self, log, measurements_by_id):
+        return {
+            "id": log.id,
+            "created_at": log.created_at,
+            "organization": log.organization.name if log.organization else None,
+            "user": log.user.get_username() if log.user else None,
+            "action": log.action,
+            "action_label": log.get_action_display(),
+            "object_type": log.object_type,
+            "object_id": log.object_id,
+            "description": log.description,
+            "metadata": self._enriched_metadata(log, measurements_by_id),
+        }
+
+    def _enriched_metadata(self, log, measurements_by_id):
+        metadata = dict(log.metadata or {})
+        if "valeurs" in metadata:
+            return metadata
+
+        measurement_id = metadata.get("measurement_id")
+        measurement = measurements_by_id.get(measurement_id) or self._find_measurement_from_log(log)
+        if measurement is not None:
+            metadata["valeurs"] = {
+                "date": measurement.measured_on.isoformat(),
+                "polypes": measurement.polyp_count,
+                "ephyrules": measurement.ephyrae_count,
+                "strobiles": measurement.strobila_count,
+                "salinite_psu": str(measurement.salinity_psu) if measurement.salinity_psu is not None else None,
+                "statut_culture": measurement.culture_status,
+                "a_verifier": measurement.needs_attention,
+                "note": measurement.notes,
+            }
+        return metadata
+
+    def _find_measurement_from_log(self, log):
+        if log.object_type != "box" or not log.object_id:
+            return None
+
+        match = re.search(r"(\d{4}-\d{2}-\d{2})", log.description or "")
+        if not match:
+            return None
+
+        return (
+            BiologicalMeasurement.objects.filter(
+                box__global_code=log.object_id,
+                measured_on=match.group(1),
+            )
+            .order_by("-created_at")
+            .first()
+        )

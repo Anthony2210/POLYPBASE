@@ -134,6 +134,13 @@ def move_box_to_thermal_zone(*, box, thermal_zone, moved_at, user, notes):
             "to_thermal_zone_id": thermal_zone.id,
             "to_thermal_zone_name": thermal_zone.name,
             "moved_at": moved_at.isoformat(),
+            "note": notes,
+            "valeurs": {
+                "ancienne_zone": from_thermal_zone.name if from_thermal_zone else None,
+                "nouvelle_zone": thermal_zone.name,
+                "date_deplacement": moved_at.isoformat(),
+                "note": notes,
+            },
         },
     )
 

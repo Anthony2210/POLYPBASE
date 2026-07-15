@@ -1,6 +1,7 @@
 from django.urls import path
 
 from apps.accounts.api_views import (
+    AdminAuditLogListAPIView,
     OrganizationMemberListCreateAPIView,
     OrganizationMembershipDetailAPIView,
     SessionLoginAPIView,
@@ -100,5 +101,10 @@ urlpatterns = [
         "accounts/members/<int:pk>/",
         OrganizationMembershipDetailAPIView.as_view(),
         name="api_account_member_detail",
+    ),
+    path(
+        "accounts/audit-log/",
+        AdminAuditLogListAPIView.as_view(),
+        name="api_account_audit_log",
     ),
 ]

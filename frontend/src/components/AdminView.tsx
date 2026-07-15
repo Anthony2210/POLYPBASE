@@ -26,6 +26,23 @@ import SkeletonRows from './SkeletonRows';
 
 type TFunction = (key: string) => string;
 
+type AdminAuditLogEntry = {
+  id: number;
+  created_at: string;
+  organization: string | null;
+  user: string | null;
+  action: string;
+  action_label: string;
+  object_type: string;
+  object_id: string;
+  description: string;
+  metadata: Record<string, unknown>;
+};
+
+type AdminAuditLogResponse = {
+  results: AdminAuditLogEntry[];
+};
+
 function userHasAdminRole(profile: UserProfile | null) {
   if (!profile) return false;
   if (profile.is_superuser) return true;
@@ -1250,6 +1267,271 @@ function TransferCreateForm({
   );
 }
 
+function AdminAuditLogSection({ t }: { t: TFunction }) {
+  const [entries, setEntries] = useState<AdminAuditLogEntry[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
+  const [expandedEntryId, setExpandedEntryId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isActive = true;
+
+    async function loadAuditLog() {
+      try {
+        setIsLoading(true);
+        setError(null);
+        const response = await apiGet<AdminAuditLogResponse>('/api/accounts/audit-log/?limit=80');
+        if (!isActive) return;
+        setEntries(response.results);
+      } catch (requestError) {
+        if (!isActive) return;
+        setError(getErrorMessage(requestError));
+      } finally {
+        if (isActive) setIsLoading(false);
+      }
+    }
+
+    loadAuditLog();
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  return (
+    <section className="admin-section admin-audit-section">
+      <div className="admin-section-heading">
+        <div>
+          <h2>{t('adminAuditTitle')}</h2>
+          <p>{t('adminAuditText')}</p>
+        </div>
+        <button
+          className="admin-audit-toggle"
+          type="button"
+          aria-expanded={isOpen}
+          onClick={() => setIsOpen((current) => !current)}
+        >
+          {isOpen ? t('adminAuditHide') : t('adminAuditShow')}
+          {entries.length ? ` (${entries.length})` : ''}
+        </button>
+      </div>
+
+      {isOpen && isLoading ? (
+        <SkeletonRows count={4} />
+      ) : isOpen && error ? (
+        <p className="inline-error">{error}</p>
+      ) : isOpen && entries.length ? (
+        <div className="admin-audit-table">
+          <div className="admin-audit-head">
+            <span>{t('adminAuditDate')}</span>
+            <span>{t('adminAuditUser')}</span>
+            <span>{t('adminAuditAction')}</span>
+            <span>{t('adminAuditObject')}</span>
+          </div>
+          {entries.map((entry) => {
+            const isExpanded = expandedEntryId === entry.id;
+            return (
+              <article className="admin-audit-entry" key={entry.id}>
+                <button
+                  className="admin-audit-row"
+                  type="button"
+                  aria-expanded={isExpanded}
+                  onClick={() => setExpandedEntryId(isExpanded ? null : entry.id)}
+                >
+                  <span>
+                    <strong>{formatAuditDate(entry.created_at)}</strong>
+                    <small>{entry.organization ?? '-'}</small>
+                  </span>
+                  <span>{entry.user ?? '-'}</span>
+                  <span>
+                    <strong>{getFrenchAuditAction(entry)}</strong>
+                    <small>{entry.description || '-'}</small>
+                  </span>
+                  <span>
+                    <strong>{entry.object_id || '-'}</strong>
+                    <small>{entry.object_type || '-'}</small>
+                  </span>
+                </button>
+                {isExpanded ? <AuditLogDetails entry={entry} /> : null}
+              </article>
+            );
+          })}
+        </div>
+      ) : isOpen ? (
+        <p className="muted compact-text">{t('adminAuditEmpty')}</p>
+      ) : null}
+    </section>
+  );
+}
+
+function AuditLogDetails({ entry }: { entry: AdminAuditLogEntry }) {
+  const metadataEntries = Object.entries(entry.metadata ?? {});
+  const values = getMetadataRecord(entry.metadata?.valeurs);
+  const changes = getMetadataRecord(entry.metadata?.modifications);
+  const remainingMetadataEntries = metadataEntries.filter(([key]) => !['valeurs', 'modifications'].includes(key));
+
+  return (
+    <div className="admin-audit-details">
+      <div>
+        <small>Date</small>
+        <strong>{formatAuditDate(entry.created_at)}</strong>
+      </div>
+      <div>
+        <small>Structure</small>
+        <strong>{entry.organization ?? '-'}</strong>
+      </div>
+      <div>
+        <small>Utilisateur</small>
+        <strong>{entry.user ?? '-'}</strong>
+      </div>
+      <div>
+        <small>Action</small>
+        <strong>{getFrenchAuditAction(entry)}</strong>
+      </div>
+      <div>
+        <small>Objet</small>
+        <strong>{entry.object_id || '-'}</strong>
+      </div>
+      <div>
+        <small>Type</small>
+        <strong>{entry.object_type || '-'}</strong>
+      </div>
+      <div className="admin-audit-detail-wide">
+        <small>Description</small>
+        <strong>{entry.description || '-'}</strong>
+      </div>
+      {values ? (
+        <div className="admin-audit-detail-wide">
+          <small>Valeurs enregistrées</small>
+          <dl>
+            {Object.entries(values).map(([key, value]) => (
+              <div key={key}>
+                <dt>{formatAuditMetadataKey(key)}</dt>
+                <dd>{formatAuditMetadataValue(value)}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      ) : null}
+      {changes ? (
+        <div className="admin-audit-detail-wide">
+          <small>Changements</small>
+          <dl>
+            {Object.entries(changes).map(([key, value]) => (
+              <div key={key}>
+                <dt>{formatAuditMetadataKey(key)}</dt>
+                <dd>{formatAuditChange(value)}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      ) : null}
+      {remainingMetadataEntries.length ? (
+        <div className="admin-audit-detail-wide">
+          <small>Détails techniques</small>
+          <dl>
+            {remainingMetadataEntries.map(([key, value]) => (
+              <div key={key}>
+                <dt>{formatAuditMetadataKey(key)}</dt>
+                <dd>{formatAuditMetadataValue(value)}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function getMetadataRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function formatAuditChange(value: unknown) {
+  const change = getMetadataRecord(value);
+  if (!change || !('avant' in change) || !('apres' in change)) {
+    return formatAuditMetadataValue(value);
+  }
+  return `${formatAuditMetadataValue(change.avant)} -> ${formatAuditMetadataValue(change.apres)}`;
+}
+
+function formatAuditMetadataKey(key: string) {
+  const labels: Record<string, string> = {
+    a_verifier: 'A vérifier',
+    ancienne_zone: 'Ancienne zone',
+    apres: 'Après',
+    avant: 'Avant',
+    box_count: 'Nombre de boîtes',
+    capacite: 'Capacité',
+    child_global_codes: 'Boîtes créées',
+    date: 'Date',
+    date_deplacement: 'Date du déplacement',
+    ephyrules: 'Éphyrules',
+    file_name: 'Fichier',
+    from_thermal_zone_name: 'Ancienne zone',
+    measurement_count: 'Nombre de relevés',
+    measurement_id: 'Identifiant relevé',
+    movement_id: 'Identifiant déplacement',
+    nouvelle_zone: 'Nouvelle zone',
+    note: 'Note',
+    polypes: 'Polypes',
+    salinite_psu: 'Salinité (PSU)',
+    statut_culture: 'Statut culture',
+    strobiles: 'Strobiles',
+    temperature_consigne: 'Température consigne',
+    thermal_zone_id: 'Identifiant emplacement',
+    to_thermal_zone_name: 'Nouvelle zone',
+    week_count: 'Nombre de semaines',
+  };
+  return labels[key] ?? key.replace(/_/g, ' ');
+}
+
+function formatAuditMetadataValue(value: unknown) {
+  if (value === null || value === undefined || value === '') return '-';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  return JSON.stringify(value);
+}
+
+function getFrenchAuditAction(entry: AdminAuditLogEntry) {
+  switch (entry.action) {
+    case 'entry':
+      return 'Nouvelle donnée enregistrée';
+    case 'update':
+      return 'Modification enregistrée';
+    case 'creation':
+      return 'Création enregistrée';
+    case 'archive':
+      return 'Archivage enregistré';
+    case 'subculture':
+      return 'Repiquage enregistré';
+    case 'transfer':
+      return 'Transfert préparé';
+    case 'import':
+      return 'Import enregistré';
+    case 'export':
+      return 'Export effectué';
+    case 'login':
+      return 'Connexion';
+    default:
+      return entry.action_label || entry.action || '-';
+  }
+}
+
+function formatAuditDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('fr-FR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
+
 export default function AdminView({
   boxes,
   exportOptions,
@@ -1289,6 +1571,8 @@ export default function AdminView({
 
   return (
     <section className="admin-panel">
+      <AdminAuditLogSection t={t} />
+
       <AccountManagementSection t={t} />
 
       <section className="admin-section">
