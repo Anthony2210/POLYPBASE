@@ -1,3 +1,6 @@
+from collections import defaultdict
+from datetime import timedelta
+
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Count, OuterRef, Prefetch, Q, Subquery, Sum
 from django.db.models.functions import Coalesce
@@ -234,6 +237,93 @@ class DashboardAPIView(APIView):
             item["box"] = alert.box.global_code if alert.box else None
             item["thermal_zone"] = alert.thermal_zone.name if alert.thermal_zone else None
         return data
+
+
+class OverviewActiveBoxesAPIView(APIView):
+    """Return active boxes with recent biological and temperature history."""
+
+    def get(self, request):
+        months = self._get_months(request)
+        start_date = timezone.localdate() - timedelta(days=months * 31)
+        boxes = list(
+            box_list_queryset_for_user(request.user)
+            .filter(status=Box.Status.ACTIVE)
+            .order_by("strain__species__scientific_name", "global_code")
+        )
+        box_ids = [box.id for box in boxes]
+        zone_ids = {box.thermal_zone_id for box in boxes if box.thermal_zone_id}
+
+        measurements_by_box = defaultdict(list)
+        measurements = (
+            BiologicalMeasurement.objects.filter(
+                box_id__in=box_ids,
+                measured_on__gte=start_date,
+            )
+            .order_by("box_id", "measured_on", "created_at")
+        )
+        for measurement in measurements:
+            measurements_by_box[measurement.box_id].append(
+                {
+                    "date": measurement.measured_on.isoformat(),
+                    "polyp_count": measurement.polyp_count,
+                    "ephyrae_count": measurement.ephyrae_count,
+                }
+            )
+
+        temperatures_by_zone = defaultdict(list)
+        temperatures = (
+            DailyTemperature.objects.filter(
+                thermal_zone_id__in=zone_ids,
+                date__gte=start_date,
+            )
+            .order_by("thermal_zone_id", "date")
+        )
+        for temperature in temperatures:
+            temperatures_by_zone[temperature.thermal_zone_id].append(
+                {
+                    "date": temperature.date.isoformat(),
+                    "average_temperature_c": float(temperature.average_temperature_c),
+                }
+            )
+
+        return Response(
+            {
+                "months": months,
+                "results": [
+                    self._box_payload(
+                        box,
+                        measurements_by_box[box.id],
+                        temperatures_by_zone[box.thermal_zone_id] if box.thermal_zone_id else [],
+                    )
+                    for box in boxes
+                ],
+            }
+        )
+
+    def _get_months(self, request):
+        try:
+            months = int(request.query_params.get("months", 6))
+        except (TypeError, ValueError):
+            months = 6
+        return max(1, min(months, 12))
+
+    def _box_payload(self, box, measurements, temperatures):
+        return {
+            "id": box.id,
+            "global_code": box.global_code,
+            "species_name": box.strain.species.scientific_name,
+            "strain_code": box.strain.code,
+            "thermal_zone": (
+                {
+                    "id": box.thermal_zone.id,
+                    "name": box.thermal_zone.name,
+                }
+                if box.thermal_zone
+                else None
+            ),
+            "measurements": measurements,
+            "temperatures": temperatures,
+        }
 
 
 class BoxListAPIView(generics.ListAPIView):

@@ -13,6 +13,7 @@ import { getBoxStatusPresentation } from './boxStatus';
 import AdminView from './components/AdminView';
 import BoxInsights, { MeasurementHistoryModal, type BoxInsightTab } from './components/BoxInsights';
 import ExportsView from './components/ExportsView';
+import LabelsView from './components/LabelsView';
 import LoginPage from './components/LoginPage';
 import LoginNotice from './components/LoginNotice';
 import MeasurementSaveButton from './components/MeasurementSaveButton';
@@ -37,6 +38,8 @@ import type {
   ExportOptions,
   LineageGraph,
   Organization,
+  OverviewBox,
+  OverviewResponse,
   PaginatedResponse,
   Probe,
   SubculturePayload,
@@ -60,13 +63,14 @@ import { getBoxQrImageUrl, getBoxScanUrl, printQrLabels, type QrLabelItem } from
 // Kept well above the current box count to leave room for growth.
 const BOX_LIST_LIMIT = 1000;
 
-type TabId = 'pilotage' | 'zones' | 'exports' | 'admin' | 'profile';
+type TabId = 'pilotage' | 'overview' | 'zones' | 'exports' | 'labels' | 'admin' | 'profile';
 
 type AppData = {
   boxes: BoxItem[];
   boxDetails: Record<number, BoxDetail>;
   zones: ThermalZone[];
   dashboard: Dashboard | null;
+  overview: OverviewBox[] | null;
   exportOptions: ExportOptions | null;
   profile: UserProfile | null;
 };
@@ -271,6 +275,21 @@ const translations = {
     noZone: 'Sans emplacement',
     observation: 'Observation',
     observationPlaceholder: 'Note rapide pour le laboratoire',
+    overview: 'Vue d’ensemble',
+    overviewTitle: 'Vue d’ensemble',
+    overviewSubtitle: 'Boîtes vivantes à suivre pour préparer la semaine.',
+    overviewActiveBoxes: 'boîtes vivantes',
+    overviewBoxColumn: 'Boîte',
+    overviewLatestReading: 'Dernier relevé',
+    overviewLocationColumn: 'Emplacement',
+    overviewNoMeasurement: 'Sans relevé',
+    overviewOpenBox: 'Ouvrir la fiche',
+    overviewTemperature: 'Température emplacement',
+    overviewChartTitle: '6 derniers mois',
+    overviewShowChart: 'Voir tendance',
+    overviewHideChart: 'Masquer tendance',
+    overviewNoHistory: 'Pas assez de données pour tracer la tendance.',
+    overviewEmpty: 'Aucune boîte vivante à afficher.',
     pilotage: 'Suivi',
     pilotageTitle: 'Suivi labo',
     polyps: 'Polypes',
@@ -555,6 +574,21 @@ const translations = {
     noZone: 'No zone',
     observation: 'Observation',
     observationPlaceholder: 'Quick lab note',
+    overview: 'Overview',
+    overviewTitle: 'Overview',
+    overviewSubtitle: 'Living boxes to review before planning the week.',
+    overviewActiveBoxes: 'living boxes',
+    overviewBoxColumn: 'Box',
+    overviewLatestReading: 'Latest reading',
+    overviewLocationColumn: 'Location',
+    overviewNoMeasurement: 'No reading',
+    overviewOpenBox: 'Open sheet',
+    overviewTemperature: 'Location temperature',
+    overviewChartTitle: 'Last 6 months',
+    overviewShowChart: 'Show trend',
+    overviewHideChart: 'Hide trend',
+    overviewNoHistory: 'Not enough data to draw the trend.',
+    overviewEmpty: 'No living box to display.',
     pilotage: 'Tracking',
     pilotageTitle: 'Lab tracking',
     polyps: 'Polyps',
@@ -661,8 +695,8 @@ type Language = keyof typeof translations;
 type TranslationKey = keyof typeof translations.fr;
 type TFunction = (key: TranslationKey) => string;
 
-const labTabs: TabId[] = ['pilotage', 'zones', 'profile'];
-const desktopTabs: TabId[] = ['pilotage', 'zones', 'exports', 'profile'];
+const labTabs: TabId[] = ['pilotage', 'overview', 'zones', 'profile'];
+const desktopTabs: TabId[] = ['pilotage', 'overview', 'zones', 'exports', 'profile'];
 
 export default function App() {
   const [route, setRoute] = useState<RouteState>(() => getCurrentRoute());
@@ -676,6 +710,7 @@ export default function App() {
     boxDetails: {},
     zones: [],
     dashboard: null,
+    overview: null,
     exportOptions: null,
     profile: null,
   });
@@ -691,6 +726,7 @@ export default function App() {
   const isDesktopApp = useIsDesktopApp();
   const canUseAdmin = userHasAdminRole(data.profile);
   const isExportOptionsLoading = ['exports', 'admin'].includes(activeTab) && data.exportOptions === null;
+  const isOverviewLoading = activeTab === 'overview' && data.overview === null;
   const workspacePageKey = `${activeTab}-${route.boxCode ?? route.boxId ?? 'list'}-${route.zoneId ?? 'list'}`;
   const brandOrganizationName = getBrandOrganizationName(data.profile, t);
   const availableTabs = useMemo(() => {
@@ -738,6 +774,7 @@ export default function App() {
           boxDetails: {},
           zones: zones.results,
           dashboard,
+          overview: null,
           exportOptions: null,
           profile,
         });
@@ -768,6 +805,29 @@ export default function App() {
       isActive = false;
     };
   }, [isLoginRoute]);
+
+  useEffect(() => {
+    if (isLoginRoute || activeTab !== 'overview' || data.overview !== null) return;
+
+    let isActive = true;
+
+    async function loadOverview() {
+      try {
+        const overview = await apiGet<OverviewResponse>('/api/overview/active-boxes/?months=6');
+        if (!isActive) return;
+        setData((current) => ({ ...current, overview: overview.results }));
+      } catch (requestError) {
+        if (!isActive) return;
+        setError(getErrorMessage(requestError));
+      }
+    }
+
+    loadOverview();
+
+    return () => {
+      isActive = false;
+    };
+  }, [activeTab, data.overview, isLoginRoute]);
 
   const filteredBoxes = useMemo(() => {
     const value = search.trim().toLowerCase();
@@ -886,6 +946,7 @@ export default function App() {
   function openTab(tab: TabId) {
     const paths: Record<TabId, string> = {
       pilotage: '/',
+      overview: '/overview',
       zones: '/zones',
       exports: '/exports',
       admin: '/administration',
@@ -978,6 +1039,7 @@ export default function App() {
       boxDetails: {},
       zones: [],
       dashboard: null,
+      overview: null,
       exportOptions: null,
       profile: null,
     });
@@ -992,7 +1054,10 @@ export default function App() {
     const created = await apiPost<BiologicalMeasurement>(`/api/boxes/${boxId}/measurements/`, payload);
     const detail = await apiGet<BoxDetail>(`/api/boxes/${boxId}/`);
 
-    setData((current) => mergeBoxDetail(current, detail));
+    setData((current) => ({
+      ...mergeBoxDetail(current, detail),
+      overview: null,
+    }));
     return created;
   }
 
@@ -1003,7 +1068,10 @@ export default function App() {
     );
     const detail = await apiGet<BoxDetail>(`/api/boxes/${boxId}/`);
 
-    setData((current) => mergeBoxDetail(current, detail));
+    setData((current) => ({
+      ...mergeBoxDetail(current, detail),
+      overview: null,
+    }));
     return updated;
   }
 
@@ -1014,6 +1082,7 @@ export default function App() {
     setData((current) => ({
       ...mergeBoxDetail(current, detail),
       boxes: upsertBoxes(current.boxes, [detail, ...result.children]),
+      overview: null,
       exportOptions: null,
     }));
   }
@@ -1025,6 +1094,7 @@ export default function App() {
     setData((current) => ({
       ...mergeBoxDetail(current, detail),
       zones: zones.results,
+      overview: null,
       exportOptions: null,
     }));
   }
@@ -1150,6 +1220,15 @@ export default function App() {
                 suggestions={filteredBoxes.slice(0, 5)}
                 recentBoxes={recentBoxes}
                 onSearch={setSearch}
+                onSelectBox={openBox}
+                t={t}
+              />
+            )}
+
+            {activeTab === 'overview' && (
+              <OverviewView
+                boxes={data.overview}
+                isLoading={isLoading || isOverviewLoading}
                 onSelectBox={openBox}
                 t={t}
               />
@@ -1380,6 +1459,217 @@ function RecentAccessList({
       </div>
     </section>
   );
+}
+
+function OverviewView({
+  boxes,
+  isLoading,
+  onSelectBox,
+  t,
+}: {
+  boxes: OverviewBox[] | null;
+  isLoading: boolean;
+  onSelectBox: (id: number) => void;
+  t: TFunction;
+}) {
+  const [expandedBoxId, setExpandedBoxId] = useState<number | null>(null);
+  const didSetInitialChartRef = useRef(false);
+  const overviewBoxes = boxes ?? [];
+  const speciesGroups = groupOverviewBoxesBySpecies(overviewBoxes);
+
+  useEffect(() => {
+    if (isLoading || didSetInitialChartRef.current || overviewBoxes.length === 0) return;
+    setExpandedBoxId(overviewBoxes[0].id);
+    didSetInitialChartRef.current = true;
+  }, [isLoading, overviewBoxes]);
+
+  if (isLoading) {
+    return <PageLoader variant="pilotage" label={t('overviewTitle')} />;
+  }
+
+  return (
+    <section className="overview-page">
+      <header className="overview-intro">
+        <div>
+          <p>{t('overviewSubtitle')}</p>
+        </div>
+        <Metric label={t('overviewActiveBoxes')} value={String(overviewBoxes.length)} />
+      </header>
+
+      {overviewBoxes.length ? (
+        <div className="overview-list">
+          {speciesGroups.map((group) => (
+            <section className="overview-species-group" key={group.speciesName}>
+              <header>
+                <h2>{group.speciesName}</h2>
+                <span>{group.boxes.length}</span>
+              </header>
+
+              <div className="overview-table" role="table" aria-label={group.speciesName}>
+                <div className="overview-table-head" role="row">
+                  <span role="columnheader">{t('overviewBoxColumn')}</span>
+                  <span role="columnheader">{t('overviewLocationColumn')}</span>
+                  <span role="columnheader">{t('overviewLatestReading')}</span>
+                  <span role="columnheader">{t('polyps')}</span>
+                  <span role="columnheader">{t('ephyraeFull')}</span>
+                  <span role="columnheader">{t('temperatureShort')}</span>
+                  <span role="columnheader"> </span>
+                </div>
+
+                {group.boxes.map((box) => {
+                  const latest = getLastItem(box.measurements);
+                  const latestTemperature = getLastItem(box.temperatures);
+                  const isExpanded = expandedBoxId === box.id;
+
+                  return (
+                    <div className="overview-row-wrap" key={box.id}>
+                      <div className="overview-table-row" role="row">
+                        <button
+                          className="overview-code-button"
+                          type="button"
+                          onClick={() => onSelectBox(box.id)}
+                          role="cell"
+                        >
+                          {box.global_code}
+                        </button>
+                        <span role="cell" data-label={t('overviewLocationColumn')}>{box.thermal_zone?.name ?? t('noZone')}</span>
+                        <span role="cell" data-label={t('overviewLatestReading')}>{latest ? formatDisplayDate(latest.date) : t('overviewNoMeasurement')}</span>
+                        <strong role="cell" data-label={t('polyps')}>{latest?.polyp_count ?? '-'}</strong>
+                        <strong role="cell" data-label={t('ephyraeFull')}>{latest?.ephyrae_count ?? '-'}</strong>
+                        <span role="cell" data-label={t('temperatureShort')}>{formatTemperature(latestTemperature?.average_temperature_c)}</span>
+                        <button
+                          className="overview-trend-button"
+                          type="button"
+                          onClick={() => setExpandedBoxId(isExpanded ? null : box.id)}
+                          aria-expanded={isExpanded}
+                        >
+                          {isExpanded ? t('overviewHideChart') : t('overviewShowChart')}
+                        </button>
+                      </div>
+
+                      {isExpanded ? (
+                        <div className="overview-expanded-chart">
+                          <OverviewMiniChart box={box} t={t} />
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+        </div>
+      ) : (
+        <p className="muted compact-text">{t('overviewEmpty')}</p>
+      )}
+    </section>
+  );
+}
+
+function groupOverviewBoxesBySpecies(boxes: OverviewBox[]) {
+  const groups = new Map<string, OverviewBox[]>();
+  for (const box of boxes) {
+    const currentBoxes = groups.get(box.species_name) ?? [];
+    currentBoxes.push(box);
+    groups.set(box.species_name, currentBoxes);
+  }
+
+  return Array.from(groups.entries()).map(([speciesName, groupBoxes]) => ({
+    speciesName,
+    boxes: groupBoxes.sort((first, second) => first.global_code.localeCompare(second.global_code)),
+  }));
+}
+
+function OverviewMiniChart({ box, t }: { box: OverviewBox; t: TFunction }) {
+  const measurementDates = box.measurements.map((point) => point.date);
+  const temperaturePoints = box.temperatures.filter((point) => Number.isFinite(point.average_temperature_c));
+  const temperatureDates = temperaturePoints.map((point) => point.date);
+  const dates = Array.from(new Set([...measurementDates, ...temperatureDates])).sort();
+  const hasChart = dates.length >= 2 && (box.measurements.length >= 2 || temperaturePoints.length >= 2);
+
+  if (!hasChart) {
+    return (
+      <div className="overview-chart overview-chart-empty">
+        <strong>{t('overviewChartTitle')}</strong>
+        <span>{t('overviewNoHistory')}</span>
+      </div>
+    );
+  }
+
+  const width = 420;
+  const height = 168;
+  const padding = { top: 16, right: 14, bottom: 28, left: 28 };
+  const innerWidth = width - padding.left - padding.right;
+  const innerHeight = height - padding.top - padding.bottom;
+  const countMax = Math.max(
+    1,
+    ...box.measurements.map((point) => Math.max(point.polyp_count, point.ephyrae_count)),
+  );
+  const temperatureValues = temperaturePoints.map((point) => point.average_temperature_c);
+  const minTemperature = Math.min(...temperatureValues);
+  const maxTemperature = Math.max(...temperatureValues);
+  const temperatureRange = Math.max(1, maxTemperature - minTemperature);
+  const xForDate = (date: string) => {
+    const dateIndex = dates.indexOf(date);
+    return padding.left + (dateIndex / Math.max(1, dates.length - 1)) * innerWidth;
+  };
+  const yForCount = (value: number) => padding.top + innerHeight - (value / countMax) * innerHeight;
+  const yForTemperature = (value: number) => (
+    padding.top + innerHeight - ((value - minTemperature) / temperatureRange) * innerHeight
+  );
+  const polypPath = buildOverviewPath(
+    box.measurements.map((point) => ({ date: point.date, value: point.polyp_count })),
+    xForDate,
+    yForCount,
+  );
+  const ephyraePath = buildOverviewPath(
+    box.measurements.map((point) => ({ date: point.date, value: point.ephyrae_count })),
+    xForDate,
+    yForCount,
+  );
+  const temperaturePath = buildOverviewPath(
+    temperaturePoints.map((point) => ({ date: point.date, value: point.average_temperature_c })),
+    xForDate,
+    yForTemperature,
+  );
+
+  return (
+    <div className="overview-chart">
+      <header>
+        <strong>{t('overviewChartTitle')}</strong>
+        <div className="overview-chart-legend">
+          <span className="is-polyps">{t('polyps')}</span>
+          <span className="is-ephyrae">{t('ephyraeFull')}</span>
+          <span className="is-temperature">{t('temperatureShort')}</span>
+        </div>
+      </header>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={t('overviewChartTitle')}>
+        <line className="overview-chart-grid" x1={padding.left} x2={width - padding.right} y1={padding.top} y2={padding.top} />
+        <line className="overview-chart-grid" x1={padding.left} x2={width - padding.right} y1={padding.top + innerHeight / 2} y2={padding.top + innerHeight / 2} />
+        <line className="overview-chart-axis" x1={padding.left} x2={width - padding.right} y1={padding.top + innerHeight} y2={padding.top + innerHeight} />
+        {polypPath ? <path className="overview-chart-line is-polyps" d={polypPath} /> : null}
+        {ephyraePath ? <path className="overview-chart-line is-ephyrae" d={ephyraePath} /> : null}
+        {temperaturePath ? <path className="overview-chart-line is-temperature" d={temperaturePath} /> : null}
+        <text className="overview-chart-label" x={padding.left} y={height - 8}>{formatDisplayDate(dates[0])}</text>
+        <text className="overview-chart-label is-end" x={width - padding.right} y={height - 8}>{formatDisplayDate(dates[dates.length - 1])}</text>
+      </svg>
+    </div>
+  );
+}
+
+function buildOverviewPath(
+  points: Array<{ date: string; value: number }>,
+  xForDate: (date: string) => number,
+  yForValue: (value: number) => number,
+) {
+  if (points.length < 2) return '';
+  return points
+    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${xForDate(point.date).toFixed(1)} ${yForValue(point.value).toFixed(1)}`)
+    .join(' ');
+}
+
+function getLastItem<T>(items: T[]): T | undefined {
+  return items.length ? items[items.length - 1] : undefined;
 }
 
 function SuggestionList({
@@ -2532,6 +2822,7 @@ function userCanWriteLabData(profile: UserProfile | null, organizationId: number
 
 function getTitle(tab: TabId, t: TFunction) {
   if (tab === 'pilotage') return t('pilotageTitle');
+  if (tab === 'overview') return t('overviewTitle');
   if (tab === 'zones') return t('zonesTitle');
   if (tab === 'exports') return t('exportsTitle');
   if (tab === 'admin') return t('adminTitle');
@@ -2557,6 +2848,10 @@ function getCurrentRoute(): RouteState {
 
   if (path === '/zones') {
     return { tab: 'zones', boxCode: null, boxId: null };
+  }
+
+  if (path === '/overview') {
+    return { tab: 'overview', boxCode: null, boxId: null };
   }
 
   const zoneMatch = path.match(/^\/zones\/(\d+)\/?$/);

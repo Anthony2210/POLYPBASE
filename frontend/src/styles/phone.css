@@ -722,6 +722,104 @@
     gap: 10px;
   }
 
+  .overview-page {
+    gap: 12px;
+  }
+
+  .overview-intro {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 14px;
+    border-radius: 18px;
+    background: #ffffff;
+  }
+
+  .overview-species-group {
+    border-radius: 18px;
+  }
+
+  .overview-species-group > header {
+    padding: 14px;
+  }
+
+  .overview-table-head {
+    display: none;
+  }
+
+  .overview-table-row {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 12px;
+    min-height: 0;
+    padding: 14px;
+  }
+
+  .overview-code-button {
+    grid-column: 1 / -1;
+    font-size: 1.12rem;
+  }
+
+  .overview-table-row > span,
+  .overview-table-row > strong {
+    display: grid;
+    gap: 2px;
+  }
+
+  .overview-table-row [data-label]::before {
+    content: attr(data-label);
+    color: #7f8b9b;
+    font-size: 0.72rem;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+
+  .overview-trend-button {
+    grid-column: 1 / -1;
+    min-height: 46px;
+    border-radius: 14px;
+  }
+
+  .overview-expanded-chart {
+    padding: 0 14px 14px;
+  }
+
+  .overview-box-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .overview-box-card {
+    padding: 14px;
+    border-radius: 18px;
+  }
+
+  .overview-box-card > header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .overview-box-card > header button {
+    width: 100%;
+    min-height: 46px;
+    border-radius: 14px;
+  }
+
+  .overview-reading-row {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-chart > header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .overview-chart-legend {
+    justify-content: flex-start;
+  }
+
+  .overview-chart svg {
+    min-height: 138px;
+  }
+
   .zone-card {
     min-height: 0;
     padding: 14px;

@@ -66,6 +66,35 @@ export type BoxItem = {
   active_alert_count: number;
 };
 
+export type OverviewMeasurementPoint = {
+  date: string;
+  polyp_count: number;
+  ephyrae_count: number;
+};
+
+export type OverviewTemperaturePoint = {
+  date: string;
+  average_temperature_c: number;
+};
+
+export type OverviewBox = {
+  id: number;
+  global_code: string;
+  species_name: string;
+  strain_code: string;
+  thermal_zone: {
+    id: number;
+    name: string;
+  } | null;
+  measurements: OverviewMeasurementPoint[];
+  temperatures: OverviewTemperaturePoint[];
+};
+
+export type OverviewResponse = {
+  months: number;
+  results: OverviewBox[];
+};
+
 export type BoxDetail = BoxItem & {
   created_on: string;
   volume_liters: string | null;
