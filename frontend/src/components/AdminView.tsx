@@ -39,6 +39,161 @@ const emptyMemberForm = {
   email: '',
 };
 
+function getDigitsOnly(value: string) {
+  return value.replace(/\D/g, '');
+}
+
+const FALLBACK_REGION_CODES = [
+  'AD', 'AE', 'AF', 'AG', 'AI', 'AL', 'AM', 'AO', 'AQ', 'AR', 'AS', 'AT',
+  'AU', 'AW', 'AX', 'AZ', 'BA', 'BB', 'BD', 'BE', 'BF', 'BG', 'BH', 'BI',
+  'BJ', 'BL', 'BM', 'BN', 'BO', 'BQ', 'BR', 'BS', 'BT', 'BV', 'BW', 'BY',
+  'BZ', 'CA', 'CC', 'CD', 'CF', 'CG', 'CH', 'CI', 'CK', 'CL', 'CM', 'CN',
+  'CO', 'CR', 'CU', 'CV', 'CW', 'CX', 'CY', 'CZ', 'DE', 'DJ', 'DK', 'DM',
+  'DO', 'DZ', 'EC', 'EE', 'EG', 'EH', 'ER', 'ES', 'ET', 'FI', 'FJ', 'FK',
+  'FM', 'FO', 'FR', 'GA', 'GB', 'GD', 'GE', 'GF', 'GG', 'GH', 'GI', 'GL',
+  'GM', 'GN', 'GP', 'GQ', 'GR', 'GS', 'GT', 'GU', 'GW', 'GY', 'HK', 'HM',
+  'HN', 'HR', 'HT', 'HU', 'ID', 'IE', 'IL', 'IM', 'IN', 'IO', 'IQ', 'IR',
+  'IS', 'IT', 'JE', 'JM', 'JO', 'JP', 'KE', 'KG', 'KH', 'KI', 'KM', 'KN',
+  'KP', 'KR', 'KW', 'KY', 'KZ', 'LA', 'LB', 'LC', 'LI', 'LK', 'LR', 'LS',
+  'LT', 'LU', 'LV', 'LY', 'MA', 'MC', 'MD', 'ME', 'MF', 'MG', 'MH', 'MK',
+  'ML', 'MM', 'MN', 'MO', 'MP', 'MQ', 'MR', 'MS', 'MT', 'MU', 'MV', 'MW',
+  'MX', 'MY', 'MZ', 'NA', 'NC', 'NE', 'NF', 'NG', 'NI', 'NL', 'NO', 'NP',
+  'NR', 'NU', 'NZ', 'OM', 'PA', 'PE', 'PF', 'PG', 'PH', 'PK', 'PL', 'PM',
+  'PN', 'PR', 'PS', 'PT', 'PW', 'PY', 'QA', 'RE', 'RO', 'RS', 'RU', 'RW',
+  'SA', 'SB', 'SC', 'SD', 'SE', 'SG', 'SH', 'SI', 'SJ', 'SK', 'SL', 'SM',
+  'SN', 'SO', 'SR', 'SS', 'ST', 'SV', 'SX', 'SY', 'SZ', 'TC', 'TD', 'TF',
+  'TG', 'TH', 'TJ', 'TK', 'TL', 'TM', 'TN', 'TO', 'TR', 'TT', 'TV', 'TW',
+  'TZ', 'UA', 'UG', 'UM', 'US', 'UY', 'UZ', 'VA', 'VC', 'VE', 'VG', 'VI',
+  'VN', 'VU', 'WF', 'WS', 'YE', 'YT', 'ZA', 'ZM', 'ZW',
+];
+
+const COUNTRY_OPTIONS = buildCountryOptions();
+
+const CITY_OPTIONS_BY_REGION: Record<string, string[]> = {
+  BE: ['Anvers', 'Bruxelles', 'Gand', 'Liège', 'Mons', 'Namur'],
+  CA: ['Montréal', 'Québec', 'Toronto', 'Vancouver'],
+  CH: ['Bâle', 'Genève', 'Lausanne', 'Zurich'],
+  DE: ['Berlin', 'Bonn', 'Hambourg', 'Munich', 'Stuttgart'],
+  ES: ['Barcelone', 'Madrid', 'Séville', 'Valence'],
+  FR: [
+    'Amnéville', 'Biarritz', 'Boulogne-sur-Mer', 'Brest', 'La Rochelle',
+    'Lyon', 'Marseille', 'Montpellier', 'Nancy', 'Nantes', 'Paris',
+    'Saint-Malo', 'Strasbourg', 'Toulouse',
+  ],
+  GB: ['Birmingham', 'Bristol', 'Édimbourg', 'Londres', 'Manchester'],
+  IT: ['Gênes', 'Milan', 'Naples', 'Rome', 'Venise'],
+  JP: ['Fukuoka', 'Hiroshima', 'Kyoto', 'Nagoya', 'Osaka', 'Tokyo', 'Yokohama'],
+  MC: ['Monaco'],
+  NL: ['Amsterdam', 'La Haye', 'Rotterdam', 'Utrecht'],
+  PT: ['Lisbonne', 'Porto'],
+  US: ['Atlanta', 'Boston', 'Chicago', 'Monterey', 'New York', 'San Diego', 'Seattle', 'Washington'],
+};
+
+function buildCountryOptions() {
+  const regionCodes = getRegionCodes();
+  const locale = typeof navigator === 'undefined' ? 'fr' : navigator.language;
+  const displayNames = typeof Intl.DisplayNames === 'function'
+    ? new Intl.DisplayNames([locale], { type: 'region' })
+    : null;
+
+  return regionCodes
+    .map((code) => ({
+      code,
+      name: displayNames?.of(code) ?? code,
+    }))
+    .filter((option) => option.name && option.name !== option.code)
+    .sort((first, second) => first.name.localeCompare(second.name));
+}
+
+function getRegionCodes() {
+  return FALLBACK_REGION_CODES;
+}
+
+function getCountryOption(countryName: string) {
+  const normalizedCountry = countryName.trim().toLocaleLowerCase();
+  if (!normalizedCountry) return null;
+  return COUNTRY_OPTIONS.find((option) => option.name.toLocaleLowerCase() === normalizedCountry) ?? null;
+}
+
+function getCityOptions(countryName: string, extraCities: string[] = []) {
+  const countryOption = getCountryOption(countryName);
+  const predefinedCities = countryOption ? CITY_OPTIONS_BY_REGION[countryOption.code] ?? [] : [];
+  return Array.from(new Set([...predefinedCities, ...extraCities].filter(Boolean))).sort((first, second) =>
+    first.localeCompare(second),
+  );
+}
+
+function cityMatchesCountry(cityName: string, countryName: string) {
+  const normalizedCity = cityName.trim().toLocaleLowerCase();
+  if (!normalizedCity) return true;
+
+  const countryOption = getCountryOption(countryName);
+  if (!countryOption) return true;
+
+  const knownCountryCodesForCity = Object.entries(CITY_OPTIONS_BY_REGION)
+    .filter(([, cities]) => cities.some((city) => city.toLocaleLowerCase() === normalizedCity))
+    .map(([countryCode]) => countryCode);
+
+  return knownCountryCodesForCity.length === 0 || knownCountryCodesForCity.includes(countryOption.code);
+}
+
+function filterSuggestions(value: string, options: string[], limit = 8) {
+  const normalizedValue = value.trim().toLocaleLowerCase();
+  const filteredOptions = normalizedValue
+    ? options.filter((option) => option.toLocaleLowerCase().includes(normalizedValue))
+    : options;
+  return filteredOptions.slice(0, limit);
+}
+
+function SuggestionInput({
+  id,
+  value,
+  options,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  options: string[];
+  onChange: (value: string) => void;
+}) {
+  const [isFocused, setIsFocused] = useState(false);
+  const suggestions = useMemo(() => filterSuggestions(value, options), [options, value]);
+  const exactMatch = suggestions.some((option) => option.toLocaleLowerCase() === value.trim().toLocaleLowerCase());
+  const shouldShowSuggestions = isFocused && suggestions.length > 0 && (!exactMatch || suggestions.length > 1);
+
+  return (
+    <div className="admin-suggest-field">
+      <input
+        id={id}
+        type="text"
+        value={value}
+        autoComplete="off"
+        onBlur={() => window.setTimeout(() => setIsFocused(false), 120)}
+        onChange={(event) => onChange(event.target.value)}
+        onFocus={() => setIsFocused(true)}
+      />
+      {shouldShowSuggestions ? (
+        <div className="admin-suggest-menu" role="listbox">
+          {suggestions.map((option) => (
+            <button
+              key={option}
+              type="button"
+              role="option"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                onChange(option);
+                setIsFocused(false);
+              }}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function AccountManagementSection({ t }: { t: TFunction }) {
   const [data, setData] = useState<AccountMembers | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -591,10 +746,12 @@ function ProbeCreateForm({
 }
 
 function OrganizationCreateForm({
+  organizations,
   profile,
   onCreateOrganization,
   t,
 }: {
+  organizations: Organization[];
   profile: UserProfile;
   onCreateOrganization: (payload: OrganizationPayload) => Promise<void>;
   t: TFunction;
@@ -609,6 +766,8 @@ function OrganizationCreateForm({
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const existingCities = useMemo(() => organizations.map((organization) => organization.city).filter(Boolean), [organizations]);
+  const cityOptions = useMemo(() => getCityOptions(country, existingCities), [country, existingCities]);
 
   if (!profile.is_superuser) {
     return <p className="muted compact-text">{t('adminSuperuserOnly')}</p>;
@@ -621,6 +780,18 @@ function OrganizationCreateForm({
     setIsSaving(true);
     setError(null);
     setMessage(null);
+
+    const selectedCountry = getCountryOption(country);
+    if (country.trim() && !selectedCountry) {
+      setError(t('adminInvalidCountry'));
+      setIsSaving(false);
+      return;
+    }
+    if (!cityMatchesCountry(city, selectedCountry?.name ?? '')) {
+      setError(t('adminInvalidCityCountry'));
+      setIsSaving(false);
+      return;
+    }
 
     // The model has no phone/address/contact-name fields: fold them into notes.
     const notes = [
@@ -635,7 +806,7 @@ function OrganizationCreateForm({
       await onCreateOrganization({
         name: name.trim(),
         city: city.trim(),
-        country: country.trim(),
+        country: selectedCountry?.name ?? '',
         contact_email: contactEmail.trim(),
         notes,
       });
@@ -662,11 +833,21 @@ function OrganizationCreateForm({
       </label>
       <label>
         <span>{t('adminCountry')}</span>
-        <input type="text" value={country} onChange={(event) => setCountry(event.target.value)} />
+        <SuggestionInput
+          id="admin-country"
+          value={country}
+          options={COUNTRY_OPTIONS.map((option) => option.name)}
+          onChange={setCountry}
+        />
       </label>
       <label>
         <span>{t('adminCity')}</span>
-        <input type="text" value={city} onChange={(event) => setCity(event.target.value)} />
+        <SuggestionInput
+          id="admin-city"
+          value={city}
+          options={cityOptions}
+          onChange={setCity}
+        />
       </label>
       <label>
         <span>{t('adminContactName')}</span>
@@ -678,7 +859,13 @@ function OrganizationCreateForm({
       </label>
       <label>
         <span>{t('adminContactPhone')}</span>
-        <input type="tel" value={contactPhone} onChange={(event) => setContactPhone(event.target.value)} />
+        <input
+          type="tel"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          value={contactPhone}
+          onChange={(event) => setContactPhone(getDigitsOnly(event.target.value))}
+        />
       </label>
       <label className="admin-wide-field">
         <span>{t('adminPostalAddress')}</span>
@@ -715,6 +902,8 @@ function OrganizationManagementList({
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const existingCities = useMemo(() => organizations.map((organization) => organization.city).filter(Boolean), [organizations]);
+  const cityOptions = useMemo(() => getCityOptions(country, existingCities), [country, existingCities]);
 
   if (!profile.is_superuser) return null;
 
@@ -747,11 +936,23 @@ function OrganizationManagementList({
     setError(null);
     setMessage(null);
 
+    const selectedCountry = getCountryOption(country);
+    if (country.trim() && !selectedCountry) {
+      setError(t('adminInvalidCountry'));
+      setIsSaving(false);
+      return;
+    }
+    if (!cityMatchesCountry(city, selectedCountry?.name ?? '')) {
+      setError(t('adminInvalidCityCountry'));
+      setIsSaving(false);
+      return;
+    }
+
     try {
       await onUpdateOrganization(editingId, {
         name: name.trim(),
         city: city.trim(),
-        country: country.trim(),
+        country: selectedCountry?.name ?? '',
         contact_email: contactEmail.trim(),
         notes: notes.trim(),
       });
@@ -797,11 +998,21 @@ function OrganizationManagementList({
                 </label>
                 <label>
                   <span>{t('adminCountry')}</span>
-                  <input type="text" value={country} onChange={(event) => setCountry(event.target.value)} />
+                  <SuggestionInput
+                    id="admin-edit-country"
+                    value={country}
+                    options={COUNTRY_OPTIONS.map((option) => option.name)}
+                    onChange={setCountry}
+                  />
                 </label>
                 <label>
                   <span>{t('adminCity')}</span>
-                  <input type="text" value={city} onChange={(event) => setCity(event.target.value)} />
+                  <SuggestionInput
+                    id="admin-edit-city"
+                    value={city}
+                    options={cityOptions}
+                    onChange={setCity}
+                  />
                 </label>
                 <label>
                   <span>{t('adminContactEmail')}</span>
@@ -1026,6 +1237,7 @@ export default function AdminView({
         </div>
 
         <OrganizationCreateForm
+          organizations={organizations}
           profile={profile}
           onCreateOrganization={onCreateOrganization}
           t={t}

@@ -1092,6 +1092,15 @@
     min-height: 44px;
     border-radius: 14px;
   }
+
+  .admin-suggest-menu {
+    max-height: 260px;
+    border-radius: 14px;
+  }
+
+  .admin-suggest-menu button {
+    min-height: 46px;
+  }
 }
 
 @media (max-width: 420px) {
