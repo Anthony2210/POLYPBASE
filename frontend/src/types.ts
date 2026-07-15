@@ -35,6 +35,7 @@ export type ThermalZoneSummary = {
   name: string;
   zone_type: string;
   target_temperature_c: string | null;
+  capacity: number | null;
   is_active: boolean;
 };
 
@@ -228,6 +229,7 @@ export type ThermalZone = {
   zone_type: string;
   organization: Organization;
   target_temperature_c: string | null;
+  capacity: number | null;
   is_active: boolean;
   box_count: number;
   latest_temperature: {

@@ -3,6 +3,7 @@ export type ThermalZonePayload = {
   name: string;
   zone_type: string;
   target_temperature_c: string | null;
+  capacity: number | null;
 };
 
 export type ProbePayload = {

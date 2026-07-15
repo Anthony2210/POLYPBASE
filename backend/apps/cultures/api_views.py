@@ -552,6 +552,20 @@ class ThermalZoneListCreateAPIView(generics.ListCreateAPIView):
         serializer.save()
 
 
+class ThermalZoneDetailAPIView(generics.RetrieveUpdateAPIView):
+    serializer_class = ThermalZoneCreateSerializer
+
+    def get_queryset(self):
+        organization_ids = get_authorized_organization_ids(self.request.user)
+        return ThermalZone.objects.filter(organization_id__in=organization_ids)
+
+    def perform_update(self, serializer):
+        zone = self.get_object()
+        if zone.organization_id not in get_admin_organization_ids(self.request.user):
+            raise PermissionDenied("Ce compte ne peut pas modifier cette zone.")
+        serializer.save(organization=zone.organization)
+
+
 class ProbeCreateAPIView(generics.CreateAPIView):
     serializer_class = ProbeCreateSerializer
 
