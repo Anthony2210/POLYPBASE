@@ -18,8 +18,8 @@ const labels = {
   fr: {
     title: 'Déplacer la boîte',
     box: 'Boîte',
-    currentZone: 'Armoire actuelle',
-    newZone: 'Nouvelle armoire',
+    currentZone: 'Emplacement actuel',
+    newZone: 'Nouvel emplacement',
     movedAt: 'Date du déplacement',
     notes: 'Note',
     notesPlaceholder: 'Ex. changement de température, rangement, manipulation',
@@ -29,7 +29,7 @@ const labels = {
     cancel: 'Annuler',
     save: 'Enregistrer le déplacement',
     saving: 'Enregistrement...',
-    noZone: 'Sans armoire',
+    noZone: 'Sans emplacement',
   },
   en: {
     title: 'Move box',

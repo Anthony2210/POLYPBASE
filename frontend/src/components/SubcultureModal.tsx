@@ -39,7 +39,7 @@ const labels = {
     globalCode: 'Code global',
     localCode: 'Code local',
     boxNumber: 'Numéro',
-    zone: 'Armoire thermique',
+    zone: 'Emplacement thermique',
     childNotes: 'Note',
     childNotesPlaceholder: 'Optionnel',
     copyOrigin: "Reprendre l'origine",

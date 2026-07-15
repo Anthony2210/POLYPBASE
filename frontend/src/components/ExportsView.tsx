@@ -81,7 +81,7 @@ const copy = {
     weeksWindowLabel: 'Semaines affich\u00e9es',
     weeksShown: 'derni\u00e8res semaines',
     allWeeksShort: "Tout l'historique",
-    selectFilterPrompt: 'S\u00e9lectionnez au moins un filtre (structure, esp\u00e8ce, souche, armoire, bo\u00eete ou p\u00e9riode) pour afficher les graphiques.',
+    selectFilterPrompt: 'S\u00e9lectionnez au moins un filtre (structure, esp\u00e8ce, souche, emplacement, bo\u00eete ou p\u00e9riode) pour afficher les graphiques.',
     boxes: 'Boîtes',
     boxesFound: 'boîtes',
     clear: 'Effacer',
@@ -112,7 +112,7 @@ const copy = {
     strains: 'Souches',
     temperature: 'Température',
     success: 'Fichier téléchargé',
-    zones: 'Armoires thermiques',
+    zones: 'Emplacements thermiques',
   },
   en: {
     all: 'All',
