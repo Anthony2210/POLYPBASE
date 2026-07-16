@@ -63,6 +63,11 @@ import { getBoxQrImageUrl, getBoxScanUrl, printQrLabels, type QrLabelItem } from
 // Kept well above the current box count to leave room for growth.
 const BOX_LIST_LIMIT = 1000;
 
+// Salinity (PSU) is read off a refractometer and lands on round values, so the
+// form starts at 5 and the +/- buttons move by 5 rather than by decimals.
+const SALINITY_DEFAULT = '5';
+const SALINITY_STEP = 5;
+
 type TabId = 'pilotage' | 'overview' | 'zones' | 'exports' | 'labels' | 'admin' | 'profile';
 
 type AppData = {
@@ -2346,28 +2351,28 @@ function BoxPage({
                   <span className="measurement-field-label">{t('salinityFull')}</span>
                   <div className="count-stepper count-stepper-salinity">
                     <StepperButton
-                      aria-label={`${t('salinityFull')} -0.1`}
+                      aria-label={`${t('salinityFull')} -${SALINITY_STEP}`}
                       onStep={() => setForm((current) => ({
                         ...current,
-                        salinity: decrementDecimalValue(current.salinity, 0.1),
+                        salinity: decrementDecimalValue(current.salinity, SALINITY_STEP),
                       }))}
                     >
                       -
                     </StepperButton>
                     <input
                       min="0"
-                      step="0.1"
+                      step={SALINITY_STEP}
                       inputMode="decimal"
-                      placeholder="35"
+                      placeholder={SALINITY_DEFAULT}
                       type="number"
                       value={form.salinity}
                       onChange={(event) => setForm((current) => ({ ...current, salinity: event.target.value }))}
                     />
                     <StepperButton
-                      aria-label={`${t('salinityFull')} +0.1`}
+                      aria-label={`${t('salinityFull')} +${SALINITY_STEP}`}
                       onStep={() => setForm((current) => ({
                         ...current,
-                        salinity: incrementDecimalValue(current.salinity, 0.1),
+                        salinity: incrementDecimalValue(current.salinity, SALINITY_STEP),
                       }))}
                     >
                       +
@@ -2752,7 +2757,7 @@ function getInitialMeasurementForm() {
     measuredOn: getTodayDateValue(),
     polypCount: '',
     ephyraeCount: '',
-    salinity: '',
+    salinity: SALINITY_DEFAULT,
     notes: '',
   };
 }
