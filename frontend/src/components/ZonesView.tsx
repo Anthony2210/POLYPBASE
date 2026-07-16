@@ -4,6 +4,7 @@ import { scaleLinear } from 'd3-scale';
 import { getBoxStatusPresentation } from '../boxStatus';
 import type { BoxItem, ThermalZone } from '../types';
 import { formatDisplayDate } from '../utils/dateFormat';
+import { getZoneOccupancyLevel } from '../utils/zoneOccupancy';
 import PageLoader from './PageLoader';
 
 type Language = 'fr' | 'en';
@@ -147,7 +148,16 @@ export function ZonesView({
                   </span>
                   <span>
                     <small>{t('zoneOccupancy')}</small>
-                    <strong>{formatZoneOccupancy(entry.zoneBoxes.length, entry.zone.capacity)}</strong>
+                    {/* Same colour rule as the admin zone list: orange when
+                        fewer than 10 slots remain, red once full. */}
+                    <strong
+                      className={`zone-occupancy is-${getZoneOccupancyLevel(
+                        entry.zoneBoxes.length,
+                        entry.zone.capacity,
+                      )}`}
+                    >
+                      {formatZoneOccupancy(entry.zoneBoxes.length, entry.zone.capacity)}
+                    </strong>
                   </span>
                 </span>
               </button>
