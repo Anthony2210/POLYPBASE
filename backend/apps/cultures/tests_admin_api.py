@@ -5,6 +5,7 @@ to create what, and that a user can never reach another organization's data.
 """
 
 import json
+from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -112,6 +113,48 @@ class AdminResourceCreationApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.zone.refresh_from_db()
         self.assertEqual(self.zone.capacity, 30)
+
+    def test_admin_updates_thermal_zone_salinity(self):
+        self.client.login(username="org_admin", password="secret")
+
+        response = self.client.patch(
+            reverse("api_thermal_zone_detail", args=[self.zone.id]),
+            {"salinity_psu": "35.00"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.zone.refresh_from_db()
+        self.assertEqual(self.zone.salinity_psu, Decimal("35.00"))
+        # The box sheets render this straight from the API, so the shape of the
+        # value must not drift between databases.
+        self.assertEqual(response.json()["salinity_psu"], "35.00")
+
+    def test_admin_clears_thermal_zone_salinity(self):
+        self.zone.salinity_psu = Decimal("35.00")
+        self.zone.save(update_fields=["salinity_psu"])
+        self.client.login(username="org_admin", password="secret")
+
+        response = self.client.patch(
+            reverse("api_thermal_zone_detail", args=[self.zone.id]),
+            {"salinity_psu": None},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.zone.refresh_from_db()
+        self.assertIsNone(self.zone.salinity_psu)
+
+    def test_lab_technician_cannot_update_thermal_zone_salinity(self):
+        self.client.login(username="tech", password="secret")
+
+        response = self.client.patch(
+            reverse("api_thermal_zone_detail", args=[self.zone.id]),
+            {"salinity_psu": "35.00"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 403)
 
     def test_lab_technician_cannot_update_thermal_zone_capacity(self):
         self.client.login(username="tech", password="secret")

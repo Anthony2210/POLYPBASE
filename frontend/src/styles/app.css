@@ -5526,29 +5526,96 @@ button.zone-attention-item:hover {
   gap: 8px;
 }
 
-.zone-capacity-manager label {
+/* -/+ buttons around a freely typed number (capacity, zone salinity).
+   Unlike .count-stepper the buttons stay visible on desktop: the admin zone
+   list is where these values are actually set. */
+.zone-step-field {
   display: grid;
-  grid-template-columns: minmax(160px, 1fr) minmax(90px, 120px) auto;
-  gap: 8px;
+  grid-template-columns: 32px minmax(0, 1fr) 32px;
+  gap: 4px;
   align-items: center;
+}
+
+.zone-step-field input {
+  min-width: 0;
+  width: 100%;
+  text-align: center;
+  /* Hide the native spinner: the -/+ buttons are the only stepping control, and
+     the native arrows would step by 1 and contradict them. type stays "number"
+     so phones still open the numeric keypad. */
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.zone-step-field input::-webkit-outer-spin-button,
+.zone-step-field input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.zone-step-field button {
+  min-width: 0;
+  min-height: 34px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--primary);
+  font-size: 1.1rem;
+  font-weight: 850;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.zone-step-field button:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.zone-step-field button:active {
+  transform: scale(0.98);
+}
+
+.zone-capacity-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(130px, 160px) minmax(130px, 160px) auto;
+  gap: 8px;
+  align-items: end;
   padding: 10px;
   border: 1px solid var(--line-soft);
   border-radius: 8px;
   background: #ffffff;
 }
 
-.zone-capacity-manager label > span {
+.zone-capacity-identity {
   display: grid;
   min-width: 0;
   gap: 2px;
+  align-self: center;
 }
 
-.zone-capacity-manager label > span strong {
+.zone-capacity-identity strong {
   color: var(--ink);
 }
 
-.zone-capacity-manager label > span small {
+.zone-capacity-identity small {
   color: var(--muted);
+}
+
+/* Each editable value carries its own label: two bare number inputs side by
+   side would be indistinguishable. */
+.zone-capacity-row > label {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.zone-capacity-row > label > small {
+  color: var(--muted);
+  font-size: 0.7rem;
 }
 
 /* Occupancy of a thermal zone: neutral by default, orange when fewer than 10

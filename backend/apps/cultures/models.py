@@ -22,6 +22,10 @@ class ThermalZone(models.Model):
     zone_type = models.CharField(max_length=30, choices=ZoneType.choices, default=ZoneType.CABINET)
     target_temperature_c = models.DecimalField(max_digits=4, decimal_places=1, null=True, blank=True)
     capacity = models.PositiveIntegerField(null=True, blank=True)
+    # Salinity of the water in this zone, maintained by hand like the capacity.
+    # It is the reference shown on every box sheet of the zone; each measurement
+    # can still record the salinity actually read for one box.
+    salinity_psu = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     is_active = models.BooleanField(default=True)
     notes = models.TextField(blank=True)
 

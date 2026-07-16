@@ -4,6 +4,7 @@ export type ThermalZonePayload = {
   zone_type: string;
   target_temperature_c: string | null;
   capacity: number | null;
+  salinity_psu: string | null;
 };
 
 export type ProbePayload = {

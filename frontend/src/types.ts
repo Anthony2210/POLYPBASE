@@ -230,6 +230,8 @@ export type ThermalZone = {
   organization: Organization;
   target_temperature_c: string | null;
   capacity: number | null;
+  /** Reference salinity of the zone, maintained by hand (see ThermalZone model). */
+  salinity_psu: string | null;
   is_active: boolean;
   box_count: number;
   latest_temperature: {
