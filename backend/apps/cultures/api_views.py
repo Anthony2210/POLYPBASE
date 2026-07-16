@@ -421,6 +421,83 @@ class BoxAccessAPIView(APIView):
         return Response(status=status.HTTP_201_CREATED)
 
 
+class BoxArchiveAPIView(APIView):
+    """Mark a box inactive without deleting its history."""
+
+    def post(self, request, box_id):
+        box = get_object_or_404(box_queryset_for_user(request.user), id=box_id)
+        if box.organization_id not in get_admin_organization_ids(request.user):
+            raise PermissionDenied("This user cannot archive this box.")
+
+        before_values = {
+            "statut": box.status,
+            "raison_arret": box.stop_reason,
+        }
+        box.status = Box.Status.ARCHIVED
+        if not box.stop_reason:
+            box.stop_reason = "Mise inactive depuis l'administration."
+        box.save(update_fields=["status", "stop_reason"])
+
+        after_values = {
+            "statut": box.status,
+            "raison_arret": box.stop_reason,
+        }
+        AuditLog.objects.create(
+            organization=box.organization,
+            user=request.user,
+            action=AuditLog.Action.ARCHIVE,
+            object_type="box",
+            object_id=box.global_code,
+            description=f"Box archived: {box.global_code}",
+            metadata={
+                "box_id": box.id,
+                "valeurs": after_values,
+                "modifications": _changed_values(before_values, after_values),
+            },
+        )
+
+        updated_box = get_object_or_404(box_queryset_for_user(request.user), id=box.id)
+        return Response(BoxDetailSerializer(updated_box).data, status=status.HTTP_200_OK)
+
+
+class BoxActivateAPIView(APIView):
+    """Reactivate an archived box when an admin made a mistake."""
+
+    def post(self, request, box_id):
+        box = get_object_or_404(box_queryset_for_user(request.user), id=box_id)
+        if box.organization_id not in get_admin_organization_ids(request.user):
+            raise PermissionDenied("This user cannot activate this box.")
+
+        before_values = {
+            "statut": box.status,
+            "raison_arret": box.stop_reason,
+        }
+        box.status = Box.Status.ACTIVE
+        box.stop_reason = ""
+        box.save(update_fields=["status", "stop_reason"])
+
+        after_values = {
+            "statut": box.status,
+            "raison_arret": box.stop_reason,
+        }
+        AuditLog.objects.create(
+            organization=box.organization,
+            user=request.user,
+            action=AuditLog.Action.UPDATE,
+            object_type="box",
+            object_id=box.global_code,
+            description=f"Box activated: {box.global_code}",
+            metadata={
+                "box_id": box.id,
+                "valeurs": after_values,
+                "modifications": _changed_values(before_values, after_values),
+            },
+        )
+
+        updated_box = get_object_or_404(box_queryset_for_user(request.user), id=box.id)
+        return Response(BoxDetailSerializer(updated_box).data, status=status.HTTP_200_OK)
+
+
 class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
     serializer_class = BiologicalMeasurementSerializer
 

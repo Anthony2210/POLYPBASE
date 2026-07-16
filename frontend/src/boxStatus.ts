@@ -12,13 +12,13 @@ const statusLabels: Record<Language, Record<string, BoxStatusPresentation>> = {
     active: { label: 'Vivante', tone: 'alive' },
     stopped: { label: 'Morte', tone: 'dead' },
     lost: { label: 'Perdue', tone: 'warning' },
-    archived: { label: 'Archivée', tone: 'neutral' },
+    archived: { label: 'Archivée', tone: 'dead' },
   },
   en: {
     active: { label: 'Alive', tone: 'alive' },
     stopped: { label: 'Dead', tone: 'dead' },
     lost: { label: 'Lost', tone: 'warning' },
-    archived: { label: 'Archived', tone: 'neutral' },
+    archived: { label: 'Archived', tone: 'dead' },
   },
 };
 

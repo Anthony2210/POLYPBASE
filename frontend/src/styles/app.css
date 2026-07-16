@@ -440,7 +440,9 @@ button:disabled {
 
 .history-trigger,
 .lineage-trigger,
-.move-trigger {
+.move-trigger,
+.archive-box-trigger,
+.activate-box-trigger {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -859,10 +861,34 @@ button:disabled {
 .box-action-stack .history-trigger,
 .box-action-stack .lineage-trigger,
 .box-action-stack .move-trigger,
-.box-action-stack .subculture-trigger {
+.box-action-stack .subculture-trigger,
+.box-action-stack .archive-box-trigger,
+.box-action-stack .activate-box-trigger {
   width: 100%;
   margin-top: 0;
   min-height: 40px;
+}
+
+.archive-box-trigger {
+  border-color: #e9b1a6;
+  background: #fff7f4;
+  color: #b94737;
+}
+
+.archive-box-trigger:hover:not(:disabled) {
+  border-color: var(--coral);
+  background: var(--coral-soft);
+}
+
+.activate-box-trigger {
+  border-color: rgba(37, 128, 80, 0.26);
+  background: rgba(221, 245, 230, 0.76);
+  color: #1f7549;
+}
+
+.activate-box-trigger:hover:not(:disabled) {
+  border-color: #258050;
+  background: rgba(221, 245, 230, 0.96);
 }
 
 .box-alert-trigger {
