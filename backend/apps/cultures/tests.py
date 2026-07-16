@@ -112,6 +112,69 @@ class PolypbaseApiTests(TestCase):
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], self.box.id)
 
+    def test_lab_technician_can_create_box_directly(self):
+        self.client.login(username="tech", password="secret")
+
+        response = self.client.post(
+            reverse("api_box_list"),
+            data=json.dumps(
+                {
+                    "organization": self.organization.id,
+                    "strain": self.strain.id,
+                    "thermal_zone": self.zone.id,
+                    "global_code": "AAU-1.002-ATL",
+                    "local_code": "",
+                    "box_number": "002",
+                    "entered_on": "2026-07-16",
+                    "volume_liters": "0.30",
+                    "notes": "Création manuelle.",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        created_box = Box.objects.get(global_code="AAU-1.002-ATL")
+        self.assertEqual(created_box.status, Box.Status.ACTIVE)
+        self.assertEqual(created_box.thermal_zone, self.zone)
+        self.assertTrue(BoxLocation.objects.filter(box=created_box, thermal_zone=self.zone).exists())
+        self.assertTrue(
+            AuditLog.objects.filter(
+                organization=self.organization,
+                user=self.user,
+                action=AuditLog.Action.CREATION,
+                object_id=created_box.global_code,
+            ).exists()
+        )
+
+    def test_viewer_cannot_create_box_directly(self):
+        user_model = get_user_model()
+        viewer = user_model.objects.create_user(username="box_viewer", password="secret")
+        OrganizationMembership.objects.create(
+            user=viewer,
+            organization=self.organization,
+            role=OrganizationMembership.Role.VIEWER,
+        )
+        self.client.login(username="box_viewer", password="secret")
+
+        response = self.client.post(
+            reverse("api_box_list"),
+            data=json.dumps(
+                {
+                    "organization": self.organization.id,
+                    "strain": self.strain.id,
+                    "thermal_zone": self.zone.id,
+                    "global_code": "AAU-1.002-ATL",
+                    "box_number": "002",
+                    "entered_on": "2026-07-16",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Box.objects.filter(global_code="AAU-1.002-ATL").exists())
+
     def test_drf_box_detail_returns_measurement_history(self):
         BiologicalMeasurement.objects.create(
             box=self.box,

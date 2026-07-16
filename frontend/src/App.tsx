@@ -29,6 +29,7 @@ import { ZoneDetailPage, ZonesView } from './components/ZonesView';
 import { useIsDesktopApp } from './hooks/useIsDesktopApp';
 import type {
   BiologicalMeasurement,
+  BoxCreatePayload,
   BoxDetail,
   BoxItem,
   BoxLineage,
@@ -100,6 +101,7 @@ type RouteState = {
 const translations = {
   fr: {
     account: 'Compte',
+    loading: 'Chargement...',
     backToPilotage: 'Retour au suivi',
     boxNotFound: 'Boîte introuvable',
     boxNotFoundText: 'Cette boîte n’existe pas dans les données chargées.',
@@ -148,6 +150,22 @@ const translations = {
     boxActivateConfirm: 'Remettre cette boîte active ?',
     boxActivated: 'Boîte remise active.',
     boxActivateForbidden: 'Seul un administrateur peut remettre cette boîte active.',
+    createBoxTitle: 'Créer une boîte',
+    createBoxText: 'Ajouter une nouvelle boîte sans passer par le repiquage.',
+    createBoxOpen: 'Créer une boîte',
+    createBoxClose: 'Fermer',
+    createBoxOrganization: 'Structure',
+    createBoxStrain: 'Souche',
+    createBoxZone: 'Emplacement',
+    createBoxNoZone: 'Sans emplacement',
+    createBoxGlobalCode: 'Code boîte',
+    createBoxNumber: 'Numéro',
+    createBoxEnteredOn: 'Date d’entrée',
+    createBoxNotes: 'Note',
+    createBoxSubmit: 'Créer',
+    createBoxSaved: 'Boîte créée.',
+    createBoxNoOptions: 'Aucune souche disponible pour créer une boîte.',
+    createBoxForbidden: 'Ce compte ne peut pas créer de boîte.',
     adminCurrentSession: 'Session active',
     adminChangeRole: 'Modifier rôle',
     adminRemoveAccess: 'Supprimer accès',
@@ -439,6 +457,7 @@ const translations = {
   },
   en: {
     account: 'Account',
+    loading: 'Loading...',
     backToPilotage: 'Back to tracking',
     boxNotFound: 'Box not found',
     boxNotFoundText: 'This box does not exist in the loaded data.',
@@ -487,6 +506,22 @@ const translations = {
     boxActivateConfirm: 'Mark this box active again?',
     boxActivated: 'Box marked active again.',
     boxActivateForbidden: 'Only an administrator can mark this box active again.',
+    createBoxTitle: 'Create a box',
+    createBoxText: 'Add a new box without going through subculture.',
+    createBoxOpen: 'Create a box',
+    createBoxClose: 'Close',
+    createBoxOrganization: 'Organization',
+    createBoxStrain: 'Strain',
+    createBoxZone: 'Location',
+    createBoxNoZone: 'No location',
+    createBoxGlobalCode: 'Box code',
+    createBoxNumber: 'Number',
+    createBoxEnteredOn: 'Entry date',
+    createBoxNotes: 'Note',
+    createBoxSubmit: 'Create',
+    createBoxSaved: 'Box created.',
+    createBoxNoOptions: 'No strain available to create a box.',
+    createBoxForbidden: 'This account cannot create boxes.',
     adminCurrentSession: 'Active session',
     adminChangeRole: 'Change role',
     adminRemoveAccess: 'Remove access',
@@ -811,7 +846,12 @@ export default function App() {
   const isDesktopApp = useIsDesktopApp();
   const canUseAdmin = userHasAdminRole(data.profile);
   const isProfileAdminLoading = activeTab === 'profile' && canUseAdmin && data.exportOptions === null;
-  const isExportOptionsLoading = (activeTab === 'exports' || isProfileAdminLoading) && data.exportOptions === null;
+  const isPilotageOptionsLoading = activeTab === 'pilotage' && data.exportOptions === null;
+  const isExportOptionsLoading = (
+    activeTab === 'exports' ||
+    isProfileAdminLoading ||
+    isPilotageOptionsLoading
+  ) && data.exportOptions === null;
   const isOverviewLoading = activeTab === 'overview' && data.overview === null;
   const workspacePageKey = `${activeTab}-${route.boxCode ?? route.boxId ?? 'list'}-${route.zoneId ?? 'list'}`;
   const brandOrganizationName = getBrandOrganizationName(data.profile, t);
@@ -1069,7 +1109,10 @@ export default function App() {
   }, [activeTab, availableTabs]);
 
   useEffect(() => {
-    const shouldLoadExportOptions = activeTab === 'exports' || (activeTab === 'profile' && canUseAdmin);
+    const shouldLoadExportOptions =
+      activeTab === 'pilotage' ||
+      activeTab === 'exports' ||
+      (activeTab === 'profile' && canUseAdmin);
     if (isLoginRoute || data.exportOptions || !shouldLoadExportOptions) return;
 
     let isActive = true;
@@ -1143,6 +1186,18 @@ export default function App() {
       overview: null,
     }));
     return created;
+  }
+
+  async function createBox(payload: BoxCreatePayload) {
+    const detail = await apiPost<BoxDetail>('/api/boxes/', payload);
+
+    setData((current) => ({
+      ...mergeBoxDetail(current, detail),
+      boxes: upsertBoxes(current.boxes, [detail]),
+      overview: null,
+      exportOptions: null,
+    }));
+    return detail;
   }
 
   async function updateMeasurement(boxId: number, measurementId: number, payload: MeasurementPayload) {
@@ -1343,10 +1398,14 @@ export default function App() {
             {activeTab === 'pilotage' && !isBoxRoute && (
               <PilotageView
                 boxes={data.boxes}
+                exportOptions={data.exportOptions}
                 isLoading={isLoading}
+                isOptionsLoading={isExportOptionsLoading}
+                profile={data.profile}
                 search={search}
                 suggestions={filteredBoxes.slice(0, 5)}
                 recentBoxes={recentBoxes}
+                onCreateBox={createBox}
                 onSearch={setSearch}
                 onSelectBox={openBox}
                 t={t}
@@ -1459,25 +1518,34 @@ export default function App() {
 
 function PilotageView({
   boxes,
+  exportOptions,
   isLoading,
+  isOptionsLoading,
+  profile,
   recentBoxes,
   search,
   suggestions,
+  onCreateBox,
   t,
   onSearch,
   onSelectBox,
 }: {
   boxes: BoxItem[];
+  exportOptions: ExportOptions | null;
   isLoading: boolean;
+  isOptionsLoading: boolean;
+  profile: UserProfile | null;
   recentBoxes: BoxItem[];
   search: string;
   suggestions: BoxItem[];
+  onCreateBox: (payload: BoxCreatePayload) => Promise<BoxDetail>;
   t: TFunction;
   onSearch: (value: string) => void;
   onSelectBox: (id: number) => void;
 }) {
   const visibleSuggestions = search.trim() ? suggestions : [];
   const [tabletLookupMode, setTabletLookupMode] = useState<'qr' | 'search'>('qr');
+  const canCreateBox = userCanCreateBoxes(profile);
 
   function selectFirstSuggestion() {
     if (visibleSuggestions[0]) {
@@ -1578,9 +1646,218 @@ function PilotageView({
         </div>
 
         <RecentAccessList boxes={recentBoxes} onSelectBox={onSelectBox} t={t} />
+
+        {canCreateBox ? (
+          <CreateBoxPanel
+            boxes={boxes}
+            exportOptions={exportOptions}
+            isOptionsLoading={isOptionsLoading}
+            profile={profile}
+            t={t}
+            onCreateBox={onCreateBox}
+            onSelectBox={onSelectBox}
+            onSearch={onSearch}
+          />
+        ) : null}
       </div>
 
       <JellyfishPattern />
+    </section>
+  );
+}
+
+function CreateBoxPanel({
+  boxes,
+  exportOptions,
+  isOptionsLoading,
+  profile,
+  onCreateBox,
+  onSearch,
+  onSelectBox,
+  t,
+}: {
+  boxes: BoxItem[];
+  exportOptions: ExportOptions | null;
+  isOptionsLoading: boolean;
+  profile: UserProfile | null;
+  onCreateBox: (payload: BoxCreatePayload) => Promise<BoxDetail>;
+  onSearch: (value: string) => void;
+  onSelectBox: (id: number) => void;
+  t: TFunction;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const writableOrganizations = useMemo(() => getWritableOrganizations(profile), [profile]);
+  const initialOrganizationId = writableOrganizations[0]?.id ?? null;
+  const [organizationId, setOrganizationId] = useState<number | null>(initialOrganizationId);
+  const [strainId, setStrainId] = useState<number | null>(null);
+  const [zoneId, setZoneId] = useState<number | null>(null);
+  const [globalCode, setGlobalCode] = useState('');
+  const [boxNumber, setBoxNumber] = useState('');
+  const [enteredOn, setEnteredOn] = useState(() => new Date().toISOString().slice(0, 10));
+  const [notes, setNotes] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const strains = exportOptions?.strains ?? [];
+  const selectedStrain = strains.find((strain) => strain.id === strainId) ?? null;
+  const availableZones = (exportOptions?.zones ?? []).filter((zone) => zone.organization_id === organizationId);
+  const canSubmit = organizationId != null && strainId != null && globalCode.trim() && boxNumber.trim();
+
+  useEffect(() => {
+    if (organizationId != null || initialOrganizationId == null) return;
+    setOrganizationId(initialOrganizationId);
+  }, [initialOrganizationId, organizationId]);
+
+  useEffect(() => {
+    if (!strains.length || strainId != null) return;
+    setStrainId(strains[0].id);
+  }, [strainId, strains]);
+
+  useEffect(() => {
+    if (organizationId == null || !selectedStrain) return;
+    const suggestion = buildNextBoxCode(boxes, selectedStrain, organizationId);
+    setGlobalCode((current) => current.trim() ? current : suggestion.globalCode);
+    setBoxNumber((current) => current.trim() ? current : suggestion.boxNumber);
+  }, [boxes, organizationId, selectedStrain]);
+
+  useEffect(() => {
+    if (zoneId == null || availableZones.some((zone) => zone.id === zoneId)) return;
+    setZoneId(null);
+  }, [availableZones, zoneId]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isSaving || !canSubmit || organizationId == null || strainId == null) return;
+
+    setIsSaving(true);
+    setMessage(null);
+    setError(null);
+
+    try {
+      const created = await onCreateBox({
+        organization: organizationId,
+        strain: strainId,
+        thermal_zone: zoneId,
+        global_code: globalCode.trim(),
+        local_code: '',
+        box_number: boxNumber.trim(),
+        entered_on: enteredOn,
+        volume_liters: null,
+        notes: notes.trim(),
+      });
+      setMessage(t('createBoxSaved'));
+      setGlobalCode('');
+      setBoxNumber('');
+      setNotes('');
+      onSearch(created.global_code);
+      onSelectBox(created.id);
+    } catch (requestError) {
+      if (requestError instanceof ApiError && requestError.status === 403) {
+        setError(t('createBoxForbidden'));
+      } else {
+        setError(getErrorMessage(requestError));
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <section className="create-box-panel">
+      <button
+        className="create-box-toggle"
+        type="button"
+        onClick={() => setIsOpen((current) => !current)}
+      >
+        {isOpen ? t('createBoxClose') : t('createBoxOpen')}
+      </button>
+
+      {isOpen ? (
+        <form className="create-box-form" onSubmit={handleSubmit}>
+          <div className="section-title">
+            <h2>{t('createBoxTitle')}</h2>
+            <span>{t('createBoxText')}</span>
+          </div>
+
+          {isOptionsLoading ? <p className="muted compact-text">{t('loading')}</p> : null}
+          {!isOptionsLoading && !strains.length ? <p className="muted compact-text">{t('createBoxNoOptions')}</p> : null}
+
+          <label>
+            <span>{t('createBoxOrganization')}</span>
+            <select
+              value={organizationId ?? ''}
+              onChange={(event) => {
+                setOrganizationId(Number(event.target.value));
+                setGlobalCode('');
+                setBoxNumber('');
+              }}
+            >
+              {writableOrganizations.map((organization) => (
+                <option key={organization.id} value={organization.id}>
+                  {organization.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span>{t('createBoxStrain')}</span>
+            <select
+              value={strainId ?? ''}
+              onChange={(event) => {
+                setStrainId(Number(event.target.value));
+                setGlobalCode('');
+                setBoxNumber('');
+              }}
+            >
+              {strains.map((strain) => (
+                <option key={strain.id} value={strain.id}>
+                  {strain.species_name} - {strain.code}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span>{t('createBoxZone')}</span>
+            <select value={zoneId ?? ''} onChange={(event) => setZoneId(event.target.value ? Number(event.target.value) : null)}>
+              <option value="">{t('createBoxNoZone')}</option>
+              {availableZones.map((zone) => (
+                <option key={zone.id} value={zone.id}>
+                  {zone.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span>{t('createBoxGlobalCode')}</span>
+            <input required value={globalCode} onChange={(event) => setGlobalCode(event.target.value)} />
+          </label>
+
+          <label>
+            <span>{t('createBoxNumber')}</span>
+            <input required value={boxNumber} onChange={(event) => setBoxNumber(event.target.value)} />
+          </label>
+
+          <label>
+            <span>{t('createBoxEnteredOn')}</span>
+            <input required type="date" value={enteredOn} onChange={(event) => setEnteredOn(event.target.value)} />
+          </label>
+
+          <label className="create-box-wide">
+            <span>{t('createBoxNotes')}</span>
+            <textarea rows={2} value={notes} onChange={(event) => setNotes(event.target.value)} />
+          </label>
+
+          <button type="submit" disabled={isSaving || !canSubmit}>
+            {isSaving ? t('saving') : t('createBoxSubmit')}
+          </button>
+          {message ? <p className="inline-success">{message}</p> : null}
+          {error ? <p className="inline-error">{error}</p> : null}
+        </form>
+      ) : null}
     </section>
   );
 }
@@ -3017,6 +3294,76 @@ function userHasAdminRole(profile: UserProfile | null) {
   if (!profile) return false;
   if (profile.is_superuser) return true;
   return profile.memberships.some((membership) => membership.role === 'admin');
+}
+
+function userCanCreateBoxes(profile: UserProfile | null) {
+  if (!profile) return false;
+  if (profile.is_superuser) return true;
+  return profile.memberships.some((membership) => ['admin', 'lab_technician'].includes(membership.role));
+}
+
+function getWritableOrganizations(profile: UserProfile | null) {
+  if (!profile) return [];
+  if (profile.is_superuser) return profile.organizations;
+  const writableIds = new Set(
+    profile.memberships
+      .filter((membership) => ['admin', 'lab_technician'].includes(membership.role))
+      .map((membership) => membership.organization.id),
+  );
+  return profile.organizations.filter((organization) => writableIds.has(organization.id));
+}
+
+function buildNextBoxCode(
+  boxes: BoxItem[],
+  strain: ExportOptions['strains'][number],
+  organizationId: number,
+) {
+  const matchingBoxes = boxes
+    .filter((box) => box.organization.id === organizationId && box.strain.id === strain.id)
+    .map((box) => {
+      const match = box.global_code.match(/^(.*\.)(\d+)(.*)$/);
+      return {
+        box,
+        prefix: match?.[1] ?? '',
+        numberText: match?.[2] ?? '',
+        suffix: match?.[3] ?? '',
+        number: match ? Number(match[2]) : Number.NaN,
+      };
+    })
+    .filter((item) => Number.isFinite(item.number))
+    .sort((first, second) => second.number - first.number);
+
+  const template = matchingBoxes[0];
+  if (template) {
+    const nextNumber = template.number + 1;
+    const boxNumber = String(nextNumber).padStart(template.numberText.length, '0');
+    return {
+      boxNumber,
+      globalCode: `${template.prefix}${boxNumber}${template.suffix}`,
+    };
+  }
+
+  const fallbackPrefix = getExistingSpeciesPrefix(boxes, strain.species_id) ?? getSpeciesCode(strain.species_name);
+  const boxNumber = '001';
+  return {
+    boxNumber,
+    globalCode: `${fallbackPrefix}.001`,
+  };
+}
+
+function getExistingSpeciesPrefix(boxes: BoxItem[], speciesId: number) {
+  const matchingBox = boxes.find((box) => box.species.id === speciesId);
+  const match = matchingBox?.global_code.match(/^(.*\D)\d+(?:-|$)/);
+  return match?.[1]?.replace(/\.$/, '') ?? null;
+}
+
+function getSpeciesCode(speciesName: string) {
+  return speciesName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part.slice(0, 3).toUpperCase())
+    .join('-') || 'BOX';
 }
 
 function userCanWriteLabData(profile: UserProfile | null, organizationId: number) {
