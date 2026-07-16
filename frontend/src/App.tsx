@@ -2534,13 +2534,12 @@ function BoxPage({
           <div>
             <p className="box-page-label">{t('boxSheet')}</p>
             <div className="box-code-line">
-              <h2>{box.global_code}</h2>
+              <h2>{box.strain.code}</h2>
             </div>
             <p className="box-species-name">{box.species.scientific_name}</p>
           </div>
 
           <div className="box-small-facts">
-            <InfoPill label={t('boxStrain')} value={box.strain.code} />
             <InfoPill label={t('createdOn')} value={createdOn ? formatDisplayDate(createdOn) : t('noDate')} />
           </div>
         </div>
