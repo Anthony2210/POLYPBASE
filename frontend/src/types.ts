@@ -215,6 +215,18 @@ export type BoxMovePayload = {
   notes: string;
 };
 
+export type BoxCreatePayload = {
+  organization: number;
+  strain: number;
+  thermal_zone: number | null;
+  global_code: string;
+  local_code: string;
+  box_number: string;
+  entered_on: string;
+  volume_liters: string | null;
+  notes: string;
+};
+
 export type Probe = {
   id: number;
   code: string;

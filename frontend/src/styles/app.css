@@ -364,6 +364,87 @@ button:disabled {
   display: block;
 }
 
+.create-box-panel {
+  margin-top: 18px;
+}
+
+.create-box-toggle,
+.create-box-form button[type='submit'] {
+  min-height: 42px;
+  border: 1px solid rgba(16, 107, 135, 0.22);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--primary);
+  font-weight: 800;
+  padding: 0 14px;
+}
+
+.create-box-toggle:hover,
+.create-box-form button[type='submit']:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.create-box-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.create-box-form .section-title,
+.create-box-form .inline-success,
+.create-box-form .inline-error,
+.create-box-form .compact-text,
+.create-box-wide,
+.create-box-form button[type='submit'] {
+  grid-column: 1 / -1;
+}
+
+.create-box-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 760;
+}
+
+.create-box-form input,
+.create-box-form select,
+.create-box-form textarea {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--ink);
+  font: inherit;
+  padding: 0 11px;
+}
+
+.create-box-form textarea {
+  min-height: 78px;
+  padding: 10px 11px;
+  resize: vertical;
+}
+
+.create-box-form input:focus,
+.create-box-form select:focus,
+.create-box-form textarea:focus {
+  border-color: var(--primary);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(16, 107, 135, 0.12);
+}
+
+.create-box-form button[type='submit']:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .search-field {
   display: grid;
   gap: 8px;
@@ -8813,4 +8894,11 @@ button.zone-attention-item:hover {
   font-size: 0.78rem;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+@media (max-width: 760px) {
+  .create-box-form {
+    grid-template-columns: 1fr;
+    border-radius: 14px;
+  }
 }

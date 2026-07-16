@@ -268,6 +268,57 @@ class BiologicalMeasurementCreateSerializer(serializers.ModelSerializer):
         ]
 
 
+class BoxCreateSerializer(serializers.Serializer):
+    organization = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.filter(is_active=True))
+    strain = serializers.PrimaryKeyRelatedField(queryset=Strain.objects.select_related("species"))
+    thermal_zone = serializers.PrimaryKeyRelatedField(
+        queryset=ThermalZone.objects.filter(is_active=True),
+        required=False,
+        allow_null=True,
+    )
+    global_code = serializers.CharField(max_length=100)
+    local_code = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
+    box_number = serializers.CharField(max_length=80)
+    entered_on = serializers.DateField(default=timezone.localdate)
+    volume_liters = serializers.DecimalField(max_digits=5, decimal_places=2, required=False, allow_null=True)
+    notes = serializers.CharField(required=False, allow_blank=True, default="")
+
+    def validate(self, attrs):
+        request = self.context["request"]
+        organization = attrs["organization"]
+        thermal_zone = attrs.get("thermal_zone")
+
+        if not request.user.is_superuser:
+            from apps.accounts.permissions import user_can_write_lab_data
+
+            if not user_can_write_lab_data(request.user, organization):
+                raise serializers.ValidationError("This user cannot create boxes for this organization.")
+
+        if thermal_zone and thermal_zone.organization_id != organization.id:
+            raise serializers.ValidationError("The thermal zone must belong to the box organization.")
+
+        if Box.objects.filter(global_code=attrs["global_code"]).exists():
+            raise serializers.ValidationError({"global_code": "A box already uses this global code."})
+
+        return attrs
+
+    def create(self, validated_data):
+        thermal_zone = validated_data.pop("thermal_zone", None)
+        box = Box.objects.create(
+            **validated_data,
+            thermal_zone=thermal_zone,
+            status=Box.Status.ACTIVE,
+        )
+        if thermal_zone:
+            BoxLocation.objects.create(
+                box=box,
+                thermal_zone=thermal_zone,
+                starts_at=timezone.now(),
+                notes="Initial location after manual creation.",
+            )
+        return box
+
+
 class BoxMoveCreateSerializer(serializers.Serializer):
     thermal_zone_id = serializers.PrimaryKeyRelatedField(
         queryset=ThermalZone.objects.filter(is_active=True),

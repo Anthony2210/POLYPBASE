@@ -28,6 +28,7 @@ from .serializers import (
     AuditLogAccessSerializer,
     BiologicalMeasurementCreateSerializer,
     BiologicalMeasurementSerializer,
+    BoxCreateSerializer,
     BoxDetailSerializer,
     BoxListSerializer,
     BoxMoveCreateSerializer,
@@ -365,8 +366,11 @@ class OverviewActiveBoxesAPIView(APIView):
         }
 
 
-class BoxListAPIView(generics.ListAPIView):
-    serializer_class = BoxListSerializer
+class BoxListAPIView(generics.ListCreateAPIView):
+    def get_serializer_class(self):
+        if self.request.method == "POST":
+            return BoxCreateSerializer
+        return BoxListSerializer
 
     def get_queryset(self):
         queryset = box_list_queryset_for_user(self.request.user).order_by("global_code")
@@ -395,6 +399,34 @@ class BoxListAPIView(generics.ListAPIView):
         if value.isdigit():
             return queryset.filter(organization_id=int(value))
         return queryset.filter(organization__slug=value)
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        box = serializer.save()
+        AuditLog.objects.create(
+            organization=box.organization,
+            user=request.user,
+            action=AuditLog.Action.CREATION,
+            object_type="box",
+            object_id=box.global_code,
+            description=f"Box created manually: {box.global_code}",
+            metadata={
+                "box_id": box.id,
+                "valeurs": {
+                    "code_global": box.global_code,
+                    "numero_boite": box.box_number,
+                    "souche": box.strain.code,
+                    "espece": box.strain.species.scientific_name,
+                    "emplacement": box.thermal_zone.name if box.thermal_zone else None,
+                    "date_entree": box.entered_on.isoformat() if box.entered_on else None,
+                    "volume_litres": _json_value(box.volume_liters),
+                    "note": box.notes,
+                },
+            },
+        )
+        created_box = get_object_or_404(box_queryset_for_user(request.user), id=box.id)
+        return Response(BoxDetailSerializer(created_box).data, status=status.HTTP_201_CREATED)
 
 
 class BoxDetailAPIView(generics.RetrieveAPIView):
