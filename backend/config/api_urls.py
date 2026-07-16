@@ -9,8 +9,10 @@ from apps.accounts.api_views import (
     UserProfileAPIView,
 )
 from apps.cultures.api_views import (
-    BoxDetailAPIView,
     BoxAccessAPIView,
+    BoxActivateAPIView,
+    BoxArchiveAPIView,
+    BoxDetailAPIView,
     BoxLineageGraphAPIView,
     BoxListAPIView,
     BoxMeasurementDetailAPIView,
@@ -44,6 +46,16 @@ urlpatterns = [
         "boxes/<int:box_id>/access/",
         BoxAccessAPIView.as_view(),
         name="api_box_access",
+    ),
+    path(
+        "boxes/<int:box_id>/archive/",
+        BoxArchiveAPIView.as_view(),
+        name="api_box_archive",
+    ),
+    path(
+        "boxes/<int:box_id>/activate/",
+        BoxActivateAPIView.as_view(),
+        name="api_box_activate",
     ),
     path(
         "boxes/<int:box_id>/measurements/",

@@ -140,6 +140,14 @@ const translations = {
     adminAuditObject: 'Objet',
     adminAuditShow: 'Afficher',
     adminAuditHide: 'Masquer',
+    boxArchiveAction: 'Inactive',
+    boxArchiveConfirm: 'Mettre cette boîte inactive ? Son historique sera conservé.',
+    boxArchived: 'Boîte mise inactive.',
+    boxArchiveForbidden: 'Seul un administrateur peut mettre cette boîte inactive.',
+    boxActivateAction: 'Active',
+    boxActivateConfirm: 'Remettre cette boîte active ?',
+    boxActivated: 'Boîte remise active.',
+    boxActivateForbidden: 'Seul un administrateur peut remettre cette boîte active.',
     adminCurrentSession: 'Session active',
     adminChangeRole: 'Modifier rôle',
     adminRemoveAccess: 'Supprimer accès',
@@ -471,6 +479,14 @@ const translations = {
     adminAuditObject: 'Object',
     adminAuditShow: 'Show',
     adminAuditHide: 'Hide',
+    boxArchiveAction: 'Inactive',
+    boxArchiveConfirm: 'Mark this box inactive? Its history will be kept.',
+    boxArchived: 'Box marked inactive.',
+    boxArchiveForbidden: 'Only an administrator can mark this box inactive.',
+    boxActivateAction: 'Active',
+    boxActivateConfirm: 'Mark this box active again?',
+    boxActivated: 'Box marked active again.',
+    boxActivateForbidden: 'Only an administrator can mark this box active again.',
     adminCurrentSession: 'Active session',
     adminChangeRole: 'Change role',
     adminRemoveAccess: 'Remove access',
@@ -1167,6 +1183,28 @@ export default function App() {
     }));
   }
 
+  async function archiveBox(boxId: number) {
+    const detail = await apiPost<BoxDetail>(`/api/boxes/${boxId}/archive/`, {});
+
+    setData((current) => ({
+      ...mergeBoxDetail(current, detail),
+      boxes: upsertBoxes(current.boxes, [detail]),
+      overview: null,
+      exportOptions: null,
+    }));
+  }
+
+  async function activateBox(boxId: number) {
+    const detail = await apiPost<BoxDetail>(`/api/boxes/${boxId}/activate/`, {});
+
+    setData((current) => ({
+      ...mergeBoxDetail(current, detail),
+      boxes: upsertBoxes(current.boxes, [detail]),
+      overview: null,
+      exportOptions: null,
+    }));
+  }
+
   async function loadLineageGraph(boxId: number) {
     return apiGet<LineageGraph>(`/api/boxes/${boxId}/lineage/`);
   }
@@ -1290,6 +1328,8 @@ export default function App() {
                 onUpdateMeasurement={updateMeasurement}
                 onCreateSubculture={createSubculture}
                 onMoveBox={moveBox}
+                onArchiveBox={archiveBox}
+                onActivateBox={activateBox}
                 onLoadLineageGraph={loadLineageGraph}
                 onOpenBox={openBox}
                 onOpenZone={openZone}
@@ -1882,6 +1922,8 @@ function BoxPage({
   onUpdateMeasurement,
   onCreateSubculture,
   onMoveBox,
+  onArchiveBox,
+  onActivateBox,
   onLoadLineageGraph,
   onOpenBox,
   onOpenZone,
@@ -1905,6 +1947,8 @@ function BoxPage({
   ) => Promise<BiologicalMeasurement>;
   onCreateSubculture: (boxId: number, payload: SubculturePayload) => Promise<void>;
   onMoveBox: (boxId: number, payload: BoxMovePayload) => Promise<void>;
+  onArchiveBox: (boxId: number) => Promise<void>;
+  onActivateBox: (boxId: number) => Promise<void>;
   onLoadLineageGraph: (boxId: number) => Promise<LineageGraph>;
   onOpenBox: (boxId: number, globalCode: string) => void;
   onOpenZone: (zoneId: number) => void;
@@ -1922,8 +1966,11 @@ function BoxPage({
   const [lineageGraphError, setLineageGraphError] = useState<string | null>(null);
   const [isMoveOpen, setIsMoveOpen] = useState(false);
   const [isSavingMove, setIsSavingMove] = useState(false);
+  const [isChangingBoxStatus, setIsChangingBoxStatus] = useState(false);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [moveMessage, setMoveMessage] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isSubcultureOpen, setIsSubcultureOpen] = useState(false);
   const [isSavingSubculture, setIsSavingSubculture] = useState(false);
   const [isQrLabelOpen, setIsQrLabelOpen] = useState(false);
@@ -1946,8 +1993,11 @@ function BoxPage({
     setLineageGraphError(null);
     setIsMoveOpen(false);
     setIsSavingMove(false);
+    setIsChangingBoxStatus(false);
     setMoveError(null);
     setMoveMessage(null);
+    setStatusError(null);
+    setStatusMessage(null);
     setIsSubcultureOpen(false);
     setIsQrLabelOpen(false);
     setIsChecksOpen(false);
@@ -2038,6 +2088,9 @@ function BoxPage({
   const createdOn = getBoxCreatedDate(box);
   const statusPresentation = getBoxStatusPresentation(box.status, language);
   const canWriteLabData = userCanWriteLabData(profile, box.organization.id);
+  const canChangeBoxStatus = userCanArchiveBox(profile, box.organization.id);
+  const isBoxActive = box.status === 'active';
+  const canShowStatusButton = canChangeBoxStatus && ['active', 'archived'].includes(box.status);
 
   async function saveMeasurement(): Promise<boolean> {
     if (!box || isSaving) return false;
@@ -2148,6 +2201,35 @@ function BoxPage({
     }
   }
 
+  async function handleChangeBoxStatus() {
+    if (!box || isChangingBoxStatus) return;
+    const isActivating = box.status === 'archived';
+    const confirmKey = isActivating ? 'boxActivateConfirm' : 'boxArchiveConfirm';
+    if (!window.confirm(t(confirmKey))) return;
+
+    setIsChangingBoxStatus(true);
+    setStatusError(null);
+    setStatusMessage(null);
+
+    try {
+      if (isActivating) {
+        await onActivateBox(box.id);
+        setStatusMessage(t('boxActivated'));
+      } else {
+        await onArchiveBox(box.id);
+        setStatusMessage(t('boxArchived'));
+      }
+    } catch (requestError) {
+      if (requestError instanceof ApiError && requestError.status === 403) {
+        setStatusError(t(isActivating ? 'boxActivateForbidden' : 'boxArchiveForbidden'));
+      } else {
+        setStatusError(getErrorMessage(requestError));
+      }
+    } finally {
+      setIsChangingBoxStatus(false);
+    }
+  }
+
   async function handleLoadLineageGraph() {
     if (!box) return;
 
@@ -2245,6 +2327,17 @@ function BoxPage({
               </button>
             </>
           ) : null}
+
+          {canShowStatusButton ? (
+            <button
+              className={isBoxActive ? 'archive-box-trigger' : 'activate-box-trigger'}
+              type="button"
+              disabled={isChangingBoxStatus}
+              onClick={() => void handleChangeBoxStatus()}
+            >
+              {isChangingBoxStatus ? t('saving') : t(isBoxActive ? 'boxArchiveAction' : 'boxActivateAction')}
+            </button>
+          ) : null}
         </div>
       </header>
 
@@ -2253,6 +2346,12 @@ function BoxPage({
       ) : null}
       {moveMessage ? (
         <p className="inline-success box-action-feedback">{moveMessage}</p>
+      ) : null}
+      {statusMessage ? (
+        <p className="inline-success box-action-feedback">{statusMessage}</p>
+      ) : null}
+      {statusError ? (
+        <p className="inline-error box-action-feedback">{statusError}</p>
       ) : null}
 
       <div className="box-page-grid">
@@ -2927,6 +3026,15 @@ function userCanWriteLabData(profile: UserProfile | null, organizationId: number
   return profile.memberships.some(
     (membership) => membership.organization.id === organizationId
       && ['admin', 'lab_technician'].includes(membership.role),
+  );
+}
+
+function userCanArchiveBox(profile: UserProfile | null, organizationId: number) {
+  if (!profile) return false;
+  if (profile.is_superuser) return true;
+
+  return profile.memberships.some(
+    (membership) => membership.organization.id === organizationId && membership.role === 'admin',
   );
 }
 

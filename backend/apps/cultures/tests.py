@@ -128,6 +128,74 @@ class PolypbaseApiTests(TestCase):
         self.assertEqual(payload["global_code"], "AAU-1.001-ATL")
         self.assertEqual(payload["biological_measurements"][0]["polyp_count"], 42)
 
+    def test_admin_can_mark_box_inactive_without_deleting_history(self):
+        user_model = get_user_model()
+        admin = user_model.objects.create_user(username="box_admin", password="secret")
+        OrganizationMembership.objects.create(
+            user=admin,
+            organization=self.organization,
+            role=OrganizationMembership.Role.ADMIN,
+        )
+        BiologicalMeasurement.objects.create(
+            box=self.box,
+            measured_on=date(2026, 5, 4),
+            polyp_count=42,
+            user=self.user,
+        )
+        self.client.login(username="box_admin", password="secret")
+
+        response = self.client.post(reverse("api_box_archive", args=[self.box.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.box.refresh_from_db()
+        self.assertEqual(self.box.status, Box.Status.ARCHIVED)
+        self.assertTrue(BiologicalMeasurement.objects.filter(box=self.box).exists())
+        self.assertTrue(
+            AuditLog.objects.filter(
+                organization=self.organization,
+                user=admin,
+                action=AuditLog.Action.ARCHIVE,
+                object_id=self.box.global_code,
+            ).exists()
+        )
+
+    def test_technician_cannot_mark_box_inactive(self):
+        self.client.login(username="tech", password="secret")
+
+        response = self.client.post(reverse("api_box_archive", args=[self.box.id]))
+
+        self.assertEqual(response.status_code, 403)
+        self.box.refresh_from_db()
+        self.assertEqual(self.box.status, Box.Status.ACTIVE)
+
+    def test_admin_can_reactivate_archived_box(self):
+        user_model = get_user_model()
+        admin = user_model.objects.create_user(username="box_admin", password="secret")
+        OrganizationMembership.objects.create(
+            user=admin,
+            organization=self.organization,
+            role=OrganizationMembership.Role.ADMIN,
+        )
+        self.box.status = Box.Status.ARCHIVED
+        self.box.stop_reason = "Erreur de manipulation."
+        self.box.save(update_fields=["status", "stop_reason"])
+        self.client.login(username="box_admin", password="secret")
+
+        response = self.client.post(reverse("api_box_activate", args=[self.box.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.box.refresh_from_db()
+        self.assertEqual(self.box.status, Box.Status.ACTIVE)
+        self.assertEqual(self.box.stop_reason, "")
+        self.assertTrue(
+            AuditLog.objects.filter(
+                organization=self.organization,
+                user=admin,
+                action=AuditLog.Action.UPDATE,
+                object_id=self.box.global_code,
+            ).exists()
+        )
+
     def test_box_accesses_are_saved_for_the_current_account_only(self):
         user_model = get_user_model()
         other_user = user_model.objects.create_user(username="other_tech", password="secret")
