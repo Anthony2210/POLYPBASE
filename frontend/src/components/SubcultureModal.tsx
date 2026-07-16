@@ -37,7 +37,6 @@ const labels = {
     addChild: 'Ajouter une boîte',
     removeChild: 'Supprimer cette boîte',
     globalCode: 'Code global',
-    localCode: 'Code local',
     boxNumber: 'Numéro',
     zone: 'Emplacement thermique',
     childNotes: 'Note',
@@ -60,7 +59,6 @@ const labels = {
     addChild: 'Add a box',
     removeChild: 'Remove this box',
     globalCode: 'Global code',
-    localCode: 'Local code',
     boxNumber: 'Number',
     zone: 'Thermal zone',
     childNotes: 'Note',
@@ -210,15 +208,8 @@ export default function SubcultureModal({
                   {text.globalCode}
                   <input
                     required
+                    readOnly
                     value={child.global_code}
-                    onChange={(event) => updateChild(child.key, { global_code: event.target.value })}
-                  />
-                </label>
-                <label>
-                  {text.localCode}
-                  <input
-                    value={child.local_code}
-                    onChange={(event) => updateChild(child.key, { local_code: event.target.value })}
                   />
                 </label>
                 <label>
@@ -321,7 +312,7 @@ function suggestChildIdentity(
   existingBoxes: BoxItem[],
   currentChildren: ChildDraft[],
 ) {
-  const match = parentBox.global_code.match(/^(.*\.)(\d+)(-[^-]+)$/);
+  const match = parentBox.global_code.match(/^(.*\.)(\d+)(.*)$/);
   if (!match) {
     return { globalCode: '', boxNumber: '' };
   }
