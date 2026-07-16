@@ -388,7 +388,7 @@ const translations = {
     zoneOverviewMissingMeasurements: 'relevé(s) manquant(s)',
     zoneTarget: 'Consigne',
     zoneCapacity: 'Capacité',
-    zoneOccupancy: 'Remplissage',
+    zoneOccupancy: 'Capacité',
     zoneNoAttention: 'Aucune action à prévoir dans cet emplacement.',
     zoneNoRecentActivity: 'Aucun relevé récent dans cet emplacement.',
     zoneSummaryAlive: 'Vivantes',
