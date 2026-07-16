@@ -141,9 +141,9 @@ export function ZonesView({
                 <span className="zone-card-facts">
                   <span>
                     <small>{t('salinityShort')}</small>
-                    <strong>{formatSalinity(entry.zone.latest_salinity?.salinity_psu)}</strong>
-                    {entry.zone.latest_salinity == null ? (
-                      <p className="inline-error">Salinite manquante</p>
+                    <strong>{formatSalinity(entry.zone.salinity_psu)}</strong>
+                    {entry.salinityNeedsAttention ? (
+                      <p className="inline-error">{t('zoneSalinityMissing')}</p>
                     ) : null}
                   </span>
                   <span>
@@ -234,6 +234,7 @@ export function ZoneDetailPage({
         <div className="zone-hero-summary" aria-label={t('zoneBoxesTitle')}>
           <Metric label={t('boxes')} value={String(zoneBoxes.length)} />
           <Metric label={t('zoneCapacity')} value={formatZoneCapacity(zone.capacity)} />
+          <Metric label={t('zoneSalinity')} value={formatZoneSalinity(zone.salinity_psu)} />
           <Metric label={t('zoneSummaryAlive')} value={String(livingBoxes.length)} />
           <Metric label={t('zoneSummaryAttention')} value={String(attentionBoxes.length)} />
           <Metric label={t('probes')} value={String(zone.probes.length)} />
@@ -370,7 +371,10 @@ function buildZoneOverviewEntry(zone: ThermalZone, boxes: BoxItem[]): ZoneOvervi
   const temperatureNeedsAttention = targetTemperature === null
     || measuredTemperature === null
     || Math.abs(measuredTemperature - targetTemperature) > 1;
-  const salinityNeedsAttention = zone.latest_salinity?.salinity_psu == null;
+  // The reference salinity is the one kept by hand on the zone (like the
+  // capacity). The SalinityMeasurement table it used to read has no ingestion,
+  // so it was always empty and every zone looked like it was missing a value.
+  const salinityNeedsAttention = zone.salinity_psu == null || zone.salinity_psu === '';
 
   return {
     zone,
@@ -402,7 +406,7 @@ function getZoneAttentionReasons(entry: ZoneOverviewEntry, t: TFunction) {
   }
 
   if (entry.salinityNeedsAttention) {
-    reasons.push('Salinite manquante');
+    reasons.push(t('zoneSalinityMissing'));
   }
 
   if (!entry.zone.probes.length) reasons.push(t('zoneOverviewNoProbe'));
@@ -416,6 +420,14 @@ function getZoneAttentionReasons(entry: ZoneOverviewEntry, t: TFunction) {
 
 function formatZoneCapacity(capacity: number | null | undefined) {
   return capacity ? String(capacity) : '-';
+}
+
+// The API serialises the zone salinity as a string ("35.00"); show it with the
+// same single decimal as everywhere else rather than the raw stored scale.
+function formatZoneSalinity(salinity: string | null | undefined) {
+  if (salinity === null || salinity === undefined || salinity === '') return '-';
+  const numeric = Number.parseFloat(salinity);
+  return Number.isFinite(numeric) ? `${numeric.toFixed(1)} PSU` : '-';
 }
 
 function formatZoneOccupancy(boxCount: number, capacity: number | null | undefined) {

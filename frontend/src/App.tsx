@@ -56,6 +56,7 @@ import type {
 import { upsertBoxes } from './utils/boxCollection';
 import { formatDisplayDate } from './utils/dateFormat';
 import { getErrorMessage } from './utils/errors';
+import { decrementDecimalValue, incrementDecimalValue } from './utils/stepValue';
 import { triggerHaptic } from './utils/haptics';
 import { getBoxQrImageUrl, getBoxScanUrl, printQrLabels, type QrLabelItem } from './utils/qrLabels';
 
@@ -151,6 +152,7 @@ const translations = {
     adminZoneTypeIncubator: 'Étuve',
     adminTargetTemperature: 'Température consigne',
     adminZoneCapacity: 'Capacité',
+    adminZoneSalinity: 'Salinité (PSU)',
     adminZoneOrganization: 'Structure',
     adminCreateZone: 'Créer l’emplacement',
     adminZoneCreated: 'Emplacement créé.',
@@ -375,6 +377,10 @@ const translations = {
     temperatureShort: 'Temp.',
     targetTemperature: 'Consigne',
     salinityShort: 'Sal.',
+    // Two salinities coexist on a box sheet: the zone reference and the one
+    // actually measured for this box. They must never be confused.
+    zoneSalinityShort: 'Sal. emplac.',
+    boxSalinityShort: 'Sal. boîte',
     salinityFull: 'Salinité (PSU)',
     aliveBoxes: 'Vivantes',
     backToZones: 'Retour aux emplacements',
@@ -394,6 +400,8 @@ const translations = {
     zoneOverviewMissingMeasurements: 'relevé(s) manquant(s)',
     zoneTarget: 'Consigne',
     zoneCapacity: 'Capacité',
+    zoneSalinity: 'Salinité',
+    zoneSalinityMissing: 'Salinité manquante',
     zoneOccupancy: 'Capacité',
     zoneNoAttention: 'Aucune action à prévoir dans cet emplacement.',
     zoneNoRecentActivity: 'Aucun relevé récent dans cet emplacement.',
@@ -475,6 +483,7 @@ const translations = {
     adminZoneTypeIncubator: 'Incubator',
     adminTargetTemperature: 'Target temperature',
     adminZoneCapacity: 'Capacity',
+    adminZoneSalinity: 'Salinity (PSU)',
     adminZoneOrganization: 'Organization',
     adminCreateZone: 'Create zone',
     adminZoneCreated: 'Zone created.',
@@ -699,6 +708,8 @@ const translations = {
     temperatureShort: 'Temp.',
     targetTemperature: 'Target',
     salinityShort: 'Sal.',
+    zoneSalinityShort: 'Zone sal.',
+    boxSalinityShort: 'Box sal.',
     salinityFull: 'Salinity (PSU)',
     aliveBoxes: 'Alive',
     backToZones: 'Back to zones',
@@ -718,6 +729,8 @@ const translations = {
     zoneOverviewMissingMeasurements: 'missing measurement(s)',
     zoneTarget: 'Target',
     zoneCapacity: 'Capacity',
+    zoneSalinity: 'Salinity',
+    zoneSalinityMissing: 'Salinity not set',
     zoneOccupancy: 'Occupancy',
     zoneNoAttention: 'No action is needed for this zone.',
     zoneNoRecentActivity: 'No recent measurement in this zone.',
@@ -2198,8 +2211,16 @@ function BoxPage({
           ) : (
             <InfoPill label={t('zones')} value={t('noZone')} strong />
           )}
+          <InfoPill
+            label={t('targetTemperature')}
+            value={formatTemperatureValue(currentZone?.target_temperature_c ?? box.thermal_zone?.target_temperature_c)}
+          />
+          {/* Reference salinity of the zone, next to its target temperature:
+              both describe the environment the box lives in. The box keeps its
+              own measured salinity right after. */}
+          <InfoPill label={t('zoneSalinityShort')} value={formatSalinity(currentZone?.salinity_psu)} />
           <InfoPill label={t('temperatureShort')} value={formatTemperature(currentZone?.latest_temperature?.average_temperature_c)} />
-          <InfoPill label={t('salinityShort')} value={formatSalinity(box.latest_salinity_psu)} />
+          <InfoPill label={t('boxSalinityShort')} value={formatSalinity(box.latest_salinity_psu)} />
         </div>
 
         <div className="box-action-stack">
@@ -2800,24 +2821,6 @@ function incrementCountValue(currentValue: string, increment: number) {
 
 function decrementCountValue(currentValue: string) {
   return String(Math.max(parsePositiveInteger(currentValue) - 1, 0));
-}
-
-function parsePositiveDecimal(value: string) {
-  const parsedValue = Number.parseFloat(value.replace(',', '.'));
-  return Number.isFinite(parsedValue) && parsedValue >= 0 ? parsedValue : 0;
-}
-
-function formatDecimalValue(value: number) {
-  const roundedValue = Math.max(Math.round(value * 10) / 10, 0);
-  return Number.isInteger(roundedValue) ? String(roundedValue) : roundedValue.toFixed(1);
-}
-
-function incrementDecimalValue(currentValue: string, increment: number) {
-  return formatDecimalValue(parsePositiveDecimal(currentValue) + increment);
-}
-
-function decrementDecimalValue(currentValue: string, decrement: number) {
-  return formatDecimalValue(parsePositiveDecimal(currentValue) - decrement);
 }
 
 function getMeasurementSaveError(error: unknown, t: TFunction) {

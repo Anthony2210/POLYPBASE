@@ -380,6 +380,7 @@ class ThermalZoneSerializer(serializers.ModelSerializer):
             "organization",
             "target_temperature_c",
             "capacity",
+            "salinity_psu",
             "is_active",
             "box_count",
             "latest_temperature",
@@ -434,7 +435,15 @@ class ThermalZoneCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ThermalZone
-        fields = ["id", "organization", "name", "zone_type", "target_temperature_c", "capacity"]
+        fields = [
+            "id",
+            "organization",
+            "name",
+            "zone_type",
+            "target_temperature_c",
+            "capacity",
+            "salinity_psu",
+        ]
 
     def validate_name(self, value):
         value = value.strip()

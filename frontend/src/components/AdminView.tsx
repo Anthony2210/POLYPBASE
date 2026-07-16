@@ -21,6 +21,7 @@ import type {
 } from '../types/admin';
 import { formatDisplayDate } from '../utils/dateFormat';
 import { getErrorMessage } from '../utils/errors';
+import { decrementDecimalValue, incrementDecimalValue } from '../utils/stepValue';
 import { getZoneOccupancyLevel } from '../utils/zoneOccupancy';
 import PageLoader from './PageLoader';
 import SkeletonRows from './SkeletonRows';
@@ -49,6 +50,12 @@ function userHasAdminRole(profile: UserProfile | null) {
   if (profile.is_superuser) return true;
   return profile.memberships.some((membership) => membership.role === 'admin');
 }
+
+// Zone capacity is added a rack at a time, and salinity is read off a
+// refractometer that lands on round values, so the -/+ buttons move in the
+// steps the technicians actually work in. Typing stays free (see ZoneStepField).
+const ZONE_CAPACITY_STEP = 10;
+const ZONE_SALINITY_STEP = 5;
 
 const emptyMemberForm = {
   username: '',
@@ -575,6 +582,7 @@ function ZoneCreateForm({
   const [zoneType, setZoneType] = useState('cabinet');
   const [targetTemperature, setTargetTemperature] = useState('');
   const [capacity, setCapacity] = useState('');
+  const [salinity, setSalinity] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -598,10 +606,12 @@ function ZoneCreateForm({
         zone_type: zoneType,
         target_temperature_c: targetTemperature.trim() || null,
         capacity: capacity ? Number(capacity) : null,
+        salinity_psu: salinity.trim() || null,
       });
       setName('');
       setTargetTemperature('');
       setCapacity('');
+      setSalinity('');
       setMessage(t('adminZoneCreated'));
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -656,12 +666,21 @@ function ZoneCreateForm({
       </label>
       <label>
         <span>{t('adminZoneCapacity')}</span>
-        <input
-          min="1"
-          type="number"
-          step="1"
+        <ZoneStepField
+          ariaPrefix={t('adminZoneCapacity')}
+          step={ZONE_CAPACITY_STEP}
           value={capacity}
-          onChange={(event) => setCapacity(event.target.value)}
+          onChange={setCapacity}
+        />
+      </label>
+      <label>
+        <span>{t('adminZoneSalinity')}</span>
+        <ZoneStepField
+          ariaPrefix={t('adminZoneSalinity')}
+          step={ZONE_SALINITY_STEP}
+          value={salinity}
+          onChange={setSalinity}
+          placeholder="35"
         />
       </label>
       <button type="submit" disabled={isSaving || !name.trim()}>
@@ -776,6 +795,66 @@ function ProbeCreateForm({
   );
 }
 
+/** Editable values of a zone row: kept as strings so an emptied field clears it. */
+/**
+ * Number field whose -/+ buttons move by `step` while typing stays free.
+ *
+ * The input deliberately carries no `step` attribute: browsers count valid
+ * values from `min` and reject anything off-step, which would refuse a capacity
+ * of 45 or a salinity read at 32. The buttons provide the increment instead.
+ */
+function ZoneStepField({
+  ariaPrefix,
+  step,
+  value,
+  onChange,
+  placeholder,
+}: {
+  ariaPrefix: string;
+  step: number;
+  value: string;
+  onChange: (next: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <div className="zone-step-field">
+      <button
+        type="button"
+        aria-label={`${ariaPrefix} -${step}`}
+        onClick={() => onChange(decrementDecimalValue(value, step))}
+      >
+        -
+      </button>
+      <input
+        min="0"
+        type="number"
+        inputMode="decimal"
+        placeholder={placeholder}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      <button
+        type="button"
+        aria-label={`${ariaPrefix} +${step}`}
+        onClick={() => onChange(incrementDecimalValue(value, step))}
+      >
+        +
+      </button>
+    </div>
+  );
+}
+
+type ZoneDraft = { capacity: string; salinity: string };
+
+function buildZoneDrafts(zones: ThermalZone[]): Record<number, ZoneDraft> {
+  return Object.fromEntries(
+    zones.map((zone) => [
+      zone.id,
+      { capacity: zone.capacity?.toString() ?? '', salinity: zone.salinity_psu ?? '' },
+    ]),
+  );
+}
+
 function ZoneCapacityManager({
   profile,
   zones,
@@ -789,21 +868,28 @@ function ZoneCapacityManager({
 }) {
   const adminOrgIds = getAdminOrganizationIds(profile);
   const editableZones = zones.filter((zone) => adminOrgIds === null || adminOrgIds.has(zone.organization.id));
-  const [drafts, setDrafts] = useState<Record<number, string>>(() =>
-    Object.fromEntries(editableZones.map((zone) => [zone.id, zone.capacity?.toString() ?? ''])),
-  );
+  const [drafts, setDrafts] = useState<Record<number, ZoneDraft>>(() => buildZoneDrafts(editableZones));
   const [busyZoneId, setBusyZoneId] = useState<number | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setDrafts(Object.fromEntries(editableZones.map((zone) => [zone.id, zone.capacity?.toString() ?? ''])));
+    setDrafts(buildZoneDrafts(editableZones));
   }, [zones]);
 
   if (!editableZones.length) return null;
 
+  function updateDraft(zoneId: number, field: keyof ZoneDraft, value: string) {
+    setDrafts((current) => ({
+      ...current,
+      [zoneId]: { ...current[zoneId], [field]: value },
+    }));
+  }
+
   async function saveZone(zone: ThermalZone) {
-    const capacityValue = drafts[zone.id]?.trim() ?? '';
+    const draft = drafts[zone.id] ?? { capacity: '', salinity: '' };
+    const capacityValue = draft.capacity.trim();
+    const salinityValue = draft.salinity.trim();
     setBusyZoneId(zone.id);
     setMessage(null);
     setError(null);
@@ -815,6 +901,8 @@ function ZoneCapacityManager({
         zone_type: zone.zone_type,
         target_temperature_c: zone.target_temperature_c,
         capacity: capacityValue ? Number(capacityValue) : null,
+        // An emptied field clears the value rather than keeping the old one.
+        salinity_psu: salinityValue || null,
       });
       setMessage(t('adminZoneUpdated'));
     } catch (requestError) {
@@ -832,26 +920,36 @@ function ZoneCapacityManager({
           // Orange when fewer than 10 slots remain, red once full.
           const occupancy = getZoneOccupancyLevel(zone.box_count, zone.capacity);
           return (
-          <label key={zone.id}>
-            <span>
+          <div className="zone-capacity-row" key={zone.id}>
+            <span className="zone-capacity-identity">
               <strong>{zone.name}</strong>
               <small className={`zone-occupancy is-${occupancy}`}>
                 {zone.box_count}{zone.capacity ? ` / ${zone.capacity}` : ''}
               </small>
             </span>
-            <input
-              min="1"
-              type="number"
-              step="1"
-              value={drafts[zone.id] ?? ''}
-              onChange={(event) =>
-                setDrafts((current) => ({ ...current, [zone.id]: event.target.value }))
-              }
-            />
+            <label>
+              <small>{t('adminZoneCapacity')}</small>
+              <ZoneStepField
+                ariaPrefix={`${zone.name} ${t('adminZoneCapacity')}`}
+                step={ZONE_CAPACITY_STEP}
+                value={drafts[zone.id]?.capacity ?? ''}
+                onChange={(next) => updateDraft(zone.id, 'capacity', next)}
+              />
+            </label>
+            <label>
+              <small>{t('adminZoneSalinity')}</small>
+              <ZoneStepField
+                ariaPrefix={`${zone.name} ${t('adminZoneSalinity')}`}
+                step={ZONE_SALINITY_STEP}
+                value={drafts[zone.id]?.salinity ?? ''}
+                onChange={(next) => updateDraft(zone.id, 'salinity', next)}
+                placeholder="35"
+              />
+            </label>
             <button type="button" disabled={busyZoneId === zone.id} onClick={() => void saveZone(zone)}>
               {busyZoneId === zone.id ? t('saving') : t('adminSaveZone')}
             </button>
-          </label>
+          </div>
           );
         })}
       </div>
