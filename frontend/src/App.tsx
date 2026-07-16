@@ -64,8 +64,9 @@ import { getBoxQrImageUrl, getBoxScanUrl, printQrLabels, type QrLabelItem } from
 const BOX_LIST_LIMIT = 1000;
 
 // Salinity (PSU) is read off a refractometer and lands on round values, so the
-// form starts at 5 and the +/- buttons move by 5 rather than by decimals.
-const SALINITY_DEFAULT = '5';
+// +/- buttons move by 5 rather than by decimals. The field itself starts empty:
+// a measurement saved without touching it records no salinity at all, instead of
+// silently storing a value nobody measured. Stepping up from empty yields 5.
 const SALINITY_STEP = 5;
 
 type TabId = 'pilotage' | 'overview' | 'zones' | 'exports' | 'labels' | 'admin' | 'profile';
@@ -2363,7 +2364,7 @@ function BoxPage({
                       min="0"
                       step={SALINITY_STEP}
                       inputMode="decimal"
-                      placeholder={SALINITY_DEFAULT}
+                      placeholder={String(SALINITY_STEP)}
                       type="number"
                       value={form.salinity}
                       onChange={(event) => setForm((current) => ({ ...current, salinity: event.target.value }))}
@@ -2757,7 +2758,7 @@ function getInitialMeasurementForm() {
     measuredOn: getTodayDateValue(),
     polypCount: '',
     ephyraeCount: '',
-    salinity: SALINITY_DEFAULT,
+    salinity: '',
     notes: '',
   };
 }
