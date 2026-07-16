@@ -21,6 +21,7 @@ import type {
 } from '../types/admin';
 import { formatDisplayDate } from '../utils/dateFormat';
 import { getErrorMessage } from '../utils/errors';
+import { getZoneOccupancyLevel } from '../utils/zoneOccupancy';
 import PageLoader from './PageLoader';
 import SkeletonRows from './SkeletonRows';
 
@@ -827,11 +828,16 @@ function ZoneCapacityManager({
     <div className="zone-capacity-manager">
       <strong>{t('zoneCapacity')}</strong>
       <div>
-        {editableZones.map((zone) => (
+        {editableZones.map((zone) => {
+          // Orange when fewer than 10 slots remain, red once full.
+          const occupancy = getZoneOccupancyLevel(zone.box_count, zone.capacity);
+          return (
           <label key={zone.id}>
             <span>
               <strong>{zone.name}</strong>
-              <small>{zone.box_count}{zone.capacity ? ` / ${zone.capacity}` : ''}</small>
+              <small className={`zone-occupancy is-${occupancy}`}>
+                {zone.box_count}{zone.capacity ? ` / ${zone.capacity}` : ''}
+              </small>
             </span>
             <input
               min="1"
@@ -846,7 +852,8 @@ function ZoneCapacityManager({
               {busyZoneId === zone.id ? t('saving') : t('adminSaveZone')}
             </button>
           </label>
-        ))}
+          );
+        })}
       </div>
       {message ? <p className="inline-success">{message}</p> : null}
       {error ? <p className="inline-error">{error}</p> : null}

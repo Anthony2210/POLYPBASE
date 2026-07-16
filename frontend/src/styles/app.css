@@ -5551,6 +5551,31 @@ button.zone-attention-item:hover {
   color: var(--muted);
 }
 
+/* Occupancy of a thermal zone: neutral by default, orange when fewer than 10
+   slots remain, red once the capacity is reached. The colour is a hint, not the
+   only signal: the "12 / 12" figure stays readable on its own. */
+.zone-occupancy {
+  justify-self: start;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+
+.zone-occupancy.is-warning,
+.zone-occupancy.is-full {
+  padding: 1px 7px;
+  font-weight: 760;
+}
+
+.zone-occupancy.is-warning {
+  background: #fdf3e2;
+  color: var(--amber);
+}
+
+.zone-occupancy.is-full {
+  background: var(--coral-soft);
+  color: var(--coral);
+}
+
 .zone-capacity-manager input {
   width: 100%;
   min-height: 38px;
