@@ -75,11 +75,12 @@ def build_weekly_measurement_csv(*, boxes, date_from=None, date_to=None):
 
     output = StringIO(newline="")
     writer = csv.writer(output, lineterminator="\n")
-    header = ["Date"]
+    header = ["Date", "année", "semaines cumulées", "semaines"]
     for box in selected_boxes:
         code = export_codes[box.id]
         header.extend(
             [
+                "numéro de boite",
                 f"{code}_polypes",
                 f"{code}_ephyrules",
                 f"{code}_temperature",
@@ -87,12 +88,18 @@ def build_weekly_measurement_csv(*, boxes, date_from=None, date_to=None):
         )
     writer.writerow(header)
 
-    for week_key in week_keys:
-        row = [f"{week_key[0]}_S{week_key[1]}"]
+    for cumulative_week, week_key in enumerate(week_keys, start=1):
+        row = [
+            f"{week_key[0]}_S{week_key[1]}",
+            week_key[0],
+            cumulative_week,
+            week_key[1],
+        ]
         for box in selected_boxes:
+            code = export_codes[box.id]
             measurement = measurement_by_week_and_box.get((week_key, box.id))
             if measurement is None:
-                row.extend(["", "", ""])
+                row.extend([code, "", "", ""])
                 continue
 
             temperature = _measurement_temperature(
@@ -102,6 +109,7 @@ def build_weekly_measurement_csv(*, boxes, date_from=None, date_to=None):
             )
             row.extend(
                 [
+                    code,
                     measurement.polyp_count,
                     measurement.ephyrae_count,
                     _format_decimal(temperature),
@@ -176,19 +184,47 @@ def build_weekly_measurement_preview(*, boxes, date_from=None, date_to=None):
 
 
 def _build_export_codes(boxes):
-    local_code_counts = Counter(
-        box.local_code.strip()
+    candidate_codes = {
+        box.id: _normalize_short_box_code(box.local_code) or _derive_short_box_code(box)
         for box in boxes
-        if box.local_code.strip()
-    )
+    }
+    code_counts = Counter(code for code in candidate_codes.values() if code)
     return {
         box.id: (
-            box.local_code.strip()
-            if box.local_code.strip() and local_code_counts[box.local_code.strip()] == 1
+            candidate_codes[box.id]
+            if candidate_codes[box.id] and code_counts[candidate_codes[box.id]] == 1
             else box.global_code
         )
         for box in boxes
     }
+
+
+def _normalize_short_box_code(value):
+    code = str(value or "").strip()
+    if not code:
+        return ""
+    parts = code.split(".")
+    if len(parts) == 2 and all(part.isdigit() for part in parts):
+        return f"{int(parts[0])}.{int(parts[1]):02d}"
+    return ""
+
+
+def _derive_short_box_code(box):
+    strain_number = box.strain.number or _extract_last_number(box.strain.code)
+    box_number = _extract_last_number(box.box_number)
+    if strain_number is None or box_number is None:
+        return ""
+    return f"{strain_number}.{box_number:02d}"
+
+
+def _extract_last_number(value):
+    digits = ""
+    for character in reversed(str(value or "")):
+        if character.isdigit():
+            digits = character + digits
+        elif digits:
+            break
+    return int(digits) if digits else None
 
 
 def _get_effective_period(*, measurement_list, date_from, date_to):
