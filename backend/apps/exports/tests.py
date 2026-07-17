@@ -130,14 +130,18 @@ class MeasurementExportApiTests(TestCase):
             rows[0],
             [
                 "Date",
+                "année",
+                "semaines cumulées",
+                "semaines",
+                "numéro de boite",
                 "1.03_polypes",
                 "1.03_ephyrules",
                 "1.03_temperature",
             ],
         )
-        self.assertEqual(rows[1], ["2026_S18", "", "", ""])
-        self.assertEqual(rows[2], ["2026_S19", "100", "5", "10.25"])
-        self.assertEqual(rows[3], ["2026_S20", "0", "0", "10"])
+        self.assertEqual(rows[1], ["2026_S18", "2026", "1", "18", "1.03", "", "", ""])
+        self.assertEqual(rows[2], ["2026_S19", "2026", "2", "19", "1.03", "100", "5", "10.25"])
+        self.assertEqual(rows[3], ["2026_S20", "2026", "3", "20", "1.03", "0", "0", "10"])
         self.assertEqual(DataExport.objects.count(), 1)
         self.assertEqual(
             AuditLog.objects.filter(action=AuditLog.Action.EXPORT).count(),
@@ -223,6 +227,40 @@ class MeasurementExportApiTests(TestCase):
         header = next(csv.reader(StringIO(response.content.decode("utf-8-sig"))))
         self.assertIn("1.03_polypes", header)
         self.assertNotIn("2.01_polypes", header)
+
+    def test_csv_derives_short_box_number_when_local_code_is_missing(self):
+        box = Box.objects.create(
+            organization=self.organization,
+            global_code="AFL-TAI-1.001",
+            local_code="AFL-TAI-1.01",
+            box_number="001",
+            strain=self.strain,
+            thermal_zone=self.zone,
+        )
+        BiologicalMeasurement.objects.create(
+            box=box,
+            measured_on=date(2026, 5, 6),
+            polyp_count=12,
+            ephyrae_count=3,
+            user=self.user,
+        )
+        self.client.login(username="exporter", password="secret")
+
+        response = self.client.get(
+            reverse("api_export_measurements_csv"),
+            {
+                "boxes": str(box.id),
+                "date_from": "2026-05-01",
+                "date_to": "2026-05-10",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        rows = list(csv.reader(StringIO(response.content.decode("utf-8-sig"))))
+        self.assertIn("1.01_polypes", rows[0])
+        self.assertNotIn("AFL-TAI-1.001_polypes", rows[0])
+        self.assertNotIn("AFL-TAI-1.01_polypes", rows[0])
+        self.assertEqual(rows[1][4], "1.01")
 
     def test_csv_rejects_an_unauthorized_organization(self):
         self.client.login(username="exporter", password="secret")
