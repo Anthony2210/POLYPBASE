@@ -758,10 +758,12 @@ button:disabled {
 }
 
 .box-sheet-identity {
+  position: relative;
   display: grid;
   align-content: center;
   gap: 14px;
   min-width: 0;
+  padding-right: 102px;
 }
 
 .box-identity-heading {
@@ -793,11 +795,10 @@ button:disabled {
   font-weight: 820;
   line-height: 0.96;
   letter-spacing: 0;
-  /* The global code is the box identifier: never truncate it. It fits on one
-     line at typical lengths and wraps (rather than showing "…") if longer. */
+  /* The global code is the box identifier: keep standard codes on one line. */
   overflow: visible;
-  overflow-wrap: anywhere;
-  white-space: normal;
+  overflow-wrap: normal;
+  white-space: nowrap;
 }
 
 .box-species-name {
@@ -1069,12 +1070,6 @@ button:disabled {
   min-width: 0;
 }
 
-/* The alert bell sits beside the global code rather than in the action column. */
-.box-code-line .box-alert-trigger {
-  flex: none;
-  margin-left: auto;
-}
-
 .box-code-line span {
   padding: 4px 9px;
   border-radius: 999px;
@@ -1153,10 +1148,24 @@ button:disabled {
     transform 140ms ease;
 }
 
-.box-hero-qr:hover {
-  border-color: rgba(0, 112, 140, 0.35);
-  background: #ffffff;
-  transform: translateY(-1px);
+.box-sheet-identity > .box-hero-qr {
+  position: absolute;
+  top: 0;
+  right: 0;
+  align-self: start;
+  justify-self: end;
+  transform: translateX(10px);
+}
+
+.box-sheet-identity > .box-hero-qr:hover {
+  transform: translate(10px, -1px);
+}
+
+.box-sheet-hero > .box-alert-trigger {
+  align-self: start;
+  justify-self: center;
+  margin-top: 2px;
+  transform: translateX(18px);
 }
 
 .box-hero-qr img {
@@ -8999,8 +9008,8 @@ button.zone-attention-item:hover {
   .box-sheet-identity h2 {
     overflow: visible;
     font-size: clamp(1.7rem, 7.5vw, 2.2rem);
-    overflow-wrap: anywhere;
-    white-space: normal;
+    overflow-wrap: normal;
+    white-space: nowrap;
   }
 
   .box-code-line span {
@@ -9057,17 +9066,14 @@ button.zone-attention-item:hover {
     min-width: 0;
   }
 
-  /* Keep the alert bell on the same line as the global code (block C otherwise
-     resets this to display:block, dropping the bell below the code). */
   .box-code-line {
     display: flex;
     align-items: center;
     gap: 10px;
   }
 
-  .box-code-line .box-alert-trigger {
-    flex: none;
-    margin-left: auto;
+  .box-sheet-identity {
+    padding-right: 0;
   }
 
   /* Emplacement on the left (tall), then the environment facts to its right:
@@ -9141,6 +9147,11 @@ button.zone-attention-item:hover {
 
   .box-hero-qr {
     justify-self: start;
+    transform: none;
+  }
+
+  .box-hero-qr:hover {
+    transform: translateY(-1px);
   }
 
   .box-zone-summary {

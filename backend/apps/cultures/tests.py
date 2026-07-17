@@ -1,9 +1,11 @@
 import json
+from io import StringIO
 from datetime import date, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -14,7 +16,7 @@ from apps.organizations.models import Organization
 from apps.taxonomy.models import Origin, Species, Strain
 from apps.measurements.models import BiologicalMeasurement, DailyTemperature, Probe, SalinityMeasurement
 
-from .models import Box, BoxLineage, BoxLocation, SubcultureEvent, ThermalZone
+from .models import Box, BoxLineage, BoxLocation, IdentificationTag, SubcultureEvent, ThermalZone
 
 
 class PolypbaseApiTests(TestCase):
@@ -122,7 +124,7 @@ class PolypbaseApiTests(TestCase):
                     "organization": self.organization.id,
                     "strain": self.strain.id,
                     "thermal_zone": self.zone.id,
-                    "global_code": "AAU-1.002-ATL",
+                    "global_code": "1-ATL.002",
                     "local_code": "",
                     "box_number": "002",
                     "entered_on": "2026-07-16",
@@ -134,7 +136,7 @@ class PolypbaseApiTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 201)
-        created_box = Box.objects.get(global_code="AAU-1.002-ATL")
+        created_box = Box.objects.get(global_code="1-ATL.002")
         self.assertEqual(created_box.status, Box.Status.ACTIVE)
         self.assertEqual(created_box.thermal_zone, self.zone)
         self.assertTrue(BoxLocation.objects.filter(box=created_box, thermal_zone=self.zone).exists())
@@ -164,7 +166,7 @@ class PolypbaseApiTests(TestCase):
                     "organization": self.organization.id,
                     "strain": self.strain.id,
                     "thermal_zone": self.zone.id,
-                    "global_code": "AAU-1.002-ATL",
+                    "global_code": "1-ATL.002",
                     "box_number": "002",
                     "entered_on": "2026-07-16",
                 }
@@ -173,7 +175,82 @@ class PolypbaseApiTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertFalse(Box.objects.filter(global_code="AAU-1.002-ATL").exists())
+        self.assertFalse(Box.objects.filter(global_code="1-ATL.002").exists())
+
+    def test_create_box_rejects_duplicate_global_code_with_french_error(self):
+        self.client.login(username="tech", password="secret")
+
+        response = self.client.post(
+            reverse("api_box_list"),
+            data=json.dumps(
+                {
+                    "organization": self.organization.id,
+                    "strain": self.strain.id,
+                    "thermal_zone": self.zone.id,
+                    "global_code": self.box.global_code,
+                    "box_number": "001",
+                    "entered_on": "2026-07-16",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Une boîte utilise déjà ce code.", response.json()["global_code"])
+
+    def test_create_box_rejects_number_that_does_not_match_global_code(self):
+        self.client.login(username="tech", password="secret")
+
+        response = self.client.post(
+            reverse("api_box_list"),
+            data=json.dumps(
+                {
+                    "organization": self.organization.id,
+                    "strain": self.strain.id,
+                    "thermal_zone": self.zone.id,
+                    "global_code": "1-ATL.004",
+                    "box_number": "005",
+                    "entered_on": "2026-07-16",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(
+            "Le numéro doit correspondre au numéro présent dans le code boîte.",
+            response.json()["box_number"],
+        )
+        self.assertFalse(Box.objects.filter(global_code="1-ATL.004").exists())
+
+    def test_normalize_box_codes_updates_legacy_prefix_safely(self):
+        legacy_box = Box.objects.create(
+            organization=self.organization,
+            global_code="ATL-AAU-1.009",
+            box_number="009",
+            strain=self.strain,
+            origin=self.origin,
+            thermal_zone=self.zone,
+        )
+        IdentificationTag.objects.create(
+            box=legacy_box,
+            tag_type=IdentificationTag.TagType.QR,
+            code="QR-ATL-AAU-1.009",
+        )
+        AuditLog.objects.create(
+            organization=self.organization,
+            action=AuditLog.Action.UPDATE,
+            object_type="box",
+            object_id="ATL-AAU-1.009",
+            description="Legacy code update",
+        )
+
+        call_command("normalize_box_codes", apply=True, stdout=StringIO())
+
+        legacy_box.refresh_from_db()
+        self.assertEqual(legacy_box.global_code, "1-ATL.009")
+        self.assertTrue(IdentificationTag.objects.filter(code="QR-1-ATL.009").exists())
+        self.assertTrue(AuditLog.objects.filter(object_type="box", object_id="1-ATL.009").exists())
 
     def test_drf_box_detail_returns_measurement_history(self):
         BiologicalMeasurement.objects.create(
@@ -539,7 +616,7 @@ class PolypbaseApiTests(TestCase):
                     "notes": "Two child boxes created during the same operation.",
                     "children": [
                         {
-                            "global_code": "AAU-1.004-ATL",
+                            "global_code": "1-ATL.004",
                             "local_code": "004",
                             "box_number": "004",
                             "thermal_zone_id": self.zone.id,
@@ -547,7 +624,7 @@ class PolypbaseApiTests(TestCase):
                             "initial_polyp_count": 50,
                         },
                         {
-                            "global_code": "AAU-1.005-ATL",
+                            "global_code": "1-ATL.005",
                             "local_code": "005",
                             "box_number": "005",
                             "thermal_zone_id": self.zone.id,
@@ -567,13 +644,13 @@ class PolypbaseApiTests(TestCase):
         self.assertEqual(len(payload["children"]), 2)
 
         event = SubcultureEvent.objects.get(parent_box=self.box)
-        children = Box.objects.filter(global_code__in=["AAU-1.004-ATL", "AAU-1.005-ATL"])
+        children = Box.objects.filter(global_code__in=["1-ATL.004", "1-ATL.005"])
         self.assertEqual(children.count(), 2)
         self.assertEqual(BoxLineage.objects.filter(subculture_event=event).count(), 2)
         self.assertEqual(BoxLocation.objects.filter(box__in=children, ends_at__isnull=True).count(), 2)
 
-        inherited_child = children.get(global_code="AAU-1.004-ATL")
-        empty_child = children.get(global_code="AAU-1.005-ATL")
+        inherited_child = children.get(global_code="1-ATL.004")
+        empty_child = children.get(global_code="1-ATL.005")
         self.assertEqual(inherited_child.organization, self.box.organization)
         self.assertEqual(inherited_child.strain, self.box.strain)
         self.assertEqual(inherited_child.origin, self.box.origin)
@@ -611,7 +688,7 @@ class PolypbaseApiTests(TestCase):
                 {
                     "children": [
                         {
-                            "global_code": "AAU-1.004-ATL",
+                            "global_code": "1-ATL.004",
                             "box_number": "004",
                             "thermal_zone_id": self.zone.id,
                         }
@@ -639,7 +716,7 @@ class PolypbaseApiTests(TestCase):
                 {
                     "children": [
                         {
-                            "global_code": "AAU-1.004-ATL",
+                            "global_code": "1-ATL.004",
                             "box_number": "004",
                             "thermal_zone_id": self.zone.id,
                         }
@@ -650,7 +727,7 @@ class PolypbaseApiTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 201)
-        self.assertTrue(Box.objects.filter(global_code="AAU-1.004-ATL").exists())
+        self.assertTrue(Box.objects.filter(global_code="1-ATL.004").exists())
 
     def test_drf_subculture_endpoint_rejects_a_zone_from_another_organization(self):
         self.client.login(username="tech", password="secret")
@@ -661,7 +738,7 @@ class PolypbaseApiTests(TestCase):
                 {
                     "children": [
                         {
-                            "global_code": "AAU-1.004-ATL",
+                            "global_code": "1-ATL.004",
                             "box_number": "004",
                             "thermal_zone_id": self.other_zone.id,
                         }
@@ -672,7 +749,7 @@ class PolypbaseApiTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertFalse(Box.objects.filter(global_code="AAU-1.004-ATL").exists())
+        self.assertFalse(Box.objects.filter(global_code="1-ATL.004").exists())
         self.assertFalse(SubcultureEvent.objects.filter(parent_box=self.box).exists())
 
     def test_drf_move_endpoint_moves_box_and_keeps_location_history(self):
@@ -770,7 +847,7 @@ class PolypbaseApiTests(TestCase):
                         {
                             "children": [
                                 {
-                                    "global_code": "AAU-1.004-ATL",
+                                    "global_code": "1-ATL.004",
                                     "box_number": "004",
                                     "thermal_zone_id": self.zone.id,
                                 }
@@ -780,7 +857,7 @@ class PolypbaseApiTests(TestCase):
                     content_type="application/json",
                 )
 
-        self.assertFalse(Box.objects.filter(global_code="AAU-1.004-ATL").exists())
+        self.assertFalse(Box.objects.filter(global_code="1-ATL.004").exists())
         self.assertFalse(SubcultureEvent.objects.filter(parent_box=self.box).exists())
         self.assertFalse(
             AuditLog.objects.filter(
