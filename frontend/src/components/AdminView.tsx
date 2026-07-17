@@ -1450,11 +1450,11 @@ function AdminAuditLogSection({ t }: { t: TFunction }) {
                   <span>{entry.user ?? '-'}</span>
                   <span>
                     <strong>{getFrenchAuditAction(entry)}</strong>
-                    <small>{entry.description || '-'}</small>
+                    <small>{formatAuditDescription(entry)}</small>
                   </span>
                   <span>
                     <strong>{entry.object_id || '-'}</strong>
-                    <small>{entry.object_type || '-'}</small>
+                    <small>{formatAuditObjectType(entry.object_type)}</small>
                   </span>
                 </button>
                 {isExpanded ? <AuditLogDetails entry={entry} /> : null}
@@ -1471,8 +1471,8 @@ function AdminAuditLogSection({ t }: { t: TFunction }) {
 
 function AuditLogDetails({ entry }: { entry: AdminAuditLogEntry }) {
   const metadataEntries = Object.entries(entry.metadata ?? {});
-  const values = getMetadataRecord(entry.metadata?.valeurs);
-  const changes = getMetadataRecord(entry.metadata?.modifications);
+  const values = filterAuditDisplayRecord(getMetadataRecord(entry.metadata?.valeurs));
+  const changes = filterAuditDisplayRecord(getMetadataRecord(entry.metadata?.modifications));
   const remainingMetadataEntries = metadataEntries.filter(([key]) => !['valeurs', 'modifications'].includes(key));
 
   return (
@@ -1499,11 +1499,11 @@ function AuditLogDetails({ entry }: { entry: AdminAuditLogEntry }) {
       </div>
       <div>
         <small>Type</small>
-        <strong>{entry.object_type || '-'}</strong>
+        <strong>{formatAuditObjectType(entry.object_type)}</strong>
       </div>
       <div className="admin-audit-detail-wide">
         <small>Description</small>
-        <strong>{entry.description || '-'}</strong>
+        <strong>{formatAuditDescription(entry)}</strong>
       </div>
       {values ? (
         <div className="admin-audit-detail-wide">
@@ -1553,6 +1553,15 @@ function getMetadataRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
+const hiddenAuditDisplayKeys = new Set(['strobiles', 'statut_culture', 'a_verifier']);
+
+function filterAuditDisplayRecord(record: Record<string, unknown> | null) {
+  if (!record) return null;
+  return Object.fromEntries(
+    Object.entries(record).filter(([key]) => !hiddenAuditDisplayKeys.has(key)),
+  );
+}
+
 function formatAuditChange(value: unknown) {
   const change = getMetadataRecord(value);
   if (!change || !('avant' in change) || !('apres' in change)) {
@@ -1561,32 +1570,110 @@ function formatAuditChange(value: unknown) {
   return `${formatAuditMetadataValue(change.avant)} -> ${formatAuditMetadataValue(change.apres)}`;
 }
 
+function formatAuditDescription(entry: AdminAuditLogEntry) {
+  const description = entry.description || '';
+  const metadata = entry.metadata ?? {};
+
+  if (description.startsWith('Biological measurement edited for ')) {
+    return `Relevé biologique modifié pour le ${formatTechnicalDate(description.replace('Biological measurement edited for ', ''))}`;
+  }
+  if (description.startsWith('Biological measurement for ')) {
+    return `Relevé biologique enregistré pour le ${formatTechnicalDate(description.replace('Biological measurement for ', ''))}`;
+  }
+  if (description.startsWith('Box opened: ')) {
+    return `Fiche boîte ouverte : ${description.replace('Box opened: ', '')}`;
+  }
+  if (description.startsWith('QR scan of ')) {
+    return `QR code scanné : ${description.replace('QR scan of ', '')}`;
+  }
+  if (description.startsWith('Box archived: ')) {
+    return `Boîte mise inactive : ${description.replace('Box archived: ', '')}`;
+  }
+  if (description.startsWith('Box activated: ')) {
+    return `Boîte remise active : ${description.replace('Box activated: ', '')}`;
+  }
+  if (description.startsWith('Box created manually: ')) {
+    return `Boîte créée manuellement : ${description.replace('Box created manually: ', '')}`;
+  }
+  if (description.startsWith('Box moved to ')) {
+    return `Boîte déplacée vers ${description.replace('Box moved to ', '')}`;
+  }
+  if (description.startsWith('Subculture created from ')) {
+    return `Repiquage créé depuis ${description.replace('Subculture created from ', '')}`;
+  }
+  if (description === 'Weekly biological measurement CSV export') {
+    return 'Export CSV hebdomadaire des relevés biologiques';
+  }
+  if (description === 'Organization created') {
+    return 'Structure créée';
+  }
+  if (description === 'Organization updated') {
+    return 'Structure modifiée';
+  }
+  if (description === 'Organization deleted') {
+    return 'Structure supprimée';
+  }
+
+  if (metadata && typeof metadata === 'object' && 'source' in metadata && metadata.source === 'web_app') {
+    return 'Action effectuée depuis l’application';
+  }
+  return description || '-';
+}
+
+function formatAuditObjectType(value: string) {
+  const labels: Record<string, string> = {
+    box: 'Boîte',
+    measurement: 'Relevé',
+    measurements: 'Relevés',
+    thermal_zone: 'Emplacement',
+    organization: 'Structure',
+    user: 'Utilisateur',
+    account: 'Compte',
+  };
+  return labels[value] ?? (value || '-');
+}
+
 function formatAuditMetadataKey(key: string) {
   const labels: Record<string, string> = {
     a_verifier: 'A vérifier',
     ancienne_zone: 'Ancienne zone',
     apres: 'Après',
     avant: 'Avant',
+    box_id: 'Identifiant boîte',
     box_count: 'Nombre de boîtes',
     capacite: 'Capacité',
     child_global_codes: 'Boîtes créées',
+    child_box_ids: 'Identifiants des boîtes créées',
+    code_global: 'Code global',
     date: 'Date',
     date_deplacement: 'Date du déplacement',
+    date_entree: 'Date d’entrée',
     ephyrules: 'Éphyrules',
+    espece: 'Espèce',
+    emplacement: 'Emplacement',
     file_name: 'Fichier',
+    filters: 'Filtres',
     from_thermal_zone_name: 'Ancienne zone',
+    initial_polyp_counts: 'Polypes initiaux',
     measurement_count: 'Nombre de relevés',
     measurement_id: 'Identifiant relevé',
     movement_id: 'Identifiant déplacement',
     nouvelle_zone: 'Nouvelle zone',
+    numero_boite: 'Numéro de boîte',
     note: 'Note',
     polypes: 'Polypes',
+    raison_arret: 'Raison d’arrêt',
     salinite_psu: 'Salinité (PSU)',
+    source: 'Source',
+    souche: 'Souche',
+    statut: 'Statut',
     statut_culture: 'Statut culture',
     strobiles: 'Strobiles',
+    subculture_event_id: 'Identifiant repiquage',
     temperature_consigne: 'Température consigne',
     thermal_zone_id: 'Identifiant emplacement',
     to_thermal_zone_name: 'Nouvelle zone',
+    volume_litres: 'Volume (L)',
     week_count: 'Nombre de semaines',
   };
   return labels[key] ?? key.replace(/_/g, ' ');
@@ -1595,9 +1682,37 @@ function formatAuditMetadataKey(key: string) {
 function formatAuditMetadataValue(value: unknown) {
   if (value === null || value === undefined || value === '') return '-';
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-    return String(value);
+    return translateAuditValue(value);
   }
   return JSON.stringify(value);
+}
+
+function translateAuditValue(value: string | number | boolean) {
+  if (typeof value === 'boolean') return value ? 'Oui' : 'Non';
+  if (typeof value === 'number') return String(value);
+
+  const labels: Record<string, string> = {
+    active: 'Active',
+    archived: 'Inactive',
+    stopped: 'Arrêtée',
+    lost: 'Perdue',
+    not_specified: 'Non précisé',
+    good: 'Bon',
+    medium: 'Moyen',
+    bad: 'Mauvais',
+    dead: 'Mort',
+    web_app: 'Application web',
+    csv: 'CSV',
+    measurements: 'Relevés',
+    box: 'Boîte',
+  };
+  return labels[value] ?? formatTechnicalDate(value);
+}
+
+function formatTechnicalDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const [year, month, day] = value.split('-');
+  return `${day}/${month}/${year}`;
 }
 
 function getFrenchAuditAction(entry: AdminAuditLogEntry) {

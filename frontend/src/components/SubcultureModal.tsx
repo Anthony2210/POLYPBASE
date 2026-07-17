@@ -39,10 +39,10 @@ const labels = {
     globalCode: 'Code global',
     boxNumber: 'Numéro',
     zone: 'Emplacement thermique',
+    initialPolyps: 'Nombre de polypes initial',
     childNotes: 'Note',
     childNotesPlaceholder: 'Optionnel',
     copyOrigin: "Reprendre l'origine",
-    copyVolume: 'Reprendre le volume',
     cancel: 'Annuler',
     save: 'Créer le repiquage',
     saving: 'Création...',
@@ -61,10 +61,10 @@ const labels = {
     globalCode: 'Global code',
     boxNumber: 'Number',
     zone: 'Thermal zone',
+    initialPolyps: 'Initial polyp count',
     childNotes: 'Note',
     childNotesPlaceholder: 'Optional',
     copyOrigin: 'Copy origin',
-    copyVolume: 'Copy volume',
     cancel: 'Cancel',
     save: 'Create subculture',
     saving: 'Creating...',
@@ -125,6 +125,7 @@ export default function SubcultureModal({
         global_code: child.global_code.trim(),
         local_code: child.local_code.trim(),
         box_number: child.box_number.trim(),
+        initial_polyp_count: child.initial_polyp_count,
         notes: child.notes.trim(),
       })),
     });
@@ -235,6 +236,18 @@ export default function SubcultureModal({
                     ))}
                   </select>
                 </label>
+                <label>
+                  {text.initialPolyps}
+                  <input
+                    min="0"
+                    step="1"
+                    type="number"
+                    value={child.initial_polyp_count ?? ''}
+                    onChange={(event) => updateChild(child.key, {
+                      initial_polyp_count: event.target.value === '' ? null : Number(event.target.value),
+                    })}
+                  />
+                </label>
                 <label className="subculture-child-notes">
                   {text.childNotes}
                   <input
@@ -254,16 +267,6 @@ export default function SubcultureModal({
                       })}
                     />
                     {text.copyOrigin}
-                  </label>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={child.copy_volume_liters}
-                      onChange={(event) => updateChild(child.key, {
-                        copy_volume_liters: event.target.checked,
-                      })}
-                    />
-                    {text.copyVolume}
                   </label>
                 </div>
               </section>
@@ -302,7 +305,7 @@ function createChildDraft(
     box_number: suggestion.boxNumber,
     thermal_zone_id: defaultZone?.id ?? 0,
     copy_origin: true,
-    copy_volume_liters: true,
+    initial_polyp_count: null,
     notes: '',
   };
 }

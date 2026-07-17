@@ -16,18 +16,18 @@ type Props = {
 
 const labels = {
   fr: {
-    title: 'Déplacer la boîte',
+    title: 'Transférer la boîte',
     box: 'Boîte',
     currentZone: 'Emplacement actuel',
     newZone: 'Nouvel emplacement',
-    movedAt: 'Date du déplacement',
+    movedAt: 'Date du transfert',
     notes: 'Note',
     notesPlaceholder: 'Ex. changement de température, rangement, manipulation',
     history: 'Historique des emplacements',
     current: 'actuel',
     noHistory: 'Aucun historique d’emplacement pour cette boîte.',
     cancel: 'Annuler',
-    save: 'Enregistrer le déplacement',
+    save: 'Enregistrer le transfert',
     saving: 'Enregistrement...',
     noZone: 'Sans emplacement',
   },

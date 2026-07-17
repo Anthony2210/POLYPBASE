@@ -2122,9 +2122,206 @@ button:disabled {
   color: var(--muted);
 }
 
+.overview-filters {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(160px, 0.9fr) minmax(160px, 0.9fr);
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.overview-filters label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.overview-search-filter {
+  position: relative;
+  min-width: 0;
+}
+
+.overview-search-suggestions {
+  position: absolute;
+  z-index: 8;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 14px 34px rgba(31, 56, 74, 0.14);
+}
+
+.overview-search-suggestions button {
+  display: grid;
+  grid-template-columns: minmax(92px, 0.8fr) minmax(0, 1.2fr) minmax(80px, 0.8fr);
+  gap: 8px;
+  align-items: center;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 1px solid #edf3f7;
+  background: #ffffff;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+
+.overview-search-suggestions button:last-child {
+  border-bottom: 0;
+}
+
+.overview-search-suggestions button:hover {
+  background: var(--primary-soft);
+}
+
+.overview-search-suggestions strong {
+  color: var(--primary);
+  font-weight: 850;
+}
+
+.overview-search-suggestions span,
+.overview-search-suggestions small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overview-filters input,
+.overview-filters select {
+  min-height: 38px;
+  width: 100%;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--ink);
+  font: inherit;
+  padding: 0 10px;
+}
+
+.overview-filters input:focus,
+.overview-filters select:focus {
+  border-color: var(--primary);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(16, 107, 135, 0.1);
+}
+
 .overview-list {
   display: grid;
   gap: 12px;
+}
+
+.overview-box-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+  gap: 12px;
+}
+
+.overview-box-summary {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(31, 56, 74, 0.05);
+}
+
+.overview-box-summary > header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+}
+
+.overview-box-summary > header button {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.overview-box-summary > header button:hover strong {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.overview-box-summary > header strong {
+  color: var(--primary);
+  font-size: 0.98rem;
+  font-style: italic;
+  font-weight: 880;
+  overflow-wrap: anywhere;
+}
+
+.overview-box-summary > header span,
+.overview-box-summary > header small {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.overview-box-summary > header small {
+  justify-self: end;
+  max-width: 130px;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overview-box-kpis {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.overview-box-kpis span {
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+  border-radius: 8px;
+  background: #f3f8fb;
+}
+
+.overview-box-kpis small {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.overview-box-kpis strong {
+  color: var(--ink);
+  font-size: 0.98rem;
+}
+
+.overview-box-summary .overview-chart {
+  gap: 6px;
+}
+
+.overview-box-summary .overview-chart svg {
+  min-height: 118px;
+}
+
+.overview-box-summary .overview-chart-line {
+  stroke-width: 2.6;
 }
 
 .overview-species-group {
