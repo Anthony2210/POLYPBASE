@@ -1,3 +1,4 @@
+import re
 from decimal import Decimal
 
 from django.utils import timezone
@@ -32,6 +33,24 @@ def _render_salinity(value):
     if value is None:
         return None
     return _SALINITY_FIELD.to_representation(Decimal(str(value)))
+
+
+def _extract_box_number_from_global_code(global_code):
+    match = re.match(r"^.*\.(\d+).*$", global_code)
+    return match.group(1) if match else None
+
+
+def _normalize_box_number(value):
+    normalized = str(value).strip()
+    return str(int(normalized)) if normalized.isdigit() else normalized
+
+
+def _validate_global_code_for_strain(*, global_code, strain):
+    expected_prefix = f"{strain.code}."
+    if not global_code.startswith(expected_prefix):
+        raise serializers.ValidationError(
+            f"Le code boîte doit commencer par {expected_prefix}"
+        )
 
 
 class SpeciesSummarySerializer(serializers.ModelSerializer):
@@ -287,18 +306,34 @@ class BoxCreateSerializer(serializers.Serializer):
         request = self.context["request"]
         organization = attrs["organization"]
         thermal_zone = attrs.get("thermal_zone")
+        global_code = attrs["global_code"].strip()
+        box_number = attrs["box_number"].strip()
 
         if not request.user.is_superuser:
             from apps.accounts.permissions import user_can_write_lab_data
 
             if not user_can_write_lab_data(request.user, organization):
-                raise serializers.ValidationError("This user cannot create boxes for this organization.")
+                raise serializers.ValidationError("Ce compte ne peut pas créer de boîte pour cette structure.")
 
         if thermal_zone and thermal_zone.organization_id != organization.id:
-            raise serializers.ValidationError("The thermal zone must belong to the box organization.")
+            raise serializers.ValidationError("L’emplacement doit appartenir à la structure de la boîte.")
 
-        if Box.objects.filter(global_code=attrs["global_code"]).exists():
-            raise serializers.ValidationError({"global_code": "A box already uses this global code."})
+        if Box.objects.filter(global_code=global_code).exists():
+            raise serializers.ValidationError({"global_code": "Une boîte utilise déjà ce code."})
+
+        try:
+            _validate_global_code_for_strain(global_code=global_code, strain=attrs["strain"])
+        except serializers.ValidationError as exc:
+            raise serializers.ValidationError({"global_code": exc.detail}) from exc
+
+        code_number = _extract_box_number_from_global_code(global_code)
+        if code_number is not None and _normalize_box_number(box_number) != _normalize_box_number(code_number):
+            raise serializers.ValidationError(
+                {"box_number": "Le numéro doit correspondre au numéro présent dans le code boîte."}
+            )
+
+        attrs["global_code"] = global_code
+        attrs["box_number"] = box_number
 
         return attrs
 
@@ -352,9 +387,21 @@ class SubcultureChildCreateSerializer(serializers.Serializer):
     notes = serializers.CharField(required=False, allow_blank=True)
 
     def validate_global_code(self, value):
-        if Box.objects.filter(global_code=value).exists():
-            raise serializers.ValidationError("A box already uses this global code.")
-        return value
+        global_code = value.strip()
+        if Box.objects.filter(global_code=global_code).exists():
+            raise serializers.ValidationError("Une boîte utilise déjà ce code.")
+        parent_box = self.context["parent_box"]
+        _validate_global_code_for_strain(global_code=global_code, strain=parent_box.strain)
+        return global_code
+
+    def validate(self, attrs):
+        code_number = _extract_box_number_from_global_code(attrs["global_code"])
+        if code_number is not None and _normalize_box_number(attrs["box_number"]) != _normalize_box_number(code_number):
+            raise serializers.ValidationError(
+                {"box_number": "Le numéro doit correspondre au numéro présent dans le code boîte."}
+            )
+        attrs["box_number"] = attrs["box_number"].strip()
+        return attrs
 
     def validate_thermal_zone_id(self, thermal_zone):
         parent_box = self.context["parent_box"]

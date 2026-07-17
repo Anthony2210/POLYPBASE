@@ -315,32 +315,34 @@ function suggestChildIdentity(
   existingBoxes: BoxItem[],
   currentChildren: ChildDraft[],
 ) {
-  const match = parentBox.global_code.match(/^(.*\.)(\d+)(.*)$/);
-  if (!match) {
+  const parentNumber = extractBoxNumber(parentBox.global_code);
+  if (!parentNumber) {
     return { globalCode: '', boxNumber: '' };
   }
 
-  const [, prefix, parentNumber, suffix] = match;
+  const prefix = `${parentBox.strain.code}.`;
   const width = parentNumber.length;
   const existingCodes = [
     ...existingBoxes.map((box) => box.global_code),
     ...currentChildren.map((child) => child.global_code),
   ];
   const matchingNumbers = existingCodes
-    .map((code) => code.match(new RegExp(`^${escapeRegExp(prefix)}(\\d+)${escapeRegExp(suffix)}$`)))
-    .filter((value): value is RegExpMatchArray => Boolean(value))
-    .map((value) => Number(value[1]));
+    .filter((code) => existingBoxes.some((box) => box.global_code === code && box.strain.id === parentBox.strain.id)
+      || currentChildren.some((child) => child.global_code === code))
+    .map(extractBoxNumber)
+    .filter((value): value is string => Boolean(value))
+    .map((value) => Number(value));
   const nextNumber = Math.max(Number(parentNumber), ...matchingNumbers) + 1;
-  const formattedNumber = String(nextNumber).padStart(width, '0');
+  const formattedNumber = String(nextNumber).padStart(Math.max(width, 3), '0');
 
   return {
-    globalCode: `${prefix}${formattedNumber}${suffix}`,
+    globalCode: `${prefix}${formattedNumber}`,
     boxNumber: formattedNumber,
   };
 }
 
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function extractBoxNumber(globalCode: string) {
+  return globalCode.match(/^.*\.(\d+).*$/)?.[1] ?? null;
 }
 
 function getTodayDateValue() {

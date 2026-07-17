@@ -190,21 +190,18 @@ class Command(BaseCommand):
         return mapping
 
     def _build_base_code(self, row, strain):
-        """Compose ORG-ESPECE-SOUCHE.NNN for a box from its strain and row.
+        """Compose SOUCHE.NNN for a box from its strain and row.
 
-        ORG     = strain provenance code (code_provenance, e.g. JKA)
-        ESPECE  = species code (code_espece, e.g. ALA)
-        SOUCHE  = local strain number (numero_souche_local)
-        NNN     = local box number, zero-padded to 3 digits
+        The strain code already carries the expected species-origin-strain
+        identity, for example AFL-TAI-1. Box codes append the local box number:
+        AFL-TAI-1.005.
         """
-        org = (strain.origin_code or "").strip()
-        species = (strain.species.genus_species_code or "").strip()
-        souche = strain.number if strain.number is not None else ""
+        strain_code = (strain.code or "").strip()
         nnn = f"{self._as_int(row.get('numero_boite_local')):03d}"
-        return f"{org}-{species}-{souche}.{nnn}"
+        return f"{strain_code}.{nnn}"
 
     def _resolve_global_codes(self, rows, strains):
-        """Build {id_boite: global_code} as ORG-ESPECE-SOUCHE.NNN.
+        """Build {id_boite: global_code} as SOUCHE.NNN.
 
         Duplicates (should not happen in clean data) are suffixed with the
         box id to keep the code unique.

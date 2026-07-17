@@ -413,7 +413,8 @@
     margin: 0;
     font-size: clamp(2rem, 11vw, 3.15rem);
     line-height: 0.94;
-    overflow-wrap: anywhere;
+    overflow-wrap: normal;
+    white-space: nowrap;
   }
 
   .box-sheet-identity p {

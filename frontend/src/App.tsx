@@ -176,6 +176,8 @@ const translations = {
     createBoxSaved: 'Boîte créée.',
     createBoxNoOptions: 'Aucune souche disponible pour créer une boîte.',
     createBoxForbidden: 'Ce compte ne peut pas créer de boîte.',
+    createBoxNumberMismatch: 'Le numéro doit correspondre au numéro présent dans le code boîte.',
+    createBoxConfirm: 'Confirmer la création de cette boîte ?',
     adminCurrentSession: 'Session active',
     adminChangeRole: 'Modifier rôle',
     adminRemoveAccess: 'Supprimer accès',
@@ -549,6 +551,8 @@ const translations = {
     createBoxSaved: 'Box created.',
     createBoxNoOptions: 'No strain available to create a box.',
     createBoxForbidden: 'This account cannot create boxes.',
+    createBoxNumberMismatch: 'The number must match the number used in the box code.',
+    createBoxConfirm: 'Confirm creating this box?',
     adminCurrentSession: 'Active session',
     adminChangeRole: 'Change role',
     adminRemoveAccess: 'Remove access',
@@ -1788,6 +1792,14 @@ function CreateBoxPanel({
     event.preventDefault();
     if (isSaving || !canSubmit || organizationId == null || strainId == null) return;
 
+    if (!boxCodeMatchesBoxNumber(globalCode, boxNumber)) {
+      setMessage(null);
+      setError(t('createBoxNumberMismatch'));
+      return;
+    }
+
+    if (!window.confirm(t('createBoxConfirm'))) return;
+
     setIsSaving(true);
     setMessage(null);
     setError(null);
@@ -2620,37 +2632,37 @@ function BoxPage({
             <p className="box-page-label">{t('boxSheet')}</p>
             <div className="box-code-line">
               <h2>{box.global_code}</h2>
-              <button
-                className={checkCount > 0 ? 'box-alert-trigger' : 'box-alert-trigger is-empty'}
-                type="button"
-                aria-label={`${t('boxChecksButton')} (${checkCount})`}
-                title={`${t('boxChecksButton')} (${checkCount})`}
-                onClick={() => setIsChecksOpen(true)}
-              >
-                <BellIcon />
-                <strong>{checkCount}</strong>
-              </button>
             </div>
             <p className="box-species-name">{box.species.scientific_name}</p>
           </div>
 
           <div className="box-small-facts">
-            <InfoPill label={t('boxStrain')} value={box.strain.code} />
             <InfoPill label={t('createdOn')} value={createdOn ? formatDisplayDate(createdOn) : t('noDate')} />
           </div>
+
+          {qr && canWriteLabData ? (
+            <button
+              className="box-hero-qr"
+              type="button"
+              title={qr.scanUrl}
+              onClick={() => setIsQrLabelOpen(true)}
+            >
+              <img src={qr.imageUrl} alt={`${t('qrCode')} ${box.global_code}`} width={58} height={58} />
+              <span>{t('qrCode')}</span>
+            </button>
+          ) : null}
         </div>
 
-        {qr && canWriteLabData ? (
-          <button
-            className="box-hero-qr"
-            type="button"
-            title={qr.scanUrl}
-            onClick={() => setIsQrLabelOpen(true)}
-          >
-            <img src={qr.imageUrl} alt={`${t('qrCode')} ${box.global_code}`} width={58} height={58} />
-            <span>{t('qrCode')}</span>
-          </button>
-        ) : null}
+        <button
+          className={checkCount > 0 ? 'box-alert-trigger' : 'box-alert-trigger is-empty'}
+          type="button"
+          aria-label={`${t('boxChecksButton')} (${checkCount})`}
+          title={`${t('boxChecksButton')} (${checkCount})`}
+          onClick={() => setIsChecksOpen(true)}
+        >
+          <BellIcon />
+          <strong>{checkCount}</strong>
+        </button>
 
         <div className="box-zone-summary">
           {box.thermal_zone ? (
@@ -3433,13 +3445,10 @@ function buildNextBoxCode(
   const matchingBoxes = boxes
     .filter((box) => box.organization.id === organizationId && box.strain.id === strain.id)
     .map((box) => {
-      const match = box.global_code.match(/^(.*\.)(\d+)(.*)$/);
+      const match = box.global_code.match(/^.*\.(\d+).*$/);
       return {
-        box,
-        prefix: match?.[1] ?? '',
         numberText: match?.[2] ?? '',
-        suffix: match?.[3] ?? '',
-        number: match ? Number(match[2]) : Number.NaN,
+        number: match ? Number(match[1]) : Number.NaN,
       };
     })
     .filter((item) => Number.isFinite(item.number))
@@ -3448,34 +3457,34 @@ function buildNextBoxCode(
   const template = matchingBoxes[0];
   if (template) {
     const nextNumber = template.number + 1;
-    const boxNumber = String(nextNumber).padStart(template.numberText.length, '0');
+    const width = Math.max(template.numberText.length, 3);
+    const boxNumber = String(nextNumber).padStart(width, '0');
     return {
       boxNumber,
-      globalCode: `${template.prefix}${boxNumber}${template.suffix}`,
+      globalCode: `${strain.code}.${boxNumber}`,
     };
   }
 
-  const fallbackPrefix = getExistingSpeciesPrefix(boxes, strain.species_id) ?? getSpeciesCode(strain.species_name);
   const boxNumber = '001';
   return {
     boxNumber,
-    globalCode: `${fallbackPrefix}.001`,
+    globalCode: `${strain.code}.${boxNumber}`,
   };
 }
 
-function getExistingSpeciesPrefix(boxes: BoxItem[], speciesId: number) {
-  const matchingBox = boxes.find((box) => box.species.id === speciesId);
-  const match = matchingBox?.global_code.match(/^(.*\D)\d+(?:-|$)/);
-  return match?.[1]?.replace(/\.$/, '') ?? null;
+function boxCodeMatchesBoxNumber(globalCode: string, boxNumber: string) {
+  const codeNumber = extractBoxNumberFromCode(globalCode);
+  if (!codeNumber) return true;
+  return normalizeBoxNumber(codeNumber) === normalizeBoxNumber(boxNumber);
 }
 
-function getSpeciesCode(speciesName: string) {
-  return speciesName
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part.slice(0, 3).toUpperCase())
-    .join('-') || 'BOX';
+function extractBoxNumberFromCode(globalCode: string) {
+  return globalCode.trim().match(/^.*\.(\d+).*$/)?.[1] ?? null;
+}
+
+function normalizeBoxNumber(value: string) {
+  const normalized = value.trim();
+  return /^\d+$/.test(normalized) ? String(Number.parseInt(normalized, 10)) : normalized;
 }
 
 function userCanWriteLabData(profile: UserProfile | null, organizationId: number) {
