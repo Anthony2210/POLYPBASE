@@ -1721,6 +1721,9 @@ function formatAuditDescription(entry: AdminAuditLogEntry) {
   if (description.startsWith('Subculture created from ')) {
     return `Repiquage créé depuis ${description.replace('Subculture created from ', '')}`;
   }
+  if (description.startsWith('Manual temperature recorded: ')) {
+    return `Température manuelle enregistrée : ${description.replace('Manual temperature recorded: ', '')}`;
+  }
   if (description === 'Weekly biological measurement CSV export') {
     return 'Export CSV hebdomadaire des relevés biologiques';
   }
@@ -1791,6 +1794,7 @@ function formatAuditMetadataKey(key: string) {
     strobiles: 'Strobiles',
     subculture_event_id: 'Identifiant repiquage',
     temperature_consigne: 'Température consigne',
+    temperature_c: 'Température mesurée',
     thermal_zone_id: 'Identifiant emplacement',
     to_thermal_zone_name: 'Nouvelle zone',
     volume_litres: 'Volume (L)',

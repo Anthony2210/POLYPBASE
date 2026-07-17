@@ -3194,6 +3194,49 @@ button:disabled {
   gap: 8px;
 }
 
+.manual-temperature-form {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(150px, 0.8fr) minmax(180px, auto);
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid rgba(11, 120, 144, 0.18);
+  border-radius: 8px;
+  background: rgba(247, 251, 252, 0.86);
+}
+
+.manual-temperature-form > strong {
+  grid-column: 1 / -1;
+  color: var(--ink);
+  font-size: 0.95rem;
+  font-style: italic;
+}
+
+.manual-temperature-form label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 780;
+}
+
+.manual-temperature-form input {
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--ink);
+  font: inherit;
+}
+
+.manual-temperature-form .inline-success,
+.manual-temperature-form .inline-error {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
 .zone-page-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(310px, 0.8fr);

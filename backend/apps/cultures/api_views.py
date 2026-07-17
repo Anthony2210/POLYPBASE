@@ -33,6 +33,7 @@ from .serializers import (
     BoxListSerializer,
     BoxMoveCreateSerializer,
     BoxTransferCreateSerializer,
+    ManualTemperatureCreateSerializer,
     ProbeCreateSerializer,
     SubcultureCreateSerializer,
     SubcultureEventSerializer,
@@ -746,6 +747,67 @@ class ThermalZoneDetailAPIView(generics.RetrieveUpdateAPIView):
                 "modifications": _changed_values(before_values, after_values),
             },
         )
+
+
+class ThermalZoneManualTemperatureAPIView(APIView):
+    def post(self, request, pk):
+        zone = get_object_or_404(
+            ThermalZone.objects.select_related("organization"),
+            pk=pk,
+            organization_id__in=get_authorized_organization_ids(request.user),
+        )
+        if not user_can_write_lab_data(request.user, zone.organization):
+            raise PermissionDenied("Ce compte ne peut pas saisir de température pour cet emplacement.")
+
+        serializer = ManualTemperatureCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        measured_on = serializer.validated_data["measured_on"]
+        temperature_c = serializer.validated_data["temperature_c"]
+
+        DailyTemperature.objects.update_or_create(
+            thermal_zone=zone,
+            date=measured_on,
+            defaults={
+                "min_temperature_c": temperature_c,
+                "average_temperature_c": temperature_c,
+                "max_temperature_c": temperature_c,
+                "measurement_count": 1,
+            },
+        )
+        AuditLog.objects.create(
+            organization=zone.organization,
+            user=request.user,
+            action=AuditLog.Action.UPDATE,
+            object_type="thermal_zone",
+            object_id=zone.name,
+            description=f"Manual temperature recorded: {zone.name}",
+            metadata={
+                "thermal_zone_id": zone.id,
+                "valeurs": {
+                    "date": measured_on.isoformat(),
+                    "temperature_c": _json_value(temperature_c),
+                },
+            },
+        )
+
+        refreshed_zone = (
+            ThermalZone.objects.filter(pk=zone.pk)
+            .select_related("organization")
+            .prefetch_related(
+                Prefetch(
+                    "daily_temperatures",
+                    queryset=DailyTemperature.objects.order_by("-date"),
+                ),
+                Prefetch(
+                    "salinity_measurements",
+                    queryset=SalinityMeasurement.objects.select_related("user").order_by("-measured_on"),
+                ),
+                "probes",
+            )
+            .annotate(box_count=Count("boxes"))
+            .get()
+        )
+        return Response(ThermalZoneSerializer(refreshed_zone).data, status=status.HTTP_201_CREATED)
 
 
 class ProbeCreateAPIView(generics.CreateAPIView):

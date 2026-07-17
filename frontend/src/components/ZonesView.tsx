@@ -1,9 +1,11 @@
-import { type CSSProperties, useEffect, useState } from 'react';
+import { type CSSProperties, type FormEvent, useEffect, useState } from 'react';
 import { scaleLinear } from 'd3-scale';
 
 import { getBoxStatusPresentation } from '../boxStatus';
 import type { BoxItem, ThermalZone } from '../types';
+import type { ManualTemperaturePayload } from '../types/admin';
 import { formatDisplayDate } from '../utils/dateFormat';
+import { getErrorMessage } from '../utils/errors';
 import { getZoneOccupancyLevel } from '../utils/zoneOccupancy';
 import PageLoader from './PageLoader';
 
@@ -174,7 +176,9 @@ export function ZoneDetailPage({
   isLoading,
   language,
   zone,
+  canRecordManualTemperature,
   onBack,
+  onRecordManualTemperature,
   onOpenBox,
   t,
 }: {
@@ -182,7 +186,9 @@ export function ZoneDetailPage({
   isLoading: boolean;
   language: Language;
   zone: ThermalZone | null;
+  canRecordManualTemperature: boolean;
   onBack: () => void;
+  onRecordManualTemperature: (zoneId: number, payload: ManualTemperaturePayload) => Promise<ThermalZone>;
   onOpenBox: (id: number) => void;
   t: TFunction;
 }) {
@@ -214,7 +220,7 @@ export function ZoneDetailPage({
       ? attentionBoxes
       : zoneBoxes;
   const targetTemperature = parseTemperatureNumber(zone.target_temperature_c);
-  const measuredTemperature = zone.latest_temperature?.average_temperature_c ?? null;
+  const measuredTemperature = parseTemperatureNumber(zone.latest_temperature?.average_temperature_c);
   const temperatureNeedsAttention = targetTemperature === null
     || measuredTemperature === null
     || Math.abs(measuredTemperature - targetTemperature) > 1;
@@ -241,7 +247,12 @@ export function ZoneDetailPage({
         </div>
       </header>
 
-      <TemperatureControlPanel zone={zone} t={t} />
+      <TemperatureControlPanel
+        zone={zone}
+        canRecordManualTemperature={canRecordManualTemperature}
+        onRecordManualTemperature={onRecordManualTemperature}
+        t={t}
+      />
 
       {temperatureNeedsAttention || attentionBoxes.length ? (
         <ZoneAttentionPanel
@@ -366,7 +377,7 @@ export function ZoneDetailPage({
 function buildZoneOverviewEntry(zone: ThermalZone, boxes: BoxItem[]): ZoneOverviewEntry {
   const zoneBoxes = boxes.filter((box) => box.thermal_zone?.id === zone.id);
   const targetTemperature = parseTemperatureNumber(zone.target_temperature_c);
-  const measuredTemperature = zone.latest_temperature?.average_temperature_c ?? null;
+  const measuredTemperature = parseTemperatureNumber(zone.latest_temperature?.average_temperature_c);
   const missingMeasurements = zoneBoxes.filter((box) => !box.latest_measurement).length;
   const temperatureNeedsAttention = targetTemperature === null
     || measuredTemperature === null
@@ -534,11 +545,21 @@ function ZoneRecentActivity({
   );
 }
 
-function TemperatureControlPanel({ zone, t }: { zone: ThermalZone; t: TFunction }) {
+function TemperatureControlPanel({
+  zone,
+  canRecordManualTemperature,
+  onRecordManualTemperature,
+  t,
+}: {
+  zone: ThermalZone;
+  canRecordManualTemperature: boolean;
+  onRecordManualTemperature: (zoneId: number, payload: ManualTemperaturePayload) => Promise<ThermalZone>;
+  t: TFunction;
+}) {
   const targetTemperature = parseTemperatureNumber(zone.target_temperature_c);
-  const measuredTemperature = zone.latest_temperature?.average_temperature_c ?? null;
-  const minTemperature = zone.latest_temperature?.min_temperature_c ?? null;
-  const maxTemperature = zone.latest_temperature?.max_temperature_c ?? null;
+  const measuredTemperature = parseTemperatureNumber(zone.latest_temperature?.average_temperature_c);
+  const minTemperature = parseTemperatureNumber(zone.latest_temperature?.min_temperature_c);
+  const maxTemperature = parseTemperatureNumber(zone.latest_temperature?.max_temperature_c);
   const hasTemperature = measuredTemperature !== null && targetTemperature !== null;
   const delta = hasTemperature ? measuredTemperature - targetTemperature : null;
   const absoluteDelta = delta === null ? null : Math.abs(delta);
@@ -561,12 +582,39 @@ function TemperatureControlPanel({ zone, t }: { zone: ThermalZone; t: TFunction 
     ? Math.max(Math.abs(maxLeft - minLeft), 0.6)
     : 0.6;
   const [isGaugeReady, setIsGaugeReady] = useState(false);
+  const [temperatureDate, setTemperatureDate] = useState(getTodayInputValue);
+  const [manualTemperature, setManualTemperature] = useState('');
+  const [isSavingTemperature, setIsSavingTemperature] = useState(false);
+  const [temperatureMessage, setTemperatureMessage] = useState<string | null>(null);
+  const [temperatureError, setTemperatureError] = useState<string | null>(null);
 
   useEffect(() => {
     setIsGaugeReady(false);
     const animationFrame = window.requestAnimationFrame(() => setIsGaugeReady(true));
     return () => window.cancelAnimationFrame(animationFrame);
   }, [zone.id, targetTemperature, measuredTemperature, minTemperature, maxTemperature]);
+
+  async function handleManualTemperatureSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isSavingTemperature || !manualTemperature.trim()) return;
+
+    setIsSavingTemperature(true);
+    setTemperatureMessage(null);
+    setTemperatureError(null);
+
+    try {
+      await onRecordManualTemperature(zone.id, {
+        measured_on: temperatureDate,
+        temperature_c: manualTemperature.trim(),
+      });
+      setManualTemperature('');
+      setTemperatureMessage(t('manualTemperatureSaved'));
+    } catch (requestError) {
+      setTemperatureError(getErrorMessage(requestError));
+    } finally {
+      setIsSavingTemperature(false);
+    }
+  }
 
   const gaugeStyle = {
     '--temperature-current-position': `${measuredLeft}%`,
@@ -617,6 +665,37 @@ function TemperatureControlPanel({ zone, t }: { zone: ThermalZone; t: TFunction 
         <Metric label={t('minTemperature')} value={formatTemperature(minTemperature ?? undefined)} />
         <Metric label={t('maxTemperature')} value={formatTemperature(maxTemperature ?? undefined)} />
       </div>
+
+      {canRecordManualTemperature ? (
+        <form className="manual-temperature-form" onSubmit={handleManualTemperatureSubmit}>
+          <strong>{t('manualTemperatureTitle')}</strong>
+          <label>
+            <span>{t('manualTemperatureDate')}</span>
+            <input
+              type="date"
+              value={temperatureDate}
+              onChange={(event) => setTemperatureDate(event.target.value)}
+              required
+            />
+          </label>
+          <label>
+            <span>{t('manualTemperatureValue')}</span>
+            <input
+              type="number"
+              inputMode="decimal"
+              step="0.1"
+              value={manualTemperature}
+              onChange={(event) => setManualTemperature(event.target.value)}
+              required
+            />
+          </label>
+          <button type="submit" disabled={isSavingTemperature || !manualTemperature.trim()}>
+            {isSavingTemperature ? t('saving') : t('manualTemperatureSave')}
+          </button>
+          {temperatureMessage ? <p className="inline-success">{temperatureMessage}</p> : null}
+          {temperatureError ? <p className="inline-error">{temperatureError}</p> : null}
+        </form>
+      ) : null}
     </section>
   );
 }
@@ -697,6 +776,12 @@ function parseTemperatureNumber(value: string | number | null | undefined) {
   if (value === null || value === undefined || value === '') return null;
   const numericValue = typeof value === 'number' ? value : Number.parseFloat(value);
   return Number.isFinite(numericValue) ? numericValue : null;
+}
+
+function getTodayInputValue() {
+  const today = new Date();
+  today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
+  return today.toISOString().slice(0, 10);
 }
 
 function getTemperatureMarkerPosition(value: number, target: number) {

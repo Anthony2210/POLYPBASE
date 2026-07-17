@@ -51,6 +51,7 @@ import type {
 import type {
   BoxTransferPayload,
   BoxTransferResult,
+  ManualTemperaturePayload,
   OrganizationPayload,
   ProbePayload,
   ThermalZonePayload,
@@ -197,6 +198,12 @@ const translations = {
     adminProbeLocation: 'Emplacement',
     adminProbeCreated: 'Sonde ajoutée.',
     adminProbeNoZone: 'Aucun emplacement que vous administrez.',
+    manualTemperatureTitle: 'Température manuelle',
+    manualTemperatureDate: 'Date',
+    manualTemperatureValue: 'Température mesurée (°C)',
+    manualTemperatureSave: 'Enregistrer la température',
+    manualTemperatureSaved: 'Température enregistrée.',
+    manualTemperatureForbidden: 'Ce compte ne peut pas saisir de température pour cet emplacement.',
     adminOrganizationCreated: 'Structure créée.',
     adminOrganizationDeleted: 'Structure supprimée.',
     adminOrganizationUpdated: 'Structure modifiée.',
@@ -564,6 +571,12 @@ const translations = {
     adminProbeLocation: 'Location',
     adminProbeCreated: 'Probe added.',
     adminProbeNoZone: 'No zone you administer.',
+    manualTemperatureTitle: 'Manual temperature',
+    manualTemperatureDate: 'Date',
+    manualTemperatureValue: 'Measured temperature (°C)',
+    manualTemperatureSave: 'Save temperature',
+    manualTemperatureSaved: 'Temperature saved.',
+    manualTemperatureForbidden: 'This account cannot record temperature for this location.',
     adminOrganizationCreated: 'Organization created.',
     adminOrganizationDeleted: 'Organization deleted.',
     adminOrganizationUpdated: 'Organization updated.',
@@ -1305,6 +1318,17 @@ export default function App() {
     setData((current) => ({ ...current, zones: zones.results }));
   }
 
+  async function recordManualTemperature(zoneId: number, payload: ManualTemperaturePayload) {
+    const zone = await apiPost<ThermalZone>(`/api/thermal-zones/${zoneId}/temperature/`, payload);
+    setData((current) => ({
+      ...current,
+      zones: upsertThermalZones(current.zones, [zone]),
+      overview: null,
+      exportOptions: null,
+    }));
+    return zone;
+  }
+
   async function createProbe(payload: ProbePayload) {
     await apiPost<Probe>('/api/probes/', payload);
     // Probes are nested inside the zone payload, so refresh the zones list.
@@ -1457,7 +1481,12 @@ export default function App() {
                   isLoading={isLoading}
                   language={language}
                   zone={data.zones.find((zone) => zone.id === route.zoneId) ?? null}
+                  canRecordManualTemperature={userCanWriteLabData(
+                    data.profile,
+                    data.zones.find((zone) => zone.id === route.zoneId)?.organization.id ?? -1,
+                  )}
                   onBack={closeZonePage}
+                  onRecordManualTemperature={recordManualTemperature}
                   onOpenBox={openBox}
                   t={t}
                 />
@@ -3245,6 +3274,16 @@ function getMeasurementHistory(box: BoxItem | BoxDetail) {
   return box.latest_measurement ? [box.latest_measurement] : [];
 }
 
+function upsertThermalZones(currentZones: ThermalZone[], updatedZones: ThermalZone[]) {
+  const updatedById = new Map(updatedZones.map((zone) => [zone.id, zone]));
+  const mergedZones = currentZones.map((zone) => updatedById.get(zone.id) ?? zone);
+  const existingIds = new Set(currentZones.map((zone) => zone.id));
+  return [
+    ...mergedZones,
+    ...updatedZones.filter((zone) => !existingIds.has(zone.id)),
+  ];
+}
+
 function getLatestComment(measurements: BiologicalMeasurement[], box: BoxItem | BoxDetail) {
   const measurementWithComment = measurements.find((measurement) => measurement.notes?.trim());
   return measurementWithComment?.notes.trim() || box.latest_measurement?.notes?.trim();
@@ -3311,8 +3350,10 @@ function getMoveSaveError(error: unknown, t: TFunction) {
   return getErrorMessage(error);
 }
 
-function formatTemperature(value: number | undefined) {
-  return value === undefined ? '-' : `${value.toFixed(1)}°C`;
+function formatTemperature(value: string | number | null | undefined) {
+  if (value === null || value === undefined || value === '') return '-';
+  const numericValue = typeof value === 'number' ? value : Number.parseFloat(value);
+  return Number.isFinite(numericValue) ? `${numericValue.toFixed(1)}°C` : '-';
 }
 
 function formatTemperatureValue(value: string | number | null | undefined) {

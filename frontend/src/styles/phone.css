@@ -928,6 +928,17 @@
     margin-inline: 4px;
   }
 
+  .manual-temperature-form {
+    grid-template-columns: 1fr;
+    border-radius: 14px;
+  }
+
+  .manual-temperature-form input,
+  .manual-temperature-form button {
+    min-height: 46px;
+    border-radius: 14px;
+  }
+
   .zone-boxes-section,
   .zone-chart-section {
     min-height: 0;

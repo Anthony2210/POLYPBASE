@@ -248,9 +248,9 @@ export type ThermalZone = {
   box_count: number;
   latest_temperature: {
     date: string;
-    average_temperature_c: number;
-    min_temperature_c: number | null;
-    max_temperature_c: number | null;
+    average_temperature_c: number | string;
+    min_temperature_c: number | string | null;
+    max_temperature_c: number | string | null;
     measurement_count: number;
   } | null;
   latest_salinity: {
