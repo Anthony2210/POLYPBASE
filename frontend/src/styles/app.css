@@ -8949,6 +8949,44 @@ button.zone-attention-item:hover {
   }
 }
 
+/* Tablet portrait (tall, 760-1023px). Outside this range the hero keeps its
+   desktop 4-column grid, whose columns have fixed 360px + 250px minimums that
+   sum past ~868px: on a portrait tablet that overflows horizontally and pushes
+   the environment block (emplacement, consigne, both salinities) off the right
+   edge or far down the page. Force a compact vertical stack so that block sits
+   right under the identity and every pill -- salinity included -- stays visible.
+   Phones (<=759px) and short landscape viewports keep their own layouts. */
+@media (min-width: 760px) and (max-width: 1023px) and (min-height: 761px) {
+  .box-sheet-hero {
+    grid-template-columns: 1fr;
+    align-items: start;
+    align-content: start;
+    gap: 12px;
+    min-height: auto;
+  }
+
+  .box-sheet-hero > * {
+    min-width: 0;
+  }
+
+  .box-hero-qr {
+    justify-self: start;
+  }
+
+  .box-zone-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-content: start;
+    gap: 10px 18px;
+    padding: 12px 0 0;
+    border-top: 1px solid var(--line-soft);
+    border-left: 0;
+  }
+
+  .box-zone-summary .box-zone-link {
+    grid-column: 1 / -1;
+  }
+}
+
 @media print {
   @page {
     margin: 8mm;
