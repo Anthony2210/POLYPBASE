@@ -57,7 +57,12 @@ import type {
 import { upsertBoxes } from './utils/boxCollection';
 import { formatDisplayDate } from './utils/dateFormat';
 import { getErrorMessage } from './utils/errors';
-import { decrementDecimalValue, incrementDecimalValue } from './utils/stepValue';
+import {
+  decrementDecimalValue,
+  formatDecimalValue,
+  incrementDecimalValue,
+  parsePositiveDecimal,
+} from './utils/stepValue';
 import { triggerHaptic } from './utils/haptics';
 import { getBoxQrImageUrl, getBoxScanUrl, printQrLabels, type QrLabelItem } from './utils/qrLabels';
 
@@ -66,9 +71,10 @@ import { getBoxQrImageUrl, getBoxScanUrl, printQrLabels, type QrLabelItem } from
 const BOX_LIST_LIMIT = 1000;
 
 // Salinity (PSU) is read off a refractometer and lands on round values, so the
-// +/- buttons move by 5 rather than by decimals. The field itself starts empty:
-// a measurement saved without touching it records no salinity at all, instead of
-// silently storing a value nobody measured. Stepping up from empty yields 5.
+// +/- buttons move by 5 rather than by decimals. The field starts on the control
+// salinity of the box's zone -- the environment it is known to sit in -- and the
+// technician overrides it when the refractometer disagrees. It stays empty while
+// the zone has no salinity set, rather than storing a value nobody measured.
 const SALINITY_STEP = 5;
 
 type TabId = 'pilotage' | 'overview' | 'zones' | 'exports' | 'labels' | 'admin' | 'profile';
@@ -2234,7 +2240,8 @@ function BoxPage({
   onOpenQrLabelSelection: () => void;
   t: TFunction;
 }) {
-  const [form, setForm] = useState(() => getInitialMeasurementForm());
+  const zoneSalinity = getZoneSalinityValue(box, zones);
+  const [form, setForm] = useState(() => getInitialMeasurementForm(zoneSalinity));
   const [isSaving, setIsSaving] = useState(false);
   const isDesktopApp = useIsDesktopApp();
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -2263,7 +2270,7 @@ function BoxPage({
   const [activeInsightTab, setActiveInsightTab] = useState<BoxInsightTab>('measurements');
 
   useEffect(() => {
-    setForm(getInitialMeasurementForm());
+    setForm(getInitialMeasurementForm(zoneSalinity));
     setIsHistoryOpen(false);
     setLineageGraph(null);
     setIsLineageGraphLoading(false);
@@ -2286,6 +2293,15 @@ function BoxPage({
     setSubcultureMessage(null);
     setActiveInsightTab('measurements');
   }, [box?.id]);
+
+  // The zones can finish loading after the sheet is open, and the box can be
+  // moved to another zone: seed the salinity once its control value is known.
+  // Only an untouched field is filled, so this never overwrites a reading the
+  // technician typed, nor the value loaded when correcting a past measurement.
+  useEffect(() => {
+    if (editingMeasurementId != null || !zoneSalinity) return;
+    setForm((current) => (current.salinity ? current : { ...current, salinity: zoneSalinity }));
+  }, [zoneSalinity, editingMeasurementId]);
 
   useEffect(() => {
     if (activeInsightTab !== 'lineage' || !box?.id || lineageGraph || isLineageGraphLoading) {
@@ -2401,7 +2417,7 @@ function BoxPage({
         setLastSavedMeasurementId(created.id);
         setSaveMessage(t('measurementSaved'));
       }
-      setForm(getInitialMeasurementForm());
+      setForm(getInitialMeasurementForm(zoneSalinity));
       triggerHaptic([12, 28, 12]);
       return true;
     } catch (requestError) {
@@ -2431,7 +2447,7 @@ function BoxPage({
 
   function cancelEditingMeasurement() {
     setEditingMeasurementId(null);
-    setForm(getInitialMeasurementForm());
+    setForm(getInitialMeasurementForm(zoneSalinity));
     setSaveError(null);
     setSaveMessage(null);
   }
@@ -2756,9 +2772,11 @@ function BoxPage({
                     >
                       -
                     </StepperButton>
+                    {/* No step attribute: browsers reject off-step values, and
+                        the field must accept whatever the refractometer reads
+                        (32 with a zone control at 30). The buttons step by 5. */}
                     <input
                       min="0"
-                      step={SALINITY_STEP}
                       inputMode="decimal"
                       placeholder={String(SALINITY_STEP)}
                       type="number"
@@ -3149,14 +3167,28 @@ function mergeBoxDetail(current: AppData, detail: BoxDetail): AppData {
   };
 }
 
-function getInitialMeasurementForm() {
+function getInitialMeasurementForm(defaultSalinity = '') {
   return {
     measuredOn: getTodayDateValue(),
     polypCount: '',
     ephyraeCount: '',
-    salinity: '',
+    salinity: defaultSalinity,
     notes: '',
   };
+}
+
+/**
+ * Control salinity of the box: the one maintained on its zone.
+ *
+ * A new measurement starts from it, since that is the environment the box is
+ * known to sit in. Normalised through formatDecimalValue so the API's "30.00"
+ * reaches the field as "30" and the +/- buttons keep working from there.
+ */
+function getZoneSalinityValue(box: BoxItem | BoxDetail | null, zones: ThermalZone[]) {
+  if (!box) return '';
+  const salinity = getCurrentThermalZone(box, zones)?.salinity_psu;
+  if (salinity === null || salinity === undefined || salinity === '') return '';
+  return formatDecimalValue(parsePositiveDecimal(salinity));
 }
 
 function getTodayDateValue() {
