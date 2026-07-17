@@ -5798,6 +5798,37 @@ button.zone-attention-item:hover {
   align-items: end;
 }
 
+.transfer-package {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(11, 120, 144, 0.22);
+  border-radius: 8px;
+  background: rgba(231, 249, 252, 0.72);
+}
+
+.transfer-package strong {
+  display: block;
+  color: var(--ink);
+}
+
+.transfer-package p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.transfer-package-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .admin-form label,
 .admin-transfer-form label {
   display: grid;
@@ -5811,7 +5842,8 @@ button.zone-attention-item:hover {
 .admin-form select,
 .admin-form textarea,
 .admin-transfer-form input,
-.admin-transfer-form select {
+.admin-transfer-form select,
+.admin-transfer-form textarea {
   width: 100%;
   min-height: 42px;
   padding: 8px 10px;
@@ -5821,7 +5853,8 @@ button.zone-attention-item:hover {
   color: var(--ink);
 }
 
-.admin-form textarea {
+.admin-form textarea,
+.admin-transfer-form textarea {
   resize: vertical;
 }
 

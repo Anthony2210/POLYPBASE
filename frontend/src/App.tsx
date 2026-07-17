@@ -50,6 +50,7 @@ import type {
 } from './types';
 import type {
   BoxTransferPayload,
+  BoxTransferResult,
   OrganizationPayload,
   ProbePayload,
   ThermalZonePayload,
@@ -233,6 +234,9 @@ const translations = {
     adminTransferPolyps: 'Nombre de polypes transmis',
     adminKeepTransferDate: 'Conserver la date du transfert',
     adminPrepareTransfer: 'Préparer le transfert',
+    adminTransferPackageTitle: 'Documents de transfert prêts',
+    adminTransferDownloadData: 'Télécharger les données',
+    adminTransferPrintLabel: 'Imprimer l’étiquette QR',
     adminDjangoHint: 'Les actions sensibles restent accessibles dans Django admin tant que les API dédiées ne sont pas créées.',
     adminPrintLabelsAction: 'Imprimer les étiquettes',
     adminPrintLabelsClear: 'Tout décocher',
@@ -597,6 +601,9 @@ const translations = {
     adminTransferPolyps: 'Transferred polyps',
     adminKeepTransferDate: 'Keep transfer date',
     adminPrepareTransfer: 'Prepare transfer',
+    adminTransferPackageTitle: 'Transfer documents ready',
+    adminTransferDownloadData: 'Download data',
+    adminTransferPrintLabel: 'Print QR label',
     adminDjangoHint: 'Sensitive actions remain available in Django admin until dedicated APIs are created.',
     adminPrintLabelsAction: 'Print labels',
     adminPrintLabelsClear: 'Clear all',
@@ -1327,7 +1334,7 @@ export default function App() {
   }
 
   async function createBoxTransfer(payload: BoxTransferPayload) {
-    await apiPost<unknown>('/api/box-transfers/', payload);
+    return apiPost<BoxTransferResult>('/api/box-transfers/', payload);
   }
 
   function handleAuthenticated() {
