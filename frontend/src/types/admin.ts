@@ -27,3 +27,8 @@ export type BoxTransferPayload = {
   to_organization: number;
   notes: string;
 };
+
+export type BoxTransferResult = BoxTransferPayload & {
+  id: number;
+  transfer_date: string;
+};

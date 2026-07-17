@@ -15,12 +15,14 @@ import type {
 } from '../types';
 import type {
   BoxTransferPayload,
+  BoxTransferResult,
   OrganizationPayload,
   ProbePayload,
   ThermalZonePayload,
 } from '../types/admin';
 import { formatDisplayDate } from '../utils/dateFormat';
 import { getErrorMessage } from '../utils/errors';
+import { buildQrLabelItem, printQrLabels } from '../utils/qrLabels';
 import { decrementDecimalValue, incrementDecimalValue } from '../utils/stepValue';
 import { getZoneOccupancyLevel } from '../utils/zoneOccupancy';
 import PageLoader from './PageLoader';
@@ -1288,7 +1290,7 @@ function TransferCreateForm({
   profile: UserProfile;
   boxes: BoxItem[];
   organizations: Array<{ id: number; name: string }>;
-  onCreateTransfer: (payload: BoxTransferPayload) => Promise<void>;
+  onCreateTransfer: (payload: BoxTransferPayload) => Promise<BoxTransferResult>;
   t: TFunction;
 }) {
   const transferableBoxes = useMemo(() => {
@@ -1306,6 +1308,7 @@ function TransferCreateForm({
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [preparedTransfer, setPreparedTransfer] = useState<PreparedTransfer | null>(null);
 
   const selectedBox = transferableBoxes.find((box) => box.id === boxId) ?? null;
   // The target cannot be the box's current organization.
@@ -1324,9 +1327,20 @@ function TransferCreateForm({
     setIsSaving(true);
     setError(null);
     setMessage(null);
+    setPreparedTransfer(null);
 
     try {
-      await onCreateTransfer({ box: boxId, to_organization: targetOrgId, notes: notes.trim() });
+      const transfer = await onCreateTransfer({ box: boxId, to_organization: targetOrgId, notes: notes.trim() });
+      const box = transferableBoxes.find((item) => item.id === boxId);
+      const targetOrganization = organizations.find((organization) => organization.id === targetOrgId);
+      if (box && targetOrganization) {
+        setPreparedTransfer({
+          transfer,
+          box,
+          targetOrganization,
+          exportData: buildTransferExportData(transfer, box, targetOrganization),
+        });
+      }
       setNotes('');
       setTargetOrgId(null);
       setMessage(t('adminTransferCreated'));
@@ -1368,8 +1382,114 @@ function TransferCreateForm({
       </button>
       {message ? <p className="inline-success">{message}</p> : null}
       {error ? <p className="inline-error">{error}</p> : null}
+      {preparedTransfer ? (
+        <section className="transfer-package" aria-label={t('adminTransferPackageTitle')}>
+          <div>
+            <strong>{t('adminTransferPackageTitle')}</strong>
+            <p>
+              {preparedTransfer.box.global_code} - {preparedTransfer.targetOrganization.name}
+            </p>
+          </div>
+          <div className="transfer-package-actions">
+            <button
+              type="button"
+              onClick={() => downloadTransferJson(preparedTransfer)}
+            >
+              {t('adminTransferDownloadData')}
+            </button>
+            <button
+              type="button"
+              onClick={() => printQrLabels([buildQrLabelItem(preparedTransfer.box)])}
+            >
+              {t('adminTransferPrintLabel')}
+            </button>
+          </div>
+        </section>
+      ) : null}
     </form>
   );
+}
+
+type PreparedTransfer = {
+  transfer: BoxTransferResult;
+  box: BoxItem;
+  targetOrganization: { id: number; name: string };
+  exportData: TransferExportData;
+};
+
+type TransferExportData = {
+  format: string;
+  transfer: {
+    id: number;
+    date: string;
+    notes: string;
+    source_organization: Organization;
+    target_organization: { id: number; name: string };
+  };
+  box: {
+    id: number;
+    global_code: string;
+    local_code: string;
+    box_number: string;
+    status: string;
+    entered_on: string | null;
+    species: BoxItem['species'];
+    strain: BoxItem['strain'];
+    thermal_zone: BoxItem['thermal_zone'];
+    latest_measurement: BoxItem['latest_measurement'];
+    latest_salinity_psu: string | null;
+    qr_scan_url: string;
+  };
+};
+
+function buildTransferExportData(
+  transfer: BoxTransferResult,
+  box: BoxItem,
+  targetOrganization: { id: number; name: string },
+): TransferExportData {
+  return {
+    format: 'polypbase.box_transfer.v1',
+    transfer: {
+      id: transfer.id,
+      date: transfer.transfer_date,
+      notes: transfer.notes,
+      source_organization: box.organization,
+      target_organization: targetOrganization,
+    },
+    box: {
+      id: box.id,
+      global_code: box.global_code,
+      local_code: box.local_code,
+      box_number: box.box_number,
+      status: box.status,
+      entered_on: box.entered_on,
+      species: box.species,
+      strain: box.strain,
+      thermal_zone: box.thermal_zone,
+      latest_measurement: box.latest_measurement,
+      latest_salinity_psu: box.latest_salinity_psu,
+      qr_scan_url: new URL(`/bac/${box.id}/`, window.location.origin).href,
+    },
+  };
+}
+
+function downloadTransferJson(preparedTransfer: PreparedTransfer) {
+  const fileName = `transfert_${sanitizeFilePart(preparedTransfer.box.global_code)}_${preparedTransfer.transfer.transfer_date}.json`;
+  const blob = new Blob([`${JSON.stringify(preparedTransfer.exportData, null, 2)}\n`], {
+    type: 'application/json;charset=utf-8',
+  });
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
+function sanitizeFilePart(value: string) {
+  return value.trim().replace(/[^a-z0-9._-]+/gi, '_') || 'boite';
 }
 
 function AdminAuditLogSection({ t }: { t: TFunction }) {
@@ -1777,7 +1897,7 @@ export default function AdminView({
   onCreateOrganization: (payload: OrganizationPayload) => Promise<void>;
   onDeleteOrganization: (organizationId: number) => Promise<void>;
   onUpdateOrganization: (organizationId: number, payload: OrganizationPayload) => Promise<void>;
-  onCreateTransfer: (payload: BoxTransferPayload) => Promise<void>;
+  onCreateTransfer: (payload: BoxTransferPayload) => Promise<BoxTransferResult>;
   t: TFunction;
   zones: ThermalZone[];
 }) {

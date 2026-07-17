@@ -1143,6 +1143,17 @@
     border-radius: 14px;
   }
 
+  .transfer-package {
+    align-items: stretch;
+    flex-direction: column;
+    border-radius: 14px;
+  }
+
+  .transfer-package-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
   .zone-capacity-manager label {
     grid-template-columns: 1fr;
     border-radius: 14px;
