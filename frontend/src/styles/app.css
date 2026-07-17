@@ -1059,8 +1059,20 @@ button:disabled {
 }
 
 .box-code-line {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   min-width: 0;
+}
+
+.box-code-line h2 {
+  min-width: 0;
+}
+
+/* The alert bell sits beside the global code rather than in the action column. */
+.box-code-line .box-alert-trigger {
+  flex: none;
+  margin-left: auto;
 }
 
 .box-code-line span {
@@ -8946,6 +8958,88 @@ button.zone-attention-item:hover {
 
   .profile-language-select {
     width: 100%;
+  }
+}
+
+/* Phone (<=759px). The hero used to keep the action column pinned right
+   (justify-self:end, fixed width), so on a narrow screen the "Deplacer /
+   Repiquer / Rendre inactive" buttons overflowed off the right edge and dragged
+   the whole hero wider than the viewport -- the environment block, salinities
+   included, ended up pushed out of view. Stack the hero: identity, then the
+   environment grid (emplacement with the consigne, temperature and both
+   salinities beside it), then the action buttons full width below. */
+@media (max-width: 759px) {
+  .box-sheet-hero {
+    grid-template-columns: 1fr;
+    align-items: start;
+    align-content: start;
+    min-height: auto;
+    gap: 12px;
+  }
+
+  .box-sheet-hero > * {
+    min-width: 0;
+  }
+
+  /* Keep the alert bell on the same line as the global code (block C otherwise
+     resets this to display:block, dropping the bell below the code). */
+  .box-code-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .box-code-line .box-alert-trigger {
+    flex: none;
+    margin-left: auto;
+  }
+
+  /* Emplacement on the left (tall), then the environment facts to its right:
+     consigne + temperature in the middle column, both salinities in the right
+     column, so the salinities are always in view next to where the box lives.
+     Children are placed explicitly by position because the order is fixed:
+     1 emplacement, 2 consigne, 3 zone salinity, 4 temperature, 5 box salinity. */
+  .box-zone-summary {
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr);
+    align-content: start;
+    gap: 8px 16px;
+    padding: 12px 0 0;
+    border-top: 1px solid var(--line-soft);
+    border-left: 0;
+  }
+
+  .box-zone-summary > :nth-child(1) {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    align-self: start;
+  }
+
+  /* The emplacement name has room in its own column now; don't clip it. */
+  .box-zone-summary .box-zone-link strong {
+    max-width: none;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .box-zone-summary > :nth-child(2) { grid-column: 2; grid-row: 1; }
+  .box-zone-summary > :nth-child(3) { grid-column: 3; grid-row: 1; }
+  .box-zone-summary > :nth-child(4) { grid-column: 2; grid-row: 2; }
+  .box-zone-summary > :nth-child(5) { grid-column: 3; grid-row: 2; }
+
+  /* Deplacer + Repiquer share a row; the inactive/activate button runs full
+     width underneath. */
+  .box-action-stack {
+    width: 100%;
+    justify-self: stretch;
+    grid-template-columns: 1fr 1fr;
+    align-content: start;
+    gap: 8px;
+  }
+
+  .box-action-stack .archive-box-trigger,
+  .box-action-stack .activate-box-trigger {
+    grid-column: 1 / -1;
   }
 }
 

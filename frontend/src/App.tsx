@@ -2584,6 +2584,16 @@ function BoxPage({
             <p className="box-page-label">{t('boxSheet')}</p>
             <div className="box-code-line">
               <h2>{box.global_code}</h2>
+              <button
+                className={checkCount > 0 ? 'box-alert-trigger' : 'box-alert-trigger is-empty'}
+                type="button"
+                aria-label={`${t('boxChecksButton')} (${checkCount})`}
+                title={`${t('boxChecksButton')} (${checkCount})`}
+                onClick={() => setIsChecksOpen(true)}
+              >
+                <BellIcon />
+                <strong>{checkCount}</strong>
+              </button>
             </div>
             <p className="box-species-name">{box.species.scientific_name}</p>
           </div>
@@ -2632,17 +2642,6 @@ function BoxPage({
         </div>
 
         <div className="box-action-stack">
-          <button
-            className={checkCount > 0 ? 'box-alert-trigger' : 'box-alert-trigger is-empty'}
-            type="button"
-            aria-label={`${t('boxChecksButton')} (${checkCount})`}
-            title={`${t('boxChecksButton')} (${checkCount})`}
-            onClick={() => setIsChecksOpen(true)}
-          >
-            <BellIcon />
-            <strong>{checkCount}</strong>
-          </button>
-
           {canWriteLabData ? (
             <>
               <button className="move-trigger" type="button" onClick={() => setIsMoveOpen(true)}>
