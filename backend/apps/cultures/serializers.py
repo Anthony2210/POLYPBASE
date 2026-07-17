@@ -518,6 +518,11 @@ class ThermalZoneCreateSerializer(serializers.ModelSerializer):
         return attrs
 
 
+class ManualTemperatureCreateSerializer(serializers.Serializer):
+    measured_on = serializers.DateField()
+    temperature_c = serializers.DecimalField(max_digits=5, decimal_places=2)
+
+
 class ProbeCreateSerializer(serializers.ModelSerializer):
     """Write serializer used by org admins to register a probe in a zone.
 

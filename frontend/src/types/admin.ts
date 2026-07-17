@@ -14,6 +14,11 @@ export type ProbePayload = {
   location: string;
 };
 
+export type ManualTemperaturePayload = {
+  measured_on: string;
+  temperature_c: string;
+};
+
 export type OrganizationPayload = {
   name: string;
   city: string;

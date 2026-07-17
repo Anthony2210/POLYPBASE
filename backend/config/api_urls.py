@@ -26,6 +26,7 @@ from apps.cultures.api_views import (
     ProbeCreateAPIView,
     ThermalZoneDetailAPIView,
     ThermalZoneListCreateAPIView,
+    ThermalZoneManualTemperatureAPIView,
 )
 from apps.organizations.api_views import OrganizationCreateAPIView, OrganizationDetailAPIView
 from apps.exports.views import (
@@ -84,6 +85,11 @@ urlpatterns = [
     ),
     path("thermal-zones/", ThermalZoneListCreateAPIView.as_view(), name="api_thermal_zone_list"),
     path("thermal-zones/<int:pk>/", ThermalZoneDetailAPIView.as_view(), name="api_thermal_zone_detail"),
+    path(
+        "thermal-zones/<int:pk>/temperature/",
+        ThermalZoneManualTemperatureAPIView.as_view(),
+        name="api_thermal_zone_manual_temperature",
+    ),
     path("probes/", ProbeCreateAPIView.as_view(), name="api_probe_create"),
     path("box-transfers/", BoxTransferCreateAPIView.as_view(), name="api_box_transfer_create"),
     path("organizations/", OrganizationCreateAPIView.as_view(), name="api_organization_create"),

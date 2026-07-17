@@ -13,7 +13,7 @@ from django.urls import reverse
 
 from apps.accounts.models import OrganizationMembership
 from apps.audit.models import AuditLog
-from apps.measurements.models import BiologicalMeasurement, Probe
+from apps.measurements.models import BiologicalMeasurement, DailyTemperature, Probe
 from apps.organizations.models import Organization
 from apps.taxonomy.models import Species, Strain
 
@@ -72,9 +72,9 @@ class AdminResourceCreationApiTests(TestCase):
             thermal_zone=self.zone,
         )
 
-    def post(self, url_name, payload):
+    def post(self, url_name, payload, args=None):
         return self.client.post(
-            reverse(url_name),
+            reverse(url_name, args=args),
             data=json.dumps(payload),
             content_type="application/json",
         )
@@ -177,6 +177,42 @@ class AdminResourceCreationApiTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertFalse(ThermalZone.objects.filter(name="Etuve-25").exists())
+
+    def test_lab_technician_can_record_manual_zone_temperature(self):
+        self.client.login(username="tech", password="secret")
+
+        response = self.post(
+            "api_thermal_zone_manual_temperature",
+            {"measured_on": "2026-07-17", "temperature_c": "14.80"},
+            args=[self.zone.id],
+        )
+
+        self.assertEqual(response.status_code, 201)
+        temperature = DailyTemperature.objects.get(thermal_zone=self.zone, date="2026-07-17")
+        self.assertEqual(temperature.average_temperature_c, Decimal("14.80"))
+        self.assertEqual(temperature.measurement_count, 1)
+        self.assertEqual(
+            Decimal(str(response.json()["latest_temperature"]["average_temperature_c"])),
+            Decimal("14.80"),
+        )
+
+    def test_viewer_cannot_record_manual_zone_temperature(self):
+        viewer = get_user_model().objects.create_user(username="viewer", password="secret")
+        OrganizationMembership.objects.create(
+            user=viewer,
+            organization=self.organization,
+            role=OrganizationMembership.Role.VIEWER,
+        )
+        self.client.login(username="viewer", password="secret")
+
+        response = self.post(
+            "api_thermal_zone_manual_temperature",
+            {"measured_on": "2026-07-17", "temperature_c": "14.80"},
+            args=[self.zone.id],
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(DailyTemperature.objects.filter(thermal_zone=self.zone).exists())
 
     def test_admin_cannot_create_a_zone_in_another_organization(self):
         self.client.login(username="org_admin", password="secret")
