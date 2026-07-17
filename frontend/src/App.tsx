@@ -156,6 +156,8 @@ const translations = {
     boxActivateConfirm: 'Remettre cette boîte active ?',
     boxActivated: 'Boîte remise active.',
     boxActivateForbidden: 'Seul un administrateur peut remettre cette boîte active.',
+    moveConfirm: 'Confirmer le transfert de cette boîte ?',
+    subcultureConfirm: 'Confirmer la création de ce repiquage ?',
     createBoxTitle: 'Créer une boîte',
     createBoxText: 'Ajouter une nouvelle boîte sans passer par le repiquage.',
     createBoxOpen: 'Créer une boîte',
@@ -322,12 +324,12 @@ const translations = {
     holdToUpdate: 'Maintenir pour modifier',
     measurementEditing: 'Modification du relevé en cours',
     saveMeasurementEdit: 'Enregistrer la modification',
-    moveAction: 'Déplacer',
-    moveForbidden: 'Ce compte ne peut pas déplacer de boîte.',
-    moveSaved: 'Déplacement enregistré',
+    moveAction: 'Transférer',
+    moveForbidden: 'Ce compte ne peut pas transférer de boîte.',
+    moveSaved: 'Transfert enregistré',
     movementHistoryTitle: 'Historique des emplacements',
     noMovementHistory: 'Aucun déplacement enregistré pour cette boîte.',
-    movedTo: 'Déplacée vers',
+    movedTo: 'Transférée vers',
     newMeasurement: 'Nouveau relevé',
     noComment: 'Aucun commentaire récent pour cette boîte.',
     noDate: 'aucune date',
@@ -351,6 +353,12 @@ const translations = {
     overviewHideChart: 'Masquer tendance',
     overviewNoHistory: 'Pas assez de données pour tracer la tendance.',
     overviewEmpty: 'Aucune boîte vivante à afficher.',
+    overviewFilters: 'Filtres',
+    overviewFilterAllSpecies: 'Toutes les espèces',
+    overviewFilterAllZones: 'Tous les emplacements',
+    overviewSearch: 'Rechercher',
+    overviewSearchPlaceholder: 'Code, espèce ou emplacement',
+    overviewFilteredBoxes: 'boîtes affichées',
     labels: 'Étiquettes',
     labelsTitle: 'Étiquettes',
     pilotage: 'Suivi',
@@ -512,6 +520,8 @@ const translations = {
     boxActivateConfirm: 'Mark this box active again?',
     boxActivated: 'Box marked active again.',
     boxActivateForbidden: 'Only an administrator can mark this box active again.',
+    moveConfirm: 'Confirm moving this box?',
+    subcultureConfirm: 'Confirm creating this subculture?',
     createBoxTitle: 'Create a box',
     createBoxText: 'Add a new box without going through subculture.',
     createBoxOpen: 'Create a box',
@@ -707,6 +717,12 @@ const translations = {
     overviewHideChart: 'Hide trend',
     overviewNoHistory: 'Not enough data to draw the trend.',
     overviewEmpty: 'No living box to display.',
+    overviewFilters: 'Filters',
+    overviewFilterAllSpecies: 'All species',
+    overviewFilterAllZones: 'All locations',
+    overviewSearch: 'Search',
+    overviewSearchPlaceholder: 'Code, species or location',
+    overviewFilteredBoxes: 'shown boxes',
     labels: 'Labels',
     labelsTitle: 'Labels',
     pilotage: 'Tracking',
@@ -1911,16 +1927,28 @@ function OverviewView({
   onSelectBox: (id: number) => void;
   t: TFunction;
 }) {
-  const [expandedBoxId, setExpandedBoxId] = useState<number | null>(null);
-  const didSetInitialChartRef = useRef(false);
+  const [speciesFilter, setSpeciesFilter] = useState('');
+  const [zoneFilter, setZoneFilter] = useState('');
+  const [query, setQuery] = useState('');
   const overviewBoxes = boxes ?? [];
-  const speciesGroups = groupOverviewBoxesBySpecies(overviewBoxes);
-
-  useEffect(() => {
-    if (isLoading || didSetInitialChartRef.current || overviewBoxes.length === 0) return;
-    setExpandedBoxId(overviewBoxes[0].id);
-    didSetInitialChartRef.current = true;
-  }, [isLoading, overviewBoxes]);
+  const speciesOptions = Array.from(new Set(overviewBoxes.map((box) => box.species_name))).sort();
+  const zoneOptions = Array.from(
+    new Set(overviewBoxes.map((box) => box.thermal_zone?.name ?? t('noZone'))),
+  ).sort();
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const hasOverviewFilter = Boolean(normalizedQuery || speciesFilter || zoneFilter);
+  const filteredBoxes = overviewBoxes.filter((box) => {
+    const zoneName = box.thermal_zone?.name ?? t('noZone');
+    if (speciesFilter && box.species_name !== speciesFilter) return false;
+    if (zoneFilter && zoneName !== zoneFilter) return false;
+    if (!normalizedQuery) return true;
+    return [
+      box.global_code,
+      box.species_name,
+      box.strain_code,
+      zoneName,
+    ].some((value) => value.toLocaleLowerCase().includes(normalizedQuery));
+  });
 
   if (isLoading) {
     return <PageLoader variant="pilotage" label={t('overviewTitle')} />;
@@ -1932,75 +1960,78 @@ function OverviewView({
         <div>
           <p>{t('overviewSubtitle')}</p>
         </div>
-        <Metric label={t('overviewActiveBoxes')} value={String(overviewBoxes.length)} />
+        <Metric label={t('overviewFilteredBoxes')} value={`${filteredBoxes.length}/${overviewBoxes.length}`} />
       </header>
 
-      {overviewBoxes.length ? (
-        <div className="overview-list">
-          {speciesGroups.map((group) => (
-            <section className="overview-species-group" key={group.speciesName}>
-              <header>
-                <h2>{group.speciesName}</h2>
-                <span>{group.boxes.length}</span>
-              </header>
+      <section className="overview-filters" aria-label={t('overviewFilters')}>
+        <label>
+          <span>{t('overviewSearch')}</span>
+          <input
+            type="search"
+            placeholder={t('overviewSearchPlaceholder')}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </label>
+        <label>
+          <span>Espèce</span>
+          <select value={speciesFilter} onChange={(event) => setSpeciesFilter(event.target.value)}>
+            <option value="">{t('overviewFilterAllSpecies')}</option>
+            {speciesOptions.map((speciesName) => (
+              <option key={speciesName} value={speciesName}>{speciesName}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>{t('overviewLocationColumn')}</span>
+          <select value={zoneFilter} onChange={(event) => setZoneFilter(event.target.value)}>
+            <option value="">{t('overviewFilterAllZones')}</option>
+            {zoneOptions.map((zoneName) => (
+              <option key={zoneName} value={zoneName}>{zoneName}</option>
+            ))}
+          </select>
+        </label>
+      </section>
 
-              <div className="overview-table" role="table" aria-label={group.speciesName}>
-                <div className="overview-table-head" role="row">
-                  <span role="columnheader">{t('overviewBoxColumn')}</span>
-                  <span role="columnheader">{t('overviewLocationColumn')}</span>
-                  <span role="columnheader">{t('overviewLatestReading')}</span>
-                  <span role="columnheader">{t('polyps')}</span>
-                  <span role="columnheader">{t('ephyraeFull')}</span>
-                  <span role="columnheader">{t('temperatureShort')}</span>
-                  <span role="columnheader"> </span>
+      {hasOverviewFilter && filteredBoxes.length ? (
+        <div className="overview-box-list">
+          {filteredBoxes.map((box) => {
+            const latest = getLastItem(box.measurements);
+            const latestTemperature = getLastItem(box.temperatures);
+
+            return (
+              <article className="overview-box-summary" key={box.id}>
+                <header>
+                  <button type="button" onClick={() => onSelectBox(box.id)}>
+                    <strong>{box.global_code}</strong>
+                    <span>{box.species_name}</span>
+                  </button>
+                  <small>{box.thermal_zone?.name ?? t('noZone')}</small>
+                </header>
+
+                <div className="overview-box-kpis">
+                  <span>
+                    <small>{t('polyps')}</small>
+                    <strong>{latest?.polyp_count ?? '-'}</strong>
+                  </span>
+                  <span>
+                    <small>{t('ephyraeFull')}</small>
+                    <strong>{latest?.ephyrae_count ?? '-'}</strong>
+                  </span>
+                  <span>
+                    <small>{t('temperatureShort')}</small>
+                    <strong>{formatTemperature(latestTemperature?.average_temperature_c)}</strong>
+                  </span>
                 </div>
 
-                {group.boxes.map((box) => {
-                  const latest = getLastItem(box.measurements);
-                  const latestTemperature = getLastItem(box.temperatures);
-                  const isExpanded = expandedBoxId === box.id;
-
-                  return (
-                    <div className="overview-row-wrap" key={box.id}>
-                      <div className="overview-table-row" role="row">
-                        <button
-                          className="overview-code-button"
-                          type="button"
-                          onClick={() => onSelectBox(box.id)}
-                          role="cell"
-                        >
-                          {box.global_code}
-                        </button>
-                        <span role="cell" data-label={t('overviewLocationColumn')}>{box.thermal_zone?.name ?? t('noZone')}</span>
-                        <span role="cell" data-label={t('overviewLatestReading')}>{latest ? formatDisplayDate(latest.date) : t('overviewNoMeasurement')}</span>
-                        <strong role="cell" data-label={t('polyps')}>{latest?.polyp_count ?? '-'}</strong>
-                        <strong role="cell" data-label={t('ephyraeFull')}>{latest?.ephyrae_count ?? '-'}</strong>
-                        <span role="cell" data-label={t('temperatureShort')}>{formatTemperature(latestTemperature?.average_temperature_c)}</span>
-                        <button
-                          className="overview-trend-button"
-                          type="button"
-                          onClick={() => setExpandedBoxId(isExpanded ? null : box.id)}
-                          aria-expanded={isExpanded}
-                        >
-                          {isExpanded ? t('overviewHideChart') : t('overviewShowChart')}
-                        </button>
-                      </div>
-
-                      {isExpanded ? (
-                        <div className="overview-expanded-chart">
-                          <OverviewMiniChart box={box} t={t} />
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          ))}
+                <OverviewMiniChart box={box} t={t} />
+              </article>
+            );
+          })}
         </div>
-      ) : (
+      ) : hasOverviewFilter ? (
         <p className="muted compact-text">{t('overviewEmpty')}</p>
-      )}
+      ) : null}
     </section>
   );
 }
@@ -2460,6 +2491,7 @@ function BoxPage({
 
   async function handleSubculture(payload: SubculturePayload) {
     if (!box || isSavingSubculture) return;
+    if (!window.confirm(t('subcultureConfirm'))) return;
 
     setIsSavingSubculture(true);
     setSubcultureError(null);
@@ -2478,6 +2510,7 @@ function BoxPage({
 
   async function handleMove(payload: BoxMovePayload) {
     if (!box || isSavingMove) return;
+    if (!window.confirm(t('moveConfirm'))) return;
 
     setIsSavingMove(true);
     setMoveError(null);

@@ -544,7 +544,7 @@ class PolypbaseApiTests(TestCase):
                             "box_number": "004",
                             "thermal_zone_id": self.zone.id,
                             "copy_origin": True,
-                            "copy_volume_liters": True,
+                            "initial_polyp_count": 50,
                         },
                         {
                             "global_code": "AAU-1.005-ATL",
@@ -552,7 +552,7 @@ class PolypbaseApiTests(TestCase):
                             "box_number": "005",
                             "thermal_zone_id": self.zone.id,
                             "copy_origin": False,
-                            "copy_volume_liters": False,
+                            "initial_polyp_count": 25,
                             "notes": "Smaller experimental box.",
                         },
                     ],
@@ -577,15 +577,23 @@ class PolypbaseApiTests(TestCase):
         self.assertEqual(inherited_child.organization, self.box.organization)
         self.assertEqual(inherited_child.strain, self.box.strain)
         self.assertEqual(inherited_child.origin, self.box.origin)
-        self.assertEqual(inherited_child.volume_liters, self.box.volume_liters)
         self.assertIsNone(empty_child.origin)
         self.assertIsNone(empty_child.volume_liters)
+        self.assertEqual(
+            BiologicalMeasurement.objects.get(box=inherited_child, measured_on=date(2026, 6, 15)).polyp_count,
+            50,
+        )
+        self.assertEqual(
+            BiologicalMeasurement.objects.get(box=empty_child, measured_on=date(2026, 6, 15)).polyp_count,
+            25,
+        )
 
         audit_log = AuditLog.objects.get(
             action=AuditLog.Action.SUBCULTURE,
             object_id=self.box.global_code,
         )
         self.assertEqual(len(audit_log.metadata["child_box_ids"]), 2)
+        self.assertEqual(audit_log.metadata["initial_polyp_counts"]["AAU-1.004-ATL"], 50)
 
     def test_drf_subculture_endpoint_blocks_read_only_users(self):
         user_model = get_user_model()

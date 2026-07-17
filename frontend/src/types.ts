@@ -188,7 +188,7 @@ export type SubcultureChildPayload = {
   box_number: string;
   thermal_zone_id: number;
   copy_origin: boolean;
-  copy_volume_liters: boolean;
+  initial_polyp_count: number | null;
   notes: string;
 };
 

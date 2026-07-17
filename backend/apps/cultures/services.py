@@ -8,6 +8,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from apps.audit.models import AuditLog
+from apps.measurements.models import BiologicalMeasurement
 
 from .models import Box, BoxLineage, BoxLocation, BoxMovement, SubcultureEvent
 
@@ -42,11 +43,6 @@ def create_subculture(*, parent_box, user, event_date, reason, notes, children):
             origin=parent_box.origin if child_data.get("copy_origin", True) else None,
             thermal_zone=thermal_zone,
             entered_on=event_date,
-            volume_liters=(
-                parent_box.volume_liters
-                if child_data.get("copy_volume_liters", True)
-                else None
-            ),
             notes=child_data.get("notes", ""),
         )
         BoxLineage.objects.create(
@@ -61,6 +57,15 @@ def create_subculture(*, parent_box, user, event_date, reason, notes, children):
             starts_at=location_start,
             notes="Initial location after subculture.",
         )
+        if child_data.get("initial_polyp_count") is not None:
+            BiologicalMeasurement.objects.create(
+                box=child_box,
+                measured_on=event_date,
+                polyp_count=child_data["initial_polyp_count"],
+                ephyrae_count=0,
+                user=user,
+                notes="Nombre de polypes initial après repiquage.",
+            )
         child_boxes.append(child_box)
 
     AuditLog.objects.create(
@@ -74,6 +79,11 @@ def create_subculture(*, parent_box, user, event_date, reason, notes, children):
             "subculture_event_id": event.id,
             "child_box_ids": [box.id for box in child_boxes],
             "child_global_codes": [box.global_code for box in child_boxes],
+            "initial_polyp_counts": {
+                child_data["global_code"]: child_data.get("initial_polyp_count")
+                for child_data in children
+                if child_data.get("initial_polyp_count") is not None
+            },
         },
     )
 

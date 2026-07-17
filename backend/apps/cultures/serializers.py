@@ -347,7 +347,8 @@ class SubcultureChildCreateSerializer(serializers.Serializer):
         source="thermal_zone",
     )
     copy_origin = serializers.BooleanField(default=True)
-    copy_volume_liters = serializers.BooleanField(default=True)
+    copy_volume_liters = serializers.BooleanField(default=True, required=False)
+    initial_polyp_count = serializers.IntegerField(min_value=0, required=False, allow_null=True)
     notes = serializers.CharField(required=False, allow_blank=True)
 
     def validate_global_code(self, value):

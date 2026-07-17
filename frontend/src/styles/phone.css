@@ -734,6 +734,29 @@
     background: #ffffff;
   }
 
+  .overview-filters {
+    grid-template-columns: 1fr;
+    border-radius: 14px;
+  }
+
+  .overview-box-list {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-box-summary {
+    border-radius: 14px;
+  }
+
+  .overview-box-summary > header {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-box-summary > header small {
+    justify-self: start;
+    max-width: 100%;
+    text-align: left;
+  }
+
   .overview-species-group {
     border-radius: 18px;
   }
