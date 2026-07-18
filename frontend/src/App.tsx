@@ -58,7 +58,7 @@ import type {
   ThermalZonePayload,
 } from './types/admin';
 import { upsertBoxes } from './utils/boxCollection';
-import { formatDisplayDate } from './utils/dateFormat';
+import { formatDisplayDate, formatIsoWeekDateLabel } from './utils/dateFormat';
 import { getErrorMessage } from './utils/errors';
 import {
   decrementDecimalValue,
@@ -242,6 +242,8 @@ const translations = {
     adminTransferTitle: 'Transfert entre structures',
     adminTransferText: 'Préparer le transfert d’une boîte vers un autre aquarium sans perdre l’historique.',
     adminTransferBox: 'Boîte à transférer',
+    adminTransferBoxSearchPlaceholder: 'Code, espèce ou souche',
+    adminTransferBoxSearchEmpty: 'Aucune boîte trouvée avec cette recherche.',
     adminTransferTarget: 'Institution destinataire',
     adminTransferPolyps: 'Nombre de polypes transmis',
     adminKeepTransferDate: 'Conserver la date du transfert',
@@ -647,6 +649,8 @@ const translations = {
     adminTransferTitle: 'Transfer between organizations',
     adminTransferText: 'Prepare a box transfer to another aquarium without losing history.',
     adminTransferBox: 'Box to transfer',
+    adminTransferBoxSearchPlaceholder: 'Code, species or strain',
+    adminTransferBoxSearchEmpty: 'No box found for this search.',
     adminTransferTarget: 'Target institution',
     adminTransferPolyps: 'Transferred polyps',
     adminKeepTransferDate: 'Keep transfer date',
@@ -2217,6 +2221,7 @@ function groupOverviewBoxesBySpecies(boxes: OverviewBox[]) {
 }
 
 function OverviewMiniChart({ box, t }: { box: OverviewBox; t: TFunction }) {
+  const [activeDate, setActiveDate] = useState<string | null>(null);
   const measurementDates = box.measurements.map((point) => point.date);
   const temperaturePoints = box.temperatures.filter((point) => Number.isFinite(point.average_temperature_c));
   const temperatureDates = temperaturePoints.map((point) => point.date);
@@ -2242,9 +2247,11 @@ function OverviewMiniChart({ box, t }: { box: OverviewBox; t: TFunction }) {
     ...box.measurements.map((point) => Math.max(point.polyp_count, point.ephyrae_count)),
   );
   const temperatureValues = temperaturePoints.map((point) => point.average_temperature_c);
-  const minTemperature = Math.min(...temperatureValues);
-  const maxTemperature = Math.max(...temperatureValues);
+  const minTemperature = temperatureValues.length ? Math.min(...temperatureValues) : 0;
+  const maxTemperature = temperatureValues.length ? Math.max(...temperatureValues) : 1;
   const temperatureRange = Math.max(1, maxTemperature - minTemperature);
+  const measurementByDate = new Map(box.measurements.map((point) => [point.date, point]));
+  const temperatureByDate = new Map(temperaturePoints.map((point) => [point.date, point]));
   const xForDate = (date: string) => {
     const dateIndex = dates.indexOf(date);
     return padding.left + (dateIndex / Math.max(1, dates.length - 1)) * innerWidth;
@@ -2268,9 +2275,14 @@ function OverviewMiniChart({ box, t }: { box: OverviewBox; t: TFunction }) {
     xForDate,
     yForTemperature,
   );
+  const activeDateValue = activeDate ?? dates[dates.length - 1];
+  const activeMeasurement = measurementByDate.get(activeDateValue);
+  const activeTemperature = temperatureByDate.get(activeDateValue);
+  const activeX = xForDate(activeDateValue);
+  const tooltipLeft = Math.min(82, Math.max(18, (activeX / width) * 100));
 
   return (
-    <div className="overview-chart">
+    <div className="overview-chart" onPointerLeave={() => setActiveDate(null)}>
       <header>
         <strong>{t('overviewChartTitle')}</strong>
         <div className="overview-chart-legend">
@@ -2286,9 +2298,71 @@ function OverviewMiniChart({ box, t }: { box: OverviewBox; t: TFunction }) {
         {polypPath ? <path className="overview-chart-line is-polyps" d={polypPath} /> : null}
         {ephyraePath ? <path className="overview-chart-line is-ephyrae" d={ephyraePath} /> : null}
         {temperaturePath ? <path className="overview-chart-line is-temperature" d={temperaturePath} /> : null}
-        <text className="overview-chart-label" x={padding.left} y={height - 8}>{formatDisplayDate(dates[0])}</text>
-        <text className="overview-chart-label is-end" x={width - padding.right} y={height - 8}>{formatDisplayDate(dates[dates.length - 1])}</text>
+        {activeDate ? (
+          <line
+            className="overview-chart-hover-line"
+            x1={activeX}
+            x2={activeX}
+            y1={padding.top}
+            y2={padding.top + innerHeight}
+          />
+        ) : null}
+        {box.measurements.flatMap((point) => [
+          <circle
+            className="overview-chart-dot is-polyps"
+            key={`${point.date}-polyps`}
+            cx={xForDate(point.date)}
+            cy={yForCount(point.polyp_count)}
+            r={activeDate === point.date ? 4.2 : 3}
+          />,
+          <circle
+            className="overview-chart-dot is-ephyrae"
+            key={`${point.date}-ephyrae`}
+            cx={xForDate(point.date)}
+            cy={yForCount(point.ephyrae_count)}
+            r={activeDate === point.date ? 4.2 : 3}
+          />,
+        ])}
+        {temperaturePoints.map((point) => (
+          <circle
+            className="overview-chart-dot is-temperature"
+            key={`${point.date}-temperature`}
+            cx={xForDate(point.date)}
+            cy={yForTemperature(point.average_temperature_c)}
+            r={activeDate === point.date ? 4.2 : 3}
+          />
+        ))}
+        {dates.map((date) => {
+          const x = xForDate(date);
+          const hitWidth = Math.max(20, innerWidth / Math.max(1, dates.length - 1) * 0.75);
+
+          return (
+            <rect
+              aria-label={formatIsoWeekDateLabel(date)}
+              className="overview-chart-hit-area"
+              key={`hit-${date}`}
+              tabIndex={0}
+              x={x - hitWidth / 2}
+              y={padding.top}
+              width={hitWidth}
+              height={innerHeight}
+              onBlur={() => setActiveDate(null)}
+              onFocus={() => setActiveDate(date)}
+              onPointerEnter={() => setActiveDate(date)}
+            />
+          );
+        })}
+        <text className="overview-chart-label" x={padding.left} y={height - 8}>{formatIsoWeekDateLabel(dates[0])}</text>
+        <text className="overview-chart-label is-end" x={width - padding.right} y={height - 8}>{formatIsoWeekDateLabel(dates[dates.length - 1])}</text>
+        <text className="overview-chart-y-label" x={padding.left - 6} y={padding.top + 4}>{countMax}</text>
+        <text className="overview-chart-y-label" x={padding.left - 6} y={padding.top + innerHeight + 4}>0</text>
       </svg>
+      <div className="overview-chart-detail" style={{ left: `${tooltipLeft}%` }}>
+        <strong>{formatIsoWeekDateLabel(activeDateValue)}</strong>
+        <span>{t('polyps')} : {activeMeasurement?.polyp_count ?? '-'}</span>
+        <span>{t('ephyraeFull')} : {activeMeasurement?.ephyrae_count ?? '-'}</span>
+        <span>{t('temperatureShort')} : {formatTemperature(activeTemperature?.average_temperature_c)}</span>
+      </div>
     </div>
   );
 }
@@ -2806,7 +2880,6 @@ function BoxPage({
           )}
           <InfoPill label={t('zoneSalinityShort')} value={formatSalinity(currentZone?.salinity_psu)} />
           <InfoPill label={t('temperatureShort')} value={formatTemperature(currentZone?.latest_temperature?.average_temperature_c)} />
-          <InfoPill label={t('boxSalinityShort')} value={formatSalinity(box.latest_salinity_psu)} />
         </div>
 
         <div className="box-action-stack">
