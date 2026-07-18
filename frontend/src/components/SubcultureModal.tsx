@@ -31,8 +31,6 @@ const labels = {
     date: 'Date du repiquage',
     reason: 'Motif',
     reasonPlaceholder: 'Ex. densité élevée de polypes',
-    eventNotes: 'Note générale',
-    eventNotesPlaceholder: 'Informations utiles sur le repiquage',
     children: 'Boîtes enfants',
     addChild: 'Ajouter une boîte',
     removeChild: 'Supprimer cette boîte',
@@ -53,8 +51,6 @@ const labels = {
     date: 'Subculture date',
     reason: 'Reason',
     reasonPlaceholder: 'For example, high polyp density',
-    eventNotes: 'General note',
-    eventNotesPlaceholder: 'Useful information about the subculture',
     children: 'Child boxes',
     addChild: 'Add a box',
     removeChild: 'Remove this box',
@@ -88,7 +84,6 @@ export default function SubcultureModal({
   );
   const [eventDate, setEventDate] = useState(getTodayDateValue);
   const [reason, setReason] = useState('');
-  const [notes, setNotes] = useState('');
   const [nextKey, setNextKey] = useState(2);
   const [children, setChildren] = useState<ChildDraft[]>(() => [
     createChildDraft(1, box, existingBoxes, [], availableZones),
@@ -119,7 +114,7 @@ export default function SubcultureModal({
     await onSubmit({
       event_date: eventDate,
       reason: reason.trim(),
-      notes: notes.trim(),
+      notes: '',
       children: children.map(({ key: _key, ...child }) => ({
         ...child,
         global_code: child.global_code.trim(),
@@ -168,14 +163,6 @@ export default function SubcultureModal({
                 placeholder={text.reasonPlaceholder}
                 value={reason}
                 onChange={(event) => setReason(event.target.value)}
-              />
-            </label>
-            <label>
-              {text.eventNotes}
-              <input
-                placeholder={text.eventNotesPlaceholder}
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
               />
             </label>
           </div>

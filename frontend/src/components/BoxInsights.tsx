@@ -9,7 +9,7 @@ import type {
   LineageGraph,
 } from '../types';
 import InteractiveLineageGraph from './InteractiveLineageGraph';
-import { formatDisplayDate } from '../utils/dateFormat';
+import { formatDisplayDate, formatIsoWeekDateLabel } from '../utils/dateFormat';
 
 export type BoxInsightTab = 'measurements' | 'movements' | 'lineage';
 
@@ -242,8 +242,8 @@ function MeasurementTrendChart({
             />
           );
         })}
-        <text className="chart-label" x={padding.left} y={height - 12}>{formatDisplayDate(firstDate)}</text>
-        <text className="chart-label is-end" x={width - padding.right} y={height - 12}>{formatDisplayDate(lastDate)}</text>
+        <text className="chart-label" x={padding.left} y={height - 12}>{formatIsoWeekDateLabel(firstDate)}</text>
+        <text className="chart-label is-end" x={width - padding.right} y={height - 12}>{formatIsoWeekDateLabel(lastDate)}</text>
         <text className="chart-y-label" x={padding.left - 8} y={padding.top + 4}>{maxValue}</text>
         <text className="chart-y-label" x={padding.left - 8} y={height - padding.bottom + 4}>0</text>
       </svg>
@@ -256,7 +256,7 @@ function MeasurementTrendChart({
             top: `${Math.max(8, (hoverTop / height) * 100 - 8)}%`,
           }}
         >
-          <strong>{formatDisplayDate(hoveredMeasurement.measured_on)}</strong>
+          <strong>{formatIsoWeekDateLabel(hoveredMeasurement.measured_on)}</strong>
           <span>{labels.polyps} : {hoveredMeasurement.polyp_count}</span>
           <span>{labels.ephyraeFull} : {hoveredMeasurement.ephyrae_count}</span>
         </div>
