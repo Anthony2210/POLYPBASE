@@ -130,7 +130,6 @@
   .desktop-only-loading,
   .box-small-facts,
   .box-hero-qr,
-  .box-insights-section,
   .measurement-date-field,
   .zone-secondary-stack .zone-page-section:not(.zone-chart-section) {
     display: none !important;
@@ -485,8 +484,14 @@
     grid-template-columns: 1fr;
     grid-template-areas:
       "last"
-      "form";
+      "form"
+      "insights";
     gap: 12px;
+  }
+
+  .box-insights-section {
+    display: block !important;
+    min-width: 0;
   }
 
   .last-reading-card {
@@ -691,6 +696,95 @@
     margin: 0;
   }
 
+  .box-insights {
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid #dfe8ef;
+    border-radius: 20px;
+    background: #ffffff;
+    box-shadow: 0 8px 26px rgba(31, 56, 74, 0.06);
+  }
+
+  .insight-tabs {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .insight-tabs button {
+    min-height: 38px;
+    padding: 0 6px;
+    font-size: 0.76rem;
+  }
+
+  .insight-heading {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .insight-heading button {
+    width: 100%;
+    min-height: 42px;
+    border-radius: 14px;
+  }
+
+  .insight-panel {
+    min-height: 320px;
+  }
+
+  .measurement-chart {
+    min-height: 0;
+  }
+
+  .chart-toolbar {
+    display: grid;
+    gap: 8px;
+  }
+
+  .chart-periods,
+  .chart-series-controls {
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    border-radius: 16px;
+  }
+
+  .chart-periods {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .chart-series-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .chart-periods button,
+  .chart-series-controls button {
+    min-height: 36px;
+    padding: 0 5px;
+    font-size: 0.72rem;
+  }
+
+  .activity-chart-canvas {
+    overflow-x: auto;
+    padding: 8px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .activity-chart-canvas svg {
+    width: 640px;
+    min-width: 640px;
+  }
+
+  .measurement-chart .activity-temperature-chart {
+    min-height: 98px;
+  }
+
+  .chart-legend {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
   .fake-form .measurement-actions-row {
     position: sticky;
     bottom: calc(78px + env(safe-area-inset-bottom));
@@ -733,6 +827,11 @@
     padding: 14px;
     border-radius: 18px;
     background: #ffffff;
+  }
+
+  .overview-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
   }
 
   .overview-filters {
@@ -857,6 +956,27 @@
     align-items: flex-start;
   }
 
+  .zone-overview-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .zone-overview-sort,
+  .zone-overview-actions {
+    width: 100%;
+  }
+
+  .zone-overview-sort button,
+  .zone-overview-actions button {
+    flex: 1;
+    min-height: 42px;
+  }
+
+  .zone-overview-actions .zone-add-button {
+    flex: none;
+    width: 46px;
+  }
+
   .zone-card-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
@@ -875,6 +995,15 @@
     padding: 16px;
     border-radius: 20px;
     background: #ffffff;
+  }
+
+  .zone-admin-actions {
+    justify-content: stretch;
+  }
+
+  .zone-admin-actions button {
+    flex: 1;
+    min-height: 44px;
   }
 
   .zone-sheet-hero .box-page-label {
@@ -1011,6 +1140,7 @@
   .lineage-modal,
   .subculture-modal,
   .move-modal,
+  .zone-management-modal,
   .box-checks-modal,
   .qr-label-modal {
     width: 100%;
@@ -1021,6 +1151,11 @@
 
   .modal-heading {
     gap: 10px;
+  }
+
+  .zone-management-form {
+    grid-template-columns: 1fr;
+    padding: 14px;
   }
 
   .box-checks-heading {
@@ -1200,5 +1335,286 @@
 
   .box-sheet-identity h2 {
     font-size: clamp(1.75rem, 10.5vw, 2.7rem);
+  }
+}
+
+@media (max-width: 760px) {
+  .zone-overview-heading {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    padding: 12px;
+    border-radius: 18px;
+  }
+
+  .zone-overview-count {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .zone-overview-count > strong {
+    font-size: 1.2rem;
+  }
+
+  .zone-overview-count > span {
+    flex: 1;
+  }
+
+  .zone-overview-sort {
+    width: 100%;
+    border-radius: 999px;
+  }
+
+  .zone-overview-actions {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    width: 100%;
+  }
+
+  .zone-card {
+    gap: 12px;
+    min-height: 0;
+    padding: 0;
+    border-left: 5px solid #5791a7;
+    border-radius: 18px;
+    background:
+      radial-gradient(circle at top right, rgba(221, 245, 250, 0.62), transparent 48%),
+      #ffffff;
+  }
+
+  .zone-card-body {
+    min-height: 0;
+    gap: 12px;
+    padding: 15px;
+  }
+
+  .zone-card-heading {
+    padding-right: 80px;
+  }
+
+  .zone-card > .zone-card-alert {
+    top: 14px;
+    right: 42px;
+  }
+
+  .zone-card-arrow {
+    top: 27px;
+    right: 17px;
+  }
+
+  .zone-card.is-attention {
+    border-left-color: #c18a2b;
+  }
+
+  .zone-card-temperature > span,
+  .zone-card-facts > span {
+    min-height: 54px;
+    padding: 10px;
+    border-radius: 14px;
+  }
+
+  .zone-card-facts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .zone-sheet-hero {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 16px;
+    border-left: 0;
+    border-radius: 20px;
+    box-shadow: inset 5px 0 0 var(--primary);
+  }
+
+  .zone-sheet-hero .box-page-label {
+    display: block;
+    margin-bottom: 5px;
+    font-size: 0.78rem;
+  }
+
+  .zone-hero-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding: 8px;
+    border-radius: 16px;
+  }
+
+  .zone-hero-summary .metric {
+    min-height: 60px;
+    border-radius: 13px;
+  }
+
+  .zone-admin-actions.is-hero {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .zone-hero-actions {
+    width: 100%;
+  }
+
+  .zone-hero-actions .zone-alert-trigger {
+    min-height: 46px;
+  }
+
+  .zone-alert-item {
+    grid-template-columns: 1fr;
+  }
+
+  .zone-alert-item button {
+    width: 100%;
+  }
+
+  .zone-temperature-heading {
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .temperature-status-chip {
+    justify-content: center;
+  }
+
+  .temperature-gauge {
+    height: 126px;
+    border-radius: 18px;
+  }
+
+  .temperature-gauge-track,
+  .temperature-gauge-range {
+    top: 60px;
+  }
+
+  .temperature-gauge-target {
+    top: 24px;
+    bottom: 30px;
+  }
+
+  .temperature-gauge-cap,
+  .temperature-gauge-current {
+    top: 60px;
+  }
+
+  .manual-temperature-form {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .manual-temperature-heading {
+    padding-bottom: 2px;
+  }
+}
+
+@media (max-width: 760px) {
+  .create-box-toggle {
+    width: 100%;
+    justify-content: center;
+    min-height: 50px;
+    border-radius: 18px;
+  }
+
+  .zone-overview-heading {
+    margin-bottom: 12px;
+    border-radius: 20px;
+  }
+
+  .zone-overview-sort {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px;
+  }
+
+  .zone-overview-sort button {
+    min-width: 0;
+  }
+
+  .zone-filter-tabs {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .zone-filter-tabs button {
+    min-width: 0;
+    padding: 0 6px;
+  }
+
+  .zone-boxes-heading {
+    display: grid;
+    gap: 10px;
+  }
+
+  .zone-box-list {
+    max-height: none;
+    padding-right: 0;
+  }
+
+  .zone-box-row {
+    grid-template-columns: 1fr auto;
+    gap: 8px 12px;
+    min-height: 68px;
+    padding: 13px;
+    border-radius: 16px;
+  }
+
+  .zone-box-main {
+    min-width: 0;
+  }
+
+  .zone-box-reading {
+    justify-items: end;
+  }
+
+  .zone-alert-pill {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: end;
+  }
+
+  .zone-count-row {
+    grid-template-columns: 1fr;
+    padding: 12px;
+    border-radius: 16px;
+  }
+
+  .zone-count-values {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .zone-count-values span {
+    justify-items: start;
+  }
+
+  .temperature-source-note {
+    font-size: 0.78rem;
+  }
+
+  .box-checks-modal,
+  .zone-alerts-modal {
+    width: min(100%, calc(100vw - 24px));
+    max-height: calc(100dvh - 24px);
+    border-radius: 20px;
+  }
+
+  .box-checks-heading {
+    padding: 16px;
+  }
+
+  .box-checks-list {
+    max-height: calc(100dvh - 104px);
+    padding: 12px 16px 16px;
+  }
+
+  .box-check-item,
+  .zone-alert-item {
+    grid-template-columns: 1fr;
+    gap: 9px;
+  }
+
+  .zone-alert-item button {
+    width: 100%;
   }
 }

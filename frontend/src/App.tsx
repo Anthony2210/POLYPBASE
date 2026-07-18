@@ -29,6 +29,7 @@ import { ZoneDetailPage, ZonesView } from './components/ZonesView';
 import { useIsDesktopApp } from './hooks/useIsDesktopApp';
 import type {
   BiologicalMeasurement,
+  BoxAlert,
   BoxCreatePayload,
   BoxDetail,
   BoxItem,
@@ -150,14 +151,17 @@ const translations = {
     adminAuditObject: 'Objet',
     adminAuditShow: 'Afficher',
     adminAuditHide: 'Masquer',
-    boxArchiveAction: 'Inactive',
-    boxArchiveConfirm: 'Mettre cette boîte inactive ? Son historique sera conservé.',
-    boxArchived: 'Boîte mise inactive.',
-    boxArchiveForbidden: 'Seul un administrateur peut mettre cette boîte inactive.',
-    boxActivateAction: 'Active',
-    boxActivateConfirm: 'Remettre cette boîte active ?',
-    boxActivated: 'Boîte remise active.',
-    boxActivateForbidden: 'Seul un administrateur peut remettre cette boîte active.',
+    adminAuditShowAll: 'Tout afficher',
+    adminAuditShowLess: 'Réduire',
+    adminFlowLabel: 'Parcours administrateur',
+    boxArchiveAction: 'Désactiver le suivi',
+    boxArchiveConfirm: 'Désactiver le suivi de cette boîte ? Son historique restera conservé.',
+    boxArchived: 'Suivi de la boîte désactivé.',
+    boxArchiveForbidden: 'Seul un administrateur peut désactiver le suivi de cette boîte.',
+    boxActivateAction: 'Réactiver le suivi',
+    boxActivateConfirm: 'Réactiver le suivi de cette boîte ?',
+    boxActivated: 'Suivi de la boîte réactivé.',
+    boxActivateForbidden: 'Seul un administrateur peut réactiver le suivi de cette boîte.',
     moveConfirm: 'Confirmer le transfert de cette boîte ?',
     subcultureConfirm: 'Confirmer la création de ce repiquage ?',
     createBoxTitle: 'Créer une boîte',
@@ -216,7 +220,6 @@ const translations = {
     adminConfirmDeleteOrganization: 'Supprimer cette structure ?',
     adminInvalidCountry: 'Choisissez un pays dans la liste.',
     adminInvalidCityCountry: 'Cette ville ne correspond pas au pays choisi.',
-    adminSuperuserOnly: 'Réservé au super-administrateur.',
     adminTransferNotes: 'Notes',
     adminTransferCreated: 'Transfert enregistré.',
     adminTransferNoBox: 'Aucune boîte que vous administrez.',
@@ -257,12 +260,13 @@ const translations = {
     profileRoles: 'Rôles',
     profileEmail: 'Email',
     profileNoEmail: 'Non renseigné',
-    profileSuperuser: 'Super-administrateur',
     profileMemberships: 'Structures et rôles',
     profileNoMembership: 'Aucune structure rattachée à ce compte.',
-    profileSuperuserAllOrganizations: 'Super-administrateur — accès à toutes les structures.',
+    profileAllOrganizationsAccess: 'Accès à toutes les structures.',
     profilePreferences: 'Préférences',
     profileLanguage: 'Langue de l’interface',
+    profileAdminTitle: 'Espace administrateur',
+    profileAdminText: 'Gérer les comptes, les emplacements, les sondes et les échanges entre structures.',
     roleDescAdmin: 'Accès complet : laboratoire, exports et administration.',
     roleDescTechnician: 'Saisie et suivi du laboratoire, sans administration.',
     roleDescViewer: 'Consultation seule des données.',
@@ -312,8 +316,11 @@ const translations = {
     boxChecksIntro: 'Signaux détectés à partir des derniers relevés.',
     boxChecksTitle: 'Alertes de la boîte',
     chartEmpty: 'Pas assez de relevés pour tracer une tendance.',
+    chartMissingReading: 'Pas de relevé',
     chartTitle: 'Évolution des relevés',
     createdOn: 'Créée le',
+    firstMeasurementOn: 'Premier relevé',
+    events: 'Événements',
     lastComment: 'Dernier commentaire',
     lastMeasurement: 'Dernier relevé',
     laboratoryTracking: 'Suivi laboratoire',
@@ -331,18 +338,19 @@ const translations = {
     measurementHistory: 'Historique des relevés',
     measurementSaved: 'Relevé enregistré',
     measurementUpdated: 'Relevé modifié',
-    editLastMeasurement: 'Corriger le relevé enregistré',
-    editLastMeasurementHelp: 'Une erreur de saisie ? Recharger le dernier relevé dans le formulaire.',
+    editLastMeasurement: 'Modifier le dernier relevé',
+    editLastMeasurementHelp: 'Reprendre le dernier relevé dans le formulaire pour ajustement.',
     cancelEdit: 'Annuler la modification',
     holdToUpdate: 'Maintenir pour modifier',
-    measurementEditing: 'Modification du relevé en cours',
-    saveMeasurementEdit: 'Enregistrer la modification',
+    measurementEditing: 'Dernier relevé chargé pour modification',
+    saveMeasurementEdit: 'Enregistrer l’ajustement',
     moveAction: 'Transférer',
     moveForbidden: 'Ce compte ne peut pas transférer de boîte.',
     moveSaved: 'Transfert enregistré',
     movementHistoryTitle: 'Historique des emplacements',
     noMovementHistory: 'Aucun déplacement enregistré pour cette boîte.',
     movedTo: 'Transférée vers',
+    movementEvent: 'Transfert',
     newMeasurement: 'Nouveau relevé',
     noComment: 'Aucun commentaire récent pour cette boîte.',
     noDate: 'aucune date',
@@ -372,11 +380,15 @@ const translations = {
     overviewSearch: 'Rechercher',
     overviewSearchPlaceholder: 'Code, espèce ou emplacement',
     overviewFilteredBoxes: 'boîtes affichées',
+    overviewNoZoneMetric: 'sans emplacement',
+    overviewWithEphyrae: 'avec éphyrules',
+    overviewPriorityBoxes: 'à vérifier',
     labels: 'Étiquettes',
     labelsTitle: 'Étiquettes',
     pilotage: 'Suivi',
     pilotageTitle: 'Suivi labo',
     polyps: 'Polypes',
+    speciesLabel: 'Espèce',
     parents: 'Parents',
     children: 'Enfants',
     probes: 'Sondes',
@@ -418,12 +430,14 @@ const translations = {
     searchTab: 'Recherche',
     suggestions: 'Suggestions',
     subcultureAction: 'Repiquer',
+    subcultureEvent: 'Repiquage',
     subcultureForbidden: 'Ce compte ne peut pas créer de repiquage.',
     subcultureSaved: 'Repiquage enregistré',
     polypDropAdviceText: 'polypes de moins que le relevé précédent. Vérifier la boîte avant la prochaine saisie.',
     polypDropAdviceAction: 'Contrôler la boîte au prochain passage.',
     polypDropAdviceTitle: 'Baisse de polypes',
     checkImportanceHigh: 'Important',
+    checkImportanceInfo: 'Information',
     checkImportanceMedium: 'À surveiller',
     detectedSignal: 'Signal détecté',
     suggestedAction: 'Action proposée',
@@ -432,9 +446,15 @@ const translations = {
     salinityShort: 'Sal.',
     // Two salinities coexist on a box sheet: the zone reference and the one
     // actually measured for this box. They must never be confused.
-    zoneSalinityShort: 'Sal. emplac.',
-    boxSalinityShort: 'Sal. boîte',
-    salinityFull: 'Salinité (PSU)',
+    zoneSalinityShort: 'Sal. armoire',
+    boxSalinityShort: 'Dernière sal.',
+    salinityFull: 'Salinité du relevé (PSU)',
+    temperature: 'Température',
+    temperatureNoData: 'Aucune température disponible sur cette période.',
+    oneMonth: '1 mois',
+    threeMonths: '3 mois',
+    sixMonths: '6 mois',
+    allPeriod: 'Tout',
     aliveBoxes: 'Vivantes',
     backToZones: 'Retour aux emplacements',
     boxAttention: 'À surveiller',
@@ -449,8 +469,16 @@ const translations = {
     zoneOverviewNoProbe: 'Aucune sonde',
     zoneOverviewSortLocation: 'Rangement',
     zoneOverviewSortTemperature: 'Température',
+    zoneOverviewSortTemperatureAsc: 'Température ↑',
+    zoneOverviewSortTemperatureDesc: 'Température ↓',
     zoneOverviewThermalGap: 'Écart thermique',
     zoneOverviewMissingMeasurements: 'relevé(s) manquant(s)',
+    zoneAddAction: 'Ajouter un emplacement',
+    zoneAddTitle: 'Nouvel emplacement',
+    zoneAddProbeAction: 'Ajouter une sonde',
+    zoneAddProbeTitle: 'Nouvelle sonde',
+    zoneEditCapacityAction: 'Modifier capacité',
+    zoneEditTitle: 'Paramètres de l’emplacement',
     zoneTarget: 'Consigne',
     zoneCapacity: 'Capacité',
     zoneSalinity: 'Salinité',
@@ -474,7 +502,10 @@ const translations = {
     temperatureControl: 'Contrôle thermique',
     temperatureGap: 'Écart',
     temperatureMissing: 'Aucune température relevée',
+    temperatureManualReading: 'Mesure ponctuelle',
+    temperatureContinuousReading: 'Sonde continue',
     temperatureOk: 'Proche de la consigne',
+    temperatureSamples: 'mesures',
     temperatureWatch: 'Écart à surveiller',
     zoneSheet: 'Fiche emplacement thermique',
     zoneBoxesTitle: 'Boîtes dans l’emplacement',
@@ -525,14 +556,17 @@ const translations = {
     adminAuditObject: 'Object',
     adminAuditShow: 'Show',
     adminAuditHide: 'Hide',
-    boxArchiveAction: 'Inactive',
-    boxArchiveConfirm: 'Mark this box inactive? Its history will be kept.',
-    boxArchived: 'Box marked inactive.',
-    boxArchiveForbidden: 'Only an administrator can mark this box inactive.',
-    boxActivateAction: 'Active',
-    boxActivateConfirm: 'Mark this box active again?',
-    boxActivated: 'Box marked active again.',
-    boxActivateForbidden: 'Only an administrator can mark this box active again.',
+    adminAuditShowAll: 'Show all',
+    adminAuditShowLess: 'Collapse',
+    adminFlowLabel: 'Administration flow',
+    boxArchiveAction: 'Disable tracking',
+    boxArchiveConfirm: 'Disable tracking for this box? Its history will be kept.',
+    boxArchived: 'Box tracking disabled.',
+    boxArchiveForbidden: 'Only an administrator can disable tracking for this box.',
+    boxActivateAction: 'Enable tracking',
+    boxActivateConfirm: 'Enable tracking for this box?',
+    boxActivated: 'Box tracking enabled.',
+    boxActivateForbidden: 'Only an administrator can enable tracking for this box.',
     moveConfirm: 'Confirm moving this box?',
     subcultureConfirm: 'Confirm creating this subculture?',
     createBoxTitle: 'Create a box',
@@ -591,7 +625,6 @@ const translations = {
     adminConfirmDeleteOrganization: 'Delete this organization?',
     adminInvalidCountry: 'Choose a country from the list.',
     adminInvalidCityCountry: 'This city does not match the selected country.',
-    adminSuperuserOnly: 'Superuser only.',
     adminTransferNotes: 'Notes',
     adminTransferCreated: 'Transfer recorded.',
     adminTransferNoBox: 'No box you administer.',
@@ -632,12 +665,13 @@ const translations = {
     profileRoles: 'Roles',
     profileEmail: 'Email',
     profileNoEmail: 'Not provided',
-    profileSuperuser: 'Superuser',
     profileMemberships: 'Organizations and roles',
     profileNoMembership: 'No organization linked to this account.',
-    profileSuperuserAllOrganizations: 'Superuser — access to every organization.',
+    profileAllOrganizationsAccess: 'Access to every organization.',
     profilePreferences: 'Preferences',
     profileLanguage: 'Interface language',
+    profileAdminTitle: 'Administration area',
+    profileAdminText: 'Manage accounts, locations, probes and exchanges between organizations.',
     roleDescAdmin: 'Full access: lab, exports and administration.',
     roleDescTechnician: 'Lab data entry and tracking, no administration.',
     roleDescViewer: 'Read-only access to the data.',
@@ -687,8 +721,11 @@ const translations = {
     boxChecksIntro: 'Signals detected from the latest measurements.',
     boxChecksTitle: 'Box alerts',
     chartEmpty: 'Not enough measurements to draw a trend.',
+    chartMissingReading: 'No reading',
     chartTitle: 'Measurement trend',
     createdOn: 'Created on',
+    firstMeasurementOn: 'First reading',
+    events: 'Events',
     lastComment: 'Last comment',
     lastMeasurement: 'Last measurement',
     laboratoryTracking: 'Lab tracking',
@@ -706,18 +743,19 @@ const translations = {
     measurementHistory: 'Measurement history',
     measurementSaved: 'Measurement saved',
     measurementUpdated: 'Measurement updated',
-    editLastMeasurement: 'Correct saved measurement',
-    editLastMeasurementHelp: 'Need to fix a value? Load the saved measurement back into the form.',
+    editLastMeasurement: 'Edit latest reading',
+    editLastMeasurementHelp: 'Load the latest reading into the form for adjustment.',
     cancelEdit: 'Cancel edit',
     holdToUpdate: 'Hold to update',
-    measurementEditing: 'Editing the measurement',
-    saveMeasurementEdit: 'Save update',
+    measurementEditing: 'Latest reading loaded for editing',
+    saveMeasurementEdit: 'Save adjustment',
     moveAction: 'Move',
     moveForbidden: 'This account cannot move boxes.',
     moveSaved: 'Movement saved',
     movementHistoryTitle: 'Location history',
     noMovementHistory: 'No movement recorded for this box.',
     movedTo: 'Moved to',
+    movementEvent: 'Move',
     newMeasurement: 'New measurement',
     noComment: 'No recent comment for this box.',
     noDate: 'no date',
@@ -747,11 +785,15 @@ const translations = {
     overviewSearch: 'Search',
     overviewSearchPlaceholder: 'Code, species or location',
     overviewFilteredBoxes: 'shown boxes',
+    overviewNoZoneMetric: 'without location',
+    overviewWithEphyrae: 'with ephyrae',
+    overviewPriorityBoxes: 'to check',
     labels: 'Labels',
     labelsTitle: 'Labels',
     pilotage: 'Tracking',
     pilotageTitle: 'Lab tracking',
     polyps: 'Polyps',
+    speciesLabel: 'Species',
     parents: 'Parents',
     children: 'Children',
     probes: 'Probes',
@@ -793,21 +835,29 @@ const translations = {
     searchTab: 'Search',
     suggestions: 'Suggestions',
     subcultureAction: 'Subculture',
+    subcultureEvent: 'Subculture',
     subcultureForbidden: 'This account cannot create subculture events.',
     subcultureSaved: 'Subculture created',
     polypDropAdviceText: 'fewer polyps than the previous measurement. Check the box before the next entry.',
     polypDropAdviceAction: 'Check this box during the next lab round.',
     polypDropAdviceTitle: 'Polyp decrease',
     checkImportanceHigh: 'Important',
+    checkImportanceInfo: 'Information',
     checkImportanceMedium: 'Monitor',
     detectedSignal: 'Detected signal',
     suggestedAction: 'Suggested action',
     temperatureShort: 'Temp.',
     targetTemperature: 'Target',
     salinityShort: 'Sal.',
-    zoneSalinityShort: 'Zone sal.',
-    boxSalinityShort: 'Box sal.',
-    salinityFull: 'Salinity (PSU)',
+    zoneSalinityShort: 'Cabinet sal.',
+    boxSalinityShort: 'Last sal.',
+    salinityFull: 'Measurement salinity (PSU)',
+    temperature: 'Temperature',
+    temperatureNoData: 'No temperature data for this period.',
+    oneMonth: '1 month',
+    threeMonths: '3 months',
+    sixMonths: '6 months',
+    allPeriod: 'All',
     aliveBoxes: 'Alive',
     backToZones: 'Back to zones',
     boxAttention: 'Needs attention',
@@ -822,8 +872,16 @@ const translations = {
     zoneOverviewNoProbe: 'No probe',
     zoneOverviewSortLocation: 'Location',
     zoneOverviewSortTemperature: 'Temperature',
+    zoneOverviewSortTemperatureAsc: 'Temperature ↑',
+    zoneOverviewSortTemperatureDesc: 'Temperature ↓',
     zoneOverviewThermalGap: 'Thermal gap',
     zoneOverviewMissingMeasurements: 'missing measurement(s)',
+    zoneAddAction: 'Add location',
+    zoneAddTitle: 'New location',
+    zoneAddProbeAction: 'Add probe',
+    zoneAddProbeTitle: 'New probe',
+    zoneEditCapacityAction: 'Edit capacity',
+    zoneEditTitle: 'Location settings',
     zoneTarget: 'Target',
     zoneCapacity: 'Capacity',
     zoneSalinity: 'Salinity',
@@ -847,7 +905,10 @@ const translations = {
     temperatureControl: 'Thermal control',
     temperatureGap: 'Gap',
     temperatureMissing: 'No temperature reading',
+    temperatureManualReading: 'One-time reading',
+    temperatureContinuousReading: 'Live probe',
     temperatureOk: 'Close to target',
+    temperatureSamples: 'readings',
     temperatureWatch: 'Gap to watch',
     zoneSheet: 'Thermal zone sheet',
     zoneBoxesTitle: 'Boxes in this zone',
@@ -890,7 +951,8 @@ export default function App() {
   const language = getLanguage(data.profile);
   const t: TFunction = (key) => translations[language][key];
   const isDesktopApp = useIsDesktopApp();
-  const canUseAdmin = userHasAdminRole(data.profile);
+  const hasAdminRole = userHasAdminRole(data.profile);
+  const canUseAdmin = isDesktopApp && hasAdminRole;
   const isProfileAdminLoading = activeTab === 'profile' && canUseAdmin && data.exportOptions === null;
   const isPilotageOptionsLoading = activeTab === 'pilotage' && data.exportOptions === null;
   const isExportOptionsLoading = (
@@ -1342,9 +1404,10 @@ export default function App() {
 
   async function createOrganization(payload: OrganizationPayload) {
     await apiPost<Organization>('/api/organizations/', payload);
-    // Refresh export options so the new organization appears in the lists.
+    // Refresh linked lists so the new organization is usable immediately.
     const exportOptions = await apiGet<ExportOptions>('/api/exports/options/');
-    setData((current) => ({ ...current, exportOptions }));
+    const profile = await apiGet<UserProfile>('/api/profile/');
+    setData((current) => ({ ...current, exportOptions, profile }));
   }
 
   async function updateOrganization(organizationId: number, payload: OrganizationPayload) {
@@ -1482,6 +1545,10 @@ export default function App() {
               route.zoneId != null ? (
                 <ZoneDetailPage
                   boxes={data.boxes}
+                  canManageZones={userCanArchiveBox(
+                    data.profile,
+                    data.zones.find((zone) => zone.id === route.zoneId)?.organization.id ?? -1,
+                  )}
                   isLoading={isLoading}
                   language={language}
                   zone={data.zones.find((zone) => zone.id === route.zoneId) ?? null}
@@ -1490,16 +1557,24 @@ export default function App() {
                     data.zones.find((zone) => zone.id === route.zoneId)?.organization.id ?? -1,
                   )}
                   onBack={closeZonePage}
+                  onCreateProbe={createProbe}
                   onRecordManualTemperature={recordManualTemperature}
                   onOpenBox={openBox}
+                  onUpdateZone={updateThermalZone}
+                  profile={data.profile}
                   t={t}
                 />
               ) : (
                 <ZonesView
                   boxes={data.boxes}
+                  canManageZones={hasAdminRole}
                   isLoading={isLoading}
+                  profile={data.profile}
                   zones={data.zones}
+                  onCreateProbe={createProbe}
+                  onCreateZone={createThermalZone}
                   onOpenZone={openZone}
+                  onUpdateZone={updateThermalZone}
                   t={t}
                 />
               )
@@ -1840,14 +1915,14 @@ function CreateBoxPanel({
         type="button"
         onClick={() => setIsOpen((current) => !current)}
       >
-        {isOpen ? t('createBoxClose') : t('createBoxOpen')}
+        <span aria-hidden="true">{isOpen ? '×' : '+'}</span>
+        <strong>{isOpen ? t('createBoxClose') : t('createBoxOpen')}</strong>
       </button>
 
       {isOpen ? (
         <form className="create-box-form" onSubmit={handleSubmit}>
           <div className="section-title">
             <h2>{t('createBoxTitle')}</h2>
-            <span>{t('createBoxText')}</span>
           </div>
 
           {isOptionsLoading ? <p className="muted compact-text">{t('loading')}</p> : null}
@@ -1978,13 +2053,13 @@ function OverviewView({
   const [speciesFilter, setSpeciesFilter] = useState('');
   const [zoneFilter, setZoneFilter] = useState('');
   const [query, setQuery] = useState('');
+  const [expandedBoxId, setExpandedBoxId] = useState<number | null>(null);
   const overviewBoxes = boxes ?? [];
   const speciesOptions = Array.from(new Set(overviewBoxes.map((box) => box.species_name))).sort();
   const zoneOptions = Array.from(
     new Set(overviewBoxes.map((box) => box.thermal_zone?.name ?? t('noZone'))),
   ).sort();
   const normalizedQuery = query.trim().toLocaleLowerCase();
-  const hasOverviewFilter = Boolean(normalizedQuery || speciesFilter || zoneFilter);
   const filteredBoxes = overviewBoxes.filter((box) => {
     const zoneName = box.thermal_zone?.name ?? t('noZone');
     if (speciesFilter && box.species_name !== speciesFilter) return false;
@@ -1997,6 +2072,15 @@ function OverviewView({
       zoneName,
     ].some((value) => value.toLocaleLowerCase().includes(normalizedQuery));
   });
+  const groupedBoxes = groupOverviewBoxesBySpecies(filteredBoxes);
+  const boxesWithoutMeasurement = overviewBoxes.filter((box) => !getLastItem(box.measurements)).length;
+  const boxesWithEphyrae = overviewBoxes.filter(
+    (box) => (getLastItem(box.measurements)?.ephyrae_count ?? 0) > 0,
+  ).length;
+  const priorityBoxes = overviewBoxes.filter((box) => {
+    const latest = getLastItem(box.measurements);
+    return !latest || latest.ephyrae_count > 0;
+  }).length;
 
   if (isLoading) {
     return <PageLoader variant="pilotage" label={t('overviewTitle')} />;
@@ -2008,7 +2092,12 @@ function OverviewView({
         <div>
           <p>{t('overviewSubtitle')}</p>
         </div>
-        <Metric label={t('overviewFilteredBoxes')} value={`${filteredBoxes.length}/${overviewBoxes.length}`} />
+        <div className="overview-metrics">
+          <Metric label={t('overviewActiveBoxes')} value={String(overviewBoxes.length)} />
+          <Metric label={t('overviewNoMeasurement')} value={String(boxesWithoutMeasurement)} />
+          <Metric label={t('overviewWithEphyrae')} value={String(boxesWithEphyrae)} />
+          <Metric label={t('overviewPriorityBoxes')} value={String(priorityBoxes)} />
+        </div>
       </header>
 
       <section className="overview-filters" aria-label={t('overviewFilters')}>
@@ -2022,7 +2111,7 @@ function OverviewView({
           />
         </label>
         <label>
-          <span>Espèce</span>
+          <span>{t('speciesLabel')}</span>
           <select value={speciesFilter} onChange={(event) => setSpeciesFilter(event.target.value)}>
             <option value="">{t('overviewFilterAllSpecies')}</option>
             {speciesOptions.map((speciesName) => (
@@ -2041,45 +2130,74 @@ function OverviewView({
         </label>
       </section>
 
-      {hasOverviewFilter && filteredBoxes.length ? (
-        <div className="overview-box-list">
-          {filteredBoxes.map((box) => {
-            const latest = getLastItem(box.measurements);
-            const latestTemperature = getLastItem(box.temperatures);
-
-            return (
-              <article className="overview-box-summary" key={box.id}>
-                <header>
-                  <button type="button" onClick={() => onSelectBox(box.id)}>
-                    <strong>{box.global_code}</strong>
-                    <span>{box.species_name}</span>
-                  </button>
-                  <small>{box.thermal_zone?.name ?? t('noZone')}</small>
-                </header>
-
-                <div className="overview-box-kpis">
-                  <span>
-                    <small>{t('polyps')}</small>
-                    <strong>{latest?.polyp_count ?? '-'}</strong>
-                  </span>
-                  <span>
-                    <small>{t('ephyraeFull')}</small>
-                    <strong>{latest?.ephyrae_count ?? '-'}</strong>
-                  </span>
-                  <span>
-                    <small>{t('temperatureShort')}</small>
-                    <strong>{formatTemperature(latestTemperature?.average_temperature_c)}</strong>
-                  </span>
+      {filteredBoxes.length ? (
+        <div className="overview-list">
+          <div className="overview-result-count">
+            <span>{t('overviewFilteredBoxes')}</span>
+            <strong>{filteredBoxes.length}/{overviewBoxes.length}</strong>
+          </div>
+          {groupedBoxes.map((group) => (
+            <section className="overview-species-group" key={group.speciesName}>
+              <header>
+                <h2>{group.speciesName}</h2>
+                <span>{group.boxes.length}</span>
+              </header>
+              <div className="overview-table">
+                <div className="overview-table-head" aria-hidden="true">
+                  <span>{t('overviewBoxColumn')}</span>
+                  <span>{t('overviewLatestReading')}</span>
+                  <span>{t('overviewLocationColumn')}</span>
+                  <span>{t('polyps')}</span>
+                  <span>{t('ephyraeFull')}</span>
+                  <span>{t('overviewTemperature')}</span>
+                  <span>{t('overviewChartTitle')}</span>
                 </div>
+                {group.boxes.map((box) => {
+                  const latest = getLastItem(box.measurements);
+                  const latestTemperature = getLastItem(box.temperatures);
+                  const isExpanded = expandedBoxId === box.id;
 
-                <OverviewMiniChart box={box} t={t} />
-              </article>
-            );
-          })}
+                  return (
+                    <div className="overview-table-entry" key={box.id}>
+                      <div className="overview-table-row">
+                        <button className="overview-code-button" type="button" onClick={() => onSelectBox(box.id)}>
+                          {box.global_code}
+                        </button>
+                        <span data-label={t('overviewLatestReading')}>
+                          {latest ? formatDisplayDate(latest.date) : t('overviewNoMeasurement')}
+                        </span>
+                        <span data-label={t('overviewLocationColumn')}>
+                          {box.thermal_zone?.name ?? t('noZone')}
+                        </span>
+                        <strong data-label={t('polyps')}>{latest?.polyp_count ?? '-'}</strong>
+                        <strong data-label={t('ephyraeFull')}>{latest?.ephyrae_count ?? '-'}</strong>
+                        <strong data-label={t('overviewTemperature')}>
+                          {formatTemperature(latestTemperature?.average_temperature_c)}
+                        </strong>
+                        <button
+                          className="overview-trend-button"
+                          type="button"
+                          aria-expanded={isExpanded}
+                          onClick={() => setExpandedBoxId(isExpanded ? null : box.id)}
+                        >
+                          {isExpanded ? t('overviewHideChart') : t('overviewShowChart')}
+                        </button>
+                      </div>
+                      {isExpanded ? (
+                        <div className="overview-expanded-chart">
+                          <OverviewMiniChart box={box} t={t} />
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
         </div>
-      ) : hasOverviewFilter ? (
+      ) : (
         <p className="muted compact-text">{t('overviewEmpty')}</p>
-      ) : null}
+      )}
     </section>
   );
 }
@@ -2450,14 +2568,20 @@ function BoxPage({
     ? previousMeasurement.polyp_count - latestMeasurement.polyp_count
     : 0;
 
-  const checkCount = Number(Boolean(polypDropDetected));
+  const activeAlerts = 'active_alerts' in box ? box.active_alerts : [];
+  const hasPolypDropAlert = activeAlerts.some((alert) => {
+    const message = alert.message.toLocaleLowerCase('fr-FR');
+    return alert.alert_type === 'biological' && message.includes('polype');
+  });
+  const showLocalPolypDrop = Boolean(polypDropDetected) && !hasPolypDropAlert;
+  const checkCount = activeAlerts.length + Number(showLocalPolypDrop);
 
   const qr = 'qr_image_url' in box
     ? { imageUrl: getBoxQrImageUrl(box), scanUrl: getBoxScanUrl(box) }
     : null;
   const lineage = getBoxLineage(box);
   const currentZone = getCurrentThermalZone(box, zones);
-  const createdOn = getBoxCreatedDate(box);
+  const displayDate = getBoxDisplayDate(box, measurements);
   const statusPresentation = getBoxStatusPresentation(box.status, language);
   const canWriteLabData = userCanWriteLabData(profile, box.organization.id);
   const canChangeBoxStatus = userCanArchiveBox(profile, box.organization.id);
@@ -2637,7 +2761,10 @@ function BoxPage({
           </div>
 
           <div className="box-small-facts">
-            <InfoPill label={t('createdOn')} value={createdOn ? formatDisplayDate(createdOn) : t('noDate')} />
+            <InfoPill
+              label={t(displayDate.labelKey)}
+              value={displayDate.date ? formatDisplayDate(displayDate.date) : t('noDate')}
+            />
           </div>
 
           {qr && canWriteLabData ? (
@@ -2677,13 +2804,6 @@ function BoxPage({
           ) : (
             <InfoPill label={t('zones')} value={t('noZone')} strong />
           )}
-          <InfoPill
-            label={t('targetTemperature')}
-            value={formatTemperatureValue(currentZone?.target_temperature_c ?? box.thermal_zone?.target_temperature_c)}
-          />
-          {/* Reference salinity of the zone, next to its target temperature:
-              both describe the environment the box lives in. The box keeps its
-              own measured salinity right after. */}
           <InfoPill label={t('zoneSalinityShort')} value={formatSalinity(currentZone?.salinity_psu)} />
           <InfoPill label={t('temperatureShort')} value={formatTemperature(currentZone?.latest_temperature?.average_temperature_c)} />
           <InfoPill label={t('boxSalinityShort')} value={formatSalinity(box.latest_salinity_psu)} />
@@ -2942,6 +3062,7 @@ function BoxPage({
             lineage={lineage}
             measurements={measurements}
             movements={getBoxMovements(box)}
+            temperatureHistory={'temperature_history' in box ? box.temperature_history : []}
             onLoadLineageGraph={handleLoadLineageGraph}
             onOpenHistory={() => setIsHistoryOpen(true)}
             onSelectBox={onOpenBox}
@@ -2984,8 +3105,9 @@ function BoxPage({
 
         {isChecksOpen ? (
           <BoxChecksModal
+            activeAlerts={activeAlerts}
             polypDropCount={polypDropCount}
-            polypDropDetected={Boolean(polypDropDetected)}
+            polypDropDetected={showLocalPolypDrop}
             t={t}
             onClose={() => setIsChecksOpen(false)}
           />
@@ -3102,16 +3224,20 @@ function StepperButton({
 }
 
 function BoxChecksModal({
+  activeAlerts,
   polypDropCount,
   polypDropDetected,
   t,
   onClose,
 }: {
+  activeAlerts: BoxAlert[];
   polypDropCount: number;
   polypDropDetected: boolean;
   t: TFunction;
   onClose: () => void;
 }) {
+  const hasAlerts = activeAlerts.length > 0 || polypDropDetected;
+
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <section
@@ -3129,6 +3255,19 @@ function BoxChecksModal({
         </header>
 
         <div className="box-checks-list">
+          {activeAlerts.map((alert) => (
+            <article className={`box-check-item is-${getAlertTone(alert.level)}`} key={alert.id}>
+              <span className="check-severity">
+                {getAlertLevelLabel(alert.level, t)}
+              </span>
+              <div>
+                <small>{formatDisplayDate(alert.created_at)}</small>
+                <strong>{getAlertTypeLabel(alert.alert_type, t)}</strong>
+                <p>{alert.message}</p>
+              </div>
+            </article>
+          ))}
+
           {polypDropDetected ? (
             <article className="box-check-item is-medium">
               <span className="check-severity">{t('checkImportanceMedium')}</span>
@@ -3142,7 +3281,9 @@ function BoxChecksModal({
                 <p>{t('polypDropAdviceAction')}</p>
               </div>
             </article>
-          ) : (
+          ) : null}
+
+          {!hasAlerts ? (
             <article className="box-check-empty">
               <span className="check-empty-icon">
                 <BellIcon />
@@ -3152,7 +3293,7 @@ function BoxChecksModal({
                 <p>{t('boxChecksEmptyText')}</p>
               </div>
             </article>
-          )}
+          ) : null}
 
         </div>
       </section>
@@ -3171,11 +3312,13 @@ function InfoPill({ label, value, strong = false }: { label: string; value: stri
 
 function getBoxInsightsLabels(t: TFunction) {
   return {
+    allPeriod: t('allPeriod'),
     chartEmpty: t('chartEmpty'),
     chartTitle: t('chartTitle'),
     children: t('children'),
     close: t('close'),
     ephyraeFull: t('ephyraeFull'),
+    events: t('events'),
     historyButton: t('historyButton'),
     lineageEmptyGraph: t('lineageEmptyGraph'),
     lineageLoading: t('lineageLoading'),
@@ -3183,15 +3326,44 @@ function getBoxInsightsLabels(t: TFunction) {
     lineageTab: t('analysisTabLineage'),
     measurementHistory: t('measurementHistory'),
     measurementsTab: t('analysisTabMeasurements'),
+    missingReading: t('chartMissingReading'),
+    missingReadingRange: t('chartMissingReading'),
+    movementEvent: t('movementEvent'),
     movedTo: t('movedTo'),
     movementHistoryTitle: t('movementHistoryTitle'),
     movementsTab: t('analysisTabMovements'),
     noComment: t('noComment'),
     noMeasurementHistory: t('noMeasurementHistory'),
     noMovementHistory: t('noMovementHistory'),
+    oneMonth: t('oneMonth'),
     parents: t('parents'),
     polyps: t('polyps'),
+    salinityFull: t('salinityFull'),
+    sixMonths: t('sixMonths'),
+    subcultureEvent: t('subcultureEvent'),
+    temperature: t('temperature'),
+    temperatureNoData: t('temperatureNoData'),
+    threeMonths: t('threeMonths'),
   };
+}
+
+function getAlertTone(level: string) {
+  if (level === 'critical') return 'high';
+  if (level === 'warning') return 'medium';
+  return 'low';
+}
+
+function getAlertLevelLabel(level: string, t: TFunction) {
+  if (level === 'critical') return t('checkImportanceHigh');
+  if (level === 'warning') return t('checkImportanceMedium');
+  return t('checkImportanceInfo');
+}
+
+function getAlertTypeLabel(alertType: string, t: TFunction) {
+  if (alertType === 'temperature') return t('temperature');
+  if (alertType === 'salinity') return t('salinityFull');
+  if (alertType === 'subculture') return t('subcultureEvent');
+  return t('detectedSignal');
 }
 
 function getProfileLabels(t: TFunction) {
@@ -3201,10 +3373,12 @@ function getProfileLabels(t: TFunction) {
     logoutError: t('logoutError'),
     profileEmail: t('profileEmail'),
     profileLanguage: t('profileLanguage'),
+    profileAdminTitle: t('profileAdminTitle'),
+    profileAdminText: t('profileAdminText'),
     profileMemberships: t('profileMemberships'),
     profileNoEmail: t('profileNoEmail'),
     profileNoMembership: t('profileNoMembership'),
-    profileSuperuserAllOrganizations: t('profileSuperuserAllOrganizations'),
+    profileAllOrganizationsAccess: t('profileAllOrganizationsAccess'),
     profilePreferences: t('profilePreferences'),
     roleDescAdmin: t('roleDescAdmin'),
     roleDescTechnician: t('roleDescTechnician'),
@@ -3306,6 +3480,28 @@ function getBoxCreatedDate(box: BoxItem | BoxDetail) {
     return box.created_on;
   }
   return box.entered_on;
+}
+
+function getFirstMeasurementDate(measurements: BiologicalMeasurement[]) {
+  if (!measurements.length) return null;
+  return measurements
+    .map((measurement) => measurement.measured_on)
+    .filter(Boolean)
+    .sort((first, second) => first.localeCompare(second))[0] ?? null;
+}
+
+function getBoxDisplayDate(
+  box: BoxItem | BoxDetail,
+  measurements: BiologicalMeasurement[],
+): { labelKey: TranslationKey; date: string | null } {
+  const createdOn = getBoxCreatedDate(box);
+  const firstMeasurementOn = getFirstMeasurementDate(measurements);
+
+  if (firstMeasurementOn && (!createdOn || firstMeasurementOn < createdOn)) {
+    return { labelKey: 'firstMeasurementOn', date: firstMeasurementOn };
+  }
+
+  return { labelKey: 'createdOn', date: createdOn };
 }
 
 function parsePositiveInteger(value: string) {
@@ -3447,7 +3643,7 @@ function buildNextBoxCode(
     .map((box) => {
       const match = box.global_code.match(/^.*\.(\d+).*$/);
       return {
-        numberText: match?.[2] ?? '',
+        numberText: match?.[1] ?? '',
         number: match ? Number(match[1]) : Number.NaN,
       };
     })

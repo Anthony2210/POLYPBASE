@@ -1,4 +1,5 @@
 from collections import defaultdict
+from decimal import Decimal
 from datetime import timedelta
 
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -706,7 +707,7 @@ class ThermalZoneListCreateAPIView(generics.ListCreateAPIView):
             ),
             "probes",
         ).annotate(
-            box_count=Count("boxes")
+            box_count=Count("boxes", filter=Q(boxes__status=Box.Status.ACTIVE))
         ).order_by(
             "organization__name",
             "name",
@@ -764,7 +765,7 @@ class ThermalZoneManualTemperatureAPIView(APIView):
         measured_on = serializer.validated_data["measured_on"]
         temperature_c = serializer.validated_data["temperature_c"]
 
-        DailyTemperature.objects.update_or_create(
+        daily_temperature, created = DailyTemperature.objects.get_or_create(
             thermal_zone=zone,
             date=measured_on,
             defaults={
@@ -774,6 +775,40 @@ class ThermalZoneManualTemperatureAPIView(APIView):
                 "measurement_count": 1,
             },
         )
+        if not created:
+            previous_count = daily_temperature.measurement_count or 1
+            previous_average = daily_temperature.average_temperature_c
+            next_count = previous_count + 1
+            daily_temperature.average_temperature_c = (
+                (previous_average * Decimal(previous_count)) + temperature_c
+            ) / Decimal(next_count)
+            daily_temperature.min_temperature_c = min(
+                value
+                for value in [
+                    daily_temperature.min_temperature_c,
+                    previous_average,
+                    temperature_c,
+                ]
+                if value is not None
+            )
+            daily_temperature.max_temperature_c = max(
+                value
+                for value in [
+                    daily_temperature.max_temperature_c,
+                    previous_average,
+                    temperature_c,
+                ]
+                if value is not None
+            )
+            daily_temperature.measurement_count = next_count
+            daily_temperature.save(
+                update_fields=[
+                    "min_temperature_c",
+                    "average_temperature_c",
+                    "max_temperature_c",
+                    "measurement_count",
+                ]
+            )
         AuditLog.objects.create(
             organization=zone.organization,
             user=request.user,
@@ -804,7 +839,7 @@ class ThermalZoneManualTemperatureAPIView(APIView):
                 ),
                 "probes",
             )
-            .annotate(box_count=Count("boxes"))
+            .annotate(box_count=Count("boxes", filter=Q(boxes__status=Box.Status.ACTIVE)))
             .get()
         )
         return Response(ThermalZoneSerializer(refreshed_zone).data, status=status.HTTP_201_CREATED)

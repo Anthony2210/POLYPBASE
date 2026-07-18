@@ -1,9 +1,10 @@
-import { type CSSProperties, type FormEvent, useEffect, useState } from 'react';
+import { type CSSProperties, type FormEvent, useEffect, useMemo, useState } from 'react';
+
 import { scaleLinear } from 'd3-scale';
 
 import { getBoxStatusPresentation } from '../boxStatus';
-import type { BoxItem, ThermalZone } from '../types';
-import type { ManualTemperaturePayload } from '../types/admin';
+import type { BoxItem, ThermalZone, UserProfile } from '../types';
+import type { ManualTemperaturePayload, ProbePayload, ThermalZonePayload } from '../types/admin';
 import { formatDisplayDate } from '../utils/dateFormat';
 import { getErrorMessage } from '../utils/errors';
 import { getZoneOccupancyLevel } from '../utils/zoneOccupancy';
@@ -25,28 +26,59 @@ type ZoneOverviewEntry = {
   needsAttention: boolean;
 };
 
+type ZoneAlertItem = {
+  id: string;
+  level: 'low' | 'medium' | 'high';
+  title: string;
+  message: string;
+  zone: ThermalZone;
+  box?: BoxItem;
+};
+
 export function ZonesView({
   boxes,
+  canManageZones,
   isLoading,
+  profile,
   zones,
+  onCreateProbe,
+  onCreateZone,
   onOpenZone,
+  onUpdateZone,
   t,
 }: {
   boxes: BoxItem[];
+  canManageZones: boolean;
   isLoading: boolean;
+  profile: UserProfile | null;
   zones: ThermalZone[];
+  onCreateProbe: (payload: ProbePayload) => Promise<void>;
+  onCreateZone: (payload: ThermalZonePayload) => Promise<void>;
   onOpenZone: (id: number) => void;
+  onUpdateZone: (zoneId: number, payload: ThermalZonePayload) => Promise<void>;
   t: TFunction;
 }) {
-  const [sortMode, setSortMode] = useState<'location' | 'temperature'>('location');
+  const [sortMode, setSortMode] = useState<'temperatureAsc' | 'temperatureDesc'>('temperatureAsc');
+  const [zoneModalMode, setZoneModalMode] = useState<'create' | 'probe' | null>(null);
+  const [zoneAlertModal, setZoneAlertModal] = useState<'overview' | ZoneOverviewEntry | null>(null);
   const zoneEntries = zones.map((zone) => buildZoneOverviewEntry(zone, boxes));
   const attentionEntries = zoneEntries.filter((entry) => entry.needsAttention);
-  const sortedEntries = sortMode === 'location'
-    ? zoneEntries
-    : [...zoneEntries].sort(
-      (first, second) => (first.referenceTemperature ?? Number.POSITIVE_INFINITY)
-        - (second.referenceTemperature ?? Number.POSITIVE_INFINITY),
-    );
+  const overviewAlertItems = attentionEntries.flatMap((entry) => getZoneAlertItems(entry, t));
+  const zoneAlertModalItems = zoneAlertModal
+    ? zoneAlertModal === 'overview'
+      ? overviewAlertItems
+      : getZoneAlertItems(zoneAlertModal, t)
+    : [];
+  const zoneAlertModalTitle = zoneAlertModal && zoneAlertModal !== 'overview'
+    ? zoneAlertModal.zone.name
+    : t('zonesTitle');
+  const sortedEntries = [...zoneEntries].sort((first, second) => {
+    const firstTemperature = first.referenceTemperature ?? Number.POSITIVE_INFINITY;
+    const secondTemperature = second.referenceTemperature ?? Number.POSITIVE_INFINITY;
+    return sortMode === 'temperatureAsc'
+      ? firstTemperature - secondTemperature
+      : secondTemperature - firstTemperature;
+  });
 
   return (
     <section className="single-panel">
@@ -54,145 +86,445 @@ export function ZonesView({
         <PageLoader variant="zones" label={t('zonesTitle')} />
       ) : (
         <div className="zone-overview">
-          {attentionEntries.length ? (
-            <section className="zone-overview-attention">
-              <header>
-                <div>
-                  <h2>{t('zoneOverviewAttentionTitle')}</h2>
-                  <p>{t('zoneOverviewAttentionDetails')}</p>
-                </div>
-                <span>{attentionEntries.length}</span>
-              </header>
-              <div className="zone-overview-attention-list">
-                {attentionEntries.map((entry) => (
-                  <button key={entry.zone.id} type="button" onClick={() => onOpenZone(entry.zone.id)}>
-                    <strong>{entry.zone.name}</strong>
-                    <small>{getZoneAttentionReasons(entry, t).join(' - ')}</small>
-                  </button>
-                ))}
-              </div>
-            </section>
-          ) : null}
-
           <div className="zone-overview-heading">
-            <span>{sortedEntries.length}</span>
-            <div className="zone-overview-sort" role="tablist" aria-label={t('zonesTitle')}>
+            <div className="zone-overview-count">
+              <span>{t('zonesTitle')}</span>
               <button
-                className={sortMode === 'location' ? 'is-active' : ''}
+                className={attentionEntries.length ? 'zone-alert-summary' : 'zone-alert-summary is-empty'}
                 type="button"
-                role="tab"
-                aria-selected={sortMode === 'location'}
-                onClick={() => setSortMode('location')}
+                title={t('zoneOverviewAttentionTitle')}
+                onClick={() => setZoneAlertModal('overview')}
               >
-                {t('zoneOverviewSortLocation')}
-              </button>
-              <button
-                className={sortMode === 'temperature' ? 'is-active' : ''}
-                type="button"
-                role="tab"
-                aria-selected={sortMode === 'temperature'}
-                onClick={() => setSortMode('temperature')}
-              >
-                {t('zoneOverviewSortTemperature')}
+                <BellIcon />
+                <strong>{attentionEntries.length}</strong>
               </button>
             </div>
+            <div className="zone-overview-sort" role="tablist" aria-label={t('zonesTitle')}>
+              <button
+                className={sortMode === 'temperatureAsc' ? 'is-active' : ''}
+                type="button"
+                role="tab"
+                aria-selected={sortMode === 'temperatureAsc'}
+                onClick={() => setSortMode('temperatureAsc')}
+              >
+                {t('zoneOverviewSortTemperatureAsc')}
+              </button>
+              <button
+                className={sortMode === 'temperatureDesc' ? 'is-active' : ''}
+                type="button"
+                role="tab"
+                aria-selected={sortMode === 'temperatureDesc'}
+                onClick={() => setSortMode('temperatureDesc')}
+              >
+                {t('zoneOverviewSortTemperatureDesc')}
+              </button>
+            </div>
+            {canManageZones ? (
+              <div className="zone-overview-actions">
+                <button type="button" onClick={() => setZoneModalMode('probe')}>
+                  {t('zoneAddProbeAction')}
+                </button>
+                <button className="zone-add-button" type="button" onClick={() => setZoneModalMode('create')}>
+                  +
+                </button>
+              </div>
+            ) : null}
           </div>
 
           <div className="zone-overview-grid">
-            {sortedEntries.map((entry) => (
-              <button
-                className={entry.needsAttention ? 'zone-card is-attention' : 'zone-card'}
-                key={entry.zone.id}
-                type="button"
-                onClick={() => onOpenZone(entry.zone.id)}
-              >
-                <span className="zone-card-heading">
-                  <span>
-                    <strong>{entry.zone.name}</strong>
-                    <small>{entry.zone.organization.name}</small>
-                  </span>
-                  <span className="zone-card-arrow" aria-hidden="true" />
-                </span>
+            {sortedEntries.map((entry) => {
+              const zoneAlertCount = getZoneAlertItems(entry, t).length;
 
-                <span className="zone-card-temperature">
-                  <span>
-                    <small>{t('temperatureShort')}</small>
-                    <strong>{formatTemperature(entry.measuredTemperature ?? undefined)}</strong>
-                  </span>
-                  <span>
-                    <small>{t('zoneTarget')}</small>
-                    <strong>{formatTemperature(entry.targetTemperature ?? undefined)}</strong>
-                  </span>
-                </span>
+              return (
+                <article
+                  className={entry.needsAttention ? 'zone-card is-attention' : 'zone-card'}
+                  key={entry.zone.id}
+                >
+                  <button
+                    className="zone-card-body"
+                    type="button"
+                    onClick={() => onOpenZone(entry.zone.id)}
+                  >
+                    <span className="zone-card-heading">
+                      <span>
+                        <strong>{entry.zone.name}</strong>
+                        <small>{entry.zone.organization.name}</small>
+                      </span>
+                      <span className="zone-card-arrow" aria-hidden="true" />
+                    </span>
 
-                <span className="zone-card-thermal-line" aria-hidden="true">
-                  <span className="zone-card-target" />
-                  {entry.measuredTemperature !== null && entry.targetTemperature !== null ? (
-                    <span
-                      className="zone-card-current"
-                      style={{
-                        '--zone-temperature-position': `${getTemperatureMarkerPosition(
-                          entry.measuredTemperature,
-                          entry.targetTemperature,
-                        )}%`,
-                      } as CSSProperties}
-                    />
-                  ) : null}
-                </span>
+                    <span className="zone-card-temperature">
+                      <span>
+                        <small>{t('temperatureShort')}</small>
+                        <strong>{formatTemperature(entry.measuredTemperature ?? undefined)}</strong>
+                      </span>
+                      <span>
+                        <small>{t('zoneTarget')}</small>
+                        <strong>{formatTemperature(entry.targetTemperature ?? undefined)}</strong>
+                      </span>
+                    </span>
 
-                <span className="zone-card-facts">
-                  <span>
-                    <small>{t('salinityShort')}</small>
-                    <strong>{formatSalinity(entry.zone.salinity_psu)}</strong>
-                    {entry.salinityNeedsAttention ? (
-                      <p className="inline-error">{t('zoneSalinityMissing')}</p>
-                    ) : null}
-                  </span>
-                  <span>
-                    <small>{t('zoneOccupancy')}</small>
-                    {/* Same colour rule as the admin zone list: orange when
-                        fewer than 10 slots remain, red once full. */}
-                    <strong
-                      className={`zone-occupancy is-${getZoneOccupancyLevel(
-                        entry.zoneBoxes.length,
-                        entry.zone.capacity,
-                      )}`}
-                    >
-                      {formatZoneOccupancy(entry.zoneBoxes.length, entry.zone.capacity)}
-                    </strong>
-                  </span>
-                </span>
-              </button>
-            ))}
+                    <span className="zone-card-thermal-line" aria-hidden="true">
+                      <span className="zone-card-target" />
+                      {entry.measuredTemperature !== null && entry.targetTemperature !== null ? (
+                        <span
+                          className="zone-card-current"
+                          style={{
+                            '--zone-temperature-position': `${getTemperatureMarkerPosition(
+                              entry.measuredTemperature,
+                              entry.targetTemperature,
+                            )}%`,
+                          } as CSSProperties}
+                        />
+                      ) : null}
+                    </span>
+
+                    <span className="zone-card-facts">
+                      <span>
+                        <small>{entry.salinityNeedsAttention ? t('zoneSalinityMissing') : t('salinityShort')}</small>
+                        <strong>{formatSalinity(entry.zone.salinity_psu)}</strong>
+                      </span>
+                      <span>
+                        <small>{t('zoneOccupancy')}</small>
+                        <strong
+                          className={`zone-occupancy is-${getZoneOccupancyLevel(
+                            entry.livingBoxes,
+                            entry.zone.capacity,
+                          )}`}
+                        >
+                          {formatZoneOccupancy(entry.livingBoxes, entry.zone.capacity)}
+                        </strong>
+                      </span>
+                    </span>
+                  </button>
+
+                  <button
+                    className={entry.needsAttention ? 'zone-card-alert' : 'zone-card-alert is-empty'}
+                    type="button"
+                    aria-label={`${t('zoneOverviewAttentionTitle')} ${entry.zone.name}`}
+                    title={`${t('zoneOverviewAttentionTitle')} ${entry.zone.name}`}
+                    onClick={() => setZoneAlertModal(entry)}
+                  >
+                      <BellIcon />
+                    <strong>{zoneAlertCount}</strong>
+                  </button>
+                </article>
+              );
+            })}
           </div>
+          {zoneAlertModal ? (
+            <ZoneAlertsModal
+              items={zoneAlertModalItems}
+              title={zoneAlertModalTitle}
+              onClose={() => setZoneAlertModal(null)}
+              onOpenZone={onOpenZone}
+              t={t}
+            />
+          ) : null}
+          {zoneModalMode ? (
+            <ZoneManagementModal
+              mode={zoneModalMode}
+              profile={profile}
+              zones={zones}
+              onClose={() => setZoneModalMode(null)}
+              onCreateProbe={onCreateProbe}
+              onCreateZone={onCreateZone}
+              onUpdateZone={onUpdateZone}
+              t={t}
+            />
+          ) : null}
         </div>
       )}
     </section>
   );
 }
 
+function ZoneManagementModal({
+  mode,
+  onClose,
+  onCreateProbe,
+  onCreateZone,
+  onUpdateZone,
+  profile,
+  selectedZone,
+  zones,
+  t,
+}: {
+  mode: 'create' | 'edit' | 'probe';
+  onClose: () => void;
+  onCreateProbe: (payload: ProbePayload) => Promise<void>;
+  onCreateZone: (payload: ThermalZonePayload) => Promise<void>;
+  onUpdateZone: (zoneId: number, payload: ThermalZonePayload) => Promise<void>;
+  profile: UserProfile | null;
+  selectedZone?: ThermalZone | null;
+  zones: ThermalZone[];
+  t: TFunction;
+}) {
+  const adminOrganizations = useMemo(() => getAdminOrganizations(profile), [profile]);
+  const defaultOrganizationId = selectedZone?.organization.id ?? adminOrganizations[0]?.id ?? null;
+  const defaultZone = selectedZone ?? zones[0] ?? null;
+  const [zoneForm, setZoneForm] = useState({
+    organization: defaultOrganizationId ? String(defaultOrganizationId) : '',
+    name: selectedZone?.name ?? '',
+    zoneType: selectedZone?.zone_type ?? 'cabinet',
+    targetTemperature: selectedZone?.target_temperature_c ?? '',
+    capacity: selectedZone?.capacity != null ? String(selectedZone.capacity) : '',
+    salinity: selectedZone?.salinity_psu ?? '',
+  });
+  const [probeForm, setProbeForm] = useState({
+    thermalZone: defaultZone ? String(defaultZone.id) : '',
+    code: '',
+    probeType: 'temperature',
+    location: '',
+  });
+  const [isSaving, setIsSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const title = mode === 'probe'
+    ? t('zoneAddProbeTitle')
+    : mode === 'edit'
+      ? t('zoneEditTitle')
+      : t('zoneAddTitle');
+
+  async function handleZoneSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isSaving || !zoneForm.organization || !zoneForm.name.trim()) return;
+
+    setIsSaving(true);
+    setFormError(null);
+
+    const payload: ThermalZonePayload = {
+      organization: Number(zoneForm.organization),
+      name: zoneForm.name.trim(),
+      zone_type: zoneForm.zoneType,
+      target_temperature_c: zoneForm.targetTemperature.trim() || null,
+      capacity: zoneForm.capacity.trim() ? Number.parseInt(zoneForm.capacity, 10) : null,
+      salinity_psu: zoneForm.salinity.trim() || null,
+    };
+
+    try {
+      if (mode === 'edit' && selectedZone) {
+        await onUpdateZone(selectedZone.id, payload);
+      } else {
+        await onCreateZone(payload);
+      }
+      onClose();
+    } catch (requestError) {
+      setFormError(getErrorMessage(requestError));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleProbeSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isSaving || !probeForm.thermalZone || !probeForm.code.trim()) return;
+
+    setIsSaving(true);
+    setFormError(null);
+
+    try {
+      await onCreateProbe({
+        thermal_zone: Number(probeForm.thermalZone),
+        code: probeForm.code.trim(),
+        probe_type: probeForm.probeType.trim() || 'temperature',
+        location: probeForm.location.trim(),
+      });
+      onClose();
+    } catch (requestError) {
+      setFormError(getErrorMessage(requestError));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+      <section className="zone-management-modal" role="dialog" aria-modal="true" aria-label={title} onClick={(event) => event.stopPropagation()}>
+        <header className="modal-heading">
+          <div>
+            <p className="modal-kicker">{mode === 'probe' ? t('probes') : t('zonesTitle')}</p>
+            <h2>{title}</h2>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label={t('close')}>×</button>
+        </header>
+
+        {mode === 'probe' ? (
+          <form className="zone-management-form" onSubmit={handleProbeSubmit}>
+            <label>
+              <span>{t('adminProbeZone')}</span>
+              <select
+                value={probeForm.thermalZone}
+                onChange={(event) => setProbeForm((current) => ({ ...current, thermalZone: event.target.value }))}
+                required
+              >
+                {zones.map((zone) => (
+                  <option key={zone.id} value={zone.id}>{zone.name}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>{t('adminProbeCode')}</span>
+              <input
+                value={probeForm.code}
+                onChange={(event) => setProbeForm((current) => ({ ...current, code: event.target.value }))}
+                required
+              />
+            </label>
+            <label>
+              <span>{t('adminProbeType')}</span>
+              <input
+                value={probeForm.probeType}
+                onChange={(event) => setProbeForm((current) => ({ ...current, probeType: event.target.value }))}
+              />
+            </label>
+            <label>
+              <span>{t('adminProbeLocation')}</span>
+              <input
+                value={probeForm.location}
+                onChange={(event) => setProbeForm((current) => ({ ...current, location: event.target.value }))}
+              />
+            </label>
+            {formError ? <p className="inline-error">{formError}</p> : null}
+            <button type="submit" disabled={isSaving || !probeForm.thermalZone || !probeForm.code.trim()}>
+              {isSaving ? t('saving') : t('adminAddProbe')}
+            </button>
+          </form>
+        ) : (
+          <form className="zone-management-form" onSubmit={handleZoneSubmit}>
+            <label>
+              <span>{t('adminZoneOrganization')}</span>
+              <select
+                value={zoneForm.organization}
+                onChange={(event) => setZoneForm((current) => ({ ...current, organization: event.target.value }))}
+                disabled={mode === 'edit'}
+                required
+              >
+                {adminOrganizations.map((organization) => (
+                  <option key={organization.id} value={organization.id}>{organization.name}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>{t('adminZoneName')}</span>
+              <input
+                value={zoneForm.name}
+                onChange={(event) => setZoneForm((current) => ({ ...current, name: event.target.value }))}
+                required
+              />
+            </label>
+            <label>
+              <span>{t('adminZoneType')}</span>
+              <select
+                value={zoneForm.zoneType}
+                onChange={(event) => setZoneForm((current) => ({ ...current, zoneType: event.target.value }))}
+              >
+                <option value="cabinet">{t('adminZoneTypeCabinet')}</option>
+                <option value="incubator">{t('adminZoneTypeIncubator')}</option>
+              </select>
+            </label>
+            <label>
+              <span>{t('adminTargetTemperature')}</span>
+              <input
+                type="number"
+                inputMode="decimal"
+                step="0.1"
+                value={zoneForm.targetTemperature}
+                onChange={(event) => setZoneForm((current) => ({ ...current, targetTemperature: event.target.value }))}
+              />
+            </label>
+            <label>
+              <span>{t('adminZoneCapacity')}</span>
+              <input
+                type="number"
+                inputMode="numeric"
+                min="0"
+                value={zoneForm.capacity}
+                onChange={(event) => setZoneForm((current) => ({ ...current, capacity: event.target.value }))}
+              />
+            </label>
+            <label>
+              <span>{t('adminZoneSalinity')}</span>
+              <input
+                type="number"
+                inputMode="decimal"
+                step="0.1"
+                value={zoneForm.salinity}
+                onChange={(event) => setZoneForm((current) => ({ ...current, salinity: event.target.value }))}
+              />
+            </label>
+            {formError ? <p className="inline-error">{formError}</p> : null}
+            <button type="submit" disabled={isSaving || !zoneForm.organization || !zoneForm.name.trim()}>
+              {isSaving ? t('saving') : mode === 'edit' ? t('adminSaveZone') : t('adminCreateZone')}
+            </button>
+          </form>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function getAdminOrganizations(profile: UserProfile | null): Array<{ id: number; name: string }> {
+  if (!profile) return [];
+  if (profile.is_superuser) return profile.organizations;
+
+  const organizationMap = new Map<number, { id: number; name: string }>();
+  for (const membership of profile.memberships) {
+    if (membership.role === 'admin') {
+      organizationMap.set(membership.organization.id, membership.organization);
+    }
+  }
+
+  return Array.from(organizationMap.values()).sort((first, second) => first.name.localeCompare(second.name));
+}
+
+function BellIcon() {
+  return (
+    <svg className="bell-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path
+        d="M18 9.8c0-3.3-2.1-5.8-5.1-6.3V2h-1.8v1.5C8.1 4 6 6.5 6 9.8v3.9l-1.5 2.4v1.1h15v-1.1L18 13.7V9.8Z"
+        fill="none"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="1.7"
+      />
+      <path d="M9.8 18.8a2.3 2.3 0 0 0 4.4 0" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
+    </svg>
+  );
+}
+
 export function ZoneDetailPage({
   boxes,
+  canManageZones,
   isLoading,
   language,
   zone,
   canRecordManualTemperature,
   onBack,
+  onCreateProbe,
   onRecordManualTemperature,
   onOpenBox,
+  onUpdateZone,
+  profile,
   t,
 }: {
   boxes: BoxItem[];
+  canManageZones: boolean;
   isLoading: boolean;
   language: Language;
   zone: ThermalZone | null;
   canRecordManualTemperature: boolean;
   onBack: () => void;
+  onCreateProbe: (payload: ProbePayload) => Promise<void>;
   onRecordManualTemperature: (zoneId: number, payload: ManualTemperaturePayload) => Promise<ThermalZone>;
   onOpenBox: (id: number) => void;
+  onUpdateZone: (zoneId: number, payload: ThermalZonePayload) => Promise<void>;
+  profile: UserProfile | null;
   t: TFunction;
 }) {
   const [boxFilter, setBoxFilter] = useState<'all' | 'living' | 'attention'>('all');
+  const [zoneModalMode, setZoneModalMode] = useState<'edit' | 'probe' | null>(null);
+  const [isZoneAlertsOpen, setIsZoneAlertsOpen] = useState(false);
 
   if (isLoading) {
     return (
@@ -211,19 +543,36 @@ export function ZoneDetailPage({
 
   const zoneBoxes = boxes.filter((box) => box.thermal_zone?.id === zone.id);
   const livingBoxes = zoneBoxes.filter((box) => box.status === 'active');
-  const attentionBoxes = zoneBoxes.filter(
+  const attentionBoxes = livingBoxes.filter(
     (box) => box.active_alert_count > 0 || !box.latest_measurement,
   );
+  const zoneOverviewEntry = buildZoneOverviewEntry(zone, boxes);
+  const zoneAlertItems = getZoneAlertItems(zoneOverviewEntry, t);
+  const zoneAlertCount = zoneAlertItems.length;
   const filteredBoxes = boxFilter === 'living'
     ? livingBoxes
     : boxFilter === 'attention'
       ? attentionBoxes
       : zoneBoxes;
-  const targetTemperature = parseTemperatureNumber(zone.target_temperature_c);
-  const measuredTemperature = parseTemperatureNumber(zone.latest_temperature?.average_temperature_c);
-  const temperatureNeedsAttention = targetTemperature === null
-    || measuredTemperature === null
-    || Math.abs(measuredTemperature - targetTemperature) > 1;
+  const sortedFilteredBoxes = [...filteredBoxes].sort((first, second) => {
+    if (first.status !== second.status) {
+      return first.status === 'active' ? -1 : 1;
+    }
+
+    const firstAlertCount = first.active_alert_count ?? 0;
+    const secondAlertCount = second.active_alert_count ?? 0;
+    if (firstAlertCount !== secondAlertCount) {
+      return secondAlertCount - firstAlertCount;
+    }
+
+    const firstDate = first.latest_measurement?.measured_on ?? '';
+    const secondDate = second.latest_measurement?.measured_on ?? '';
+    if (firstDate !== secondDate) {
+      return secondDate.localeCompare(firstDate);
+    }
+
+    return first.global_code.localeCompare(second.global_code);
+  });
 
   return (
     <section className="zone-page">
@@ -232,18 +581,39 @@ export function ZoneDetailPage({
       </button>
 
       <header className="zone-sheet-hero">
-        <div>
+        <div className="zone-sheet-title">
           <p className="box-page-label">{t('zoneSheet')}</p>
           <h2>{zone.name}</h2>
           <span>{zone.organization.name}</span>
         </div>
         <div className="zone-hero-summary" aria-label={t('zoneBoxesTitle')}>
-          <Metric label={t('boxes')} value={String(zoneBoxes.length)} />
+          <Metric label={t('zoneSummaryAlive')} value={String(livingBoxes.length)} />
           <Metric label={t('zoneCapacity')} value={formatZoneCapacity(zone.capacity)} />
           <Metric label={t('zoneSalinity')} value={formatZoneSalinity(zone.salinity_psu)} />
-          <Metric label={t('zoneSummaryAlive')} value={String(livingBoxes.length)} />
           <Metric label={t('zoneSummaryAttention')} value={String(attentionBoxes.length)} />
           <Metric label={t('probes')} value={String(zone.probes.length)} />
+        </div>
+        <div className="zone-hero-actions">
+          <button
+            className={zoneAlertCount ? 'box-alert-trigger zone-alert-trigger' : 'box-alert-trigger zone-alert-trigger is-empty'}
+            type="button"
+            aria-label={`${t('zoneOverviewAttentionTitle')} (${zoneAlertCount})`}
+            title={`${t('zoneOverviewAttentionTitle')} (${zoneAlertCount})`}
+            onClick={() => setIsZoneAlertsOpen(true)}
+          >
+            <BellIcon />
+            <strong>{zoneAlertCount}</strong>
+          </button>
+          {canManageZones ? (
+            <div className="zone-admin-actions is-hero">
+              <button type="button" onClick={() => setZoneModalMode('edit')}>
+                {t('zoneEditCapacityAction')}
+              </button>
+              <button type="button" onClick={() => setZoneModalMode('probe')}>
+                {t('zoneAddProbeAction')}
+              </button>
+            </div>
+          ) : null}
         </div>
       </header>
 
@@ -254,21 +624,11 @@ export function ZoneDetailPage({
         t={t}
       />
 
-      {temperatureNeedsAttention || attentionBoxes.length ? (
-        <ZoneAttentionPanel
-          boxes={attentionBoxes}
-          temperatureNeedsAttention={temperatureNeedsAttention}
-          onOpenBox={onOpenBox}
-          t={t}
-        />
-      ) : null}
-
       <div className="zone-page-grid">
         <section className="zone-page-section zone-boxes-section">
           <div className="zone-boxes-heading">
             <div className="section-title">
               <h2>{t('zoneBoxesTitle')}</h2>
-              <span>{filteredBoxes.length}</span>
             </div>
             <div className="zone-filter-tabs" role="tablist" aria-label={t('zoneBoxesTitle')}>
               <button
@@ -302,7 +662,7 @@ export function ZoneDetailPage({
           </div>
           {filteredBoxes.length ? (
             <div className="zone-box-list">
-              {filteredBoxes.map((box) => {
+              {sortedFilteredBoxes.map((box) => {
                 const status = getBoxStatusPresentation(box.status, language);
 
                 return (
@@ -320,9 +680,11 @@ export function ZoneDetailPage({
                       {box.latest_measurement ? (
                         <>
                           <strong>
-                            {box.latest_measurement.polyp_count} {t('polyps')} / {box.latest_measurement.ephyrae_count} {t('ephyrae')}
+                            {box.latest_measurement.polyp_count} {t('polyps')}
                           </strong>
-                          <small>{formatDisplayDate(box.latest_measurement.measured_on)}</small>
+                          <small>
+                            {box.latest_measurement.ephyrae_count} {t('ephyrae')} · {formatDisplayDate(box.latest_measurement.measured_on)}
+                          </small>
                         </>
                       ) : (
                         <strong>{t('recentMeasurementMissing')}</strong>
@@ -331,9 +693,11 @@ export function ZoneDetailPage({
                     {box.active_alert_count > 0 ? (
                       <span className="zone-alert-pill">{box.active_alert_count}</span>
                     ) : null}
-                    <span className={`box-life-status is-${status.tone}`}>
-                      {status.label}
-                    </span>
+                    {box.status !== 'active' ? (
+                      <span className={`box-life-status is-${status.tone}`}>
+                        {status.label}
+                      </span>
+                    ) : null}
                   </button>
                 );
               })}
@@ -347,9 +711,8 @@ export function ZoneDetailPage({
           <section className="zone-page-section zone-chart-section">
             <div className="section-title">
               <h2>{t('latestCounts')}</h2>
-              <span>{zoneBoxes.length}</span>
             </div>
-            <ZoneLatestCountsChart boxes={zoneBoxes} t={t} />
+            <ZoneLatestCountsChart boxes={livingBoxes} t={t} />
           </section>
 
           <section className="zone-page-section">
@@ -370,15 +733,41 @@ export function ZoneDetailPage({
       </div>
 
       <ZoneRecentActivity boxes={zoneBoxes} onOpenBox={onOpenBox} t={t} />
+
+      {isZoneAlertsOpen ? (
+        <ZoneAlertsModal
+          items={zoneAlertItems}
+          title={zone.name}
+          onClose={() => setIsZoneAlertsOpen(false)}
+          onOpenBox={onOpenBox}
+          onOpenZone={() => undefined}
+          t={t}
+        />
+      ) : null}
+
+      {zoneModalMode ? (
+        <ZoneManagementModal
+          mode={zoneModalMode}
+          profile={profile}
+          selectedZone={zone}
+          zones={[zone]}
+          onClose={() => setZoneModalMode(null)}
+          onCreateProbe={onCreateProbe}
+          onCreateZone={async () => undefined}
+          onUpdateZone={onUpdateZone}
+          t={t}
+        />
+      ) : null}
     </section>
   );
 }
 
 function buildZoneOverviewEntry(zone: ThermalZone, boxes: BoxItem[]): ZoneOverviewEntry {
   const zoneBoxes = boxes.filter((box) => box.thermal_zone?.id === zone.id);
+  const activeBoxes = zoneBoxes.filter((box) => box.status === 'active');
   const targetTemperature = parseTemperatureNumber(zone.target_temperature_c);
   const measuredTemperature = parseTemperatureNumber(zone.latest_temperature?.average_temperature_c);
-  const missingMeasurements = zoneBoxes.filter((box) => !box.latest_measurement).length;
+  const missingMeasurements = activeBoxes.filter((box) => !box.latest_measurement).length;
   const temperatureNeedsAttention = targetTemperature === null
     || measuredTemperature === null
     || Math.abs(measuredTemperature - targetTemperature) > 1;
@@ -390,7 +779,7 @@ function buildZoneOverviewEntry(zone: ThermalZone, boxes: BoxItem[]): ZoneOvervi
   return {
     zone,
     zoneBoxes,
-    livingBoxes: zoneBoxes.filter((box) => box.status === 'active').length,
+    livingBoxes: activeBoxes.length,
     missingMeasurements,
     targetTemperature,
     measuredTemperature,
@@ -405,28 +794,52 @@ function buildZoneOverviewEntry(zone: ThermalZone, boxes: BoxItem[]): ZoneOvervi
   };
 }
 
-function getZoneAttentionReasons(entry: ZoneOverviewEntry, t: TFunction) {
-  const reasons: string[] = [];
+function getZoneAlertItems(entry: ZoneOverviewEntry, t: TFunction): ZoneAlertItem[] {
+  const alerts: ZoneAlertItem[] = [];
 
   if (entry.temperatureNeedsAttention) {
-    reasons.push(
-      entry.targetTemperature === null || entry.measuredTemperature === null
+    alerts.push({
+      id: `${entry.zone.id}-temperature`,
+      level: 'high',
+      title: t('temperatureControl'),
+      message: entry.targetTemperature === null || entry.measuredTemperature === null
         ? t('temperatureMissing')
         : t('zoneOverviewThermalGap'),
-    );
+      zone: entry.zone,
+    });
   }
 
   if (entry.salinityNeedsAttention) {
-    reasons.push(t('zoneSalinityMissing'));
+    alerts.push({
+      id: `${entry.zone.id}-salinity`,
+      level: 'medium',
+      title: t('zoneSalinity'),
+      message: t('zoneSalinityMissing'),
+      zone: entry.zone,
+    });
   }
 
-  if (!entry.zone.probes.length) reasons.push(t('zoneOverviewNoProbe'));
+  if (!entry.zone.probes.length) {
+    alerts.push({
+      id: `${entry.zone.id}-probe`,
+      level: 'medium',
+      title: t('zoneProbesTitle'),
+      message: t('zoneOverviewNoProbe'),
+      zone: entry.zone,
+    });
+  }
 
   if (entry.missingMeasurements) {
-    reasons.push(`${entry.missingMeasurements} ${t('zoneOverviewMissingMeasurements')}`);
+    alerts.push({
+      id: `${entry.zone.id}-measurements`,
+      level: 'low',
+      title: t('latestReadingDate'),
+      message: `${entry.missingMeasurements} ${t('zoneOverviewMissingMeasurements')}`,
+      zone: entry.zone,
+    });
   }
 
-  return reasons;
+  return alerts;
 }
 
 function formatZoneCapacity(capacity: number | null | undefined) {
@@ -445,48 +858,86 @@ function formatZoneOccupancy(boxCount: number, capacity: number | null | undefin
   return capacity ? `${boxCount} / ${capacity}` : String(boxCount);
 }
 
-function ZoneAttentionPanel({
-  boxes,
-  temperatureNeedsAttention,
+function ZoneAlertsModal({
+  items,
+  onClose,
   onOpenBox,
+  onOpenZone,
   t,
+  title,
 }: {
-  boxes: BoxItem[];
-  temperatureNeedsAttention: boolean;
-  onOpenBox: (id: number) => void;
+  items: ZoneAlertItem[];
+  onClose: () => void;
+  onOpenBox?: (id: number) => void;
+  onOpenZone: (id: number) => void;
   t: TFunction;
+  title: string;
 }) {
   return (
-    <section className="zone-attention-panel">
-      <div className="zone-attention-heading">
-        <h2>{t('zoneAttentionTitle')}</h2>
-        <span>{boxes.length + Number(temperatureNeedsAttention)}</span>
-      </div>
-      <div className="zone-attention-items">
-        {temperatureNeedsAttention ? (
-          <article className="zone-attention-item is-temperature">
-            <strong>{t('temperatureControl')}</strong>
-            <span>{t('boxAttention')}</span>
-          </article>
-        ) : null}
-        {boxes.map((box) => (
-          <button
-            className="zone-attention-item"
-            key={box.id}
-            type="button"
-            onClick={() => onOpenBox(box.id)}
-          >
-            <strong>{box.global_code}</strong>
-            <span>
-              {!box.latest_measurement
-                ? t('recentMeasurementMissing')
-                : `${box.active_alert_count} ${t('boxAttention').toLocaleLowerCase()}`}
-            </span>
-          </button>
-        ))}
-      </div>
-    </section>
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <section
+        className="box-checks-modal zone-alerts-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="zone-alerts-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="box-checks-heading zone-alerts-heading">
+          <div>
+            <h2 id="zone-alerts-title">{t('zoneOverviewAttentionTitle')}</h2>
+            <p>{title}</p>
+          </div>
+          <button type="button" aria-label={t('close')} onClick={onClose}>×</button>
+        </header>
+
+        <div className="box-checks-list zone-alerts-list">
+          {items.map((item) => (
+            <article className={`box-check-item zone-alert-item is-${item.level}`} key={item.id}>
+              <span className="check-severity">{getZoneAlertLevelLabel(item.level, t)}</span>
+              <div>
+                <small>{item.zone.name}</small>
+                <strong>{item.title}</strong>
+                <p>{item.message}</p>
+              </div>
+              <div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    if (item.box && onOpenBox) {
+                      onOpenBox(item.box.id);
+                    } else {
+                      onOpenZone(item.zone.id);
+                    }
+                  }}
+                >
+                  {t('openBox')}
+                </button>
+              </div>
+            </article>
+          ))}
+
+          {!items.length ? (
+            <article className="box-check-empty">
+              <span className="check-empty-icon">
+                <BellIcon />
+              </span>
+              <div>
+                <strong>{t('boxChecksEmptyTitle')}</strong>
+                <p>{t('boxChecksEmptyText')}</p>
+              </div>
+            </article>
+          ) : null}
+        </div>
+      </section>
+    </div>
   );
+}
+
+function getZoneAlertLevelLabel(level: ZoneAlertItem['level'], t: TFunction) {
+  if (level === 'high') return t('checkImportanceHigh');
+  if (level === 'medium') return t('checkImportanceMedium');
+  return t('checkImportanceInfo');
 }
 
 function ZoneRecentActivity({
@@ -560,7 +1011,12 @@ function TemperatureControlPanel({
   const measuredTemperature = parseTemperatureNumber(zone.latest_temperature?.average_temperature_c);
   const minTemperature = parseTemperatureNumber(zone.latest_temperature?.min_temperature_c);
   const maxTemperature = parseTemperatureNumber(zone.latest_temperature?.max_temperature_c);
+  const measurementCount = zone.latest_temperature?.measurement_count ?? 0;
   const hasTemperature = measuredTemperature !== null && targetTemperature !== null;
+  const hasTemperatureRange = hasTemperature
+    && minTemperature !== null
+    && maxTemperature !== null
+    && (measurementCount > 1 || Math.abs(maxTemperature - minTemperature) > 0.05);
   const delta = hasTemperature ? measuredTemperature - targetTemperature : null;
   const absoluteDelta = delta === null ? null : Math.abs(delta);
   const statusClass = absoluteDelta === null
@@ -568,6 +1024,11 @@ function TemperatureControlPanel({
     : absoluteDelta <= 0.5
       ? 'is-ok'
       : 'is-watch';
+  const statusLabel = absoluteDelta === null
+    ? t('temperatureMissing')
+    : absoluteDelta <= 0.5
+      ? t('temperatureOk')
+      : t('temperatureWatch');
   const measuredLeft = hasTemperature ? getTemperatureMarkerPosition(measuredTemperature, targetTemperature) : 50;
   const minLeft = hasTemperature && minTemperature !== null
     ? getTemperatureMarkerPosition(minTemperature, targetTemperature)
@@ -585,8 +1046,12 @@ function TemperatureControlPanel({
   const [temperatureDate, setTemperatureDate] = useState(getTodayInputValue);
   const [manualTemperature, setManualTemperature] = useState('');
   const [isSavingTemperature, setIsSavingTemperature] = useState(false);
-  const [temperatureMessage, setTemperatureMessage] = useState<string | null>(null);
   const [temperatureError, setTemperatureError] = useState<string | null>(null);
+  const temperatureSourceLabel = zone.latest_temperature
+    ? measurementCount > 1
+      ? `${t('temperatureContinuousReading')} · ${measurementCount} ${t('temperatureSamples')}`
+      : t('temperatureManualReading')
+    : t('temperatureMissing');
 
   useEffect(() => {
     setIsGaugeReady(false);
@@ -599,7 +1064,6 @@ function TemperatureControlPanel({
     if (isSavingTemperature || !manualTemperature.trim()) return;
 
     setIsSavingTemperature(true);
-    setTemperatureMessage(null);
     setTemperatureError(null);
 
     try {
@@ -608,7 +1072,6 @@ function TemperatureControlPanel({
         temperature_c: manualTemperature.trim(),
       });
       setManualTemperature('');
-      setTemperatureMessage(t('manualTemperatureSaved'));
     } catch (requestError) {
       setTemperatureError(getErrorMessage(requestError));
     } finally {
@@ -618,9 +1081,14 @@ function TemperatureControlPanel({
 
   const gaugeStyle = {
     '--temperature-current-position': `${measuredLeft}%`,
-    '--temperature-range-start': `${rangeStart}%`,
-    '--temperature-range-width': `${rangeWidth}%`,
+    '--temperature-range-start': `${hasTemperatureRange ? rangeStart : measuredLeft}%`,
+    '--temperature-range-width': `${hasTemperatureRange ? rangeWidth : 0}%`,
   } as CSSProperties;
+  const gaugeClassName = [
+    'temperature-gauge',
+    hasTemperatureRange ? 'is-range' : 'is-point',
+    isGaugeReady ? 'is-ready' : '',
+  ].filter(Boolean).join(' ');
 
   return (
     <section className={`zone-temperature-panel ${statusClass}`}>
@@ -628,24 +1096,26 @@ function TemperatureControlPanel({
         <div>
           <h2>{t('temperatureControl')}</h2>
           <p>{zone.latest_temperature ? formatDisplayDate(zone.latest_temperature.date) : t('temperatureMissing')}</p>
+          <span className="temperature-source-note">{temperatureSourceLabel}</span>
         </div>
+        <span className={`temperature-status-chip ${statusClass}`}>{statusLabel}</span>
       </div>
 
       <div
-        className={isGaugeReady ? 'temperature-gauge is-ready' : 'temperature-gauge'}
+        className={gaugeClassName}
         style={gaugeStyle}
         aria-label={t('temperatureControl')}
       >
         <span className="temperature-gauge-safe-band" aria-hidden="true" />
         <span className="temperature-gauge-track" aria-hidden="true" />
-        {hasTemperature ? <span className="temperature-gauge-range" aria-hidden="true" /> : null}
+        {hasTemperatureRange ? <span className="temperature-gauge-range" aria-hidden="true" /> : null}
         {targetTemperature !== null ? (
           <span className="temperature-gauge-target" aria-hidden="true">
             <span>{formatTemperature(targetTemperature)}</span>
           </span>
         ) : null}
-        {minLeft !== null ? <span className="temperature-gauge-cap is-min" style={{ left: `${minLeft}%` }} aria-hidden="true" /> : null}
-        {maxLeft !== null ? <span className="temperature-gauge-cap is-max" style={{ left: `${maxLeft}%` }} aria-hidden="true" /> : null}
+        {hasTemperatureRange && minLeft !== null ? <span className="temperature-gauge-cap is-min" style={{ left: `${minLeft}%` }} aria-hidden="true" /> : null}
+        {hasTemperatureRange && maxLeft !== null ? <span className="temperature-gauge-cap is-max" style={{ left: `${maxLeft}%` }} aria-hidden="true" /> : null}
         {hasTemperature ? (
           <span className="temperature-gauge-current">
             {measuredTemperature === null ? '-' : formatTemperature(measuredTemperature)}
@@ -662,13 +1132,16 @@ function TemperatureControlPanel({
       <div className="temperature-details-grid">
         <Metric label={t('targetTemperature')} value={formatTemperatureValue(zone.target_temperature_c)} />
         <Metric label={t('measuredTemperature')} value={formatTemperature(measuredTemperature ?? undefined)} />
-        <Metric label={t('minTemperature')} value={formatTemperature(minTemperature ?? undefined)} />
-        <Metric label={t('maxTemperature')} value={formatTemperature(maxTemperature ?? undefined)} />
+        <Metric label={t('minTemperature')} value={hasTemperatureRange ? formatTemperature(minTemperature ?? undefined) : '-'} />
+        <Metric label={t('maxTemperature')} value={hasTemperatureRange ? formatTemperature(maxTemperature ?? undefined) : '-'} />
       </div>
 
       {canRecordManualTemperature ? (
         <form className="manual-temperature-form" onSubmit={handleManualTemperatureSubmit}>
-          <strong>{t('manualTemperatureTitle')}</strong>
+          <div className="manual-temperature-heading">
+            <strong>{t('manualTemperatureTitle')}</strong>
+            <span>{zone.name}</span>
+          </div>
           <label>
             <span>{t('manualTemperatureDate')}</span>
             <input
@@ -692,7 +1165,6 @@ function TemperatureControlPanel({
           <button type="submit" disabled={isSavingTemperature || !manualTemperature.trim()}>
             {isSavingTemperature ? t('saving') : t('manualTemperatureSave')}
           </button>
-          {temperatureMessage ? <p className="inline-success">{temperatureMessage}</p> : null}
           {temperatureError ? <p className="inline-error">{temperatureError}</p> : null}
         </form>
       ) : null}
@@ -703,7 +1175,12 @@ function TemperatureControlPanel({
 function ZoneLatestCountsChart({ boxes, t }: { boxes: BoxItem[]; t: TFunction }) {
   const measuredBoxes = boxes
     .filter((box) => box.latest_measurement)
-    .slice(0, 8);
+    .sort((first, second) => {
+      const firstDate = first.latest_measurement?.measured_on ?? '';
+      const secondDate = second.latest_measurement?.measured_on ?? '';
+      return secondDate.localeCompare(firstDate);
+    })
+    .slice(0, 6);
 
   if (!measuredBoxes.length) {
     return <p className="muted compact-text chart-empty">{t('noZoneChart')}</p>;
@@ -729,20 +1206,27 @@ function ZoneLatestCountsChart({ boxes, t }: { boxes: BoxItem[]; t: TFunction })
         const ephyraeWidth = `${widthScale(measurement.ephyrae_count)}%`;
 
         return (
-          <div className="zone-count-row" key={box.id}>
-            <div>
+          <article className="zone-count-row" key={box.id}>
+            <div className="zone-count-identity">
               <strong>{box.global_code}</strong>
+              <span>{box.species.scientific_name}</span>
               <small>{formatDisplayDate(measurement.measured_on)}</small>
             </div>
-            <div className="zone-count-bars">
-              <span className="zone-count-bar is-polyps" style={{ width: polypWidth }}>
-                {measurement.polyp_count}
+            <div className="zone-count-values">
+              <span>
+                <strong>{measurement.polyp_count}</strong>
+                <small>{t('polyps')}</small>
               </span>
-              <span className="zone-count-bar is-ephyrae" style={{ width: ephyraeWidth }}>
-                {measurement.ephyrae_count}
+              <span>
+                <strong>{measurement.ephyrae_count}</strong>
+                <small>{t('ephyrae')}</small>
               </span>
             </div>
-          </div>
+            <div className="zone-count-bars">
+              <i className="zone-count-bar is-polyps" style={{ width: polypWidth }} />
+              <i className="zone-count-bar is-ephyrae" style={{ width: ephyraeWidth }} />
+            </div>
+          </article>
         );
       })}
       <div className="chart-legend">

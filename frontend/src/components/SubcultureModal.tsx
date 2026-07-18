@@ -36,13 +36,11 @@ const labels = {
     children: 'Boîtes enfants',
     addChild: 'Ajouter une boîte',
     removeChild: 'Supprimer cette boîte',
-    globalCode: 'Code global',
-    boxNumber: 'Numéro',
+    globalCode: 'Code boîte généré',
     zone: 'Emplacement thermique',
     initialPolyps: 'Nombre de polypes initial',
     childNotes: 'Note',
     childNotesPlaceholder: 'Optionnel',
-    copyOrigin: "Reprendre l'origine",
     cancel: 'Annuler',
     save: 'Créer le repiquage',
     saving: 'Création...',
@@ -58,13 +56,11 @@ const labels = {
     children: 'Child boxes',
     addChild: 'Add a box',
     removeChild: 'Remove this box',
-    globalCode: 'Global code',
-    boxNumber: 'Number',
+    globalCode: 'Generated box code',
     zone: 'Thermal zone',
     initialPolyps: 'Initial polyp count',
     childNotes: 'Note',
     childNotesPlaceholder: 'Optional',
-    copyOrigin: 'Copy origin',
     cancel: 'Cancel',
     save: 'Create subculture',
     saving: 'Creating...',
@@ -125,6 +121,7 @@ export default function SubcultureModal({
         global_code: child.global_code.trim(),
         local_code: child.local_code.trim(),
         box_number: child.box_number.trim(),
+        copy_origin: true,
         initial_polyp_count: child.initial_polyp_count,
         notes: child.notes.trim(),
       })),
@@ -207,19 +204,7 @@ export default function SubcultureModal({
 
                 <label className="subculture-global-code">
                   {text.globalCode}
-                  <input
-                    required
-                    readOnly
-                    value={child.global_code}
-                  />
-                </label>
-                <label>
-                  {text.boxNumber}
-                  <input
-                    required
-                    value={child.box_number}
-                    onChange={(event) => updateChild(child.key, { box_number: event.target.value })}
-                  />
+                  <input required readOnly value={child.global_code} />
                 </label>
                 <label>
                   {text.zone}
@@ -230,7 +215,7 @@ export default function SubcultureModal({
                       thermal_zone_id: Number(event.target.value),
                     })}
                   >
-                    <option value="" disabled>—</option>
+                    <option value="" disabled>-</option>
                     {availableZones.map((zone) => (
                       <option key={zone.id} value={zone.id}>{zone.name}</option>
                     ))}
@@ -256,19 +241,6 @@ export default function SubcultureModal({
                     onChange={(event) => updateChild(child.key, { notes: event.target.value })}
                   />
                 </label>
-
-                <div className="subculture-copy-options">
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={child.copy_origin}
-                      onChange={(event) => updateChild(child.key, {
-                        copy_origin: event.target.checked,
-                      })}
-                    />
-                    {text.copyOrigin}
-                  </label>
-                </div>
               </section>
             ))}
           </div>
@@ -320,18 +292,18 @@ function suggestChildIdentity(
     return { globalCode: '', boxNumber: '' };
   }
 
-  const prefix = `${parentBox.strain.code}.`;
+  const prefix = parentBox.global_code.slice(0, parentBox.global_code.length - parentNumber.length);
   const width = parentNumber.length;
+  const prefixPattern = new RegExp(`^${escapeRegExp(prefix)}(\\d+)$`);
   const existingCodes = [
-    ...existingBoxes.map((box) => box.global_code),
+    ...existingBoxes.map((existingBox) => existingBox.global_code),
     ...currentChildren.map((child) => child.global_code),
   ];
   const matchingNumbers = existingCodes
-    .filter((code) => existingBoxes.some((box) => box.global_code === code && box.strain.id === parentBox.strain.id)
-      || currentChildren.some((child) => child.global_code === code))
-    .map(extractBoxNumber)
+    .map((code) => code.match(prefixPattern)?.[1] ?? null)
     .filter((value): value is string => Boolean(value))
-    .map((value) => Number(value));
+    .map((value) => Number(value))
+    .filter(Number.isFinite);
   const nextNumber = Math.max(Number(parentNumber), ...matchingNumbers) + 1;
   const formattedNumber = String(nextNumber).padStart(Math.max(width, 3), '0');
 
@@ -343,6 +315,10 @@ function suggestChildIdentity(
 
 function extractBoxNumber(globalCode: string) {
   return globalCode.match(/^.*\.(\d+).*$/)?.[1] ?? null;
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function getTodayDateValue() {

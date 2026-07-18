@@ -143,8 +143,8 @@ class AccountMemberManagementTests(TestCase):
             self.list_url,
             data={
                 "username": "newtech",
-                "first_name": "New",
-                "last_name": "Tech",
+                "first_name": "kylian",
+                "last_name": "mbappé",
                 "email": "new@example.test",
                 "password": "averysafepwd",
                 "organization_id": self.paris.id,
@@ -158,6 +158,9 @@ class AccountMemberManagementTests(TestCase):
             user__username="newtech", organization=self.paris
         )
         self.assertEqual(membership.role, OrganizationMembership.Role.LAB_TECHNICIAN)
+        self.assertEqual(membership.user.first_name, "Kylian")
+        self.assertEqual(membership.user.last_name, "MBAPPÉ")
+        self.assertEqual(response.json()["full_name"], "Kylian MBAPPÉ")
 
     def test_admin_creates_new_member_with_generated_password(self):
         self.client.login(username="admin", password="secret")

@@ -372,13 +372,21 @@ class AdminResourceCreationApiTests(TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertTrue(Organization.objects.filter(name="Aquarium de Nausicaa").exists())
 
-    def test_organization_admin_cannot_create_an_organization(self):
+    def test_organization_admin_creates_a_partner_organization(self):
         self.client.login(username="org_admin", password="secret")
 
         response = self.post("api_organization_create", {"name": "Aquarium de Nausicaa"})
 
-        self.assertEqual(response.status_code, 403)
-        self.assertFalse(Organization.objects.filter(name="Aquarium de Nausicaa").exists())
+        self.assertEqual(response.status_code, 201)
+        organization = Organization.objects.get(name="Aquarium de Nausicaa")
+        self.assertTrue(
+            OrganizationMembership.objects.filter(
+                user=self.admin,
+                organization=organization,
+                role=OrganizationMembership.Role.ADMIN,
+                is_active=True,
+            ).exists()
+        )
 
     def test_duplicate_organization_name_is_rejected_case_insensitively(self):
         self.client.login(username="root", password="secret")
