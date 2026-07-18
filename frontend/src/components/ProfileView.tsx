@@ -10,10 +10,12 @@ type ProfileLabels = {
   logoutError: string;
   profileEmail: string;
   profileLanguage: string;
+  profileAdminTitle: string;
+  profileAdminText: string;
   profileMemberships: string;
   profileNoEmail: string;
   profileNoMembership: string;
-  profileSuperuserAllOrganizations: string;
+  profileAllOrganizationsAccess: string;
   profilePreferences: string;
   roleDescAdmin: string;
   roleDescTechnician: string;
@@ -110,7 +112,7 @@ export default function ProfileView({
       <section className="profile-block">
         <div className="section-title">
           <h2>{labels.profileMemberships}</h2>
-          {/* Superusers bypass memberships: show how many organizations they reach. */}
+          {/* Some technical accounts can reach every organization without a membership row. */}
           <span>
             {profile.memberships.length || (profile.is_superuser ? profile.organizations.length : 0)}
           </span>
@@ -134,7 +136,7 @@ export default function ProfileView({
             ))}
           </div>
         ) : profile.is_superuser ? (
-          <p className="muted compact-text">{labels.profileSuperuserAllOrganizations}</p>
+          <p className="muted compact-text">{labels.profileAllOrganizationsAccess}</p>
         ) : (
           <p className="muted compact-text">{labels.profileNoMembership}</p>
         )}
@@ -162,6 +164,11 @@ export default function ProfileView({
 
       {adminSection ? (
         <section className="profile-admin-section">
+          <div className="profile-admin-heading">
+            <div>
+              <h2>{labels.profileAdminTitle}</h2>
+            </div>
+          </div>
           {adminSection}
         </section>
       ) : null}

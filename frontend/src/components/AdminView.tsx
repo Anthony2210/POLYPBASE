@@ -47,6 +47,14 @@ type AdminAuditLogResponse = {
   results: AdminAuditLogEntry[];
 };
 
+const ADMIN_FLOW_ITEMS = [
+  { href: '#admin-accounts', label: 'manageAccountsTitle' },
+  { href: '#admin-environment', label: 'adminZonesProbesTitle' },
+  { href: '#admin-organizations', label: 'adminOrganizationsTitle' },
+  { href: '#admin-transfers', label: 'adminTransferTitle' },
+  { href: '#admin-history', label: 'adminAuditTitle' },
+];
+
 function userHasAdminRole(profile: UserProfile | null) {
   if (!profile) return false;
   if (profile.is_superuser) return true;
@@ -65,6 +73,20 @@ const emptyMemberForm = {
   last_name: '',
   email: '',
 };
+
+function formatFirstName(value: string) {
+  return value
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLocaleLowerCase('fr-FR')
+    .replace(/(^|[\s'-])(\p{L})/gu, (_match, separator: string, letter: string) => {
+      return `${separator}${letter.toLocaleUpperCase('fr-FR')}`;
+    });
+}
+
+function formatLastName(value: string) {
+  return value.trim().replace(/\s+/g, ' ').toLocaleUpperCase('fr-FR');
+}
 
 function getDigitsOnly(value: string) {
   return value.replace(/\D/g, '');
@@ -286,6 +308,8 @@ function AccountManagementSection({ t }: { t: TFunction }) {
     const payload: NewMemberPayload = {
       ...form,
       username: form.username.trim(),
+      first_name: formatFirstName(form.first_name),
+      last_name: formatLastName(form.last_name),
       organization_id: organizationId,
       role,
     };
@@ -373,11 +397,10 @@ function AccountManagementSection({ t }: { t: TFunction }) {
   const viewerMemberCount = data.members.filter((member) => member.role === 'viewer').length;
 
   return (
-    <section className="admin-section account-management">
+    <section className="admin-section account-management" id="admin-accounts">
       <div className="admin-section-heading account-management-heading">
         <div>
           <h2>{t('manageAccountsTitle')}</h2>
-          <p>{t('manageAccountsSubtitle')}</p>
         </div>
         <span className="account-count">{data.members.length}</span>
       </div>
@@ -423,13 +446,17 @@ function AccountManagementSection({ t }: { t: TFunction }) {
             <input
               value={form.first_name}
               onChange={(event) => setForm((current) => ({ ...current, first_name: event.target.value }))}
+              onBlur={() => setForm((current) => ({ ...current, first_name: formatFirstName(current.first_name) }))}
             />
           </label>
           <label>
             {t('manageFieldLastName')}
             <input
               value={form.last_name}
-              onChange={(event) => setForm((current) => ({ ...current, last_name: event.target.value }))}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, last_name: event.target.value.toLocaleUpperCase('fr-FR') }))
+              }
+              onBlur={() => setForm((current) => ({ ...current, last_name: formatLastName(current.last_name) }))}
             />
           </label>
           <label>
@@ -985,10 +1012,6 @@ function OrganizationCreateForm({
   const existingCities = useMemo(() => organizations.map((organization) => organization.city).filter(Boolean), [organizations]);
   const cityOptions = useMemo(() => getCityOptions(country, existingCities), [country, existingCities]);
 
-  if (!profile.is_superuser) {
-    return <p className="muted compact-text">{t('adminSuperuserOnly')}</p>;
-  }
-
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isSaving) return;
@@ -1121,9 +1144,8 @@ function OrganizationManagementList({
   const existingCities = useMemo(() => organizations.map((organization) => organization.city).filter(Boolean), [organizations]);
   const cityOptions = useMemo(() => getCityOptions(country, existingCities), [country, existingCities]);
 
-  if (!profile.is_superuser) return null;
-
   function startEdit(organization: Organization) {
+    if (!profile.is_superuser) return;
     setEditingId(organization.id);
     setName(organization.name);
     setCity(organization.city ?? '');
@@ -1255,19 +1277,21 @@ function OrganizationManagementList({
                     {[organization.city, organization.country].filter(Boolean).join(' - ') || organization.contact_email || '-'}
                   </span>
                 </div>
-                <div className="admin-organization-actions">
-                  <button type="button" onClick={() => startEdit(organization)}>
-                    {t('adminEditOrganization')}
-                  </button>
-                  <button
-                    type="button"
-                    className="is-danger"
-                    disabled={isSaving}
-                    onClick={() => void handleDelete(organization)}
-                  >
-                    {t('adminDeleteOrganization')}
-                  </button>
-                </div>
+                {profile.is_superuser ? (
+                  <div className="admin-organization-actions">
+                    <button type="button" onClick={() => startEdit(organization)}>
+                      {t('adminEditOrganization')}
+                    </button>
+                    <button
+                      type="button"
+                      className="is-danger"
+                      disabled={isSaving}
+                      onClick={() => void handleDelete(organization)}
+                    >
+                      {t('adminDeleteOrganization')}
+                    </button>
+                  </div>
+                ) : null}
               </>
             )}
           </article>
@@ -1495,7 +1519,7 @@ function sanitizeFilePart(value: string) {
 function AdminAuditLogSection({ t }: { t: TFunction }) {
   const [entries, setEntries] = useState<AdminAuditLogEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isOpen, setIsOpen] = useState(false);
+  const [showAll, setShowAll] = useState(false);
   const [expandedEntryId, setExpandedEntryId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -1523,29 +1547,33 @@ function AdminAuditLogSection({ t }: { t: TFunction }) {
     };
   }, []);
 
+  const visibleEntries = showAll ? entries : entries.slice(0, 4);
+  const canToggleAll = entries.length > 4;
+
   return (
-    <section className="admin-section admin-audit-section">
+    <section className="admin-section admin-audit-section" id="admin-history">
       <div className="admin-section-heading">
         <div>
           <h2>{t('adminAuditTitle')}</h2>
-          <p>{t('adminAuditText')}</p>
         </div>
-        <button
-          className="admin-audit-toggle"
-          type="button"
-          aria-expanded={isOpen}
-          onClick={() => setIsOpen((current) => !current)}
-        >
-          {isOpen ? t('adminAuditHide') : t('adminAuditShow')}
-          {entries.length ? ` (${entries.length})` : ''}
-        </button>
+        {canToggleAll ? (
+          <button
+            className="admin-audit-toggle"
+            type="button"
+            aria-expanded={showAll}
+            onClick={() => setShowAll((current) => !current)}
+          >
+            {showAll ? t('adminAuditShowLess') : t('adminAuditShowAll')}
+            {entries.length ? ` (${entries.length})` : ''}
+          </button>
+        ) : null}
       </div>
 
-      {isOpen && isLoading ? (
+      {isLoading ? (
         <SkeletonRows count={4} />
-      ) : isOpen && error ? (
+      ) : error ? (
         <p className="inline-error">{error}</p>
-      ) : isOpen && entries.length ? (
+      ) : entries.length ? (
         <div className="admin-audit-table">
           <div className="admin-audit-head">
             <span>{t('adminAuditDate')}</span>
@@ -1553,7 +1581,7 @@ function AdminAuditLogSection({ t }: { t: TFunction }) {
             <span>{t('adminAuditAction')}</span>
             <span>{t('adminAuditObject')}</span>
           </div>
-          {entries.map((entry) => {
+          {visibleEntries.map((entry) => {
             const isExpanded = expandedEntryId === entry.id;
             return (
               <article className="admin-audit-entry" key={entry.id}>
@@ -1582,9 +1610,9 @@ function AdminAuditLogSection({ t }: { t: TFunction }) {
             );
           })}
         </div>
-      ) : isOpen ? (
+      ) : (
         <p className="muted compact-text">{t('adminAuditEmpty')}</p>
-      ) : null}
+      )}
     </section>
   );
 }
@@ -1876,6 +1904,23 @@ function formatAuditDate(value: string) {
   }).format(date);
 }
 
+function AdminFlowNav({ t }: { t: TFunction }) {
+  return (
+    <nav className="admin-flow-nav" aria-label={t('adminFlowLabel')}>
+      {ADMIN_FLOW_ITEMS.map((item, index) => (
+        <span className="admin-flow-step" key={item.href}>
+          <a href={item.href}>{t(item.label)}</a>
+          {index < ADMIN_FLOW_ITEMS.length - 1 ? (
+            <span className="admin-flow-separator" aria-hidden="true">
+              /
+            </span>
+          ) : null}
+        </span>
+      ))}
+    </nav>
+  );
+}
+
 export default function AdminView({
   boxes,
   exportOptions,
@@ -1915,15 +1960,14 @@ export default function AdminView({
 
   return (
     <section className="admin-panel">
-      <AdminAuditLogSection t={t} />
+      <AdminFlowNav t={t} />
 
       <AccountManagementSection t={t} />
 
-      <section className="admin-section">
+      <section className="admin-section" id="admin-environment">
         <div className="admin-section-heading">
           <div>
             <h2>{t('adminZonesProbesTitle')}</h2>
-            <p>{t('adminZonesProbesText')}</p>
           </div>
         </div>
 
@@ -1934,28 +1978,10 @@ export default function AdminView({
         <ZoneCapacityManager profile={profile} zones={zones} onUpdateZone={onUpdateZone} t={t} />
       </section>
 
-      <section className="admin-section admin-transfer-section">
-        <div className="admin-section-heading">
-          <div>
-            <h2>{t('adminTransferTitle')}</h2>
-            <p>{t('adminTransferText')}</p>
-          </div>
-        </div>
-
-        <TransferCreateForm
-          profile={profile}
-          boxes={boxes}
-          organizations={organizations}
-          onCreateTransfer={onCreateTransfer}
-          t={t}
-        />
-      </section>
-
-      <section className="admin-section">
+      <section className="admin-section" id="admin-organizations">
         <div className="admin-section-heading">
           <div>
             <h2>{t('adminOrganizationsTitle')}</h2>
-            <p>{t('adminOrganizationsText')}</p>
           </div>
         </div>
 
@@ -1974,6 +2000,24 @@ export default function AdminView({
           t={t}
         />
       </section>
+
+      <section className="admin-section admin-transfer-section" id="admin-transfers">
+        <div className="admin-section-heading">
+          <div>
+            <h2>{t('adminTransferTitle')}</h2>
+          </div>
+        </div>
+
+        <TransferCreateForm
+          profile={profile}
+          boxes={boxes}
+          organizations={organizations}
+          onCreateTransfer={onCreateTransfer}
+          t={t}
+        />
+      </section>
+
+      <AdminAuditLogSection t={t} />
     </section>
   );
 }

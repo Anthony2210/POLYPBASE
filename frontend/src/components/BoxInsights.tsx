@@ -1,11 +1,12 @@
-import { useState } from 'react';
-import { scaleLinear, scalePoint } from 'd3-scale';
+import { useMemo, useState } from 'react';
+import { scaleLinear, scaleTime } from 'd3-scale';
 import { line } from 'd3-shape';
 
 import type {
   BiologicalMeasurement,
   BoxLineage,
   BoxMovement,
+  BoxTemperaturePoint,
   LineageGraph,
 } from '../types';
 import InteractiveLineageGraph from './InteractiveLineageGraph';
@@ -14,13 +15,17 @@ import { formatDisplayDate } from '../utils/dateFormat';
 export type BoxInsightTab = 'measurements' | 'movements' | 'lineage';
 
 type Language = 'fr' | 'en';
+type PeriodId = '1m' | '3m' | '6m' | 'all';
+type SeriesId = 'polyps' | 'ephyrae' | 'temperature' | 'events';
 
 type BoxInsightsLabels = {
+  allPeriod: string;
   chartEmpty: string;
   chartTitle: string;
   children: string;
   close: string;
   ephyraeFull: string;
+  events: string;
   historyButton: string;
   lineageEmptyGraph: string;
   lineageLoading: string;
@@ -28,15 +33,47 @@ type BoxInsightsLabels = {
   lineageTab: string;
   measurementHistory: string;
   measurementsTab: string;
-  movedTo: string;
+  missingReading: string;
+  missingReadingRange: string;
+  movementEvent: string;
   movementHistoryTitle: string;
   movementsTab: string;
+  movedTo: string;
   noComment: string;
   noMeasurementHistory: string;
   noMovementHistory: string;
+  oneMonth: string;
   parents: string;
   polyps: string;
+  salinityFull: string;
+  sixMonths: string;
+  subcultureEvent: string;
+  temperature: string;
+  temperatureNoData: string;
+  threeMonths: string;
 };
+
+type LifecycleEvent = {
+  id: string;
+  date: string;
+  type: 'movement' | 'subculture';
+  title: string;
+  detail: string;
+};
+
+type ChartTooltip = {
+  left: number;
+  top: number;
+  title: string;
+  lines: string[];
+};
+
+const PERIODS: Array<{ id: PeriodId; days: number | null; labelKey: keyof BoxInsightsLabels }> = [
+  { id: '1m', days: 31, labelKey: 'oneMonth' },
+  { id: '3m', days: 92, labelKey: 'threeMonths' },
+  { id: '6m', days: 184, labelKey: 'sixMonths' },
+  { id: 'all', days: null, labelKey: 'allPeriod' },
+];
 
 export default function BoxInsights({
   activeTab,
@@ -48,6 +85,7 @@ export default function BoxInsights({
   lineage,
   measurements,
   movements,
+  temperatureHistory,
   onLoadLineageGraph,
   onOpenHistory,
   onSelectBox,
@@ -62,6 +100,7 @@ export default function BoxInsights({
   lineage: BoxLineage;
   measurements: BiologicalMeasurement[];
   movements: BoxMovement[];
+  temperatureHistory: BoxTemperaturePoint[];
   onLoadLineageGraph: () => void;
   onOpenHistory: () => void;
   onSelectBox: (boxId: number, globalCode: string) => void;
@@ -72,6 +111,11 @@ export default function BoxInsights({
     { id: 'movements', label: labels.movementsTab },
     { id: 'lineage', label: labels.lineageTab },
   ];
+
+  const lifecycleEvents = useMemo(
+    () => buildLifecycleEvents(lineage, movements, labels),
+    [lineage, movements, labels],
+  );
 
   return (
     <div className="box-insights">
@@ -96,7 +140,12 @@ export default function BoxInsights({
             <h2>{labels.chartTitle}</h2>
             <button type="button" onClick={onOpenHistory}>{labels.historyButton}</button>
           </div>
-          <MeasurementTrendChart measurements={measurements} labels={labels} />
+          <MeasurementTrendChart
+            events={lifecycleEvents}
+            labels={labels}
+            measurements={measurements}
+            temperatureHistory={temperatureHistory}
+          />
         </div>
       ) : null}
 
@@ -142,131 +191,332 @@ export default function BoxInsights({
 }
 
 function MeasurementTrendChart({
+  events,
   labels,
   measurements,
+  temperatureHistory,
 }: {
+  events: LifecycleEvent[];
   labels: BoxInsightsLabels;
   measurements: BiologicalMeasurement[];
+  temperatureHistory: BoxTemperaturePoint[];
 }) {
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
-  const chartMeasurements = [...measurements]
-    .sort((left, right) => left.measured_on.localeCompare(right.measured_on))
-    .slice(-12);
+  const [period, setPeriod] = useState<PeriodId>('6m');
+  const [visibleSeries, setVisibleSeries] = useState<Record<SeriesId, boolean>>({
+    polyps: true,
+    ephyrae: true,
+    temperature: true,
+    events: true,
+  });
+  const [tooltip, setTooltip] = useState<ChartTooltip | null>(null);
 
-  if (chartMeasurements.length < 2) {
-    return <p className="muted compact-text chart-empty">{labels.chartEmpty}</p>;
-  }
+  const preparedData = useMemo(
+    () => prepareChartData(measurements, temperatureHistory, events, period),
+    [measurements, temperatureHistory, events, period],
+  );
 
-  const width = 720;
-  const height = 250;
-  const padding = { top: 20, right: 28, bottom: 38, left: 42 };
-  const maxValue = Math.max(
+  const width = 860;
+  const countHeight = 250;
+  const temperatureHeight = 108;
+  const countPadding = { top: 30, right: 26, bottom: 34, left: 44 };
+  const temperaturePadding = { top: 18, right: 26, bottom: 30, left: 44 };
+  const xScale = scaleTime()
+    .domain([preparedData.startDate, preparedData.endDate])
+    .range([countPadding.left, width - countPadding.right]);
+  const maxCount = Math.max(
     1,
-    ...chartMeasurements.flatMap((measurement) => [
+    ...preparedData.measurements.flatMap((measurement) => [
       measurement.polyp_count,
       measurement.ephyrae_count,
     ]),
   );
-  // D3 scales + line generator (React still renders the SVG).
-  const indices = chartMeasurements.map((_, index) => index);
-  const xScale = scalePoint<number>()
-    .domain(indices)
-    .range([padding.left, width - padding.right]);
-  const yScale = scaleLinear().domain([0, maxValue]).range([height - padding.bottom, padding.top]);
-  const xStep = xScale.step();
-  const xPosition = (index: number) => xScale(index) ?? padding.left;
-  const buildLinePath = (selector: (measurement: BiologicalMeasurement) => number) =>
-    line<number>()
-      .x((index) => xPosition(index))
-      .y((index) => yScale(selector(chartMeasurements[index])))(indices) ?? '';
-  const firstDate = chartMeasurements[0].measured_on;
-  const lastDate = chartMeasurements[chartMeasurements.length - 1].measured_on;
-  const hoveredMeasurement = hoveredIndex != null ? chartMeasurements[hoveredIndex] : null;
-  const hoverX = hoveredIndex != null ? xPosition(hoveredIndex) : null;
-  const hoverTop = hoveredMeasurement
-    ? Math.min(yScale(hoveredMeasurement.polyp_count), yScale(hoveredMeasurement.ephyrae_count))
-    : null;
+  const yCount = scaleLinear()
+    .domain([0, maxCount])
+    .nice()
+    .range([countHeight - countPadding.bottom, countPadding.top]);
+  const temperatureValues = preparedData.temperatures.map((point) => point.average_temperature_c);
+  const minTemperature = temperatureValues.length ? Math.min(...temperatureValues) : 0;
+  const maxTemperature = temperatureValues.length ? Math.max(...temperatureValues) : 1;
+  const yTemperature = scaleLinear()
+    .domain([
+      Math.floor(minTemperature - 0.5),
+      Math.ceil(maxTemperature + 0.5),
+    ])
+    .range([temperatureHeight - temperaturePadding.bottom, temperaturePadding.top]);
+  const xPosition = (date: string) => xScale(parseChartDate(date));
+  const measurementSegments = splitMeasurementsOnGaps(preparedData.measurements);
+  const missingRanges = buildMissingRanges(preparedData.measurements);
+  const hasMeasurementData = preparedData.measurements.length > 0;
+  const hasTemperaturePoints = preparedData.temperatures.length > 0;
+  const canDrawTemperatureLine = preparedData.temperatures.length >= 2;
+  const hasEventData = preparedData.events.length > 0;
+  const hasAnyData = hasMeasurementData || hasTemperaturePoints || hasEventData;
+  const countLine = (selector: (measurement: BiologicalMeasurement) => number) =>
+    line<BiologicalMeasurement>()
+      .x((measurement) => xPosition(measurement.measured_on))
+      .y((measurement) => yCount(selector(measurement)));
+  const temperatureLine = line<BoxTemperaturePoint>()
+    .x((point) => xPosition(point.date))
+    .y((point) => yTemperature(point.average_temperature_c));
+
+  function toggleSeries(series: SeriesId) {
+    setVisibleSeries((current) => ({ ...current, [series]: !current[series] }));
+  }
 
   return (
-    <div className="measurement-chart" aria-label={labels.chartTitle} onPointerLeave={() => setHoveredIndex(null)}>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img">
-        <line className="chart-axis" x1={padding.left} y1={height - padding.bottom} x2={width - padding.right} y2={height - padding.bottom} />
-        <line className="chart-axis" x1={padding.left} y1={padding.top} x2={padding.left} y2={height - padding.bottom} />
-        {[0.25, 0.5, 0.75].map((ratio) => {
-          const y = padding.top + ratio * (height - padding.top - padding.bottom);
-          return <line key={ratio} className="chart-grid-line" x1={padding.left} y1={y} x2={width - padding.right} y2={y} />;
-        })}
-        <path className="chart-line is-polyps" d={buildLinePath((measurement) => measurement.polyp_count)} />
-        <path className="chart-line is-ephyrae" d={buildLinePath((measurement) => measurement.ephyrae_count)} />
-        {hoveredMeasurement && hoverX != null ? (
-          <line
-            className="chart-hover-line"
-            x1={hoverX}
-            y1={padding.top}
-            x2={hoverX}
-            y2={height - padding.bottom}
-          />
-        ) : null}
-        {chartMeasurements.map((measurement, index) => (
-          <g key={measurement.id}>
-            <circle
-              className={hoveredIndex === index ? 'chart-dot is-polyps is-active' : 'chart-dot is-polyps'}
-              cx={xPosition(index)}
-              cy={yScale(measurement.polyp_count)}
-              r={hoveredIndex === index ? '5' : '3.5'}
-            />
-            <circle
-              className={hoveredIndex === index ? 'chart-dot is-ephyrae is-active' : 'chart-dot is-ephyrae'}
-              cx={xPosition(index)}
-              cy={yScale(measurement.ephyrae_count)}
-              r={hoveredIndex === index ? '5' : '3.5'}
-            />
-          </g>
-        ))}
-        {chartMeasurements.map((measurement, index) => {
-          const x = xPosition(index);
-          const hitWidth = Math.max(26, xStep * 0.82);
-
-          return (
-            <rect
-              key={`hit-${measurement.id}`}
-              className="chart-hit-area"
-              x={x - hitWidth / 2}
-              y={padding.top}
-              width={hitWidth}
-              height={height - padding.top - padding.bottom}
-              tabIndex={0}
-              onBlur={() => setHoveredIndex(null)}
-              onFocus={() => setHoveredIndex(index)}
-              onPointerEnter={() => setHoveredIndex(index)}
-            />
-          );
-        })}
-        <text className="chart-label" x={padding.left} y={height - 12}>{formatDisplayDate(firstDate)}</text>
-        <text className="chart-label is-end" x={width - padding.right} y={height - 12}>{formatDisplayDate(lastDate)}</text>
-        <text className="chart-y-label" x={padding.left - 8} y={padding.top + 4}>{maxValue}</text>
-        <text className="chart-y-label" x={padding.left - 8} y={height - padding.bottom + 4}>0</text>
-      </svg>
-
-      {hoveredMeasurement && hoverX != null && hoverTop != null ? (
-        <div
-          className="chart-tooltip"
-          style={{
-            left: `${(hoverX / width) * 100}%`,
-            top: `${Math.max(8, (hoverTop / height) * 100 - 8)}%`,
-          }}
-        >
-          <strong>{formatDisplayDate(hoveredMeasurement.measured_on)}</strong>
-          <span>{labels.polyps} : {hoveredMeasurement.polyp_count}</span>
-          <span>{labels.ephyraeFull} : {hoveredMeasurement.ephyrae_count}</span>
+    <div className="measurement-chart activity-chart" aria-label={labels.chartTitle}>
+      <div className="chart-toolbar">
+        <div className="chart-periods" aria-label="Periode">
+          {PERIODS.map((item) => (
+            <button
+              key={item.id}
+              className={period === item.id ? 'is-active' : ''}
+              type="button"
+              onClick={() => setPeriod(item.id)}
+            >
+              {labels[item.labelKey]}
+            </button>
+          ))}
         </div>
-      ) : null}
+        <div className="chart-series-controls">
+          <ToggleButton active={visibleSeries.polyps} label={labels.polyps} onClick={() => toggleSeries('polyps')} />
+          <ToggleButton active={visibleSeries.ephyrae} label={labels.ephyraeFull} onClick={() => toggleSeries('ephyrae')} />
+          <ToggleButton active={visibleSeries.temperature} label={labels.temperature} onClick={() => toggleSeries('temperature')} />
+          <ToggleButton active={visibleSeries.events} label={labels.events} onClick={() => toggleSeries('events')} />
+        </div>
+      </div>
+
+      <div className="activity-chart-canvas" onPointerLeave={() => setTooltip(null)}>
+        <svg className="activity-count-chart" viewBox={`0 0 ${width} ${countHeight}`} role="img">
+          <line className="chart-axis" x1={countPadding.left} y1={countHeight - countPadding.bottom} x2={width - countPadding.right} y2={countHeight - countPadding.bottom} />
+          <line className="chart-axis" x1={countPadding.left} y1={countPadding.top} x2={countPadding.left} y2={countHeight - countPadding.bottom} />
+          {[0.25, 0.5, 0.75].map((ratio) => {
+            const y = countPadding.top + ratio * (countHeight - countPadding.top - countPadding.bottom);
+            return <line key={ratio} className="chart-grid-line" x1={countPadding.left} y1={y} x2={width - countPadding.right} y2={y} />;
+          })}
+
+          {!hasAnyData ? (
+            <text
+              className="chart-empty-label"
+              x={width / 2}
+              y={countPadding.top + (countHeight - countPadding.top - countPadding.bottom) / 2}
+            >
+              {labels.chartEmpty}
+            </text>
+          ) : null}
+
+          {missingRanges.map((range) => {
+            const x1 = xPosition(range.start);
+            const x2 = xPosition(range.end);
+            return (
+              <g
+                key={`${range.start}-${range.end}`}
+                className="chart-missing-range"
+                onPointerEnter={() => setTooltip({
+                  left: ((x1 + x2) / 2 / width) * 100,
+                  top: 24,
+                  title: labels.missingReading,
+                  lines: [`${formatDisplayDate(range.start)} - ${formatDisplayDate(range.end)}`],
+                })}
+              >
+                <rect
+                  x={x1}
+                  y={countPadding.top}
+                  width={Math.max(3, x2 - x1)}
+                  height={countHeight - countPadding.top - countPadding.bottom}
+                />
+              </g>
+            );
+          })}
+
+          {visibleSeries.polyps ? measurementSegments.map((segment, index) => (
+            <path
+              key={`polyps-${index}`}
+              className="chart-line is-polyps"
+              d={countLine((measurement) => measurement.polyp_count)(segment) ?? ''}
+            />
+          )) : null}
+          {visibleSeries.ephyrae ? measurementSegments.map((segment, index) => (
+            <path
+              key={`ephyrae-${index}`}
+              className="chart-line is-ephyrae"
+              d={countLine((measurement) => measurement.ephyrae_count)(segment) ?? ''}
+            />
+          )) : null}
+
+          {visibleSeries.events ? preparedData.events.map((event) => {
+            const x = xPosition(event.date);
+            return (
+              <g
+                key={event.id}
+                className={`chart-event-marker is-${event.type}`}
+                transform={`translate(${x} ${countPadding.top - 3})`}
+                onPointerEnter={() => setTooltip({
+                  left: (x / width) * 100,
+                  top: 9,
+                  title: event.title,
+                  lines: [formatDisplayDate(event.date), event.detail].filter(Boolean),
+                })}
+              >
+                <line x1={0} y1={9} x2={0} y2={countHeight - countPadding.top - countPadding.bottom + 3} />
+                <path d="M0 0 L6 6 L0 12 L-6 6 Z" />
+              </g>
+            );
+          }) : null}
+
+          {preparedData.measurements.map((measurement) => {
+            const x = xPosition(measurement.measured_on);
+            return (
+              <g
+                key={measurement.id}
+                className="chart-measurement-point"
+                onPointerEnter={() => setTooltip({
+                  left: (x / width) * 100,
+                  top: Math.max(
+                    12,
+                    (Math.min(
+                      yCount(measurement.polyp_count),
+                      yCount(measurement.ephyrae_count),
+                    ) / countHeight) * 100 - 5,
+                  ),
+                  title: formatDisplayDate(measurement.measured_on),
+                  lines: [
+                    `${labels.polyps} : ${measurement.polyp_count}`,
+                    `${labels.ephyraeFull} : ${measurement.ephyrae_count}`,
+                    measurement.salinity_psu ? `${labels.salinityFull} : ${formatDecimal(measurement.salinity_psu)}` : '',
+                  ].filter(Boolean),
+                })}
+              >
+                {visibleSeries.polyps ? (
+                  <circle
+                    className="chart-dot is-polyps"
+                    cx={x}
+                    cy={yCount(measurement.polyp_count)}
+                    r={measurement.polyp_count === 0 ? 5 : 4}
+                  />
+                ) : null}
+                {visibleSeries.ephyrae ? (
+                  <circle
+                    className="chart-dot is-ephyrae"
+                    cx={x}
+                    cy={yCount(measurement.ephyrae_count)}
+                    r={measurement.ephyrae_count === 0 ? 5 : 4}
+                  />
+                ) : null}
+                <rect
+                  className="chart-hit-area"
+                  x={x - 12}
+                  y={countPadding.top}
+                  width={24}
+                  height={countHeight - countPadding.top - countPadding.bottom}
+                />
+              </g>
+            );
+          })}
+
+          <text className="chart-label" x={countPadding.left} y={countHeight - 10}>
+            {formatDisplayDate(toDateString(preparedData.startDate))}
+          </text>
+          <text className="chart-label is-end" x={width - countPadding.right} y={countHeight - 10}>
+            {formatDisplayDate(toDateString(preparedData.endDate))}
+          </text>
+          <text className="chart-y-label" x={countPadding.left - 8} y={countPadding.top + 4}>{maxCount}</text>
+          <text className="chart-y-label" x={countPadding.left - 8} y={countHeight - countPadding.bottom + 4}>0</text>
+        </svg>
+
+        {visibleSeries.temperature ? (
+          <svg className="activity-temperature-chart" viewBox={`0 0 ${width} ${temperatureHeight}`} role="img">
+            <line className="chart-axis" x1={temperaturePadding.left} y1={temperatureHeight - temperaturePadding.bottom} x2={width - temperaturePadding.right} y2={temperatureHeight - temperaturePadding.bottom} />
+            {!hasTemperaturePoints ? (
+              <text
+                className="chart-empty-label is-small"
+                x={width / 2}
+                y={temperaturePadding.top + (temperatureHeight - temperaturePadding.top - temperaturePadding.bottom) / 2}
+              >
+                {labels.temperatureNoData}
+              </text>
+            ) : null}
+            {canDrawTemperatureLine ? (
+              <path className="chart-line is-temperature" d={temperatureLine(preparedData.temperatures) ?? ''} />
+            ) : null}
+            {preparedData.temperatures.map((point) => {
+              const x = xPosition(point.date);
+              const y = yTemperature(point.average_temperature_c);
+              return (
+                <g
+                  key={`${point.date}-${point.zone_id}`}
+                  className="chart-temperature-point"
+                  onPointerEnter={() => setTooltip({
+                    left: (x / width) * 100,
+                    top: 73,
+                    title: formatDisplayDate(point.date),
+                    lines: [
+                      `${labels.temperature} : ${point.average_temperature_c.toFixed(1)}\u00b0C`,
+                      point.zone_name,
+                    ],
+                  })}
+                >
+                  <circle className="chart-dot is-temperature" cx={x} cy={y} r={3.5} />
+                  <rect
+                    className="chart-hit-area"
+                    x={x - 10}
+                    y={temperaturePadding.top}
+                    width={20}
+                    height={temperatureHeight - temperaturePadding.top - temperaturePadding.bottom}
+                  />
+                </g>
+              );
+            })}
+            <text className="chart-temperature-label" x={temperaturePadding.left - 8} y={temperaturePadding.top + 4}>
+              {temperatureValues.length ? `${Math.ceil(maxTemperature)}\u00b0C` : ''}
+            </text>
+            <text className="chart-temperature-label" x={temperaturePadding.left - 8} y={temperatureHeight - temperaturePadding.bottom + 4}>
+              {temperatureValues.length ? `${Math.floor(minTemperature)}\u00b0C` : ''}
+            </text>
+          </svg>
+        ) : null}
+
+        {tooltip ? (
+          <div
+            className="chart-tooltip"
+            style={{ left: `${tooltip.left}%`, top: `${tooltip.top}%` }}
+          >
+            <strong>{tooltip.title}</strong>
+            {tooltip.lines.map((lineText) => (
+              <span key={lineText}>{lineText}</span>
+            ))}
+          </div>
+        ) : null}
+      </div>
 
       <div className="chart-legend">
         <span className="is-polyps">{labels.polyps}</span>
         <span className="is-ephyrae">{labels.ephyraeFull}</span>
+        <span className="is-temperature">{labels.temperature}</span>
+        <span className="is-missing">{labels.missingReading}</span>
       </div>
     </div>
+  );
+}
+
+function ToggleButton({
+  active,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className={active ? 'is-active' : ''}
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -363,6 +613,12 @@ function MeasurementHistoryList({
             <strong>{measurement.ephyrae_count}</strong>
             <small>{labels.ephyraeFull}</small>
           </span>
+          {measurement.salinity_psu ? (
+            <span>
+              <strong>{formatDecimal(measurement.salinity_psu)}</strong>
+              <small>PSU</small>
+            </span>
+          ) : null}
           <p>{measurement.notes?.trim() || labels.noComment}</p>
         </article>
       ))}
@@ -377,4 +633,159 @@ function Metric({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </span>
   );
+}
+
+function prepareChartData(
+  measurements: BiologicalMeasurement[],
+  temperatures: BoxTemperaturePoint[],
+  events: LifecycleEvent[],
+  period: PeriodId,
+) {
+  const sortedMeasurements = [...measurements].sort((left, right) => left.measured_on.localeCompare(right.measured_on));
+  const sortedTemperatures = [...temperatures].sort((left, right) => left.date.localeCompare(right.date));
+  const sortedEvents = [...events].sort((left, right) => left.date.localeCompare(right.date));
+  const lastDate = getLastDate(sortedMeasurements, sortedTemperatures, sortedEvents);
+  const periodConfig = PERIODS.find((item) => item.id === period);
+  const startDate = periodConfig?.days ? addDays(lastDate, -periodConfig.days) : getFirstDate(sortedMeasurements, sortedTemperatures, sortedEvents);
+  const endDate = addDays(lastDate, 1);
+  const startText = toDateString(startDate);
+  const endText = toDateString(endDate);
+
+  return {
+    startDate,
+    endDate,
+    measurements: sortedMeasurements.filter((measurement) => measurement.measured_on >= startText && measurement.measured_on <= endText),
+    temperatures: sortedTemperatures.filter((point) => point.date >= startText && point.date <= endText),
+    events: sortedEvents.filter((event) => event.date >= startText && event.date <= endText),
+  };
+}
+
+function splitMeasurementsOnGaps(measurements: BiologicalMeasurement[]) {
+  const segments: BiologicalMeasurement[][] = [];
+  let currentSegment: BiologicalMeasurement[] = [];
+
+  measurements.forEach((measurement, index) => {
+    const previous = measurements[index - 1];
+    if (previous && getDaysBetween(previous.measured_on, measurement.measured_on) > 10) {
+      if (currentSegment.length) segments.push(currentSegment);
+      currentSegment = [];
+    }
+    currentSegment.push(measurement);
+  });
+
+  if (currentSegment.length) segments.push(currentSegment);
+  return segments;
+}
+
+function buildMissingRanges(measurements: BiologicalMeasurement[]) {
+  return measurements.flatMap((measurement, index) => {
+    const previous = measurements[index - 1];
+    if (!previous) return [];
+    const gap = getDaysBetween(previous.measured_on, measurement.measured_on);
+    if (gap <= 10) return [];
+
+    return [{
+      start: toDateString(addDays(parseChartDate(previous.measured_on), 1)),
+      end: toDateString(addDays(parseChartDate(measurement.measured_on), -1)),
+    }];
+  });
+}
+
+function buildLifecycleEvents(
+  lineage: BoxLineage,
+  movements: BoxMovement[],
+  labels: BoxInsightsLabels,
+) {
+  const events = new Map<string, LifecycleEvent>();
+
+  movements.forEach((movement) => {
+    const date = movement.moved_at.slice(0, 10);
+    events.set(`move-${movement.id}`, {
+      id: `move-${movement.id}`,
+      date,
+      type: 'movement',
+      title: labels.movementEvent,
+      detail: movement.from_thermal_zone
+        ? `${movement.from_thermal_zone.name} -> ${movement.to_thermal_zone.name}`
+        : movement.to_thermal_zone.name,
+    });
+  });
+
+  lineage.parents.forEach((relation) => {
+    if (!relation.event) return;
+    events.set(`subculture-parent-${relation.event.id}`, {
+      id: `subculture-parent-${relation.event.id}`,
+      date: relation.event.event_date,
+      type: 'subculture',
+      title: labels.subcultureEvent,
+      detail: relation.box.global_code,
+    });
+  });
+
+  lineage.children.forEach((relation) => {
+    if (!relation.event) return;
+    events.set(`subculture-child-${relation.event.id}-${relation.box.id}`, {
+      id: `subculture-child-${relation.event.id}-${relation.box.id}`,
+      date: relation.event.event_date,
+      type: 'subculture',
+      title: labels.subcultureEvent,
+      detail: relation.box.global_code,
+    });
+  });
+
+  return [...events.values()].sort((left, right) => left.date.localeCompare(right.date));
+}
+
+function getFirstDate(
+  measurements: BiologicalMeasurement[],
+  temperatures: BoxTemperaturePoint[],
+  events: LifecycleEvent[],
+) {
+  const dates = [
+    measurements[0]?.measured_on,
+    temperatures[0]?.date,
+    events[0]?.date,
+  ].filter(Boolean) as string[];
+  return dates.length ? parseChartDate(dates.sort()[0]) : addDays(new Date(), -30);
+}
+
+function getLastDate(
+  measurements: BiologicalMeasurement[],
+  temperatures: BoxTemperaturePoint[],
+  events: LifecycleEvent[],
+) {
+  const dates = [
+    measurements.length ? measurements[measurements.length - 1]?.measured_on : undefined,
+    temperatures.length ? temperatures[temperatures.length - 1]?.date : undefined,
+    events.length ? events[events.length - 1]?.date : undefined,
+  ].filter(Boolean) as string[];
+  const sortedDates = dates.sort();
+  return sortedDates.length ? parseChartDate(sortedDates[sortedDates.length - 1]) : new Date();
+}
+
+function getDaysBetween(firstDate: string, secondDate: string) {
+  const diff = parseChartDate(secondDate).getTime() - parseChartDate(firstDate).getTime();
+  return Math.round(diff / 86_400_000);
+}
+
+function parseChartDate(value: string) {
+  return new Date(`${value.slice(0, 10)}T00:00:00`);
+}
+
+function addDays(date: Date, days: number) {
+  const copy = new Date(date);
+  copy.setDate(copy.getDate() + days);
+  return copy;
+}
+
+function toDateString(date: Date) {
+  const copy = new Date(date);
+  copy.setMinutes(copy.getMinutes() - copy.getTimezoneOffset());
+  return copy.toISOString().slice(0, 10);
+}
+
+function formatDecimal(value: string | number) {
+  const numeric = typeof value === 'number' ? value : Number.parseFloat(value);
+  if (!Number.isFinite(numeric)) return String(value);
+  return Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(1);
 }

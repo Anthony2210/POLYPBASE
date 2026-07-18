@@ -3,19 +3,32 @@ from rest_framework import generics, status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
-from .serializers import OrganizationCreateSerializer
+from apps.accounts.models import OrganizationMembership
+from apps.accounts.permissions import user_is_org_admin
+
 from .models import Organization
+from .serializers import OrganizationCreateSerializer
 
 
 class OrganizationCreateAPIView(generics.CreateAPIView):
-    """Create a new organization (tenant). Reserved to superusers."""
+    """Create a partner organization from the administration interface."""
 
     serializer_class = OrganizationCreateSerializer
 
     def perform_create(self, serializer):
+        if not user_is_org_admin(self.request.user):
+            raise PermissionDenied("Ce compte ne peut pas creer une structure.")
+
+        organization = serializer.save()
         if not self.request.user.is_superuser:
-            raise PermissionDenied("Seul un super-administrateur peut créer une structure.")
-        serializer.save()
+            OrganizationMembership.objects.get_or_create(
+                user=self.request.user,
+                organization=organization,
+                defaults={
+                    "role": OrganizationMembership.Role.ADMIN,
+                    "is_active": True,
+                },
+            )
 
 
 class OrganizationDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
@@ -27,7 +40,7 @@ class OrganizationDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
         if not request.user.is_superuser:
-            raise PermissionDenied("Seul un super-administrateur peut modifier une structure.")
+            raise PermissionDenied("Ce compte ne peut pas modifier une structure.")
 
     def destroy(self, request, *args, **kwargs):
         organization = self.get_object()
@@ -35,8 +48,8 @@ class OrganizationDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
             return Response(
                 {
                     "detail": (
-                        "Cette structure contient déjà des données liées. "
-                        "Suppression refusée pour préserver l'historique."
+                        "Cette structure contient deja des donnees liees. "
+                        "Suppression refusee pour preserver l'historique."
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -46,7 +59,7 @@ class OrganizationDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
             return super().destroy(request, *args, **kwargs)
         except (ProtectedError, RestrictedError):
             return Response(
-                {"detail": "Cette structure est encore utilisée et ne peut pas être supprimée."},
+                {"detail": "Cette structure est encore utilisee et ne peut pas etre supprimee."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

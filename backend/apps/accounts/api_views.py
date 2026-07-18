@@ -161,6 +161,20 @@ def _member_data(membership, *, current_user):
     }
 
 
+def _format_first_name(value):
+    name = " ".join(str(value or "").strip().split()).lower()
+    return re.sub(
+        r"(^|[\s'-])([^\W\d_])",
+        lambda match: f"{match.group(1)}{match.group(2).upper()}",
+        name,
+        flags=re.UNICODE,
+    )
+
+
+def _format_last_name(value):
+    return " ".join(str(value or "").strip().split()).upper()
+
+
 @method_decorator(ensure_csrf_cookie, name="dispatch")
 class OrganizationMemberListCreateAPIView(APIView):
     """List and create memberships within the organizations the user administers."""
@@ -269,8 +283,8 @@ class OrganizationMemberListCreateAPIView(APIView):
         user = user_model(
             username=username,
             email=email,
-            first_name=(data.get("first_name") or "").strip(),
-            last_name=(data.get("last_name") or "").strip(),
+            first_name=_format_first_name(data.get("first_name")),
+            last_name=_format_last_name(data.get("last_name")),
         )
         user.set_password(password)
         user.save()

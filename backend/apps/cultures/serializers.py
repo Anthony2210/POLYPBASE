@@ -1,4 +1,5 @@
 import re
+from datetime import timedelta
 from decimal import Decimal
 
 from django.utils import timezone
@@ -202,6 +203,7 @@ class BoxListSerializer(serializers.ModelSerializer):
 class BoxDetailSerializer(BoxListSerializer):
     tags = IdentificationTagSerializer(many=True, read_only=True)
     active_alerts = serializers.SerializerMethodField()
+    temperature_history = serializers.SerializerMethodField()
     lineage = serializers.SerializerMethodField()
     locations = BoxLocationSerializer(many=True, read_only=True)
     movements = BoxMovementSerializer(many=True, read_only=True)
@@ -217,6 +219,7 @@ class BoxDetailSerializer(BoxListSerializer):
             "notes",
             "tags",
             "active_alerts",
+            "temperature_history",
             "lineage",
             "locations",
             "movements",
@@ -238,6 +241,50 @@ class BoxDetailSerializer(BoxListSerializer):
         else:
             alerts = [alert for alert in alerts if alert.is_active]
         return AlertSummarySerializer(alerts, many=True).data
+
+    def get_temperature_history(self, obj):
+        """Return daily temperatures for the zones occupied by this box."""
+        today = timezone.localdate()
+        lower_bound = today - timedelta(days=180)
+        locations = _prefetched_list(obj, "locations")
+        if locations is None:
+            locations = obj.locations.select_related("thermal_zone").order_by("-starts_at")
+
+        points = {}
+        for location in locations:
+            start_date = max(location.starts_at.date(), lower_bound)
+            end_date = location.ends_at.date() if location.ends_at else today
+            if end_date < lower_bound:
+                continue
+
+            temperatures = location.thermal_zone.daily_temperatures.filter(
+                date__gte=start_date,
+                date__lte=end_date,
+            ).order_by("date")
+
+            for temperature in temperatures:
+                key = (temperature.date, location.thermal_zone_id)
+                points[key] = {
+                    "date": temperature.date,
+                    "average_temperature_c": float(temperature.average_temperature_c),
+                    "min_temperature_c": (
+                        float(temperature.min_temperature_c)
+                        if temperature.min_temperature_c is not None
+                        else None
+                    ),
+                    "max_temperature_c": (
+                        float(temperature.max_temperature_c)
+                        if temperature.max_temperature_c is not None
+                        else None
+                    ),
+                    "zone_id": location.thermal_zone_id,
+                    "zone_name": location.thermal_zone.name,
+                }
+
+        return [
+            points[key]
+            for key in sorted(points.keys(), key=lambda item: (item[0], item[1]))
+        ]
 
     def get_lineage(self, obj):
         parent_lineages = _prefetched_list(obj, "parent_lineages")

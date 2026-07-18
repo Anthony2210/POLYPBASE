@@ -53,6 +53,23 @@ export type BiologicalMeasurement = {
   created_at: string;
 };
 
+export type BoxTemperaturePoint = {
+  date: string;
+  average_temperature_c: number;
+  min_temperature_c: number | null;
+  max_temperature_c: number | null;
+  zone_id: number;
+  zone_name: string;
+};
+
+export type BoxAlert = {
+  id: number;
+  alert_type: string;
+  level: string;
+  message: string;
+  created_at: string;
+};
+
 export type BoxItem = {
   id: number;
   global_code: string;
@@ -107,6 +124,8 @@ export type BoxDetail = BoxItem & {
   locations: BoxLocation[];
   movements: BoxMovement[];
   biological_measurements: BiologicalMeasurement[];
+  temperature_history: BoxTemperaturePoint[];
+  active_alerts: BoxAlert[];
   scan_url: string;
   qr_image_url: string;
 };
