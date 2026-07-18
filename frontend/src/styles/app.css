@@ -2338,7 +2338,8 @@ button:disabled {
 }
 
 .overview-box-summary .overview-chart svg {
-  min-height: 118px;
+  height: 150px;
+  min-height: 150px;
 }
 
 .overview-box-summary .overview-chart-line {
@@ -2568,6 +2569,7 @@ button:disabled {
 .overview-chart {
   display: grid;
   gap: 8px;
+  position: relative;
   padding-top: 4px;
 }
 
@@ -2586,7 +2588,8 @@ button:disabled {
 .overview-chart svg {
   display: block;
   width: 100%;
-  min-height: 150px;
+  height: 180px;
+  min-height: 180px;
   border: 1px solid var(--line-soft);
   border-radius: 8px;
   background: #fbfdff;
@@ -2622,6 +2625,34 @@ button:disabled {
   stroke-dasharray: 6 6;
 }
 
+.overview-chart-dot {
+  stroke: #ffffff;
+  stroke-width: 1.7;
+}
+
+.overview-chart-dot.is-polyps {
+  fill: #0f6b87;
+}
+
+.overview-chart-dot.is-ephyrae {
+  fill: #dc5a47;
+}
+
+.overview-chart-dot.is-temperature {
+  fill: #5870c8;
+}
+
+.overview-chart-hover-line {
+  stroke: rgba(19, 31, 46, 0.28);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+}
+
+.overview-chart-hit-area {
+  fill: transparent;
+  outline: none;
+}
+
 .overview-chart-label {
   fill: var(--muted);
   font-size: 0.72rem;
@@ -2630,6 +2661,41 @@ button:disabled {
 
 .overview-chart-label.is-end {
   text-anchor: end;
+}
+
+.overview-chart-y-label {
+  fill: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 760;
+  text-anchor: end;
+}
+
+.overview-chart-detail {
+  position: absolute;
+  bottom: 10px;
+  z-index: 1;
+  display: grid;
+  min-width: 138px;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid rgba(18, 113, 140, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 10px 24px rgba(31, 56, 74, 0.14);
+  color: var(--ink);
+  font-size: 0.72rem;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.overview-chart-detail strong {
+  color: var(--primary);
+  font-size: 0.74rem;
+}
+
+.overview-chart-detail span {
+  color: var(--muted);
+  font-weight: 720;
 }
 
 .overview-chart-legend {
@@ -2950,7 +3016,9 @@ button:disabled {
 .zone-page {
   display: grid;
   gap: 14px;
+  width: 100%;
   max-width: 1120px;
+  margin-inline: auto;
 }
 
 .zone-back-button {
@@ -2959,7 +3027,7 @@ button:disabled {
 
 .zone-sheet-hero {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 18px;
   padding: 18px 20px;
@@ -2969,6 +3037,10 @@ button:disabled {
     linear-gradient(90deg, rgba(255, 255, 255, 0.99), rgba(229, 246, 251, 0.68)),
     #ffffff;
   box-shadow: inset 4px 0 0 var(--primary);
+}
+
+.zone-sheet-hero > div:first-child {
+  text-align: center;
 }
 
 .zone-sheet-hero .box-page-label {
@@ -5826,6 +5898,7 @@ button.zone-attention-item:hover {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+  align-items: stretch;
 }
 
 .admin-form,
@@ -5848,6 +5921,15 @@ button.zone-attention-item:hover {
 .admin-transfer-form {
   grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) minmax(140px, 0.45fr) auto auto;
   align-items: end;
+}
+
+.admin-transfer-box-field {
+  display: grid;
+  grid-column: 1 / span 2;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 780;
 }
 
 .transfer-package {
@@ -5908,6 +5990,30 @@ button.zone-attention-item:hover {
 .admin-form textarea,
 .admin-transfer-form textarea {
   resize: vertical;
+}
+
+.probe-create-form {
+  display: grid;
+  align-content: space-between;
+  gap: 16px;
+  height: 100%;
+  grid-template-rows: repeat(4, max-content);
+}
+
+.probe-create-form label {
+  gap: 8px;
+}
+
+.probe-create-form input,
+.probe-create-form select {
+  min-height: 52px;
+  padding: 0 14px;
+}
+
+.probe-create-form button[type='submit'] {
+  width: 100%;
+  min-height: 56px;
+  margin-top: 0;
 }
 
 .zone-capacity-manager {

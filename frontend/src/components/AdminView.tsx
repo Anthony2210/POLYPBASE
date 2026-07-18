@@ -715,7 +715,6 @@ function ProbeCreateForm({
   const [zoneId, setZoneId] = useState<number | null>(zoneChoices[0]?.id ?? null);
   const [code, setCode] = useState('');
   const [probeType, setProbeType] = useState('lorawan');
-  const [location, setLocation] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -737,10 +736,9 @@ function ProbeCreateForm({
         thermal_zone: zoneId,
         code: code.trim(),
         probe_type: probeType,
-        location: location.trim(),
+        location: '',
       });
       setCode('');
-      setLocation('');
       setMessage(t('adminProbeCreated'));
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -750,7 +748,7 @@ function ProbeCreateForm({
   }
 
   return (
-    <form className="admin-form" onSubmit={handleSubmit}>
+    <form className="admin-form probe-create-form" onSubmit={handleSubmit}>
       <label>
         <span>{t('adminProbeCode')}</span>
         <input
@@ -779,14 +777,6 @@ function ProbeCreateForm({
             <option key={zone.id} value={zone.id}>{zone.name}</option>
           ))}
         </select>
-      </label>
-      <label>
-        <span>{t('adminProbeLocation')}</span>
-        <input
-          type="text"
-          value={location}
-          onChange={(event) => setLocation(event.target.value)}
-        />
       </label>
       <button type="submit" disabled={isSaving || !code.trim()}>
         {isSaving ? t('saving') : t('adminAddProbe')}
@@ -1303,18 +1293,34 @@ function TransferCreateForm({
   }, [profile, boxes]);
 
   const [boxId, setBoxId] = useState<number | null>(transferableBoxes[0]?.id ?? null);
+  const [boxQuery, setBoxQuery] = useState('');
   const [targetOrgId, setTargetOrgId] = useState<number | null>(null);
   const [notes, setNotes] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [preparedTransfer, setPreparedTransfer] = useState<PreparedTransfer | null>(null);
+  const normalizedBoxQuery = boxQuery.trim().toLocaleLowerCase();
+  const visibleTransferableBoxes = normalizedBoxQuery
+    ? transferableBoxes.filter((box) => [
+      box.global_code,
+      box.local_code,
+      box.species.scientific_name,
+      box.species.common_name,
+      box.strain.code,
+    ].some((value) => (value ?? '').toLocaleLowerCase().includes(normalizedBoxQuery)))
+    : transferableBoxes;
 
   const selectedBox = transferableBoxes.find((box) => box.id === boxId) ?? null;
   // The target cannot be the box's current organization.
   const targetOrganizations = organizations.filter(
     (organization) => organization.id !== selectedBox?.organization.id,
   );
+
+  useEffect(() => {
+    if (boxId !== null && visibleTransferableBoxes.some((box) => box.id === boxId)) return;
+    setBoxId(visibleTransferableBoxes[0]?.id ?? null);
+  }, [boxId, visibleTransferableBoxes]);
 
   if (!transferableBoxes.length) {
     return <p className="muted compact-text">{t('adminTransferNoBox')}</p>;
@@ -1353,14 +1359,27 @@ function TransferCreateForm({
 
   return (
     <form className="admin-transfer-form" onSubmit={handleSubmit}>
-      <label>
+      <div className="admin-transfer-box-field">
         <span>{t('adminTransferBox')}</span>
-        <select value={boxId ?? ''} onChange={(event) => setBoxId(Number(event.target.value))}>
-          {transferableBoxes.map((box) => (
+        <input
+          type="search"
+          value={boxQuery}
+          placeholder={t('adminTransferBoxSearchPlaceholder')}
+          onChange={(event) => setBoxQuery(event.target.value)}
+        />
+        <select
+          value={boxId ?? ''}
+          disabled={!visibleTransferableBoxes.length}
+          onChange={(event) => setBoxId(Number(event.target.value))}
+        >
+          {visibleTransferableBoxes.map((box) => (
             <option key={box.id} value={box.id}>{box.global_code}</option>
           ))}
         </select>
-      </label>
+        {!visibleTransferableBoxes.length ? (
+          <small className="inline-error">{t('adminTransferBoxSearchEmpty')}</small>
+        ) : null}
+      </div>
       <label>
         <span>{t('adminTransferTarget')}</span>
         <select
