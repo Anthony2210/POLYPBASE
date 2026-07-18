@@ -940,7 +940,8 @@
   }
 
   .overview-chart svg {
-    min-height: 138px;
+    height: 160px;
+    min-height: 160px;
   }
 
   .zone-card {

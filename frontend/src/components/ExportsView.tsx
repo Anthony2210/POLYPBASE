@@ -106,6 +106,10 @@ const copy = {
     reset: 'Tout réinitialiser',
     searchBoxes: 'Rechercher une boîte',
     searchBoxesPlaceholder: 'Code global, local, espèce ou souche',
+    searchSpecies: 'Rechercher une espèce',
+    searchSpeciesPlaceholder: 'Nom scientifique ou commun',
+    searchStrains: 'Rechercher une souche',
+    searchStrainsPlaceholder: 'Code souche ou espèce',
     selected: 'sélection',
     species: 'Espèces',
     speciesFound: 'espèces',
@@ -153,6 +157,10 @@ const copy = {
     reset: 'Reset all',
     searchBoxes: 'Search for a box',
     searchBoxesPlaceholder: 'Global code, local code, species or strain',
+    searchSpecies: 'Search for a species',
+    searchSpeciesPlaceholder: 'Scientific or common name',
+    searchStrains: 'Search for a strain',
+    searchStrainsPlaceholder: 'Strain code or species',
     selected: 'selected',
     species: 'Species',
     speciesFound: 'species',
@@ -438,6 +446,9 @@ export default function ExportsView({
             options={exportState.groups.species}
             selectedIds={filters.species}
             labels={labels}
+            searchable
+            searchLabel={labels.searchSpecies}
+            searchPlaceholder={labels.searchSpeciesPlaceholder}
             onToggle={(id) => toggleFilter('species', id)}
             onClear={() => clearFilter('species')}
           />
@@ -446,6 +457,9 @@ export default function ExportsView({
             options={exportState.groups.strains}
             selectedIds={filters.strains}
             labels={labels}
+            searchable
+            searchLabel={labels.searchStrains}
+            searchPlaceholder={labels.searchStrainsPlaceholder}
             onToggle={(id) => toggleFilter('strains', id)}
             onClear={() => clearFilter('strains')}
           />
@@ -1001,6 +1015,8 @@ function FilterDisclosure({
   selectedIds,
   labels,
   searchable = false,
+  searchLabel,
+  searchPlaceholder,
   onToggle,
   onClear,
 }: {
@@ -1009,6 +1025,8 @@ function FilterDisclosure({
   selectedIds: number[];
   labels: (typeof copy)[Language];
   searchable?: boolean;
+  searchLabel?: string;
+  searchPlaceholder?: string;
   onToggle: (id: number) => void;
   onClear: () => void;
 }) {
@@ -1046,11 +1064,11 @@ function FilterDisclosure({
         </div>
         {searchable ? (
           <label className="export-box-search">
-            <span>{labels.searchBoxes}</span>
+            <span>{searchLabel ?? labels.searchBoxes}</span>
             <input
               type="search"
               value={query}
-              placeholder={labels.searchBoxesPlaceholder}
+              placeholder={searchPlaceholder ?? labels.searchBoxesPlaceholder}
               onChange={(event) => setQuery(event.target.value)}
             />
           </label>
