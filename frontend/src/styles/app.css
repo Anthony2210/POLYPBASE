@@ -3948,15 +3948,14 @@ button.zone-attention-item:hover {
   overflow: visible;
 }
 
-.measurement-chart .activity-temperature-chart {
-  min-height: 102px;
-  margin-top: -8px;
-}
-
 .chart-axis,
 .chart-grid-line {
   stroke: #d8e2ec;
   stroke-width: 1;
+}
+
+.chart-axis.is-temperature-axis {
+  stroke: rgba(104, 124, 82, 0.46);
 }
 
 .chart-grid-line {
@@ -3983,6 +3982,10 @@ button.zone-attention-item:hover {
 .chart-line.is-temperature,
 .chart-dot.is-temperature {
   stroke: #687c52;
+}
+
+.chart-line.is-temperature {
+  stroke-width: 2.4;
 }
 
 .chart-dot {
@@ -4074,6 +4077,11 @@ button.zone-attention-item:hover {
 
 .chart-y-label {
   text-anchor: end;
+}
+
+.chart-temperature-label {
+  fill: #687c52;
+  font-weight: 780;
 }
 
 .chart-legend {
@@ -9910,6 +9918,7 @@ button.zone-attention-item:hover {
 }
 
 .zone-sheet-hero {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(260px, 0.9fr) minmax(430px, 1.1fr) minmax(150px, auto);
   align-items: center;
@@ -9935,6 +9944,7 @@ button.zone-attention-item:hover {
 
 .zone-hero-summary {
   width: 100%;
+  min-width: 0;
   grid-template-columns: repeat(5, minmax(74px, 1fr));
   gap: 9px;
   padding: 9px;
@@ -10120,14 +10130,17 @@ button.zone-attention-item:hover {
 
 .zone-hero-actions {
   display: grid;
+  align-self: start;
   gap: 10px;
-  justify-items: stretch;
+  justify-items: end;
 }
 
 .zone-hero-actions .zone-alert-trigger {
-  justify-self: stretch;
-  width: 100%;
+  justify-self: end;
+  width: 44px;
+  min-width: 44px;
   height: 44px;
+  padding: 0;
   border-radius: 14px;
 }
 
@@ -10461,11 +10474,29 @@ button.zone-attention-item:hover {
 }
 
 .zone-sheet-hero {
-  grid-template-columns: minmax(260px, 0.85fr) minmax(380px, 1fr) minmax(170px, auto);
+  grid-template-columns: minmax(250px, 0.58fr) minmax(0, 1fr) 52px;
 }
 
 .zone-hero-summary {
-  grid-template-columns: repeat(5, minmax(70px, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+@media (max-width: 900px) {
+  .zone-sheet-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .zone-hero-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .zone-hero-actions {
+    width: 100%;
+  }
+
+  .zone-hero-actions .zone-alert-trigger {
+    width: 100%;
+  }
 }
 
 .zone-page-grid {

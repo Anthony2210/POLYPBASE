@@ -37,29 +37,18 @@ type ZoneAlertItem = {
 
 export function ZonesView({
   boxes,
-  canManageZones,
   isLoading,
-  profile,
   zones,
-  onCreateProbe,
-  onCreateZone,
   onOpenZone,
-  onUpdateZone,
   t,
 }: {
   boxes: BoxItem[];
-  canManageZones: boolean;
   isLoading: boolean;
-  profile: UserProfile | null;
   zones: ThermalZone[];
-  onCreateProbe: (payload: ProbePayload) => Promise<void>;
-  onCreateZone: (payload: ThermalZonePayload) => Promise<void>;
   onOpenZone: (id: number) => void;
-  onUpdateZone: (zoneId: number, payload: ThermalZonePayload) => Promise<void>;
   t: TFunction;
 }) {
   const [sortMode, setSortMode] = useState<'temperatureAsc' | 'temperatureDesc'>('temperatureAsc');
-  const [zoneModalMode, setZoneModalMode] = useState<'create' | 'probe' | null>(null);
   const [zoneAlertModal, setZoneAlertModal] = useState<'overview' | ZoneOverviewEntry | null>(null);
   const zoneEntries = zones.map((zone) => buildZoneOverviewEntry(zone, boxes));
   const attentionEntries = zoneEntries.filter((entry) => entry.needsAttention);
@@ -88,7 +77,7 @@ export function ZonesView({
         <div className="zone-overview">
           <div className="zone-overview-heading">
             <div className="zone-overview-count">
-              <span>{t('zonesTitle')}</span>
+              <span>{t('zoneOverviewHeading')}</span>
               <button
                 className={attentionEntries.length ? 'zone-alert-summary' : 'zone-alert-summary is-empty'}
                 type="button"
@@ -119,16 +108,6 @@ export function ZonesView({
                 {t('zoneOverviewSortTemperatureDesc')}
               </button>
             </div>
-            {canManageZones ? (
-              <div className="zone-overview-actions">
-                <button type="button" onClick={() => setZoneModalMode('probe')}>
-                  {t('zoneAddProbeAction')}
-                </button>
-                <button className="zone-add-button" type="button" onClick={() => setZoneModalMode('create')}>
-                  +
-                </button>
-              </div>
-            ) : null}
           </div>
 
           <div className="zone-overview-grid">
@@ -218,18 +197,6 @@ export function ZonesView({
               title={zoneAlertModalTitle}
               onClose={() => setZoneAlertModal(null)}
               onOpenZone={onOpenZone}
-              t={t}
-            />
-          ) : null}
-          {zoneModalMode ? (
-            <ZoneManagementModal
-              mode={zoneModalMode}
-              profile={profile}
-              zones={zones}
-              onClose={() => setZoneModalMode(null)}
-              onCreateProbe={onCreateProbe}
-              onCreateZone={onCreateZone}
-              onUpdateZone={onUpdateZone}
               t={t}
             />
           ) : null}
@@ -495,35 +462,26 @@ function BellIcon() {
 
 export function ZoneDetailPage({
   boxes,
-  canManageZones,
   isLoading,
   language,
   zone,
   canRecordManualTemperature,
   onBack,
-  onCreateProbe,
   onRecordManualTemperature,
   onOpenBox,
-  onUpdateZone,
-  profile,
   t,
 }: {
   boxes: BoxItem[];
-  canManageZones: boolean;
   isLoading: boolean;
   language: Language;
   zone: ThermalZone | null;
   canRecordManualTemperature: boolean;
   onBack: () => void;
-  onCreateProbe: (payload: ProbePayload) => Promise<void>;
   onRecordManualTemperature: (zoneId: number, payload: ManualTemperaturePayload) => Promise<ThermalZone>;
   onOpenBox: (id: number) => void;
-  onUpdateZone: (zoneId: number, payload: ThermalZonePayload) => Promise<void>;
-  profile: UserProfile | null;
   t: TFunction;
 }) {
   const [boxFilter, setBoxFilter] = useState<'all' | 'living' | 'attention'>('all');
-  const [zoneModalMode, setZoneModalMode] = useState<'edit' | 'probe' | null>(null);
   const [isZoneAlertsOpen, setIsZoneAlertsOpen] = useState(false);
 
   if (isLoading) {
@@ -604,16 +562,6 @@ export function ZoneDetailPage({
             <BellIcon />
             <strong>{zoneAlertCount}</strong>
           </button>
-          {canManageZones ? (
-            <div className="zone-admin-actions is-hero">
-              <button type="button" onClick={() => setZoneModalMode('edit')}>
-                {t('zoneEditCapacityAction')}
-              </button>
-              <button type="button" onClick={() => setZoneModalMode('probe')}>
-                {t('zoneAddProbeAction')}
-              </button>
-            </div>
-          ) : null}
         </div>
       </header>
 
@@ -745,19 +693,6 @@ export function ZoneDetailPage({
         />
       ) : null}
 
-      {zoneModalMode ? (
-        <ZoneManagementModal
-          mode={zoneModalMode}
-          profile={profile}
-          selectedZone={zone}
-          zones={[zone]}
-          onClose={() => setZoneModalMode(null)}
-          onCreateProbe={onCreateProbe}
-          onCreateZone={async () => undefined}
-          onUpdateZone={onUpdateZone}
-          t={t}
-        />
-      ) : null}
     </section>
   );
 }
