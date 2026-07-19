@@ -15,11 +15,10 @@ import { formatDisplayDate } from '../utils/dateFormat';
 export type BoxInsightTab = 'measurements' | 'movements' | 'lineage';
 
 type Language = 'fr' | 'en';
-type PeriodId = '1m' | '3m' | '6m' | 'all';
+type PeriodId = '1m' | '3m' | '6m' | '12m';
 type SeriesId = 'polyps' | 'ephyrae' | 'temperature' | 'events';
 
 type BoxInsightsLabels = {
-  allPeriod: string;
   chartEmpty: string;
   chartTitle: string;
   children: string;
@@ -43,6 +42,7 @@ type BoxInsightsLabels = {
   noMeasurementHistory: string;
   noMovementHistory: string;
   oneMonth: string;
+  oneYear: string;
   parents: string;
   polyps: string;
   salinityFull: string;
@@ -72,7 +72,7 @@ const PERIODS: Array<{ id: PeriodId; days: number | null; labelKey: keyof BoxIns
   { id: '1m', days: 31, labelKey: 'oneMonth' },
   { id: '3m', days: 92, labelKey: 'threeMonths' },
   { id: '6m', days: 184, labelKey: 'sixMonths' },
-  { id: 'all', days: null, labelKey: 'allPeriod' },
+  { id: '12m', days: 365, labelKey: 'oneYear' },
 ];
 
 export default function BoxInsights({
@@ -217,9 +217,7 @@ function MeasurementTrendChart({
 
   const width = 860;
   const countHeight = 250;
-  const temperatureHeight = 108;
-  const countPadding = { top: 30, right: 26, bottom: 34, left: 44 };
-  const temperaturePadding = { top: 18, right: 26, bottom: 30, left: 44 };
+  const countPadding = { top: 30, right: 58, bottom: 34, left: 44 };
   const xScale = scaleTime()
     .domain([preparedData.startDate, preparedData.endDate])
     .range([countPadding.left, width - countPadding.right]);
@@ -237,12 +235,11 @@ function MeasurementTrendChart({
   const temperatureValues = preparedData.temperatures.map((point) => point.average_temperature_c);
   const minTemperature = temperatureValues.length ? Math.min(...temperatureValues) : 0;
   const maxTemperature = temperatureValues.length ? Math.max(...temperatureValues) : 1;
+  const temperatureDomainMin = Math.floor(minTemperature - 0.5);
+  const temperatureDomainMax = Math.ceil(maxTemperature + 0.5);
   const yTemperature = scaleLinear()
-    .domain([
-      Math.floor(minTemperature - 0.5),
-      Math.ceil(maxTemperature + 0.5),
-    ])
-    .range([temperatureHeight - temperaturePadding.bottom, temperaturePadding.top]);
+    .domain([temperatureDomainMin, temperatureDomainMax])
+    .range([countHeight - countPadding.bottom, countPadding.top]);
   const xPosition = (date: string) => xScale(parseChartDate(date));
   const measurementSegments = splitMeasurementsOnGaps(preparedData.measurements);
   const missingRanges = buildMissingRanges(preparedData.measurements);
@@ -290,6 +287,15 @@ function MeasurementTrendChart({
         <svg className="activity-count-chart" viewBox={`0 0 ${width} ${countHeight}`} role="img">
           <line className="chart-axis" x1={countPadding.left} y1={countHeight - countPadding.bottom} x2={width - countPadding.right} y2={countHeight - countPadding.bottom} />
           <line className="chart-axis" x1={countPadding.left} y1={countPadding.top} x2={countPadding.left} y2={countHeight - countPadding.bottom} />
+          {visibleSeries.temperature ? (
+            <line
+              className="chart-axis is-temperature-axis"
+              x1={width - countPadding.right}
+              y1={countPadding.top}
+              x2={width - countPadding.right}
+              y2={countHeight - countPadding.bottom}
+            />
+          ) : null}
           {[0.25, 0.5, 0.75].map((ratio) => {
             const y = countPadding.top + ratio * (countHeight - countPadding.top - countPadding.bottom);
             return <line key={ratio} className="chart-grid-line" x1={countPadding.left} y1={y} x2={width - countPadding.right} y2={y} />;
@@ -343,6 +349,9 @@ function MeasurementTrendChart({
               d={countLine((measurement) => measurement.ephyrae_count)(segment) ?? ''}
             />
           )) : null}
+          {visibleSeries.temperature && canDrawTemperatureLine ? (
+            <path className="chart-line is-temperature" d={temperatureLine(preparedData.temperatures) ?? ''} />
+          ) : null}
 
           {visibleSeries.events ? preparedData.events.map((event) => {
             const x = xPosition(event.date);
@@ -414,6 +423,45 @@ function MeasurementTrendChart({
             );
           })}
 
+          {visibleSeries.temperature && !hasTemperaturePoints ? (
+            <text
+              className="chart-empty-label is-small"
+              x={width - countPadding.right - 76}
+              y={countPadding.top + 18}
+            >
+              {labels.temperatureNoData}
+            </text>
+          ) : null}
+
+          {visibleSeries.temperature ? preparedData.temperatures.map((point) => {
+            const x = xPosition(point.date);
+            const y = yTemperature(point.average_temperature_c);
+            return (
+              <g
+                key={`${point.date}-${point.zone_id}`}
+                className="chart-temperature-point"
+                onPointerEnter={() => setTooltip({
+                  left: (x / width) * 100,
+                  top: Math.max(12, (y / countHeight) * 100 - 5),
+                  title: formatDisplayDate(point.date),
+                  lines: [
+                    `${labels.temperature} : ${point.average_temperature_c.toFixed(1)}\u00b0C`,
+                    point.zone_name,
+                  ],
+                })}
+              >
+                <circle className="chart-dot is-temperature" cx={x} cy={y} r={3.5} />
+                <rect
+                  className="chart-hit-area"
+                  x={x - 10}
+                  y={countPadding.top}
+                  width={20}
+                  height={countHeight - countPadding.top - countPadding.bottom}
+                />
+              </g>
+            );
+          }) : null}
+
           <text className="chart-label" x={countPadding.left} y={countHeight - 10}>
             {formatDisplayDate(toDateString(preparedData.startDate))}
           </text>
@@ -422,59 +470,17 @@ function MeasurementTrendChart({
           </text>
           <text className="chart-y-label" x={countPadding.left - 8} y={countPadding.top + 4}>{maxCount}</text>
           <text className="chart-y-label" x={countPadding.left - 8} y={countHeight - countPadding.bottom + 4}>0</text>
-        </svg>
-
-        {visibleSeries.temperature ? (
-          <svg className="activity-temperature-chart" viewBox={`0 0 ${width} ${temperatureHeight}`} role="img">
-            <line className="chart-axis" x1={temperaturePadding.left} y1={temperatureHeight - temperaturePadding.bottom} x2={width - temperaturePadding.right} y2={temperatureHeight - temperaturePadding.bottom} />
-            {!hasTemperaturePoints ? (
-              <text
-                className="chart-empty-label is-small"
-                x={width / 2}
-                y={temperaturePadding.top + (temperatureHeight - temperaturePadding.top - temperaturePadding.bottom) / 2}
-              >
-                {labels.temperatureNoData}
+          {visibleSeries.temperature && hasTemperaturePoints ? (
+            <>
+              <text className="chart-temperature-label" x={width - countPadding.right + 8} y={countPadding.top + 4}>
+                {`${temperatureDomainMax}\u00b0C`}
               </text>
-            ) : null}
-            {canDrawTemperatureLine ? (
-              <path className="chart-line is-temperature" d={temperatureLine(preparedData.temperatures) ?? ''} />
-            ) : null}
-            {preparedData.temperatures.map((point) => {
-              const x = xPosition(point.date);
-              const y = yTemperature(point.average_temperature_c);
-              return (
-                <g
-                  key={`${point.date}-${point.zone_id}`}
-                  className="chart-temperature-point"
-                  onPointerEnter={() => setTooltip({
-                    left: (x / width) * 100,
-                    top: 73,
-                    title: formatDisplayDate(point.date),
-                    lines: [
-                      `${labels.temperature} : ${point.average_temperature_c.toFixed(1)}\u00b0C`,
-                      point.zone_name,
-                    ],
-                  })}
-                >
-                  <circle className="chart-dot is-temperature" cx={x} cy={y} r={3.5} />
-                  <rect
-                    className="chart-hit-area"
-                    x={x - 10}
-                    y={temperaturePadding.top}
-                    width={20}
-                    height={temperatureHeight - temperaturePadding.top - temperaturePadding.bottom}
-                  />
-                </g>
-              );
-            })}
-            <text className="chart-temperature-label" x={temperaturePadding.left - 8} y={temperaturePadding.top + 4}>
-              {temperatureValues.length ? `${Math.ceil(maxTemperature)}\u00b0C` : ''}
-            </text>
-            <text className="chart-temperature-label" x={temperaturePadding.left - 8} y={temperatureHeight - temperaturePadding.bottom + 4}>
-              {temperatureValues.length ? `${Math.floor(minTemperature)}\u00b0C` : ''}
-            </text>
-          </svg>
-        ) : null}
+              <text className="chart-temperature-label" x={width - countPadding.right + 8} y={countHeight - countPadding.bottom + 4}>
+                {`${temperatureDomainMin}\u00b0C`}
+              </text>
+            </>
+          ) : null}
+        </svg>
 
         {tooltip ? (
           <div
