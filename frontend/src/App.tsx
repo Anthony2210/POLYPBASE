@@ -449,7 +449,7 @@ const translations = {
     // Two salinities coexist on a box sheet: the zone reference and the one
     // actually measured for this box. They must never be confused.
     zoneSalinityShort: 'Sal. armoire',
-    boxSalinityShort: 'Dernière sal.',
+    boxSalinityShort: 'Sal. boîte',
     salinityFull: 'Salinité du relevé (PSU)',
     temperature: 'Température',
     temperatureNoData: 'Aucune température disponible sur cette période.',
@@ -854,7 +854,7 @@ const translations = {
     targetTemperature: 'Target',
     salinityShort: 'Sal.',
     zoneSalinityShort: 'Cabinet sal.',
-    boxSalinityShort: 'Last sal.',
+    boxSalinityShort: 'Box sal.',
     salinityFull: 'Measurement salinity (PSU)',
     temperature: 'Temperature',
     temperatureNoData: 'No temperature data for this period.',
@@ -2511,8 +2511,8 @@ function BoxPage({
   onOpenQrLabelSelection: () => void;
   t: TFunction;
 }) {
-  const zoneSalinity = getZoneSalinityValue(box, zones);
-  const [form, setForm] = useState(() => getInitialMeasurementForm(zoneSalinity));
+  const defaultSalinity = getDefaultMeasurementSalinity(box, zones);
+  const [form, setForm] = useState(() => getInitialMeasurementForm(defaultSalinity));
   const [isSaving, setIsSaving] = useState(false);
   const isDesktopApp = useIsDesktopApp();
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -2541,7 +2541,7 @@ function BoxPage({
   const [activeInsightTab, setActiveInsightTab] = useState<BoxInsightTab>('measurements');
 
   useEffect(() => {
-    setForm(getInitialMeasurementForm(zoneSalinity));
+    setForm(getInitialMeasurementForm(defaultSalinity));
     setIsHistoryOpen(false);
     setLineageGraph(null);
     setIsLineageGraphLoading(false);
@@ -2570,9 +2570,9 @@ function BoxPage({
   // Only an untouched field is filled, so this never overwrites a reading the
   // technician typed, nor the value loaded when correcting a past measurement.
   useEffect(() => {
-    if (editingMeasurementId != null || !zoneSalinity) return;
-    setForm((current) => (current.salinity ? current : { ...current, salinity: zoneSalinity }));
-  }, [zoneSalinity, editingMeasurementId]);
+    if (editingMeasurementId != null || !defaultSalinity) return;
+    setForm((current) => (current.salinity ? current : { ...current, salinity: defaultSalinity }));
+  }, [defaultSalinity, editingMeasurementId]);
 
   useEffect(() => {
     if (activeInsightTab !== 'lineage' || !box?.id || lineageGraph || isLineageGraphLoading) {
@@ -2694,7 +2694,7 @@ function BoxPage({
         setLastSavedMeasurementId(created.id);
         setSaveMessage(t('measurementSaved'));
       }
-      setForm(getInitialMeasurementForm(zoneSalinity));
+      setForm(getInitialMeasurementForm(defaultSalinity));
       triggerHaptic([12, 28, 12]);
       return true;
     } catch (requestError) {
@@ -2724,7 +2724,7 @@ function BoxPage({
 
   function cancelEditingMeasurement() {
     setEditingMeasurementId(null);
-    setForm(getInitialMeasurementForm(zoneSalinity));
+    setForm(getInitialMeasurementForm(defaultSalinity));
     setSaveError(null);
     setSaveMessage(null);
   }
@@ -2879,6 +2879,9 @@ function BoxPage({
             <InfoPill label={t('zones')} value={t('noZone')} strong />
           )}
           <InfoPill label={t('zoneSalinityShort')} value={formatSalinity(currentZone?.salinity_psu)} />
+          {/* Salinity recorded for this box (the last measurement's PSU), shown
+              right after the zone reference so both are read side by side. */}
+          <InfoPill label={t('boxSalinityShort')} value={formatSalinity(box.latest_salinity_psu)} />
           <InfoPill label={t('temperatureShort')} value={formatTemperature(currentZone?.latest_temperature?.average_temperature_c)} />
         </div>
 
@@ -3517,6 +3520,22 @@ function getZoneSalinityValue(box: BoxItem | BoxDetail | null, zones: ThermalZon
   const salinity = getCurrentThermalZone(box, zones)?.salinity_psu;
   if (salinity === null || salinity === undefined || salinity === '') return '';
   return formatDecimalValue(parsePositiveDecimal(salinity));
+}
+
+/**
+ * Salinity a new measurement starts from.
+ *
+ * Priority: the box's own recorded salinity, once a measurement has set one --
+ * that is the value the technician last decided for this box. Otherwise the
+ * zone's control salinity, and finally empty. Normalised so the API's "31.00"
+ * reaches the field as "31" and the +/- buttons keep working from there.
+ */
+function getDefaultMeasurementSalinity(box: BoxItem | BoxDetail | null, zones: ThermalZone[]) {
+  const boxSalinity = box?.latest_salinity_psu;
+  if (boxSalinity !== null && boxSalinity !== undefined && boxSalinity !== '') {
+    return formatDecimalValue(parsePositiveDecimal(boxSalinity));
+  }
+  return getZoneSalinityValue(box, zones);
 }
 
 function getTodayDateValue() {
