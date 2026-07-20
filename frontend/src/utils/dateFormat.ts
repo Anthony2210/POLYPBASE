@@ -19,5 +19,11 @@ export function formatIsoWeekDateLabel(value: string) {
   const yearStart = new Date(Date.UTC(isoYear, 0, 1));
   const week = Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
 
-  return `Semaine ${week} - ${formatDisplayDate(value)}`;
+  const longDate = new Intl.DateTimeFormat('fr-FR', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).format(new Date(`${value.slice(0, 10)}T00:00:00`));
+
+  return `S${week} ${longDate}`;
 }

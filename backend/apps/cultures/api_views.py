@@ -294,6 +294,14 @@ class OverviewActiveBoxesAPIView(APIView):
         )
         box_ids = [box.id for box in boxes]
         zone_ids = {box.thermal_zone_id for box in boxes if box.thermal_zone_id}
+        app_tracked_box_ids = set(
+            BiologicalMeasurement.objects.filter(
+                box_id__in=box_ids,
+                user__isnull=False,
+            )
+            .values_list("box_id", flat=True)
+            .distinct()
+        )
 
         measurements_by_box = defaultdict(list)
         measurements = (
@@ -336,6 +344,7 @@ class OverviewActiveBoxesAPIView(APIView):
                         box,
                         measurements_by_box[box.id],
                         temperatures_by_zone[box.thermal_zone_id] if box.thermal_zone_id else [],
+                        box.id in app_tracked_box_ids,
                     )
                     for box in boxes
                 ],
@@ -349,12 +358,13 @@ class OverviewActiveBoxesAPIView(APIView):
             months = 6
         return max(1, min(months, 12))
 
-    def _box_payload(self, box, measurements, temperatures):
+    def _box_payload(self, box, measurements, temperatures, tracked_in_app):
         return {
             "id": box.id,
             "global_code": box.global_code,
             "species_name": box.strain.species.scientific_name,
             "strain_code": box.strain.code,
+            "tracked_in_app": tracked_in_app,
             "thermal_zone": (
                 {
                     "id": box.thermal_zone.id,

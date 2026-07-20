@@ -102,6 +102,7 @@ export type OverviewBox = {
   global_code: string;
   species_name: string;
   strain_code: string;
+  tracked_in_app: boolean;
   thermal_zone: {
     id: number;
     name: string;
