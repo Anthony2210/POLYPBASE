@@ -41,7 +41,9 @@ import type {
   LineageGraph,
   Organization,
   OverviewBox,
+  OverviewMeasurementPoint,
   OverviewResponse,
+  OverviewTemperaturePoint,
   PaginatedResponse,
   Probe,
   SubculturePayload,
@@ -363,7 +365,7 @@ const translations = {
     observationPlaceholder: 'Note rapide pour le laboratoire',
     overview: 'Vue d’ensemble',
     overviewTitle: 'Vue d’ensemble',
-    overviewSubtitle: 'Boîtes vivantes à suivre pour préparer la semaine.',
+    overviewSubtitle: 'Boîtes suivies dans l’application, avec tendance sur les 6 derniers mois.',
     overviewActiveBoxes: 'boîtes vivantes',
     overviewBoxColumn: 'Boîte',
     overviewLatestReading: 'Dernier relevé',
@@ -377,6 +379,9 @@ const translations = {
     overviewNoHistory: 'Pas assez de données pour tracer la tendance.',
     overviewEmpty: 'Aucune boîte vivante à afficher.',
     overviewFilters: 'Filtres',
+    overviewSort: 'Tri',
+    overviewSortOldest: 'Plus ancien relevé',
+    overviewSortNewest: 'Plus récent relevé',
     overviewFilterAllSpecies: 'Toutes les espèces',
     overviewFilterAllZones: 'Tous les emplacements',
     overviewSearch: 'Rechercher',
@@ -385,6 +390,23 @@ const translations = {
     overviewNoZoneMetric: 'sans emplacement',
     overviewWithEphyrae: 'avec éphyrules',
     overviewPriorityBoxes: 'à vérifier',
+    overviewTrackedBoxes: 'suivies dans l’app',
+    overviewRecordedBoxes: 'déjà relevées',
+    overviewFilterHint: 'filtrer',
+    overviewClearFilter: 'retirer',
+    overviewByZone: 'Par emplacement',
+    overviewZoneDone: 'déjà faits',
+    overviewZoneRemaining: 'reste à relever',
+    overviewZoneUpToDate: 'à jour',
+    overviewShowMore: 'Afficher plus',
+    overviewShowing: 'affichées',
+    weeklyDueNow: 'à relever',
+    weeklyDueSoon: 'bientôt',
+    weeklyUpToDate: 'à jour',
+    weeklyNoRecentReading: 'Aucun relevé récent',
+    weeklyLastReading: 'Dernier relevé',
+    weeklyNoActiveBoxes: 'Aucune boîte active suivie dans l’application.',
+    weeklyDayShort: 'j',
     labels: 'Étiquettes',
     labelsTitle: 'Étiquettes',
     pilotage: 'Suivi',
@@ -772,7 +794,7 @@ const translations = {
     observationPlaceholder: 'Quick lab note',
     overview: 'Overview',
     overviewTitle: 'Overview',
-    overviewSubtitle: 'Living boxes to review before planning the week.',
+    overviewSubtitle: 'Boxes tracked in the application, with a 6-month trend.',
     overviewActiveBoxes: 'living boxes',
     overviewBoxColumn: 'Box',
     overviewLatestReading: 'Latest reading',
@@ -786,6 +808,9 @@ const translations = {
     overviewNoHistory: 'Not enough data to draw the trend.',
     overviewEmpty: 'No living box to display.',
     overviewFilters: 'Filters',
+    overviewSort: 'Sort',
+    overviewSortOldest: 'Oldest reading',
+    overviewSortNewest: 'Latest reading',
     overviewFilterAllSpecies: 'All species',
     overviewFilterAllZones: 'All locations',
     overviewSearch: 'Search',
@@ -794,6 +819,23 @@ const translations = {
     overviewNoZoneMetric: 'without location',
     overviewWithEphyrae: 'with ephyrae',
     overviewPriorityBoxes: 'to check',
+    overviewTrackedBoxes: 'tracked in app',
+    overviewRecordedBoxes: 'recorded',
+    overviewFilterHint: 'filter',
+    overviewClearFilter: 'clear',
+    overviewByZone: 'By location',
+    overviewZoneDone: 'done',
+    overviewZoneRemaining: 'left to record',
+    overviewZoneUpToDate: 'up to date',
+    overviewShowMore: 'Show more',
+    overviewShowing: 'shown',
+    weeklyDueNow: 'to record',
+    weeklyDueSoon: 'soon',
+    weeklyUpToDate: 'up to date',
+    weeklyNoRecentReading: 'No recent reading',
+    weeklyLastReading: 'Latest reading',
+    weeklyNoActiveBoxes: 'No active box tracked in the application.',
+    weeklyDayShort: 'd',
     labels: 'Labels',
     labelsTitle: 'Labels',
     pilotage: 'Tracking',
@@ -1545,6 +1587,7 @@ export default function App() {
                 boxes={data.overview}
                 isLoading={isLoading || isOverviewLoading}
                 onSelectBox={openBox}
+                onOpenZone={openZone}
                 t={t}
               />
             )}
@@ -2039,43 +2082,78 @@ function OverviewView({
   boxes,
   isLoading,
   onSelectBox,
+  onOpenZone,
   t,
 }: {
   boxes: OverviewBox[] | null;
   isLoading: boolean;
   onSelectBox: (id: number) => void;
+  onOpenZone: (zoneId: number) => void;
   t: TFunction;
 }) {
   const [speciesFilter, setSpeciesFilter] = useState('');
   const [zoneFilter, setZoneFilter] = useState('');
+  const [sortOrder, setSortOrder] = useState<OverviewSortOrder>('oldest');
+  const [focusFilter, setFocusFilter] = useState<OverviewFocusFilter>('all');
   const [query, setQuery] = useState('');
+  const [visibleCount, setVisibleCount] = useState(12);
   const overviewBoxes = boxes ?? [];
-  const speciesOptions = Array.from(new Set(overviewBoxes.map((box) => box.species_name))).sort();
-  const zoneOptions = Array.from(
-    new Set(overviewBoxes.map((box) => box.thermal_zone?.name ?? t('noZone'))),
-  ).sort();
+  const noZoneLabel = t('noZone');
+  const trackedEntries = useMemo<OverviewEntry[]>(
+    () => overviewBoxes
+      .filter((box) => box.tracked_in_app)
+      .map((box) => {
+        const latest = getLastItem(box.measurements);
+        const latestTemperature = getLastItem(box.temperatures);
+        const daysSince = latest ? getDaysSinceDate(latest.date) : null;
+        const status = getWeeklyStatus(daysSince);
+        const zoneName = box.thermal_zone?.name ?? noZoneLabel;
+
+        return {
+          box,
+          latest,
+          latestTemperature,
+          daysSince,
+          status,
+          zoneName,
+          searchText: [box.global_code, box.species_name, box.strain_code, zoneName]
+            .join(' ')
+            .toLocaleLowerCase(),
+        };
+      }),
+    [noZoneLabel, overviewBoxes],
+  );
+  const speciesOptions = useMemo(
+    () => Array.from(new Set(trackedEntries.map((entry) => entry.box.species_name))).sort(),
+    [trackedEntries],
+  );
   const normalizedQuery = query.trim().toLocaleLowerCase();
-  const hasOverviewFilter = Boolean(normalizedQuery || speciesFilter || zoneFilter);
-  const filteredBoxes = overviewBoxes.filter((box) => {
-    const zoneName = box.thermal_zone?.name ?? t('noZone');
-    if (speciesFilter && box.species_name !== speciesFilter) return false;
-    if (zoneFilter && zoneName !== zoneFilter) return false;
-    if (!normalizedQuery) return true;
-    return [
-      box.global_code,
-      box.species_name,
-      box.strain_code,
-      zoneName,
-    ].some((value) => value.toLocaleLowerCase().includes(normalizedQuery));
-  });
-  const boxesWithoutMeasurement = overviewBoxes.filter((box) => !getLastItem(box.measurements)).length;
-  const boxesWithEphyrae = overviewBoxes.filter(
-    (box) => (getLastItem(box.measurements)?.ephyrae_count ?? 0) > 0,
-  ).length;
-  const priorityBoxes = overviewBoxes.filter((box) => {
-    const latest = getLastItem(box.measurements);
-    return !latest || latest.ephyrae_count > 0;
-  }).length;
+  const filteredEntries = useMemo(
+    () => trackedEntries.filter((entry) => {
+      if (focusFilter === 'done' && entry.status !== 'ok') return false;
+      if (focusFilter === 'due' && entry.status !== 'due') return false;
+      if (focusFilter === 'soon' && entry.status !== 'soon') return false;
+      if (speciesFilter && entry.box.species_name !== speciesFilter) return false;
+      if (zoneFilter && entry.zoneName !== zoneFilter) return false;
+      return !normalizedQuery || entry.searchText.includes(normalizedQuery);
+    }).sort((first, second) => sortOverviewEntries(first, second, sortOrder)),
+    [focusFilter, normalizedQuery, sortOrder, speciesFilter, trackedEntries, zoneFilter],
+  );
+  const visibleEntries = filteredEntries.slice(0, visibleCount);
+  const doneCount = trackedEntries.filter((entry) => entry.status === 'ok').length;
+  const dueCount = trackedEntries.filter((entry) => entry.status === 'due').length;
+  const soonCount = trackedEntries.filter((entry) => entry.status === 'soon').length;
+  const zoneSummaries = useMemo(() => buildOverviewZoneSummaries(trackedEntries), [trackedEntries]);
+  const toggleFocusFilter = (targetFilter: Exclude<OverviewFocusFilter, 'all'>) => {
+    setFocusFilter((currentFilter) => (currentFilter === targetFilter ? 'all' : targetFilter));
+  };
+  const toggleZoneFilter = (targetZoneName: string) => {
+    setZoneFilter((currentZoneName) => (currentZoneName === targetZoneName ? '' : targetZoneName));
+  };
+
+  useEffect(() => {
+    setVisibleCount(12);
+  }, [focusFilter, normalizedQuery, sortOrder, speciesFilter, zoneFilter]);
 
   if (isLoading) {
     return <PageLoader variant="pilotage" label={t('overviewTitle')} />;
@@ -2083,19 +2161,82 @@ function OverviewView({
 
   return (
     <section className="overview-page">
-      <header className="overview-intro">
-        <div>
-          <p>{t('overviewSubtitle')}</p>
-        </div>
-        <div className="overview-metrics">
-          <Metric label={t('overviewActiveBoxes')} value={String(overviewBoxes.length)} />
-          <Metric label={t('overviewNoMeasurement')} value={String(boxesWithoutMeasurement)} />
-          <Metric label={t('overviewWithEphyrae')} value={String(boxesWithEphyrae)} />
-          <Metric label={t('overviewPriorityBoxes')} value={String(priorityBoxes)} />
+      <header className="overview-intro overview-intro-priority">
+        <div className="overview-summary-actions" aria-label={t('overviewFilters')}>
+          <button
+            type="button"
+            aria-pressed={focusFilter === 'done'}
+            className={focusFilter === 'done' ? 'is-active is-done' : 'is-done'}
+            onClick={() => toggleFocusFilter('done')}
+          >
+            <span>{t('overviewRecordedBoxes')}</span>
+            <strong>{doneCount}</strong>
+            <small>{focusFilter === 'done' ? t('overviewClearFilter') : t('overviewFilterHint')}</small>
+          </button>
+          <button
+            type="button"
+            aria-pressed={focusFilter === 'due'}
+            className={focusFilter === 'due' ? 'is-active is-due' : 'is-due'}
+            onClick={() => toggleFocusFilter('due')}
+          >
+            <span>{t('weeklyDueNow')}</span>
+            <strong>{dueCount}</strong>
+            <small>{focusFilter === 'due' ? t('overviewClearFilter') : t('overviewFilterHint')}</small>
+          </button>
+          <button
+            type="button"
+            aria-pressed={focusFilter === 'soon'}
+            className={focusFilter === 'soon' ? 'is-active is-soon' : 'is-soon'}
+            onClick={() => toggleFocusFilter('soon')}
+          >
+            <span>{t('weeklyDueSoon')}</span>
+            <strong>{soonCount}</strong>
+            <small>{focusFilter === 'soon' ? t('overviewClearFilter') : t('overviewFilterHint')}</small>
+          </button>
         </div>
       </header>
 
-      <section className="overview-filters" aria-label={t('overviewFilters')}>
+      {zoneSummaries.length ? (
+        <section className="overview-zone-progress" aria-label={t('overviewByZone')}>
+          <header>
+            <h2>{t('overviewByZone')}</h2>
+          </header>
+          <div className="overview-zone-progress-list">
+            {zoneSummaries.map((summary) => {
+              const doneRatio = summary.done / Math.max(1, summary.total);
+              const isZoneActive = zoneFilter === summary.zoneName;
+
+              return (
+                <button
+                  type="button"
+                  key={summary.zoneName}
+                  aria-pressed={isZoneActive}
+                  className={`overview-zone-progress-card ${summary.due ? 'is-due' : 'is-ok'} ${isZoneActive ? 'is-active' : ''}`}
+                  onClick={() => toggleZoneFilter(summary.zoneName)}
+                >
+                  <span>
+                    <strong>{summary.zoneName}</strong>
+                    <small>
+                      {summary.due
+                        ? `${summary.due} ${t('overviewZoneRemaining')}`
+                        : t('overviewZoneUpToDate')}
+                    </small>
+                  </span>
+                  <em>{summary.done}/{summary.total}</em>
+                  <small className="overview-zone-filter-hint">
+                    {isZoneActive ? t('overviewClearFilter') : t('overviewFilterHint')}
+                  </small>
+                  <i aria-hidden="true">
+                    <b style={{ width: `${Math.round(doneRatio * 100)}%` }} />
+                  </i>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
+
+      <section className="overview-filters overview-filters-priority" aria-label={t('overviewFilters')}>
         <label>
           <span>{t('overviewSearch')}</span>
           <input
@@ -2105,6 +2246,25 @@ function OverviewView({
             onChange={(event) => setQuery(event.target.value)}
           />
         </label>
+        <div className="overview-sort-control">
+          <span>{t('overviewSort')}</span>
+          <div className="overview-sort-buttons">
+            <button
+              type="button"
+              className={sortOrder === 'oldest' ? 'is-active' : ''}
+              onClick={() => setSortOrder('oldest')}
+            >
+              {t('overviewSortOldest')}
+            </button>
+            <button
+              type="button"
+              className={sortOrder === 'newest' ? 'is-active' : ''}
+              onClick={() => setSortOrder('newest')}
+            >
+              {t('overviewSortNewest')}
+            </button>
+          </div>
+        </div>
         <label>
           <span>{t('speciesLabel')}</span>
           <select value={speciesFilter} onChange={(event) => setSpeciesFilter(event.target.value)}>
@@ -2114,78 +2274,162 @@ function OverviewView({
             ))}
           </select>
         </label>
-        <label>
-          <span>{t('overviewLocationColumn')}</span>
-          <select value={zoneFilter} onChange={(event) => setZoneFilter(event.target.value)}>
-            <option value="">{t('overviewFilterAllZones')}</option>
-            {zoneOptions.map((zoneName) => (
-              <option key={zoneName} value={zoneName}>{zoneName}</option>
-            ))}
-          </select>
-        </label>
       </section>
 
-      {hasOverviewFilter && filteredBoxes.length ? (
+      {trackedEntries.length > 0 && filteredEntries.length > 0 ? (
         <div className="overview-list">
-          <div className="overview-result-count">
-            <span>{t('overviewFilteredBoxes')}</span>
-            <strong>{filteredBoxes.length}/{overviewBoxes.length}</strong>
+          <div className="overview-result-count" aria-label={t('overviewShowing')}>
+            <strong>{visibleEntries.length}/{filteredEntries.length}</strong>
           </div>
           <div className="overview-box-list">
-            {filteredBoxes.map((box) => {
-              const latest = getLastItem(box.measurements);
-              const latestTemperature = getLastItem(box.temperatures);
-
-              return (
-                <article className="overview-box-summary" key={box.id}>
-                  <header>
-                    <button type="button" onClick={() => onSelectBox(box.id)}>
-                      <strong>{box.global_code}</strong>
-                      <span>{box.species_name}</span>
+            {visibleEntries.map((entry) => (
+              <article
+                className={`overview-box-summary overview-box-summary-priority is-${entry.status}`}
+                key={entry.box.id}
+              >
+                <header>
+                  <button type="button" onClick={() => onSelectBox(entry.box.id)}>
+                    <strong>{entry.box.global_code}</strong>
+                    <span>{entry.box.species_name}</span>
+                  </button>
+                  {entry.box.thermal_zone ? (
+                    <button
+                      type="button"
+                      className="overview-zone-button"
+                      onClick={() => onOpenZone(entry.box.thermal_zone!.id)}
+                    >
+                      {entry.zoneName}
                     </button>
-                    <small>{box.thermal_zone?.name ?? t('noZone')}</small>
-                  </header>
+                  ) : (
+                    <small>{entry.zoneName}</small>
+                  )}
+                </header>
 
-                  <div className="overview-box-kpis">
-                    <span>
-                      <small>{t('polyps')}</small>
-                      <strong>{latest?.polyp_count ?? '-'}</strong>
-                    </span>
-                    <span>
-                      <small>{t('ephyraeFull')}</small>
-                      <strong>{latest?.ephyrae_count ?? '-'}</strong>
-                    </span>
-                    <span>
-                      <small>{t('temperatureShort')}</small>
-                      <strong>{formatTemperature(latestTemperature?.average_temperature_c)}</strong>
-                    </span>
-                  </div>
+                <div className="overview-priority-row">
+                  <span>
+                    <small>{t('weeklyLastReading')}</small>
+                    <strong>{entry.latest ? formatDisplayDate(entry.latest.date) : t('weeklyNoRecentReading')}</strong>
+                  </span>
+                  <em className={`overview-box-status is-${entry.status}`}>
+                    {formatWeeklyBadgeAge(entry.daysSince, entry.latest?.date, t)}
+                  </em>
+                </div>
 
-                  <OverviewMiniChart box={box} t={t} />
-                </article>
-              );
-            })}
+                <div className="overview-box-kpis">
+                  <span>
+                    <small>{t('polyps')}</small>
+                    <strong>{entry.latest?.polyp_count ?? '-'}</strong>
+                  </span>
+                  <span>
+                    <small>{t('ephyraeFull')}</small>
+                    <strong>{entry.latest?.ephyrae_count ?? '-'}</strong>
+                  </span>
+                  <span>
+                    <small>{t('temperatureShort')}</small>
+                    <strong>{formatTemperature(entry.latestTemperature?.average_temperature_c)}</strong>
+                  </span>
+                </div>
+
+                <OverviewMiniChart box={entry.box} t={t} />
+              </article>
+            ))}
           </div>
+          {visibleEntries.length < filteredEntries.length ? (
+            <button
+              type="button"
+              className="overview-show-more"
+              onClick={() => setVisibleCount((count) => count + 12)}
+            >
+              {t('overviewShowMore')}
+            </button>
+          ) : null}
         </div>
-      ) : hasOverviewFilter ? (
-        <p className="muted compact-text">{t('overviewEmpty')}</p>
-      ) : null}
+      ) : (
+        <p className="muted compact-text">
+          {trackedEntries.length ? t('overviewEmpty') : t('weeklyNoActiveBoxes')}
+        </p>
+      )}
     </section>
   );
 }
 
-function groupOverviewBoxesBySpecies(boxes: OverviewBox[]) {
-  const groups = new Map<string, OverviewBox[]>();
-  for (const box of boxes) {
-    const currentBoxes = groups.get(box.species_name) ?? [];
-    currentBoxes.push(box);
-    groups.set(box.species_name, currentBoxes);
-  }
+type WeeklyStatus = 'due' | 'soon' | 'ok';
+type OverviewSortOrder = 'oldest' | 'newest';
+type OverviewFocusFilter = 'all' | 'done' | 'due' | 'soon';
+type OverviewEntry = {
+  box: OverviewBox;
+  latest: OverviewMeasurementPoint | undefined;
+  latestTemperature: OverviewTemperaturePoint | undefined;
+  daysSince: number | null;
+  status: WeeklyStatus;
+  zoneName: string;
+  searchText: string;
+};
 
-  return Array.from(groups.entries()).map(([speciesName, groupBoxes]) => ({
-    speciesName,
-    boxes: groupBoxes.sort((first, second) => first.global_code.localeCompare(second.global_code)),
-  }));
+type OverviewZoneSummary = {
+  zoneName: string;
+  total: number;
+  done: number;
+  due: number;
+  soon: number;
+};
+
+function buildOverviewZoneSummaries(entries: OverviewEntry[]) {
+  const summaries = new Map<string, OverviewZoneSummary>();
+
+  entries.forEach((entry) => {
+    const currentSummary = summaries.get(entry.zoneName) ?? {
+      zoneName: entry.zoneName,
+      total: 0,
+      done: 0,
+      due: 0,
+      soon: 0,
+    };
+
+    currentSummary.total += 1;
+
+    if (entry.status === 'due') {
+      currentSummary.due += 1;
+    } else if (entry.status === 'soon') {
+      currentSummary.soon += 1;
+    } else {
+      currentSummary.done += 1;
+    }
+
+    summaries.set(entry.zoneName, currentSummary);
+  });
+
+  return Array.from(summaries.values()).sort((first, second) => (
+    second.due - first.due
+    || second.soon - first.soon
+    || first.zoneName.localeCompare(second.zoneName)
+  ));
+}
+
+function sortOverviewEntries(first: OverviewEntry, second: OverviewEntry, order: OverviewSortOrder) {
+  const firstDays = first.daysSince ?? 9999;
+  const secondDays = second.daysSince ?? 9999;
+  const dayDiff = order === 'oldest' ? secondDays - firstDays : firstDays - secondDays;
+  return dayDiff || first.box.global_code.localeCompare(second.box.global_code);
+}
+
+function getWeeklyStatus(daysSince: number | null): WeeklyStatus {
+  if (daysSince === null || daysSince >= 7) return 'due';
+  if (daysSince >= 5) return 'soon';
+  return 'ok';
+}
+
+function formatWeeklyBadgeAge(daysSince: number | null, date: string | undefined, t: TFunction) {
+  if (daysSince === null || !date) return t('weeklyNoRecentReading');
+  return `${daysSince} ${t('weeklyDayShort')}`;
+}
+
+function getDaysSinceDate(date: string) {
+  const parsedDate = new Date(`${date}T00:00:00`);
+  if (Number.isNaN(parsedDate.getTime())) return null;
+  const today = new Date();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  return Math.max(0, Math.floor((todayStart.getTime() - parsedDate.getTime()) / 86_400_000));
 }
 
 function OverviewMiniChart({ box, t }: { box: OverviewBox; t: TFunction }) {
@@ -2243,14 +2487,14 @@ function OverviewMiniChart({ box, t }: { box: OverviewBox; t: TFunction }) {
     xForDate,
     yForTemperature,
   );
-  const activeDateValue = activeDate ?? dates[dates.length - 1];
-  const activeMeasurement = measurementByDate.get(activeDateValue);
-  const activeTemperature = temperatureByDate.get(activeDateValue);
-  const activeX = xForDate(activeDateValue);
-  const tooltipLeft = Math.min(82, Math.max(18, (activeX / width) * 100));
+  const activeDateValue = activeDate;
+  const activeMeasurement = activeDateValue ? measurementByDate.get(activeDateValue) : undefined;
+  const activeTemperature = activeDateValue ? temperatureByDate.get(activeDateValue) : undefined;
+  const activeX = activeDateValue ? xForDate(activeDateValue) : null;
+  const tooltipLeft = activeX === null ? 50 : Math.min(82, Math.max(18, (activeX / width) * 100));
 
   return (
-    <div className="overview-chart" onPointerLeave={() => setActiveDate(null)}>
+    <div className="overview-chart">
       <header>
         <strong>{t('overviewChartTitle')}</strong>
         <div className="overview-chart-legend">
@@ -2266,7 +2510,7 @@ function OverviewMiniChart({ box, t }: { box: OverviewBox; t: TFunction }) {
         {polypPath ? <path className="overview-chart-line is-polyps" d={polypPath} /> : null}
         {ephyraePath ? <path className="overview-chart-line is-ephyrae" d={ephyraePath} /> : null}
         {temperaturePath ? <path className="overview-chart-line is-temperature" d={temperaturePath} /> : null}
-        {activeDate ? (
+        {activeDateValue && activeX !== null ? (
           <line
             className="overview-chart-hover-line"
             x1={activeX}
@@ -2314,9 +2558,13 @@ function OverviewMiniChart({ box, t }: { box: OverviewBox; t: TFunction }) {
               y={padding.top}
               width={hitWidth}
               height={innerHeight}
-              onBlur={() => setActiveDate(null)}
-              onFocus={() => setActiveDate(date)}
-              onPointerEnter={() => setActiveDate(date)}
+              onClick={() => setActiveDate((currentDate) => (currentDate === date ? null : date))}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  setActiveDate((currentDate) => (currentDate === date ? null : date));
+                }
+              }}
             />
           );
         })}
@@ -2325,12 +2573,14 @@ function OverviewMiniChart({ box, t }: { box: OverviewBox; t: TFunction }) {
         <text className="overview-chart-y-label" x={padding.left - 6} y={padding.top + 4}>{countMax}</text>
         <text className="overview-chart-y-label" x={padding.left - 6} y={padding.top + innerHeight + 4}>0</text>
       </svg>
-      <div className="overview-chart-detail" style={{ left: `${tooltipLeft}%` }}>
-        <strong>{formatIsoWeekDateLabel(activeDateValue)}</strong>
-        <span>{t('polyps')} : {activeMeasurement?.polyp_count ?? '-'}</span>
-        <span>{t('ephyraeFull')} : {activeMeasurement?.ephyrae_count ?? '-'}</span>
-        <span>{t('temperatureShort')} : {formatTemperature(activeTemperature?.average_temperature_c)}</span>
-      </div>
+      {activeDateValue ? (
+        <div className="overview-chart-detail" style={{ left: `${tooltipLeft}%` }}>
+          <strong>{formatIsoWeekDateLabel(activeDateValue)}</strong>
+          <span>{t('polyps')} : {activeMeasurement?.polyp_count ?? '-'}</span>
+          <span>{t('ephyraeFull')} : {activeMeasurement?.ephyrae_count ?? '-'}</span>
+          <span>{t('temperatureShort')} : {formatTemperature(activeTemperature?.average_temperature_c)}</span>
+        </div>
+      ) : null}
     </div>
   );
 }

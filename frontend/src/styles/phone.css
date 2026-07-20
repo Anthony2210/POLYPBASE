@@ -834,6 +834,16 @@
     width: 100%;
   }
 
+  .overview-summary-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .overview-summary-actions button {
+    min-height: 58px;
+    padding: 9px 11px;
+  }
+
   .overview-filters {
     grid-template-columns: 1fr;
     border-radius: 14px;
@@ -848,13 +858,24 @@
   }
 
   .overview-box-summary > header {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(86px, auto);
+    align-items: start;
   }
 
   .overview-box-summary > header small {
-    justify-self: start;
-    max-width: 100%;
-    text-align: left;
+    justify-self: end;
+    max-width: 112px;
+    padding-top: 1px;
+    text-align: right;
+    white-space: normal;
+  }
+
+  .overview-box-summary > header .overview-zone-button {
+    justify-self: end;
+    max-width: 118px;
+    min-height: 30px;
+    padding: 0 9px;
+    white-space: normal;
   }
 
   .overview-species-group {
@@ -1624,7 +1645,6 @@
 
 /* Final phone overrides: keep the small-screen workflow focused. */
 @media (max-width: 760px), (max-width: 900px) and (orientation: portrait) {
-  .tab-overview,
   .tab-labels,
   .tab-exports,
   .tab-admin {
@@ -1636,7 +1656,7 @@
     right: 14px;
     bottom: calc(12px + env(safe-area-inset-bottom));
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     max-width: 390px;
     gap: 6px;
     padding: 6px;
@@ -1647,7 +1667,7 @@
   .tab {
     min-height: 44px;
     padding: 0 6px;
-    font-size: 0.82rem;
+    font-size: 0.76rem;
     letter-spacing: 0;
   }
 
@@ -1980,12 +2000,11 @@
    location details compete for very little horizontal space. */
 @media (max-width: 760px), (max-width: 900px) and (orientation: portrait) {
   .box-sheet-hero {
-    grid-template-columns: minmax(0, 1fr) 48px;
+    grid-template-columns: minmax(0, 1fr) minmax(96px, 0.44fr) 46px;
     grid-template-areas:
-      "identity alert"
-      "zone zone";
+      "identity zone alert";
     align-items: start;
-    gap: 14px 12px;
+    gap: 12px;
     min-height: 0;
     padding: 18px;
     overflow: hidden;
@@ -2025,9 +2044,9 @@
   }
 
   .box-sheet-identity h2 {
-    max-width: min(100%, calc(100vw - 106px));
+    max-width: 100%;
     color: var(--ink);
-    font-size: clamp(1.85rem, 8.4vw, 2.55rem);
+    font-size: clamp(1.6rem, 7vw, 2.28rem);
     line-height: 0.94;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -2037,7 +2056,7 @@
   }
 
   .box-species-name {
-    max-width: min(100%, calc(100vw - 106px));
+    max-width: 100%;
     margin-top: 6px;
     color: var(--muted);
     font-size: 0.98rem;
@@ -2091,18 +2110,18 @@
   .box-zone-summary {
     grid-area: zone;
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
+    grid-template-columns: 1fr;
+    gap: 0;
     min-width: 0;
-    padding: 13px 0 0;
-    border-top: 1px solid rgba(211, 226, 234, 0.86);
+    padding: 0;
+    border-top: 0;
     border-left: 0;
     background: transparent;
   }
 
   .box-zone-summary > .box-zone-link,
   .box-zone-summary > .info-pill.is-strong {
-    grid-column: 1 / -1;
+    grid-column: auto;
   }
 
   .box-zone-summary .info-pill,
@@ -2116,13 +2135,14 @@
 
   .box-zone-summary .box-zone-link.info-pill.is-strong {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) 12px;
     align-items: center;
-    gap: 8px;
+    gap: 5px;
+    text-align: right;
   }
 
   .box-zone-summary .box-zone-link.info-pill.is-strong::after {
-    content: "›";
+    content: ">";
     display: block;
     color: var(--primary-strong);
     font-size: 1.45rem;
@@ -2134,6 +2154,21 @@
     color: var(--muted);
     font-size: 0.72rem;
     line-height: 1.1;
+    text-align: right;
+  }
+
+  .box-zone-summary .info-pill:not(.is-strong) {
+    display: none;
+  }
+
+  .box-zone-summary .box-zone-link > span,
+  .box-zone-summary .box-zone-link small {
+    justify-self: end;
+  }
+
+  .box-zone-summary .box-zone-link > span {
+    min-width: 0;
+    overflow: hidden;
   }
 
   .box-zone-summary .info-pill strong,
@@ -2141,8 +2176,11 @@
     color: var(--ink);
     font-size: 0.98rem;
     line-height: 1.12;
-    white-space: normal;
-    overflow-wrap: anywhere;
+    overflow: hidden;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow-wrap: normal;
   }
 
   .box-zone-summary .box-zone-link strong {
@@ -2159,9 +2197,9 @@
       "zone-title zone-alert"
       "zone-summary zone-summary";
     align-items: start;
-    gap: 14px 12px;
+    gap: 16px 12px;
     min-height: 0;
-    padding: 18px;
+    padding: 19px 18px 18px;
     overflow: hidden;
     border: 1px solid rgba(210, 226, 235, 0.92);
     border-radius: 24px;
@@ -2173,17 +2211,21 @@
 
   .zone-sheet-title {
     grid-area: zone-title;
+    display: grid;
+    align-content: start;
+    gap: 5px;
     min-width: 0;
   }
 
   .zone-sheet-hero .box-page-label {
     display: block;
-    margin: 0 0 8px;
+    margin: 0;
     color: var(--muted);
     font-size: 0.78rem;
     font-style: italic;
     font-weight: 780;
     line-height: 1;
+    text-align: left;
   }
 
   .zone-sheet-title h2,
@@ -2191,8 +2233,8 @@
     max-width: min(100%, calc(100vw - 106px));
     margin: 0;
     color: var(--ink);
-    font-size: clamp(1.9rem, 9vw, 2.75rem);
-    line-height: 0.96;
+    font-size: clamp(1.8rem, 8.4vw, 2.55rem);
+    line-height: 0.94;
     text-align: left;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -2202,10 +2244,10 @@
 
   .zone-sheet-title span {
     display: block;
-    margin-top: 6px;
+    margin-top: 0;
     color: var(--muted);
     font-size: 0.95rem;
-    line-height: 1.2;
+    line-height: 1.15;
   }
 
   .zone-hero-actions {
@@ -2232,7 +2274,7 @@
     grid-area: zone-summary;
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
+    gap: 9px;
     width: 100%;
     padding: 0;
     border: 0;
@@ -2240,7 +2282,7 @@
   }
 
   .zone-hero-summary .metric {
-    min-height: 66px;
+    min-height: 68px;
     padding: 12px;
     border: 1px solid rgba(218, 231, 238, 0.86);
     border-radius: 15px;
@@ -2264,5 +2306,31 @@
   .box-zone-summary,
   .zone-hero-summary {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 340px) {
+  .tabbar {
+    left: 8px;
+    right: 8px;
+    gap: 4px;
+    padding: 5px;
+  }
+
+  .tab {
+    min-height: 40px;
+    font-size: 0.68rem;
+  }
+
+  .zone-sheet-hero {
+    grid-template-columns: minmax(0, 1fr) 42px;
+    padding: 17px 15px;
+  }
+
+  .zone-hero-actions .zone-alert-trigger {
+    width: 42px;
+    min-width: 42px;
+    height: 42px;
+    min-height: 42px;
   }
 }

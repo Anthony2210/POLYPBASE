@@ -114,6 +114,35 @@ class PolypbaseApiTests(TestCase):
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], self.box.id)
 
+    def test_overview_marks_boxes_tracked_from_application_measurements(self):
+        self.client.login(username="tech", password="secret")
+        app_tracked_box = Box.objects.create(
+            organization=self.organization,
+            global_code="AAU-1.002-ATL",
+            box_number="002",
+            strain=self.strain,
+            origin=self.origin,
+            thermal_zone=self.zone,
+        )
+        BiologicalMeasurement.objects.create(
+            box=self.box,
+            measured_on=date(2026, 7, 1),
+            polyp_count=20,
+        )
+        BiologicalMeasurement.objects.create(
+            box=app_tracked_box,
+            measured_on=date(2026, 7, 1),
+            polyp_count=30,
+            user=self.user,
+        )
+
+        response = self.client.get(reverse("api_overview_active_boxes"))
+
+        self.assertEqual(response.status_code, 200)
+        boxes_by_code = {box["global_code"]: box for box in response.json()["results"]}
+        self.assertFalse(boxes_by_code[self.box.global_code]["tracked_in_app"])
+        self.assertTrue(boxes_by_code[app_tracked_box.global_code]["tracked_in_app"])
+
     def test_lab_technician_can_create_box_directly(self):
         self.client.login(username="tech", password="secret")
 
