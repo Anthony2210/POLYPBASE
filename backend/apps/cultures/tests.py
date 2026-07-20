@@ -670,7 +670,7 @@ class PolypbaseApiTests(TestCase):
             object_id=self.box.global_code,
         )
         self.assertEqual(len(audit_log.metadata["child_box_ids"]), 2)
-        self.assertEqual(audit_log.metadata["initial_polyp_counts"]["AAU-1.004-ATL"], 50)
+        self.assertEqual(audit_log.metadata["initial_polyp_counts"]["1-ATL.004"], 50)
 
     def test_drf_subculture_endpoint_blocks_read_only_users(self):
         user_model = get_user_model()
