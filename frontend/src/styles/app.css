@@ -790,7 +790,8 @@ button:disabled {
 .box-sheet-identity h2 {
   margin: 0;
   color: var(--ink);
-  font-size: clamp(2.35rem, 3.45vw, 3.25rem);
+  /* Reduced by a quarter (was clamp(2.35rem, 3.45vw, 3.25rem)). */
+  font-size: clamp(1.76rem, 2.59vw, 2.44rem);
   font-style: italic;
   font-weight: 820;
   line-height: 0.96;
@@ -804,7 +805,11 @@ button:disabled {
 .box-species-name {
   margin-top: 7px;
   color: var(--muted);
-  font-size: 1.02rem;
+  /* Single source of truth for the species-name size across every viewport
+     (the per-breakpoint overrides were removed so this can be tuned in one
+     place). 1.4rem is the largest that keeps a 26-char binomial on one line in
+     the narrowest column (238px, 960x600 landscape tablet). */
+  font-size: 1.4rem;
   font-style: italic;
   line-height: 1.1;
 }
@@ -9113,14 +9118,16 @@ button.zone-attention-item:hover {
   }
 
   .box-sheet-identity h2 {
-    font-size: clamp(2rem, 3.15vw, 2.45rem);
+    /* Reduced by a quarter (was clamp(2rem, 3.15vw, 2.45rem)). */
+    font-size: clamp(1.5rem, 2.36vw, 1.84rem);
     line-height: 0.95;
     white-space: nowrap;
   }
 
   .box-species-name {
     margin-top: 5px;
-    font-size: 1.02rem;
+    /* Font size is controlled by the single base rule .box-species-name so it
+       can be tuned in one place; only the spacing differs here. */
   }
 
   .box-small-facts {
@@ -10733,7 +10740,8 @@ button.zone-attention-item:hover {
 
 .box-sheet-identity h2 {
   max-width: 100%;
-  font-size: clamp(2.15rem, 3vw, 3.1rem);
+  /* Reduced by a quarter (was clamp(2.15rem, 3vw, 3.1rem)). */
+  font-size: clamp(1.61rem, 2.25vw, 2.33rem);
 }
 
 .box-species-name {
