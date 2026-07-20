@@ -456,6 +456,7 @@ const translations = {
     oneMonth: '1 mois',
     threeMonths: '3 mois',
     sixMonths: '6 mois',
+    oneYear: '1 an',
     allPeriod: 'Tout',
     aliveBoxes: 'Vivantes',
     backToZones: 'Retour aux emplacements',
@@ -468,11 +469,12 @@ const translations = {
     zoneFilterLiving: 'Vivantes',
     zoneOverviewAttentionDetails: 'Consultez les emplacements qui demandent une vérification.',
     zoneOverviewAttentionTitle: 'À vérifier',
+    zoneOverviewHeading: 'Zones et étuves suivies',
     zoneOverviewNoProbe: 'Aucune sonde',
     zoneOverviewSortLocation: 'Rangement',
     zoneOverviewSortTemperature: 'Température',
-    zoneOverviewSortTemperatureAsc: 'Température ↑',
-    zoneOverviewSortTemperatureDesc: 'Température ↓',
+    zoneOverviewSortTemperatureAsc: 'Plus froides',
+    zoneOverviewSortTemperatureDesc: 'Plus chaudes',
     zoneOverviewThermalGap: 'Écart thermique',
     zoneOverviewMissingMeasurements: 'relevé(s) manquant(s)',
     zoneAddAction: 'Ajouter un emplacement',
@@ -861,6 +863,7 @@ const translations = {
     oneMonth: '1 month',
     threeMonths: '3 months',
     sixMonths: '6 months',
+    oneYear: '1 year',
     allPeriod: 'All',
     aliveBoxes: 'Alive',
     backToZones: 'Back to zones',
@@ -873,11 +876,12 @@ const translations = {
     zoneFilterLiving: 'Living',
     zoneOverviewAttentionDetails: 'Review the zones that need attention.',
     zoneOverviewAttentionTitle: 'Needs review',
+    zoneOverviewHeading: 'Tracked zones and incubators',
     zoneOverviewNoProbe: 'No probe',
     zoneOverviewSortLocation: 'Location',
     zoneOverviewSortTemperature: 'Temperature',
-    zoneOverviewSortTemperatureAsc: 'Temperature ↑',
-    zoneOverviewSortTemperatureDesc: 'Temperature ↓',
+    zoneOverviewSortTemperatureAsc: 'Coldest first',
+    zoneOverviewSortTemperatureDesc: 'Warmest first',
     zoneOverviewThermalGap: 'Thermal gap',
     zoneOverviewMissingMeasurements: 'missing measurement(s)',
     zoneAddAction: 'Add location',
@@ -1549,10 +1553,6 @@ export default function App() {
               route.zoneId != null ? (
                 <ZoneDetailPage
                   boxes={data.boxes}
-                  canManageZones={userCanArchiveBox(
-                    data.profile,
-                    data.zones.find((zone) => zone.id === route.zoneId)?.organization.id ?? -1,
-                  )}
                   isLoading={isLoading}
                   language={language}
                   zone={data.zones.find((zone) => zone.id === route.zoneId) ?? null}
@@ -1561,24 +1561,16 @@ export default function App() {
                     data.zones.find((zone) => zone.id === route.zoneId)?.organization.id ?? -1,
                   )}
                   onBack={closeZonePage}
-                  onCreateProbe={createProbe}
                   onRecordManualTemperature={recordManualTemperature}
                   onOpenBox={openBox}
-                  onUpdateZone={updateThermalZone}
-                  profile={data.profile}
                   t={t}
                 />
               ) : (
                 <ZonesView
                   boxes={data.boxes}
-                  canManageZones={hasAdminRole}
                   isLoading={isLoading}
-                  profile={data.profile}
                   zones={data.zones}
-                  onCreateProbe={createProbe}
-                  onCreateZone={createThermalZone}
                   onOpenZone={openZone}
-                  onUpdateZone={updateThermalZone}
                   t={t}
                 />
               )
@@ -2057,13 +2049,13 @@ function OverviewView({
   const [speciesFilter, setSpeciesFilter] = useState('');
   const [zoneFilter, setZoneFilter] = useState('');
   const [query, setQuery] = useState('');
-  const [expandedBoxId, setExpandedBoxId] = useState<number | null>(null);
   const overviewBoxes = boxes ?? [];
   const speciesOptions = Array.from(new Set(overviewBoxes.map((box) => box.species_name))).sort();
   const zoneOptions = Array.from(
     new Set(overviewBoxes.map((box) => box.thermal_zone?.name ?? t('noZone'))),
   ).sort();
   const normalizedQuery = query.trim().toLocaleLowerCase();
+  const hasOverviewFilter = Boolean(normalizedQuery || speciesFilter || zoneFilter);
   const filteredBoxes = overviewBoxes.filter((box) => {
     const zoneName = box.thermal_zone?.name ?? t('noZone');
     if (speciesFilter && box.species_name !== speciesFilter) return false;
@@ -2076,7 +2068,6 @@ function OverviewView({
       zoneName,
     ].some((value) => value.toLocaleLowerCase().includes(normalizedQuery));
   });
-  const groupedBoxes = groupOverviewBoxesBySpecies(filteredBoxes);
   const boxesWithoutMeasurement = overviewBoxes.filter((box) => !getLastItem(box.measurements)).length;
   const boxesWithEphyrae = overviewBoxes.filter(
     (box) => (getLastItem(box.measurements)?.ephyrae_count ?? 0) > 0,
@@ -2134,74 +2125,51 @@ function OverviewView({
         </label>
       </section>
 
-      {filteredBoxes.length ? (
+      {hasOverviewFilter && filteredBoxes.length ? (
         <div className="overview-list">
           <div className="overview-result-count">
             <span>{t('overviewFilteredBoxes')}</span>
             <strong>{filteredBoxes.length}/{overviewBoxes.length}</strong>
           </div>
-          {groupedBoxes.map((group) => (
-            <section className="overview-species-group" key={group.speciesName}>
-              <header>
-                <h2>{group.speciesName}</h2>
-                <span>{group.boxes.length}</span>
-              </header>
-              <div className="overview-table">
-                <div className="overview-table-head" aria-hidden="true">
-                  <span>{t('overviewBoxColumn')}</span>
-                  <span>{t('overviewLatestReading')}</span>
-                  <span>{t('overviewLocationColumn')}</span>
-                  <span>{t('polyps')}</span>
-                  <span>{t('ephyraeFull')}</span>
-                  <span>{t('overviewTemperature')}</span>
-                  <span>{t('overviewChartTitle')}</span>
-                </div>
-                {group.boxes.map((box) => {
-                  const latest = getLastItem(box.measurements);
-                  const latestTemperature = getLastItem(box.temperatures);
-                  const isExpanded = expandedBoxId === box.id;
+          <div className="overview-box-list">
+            {filteredBoxes.map((box) => {
+              const latest = getLastItem(box.measurements);
+              const latestTemperature = getLastItem(box.temperatures);
 
-                  return (
-                    <div className="overview-table-entry" key={box.id}>
-                      <div className="overview-table-row">
-                        <button className="overview-code-button" type="button" onClick={() => onSelectBox(box.id)}>
-                          {box.global_code}
-                        </button>
-                        <span data-label={t('overviewLatestReading')}>
-                          {latest ? formatDisplayDate(latest.date) : t('overviewNoMeasurement')}
-                        </span>
-                        <span data-label={t('overviewLocationColumn')}>
-                          {box.thermal_zone?.name ?? t('noZone')}
-                        </span>
-                        <strong data-label={t('polyps')}>{latest?.polyp_count ?? '-'}</strong>
-                        <strong data-label={t('ephyraeFull')}>{latest?.ephyrae_count ?? '-'}</strong>
-                        <strong data-label={t('overviewTemperature')}>
-                          {formatTemperature(latestTemperature?.average_temperature_c)}
-                        </strong>
-                        <button
-                          className="overview-trend-button"
-                          type="button"
-                          aria-expanded={isExpanded}
-                          onClick={() => setExpandedBoxId(isExpanded ? null : box.id)}
-                        >
-                          {isExpanded ? t('overviewHideChart') : t('overviewShowChart')}
-                        </button>
-                      </div>
-                      {isExpanded ? (
-                        <div className="overview-expanded-chart">
-                          <OverviewMiniChart box={box} t={t} />
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          ))}
+              return (
+                <article className="overview-box-summary" key={box.id}>
+                  <header>
+                    <button type="button" onClick={() => onSelectBox(box.id)}>
+                      <strong>{box.global_code}</strong>
+                      <span>{box.species_name}</span>
+                    </button>
+                    <small>{box.thermal_zone?.name ?? t('noZone')}</small>
+                  </header>
+
+                  <div className="overview-box-kpis">
+                    <span>
+                      <small>{t('polyps')}</small>
+                      <strong>{latest?.polyp_count ?? '-'}</strong>
+                    </span>
+                    <span>
+                      <small>{t('ephyraeFull')}</small>
+                      <strong>{latest?.ephyrae_count ?? '-'}</strong>
+                    </span>
+                    <span>
+                      <small>{t('temperatureShort')}</small>
+                      <strong>{formatTemperature(latestTemperature?.average_temperature_c)}</strong>
+                    </span>
+                  </div>
+
+                  <OverviewMiniChart box={box} t={t} />
+                </article>
+              );
+            })}
+          </div>
         </div>
-      ) : (
+      ) : hasOverviewFilter ? (
         <p className="muted compact-text">{t('overviewEmpty')}</p>
-      )}
+      ) : null}
     </section>
   );
 }
@@ -3388,7 +3356,6 @@ function InfoPill({ label, value, strong = false }: { label: string; value: stri
 
 function getBoxInsightsLabels(t: TFunction) {
   return {
-    allPeriod: t('allPeriod'),
     chartEmpty: t('chartEmpty'),
     chartTitle: t('chartTitle'),
     children: t('children'),
@@ -3412,6 +3379,7 @@ function getBoxInsightsLabels(t: TFunction) {
     noMeasurementHistory: t('noMeasurementHistory'),
     noMovementHistory: t('noMovementHistory'),
     oneMonth: t('oneMonth'),
+    oneYear: t('oneYear'),
     parents: t('parents'),
     polyps: t('polyps'),
     salinityFull: t('salinityFull'),

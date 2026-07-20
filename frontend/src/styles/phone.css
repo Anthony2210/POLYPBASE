@@ -1455,10 +1455,12 @@
   }
 
   .zone-hero-actions {
+    position: static;
     width: 100%;
   }
 
   .zone-hero-actions .zone-alert-trigger {
+    width: 100%;
     min-height: 46px;
   }
 
