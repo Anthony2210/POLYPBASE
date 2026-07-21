@@ -44,6 +44,95 @@ from .serializers import (
 from .services import build_lineage_graph, create_subculture, move_box_to_thermal_zone
 
 
+TEMPERATURE_ALERT_THRESHOLD_C = Decimal("1.0")
+
+
+def _resolve_alerts(queryset, *, user):
+    queryset.filter(resolved_at__isnull=True).update(
+        resolved_at=timezone.now(),
+        resolved_by=user,
+    )
+
+
+def _sync_polyp_drop_alert(*, box, measurement, user):
+    """Keep one persistent alert in sync with the latest polyp trend."""
+    previous = (
+        BiologicalMeasurement.objects.filter(
+            box=box,
+            measured_on__lt=measurement.measured_on,
+        )
+        .order_by("-measured_on", "-created_at")
+        .first()
+    )
+    active_alerts = Alert.objects.filter(
+        organization=box.organization,
+        box=box,
+        alert_type=Alert.AlertType.BIOLOGICAL,
+        resolved_at__isnull=True,
+    )
+
+    if previous is None or measurement.polyp_count >= previous.polyp_count:
+        _resolve_alerts(active_alerts, user=user)
+        return
+
+    decrease = previous.polyp_count - measurement.polyp_count
+    message = (
+        f"Baisse de {decrease} polype{'s' if decrease > 1 else ''} "
+        f"({previous.polyp_count} → {measurement.polyp_count})"
+    )
+    alert = active_alerts.order_by("-created_at").first()
+    if alert:
+        alert.message = message
+        alert.level = Alert.Level.WARNING
+        alert.save(update_fields=["message", "level"])
+    else:
+        Alert.objects.create(
+            organization=box.organization,
+            box=box,
+            alert_type=Alert.AlertType.BIOLOGICAL,
+            level=Alert.Level.WARNING,
+            message=message,
+            created_by=user,
+        )
+
+
+def _sync_temperature_alert(*, zone, temperature_c, user):
+    """Create or resolve the zone alert using the configured ±1 °C rule."""
+    active_alerts = Alert.objects.filter(
+        organization=zone.organization,
+        thermal_zone=zone,
+        alert_type=Alert.AlertType.TEMPERATURE,
+        resolved_at__isnull=True,
+    )
+    if zone.target_temperature_c is None:
+        _resolve_alerts(active_alerts, user=user)
+        return
+
+    deviation = abs(temperature_c - zone.target_temperature_c)
+    if deviation < TEMPERATURE_ALERT_THRESHOLD_C:
+        _resolve_alerts(active_alerts, user=user)
+        return
+
+    message = (
+        f"Température à vérifier : {temperature_c} °C mesuré, "
+        f"consigne {zone.target_temperature_c} °C"
+    )
+    alert = active_alerts.order_by("-created_at").first()
+    if alert:
+        alert.message = message
+        alert.level = Alert.Level.WARNING
+        alert.save(update_fields=["message", "level"])
+    else:
+        Alert.objects.create(
+            organization=zone.organization,
+            thermal_zone=zone,
+            alert_type=Alert.AlertType.TEMPERATURE,
+            level=Alert.Level.WARNING,
+            message=message,
+            created_by=user,
+        )
+
+
 def _json_value(value):
     if hasattr(value, "isoformat"):
         return value.isoformat()
@@ -576,6 +665,7 @@ class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
             measured_on=measured_on,
             defaults={**data, "user": request.user},
         )
+        _sync_polyp_drop_alert(box=box, measurement=measurement, user=request.user)
         after_values = _measurement_audit_values(measurement)
         metadata = {
             "measurement_id": measurement.id,
@@ -618,6 +708,7 @@ class BoxMeasurementDetailAPIView(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
         before_values = _measurement_audit_values(measurement)
         measurement = serializer.save(user=request.user)
+        _sync_polyp_drop_alert(box=box, measurement=measurement, user=request.user)
         after_values = _measurement_audit_values(measurement)
 
         AuditLog.objects.create(
@@ -819,6 +910,7 @@ class ThermalZoneManualTemperatureAPIView(APIView):
                     "measurement_count",
                 ]
             )
+        _sync_temperature_alert(zone=zone, temperature_c=temperature_c, user=request.user)
         AuditLog.objects.create(
             organization=zone.organization,
             user=request.user,

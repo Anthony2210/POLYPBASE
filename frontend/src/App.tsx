@@ -348,6 +348,8 @@ const translations = {
     boxChecksEmptyTitle: 'Aucune alerte active',
     boxChecksIntro: 'Signaux détectés à partir des derniers relevés.',
     boxChecksTitle: 'Alertes de la boîte',
+    boxAlertBanner: 'Attention : une alerte a été détectée pour cette boîte.',
+    boxAlertBannerAction: 'Voir le détail',
     chartEmpty: 'Pas assez de relevés pour tracer une tendance.',
     chartMissingReading: 'Pas de relevé',
     chartTitle: 'Évolution des relevés',
@@ -805,6 +807,8 @@ const translations = {
     boxChecksEmptyTitle: 'No active alert',
     boxChecksIntro: 'Signals detected from the latest measurements.',
     boxChecksTitle: 'Box alerts',
+    boxAlertBanner: 'Warning: an alert has been detected for this box.',
+    boxAlertBannerAction: 'View details',
     chartEmpty: 'Not enough measurements to draw a trend.',
     chartMissingReading: 'No reading',
     chartTitle: 'Measurement trend',
@@ -3257,6 +3261,16 @@ function BoxPage({
       ) : null}
       {statusError ? (
         <p className="inline-error box-action-feedback">{statusError}</p>
+      ) : null}
+
+      {checkCount > 0 ? (
+        <div className="box-alert-banner" role="alert">
+          <span className="box-alert-banner-icon" aria-hidden="true"><BellIcon /></span>
+          <strong>{t('boxAlertBanner')}</strong>
+          <button type="button" onClick={() => setIsChecksOpen(true)}>
+            {t('boxAlertBannerAction')} ({checkCount})
+          </button>
+        </div>
       ) : null}
 
       <div className="box-page-grid">

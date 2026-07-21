@@ -11,7 +11,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.accounts.models import OrganizationMembership, UserPreference
-from apps.audit.models import AuditLog
+from apps.audit.models import Alert, AuditLog
 from apps.organizations.models import Organization
 from apps.taxonomy.models import Origin, Species, Strain
 from apps.measurements.models import BiologicalMeasurement, DailyTemperature, Probe, SalinityMeasurement
@@ -563,6 +563,91 @@ class PolypbaseApiTests(TestCase):
             AuditLog.objects.filter(action=AuditLog.Action.ENTRY, object_id=self.box.global_code).count(),
             1,
         )
+
+    def test_measurement_drop_creates_one_persistent_biological_alert(self):
+        BiologicalMeasurement.objects.create(
+            box=self.box,
+            measured_on=date(2026, 5, 1),
+            polyp_count=80,
+        )
+        self.client.login(username="tech", password="secret")
+
+        response = self.client.post(
+            reverse("api_box_measurements", args=[self.box.id]),
+            data=json.dumps({
+                "measured_on": "2026-05-08",
+                "polyp_count": 65,
+                "ephyrae_count": 0,
+            }),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        alert = Alert.objects.get(
+            box=self.box,
+            alert_type=Alert.AlertType.BIOLOGICAL,
+            resolved_at__isnull=True,
+        )
+        self.assertIn("80 → 65", alert.message)
+        self.assertEqual(alert.created_by, self.user)
+
+    def test_measurement_recovery_resolves_the_polyp_alert(self):
+        BiologicalMeasurement.objects.create(
+            box=self.box,
+            measured_on=date(2026, 5, 1),
+            polyp_count=80,
+        )
+        alert = Alert.objects.create(
+            organization=self.organization,
+            box=self.box,
+            alert_type=Alert.AlertType.BIOLOGICAL,
+            message="Baisse de polypes",
+        )
+        self.client.login(username="tech", password="secret")
+
+        response = self.client.post(
+            reverse("api_box_measurements", args=[self.box.id]),
+            data=json.dumps({
+                "measured_on": "2026-05-08",
+                "polyp_count": 82,
+                "ephyrae_count": 0,
+            }),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        alert.refresh_from_db()
+        self.assertIsNotNone(alert.resolved_at)
+        self.assertEqual(alert.resolved_by, self.user)
+
+    def test_manual_temperature_outside_one_degree_creates_and_then_resolves_alert(self):
+        self.client.login(username="tech", password="secret")
+        url = reverse("api_thermal_zone_manual_temperature", args=[self.zone.id])
+
+        alert_response = self.client.post(
+            url,
+            data=json.dumps({"measured_on": "2026-05-05", "temperature_c": "14.0"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(alert_response.status_code, 201)
+        alert = Alert.objects.get(
+            thermal_zone=self.zone,
+            alert_type=Alert.AlertType.TEMPERATURE,
+            resolved_at__isnull=True,
+        )
+        self.assertIn("14.00 °C", alert.message)
+
+        recovery_response = self.client.post(
+            url,
+            data=json.dumps({"measured_on": "2026-05-06", "temperature_c": "14.5"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(recovery_response.status_code, 201)
+        alert.refresh_from_db()
+        self.assertIsNotNone(alert.resolved_at)
+        self.assertEqual(alert.resolved_by, self.user)
 
     def test_drf_measurement_endpoint_blocks_read_only_users(self):
         user_model = get_user_model()
