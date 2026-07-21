@@ -25,6 +25,7 @@ import { getErrorMessage } from '../utils/errors';
 import { buildQrLabelItem, printQrLabels } from '../utils/qrLabels';
 import { decrementDecimalValue, incrementDecimalValue } from '../utils/stepValue';
 import { getZoneOccupancyLevel } from '../utils/zoneOccupancy';
+import { useConfirmAction } from './ConfirmActionModal';
 import PageLoader from './PageLoader';
 import SkeletonRows from './SkeletonRows';
 
@@ -1131,6 +1132,7 @@ function OrganizationManagementList({
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { confirmAction, confirmActionModal } = useConfirmAction();
   const existingCities = useMemo(() => organizations.map((organization) => organization.city).filter(Boolean), [organizations]);
   const cityOptions = useMemo(() => getCityOptions(country, existingCities), [country, existingCities]);
 
@@ -1194,7 +1196,19 @@ function OrganizationManagementList({
   }
 
   async function handleDelete(organization: Organization) {
-    if (isSaving || !window.confirm(t('adminConfirmDeleteOrganization'))) return;
+    if (isSaving) return;
+
+    const confirmed = await confirmAction({
+      title: t('confirmDeleteOrganizationTitle'),
+      message: t('confirmDeleteOrganizationMessage'),
+      confirmLabel: t('confirmDeleteOrganizationAction'),
+      cancelLabel: t('confirmCancel'),
+      variant: 'danger',
+      details: [
+        { label: t('confirmDetailOrganization'), value: organization.name },
+      ],
+    });
+    if (!confirmed) return;
 
     setIsSaving(true);
     setError(null);
@@ -1290,6 +1304,7 @@ function OrganizationManagementList({
 
       {message ? <p className="inline-success">{message}</p> : null}
       {error ? <p className="inline-error">{error}</p> : null}
+      {confirmActionModal}
     </div>
   );
 }
