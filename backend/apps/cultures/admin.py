@@ -6,6 +6,7 @@ from .models import (
     BoxLocation,
     BoxMovement,
     BoxTransfer,
+    BoxTransferImport,
     IdentificationTag,
     SubcultureEvent,
     ThermalZone,
@@ -73,3 +74,9 @@ class BoxTransferAdmin(admin.ModelAdmin):
     list_display = ("box", "from_organization", "to_organization", "transfer_date", "status", "user")
     list_filter = ("status", "from_organization", "to_organization")
     search_fields = ("box__global_code", "notes")
+
+
+@admin.register(BoxTransferImport)
+class BoxTransferImportAdmin(admin.ModelAdmin):
+    list_display = ("source_global_code", "created_box", "destination_organization", "imported_by", "imported_at")
+    search_fields = ("source_global_code", "created_box__global_code", "source_organization_name")

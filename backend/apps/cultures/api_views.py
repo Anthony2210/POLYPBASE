@@ -1,8 +1,10 @@
 from collections import defaultdict
 from decimal import Decimal
 from datetime import timedelta
+import re
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from django.db.models import Count, OuterRef, Prefetch, Q, Subquery, Sum
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
@@ -22,8 +24,9 @@ from apps.accounts.permissions import (
 from apps.audit.models import Alert, AuditLog
 from apps.measurements.models import BiologicalMeasurement, DailyTemperature, SalinityMeasurement
 from apps.organizations.serializers import OrganizationSummarySerializer
+from apps.taxonomy.models import Species, Strain
 
-from .models import Box, BoxLineage, BoxLocation, BoxMovement, ThermalZone
+from .models import Box, BoxLineage, BoxLocation, BoxMovement, BoxTransferImport, ThermalZone
 from .serializers import (
     AlertSummarySerializer,
     AuditLogAccessSerializer,
@@ -45,6 +48,26 @@ from .services import build_lineage_graph, create_subculture, move_box_to_therma
 
 
 TEMPERATURE_ALERT_THRESHOLD_C = Decimal("1.0")
+
+
+def _next_unique_box_identity(strain):
+    """Generate the next globally unique ``<strain>.<number>`` identity."""
+    prefix = f"{strain.code}."
+    pattern = re.compile(rf"^{re.escape(prefix)}(\d+)$")
+    numbers = []
+    for global_code in Box.objects.select_for_update().filter(
+        global_code__startswith=prefix
+    ).values_list("global_code", flat=True):
+        match = pattern.match(global_code)
+        if match:
+            numbers.append(int(match.group(1)))
+    next_number = max(numbers, default=0) + 1
+    while True:
+        box_number = str(next_number).zfill(3)
+        global_code = f"{prefix}{box_number}"
+        if not Box.objects.filter(global_code=global_code).exists():
+            return global_code, box_number
+        next_number += 1
 
 
 def _resolve_alerts(queryset, *, user):
@@ -969,3 +992,133 @@ class BoxTransferCreateAPIView(generics.CreateAPIView):
         if box.organization_id not in get_admin_organization_ids(self.request.user):
             raise PermissionDenied("Ce compte ne peut pas transférer cette boîte.")
         serializer.save(from_organization=box.organization, user=self.request.user)
+
+
+class BoxTransferImportAPIView(APIView):
+    """Validate one Polypbase transfer CSV row and create a destination box."""
+
+    REQUIRED_SOURCE_FIELDS = {
+        "format",
+        "transfer_id",
+        "source_organization_name",
+        "source_global_code",
+        "species_scientific_name",
+        "strain_code",
+        "transferred_polyp_count",
+    }
+
+    @transaction.atomic
+    def post(self, request):
+        source = request.data.get("source_data")
+        if not isinstance(source, dict):
+            raise DRFValidationError({"source_data": "Le contenu CSV est invalide."})
+        missing = sorted(field for field in self.REQUIRED_SOURCE_FIELDS if not str(source.get(field, "")).strip())
+        if missing:
+            raise DRFValidationError({"source_data": f"Colonnes obligatoires manquantes : {', '.join(missing)}"})
+        if source["format"] != "polypbase.box_transfer.v1":
+            raise DRFValidationError({"source_data": "Version de transfert Polypbase non reconnue."})
+
+        organization = get_object_or_404(
+            get_authorized_organizations(request.user),
+            pk=request.data.get("organization"),
+        )
+        if organization.id not in get_admin_organization_ids(request.user):
+            raise PermissionDenied("Ce compte ne peut pas importer dans cette structure.")
+        zone = get_object_or_404(
+            ThermalZone,
+            pk=request.data.get("thermal_zone"),
+            organization=organization,
+            is_active=True,
+        )
+        if BoxTransferImport.objects.filter(
+            format_version=source["format"],
+            source_organization_name=source["source_organization_name"],
+            source_transfer_id=str(source["transfer_id"]),
+        ).exists():
+            raise DRFValidationError("Ce transfert a déjà été importé.")
+        try:
+            polyp_count = int(source["transferred_polyp_count"])
+        except (TypeError, ValueError) as exc:
+            raise DRFValidationError({"source_data": "Le nombre de polypes est invalide."}) from exc
+        if polyp_count < 1:
+            raise DRFValidationError({"source_data": "Le nombre de polypes doit être positif."})
+
+        species, _ = Species.objects.get_or_create(
+            scientific_name=str(source["species_scientific_name"]).strip(),
+            defaults={
+                "common_name": str(source.get("species_common_name", "")).strip(),
+                "genus_species_code": str(source.get("species_code", "")).strip(),
+            },
+        )
+        strain, _ = Strain.objects.get_or_create(
+            species=species,
+            code=str(source["strain_code"]).strip(),
+            defaults={"origin_code": str(source.get("strain_origin_code", "")).strip()},
+        )
+        suggested_global_code, suggested_box_number = _next_unique_box_identity(strain)
+        requested_global_code = str(request.data.get("global_code", "")).strip()
+        if requested_global_code:
+            code_match = re.fullmatch(rf"{re.escape(strain.code)}\.(\d+)", requested_global_code)
+            if not code_match:
+                raise DRFValidationError({
+                    "global_code": (
+                        f"Le code doit commencer par {strain.code}. et finir par un numéro. "
+                        f"Suggestion : {suggested_global_code}"
+                    )
+                })
+            if Box.objects.filter(global_code=requested_global_code).exists():
+                raise DRFValidationError({
+                    "global_code": f"Ce code existe déjà. Suggestion : {suggested_global_code}"
+                })
+            global_code = requested_global_code
+            box_number = code_match.group(1)
+        else:
+            global_code, box_number = suggested_global_code, suggested_box_number
+        box = Box.objects.create(
+            organization=organization,
+            global_code=global_code,
+            local_code="",
+            box_number=box_number,
+            strain=strain,
+            thermal_zone=zone,
+            entered_on=timezone.localdate(),
+            notes=(
+                f"Import du transfert {source['transfer_id']} depuis "
+                f"{source['source_organization_name']} (boîte source {source['source_global_code']})."
+            ),
+        )
+        BoxLocation.objects.create(box=box, thermal_zone=zone, starts_at=timezone.now())
+        BiologicalMeasurement.objects.create(
+            box=box,
+            measured_on=timezone.localdate(),
+            polyp_count=polyp_count,
+            ephyrae_count=0,
+            culture_status=str(source.get("latest_culture_status") or "not_specified"),
+            notes="Nombre initial reçu lors du transfert.",
+            user=request.user,
+        )
+        transfer_import = BoxTransferImport.objects.create(
+            format_version=source["format"],
+            source_transfer_id=str(source["transfer_id"]),
+            source_organization_name=str(source["source_organization_name"]),
+            source_global_code=str(source["source_global_code"]),
+            destination_organization=organization,
+            created_box=box,
+            imported_by=request.user,
+            source_data=source,
+        )
+        AuditLog.objects.create(
+            organization=organization,
+            user=request.user,
+            action=AuditLog.Action.IMPORT,
+            object_type="box",
+            object_id=box.global_code,
+            description=f"Transfer imported from {source['source_organization_name']}",
+            metadata={
+                "transfer_import_id": transfer_import.id,
+                "source_transfer_id": source["transfer_id"],
+                "source_global_code": source["source_global_code"],
+                "created_box_id": box.id,
+            },
+        )
+        return Response(BoxDetailSerializer(box_queryset_for_user(request.user).get(pk=box.pk)).data, status=201)

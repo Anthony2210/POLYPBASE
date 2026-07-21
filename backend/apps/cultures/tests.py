@@ -16,7 +16,7 @@ from apps.organizations.models import Organization
 from apps.taxonomy.models import Origin, Species, Strain
 from apps.measurements.models import BiologicalMeasurement, DailyTemperature, Probe, SalinityMeasurement
 
-from .models import Box, BoxLineage, BoxLocation, IdentificationTag, SubcultureEvent, ThermalZone
+from .models import Box, BoxLineage, BoxLocation, BoxTransfer, BoxTransferImport, IdentificationTag, SubcultureEvent, ThermalZone
 
 
 class PolypbaseApiTests(TestCase):
@@ -671,6 +671,133 @@ class PolypbaseApiTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 403)
+
+    def test_transfer_records_the_transmitted_polyp_count_and_preparer(self):
+        membership = OrganizationMembership.objects.get(
+            user=self.user,
+            organization=self.organization,
+        )
+        membership.role = OrganizationMembership.Role.ADMIN
+        membership.save(update_fields=["role"])
+        self.user.first_name = "Camille"
+        self.user.last_name = "Martin"
+        self.user.save(update_fields=["first_name", "last_name"])
+        self.client.login(username="tech", password="secret")
+
+        response = self.client.post(
+            reverse("api_box_transfer_create"),
+            data=json.dumps({
+                "box": self.box.id,
+                "to_organization": self.other_organization.id,
+                "polyp_count": 75,
+                "notes": "Transport à 15 °C",
+            }),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        transfer = BoxTransfer.objects.get(box=self.box)
+        self.assertEqual(transfer.polyp_count, 75)
+        self.assertEqual(transfer.user, self.user)
+        self.assertEqual(response.json()["prepared_by"], "Camille Martin")
+
+    def test_transfer_rejects_a_zero_polyp_count(self):
+        membership = OrganizationMembership.objects.get(
+            user=self.user,
+            organization=self.organization,
+        )
+        membership.role = OrganizationMembership.Role.ADMIN
+        membership.save(update_fields=["role"])
+        self.client.login(username="tech", password="secret")
+
+        response = self.client.post(
+            reverse("api_box_transfer_create"),
+            data=json.dumps({
+                "box": self.box.id,
+                "to_organization": self.other_organization.id,
+                "polyp_count": 0,
+            }),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(BoxTransfer.objects.exists())
+
+    def test_transfer_csv_payload_creates_destination_box_and_prevents_duplicate_import(self):
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.role = OrganizationMembership.Role.ADMIN
+        membership.save(update_fields=["role"])
+        self.client.login(username="tech", password="secret")
+        source_data = {
+            "format": "polypbase.box_transfer.v1",
+            "transfer_id": "TR-42",
+            "source_organization_name": "Aquarium de Tokyo",
+            "source_global_code": "TKY-AAU-9.001",
+            "species_scientific_name": "Chrysaora pacifica",
+            "species_common_name": "Japanese sea nettle",
+            "species_code": "CPA",
+            "strain_code": "7-TKY",
+            "strain_origin_code": "TKY",
+            "transferred_polyp_count": "75",
+            "latest_culture_status": "good",
+        }
+        payload = {
+            "source_data": source_data,
+            "organization": self.organization.id,
+            "thermal_zone": self.zone.id,
+            "global_code": "7-TKY.001",
+        }
+
+        response = self.client.post(
+            reverse("api_box_transfer_import"),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        imported_box = Box.objects.get(global_code="7-TKY.001")
+        self.assertNotEqual(imported_box.id, self.box.id)
+        self.assertEqual(imported_box.biological_measurements.get().polyp_count, 75)
+        transfer_import = BoxTransferImport.objects.get(created_box=imported_box)
+        self.assertEqual(transfer_import.source_global_code, "TKY-AAU-9.001")
+        self.assertTrue(AuditLog.objects.filter(action=AuditLog.Action.IMPORT, object_id=imported_box.global_code).exists())
+
+        second_payload = {
+            **payload,
+            "global_code": "7-TKY.002",
+            "source_data": {
+                **source_data,
+                "transfer_id": "TR-43",
+                "source_global_code": "TKY-AAU-9.002",
+            },
+        }
+        second = self.client.post(
+            reverse("api_box_transfer_import"),
+            data=json.dumps(second_payload),
+            content_type="application/json",
+        )
+        self.assertEqual(second.status_code, 201)
+        self.assertTrue(Box.objects.filter(global_code="7-TKY.002", box_number="002").exists())
+
+        conflicting_payload = {
+            **payload,
+            "source_data": {**source_data, "transfer_id": "TR-44"},
+        }
+        conflict = self.client.post(
+            reverse("api_box_transfer_import"),
+            data=json.dumps(conflicting_payload),
+            content_type="application/json",
+        )
+        self.assertEqual(conflict.status_code, 400)
+        self.assertIn("Suggestion : 7-TKY.003", str(conflict.json()))
+
+        duplicate = self.client.post(
+            reverse("api_box_transfer_import"),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        self.assertEqual(duplicate.status_code, 400)
+        self.assertFalse(Box.objects.filter(global_code="7-TKY.003").exists())
 
     def test_drf_thermal_zones_include_probes_and_latest_readings(self):
         Probe.objects.create(
