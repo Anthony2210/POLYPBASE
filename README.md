@@ -150,7 +150,10 @@ stable endpoints are:
 - `GET /api/boxes/<id>/measurements/`: biological measurement history for one box.
 - `POST /api/boxes/<id>/measurements/`: create or update the measurement for one date.
 - `POST /api/boxes/<id>/subcultures/`: create a subculture event and one or more child boxes.
+- `POST /api/alerts/<id>/resolve/`: manually resolve an accessible active alert.
 - `GET /api/thermal-zones/`: thermal zones with probes and latest readings.
+- `POST /api/box-transfers/`: prepare an inter-organization box transfer.
+- `POST /api/box-transfer-imports/`: import a Polypbase transfer CSV into a destination organization.
 - `GET /api/exports/options/`: values available in the cumulative export filters.
 - `GET /api/exports/measurements.csv`: weekly biological tracking export in CSV format.
 - `GET /api/profile/`: current user profile, organizations, and interface language.
@@ -263,3 +266,25 @@ Check the production build:
 cd frontend
 npm run build
 ```
+
+## Database updates
+
+Apply every committed migration after pulling a new application version and
+before restarting the production service:
+
+```powershell
+cd backend
+uv run python manage.py migrate
+uv run python manage.py check
+```
+
+The transfer workflow uses `BoxTransfer.polyp_count` and
+`BoxTransferImport`; both are created by the cultures migrations. Transfer
+imports are uniquely identified by their format version, source organization,
+and source transfer identifier, so the same package cannot be imported twice.
+
+## Internal documentation
+
+- `docs/guide_utilisateur.md`: concise operational procedures for laboratory users.
+- `docs/transferts_csv.md`: Polypbase transfer CSV format and import rules.
+- `docs/tests_backend.md`: backend test inventory and execution instructions.

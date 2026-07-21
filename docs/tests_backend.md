@@ -1,6 +1,6 @@
 # Tests automatisés — backend POLYPBASE
 
-Récapitulatif lisible des **68 tests** de la suite Django, avec ce que chacun
+Récapitulatif lisible des **100 tests** de la suite Django, avec ce que chacun
 vérifie. Les tests couvrent l'API REST, les permissions par rôle et par
 organisation, le cycle de vie des boîtes (relevés, repiquage, déplacement,
 lignée), les QR codes, la gestion des comptes, les exports, les écrans
@@ -17,16 +17,16 @@ d'administration (armoires, sondes, structures, transferts) et la salinité.
 
 | Domaine | Fichier | Nombre |
 |---|---|---|
-| Cultures (boîtes, relevés, lignée, QR) | `apps/cultures/tests.py` | 28 |
-| Administration (armoires, sondes, structures, transferts) | `apps/cultures/tests_admin_api.py` | 13 |
+| Cultures (boîtes, relevés, lignée, QR) | `apps/cultures/tests.py` | 45 |
+| Administration (armoires, sondes, structures, transferts) | `apps/cultures/tests_admin_api.py` | 27 |
 | Comptes (auth, rôles, membres) | `apps/accounts/tests.py` | 14 |
 | Relevés (édition + salinité) | `apps/measurements/tests.py` | 8 |
-| Exports (CSV) | `apps/exports/tests.py` | 5 |
-| **Total** | | **68** |
+| Exports (CSV) | `apps/exports/tests.py` | 6 |
+| **Total** | | **100** |
 
 ---
 
-## 1. Cultures — `apps/cultures/tests.py` (28 tests)
+## 1. Cultures — `apps/cultures/tests.py` (45 tests)
 
 ### Accès & périmètre (scoping)
 
@@ -115,7 +115,7 @@ d'administration (armoires, sondes, structures, transferts) et la salinité.
 
 ---
 
-## 3. Administration — `apps/cultures/tests_admin_api.py` (13 tests)
+## 3. Administration — `apps/cultures/tests_admin_api.py` (27 tests)
 
 Endpoints de création réservés aux administrateurs. Le fil rouge : **qui a le
 droit de créer quoi**, et **on ne peut jamais atteindre une autre structure**.
@@ -172,7 +172,7 @@ droit de créer quoi**, et **on ne peut jamais atteindre une autre structure**.
 
 ---
 
-## 5. Exports — `apps/exports/tests.py` (5 tests)
+## 5. Exports — `apps/exports/tests.py` (6 tests)
 
 | Test | Vérifie que… |
 |---|---|
