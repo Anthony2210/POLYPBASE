@@ -12,6 +12,7 @@ import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from './api/client';
 import { getBoxStatusPresentation } from './boxStatus';
 import AdminView from './components/AdminView';
 import BoxInsights, { MeasurementHistoryModal, type BoxInsightTab } from './components/BoxInsights';
+import { useConfirmAction, type ConfirmActionOptions } from './components/ConfirmActionModal';
 import ExportsView from './components/ExportsView';
 import LabelsView from './components/LabelsView';
 import LoginPage from './components/LoginPage';
@@ -155,6 +156,34 @@ const translations = {
     adminAuditHide: 'Masquer',
     adminAuditShowAll: 'Tout afficher',
     adminAuditShowLess: 'Réduire',
+    confirmCancel: 'Annuler',
+    confirmCreateBoxTitle: 'Créer cette boîte',
+    confirmCreateBoxMessage: 'Vérifiez les informations avant d’ajouter la boîte au suivi.',
+    confirmCreateBoxAction: 'Créer la boîte',
+    confirmSubcultureTitle: 'Enregistrer ce repiquage',
+    confirmSubcultureMessage: 'Les nouvelles boîtes seront reliées à la boîte parent.',
+    confirmSubcultureAction: 'Enregistrer le repiquage',
+    confirmMoveTitle: 'Transférer cette boîte',
+    confirmMoveMessage: 'Le nouvel emplacement sera ajouté à l’historique de la boîte.',
+    confirmMoveAction: 'Transférer',
+    confirmArchiveBoxTitle: 'Désactiver le suivi',
+    confirmArchiveBoxMessage: 'L’historique sera conservé et la boîte ne sera plus affichée comme vivante.',
+    confirmArchiveBoxAction: 'Désactiver',
+    confirmActivateBoxTitle: 'Réactiver le suivi',
+    confirmActivateBoxMessage: 'La boîte sera de nouveau affichée dans les suivis actifs.',
+    confirmActivateBoxAction: 'Réactiver',
+    confirmDeleteOrganizationTitle: 'Supprimer cette structure',
+    confirmDeleteOrganizationMessage: 'Vérifiez que cette structure ne doit plus être conservée dans Polypbase.',
+    confirmDeleteOrganizationAction: 'Supprimer',
+    confirmDetailBox: 'Boîte',
+    confirmDetailSpecies: 'Espèce',
+    confirmDetailStrain: 'Souche',
+    confirmDetailLocation: 'Emplacement',
+    confirmDetailCurrentLocation: 'Emplacement actuel',
+    confirmDetailTargetLocation: 'Nouvel emplacement',
+    confirmDetailParentBox: 'Boîte parent',
+    confirmDetailChildren: 'Boîtes enfants',
+    confirmDetailOrganization: 'Structure',
     adminFlowLabel: 'Parcours administrateur',
     boxArchiveAction: 'Désactiver le suivi',
     boxArchiveConfirm: 'Désactiver le suivi de cette boîte ? Son historique restera conservé.',
@@ -584,6 +613,34 @@ const translations = {
     adminAuditHide: 'Hide',
     adminAuditShowAll: 'Show all',
     adminAuditShowLess: 'Collapse',
+    confirmCancel: 'Cancel',
+    confirmCreateBoxTitle: 'Create this box',
+    confirmCreateBoxMessage: 'Check the information before adding the box to tracking.',
+    confirmCreateBoxAction: 'Create box',
+    confirmSubcultureTitle: 'Save this subculture',
+    confirmSubcultureMessage: 'The new boxes will be linked to the parent box.',
+    confirmSubcultureAction: 'Save subculture',
+    confirmMoveTitle: 'Move this box',
+    confirmMoveMessage: 'The new location will be added to the box history.',
+    confirmMoveAction: 'Move',
+    confirmArchiveBoxTitle: 'Disable tracking',
+    confirmArchiveBoxMessage: 'The history will be kept and the box will no longer be shown as living.',
+    confirmArchiveBoxAction: 'Disable',
+    confirmActivateBoxTitle: 'Enable tracking',
+    confirmActivateBoxMessage: 'The box will be shown again in active tracking.',
+    confirmActivateBoxAction: 'Enable',
+    confirmDeleteOrganizationTitle: 'Delete this organization',
+    confirmDeleteOrganizationMessage: 'Check that this organization should no longer be kept in Polypbase.',
+    confirmDeleteOrganizationAction: 'Delete',
+    confirmDetailBox: 'Box',
+    confirmDetailSpecies: 'Species',
+    confirmDetailStrain: 'Strain',
+    confirmDetailLocation: 'Location',
+    confirmDetailCurrentLocation: 'Current location',
+    confirmDetailTargetLocation: 'New location',
+    confirmDetailParentBox: 'Parent box',
+    confirmDetailChildren: 'Child boxes',
+    confirmDetailOrganization: 'Organization',
     adminFlowLabel: 'Administration flow',
     boxArchiveAction: 'Disable tracking',
     boxArchiveConfirm: 'Disable tracking for this box? Its history will be kept.',
@@ -971,6 +1028,7 @@ const translations = {
 type Language = keyof typeof translations;
 type TranslationKey = keyof typeof translations.fr;
 type TFunction = (key: TranslationKey) => string;
+type ConfirmAction = (options: ConfirmActionOptions) => Promise<boolean>;
 
 const labTabs: TabId[] = ['pilotage', 'overview', 'zones', 'labels', 'profile'];
 const desktopTabs: TabId[] = ['pilotage', 'overview', 'zones', 'exports', 'labels', 'profile'];
@@ -1000,6 +1058,7 @@ export default function App() {
   const isZoneRoute = activeTab === 'zones' && route.zoneId != null;
   const language = getLanguage(data.profile);
   const t: TFunction = (key) => translations[language][key];
+  const { confirmAction, confirmActionModal } = useConfirmAction();
   const isDesktopApp = useIsDesktopApp();
   const hasAdminRole = userHasAdminRole(data.profile);
   const canUseAdmin = isDesktopApp && hasAdminRole;
@@ -1561,6 +1620,7 @@ export default function App() {
                 onAddQrLabel={addQrLabelToSelection}
                 onBack={closeBoxPage}
                 onOpenQrLabelSelection={openQrLabelSelection}
+                confirmAction={confirmAction}
                 t={t}
               />
             )}
@@ -1576,6 +1636,7 @@ export default function App() {
                 suggestions={filteredBoxes.slice(0, 5)}
                 recentBoxes={recentBoxes}
                 onCreateBox={createBox}
+                confirmAction={confirmAction}
                 onSearch={setSearch}
                 onSelectBox={openBox}
                 t={t}
@@ -1687,6 +1748,7 @@ export default function App() {
             )}
           </div>
         )}
+        {confirmActionModal}
       </section>
     </main>
   );
@@ -1702,6 +1764,7 @@ function PilotageView({
   search,
   suggestions,
   onCreateBox,
+  confirmAction,
   t,
   onSearch,
   onSelectBox,
@@ -1715,6 +1778,7 @@ function PilotageView({
   search: string;
   suggestions: BoxItem[];
   onCreateBox: (payload: BoxCreatePayload) => Promise<BoxDetail>;
+  confirmAction: ConfirmAction;
   t: TFunction;
   onSearch: (value: string) => void;
   onSelectBox: (id: number) => void;
@@ -1831,6 +1895,7 @@ function PilotageView({
             profile={profile}
             t={t}
             onCreateBox={onCreateBox}
+            confirmAction={confirmAction}
             onSelectBox={onSelectBox}
             onSearch={onSearch}
           />
@@ -1847,6 +1912,7 @@ function CreateBoxPanel({
   exportOptions,
   isOptionsLoading,
   profile,
+  confirmAction,
   onCreateBox,
   onSearch,
   onSelectBox,
@@ -1856,6 +1922,7 @@ function CreateBoxPanel({
   exportOptions: ExportOptions | null;
   isOptionsLoading: boolean;
   profile: UserProfile | null;
+  confirmAction: ConfirmAction;
   onCreateBox: (payload: BoxCreatePayload) => Promise<BoxDetail>;
   onSearch: (value: string) => void;
   onSelectBox: (id: number) => void;
@@ -1878,6 +1945,8 @@ function CreateBoxPanel({
   const strains = exportOptions?.strains ?? [];
   const selectedStrain = strains.find((strain) => strain.id === strainId) ?? null;
   const availableZones = (exportOptions?.zones ?? []).filter((zone) => zone.organization_id === organizationId);
+  const selectedOrganization = writableOrganizations.find((organization) => organization.id === organizationId) ?? null;
+  const selectedZone = availableZones.find((zone) => zone.id === zoneId) ?? null;
   const canSubmit = organizationId != null && strainId != null && globalCode.trim() && boxNumber.trim();
 
   useEffect(() => {
@@ -1912,7 +1981,20 @@ function CreateBoxPanel({
       return;
     }
 
-    if (!window.confirm(t('createBoxConfirm'))) return;
+    const confirmed = await confirmAction({
+      title: t('confirmCreateBoxTitle'),
+      message: t('confirmCreateBoxMessage'),
+      confirmLabel: t('confirmCreateBoxAction'),
+      cancelLabel: t('confirmCancel'),
+      details: [
+        { label: t('confirmDetailBox'), value: globalCode.trim() },
+        { label: t('confirmDetailSpecies'), value: selectedStrain?.species_name },
+        { label: t('confirmDetailStrain'), value: selectedStrain?.code },
+        { label: t('confirmDetailOrganization'), value: selectedOrganization?.name },
+        { label: t('confirmDetailLocation'), value: selectedZone?.name ?? t('createBoxNoZone') },
+      ],
+    });
+    if (!confirmed) return;
 
     setIsSaving(true);
     setMessage(null);
@@ -2702,6 +2784,7 @@ function BoxPage({
   onAddQrLabel,
   onBack,
   onOpenQrLabelSelection,
+  confirmAction,
   t,
 }: {
   box: BoxItem | BoxDetail | null;
@@ -2727,6 +2810,7 @@ function BoxPage({
   onAddQrLabel: (label: QrLabelItem) => void;
   onBack: () => void;
   onOpenQrLabelSelection: () => void;
+  confirmAction: ConfirmAction;
   t: TFunction;
 }) {
   const defaultSalinity = getDefaultMeasurementSalinity(box, zones);
@@ -2955,7 +3039,19 @@ function BoxPage({
 
   async function handleSubculture(payload: SubculturePayload) {
     if (!box || isSavingSubculture) return;
-    if (!window.confirm(t('subcultureConfirm'))) return;
+    const confirmed = await confirmAction({
+      title: t('confirmSubcultureTitle'),
+      message: t('confirmSubcultureMessage'),
+      confirmLabel: t('confirmSubcultureAction'),
+      cancelLabel: t('confirmCancel'),
+      variant: 'warning',
+      details: [
+        { label: t('confirmDetailParentBox'), value: box.global_code },
+        { label: t('confirmDetailSpecies'), value: box.species.scientific_name },
+        { label: t('confirmDetailChildren'), value: payload.children.length },
+      ],
+    });
+    if (!confirmed) return;
 
     setIsSavingSubculture(true);
     setSubcultureError(null);
@@ -2974,7 +3070,19 @@ function BoxPage({
 
   async function handleMove(payload: BoxMovePayload) {
     if (!box || isSavingMove) return;
-    if (!window.confirm(t('moveConfirm'))) return;
+    const targetZone = zones.find((zone) => zone.id === payload.thermal_zone_id) ?? null;
+    const confirmed = await confirmAction({
+      title: t('confirmMoveTitle'),
+      message: t('confirmMoveMessage'),
+      confirmLabel: t('confirmMoveAction'),
+      cancelLabel: t('confirmCancel'),
+      details: [
+        { label: t('confirmDetailBox'), value: box.global_code },
+        { label: t('confirmDetailCurrentLocation'), value: currentZone?.name ?? '-' },
+        { label: t('confirmDetailTargetLocation'), value: targetZone?.name ?? '-' },
+      ],
+    });
+    if (!confirmed) return;
 
     setIsSavingMove(true);
     setMoveError(null);
@@ -2994,8 +3102,18 @@ function BoxPage({
   async function handleChangeBoxStatus() {
     if (!box || isChangingBoxStatus) return;
     const isActivating = box.status === 'archived';
-    const confirmKey = isActivating ? 'boxActivateConfirm' : 'boxArchiveConfirm';
-    if (!window.confirm(t(confirmKey))) return;
+    const confirmed = await confirmAction({
+      title: t(isActivating ? 'confirmActivateBoxTitle' : 'confirmArchiveBoxTitle'),
+      message: t(isActivating ? 'confirmActivateBoxMessage' : 'confirmArchiveBoxMessage'),
+      confirmLabel: t(isActivating ? 'confirmActivateBoxAction' : 'confirmArchiveBoxAction'),
+      cancelLabel: t('confirmCancel'),
+      variant: isActivating ? 'default' : 'danger',
+      details: [
+        { label: t('confirmDetailBox'), value: box.global_code },
+        { label: t('confirmDetailSpecies'), value: box.species.scientific_name },
+      ],
+    });
+    if (!confirmed) return;
 
     setIsChangingBoxStatus(true);
     setStatusError(null);

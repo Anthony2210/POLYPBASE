@@ -12566,3 +12566,204 @@ button.zone-attention-item:hover {
     grid-column: auto;
   }
 }
+
+.confirm-action-backdrop {
+  align-items: center;
+  justify-items: center;
+  overflow: auto;
+  padding: 24px;
+  background: rgba(236, 243, 247, 0.72);
+}
+
+.confirm-action-modal {
+  width: min(520px, calc(100vw - 32px));
+  max-height: min(680px, calc(100dvh - 32px));
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 26px 72px rgba(21, 25, 34, 0.16);
+}
+
+.confirm-action-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 22px 22px 18px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.confirm-action-heading p {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 780;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.confirm-action-heading h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: clamp(1.25rem, 2vw, 1.55rem);
+  font-style: italic;
+  line-height: 1.08;
+}
+
+.confirm-action-mark {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 16px;
+  background: rgba(220, 244, 248, 0.82);
+  color: var(--primary-strong);
+  font-size: 1.12rem;
+  font-weight: 850;
+}
+
+.confirm-action-heading .modal-close-button {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--muted);
+  font-size: 0.95rem;
+  font-weight: 820;
+  line-height: 1;
+  transition:
+    border-color 160ms ease,
+    color 160ms ease,
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.confirm-action-heading .modal-close-button:hover {
+  border-color: rgba(16, 107, 135, 0.32);
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+  transform: translateY(-1px);
+}
+
+.confirm-action-modal.is-warning .confirm-action-mark {
+  background: #fff3d7;
+  color: #9b6500;
+}
+
+.confirm-action-modal.is-danger .confirm-action-mark {
+  background: #ffe9e2;
+  color: var(--coral);
+}
+
+.confirm-action-message {
+  margin: 0;
+  padding: 18px 22px 0;
+  color: var(--muted);
+  font-size: 0.96rem;
+  line-height: 1.48;
+}
+
+.confirm-action-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 22px 0;
+}
+
+.confirm-action-details div {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+  background: rgba(238, 247, 250, 0.74);
+}
+
+.confirm-action-details dt {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 760;
+}
+
+.confirm-action-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-weight: 820;
+  line-height: 1.25;
+}
+
+.confirm-action-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 22px;
+}
+
+.confirm-action-cancel,
+.confirm-action-submit {
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 999px;
+  font-weight: 820;
+}
+
+.confirm-action-cancel {
+  border: 1px solid var(--line);
+  background: #ffffff;
+  color: var(--primary-strong);
+}
+
+.confirm-action-submit {
+  border: 1px solid var(--primary);
+  background: var(--primary);
+  color: #ffffff;
+  box-shadow: 0 12px 26px rgba(16, 107, 135, 0.18);
+}
+
+.confirm-action-submit:hover {
+  border-color: var(--primary-strong);
+  background: var(--primary-strong);
+}
+
+.confirm-action-submit.is-warning {
+  border-color: #d18a13;
+  background: #d18a13;
+}
+
+.confirm-action-submit.is-danger {
+  border-color: var(--coral);
+  background: var(--coral);
+}
+
+@media (max-width: 560px) {
+  .confirm-action-backdrop {
+    padding: 14px;
+  }
+
+  .confirm-action-heading {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .confirm-action-mark {
+    display: none;
+  }
+
+  .confirm-action-details {
+    grid-template-columns: 1fr;
+  }
+
+  .confirm-action-footer {
+    flex-direction: column-reverse;
+  }
+
+  .confirm-action-cancel,
+  .confirm-action-submit {
+    width: 100%;
+  }
+}
