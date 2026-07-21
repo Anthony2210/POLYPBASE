@@ -59,14 +59,13 @@ export default function QrLabelModal({
         </header>
 
         <div className="qr-label-print-sheet">
+          <div className="qr-label-code">
+            <img src={label.qrImageUrl} alt={`${labels.qrCode} ${label.globalCode}`} />
+          </div>
+
           <div className="qr-label-main">
             <strong>{label.globalCode}</strong>
             <span>{label.speciesName}</span>
-          </div>
-
-          <div className="qr-label-code">
-            <img src={label.qrImageUrl} alt={`${labels.qrCode} ${label.globalCode}`} />
-            <strong>{labels.qrCode}</strong>
           </div>
         </div>
 
