@@ -1501,6 +1501,7 @@ function TransferImportForm({ profile, zones, boxes, t }: {
   );
   const [sourceData, setSourceData] = useState<TransferCsvRow | null>(null);
   const [globalCode, setGlobalCode] = useState('');
+  const [importedBox, setImportedBox] = useState<BoxItem | null>(null);
   const [organizationId, setOrganizationId] = useState<number | null>(organizations[0]?.id ?? null);
   const availableZones = zones.filter(
     (zone) => zone.is_active && zone.organization.id === organizationId,
@@ -1510,6 +1511,10 @@ function TransferImportForm({ profile, zones, boxes, t }: {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const { confirmAction, confirmActionModal } = useConfirmAction();
+  const suggestedCode = sourceData ? suggestTransferBoxCode(boxes, sourceData.strain_code) : '';
+  const codeExists = boxes.some(
+    (box) => box.global_code.toLocaleLowerCase() === globalCode.trim().toLocaleLowerCase(),
+  );
 
   useEffect(() => {
     if (zoneId !== null && availableZones.some((zone) => zone.id === zoneId)) return;
@@ -1519,6 +1524,7 @@ function TransferImportForm({ profile, zones, boxes, t }: {
   async function handleFile(event: ChangeEvent<HTMLInputElement>) {
     setError(null);
     setMessage(null);
+    setImportedBox(null);
     const file = event.target.files?.[0];
     if (!file) {
       setSourceData(null);
@@ -1528,18 +1534,23 @@ function TransferImportForm({ profile, zones, boxes, t }: {
     try {
       const parsed = parseTransferCsv(await file.text());
       if (parsed.format !== 'polypbase.box_transfer.v1') throw new Error('format');
+      const missing = REQUIRED_TRANSFER_CSV_FIELDS.filter((field) => !parsed[field]?.trim());
+      if (missing.length) throw new Error(`missing:${missing.join(', ')}`);
       setSourceData(parsed);
       setGlobalCode(suggestTransferBoxCode(boxes, parsed.strain_code));
-    } catch {
+    } catch (parseError) {
       setSourceData(null);
       setGlobalCode('');
-      setError(t('adminTransferImportInvalid'));
+      const detail = parseError instanceof Error && parseError.message.startsWith('missing:')
+        ? `${t('adminTransferImportMissing')} : ${parseError.message.slice(8)}`
+        : t('adminTransferImportInvalid');
+      setError(detail);
     }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!sourceData || organizationId == null || zoneId == null || isSaving) return;
+    if (!sourceData || organizationId == null || zoneId == null || isSaving || codeExists) return;
     const confirmed = await confirmAction({
       title: t('adminTransferImportConfirmTitle'),
       message: t('adminTransferImportConfirmMessage'),
@@ -1561,7 +1572,7 @@ function TransferImportForm({ profile, zones, boxes, t }: {
         global_code: globalCode.trim(),
       });
       setMessage(t('adminTransferImportSuccess'));
-      window.location.assign(`/boxes/${encodeURIComponent(box.global_code)}`);
+      setImportedBox(box);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
@@ -1579,9 +1590,18 @@ function TransferImportForm({ profile, zones, boxes, t }: {
       {sourceData ? (
         <section className="transfer-import-preview">
           <strong>{t('adminTransferImportPreview')}</strong>
-          <p>{sourceData.species_scientific_name} · {sourceData.strain_code}</p>
-          <p>{sourceData.source_organization_name} · {sourceData.transferred_polyp_count} polypes</p>
-          <p>{sourceData.source_global_code}</p>
+          <dl>
+            <div><dt>{t('adminTransferTarget')}</dt><dd>{sourceData.target_organization_name || '-'}</dd></div>
+            <div><dt>{t('adminOrganizations')}</dt><dd>{sourceData.source_organization_name}</dd></div>
+            <div><dt>{t('species')}</dt><dd>{sourceData.species_scientific_name}</dd></div>
+            <div><dt>{t('boxStrain')}</dt><dd>{sourceData.strain_code}</dd></div>
+            <div><dt>{t('adminTransferPolyps')}</dt><dd>{sourceData.transferred_polyp_count}</dd></div>
+            <div><dt>{t('adminTargetTemperature')}</dt><dd>{sourceData.target_temperature_c || '-'}</dd></div>
+            <div><dt>{t('salinityFull')}</dt><dd>{sourceData.latest_salinity_psu || '-'}</dd></div>
+            <div><dt>{t('cultureStatus')}</dt><dd>{sourceData.latest_culture_status || '-'}</dd></div>
+            <div><dt>{t('parents')}</dt><dd>{sourceData.parent_box_codes || '-'}</dd></div>
+            <div><dt>{t('adminTransferNotes')}</dt><dd>{sourceData.transfer_notes || sourceData.latest_notes || '-'}</dd></div>
+          </dl>
         </section>
       ) : null}
       <label>
@@ -1600,16 +1620,42 @@ function TransferImportForm({ profile, zones, boxes, t }: {
         <span>{t('adminTransferImportCode')}</span>
         <input required value={globalCode} onChange={(event) => setGlobalCode(event.target.value)} />
         <small>{t('adminTransferImportCodeHint')}</small>
+        {codeExists ? (
+          <span className="inline-error">
+            {t('adminTransferImportCodeExists')}{' '}
+            <button type="button" onClick={() => setGlobalCode(suggestedCode)}>
+              {t('adminTransferImportUseSuggestion')} : {suggestedCode}
+            </button>
+          </span>
+        ) : null}
       </label>
-      <button type="submit" disabled={!sourceData || zoneId == null || !globalCode.trim() || isSaving}>
+      <button type="submit" disabled={!sourceData || zoneId == null || !globalCode.trim() || codeExists || isSaving}>
         {isSaving ? t('saving') : t('adminTransferImportAction')}
       </button>
+      <button type="button" onClick={() => downloadTransferCsvExample(profile.interface_language === 'fr')}>
+        {t('adminTransferImportExample')}
+      </button>
       {message ? <p className="inline-success">{message}</p> : null}
+      {importedBox ? (
+        <a className="admin-transfer-open-box" href={`/boxes/${encodeURIComponent(importedBox.global_code)}`}>
+          {t('adminTransferImportOpenBox')} · {importedBox.global_code}
+        </a>
+      ) : null}
       {error ? <p className="inline-error">{error}</p> : null}
       {confirmActionModal}
     </form>
   );
 }
+
+const REQUIRED_TRANSFER_CSV_FIELDS = [
+  'format',
+  'transfer_id',
+  'source_organization_name',
+  'source_global_code',
+  'species_scientific_name',
+  'strain_code',
+  'transferred_polyp_count',
+];
 
 function suggestTransferBoxCode(boxes: BoxItem[], strainCode: string) {
   const cleanStrainCode = strainCode.trim();
@@ -1820,6 +1866,44 @@ function csvCell(value: unknown) {
   if (value == null) return '';
   const text = String(value);
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function downloadTransferCsvExample(useFrenchHeaders: boolean) {
+  const columns: Array<[string, string, string]> = [
+    ['format', 'Format', 'polypbase.box_transfer.v1'],
+    ['transfer_id', 'Identifiant transfert', 'EXEMPLE-001'],
+    ['transfer_date', 'Date transfert', '2026-07-21'],
+    ['source_organization_name', 'Structure expéditrice', 'Aquarium expéditeur'],
+    ['target_organization_name', 'Structure destinataire', 'Aquarium destinataire'],
+    ['prepared_by', 'Préparateur', 'Nom du préparateur'],
+    ['transferred_polyp_count', 'Polypes transférés', '50'],
+    ['transfer_notes', 'Notes transfert', 'Conditions ou précautions de transport'],
+    ['source_global_code', 'Code boîte source', 'SOUCHE.001'],
+    ['species_scientific_name', 'Nom scientifique', 'Aurelia aurita'],
+    ['species_common_name', 'Nom commun', 'Aurélie'],
+    ['species_code', 'Code espèce', 'AAU'],
+    ['strain_code', 'Code souche', '1-ATL'],
+    ['strain_origin_code', 'Code origine souche', 'ATL'],
+    ['origin_institution', 'Institution origine', 'Institution source'],
+    ['parent_box_codes', 'Boîtes parentes', 'SOUCHE.000'],
+    ['target_temperature_c', 'Température consigne (°C)', '15'],
+    ['latest_culture_status', 'État culture', 'good'],
+    ['latest_salinity_psu', 'Salinité (PSU)', '35'],
+    ['latest_notes', 'Notes dernier relevé', 'Culture en bon état'],
+    ['source_qr_url', 'Lien QR source', 'https://example.org/bac/1/'],
+  ];
+  const csv = `${columns.map(([technical, french]) => csvCell(useFrenchHeaders ? french : technical)).join(',')}\r\n${columns
+    .map(([, , value]) => csvCell(value))
+    .join(',')}\r\n`;
+  const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' });
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = useFrenchHeaders ? 'exemple_transfert_polypbase.csv' : 'polypbase_transfer_example.csv';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
 }
 
 function sanitizeFilePart(value: string) {

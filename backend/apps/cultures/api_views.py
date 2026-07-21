@@ -1122,3 +1122,28 @@ class BoxTransferImportAPIView(APIView):
             },
         )
         return Response(BoxDetailSerializer(box_queryset_for_user(request.user).get(pk=box.pk)).data, status=201)
+
+
+class AlertResolveAPIView(APIView):
+    def post(self, request, pk):
+        alert = get_object_or_404(
+            Alert.objects.select_related("organization"),
+            pk=pk,
+            organization_id__in=get_authorized_organization_ids(request.user),
+        )
+        if not user_can_write_lab_data(request.user, alert.organization):
+            raise PermissionDenied("Ce compte ne peut pas résoudre cette alerte.")
+        if alert.resolved_at is None:
+            alert.resolved_at = timezone.now()
+            alert.resolved_by = request.user
+            alert.save(update_fields=["resolved_at", "resolved_by"])
+            AuditLog.objects.create(
+                organization=alert.organization,
+                user=request.user,
+                action=AuditLog.Action.UPDATE,
+                object_type="alert",
+                object_id=str(alert.id),
+                description=f"Alert resolved: {alert.message}",
+                metadata={"alert_id": alert.id, "alert_type": alert.alert_type},
+            )
+        return Response({"id": alert.id, "resolved": True})

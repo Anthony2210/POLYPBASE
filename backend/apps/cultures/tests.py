@@ -620,6 +620,50 @@ class PolypbaseApiTests(TestCase):
         self.assertIsNotNone(alert.resolved_at)
         self.assertEqual(alert.resolved_by, self.user)
 
+    def test_technician_can_resolve_an_alert_manually(self):
+        alert = Alert.objects.create(
+            organization=self.organization,
+            box=self.box,
+            alert_type=Alert.AlertType.BIOLOGICAL,
+            message="Vérification nécessaire",
+        )
+        self.client.login(username="tech", password="secret")
+
+        response = self.client.post(reverse("api_alert_resolve", args=[alert.id]))
+
+        self.assertEqual(response.status_code, 200)
+        alert.refresh_from_db()
+        self.assertIsNotNone(alert.resolved_at)
+        self.assertEqual(alert.resolved_by, self.user)
+        self.assertTrue(
+            AuditLog.objects.filter(
+                action=AuditLog.Action.UPDATE,
+                object_type="alert",
+                object_id=str(alert.id),
+            ).exists()
+        )
+
+    def test_viewer_cannot_resolve_an_alert(self):
+        viewer = get_user_model().objects.create_user(username="alert_viewer", password="secret")
+        OrganizationMembership.objects.create(
+            user=viewer,
+            organization=self.organization,
+            role=OrganizationMembership.Role.VIEWER,
+        )
+        alert = Alert.objects.create(
+            organization=self.organization,
+            box=self.box,
+            alert_type=Alert.AlertType.BIOLOGICAL,
+            message="Vérification nécessaire",
+        )
+        self.client.login(username="alert_viewer", password="secret")
+
+        response = self.client.post(reverse("api_alert_resolve", args=[alert.id]))
+
+        self.assertEqual(response.status_code, 403)
+        alert.refresh_from_db()
+        self.assertIsNone(alert.resolved_at)
+
     def test_manual_temperature_outside_one_degree_creates_and_then_resolves_alert(self):
         self.client.login(username="tech", password="secret")
         url = reverse("api_thermal_zone_manual_temperature", args=[self.zone.id])
