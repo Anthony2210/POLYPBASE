@@ -1,4 +1,4 @@
-﻿import { type FormEvent, useEffect, useMemo, useState } from 'react';
+﻿import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from 'react';
 
 import { apiGet, apiPatch, apiPost } from '../api/client';
 import type {
@@ -1334,6 +1334,7 @@ function TransferCreateForm({
   const [boxId, setBoxId] = useState<number | null>(transferableBoxes[0]?.id ?? null);
   const [boxQuery, setBoxQuery] = useState('');
   const [targetOrgId, setTargetOrgId] = useState<number | null>(null);
+  const [polypCount, setPolypCount] = useState('');
   const [notes, setNotes] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1367,7 +1368,7 @@ function TransferCreateForm({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isSaving || boxId == null || targetOrgId == null) return;
+    if (isSaving || boxId == null || targetOrgId == null || !polypCount) return;
 
     setIsSaving(true);
     setError(null);
@@ -1375,7 +1376,12 @@ function TransferCreateForm({
     setPreparedTransfer(null);
 
     try {
-      const transfer = await onCreateTransfer({ box: boxId, to_organization: targetOrgId, notes: notes.trim() });
+      const transfer = await onCreateTransfer({
+        box: boxId,
+        to_organization: targetOrgId,
+        polyp_count: Number(polypCount),
+        notes: notes.trim(),
+      });
       const box = transferableBoxes.find((item) => item.id === boxId);
       const targetOrganization = organizations.find((organization) => organization.id === targetOrgId);
       if (box && targetOrganization) {
@@ -1387,6 +1393,7 @@ function TransferCreateForm({
         });
       }
       setNotes('');
+      setPolypCount('');
       setTargetOrgId(null);
       setMessage(t('adminTransferCreated'));
     } catch (requestError) {
@@ -1431,11 +1438,23 @@ function TransferCreateForm({
           ))}
         </select>
       </label>
+      <label>
+        <span>{t('adminTransferPolyps')}</span>
+        <input
+          required
+          min="1"
+          step="1"
+          inputMode="numeric"
+          type="number"
+          value={polypCount}
+          onChange={(event) => setPolypCount(event.target.value)}
+        />
+      </label>
       <label className="admin-wide-field">
         <span>{t('adminTransferNotes')}</span>
         <textarea rows={2} value={notes} onChange={(event) => setNotes(event.target.value)} />
       </label>
-      <button type="submit" disabled={isSaving || targetOrgId == null}>
+      <button type="submit" disabled={isSaving || targetOrgId == null || !polypCount}>
         {isSaving ? t('saving') : t('adminPrepareTransfer')}
       </button>
       {message ? <p className="inline-success">{message}</p> : null}
@@ -1451,7 +1470,7 @@ function TransferCreateForm({
           <div className="transfer-package-actions">
             <button
               type="button"
-              onClick={() => downloadTransferJson(preparedTransfer)}
+              onClick={() => downloadTransferCsv(preparedTransfer, profile.interface_language === 'fr')}
             >
               {t('adminTransferDownloadData')}
             </button>
@@ -1468,6 +1487,222 @@ function TransferCreateForm({
   );
 }
 
+type TransferCsvRow = Record<string, string>;
+
+function TransferImportForm({ profile, zones, boxes, t }: {
+  profile: UserProfile;
+  zones: ThermalZone[];
+  boxes: BoxItem[];
+  t: TFunction;
+}) {
+  const adminOrgIds = getAdminOrganizationIds(profile);
+  const organizations = profile.organizations.filter(
+    (organization) => adminOrgIds === null || adminOrgIds.has(organization.id),
+  );
+  const [sourceData, setSourceData] = useState<TransferCsvRow | null>(null);
+  const [globalCode, setGlobalCode] = useState('');
+  const [organizationId, setOrganizationId] = useState<number | null>(organizations[0]?.id ?? null);
+  const availableZones = zones.filter(
+    (zone) => zone.is_active && zone.organization.id === organizationId,
+  );
+  const [zoneId, setZoneId] = useState<number | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const { confirmAction, confirmActionModal } = useConfirmAction();
+
+  useEffect(() => {
+    if (zoneId !== null && availableZones.some((zone) => zone.id === zoneId)) return;
+    setZoneId(availableZones[0]?.id ?? null);
+  }, [availableZones, zoneId]);
+
+  async function handleFile(event: ChangeEvent<HTMLInputElement>) {
+    setError(null);
+    setMessage(null);
+    const file = event.target.files?.[0];
+    if (!file) {
+      setSourceData(null);
+      setGlobalCode('');
+      return;
+    }
+    try {
+      const parsed = parseTransferCsv(await file.text());
+      if (parsed.format !== 'polypbase.box_transfer.v1') throw new Error('format');
+      setSourceData(parsed);
+      setGlobalCode(suggestTransferBoxCode(boxes, parsed.strain_code));
+    } catch {
+      setSourceData(null);
+      setGlobalCode('');
+      setError(t('adminTransferImportInvalid'));
+    }
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!sourceData || organizationId == null || zoneId == null || isSaving) return;
+    const confirmed = await confirmAction({
+      title: t('adminTransferImportConfirmTitle'),
+      message: t('adminTransferImportConfirmMessage'),
+      confirmLabel: t('adminTransferImportAction'),
+      cancelLabel: t('confirmCancel'),
+      details: [
+        { label: t('confirmDetailBox'), value: globalCode },
+        { label: t('adminTransferPolyps'), value: sourceData.transferred_polyp_count },
+      ],
+    });
+    if (!confirmed) return;
+    setIsSaving(true);
+    setError(null);
+    try {
+      const box = await apiPost<BoxItem>('/api/box-transfer-imports/', {
+        source_data: sourceData,
+        organization: organizationId,
+        thermal_zone: zoneId,
+        global_code: globalCode.trim(),
+      });
+      setMessage(t('adminTransferImportSuccess'));
+      window.location.assign(`/boxes/${encodeURIComponent(box.global_code)}`);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <form className="admin-transfer-form transfer-import-form" onSubmit={handleSubmit}>
+      <h3>{t('adminTransferImportTitle')}</h3>
+      <label className="admin-wide-field">
+        <span>{t('adminTransferImportFile')}</span>
+        <input accept=".csv,text/csv" type="file" onChange={(event) => void handleFile(event)} />
+      </label>
+      {sourceData ? (
+        <section className="transfer-import-preview">
+          <strong>{t('adminTransferImportPreview')}</strong>
+          <p>{sourceData.species_scientific_name} · {sourceData.strain_code}</p>
+          <p>{sourceData.source_organization_name} · {sourceData.transferred_polyp_count} polypes</p>
+          <p>{sourceData.source_global_code}</p>
+        </section>
+      ) : null}
+      <label>
+        <span>{t('adminTransferImportOrganization')}</span>
+        <select value={organizationId ?? ''} onChange={(event) => setOrganizationId(Number(event.target.value))}>
+          {organizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
+        </select>
+      </label>
+      <label>
+        <span>{t('adminTransferImportZone')}</span>
+        <select value={zoneId ?? ''} onChange={(event) => setZoneId(Number(event.target.value))}>
+          {availableZones.map((zone) => <option key={zone.id} value={zone.id}>{zone.name}</option>)}
+        </select>
+      </label>
+      <label>
+        <span>{t('adminTransferImportCode')}</span>
+        <input required value={globalCode} onChange={(event) => setGlobalCode(event.target.value)} />
+        <small>{t('adminTransferImportCodeHint')}</small>
+      </label>
+      <button type="submit" disabled={!sourceData || zoneId == null || !globalCode.trim() || isSaving}>
+        {isSaving ? t('saving') : t('adminTransferImportAction')}
+      </button>
+      {message ? <p className="inline-success">{message}</p> : null}
+      {error ? <p className="inline-error">{error}</p> : null}
+      {confirmActionModal}
+    </form>
+  );
+}
+
+function suggestTransferBoxCode(boxes: BoxItem[], strainCode: string) {
+  const cleanStrainCode = strainCode.trim();
+  if (!cleanStrainCode) return '';
+  const prefix = `${cleanStrainCode}.`;
+  const usedNumbers = boxes
+    .filter((box) => box.global_code.startsWith(prefix))
+    .map((box) => box.global_code.slice(prefix.length))
+    .filter((value) => /^\d+$/.test(value))
+    .map(Number);
+  const nextNumber = Math.max(0, ...usedNumbers) + 1;
+  return `${prefix}${String(nextNumber).padStart(3, '0')}`;
+}
+
+function parseTransferCsv(raw: string): TransferCsvRow {
+  const rows = parseCsvRows(raw.replace(/^\uFEFF/, ''));
+  if (rows.length < 2 || rows[0].length !== rows[1].length) throw new Error('csv');
+  return Object.fromEntries(rows[0].map((header, index) => [normalizeTransferCsvHeader(header), rows[1][index] ?? '']));
+}
+
+const FRENCH_TRANSFER_HEADER_ALIASES: Record<string, string> = {
+  format: 'format',
+  'identifiant transfert': 'transfer_id',
+  'date transfert': 'transfer_date',
+  'id structure expéditrice': 'source_organization_id',
+  'structure expéditrice': 'source_organization_name',
+  'id structure destinataire': 'target_organization_id',
+  'structure destinataire': 'target_organization_name',
+  préparateur: 'prepared_by',
+  'polypes transférés': 'transferred_polyp_count',
+  'notes transfert': 'transfer_notes',
+  'id boîte source': 'source_box_id',
+  'code boîte source': 'source_global_code',
+  'code local source': 'source_local_code',
+  'numéro boîte source': 'source_box_number',
+  'statut boîte source': 'source_box_status',
+  'date entrée boîte source': 'source_box_entered_on',
+  'nom scientifique': 'species_scientific_name',
+  'nom commun': 'species_common_name',
+  'code espèce': 'species_code',
+  'code souche': 'strain_code',
+  'numéro souche': 'strain_number',
+  'code origine souche': 'strain_origin_code',
+  'type origine': 'origin_type',
+  'institution origine': 'origin_institution',
+  'description origine': 'origin_description',
+  'boîtes parentes': 'parent_box_codes',
+  emplacement: 'thermal_zone_name',
+  'température consigne (°c)': 'target_temperature_c',
+  'date dernier relevé': 'latest_measurement_date',
+  'polypes dernier relevé': 'latest_polyp_count',
+  'éphyrules dernier relevé': 'latest_ephyrae_count',
+  'état culture': 'latest_culture_status',
+  'salinité (psu)': 'latest_salinity_psu',
+  'notes dernier relevé': 'latest_notes',
+  'lien qr source': 'source_qr_url',
+};
+
+function normalizeTransferCsvHeader(header: string) {
+  const trimmed = header.trim();
+  return FRENCH_TRANSFER_HEADER_ALIASES[trimmed.toLocaleLowerCase('fr-FR')] ?? trimmed;
+}
+
+function parseCsvRows(raw: string) {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = '';
+  let quoted = false;
+  for (let index = 0; index < raw.length; index += 1) {
+    const char = raw[index];
+    if (char === '"') {
+      if (quoted && raw[index + 1] === '"') {
+        cell += '"';
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (char === ',' && !quoted) {
+      row.push(cell); cell = '';
+    } else if ((char === '\n' || char === '\r') && !quoted) {
+      if (char === '\r' && raw[index + 1] === '\n') index += 1;
+      row.push(cell); cell = '';
+      if (row.some((value) => value !== '')) rows.push(row);
+      row = [];
+    } else {
+      cell += char;
+    }
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  if (quoted) throw new Error('csv');
+  return rows;
+}
+
 type PreparedTransfer = {
   transfer: BoxTransferResult;
   box: BoxItem;
@@ -1481,6 +1716,9 @@ type TransferExportData = {
     id: number;
     date: string;
     notes: string;
+    polyp_count: number;
+    prepared_by: string | null;
+    parent_box_codes: string[];
     source_organization: Organization;
     target_organization: { id: number; name: string };
   };
@@ -1496,6 +1734,7 @@ type TransferExportData = {
     thermal_zone: BoxItem['thermal_zone'];
     latest_measurement: BoxItem['latest_measurement'];
     latest_salinity_psu: string | null;
+    origin: BoxTransferResult['origin'];
     qr_scan_url: string;
   };
 };
@@ -1511,6 +1750,9 @@ function buildTransferExportData(
       id: transfer.id,
       date: transfer.transfer_date,
       notes: transfer.notes,
+      polyp_count: transfer.polyp_count,
+      prepared_by: transfer.prepared_by,
+      parent_box_codes: transfer.parent_box_codes,
       source_organization: box.organization,
       target_organization: targetOrganization,
     },
@@ -1526,15 +1768,43 @@ function buildTransferExportData(
       thermal_zone: box.thermal_zone,
       latest_measurement: box.latest_measurement,
       latest_salinity_psu: box.latest_salinity_psu,
+      origin: transfer.origin,
       qr_scan_url: new URL(`/bac/${box.id}/`, window.location.origin).href,
     },
   };
 }
 
-function downloadTransferJson(preparedTransfer: PreparedTransfer) {
-  const fileName = `transfert_${sanitizeFilePart(preparedTransfer.box.global_code)}_${preparedTransfer.transfer.transfer_date}.json`;
-  const blob = new Blob([`${JSON.stringify(preparedTransfer.exportData, null, 2)}\n`], {
-    type: 'application/json;charset=utf-8',
+function downloadTransferCsv(preparedTransfer: PreparedTransfer, useFrenchHeaders: boolean) {
+  const { transfer, box } = preparedTransfer.exportData;
+  const columns: Array<[string, string, unknown]> = [
+    ['format', 'Format', preparedTransfer.exportData.format],
+    ['transfer_id', 'Identifiant transfert', transfer.id],
+    ['transfer_date', 'Date transfert', transfer.date],
+    ['source_organization_name', 'Structure expéditrice', transfer.source_organization.name],
+    ['target_organization_name', 'Structure destinataire', transfer.target_organization.name],
+    ['prepared_by', 'Préparateur', transfer.prepared_by],
+    ['transferred_polyp_count', 'Polypes transférés', transfer.polyp_count],
+    ['transfer_notes', 'Notes transfert', transfer.notes],
+    ['source_global_code', 'Code boîte source', box.global_code],
+    ['species_scientific_name', 'Nom scientifique', box.species.scientific_name],
+    ['species_common_name', 'Nom commun', box.species.common_name],
+    ['species_code', 'Code espèce', box.species.genus_species_code],
+    ['strain_code', 'Code souche', box.strain.code],
+    ['strain_origin_code', 'Code origine souche', box.strain.origin_code],
+    ['origin_institution', 'Institution origine', box.origin?.institution],
+    ['parent_box_codes', 'Boîtes parentes', transfer.parent_box_codes.join('|')],
+    ['target_temperature_c', 'Température consigne (°C)', box.thermal_zone?.target_temperature_c],
+    ['latest_culture_status', 'État culture', box.latest_measurement?.culture_status],
+    ['latest_salinity_psu', 'Salinité (PSU)', box.latest_salinity_psu],
+    ['latest_notes', 'Notes dernier relevé', box.latest_measurement?.notes],
+    ['source_qr_url', 'Lien QR source', box.qr_scan_url],
+  ];
+  const csv = `${columns.map(([technical, french]) => csvCell(useFrenchHeaders ? french : technical)).join(',')}\r\n${columns
+    .map(([, , value]) => csvCell(value))
+    .join(',')}\r\n`;
+  const fileName = `transfert_${sanitizeFilePart(preparedTransfer.box.global_code)}_${preparedTransfer.transfer.transfer_date}.csv`;
+  const blob = new Blob([`\uFEFF${csv}`], {
+    type: 'text/csv;charset=utf-8',
   });
   const objectUrl = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -1544,6 +1814,12 @@ function downloadTransferJson(preparedTransfer: PreparedTransfer) {
   link.click();
   link.remove();
   URL.revokeObjectURL(objectUrl);
+}
+
+function csvCell(value: unknown) {
+  if (value == null) return '';
+  const text = String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 function sanitizeFilePart(value: string) {
@@ -2049,6 +2325,7 @@ export default function AdminView({
           onCreateTransfer={onCreateTransfer}
           t={t}
         />
+        <TransferImportForm profile={profile} zones={zones} boxes={boxes} t={t} />
       </section>
 
       <AdminAuditLogSection t={t} />

@@ -20,6 +20,7 @@ from apps.cultures.api_views import (
     BoxMoveAPIView,
     BoxSubcultureCreateAPIView,
     BoxTransferCreateAPIView,
+    BoxTransferImportAPIView,
     DashboardAPIView,
     HealthAPIView,
     OverviewActiveBoxesAPIView,
@@ -92,6 +93,7 @@ urlpatterns = [
     ),
     path("probes/", ProbeCreateAPIView.as_view(), name="api_probe_create"),
     path("box-transfers/", BoxTransferCreateAPIView.as_view(), name="api_box_transfer_create"),
+    path("box-transfer-imports/", BoxTransferImportAPIView.as_view(), name="api_box_transfer_import"),
     path("organizations/", OrganizationCreateAPIView.as_view(), name="api_organization_create"),
     path("organizations/<int:pk>/", OrganizationDetailAPIView.as_view(), name="api_organization_detail"),
     path(

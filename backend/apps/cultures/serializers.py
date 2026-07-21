@@ -657,10 +657,24 @@ class BoxTransferCreateSerializer(serializers.ModelSerializer):
     to_organization = serializers.PrimaryKeyRelatedField(
         queryset=Organization.objects.filter(is_active=True)
     )
+    polyp_count = serializers.IntegerField(min_value=1)
+    prepared_by = serializers.SerializerMethodField(read_only=True)
+    parent_box_codes = serializers.SerializerMethodField(read_only=True)
+    origin = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = BoxTransfer
-        fields = ["id", "box", "to_organization", "transfer_date", "notes"]
+        fields = [
+            "id",
+            "box",
+            "to_organization",
+            "transfer_date",
+            "polyp_count",
+            "notes",
+            "prepared_by",
+            "parent_box_codes",
+            "origin",
+        ]
         extra_kwargs = {"transfer_date": {"required": False}}
 
     def validate(self, attrs):
@@ -669,6 +683,28 @@ class BoxTransferCreateSerializer(serializers.ModelSerializer):
                 {"to_organization": "La structure cible doit différer de la structure actuelle."}
             )
         return attrs
+
+    def get_prepared_by(self, obj):
+        if not obj.user:
+            return None
+        return obj.user.get_full_name().strip() or obj.user.get_username()
+
+    def get_parent_box_codes(self, obj):
+        return list(
+            obj.box.parent_lineages.order_by("parent_box__global_code").values_list(
+                "parent_box__global_code", flat=True
+            )
+        )
+
+    def get_origin(self, obj):
+        origin = obj.box.origin or obj.box.strain.origin
+        if not origin:
+            return None
+        return {
+            "source_type": origin.source_type,
+            "institution": origin.origin_institution_name,
+            "description": origin.description,
+        }
 
 
 class UserPreferenceSerializer(serializers.ModelSerializer):

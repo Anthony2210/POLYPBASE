@@ -254,6 +254,8 @@ class BoxTransfer(models.Model):
         related_name="incoming_box_transfers",
     )
     transfer_date = models.DateField(default=timezone.localdate)
+    # Nullable for historical transfers; the API requires it for every new one.
+    polyp_count = models.PositiveIntegerField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PLANNED)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     notes = models.TextField(blank=True)
@@ -263,3 +265,40 @@ class BoxTransfer(models.Model):
 
     def __str__(self):
         return f"{self.box} from {self.from_organization} to {self.to_organization}"
+
+
+class BoxTransferImport(models.Model):
+    format_version = models.CharField(max_length=80)
+    source_transfer_id = models.CharField(max_length=120)
+    source_organization_name = models.CharField(max_length=180)
+    source_global_code = models.CharField(max_length=100)
+    destination_organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="box_transfer_imports",
+    )
+    created_box = models.OneToOneField(
+        Box,
+        on_delete=models.PROTECT,
+        related_name="transfer_import",
+    )
+    imported_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="box_transfer_imports",
+    )
+    imported_at = models.DateTimeField(auto_now_add=True)
+    source_data = models.JSONField(default=dict)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["format_version", "source_organization_name", "source_transfer_id"],
+                name="unique_imported_box_transfer",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.source_global_code} -> {self.created_box.global_code}"

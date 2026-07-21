@@ -448,6 +448,7 @@ class AdminResourceCreationApiTests(TestCase):
             {
                 "box": self.box.id,
                 "to_organization": self.other_organization.id,
+                "polyp_count": 50,
                 "notes": "Envoi convenu par mail",
             },
         )
@@ -468,7 +469,7 @@ class AdminResourceCreationApiTests(TestCase):
 
         response = self.post(
             "api_box_transfer_create",
-            {"box": self.box.id, "to_organization": self.organization.id},
+            {"box": self.box.id, "to_organization": self.organization.id, "polyp_count": 50},
         )
 
         self.assertEqual(response.status_code, 400)
@@ -479,7 +480,7 @@ class AdminResourceCreationApiTests(TestCase):
 
         response = self.post(
             "api_box_transfer_create",
-            {"box": self.box.id, "to_organization": self.other_organization.id},
+            {"box": self.box.id, "to_organization": self.other_organization.id, "polyp_count": 50},
         )
 
         self.assertEqual(response.status_code, 403)
