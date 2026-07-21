@@ -9,6 +9,7 @@ from apps.accounts.api_views import (
     UserProfileAPIView,
 )
 from apps.cultures.api_views import (
+    AlertResolveAPIView,
     BoxAccessAPIView,
     BoxActivateAPIView,
     BoxArchiveAPIView,
@@ -94,6 +95,7 @@ urlpatterns = [
     path("probes/", ProbeCreateAPIView.as_view(), name="api_probe_create"),
     path("box-transfers/", BoxTransferCreateAPIView.as_view(), name="api_box_transfer_create"),
     path("box-transfer-imports/", BoxTransferImportAPIView.as_view(), name="api_box_transfer_import"),
+    path("alerts/<int:pk>/resolve/", AlertResolveAPIView.as_view(), name="api_alert_resolve"),
     path("organizations/", OrganizationCreateAPIView.as_view(), name="api_organization_create"),
     path("organizations/<int:pk>/", OrganizationDetailAPIView.as_view(), name="api_organization_detail"),
     path(

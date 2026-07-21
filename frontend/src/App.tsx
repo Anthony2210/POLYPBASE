@@ -290,6 +290,11 @@ const translations = {
     adminTransferImportZone: 'Emplacement destinataire',
     adminTransferImportCode: 'Nouveau code de boîte',
     adminTransferImportCodeHint: 'Le code proposé est modifiable, mais il doit rester unique.',
+    adminTransferImportCodeExists: 'Ce code est déjà utilisé.',
+    adminTransferImportUseSuggestion: 'Utiliser la suggestion',
+    adminTransferImportMissing: 'Le CSV ne contient pas tous les champs obligatoires',
+    adminTransferImportOpenBox: 'Ouvrir la nouvelle boîte',
+    adminTransferImportExample: 'Télécharger un exemple de CSV',
     adminTransferImportNumber: 'Nouveau numéro de boîte',
     adminTransferImportAction: 'Importer et créer la boîte',
     adminTransferImportConfirmTitle: 'Importer ce transfert ?',
@@ -361,6 +366,10 @@ const translations = {
     boxChecksEmptyTitle: 'Aucune alerte active',
     boxChecksIntro: 'Signaux détectés à partir des derniers relevés.',
     boxChecksTitle: 'Alertes de la boîte',
+    alertResolveAction: 'Marquer comme résolue',
+    alertResolveConfirmTitle: 'Résoudre cette alerte ?',
+    alertResolveConfirmMessage: 'L’alerte disparaîtra des alertes actives. Cette action restera dans l’historique.',
+    alertResolveError: 'Impossible de résoudre cette alerte.',
     boxAlertBanner: 'Attention : une alerte a été détectée pour cette boîte.',
     boxAlertBannerAction: 'Voir le détail',
     chartEmpty: 'Pas assez de relevés pour tracer une tendance.',
@@ -762,6 +771,11 @@ const translations = {
     adminTransferImportZone: 'Destination zone',
     adminTransferImportCode: 'New box code',
     adminTransferImportCodeHint: 'The suggested code can be edited, but it must remain unique.',
+    adminTransferImportCodeExists: 'This code is already in use.',
+    adminTransferImportUseSuggestion: 'Use suggestion',
+    adminTransferImportMissing: 'The CSV is missing required fields',
+    adminTransferImportOpenBox: 'Open the new box',
+    adminTransferImportExample: 'Download a sample CSV',
     adminTransferImportNumber: 'New box number',
     adminTransferImportAction: 'Import and create box',
     adminTransferImportConfirmTitle: 'Import this transfer?',
@@ -833,6 +847,10 @@ const translations = {
     boxChecksEmptyTitle: 'No active alert',
     boxChecksIntro: 'Signals detected from the latest measurements.',
     boxChecksTitle: 'Box alerts',
+    alertResolveAction: 'Mark as resolved',
+    alertResolveConfirmTitle: 'Resolve this alert?',
+    alertResolveConfirmMessage: 'The alert will leave the active alerts. This action will remain in the history.',
+    alertResolveError: 'Unable to resolve this alert.',
     boxAlertBanner: 'Warning: an alert has been detected for this box.',
     boxAlertBannerAction: 'View details',
     chartEmpty: 'Not enough measurements to draw a trend.',
@@ -1507,6 +1525,15 @@ export default function App() {
     }));
   }
 
+  async function resolveAlert(boxId: number, alertId: number) {
+    await apiPost<{ id: number; resolved: boolean }>(`/api/alerts/${alertId}/resolve/`, {});
+    const detail = await apiGet<BoxDetail>(`/api/boxes/${boxId}/`);
+    setData((current) => ({
+      ...mergeBoxDetail(current, detail),
+      dashboard: null,
+    }));
+  }
+
   async function loadLineageGraph(boxId: number) {
     return apiGet<LineageGraph>(`/api/boxes/${boxId}/lineage/`);
   }
@@ -1644,6 +1671,7 @@ export default function App() {
                 onMoveBox={moveBox}
                 onArchiveBox={archiveBox}
                 onActivateBox={activateBox}
+                onResolveAlert={resolveAlert}
                 onLoadLineageGraph={loadLineageGraph}
                 onOpenBox={openBox}
                 onOpenZone={openZone}
@@ -2808,6 +2836,7 @@ function BoxPage({
   onMoveBox,
   onArchiveBox,
   onActivateBox,
+  onResolveAlert,
   onLoadLineageGraph,
   onOpenBox,
   onOpenZone,
@@ -2834,6 +2863,7 @@ function BoxPage({
   onMoveBox: (boxId: number, payload: BoxMovePayload) => Promise<void>;
   onArchiveBox: (boxId: number) => Promise<void>;
   onActivateBox: (boxId: number) => Promise<void>;
+  onResolveAlert: (boxId: number, alertId: number) => Promise<void>;
   onLoadLineageGraph: (boxId: number) => Promise<LineageGraph>;
   onOpenBox: (boxId: number, globalCode: string) => void;
   onOpenZone: (zoneId: number) => void;
@@ -2862,6 +2892,8 @@ function BoxPage({
   const [isSavingSubculture, setIsSavingSubculture] = useState(false);
   const [isQrLabelOpen, setIsQrLabelOpen] = useState(false);
   const [isChecksOpen, setIsChecksOpen] = useState(false);
+  const [resolvingAlertId, setResolvingAlertId] = useState<number | null>(null);
+  const [alertResolveError, setAlertResolveError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   // Measurement saved during this visit (enables the "Modifier" button) and the
@@ -3165,6 +3197,27 @@ function BoxPage({
       }
     } finally {
       setIsChangingBoxStatus(false);
+    }
+  }
+
+  async function handleResolveAlert(alert: BoxAlert) {
+    if (!box || resolvingAlertId !== null) return;
+    const confirmed = await confirmAction({
+      title: t('alertResolveConfirmTitle'),
+      message: t('alertResolveConfirmMessage'),
+      confirmLabel: t('alertResolveAction'),
+      cancelLabel: t('confirmCancel'),
+      details: [{ label: t('boxChecksButton'), value: alert.message }],
+    });
+    if (!confirmed) return;
+    setResolvingAlertId(alert.id);
+    setAlertResolveError(null);
+    try {
+      await onResolveAlert(box.id, alert.id);
+    } catch (requestError) {
+      setAlertResolveError(getErrorMessage(requestError) || t('alertResolveError'));
+    } finally {
+      setResolvingAlertId(null);
     }
   }
 
@@ -3560,8 +3613,12 @@ function BoxPage({
             activeAlerts={activeAlerts}
             polypDropCount={polypDropCount}
             polypDropDetected={showLocalPolypDrop}
+            canResolve={canWriteLabData}
+            resolvingAlertId={resolvingAlertId}
+            resolveError={alertResolveError}
             t={t}
             onClose={() => setIsChecksOpen(false)}
+            onResolve={handleResolveAlert}
           />
         ) : null}
 
@@ -3679,14 +3736,22 @@ function BoxChecksModal({
   activeAlerts,
   polypDropCount,
   polypDropDetected,
+  canResolve,
+  resolvingAlertId,
+  resolveError,
   t,
   onClose,
+  onResolve,
 }: {
   activeAlerts: BoxAlert[];
   polypDropCount: number;
   polypDropDetected: boolean;
+  canResolve: boolean;
+  resolvingAlertId: number | null;
+  resolveError: string | null;
   t: TFunction;
   onClose: () => void;
+  onResolve: (alert: BoxAlert) => Promise<void>;
 }) {
   const hasAlerts = activeAlerts.length > 0 || polypDropDetected;
 
@@ -3716,9 +3781,21 @@ function BoxChecksModal({
                 <small>{formatDisplayDate(alert.created_at)}</small>
                 <strong>{getAlertTypeLabel(alert.alert_type, t)}</strong>
                 <p>{alert.message}</p>
+                {canResolve ? (
+                  <button
+                    className="alert-resolve-button"
+                    type="button"
+                    disabled={resolvingAlertId !== null}
+                    onClick={() => void onResolve(alert)}
+                  >
+                    {resolvingAlertId === alert.id ? t('saving') : t('alertResolveAction')}
+                  </button>
+                ) : null}
               </div>
             </article>
           ))}
+
+          {resolveError ? <p className="inline-error">{resolveError}</p> : null}
 
           {polypDropDetected ? (
             <article className="box-check-item is-medium">

@@ -618,6 +618,20 @@ button:disabled {
   background: #991b1b;
 }
 
+.alert-resolve-button {
+  margin-top: 0.65rem;
+  border: 1px solid currentColor;
+  border-radius: 0.6rem;
+  background: transparent;
+  color: inherit;
+  font-weight: 750;
+}
+
+.alert-resolve-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
 .recent-panel {
   margin-bottom: 16px;
 }
@@ -6853,6 +6867,42 @@ button.zone-attention-item:hover {
   border-radius: 8px;
   background: #ffffff;
   color: var(--ink);
+}
+
+.transfer-import-preview {
+  grid-column: 1 / -1;
+  padding: 1rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 0.85rem;
+  background: var(--surface-soft);
+}
+
+.transfer-import-preview dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem 1rem;
+  margin: 0.75rem 0 0;
+}
+
+.transfer-import-preview dl > div {
+  min-width: 0;
+}
+
+.transfer-import-preview dt {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.transfer-import-preview dd {
+  margin: 0.15rem 0 0;
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.admin-transfer-open-box {
+  display: inline-flex;
+  align-items: center;
+  font-weight: 800;
 }
 
 .admin-form textarea,
