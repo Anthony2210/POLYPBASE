@@ -70,7 +70,7 @@ import {
   parsePositiveDecimal,
 } from './utils/stepValue';
 import { triggerHaptic } from './utils/haptics';
-import { getBoxQrImageUrl, getBoxScanUrl, printQrLabels, type QrLabelItem } from './utils/qrLabels';
+import { getBoxQrImageUrl, getBoxScanUrl, type QrLabelItem } from './utils/qrLabels';
 
 // Boxes are filtered client-side, so the whole collection must be loaded.
 // Kept well above the current box count to leave room for growth.
@@ -475,18 +475,47 @@ const translations = {
     prototype: 'prototype',
     qrCode: 'QR code',
     qrLabelAddToSelection: 'Ajouter à la sélection',
+    qrLabelAllFilter: 'Toutes',
     qrLabelAlreadySelected: 'Déjà dans la sélection',
+    qrLabelAvailableCount: 'imprimables',
     qrLabelClearSelection: 'Vider',
+    qrLabelColumns: 'Colonnes',
     qrLabelDownload: 'Télécharger',
+    qrLabelEligibleRule: 'Actives avec un relevé en',
+    qrLabelExcludedCount: 'masquées',
+    qrLabelFont: 'Police',
+    qrLabelHeight: 'Hauteur (mm)',
     qrLabelHelp: 'Étiquette prête à imprimer et coller sur la boîte.',
+    qrLabelLandscape: 'Paysage',
+    qrLabelNoEligibleBoxes: 'Aucune boîte active avec un relevé cette année.',
+    qrLabelOptimize: 'Optimiser la feuille',
+    qrLabelOrientation: 'Orientation',
+    qrLabelPage: 'Page',
+    qrLabelPerPage: 'par feuille',
+    qrLabelPortrait: 'Portrait',
+    qrLabelPreview: 'Rendu de la feuille',
     qrLabelPrintSelection: 'Imprimer la sélection',
+    qrLabelQrSize: 'Taille QR',
+    qrLabelSearchTitle: 'Rechercher une boîte',
+    qrLabelSelectionAll: 'Toutes les boîtes',
     qrLabelSelectionCount: 'étiquette(s) sélectionnée(s)',
     qrLabelSelectionEmpty: 'Aucune étiquette sélectionnée.',
-    qrLabelSelectionHelp: 'Ajoutez des boîtes depuis leur fiche ou depuis la recherche ci-dessous, puis imprimez-les sur une même feuille.',
+    qrLabelSelectionFilter: 'Sélection',
+    qrLabelSelectionHelp: 'Sélectionnez les boîtes, vérifiez la planche, puis imprimez.',
+    qrLabelSelectionOnlySelected: 'Déjà sélectionnées',
+    qrLabelSelectionOnlyToAdd: 'À ajouter',
     qrLabelSelectionSearch: 'Ajouter une boîte',
+    qrLabelSelectedFilter: 'Sélectionnées',
+    qrLabelSelectedTitle: 'Sélection prête',
     qrLabelSelectionTitle: 'Sélection d’étiquettes',
+    qrLabelSettingsTitle: 'Mise en page',
     qrLabelTitle: 'Étiquette QR code',
     qrLabelViewSelection: 'Voir la sélection',
+    qrLabelShowSpecies: 'Afficher l’espèce',
+    qrLabelSpeciesSize: 'Taille espèce',
+    qrLabelTextSize: 'Taille code',
+    qrLabelToAddFilter: 'À ajouter',
+    qrLabelWidth: 'Largeur (mm)',
     qrDownload: 'Télécharger',
     qrScanHint: 'Scannez pour ouvrir cette fiche',
     qrScannerFound: 'Boîte détectée',
@@ -559,6 +588,7 @@ const translations = {
     zoneEditCapacityAction: 'Modifier capacité',
     zoneEditTitle: 'Paramètres de l’emplacement',
     zoneTarget: 'Consigne',
+    zoneLabel: 'Emplacement',
     zoneCapacity: 'Capacité',
     zoneSalinity: 'Salinité',
     zoneSalinityMissing: 'Salinité manquante',
@@ -956,18 +986,47 @@ const translations = {
     prototype: 'prototype',
     qrCode: 'QR code',
     qrLabelAddToSelection: 'Add to selection',
+    qrLabelAllFilter: 'All',
     qrLabelAlreadySelected: 'Already selected',
+    qrLabelAvailableCount: 'printable',
     qrLabelClearSelection: 'Clear',
+    qrLabelColumns: 'Columns',
     qrLabelDownload: 'Download',
+    qrLabelEligibleRule: 'Active with a reading in',
+    qrLabelExcludedCount: 'hidden',
+    qrLabelFont: 'Font',
+    qrLabelHeight: 'Height (mm)',
     qrLabelHelp: 'Label ready to print and attach to the box.',
+    qrLabelLandscape: 'Landscape',
+    qrLabelNoEligibleBoxes: 'No active box with a reading this year.',
+    qrLabelOptimize: 'Optimize sheet',
+    qrLabelOrientation: 'Orientation',
+    qrLabelPage: 'Page',
+    qrLabelPerPage: 'per sheet',
+    qrLabelPortrait: 'Portrait',
+    qrLabelPreview: 'Sheet preview',
     qrLabelPrintSelection: 'Print selection',
+    qrLabelQrSize: 'QR size',
+    qrLabelSearchTitle: 'Search a box',
+    qrLabelSelectionAll: 'All boxes',
     qrLabelSelectionCount: 'selected label(s)',
     qrLabelSelectionEmpty: 'No label selected.',
-    qrLabelSelectionHelp: 'Add boxes from their sheet or from the search below, then print them on the same sheet.',
+    qrLabelSelectionFilter: 'Selection',
+    qrLabelSelectionHelp: 'Select boxes, check the sheet, then print.',
+    qrLabelSelectionOnlySelected: 'Already selected',
+    qrLabelSelectionOnlyToAdd: 'To add',
     qrLabelSelectionSearch: 'Add a box',
+    qrLabelSelectedFilter: 'Selected',
+    qrLabelSelectedTitle: 'Ready selection',
     qrLabelSelectionTitle: 'Label selection',
+    qrLabelSettingsTitle: 'Layout',
     qrLabelTitle: 'QR code label',
     qrLabelViewSelection: 'View selection',
+    qrLabelShowSpecies: 'Show species',
+    qrLabelSpeciesSize: 'Species size',
+    qrLabelTextSize: 'Code size',
+    qrLabelToAddFilter: 'To add',
+    qrLabelWidth: 'Width (mm)',
     qrDownload: 'Download',
     qrScanHint: 'Scan to open this sheet',
     qrScannerFound: 'Box detected',
@@ -1038,6 +1097,7 @@ const translations = {
     zoneEditCapacityAction: 'Edit capacity',
     zoneEditTitle: 'Location settings',
     zoneTarget: 'Target',
+    zoneLabel: 'Location',
     zoneCapacity: 'Capacity',
     zoneSalinity: 'Salinity',
     zoneSalinityMissing: 'Salinity not set',
@@ -1357,10 +1417,6 @@ export default function App() {
 
   function removeQrLabelFromSelection(labelId: number) {
     setQrLabelSelection((current) => current.filter((label) => label.id !== labelId));
-  }
-
-  function printQrLabelSelection() {
-    printQrLabels(qrLabelSelection);
   }
 
   function openQrLabelSelection() {
@@ -1773,7 +1829,6 @@ export default function App() {
                 qrLabelSelection={qrLabelSelection}
                 onAddQrLabel={addQrLabelToSelection}
                 onClearQrLabelSelection={clearQrLabelSelection}
-                onPrintQrLabelSelection={printQrLabelSelection}
                 onRemoveQrLabel={removeQrLabelFromSelection}
               />
             )}
@@ -3918,16 +3973,21 @@ function getProfileLabels(t: TFunction) {
 
 function getLabelsViewLabels(t: TFunction) {
   return {
+    allZones: t('zoneFilterAll'),
     noZone: t('noZone'),
     qrLabelAddToSelection: t('qrLabelAddToSelection'),
     qrLabelClearSelection: t('qrLabelClearSelection'),
+    qrLabelNoEligibleBoxes: t('qrLabelNoEligibleBoxes'),
+    qrLabelPage: t('qrLabelPage'),
+    qrLabelPerPage: t('qrLabelPerPage'),
+    qrLabelPreview: t('qrLabelPreview'),
     qrLabelPrintSelection: t('qrLabelPrintSelection'),
-    qrLabelSelectionCount: t('qrLabelSelectionCount'),
-    qrLabelSelectionEmpty: t('qrLabelSelectionEmpty'),
-    qrLabelSelectionHelp: t('qrLabelSelectionHelp'),
+    qrLabelSearchTitle: t('qrLabelSearchTitle'),
     qrLabelSelectionSearch: t('qrLabelSelectionSearch'),
     qrLabelSelectionTitle: t('qrLabelSelectionTitle'),
     qrLabelSearchPlaceholder: t('adminPrintLabelsSearchPlaceholder'),
+    qrLabelSettingsTitle: t('qrLabelSettingsTitle'),
+    zoneLabel: t('zoneLabel'),
   };
 }
 
