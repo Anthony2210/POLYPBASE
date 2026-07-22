@@ -201,6 +201,11 @@ else:
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
 
+# Lifetime of a "forgot password" link. Django's default is 3 days, which is a
+# long window for a link that grants account access; one hour is enough to read
+# an email and still limits exposure if the mailbox is compromised later.
+PASSWORD_RESET_TIMEOUT = int(os.getenv("DJANGO_PASSWORD_RESET_TIMEOUT", "3600"))
+
 AUTH_PASSWORD_VALIDATORS = [
     {
         'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
