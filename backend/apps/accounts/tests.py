@@ -3,6 +3,7 @@ from django.core import mail
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
+from apps.audit.models import AuditLog
 from apps.organizations.models import Organization
 
 from .models import OrganizationMembership, UserPreference
@@ -162,6 +163,15 @@ class AccountMemberManagementTests(TestCase):
         self.assertEqual(membership.user.last_name, "MBAPPÉ")
         self.assertEqual(response.json()["full_name"], "Kylian MBAPPÉ")
 
+        log = AuditLog.objects.get(
+            action=AuditLog.Action.CREATION,
+            object_type="account",
+            object_id="newtech",
+        )
+        self.assertEqual(log.organization, self.paris)
+        self.assertEqual(log.user, self.admin)
+        self.assertEqual(log.metadata["valeurs"]["role"], OrganizationMembership.Role.LAB_TECHNICIAN)
+
     def test_admin_creates_new_member_with_generated_password(self):
         self.client.login(username="admin", password="secret")
 
@@ -221,6 +231,21 @@ class AccountMemberManagementTests(TestCase):
         self.assertEqual(response.status_code, 200)
         membership.refresh_from_db()
         self.assertEqual(membership.role, OrganizationMembership.Role.ADMIN)
+
+        log = AuditLog.objects.get(
+            action=AuditLog.Action.UPDATE,
+            object_type="account",
+            object_id=self.viewer.username,
+        )
+        self.assertEqual(log.organization, self.paris)
+        self.assertEqual(
+            log.metadata["modifications"]["role"]["avant"],
+            OrganizationMembership.Role.VIEWER,
+        )
+        self.assertEqual(
+            log.metadata["modifications"]["role"]["apres"],
+            OrganizationMembership.Role.ADMIN,
+        )
 
     def test_admin_cannot_change_own_role(self):
         self.client.login(username="admin", password="secret")
