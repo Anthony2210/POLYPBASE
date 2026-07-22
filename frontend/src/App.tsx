@@ -16,6 +16,7 @@ import { useConfirmAction, type ConfirmActionOptions } from './components/Confir
 import ExportsView from './components/ExportsView';
 import LabelsView from './components/LabelsView';
 import LoginPage from './components/LoginPage';
+import PasswordResetPage from './components/PasswordResetPage';
 import LoginNotice from './components/LoginNotice';
 import MeasurementSaveButton from './components/MeasurementSaveButton';
 import MoveBoxModal from './components/MoveBoxModal';
@@ -1248,6 +1249,9 @@ const desktopTabs: TabId[] = ['pilotage', 'overview', 'zones', 'exports', 'label
 export default function App() {
   const [route, setRoute] = useState<RouteState>(() => getCurrentRoute());
   const [isLoginRoute, setIsLoginRoute] = useState(() => window.location.pathname === '/login');
+  // Reached from the link emailed by the "forgot password" flow, so it has to
+  // render before any authentication check.
+  const [passwordReset, setPasswordReset] = useState(() => getPasswordResetRoute());
   const [search, setSearch] = useState('');
   const [recentBoxIds, setRecentBoxIds] = useState<number[]>([]);
   const [qrLabelSelection, setQrLabelSelection] = useState<QrLabelItem[]>([]);
@@ -1764,6 +1768,20 @@ export default function App() {
     setRoute(getCurrentRoute());
     setError(null);
     setIsLoginRoute(false);
+  }
+
+  if (passwordReset) {
+    return (
+      <PasswordResetPage
+        uid={passwordReset.uid}
+        token={passwordReset.token}
+        onDone={() => {
+          window.history.replaceState(null, '', '/login');
+          setPasswordReset(null);
+          setIsLoginRoute(true);
+        }}
+      />
+    );
   }
 
   if (isLoginRoute) {
@@ -4422,6 +4440,21 @@ function getTitle(tab: TabId, t: TFunction) {
   if (tab === 'labels') return t('labelsTitle');
   if (tab === 'admin') return t('adminTitle');
   return t('profileTitle');
+}
+
+/**
+ * Reads /reset-password/<uid>/<token>, the address carried by the email sent by
+ * the "forgot password" flow. Returns null on any other page. The two parts are
+ * handed to the API untouched; it is what decides whether they are still valid.
+ */
+function getPasswordResetRoute(): { uid: string; token: string } | null {
+  const segments = window.location.pathname.split('/').filter(Boolean);
+  if (segments.length !== 3 || segments[0] !== 'reset-password') return null;
+
+  const [, uid, token] = segments;
+  if (!uid || !token) return null;
+
+  return { uid: decodeURIComponent(uid), token: decodeURIComponent(token) };
 }
 
 function getCurrentRoute(): RouteState {

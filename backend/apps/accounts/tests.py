@@ -1,7 +1,13 @@
+from datetime import datetime, timedelta
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
+from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
+from django.utils.encoding import force_bytes
+from django.utils.http import urlsafe_base64_encode
 
 from apps.audit.models import AuditLog
 from apps.organizations.models import Organization
@@ -261,3 +267,142 @@ class AccountMemberManagementTests(TestCase):
         self.assertEqual(response.status_code, 403)
         membership.refresh_from_db()
         self.assertEqual(membership.role, OrganizationMembership.Role.ADMIN)
+
+
+class PasswordResetTests(TestCase):
+    """The "forgot password" flow reachable from the login page."""
+
+    def setUp(self):
+        user_model = get_user_model()
+        self.user = user_model.objects.create_user(
+            username="biologiste",
+            email="bio@example.org",
+            password="ancien-mot-de-passe",
+        )
+
+    def request_reset(self, email):
+        return self.client.post(
+            reverse("api_password_reset_request"),
+            data={"email": email},
+            content_type="application/json",
+        )
+
+    def confirm_reset(self, uid, token, password):
+        return self.client.post(
+            reverse("api_password_reset_confirm"),
+            data={"uid": uid, "token": token, "password": password},
+            content_type="application/json",
+        )
+
+    def make_link_parts(self, user=None):
+        target = user or self.user
+        return (
+            urlsafe_base64_encode(force_bytes(target.pk)),
+            default_token_generator.make_token(target),
+        )
+
+    def test_known_address_receives_a_reset_link(self):
+        response = self.request_reset("bio@example.org")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("/reset-password/", mail.outbox[0].body)
+        self.assertEqual(mail.outbox[0].to, ["bio@example.org"])
+
+    def test_address_is_matched_regardless_of_case(self):
+        response = self.request_reset("BIO@Example.ORG")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_unknown_address_answers_the_same_and_sends_nothing(self):
+        # A different status or message would let anyone probe which addresses
+        # have an account, so the response must be indistinguishable.
+        known = self.request_reset("bio@example.org")
+        mail.outbox.clear()
+        unknown = self.request_reset("personne@example.org")
+
+        self.assertEqual(unknown.status_code, known.status_code)
+        self.assertEqual(unknown.content, known.content)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_inactive_account_receives_nothing(self):
+        self.user.is_active = False
+        self.user.save(update_fields=["is_active"])
+
+        response = self.request_reset("bio@example.org")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_valid_link_sets_the_new_password(self):
+        uid, token = self.make_link_parts()
+
+        response = self.confirm_reset(uid, token, "un-mot-de-passe-solide-42")
+
+        self.assertEqual(response.status_code, 204)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("un-mot-de-passe-solide-42"))
+        self.assertTrue(
+            AuditLog.objects.filter(
+                user=self.user,
+                object_type="account",
+                object_id="biologiste",
+            ).exists()
+        )
+
+    def test_link_cannot_be_used_twice(self):
+        uid, token = self.make_link_parts()
+        self.confirm_reset(uid, token, "un-mot-de-passe-solide-42")
+
+        # Changing the password changes the hash the token derives from.
+        response = self.confirm_reset(uid, token, "encore-un-autre-mdp-77")
+
+        self.assertEqual(response.status_code, 400)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("un-mot-de-passe-solide-42"))
+
+    def test_tampered_token_is_refused(self):
+        uid, _token = self.make_link_parts()
+
+        response = self.confirm_reset(uid, "pas-un-vrai-token", "un-mot-de-passe-solide-42")
+
+        self.assertEqual(response.status_code, 400)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("ancien-mot-de-passe"))
+
+    def test_expired_link_is_refused(self):
+        uid, token = self.make_link_parts()
+
+        # The link is checked two hours later, past the one-hour lifetime.
+        # (A timeout of 0 would not do: a token minted in the same second is
+        # still "0 seconds old", which is not *greater* than the limit.)
+        later = datetime.now() + timedelta(hours=2)
+        with override_settings(PASSWORD_RESET_TIMEOUT=3600), patch.object(
+            type(default_token_generator), "_now", return_value=later
+        ):
+            response = self.confirm_reset(uid, token, "un-mot-de-passe-solide-42")
+
+        self.assertEqual(response.status_code, 400)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("ancien-mot-de-passe"))
+
+    def test_weak_password_is_refused_and_reports_why(self):
+        uid, token = self.make_link_parts()
+
+        response = self.confirm_reset(uid, token, "1234")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("password", response.json())
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("ancien-mot-de-passe"))
+
+    def test_new_password_allows_login(self):
+        uid, token = self.make_link_parts()
+        self.confirm_reset(uid, token, "un-mot-de-passe-solide-42")
+
+        logged_in = self.client.login(
+            username="biologiste", password="un-mot-de-passe-solide-42"
+        )
+
+        self.assertTrue(logged_in)

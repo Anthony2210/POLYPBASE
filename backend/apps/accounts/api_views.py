@@ -2,6 +2,9 @@ import re
 
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login, logout
+from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.tokens import default_token_generator
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.mail import send_mail
 from django.db import transaction
 from django.db.models import Count
@@ -9,6 +12,8 @@ from django.utils import translation
 from django.utils.crypto import get_random_string
 from django.utils.dateparse import parse_date
 from django.utils.decorators import method_decorator
+from django.utils.encoding import force_bytes
+from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -66,6 +71,108 @@ class SessionLogoutAPIView(APIView):
     def post(self, request):
         logout(request)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@method_decorator(ensure_csrf_cookie, name="dispatch")
+@method_decorator(csrf_protect, name="dispatch")
+class PasswordResetRequestAPIView(APIView):
+    """Email a reset link to whoever owns the address.
+
+    The answer is deliberately identical whether or not an account exists: a
+    different response would let anyone probe which addresses are registered.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        return Response({"detail": "CSRF cookie set."})
+
+    def post(self, request):
+        email = str(request.data.get("email", "")).strip()
+
+        if email:
+            # An address could in theory be shared by several accounts; each one
+            # gets its own link. Inactive accounts are skipped.
+            for user in get_user_model().objects.filter(email__iexact=email, is_active=True):
+                self._send_reset_link(user)
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _send_reset_link(self, user):
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = default_token_generator.make_token(user)
+        # PUBLIC_BASE_URL points at the React app, not at Django: the link must
+        # open the reset screen, not a bare server-rendered page.
+        link = f"{settings.PUBLIC_BASE_URL}/reset-password/{uid}/{token}"
+        message = (
+            "Bonjour,\n\n"
+            "Vous avez demande la reinitialisation de votre mot de passe Polypbase.\n"
+            f"Identifiant : {user.get_username()}\n\n"
+            f"Cliquez sur ce lien pour choisir un nouveau mot de passe :\n{link}\n\n"
+            "Ce lien est valable un temps limite et ne peut servir qu'une fois.\n"
+            "Si vous n'etes pas a l'origine de cette demande, ignorez ce message : "
+            "votre mot de passe reste inchange.\n"
+        )
+        send_mail(
+            "Reinitialisation de votre mot de passe Polypbase",
+            message,
+            settings.DEFAULT_FROM_EMAIL,
+            [user.email],
+            fail_silently=True,
+        )
+
+
+@method_decorator(ensure_csrf_cookie, name="dispatch")
+@method_decorator(csrf_protect, name="dispatch")
+class PasswordResetConfirmAPIView(APIView):
+    """Set a new password from a link produced by the request endpoint."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        return Response({"detail": "CSRF cookie set."})
+
+    def post(self, request):
+        uid = str(request.data.get("uid", ""))
+        token = str(request.data.get("token", ""))
+        password = str(request.data.get("password", ""))
+
+        user = self._get_user(uid)
+        if user is None or not default_token_generator.check_token(user, token):
+            return Response(
+                {"detail": "Ce lien est invalide ou a expire. Demandez-en un nouveau."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            validate_password(password, user)
+        except DjangoValidationError as error:
+            return Response({"password": list(error.messages)}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.set_password(password)
+        user.save(update_fields=["password"])
+
+        # Saving the new password changes the hash the token is derived from, so
+        # the link stops working here: it can only be used once.
+        AuditLog.objects.create(
+            user=user,
+            action=AuditLog.Action.UPDATE,
+            object_type="account",
+            object_id=user.get_username(),
+            description="Password reset from the login page",
+        )
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _get_user(self, uid):
+        user_model = get_user_model()
+        try:
+            pk = urlsafe_base64_decode(uid).decode()
+            return user_model.objects.get(pk=pk, is_active=True)
+        except (TypeError, ValueError, OverflowError, user_model.DoesNotExist):
+            return None
 
 
 @method_decorator(ensure_csrf_cookie, name="dispatch")
