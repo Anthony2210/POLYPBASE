@@ -44,17 +44,33 @@ type AdminAuditLogEntry = {
   metadata: Record<string, unknown>;
 };
 
-type AdminAuditLogResponse = {
-  results: AdminAuditLogEntry[];
+type AdminAuditActionOption = {
+  value: string;
+  label: string;
+  count: number;
 };
 
+type AdminAuditLogResponse = {
+  results: AdminAuditLogEntry[];
+  limit?: number;
+  offset?: number;
+  has_more?: boolean;
+  next_offset?: number | null;
+  total_count?: number;
+  action_options?: AdminAuditActionOption[];
+};
+
+const ADMIN_AUDIT_PAGE_SIZE = 40;
+
 const ADMIN_FLOW_ITEMS = [
-  { href: '#admin-accounts', label: 'manageAccountsTitle' },
-  { href: '#admin-environment', label: 'adminZonesProbesTitle' },
-  { href: '#admin-organizations', label: 'adminOrganizationsTitle' },
-  { href: '#admin-transfers', label: 'adminTransferTitle' },
-  { href: '#admin-history', label: 'adminAuditTitle' },
-];
+  { key: 'accounts', panelId: 'admin-accounts', label: 'adminTabUsers' },
+  { key: 'environment', panelId: 'admin-environment', label: 'adminTabLocations' },
+  { key: 'organizations', panelId: 'admin-organizations', label: 'adminTabOrganizations' },
+  { key: 'transfers', panelId: 'admin-transfers', label: 'adminTabTransfers' },
+  { key: 'history', panelId: 'admin-history', label: 'adminTabHistory' },
+] as const;
+
+type AdminFlowKey = (typeof ADMIN_FLOW_ITEMS)[number]['key'];
 
 function userHasAdminRole(profile: UserProfile | null) {
   if (!profile) return false;
@@ -87,6 +103,18 @@ function formatFirstName(value: string) {
 
 function formatLastName(value: string) {
   return value.trim().replace(/\s+/g, ' ').toLocaleUpperCase('fr-FR');
+}
+
+function getMemberDisplayName(member: AccountMember) {
+  const displayName = member.full_name.trim();
+  if (!displayName) return member.username;
+
+  const parts = displayName.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) return formatFirstName(parts[0]);
+
+  const lastName = parts[parts.length - 1] ?? '';
+  const firstNames = parts.slice(0, -1).map(formatFirstName).join(' ');
+  return `${firstNames} ${formatLastName(lastName)}`;
 }
 
 function getDigitsOnly(value: string) {
@@ -255,6 +283,9 @@ function AccountManagementSection({ t }: { t: TFunction }) {
   const [formError, setFormError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [rowBusyId, setRowBusyId] = useState<number | null>(null);
+  const [accountSearch, setAccountSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState<MembershipRole | 'all'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
 
   useEffect(() => {
     let isActive = true;
@@ -396,6 +427,33 @@ function AccountManagementSection({ t }: { t: TFunction }) {
     (member) => member.role === 'lab_technician',
   ).length;
   const viewerMemberCount = data.members.filter((member) => member.role === 'viewer').length;
+  const normalizedAccountSearch = accountSearch.trim().toLocaleLowerCase('fr-FR');
+  const filteredMembers = data.members.filter((member) => {
+    const matchesSearch = normalizedAccountSearch
+      ? [
+          member.full_name,
+          member.username,
+          member.email,
+          member.organization.name,
+          member.role_label,
+        ].some((value) => value.toLocaleLowerCase('fr-FR').includes(normalizedAccountSearch))
+      : true;
+    const matchesRole = roleFilter === 'all' || member.role === roleFilter;
+    const matchesStatus =
+      statusFilter === 'all' ||
+      (statusFilter === 'active' ? member.is_active : !member.is_active);
+    return matchesSearch && matchesRole && matchesStatus;
+  });
+
+  function toggleRoleFilter(nextRole: MembershipRole) {
+    setRoleFilter((currentRole) => (currentRole === nextRole ? 'all' : nextRole));
+    setStatusFilter('all');
+  }
+
+  function toggleStatusFilter(nextStatus: 'active' | 'inactive') {
+    setStatusFilter((currentStatus) => (currentStatus === nextStatus ? 'all' : nextStatus));
+    setRoleFilter('all');
+  }
 
   return (
     <section className="admin-section account-management" id="admin-accounts">
@@ -403,31 +461,51 @@ function AccountManagementSection({ t }: { t: TFunction }) {
         <div>
           <h2>{t('manageAccountsTitle')}</h2>
         </div>
-        <span className="account-count">{data.members.length}</span>
       </div>
 
       <div className="account-overview">
-        <article>
+        <button
+          type="button"
+          className={statusFilter === 'active' ? 'account-overview-card is-active' : 'account-overview-card'}
+          onClick={() => toggleStatusFilter('active')}
+        >
           <strong>{activeMemberCount}</strong>
           <span>{t('manageActiveAccounts')}</span>
-        </article>
-        <article>
+        </button>
+        <button
+          type="button"
+          className={roleFilter === 'admin' ? 'account-overview-card is-active' : 'account-overview-card'}
+          onClick={() => toggleRoleFilter('admin')}
+        >
           <strong>{adminMemberCount}</strong>
           <span>{t('manageAdminAccounts')}</span>
-        </article>
-        <article>
+        </button>
+        <button
+          type="button"
+          className={
+            roleFilter === 'lab_technician' ? 'account-overview-card is-active' : 'account-overview-card'
+          }
+          onClick={() => toggleRoleFilter('lab_technician')}
+        >
           <strong>{technicianMemberCount}</strong>
           <span>{t('manageTechnicianAccounts')}</span>
-        </article>
-        <article>
+        </button>
+        <button
+          type="button"
+          className={roleFilter === 'viewer' ? 'account-overview-card is-active' : 'account-overview-card'}
+          onClick={() => toggleRoleFilter('viewer')}
+        >
           <strong>{viewerMemberCount}</strong>
           <span>{t('manageViewerAccounts')}</span>
-        </article>
+        </button>
       </div>
 
       <form className="member-add-form" onSubmit={handleAddMember}>
         <div className="member-add-header">
-          <p className="member-add-title">{t('manageAddTitle')}</p>
+          <div>
+            <p className="member-add-title">{t('manageAddTitle')}</p>
+            <small>{t('manageAddSubtitle')}</small>
+          </div>
           <div className="member-password-flow">
             <strong>{t('manageTemporaryPasswordTitle')}</strong>
             <span>{t('manageTemporaryPasswordText')}</span>
@@ -506,68 +584,135 @@ function AccountManagementSection({ t }: { t: TFunction }) {
       {message ? <p className="inline-success">{message}</p> : null}
       {loadError && data ? <p className="inline-error">{loadError}</p> : null}
 
-      {data.members.length ? (
-        <div className="member-table">
-          <div className="member-table-head">
-            <span>{t('manageColUser')}</span>
-            <span>{t('manageColOrganization')}</span>
-            <span>{t('manageColRole')}</span>
-            <span>{t('manageColLastLogin')}</span>
-            <span>{t('manageColStatus')}</span>
-          </div>
-          {data.members.map((member) => (
-            <div
+      <div className="account-list-toolbar">
+        <label className="account-search-field">
+          <span>{t('manageSearchLabel')}</span>
+          <input
+            type="search"
+            value={accountSearch}
+            placeholder={t('manageSearchPlaceholder')}
+            onChange={(event) => setAccountSearch(event.target.value)}
+          />
+        </label>
+        <label className="account-compact-filter">
+          <span>{t('manageColRole')}</span>
+          <select
+            value={roleFilter}
+            onChange={(event) => {
+              setRoleFilter(event.target.value as MembershipRole | 'all');
+              setStatusFilter('all');
+            }}
+          >
+            <option value="all">{t('manageRoleAll')}</option>
+            {roles.map((roleOption) => (
+              <option key={roleOption.value} value={roleOption.value}>
+                {roleOption.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="account-status-filter" aria-label={t('manageColStatus')}>
+          <button
+            type="button"
+            className={statusFilter === 'all' ? 'is-active' : ''}
+            onClick={() => setStatusFilter('all')}
+          >
+            {t('manageStatusAll')}
+          </button>
+          <button
+            type="button"
+            className={statusFilter === 'active' ? 'is-active' : ''}
+            onClick={() => {
+              setStatusFilter('active');
+              setRoleFilter('all');
+            }}
+          >
+            {t('manageStatusActive')}
+          </button>
+          <button
+            type="button"
+            className={statusFilter === 'inactive' ? 'is-active' : ''}
+            onClick={() => {
+              setStatusFilter('inactive');
+              setRoleFilter('all');
+            }}
+          >
+            {t('manageStatusInactive')}
+          </button>
+        </div>
+        <span className="account-visible-count">
+          {filteredMembers.length} / {data.members.length}
+        </span>
+      </div>
+
+      {filteredMembers.length ? (
+        <div className="member-card-list">
+          {filteredMembers.map((member) => (
+            <article
               key={member.membership_id}
-              className={member.is_active ? 'member-table-row' : 'member-table-row is-inactive'}
+              className={member.is_active ? 'member-card' : 'member-card is-inactive'}
             >
-              <span className="member-identity">
-                <strong>{member.full_name}</strong>
-                <small>
-                  @{member.username}
-                  {member.email ? ` · ${member.email}` : ''}
-                </small>
-              </span>
-              <span>{member.organization.name}</span>
-              <span>
-                <select
-                  value={member.role}
-                  disabled={member.is_self || rowBusyId === member.membership_id}
-                  onChange={(event) =>
-                    handleRoleChange(member, event.target.value as MembershipRole)
-                  }
-                >
-                  {roles.map((roleOption) => (
-                    <option key={roleOption.value} value={roleOption.value}>
-                      {roleOption.label}
-                    </option>
-                  ))}
-                </select>
-              </span>
-              <span className="member-last-login">
-                {member.last_login ? formatDisplayDate(member.last_login) : t('manageNeverConnected')}
-              </span>
-              <span className="member-status">
-                {member.is_self ? (
-                  <em className="member-self-tag">{t('manageStatusSelf')}</em>
-                ) : (
-                  <button
-                    type="button"
-                    className="member-toggle"
-                    disabled={rowBusyId === member.membership_id}
-                    onClick={() => handleToggleActive(member)}
-                  >
-                    {member.is_active ? t('manageDeactivate') : t('manageReactivate')}
-                  </button>
-                )}
-                <span className={member.is_active ? 'member-state is-on' : 'member-state is-off'}>
-                  {member.is_active ? t('manageStatusActive') : t('manageStatusInactive')}
+              <div className="member-card-main">
+                <span className="member-identity">
+                  <strong>{getMemberDisplayName(member)}</strong>
+                  <small>
+                    @{member.username}
+                    {member.email ? ` · ${member.email}` : ''}
+                  </small>
+                  <em>{member.organization.name}</em>
                 </span>
-              </span>
-            </div>
+              </div>
+
+              <div className="member-card-controls">
+                <label className="member-role-field">
+                  <span>{t('manageColRole')}</span>
+                  <select
+                    value={member.role}
+                    disabled={member.is_self || rowBusyId === member.membership_id}
+                    onChange={(event) =>
+                      handleRoleChange(member, event.target.value as MembershipRole)
+                    }
+                  >
+                    {roles.map((roleOption) => (
+                      <option key={roleOption.value} value={roleOption.value}>
+                        {roleOption.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <span className="member-last-login">
+                  <small>{t('manageColLastLogin')}</small>
+                  <strong>
+                    {member.last_login ? formatDisplayDate(member.last_login) : t('manageNeverConnected')}
+                  </strong>
+                </span>
+
+                <span className="member-status">
+                  <span className={member.is_active ? 'member-state is-on' : 'member-state is-off'}>
+                    {member.is_active ? t('manageStatusActive') : t('manageStatusInactive')}
+                  </span>
+                  {member.is_self ? (
+                    <em className="member-self-tag">{t('manageStatusSelf')}</em>
+                  ) : (
+                    <button
+                      type="button"
+                      className="member-toggle"
+                      disabled={rowBusyId === member.membership_id}
+                      onClick={() => handleToggleActive(member)}
+                    >
+                      {member.is_active ? t('manageDeactivate') : t('manageReactivate')}
+                    </button>
+                  )}
+                </span>
+              </div>
+            </article>
           ))}
         </div>
       ) : (
-        <p className="muted compact-text">{t('manageNoMembers')}</p>
+        <p className="muted compact-text">
+          {data.members.length ? t('manageNoFilteredMembers') : t('manageNoMembers')}
+        </p>
       )}
     </section>
   );
@@ -588,6 +733,33 @@ function getAdminOrganizationIds(profile: UserProfile): Set<number> | null {
       .filter((membership) => membership.role === 'admin')
       .map((membership) => membership.organization.id),
   );
+}
+
+function sortAdminZones(a: ThermalZone, b: ThermalZone) {
+  const aTemperature = Number.parseFloat(a.target_temperature_c ?? '');
+  const bTemperature = Number.parseFloat(b.target_temperature_c ?? '');
+  const aRank = Number.isFinite(aTemperature) ? aTemperature : Number.POSITIVE_INFINITY;
+  const bRank = Number.isFinite(bTemperature) ? bTemperature : Number.POSITIVE_INFINITY;
+  if (aRank !== bRank) return aRank - bRank;
+  return a.name.localeCompare(b.name, 'fr-FR');
+}
+
+function formatZoneTemperature(value: string | number | null | undefined) {
+  if (value === null || value === undefined || value === '') return '-';
+  const numericValue = typeof value === 'number' ? value : Number.parseFloat(value);
+  if (!Number.isFinite(numericValue)) return `${value}`;
+  return `${numericValue.toFixed(1)}°C`;
+}
+
+function formatZoneSalinity(value: string | number | null | undefined) {
+  if (value === null || value === undefined || value === '') return '-';
+  const numericValue = typeof value === 'number' ? value : Number.parseFloat(value);
+  if (!Number.isFinite(numericValue)) return `${value}`;
+  return Number.isInteger(numericValue) ? `${numericValue}` : numericValue.toFixed(1);
+}
+
+function getProbeTypeLabel(probeType: string) {
+  return PROBE_TYPE_OPTIONS.find((option) => option.value === probeType)?.label ?? probeType;
 }
 
 function ZoneCreateForm({
@@ -886,16 +1058,35 @@ function ZoneCapacityManager({
   onUpdateZone: (zoneId: number, payload: ThermalZonePayload) => Promise<void>;
   t: TFunction;
 }) {
-  const adminOrgIds = getAdminOrganizationIds(profile);
-  const editableZones = zones.filter((zone) => adminOrgIds === null || adminOrgIds.has(zone.organization.id));
+  const adminOrgIds = useMemo(() => getAdminOrganizationIds(profile), [profile]);
+  const editableZones = useMemo(
+    () =>
+      zones
+        .filter((zone) => adminOrgIds === null || adminOrgIds.has(zone.organization.id))
+        .sort(sortAdminZones),
+    [adminOrgIds, zones],
+  );
   const [drafts, setDrafts] = useState<Record<number, ZoneDraft>>(() => buildZoneDrafts(editableZones));
   const [busyZoneId, setBusyZoneId] = useState<number | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [zoneSearch, setZoneSearch] = useState('');
 
   useEffect(() => {
     setDrafts(buildZoneDrafts(editableZones));
-  }, [zones]);
+  }, [editableZones]);
+
+  const normalizedZoneSearch = zoneSearch.trim().toLocaleLowerCase('fr-FR');
+  const visibleZones = editableZones.filter((zone) => {
+    if (!normalizedZoneSearch) return true;
+    return [
+      zone.name,
+      zone.organization.name,
+      zone.zone_type,
+      zone.target_temperature_c ?? '',
+      `${zone.target_temperature_c ?? ''}°C`,
+    ].some((value) => value.toLocaleLowerCase('fr-FR').includes(normalizedZoneSearch));
+  });
 
   if (!editableZones.length) return null;
 
@@ -933,46 +1124,107 @@ function ZoneCapacityManager({
   }
 
   return (
-    <div className="zone-capacity-manager">
-      <strong>{t('zoneCapacity')}</strong>
-      <div>
-        {editableZones.map((zone) => {
+    <div className="zone-capacity-manager environment-directory">
+      <div className="environment-directory-toolbar">
+        <label className="environment-search-field">
+          <span>{t('manageSearchLabel')}</span>
+          <input
+            type="search"
+            value={zoneSearch}
+            placeholder={t('adminEnvironmentSearchPlaceholder')}
+            onChange={(event) => setZoneSearch(event.target.value)}
+          />
+        </label>
+        <span className="environment-visible-count">
+          {visibleZones.length} / {editableZones.length}
+        </span>
+      </div>
+
+      {visibleZones.length ? (
+        <div className="environment-zone-grid">
+          {visibleZones.map((zone) => {
           // Orange when fewer than 10 slots remain, red once full.
           const occupancy = getZoneOccupancyLevel(zone.box_count, zone.capacity);
+          const probeCount = zone.probes?.length ?? 0;
           return (
-          <div className="zone-capacity-row" key={zone.id}>
-            <span className="zone-capacity-identity">
-              <strong>{zone.name}</strong>
-              <small className={`zone-occupancy is-${occupancy}`}>
-                {zone.box_count}{zone.capacity ? ` / ${zone.capacity}` : ''}
-              </small>
-            </span>
-            <label>
-              <small>{t('adminZoneCapacity')}</small>
-              <ZoneStepField
-                ariaPrefix={`${zone.name} ${t('adminZoneCapacity')}`}
-                step={ZONE_CAPACITY_STEP}
-                value={drafts[zone.id]?.capacity ?? ''}
-                onChange={(next) => updateDraft(zone.id, 'capacity', next)}
-              />
-            </label>
-            <label>
-              <small>{t('adminZoneSalinity')}</small>
-              <ZoneStepField
-                ariaPrefix={`${zone.name} ${t('adminZoneSalinity')}`}
-                step={ZONE_SALINITY_STEP}
-                value={drafts[zone.id]?.salinity ?? ''}
-                onChange={(next) => updateDraft(zone.id, 'salinity', next)}
-                placeholder="35"
-              />
-            </label>
-            <button type="button" disabled={busyZoneId === zone.id} onClick={() => void saveZone(zone)}>
-              {busyZoneId === zone.id ? t('saving') : t('adminSaveZone')}
-            </button>
-          </div>
+            <article className="environment-zone-editor" key={zone.id}>
+              <header className="environment-zone-editor-head">
+                <div>
+                  <span className="environment-zone-type">
+                    {zone.zone_type === 'incubator' ? t('adminZoneTypeIncubator') : t('adminZoneTypeCabinet')}
+                  </span>
+                  <h4>{zone.name}</h4>
+                  <p>{zone.organization.name}</p>
+                </div>
+                <span className={`zone-occupancy is-${occupancy}`}>
+                  {zone.box_count}{zone.capacity ? ` / ${zone.capacity}` : ''}
+                </span>
+              </header>
+
+              <dl className="environment-zone-metrics">
+                <div>
+                  <dt>{t('adminTargetTemperature')}</dt>
+                  <dd>{formatZoneTemperature(zone.target_temperature_c)}</dd>
+                </div>
+                <div>
+                  <dt>{t('adminZoneSalinity')}</dt>
+                  <dd>{formatZoneSalinity(zone.salinity_psu)}</dd>
+                </div>
+                <div>
+                  <dt>{t('adminZoneProbes')}</dt>
+                  <dd>{probeCount}</dd>
+                </div>
+              </dl>
+
+              <div className="environment-probe-list" aria-label={t('adminZoneProbes')}>
+                {probeCount ? (
+                  zone.probes.map((probe) => (
+                    <span key={probe.id} className={probe.is_active ? 'probe-chip' : 'probe-chip is-inactive'}>
+                      <strong>{probe.code}</strong>
+                      <small>{getProbeTypeLabel(probe.probe_type)}</small>
+                    </span>
+                  ))
+                ) : (
+                  <span className="probe-chip is-empty">{t('adminEnvironmentNoProbe')}</span>
+                )}
+              </div>
+
+              <div className="environment-zone-edit-fields">
+                <label>
+                  <small>{t('adminZoneCapacity')}</small>
+                  <ZoneStepField
+                    ariaPrefix={`${zone.name} ${t('adminZoneCapacity')}`}
+                    step={ZONE_CAPACITY_STEP}
+                    value={drafts[zone.id]?.capacity ?? ''}
+                    onChange={(next) => updateDraft(zone.id, 'capacity', next)}
+                  />
+                </label>
+                <label>
+                  <small>{t('adminZoneSalinity')}</small>
+                  <ZoneStepField
+                    ariaPrefix={`${zone.name} ${t('adminZoneSalinity')}`}
+                    step={ZONE_SALINITY_STEP}
+                    value={drafts[zone.id]?.salinity ?? ''}
+                    onChange={(next) => updateDraft(zone.id, 'salinity', next)}
+                    placeholder="35"
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="environment-zone-save"
+                  disabled={busyZoneId === zone.id}
+                  onClick={() => void saveZone(zone)}
+                >
+                  {busyZoneId === zone.id ? t('saving') : t('adminSaveZone')}
+                </button>
+              </div>
+            </article>
           );
         })}
-      </div>
+        </div>
+      ) : (
+        <p className="environment-empty-state">{t('adminEnvironmentNoZoneResults')}</p>
+      )}
       {message ? <p className="inline-success">{message}</p> : null}
       {error ? <p className="inline-error">{error}</p> : null}
     </div>
@@ -1110,6 +1362,77 @@ function OrganizationCreateForm({
   );
 }
 
+type OrganizationNotes = {
+  contactName: string;
+  phone: string;
+  address: string;
+  extraNotes: string;
+};
+
+function parseOrganizationNotes(notes: string): OrganizationNotes {
+  const parsed: OrganizationNotes = {
+    contactName: '',
+    phone: '',
+    address: '',
+    extraNotes: '',
+  };
+  const extraLines: string[] = [];
+
+  notes.split(/\r?\n/).forEach((rawLine) => {
+    const line = rawLine.trim();
+    if (!line) return;
+    const [rawKey, ...rest] = line.split(':');
+    const value = rest.join(':').trim();
+    const key = rawKey.trim().toLocaleLowerCase('fr-FR');
+    if (value && key === 'contact') {
+      parsed.contactName = value;
+      return;
+    }
+    if (value && (key === 'tél' || key === 'tel' || key === 'telephone' || key === 'téléphone')) {
+      parsed.phone = value;
+      return;
+    }
+    if (value && key === 'adresse') {
+      parsed.address = value;
+      return;
+    }
+    extraLines.push(line);
+  });
+
+  parsed.extraNotes = extraLines.join('\n');
+  return parsed;
+}
+
+function getOrganizationLocation(organization: Organization) {
+  return [organization.city, organization.country].filter(Boolean).join(' - ') || '-';
+}
+
+function getOrganizationSearchText(organization: Organization) {
+  const notes = parseOrganizationNotes(organization.notes ?? '');
+  return [
+    organization.name,
+    organization.city,
+    organization.country,
+    organization.contact_email,
+    notes.contactName,
+    notes.phone,
+    notes.address,
+    notes.extraNotes,
+  ]
+    .join(' ')
+    .toLocaleLowerCase('fr-FR');
+}
+
+function PencilIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M15.8 4.8l3.4 3.4" />
+      <path d="M5 19l3.9-.8L19.1 8a2.4 2.4 0 0 0-3.4-3.4L5.6 14.8 5 19z" />
+      <path d="M12.8 7.7l3.5 3.5" />
+    </svg>
+  );
+}
+
 function OrganizationManagementList({
   organizations,
   profile,
@@ -1135,9 +1458,30 @@ function OrganizationManagementList({
   const { confirmAction, confirmActionModal } = useConfirmAction();
   const existingCities = useMemo(() => organizations.map((organization) => organization.city).filter(Boolean), [organizations]);
   const cityOptions = useMemo(() => getCityOptions(country, existingCities), [country, existingCities]);
+  const [organizationSearch, setOrganizationSearch] = useState('');
+  const [countryFilter, setCountryFilter] = useState('all');
+  const canManageOrganizations = userHasAdminRole(profile);
+  const countryOptions = useMemo(
+    () =>
+      Array.from(new Set(organizations.map((organization) => organization.country).filter(Boolean)))
+        .sort((a, b) => a.localeCompare(b, 'fr-FR')),
+    [organizations],
+  );
+  const visibleOrganizations = useMemo(() => {
+    const normalizedSearch = organizationSearch.trim().toLocaleLowerCase('fr-FR');
+    return organizations
+      .filter((organization) => {
+        const matchesSearch = normalizedSearch
+          ? getOrganizationSearchText(organization).includes(normalizedSearch)
+          : true;
+        const matchesCountry = countryFilter === 'all' || organization.country === countryFilter;
+        return matchesSearch && matchesCountry;
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, 'fr-FR'));
+  }, [countryFilter, organizationSearch, organizations]);
 
   function startEdit(organization: Organization) {
-    if (!profile.is_superuser) return;
+    if (!canManageOrganizations) return;
     setEditingId(organization.id);
     setName(organization.name);
     setCity(organization.city ?? '');
@@ -1227,13 +1571,49 @@ function OrganizationManagementList({
 
   return (
     <div className="admin-organization-manager">
-      <strong>{t('adminExistingOrganizations')}</strong>
+      <div className="organization-directory-toolbar">
+        <label className="organization-search-field">
+          <span>{t('manageSearchLabel')}</span>
+          <input
+            type="search"
+            value={organizationSearch}
+            placeholder={t('adminOrganizationSearchPlaceholder')}
+            onChange={(event) => setOrganizationSearch(event.target.value)}
+          />
+        </label>
+        <label className="organization-country-filter">
+          <span>{t('adminCountry')}</span>
+          <select value={countryFilter} onChange={(event) => setCountryFilter(event.target.value)}>
+            <option value="all">{t('adminOrganizationAllCountries')}</option>
+            {countryOptions.map((countryName) => (
+              <option key={countryName} value={countryName}>
+                {countryName}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span className="organization-visible-count">
+          {visibleOrganizations.length} / {organizations.length}
+        </span>
+      </div>
 
-      <div className="admin-organization-list">
-        {organizations.map((organization) => (
-          <article className="admin-organization-item" key={organization.id}>
-            {editingId === organization.id ? (
+      {visibleOrganizations.length ? (
+        <div className="admin-organization-list">
+          {visibleOrganizations.map((organization) => {
+            const parsedNotes = parseOrganizationNotes(organization.notes ?? '');
+            const contactName = parsedNotes.contactName || t('adminOrganizationContact');
+            const isEditing = editingId === organization.id;
+            return (
+          <article
+            className={isEditing ? 'admin-organization-item organization-card is-editing' : 'admin-organization-item organization-card'}
+            key={organization.id}
+          >
+            {isEditing ? (
               <form className="admin-form admin-organization-edit-form" onSubmit={handleUpdate}>
+                <div className="organization-edit-heading admin-wide-field">
+                  <strong>{t('adminEditOrganization')}</strong>
+                  <span>{organization.name}</span>
+                </div>
                 <label>
                   <span>{t('adminOrganizationName')}</span>
                   <input required type="text" value={name} onChange={(event) => setName(event.target.value)} />
@@ -1275,17 +1655,54 @@ function OrganizationManagementList({
               </form>
             ) : (
               <>
-                <div>
-                  <strong>{organization.name}</strong>
-                  <span>
-                    {[organization.city, organization.country].filter(Boolean).join(' - ') || organization.contact_email || '-'}
-                  </span>
-                </div>
+                <header className="organization-card-head">
+                  <div>
+                    <strong>{organization.name}</strong>
+                    <span>{getOrganizationLocation(organization)}</span>
+                  </div>
+                  <div className="organization-card-head-actions">
+                    {organization.country ? <em>{organization.country}</em> : null}
+                    {canManageOrganizations ? (
+                      <button
+                        className="organization-edit-button"
+                        type="button"
+                        aria-label={`${t('adminEditOrganization')} ${organization.name}`}
+                        onClick={() => startEdit(organization)}
+                      >
+                        <PencilIcon />
+                      </button>
+                    ) : null}
+                  </div>
+                </header>
+                <dl className="organization-contact-grid">
+                  <div>
+                    <dt>{t('adminOrganizationContact')}</dt>
+                    <dd>{contactName}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('adminContactEmail')}</dt>
+                    <dd>
+                      {organization.contact_email ? (
+                        <a href={`mailto:${organization.contact_email}`}>{organization.contact_email}</a>
+                      ) : (
+                        t('adminOrganizationNoEmail')
+                      )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{t('adminContactPhone')}</dt>
+                    <dd>{parsedNotes.phone || t('adminOrganizationNoPhone')}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('adminPostalAddress')}</dt>
+                    <dd>{parsedNotes.address || t('adminOrganizationNoAddress')}</dd>
+                  </div>
+                </dl>
+                {parsedNotes.extraNotes ? (
+                  <p className="organization-note">{parsedNotes.extraNotes}</p>
+                ) : null}
                 {profile.is_superuser ? (
                   <div className="admin-organization-actions">
-                    <button type="button" onClick={() => startEdit(organization)}>
-                      {t('adminEditOrganization')}
-                    </button>
                     <button
                       type="button"
                       className="is-danger"
@@ -1299,8 +1716,12 @@ function OrganizationManagementList({
               </>
             )}
           </article>
-        ))}
-      </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="organization-empty-state">{t('adminOrganizationNoResults')}</p>
+      )}
 
       {message ? <p className="inline-success">{message}</p> : null}
       {error ? <p className="inline-error">{error}</p> : null}
@@ -1348,8 +1769,18 @@ function TransferCreateForm({
       box.species.scientific_name,
       box.species.common_name,
       box.strain.code,
+      box.thermal_zone?.name,
+      box.organization.name,
     ].some((value) => (value ?? '').toLocaleLowerCase().includes(normalizedBoxQuery)))
     : transferableBoxes;
+  const sortedVisibleTransferableBoxes = useMemo(
+    () => visibleTransferableBoxes.slice().sort(compareTransferBoxes),
+    [visibleTransferableBoxes],
+  );
+  const transferBoxGroups = useMemo(
+    () => groupTransferBoxes(sortedVisibleTransferableBoxes, t('noZone')),
+    [sortedVisibleTransferableBoxes, t],
+  );
 
   const selectedBox = transferableBoxes.find((box) => box.id === boxId) ?? null;
   // The target cannot be the box's current organization.
@@ -1358,9 +1789,14 @@ function TransferCreateForm({
   );
 
   useEffect(() => {
-    if (boxId !== null && visibleTransferableBoxes.some((box) => box.id === boxId)) return;
-    setBoxId(visibleTransferableBoxes[0]?.id ?? null);
-  }, [boxId, visibleTransferableBoxes]);
+    if (boxId !== null && transferableBoxes.some((box) => box.id === boxId)) return;
+    setBoxId(transferableBoxes[0]?.id ?? null);
+  }, [boxId, transferableBoxes]);
+
+  useEffect(() => {
+    if (targetOrgId === null || targetOrganizations.some((organization) => organization.id === targetOrgId)) return;
+    setTargetOrgId(null);
+  }, [targetOrgId, targetOrganizations]);
 
   if (!transferableBoxes.length) {
     return <p className="muted compact-text">{t('adminTransferNoBox')}</p>;
@@ -1405,51 +1841,101 @@ function TransferCreateForm({
 
   return (
     <form className="admin-transfer-form" onSubmit={handleSubmit}>
-      <div className="admin-transfer-box-field">
-        <span>{t('adminTransferBox')}</span>
-        <input
-          type="search"
-          value={boxQuery}
-          placeholder={t('adminTransferBoxSearchPlaceholder')}
-          onChange={(event) => setBoxQuery(event.target.value)}
-        />
-        <select
-          value={boxId ?? ''}
-          disabled={!visibleTransferableBoxes.length}
-          onChange={(event) => setBoxId(Number(event.target.value))}
-        >
-          {visibleTransferableBoxes.map((box) => (
-            <option key={box.id} value={box.id}>{box.global_code}</option>
-          ))}
-        </select>
-        {!visibleTransferableBoxes.length ? (
+      <div className="transfer-box-picker">
+        <div className="transfer-box-picker-head">
+          <label className="transfer-box-search-field">
+            <span>{t('adminTransferBox')}</span>
+            <input
+              type="search"
+              value={boxQuery}
+              placeholder={t('adminTransferBoxSearchPlaceholder')}
+              onChange={(event) => setBoxQuery(event.target.value)}
+            />
+          </label>
+          <span className="transfer-box-result-count">
+            {sortedVisibleTransferableBoxes.length}
+          </span>
+        </div>
+
+        {transferBoxGroups.length ? (
+          <div className="transfer-box-results">
+            {transferBoxGroups.map((group) => (
+              <section className="transfer-box-group" key={group.key}>
+                <header>
+                  <strong>{group.zoneName}</strong>
+                  <span>{group.boxes.length}</span>
+                </header>
+                <div className="transfer-box-group-list">
+                  {group.boxes.map((box) => {
+                    const isSelected = box.id === boxId;
+                    return (
+                      <button
+                        type="button"
+                        className={`transfer-box-option${isSelected ? ' is-selected' : ''}`}
+                        key={box.id}
+                        onClick={() => setBoxId(box.id)}
+                      >
+                        <span>
+                          <strong>{box.global_code}</strong>
+                          <small>{box.species.scientific_name}</small>
+                        </span>
+                        <em>{box.strain.code}</em>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
+          </div>
+        ) : (
           <small className="inline-error">{t('adminTransferBoxSearchEmpty')}</small>
-        ) : null}
+        )}
       </div>
-      <label>
-        <span>{t('adminTransferTarget')}</span>
-        <select
-          value={targetOrgId ?? ''}
-          onChange={(event) => setTargetOrgId(event.target.value ? Number(event.target.value) : null)}
-        >
-          <option value="" disabled>{t('adminOrganizations')}</option>
-          {targetOrganizations.map((organization) => (
-            <option key={organization.id} value={organization.id}>{organization.name}</option>
-          ))}
-        </select>
-      </label>
-      <label>
-        <span>{t('adminTransferPolyps')}</span>
-        <input
-          required
-          min="1"
-          step="1"
-          inputMode="numeric"
-          type="number"
-          value={polypCount}
-          onChange={(event) => setPolypCount(event.target.value)}
-        />
-      </label>
+      {selectedBox ? (
+        <section className="transfer-selected-box-card" aria-label={t('adminTransferSelectedBox')}>
+          <div>
+            <span>{t('adminTransferSelectedBox')}</span>
+            <strong>{selectedBox.global_code}</strong>
+            <em>{selectedBox.species.scientific_name}</em>
+          </div>
+          <dl>
+            <div>
+              <dt>{t('adminTransferCurrentOrganization')}</dt>
+              <dd>{selectedBox.organization.name}</dd>
+            </div>
+            <div>
+              <dt>{t('adminTransferCurrentZone')}</dt>
+              <dd>{selectedBox.thermal_zone?.name ?? '-'}</dd>
+            </div>
+          </dl>
+        </section>
+      ) : null}
+      <div className="transfer-destination-grid">
+        <label>
+          <span>{t('adminTransferTarget')}</span>
+          <select
+            value={targetOrgId ?? ''}
+            onChange={(event) => setTargetOrgId(event.target.value ? Number(event.target.value) : null)}
+          >
+            <option value="" disabled>{t('adminOrganizations')}</option>
+            {targetOrganizations.map((organization) => (
+              <option key={organization.id} value={organization.id}>{organization.name}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>{t('adminTransferPolyps')}</span>
+          <input
+            required
+            min="1"
+            step="1"
+            inputMode="numeric"
+            type="number"
+            value={polypCount}
+            onChange={(event) => setPolypCount(event.target.value)}
+          />
+        </label>
+      </div>
       <label className="admin-wide-field">
         <span>{t('adminTransferNotes')}</span>
         <textarea rows={2} value={notes} onChange={(event) => setNotes(event.target.value)} />
@@ -1485,6 +1971,31 @@ function TransferCreateForm({
       ) : null}
     </form>
   );
+}
+
+function compareTransferBoxes(first: BoxItem, second: BoxItem) {
+  return compareAdminText(first.thermal_zone?.name ?? '', second.thermal_zone?.name ?? '')
+    || compareAdminText(first.species.scientific_name, second.species.scientific_name)
+    || compareAdminText(first.strain.code, second.strain.code)
+    || compareAdminText(first.global_code, second.global_code);
+}
+
+function compareAdminText(first: string, second: string) {
+  return first.localeCompare(second, 'fr', { numeric: true, sensitivity: 'base' });
+}
+
+function groupTransferBoxes(boxes: BoxItem[], noZoneLabel: string) {
+  const groups = new Map<string, { key: string; zoneName: string; boxes: BoxItem[] }>();
+
+  boxes.forEach((box) => {
+    const key = box.thermal_zone ? `zone-${box.thermal_zone.id}` : 'zone-none';
+    const zoneName = box.thermal_zone?.name ?? noZoneLabel;
+    const group = groups.get(key) ?? { key, zoneName, boxes: [] };
+    group.boxes.push(box);
+    groups.set(key, group);
+  });
+
+  return Array.from(groups.values()).sort((first, second) => compareAdminText(first.zoneName, second.zoneName));
 }
 
 type TransferCsvRow = Record<string, string>;
@@ -1582,7 +2093,21 @@ function TransferImportForm({ profile, zones, boxes, t }: {
 
   return (
     <form className="admin-transfer-form transfer-import-form" onSubmit={handleSubmit}>
-      <h3>{t('adminTransferImportTitle')}</h3>
+      <div className="transfer-import-title-row">
+        <h3>{t('adminTransferImportTitle')}</h3>
+        <div className="transfer-csv-info-wrap">
+          <button type="button" className="transfer-csv-info-button" aria-label={t('adminTransferImportExample')}>
+            i
+          </button>
+          <button
+            type="button"
+            className="transfer-csv-tooltip"
+            onClick={() => downloadTransferCsvExample(profile.interface_language === 'fr')}
+          >
+            {t('adminTransferCsvTemplate')}
+          </button>
+        </div>
+      </div>
       <label className="admin-wide-field">
         <span>{t('adminTransferImportFile')}</span>
         <input accept=".csv,text/csv" type="file" onChange={(event) => void handleFile(event)} />
@@ -1631,9 +2156,6 @@ function TransferImportForm({ profile, zones, boxes, t }: {
       </label>
       <button type="submit" disabled={!sourceData || zoneId == null || !globalCode.trim() || codeExists || isSaving}>
         {isSaving ? t('saving') : t('adminTransferImportAction')}
-      </button>
-      <button type="button" onClick={() => downloadTransferCsvExample(profile.interface_language === 'fr')}>
-        {t('adminTransferImportExample')}
       </button>
       {message ? <p className="inline-success">{message}</p> : null}
       {importedBox ? (
@@ -1912,21 +2434,38 @@ function sanitizeFilePart(value: string) {
 
 function AdminAuditLogSection({ t }: { t: TFunction }) {
   const [entries, setEntries] = useState<AdminAuditLogEntry[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [showAll, setShowAll] = useState(false);
+  const [actionOptions, setActionOptions] = useState<AdminAuditActionOption[]>([]);
+  const [actionFilter, setActionFilter] = useState('');
+  const [dateFilter, setDateFilter] = useState('');
+  const [hasMore, setHasMore] = useState(false);
+  const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [expandedEntryId, setExpandedEntryId] = useState<number | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let isActive = true;
 
     async function loadAuditLog() {
+      const params = new URLSearchParams({
+        limit: String(ADMIN_AUDIT_PAGE_SIZE),
+        offset: '0',
+        include_options: '1',
+      });
+      if (actionFilter) params.set('action', actionFilter);
+      if (dateFilter) params.set('date', dateFilter);
+
       try {
         setIsLoading(true);
         setError(null);
-        const response = await apiGet<AdminAuditLogResponse>('/api/accounts/audit-log/?limit=80');
+        const response = await apiGet<AdminAuditLogResponse>(`/api/accounts/audit-log/?${params.toString()}`);
         if (!isActive) return;
         setEntries(response.results);
+        setActionOptions(response.action_options ?? []);
+        setHasMore(Boolean(response.has_more));
+        setNextOffset(response.next_offset ?? null);
+        setExpandedEntryId(null);
       } catch (requestError) {
         if (!isActive) return;
         setError(getErrorMessage(requestError));
@@ -1939,74 +2478,145 @@ function AdminAuditLogSection({ t }: { t: TFunction }) {
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [actionFilter, dateFilter]);
 
-  const visibleEntries = showAll ? entries : entries.slice(0, 4);
-  const canToggleAll = entries.length > 4;
+  async function loadMoreAuditLog() {
+    if (isLoadingMore || !hasMore || nextOffset == null) return;
+
+    const params = new URLSearchParams({
+      limit: String(ADMIN_AUDIT_PAGE_SIZE),
+      offset: String(nextOffset),
+    });
+    if (actionFilter) params.set('action', actionFilter);
+    if (dateFilter) params.set('date', dateFilter);
+
+    try {
+      setIsLoadingMore(true);
+      setError(null);
+      const response = await apiGet<AdminAuditLogResponse>(`/api/accounts/audit-log/?${params.toString()}`);
+      setEntries((current) => {
+        const knownIds = new Set(current.map((entry) => entry.id));
+        const nextEntries = response.results.filter((entry) => !knownIds.has(entry.id));
+        return [...current, ...nextEntries];
+      });
+      setHasMore(Boolean(response.has_more));
+      setNextOffset(response.next_offset ?? null);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }
+
+  const dayGroups = useMemo(() => groupAuditEntriesByDay(entries), [entries]);
+  const hasFilters = Boolean(actionFilter || dateFilter);
 
   return (
-    <section className="admin-section admin-audit-section" id="admin-history">
-      <div className="admin-section-heading">
+    <section className="admin-section admin-audit-section admin-audit-page" id="admin-history">
+      <div className="admin-audit-page-heading">
         <div>
           <h2>{t('adminAuditTitle')}</h2>
         </div>
-        {canToggleAll ? (
+        <strong>
+          {entries.length} {t('adminAuditLoaded')}
+          {hasMore ? ' +' : ''}
+        </strong>
+      </div>
+
+      <div className="admin-audit-filters" aria-label={t('adminAuditDialogText')}>
+        <label>
+          <span>{t('adminAuditFilterAction')}</span>
+          <select value={actionFilter} onChange={(event) => setActionFilter(event.target.value)}>
+            <option value="">{t('adminAuditAllActions')}</option>
+            {actionOptions.map((option) => (
+              <option value={option.value} key={option.value}>
+                {getFrenchAuditAction({
+                  id: 0,
+                  created_at: '',
+                  organization: null,
+                  user: null,
+                  action: option.value,
+                  action_label: option.label,
+                  object_type: '',
+                  object_id: '',
+                  description: '',
+                  metadata: {},
+                })}
+                {option.count ? ` (${option.count})` : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>{t('adminAuditFilterDate')}</span>
+          <input type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} />
+        </label>
+        {hasFilters ? (
           <button
-            className="admin-audit-toggle"
+            className="admin-audit-clear"
             type="button"
-            aria-expanded={showAll}
-            onClick={() => setShowAll((current) => !current)}
+            onClick={() => {
+              setActionFilter('');
+              setDateFilter('');
+            }}
           >
-            {showAll ? t('adminAuditShowLess') : t('adminAuditShowAll')}
-            {entries.length ? ` (${entries.length})` : ''}
+            {t('adminAuditClearFilters')}
           </button>
         ) : null}
       </div>
 
-      {isLoading ? (
-        <SkeletonRows count={4} />
-      ) : error ? (
-        <p className="inline-error">{error}</p>
-      ) : entries.length ? (
-        <div className="admin-audit-table">
-          <div className="admin-audit-head">
-            <span>{t('adminAuditDate')}</span>
-            <span>{t('adminAuditUser')}</span>
-            <span>{t('adminAuditAction')}</span>
-            <span>{t('adminAuditObject')}</span>
+      <div className="admin-audit-page-body">
+        {isLoading ? (
+          <SkeletonRows count={6} />
+        ) : error ? (
+          <p className="inline-error">{error}</p>
+        ) : dayGroups.length ? (
+          <div className="admin-audit-timeline">
+            {dayGroups.map((group) => (
+              <section className="admin-audit-day-group" key={group.key}>
+                <h3>{group.label}</h3>
+                <div className="admin-audit-table">
+                  {group.entries.map((entry) => {
+                    const isExpanded = expandedEntryId === entry.id;
+                    return (
+                      <article className="admin-audit-entry" key={entry.id}>
+                        <button
+                          className="admin-audit-row"
+                          type="button"
+                          aria-expanded={isExpanded}
+                          onClick={() => setExpandedEntryId(isExpanded ? null : entry.id)}
+                        >
+                          <span>
+                            <strong>{formatAuditDate(entry.created_at)}</strong>
+                            <small>{entry.organization ?? '-'}</small>
+                          </span>
+                          <span>{entry.user ?? '-'}</span>
+                          <span>
+                            <strong>{getFrenchAuditAction(entry)}</strong>
+                            <small>{formatAuditDescription(entry)}</small>
+                          </span>
+                          <span>
+                            <strong>{entry.object_id || '-'}</strong>
+                            <small>{formatAuditObjectType(entry.object_type)}</small>
+                          </span>
+                        </button>
+                        {isExpanded ? <AuditLogDetails entry={entry} /> : null}
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
           </div>
-          {visibleEntries.map((entry) => {
-            const isExpanded = expandedEntryId === entry.id;
-            return (
-              <article className="admin-audit-entry" key={entry.id}>
-                <button
-                  className="admin-audit-row"
-                  type="button"
-                  aria-expanded={isExpanded}
-                  onClick={() => setExpandedEntryId(isExpanded ? null : entry.id)}
-                >
-                  <span>
-                    <strong>{formatAuditDate(entry.created_at)}</strong>
-                    <small>{entry.organization ?? '-'}</small>
-                  </span>
-                  <span>{entry.user ?? '-'}</span>
-                  <span>
-                    <strong>{getFrenchAuditAction(entry)}</strong>
-                    <small>{formatAuditDescription(entry)}</small>
-                  </span>
-                  <span>
-                    <strong>{entry.object_id || '-'}</strong>
-                    <small>{formatAuditObjectType(entry.object_type)}</small>
-                  </span>
-                </button>
-                {isExpanded ? <AuditLogDetails entry={entry} /> : null}
-              </article>
-            );
-          })}
-        </div>
-      ) : (
-        <p className="muted compact-text">{t('adminAuditEmpty')}</p>
-      )}
+        ) : (
+          <p className="muted compact-text">{t('adminAuditEmpty')}</p>
+        )}
+        {!isLoading && hasMore ? (
+          <button className="admin-audit-load-more" type="button" disabled={isLoadingMore} onClick={loadMoreAuditLog}>
+            {isLoadingMore ? t('loading') : t('adminAuditLoadMore')}
+          </button>
+        ) : null}
+      </div>
     </section>
   );
 }
@@ -2146,6 +2756,27 @@ function formatAuditDescription(entry: AdminAuditLogEntry) {
   if (description.startsWith('Manual temperature recorded: ')) {
     return `Température manuelle enregistrée : ${description.replace('Manual temperature recorded: ', '')}`;
   }
+  if (description.startsWith('Thermal zone created: ')) {
+    return `Emplacement créé : ${description.replace('Thermal zone created: ', '')}`;
+  }
+  if (description.startsWith('Thermal zone updated: ')) {
+    return `Emplacement modifié : ${description.replace('Thermal zone updated: ', '')}`;
+  }
+  if (description.startsWith('Probe created: ')) {
+    return `Sonde ajoutée : ${description.replace('Probe created: ', '')}`;
+  }
+  if (description.startsWith('Box transfer prepared: ')) {
+    return `Transfert préparé : ${description.replace('Box transfer prepared: ', '')}`;
+  }
+  if (description === 'Member access created') {
+    return 'Accès utilisateur créé';
+  }
+  if (description === 'Member access restored') {
+    return 'Accès utilisateur réactivé';
+  }
+  if (description === 'Member access updated') {
+    return 'Accès utilisateur modifié';
+  }
   if (description === 'Weekly biological measurement CSV export') {
     return 'Export CSV hebdomadaire des relevés biologiques';
   }
@@ -2174,12 +2805,14 @@ function formatAuditObjectType(value: string) {
     organization: 'Structure',
     user: 'Utilisateur',
     account: 'Compte',
+    probe: 'Sonde',
   };
   return labels[value] ?? (value || '-');
 }
 
 function formatAuditMetadataKey(key: string) {
   const labels: Record<string, string> = {
+    acces_actif: 'Accès actif',
     a_verifier: 'A vérifier',
     ancienne_zone: 'Ancienne zone',
     apres: 'Après',
@@ -2189,10 +2822,13 @@ function formatAuditMetadataKey(key: string) {
     capacite: 'Capacité',
     child_global_codes: 'Boîtes créées',
     child_box_ids: 'Identifiants des boîtes créées',
+    code: 'Code',
     code_global: 'Code global',
     date: 'Date',
     date_deplacement: 'Date du déplacement',
     date_entree: 'Date d’entrée',
+    email: 'Email',
+    email_contact: 'Email contact',
     ephyrules: 'Éphyrules',
     espece: 'Espèce',
     emplacement: 'Emplacement',
@@ -2202,23 +2838,37 @@ function formatAuditMetadataKey(key: string) {
     initial_polyp_counts: 'Polypes initiaux',
     measurement_count: 'Nombre de relevés',
     measurement_id: 'Identifiant relevé',
+    membership_id: 'Identifiant accès',
     movement_id: 'Identifiant déplacement',
+    nom: 'Nom',
     nouvelle_zone: 'Nouvelle zone',
     numero_boite: 'Numéro de boîte',
     note: 'Note',
+    notes: 'Notes',
+    pays: 'Pays',
+    position: 'Position',
+    probe_id: 'Identifiant sonde',
     polypes: 'Polypes',
     raison_arret: 'Raison d’arrêt',
+    role: 'Rôle',
     salinite_psu: 'Salinité (PSU)',
     source: 'Source',
     souche: 'Souche',
     statut: 'Statut',
+    structure: 'Structure',
     statut_culture: 'Statut culture',
     strobiles: 'Strobiles',
     subculture_event_id: 'Identifiant repiquage',
     temperature_consigne: 'Température consigne',
     temperature_c: 'Température mesurée',
     thermal_zone_id: 'Identifiant emplacement',
+    to_organization: 'Structure destinataire',
     to_thermal_zone_name: 'Nouvelle zone',
+    transfer_id: 'Identifiant transfert',
+    type: 'Type',
+    user_id: 'Identifiant utilisateur',
+    identifiant: 'Identifiant',
+    ville: 'Ville',
     volume_litres: 'Volume (L)',
     week_count: 'Nombre de semaines',
   };
@@ -2251,6 +2901,13 @@ function translateAuditValue(value: string | number | boolean) {
     csv: 'CSV',
     measurements: 'Relevés',
     box: 'Boîte',
+    admin: 'Administrateur',
+    lab_technician: 'Technicien',
+    viewer: 'Lecteur',
+    cabinet: 'Armoire',
+    incubator: 'Étuve',
+    manual: 'Saisie manuelle',
+    other: 'Autre',
   };
   return labels[value] ?? formatTechnicalDate(value);
 }
@@ -2298,20 +2955,305 @@ function formatAuditDate(value: string) {
   }).format(date);
 }
 
-function AdminFlowNav({ t }: { t: TFunction }) {
+function formatAuditDay(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('fr-FR', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).format(date);
+}
+
+function getAuditDayKey(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function groupAuditEntriesByDay(entries: AdminAuditLogEntry[]) {
+  const groups: Array<{ key: string; label: string; entries: AdminAuditLogEntry[] }> = [];
+  entries.forEach((entry) => {
+    const key = getAuditDayKey(entry.created_at);
+    const currentGroup = groups.find((group) => group.key === key);
+    if (currentGroup) {
+      currentGroup.entries.push(entry);
+      return;
+    }
+    groups.push({
+      key,
+      label: formatAuditDay(entry.created_at),
+      entries: [entry],
+    });
+  });
+  return groups;
+}
+
+function AdminFlowNav({
+  activeSection,
+  onSelect,
+  t,
+}: {
+  activeSection: AdminFlowKey;
+  onSelect: (section: AdminFlowKey) => void;
+  t: TFunction;
+}) {
   return (
     <nav className="admin-flow-nav" aria-label={t('adminFlowLabel')}>
-      {ADMIN_FLOW_ITEMS.map((item, index) => (
-        <span className="admin-flow-step" key={item.href}>
-          <a href={item.href}>{t(item.label)}</a>
-          {index < ADMIN_FLOW_ITEMS.length - 1 ? (
-            <span className="admin-flow-separator" aria-hidden="true">
-              /
-            </span>
-          ) : null}
+      {ADMIN_FLOW_ITEMS.map((item) => (
+        <span className="admin-flow-step" key={item.key}>
+          <button
+            type="button"
+            className={activeSection === item.key ? 'is-active' : ''}
+            aria-controls={item.panelId}
+            aria-current={activeSection === item.key ? 'page' : undefined}
+            onClick={() => onSelect(item.key)}
+          >
+            {t(item.label)}
+          </button>
         </span>
       ))}
     </nav>
+  );
+}
+
+type EnvironmentAction = 'zone' | 'probe';
+
+function EnvironmentAdminSection({
+  profile,
+  zones,
+  onCreateZone,
+  onCreateProbe,
+  onUpdateZone,
+  t,
+}: {
+  profile: UserProfile;
+  zones: ThermalZone[];
+  onCreateZone: (payload: ThermalZonePayload) => Promise<void>;
+  onCreateProbe: (payload: ProbePayload) => Promise<void>;
+  onUpdateZone: (zoneId: number, payload: ThermalZonePayload) => Promise<void>;
+  t: TFunction;
+}) {
+  const [activeAction, setActiveAction] = useState<EnvironmentAction>('zone');
+  const adminOrgIds = useMemo(() => getAdminOrganizationIds(profile), [profile]);
+  const adminEditableZones = useMemo(
+    () =>
+      zones
+        .filter((zone) => zone.is_active && (adminOrgIds === null || adminOrgIds.has(zone.organization.id)))
+        .sort(sortAdminZones),
+    [adminOrgIds, zones],
+  );
+  const adminProbeCount = adminEditableZones.reduce(
+    (total, zone) => total + (zone.probes?.length ?? 0),
+    0,
+  );
+  const activeBoxCount = adminEditableZones.reduce((total, zone) => total + zone.box_count, 0);
+  const capacityCount = adminEditableZones.reduce((total, zone) => total + (zone.capacity ?? 0), 0);
+
+  return (
+    <section className="admin-section admin-environment-section" id="admin-environment">
+      <div className="admin-environment-topbar">
+        <div>
+          <h2>{t('adminZonesProbesTitle')}</h2>
+        </div>
+        <div className="admin-environment-summary" aria-label={t('adminZonesProbesTitle')}>
+          <span>
+            <strong>{adminEditableZones.length}</strong>
+            {t('adminEnvironmentZonesCount')}
+          </span>
+          <span>
+            <strong>{adminProbeCount}</strong>
+            {t('adminEnvironmentProbesCount')}
+          </span>
+          <span>
+            <strong>{capacityCount ? `${activeBoxCount} / ${capacityCount}` : activeBoxCount}</strong>
+            {t('adminEnvironmentCapacityCount')}
+          </span>
+        </div>
+      </div>
+
+      <div className="admin-environment-workspace">
+        <aside className="environment-action-panel">
+          <div className="environment-action-tabs" role="tablist" aria-label={t('adminZonesProbesTitle')}>
+            <button
+              type="button"
+              className={activeAction === 'zone' ? 'is-active' : ''}
+              aria-selected={activeAction === 'zone'}
+              onClick={() => setActiveAction('zone')}
+            >
+              {t('adminEnvironmentZonePanel')}
+            </button>
+            <button
+              type="button"
+              className={activeAction === 'probe' ? 'is-active' : ''}
+              aria-selected={activeAction === 'probe'}
+              onClick={() => setActiveAction('probe')}
+            >
+              {t('adminEnvironmentProbePanel')}
+            </button>
+          </div>
+
+          <div className="environment-action-body">
+            {activeAction === 'zone' ? (
+              <ZoneCreateForm profile={profile} onCreateZone={onCreateZone} t={t} />
+            ) : (
+              <ProbeCreateForm profile={profile} zones={zones} onCreateProbe={onCreateProbe} t={t} />
+            )}
+          </div>
+        </aside>
+
+        <section className="environment-settings-panel" aria-labelledby="environment-settings-title">
+          <div className="environment-settings-heading">
+            <h3 id="environment-settings-title">{t('adminEnvironmentSettingsPanel')}</h3>
+          </div>
+          <ZoneCapacityManager profile={profile} zones={zones} onUpdateZone={onUpdateZone} t={t} />
+        </section>
+      </div>
+    </section>
+  );
+}
+
+function OrganizationsAdminSection({
+  organizations,
+  profile,
+  onCreateOrganization,
+  onDeleteOrganization,
+  onUpdateOrganization,
+  t,
+}: {
+  organizations: Organization[];
+  profile: UserProfile;
+  onCreateOrganization: (payload: OrganizationPayload) => Promise<void>;
+  onDeleteOrganization: (organizationId: number) => Promise<void>;
+  onUpdateOrganization: (organizationId: number, payload: OrganizationPayload) => Promise<void>;
+  t: TFunction;
+}) {
+  const countryCount = useMemo(
+    () => new Set(organizations.map((organization) => organization.country).filter(Boolean)).size,
+    [organizations],
+  );
+
+  return (
+    <section className="admin-section admin-organizations-section" id="admin-organizations">
+      <div className="admin-organizations-topbar">
+        <div>
+          <h2>{t('adminOrganizationsTitle')}</h2>
+        </div>
+        <div className="admin-organizations-summary" aria-label={t('adminOrganizationsTitle')}>
+          <span>
+            <strong>{organizations.length}</strong>
+            {t('adminOrganizationsKnownCount')}
+          </span>
+          <span>
+            <strong>{countryCount}</strong>
+            {t('adminOrganizationsCountriesCount')}
+          </span>
+        </div>
+      </div>
+
+      <div className="admin-organizations-workspace">
+        <aside className="organization-create-panel">
+          <h3>{t('adminAddOrganization')}</h3>
+          <OrganizationCreateForm
+            organizations={organizations}
+            profile={profile}
+            onCreateOrganization={onCreateOrganization}
+            t={t}
+          />
+        </aside>
+
+        <section className="organization-directory-panel" aria-labelledby="organization-directory-title">
+          <div className="organization-directory-heading">
+            <h3 id="organization-directory-title">{t('adminExistingOrganizations')}</h3>
+          </div>
+          <OrganizationManagementList
+            organizations={organizations}
+            profile={profile}
+            onDeleteOrganization={onDeleteOrganization}
+            onUpdateOrganization={onUpdateOrganization}
+            t={t}
+          />
+        </section>
+      </div>
+    </section>
+  );
+}
+
+function TransfersAdminSection({
+  profile,
+  boxes,
+  organizations,
+  onCreateTransfer,
+  zones,
+  t,
+}: {
+  profile: UserProfile;
+  boxes: BoxItem[];
+  organizations: Array<{ id: number; name: string }>;
+  onCreateTransfer: (payload: BoxTransferPayload) => Promise<BoxTransferResult>;
+  zones: ThermalZone[];
+  t: TFunction;
+}) {
+  const adminOrgIds = getAdminOrganizationIds(profile);
+  const transferableBoxCount = boxes.filter(
+    (box) =>
+      box.status === 'active' &&
+      (adminOrgIds === null || adminOrgIds.has(box.organization.id)),
+  ).length;
+  const activeZoneCount = zones.filter(
+    (zone) =>
+      zone.is_active &&
+      (adminOrgIds === null || adminOrgIds.has(zone.organization.id)),
+  ).length;
+
+  return (
+    <section className="admin-section admin-transfer-section transfer-admin-section" id="admin-transfers">
+      <div className="transfer-admin-hero">
+        <div>
+          <h2>{t('adminTransferTitle')}</h2>
+        </div>
+        <div className="transfer-admin-metrics" aria-label={t('adminTransferTitle')}>
+          <span>
+            <strong>{transferableBoxCount}</strong>
+            {t('adminTransferBoxesAvailable')}
+          </span>
+          <span>
+            <strong>{organizations.length}</strong>
+            {t('adminTransferKnownInstitutions')}
+          </span>
+          <span>
+            <strong>{activeZoneCount}</strong>
+            {t('adminTransferActiveZones')}
+          </span>
+        </div>
+      </div>
+
+      <div className="transfer-admin-workspace">
+        <section className="transfer-work-card transfer-work-card-outgoing">
+          <header className="transfer-work-card-head">
+            <h3>{t('adminTransferOutgoingTitle')}</h3>
+          </header>
+          <TransferCreateForm
+            profile={profile}
+            boxes={boxes}
+            organizations={organizations}
+            onCreateTransfer={onCreateTransfer}
+            t={t}
+          />
+        </section>
+
+        <section className="transfer-work-card transfer-work-card-incoming">
+          <header className="transfer-work-card-head">
+            <h3>{t('adminTransferIncomingTitle')}</h3>
+          </header>
+          <TransferImportForm profile={profile} zones={zones} boxes={boxes} t={t} />
+        </section>
+      </div>
+    </section>
   );
 }
 
@@ -2344,6 +3286,8 @@ export default function AdminView({
   t: TFunction;
   zones: ThermalZone[];
 }) {
+  const [activeAdminSection, setActiveAdminSection] = useState<AdminFlowKey>('accounts');
+
   if (isLoading) {
     return <PageLoader variant="admin" label={t('adminTitle')} />;
   }
@@ -2354,65 +3298,50 @@ export default function AdminView({
 
   return (
     <section className="admin-panel">
-      <AdminFlowNav t={t} />
+      <AdminFlowNav
+        activeSection={activeAdminSection}
+        onSelect={setActiveAdminSection}
+        t={t}
+      />
 
-      <AccountManagementSection t={t} />
+      <div className="admin-flow-panel">
+        {activeAdminSection === 'accounts' ? <AccountManagementSection t={t} /> : null}
 
-      <section className="admin-section" id="admin-environment">
-        <div className="admin-section-heading">
-          <div>
-            <h2>{t('adminZonesProbesTitle')}</h2>
-          </div>
-        </div>
+        {activeAdminSection === 'environment' ? (
+          <EnvironmentAdminSection
+            profile={profile}
+            zones={zones}
+            onCreateZone={onCreateZone}
+            onCreateProbe={onCreateProbe}
+            onUpdateZone={onUpdateZone}
+            t={t}
+          />
+        ) : null}
 
-        <div className="admin-form-grid">
-          <ZoneCreateForm profile={profile} onCreateZone={onCreateZone} t={t} />
-          <ProbeCreateForm profile={profile} zones={zones} onCreateProbe={onCreateProbe} t={t} />
-        </div>
-        <ZoneCapacityManager profile={profile} zones={zones} onUpdateZone={onUpdateZone} t={t} />
-      </section>
+        {activeAdminSection === 'organizations' ? (
+          <OrganizationsAdminSection
+            organizations={organizations}
+            profile={profile}
+            onCreateOrganization={onCreateOrganization}
+            onDeleteOrganization={onDeleteOrganization}
+            onUpdateOrganization={onUpdateOrganization}
+            t={t}
+          />
+        ) : null}
 
-      <section className="admin-section" id="admin-organizations">
-        <div className="admin-section-heading">
-          <div>
-            <h2>{t('adminOrganizationsTitle')}</h2>
-          </div>
-        </div>
+        {activeAdminSection === 'transfers' ? (
+          <TransfersAdminSection
+            profile={profile}
+            boxes={boxes}
+            organizations={organizations}
+            onCreateTransfer={onCreateTransfer}
+            zones={zones}
+            t={t}
+          />
+        ) : null}
 
-        <OrganizationCreateForm
-          organizations={organizations}
-          profile={profile}
-          onCreateOrganization={onCreateOrganization}
-          t={t}
-        />
-
-        <OrganizationManagementList
-          organizations={organizations}
-          profile={profile}
-          onDeleteOrganization={onDeleteOrganization}
-          onUpdateOrganization={onUpdateOrganization}
-          t={t}
-        />
-      </section>
-
-      <section className="admin-section admin-transfer-section" id="admin-transfers">
-        <div className="admin-section-heading">
-          <div>
-            <h2>{t('adminTransferTitle')}</h2>
-          </div>
-        </div>
-
-        <TransferCreateForm
-          profile={profile}
-          boxes={boxes}
-          organizations={organizations}
-          onCreateTransfer={onCreateTransfer}
-          t={t}
-        />
-        <TransferImportForm profile={profile} zones={zones} boxes={boxes} t={t} />
-      </section>
-
-      <AdminAuditLogSection t={t} />
+        {activeAdminSection === 'history' ? <AdminAuditLogSection t={t} /> : null}
+      </div>
     </section>
   );
 }

@@ -100,6 +100,14 @@ class AdminResourceCreationApiTests(TestCase):
         self.assertEqual(zone.organization, self.organization)
         self.assertEqual(zone.zone_type, ThermalZone.ZoneType.INCUBATOR)
         self.assertEqual(zone.capacity, 42)
+        log = AuditLog.objects.get(
+            action=AuditLog.Action.CREATION,
+            object_type="thermal_zone",
+            object_id="Etuve-25",
+        )
+        self.assertEqual(log.organization, self.organization)
+        self.assertEqual(log.user, self.admin)
+        self.assertEqual(log.metadata["valeurs"]["capacite"], 42)
 
     def test_admin_updates_thermal_zone_capacity(self):
         self.client.login(username="org_admin", password="secret")
@@ -331,6 +339,14 @@ class AdminResourceCreationApiTests(TestCase):
         self.assertEqual(probe.thermal_zone, self.zone)
         # The organization is never sent by the client: it comes from the zone.
         self.assertEqual(probe.organization, self.organization)
+        log = AuditLog.objects.get(
+            action=AuditLog.Action.CREATION,
+            object_type="probe",
+            object_id="SONDE-15-01",
+        )
+        self.assertEqual(log.organization, self.organization)
+        self.assertEqual(log.user, self.admin)
+        self.assertEqual(log.metadata["valeurs"]["emplacement"], self.zone.name)
 
     def test_admin_cannot_add_a_probe_to_another_organization_zone(self):
         self.client.login(username="org_admin", password="secret")
@@ -371,6 +387,12 @@ class AdminResourceCreationApiTests(TestCase):
 
         self.assertEqual(response.status_code, 201)
         self.assertTrue(Organization.objects.filter(name="Aquarium de Nausicaa").exists())
+        log = AuditLog.objects.get(
+            action=AuditLog.Action.CREATION,
+            object_type="organization",
+            object_id="Aquarium de Nausicaa",
+        )
+        self.assertEqual(log.user, self.superuser)
 
     def test_organization_admin_creates_a_partner_organization(self):
         self.client.login(username="org_admin", password="secret")
@@ -409,6 +431,13 @@ class AdminResourceCreationApiTests(TestCase):
         self.other_organization.refresh_from_db()
         self.assertEqual(self.other_organization.name, "Aquarium de La Rochelle")
         self.assertEqual(self.other_organization.city, "La Rochelle")
+        log = AuditLog.objects.get(
+            action=AuditLog.Action.UPDATE,
+            object_type="organization",
+            object_id="Aquarium de La Rochelle",
+        )
+        self.assertEqual(log.user, self.superuser)
+        self.assertEqual(log.metadata["modifications"]["ville"]["apres"], "La Rochelle")
 
     def test_organization_admin_cannot_update_an_organization(self):
         self.client.login(username="org_admin", password="secret")
@@ -459,6 +488,14 @@ class AdminResourceCreationApiTests(TestCase):
         self.assertEqual(transfer.to_organization, self.other_organization)
         self.assertEqual(transfer.status, BoxTransfer.Status.PLANNED)
         self.assertEqual(transfer.user, self.admin)
+        log = AuditLog.objects.get(
+            action=AuditLog.Action.TRANSFER,
+            object_type="box",
+            object_id=self.box.global_code,
+        )
+        self.assertEqual(log.organization, self.organization)
+        self.assertEqual(log.user, self.admin)
+        self.assertEqual(log.metadata["to_organization"], self.other_organization.name)
 
         # A transfer only records the intent: the box must not change owner.
         self.box.refresh_from_db()

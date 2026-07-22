@@ -842,7 +842,19 @@ class ThermalZoneListCreateAPIView(generics.ListCreateAPIView):
         organization = serializer.validated_data["organization"]
         if organization.id not in get_admin_organization_ids(self.request.user):
             raise PermissionDenied("Ce compte ne peut pas créer de zone pour cette structure.")
-        serializer.save()
+        zone = serializer.save()
+        AuditLog.objects.create(
+            organization=zone.organization,
+            user=self.request.user,
+            action=AuditLog.Action.CREATION,
+            object_type="thermal_zone",
+            object_id=zone.name,
+            description=f"Thermal zone created: {zone.name}",
+            metadata={
+                "thermal_zone_id": zone.id,
+                "valeurs": _thermal_zone_audit_values(zone),
+            },
+        )
 
 
 class ThermalZoneDetailAPIView(generics.RetrieveUpdateAPIView):
@@ -979,7 +991,24 @@ class ProbeCreateAPIView(generics.CreateAPIView):
         zone = serializer.validated_data["thermal_zone"]
         if zone.organization_id not in get_admin_organization_ids(self.request.user):
             raise PermissionDenied("Ce compte ne peut pas ajouter de sonde à cette zone.")
-        serializer.save(organization=zone.organization)
+        probe = serializer.save(organization=zone.organization)
+        AuditLog.objects.create(
+            organization=zone.organization,
+            user=self.request.user,
+            action=AuditLog.Action.CREATION,
+            object_type="probe",
+            object_id=probe.code,
+            description=f"Probe created: {probe.code}",
+            metadata={
+                "probe_id": probe.id,
+                "valeurs": {
+                    "code": probe.code,
+                    "emplacement": zone.name,
+                    "type": probe.probe_type,
+                    "position": probe.location,
+                },
+            },
+        )
 
 
 class BoxTransferCreateAPIView(generics.CreateAPIView):
@@ -991,7 +1020,24 @@ class BoxTransferCreateAPIView(generics.CreateAPIView):
         box = serializer.validated_data["box"]
         if box.organization_id not in get_admin_organization_ids(self.request.user):
             raise PermissionDenied("Ce compte ne peut pas transférer cette boîte.")
-        serializer.save(from_organization=box.organization, user=self.request.user)
+        transfer = serializer.save(from_organization=box.organization, user=self.request.user)
+        AuditLog.objects.create(
+            organization=box.organization,
+            user=self.request.user,
+            action=AuditLog.Action.TRANSFER,
+            object_type="box",
+            object_id=box.global_code,
+            description=f"Box transfer prepared: {box.global_code}",
+            metadata={
+                "transfer_id": transfer.id,
+                "box_id": box.id,
+                "code_global": box.global_code,
+                "to_organization": transfer.to_organization.name,
+                "date": transfer.transfer_date.isoformat(),
+                "polypes": transfer.polyp_count,
+                "note": transfer.notes,
+            },
+        )
 
 
 class BoxTransferImportAPIView(APIView):

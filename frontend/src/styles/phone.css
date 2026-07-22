@@ -1142,6 +1142,20 @@
     border-radius: 14px;
   }
 
+  .profile-mobile-labels-link {
+    display: block;
+  }
+
+  .profile-mobile-labels-button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    min-height: 64px;
+    padding: 14px 16px;
+    border-radius: 18px;
+  }
+
   .language-switch {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1164,6 +1178,7 @@
   .move-modal,
   .zone-management-modal,
   .box-checks-modal,
+  .admin-audit-modal,
   .qr-label-modal {
     width: 100%;
     max-height: calc(100svh - 16px);
@@ -1277,6 +1292,57 @@
     width: 100%;
     min-height: 46px;
     border-radius: 14px;
+  }
+
+  .admin-audit-open {
+    width: 100%;
+    min-height: 46px;
+  }
+
+  .admin-audit-preview-item {
+    grid-template-columns: 1fr;
+    gap: 8px 12px;
+    min-height: 0;
+    padding: 14px;
+  }
+
+  .admin-audit-preview-item > span:nth-child(2),
+  .admin-audit-preview-item > time {
+    grid-column: auto;
+  }
+
+  .admin-audit-modal-heading,
+  .admin-audit-page-heading,
+  .admin-audit-filters,
+  .admin-audit-result-head,
+  .admin-audit-modal-body,
+  .admin-audit-page-body {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+
+  .admin-audit-page-heading {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .admin-audit-page-heading strong {
+    align-self: flex-start;
+  }
+
+  .admin-audit-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-audit-clear {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .admin-audit-load-more {
+    width: 100%;
+    min-height: 46px;
   }
 
   .admin-audit-row {

@@ -4,8 +4,10 @@ from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.core.mail import send_mail
 from django.db import transaction
+from django.db.models import Count
 from django.utils import translation
 from django.utils.crypto import get_random_string
+from django.utils.dateparse import parse_date
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from rest_framework import status
@@ -137,6 +139,15 @@ def _role_choices():
     ]
 
 
+def _changed_values(before, after):
+    """Return only values changed by an admin action."""
+    return {
+        key: {"avant": before.get(key), "apres": after_value}
+        for key, after_value in after.items()
+        if before.get(key) != after_value
+    }
+
+
 def _member_data(membership, *, current_user):
     """Serialize one membership into the account-management payload."""
     user = membership.user
@@ -158,6 +169,22 @@ def _member_data(membership, *, current_user):
         "is_active": membership.is_active,
         "last_login": user.last_login.date().isoformat() if user.last_login else None,
         "is_self": user.id == current_user.id,
+    }
+
+
+def _member_audit_values(membership):
+    """Keep account-management audit entries readable for administrators."""
+    user = membership.user
+    full_name = " ".join(
+        part for part in [user.first_name, user.last_name] if part
+    ).strip()
+    return {
+        "identifiant": user.get_username(),
+        "nom": full_name or user.get_username(),
+        "email": user.email,
+        "structure": membership.organization.name,
+        "role": membership.role,
+        "acces_actif": membership.is_active,
     }
 
 
@@ -236,6 +263,20 @@ class OrganizationMemberListCreateAPIView(APIView):
                 membership.save(update_fields=["role", "is_active"])
 
             UserPreference.objects.get_or_create(user=user)
+
+        AuditLog.objects.create(
+            organization=organization,
+            user=request.user,
+            action=AuditLog.Action.CREATION if created else AuditLog.Action.UPDATE,
+            object_type="account",
+            object_id=user.get_username(),
+            description="Member access created" if created else "Member access restored",
+            metadata={
+                "user_id": user.id,
+                "membership_id": membership.id,
+                "valeurs": _member_audit_values(membership),
+            },
+        )
 
         return Response(
             _member_data(membership, current_user=request.user),
@@ -333,6 +374,7 @@ class OrganizationMembershipDetailAPIView(APIView):
         if membership.user_id == request.user.id:
             raise PermissionDenied("Vous ne pouvez pas modifier votre propre rôle.")
 
+        before_values = _member_audit_values(membership)
         updated_fields = []
         if "role" in request.data:
             membership.role = self._validate_role(request.data.get("role"))
@@ -343,6 +385,21 @@ class OrganizationMembershipDetailAPIView(APIView):
 
         if updated_fields:
             membership.save(update_fields=updated_fields)
+            after_values = _member_audit_values(membership)
+            AuditLog.objects.create(
+                organization=membership.organization,
+                user=request.user,
+                action=AuditLog.Action.UPDATE,
+                object_type="account",
+                object_id=membership.user.get_username(),
+                description="Member access updated",
+                metadata={
+                    "user_id": membership.user_id,
+                    "membership_id": membership.id,
+                    "valeurs": after_values,
+                    "modifications": _changed_values(before_values, after_values),
+                },
+            )
 
         return Response(_member_data(membership, current_user=request.user))
 
@@ -362,10 +419,16 @@ class AdminAuditLogListAPIView(APIView):
             raise PermissionDenied("This account cannot view the audit log.")
 
         try:
-            limit = int(request.query_params.get("limit", 80))
+            limit = int(request.query_params.get("limit", 40))
         except (TypeError, ValueError):
-            limit = 80
-        limit = max(1, min(limit, 200))
+            limit = 40
+        limit = max(1, min(limit, 100))
+
+        try:
+            offset = int(request.query_params.get("offset", 0))
+        except (TypeError, ValueError):
+            offset = 0
+        offset = max(0, offset)
 
         organization_ids = get_admin_organization_ids(request.user)
         impactful_actions = [
@@ -378,14 +441,55 @@ class AdminAuditLogListAPIView(APIView):
             AuditLog.Action.IMPORT,
             AuditLog.Action.EXPORT,
         ]
-        logs = (
-            AuditLog.objects.filter(
-                organization_id__in=organization_ids,
-                action__in=impactful_actions,
-            )
-            .select_related("organization", "user")
-            .order_by("-created_at")[:limit]
+        logs_query = AuditLog.objects.filter(
+            organization_id__in=organization_ids,
+            action__in=impactful_actions,
         )
+
+        date_filter = request.query_params.get("date", "").strip()
+        if date_filter:
+            selected_date = parse_date(date_filter)
+            if selected_date is None:
+                raise ValidationError({"date": "Date invalide."})
+            logs_query = logs_query.filter(created_at__date=selected_date)
+
+        include_options = request.query_params.get("include_options") == "1"
+        include_total = request.query_params.get("include_total") == "1"
+        action_options = []
+        if include_options:
+            action_labels = dict(AuditLog.Action.choices)
+            action_options = [
+                {
+                    "value": row["action"],
+                    "label": action_labels.get(row["action"], row["action"]),
+                    "count": row["count"],
+                }
+                for row in logs_query.values("action")
+                .annotate(count=Count("id"))
+                .order_by("action")
+            ]
+
+        action_filter = request.query_params.get("action", "").strip()
+        if action_filter:
+            selected_actions = [
+                action.strip()
+                for action in action_filter.split(",")
+                if action.strip()
+            ]
+            valid_actions = {value for value, _label in AuditLog.Action.choices}
+            invalid_actions = [
+                action for action in selected_actions if action not in valid_actions
+            ]
+            if invalid_actions:
+                raise ValidationError({"action": "Type d'action invalide."})
+            logs_query = logs_query.filter(action__in=selected_actions)
+
+        logs = list(
+            logs_query.select_related("organization", "user")
+            .order_by("-created_at")[offset : offset + limit + 1]
+        )
+        has_more = len(logs) > limit
+        logs = logs[:limit]
         measurement_ids = [
             log.metadata.get("measurement_id")
             for log in logs
@@ -396,14 +500,22 @@ class AdminAuditLogListAPIView(APIView):
             for measurement in BiologicalMeasurement.objects.filter(id__in=measurement_ids)
         }
 
-        return Response(
-            {
-                "results": [
-                    self._serialize_log(log, measurements_by_id)
-                    for log in logs
-                ]
-            }
-        )
+        payload = {
+            "results": [
+                self._serialize_log(log, measurements_by_id)
+                for log in logs
+            ],
+            "limit": limit,
+            "offset": offset,
+            "has_more": has_more,
+            "next_offset": offset + len(logs) if has_more else None,
+        }
+        if include_total:
+            payload["total_count"] = logs_query.count()
+        if include_options:
+            payload["action_options"] = action_options
+
+        return Response(payload)
 
     def _serialize_log(self, log, measurements_by_id):
         return {

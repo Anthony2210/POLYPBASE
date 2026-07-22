@@ -5,9 +5,30 @@ from rest_framework.response import Response
 
 from apps.accounts.models import OrganizationMembership
 from apps.accounts.permissions import user_is_org_admin
+from apps.audit.models import AuditLog
 
 from .models import Organization
 from .serializers import OrganizationCreateSerializer
+
+
+def _organization_audit_values(organization):
+    """Keep organization changes readable in the admin history."""
+    return {
+        "nom": organization.name,
+        "ville": organization.city,
+        "pays": organization.country,
+        "email_contact": organization.contact_email,
+        "notes": organization.notes,
+    }
+
+
+def _changed_values(before, after):
+    """Return only values changed by an admin action."""
+    return {
+        key: {"avant": before.get(key), "apres": after_value}
+        for key, after_value in after.items()
+        if before.get(key) != after_value
+    }
 
 
 class OrganizationCreateAPIView(generics.CreateAPIView):
@@ -29,6 +50,18 @@ class OrganizationCreateAPIView(generics.CreateAPIView):
                     "is_active": True,
                 },
             )
+        AuditLog.objects.create(
+            organization=organization,
+            user=self.request.user,
+            action=AuditLog.Action.CREATION,
+            object_type="organization",
+            object_id=organization.name,
+            description="Organization created",
+            metadata={
+                "organization_id": organization.id,
+                "valeurs": _organization_audit_values(organization),
+            },
+        )
 
 
 class OrganizationDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
@@ -41,6 +74,27 @@ class OrganizationDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
         super().initial(request, *args, **kwargs)
         if not request.user.is_superuser:
             raise PermissionDenied("Ce compte ne peut pas modifier une structure.")
+
+    def perform_update(self, serializer):
+        organization = self.get_object()
+        before_values = _organization_audit_values(organization)
+        organization = serializer.save()
+        after_values = _organization_audit_values(organization)
+        changes = _changed_values(before_values, after_values)
+        if changes:
+            AuditLog.objects.create(
+                organization=organization,
+                user=self.request.user,
+                action=AuditLog.Action.UPDATE,
+                object_type="organization",
+                object_id=organization.name,
+                description="Organization updated",
+                metadata={
+                    "organization_id": organization.id,
+                    "valeurs": after_values,
+                    "modifications": changes,
+                },
+            )
 
     def destroy(self, request, *args, **kwargs):
         organization = self.get_object()

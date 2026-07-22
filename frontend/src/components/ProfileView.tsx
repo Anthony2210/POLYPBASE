@@ -16,16 +16,19 @@ type ProfileLabels = {
   profileNoEmail: string;
   profileNoMembership: string;
   profileAllOrganizationsAccess: string;
+  profileLabelsMobileText: string;
   profilePreferences: string;
   roleDescAdmin: string;
   roleDescTechnician: string;
   roleDescViewer: string;
   saving: string;
+  labelsTitle: string;
 };
 
 export default function ProfileView({
   isLoading,
   labels,
+  onOpenLabels,
   onLogout,
   onUpdateLanguage,
   adminSection,
@@ -33,6 +36,7 @@ export default function ProfileView({
 }: {
   isLoading: boolean;
   labels: ProfileLabels;
+  onOpenLabels: () => void;
   onLogout: () => Promise<void>;
   onUpdateLanguage: (language: string) => Promise<void>;
   adminSection?: ReactNode;
@@ -76,15 +80,11 @@ export default function ProfileView({
 
   if (!profile) return null;
 
-  const fullName = [profile.first_name, profile.last_name].filter(Boolean).join(' ') || profile.username;
-  const initials = getProfileInitials(profile);
+  const fullName = formatProfileName(profile);
 
   return (
     <section className="profile-page">
       <header className="profile-identity-card">
-        <div className="profile-avatar" aria-hidden="true">
-          {initials}
-        </div>
         <div className="profile-identity-main">
           <p className="eyebrow">{labels.account}</p>
           <h2>{fullName}</h2>
@@ -108,6 +108,16 @@ export default function ProfileView({
           {logoutError ? <p className="inline-error">{logoutError}</p> : null}
         </div>
       </header>
+
+      <section className="profile-block profile-mobile-labels-link">
+        <button className="profile-mobile-labels-button" type="button" onClick={onOpenLabels}>
+          <span>
+            <strong>{labels.labelsTitle}</strong>
+            <small>{labels.profileLabelsMobileText}</small>
+          </span>
+          <span aria-hidden="true">›</span>
+        </button>
+      </section>
 
       <section className="profile-block">
         <div className="section-title">
@@ -187,11 +197,22 @@ function getRoleDescription(role: UserProfile['memberships'][number]['role'], la
   }
 }
 
-function getProfileInitials(profile: UserProfile): string {
-  const fromName = [profile.first_name, profile.last_name]
-    .filter(Boolean)
-    .map((part) => part.charAt(0))
-    .join('');
-  const initials = fromName || profile.username.slice(0, 2);
-  return initials.toUpperCase();
+function formatProfileName(profile: UserProfile): string {
+  const firstName = formatFirstName(profile.first_name);
+  const lastName = formatLastName(profile.last_name);
+  return [firstName, lastName].filter(Boolean).join(' ') || profile.username;
+}
+
+function formatFirstName(value: string) {
+  return value
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLocaleLowerCase('fr-FR')
+    .replace(/(^|[\s'-])(\p{L})/gu, (_match, separator: string, letter: string) => {
+      return `${separator}${letter.toLocaleUpperCase('fr-FR')}`;
+    });
+}
+
+function formatLastName(value: string) {
+  return value.trim().replace(/\s+/g, ' ').toLocaleUpperCase('fr-FR');
 }
