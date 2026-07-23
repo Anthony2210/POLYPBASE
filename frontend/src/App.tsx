@@ -18,7 +18,11 @@ import {
   setActiveOrganizationContext,
 } from './api/client';
 import { getBoxStatusPresentation } from './boxStatus';
-import AdminView from './components/AdminView';
+import AdminView, { type EditableMeasurement } from './components/AdminView';
+
+// A measurement handed over by the history so the box sheet can open with it
+// already filled in.
+type HistoryMeasurementPrefill = EditableMeasurement;
 import BoxInsights, { MeasurementHistoryModal, type BoxInsightTab } from './components/BoxInsights';
 import { useConfirmAction, type ConfirmActionOptions } from './components/ConfirmActionModal';
 import ExportsView from './components/ExportsView';
@@ -590,6 +594,7 @@ const translations = {
     recentAccess: 'Derniers accès',
     holdToSave: 'Maintenir pour enregistrer',
     saveMeasurement: 'Enregistrer le relevé',
+    correctMeasurement: 'Modifier ce relevé',
     saving: 'Enregistrement...',
     scanSearch: 'compte actuel',
     searchOrScan: 'Recherche ou scan',
@@ -1153,6 +1158,7 @@ const translations = {
     recentAccess: 'Recent access',
     holdToSave: 'Hold to save',
     saveMeasurement: 'Save measurement',
+    correctMeasurement: 'Update this measurement',
     saving: 'Saving...',
     scanSearch: 'current account',
     searchOrScan: 'Search or scan',
@@ -1263,6 +1269,9 @@ export default function App() {
   const [search, setSearch] = useState('');
   const [recentBoxIds, setRecentBoxIds] = useState<number[]>([]);
   const [qrLabelSelection, setQrLabelSelection] = useState<QrLabelItem[]>([]);
+  // Values carried over when the history sends the user to correct a
+  // measurement; consumed once by the box sheet, then cleared.
+  const [measurementPrefill, setMeasurementPrefill] = useState<HistoryMeasurementPrefill | null>(null);
   const [activeOrganizationId, setActiveOrganizationId] = useState<number | null>(() => getStoredActiveOrganizationId());
   const [needsOrganizationChoice, setNeedsOrganizationChoice] = useState(false);
   const [isOrganizationMenuOpen, setIsOrganizationMenuOpen] = useState(false);
@@ -1567,6 +1576,17 @@ export default function App() {
       .filter((box): box is BoxItem => Boolean(box))
       .slice(0, 5);
   }, [data.boxes, recentBoxIds]);
+
+  /**
+   * Open a box sheet from the history with its measurement form pre-filled.
+   *
+   * Saving keeps the same date, and the API stores one measurement per box and
+   * date, so the correction overwrites that measurement instead of adding one.
+   */
+  function editMeasurementFromHistory(measurement: HistoryMeasurementPrefill) {
+    setMeasurementPrefill(measurement);
+    openBox(measurement.box_id, measurement.box_code);
+  }
 
   function openBox(boxId: number, fallbackCode?: string) {
     const box = data.boxes.find((item) => item.id === boxId);
@@ -1997,6 +2017,8 @@ export default function App() {
                 onActivateBox={activateBox}
                 onResolveAlert={resolveAlert}
                 onLoadLineageGraph={loadLineageGraph}
+                measurementPrefill={measurementPrefill}
+                onMeasurementPrefillConsumed={() => setMeasurementPrefill(null)}
                 onOpenBox={openBox}
                 onOpenZone={openZone}
                 onAddQrLabel={addQrLabelToSelection}
@@ -2083,6 +2105,7 @@ export default function App() {
                 onUpdateOrganization={updateOrganization}
                 onDeleteOrganization={deleteOrganization}
                 onCreateTransfer={createBoxTransfer}
+                onEditMeasurement={editMeasurementFromHistory}
                 t={t}
                 zones={data.zones}
               />
@@ -2122,6 +2145,7 @@ export default function App() {
                     onUpdateOrganization={updateOrganization}
                     onDeleteOrganization={deleteOrganization}
                     onCreateTransfer={createBoxTransfer}
+                    onEditMeasurement={editMeasurementFromHistory}
                     t={t}
                     zones={data.zones}
                   />
@@ -3220,6 +3244,8 @@ function BoxPage({
   onActivateBox,
   onResolveAlert,
   onLoadLineageGraph,
+  measurementPrefill,
+  onMeasurementPrefillConsumed,
   onOpenBox,
   onOpenZone,
   onAddQrLabel,
@@ -3247,6 +3273,8 @@ function BoxPage({
   onActivateBox: (boxId: number) => Promise<void>;
   onResolveAlert: (boxId: number, alertId: number) => Promise<void>;
   onLoadLineageGraph: (boxId: number) => Promise<LineageGraph>;
+  measurementPrefill: HistoryMeasurementPrefill | null;
+  onMeasurementPrefillConsumed: () => void;
   onOpenBox: (boxId: number, globalCode: string) => void;
   onOpenZone: (zoneId: number) => void;
   onAddQrLabel: (label: QrLabelItem) => void;
@@ -3282,6 +3310,10 @@ function BoxPage({
   // one currently being edited (null = creating a new measurement).
   const [lastSavedMeasurementId, setLastSavedMeasurementId] = useState<number | null>(null);
   const [editingMeasurementId, setEditingMeasurementId] = useState<number | null>(null);
+  // Set while the form holds values brought over from the history, so the save
+  // button can say "correct" rather than "record": the technician is fixing an
+  // existing measurement, not adding one.
+  const [isCorrectingFromHistory, setIsCorrectingFromHistory] = useState(false);
   const [subcultureError, setSubcultureError] = useState<string | null>(null);
   const [subcultureMessage, setSubcultureMessage] = useState<string | null>(null);
   const [activeInsightTab, setActiveInsightTab] = useState<BoxInsightTab>('measurements');
@@ -3309,7 +3341,27 @@ function BoxPage({
     setSubcultureError(null);
     setSubcultureMessage(null);
     setActiveInsightTab('measurements');
+    setIsCorrectingFromHistory(false);
   }, [box?.id]);
+
+  // The history sends the user here to correct a measurement: fill the form
+  // with what was recorded. Declared after the reset above so it runs last and
+  // its values survive the box change. Keeping the original date matters: the
+  // API stores one measurement per box and date, so saving overwrites that
+  // measurement instead of adding a second one.
+  useEffect(() => {
+    if (!measurementPrefill || !box || measurementPrefill.box_id !== box.id) return;
+
+    setForm({
+      measuredOn: measurementPrefill.measured_on,
+      polypCount: String(measurementPrefill.polyp_count),
+      ephyraeCount: String(measurementPrefill.ephyrae_count),
+      salinity: measurementPrefill.salinity_psu,
+      notes: measurementPrefill.notes,
+    });
+    setIsCorrectingFromHistory(true);
+    onMeasurementPrefillConsumed();
+  }, [measurementPrefill, box?.id]);
 
   // The zones can finish loading after the sheet is open, and the box can be
   // moved to another zone: seed the salinity once its control value is known.
@@ -3441,6 +3493,8 @@ function BoxPage({
         setSaveMessage(t('measurementSaved'));
       }
       setForm(getInitialMeasurementForm(defaultSalinity));
+      // The correction is done: the emptied form is a new measurement again.
+      setIsCorrectingFromHistory(false);
       triggerHaptic([12, 28, 12]);
       return true;
     } catch (requestError) {
@@ -3893,7 +3947,11 @@ function BoxPage({
                   isSuccess={Boolean(saveMessage)}
                   labels={{
                     hold: editingMeasurementId != null ? t('holdToUpdate') : t('holdToSave'),
-                    save: editingMeasurementId != null ? t('saveMeasurementEdit') : t('saveMeasurement'),
+                    save: isCorrectingFromHistory
+                      ? t('correctMeasurement')
+                      : editingMeasurementId != null
+                        ? t('saveMeasurementEdit')
+                        : t('saveMeasurement'),
                     saved: saveMessage || t('measurementSaved'),
                     saving: t('saving'),
                   }}
