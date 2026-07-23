@@ -42,6 +42,27 @@ type AdminAuditLogEntry = {
   object_id: string;
   description: string;
   metadata: Record<string, unknown>;
+  // When the entry last changed (its correction, or its creation): the entry is
+  // placed in the timeline by this, while created_at stays the moment the
+  // measurement was recorded.
+  effective_at: string;
+  edited_at: string | null;
+  edited_by: string | null;
+  // Present only when the entry is a measurement that still exists, so the
+  // history can send the user to correct it. Exports, transfers and account
+  // changes never carry this.
+  editable_measurement: EditableMeasurement | null;
+};
+
+export type EditableMeasurement = {
+  id: number;
+  box_id: number;
+  box_code: string;
+  measured_on: string;
+  polyp_count: number;
+  ephyrae_count: number;
+  salinity_psu: string;
+  notes: string;
 };
 
 type AdminAuditActionOption = {
@@ -2431,7 +2452,13 @@ function sanitizeFilePart(value: string) {
   return value.trim().replace(/[^a-z0-9._-]+/gi, '_') || 'boite';
 }
 
-function AdminAuditLogSection({ t }: { t: TFunction }) {
+function AdminAuditLogSection({
+  onEditMeasurement,
+  t,
+}: {
+  onEditMeasurement: (measurement: EditableMeasurement) => void;
+  t: TFunction;
+}) {
   const [entries, setEntries] = useState<AdminAuditLogEntry[]>([]);
   const [actionOptions, setActionOptions] = useState<AdminAuditActionOption[]>([]);
   const [actionFilter, setActionFilter] = useState('');
@@ -2529,18 +2556,7 @@ function AdminAuditLogSection({ t }: { t: TFunction }) {
             <option value="">{t('adminAuditAllActions')}</option>
             {actionOptions.map((option) => (
               <option value={option.value} key={option.value}>
-                {getFrenchAuditAction({
-                  id: 0,
-                  created_at: '',
-                  organization: null,
-                  user: null,
-                  action: option.value,
-                  action_label: option.label,
-                  object_type: '',
-                  object_id: '',
-                  description: '',
-                  metadata: {},
-                })}
+                {getFrenchAuditAction({ action: option.value, action_label: option.label })}
                 {option.count ? ` (${option.count})` : ''}
               </option>
             ))}
@@ -2586,20 +2602,36 @@ function AdminAuditLogSection({ t }: { t: TFunction }) {
                           onClick={() => setExpandedEntryId(isExpanded ? null : entry.id)}
                         >
                           <span>
-                            <strong>{formatAuditDate(entry.created_at)}</strong>
+                            <strong>{formatAuditDate(entry.effective_at)}</strong>
                             <small>{entry.organization ?? '-'}</small>
                           </span>
                           <span>{entry.user ?? '-'}</span>
                           <span>
                             <strong>{getFrenchAuditAction(entry)}</strong>
                             <small>{formatAuditDescription(entry)}</small>
+                            {entry.edited_at ? (
+                              <small className="admin-audit-edited-mark">
+                                Corrigé le {formatAuditDate(entry.edited_at)}
+                                {entry.edited_by ? ` par ${entry.edited_by}` : ''} · relevé
+                                enregistré le {formatAuditDate(entry.created_at)}
+                              </small>
+                            ) : null}
                           </span>
                           <span>
                             <strong>{entry.object_id || '-'}</strong>
                             <small>{formatAuditObjectType(entry.object_type)}</small>
                           </span>
                         </button>
-                        {isExpanded ? <AuditLogDetails entry={entry} /> : null}
+                        {isExpanded ? (
+                          <AuditLogDetails
+                            entry={entry}
+                            onEditMeasurement={() => {
+                              if (entry.editable_measurement) {
+                                onEditMeasurement(entry.editable_measurement);
+                              }
+                            }}
+                          />
+                        ) : null}
                       </article>
                     );
                   })}
@@ -2616,11 +2648,18 @@ function AdminAuditLogSection({ t }: { t: TFunction }) {
           </button>
         ) : null}
       </div>
+
     </section>
   );
 }
 
-function AuditLogDetails({ entry }: { entry: AdminAuditLogEntry }) {
+function AuditLogDetails({
+  entry,
+  onEditMeasurement,
+}: {
+  entry: AdminAuditLogEntry;
+  onEditMeasurement: () => void;
+}) {
   const metadataEntries = Object.entries(entry.metadata ?? {});
   const values = filterAuditDisplayRecord(getMetadataRecord(entry.metadata?.valeurs));
   const changes = filterAuditDisplayRecord(getMetadataRecord(entry.metadata?.modifications));
@@ -2693,6 +2732,17 @@ function AuditLogDetails({ entry }: { entry: AdminAuditLogEntry }) {
               </div>
             ))}
           </dl>
+        </div>
+      ) : null}
+      {entry.editable_measurement ? (
+        <div className="admin-audit-detail-wide admin-audit-edit-measurement">
+          <button className="admin-audit-correct-button" type="button" onClick={onEditMeasurement}>
+            Corriger ce relevé
+          </button>
+          <small>
+            Ouvre la fiche de {entry.editable_measurement.box_code}, relevé du{' '}
+            {formatDisplayDate(entry.editable_measurement.measured_on)} pré-rempli.
+          </small>
         </div>
       ) : null}
     </div>
@@ -2917,7 +2967,9 @@ function formatTechnicalDate(value: string) {
   return `${day}/${month}/${year}`;
 }
 
-function getFrenchAuditAction(entry: AdminAuditLogEntry) {
+// Only needs the action itself, so it also serves the filter dropdown, which
+// has no full log entry to hand.
+function getFrenchAuditAction(entry: { action: string; action_label?: string }) {
   switch (entry.action) {
     case 'entry':
       return 'Nouvelle donnée enregistrée';
@@ -2977,7 +3029,7 @@ function getAuditDayKey(value: string) {
 function groupAuditEntriesByDay(entries: AdminAuditLogEntry[]) {
   const groups: Array<{ key: string; label: string; entries: AdminAuditLogEntry[] }> = [];
   entries.forEach((entry) => {
-    const key = getAuditDayKey(entry.created_at);
+    const key = getAuditDayKey(entry.effective_at);
     const currentGroup = groups.find((group) => group.key === key);
     if (currentGroup) {
       currentGroup.entries.push(entry);
@@ -2985,7 +3037,7 @@ function groupAuditEntriesByDay(entries: AdminAuditLogEntry[]) {
     }
     groups.push({
       key,
-      label: formatAuditDay(entry.created_at),
+      label: formatAuditDay(entry.effective_at),
       entries: [entry],
     });
   });
@@ -3268,9 +3320,11 @@ export default function AdminView({
   onDeleteOrganization,
   onUpdateOrganization,
   onCreateTransfer,
+  onEditMeasurement,
   t,
   zones,
 }: {
+  onEditMeasurement: (measurement: EditableMeasurement) => void;
   boxes: BoxItem[];
   exportOptions: ExportOptions | null;
   isLoading: boolean;
@@ -3339,7 +3393,9 @@ export default function AdminView({
           />
         ) : null}
 
-        {activeAdminSection === 'history' ? <AdminAuditLogSection t={t} /> : null}
+        {activeAdminSection === 'history' ? (
+          <AdminAuditLogSection onEditMeasurement={onEditMeasurement} t={t} />
+        ) : null}
       </div>
     </section>
   );

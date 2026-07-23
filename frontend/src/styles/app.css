@@ -13680,6 +13680,48 @@ button.zone-attention-item:hover {
   background: rgba(236, 243, 247, 0.72);
 }
 
+/* Says an entry was corrected: it sits in the timeline at its correction date,
+   so the date it was first recorded has to stay readable. */
+.admin-audit-edited-mark {
+  color: var(--primary-strong);
+  font-weight: 650;
+}
+
+/* Sends the user to the box sheet to correct the measurement. Styled like the
+   other primary actions of the admin screens rather than as a bare button. */
+.admin-audit-edit-measurement {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.admin-audit-correct-button {
+  min-height: 38px;
+  padding: 0 16px;
+  border: 1px solid var(--primary);
+  border-radius: 10px;
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+  font-size: 0.9rem;
+  font-weight: 720;
+  cursor: pointer;
+}
+
+.admin-audit-correct-button:hover {
+  background: var(--primary);
+  color: #ffffff;
+}
+
+.admin-audit-edit-measurement small {
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
 .confirm-action-modal {
   width: min(520px, calc(100vw - 32px));
   max-height: min(680px, calc(100dvh - 32px));

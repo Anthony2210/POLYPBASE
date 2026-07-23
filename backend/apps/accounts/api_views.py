@@ -8,6 +8,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.mail import send_mail
 from django.db import transaction
 from django.db.models import Count
+from django.db.models.functions import Coalesce
 from django.utils import translation
 from django.utils.crypto import get_random_string
 from django.utils.dateparse import parse_date
@@ -659,8 +660,12 @@ class AdminAuditLogListAPIView(APIView):
             logs_query = logs_query.filter(action__in=selected_actions)
 
         logs = list(
-            logs_query.select_related("organization", "user")
-            .order_by("-created_at")[offset : offset + limit + 1]
+            logs_query.select_related("organization", "user", "edited_by")
+            # Sorted on the last time the entry changed: a corrected measurement
+            # updates its existing entry in place, so ordering on created_at
+            # alone would leave the correction buried in the past.
+            .annotate(effective_at=Coalesce("edited_at", "created_at"))
+            .order_by("-effective_at")[offset : offset + limit + 1]
         )
         has_more = len(logs) > limit
         logs = logs[:limit]
@@ -671,7 +676,10 @@ class AdminAuditLogListAPIView(APIView):
         ]
         measurements_by_id = {
             measurement.id: measurement
-            for measurement in BiologicalMeasurement.objects.filter(id__in=measurement_ids)
+            # select_related: the edit link reads measurement.box.global_code.
+            for measurement in BiologicalMeasurement.objects.filter(
+                id__in=measurement_ids
+            ).select_related("box")
         }
 
         payload = {
@@ -692,6 +700,10 @@ class AdminAuditLogListAPIView(APIView):
         return Response(payload)
 
     def _serialize_log(self, log, measurements_by_id):
+        # Resolved once and reused: the fallback lookup hits the database, so
+        # doing it separately for the metadata and for the edit link would
+        # double the queries.
+        measurement = self._resolve_measurement(log, measurements_by_id)
         return {
             "id": log.id,
             "created_at": log.created_at,
@@ -702,16 +714,60 @@ class AdminAuditLogListAPIView(APIView):
             "object_type": log.object_type,
             "object_id": log.object_id,
             "description": log.description,
-            "metadata": self._enriched_metadata(log, measurements_by_id),
+            # The entry is placed in the timeline by effective_at, but still
+            # shows created_at as the moment the measurement was recorded.
+            "effective_at": getattr(log, "effective_at", None) or log.created_at,
+            "edited_at": log.edited_at,
+            "edited_by": log.edited_by.get_username() if log.edited_by else None,
+            "metadata": self._enriched_metadata(log, measurement),
+            # Lets the history open the measurement itself for correction,
+            # instead of sending the user off to the box sheet.
+            "editable_measurement": self._editable_measurement(log, measurement),
         }
 
-    def _enriched_metadata(self, log, measurements_by_id):
+    def _resolve_measurement(self, log, measurements_by_id):
+        metadata = log.metadata if isinstance(log.metadata, dict) else {}
+        measurement_id = metadata.get("measurement_id")
+        if measurement_id and measurement_id in measurements_by_id:
+            return measurements_by_id[measurement_id]
+        # An entry may predate measurement_id, or point at a deleted row.
+        return self._find_measurement_from_log(log)
+
+    def _editable_measurement(self, log, measurement):
+        """Only a real measurement entry may be corrected from the history.
+
+        Exports, transfers, account changes and the like are never editable
+        here. The date-matching fallback used to enrich the display is not
+        trusted for this: an export mentioning a date could otherwise be tied to
+        an unrelated measurement. An explicit measurement_id is required.
+        """
+        if measurement is None:
+            return None
+
+        if log.action not in {AuditLog.Action.ENTRY, AuditLog.Action.UPDATE}:
+            return None
+
+        metadata = log.metadata if isinstance(log.metadata, dict) else {}
+        if metadata.get("measurement_id") != measurement.id:
+            return None
+        return {
+            "id": measurement.id,
+            "box_id": measurement.box_id,
+            "box_code": measurement.box.global_code,
+            "measured_on": measurement.measured_on.isoformat(),
+            "polyp_count": measurement.polyp_count,
+            "ephyrae_count": measurement.ephyrae_count,
+            "salinity_psu": (
+                str(measurement.salinity_psu) if measurement.salinity_psu is not None else ""
+            ),
+            "notes": measurement.notes or "",
+        }
+
+    def _enriched_metadata(self, log, measurement):
         metadata = dict(log.metadata or {})
         if "valeurs" in metadata:
             return metadata
 
-        measurement_id = metadata.get("measurement_id")
-        measurement = measurements_by_id.get(measurement_id) or self._find_measurement_from_log(log)
         if measurement is not None:
             metadata["valeurs"] = {
                 "date": measurement.measured_on.isoformat(),
@@ -738,6 +794,7 @@ class AdminAuditLogListAPIView(APIView):
                 box__global_code=log.object_id,
                 measured_on=match.group(1),
             )
+            .select_related("box")
             .order_by("-created_at")
             .first()
         )
