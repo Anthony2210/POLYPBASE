@@ -361,9 +361,10 @@ class OrganizationMemberListCreateAPIView(APIView):
         if not username:
             raise ValidationError({"username": "Un identifiant est requis."})
 
+        email = (data.get("email") or "").strip()
         user_model = get_user_model()
         with transaction.atomic():
-            user = user_model.objects.filter(username__iexact=username).first()
+            user = self._resolve_target_user(user_model, username, email)
             if user is None:
                 user = self._create_user(user_model, username, data)
 
@@ -411,6 +412,37 @@ class OrganizationMemberListCreateAPIView(APIView):
         if organization_id not in admin_org_ids:
             raise PermissionDenied("You cannot manage members for this organization.")
         return Organization.objects.get(id=organization_id)
+
+    def _resolve_target_user(self, user_model, username, email):
+        candidates = []
+
+        user_from_username = user_model.objects.filter(username__iexact=username).first()
+        if user_from_username is not None:
+            candidates.append(user_from_username)
+
+        user_from_username_email = (
+            user_model.objects.filter(email__iexact=username).first()
+            if username
+            else None
+        )
+        if user_from_username_email is not None:
+            candidates.append(user_from_username_email)
+
+        user_from_email = (
+            user_model.objects.filter(email__iexact=email).first()
+            if email
+            else None
+        )
+        if user_from_email is not None:
+            candidates.append(user_from_email)
+
+        distinct_users = {user.id: user for user in candidates}.values()
+        if len(distinct_users) > 1:
+            raise ValidationError({
+                "email": "Cet email est déjà associé à un autre compte.",
+            })
+
+        return next(iter(distinct_users), None)
 
     def _validate_role(self, role):
         valid_roles = {value for value, _label in OrganizationMembership.Role.choices}
@@ -488,13 +520,16 @@ class OrganizationMembershipDetailAPIView(APIView):
         if membership.organization_id not in admin_org_ids:
             raise PermissionDenied("You cannot manage members for this organization.")
 
-        if membership.user_id == request.user.id:
-            raise PermissionDenied("Vous ne pouvez pas modifier votre propre rôle.")
-
         before_values = _member_audit_values(membership)
         updated_fields = []
         if "role" in request.data:
-            membership.role = self._validate_role(request.data.get("role"))
+            next_role = self._validate_role(request.data.get("role"))
+            self._ensure_role_change_allowed(
+                request_user=request.user,
+                membership=membership,
+                next_role=next_role,
+            )
+            membership.role = next_role
             updated_fields.append("role")
         if "is_active" in request.data:
             membership.is_active = bool(request.data.get("is_active"))
@@ -516,9 +551,29 @@ class OrganizationMembershipDetailAPIView(APIView):
                     "valeurs": after_values,
                     "modifications": _changed_values(before_values, after_values),
                 },
-            )
+        )
 
         return Response(_member_data(membership, current_user=request.user))
+
+    def _ensure_role_change_allowed(self, request_user, membership, next_role):
+        if membership.user_id == request_user.id:
+            if next_role == OrganizationMembership.Role.ADMIN:
+                return
+            other_admin_exists = OrganizationMembership.objects.filter(
+                organization=membership.organization,
+                is_active=True,
+                role=OrganizationMembership.Role.ADMIN,
+            ).exclude(user_id=request_user.id).exists()
+            if not other_admin_exists:
+                raise PermissionDenied(
+                    "Vous ne pouvez pas vous rétrograder tant qu'aucun autre administrateur n'est actif dans cette structure."
+                )
+            return
+
+        if membership.role == OrganizationMembership.Role.ADMIN and next_role != OrganizationMembership.Role.ADMIN:
+            raise PermissionDenied(
+                "Vous ne pouvez pas rétrograder un autre administrateur de la même structure. Il doit se rétrograder lui-même."
+            )
 
     def _validate_role(self, role):
         valid_roles = {value for value, _label in OrganizationMembership.Role.choices}

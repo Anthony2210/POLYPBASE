@@ -196,6 +196,71 @@ class AccountMemberManagementTests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn("Mot de passe temporaire", mail.outbox[0].body)
 
+    def test_admin_can_link_existing_user_from_email_to_another_organization(self):
+        self.client.login(username="admin", password="secret")
+        existing_user = get_user_model().objects.create_user(
+            username="existing",
+            email="existing@example.test",
+            password="secret",
+        )
+        OrganizationMembership.objects.create(
+            user=existing_user,
+            organization=self.partner,
+            role=OrganizationMembership.Role.VIEWER,
+        )
+
+        response = self.client.post(
+            self.list_url,
+            data={
+                "username": "existing@example.test",
+                "organization_id": self.paris.id,
+                "role": "viewer",
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(UserPreference.objects.filter(user=existing_user).count(), 1)
+        self.assertTrue(
+            OrganizationMembership.objects.filter(
+                user=existing_user,
+                organization=self.paris,
+                role=OrganizationMembership.Role.VIEWER,
+            ).exists()
+        )
+
+    def test_admin_can_link_existing_user_using_email_field(self):
+        self.client.login(username="admin", password="secret")
+        existing_user = get_user_model().objects.create_user(
+            username="existing",
+            email="existing@example.test",
+            password="secret",
+        )
+
+        response = self.client.post(
+            self.list_url,
+            data={
+                "username": "new-alias",
+                "email": "existing@example.test",
+                "organization_id": self.paris.id,
+                "role": "viewer",
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(
+            OrganizationMembership.objects.filter(
+                user=existing_user,
+                organization=self.paris,
+                role=OrganizationMembership.Role.VIEWER,
+            ).exists()
+        )
+        self.assertEqual(
+            get_user_model().objects.filter(email="existing@example.test").count(),
+            1,
+        )
+
     def test_admin_create_requires_email_for_generated_password(self):
         self.client.login(username="admin", password="secret")
 
@@ -253,10 +318,52 @@ class AccountMemberManagementTests(TestCase):
             OrganizationMembership.Role.ADMIN,
         )
 
-    def test_admin_cannot_change_own_role(self):
+    def test_admin_can_change_own_role_when_another_admin_exists(self):
+        self.client.login(username="admin", password="secret")
+        other_admin = get_user_model().objects.create_user(username="admin2", password="secret")
+        OrganizationMembership.objects.create(
+            user=other_admin,
+            organization=self.paris,
+            role=OrganizationMembership.Role.ADMIN,
+        )
+        membership = OrganizationMembership.objects.get(
+            user=self.admin, organization=self.paris
+        )
+        url = reverse("api_account_member_detail", args=[membership.id])
+
+        response = self.client.patch(
+            url, data={"role": "viewer"}, content_type="application/json"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        membership.refresh_from_db()
+        self.assertEqual(membership.role, OrganizationMembership.Role.VIEWER)
+
+    def test_admin_cannot_change_own_role_if_they_are_the_last_admin(self):
         self.client.login(username="admin", password="secret")
         membership = OrganizationMembership.objects.get(
             user=self.admin, organization=self.paris
+        )
+        url = reverse("api_account_member_detail", args=[membership.id])
+
+        response = self.client.patch(
+            url, data={"role": "viewer"}, content_type="application/json"
+        )
+
+        self.assertEqual(response.status_code, 403)
+        membership.refresh_from_db()
+        self.assertEqual(membership.role, OrganizationMembership.Role.ADMIN)
+
+    def test_admin_cannot_downgrade_another_admin_in_the_same_organization(self):
+        self.client.login(username="admin", password="secret")
+        other_admin = get_user_model().objects.create_user(username="admin2", password="secret")
+        OrganizationMembership.objects.create(
+            user=other_admin,
+            organization=self.paris,
+            role=OrganizationMembership.Role.ADMIN,
+        )
+        membership = OrganizationMembership.objects.get(
+            user=other_admin, organization=self.paris
         )
         url = reverse("api_account_member_detail", args=[membership.id])
 

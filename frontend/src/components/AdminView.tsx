@@ -667,7 +667,7 @@ function AccountManagementSection({ t }: { t: TFunction }) {
                   <span>{t('manageColRole')}</span>
                   <select
                     value={member.role}
-                    disabled={member.is_self || rowBusyId === member.membership_id}
+                    disabled={rowBusyId === member.membership_id}
                     onChange={(event) =>
                       handleRoleChange(member, event.target.value as MembershipRole)
                     }

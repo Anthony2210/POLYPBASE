@@ -92,6 +92,15 @@ class AuditLog(models.Model):
     description = models.TextField(blank=True)
     metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    edited_at = models.DateTimeField(null=True, blank=True)
+    edited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="edited_audit_logs",
+    )
+    original_values = models.JSONField(default=dict, blank=True)
 
     class Meta:
         ordering = ["-created_at"]
