@@ -29,14 +29,18 @@ export default function ProfileView({
   isLoading,
   labels,
   onOpenLabels,
+  onSelectOrganization,
   onLogout,
   onUpdateLanguage,
+  activeOrganizationId,
   adminSection,
   profile,
 }: {
   isLoading: boolean;
+  activeOrganizationId: number | null;
   labels: ProfileLabels;
   onOpenLabels: () => void;
+  onSelectOrganization: (organizationId: number) => void;
   onLogout: () => Promise<void>;
   onUpdateLanguage: (language: string) => Promise<void>;
   adminSection?: ReactNode;
@@ -81,6 +85,7 @@ export default function ProfileView({
   if (!profile) return null;
 
   const fullName = formatProfileName(profile);
+  const organizations = getSelectableOrganizations(profile);
 
   return (
     <section className="profile-page">
@@ -119,38 +124,36 @@ export default function ProfileView({
         </button>
       </section>
 
-      <section className="profile-block">
-        <div className="section-title">
-          <h2>{labels.profileMemberships}</h2>
-          {/* Some technical accounts can reach every organization without a membership row. */}
-          <span>
-            {profile.memberships.length || (profile.is_superuser ? profile.organizations.length : 0)}
-          </span>
-        </div>
-
-        {profile.memberships.length ? (
-          <div className="profile-membership-list">
-            {profile.memberships.map((membership) => (
-              <article
-                key={`${membership.organization.id}-${membership.role}`}
-                className="profile-membership-card"
-              >
-                <div className="profile-membership-head">
-                  <strong>{membership.organization.name}</strong>
-                  <span className={`profile-role-tag is-${membership.role}`}>
-                    {membership.role_label}
-                  </span>
-                </div>
-                <p>{getRoleDescription(membership.role, labels)}</p>
-              </article>
-            ))}
+      {organizations.length > 0 ? (
+        <section className="profile-block profile-organization-context">
+          <div className="section-title">
+            <div>
+              <h2>Institution active</h2>
+              <p>Ce choix sera repris automatiquement à la prochaine connexion.</p>
+            </div>
           </div>
-        ) : profile.is_superuser ? (
-          <p className="muted compact-text">{labels.profileAllOrganizationsAccess}</p>
-        ) : (
-          <p className="muted compact-text">{labels.profileNoMembership}</p>
-        )}
-      </section>
+          <div className="profile-organization-options">
+            {organizations.map((organization) => {
+              const membership = profile.memberships.find((item) => item.organization.id === organization.id);
+              const isActive = organization.id === activeOrganizationId;
+              return (
+                <button
+                  key={organization.id}
+                  className={isActive ? 'is-active' : ''}
+                  type="button"
+                  onClick={() => onSelectOrganization(organization.id)}
+                >
+                  <span>
+                    <strong>{organization.name}</strong>
+                    <small>{membership?.role_label ?? 'Accès complet'}</small>
+                  </span>
+                  {isActive ? <em>Par défaut</em> : null}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
       <section className="profile-block">
         <div className="section-title">
@@ -215,4 +218,15 @@ function formatFirstName(value: string) {
 
 function formatLastName(value: string) {
   return value.trim().replace(/\s+/g, ' ').toLocaleUpperCase('fr-FR');
+}
+
+function getSelectableOrganizations(profile: UserProfile) {
+  const organizations = profile.memberships.length
+    ? profile.memberships.map((membership) => membership.organization)
+    : profile.organizations;
+
+  return organizations.filter(
+    (organization, index) =>
+      organizations.findIndex((item) => item.id === organization.id) === index,
+  );
 }

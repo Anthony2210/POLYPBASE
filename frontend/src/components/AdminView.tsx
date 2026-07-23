@@ -659,7 +659,6 @@ function AccountManagementSection({ t }: { t: TFunction }) {
                     @{member.username}
                     {member.email ? ` · ${member.email}` : ''}
                   </small>
-                  <em>{member.organization.name}</em>
                 </span>
               </div>
 

@@ -33,5 +33,6 @@ class UserProfileSerializer(serializers.Serializer):
     is_superuser = serializers.BooleanField()
     interface_language = serializers.CharField()
     organizations = OrganizationSummarySerializer(many=True)
+    active_organization = OrganizationSummarySerializer(allow_null=True)
     memberships = serializers.ListField()
     available_languages = serializers.ListField()

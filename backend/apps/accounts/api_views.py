@@ -22,7 +22,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.permissions import (
-    get_admin_organization_ids,
+    get_active_admin_organization_ids,
+    get_active_organization_from_request,
     get_admin_organizations,
     get_authorized_organizations,
     user_is_org_admin,
@@ -181,7 +182,7 @@ class UserProfileAPIView(APIView):
 
     def get(self, request):
         preference = self._get_preference(request.user)
-        return Response(self._profile_data(request.user, preference))
+        return Response(self._profile_data(request, preference))
 
     def patch(self, request):
         preference = self._get_preference(request.user)
@@ -197,14 +198,16 @@ class UserProfileAPIView(APIView):
         translation.activate(preference.interface_language)
         request.LANGUAGE_CODE = preference.interface_language
 
-        return Response(self._profile_data(request.user, preference))
+        return Response(self._profile_data(request, preference))
 
     def _get_preference(self, user):
         preference, _created = UserPreference.objects.get_or_create(user=user)
         return preference
 
-    def _profile_data(self, user, preference):
+    def _profile_data(self, request, preference):
+        user = request.user
         organizations = get_authorized_organizations(user).order_by("name")
+        active_organization = get_active_organization_from_request(request)
         memberships = OrganizationMembership.objects.filter(
             user=user,
             is_active=True,
@@ -220,6 +223,7 @@ class UserProfileAPIView(APIView):
                 "is_superuser": user.is_superuser,
                 "interface_language": preference.interface_language,
                 "organizations": organizations,
+                "active_organization": active_organization,
                 "memberships": [
                     {
                         "organization": {
@@ -317,13 +321,15 @@ class OrganizationMemberListCreateAPIView(APIView):
         if not user_is_org_admin(request.user):
             raise PermissionDenied("This account cannot manage members.")
 
-        organization_ids = get_admin_organization_ids(request.user)
+        organization_ids = get_active_admin_organization_ids(request)
+        if not organization_ids:
+            raise PermissionDenied("This account cannot manage members for the selected organization.")
         memberships = (
             OrganizationMembership.objects.filter(organization_id__in=organization_ids)
             .select_related("organization", "user")
             .order_by("organization__name", "user__username")
         )
-        organizations = get_admin_organizations(request.user).order_by("name")
+        organizations = get_admin_organizations(request.user).filter(id__in=organization_ids).order_by("name")
 
         return Response(
             {
@@ -343,7 +349,9 @@ class OrganizationMemberListCreateAPIView(APIView):
         if not user_is_org_admin(request.user):
             raise PermissionDenied("This account cannot manage members.")
 
-        admin_org_ids = get_admin_organization_ids(request.user)
+        admin_org_ids = get_active_admin_organization_ids(request)
+        if not admin_org_ids:
+            raise PermissionDenied("This account cannot manage members for the selected organization.")
         data = request.data
 
         organization = self._get_managed_organization(data.get("organization_id"), admin_org_ids)
@@ -467,7 +475,9 @@ class OrganizationMembershipDetailAPIView(APIView):
         if not user_is_org_admin(request.user):
             raise PermissionDenied("This account cannot manage members.")
 
-        admin_org_ids = get_admin_organization_ids(request.user)
+        admin_org_ids = get_active_admin_organization_ids(request)
+        if not admin_org_ids:
+            raise PermissionDenied("This account cannot manage members for the selected organization.")
         try:
             membership = OrganizationMembership.objects.select_related(
                 "organization", "user"
@@ -537,7 +547,9 @@ class AdminAuditLogListAPIView(APIView):
             offset = 0
         offset = max(0, offset)
 
-        organization_ids = get_admin_organization_ids(request.user)
+        organization_ids = get_active_admin_organization_ids(request)
+        if not organization_ids:
+            raise PermissionDenied("This account cannot view the audit log for the selected organization.")
         impactful_actions = [
             AuditLog.Action.CREATION,
             AuditLog.Action.UPDATE,

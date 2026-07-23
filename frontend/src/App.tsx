@@ -8,7 +8,15 @@
   useState,
 } from 'react';
 
-import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from './api/client';
+import {
+  ApiError,
+  apiDelete,
+  apiGet,
+  apiPatch,
+  apiPost,
+  getStoredActiveOrganizationId,
+  setActiveOrganizationContext,
+} from './api/client';
 import { getBoxStatusPresentation } from './boxStatus';
 import AdminView from './components/AdminView';
 import BoxInsights, { MeasurementHistoryModal, type BoxInsightTab } from './components/BoxInsights';
@@ -1255,6 +1263,9 @@ export default function App() {
   const [search, setSearch] = useState('');
   const [recentBoxIds, setRecentBoxIds] = useState<number[]>([]);
   const [qrLabelSelection, setQrLabelSelection] = useState<QrLabelItem[]>([]);
+  const [activeOrganizationId, setActiveOrganizationId] = useState<number | null>(() => getStoredActiveOrganizationId());
+  const [needsOrganizationChoice, setNeedsOrganizationChoice] = useState(false);
+  const [isOrganizationMenuOpen, setIsOrganizationMenuOpen] = useState(false);
   const lastRecordedBoxIdRef = useRef<number | null>(null);
   const [data, setData] = useState<AppData>({
     boxes: [],
@@ -1276,7 +1287,7 @@ export default function App() {
   const t: TFunction = (key) => translations[language][key];
   const { confirmAction, confirmActionModal } = useConfirmAction();
   const isDesktopApp = useIsDesktopApp();
-  const hasAdminRole = userHasAdminRole(data.profile);
+  const hasAdminRole = userHasAdminRole(data.profile, activeOrganizationId);
   const canUseAdmin = isDesktopApp && hasAdminRole;
   const isProfileAdminLoading = activeTab === 'profile' && canUseAdmin && data.exportOptions === null;
   const isPilotageOptionsLoading = activeTab === 'pilotage' && data.exportOptions === null;
@@ -1288,10 +1299,66 @@ export default function App() {
   const isOverviewLoading = activeTab === 'overview' && data.overview === null;
   const workspacePageKey = `${activeTab}-${route.boxCode ?? route.boxId ?? 'list'}-${route.zoneId ?? 'list'}`;
   const brandOrganizationName = getBrandOrganizationName(data.profile, t);
+  const selectableOrganizations = useMemo(() => getSelectableOrganizations(data.profile), [data.profile]);
+  const activeOrganization = useMemo(
+    () => getOrganizationById(data.profile, activeOrganizationId),
+    [activeOrganizationId, data.profile],
+  );
   const availableTabs = useMemo(() => {
     if (!isDesktopApp) return labTabs;
     return desktopTabs;
   }, [isDesktopApp]);
+
+  async function fetchScopedData(profile: UserProfile, organizationId: number) {
+    setActiveOrganizationContext(organizationId);
+    const scopedProfile = setProfileActiveOrganization(profile, organizationId);
+    const [boxes, zones, dashboard] = await Promise.all([
+      apiGet<PaginatedResponse<BoxItem>>(`/api/boxes/?limit=${BOX_LIST_LIMIT}`),
+      apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80'),
+      apiGet<Dashboard>('/api/dashboard/'),
+    ]);
+
+    return {
+      boxes: boxes.results,
+      boxDetails: {},
+      zones: zones.results,
+      dashboard,
+      overview: null,
+      exportOptions: null,
+      profile: scopedProfile,
+    };
+  }
+
+  async function chooseOrganization(organizationId: number) {
+    if (!data.profile) return;
+
+    if (!needsOrganizationChoice && organizationId === activeOrganizationId) {
+      setIsOrganizationMenuOpen(false);
+      return;
+    }
+
+    setIsOrganizationMenuOpen(false);
+    setNeedsOrganizationChoice(false);
+    setActiveOrganizationId(organizationId);
+    setIsLoading(true);
+    setError(null);
+    setSearch('');
+    setRecentBoxIds([]);
+
+    if (isBoxRoute || isZoneRoute) {
+      navigateTo({ tab: activeTab, boxCode: null, boxId: null, zoneId: null }, activeTab === 'zones' ? '/zones' : '/');
+    }
+
+    try {
+      const nextData = await fetchScopedData(data.profile, organizationId);
+      setData(nextData);
+      setRecentBoxIds(buildRecentBoxIds(nextData.boxes, nextData.dashboard));
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setIsLoading(false);
+    }
+  }
 
   useEffect(() => {
     function syncRoute() {
@@ -1317,25 +1384,54 @@ export default function App() {
         setIsLoading(true);
         setError(null);
 
-        const [boxes, zones, dashboard, profile] = await Promise.all([
-          apiGet<PaginatedResponse<BoxItem>>(`/api/boxes/?limit=${BOX_LIST_LIMIT}`),
-          apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80'),
-          apiGet<Dashboard>('/api/dashboard/'),
-          apiGet<UserProfile>('/api/profile/'),
-        ]);
+        const profile = await apiGet<UserProfile>('/api/profile/', { skipOrganizationContext: true });
 
         if (!isActive) return;
 
-        setData({
-          boxes: boxes.results,
-          boxDetails: {},
-          zones: zones.results,
-          dashboard,
-          overview: null,
-          exportOptions: null,
-          profile,
-        });
-        setRecentBoxIds(buildRecentBoxIds(boxes.results, dashboard));
+        const organizations = getSelectableOrganizations(profile);
+        const preferredOrganizationId = activeOrganizationId ?? getStoredActiveOrganizationId();
+        const resolvedOrganizationId = resolveActiveOrganizationId(profile, preferredOrganizationId);
+
+        if (organizations.length > 1 && resolvedOrganizationId == null) {
+          setActiveOrganizationContext(null);
+          setActiveOrganizationId(null);
+          setNeedsOrganizationChoice(true);
+          setData({
+            boxes: [],
+            boxDetails: {},
+            zones: [],
+            dashboard: null,
+            overview: null,
+            exportOptions: null,
+            profile,
+          });
+          setRecentBoxIds([]);
+          return;
+        }
+
+        if (resolvedOrganizationId == null) {
+          setData({
+            boxes: [],
+            boxDetails: {},
+            zones: [],
+            dashboard: null,
+            overview: null,
+            exportOptions: null,
+            profile,
+          });
+          setRecentBoxIds([]);
+          setNeedsOrganizationChoice(false);
+          return;
+        }
+
+        setActiveOrganizationId(resolvedOrganizationId);
+        setNeedsOrganizationChoice(false);
+
+        const nextData = await fetchScopedData(profile, resolvedOrganizationId);
+        if (!isActive) return;
+
+        setData(nextData);
+        setRecentBoxIds(buildRecentBoxIds(nextData.boxes, nextData.dashboard));
       } catch (requestError) {
         if (!isActive) return;
 
@@ -1364,7 +1460,7 @@ export default function App() {
   }, [isLoginRoute]);
 
   useEffect(() => {
-    if (isLoginRoute || activeTab !== 'overview' || data.overview !== null) return;
+    if (isLoginRoute || needsOrganizationChoice || activeOrganizationId == null || activeTab !== 'overview' || data.overview !== null) return;
 
     let isActive = true;
 
@@ -1384,7 +1480,7 @@ export default function App() {
     return () => {
       isActive = false;
     };
-  }, [activeTab, data.overview, isLoginRoute]);
+  }, [activeOrganizationId, activeTab, data.overview, isLoginRoute, needsOrganizationChoice]);
 
   const filteredBoxes = useMemo(() => {
     const value = search.trim().toLowerCase();
@@ -1542,7 +1638,13 @@ export default function App() {
       activeTab === 'pilotage' ||
       activeTab === 'exports' ||
       (activeTab === 'profile' && canUseAdmin);
-    if (isLoginRoute || data.exportOptions || !shouldLoadExportOptions) return;
+    if (
+      isLoginRoute ||
+      needsOrganizationChoice ||
+      activeOrganizationId == null ||
+      data.exportOptions ||
+      !shouldLoadExportOptions
+    ) return;
 
     let isActive = true;
 
@@ -1561,7 +1663,7 @@ export default function App() {
     return () => {
       isActive = false;
     };
-  }, [activeTab, canUseAdmin, data.exportOptions, isLoginRoute]);
+  }, [activeOrganizationId, activeTab, canUseAdmin, data.exportOptions, isLoginRoute, needsOrganizationChoice]);
 
   function closeBoxPage() {
     navigateTo({ tab: 'pilotage', boxCode: null, boxId: null }, '/');
@@ -1600,6 +1702,9 @@ export default function App() {
       profile: null,
     });
     setRecentBoxIds([]);
+    setActiveOrganizationId(null);
+    setNeedsOrganizationChoice(false);
+    setIsOrganizationMenuOpen(false);
     window.history.replaceState(null, '', '/login');
     setRoute(getCurrentRoute());
     setError(null);
@@ -1788,17 +1893,58 @@ export default function App() {
     return <LoginPage onAuthenticated={handleAuthenticated} />;
   }
 
+  if (needsOrganizationChoice && data.profile) {
+    return (
+      <OrganizationChoiceScreen
+        isLoading={isLoading}
+        organizations={selectableOrganizations}
+        profile={data.profile}
+        onSelect={(organizationId) => void chooseOrganization(organizationId)}
+      />
+    );
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
-        <div className="brand-block">
-          <span className="brand-mark" aria-hidden="true">
-            <img src="/jellyfish.svg" alt="" />
-          </span>
-          <div>
-            <p className="eyebrow">Polypbase</p>
-            <strong>{brandOrganizationName}</strong>
-          </div>
+        <div className="brand-switcher">
+          <button
+            className={selectableOrganizations.length > 1 ? 'brand-block is-clickable' : 'brand-block'}
+            type="button"
+            disabled={selectableOrganizations.length <= 1}
+            onClick={() => setIsOrganizationMenuOpen((isOpen) => !isOpen)}
+          >
+            <span className="brand-mark" aria-hidden="true">
+              <img src="/jellyfish.svg" alt="" />
+            </span>
+            <div>
+              <p className="eyebrow">Polypbase</p>
+              <strong>{brandOrganizationName}</strong>
+            </div>
+          </button>
+
+          {isOrganizationMenuOpen && selectableOrganizations.length > 1 ? (
+            <div className="organization-menu">
+              <p className="organization-menu-title">Institution de travail</p>
+              {selectableOrganizations.map((organization) => {
+                const role = getMembershipRoleLabel(data.profile, organization.id);
+                return (
+                  <button
+                    key={organization.id}
+                    className={organization.id === activeOrganization?.id ? 'is-active' : ''}
+                    type="button"
+                    onClick={() => void chooseOrganization(organization.id)}
+                  >
+                    <span>
+                      <strong>{organization.name}</strong>
+                      {role ? <small>{role}</small> : null}
+                    </span>
+                    {organization.id === activeOrganization?.id ? <span aria-hidden="true">Par défaut</span> : null}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
 
         <nav className="tabbar" aria-label="Navigation principale">
@@ -1960,6 +2106,8 @@ export default function App() {
                 isLoading={isLoading}
                 labels={getProfileLabels(t)}
                 profile={data.profile}
+                activeOrganizationId={activeOrganizationId}
+                onSelectOrganization={(organizationId) => void chooseOrganization(organizationId)}
                 onOpenLabels={() => openTab('labels')}
                 adminSection={canUseAdmin ? (
                   <AdminView
@@ -1985,6 +2133,62 @@ export default function App() {
           </div>
         )}
         {confirmActionModal}
+      </section>
+    </main>
+  );
+}
+
+function OrganizationChoiceScreen({
+  isLoading,
+  organizations,
+  profile,
+  onSelect,
+}: {
+  isLoading: boolean;
+  organizations: Organization[];
+  profile: UserProfile;
+  onSelect: (organizationId: number) => void;
+}) {
+  if (isLoading) {
+    return <PageLoader variant="profile" label="Chargement du compte" />;
+  }
+
+  return (
+    <main className="organization-choice-page">
+      <section className="organization-choice-panel">
+        <div className="organization-choice-brand">
+          <span className="brand-mark" aria-hidden="true">
+            <img src="/jellyfish.svg" alt="" />
+          </span>
+          <div>
+            <p className="eyebrow">Polypbase</p>
+            <h1>Choisir une institution</h1>
+          </div>
+        </div>
+
+        <p className="organization-choice-intro">
+          Chaque institution garde ses propres donnees et ses droits. Choisissez le contexte de travail pour cette session.
+        </p>
+
+        <div className="organization-choice-list">
+          {organizations.map((organization) => {
+            const roleLabel = getMembershipRoleLabel(profile, organization.id) ?? 'Accès complet';
+            return (
+              <button
+                key={organization.id}
+                className="organization-choice-card"
+                type="button"
+                onClick={() => onSelect(organization.id)}
+              >
+                <span>
+                  <strong>{organization.name}</strong>
+                  <small>{roleLabel}</small>
+                </span>
+                <span aria-hidden="true">Ouvrir</span>
+              </button>
+            );
+          })}
+        </div>
       </section>
     </main>
   );
@@ -4322,45 +4526,95 @@ function getLanguage(profile: UserProfile | null): Language {
   return profile?.interface_language === 'en' ? 'en' : 'fr';
 }
 
-function getBrandOrganizationName(profile: UserProfile | null, t: TFunction) {
-  if (!profile) return t('laboratoryTracking');
+function getSelectableOrganizations(profile: UserProfile | null) {
+  if (!profile) return [];
 
   const organizations = profile.memberships.length > 0
     ? profile.memberships.map((membership) => membership.organization)
     : profile.organizations;
 
-  const uniqueOrganizations = organizations.filter(
+  return organizations.filter(
     (organization, index) =>
       organizations.findIndex((candidate) => candidate.id === organization.id) === index,
   );
-
-  if (uniqueOrganizations.length === 0) return t('laboratoryTracking');
-  if (uniqueOrganizations.length === 1) return uniqueOrganizations[0].name;
-
-  return `${uniqueOrganizations[0].name} +${uniqueOrganizations.length - 1}`;
 }
 
-function userHasAdminRole(profile: UserProfile | null) {
+function getOrganizationById(profile: UserProfile | null, organizationId: number | null) {
+  if (organizationId == null) return null;
+  return getSelectableOrganizations(profile).find((organization) => organization.id === organizationId) ?? null;
+}
+
+function resolveActiveOrganizationId(profile: UserProfile | null, preferredOrganizationId: number | null) {
+  const organizations = getSelectableOrganizations(profile);
+  if (preferredOrganizationId != null && organizations.some((organization) => organization.id === preferredOrganizationId)) {
+    return preferredOrganizationId;
+  }
+  if (organizations.length === 1) return organizations[0].id;
+  return null;
+}
+
+function setProfileActiveOrganization(profile: UserProfile, organizationId: number): UserProfile {
+  const organization = getOrganizationById(profile, organizationId);
+  return {
+    ...profile,
+    active_organization: organization ?? profile.active_organization,
+  };
+}
+
+function getActiveOrganizationId(profile: UserProfile | null) {
+  return profile?.active_organization?.id ?? null;
+}
+
+function getMembershipRole(profile: UserProfile | null, organizationId: number | null) {
+  if (!profile || organizationId == null) return null;
+  return profile.memberships.find((membership) => membership.organization.id === organizationId)?.role ?? null;
+}
+
+function getMembershipRoleLabel(profile: UserProfile | null, organizationId: number | null) {
+  if (!profile || organizationId == null) return null;
+  return profile.memberships.find((membership) => membership.organization.id === organizationId)?.role_label ?? null;
+}
+
+function getBrandOrganizationName(profile: UserProfile | null, t: TFunction) {
+  if (!profile) return t('laboratoryTracking');
+
+  if (profile.active_organization) return profile.active_organization.name;
+
+  const organizations = getSelectableOrganizations(profile);
+  if (organizations.length === 0) return t('laboratoryTracking');
+  return organizations[0].name;
+}
+
+function userHasAdminRole(profile: UserProfile | null, activeOrganizationId: number | null = getActiveOrganizationId(profile)) {
   if (!profile) return false;
   if (profile.is_superuser) return true;
-  return profile.memberships.some((membership) => membership.role === 'admin');
+  return getMembershipRole(profile, activeOrganizationId) === 'admin';
 }
 
 function userCanCreateBoxes(profile: UserProfile | null) {
   if (!profile) return false;
   if (profile.is_superuser) return true;
-  return profile.memberships.some((membership) => ['admin', 'lab_technician'].includes(membership.role));
+  return ['admin', 'lab_technician'].includes(getMembershipRole(profile, getActiveOrganizationId(profile)) ?? '');
 }
 
 function getWritableOrganizations(profile: UserProfile | null) {
   if (!profile) return [];
-  if (profile.is_superuser) return profile.organizations;
+  const activeOrganizationId = getActiveOrganizationId(profile);
+  const activeOrganization = getOrganizationById(profile, activeOrganizationId);
+
+  if (profile.is_superuser) return activeOrganization ? [activeOrganization] : profile.organizations;
+
   const writableIds = new Set(
     profile.memberships
       .filter((membership) => ['admin', 'lab_technician'].includes(membership.role))
       .map((membership) => membership.organization.id),
   );
-  return profile.organizations.filter((organization) => writableIds.has(organization.id));
+
+  if (activeOrganization && writableIds.has(activeOrganization.id)) {
+    return [activeOrganization];
+  }
+
+  return [];
 }
 
 function buildNextBoxCode(
