@@ -58,6 +58,28 @@
     white-space: nowrap;
   }
 
+  .organization-choice-page {
+    align-items: stretch;
+    min-height: 100svh;
+    padding: 18px;
+  }
+
+  .organization-choice-panel {
+    align-self: center;
+    gap: 18px;
+    padding: 22px;
+    border-radius: 22px;
+  }
+
+  .organization-choice-card {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .organization-choice-card > span:last-child {
+    justify-self: start;
+  }
+
   .tabbar {
     position: fixed !important;
     top: auto !important;

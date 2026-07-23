@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.permissions import (
+    get_active_organization_ids,
     get_authorized_organization_ids,
     get_authorized_organizations,
 )
@@ -22,7 +23,7 @@ class MeasurementExportOptionsAPIView(APIView):
     """Return the values available in the cumulative export filters."""
 
     def get(self, request):
-        organization_ids = get_authorized_organization_ids(request.user)
+        organization_ids = get_active_organization_ids(request)
         boxes = Box.objects.filter(
             organization_id__in=organization_ids,
         ).select_related(
@@ -48,7 +49,9 @@ class MeasurementExportOptionsAPIView(APIView):
                         "contact_email": organization.contact_email,
                         "notes": organization.notes,
                     }
-                    for organization in get_authorized_organizations(request.user).order_by("name")
+                    for organization in get_authorized_organizations(request.user)
+                    .filter(id__in=organization_ids)
+                    .order_by("name")
                 ],
                 "species": [
                     {"id": species.id, "name": species.scientific_name}
@@ -96,7 +99,7 @@ class WeeklyMeasurementCSVExportAPIView(APIView):
 
     def get(self, request):
         filters = _get_validated_export_filters(request)
-        boxes = _get_filtered_export_boxes(request.user, filters)
+        boxes = _get_filtered_export_boxes(request, filters)
 
         if not boxes.exists():
             return Response(
@@ -156,7 +159,7 @@ class WeeklyMeasurementPreviewAPIView(APIView):
 
     def get(self, request):
         filters = _get_validated_export_filters(request)
-        boxes = _get_filtered_export_boxes(request.user, filters)
+        boxes = _get_filtered_export_boxes(request, filters)
 
         if not boxes.exists():
             return Response(
@@ -187,13 +190,16 @@ def _get_validated_export_filters(request):
     return serializer.validated_data
 
 
-def _get_filtered_export_boxes(user, filters):
-    authorized_organization_ids = set(get_authorized_organization_ids(user))
+def _get_filtered_export_boxes(request, filters):
+    authorized_organization_ids = set(get_authorized_organization_ids(request.user))
+    active_organization_ids = set(get_active_organization_ids(request))
     requested_organization_ids = set(filters["organizations"])
     if requested_organization_ids - authorized_organization_ids:
         raise PermissionDenied("This user cannot export data from the requested organization.")
 
-    organization_ids = requested_organization_ids or authorized_organization_ids
+    organization_ids = requested_organization_ids or active_organization_ids
+    if organization_ids - active_organization_ids:
+        raise PermissionDenied("This export must stay inside the selected organization.")
     boxes = Box.objects.filter(organization_id__in=organization_ids)
     return _apply_measurement_export_filters(boxes, filters)
 

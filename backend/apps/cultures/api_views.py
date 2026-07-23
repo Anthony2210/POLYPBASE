@@ -16,7 +16,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.accounts.permissions import (
-    get_admin_organization_ids,
+    get_active_admin_organization_ids,
+    get_active_organization_ids,
     get_authorized_organization_ids,
     get_authorized_organizations,
     user_can_write_lab_data,
@@ -195,9 +196,9 @@ def _thermal_zone_audit_values(zone):
     }
 
 
-def box_queryset_for_user(user):
+def box_queryset_for_user(user, organization_ids=None):
     """Return boxes the user can access, with data needed by serializers."""
-    organization_ids = get_authorized_organization_ids(user)
+    organization_ids = organization_ids or get_authorized_organization_ids(user)
     return Box.objects.select_related(
         "organization",
         "strain",
@@ -256,7 +257,7 @@ def box_queryset_for_user(user):
     ).filter(organization_id__in=organization_ids)
 
 
-def box_list_queryset_for_user(user):
+def box_list_queryset_for_user(user, organization_ids=None):
     """Lightweight queryset for the box list.
 
     The list serializer only needs the latest measurement and the active alert
@@ -266,7 +267,7 @@ def box_list_queryset_for_user(user):
     Both subqueries are portable (correlated with LIMIT), so they run on
     PostgreSQL and SQLite alike.
     """
-    organization_ids = get_authorized_organization_ids(user)
+    organization_ids = organization_ids or get_authorized_organization_ids(user)
 
     recent_measurement_ids = Subquery(
         BiologicalMeasurement.objects.filter(box_id=OuterRef("box_id"))
@@ -335,8 +336,10 @@ class DashboardAPIView(APIView):
     """Return the first dashboard payload consumed by the React app."""
 
     def get(self, request):
-        organizations = get_authorized_organizations(request.user).order_by("name")
-        organization_ids = list(organizations.values_list("id", flat=True))
+        organization_ids = get_active_organization_ids(request)
+        organizations = get_authorized_organizations(request.user).filter(
+            id__in=organization_ids,
+        ).order_by("name")
 
         boxes = Box.objects.filter(organization_id__in=organization_ids)
         measurements = BiologicalMeasurement.objects.filter(box__organization_id__in=organization_ids)
@@ -399,8 +402,9 @@ class OverviewActiveBoxesAPIView(APIView):
     def get(self, request):
         months = self._get_months(request)
         start_date = timezone.localdate() - timedelta(days=months * 31)
+        organization_ids = get_active_organization_ids(request)
         boxes = list(
-            box_list_queryset_for_user(request.user)
+            box_list_queryset_for_user(request.user, organization_ids=organization_ids)
             .filter(status=Box.Status.ACTIVE)
             .order_by("strain__species__scientific_name", "global_code")
         )
@@ -497,7 +501,10 @@ class BoxListAPIView(generics.ListCreateAPIView):
         return BoxListSerializer
 
     def get_queryset(self):
-        queryset = box_list_queryset_for_user(self.request.user).order_by("global_code")
+        queryset = box_list_queryset_for_user(
+            self.request.user,
+            organization_ids=get_active_organization_ids(self.request),
+        ).order_by("global_code")
 
         status_filter = self.request.query_params.get("status")
         if status_filter:
@@ -549,7 +556,13 @@ class BoxListAPIView(generics.ListCreateAPIView):
                 },
             },
         )
-        created_box = get_object_or_404(box_queryset_for_user(request.user), id=box.id)
+        created_box = get_object_or_404(
+            box_queryset_for_user(
+                request.user,
+                organization_ids=get_active_organization_ids(request),
+            ),
+            id=box.id,
+        )
         return Response(BoxDetailSerializer(created_box).data, status=status.HTTP_201_CREATED)
 
 
@@ -557,14 +570,20 @@ class BoxDetailAPIView(generics.RetrieveAPIView):
     serializer_class = BoxDetailSerializer
 
     def get_queryset(self):
-        return box_queryset_for_user(self.request.user)
+        return box_queryset_for_user(
+            self.request.user,
+            organization_ids=get_active_organization_ids(self.request),
+        )
 
 
 class BoxAccessAPIView(APIView):
     """Store a box consultation for the current account across devices."""
 
     def post(self, request, box_id):
-        box = get_object_or_404(box_queryset_for_user(request.user), id=box_id)
+        box = get_object_or_404(
+            box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
+            id=box_id,
+        )
         AuditLog.objects.create(
             organization=box.organization,
             user=request.user,
@@ -581,8 +600,11 @@ class BoxArchiveAPIView(APIView):
     """Mark a box inactive without deleting its history."""
 
     def post(self, request, box_id):
-        box = get_object_or_404(box_queryset_for_user(request.user), id=box_id)
-        if box.organization_id not in get_admin_organization_ids(request.user):
+        box = get_object_or_404(
+            box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
+            id=box_id,
+        )
+        if box.organization_id not in get_active_admin_organization_ids(request):
             raise PermissionDenied("This user cannot archive this box.")
 
         before_values = {
@@ -612,7 +634,10 @@ class BoxArchiveAPIView(APIView):
             },
         )
 
-        updated_box = get_object_or_404(box_queryset_for_user(request.user), id=box.id)
+        updated_box = get_object_or_404(
+            box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
+            id=box.id,
+        )
         return Response(BoxDetailSerializer(updated_box).data, status=status.HTTP_200_OK)
 
 
@@ -620,8 +645,11 @@ class BoxActivateAPIView(APIView):
     """Reactivate an archived box when an admin made a mistake."""
 
     def post(self, request, box_id):
-        box = get_object_or_404(box_queryset_for_user(request.user), id=box_id)
-        if box.organization_id not in get_admin_organization_ids(request.user):
+        box = get_object_or_404(
+            box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
+            id=box_id,
+        )
+        if box.organization_id not in get_active_admin_organization_ids(request):
             raise PermissionDenied("This user cannot activate this box.")
 
         before_values = {
@@ -650,7 +678,10 @@ class BoxActivateAPIView(APIView):
             },
         )
 
-        updated_box = get_object_or_404(box_queryset_for_user(request.user), id=box.id)
+        updated_box = get_object_or_404(
+            box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
+            id=box.id,
+        )
         return Response(BoxDetailSerializer(updated_box).data, status=status.HTTP_200_OK)
 
 
@@ -658,7 +689,7 @@ class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
     serializer_class = BiologicalMeasurementSerializer
 
     def get(self, request, box_id):
-        box = self._get_box(request.user, box_id)
+        box = self._get_box(request, box_id)
         queryset = box.biological_measurements.select_related("user").order_by("-measured_on", "-created_at")
         page = self.paginate_queryset(queryset)
         if page is not None:
@@ -669,7 +700,7 @@ class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
         return Response({"results": serializer.data})
 
     def post(self, request, box_id):
-        box = self._get_box(request.user, box_id)
+        box = self._get_box(request, box_id)
         if not user_can_write_lab_data(request.user, box.organization):
             raise PermissionDenied("This user cannot create or update lab measurements.")
 
@@ -710,8 +741,11 @@ class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
         response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
         return Response(BiologicalMeasurementSerializer(measurement).data, status=response_status)
 
-    def _get_box(self, user, box_id):
-        return get_object_or_404(box_queryset_for_user(user), id=box_id)
+    def _get_box(self, request, box_id):
+        return get_object_or_404(
+            box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
+            id=box_id,
+        )
 
 
 class BoxMeasurementDetailAPIView(generics.GenericAPIView):
@@ -720,7 +754,10 @@ class BoxMeasurementDetailAPIView(generics.GenericAPIView):
     serializer_class = BiologicalMeasurementSerializer
 
     def patch(self, request, box_id, pk):
-        box = get_object_or_404(box_queryset_for_user(request.user), id=box_id)
+        box = get_object_or_404(
+            box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
+            id=box_id,
+        )
         if not user_can_write_lab_data(request.user, box.organization):
             raise PermissionDenied("This user cannot update lab measurements.")
 
@@ -754,7 +791,10 @@ class BoxSubcultureCreateAPIView(generics.GenericAPIView):
     serializer_class = SubcultureCreateSerializer
 
     def post(self, request, box_id):
-        parent_box = get_object_or_404(box_queryset_for_user(request.user), id=box_id)
+        parent_box = get_object_or_404(
+            box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
+            id=box_id,
+        )
         if not user_can_write_lab_data(request.user, parent_box.organization):
             raise PermissionDenied("This user cannot create subculture events.")
 
@@ -779,7 +819,10 @@ class BoxMoveAPIView(generics.GenericAPIView):
     serializer_class = BoxMoveCreateSerializer
 
     def post(self, request, box_id):
-        box = get_object_or_404(box_queryset_for_user(request.user), id=box_id)
+        box = get_object_or_404(
+            box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
+            id=box_id,
+        )
         if not user_can_write_lab_data(request.user, box.organization):
             raise PermissionDenied("This user cannot move boxes.")
 
@@ -795,17 +838,24 @@ class BoxMoveAPIView(generics.GenericAPIView):
         except DjangoValidationError as error:
             raise DRFValidationError(error.messages) from error
 
-        updated_box = get_object_or_404(box_queryset_for_user(request.user), id=box.id)
+        updated_box = get_object_or_404(
+            box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
+            id=box.id,
+        )
         return Response(BoxDetailSerializer(updated_box).data, status=status.HTTP_200_OK)
 
 
 class BoxLineageGraphAPIView(APIView):
     def get(self, request, box_id):
-        root_box = get_object_or_404(box_queryset_for_user(request.user), id=box_id)
+        organization_ids = get_active_organization_ids(request)
+        root_box = get_object_or_404(
+            box_queryset_for_user(request.user, organization_ids=organization_ids),
+            id=box_id,
+        )
         return Response(
             build_lineage_graph(
                 root_box=root_box,
-                organization_ids=get_authorized_organization_ids(request.user),
+                organization_ids=organization_ids,
             )
         )
 
@@ -817,7 +867,7 @@ class ThermalZoneListCreateAPIView(generics.ListCreateAPIView):
         return ThermalZoneSerializer
 
     def get_queryset(self):
-        organization_ids = get_authorized_organization_ids(self.request.user)
+        organization_ids = get_active_organization_ids(self.request)
         return ThermalZone.objects.filter(
             organization_id__in=organization_ids,
         ).select_related("organization").prefetch_related(
@@ -840,7 +890,7 @@ class ThermalZoneListCreateAPIView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         # Creating a zone is reserved to administrators of the owning organization.
         organization = serializer.validated_data["organization"]
-        if organization.id not in get_admin_organization_ids(self.request.user):
+        if organization.id not in get_active_admin_organization_ids(self.request):
             raise PermissionDenied("Ce compte ne peut pas créer de zone pour cette structure.")
         zone = serializer.save()
         AuditLog.objects.create(
@@ -861,12 +911,12 @@ class ThermalZoneDetailAPIView(generics.RetrieveUpdateAPIView):
     serializer_class = ThermalZoneCreateSerializer
 
     def get_queryset(self):
-        organization_ids = get_authorized_organization_ids(self.request.user)
+        organization_ids = get_active_organization_ids(self.request)
         return ThermalZone.objects.filter(organization_id__in=organization_ids)
 
     def perform_update(self, serializer):
         zone = self.get_object()
-        if zone.organization_id not in get_admin_organization_ids(self.request.user):
+        if zone.organization_id not in get_active_admin_organization_ids(self.request):
             raise PermissionDenied("Ce compte ne peut pas modifier cette zone.")
         before_values = _thermal_zone_audit_values(zone)
         zone = serializer.save(organization=zone.organization)
@@ -891,7 +941,7 @@ class ThermalZoneManualTemperatureAPIView(APIView):
         zone = get_object_or_404(
             ThermalZone.objects.select_related("organization"),
             pk=pk,
-            organization_id__in=get_authorized_organization_ids(request.user),
+            organization_id__in=get_active_organization_ids(request),
         )
         if not user_can_write_lab_data(request.user, zone.organization):
             raise PermissionDenied("Ce compte ne peut pas saisir de température pour cet emplacement.")
@@ -989,7 +1039,7 @@ class ProbeCreateAPIView(generics.CreateAPIView):
         # A probe inherits its organization from the chosen zone; only that
         # organization's admins may register it.
         zone = serializer.validated_data["thermal_zone"]
-        if zone.organization_id not in get_admin_organization_ids(self.request.user):
+        if zone.organization_id not in get_active_admin_organization_ids(self.request):
             raise PermissionDenied("Ce compte ne peut pas ajouter de sonde à cette zone.")
         probe = serializer.save(organization=zone.organization)
         AuditLog.objects.create(
@@ -1018,7 +1068,7 @@ class BoxTransferCreateAPIView(generics.CreateAPIView):
         # The source organization is the box owner; only its admins may record
         # a transfer out of it. The box itself is not reassigned here.
         box = serializer.validated_data["box"]
-        if box.organization_id not in get_admin_organization_ids(self.request.user):
+        if box.organization_id not in get_active_admin_organization_ids(self.request):
             raise PermissionDenied("Ce compte ne peut pas transférer cette boîte.")
         transfer = serializer.save(from_organization=box.organization, user=self.request.user)
         AuditLog.objects.create(
@@ -1065,10 +1115,10 @@ class BoxTransferImportAPIView(APIView):
             raise DRFValidationError({"source_data": "Version de transfert Polypbase non reconnue."})
 
         organization = get_object_or_404(
-            get_authorized_organizations(request.user),
+            get_authorized_organizations(request.user).filter(id__in=get_active_organization_ids(request)),
             pk=request.data.get("organization"),
         )
-        if organization.id not in get_admin_organization_ids(request.user):
+        if organization.id not in get_active_admin_organization_ids(request):
             raise PermissionDenied("Ce compte ne peut pas importer dans cette structure.")
         zone = get_object_or_404(
             ThermalZone,
@@ -1167,7 +1217,15 @@ class BoxTransferImportAPIView(APIView):
                 "created_box_id": box.id,
             },
         )
-        return Response(BoxDetailSerializer(box_queryset_for_user(request.user).get(pk=box.pk)).data, status=201)
+        return Response(
+            BoxDetailSerializer(
+                box_queryset_for_user(
+                    request.user,
+                    organization_ids=get_active_organization_ids(request),
+                ).get(pk=box.pk)
+            ).data,
+            status=201,
+        )
 
 
 class AlertResolveAPIView(APIView):
@@ -1175,7 +1233,7 @@ class AlertResolveAPIView(APIView):
         alert = get_object_or_404(
             Alert.objects.select_related("organization"),
             pk=pk,
-            organization_id__in=get_authorized_organization_ids(request.user),
+            organization_id__in=get_active_organization_ids(request),
         )
         if not user_can_write_lab_data(request.user, alert.organization):
             raise PermissionDenied("Ce compte ne peut pas résoudre cette alerte.")

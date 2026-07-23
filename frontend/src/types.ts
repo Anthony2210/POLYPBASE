@@ -9,10 +9,10 @@ export type Organization = {
   id: number;
   name: string;
   slug: string | null;
-  city: string;
-  country: string;
-  contact_email: string;
-  notes: string;
+  city?: string;
+  country?: string;
+  contact_email?: string;
+  notes?: string;
 };
 
 export type Species = {
@@ -309,6 +309,7 @@ export type UserProfile = {
   is_superuser: boolean;
   interface_language: string;
   organizations: Organization[];
+  active_organization: Organization | null;
   memberships: Array<{
     organization: {
       id: number;

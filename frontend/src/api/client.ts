@@ -1,18 +1,39 @@
 type RequestOptions = RequestInit & {
   body?: BodyInit | null;
+  skipOrganizationContext?: boolean;
 };
+
+const ACTIVE_ORGANIZATION_STORAGE_KEY = 'polypbase.activeOrganizationId';
 
 export class ApiError extends Error {
   status: number;
+  data: unknown;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, data: unknown = null) {
     super(message);
     this.status = status;
+    this.data = data;
   }
 }
 
-export async function apiGet<T>(path: string): Promise<T> {
-  return apiRequest<T>(path);
+export function getStoredActiveOrganizationId(): number | null {
+  const value = window.localStorage.getItem(ACTIVE_ORGANIZATION_STORAGE_KEY);
+  if (!value) return null;
+  const organizationId = Number(value);
+  return Number.isInteger(organizationId) && organizationId > 0 ? organizationId : null;
+}
+
+export function setActiveOrganizationContext(organizationId: number | null) {
+  if (organizationId == null) {
+    window.localStorage.removeItem(ACTIVE_ORGANIZATION_STORAGE_KEY);
+    return;
+  }
+
+  window.localStorage.setItem(ACTIVE_ORGANIZATION_STORAGE_KEY, String(organizationId));
+}
+
+export async function apiGet<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  return apiRequest<T>(path, options);
 }
 
 export async function apiEnsureCsrfCookie() {
@@ -53,6 +74,7 @@ export async function apiDelete<T>(path: string): Promise<T> {
 export async function apiDownload(path: string): Promise<string> {
   const response = await fetch(path, {
     credentials: 'include',
+    headers: buildRequestHeaders(),
   });
 
   if (!response.ok) {
@@ -60,8 +82,8 @@ export async function apiDownload(path: string): Promise<string> {
     const data = contentType.includes('application/json')
       ? await response.json()
       : await response.text();
-    const detail = getErrorDetail(data) ?? 'Le téléchargement a échoué.';
-    throw new ApiError(response.status, detail);
+    const detail = getErrorDetail(data) ?? 'Le telechargement a echoue.';
+    throw new ApiError(response.status, detail, data);
   }
 
   const blob = await response.blob();
@@ -82,17 +104,29 @@ async function apiRequest<T>(path: string, options: RequestOptions = {}): Promis
   const response = await fetch(path, {
     credentials: 'include',
     ...options,
+    headers: buildRequestHeaders(options.headers, options.skipOrganizationContext),
   });
 
   const contentType = response.headers.get('content-type') ?? '';
   const data = contentType.includes('application/json') ? await response.json() : null;
 
   if (!response.ok) {
-    const detail = getErrorDetail(data) ?? 'La requête a échoué.';
-    throw new ApiError(response.status, detail);
+    const detail = getErrorDetail(data) ?? 'La requete a echoue.';
+    throw new ApiError(response.status, detail, data);
   }
 
   return data as T;
+}
+
+function buildRequestHeaders(input?: HeadersInit, skipOrganizationContext = false) {
+  const headers = new Headers(input);
+  const organizationId = getStoredActiveOrganizationId();
+
+  if (!skipOrganizationContext && organizationId != null) {
+    headers.set('X-Organization-Id', String(organizationId));
+  }
+
+  return headers;
 }
 
 function getErrorDetail(value: unknown): string | null {
