@@ -3724,16 +3724,6 @@ function BoxPage({
         <p className="inline-error box-action-feedback">{statusError}</p>
       ) : null}
 
-      {checkCount > 0 ? (
-        <div className="box-alert-banner" role="alert">
-          <span className="box-alert-banner-icon" aria-hidden="true"><BellIcon /></span>
-          <strong>{t('boxAlertBanner')}</strong>
-          <button type="button" onClick={() => setIsChecksOpen(true)}>
-            {t('boxAlertBannerAction')} ({checkCount})
-          </button>
-        </div>
-      ) : null}
-
       <div className="box-page-grid">
         <section className={saveMessage ? 'last-reading-card is-fresh' : 'last-reading-card'}>
           <div>
@@ -4163,7 +4153,7 @@ function BoxChecksModal({
                 <small>{formatDisplayDate(alert.created_at)}</small>
                 <strong>{getAlertTypeLabel(alert.alert_type, t)}</strong>
                 <p>{alert.message}</p>
-                {canResolve ? (
+                {canResolve && alert.alert_type !== 'biological' ? (
                   <button
                     className="alert-resolve-button"
                     type="button"

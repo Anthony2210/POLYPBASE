@@ -624,7 +624,7 @@ class PolypbaseApiTests(TestCase):
         alert = Alert.objects.create(
             organization=self.organization,
             box=self.box,
-            alert_type=Alert.AlertType.BIOLOGICAL,
+            alert_type=Alert.AlertType.TEMPERATURE,
             message="Vérification nécessaire",
         )
         self.client.login(username="tech", password="secret")
@@ -642,6 +642,21 @@ class PolypbaseApiTests(TestCase):
                 object_id=str(alert.id),
             ).exists()
         )
+
+    def test_biological_alert_cannot_be_resolved_manually(self):
+        alert = Alert.objects.create(
+            organization=self.organization,
+            box=self.box,
+            alert_type=Alert.AlertType.BIOLOGICAL,
+            message="Baisse de polypes",
+        )
+        self.client.login(username="tech", password="secret")
+
+        response = self.client.post(reverse("api_alert_resolve", args=[alert.id]))
+
+        self.assertEqual(response.status_code, 403)
+        alert.refresh_from_db()
+        self.assertIsNone(alert.resolved_at)
 
     def test_viewer_cannot_resolve_an_alert(self):
         viewer = get_user_model().objects.create_user(username="alert_viewer", password="secret")

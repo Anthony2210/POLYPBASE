@@ -1237,6 +1237,10 @@ class AlertResolveAPIView(APIView):
         )
         if not user_can_write_lab_data(request.user, alert.organization):
             raise PermissionDenied("Ce compte ne peut pas résoudre cette alerte.")
+        if alert.alert_type == Alert.AlertType.BIOLOGICAL:
+            raise PermissionDenied(
+                "Cette alerte de polypes se résout automatiquement au prochain relevé."
+            )
         if alert.resolved_at is None:
             alert.resolved_at = timezone.now()
             alert.resolved_by = request.user
