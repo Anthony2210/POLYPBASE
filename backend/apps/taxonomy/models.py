@@ -30,6 +30,31 @@ class Species(models.Model):
         return self.scientific_name
 
 
+class SpeciesTranslation(models.Model):
+    """Localized display name and description for a species."""
+
+    species = models.ForeignKey(
+        Species,
+        on_delete=models.CASCADE,
+        related_name="translations",
+    )
+    language_code = models.CharField(max_length=10)
+    name = models.CharField(max_length=150)
+    description = models.TextField(blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["species", "language_code"],
+                name="unique_species_translation_per_language",
+            )
+        ]
+        ordering = ["language_code"]
+
+    def __str__(self):
+        return f"{self.species} [{self.language_code}]"
+
+
 class Origin(models.Model):
     class SourceType(models.TextChoices):
         FIELD_COLLECTION = "field_collection", "Field collection"
@@ -79,3 +104,28 @@ class Strain(models.Model):
 
     def __str__(self):
         return f"{self.species} - {self.code}"
+
+
+class StrainTranslation(models.Model):
+    """Localized display name and description for a strain."""
+
+    strain = models.ForeignKey(
+        Strain,
+        on_delete=models.CASCADE,
+        related_name="translations",
+    )
+    language_code = models.CharField(max_length=10)
+    name = models.CharField(max_length=150)
+    description = models.TextField(blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["strain", "language_code"],
+                name="unique_strain_translation_per_language",
+            )
+        ]
+        ordering = ["language_code"]
+
+    def __str__(self):
+        return f"{self.strain} [{self.language_code}]"

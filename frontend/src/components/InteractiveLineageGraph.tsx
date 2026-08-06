@@ -1,4 +1,6 @@
 import { useMemo } from 'react';
+import '@xyflow/react/dist/style.css';
+
 import {
   Background,
   Controls,

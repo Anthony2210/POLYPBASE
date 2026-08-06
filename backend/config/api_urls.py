@@ -33,6 +33,13 @@ from apps.cultures.api_views import (
     ThermalZoneManualTemperatureAPIView,
 )
 from apps.organizations.api_views import OrganizationCreateAPIView, OrganizationDetailAPIView
+from apps.taxonomy.api_views import (
+    SpeciesReferenceDetailAPIView,
+    SpeciesReferenceListCreateAPIView,
+    StrainReferenceDetailAPIView,
+    StrainReferenceListCreateAPIView,
+    TaxonomyReferenceListAPIView,
+)
 from apps.exports.views import (
     MeasurementExportOptionsAPIView,
     WeeklyMeasurementCSVExportAPIView,
@@ -110,6 +117,19 @@ urlpatterns = [
     path("alerts/<int:pk>/resolve/", AlertResolveAPIView.as_view(), name="api_alert_resolve"),
     path("organizations/", OrganizationCreateAPIView.as_view(), name="api_organization_create"),
     path("organizations/<int:pk>/", OrganizationDetailAPIView.as_view(), name="api_organization_detail"),
+    path("taxonomy/references/", TaxonomyReferenceListAPIView.as_view(), name="api_taxonomy_references"),
+    path("taxonomy/species/", SpeciesReferenceListCreateAPIView.as_view(), name="api_taxonomy_species"),
+    path(
+        "taxonomy/species/<int:pk>/",
+        SpeciesReferenceDetailAPIView.as_view(),
+        name="api_taxonomy_species_detail",
+    ),
+    path("taxonomy/strains/", StrainReferenceListCreateAPIView.as_view(), name="api_taxonomy_strains"),
+    path(
+        "taxonomy/strains/<int:pk>/",
+        StrainReferenceDetailAPIView.as_view(),
+        name="api_taxonomy_strains_detail",
+    ),
     path(
         "exports/options/",
         MeasurementExportOptionsAPIView.as_view(),

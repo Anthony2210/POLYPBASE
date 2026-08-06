@@ -254,7 +254,7 @@ export default function ExportsView({
   );
 
   useEffect(() => {
-    let ignore = false;
+    const controller = new AbortController();
 
     async function loadPreview() {
       if (!hasFilters || !exportState?.matchingBoxes.length || invalidPeriod) {
@@ -271,29 +271,30 @@ export default function ExportsView({
         const query = buildExportQuery(filters);
         const data = await apiGet<ExportPreview>(
           `/api/exports/measurements/preview/${query ? `?${query}` : ''}`,
+          { signal: controller.signal },
         );
-        if (!ignore) setPreview(data);
+        setPreview(data);
       } catch (previewLoadError) {
-        if (!ignore) {
-          setPreview(null);
-          setPreviewError(
-            previewLoadError instanceof Error ? previewLoadError.message : labels.previewError,
-          );
-        }
+        if (isAbortError(previewLoadError)) return;
+        setPreview(null);
+        setPreviewError(
+          previewLoadError instanceof Error ? previewLoadError.message : labels.previewError,
+        );
       } finally {
-        if (!ignore) setIsPreviewLoading(false);
+        if (!controller.signal.aborted) setIsPreviewLoading(false);
       }
     }
 
-    void loadPreview();
+    const timeoutId = window.setTimeout(() => void loadPreview(), 250);
 
     return () => {
-      ignore = true;
+      window.clearTimeout(timeoutId);
+      controller.abort();
     };
   }, [exportState?.matchingBoxes.length, filters, invalidPeriod, labels.previewError]);
 
   useEffect(() => {
-    let ignore = false;
+    const controller = new AbortController();
 
     async function loadComparisons() {
       if (!hasFilters || !requestedComparisonGroups.length || invalidPeriod) {
@@ -309,22 +310,25 @@ export default function ExportsView({
             const query = buildExportQuery(buildComparisonFilters(filters, group));
             const preview = await apiGet<ExportPreview>(
               `/api/exports/measurements/preview/${query ? `?${query}` : ''}`,
+              { signal: controller.signal },
             );
             return [group.key, preview] as const;
           }),
         );
-        if (!ignore) setComparisonPreviews(Object.fromEntries(loadedPreviews));
-      } catch {
-        if (!ignore) setComparisonPreviews({});
+        setComparisonPreviews(Object.fromEntries(loadedPreviews));
+      } catch (comparisonLoadError) {
+        if (isAbortError(comparisonLoadError)) return;
+        setComparisonPreviews({});
       } finally {
-        if (!ignore) setIsComparisonLoading(false);
+        if (!controller.signal.aborted) setIsComparisonLoading(false);
       }
     }
 
-    void loadComparisons();
+    const timeoutId = window.setTimeout(() => void loadComparisons(), 250);
 
     return () => {
-      ignore = true;
+      window.clearTimeout(timeoutId);
+      controller.abort();
     };
   }, [filters, invalidPeriod, requestedComparisonGroups]);
 
@@ -949,6 +953,10 @@ function formatWeekDetail(label: string, language: Language) {
   return language === 'fr'
     ? `Semaine ${match[2]} · ${match[1]}`
     : `Week ${match[2]} · ${match[1]}`;
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === 'AbortError';
 }
 
 function ExportChartsModal({

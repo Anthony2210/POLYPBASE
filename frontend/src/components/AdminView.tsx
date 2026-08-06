@@ -28,6 +28,7 @@ import { getZoneOccupancyLevel } from '../utils/zoneOccupancy';
 import { useConfirmAction } from './ConfirmActionModal';
 import PageLoader from './PageLoader';
 import SkeletonRows from './SkeletonRows';
+import TaxonomyAdminSection from './TaxonomyAdminSection';
 
 type TFunction = (key: string) => string;
 
@@ -85,6 +86,7 @@ const ADMIN_AUDIT_PAGE_SIZE = 40;
 
 const ADMIN_FLOW_ITEMS = [
   { key: 'accounts', panelId: 'admin-accounts', label: 'adminTabUsers' },
+  { key: 'references', panelId: 'admin-taxonomy', label: 'adminTabReferences' },
   { key: 'environment', panelId: 'admin-environment', label: 'adminTabLocations' },
   { key: 'organizations', panelId: 'admin-organizations', label: 'adminTabOrganizations' },
   { key: 'transfers', panelId: 'admin-transfers', label: 'adminTabTransfers' },
@@ -3312,7 +3314,9 @@ export default function AdminView({
   boxes,
   exportOptions,
   isLoading,
+  isOptionsLoading,
   profile,
+  onRequestOptions,
   onCreateZone,
   onUpdateZone,
   onCreateProbe,
@@ -3328,7 +3332,9 @@ export default function AdminView({
   boxes: BoxItem[];
   exportOptions: ExportOptions | null;
   isLoading: boolean;
+  isOptionsLoading: boolean;
   profile: UserProfile | null;
+  onRequestOptions: () => void;
   onCreateZone: (payload: ThermalZonePayload) => Promise<void>;
   onUpdateZone: (zoneId: number, payload: ThermalZonePayload) => Promise<void>;
   onCreateProbe: (payload: ProbePayload) => Promise<void>;
@@ -3340,6 +3346,14 @@ export default function AdminView({
   zones: ThermalZone[];
 }) {
   const [activeAdminSection, setActiveAdminSection] = useState<AdminFlowKey>('accounts');
+  const activeSectionNeedsOptions = activeAdminSection === 'organizations' || activeAdminSection === 'transfers';
+
+  function selectAdminSection(section: AdminFlowKey) {
+    setActiveAdminSection(section);
+    if ((section === 'organizations' || section === 'transfers') && !exportOptions) {
+      onRequestOptions();
+    }
+  }
 
   if (isLoading) {
     return <PageLoader variant="admin" label={t('adminTitle')} />;
@@ -3353,12 +3367,18 @@ export default function AdminView({
     <section className="admin-panel">
       <AdminFlowNav
         activeSection={activeAdminSection}
-        onSelect={setActiveAdminSection}
+        onSelect={selectAdminSection}
         t={t}
       />
 
       <div className="admin-flow-panel">
+        {activeSectionNeedsOptions && isOptionsLoading ? (
+          <PageLoader variant="admin" label={t('loading')} />
+        ) : null}
+
         {activeAdminSection === 'accounts' ? <AccountManagementSection t={t} /> : null}
+
+        {activeAdminSection === 'references' ? <TaxonomyAdminSection t={t} /> : null}
 
         {activeAdminSection === 'environment' ? (
           <EnvironmentAdminSection
@@ -3371,7 +3391,7 @@ export default function AdminView({
           />
         ) : null}
 
-        {activeAdminSection === 'organizations' ? (
+        {activeAdminSection === 'organizations' && !isOptionsLoading ? (
           <OrganizationsAdminSection
             organizations={organizations}
             profile={profile}
@@ -3382,7 +3402,7 @@ export default function AdminView({
           />
         ) : null}
 
-        {activeAdminSection === 'transfers' ? (
+        {activeAdminSection === 'transfers' && !isOptionsLoading ? (
           <TransfersAdminSection
             profile={profile}
             boxes={boxes}

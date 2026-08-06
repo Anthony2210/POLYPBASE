@@ -1,7 +1,7 @@
 export function formatDisplayDate(value: string) {
   const normalizedValue = value.includes('T') ? value : `${value}T00:00:00`;
 
-  return new Intl.DateTimeFormat('fr-FR', {
+  return new Intl.DateTimeFormat(getDocumentLocale(), {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
@@ -19,11 +19,18 @@ export function formatIsoWeekDateLabel(value: string) {
   const yearStart = new Date(Date.UTC(isoYear, 0, 1));
   const week = Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
 
-  const longDate = new Intl.DateTimeFormat('fr-FR', {
+  const longDate = new Intl.DateTimeFormat(getDocumentLocale(), {
     day: 'numeric',
     month: 'long',
     year: 'numeric',
   }).format(new Date(`${value.slice(0, 10)}T00:00:00`));
 
   return `S${week} ${longDate}`;
+}
+
+function getDocumentLocale() {
+  const language = typeof document === 'undefined' ? 'fr' : document.documentElement.lang;
+  if (language.startsWith('en')) return 'en-GB';
+  if (language.startsWith('ja')) return 'ja-JP';
+  return 'fr-FR';
 }

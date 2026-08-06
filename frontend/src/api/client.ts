@@ -4,6 +4,7 @@ type RequestOptions = RequestInit & {
 };
 
 const ACTIVE_ORGANIZATION_STORAGE_KEY = 'polypbase.activeOrganizationId';
+const inFlightGetRequests = new Map<string, Promise<unknown>>();
 
 export class ApiError extends Error {
   status: number;
@@ -33,7 +34,33 @@ export function setActiveOrganizationContext(organizationId: number | null) {
 }
 
 export async function apiGet<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  return apiRequest<T>(path, options);
+  if (!canShareGetRequest(options)) {
+    return apiRequest<T>(path, options);
+  }
+
+  const organizationKey = options.skipOrganizationContext
+    ? 'global'
+    : String(getStoredActiveOrganizationId() ?? 'none');
+  const requestKey = `${organizationKey}:${path}`;
+  const existingRequest = inFlightGetRequests.get(requestKey);
+
+  if (existingRequest) {
+    return existingRequest as Promise<T>;
+  }
+
+  const request = apiRequest<T>(path, options).then(
+    (data) => {
+      inFlightGetRequests.delete(requestKey);
+      return data;
+    },
+    (error: unknown) => {
+      inFlightGetRequests.delete(requestKey);
+      throw error;
+    },
+  );
+
+  inFlightGetRequests.set(requestKey, request);
+  return request;
 }
 
 export async function apiEnsureCsrfCookie() {
@@ -127,6 +154,10 @@ function buildRequestHeaders(input?: HeadersInit, skipOrganizationContext = fals
   }
 
   return headers;
+}
+
+function canShareGetRequest(options: RequestOptions) {
+  return Object.keys(options).every((key) => key === 'skipOrganizationContext');
 }
 
 function getErrorDetail(value: unknown): string | null {

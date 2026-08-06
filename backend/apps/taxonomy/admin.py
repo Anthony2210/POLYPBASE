@@ -1,6 +1,23 @@
 from django.contrib import admin
 
-from .models import Origin, Species, Strain, Taxon
+from .models import (
+    Origin,
+    Species,
+    SpeciesTranslation,
+    Strain,
+    StrainTranslation,
+    Taxon,
+)
+
+
+class SpeciesTranslationInline(admin.TabularInline):
+    model = SpeciesTranslation
+    extra = 0
+
+
+class StrainTranslationInline(admin.TabularInline):
+    model = StrainTranslation
+    extra = 0
 
 
 @admin.register(Taxon)
@@ -15,6 +32,7 @@ class SpeciesAdmin(admin.ModelAdmin):
     list_display = ("scientific_name", "common_name", "genus_species_code", "taxon", "worms_aphia_id", "is_described")
     list_filter = ("is_described",)
     search_fields = ("scientific_name", "common_name", "genus_species_code", "worms_aphia_id")
+    inlines = (SpeciesTranslationInline,)
 
 
 @admin.register(Origin)
@@ -29,3 +47,4 @@ class StrainAdmin(admin.ModelAdmin):
     list_display = ("code", "number", "origin_code", "species", "origin")
     list_filter = ("species",)
     search_fields = ("code", "origin_code", "species__scientific_name")
+    inlines = (StrainTranslationInline,)

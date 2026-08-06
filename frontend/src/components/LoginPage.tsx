@@ -1,12 +1,14 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 
 import { ApiError, apiEnsureCsrfCookie, apiPost } from '../api/client';
+import type { Translator } from '../i18n';
 
 type Props = {
   onAuthenticated: () => void;
+  t: Translator;
 };
 
-export default function LoginPage({ onAuthenticated }: Props) {
+export default function LoginPage({ onAuthenticated, t }: Props) {
   const usernameRef = useRef<HTMLInputElement | null>(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -37,7 +39,7 @@ export default function LoginPage({ onAuthenticated }: Props) {
       // confirmation must stay just as neutral here.
       setResetSent(true);
     } catch {
-      setError("Envoi impossible pour le moment. Réessayez dans un instant.");
+      setError(t('forgotPasswordSendError'));
     } finally {
       setIsSubmitting(false);
     }
@@ -63,9 +65,9 @@ export default function LoginPage({ onAuthenticated }: Props) {
       onAuthenticated();
     } catch (requestError) {
       if (requestError instanceof ApiError && requestError.status === 400) {
-        setError('Identifiant ou mot de passe incorrect.');
+        setError(t('loginInvalidCredentials'));
       } else {
-        setError('Connexion impossible pour le moment.');
+        setError(t('loginUnavailable'));
       }
     } finally {
       setIsSubmitting(false);
@@ -81,31 +83,30 @@ export default function LoginPage({ onAuthenticated }: Props) {
           </span>
           <div>
             <p className="eyebrow">Polypbase</p>
-            <strong>Suivi laboratoire</strong>
+            <strong>{t('laboratoryTracking')}</strong>
           </div>
         </div>
 
         {isForgotMode ? (
           <form className="login-form" onSubmit={handleForgotSubmit}>
             <header>
-              <h1 id="login-title">Mot de passe oublié</h1>
-              <p>Indiquez votre adresse e-mail pour recevoir un lien de réinitialisation.</p>
+              <h1 id="login-title">{t('forgotPasswordTitle')}</h1>
+              <p>{t('forgotPasswordIntro')}</p>
             </header>
 
             {resetSent ? (
               <>
                 <p className="login-success" role="status">
-                  Si un compte est associé à cette adresse, un e-mail vient d'être envoyé.
-                  Le lien est valable une heure et ne peut servir qu'une fois.
+                  {t('forgotPasswordSent')}
                 </p>
                 <button className="login-submit" type="button" onClick={backToLogin}>
-                  Retour à la connexion
+                  {t('backToLogin')}
                 </button>
               </>
             ) : (
               <>
                 <label>
-                  Adresse e-mail
+                  {t('emailAddress')}
                   <input
                     autoComplete="email"
                     disabled={isSubmitting}
@@ -119,10 +120,10 @@ export default function LoginPage({ onAuthenticated }: Props) {
                 {error ? <p className="login-error" role="alert">{error}</p> : null}
 
                 <button className="login-submit" type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? 'Envoi...' : 'Envoyer le lien'}
+                  {isSubmitting ? t('forgotPasswordSending') : t('forgotPasswordSend')}
                 </button>
                 <button className="login-link" type="button" onClick={backToLogin}>
-                  Retour à la connexion
+                  {t('backToLogin')}
                 </button>
               </>
             )}
@@ -130,12 +131,12 @@ export default function LoginPage({ onAuthenticated }: Props) {
         ) : (
         <form className="login-form" onSubmit={handleSubmit}>
           <header>
-            <h1 id="login-title">Connexion</h1>
-            <p>Accédez à vos cultures et relevés.</p>
+            <h1 id="login-title">{t('loginTitle')}</h1>
+            <p>{t('loginIntro')}</p>
           </header>
 
           <label>
-            Identifiant
+            {t('username')}
             <input
               ref={usernameRef}
               autoComplete="username"
@@ -147,7 +148,7 @@ export default function LoginPage({ onAuthenticated }: Props) {
           </label>
 
           <label>
-            Mot de passe
+            {t('password')}
             <input
               autoComplete="current-password"
               disabled={isSubmitting}
@@ -161,7 +162,7 @@ export default function LoginPage({ onAuthenticated }: Props) {
           {error ? <p className="login-error" role="alert">{error}</p> : null}
 
           <button className="login-submit" type="submit" disabled={isSubmitting}>
-            {isSubmitting ? 'Connexion...' : 'Se connecter'}
+            {isSubmitting ? t('loginInProgress') : t('loginAction')}
           </button>
 
           <button
@@ -172,7 +173,7 @@ export default function LoginPage({ onAuthenticated }: Props) {
               setError(null);
             }}
           >
-            Mot de passe oublié ?
+            {t('forgotPasswordAction')}
           </button>
         </form>
         )}
