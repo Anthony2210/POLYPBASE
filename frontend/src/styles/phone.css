@@ -2422,3 +2422,123 @@
     min-height: 42px;
   }
 }
+
+@media (max-width: 760px), (max-width: 900px) and (orientation: portrait) {
+  .history-modal.measurement-history-modal {
+    display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    width: 100%;
+    max-height: calc(100svh - 20px);
+    overflow: hidden;
+    border-radius: 12px;
+  }
+
+  .measurement-history-heading {
+    min-height: 76px;
+    padding: 14px 16px;
+  }
+
+  .measurement-history-box-code {
+    max-width: calc(100vw - 92px);
+    font-size: 0.72rem;
+  }
+
+  .measurement-history-heading h2 {
+    font-size: 1.18rem;
+  }
+
+  .measurement-history-heading p {
+    margin-top: 3px;
+  }
+
+  .measurement-history-close {
+    width: 38px;
+    min-width: 38px;
+    height: 38px;
+  }
+
+  .measurement-history-toolbar {
+    align-items: center;
+    padding: 10px 16px;
+  }
+
+  .measurement-history-toolbar label {
+    width: min(190px, calc(100% - 54px));
+  }
+
+  .measurement-history-toolbar select {
+    min-height: 42px;
+  }
+
+  .measurement-history-toolbar > span {
+    padding: 0;
+  }
+
+  .measurement-history-columns {
+    display: none;
+  }
+
+  .measurement-history-entry {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px 8px;
+    min-height: 0;
+    padding: 14px 16px;
+  }
+
+  .measurement-history-entry small {
+    display: block;
+    margin-bottom: 3px;
+    color: var(--muted);
+    font-size: 0.66rem;
+    font-weight: 700;
+  }
+
+  .measurement-history-date {
+    display: flex;
+    grid-column: 1 / -1;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .measurement-history-date small {
+    margin: 0;
+  }
+
+  .measurement-history-date time {
+    font-size: 0.94rem;
+  }
+
+  .measurement-history-value {
+    min-width: 0;
+  }
+
+  .measurement-history-value strong {
+    font-size: 1.08rem;
+  }
+
+  .measurement-history-user,
+  .measurement-history-note {
+    grid-column: 1 / -1;
+  }
+
+  .measurement-history-user {
+    padding-top: 2px;
+  }
+
+  .measurement-history-user span,
+  .measurement-history-note p {
+    font-size: 0.82rem;
+  }
+
+  .measurement-history-footer {
+    padding: 10px 16px;
+  }
+
+  .measurement-history-footer button {
+    width: 100%;
+    min-height: 44px;
+  }
+}

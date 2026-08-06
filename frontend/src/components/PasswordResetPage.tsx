@@ -1,11 +1,13 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 
 import { ApiError, apiEnsureCsrfCookie, apiPost } from '../api/client';
+import type { Translator } from '../i18n';
 
 type Props = {
   uid: string;
   token: string;
   onDone: () => void;
+  t: Translator;
 };
 
 /**
@@ -15,7 +17,7 @@ type Props = {
  * collects the new password and hands the three back to the API, which is what
  * validates the token and the password strength.
  */
-export default function PasswordResetPage({ uid, token, onDone }: Props) {
+export default function PasswordResetPage({ uid, token, onDone, t }: Props) {
   const passwordRef = useRef<HTMLInputElement | null>(null);
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
@@ -33,7 +35,7 @@ export default function PasswordResetPage({ uid, token, onDone }: Props) {
     if (isSubmitting) return;
 
     if (password !== confirmation) {
-      setError('Les deux mots de passe ne correspondent pas.');
+      setError(t('passwordResetMismatch'));
       return;
     }
 
@@ -45,7 +47,7 @@ export default function PasswordResetPage({ uid, token, onDone }: Props) {
       await apiPost<void>('/api/auth/password-reset/confirm/', { uid, token, password });
       setIsDone(true);
     } catch (requestError) {
-      setError(getResetError(requestError));
+      setError(getResetError(requestError, t));
     } finally {
       setIsSubmitting(false);
     }
@@ -60,29 +62,29 @@ export default function PasswordResetPage({ uid, token, onDone }: Props) {
           </span>
           <div>
             <p className="eyebrow">Polypbase</p>
-            <strong>Suivi laboratoire</strong>
+            <strong>{t('laboratoryTracking')}</strong>
           </div>
         </div>
 
         <form className="login-form" onSubmit={handleSubmit}>
           <header>
-            <h1 id="reset-title">Nouveau mot de passe</h1>
-            <p>Choisissez un mot de passe personnel pour votre compte.</p>
+            <h1 id="reset-title">{t('passwordResetTitle')}</h1>
+            <p>{t('passwordResetIntro')}</p>
           </header>
 
           {isDone ? (
             <>
               <p className="login-success" role="status">
-                Votre mot de passe a été enregistré. Vous pouvez vous connecter.
+                {t('passwordResetDone')}
               </p>
               <button className="login-submit" type="button" onClick={onDone}>
-                Aller à la connexion
+                {t('passwordResetGoToLogin')}
               </button>
             </>
           ) : (
             <>
               <label>
-                Nouveau mot de passe
+                {t('passwordResetNewPassword')}
                 <input
                   ref={passwordRef}
                   autoComplete="new-password"
@@ -95,7 +97,7 @@ export default function PasswordResetPage({ uid, token, onDone }: Props) {
               </label>
 
               <label>
-                Confirmer le mot de passe
+                {t('passwordResetConfirmPassword')}
                 <input
                   autoComplete="new-password"
                   disabled={isSubmitting}
@@ -109,10 +111,10 @@ export default function PasswordResetPage({ uid, token, onDone }: Props) {
               {error ? <p className="login-error" role="alert">{error}</p> : null}
 
               <button className="login-submit" type="submit" disabled={isSubmitting}>
-                {isSubmitting ? 'Enregistrement...' : 'Enregistrer'}
+                {isSubmitting ? t('passwordResetSaving') : t('passwordResetSave')}
               </button>
               <button className="login-link" type="button" onClick={onDone}>
-                Retour à la connexion
+                {t('backToLogin')}
               </button>
             </>
           )}
@@ -122,7 +124,7 @@ export default function PasswordResetPage({ uid, token, onDone }: Props) {
   );
 }
 
-function getResetError(error: unknown) {
+function getResetError(error: unknown, t: Translator) {
   // The client already lifts the useful sentence out of the response body:
   // either why the link is unusable, or why the password was refused (too
   // short, too common, entirely numeric...).
@@ -130,5 +132,5 @@ function getResetError(error: unknown) {
     return error.message;
   }
 
-  return 'Enregistrement impossible pour le moment.';
+  return t('passwordResetUnavailable');
 }

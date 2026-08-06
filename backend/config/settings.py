@@ -232,6 +232,10 @@ LANGUAGES = [
     ("en", "English"),
 ]
 
+# Localized biological content follows every interface language. Japanese can
+# already be prepared before the complete Japanese interface is available.
+CONTENT_LANGUAGES = list(dict([*LANGUAGES, ("ja", "日本語")]).items())
+
 TIME_ZONE = "Europe/Paris"
 
 USE_I18N = True

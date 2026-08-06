@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { scaleLinear, scaleTime } from 'd3-scale';
 import { line } from 'd3-shape';
 
@@ -9,8 +10,9 @@ import type {
   BoxTemperaturePoint,
   LineageGraph,
 } from '../types';
-import InteractiveLineageGraph from './InteractiveLineageGraph';
 import { formatDisplayDate } from '../utils/dateFormat';
+
+const InteractiveLineageGraph = lazy(() => import('./InteractiveLineageGraph'));
 
 export type BoxInsightTab = 'measurements' | 'movements' | 'lineage';
 
@@ -26,6 +28,14 @@ type BoxInsightsLabels = {
   ephyraeFull: string;
   events: string;
   historyButton: string;
+  historyAllYears: string;
+  historyCountLabel: string;
+  historyEnteredBy: string;
+  historyHideComment: string;
+  historyObservation: string;
+  historyReadComment: string;
+  historyShowMore: string;
+  historyYear: string;
   lineageEmptyGraph: string;
   lineageLoading: string;
   lineageRetry: string;
@@ -171,11 +181,13 @@ export default function BoxInsights({
             </div>
           ) : null}
           {graph ? (
-            <InteractiveLineageGraph
-              graph={graph}
-              language={language}
-              onSelectBox={onSelectBox}
-            />
+            <Suspense fallback={<p className="lineage-inline-status">{labels.lineageLoading}</p>}>
+              <InteractiveLineageGraph
+                graph={graph}
+                language={language}
+                onSelectBox={onSelectBox}
+              />
+            </Suspense>
           ) : null}
           {!graph && !isGraphLoading && !graphError ? (
             <div className="lineage-preview">
@@ -215,46 +227,84 @@ function MeasurementTrendChart({
     [measurements, temperatureHistory, events, period],
   );
 
-  const width = 860;
-  const countHeight = 250;
-  const countPadding = { top: 30, right: 58, bottom: 34, left: 44 };
-  const xScale = scaleTime()
-    .domain([preparedData.startDate, preparedData.endDate])
-    .range([countPadding.left, width - countPadding.right]);
-  const maxCount = Math.max(
-    1,
-    ...preparedData.measurements.flatMap((measurement) => [
-      measurement.polyp_count,
-      measurement.ephyrae_count,
-    ]),
-  );
-  const yCount = scaleLinear()
-    .domain([0, maxCount])
-    .nice()
-    .range([countHeight - countPadding.bottom, countPadding.top]);
-  const temperatureValues = preparedData.temperatures.map((point) => point.average_temperature_c);
-  const minTemperature = temperatureValues.length ? Math.min(...temperatureValues) : 0;
-  const maxTemperature = temperatureValues.length ? Math.max(...temperatureValues) : 1;
-  const temperatureDomainMin = Math.floor(minTemperature - 0.5);
-  const temperatureDomainMax = Math.ceil(maxTemperature + 0.5);
-  const yTemperature = scaleLinear()
-    .domain([temperatureDomainMin, temperatureDomainMax])
-    .range([countHeight - countPadding.bottom, countPadding.top]);
-  const xPosition = (date: string) => xScale(parseChartDate(date));
-  const measurementSegments = splitMeasurementsOnGaps(preparedData.measurements);
-  const missingRanges = buildMissingRanges(preparedData.measurements);
-  const hasMeasurementData = preparedData.measurements.length > 0;
-  const hasTemperaturePoints = preparedData.temperatures.length > 0;
-  const canDrawTemperatureLine = preparedData.temperatures.length >= 2;
-  const hasEventData = preparedData.events.length > 0;
-  const hasAnyData = hasMeasurementData || hasTemperaturePoints || hasEventData;
-  const countLine = (selector: (measurement: BiologicalMeasurement) => number) =>
-    line<BiologicalMeasurement>()
-      .x((measurement) => xPosition(measurement.measured_on))
-      .y((measurement) => yCount(selector(measurement)));
-  const temperatureLine = line<BoxTemperaturePoint>()
-    .x((point) => xPosition(point.date))
-    .y((point) => yTemperature(point.average_temperature_c));
+  const chartGeometry = useMemo(() => {
+    const width = 860;
+    const countHeight = 250;
+    const countPadding = { top: 30, right: 58, bottom: 34, left: 44 };
+    const xScale = scaleTime()
+      .domain([preparedData.startDate, preparedData.endDate])
+      .range([countPadding.left, width - countPadding.right]);
+    const maxCount = Math.max(
+      1,
+      ...preparedData.measurements.flatMap((measurement) => [
+        measurement.polyp_count,
+        measurement.ephyrae_count,
+      ]),
+    );
+    const yCount = scaleLinear()
+      .domain([0, maxCount])
+      .nice()
+      .range([countHeight - countPadding.bottom, countPadding.top]);
+    const temperatureValues = preparedData.temperatures.map((point) => point.average_temperature_c);
+    const minTemperature = temperatureValues.length ? Math.min(...temperatureValues) : 0;
+    const maxTemperature = temperatureValues.length ? Math.max(...temperatureValues) : 1;
+    const temperatureDomainMin = Math.floor(minTemperature - 0.5);
+    const temperatureDomainMax = Math.ceil(maxTemperature + 0.5);
+    const yTemperature = scaleLinear()
+      .domain([temperatureDomainMin, temperatureDomainMax])
+      .range([countHeight - countPadding.bottom, countPadding.top]);
+    const xPosition = (date: string) => xScale(parseChartDate(date));
+    const measurementSegments = splitMeasurementsOnGaps(preparedData.measurements);
+    const missingRanges = buildMissingRanges(preparedData.measurements);
+    const hasMeasurementData = preparedData.measurements.length > 0;
+    const hasTemperaturePoints = preparedData.temperatures.length > 0;
+    const canDrawTemperatureLine = preparedData.temperatures.length >= 2;
+    const hasEventData = preparedData.events.length > 0;
+    const countLine = (selector: (measurement: BiologicalMeasurement) => number) =>
+      line<BiologicalMeasurement>()
+        .x((measurement) => xPosition(measurement.measured_on))
+        .y((measurement) => yCount(selector(measurement)));
+    const temperatureLine = line<BoxTemperaturePoint>()
+      .x((point) => xPosition(point.date))
+      .y((point) => yTemperature(point.average_temperature_c));
+
+    return {
+      canDrawTemperatureLine,
+      countHeight,
+      countLine,
+      countPadding,
+      hasAnyData: hasMeasurementData || hasTemperaturePoints || hasEventData,
+      hasTemperaturePoints,
+      maxCount,
+      measurementSegments,
+      missingRanges,
+      temperatureDomainMax,
+      temperatureDomainMin,
+      temperatureLine,
+      width,
+      xPosition,
+      yCount,
+      yTemperature,
+    };
+  }, [preparedData]);
+  const {
+    canDrawTemperatureLine,
+    countHeight,
+    countLine,
+    countPadding,
+    hasAnyData,
+    hasTemperaturePoints,
+    maxCount,
+    measurementSegments,
+    missingRanges,
+    temperatureDomainMax,
+    temperatureDomainMin,
+    temperatureLine,
+    width,
+    xPosition,
+    yCount,
+    yTemperature,
+  } = chartGeometry;
 
   function toggleSeries(series: SeriesId) {
     setVisibleSeries((current) => ({ ...current, [series]: !current[series] }));
@@ -561,73 +611,184 @@ function MovementTimeline({
 }
 
 export function MeasurementHistoryModal({
+  boxCode,
   labels,
   measurements,
   onClose,
 }: {
+  boxCode: string;
   labels: BoxInsightsLabels;
   measurements: BiologicalMeasurement[];
   onClose: () => void;
 }) {
-  return (
+  const [selectedYear, setSelectedYear] = useState('all');
+  const [visibleCount, setVisibleCount] = useState(24);
+  const [expandedNotes, setExpandedNotes] = useState<Set<number>>(() => new Set());
+
+  const sortedMeasurements = useMemo(
+    () => [...measurements].sort((left, right) => (
+      right.measured_on.localeCompare(left.measured_on)
+      || right.created_at.localeCompare(left.created_at)
+    )),
+    [measurements],
+  );
+  const availableYears = useMemo(
+    () => Array.from(new Set<string>(sortedMeasurements.map((measurement) => measurement.measured_on.slice(0, 4))))
+      .filter(Boolean)
+      .sort((left, right) => right.localeCompare(left)),
+    [sortedMeasurements],
+  );
+  const filteredMeasurements = useMemo(
+    () => selectedYear === 'all'
+      ? sortedMeasurements
+      : sortedMeasurements.filter((measurement) => measurement.measured_on.startsWith(selectedYear)),
+    [selectedYear, sortedMeasurements],
+  );
+  const visibleMeasurements = filteredMeasurements.slice(0, visibleCount);
+  const remainingCount = Math.max(0, filteredMeasurements.length - visibleMeasurements.length);
+
+  useEffect(() => {
+    setVisibleCount(24);
+  }, [selectedYear]);
+
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') onClose();
+    }
+
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [onClose]);
+
+  function toggleNote(measurementId: number) {
+    setExpandedNotes((current) => {
+      const next = new Set(current);
+      if (next.has(measurementId)) next.delete(measurementId);
+      else next.add(measurementId);
+      return next;
+    });
+  }
+
+  return createPortal(
     <div className="modal-backdrop" role="presentation" onClick={onClose}>
       <section
-        className="history-modal"
+        className="history-modal measurement-history-modal"
         role="dialog"
         aria-modal="true"
         aria-label={labels.measurementHistory}
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="modal-heading">
+        <header className="measurement-history-heading">
           <div>
+            <span className="measurement-history-box-code">{boxCode}</span>
             <h2>{labels.measurementHistory}</h2>
-            <span>{measurements.length}</span>
+            <p>{labels.historyCountLabel} : <strong>{filteredMeasurements.length}</strong></p>
           </div>
-          <button type="button" onClick={onClose}>
-            {labels.close}
+          <button className="measurement-history-close" type="button" aria-label={labels.close} onClick={onClose}>
+            <span aria-hidden="true">×</span>
           </button>
+        </header>
+
+        <div className="measurement-history-toolbar">
+          <label>
+            <span>{labels.historyYear}</span>
+            <select value={selectedYear} onChange={(event) => setSelectedYear(event.target.value)}>
+              <option value="all">{labels.historyAllYears}</option>
+              {availableYears.map((year) => <option key={year} value={year}>{year}</option>)}
+            </select>
+          </label>
+          <span aria-live="polite">
+            {visibleMeasurements.length} / {filteredMeasurements.length}
+          </span>
         </div>
 
-        <MeasurementHistoryList measurements={measurements} labels={labels} />
+        <MeasurementHistoryList
+          expandedNotes={expandedNotes}
+          labels={labels}
+          measurements={visibleMeasurements}
+          onToggleNote={toggleNote}
+        />
+
+        {remainingCount > 0 ? (
+          <footer className="measurement-history-footer">
+            <button type="button" onClick={() => setVisibleCount((current) => current + 24)}>
+              {labels.historyShowMore} ({Math.min(24, remainingCount)})
+            </button>
+          </footer>
+        ) : null}
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
 function MeasurementHistoryList({
+  expandedNotes,
   labels,
   measurements,
+  onToggleNote,
 }: {
+  expandedNotes: Set<number>;
   labels: BoxInsightsLabels;
   measurements: BiologicalMeasurement[];
+  onToggleNote: (measurementId: number) => void;
 }) {
   return (
-    <div className="measurement-history">
-      {!measurements.length ? <p className="muted compact-text">{labels.noMeasurementHistory}</p> : null}
+    <div className="measurement-history-table" role="table" aria-label={labels.measurementHistory}>
+      <div className="measurement-history-columns" role="row">
+        <span role="columnheader">{labels.historyYear}</span>
+        <span role="columnheader">{labels.polyps}</span>
+        <span role="columnheader">{labels.ephyraeFull}</span>
+        <span role="columnheader">PSU</span>
+        <span role="columnheader">{labels.historyEnteredBy}</span>
+        <span role="columnheader">{labels.historyObservation}</span>
+      </div>
 
-      {measurements.map((measurement) => (
-        <article key={measurement.id} className="measurement-row">
-          <div>
-            <strong>{formatDisplayDate(measurement.measured_on)}</strong>
-            <small>{measurement.user ?? '-'}</small>
-          </div>
-          <span>
-            <strong>{measurement.polyp_count}</strong>
-            <small>{labels.polyps}</small>
-          </span>
-          <span>
-            <strong>{measurement.ephyrae_count}</strong>
-            <small>{labels.ephyraeFull}</small>
-          </span>
-          {measurement.salinity_psu ? (
-            <span>
-              <strong>{formatDecimal(measurement.salinity_psu)}</strong>
+      {!measurements.length ? (
+        <div className="measurement-history-empty">{labels.noMeasurementHistory}</div>
+      ) : null}
+
+      {measurements.map((measurement) => {
+        const note = measurement.notes?.trim() ?? '';
+        const isLongNote = note.length > 140;
+        const isExpanded = expandedNotes.has(measurement.id);
+
+        return (
+          <article key={measurement.id} className="measurement-history-entry" role="row">
+            <div className="measurement-history-date" role="cell">
+              <small>{labels.historyYear}</small>
+              <time dateTime={measurement.measured_on}>{formatDisplayDate(measurement.measured_on)}</time>
+            </div>
+            <div className="measurement-history-value" role="cell">
+              <small>{labels.polyps}</small>
+              <strong>{measurement.polyp_count}</strong>
+            </div>
+            <div className="measurement-history-value" role="cell">
+              <small>{labels.ephyraeFull}</small>
+              <strong>{measurement.ephyrae_count}</strong>
+            </div>
+            <div className="measurement-history-value" role="cell">
               <small>PSU</small>
-            </span>
-          ) : null}
-          <p>{measurement.notes?.trim() || labels.noComment}</p>
-        </article>
-      ))}
+              <strong className={measurement.salinity_psu === null ? 'is-missing' : ''}>
+                {measurement.salinity_psu === null ? '—' : formatDecimal(measurement.salinity_psu)}
+              </strong>
+            </div>
+            <div className="measurement-history-user" role="cell">
+              <small>{labels.historyEnteredBy}</small>
+              <span>{measurement.user ?? '—'}</span>
+            </div>
+            <div className="measurement-history-note" role="cell">
+              <small>{labels.historyObservation}</small>
+              <p className={isExpanded ? 'is-expanded' : ''}>{note || '—'}</p>
+              {isLongNote ? (
+                <button type="button" onClick={() => onToggleNote(measurement.id)}>
+                  {isExpanded ? labels.historyHideComment : labels.historyReadComment}
+                </button>
+              ) : null}
+            </div>
+          </article>
+        );
+      })}
     </div>
   );
 }

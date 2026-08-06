@@ -45,3 +45,62 @@ export type BoxTransferResult = BoxTransferPayload & {
     description: string;
   } | null;
 };
+
+export type ReferenceLanguage = {
+  code: string;
+  label: string;
+  required: boolean;
+};
+
+export type LocalizedReferenceValue = {
+  name: string;
+  description: string;
+};
+
+export type LocalizedReferenceValues = Record<string, LocalizedReferenceValue>;
+
+export type SpeciesReference = {
+  id: number;
+  scientific_name: string;
+  genus_species_code: string;
+  worms_aphia_id: number | null;
+  is_described: boolean;
+  notes: string;
+  translations: LocalizedReferenceValues;
+  strain_count: number;
+};
+
+export type StrainReference = {
+  id: number;
+  species: number;
+  species_scientific_name: string;
+  code: string;
+  number: number | null;
+  origin_code: string;
+  notes: string;
+  translations: LocalizedReferenceValues;
+};
+
+export type TaxonomyReferences = {
+  languages: ReferenceLanguage[];
+  species: SpeciesReference[];
+  strains: StrainReference[];
+};
+
+export type SpeciesReferencePayload = {
+  scientific_name: string;
+  genus_species_code: string;
+  worms_aphia_id: number | null;
+  is_described: boolean;
+  notes: string;
+  translations: LocalizedReferenceValues;
+};
+
+export type StrainReferencePayload = {
+  species: number;
+  code: string;
+  number: number | null;
+  origin_code: string;
+  notes: string;
+  translations: LocalizedReferenceValues;
+};

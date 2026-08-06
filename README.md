@@ -92,6 +92,18 @@ from `accounts/profile/`. For now, Polypbase supports:
 - French (`fr`)
 - English (`en`)
 
+The React interface catalog is centralized in `frontend/src/i18n/`. French is
+the reference catalog, and TypeScript verifies that the English catalog has
+the same keys during `npm run typecheck`.
+
+Biological reference data is localized separately from interface text.
+Administrators can provide names and descriptions for species and strains in
+French, English, and Japanese. French is required, while the other languages
+are optional. The available reference languages are configured through
+`CONTENT_LANGUAGES` in `backend/config/settings.py`. Adding a language there
+automatically adds its fields to the administration form without a database
+migration.
+
 Template texts use Django's official translation tags:
 
 ```django
@@ -158,6 +170,11 @@ stable endpoints are:
 - `GET /api/exports/measurements.csv`: weekly biological tracking export in CSV format.
 - `GET /api/profile/`: current user profile, organizations, and interface language.
 - `PATCH /api/profile/`: update account preferences such as interface language.
+- `GET /api/taxonomy/references/`: localized species, strains, and configured content languages.
+- `POST /api/taxonomy/species/`: create a species and its localized names (administrator only).
+- `PATCH /api/taxonomy/species/<id>/`: update a species and its localized names (administrator only).
+- `POST /api/taxonomy/strains/`: create a strain and its localized names (administrator only).
+- `PATCH /api/taxonomy/strains/<id>/`: update a strain and its localized names (administrator only).
 
 The CSV export uses one row per ISO week. Each selected box produces three
 columns for polyp count, ephyrae count, and temperature. Missing measurements

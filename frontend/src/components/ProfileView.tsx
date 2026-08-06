@@ -18,6 +18,10 @@ type ProfileLabels = {
   profileAllOrganizationsAccess: string;
   profileLabelsMobileText: string;
   profilePreferences: string;
+  profileActiveOrganization: string;
+  profileActiveOrganizationHelp: string;
+  profileDefaultOrganization: string;
+  profileFullAccess: string;
   roleDescAdmin: string;
   roleDescTechnician: string;
   roleDescViewer: string;
@@ -128,8 +132,8 @@ export default function ProfileView({
         <section className="profile-block profile-organization-context">
           <div className="section-title">
             <div>
-              <h2>Institution active</h2>
-              <p>Ce choix sera repris automatiquement à la prochaine connexion.</p>
+              <h2>{labels.profileActiveOrganization}</h2>
+              <p>{labels.profileActiveOrganizationHelp}</p>
             </div>
           </div>
           <div className="profile-organization-options">
@@ -145,9 +149,9 @@ export default function ProfileView({
                 >
                   <span>
                     <strong>{organization.name}</strong>
-                    <small>{membership?.role_label ?? 'Accès complet'}</small>
+                    <small>{membership?.role_label ?? labels.profileFullAccess}</small>
                   </span>
-                  {isActive ? <em>Par défaut</em> : null}
+                  {isActive ? <em>{labels.profileDefaultOrganization}</em> : null}
                 </button>
               );
             })}

@@ -1,6 +1,9 @@
 import { ApiError } from '../api/client';
 
-export function getErrorMessage(error: unknown) {
+export function getErrorMessage(
+  error: unknown,
+  fallback = 'Impossible de joindre l API Django.',
+) {
   if (error instanceof ApiError) {
     if (error.status === 401 || error.status === 403) {
       return 'Connecte-toi avec un compte demo pour voir les donnees.';
@@ -8,5 +11,5 @@ export function getErrorMessage(error: unknown) {
     return error.message;
   }
 
-  return 'Impossible de joindre l API Django.';
+  return fallback;
 }

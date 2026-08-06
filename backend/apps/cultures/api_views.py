@@ -317,20 +317,20 @@ def box_list_queryset_for_user(user, organization_ids=None):
 
     The list serializer only needs the latest measurement and the active alert
     count, so we avoid the heavy detail prefetches (full history, lineages,
-    movements, locations, tags). Instead we prefetch only the 10 most recent
-    measurements per box and annotate the active alert count via subqueries.
+    movements, locations, tags). Instead we prefetch only the latest
+    measurement per box and annotate the active alert count via subqueries.
     Both subqueries are portable (correlated with LIMIT), so they run on
     PostgreSQL and SQLite alike.
     """
     organization_ids = organization_ids or get_authorized_organization_ids(user)
 
-    recent_measurement_ids = Subquery(
+    latest_measurement_id = Subquery(
         BiologicalMeasurement.objects.filter(box_id=OuterRef("box_id"))
         .order_by("-measured_on", "-created_at")
-        .values("id")[:10]
+        .values("id")[:1]
     )
-    recent_measurements = (
-        BiologicalMeasurement.objects.filter(id__in=recent_measurement_ids)
+    latest_measurements = (
+        BiologicalMeasurement.objects.filter(id__in=latest_measurement_id)
         .select_related("user")
         .order_by("-measured_on", "-created_at")
     )
@@ -366,9 +366,41 @@ def box_list_queryset_for_user(user, organization_ids=None):
             latest_salinity_annotation=latest_salinity,
         )
         .prefetch_related(
-            Prefetch("biological_measurements", queryset=recent_measurements)
+            Prefetch("biological_measurements", queryset=latest_measurements)
         )
         .filter(organization_id__in=organization_ids)
+    )
+
+
+def thermal_zone_summary_queryset(queryset):
+    """Attach only the latest readings needed by the zone summary serializer."""
+    latest_temperature_id = Subquery(
+        DailyTemperature.objects.filter(thermal_zone_id=OuterRef("thermal_zone_id"))
+        .order_by("-date", "-id")
+        .values("id")[:1]
+    )
+    latest_salinity_id = Subquery(
+        SalinityMeasurement.objects.filter(thermal_zone_id=OuterRef("thermal_zone_id"))
+        .order_by("-measured_on", "-id")
+        .values("id")[:1]
+    )
+
+    return queryset.select_related("organization").prefetch_related(
+        Prefetch(
+            "daily_temperatures",
+            queryset=DailyTemperature.objects.filter(id__in=latest_temperature_id).order_by("-date", "-id"),
+        ),
+        Prefetch(
+            "salinity_measurements",
+            queryset=(
+                SalinityMeasurement.objects.filter(id__in=latest_salinity_id)
+                .select_related("user")
+                .order_by("-measured_on", "-id")
+            ),
+        ),
+        "probes",
+    ).annotate(
+        box_count=Count("boxes", filter=Q(boxes__status=Box.Status.ACTIVE))
     )
 
 
@@ -919,20 +951,8 @@ class ThermalZoneListCreateAPIView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         organization_ids = get_active_organization_ids(self.request)
-        return ThermalZone.objects.filter(
-            organization_id__in=organization_ids,
-        ).select_related("organization").prefetch_related(
-            Prefetch(
-                "daily_temperatures",
-                queryset=DailyTemperature.objects.order_by("-date"),
-            ),
-            Prefetch(
-                "salinity_measurements",
-                queryset=SalinityMeasurement.objects.select_related("user").order_by("-measured_on"),
-            ),
-            "probes",
-        ).annotate(
-            box_count=Count("boxes", filter=Q(boxes__status=Box.Status.ACTIVE))
+        return thermal_zone_summary_queryset(
+            ThermalZone.objects.filter(organization_id__in=organization_ids)
         ).order_by(
             "organization__name",
             "name",
@@ -1063,23 +1083,9 @@ class ThermalZoneManualTemperatureAPIView(APIView):
             },
         )
 
-        refreshed_zone = (
+        refreshed_zone = thermal_zone_summary_queryset(
             ThermalZone.objects.filter(pk=zone.pk)
-            .select_related("organization")
-            .prefetch_related(
-                Prefetch(
-                    "daily_temperatures",
-                    queryset=DailyTemperature.objects.order_by("-date"),
-                ),
-                Prefetch(
-                    "salinity_measurements",
-                    queryset=SalinityMeasurement.objects.select_related("user").order_by("-measured_on"),
-                ),
-                "probes",
-            )
-            .annotate(box_count=Count("boxes", filter=Q(boxes__status=Box.Status.ACTIVE)))
-            .get()
-        )
+        ).get()
         return Response(ThermalZoneSerializer(refreshed_zone).data, status=status.HTTP_201_CREATED)
 
 

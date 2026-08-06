@@ -582,6 +582,7 @@ Fichier principal :
 Les sections sont :
 
 - Comptes ;
+- Référentiel biologique ;
 - Emplacements et sondes ;
 - Institutions ;
 - Transferts ;
@@ -599,6 +600,19 @@ La section Comptes permet :
 - de désactiver ou réactiver un accès.
 
 La création de compte prépare un mot de passe temporaire. Le backend génère ce mot de passe dans `backend/apps/accounts/api_views.py`.
+
+### Référentiel biologique
+
+Cette section permet à un administrateur de créer et de modifier les espèces et les souches utilisées par Polypbase. L'identification scientifique, les codes, l'identifiant WoRMS Aphia et les notes sont séparés des noms et descriptions localisés. Le français est obligatoire. L'anglais et le japonais sont facultatifs.
+
+Les champs de langue sont produits à partir de `CONTENT_LANGUAGES`. Une langue ajoutée à cette configuration apparaît automatiquement dans le formulaire. Les données sont enregistrées dans `SpeciesTranslation` et `StrainTranslation`, avec une seule traduction par référence et par langue. Les créations sont aussi ajoutées au journal d'actions.
+
+Fichiers principaux :
+
+- `frontend/src/components/TaxonomyAdminSection.tsx` ;
+- `backend/apps/taxonomy/models.py` ;
+- `backend/apps/taxonomy/serializers.py` ;
+- `backend/apps/taxonomy/api_views.py`.
 
 ### Emplacements et sondes
 
@@ -699,7 +713,7 @@ Côté backend, les fichiers de traduction Django sont dans :
 - `backend/locale/fr/LC_MESSAGES/django.po`
 - `backend/locale/en/LC_MESSAGES/django.po`
 
-Côté frontend, beaucoup de libellés sont encore gérés dans les composants React, notamment dans `frontend/src/App.tsx`, `frontend/src/components/ExportsView.tsx` et `frontend/src/components/AdminView.tsx`.
+Côté frontend, le catalogue principal est centralisé dans `frontend/src/i18n/fr.ts` et `frontend/src/i18n/en.ts`. Le français sert de référence. Le type `TranslationKey` impose au catalogue anglais de contenir exactement les mêmes clés lors du contrôle TypeScript. Plusieurs composants anciens possèdent encore quelques libellés locaux. Ils doivent être déplacés progressivement vers le catalogue partagé lorsqu'ils sont modifiés.
 
 Le choix de langue est enregistré dans le profil utilisateur via :
 
@@ -707,7 +721,9 @@ Le choix de langue est enregistré dans le profil utilisateur via :
 PATCH /api/profile/
 ```
 
-Pour ajouter une langue, il faudra prévoir une stratégie plus centralisée côté React afin d'éviter de disperser les textes dans trop de composants.
+Les noms et descriptions des espèces et des souches sont gérés séparément des textes de l'interface. Les modèles `SpeciesTranslation` et `StrainTranslation` stockent une valeur par langue. Le français est obligatoire. L'anglais et le japonais sont facultatifs. La liste est définie par `CONTENT_LANGUAGES` dans `backend/config/settings.py`, puis transmise automatiquement au formulaire React du référentiel biologique.
+
+Cette séparation permet de préparer une taxonomie japonaise sans activer une interface japonaise incomplète. L'ajout d'une langue de contenu ne demande pas de nouvelle migration. L'ajout d'une langue complète à l'interface demande en revanche un nouveau catalogue React, un fichier Django `.po`, une relecture humaine et des essais sur les trois supports.
 
 ## 20. Choix d'interface
 
@@ -1030,7 +1046,7 @@ Si la base partagée Neon est utilisée, il ne faut pas lancer `migrate`, `loadd
 
 Le fichier `frontend/src/App.tsx` contient encore beaucoup de logique. Il fonctionne, mais il gagnerait à être découpé progressivement si le projet continue.
 
-La traduction côté frontend n'est pas encore entièrement centralisée. Pour ajouter plusieurs langues, il faudra isoler les textes dans un système plus propre.
+Le catalogue principal du frontend est centralisé, mais certains composants plus anciens contiennent encore des libellés locaux ou français. Une passe d'inventaire et une relecture humaine de l'anglais restent nécessaires avant de considérer l'interface comme entièrement traduite. La version japonaise de l'interface n'est pas encore disponible.
 
 Les graphiques ont été améliorés, mais ils doivent être testés avec beaucoup de données réelles. Les cas importants sont les longues périodes sans relevé, les valeurs nulles, les températures manquantes et les boîtes désactivées.
 

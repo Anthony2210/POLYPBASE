@@ -1,4 +1,6 @@
 ﻿import {
+  lazy,
+  Suspense,
   type FormEvent,
   type KeyboardEvent,
   type PointerEvent,
@@ -18,15 +20,20 @@ import {
   setActiveOrganizationContext,
 } from './api/client';
 import { getBoxStatusPresentation } from './boxStatus';
-import AdminView, { type EditableMeasurement } from './components/AdminView';
+import {
+  createTranslator,
+  resolveLanguage,
+  type Language,
+  type TranslationKey,
+  type Translator,
+} from './i18n';
+import type { EditableMeasurement } from './components/AdminView';
 
 // A measurement handed over by the history so the box sheet can open with it
 // already filled in.
 type HistoryMeasurementPrefill = EditableMeasurement;
-import BoxInsights, { MeasurementHistoryModal, type BoxInsightTab } from './components/BoxInsights';
+import type { BoxInsightTab } from './components/BoxInsights';
 import { useConfirmAction, type ConfirmActionOptions } from './components/ConfirmActionModal';
-import ExportsView from './components/ExportsView';
-import LabelsView from './components/LabelsView';
 import LoginPage from './components/LoginPage';
 import PasswordResetPage from './components/PasswordResetPage';
 import LoginNotice from './components/LoginNotice';
@@ -39,7 +46,6 @@ import QrLabelModal from './components/QrLabelModal';
 import SearchField from './components/SearchField';
 import SubcultureModal from './components/SubcultureModal';
 import TabletQrScanner from './components/TabletQrScanner';
-import { ZoneDetailPage, ZonesView } from './components/ZonesView';
 import { useIsDesktopApp } from './hooks/useIsDesktopApp';
 import type {
   BiologicalMeasurement,
@@ -85,6 +91,20 @@ import {
 import { triggerHaptic } from './utils/haptics';
 import { getBoxQrImageUrl, getBoxScanUrl, type QrLabelItem } from './utils/qrLabels';
 
+const AdminView = lazy(() => import('./components/AdminView'));
+const BoxInsights = lazy(() => import('./components/BoxInsights'));
+const MeasurementHistoryModal = lazy(() =>
+  import('./components/BoxInsights').then((module) => ({ default: module.MeasurementHistoryModal })),
+);
+const ExportsView = lazy(() => import('./components/ExportsView'));
+const LabelsView = lazy(() => import('./components/LabelsView'));
+const ZoneDetailPage = lazy(() =>
+  import('./components/ZonesView').then((module) => ({ default: module.ZoneDetailPage })),
+);
+const ZonesView = lazy(() =>
+  import('./components/ZonesView').then((module) => ({ default: module.ZonesView })),
+);
+
 // Boxes are filtered client-side, so the whole collection must be loaded.
 // Kept well above the current box count to leave room for growth.
 const BOX_LIST_LIMIT = 1000;
@@ -123,1138 +143,8 @@ type RouteState = {
   zoneId?: number | null;
 };
 
-const translations = {
-  fr: {
-    account: 'Compte',
-    loading: 'Chargement...',
-    backToPilotage: 'Retour au suivi',
-    boxNotFound: 'Boîte introuvable',
-    boxNotFoundText: 'Cette boîte n’existe pas dans les données chargées.',
-    boxSheet: 'Fiche de la boîte',
-    boxes: 'Boîtes',
-    close: 'Fermer',
-    ephyrae: 'Éphyr.',
-    ephyraeFull: 'Éphyrules',
-    exports: 'Exports',
-    exportsTitle: 'Exporter les données',
-    admin: 'Administration',
-    adminTitle: 'Administration',
-    adminOpenDjango: 'Ouvrir Django admin',
-    adminUsers: 'Comptes et rôles',
-    adminOrganizations: 'Structures partenaires',
-    adminReferences: 'Espèces et souches',
-    adminEnvironment: 'Emplacements et sondes',
-    adminRights: 'Réservé admin',
-    adminSubtitle: 'Gestion disponible sur ordinateur',
-    adminDesktopOnly: 'Les fonctionnalités admin sont pensées pour la version ordinateur.',
-    adminAccountsTitle: 'Gestion des comptes',
-    adminAccountsText: 'Créer les accès, vérifier les rôles et préparer les modifications.',
-    adminNewUser: '+ Nouvel utilisateur',
-    adminRoleAdmin: 'Administrateurs',
-    adminRoleTechnician: 'Techniciens',
-    adminRoleViewer: 'Lecteurs',
-    adminUserColumn: 'Utilisateur',
-    adminRoleColumn: 'Rôle',
-    adminEmailColumn: 'Email',
-    adminLastLoginColumn: 'Dernière connexion',
-    adminActionsColumn: 'Actions',
-    adminAuditTitle: 'Historique global',
-    adminAuditText: 'Dernières actions enregistrées dans les structures que vous administrez.',
-    adminAuditEmpty: 'Aucune action enregistrée.',
-    adminAuditDate: 'Date',
-    adminAuditUser: 'Utilisateur',
-    adminAuditAction: 'Action',
-    adminAuditObject: 'Objet',
-    adminAuditShow: 'Afficher',
-    adminAuditHide: 'Masquer',
-    adminAuditShowAll: 'Tout afficher',
-    adminAuditShowLess: 'Réduire',
-    adminAuditLatest: 'Dernières actions',
-    adminAuditOpen: 'Ouvrir l’historique',
-    adminAuditDialogTitle: 'Historique des actions',
-    adminAuditDialogText: 'Filtrer les actions enregistrées.',
-    adminAuditFilterAction: 'Type d’action',
-    adminAuditFilterDate: 'Jour',
-    adminAuditAllActions: 'Toutes les actions',
-    adminAuditClearFilters: 'Effacer les filtres',
-    adminAuditCount: 'action(s)',
-    adminAuditDetails: 'Voir le détail',
-    adminAuditLoaded: 'chargées',
-    adminAuditLoadMore: 'Charger plus',
-    confirmCancel: 'Annuler',
-    confirmCreateBoxTitle: 'Créer cette boîte',
-    confirmCreateBoxMessage: 'Vérifiez les informations avant d’ajouter la boîte au suivi.',
-    confirmCreateBoxAction: 'Créer la boîte',
-    confirmSubcultureTitle: 'Enregistrer ce repiquage',
-    confirmSubcultureMessage: 'Les nouvelles boîtes seront reliées à la boîte parent.',
-    confirmSubcultureAction: 'Enregistrer le repiquage',
-    confirmMoveTitle: 'Transférer cette boîte',
-    confirmMoveMessage: 'Le nouvel emplacement sera ajouté à l’historique de la boîte.',
-    confirmMoveAction: 'Transférer',
-    confirmArchiveBoxTitle: 'Désactiver le suivi',
-    confirmArchiveBoxMessage: 'L’historique sera conservé et la boîte ne sera plus affichée comme vivante.',
-    confirmArchiveBoxAction: 'Désactiver',
-    confirmActivateBoxTitle: 'Réactiver le suivi',
-    confirmActivateBoxMessage: 'La boîte sera de nouveau affichée dans les suivis actifs.',
-    confirmActivateBoxAction: 'Réactiver',
-    confirmDeleteOrganizationTitle: 'Supprimer cette structure',
-    confirmDeleteOrganizationMessage: 'Vérifiez que cette structure ne doit plus être conservée dans Polypbase.',
-    confirmDeleteOrganizationAction: 'Supprimer',
-    confirmDetailBox: 'Boîte',
-    confirmDetailSpecies: 'Espèce',
-    confirmDetailStrain: 'Souche',
-    confirmDetailLocation: 'Emplacement',
-    confirmDetailCurrentLocation: 'Emplacement actuel',
-    confirmDetailTargetLocation: 'Nouvel emplacement',
-    confirmDetailParentBox: 'Boîte parent',
-    confirmDetailChildren: 'Boîtes enfants',
-    confirmDetailOrganization: 'Structure',
-    adminFlowLabel: 'Navigation administrateur',
-    adminTabUsers: 'Utilisateurs',
-    adminTabLocations: 'Emplacements',
-    adminTabOrganizations: 'Institutions',
-    adminTabTransfers: 'Transferts',
-    adminTabHistory: 'Historique',
-    boxArchiveAction: 'Désactiver le suivi',
-    boxArchiveConfirm: 'Désactiver le suivi de cette boîte ? Son historique restera conservé.',
-    boxArchived: 'Suivi de la boîte désactivé.',
-    boxArchiveForbidden: 'Seul un administrateur peut désactiver le suivi de cette boîte.',
-    boxActivateAction: 'Réactiver le suivi',
-    boxActivateConfirm: 'Réactiver le suivi de cette boîte ?',
-    boxActivated: 'Suivi de la boîte réactivé.',
-    boxActivateForbidden: 'Seul un administrateur peut réactiver le suivi de cette boîte.',
-    moveConfirm: 'Confirmer le transfert de cette boîte ?',
-    subcultureConfirm: 'Confirmer la création de ce repiquage ?',
-    createBoxTitle: 'Créer une boîte',
-    createBoxText: 'Ajouter une nouvelle boîte sans passer par le repiquage.',
-    createBoxOpen: 'Créer une boîte',
-    createBoxClose: 'Fermer',
-    createBoxOrganization: 'Structure',
-    createBoxStrain: 'Souche',
-    createBoxZone: 'Emplacement',
-    createBoxNoZone: 'Sans emplacement',
-    createBoxGlobalCode: 'Code boîte',
-    createBoxNumber: 'Numéro',
-    createBoxEnteredOn: 'Date d’entrée',
-    createBoxNotes: 'Note',
-    createBoxSubmit: 'Créer',
-    createBoxSaved: 'Boîte créée.',
-    createBoxNoOptions: 'Aucune souche disponible pour créer une boîte.',
-    createBoxForbidden: 'Ce compte ne peut pas créer de boîte.',
-    createBoxNumberMismatch: 'Le numéro doit correspondre au numéro présent dans le code boîte.',
-    createBoxConfirm: 'Confirmer la création de cette boîte ?',
-    adminCurrentSession: 'Session active',
-    adminChangeRole: 'Modifier rôle',
-    adminRemoveAccess: 'Supprimer accès',
-    adminNotConnected: 'API à connecter',
-    adminZonesProbesTitle: 'Emplacements thermiques et sondes',
-    adminEnvironmentZonePanel: 'Nouvel emplacement',
-    adminEnvironmentProbePanel: 'Nouvelle sonde',
-    adminEnvironmentSettingsPanel: 'Réglages',
-    adminEnvironmentZonesCount: 'Emplacements actifs',
-    adminEnvironmentProbesCount: 'Sondes associées',
-    adminEnvironmentCapacityCount: 'Capacité utilisée',
-    adminEnvironmentSearchPlaceholder: 'Nom, structure ou température',
-    adminEnvironmentNoZoneResults: 'Aucun emplacement ne correspond à la recherche.',
-    adminEnvironmentNoProbe: 'Aucune sonde',
-    adminZoneBoxes: 'Boîtes',
-    adminZoneProbes: 'Sondes',
-    adminZoneName: 'Nom de l’emplacement',
-    adminZoneType: 'Type d’emplacement',
-    adminZoneTypeCabinet: 'Emplacement',
-    adminZoneTypeIncubator: 'Étuve',
-    adminTargetTemperature: 'Température consigne',
-    adminZoneCapacity: 'Capacité',
-    adminZoneSalinity: 'Salinité (PSU)',
-    adminZoneOrganization: 'Structure',
-    adminCreateZone: 'Créer l’emplacement',
-    adminZoneCreated: 'Emplacement créé.',
-    adminZoneUpdated: 'Emplacement modifié.',
-    adminSaveZone: 'Enregistrer',
-    adminZoneNoOrganization: 'Aucune structure que vous administrez.',
-    adminProbeLocation: 'Emplacement',
-    adminProbeCreated: 'Sonde ajoutée.',
-    adminProbeNoZone: 'Aucun emplacement que vous administrez.',
-    manualTemperatureTitle: 'Température manuelle',
-    manualTemperatureDate: 'Date',
-    manualTemperatureValue: 'Température mesurée (°C)',
-    manualTemperatureSave: 'Enregistrer la température',
-    manualTemperatureSaved: 'Température enregistrée.',
-    manualTemperatureForbidden: 'Ce compte ne peut pas saisir de température pour cet emplacement.',
-    adminOrganizationCreated: 'Structure créée.',
-    adminOrganizationDeleted: 'Structure supprimée.',
-    adminOrganizationUpdated: 'Structure modifiée.',
-    adminEditOrganization: 'Modifier',
-    adminDeleteOrganization: 'Supprimer',
-    adminCancelEdit: 'Annuler',
-    adminSaveOrganization: 'Enregistrer',
-    adminConfirmDeleteOrganization: 'Supprimer cette structure ?',
-    adminInvalidCountry: 'Choisissez un pays dans la liste.',
-    adminInvalidCityCountry: 'Cette ville ne correspond pas au pays choisi.',
-    adminTransferNotes: 'Notes',
-    adminTransferCreated: 'Transfert enregistré.',
-    adminTransferNoBox: 'Aucune boîte que vous administrez.',
-    adminProbeCode: 'Code sonde',
-    adminProbeType: 'Type de sonde',
-    adminProbeZone: 'Emplacement associé',
-    adminProbeApiUrl: 'URL API',
-    adminAddProbe: 'Ajouter la sonde',
-    adminOrganizationsTitle: 'Nouvelles institutions',
-    adminOrganizationsText: 'Préparer l’ajout d’un aquarium partenaire avec ses informations de contact.',
-    adminOrganizationsKnownCount: 'Institutions connues',
-    adminOrganizationsCountriesCount: 'Pays représentés',
-    adminOrganizationSearchPlaceholder: 'Nom, ville, pays ou contact',
-    adminOrganizationAllCountries: 'Tous les pays',
-    adminOrganizationNoResults: 'Aucune institution ne correspond à la recherche.',
-    adminCountry: 'Pays',
-    adminCity: 'Ville',
-    adminOrganizationName: 'Nom de l’institution',
-    adminContactName: 'Personne contact',
-    adminPostalAddress: 'Adresse postale',
-    adminContactEmail: 'Email',
-    adminOrganizationNoEmail: 'Aucun email',
-    adminContactPhone: 'Téléphone',
-    adminOrganizationNoPhone: 'Aucun téléphone',
-    adminOrganizationNoAddress: 'Aucune adresse',
-    adminOrganizationContact: 'Contact',
-    adminAddOrganization: 'Ajouter l’institution',
-    adminExistingOrganizations: 'Structures connues',
-    adminTransferTitle: 'Transfert entre structures',
-    adminTransferText: 'Préparer le transfert d’une boîte vers un autre aquarium sans perdre l’historique.',
-    adminTransferBoxesAvailable: 'Boîtes transférables',
-    adminTransferKnownInstitutions: 'Institutions connues',
-    adminTransferActiveZones: 'Emplacements actifs',
-    adminTransferOutgoingTitle: 'Préparer un départ',
-    adminTransferIncomingTitle: 'Recevoir un transfert',
-    adminTransferSelectedBox: 'Boîte sélectionnée',
-    adminTransferCurrentOrganization: 'Structure actuelle',
-    adminTransferCurrentZone: 'Emplacement actuel',
-    adminTransferCsvTemplate: 'Exemple / template CSV',
-    adminTransferBox: 'Boîte à transférer',
-    adminTransferBoxSearchPlaceholder: 'Code, espèce ou souche',
-    adminTransferBoxSearchEmpty: 'Aucune boîte trouvée avec cette recherche.',
-    adminTransferTarget: 'Institution destinataire',
-    adminTransferPolyps: 'Nombre de polypes transmis',
-    adminKeepTransferDate: 'Conserver la date du transfert',
-    adminPrepareTransfer: 'Préparer le transfert',
-    adminTransferPackageTitle: 'Documents de transfert prêts',
-    adminTransferDownloadData: 'Télécharger le CSV',
-    adminTransferPrintLabel: 'Imprimer l’étiquette QR',
-    adminTransferImportTitle: 'Importer un transfert CSV',
-    adminTransferImportFile: 'Fichier CSV reçu',
-    adminTransferImportInvalid: 'Ce fichier n’est pas un transfert Polypbase valide.',
-    adminTransferImportPreview: 'Aperçu du transfert',
-    adminTransferImportOrganization: 'Structure destinataire',
-    adminTransferImportZone: 'Emplacement destinataire',
-    adminTransferImportCode: 'Nouveau code de boîte',
-    adminTransferImportCodeHint: 'Le code proposé est modifiable, mais il doit rester unique.',
-    adminTransferImportCodeExists: 'Ce code est déjà utilisé.',
-    adminTransferImportUseSuggestion: 'Utiliser la suggestion',
-    adminTransferImportMissing: 'Le CSV ne contient pas tous les champs obligatoires',
-    adminTransferImportOpenBox: 'Ouvrir la nouvelle boîte',
-    adminTransferImportExample: 'Télécharger un exemple de CSV',
-    adminTransferImportNumber: 'Nouveau numéro de boîte',
-    adminTransferImportAction: 'Importer et créer la boîte',
-    adminTransferImportConfirmTitle: 'Importer ce transfert ?',
-    adminTransferImportConfirmMessage: 'Une nouvelle boîte et son relevé initial seront créés dans la structure destinataire.',
-    adminTransferImportSuccess: 'Transfert importé. La nouvelle boîte a été créée.',
-    adminDjangoHint: 'Les actions sensibles restent accessibles dans Django admin tant que les API dédiées ne sont pas créées.',
-    adminPrintLabelsAction: 'Imprimer les étiquettes',
-    adminPrintLabelsClear: 'Tout décocher',
-    adminPrintLabelsHelp: 'Sélectionnez les boîtes à imprimer sur une même feuille.',
-    adminPrintLabelsSearch: 'Rechercher une boîte',
-    adminPrintLabelsSearchPlaceholder: 'Code, espèce ou souche',
-    adminPrintLabelsSelectAll: 'Tout sélectionner',
-    adminPrintLabelsTitle: 'Étiquettes des boîtes',
-    profileRoles: 'Rôles',
-    profileEmail: 'Email',
-    profileNoEmail: 'Non renseigné',
-    profileMemberships: 'Structures et rôles',
-    profileNoMembership: 'Aucune structure rattachée à ce compte.',
-    profileAllOrganizationsAccess: 'Accès à toutes les structures.',
-    profileLabelsMobileText: 'Préparer une planche QR code.',
-    profilePreferences: 'Préférences',
-    profileLanguage: 'Langue de l’interface',
-    profileAdminTitle: 'Espace administrateur',
-    profileAdminText: 'Gérer les comptes, les emplacements, les sondes et les échanges entre structures.',
-    roleDescAdmin: 'Accès complet : laboratoire, exports et administration.',
-    roleDescTechnician: 'Saisie et suivi du laboratoire, sans administration.',
-    roleDescViewer: 'Consultation seule des données.',
-    manageAccountsTitle: 'Gestion des comptes',
-    manageAccountsSubtitle: 'Créer les accès, ajuster les rôles et couper rapidement un compte si nécessaire.',
-    manageAddTitle: 'Nouvel accès',
-    manageAddSubtitle: 'Créer un compte rattaché à une structure.',
-    manageActiveAccounts: 'Comptes actifs',
-    manageAdminAccounts: 'Admins',
-    manageTechnicianAccounts: 'Techniciens',
-    manageViewerAccounts: 'Lecteurs',
-    manageSearchLabel: 'Rechercher',
-    manageSearchPlaceholder: 'Nom, identifiant, email ou structure',
-    manageRoleAll: 'Tous les rôles',
-    manageStatusAll: 'Tous',
-    manageColUser: 'Utilisateur',
-    manageColOrganization: 'Structure',
-    manageColRole: 'Rôle',
-    manageColStatus: 'Statut',
-    manageColLastLogin: 'Dernière connexion',
-    manageStatusActive: 'Actif',
-    manageStatusInactive: 'Désactivé',
-    manageStatusSelf: 'Vous',
-    manageNeverConnected: 'Jamais connecté',
-    manageNoMembers: 'Aucun compte à afficher pour vos structures.',
-    manageNoFilteredMembers: 'Aucun compte ne correspond aux filtres.',
-    manageFieldUsername: 'Identifiant ou email',
-    manageFieldFirstName: 'Prénom',
-    manageFieldLastName: 'Nom',
-    manageFieldEmail: 'Email',
-    manageFieldPassword: 'Mot de passe initial',
-    manageFieldOrganization: 'Structure',
-    manageFieldRole: 'Rôle',
-    manageTemporaryPasswordTitle: 'Mot de passe temporaire',
-    manageTemporaryPasswordText: 'Polypbase génère un mot de passe aléatoire et l’envoie à l’adresse indiquée.',
-    managePasswordHint: 'L’utilisateur pourra ensuite choisir un mot de passe personnel.',
-    manageAddAction: 'Ajouter l’accès',
-    manageAdding: 'Ajout...',
-    manageMemberAdded: 'Accès enregistré. Le mot de passe temporaire est envoyé par email.',
-    manageRoleUpdated: 'Rôle mis à jour.',
-    manageDeactivate: 'Désactiver',
-    manageReactivate: 'Réactiver',
-    historyButton: 'Voir relevés',
-    analysisTabLineage: 'Parenté',
-    analysisTabMeasurements: 'Relevés',
-    analysisTabMovements: 'Mouvements',
-    boxLocalCode: 'Code local',
-    boxStrain: 'Souche',
-    boxAttentionTitle: 'Suivi prioritaire',
-    boxChecksButton: 'Alertes',
-    boxChecksEmptyText: 'Aucun signal particulier sur les derniers relevés.',
-    boxChecksEmptyTitle: 'Aucune alerte active',
-    boxChecksIntro: 'Signaux détectés à partir des derniers relevés.',
-    boxChecksTitle: 'Alertes de la boîte',
-    alertResolveAction: 'Marquer comme résolue',
-    alertResolveConfirmTitle: 'Résoudre cette alerte ?',
-    alertResolveConfirmMessage: 'L’alerte disparaîtra des alertes actives. Cette action restera dans l’historique.',
-    alertResolveError: 'Impossible de résoudre cette alerte.',
-    boxAlertBanner: 'Attention : une alerte a été détectée pour cette boîte.',
-    boxAlertBannerAction: 'Voir le détail',
-    chartEmpty: 'Pas assez de relevés pour tracer une tendance.',
-    chartMissingReading: 'Pas de relevé',
-    chartTitle: 'Évolution des relevés',
-    createdOn: 'Créée le',
-    firstMeasurementOn: 'Premier relevé',
-    events: 'Événements',
-    lastComment: 'Dernier commentaire',
-    lastMeasurement: 'Dernier relevé',
-    laboratoryTracking: 'Suivi laboratoire',
-    lineageAction: 'Parenté',
-    lineageEmptyGraph: 'Le graphique de parenté sera affiché ici.',
-    lineageLoading: 'Chargement de la parenté...',
-    lineageRetry: 'Recharger',
-    loginAction: 'Se connecter',
-    loginRequired: 'Connexion requise',
-    logoutAction: 'Se d\u00e9connecter',
-    logoutError: 'D\u00e9connexion impossible pour le moment.',
-    measurementDate: 'Date du relevé',
-    measurementCountsRequired: 'Polypes et éphyrules sont obligatoires.',
-    measurementForbidden: 'Ce compte ne peut pas créer de relevé.',
-    measurementHistory: 'Historique des relevés',
-    measurementSaved: 'Relevé enregistré',
-    measurementUpdated: 'Relevé modifié',
-    editLastMeasurement: 'Modifier le dernier relevé',
-    editLastMeasurementHelp: 'Reprendre le dernier relevé dans le formulaire pour ajustement.',
-    cancelEdit: 'Annuler la modification',
-    holdToUpdate: 'Maintenir pour modifier',
-    measurementEditing: 'Dernier relevé chargé pour modification',
-    saveMeasurementEdit: 'Enregistrer l’ajustement',
-    moveAction: 'Transférer',
-    moveForbidden: 'Ce compte ne peut pas transférer de boîte.',
-    moveSaved: 'Transfert enregistré',
-    movementHistoryTitle: 'Historique des emplacements',
-    noMovementHistory: 'Aucun déplacement enregistré pour cette boîte.',
-    movedTo: 'Transférée vers',
-    movementEvent: 'Transfert',
-    newMeasurement: 'Nouveau relevé',
-    noComment: 'Aucun commentaire récent pour cette boîte.',
-    noDate: 'aucune date',
-    noMeasurementHistory: 'Aucun relevé pour cette boîte.',
-    noRecentScans: 'Aucun scan récent pour l’instant.',
-    noZone: 'Sans emplacement',
-    observation: 'Observation',
-    observationPlaceholder: 'Note rapide pour le laboratoire',
-    overview: 'Vue d’ensemble',
-    overviewTitle: 'Vue d’ensemble',
-    overviewSubtitle: 'Boîtes suivies dans l’application, avec tendance sur les 6 derniers mois.',
-    overviewActiveBoxes: 'boîtes vivantes',
-    overviewBoxColumn: 'Boîte',
-    overviewLatestReading: 'Dernier relevé',
-    overviewLocationColumn: 'Emplacement',
-    overviewNoMeasurement: 'Sans relevé',
-    overviewOpenBox: 'Ouvrir la fiche',
-    overviewTemperature: 'Température emplacement',
-    overviewChartTitle: '6 derniers mois',
-    overviewShowChart: 'Voir tendance',
-    overviewHideChart: 'Masquer tendance',
-    overviewNoHistory: 'Pas assez de données pour tracer la tendance.',
-    overviewEmpty: 'Aucune boîte vivante à afficher.',
-    overviewFilters: 'Filtres',
-    overviewSort: 'Tri',
-    overviewSortOldest: 'Plus ancien relevé',
-    overviewSortNewest: 'Plus récent relevé',
-    overviewFilterAllSpecies: 'Toutes les espèces',
-    overviewFilterAllZones: 'Tous les emplacements',
-    overviewSearch: 'Rechercher',
-    overviewSearchPlaceholder: 'Code, espèce ou emplacement',
-    overviewFilteredBoxes: 'boîtes affichées',
-    overviewNoZoneMetric: 'sans emplacement',
-    overviewWithEphyrae: 'avec éphyrules',
-    overviewPriorityBoxes: 'à vérifier',
-    overviewTrackedBoxes: 'suivies dans l’app',
-    overviewRecordedBoxes: 'déjà relevées',
-    overviewFilterHint: 'filtrer',
-    overviewClearFilter: 'retirer',
-    overviewByZone: 'Par emplacement',
-    overviewZoneDone: 'déjà faits',
-    overviewZoneRemaining: 'reste à relever',
-    overviewZoneUpToDate: 'à jour',
-    overviewShowMore: 'Afficher plus',
-    overviewShowing: 'affichées',
-    weeklyDueNow: 'à relever',
-    weeklyDueSoon: 'bientôt',
-    weeklyUpToDate: 'à jour',
-    weeklyNoRecentReading: 'Aucun relevé récent',
-    weeklyLastReading: 'Dernier relevé',
-    weeklyNoActiveBoxes: 'Aucune boîte active suivie dans l’application.',
-    weeklyDayShort: 'j',
-    labels: 'Étiquettes',
-    labelsTitle: 'Étiquettes',
-    pilotage: 'Suivi',
-    pilotageTitle: 'Suivi labo',
-    polyps: 'Polypes',
-    speciesLabel: 'Espèce',
-    parents: 'Parents',
-    children: 'Enfants',
-    probes: 'Sondes',
-    profile: 'Profil',
-    profileTitle: 'Mon profil',
-    print: 'Imprimer',
-    prototype: 'prototype',
-    qrCode: 'QR code',
-    qrLabelAddToSelection: 'Ajouter à la sélection',
-    qrLabelAllFilter: 'Toutes',
-    qrLabelAlreadySelected: 'Déjà dans la sélection',
-    qrLabelAvailableCount: 'imprimables',
-    qrLabelClearSelection: 'Vider',
-    qrLabelColumns: 'Colonnes',
-    qrLabelDownload: 'Télécharger',
-    qrLabelEligibleRule: 'Actives avec un relevé en',
-    qrLabelExcludedCount: 'masquées',
-    qrLabelFont: 'Police',
-    qrLabelHeight: 'Hauteur (mm)',
-    qrLabelHelp: 'Étiquette prête à imprimer et coller sur la boîte.',
-    qrLabelLandscape: 'Paysage',
-    qrLabelNoEligibleBoxes: 'Aucune boîte active avec un relevé cette année.',
-    qrLabelOptimize: 'Optimiser la feuille',
-    qrLabelOrientation: 'Orientation',
-    qrLabelPage: 'Page',
-    qrLabelPerPage: 'par feuille',
-    qrLabelPortrait: 'Portrait',
-    qrLabelPreview: 'Rendu de la feuille',
-    qrLabelPrintSelection: 'Imprimer la sélection',
-    qrLabelQrSize: 'Taille QR',
-    qrLabelSearchTitle: 'Rechercher une boîte',
-    qrLabelSelectionAll: 'Toutes les boîtes',
-    qrLabelSelectionCount: 'étiquette(s) sélectionnée(s)',
-    qrLabelSelectionEmpty: 'Aucune étiquette sélectionnée.',
-    qrLabelSelectionFilter: 'Sélection',
-    qrLabelSelectionHelp: 'Sélectionnez les boîtes, vérifiez la planche, puis imprimez.',
-    qrLabelSelectionOnlySelected: 'Déjà sélectionnées',
-    qrLabelSelectionOnlyToAdd: 'À ajouter',
-    qrLabelSelectionSearch: 'Ajouter une boîte',
-    qrLabelSelectedFilter: 'Sélectionnées',
-    qrLabelSelectedTitle: 'Sélection prête',
-    qrLabelSelectionTitle: 'Sélection d’étiquettes',
-    qrLabelSettingsTitle: 'Mise en page',
-    qrLabelTitle: 'Étiquette QR code',
-    qrLabelViewSelection: 'Voir la sélection',
-    qrLabelShowSpecies: 'Afficher l’espèce',
-    qrLabelSpeciesSize: 'Taille espèce',
-    qrLabelTextSize: 'Taille code',
-    qrLabelToAddFilter: 'À ajouter',
-    qrLabelWidth: 'Largeur (mm)',
-    qrDownload: 'Télécharger',
-    qrScanHint: 'Scannez pour ouvrir cette fiche',
-    qrScannerFound: 'Boîte détectée',
-    qrScannerPermission: 'Impossible d’ouvrir la caméra.',
-    qrScannerSecureContext: 'Le scan caméra sur téléphone nécessite une adresse HTTPS.',
-    qrScannerStart: 'Scanner',
-    qrScannerStop: 'Arrêter',
-    qrScannerText: 'Scannez le QR code d’une boîte pour ouvrir directement sa fiche.',
-    qrScannerTitle: 'Scan QR code',
-    qrScannerUnsupported: 'Scanner indisponible sur ce navigateur.',
-    recentAccess: 'Derniers accès',
-    holdToSave: 'Maintenir pour enregistrer',
-    saveMeasurement: 'Enregistrer le relevé',
-    correctMeasurement: 'Modifier ce relevé',
-    saving: 'Enregistrement...',
-    scanSearch: 'compte actuel',
-    searchOrScan: 'Recherche ou scan',
-    searchPlaceholder: 'Code boîte, espèce, souche',
-    searchTab: 'Recherche',
-    suggestions: 'Suggestions',
-    subcultureAction: 'Repiquer',
-    subcultureEvent: 'Repiquage',
-    subcultureForbidden: 'Ce compte ne peut pas créer de repiquage.',
-    subcultureSaved: 'Repiquage enregistré',
-    polypDropAdviceText: 'polypes de moins que le relevé précédent. Vérifier la boîte avant la prochaine saisie.',
-    polypDropAdviceAction: 'Contrôler la boîte au prochain passage.',
-    polypDropAdviceTitle: 'Baisse de polypes',
-    checkImportanceHigh: 'Important',
-    checkImportanceInfo: 'Information',
-    checkImportanceMedium: 'À surveiller',
-    detectedSignal: 'Signal détecté',
-    suggestedAction: 'Action proposée',
-    temperatureShort: 'Temp.',
-    targetTemperature: 'Consigne',
-    salinityShort: 'Sal.',
-    // Two salinities coexist on a box sheet: the zone reference and the one
-    // actually measured for this box. They must never be confused.
-    zoneSalinityShort: 'Sal. armoire',
-    boxSalinityShort: 'Sal. boîte',
-    salinityFull: 'Salinité du relevé (PSU)',
-    temperature: 'Température',
-    temperatureNoData: 'Aucune température disponible sur cette période.',
-    oneMonth: '1 mois',
-    threeMonths: '3 mois',
-    sixMonths: '6 mois',
-    oneYear: '1 an',
-    allPeriod: 'Tout',
-    aliveBoxes: 'Vivantes',
-    backToZones: 'Retour aux emplacements',
-    boxAttention: 'À surveiller',
-    boxesHealthy: 'Sans alerte',
-    zoneActivityTitle: 'Activité récente',
-    zoneAttentionTitle: 'À vérifier',
-    zoneFilterAll: 'Toutes',
-    zoneFilterAttention: 'À vérifier',
-    zoneFilterLiving: 'Vivantes',
-    zoneOverviewAttentionDetails: 'Consultez les emplacements qui demandent une vérification.',
-    zoneOverviewAttentionTitle: 'À vérifier',
-    zoneOverviewHeading: 'Zones et étuves suivies',
-    zoneOverviewNoProbe: 'Aucune sonde',
-    zoneOverviewSortLocation: 'Rangement',
-    zoneOverviewSortTemperature: 'Température',
-    zoneOverviewSortTemperatureAsc: 'Plus froides',
-    zoneOverviewSortTemperatureDesc: 'Plus chaudes',
-    zoneOverviewThermalGap: 'Écart thermique',
-    zoneOverviewMissingMeasurements: 'relevé(s) manquant(s)',
-    zoneAddAction: 'Ajouter un emplacement',
-    zoneAddTitle: 'Nouvel emplacement',
-    zoneAddProbeAction: 'Ajouter une sonde',
-    zoneAddProbeTitle: 'Nouvelle sonde',
-    zoneEditCapacityAction: 'Modifier capacité',
-    zoneEditTitle: 'Paramètres de l’emplacement',
-    zoneTarget: 'Consigne',
-    zoneLabel: 'Emplacement',
-    zoneCapacity: 'Capacité',
-    zoneSalinity: 'Salinité',
-    zoneSalinityMissing: 'Salinité manquante',
-    zoneOccupancy: 'Capacité',
-    zoneNoAttention: 'Aucune action à prévoir dans cet emplacement.',
-    zoneNoRecentActivity: 'Aucun relevé récent dans cet emplacement.',
-    zoneSummaryAlive: 'Vivantes',
-    zoneSummaryAttention: 'À vérifier',
-    deadBoxes: 'Mortes',
-    emptyZone: 'Aucune boîte dans cet emplacement.',
-    latestCounts: 'Derniers comptages',
-    latestReadingDate: 'Dernière mesure',
-    maxTemperature: 'Max.',
-    measuredTemperature: 'Température relevée',
-    minTemperature: 'Min.',
-    noZoneChart: 'Pas assez de relevés récents pour tracer un graphique.',
-    openBox: 'Ouvrir',
-    problemSummary: 'Surveillance',
-    recentMeasurementMissing: 'Sans relevé',
-    temperatureControl: 'Contrôle thermique',
-    temperatureGap: 'Écart',
-    temperatureMissing: 'Aucune température relevée',
-    temperatureManualReading: 'Mesure ponctuelle',
-    temperatureContinuousReading: 'Sonde continue',
-    temperatureOk: 'Proche de la consigne',
-    temperatureSamples: 'mesures',
-    temperatureWatch: 'Écart à surveiller',
-    zoneSheet: 'Fiche emplacement thermique',
-    zoneBoxesTitle: 'Boîtes dans l’emplacement',
-    zoneProbesTitle: 'Sondes associées',
-    zones: 'Emplacements',
-    zonesTitle: 'Emplacements thermiques',
-  },
-  en: {
-    account: 'Account',
-    loading: 'Loading...',
-    backToPilotage: 'Back to tracking',
-    boxNotFound: 'Box not found',
-    boxNotFoundText: 'This box does not exist in the loaded data.',
-    boxSheet: 'Box sheet',
-    boxes: 'Boxes',
-    close: 'Close',
-    ephyrae: 'Ephyrae',
-    ephyraeFull: 'Ephyrae',
-    exports: 'Exports',
-    exportsTitle: 'Export data',
-    admin: 'Administration',
-    adminTitle: 'Administration',
-    adminOpenDjango: 'Open Django admin',
-    adminUsers: 'Accounts and roles',
-    adminOrganizations: 'Partner organizations',
-    adminReferences: 'Species and strains',
-    adminEnvironment: 'Zones and probes',
-    adminRights: 'Admin only',
-    adminSubtitle: 'Desktop administration',
-    adminDesktopOnly: 'Administration features are designed for the desktop version.',
-    adminAccountsTitle: 'Account management',
-    adminAccountsText: 'Create access, check roles and prepare account changes.',
-    adminNewUser: '+ New user',
-    adminRoleAdmin: 'Administrators',
-    adminRoleTechnician: 'Technicians',
-    adminRoleViewer: 'Viewers',
-    adminUserColumn: 'User',
-    adminRoleColumn: 'Role',
-    adminEmailColumn: 'Email',
-    adminLastLoginColumn: 'Last login',
-    adminActionsColumn: 'Actions',
-    adminAuditTitle: 'Global history',
-    adminAuditText: 'Latest actions recorded in the organizations you administer.',
-    adminAuditEmpty: 'No action recorded.',
-    adminAuditDate: 'Date',
-    adminAuditUser: 'User',
-    adminAuditAction: 'Action',
-    adminAuditObject: 'Object',
-    adminAuditShow: 'Show',
-    adminAuditHide: 'Hide',
-    adminAuditShowAll: 'Show all',
-    adminAuditShowLess: 'Collapse',
-    adminAuditLatest: 'Latest actions',
-    adminAuditOpen: 'Open history',
-    adminAuditDialogTitle: 'Action history',
-    adminAuditDialogText: 'Filter recorded actions.',
-    adminAuditFilterAction: 'Action type',
-    adminAuditFilterDate: 'Day',
-    adminAuditAllActions: 'All actions',
-    adminAuditClearFilters: 'Clear filters',
-    adminAuditCount: 'action(s)',
-    adminAuditDetails: 'Show details',
-    adminAuditLoaded: 'loaded',
-    adminAuditLoadMore: 'Load more',
-    confirmCancel: 'Cancel',
-    confirmCreateBoxTitle: 'Create this box',
-    confirmCreateBoxMessage: 'Check the information before adding the box to tracking.',
-    confirmCreateBoxAction: 'Create box',
-    confirmSubcultureTitle: 'Save this subculture',
-    confirmSubcultureMessage: 'The new boxes will be linked to the parent box.',
-    confirmSubcultureAction: 'Save subculture',
-    confirmMoveTitle: 'Move this box',
-    confirmMoveMessage: 'The new location will be added to the box history.',
-    confirmMoveAction: 'Move',
-    confirmArchiveBoxTitle: 'Disable tracking',
-    confirmArchiveBoxMessage: 'The history will be kept and the box will no longer be shown as living.',
-    confirmArchiveBoxAction: 'Disable',
-    confirmActivateBoxTitle: 'Enable tracking',
-    confirmActivateBoxMessage: 'The box will be shown again in active tracking.',
-    confirmActivateBoxAction: 'Enable',
-    confirmDeleteOrganizationTitle: 'Delete this organization',
-    confirmDeleteOrganizationMessage: 'Check that this organization should no longer be kept in Polypbase.',
-    confirmDeleteOrganizationAction: 'Delete',
-    confirmDetailBox: 'Box',
-    confirmDetailSpecies: 'Species',
-    confirmDetailStrain: 'Strain',
-    confirmDetailLocation: 'Location',
-    confirmDetailCurrentLocation: 'Current location',
-    confirmDetailTargetLocation: 'New location',
-    confirmDetailParentBox: 'Parent box',
-    confirmDetailChildren: 'Child boxes',
-    confirmDetailOrganization: 'Organization',
-    adminFlowLabel: 'Administration navigation',
-    adminTabUsers: 'Users',
-    adminTabLocations: 'Locations',
-    adminTabOrganizations: 'Institutions',
-    adminTabTransfers: 'Transfers',
-    adminTabHistory: 'History',
-    boxArchiveAction: 'Disable tracking',
-    boxArchiveConfirm: 'Disable tracking for this box? Its history will be kept.',
-    boxArchived: 'Box tracking disabled.',
-    boxArchiveForbidden: 'Only an administrator can disable tracking for this box.',
-    boxActivateAction: 'Enable tracking',
-    boxActivateConfirm: 'Enable tracking for this box?',
-    boxActivated: 'Box tracking enabled.',
-    boxActivateForbidden: 'Only an administrator can enable tracking for this box.',
-    moveConfirm: 'Confirm moving this box?',
-    subcultureConfirm: 'Confirm creating this subculture?',
-    createBoxTitle: 'Create a box',
-    createBoxText: 'Add a new box without going through subculture.',
-    createBoxOpen: 'Create a box',
-    createBoxClose: 'Close',
-    createBoxOrganization: 'Organization',
-    createBoxStrain: 'Strain',
-    createBoxZone: 'Location',
-    createBoxNoZone: 'No location',
-    createBoxGlobalCode: 'Box code',
-    createBoxNumber: 'Number',
-    createBoxEnteredOn: 'Entry date',
-    createBoxNotes: 'Note',
-    createBoxSubmit: 'Create',
-    createBoxSaved: 'Box created.',
-    createBoxNoOptions: 'No strain available to create a box.',
-    createBoxForbidden: 'This account cannot create boxes.',
-    createBoxNumberMismatch: 'The number must match the number used in the box code.',
-    createBoxConfirm: 'Confirm creating this box?',
-    adminCurrentSession: 'Active session',
-    adminChangeRole: 'Change role',
-    adminRemoveAccess: 'Remove access',
-    adminNotConnected: 'API to connect',
-    adminZonesProbesTitle: 'Thermal zones and probes',
-    adminEnvironmentZonePanel: 'New location',
-    adminEnvironmentProbePanel: 'New probe',
-    adminEnvironmentSettingsPanel: 'Settings',
-    adminEnvironmentZonesCount: 'Active locations',
-    adminEnvironmentProbesCount: 'Linked probes',
-    adminEnvironmentCapacityCount: 'Used capacity',
-    adminEnvironmentSearchPlaceholder: 'Name, organization or temperature',
-    adminEnvironmentNoZoneResults: 'No location matches this search.',
-    adminEnvironmentNoProbe: 'No probe',
-    adminZoneBoxes: 'Boxes',
-    adminZoneProbes: 'Probes',
-    adminZoneName: 'Zone name',
-    adminZoneType: 'Zone type',
-    adminZoneTypeCabinet: 'Cabinet',
-    adminZoneTypeIncubator: 'Incubator',
-    adminTargetTemperature: 'Target temperature',
-    adminZoneCapacity: 'Capacity',
-    adminZoneSalinity: 'Salinity (PSU)',
-    adminZoneOrganization: 'Organization',
-    adminCreateZone: 'Create zone',
-    adminZoneCreated: 'Zone created.',
-    adminZoneUpdated: 'Zone updated.',
-    adminSaveZone: 'Save',
-    adminZoneNoOrganization: 'No organization you administer.',
-    adminProbeLocation: 'Location',
-    adminProbeCreated: 'Probe added.',
-    adminProbeNoZone: 'No zone you administer.',
-    manualTemperatureTitle: 'Manual temperature',
-    manualTemperatureDate: 'Date',
-    manualTemperatureValue: 'Measured temperature (°C)',
-    manualTemperatureSave: 'Save temperature',
-    manualTemperatureSaved: 'Temperature saved.',
-    manualTemperatureForbidden: 'This account cannot record temperature for this location.',
-    adminOrganizationCreated: 'Organization created.',
-    adminOrganizationDeleted: 'Organization deleted.',
-    adminOrganizationUpdated: 'Organization updated.',
-    adminEditOrganization: 'Edit',
-    adminDeleteOrganization: 'Delete',
-    adminCancelEdit: 'Cancel',
-    adminSaveOrganization: 'Save',
-    adminConfirmDeleteOrganization: 'Delete this organization?',
-    adminInvalidCountry: 'Choose a country from the list.',
-    adminInvalidCityCountry: 'This city does not match the selected country.',
-    adminTransferNotes: 'Notes',
-    adminTransferCreated: 'Transfer recorded.',
-    adminTransferNoBox: 'No box you administer.',
-    adminProbeCode: 'Probe code',
-    adminProbeType: 'Probe type',
-    adminProbeZone: 'Linked zone',
-    adminProbeApiUrl: 'API URL',
-    adminAddProbe: 'Add probe',
-    adminOrganizationsTitle: 'New institutions',
-    adminOrganizationsText: 'Prepare a partner aquarium with its contact information.',
-    adminOrganizationsKnownCount: 'Known institutions',
-    adminOrganizationsCountriesCount: 'Represented countries',
-    adminOrganizationSearchPlaceholder: 'Name, city, country or contact',
-    adminOrganizationAllCountries: 'All countries',
-    adminOrganizationNoResults: 'No institution matches this search.',
-    adminCountry: 'Country',
-    adminCity: 'City',
-    adminOrganizationName: 'Institution name',
-    adminContactName: 'Contact person',
-    adminPostalAddress: 'Postal address',
-    adminContactEmail: 'Email',
-    adminOrganizationNoEmail: 'No email',
-    adminContactPhone: 'Phone',
-    adminOrganizationNoPhone: 'No phone',
-    adminOrganizationNoAddress: 'No address',
-    adminOrganizationContact: 'Contact',
-    adminAddOrganization: 'Add institution',
-    adminExistingOrganizations: 'Known organizations',
-    adminTransferTitle: 'Transfer between organizations',
-    adminTransferText: 'Prepare a box transfer to another aquarium without losing history.',
-    adminTransferBoxesAvailable: 'Transferable boxes',
-    adminTransferKnownInstitutions: 'Known institutions',
-    adminTransferActiveZones: 'Active locations',
-    adminTransferOutgoingTitle: 'Prepare outgoing transfer',
-    adminTransferIncomingTitle: 'Receive a transfer',
-    adminTransferSelectedBox: 'Selected box',
-    adminTransferCurrentOrganization: 'Current organization',
-    adminTransferCurrentZone: 'Current location',
-    adminTransferCsvTemplate: 'CSV example / template',
-    adminTransferBox: 'Box to transfer',
-    adminTransferBoxSearchPlaceholder: 'Code, species or strain',
-    adminTransferBoxSearchEmpty: 'No box found for this search.',
-    adminTransferTarget: 'Target institution',
-    adminTransferPolyps: 'Transferred polyps',
-    adminKeepTransferDate: 'Keep transfer date',
-    adminPrepareTransfer: 'Prepare transfer',
-    adminTransferPackageTitle: 'Transfer documents ready',
-    adminTransferDownloadData: 'Download CSV',
-    adminTransferPrintLabel: 'Print QR label',
-    adminTransferImportTitle: 'Import a transfer CSV',
-    adminTransferImportFile: 'Received CSV file',
-    adminTransferImportInvalid: 'This file is not a valid Polypbase transfer.',
-    adminTransferImportPreview: 'Transfer preview',
-    adminTransferImportOrganization: 'Destination organization',
-    adminTransferImportZone: 'Destination zone',
-    adminTransferImportCode: 'New box code',
-    adminTransferImportCodeHint: 'The suggested code can be edited, but it must remain unique.',
-    adminTransferImportCodeExists: 'This code is already in use.',
-    adminTransferImportUseSuggestion: 'Use suggestion',
-    adminTransferImportMissing: 'The CSV is missing required fields',
-    adminTransferImportOpenBox: 'Open the new box',
-    adminTransferImportExample: 'Download a sample CSV',
-    adminTransferImportNumber: 'New box number',
-    adminTransferImportAction: 'Import and create box',
-    adminTransferImportConfirmTitle: 'Import this transfer?',
-    adminTransferImportConfirmMessage: 'A new box and its initial measurement will be created in the destination organization.',
-    adminTransferImportSuccess: 'Transfer imported. The new box has been created.',
-    adminDjangoHint: 'Sensitive actions remain available in Django admin until dedicated APIs are created.',
-    adminPrintLabelsAction: 'Print labels',
-    adminPrintLabelsClear: 'Clear all',
-    adminPrintLabelsHelp: 'Select the boxes to print on the same sheet.',
-    adminPrintLabelsSearch: 'Search for a box',
-    adminPrintLabelsSearchPlaceholder: 'Code, species or strain',
-    adminPrintLabelsSelectAll: 'Select all',
-    adminPrintLabelsTitle: 'Box labels',
-    profileRoles: 'Roles',
-    profileEmail: 'Email',
-    profileNoEmail: 'Not provided',
-    profileMemberships: 'Organizations and roles',
-    profileNoMembership: 'No organization linked to this account.',
-    profileAllOrganizationsAccess: 'Access to every organization.',
-    profileLabelsMobileText: 'Prepare a QR label sheet.',
-    profilePreferences: 'Preferences',
-    profileLanguage: 'Interface language',
-    profileAdminTitle: 'Administration area',
-    profileAdminText: 'Manage accounts, locations, probes and exchanges between organizations.',
-    roleDescAdmin: 'Full access: lab, exports and administration.',
-    roleDescTechnician: 'Lab data entry and tracking, no administration.',
-    roleDescViewer: 'Read-only access to the data.',
-    manageAccountsTitle: 'Account management',
-    manageAccountsSubtitle: 'Create access, adjust roles and quickly disable an account when needed.',
-    manageAddTitle: 'New access',
-    manageAddSubtitle: 'Create an account linked to an organization.',
-    manageActiveAccounts: 'Active accounts',
-    manageAdminAccounts: 'Admins',
-    manageTechnicianAccounts: 'Technicians',
-    manageViewerAccounts: 'Viewers',
-    manageSearchLabel: 'Search',
-    manageSearchPlaceholder: 'Name, username, email or organization',
-    manageRoleAll: 'All roles',
-    manageStatusAll: 'All',
-    manageColUser: 'User',
-    manageColOrganization: 'Organization',
-    manageColRole: 'Role',
-    manageColStatus: 'Status',
-    manageColLastLogin: 'Last login',
-    manageStatusActive: 'Active',
-    manageStatusInactive: 'Disabled',
-    manageStatusSelf: 'You',
-    manageNeverConnected: 'Never connected',
-    manageNoMembers: 'No account to display for your organizations.',
-    manageNoFilteredMembers: 'No account matches the filters.',
-    manageFieldUsername: 'Username or email',
-    manageFieldFirstName: 'First name',
-    manageFieldLastName: 'Last name',
-    manageFieldEmail: 'Email',
-    manageFieldPassword: 'Initial password',
-    manageFieldOrganization: 'Organization',
-    manageFieldRole: 'Role',
-    manageTemporaryPasswordTitle: 'Temporary password',
-    manageTemporaryPasswordText: 'Polypbase generates a random password and sends it to the provided email address.',
-    managePasswordHint: 'The user can then choose a personal password.',
-    manageAddAction: 'Add access',
-    manageAdding: 'Adding...',
-    manageMemberAdded: 'Access saved. The temporary password is sent by email.',
-    manageRoleUpdated: 'Role updated.',
-    manageDeactivate: 'Disable',
-    manageReactivate: 'Re-enable',
-    historyButton: 'View records',
-    analysisTabLineage: 'Lineage',
-    analysisTabMeasurements: 'Measurements',
-    analysisTabMovements: 'Moves',
-    boxLocalCode: 'Local code',
-    boxStrain: 'Strain',
-    boxAttentionTitle: 'Priority follow-up',
-    boxChecksButton: 'Alerts',
-    boxChecksEmptyText: 'No specific signal in the latest measurements.',
-    boxChecksEmptyTitle: 'No active alert',
-    boxChecksIntro: 'Signals detected from the latest measurements.',
-    boxChecksTitle: 'Box alerts',
-    alertResolveAction: 'Mark as resolved',
-    alertResolveConfirmTitle: 'Resolve this alert?',
-    alertResolveConfirmMessage: 'The alert will leave the active alerts. This action will remain in the history.',
-    alertResolveError: 'Unable to resolve this alert.',
-    boxAlertBanner: 'Warning: an alert has been detected for this box.',
-    boxAlertBannerAction: 'View details',
-    chartEmpty: 'Not enough measurements to draw a trend.',
-    chartMissingReading: 'No reading',
-    chartTitle: 'Measurement trend',
-    createdOn: 'Created on',
-    firstMeasurementOn: 'First reading',
-    events: 'Events',
-    lastComment: 'Last comment',
-    lastMeasurement: 'Last measurement',
-    laboratoryTracking: 'Lab tracking',
-    lineageAction: 'Lineage',
-    lineageEmptyGraph: 'The lineage graph will be shown here.',
-    lineageLoading: 'Loading lineage...',
-    lineageRetry: 'Reload',
-    loginAction: 'Sign in',
-    loginRequired: 'Sign-in required',
-    logoutAction: 'Sign out',
-    logoutError: 'Unable to sign out at the moment.',
-    measurementDate: 'Measurement date',
-    measurementCountsRequired: 'Polyps and ephyrae are required.',
-    measurementForbidden: 'This account cannot create measurements.',
-    measurementHistory: 'Measurement history',
-    measurementSaved: 'Measurement saved',
-    measurementUpdated: 'Measurement updated',
-    editLastMeasurement: 'Edit latest reading',
-    editLastMeasurementHelp: 'Load the latest reading into the form for adjustment.',
-    cancelEdit: 'Cancel edit',
-    holdToUpdate: 'Hold to update',
-    measurementEditing: 'Latest reading loaded for editing',
-    saveMeasurementEdit: 'Save adjustment',
-    moveAction: 'Move',
-    moveForbidden: 'This account cannot move boxes.',
-    moveSaved: 'Movement saved',
-    movementHistoryTitle: 'Location history',
-    noMovementHistory: 'No movement recorded for this box.',
-    movedTo: 'Moved to',
-    movementEvent: 'Move',
-    newMeasurement: 'New measurement',
-    noComment: 'No recent comment for this box.',
-    noDate: 'no date',
-    noMeasurementHistory: 'No measurement for this box.',
-    noRecentScans: 'No recent scan yet.',
-    noZone: 'No zone',
-    observation: 'Observation',
-    observationPlaceholder: 'Quick lab note',
-    overview: 'Overview',
-    overviewTitle: 'Overview',
-    overviewSubtitle: 'Boxes tracked in the application, with a 6-month trend.',
-    overviewActiveBoxes: 'living boxes',
-    overviewBoxColumn: 'Box',
-    overviewLatestReading: 'Latest reading',
-    overviewLocationColumn: 'Location',
-    overviewNoMeasurement: 'No reading',
-    overviewOpenBox: 'Open sheet',
-    overviewTemperature: 'Location temperature',
-    overviewChartTitle: 'Last 6 months',
-    overviewShowChart: 'Show trend',
-    overviewHideChart: 'Hide trend',
-    overviewNoHistory: 'Not enough data to draw the trend.',
-    overviewEmpty: 'No living box to display.',
-    overviewFilters: 'Filters',
-    overviewSort: 'Sort',
-    overviewSortOldest: 'Oldest reading',
-    overviewSortNewest: 'Latest reading',
-    overviewFilterAllSpecies: 'All species',
-    overviewFilterAllZones: 'All locations',
-    overviewSearch: 'Search',
-    overviewSearchPlaceholder: 'Code, species or location',
-    overviewFilteredBoxes: 'shown boxes',
-    overviewNoZoneMetric: 'without location',
-    overviewWithEphyrae: 'with ephyrae',
-    overviewPriorityBoxes: 'to check',
-    overviewTrackedBoxes: 'tracked in app',
-    overviewRecordedBoxes: 'recorded',
-    overviewFilterHint: 'filter',
-    overviewClearFilter: 'clear',
-    overviewByZone: 'By location',
-    overviewZoneDone: 'done',
-    overviewZoneRemaining: 'left to record',
-    overviewZoneUpToDate: 'up to date',
-    overviewShowMore: 'Show more',
-    overviewShowing: 'shown',
-    weeklyDueNow: 'to record',
-    weeklyDueSoon: 'soon',
-    weeklyUpToDate: 'up to date',
-    weeklyNoRecentReading: 'No recent reading',
-    weeklyLastReading: 'Latest reading',
-    weeklyNoActiveBoxes: 'No active box tracked in the application.',
-    weeklyDayShort: 'd',
-    labels: 'Labels',
-    labelsTitle: 'Labels',
-    pilotage: 'Tracking',
-    pilotageTitle: 'Lab tracking',
-    polyps: 'Polyps',
-    speciesLabel: 'Species',
-    parents: 'Parents',
-    children: 'Children',
-    probes: 'Probes',
-    profile: 'Profile',
-    profileTitle: 'My profile',
-    print: 'Print',
-    prototype: 'prototype',
-    qrCode: 'QR code',
-    qrLabelAddToSelection: 'Add to selection',
-    qrLabelAllFilter: 'All',
-    qrLabelAlreadySelected: 'Already selected',
-    qrLabelAvailableCount: 'printable',
-    qrLabelClearSelection: 'Clear',
-    qrLabelColumns: 'Columns',
-    qrLabelDownload: 'Download',
-    qrLabelEligibleRule: 'Active with a reading in',
-    qrLabelExcludedCount: 'hidden',
-    qrLabelFont: 'Font',
-    qrLabelHeight: 'Height (mm)',
-    qrLabelHelp: 'Label ready to print and attach to the box.',
-    qrLabelLandscape: 'Landscape',
-    qrLabelNoEligibleBoxes: 'No active box with a reading this year.',
-    qrLabelOptimize: 'Optimize sheet',
-    qrLabelOrientation: 'Orientation',
-    qrLabelPage: 'Page',
-    qrLabelPerPage: 'per sheet',
-    qrLabelPortrait: 'Portrait',
-    qrLabelPreview: 'Sheet preview',
-    qrLabelPrintSelection: 'Print selection',
-    qrLabelQrSize: 'QR size',
-    qrLabelSearchTitle: 'Search a box',
-    qrLabelSelectionAll: 'All boxes',
-    qrLabelSelectionCount: 'selected label(s)',
-    qrLabelSelectionEmpty: 'No label selected.',
-    qrLabelSelectionFilter: 'Selection',
-    qrLabelSelectionHelp: 'Select boxes, check the sheet, then print.',
-    qrLabelSelectionOnlySelected: 'Already selected',
-    qrLabelSelectionOnlyToAdd: 'To add',
-    qrLabelSelectionSearch: 'Add a box',
-    qrLabelSelectedFilter: 'Selected',
-    qrLabelSelectedTitle: 'Ready selection',
-    qrLabelSelectionTitle: 'Label selection',
-    qrLabelSettingsTitle: 'Layout',
-    qrLabelTitle: 'QR code label',
-    qrLabelViewSelection: 'View selection',
-    qrLabelShowSpecies: 'Show species',
-    qrLabelSpeciesSize: 'Species size',
-    qrLabelTextSize: 'Code size',
-    qrLabelToAddFilter: 'To add',
-    qrLabelWidth: 'Width (mm)',
-    qrDownload: 'Download',
-    qrScanHint: 'Scan to open this sheet',
-    qrScannerFound: 'Box detected',
-    qrScannerPermission: 'Unable to open the camera.',
-    qrScannerSecureContext: 'Camera scanning on a phone requires an HTTPS address.',
-    qrScannerStart: 'Scan',
-    qrScannerStop: 'Stop',
-    qrScannerText: 'Scan a box QR code to open its sheet directly.',
-    qrScannerTitle: 'QR code scan',
-    qrScannerUnsupported: 'Scanner unavailable in this browser.',
-    recentAccess: 'Recent access',
-    holdToSave: 'Hold to save',
-    saveMeasurement: 'Save measurement',
-    correctMeasurement: 'Update this measurement',
-    saving: 'Saving...',
-    scanSearch: 'current account',
-    searchOrScan: 'Search or scan',
-    searchPlaceholder: 'Box code, species, strain',
-    searchTab: 'Search',
-    suggestions: 'Suggestions',
-    subcultureAction: 'Subculture',
-    subcultureEvent: 'Subculture',
-    subcultureForbidden: 'This account cannot create subculture events.',
-    subcultureSaved: 'Subculture created',
-    polypDropAdviceText: 'fewer polyps than the previous measurement. Check the box before the next entry.',
-    polypDropAdviceAction: 'Check this box during the next lab round.',
-    polypDropAdviceTitle: 'Polyp decrease',
-    checkImportanceHigh: 'Important',
-    checkImportanceInfo: 'Information',
-    checkImportanceMedium: 'Monitor',
-    detectedSignal: 'Detected signal',
-    suggestedAction: 'Suggested action',
-    temperatureShort: 'Temp.',
-    targetTemperature: 'Target',
-    salinityShort: 'Sal.',
-    zoneSalinityShort: 'Cabinet sal.',
-    boxSalinityShort: 'Box sal.',
-    salinityFull: 'Measurement salinity (PSU)',
-    temperature: 'Temperature',
-    temperatureNoData: 'No temperature data for this period.',
-    oneMonth: '1 month',
-    threeMonths: '3 months',
-    sixMonths: '6 months',
-    oneYear: '1 year',
-    allPeriod: 'All',
-    aliveBoxes: 'Alive',
-    backToZones: 'Back to zones',
-    boxAttention: 'Needs attention',
-    boxesHealthy: 'No alert',
-    zoneActivityTitle: 'Recent activity',
-    zoneAttentionTitle: 'Needs review',
-    zoneFilterAll: 'All',
-    zoneFilterAttention: 'Needs review',
-    zoneFilterLiving: 'Living',
-    zoneOverviewAttentionDetails: 'Review the zones that need attention.',
-    zoneOverviewAttentionTitle: 'Needs review',
-    zoneOverviewHeading: 'Tracked zones and incubators',
-    zoneOverviewNoProbe: 'No probe',
-    zoneOverviewSortLocation: 'Location',
-    zoneOverviewSortTemperature: 'Temperature',
-    zoneOverviewSortTemperatureAsc: 'Coldest first',
-    zoneOverviewSortTemperatureDesc: 'Warmest first',
-    zoneOverviewThermalGap: 'Thermal gap',
-    zoneOverviewMissingMeasurements: 'missing measurement(s)',
-    zoneAddAction: 'Add location',
-    zoneAddTitle: 'New location',
-    zoneAddProbeAction: 'Add probe',
-    zoneAddProbeTitle: 'New probe',
-    zoneEditCapacityAction: 'Edit capacity',
-    zoneEditTitle: 'Location settings',
-    zoneTarget: 'Target',
-    zoneLabel: 'Location',
-    zoneCapacity: 'Capacity',
-    zoneSalinity: 'Salinity',
-    zoneSalinityMissing: 'Salinity not set',
-    zoneOccupancy: 'Occupancy',
-    zoneNoAttention: 'No action is needed for this zone.',
-    zoneNoRecentActivity: 'No recent measurement in this zone.',
-    zoneSummaryAlive: 'Living',
-    zoneSummaryAttention: 'Needs review',
-    deadBoxes: 'Dead',
-    emptyZone: 'No box in this zone.',
-    latestCounts: 'Latest counts',
-    latestReadingDate: 'Latest reading',
-    maxTemperature: 'Max.',
-    measuredTemperature: 'Measured temperature',
-    minTemperature: 'Min.',
-    noZoneChart: 'Not enough recent measurements to draw a chart.',
-    openBox: 'Open',
-    problemSummary: 'Monitoring',
-    recentMeasurementMissing: 'No measurement',
-    temperatureControl: 'Thermal control',
-    temperatureGap: 'Gap',
-    temperatureMissing: 'No temperature reading',
-    temperatureManualReading: 'One-time reading',
-    temperatureContinuousReading: 'Live probe',
-    temperatureOk: 'Close to target',
-    temperatureSamples: 'readings',
-    temperatureWatch: 'Gap to watch',
-    zoneSheet: 'Thermal zone sheet',
-    zoneBoxesTitle: 'Boxes in this zone',
-    zoneProbesTitle: 'Linked probes',
-    zones: 'Zones',
-    zonesTitle: 'Thermal zones',
-  },
-};
 
-type Language = keyof typeof translations;
-type TranslationKey = keyof typeof translations.fr;
-type TFunction = (key: TranslationKey) => string;
+type TFunction = Translator;
 type ConfirmAction = (options: ConfirmActionOptions) => Promise<boolean>;
 
 const labTabs: TabId[] = ['pilotage', 'overview', 'zones', 'labels', 'profile'];
@@ -1287,23 +177,24 @@ export default function App() {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isBoxLoading, setIsBoxLoading] = useState(false);
+  const [exportOptionsRequested, setExportOptionsRequested] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const activeTab = route.tab;
   const isBoxRoute = route.boxCode != null || route.boxId != null;
   const isZoneRoute = activeTab === 'zones' && route.zoneId != null;
   const language = getLanguage(data.profile);
-  const t: TFunction = (key) => translations[language][key];
+  const t = useMemo(() => createTranslator(language), [language]);
   const { confirmAction, confirmActionModal } = useConfirmAction();
   const isDesktopApp = useIsDesktopApp();
   const hasAdminRole = userHasAdminRole(data.profile, activeOrganizationId);
+
+  useEffect(() => {
+    document.documentElement.lang = language;
+  }, [language]);
   const canUseAdmin = isDesktopApp && hasAdminRole;
-  const isProfileAdminLoading = activeTab === 'profile' && canUseAdmin && data.exportOptions === null;
-  const isPilotageOptionsLoading = activeTab === 'pilotage' && data.exportOptions === null;
   const isExportOptionsLoading = (
-    activeTab === 'exports' ||
-    isProfileAdminLoading ||
-    isPilotageOptionsLoading
+    activeTab === 'exports' || exportOptionsRequested
   ) && data.exportOptions === null;
   const isOverviewLoading = activeTab === 'overview' && data.overview === null;
   const workspacePageKey = `${activeTab}-${route.boxCode ?? route.boxId ?? 'list'}-${route.zoneId ?? 'list'}`;
@@ -1491,21 +382,26 @@ export default function App() {
     };
   }, [activeOrganizationId, activeTab, data.overview, isLoginRoute, needsOrganizationChoice]);
 
+  const boxSearchIndex = useMemo(() => data.boxes.map((box) => ({
+    box,
+    searchableFields: [
+      box.global_code,
+      box.local_code,
+      box.box_number,
+      box.species.scientific_name,
+      box.strain.code,
+      box.thermal_zone?.name ?? '',
+    ].map((field) => field.toLowerCase()),
+  })), [data.boxes]);
+
   const filteredBoxes = useMemo(() => {
     const value = search.trim().toLowerCase();
     if (!value) return data.boxes;
 
-    return data.boxes.filter((box) => {
-      return [
-        box.global_code,
-        box.local_code,
-        box.box_number,
-        box.species.scientific_name,
-        box.strain.code,
-        box.thermal_zone?.name ?? '',
-      ].some((field) => field.toLowerCase().includes(value));
-    });
-  }, [data.boxes, search]);
+    return boxSearchIndex
+      .filter((entry) => entry.searchableFields.some((field) => field.includes(value)))
+      .map((entry) => entry.box);
+  }, [boxSearchIndex, data.boxes, search]);
 
   const selectedBoxId = useMemo(() => {
     if (route.boxId != null) return route.boxId;
@@ -1655,9 +551,7 @@ export default function App() {
 
   useEffect(() => {
     const shouldLoadExportOptions =
-      activeTab === 'pilotage' ||
-      activeTab === 'exports' ||
-      (activeTab === 'profile' && canUseAdmin);
+      activeTab === 'exports' || exportOptionsRequested;
     if (
       isLoginRoute ||
       needsOrganizationChoice ||
@@ -1673,8 +567,12 @@ export default function App() {
         const exportOptions = await apiGet<ExportOptions>('/api/exports/options/');
         if (!isActive) return;
         setData((current) => ({ ...current, exportOptions }));
+        setExportOptionsRequested(false);
       } catch (requestError) {
-        if (isActive) setError(getErrorMessage(requestError));
+        if (isActive) {
+          setError(getErrorMessage(requestError));
+          setExportOptionsRequested(false);
+        }
       }
     }
 
@@ -1683,7 +581,7 @@ export default function App() {
     return () => {
       isActive = false;
     };
-  }, [activeOrganizationId, activeTab, canUseAdmin, data.exportOptions, isLoginRoute, needsOrganizationChoice]);
+  }, [activeOrganizationId, activeTab, data.exportOptions, exportOptionsRequested, isLoginRoute, needsOrganizationChoice]);
 
   function closeBoxPage() {
     navigateTo({ tab: 'pilotage', boxCode: null, boxId: null }, '/');
@@ -1900,6 +798,7 @@ export default function App() {
       <PasswordResetPage
         uid={passwordReset.uid}
         token={passwordReset.token}
+        t={t}
         onDone={() => {
           window.history.replaceState(null, '', '/login');
           setPasswordReset(null);
@@ -1910,7 +809,7 @@ export default function App() {
   }
 
   if (isLoginRoute) {
-    return <LoginPage onAuthenticated={handleAuthenticated} />;
+    return <LoginPage onAuthenticated={handleAuthenticated} t={t} />;
   }
 
   if (needsOrganizationChoice && data.profile) {
@@ -1919,6 +818,7 @@ export default function App() {
         isLoading={isLoading}
         organizations={selectableOrganizations}
         profile={data.profile}
+        t={t}
         onSelect={(organizationId) => void chooseOrganization(organizationId)}
       />
     );
@@ -1945,7 +845,7 @@ export default function App() {
 
           {isOrganizationMenuOpen && selectableOrganizations.length > 1 ? (
             <div className="organization-menu">
-              <p className="organization-menu-title">Institution de travail</p>
+              <p className="organization-menu-title">{t('organizationMenuTitle')}</p>
               {selectableOrganizations.map((organization) => {
                 const role = getMembershipRoleLabel(data.profile, organization.id);
                 return (
@@ -1959,7 +859,7 @@ export default function App() {
                       <strong>{organization.name}</strong>
                       {role ? <small>{role}</small> : null}
                     </span>
-                    {organization.id === activeOrganization?.id ? <span aria-hidden="true">Par défaut</span> : null}
+                    {organization.id === activeOrganization?.id ? <span aria-hidden="true">{t('profileDefaultOrganization')}</span> : null}
                   </button>
                 );
               })}
@@ -1967,7 +867,7 @@ export default function App() {
           ) : null}
         </div>
 
-        <nav className="tabbar" aria-label="Navigation principale">
+        <nav className="tabbar" aria-label={t('mainNavigation')}>
           {availableTabs.map((tab) => (
             <button
               key={tab}
@@ -2000,6 +900,14 @@ export default function App() {
 
         {!error && (
           <div className="workspace-page" key={workspacePageKey}>
+            <Suspense
+              fallback={(
+                <PageLoader
+                  label={t('pageLoading')}
+                  variant={getRouteLoaderVariant(activeTab, isBoxRoute, isZoneRoute)}
+                />
+              )}
+            >
             {activeTab === 'pilotage' && isBoxRoute && (
               <BoxPage
                 box={selectedBoxDetail ?? selectedBox}
@@ -2040,6 +948,7 @@ export default function App() {
                 suggestions={filteredBoxes.slice(0, 5)}
                 recentBoxes={recentBoxes}
                 onCreateBox={createBox}
+                onRequestOptions={() => setExportOptionsRequested(true)}
                 confirmAction={confirmAction}
                 onSearch={setSearch}
                 onSelectBox={openBox}
@@ -2096,8 +1005,10 @@ export default function App() {
               <AdminView
                 boxes={data.boxes}
                 exportOptions={data.exportOptions}
-                isLoading={isLoading || isExportOptionsLoading}
+                isLoading={isLoading}
+                isOptionsLoading={isExportOptionsLoading}
                 profile={data.profile}
+                onRequestOptions={() => setExportOptionsRequested(true)}
                 onCreateZone={createThermalZone}
                 onUpdateZone={updateThermalZone}
                 onCreateProbe={createProbe}
@@ -2136,8 +1047,10 @@ export default function App() {
                   <AdminView
                     boxes={data.boxes}
                     exportOptions={data.exportOptions}
-                    isLoading={isLoading || isProfileAdminLoading}
+                    isLoading={isLoading}
+                    isOptionsLoading={isExportOptionsLoading}
                     profile={data.profile}
+                    onRequestOptions={() => setExportOptionsRequested(true)}
                     onCreateZone={createThermalZone}
                     onUpdateZone={updateThermalZone}
                     onCreateProbe={createProbe}
@@ -2154,6 +1067,7 @@ export default function App() {
                 onUpdateLanguage={updateLanguage}
               />
             )}
+            </Suspense>
           </div>
         )}
         {confirmActionModal}
@@ -2162,19 +1076,29 @@ export default function App() {
   );
 }
 
+function getRouteLoaderVariant(activeTab: TabId, isBoxRoute: boolean, isZoneRoute: boolean) {
+  if (activeTab === 'pilotage') return isBoxRoute ? 'box' as const : 'pilotage' as const;
+  if (activeTab === 'zones') return isZoneRoute ? 'zone' as const : 'zones' as const;
+  if (activeTab === 'exports') return 'exports' as const;
+  if (activeTab === 'profile') return 'profile' as const;
+  return 'admin' as const;
+}
+
 function OrganizationChoiceScreen({
   isLoading,
   organizations,
   profile,
+  t,
   onSelect,
 }: {
   isLoading: boolean;
   organizations: Organization[];
   profile: UserProfile;
+  t: TFunction;
   onSelect: (organizationId: number) => void;
 }) {
   if (isLoading) {
-    return <PageLoader variant="profile" label="Chargement du compte" />;
+    return <PageLoader variant="profile" label={t('organizationChoiceLoading')} />;
   }
 
   return (
@@ -2186,17 +1110,17 @@ function OrganizationChoiceScreen({
           </span>
           <div>
             <p className="eyebrow">Polypbase</p>
-            <h1>Choisir une institution</h1>
+            <h1>{t('organizationChoiceTitle')}</h1>
           </div>
         </div>
 
         <p className="organization-choice-intro">
-          Chaque institution garde ses propres donnees et ses droits. Choisissez le contexte de travail pour cette session.
+          {t('organizationChoiceIntro')}
         </p>
 
         <div className="organization-choice-list">
           {organizations.map((organization) => {
-            const roleLabel = getMembershipRoleLabel(profile, organization.id) ?? 'Accès complet';
+            const roleLabel = getMembershipRoleLabel(profile, organization.id) ?? t('profileFullAccess');
             return (
               <button
                 key={organization.id}
@@ -2208,7 +1132,7 @@ function OrganizationChoiceScreen({
                   <strong>{organization.name}</strong>
                   <small>{roleLabel}</small>
                 </span>
-                <span aria-hidden="true">Ouvrir</span>
+                <span aria-hidden="true">{t('organizationChoiceOpen')}</span>
               </button>
             );
           })}
@@ -2228,6 +1152,7 @@ function PilotageView({
   search,
   suggestions,
   onCreateBox,
+  onRequestOptions,
   confirmAction,
   t,
   onSearch,
@@ -2242,6 +1167,7 @@ function PilotageView({
   search: string;
   suggestions: BoxItem[];
   onCreateBox: (payload: BoxCreatePayload) => Promise<BoxDetail>;
+  onRequestOptions: () => void;
   confirmAction: ConfirmAction;
   t: TFunction;
   onSearch: (value: string) => void;
@@ -2359,6 +1285,7 @@ function PilotageView({
             profile={profile}
             t={t}
             onCreateBox={onCreateBox}
+            onRequestOptions={onRequestOptions}
             confirmAction={confirmAction}
             onSelectBox={onSelectBox}
             onSearch={onSearch}
@@ -2378,6 +1305,7 @@ function CreateBoxPanel({
   profile,
   confirmAction,
   onCreateBox,
+  onRequestOptions,
   onSearch,
   onSelectBox,
   t,
@@ -2388,6 +1316,7 @@ function CreateBoxPanel({
   profile: UserProfile | null;
   confirmAction: ConfirmAction;
   onCreateBox: (payload: BoxCreatePayload) => Promise<BoxDetail>;
+  onRequestOptions: () => void;
   onSearch: (value: string) => void;
   onSelectBox: (id: number) => void;
   t: TFunction;
@@ -2498,7 +1427,10 @@ function CreateBoxPanel({
       <button
         className="create-box-toggle"
         type="button"
-        onClick={() => setIsOpen((current) => !current)}
+        onClick={() => {
+          if (!isOpen && !exportOptions) onRequestOptions();
+          setIsOpen((current) => !current);
+        }}
       >
         <span aria-hidden="true">{isOpen ? '×' : '+'}</span>
         <strong>{isOpen ? t('createBoxClose') : t('createBoxOpen')}</strong>
@@ -4007,6 +2939,7 @@ function BoxPage({
 
         {isHistoryOpen ? (
           <MeasurementHistoryModal
+            boxCode={box.global_code}
             labels={getBoxInsightsLabels(t)}
             measurements={measurements}
             onClose={() => setIsHistoryOpen(false)}
@@ -4278,6 +3211,14 @@ function getBoxInsightsLabels(t: TFunction) {
     ephyraeFull: t('ephyraeFull'),
     events: t('events'),
     historyButton: t('historyButton'),
+    historyAllYears: t('historyAllYears'),
+    historyCountLabel: t('historyCountLabel'),
+    historyEnteredBy: t('historyEnteredBy'),
+    historyHideComment: t('historyHideComment'),
+    historyObservation: t('historyObservation'),
+    historyReadComment: t('historyReadComment'),
+    historyShowMore: t('historyShowMore'),
+    historyYear: t('historyYear'),
     lineageEmptyGraph: t('lineageEmptyGraph'),
     lineageLoading: t('lineageLoading'),
     lineageRetry: t('lineageRetry'),
@@ -4340,6 +3281,10 @@ function getProfileLabels(t: TFunction) {
     profileAllOrganizationsAccess: t('profileAllOrganizationsAccess'),
     profileLabelsMobileText: t('profileLabelsMobileText'),
     profilePreferences: t('profilePreferences'),
+    profileActiveOrganization: t('profileActiveOrganization'),
+    profileActiveOrganizationHelp: t('profileActiveOrganizationHelp'),
+    profileDefaultOrganization: t('profileDefaultOrganization'),
+    profileFullAccess: t('profileFullAccess'),
     roleDescAdmin: t('roleDescAdmin'),
     roleDescTechnician: t('roleDescTechnician'),
     roleDescViewer: t('roleDescViewer'),
@@ -4571,7 +3516,7 @@ function uniqueNumbers(values: number[]) {
 }
 
 function getLanguage(profile: UserProfile | null): Language {
-  return profile?.interface_language === 'en' ? 'en' : 'fr';
+  return resolveLanguage(profile?.interface_language ?? window.navigator.language);
 }
 
 function getSelectableOrganizations(profile: UserProfile | null) {
