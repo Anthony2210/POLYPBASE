@@ -1,0 +1,56 @@
+:root {
+  color-scheme: light;
+
+  --font-body: "Aptos", "Segoe UI Variable Text", "Segoe UI", sans-serif;
+  --font-display: "Aptos Display", "Segoe UI Variable Display", "Segoe UI", sans-serif;
+
+  --color-ink: #101923;
+  --color-ink-soft: #344451;
+  --color-muted: #697886;
+  --color-page: #f4f7f9;
+  --color-surface: #ffffff;
+  --color-surface-subtle: #f7fafb;
+  --color-surface-info: #edf7fa;
+  --color-line: #d8e3e8;
+  --color-line-soft: #e7eef1;
+  --color-line-strong: #bfd1d8;
+
+  --color-primary: #0d7890;
+  --color-primary-hover: #08667b;
+  --color-primary-soft: #e2f3f7;
+  --color-primary-faint: #f1fafc;
+
+  --color-success: #258756;
+  --color-success-soft: #e6f5ec;
+  --color-warning: #c68a12;
+  --color-warning-soft: #fff4d8;
+  --color-danger: #d45545;
+  --color-danger-hover: #b94336;
+  --color-danger-soft: #fff0ec;
+  --color-temperature: #657d4f;
+  --color-ephyrae: #e9664d;
+
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-pill: 999px;
+
+  --shadow-float: 0 18px 45px rgb(16 35 45 / 16%);
+  --shadow-focus: 0 0 0 3px rgb(13 120 144 / 16%);
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  --sidebar-width: 216px;
+  --content-max: 1240px;
+  --control-height: 44px;
+  --touch-target: 48px;
+  --transition-fast: 150ms ease;
+  --transition-page: 220ms ease;
+}

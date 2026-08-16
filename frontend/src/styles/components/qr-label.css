@@ -1,0 +1,106 @@
+.qr-label {
+  --qr-label-border: #111;
+  --qr-label-image-size: 112px;
+  --qr-label-padding: 6px;
+  display: grid;
+  min-width: 0;
+  align-content: center;
+  justify-items: center;
+  gap: 4px;
+  padding: var(--qr-label-padding);
+  border: 1px solid var(--qr-label-border);
+  border-radius: var(--radius-xs);
+  background: #fff;
+  color: #111;
+  text-align: center;
+}
+
+.qr-label__image {
+  display: block;
+  width: min(100%, var(--qr-label-image-size));
+  aspect-ratio: 1;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.qr-label__metadata {
+  display: grid;
+  min-width: 0;
+  width: 100%;
+  gap: 2px;
+  line-height: 1;
+}
+
+.qr-label__metadata :where(strong, small) {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qr-label__metadata strong {
+  font-size: 0.8rem;
+  font-style: italic;
+  font-weight: 900;
+}
+
+.qr-label__metadata small {
+  color: #4b5563;
+  font-size: 0.62rem;
+}
+
+.qr-label--trigger {
+  --qr-label-image-size: 58px;
+  --qr-label-padding: var(--space-2);
+  width: 78px;
+  min-height: 78px;
+  border-color: var(--color-line);
+  border-radius: var(--radius-md);
+}
+
+.qr-label--image-only { gap: 0; }
+
+.qr-label--full {
+  --qr-label-image-size: clamp(180px, 36vw, 220px);
+  --qr-label-padding: var(--space-6);
+  width: min(100%, 360px);
+  aspect-ratio: 1;
+  gap: var(--space-3);
+  border-width: 2px;
+  border-radius: var(--radius-md);
+}
+
+.qr-label--full .qr-label__metadata { gap: var(--space-1); }
+
+.qr-label--full .qr-label__metadata strong {
+  font-size: 2rem;
+  line-height: 0.92;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.qr-label--full .qr-label__metadata small {
+  font-size: 1.05rem;
+  line-height: 1.15;
+  overflow: visible;
+  white-space: normal;
+}
+
+@media (min-width: 760px) and (max-width: 1180px) {
+  .qr-label--trigger {
+    --qr-label-image-size: 48px;
+    width: 66px;
+    min-height: 66px;
+  }
+}
+
+@media (max-width: 759px), (max-width: 900px) and (orientation: portrait) {
+  .qr-label--full {
+    --qr-label-image-size: min(52vw, 210px);
+    --qr-label-padding: var(--space-5);
+  }
+
+  .qr-label--full .qr-label__metadata strong { font-size: 1.65rem; }
+}

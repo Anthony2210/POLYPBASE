@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from 'react';
+import { useState } from 'react';
 
 import type { UserProfile } from '../types';
 import { getErrorMessage } from '../utils/errors';
@@ -12,6 +12,7 @@ type ProfileLabels = {
   profileLanguage: string;
   profileAdminTitle: string;
   profileAdminText: string;
+  profileAdminAction: string;
   profileMemberships: string;
   profileNoEmail: string;
   profileNoMembership: string;
@@ -32,22 +33,24 @@ type ProfileLabels = {
 export default function ProfileView({
   isLoading,
   labels,
+  canOpenAdmin,
+  onOpenAdmin,
   onOpenLabels,
   onSelectOrganization,
   onLogout,
   onUpdateLanguage,
   activeOrganizationId,
-  adminSection,
   profile,
 }: {
   isLoading: boolean;
   activeOrganizationId: number | null;
+  canOpenAdmin: boolean;
   labels: ProfileLabels;
+  onOpenAdmin: () => void;
   onOpenLabels: () => void;
   onSelectOrganization: (organizationId: number) => void;
   onLogout: () => Promise<void>;
   onUpdateLanguage: (language: string) => Promise<void>;
-  adminSection?: ReactNode;
   profile: UserProfile | null;
 }) {
   const [isSaving, setIsSaving] = useState(false);
@@ -124,7 +127,7 @@ export default function ProfileView({
             <strong>{labels.labelsTitle}</strong>
             <small>{labels.profileLabelsMobileText}</small>
           </span>
-          <span aria-hidden="true">›</span>
+          <span className="profile-link-arrow" aria-hidden="true">›</span>
         </button>
       </section>
 
@@ -159,6 +162,21 @@ export default function ProfileView({
         </section>
       ) : null}
 
+      {canOpenAdmin ? (
+        <section className="profile-block profile-admin-entry">
+          <div className="section-title">
+            <div>
+              <h2>{labels.profileAdminTitle}</h2>
+              <p>{labels.profileAdminText}</p>
+            </div>
+          </div>
+          <button className="profile-admin-button" type="button" onClick={onOpenAdmin}>
+            <span>{labels.profileAdminAction}</span>
+            <span className="profile-link-arrow" aria-hidden="true">›</span>
+          </button>
+        </section>
+      ) : null}
+
       <section className="profile-block">
         <div className="section-title">
           <h2>{labels.profilePreferences}</h2>
@@ -178,30 +196,8 @@ export default function ProfileView({
 
         {saveError ? <p className="inline-error">{saveError}</p> : null}
       </section>
-
-      {adminSection ? (
-        <section className="profile-admin-section">
-          <div className="profile-admin-heading">
-            <div>
-              <h2>{labels.profileAdminTitle}</h2>
-            </div>
-          </div>
-          {adminSection}
-        </section>
-      ) : null}
     </section>
   );
-}
-
-function getRoleDescription(role: UserProfile['memberships'][number]['role'], labels: ProfileLabels) {
-  switch (role) {
-    case 'admin':
-      return labels.roleDescAdmin;
-    case 'lab_technician':
-      return labels.roleDescTechnician;
-    default:
-      return labels.roleDescViewer;
-  }
 }
 
 function formatProfileName(profile: UserProfile): string {

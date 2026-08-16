@@ -680,7 +680,7 @@ function AccountManagementSection({ t }: { t: TFunction }) {
                   <strong>{getMemberDisplayName(member)}</strong>
                   <small>
                     @{member.username}
-                    {member.email ? ` · ${member.email}` : ''}
+                    {member.email ? `, ${member.email}` : ''}
                   </small>
                 </span>
               </div>
@@ -1245,7 +1245,7 @@ function ZoneCapacityManager({
         })}
         </div>
       ) : (
-        <p className="environment-empty-state">{t('adminEnvironmentNoZoneResults')}</p>
+        <p className="empty-state environment-empty-state">{t('adminEnvironmentNoZoneResults')}</p>
       )}
       {message ? <p className="inline-success">{message}</p> : null}
       {error ? <p className="inline-error">{error}</p> : null}
@@ -1742,7 +1742,7 @@ function OrganizationManagementList({
           })}
         </div>
       ) : (
-        <p className="organization-empty-state">{t('adminOrganizationNoResults')}</p>
+        <p className="empty-state organization-empty-state">{t('adminOrganizationNoResults')}</p>
       )}
 
       {message ? <p className="inline-success">{message}</p> : null}
@@ -2182,7 +2182,7 @@ function TransferImportForm({ profile, zones, boxes, t }: {
       {message ? <p className="inline-success">{message}</p> : null}
       {importedBox ? (
         <a className="admin-transfer-open-box" href={`/boxes/${encodeURIComponent(importedBox.global_code)}`}>
-          {t('adminTransferImportOpenBox')} · {importedBox.global_code}
+          {t('adminTransferImportOpenBox')}: {importedBox.global_code}
         </a>
       ) : null}
       {error ? <p className="inline-error">{error}</p> : null}
@@ -2614,7 +2614,7 @@ function AdminAuditLogSection({
                             {entry.edited_at ? (
                               <small className="admin-audit-edited-mark">
                                 Corrigé le {formatAuditDate(entry.edited_at)}
-                                {entry.edited_by ? ` par ${entry.edited_by}` : ''} · relevé
+                                {entry.edited_by ? ` par ${entry.edited_by}` : ''}, relevé
                                 enregistré le {formatAuditDate(entry.created_at)}
                               </small>
                             ) : null}
@@ -3364,7 +3364,7 @@ export default function AdminView({
   const organizations = exportOptions?.organizations ?? profile.organizations;
 
   return (
-    <section className="admin-panel">
+    <section className="admin-panel admin-workspace">
       <AdminFlowNav
         activeSection={activeAdminSection}
         onSelect={selectAdminSection}

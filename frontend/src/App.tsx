@@ -1,4 +1,4 @@
-﻿import {
+import {
   lazy,
   Suspense,
   type FormEvent,
@@ -28,6 +28,9 @@ import {
   type Translator,
 } from './i18n';
 import type { EditableMeasurement } from './components/AdminView';
+import BiologicalTrendChart from './components/BiologicalTrendChart';
+import ChartWindowControls from './components/ChartWindowControls';
+import { buildChartWindow } from './utils/chartWindow';
 
 // A measurement handed over by the history so the box sheet can open with it
 // already filled in.
@@ -38,10 +41,12 @@ import LoginPage from './components/LoginPage';
 import PasswordResetPage from './components/PasswordResetPage';
 import LoginNotice from './components/LoginNotice';
 import MeasurementSaveButton from './components/MeasurementSaveButton';
+import ModalPortal from './components/ModalPortal';
 import MoveBoxModal from './components/MoveBoxModal';
 import PageLoader from './components/PageLoader';
 import ProfileView from './components/ProfileView';
 import QuickCountButtons from './components/QuickCountButtons';
+import QrLabel from './components/QrLabel';
 import QrLabelModal from './components/QrLabelModal';
 import SearchField from './components/SearchField';
 import SubcultureModal from './components/SubcultureModal';
@@ -63,7 +68,6 @@ import type {
   OverviewBox,
   OverviewMeasurementPoint,
   OverviewResponse,
-  OverviewTemperaturePoint,
   PaginatedResponse,
   Probe,
   SubculturePayload,
@@ -80,7 +84,7 @@ import type {
   ThermalZonePayload,
 } from './types/admin';
 import { upsertBoxes } from './utils/boxCollection';
-import { formatDisplayDate, formatIsoWeekDateLabel } from './utils/dateFormat';
+import { formatDisplayDate } from './utils/dateFormat';
 import { getErrorMessage } from './utils/errors';
 import {
   decrementDecimalValue,
@@ -89,7 +93,7 @@ import {
   parsePositiveDecimal,
 } from './utils/stepValue';
 import { triggerHaptic } from './utils/haptics';
-import { getBoxQrImageUrl, getBoxScanUrl, type QrLabelItem } from './utils/qrLabels';
+import { buildQrLabelItem, getBoxQrImageUrl, getBoxScanUrl, type QrLabelItem } from './utils/qrLabels';
 
 const AdminView = lazy(() => import('./components/AdminView'));
 const BoxInsights = lazy(() => import('./components/BoxInsights'));
@@ -544,10 +548,11 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (availableTabs.includes(activeTab)) return;
+    if (isLoading || !data.profile) return;
+    if (availableTabs.includes(activeTab) || (activeTab === 'admin' && canUseAdmin)) return;
 
     navigateTo({ tab: 'pilotage', boxCode: null, boxId: null }, '/');
-  }, [activeTab, availableTabs]);
+  }, [activeTab, availableTabs, canUseAdmin, data.profile, isLoading]);
 
   useEffect(() => {
     const shouldLoadExportOptions =
@@ -960,6 +965,7 @@ export default function App() {
               <OverviewView
                 boxes={data.overview}
                 isLoading={isLoading || isOverviewLoading}
+                language={language}
                 onSelectBox={openBox}
                 onOpenZone={openZone}
                 t={t}
@@ -1041,28 +1047,10 @@ export default function App() {
                 labels={getProfileLabels(t)}
                 profile={data.profile}
                 activeOrganizationId={activeOrganizationId}
+                canOpenAdmin={canUseAdmin}
                 onSelectOrganization={(organizationId) => void chooseOrganization(organizationId)}
+                onOpenAdmin={() => openTab('admin')}
                 onOpenLabels={() => openTab('labels')}
-                adminSection={canUseAdmin ? (
-                  <AdminView
-                    boxes={data.boxes}
-                    exportOptions={data.exportOptions}
-                    isLoading={isLoading}
-                    isOptionsLoading={isExportOptionsLoading}
-                    profile={data.profile}
-                    onRequestOptions={() => setExportOptionsRequested(true)}
-                    onCreateZone={createThermalZone}
-                    onUpdateZone={updateThermalZone}
-                    onCreateProbe={createProbe}
-                    onCreateOrganization={createOrganization}
-                    onUpdateOrganization={updateOrganization}
-                    onDeleteOrganization={deleteOrganization}
-                    onCreateTransfer={createBoxTransfer}
-                    onEditMeasurement={editMeasurementFromHistory}
-                    t={t}
-                    zones={data.zones}
-                  />
-                ) : null}
                 onLogout={logoutCurrentUser}
                 onUpdateLanguage={updateLanguage}
               />
@@ -1078,8 +1066,10 @@ export default function App() {
 
 function getRouteLoaderVariant(activeTab: TabId, isBoxRoute: boolean, isZoneRoute: boolean) {
   if (activeTab === 'pilotage') return isBoxRoute ? 'box' as const : 'pilotage' as const;
+  if (activeTab === 'overview') return 'overview' as const;
   if (activeTab === 'zones') return isZoneRoute ? 'zone' as const : 'zones' as const;
   if (activeTab === 'exports') return 'exports' as const;
+  if (activeTab === 'labels') return 'labels' as const;
   if (activeTab === 'profile') return 'profile' as const;
   return 'admin' as const;
 }
@@ -1175,14 +1165,52 @@ function PilotageView({
 }) {
   const visibleSuggestions = search.trim() ? suggestions : [];
   const [tabletLookupMode, setTabletLookupMode] = useState<'qr' | 'search'>('qr');
+  const [highlightedSuggestionIndex, setHighlightedSuggestionIndex] = useState(0);
   const canCreateBox = userCanCreateBoxes(profile);
 
   function selectFirstSuggestion() {
-    if (visibleSuggestions[0]) {
-      onSelectBox(visibleSuggestions[0].id);
-      onSearch(visibleSuggestions[0].global_code);
+    const selectedSuggestion = visibleSuggestions[highlightedSuggestionIndex] ?? visibleSuggestions[0];
+    if (selectedSuggestion) {
+      onSelectBox(selectedSuggestion.id);
+      onSearch(selectedSuggestion.global_code);
     }
   }
+
+  function handleSearchChange(value: string) {
+    setHighlightedSuggestionIndex(0);
+    onSearch(value);
+  }
+
+  function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (!visibleSuggestions.length) return;
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setHighlightedSuggestionIndex((current) => (current + 1) % visibleSuggestions.length);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setHighlightedSuggestionIndex((current) => (current - 1 + visibleSuggestions.length) % visibleSuggestions.length);
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      handleSearchChange('');
+    }
+  }
+
+  const searchFieldProps = {
+    activeDescendant: visibleSuggestions[highlightedSuggestionIndex]
+      ? `box-suggestion-${visibleSuggestions[highlightedSuggestionIndex].id}`
+      : undefined,
+    controls: 'box-suggestions',
+    expanded: visibleSuggestions.length > 0,
+    labels: {
+      label: t('searchOrScan'),
+      placeholder: t('searchPlaceholder'),
+    },
+    value: search,
+    onChange: handleSearchChange,
+    onKeyDown: handleSearchKeyDown,
+    onSubmit: selectFirstSuggestion,
+  };
 
   if (isLoading) {
     return <PageLoader variant="pilotage" label={t('pilotageTitle')} />;
@@ -1192,15 +1220,7 @@ function PilotageView({
     <section className="pilotage-flow">
       <div className="lookup-panel">
         <div className="desktop-search-panel">
-          <SearchField
-            labels={{
-              label: t('searchOrScan'),
-              placeholder: t('searchPlaceholder'),
-            }}
-            value={search}
-            onChange={onSearch}
-            onSubmit={selectFirstSuggestion}
-          />
+          <SearchField {...searchFieldProps} />
         </div>
 
         <section className={`tablet-lookup-panel is-${tabletLookupMode}-mode`}>
@@ -1240,15 +1260,7 @@ function PilotageView({
             />
           ) : (
             <div className="tablet-manual-search">
-              <SearchField
-                labels={{
-                  label: t('searchOrScan'),
-                  placeholder: t('searchPlaceholder'),
-                }}
-                value={search}
-                onChange={onSearch}
-                onSubmit={selectFirstSuggestion}
-              />
+              <SearchField {...searchFieldProps} />
             </div>
           )}
         </section>
@@ -1257,7 +1269,7 @@ function PilotageView({
           {tabletLookupMode === 'search' && visibleSuggestions.length > 0 ? (
             <SuggestionList
               boxes={visibleSuggestions}
-              selectedBoxId={null}
+              selectedBoxId={visibleSuggestions[highlightedSuggestionIndex]?.id ?? null}
               onSelectBox={onSelectBox}
               t={t}
             />
@@ -1268,7 +1280,7 @@ function PilotageView({
           {!isLoading && visibleSuggestions.length > 0 ? (
             <SuggestionList
               boxes={visibleSuggestions}
-              selectedBoxId={null}
+              selectedBoxId={visibleSuggestions[highlightedSuggestionIndex]?.id ?? null}
               onSelectBox={onSelectBox}
               t={t}
             />
@@ -1546,9 +1558,24 @@ function RecentAccessList({
 
       <div className="recent-strip">
         {boxes.map((box) => (
-          <button key={box.id} type="button" onClick={() => onSelectBox(box.id)}>
-            <strong>{box.global_code}</strong>
-            <small>{box.species.genus_species_code || box.strain.code}</small>
+          <button
+            key={box.id}
+            className={box.active_alert_count > 0 ? 'has-alerts' : ''}
+            type="button"
+            onClick={() => onSelectBox(box.id)}
+          >
+            <span className="recent-box-heading">
+              <strong>{box.global_code}</strong>
+              {box.active_alert_count > 0 ? (
+                <span className="recent-alert-count" aria-label={`${box.active_alert_count} ${t('activeAlerts')}`}>
+                  {box.active_alert_count}
+                </span>
+              ) : null}
+            </span>
+            <small>{box.species.scientific_name}</small>
+            <span className="recent-box-meta">
+              <span>{box.thermal_zone?.name ?? t('noZone')}</span>
+            </span>
           </button>
         ))}
       </div>
@@ -1559,12 +1586,14 @@ function RecentAccessList({
 function OverviewView({
   boxes,
   isLoading,
+  language,
   onSelectBox,
   onOpenZone,
   t,
 }: {
   boxes: OverviewBox[] | null;
   isLoading: boolean;
+  language: Language;
   onSelectBox: (id: number) => void;
   onOpenZone: (zoneId: number) => void;
   t: TFunction;
@@ -1582,7 +1611,6 @@ function OverviewView({
       .filter((box) => box.tracked_in_app)
       .map((box) => {
         const latest = getLastItem(box.measurements);
-        const latestTemperature = getLastItem(box.temperatures);
         const daysSince = latest ? getDaysSinceDate(latest.date) : null;
         const status = getWeeklyStatus(daysSince);
         const zoneName = box.thermal_zone?.name ?? noZoneLabel;
@@ -1590,7 +1618,6 @@ function OverviewView({
         return {
           box,
           latest,
-          latestTemperature,
           daysSince,
           status,
           zoneName,
@@ -1634,7 +1661,7 @@ function OverviewView({
   }, [focusFilter, normalizedQuery, sortOrder, speciesFilter, zoneFilter]);
 
   if (isLoading) {
-    return <PageLoader variant="pilotage" label={t('overviewTitle')} />;
+    return <PageLoader variant="overview" label={t('overviewTitle')} />;
   }
 
   return (
@@ -1783,32 +1810,7 @@ function OverviewView({
                   )}
                 </header>
 
-                <div className="overview-priority-row">
-                  <span>
-                    <small>{t('weeklyLastReading')}</small>
-                    <strong>{entry.latest ? formatDisplayDate(entry.latest.date) : t('weeklyNoRecentReading')}</strong>
-                  </span>
-                  <em className={`overview-box-status is-${entry.status}`}>
-                    {formatWeeklyBadgeAge(entry.daysSince, entry.latest?.date, t)}
-                  </em>
-                </div>
-
-                <div className="overview-box-kpis">
-                  <span>
-                    <small>{t('polyps')}</small>
-                    <strong>{entry.latest?.polyp_count ?? '-'}</strong>
-                  </span>
-                  <span>
-                    <small>{t('ephyraeFull')}</small>
-                    <strong>{entry.latest?.ephyrae_count ?? '-'}</strong>
-                  </span>
-                  <span>
-                    <small>{t('temperatureShort')}</small>
-                    <strong>{formatTemperature(entry.latestTemperature?.average_temperature_c)}</strong>
-                  </span>
-                </div>
-
-                <OverviewMiniChart box={entry.box} t={t} />
+                <OverviewMiniChart box={entry.box} language={language} t={t} />
               </article>
             ))}
           </div>
@@ -1837,7 +1839,6 @@ type OverviewFocusFilter = 'all' | 'done' | 'due' | 'soon';
 type OverviewEntry = {
   box: OverviewBox;
   latest: OverviewMeasurementPoint | undefined;
-  latestTemperature: OverviewTemperaturePoint | undefined;
   daysSince: number | null;
   status: WeeklyStatus;
   zoneName: string;
@@ -1878,10 +1879,17 @@ function buildOverviewZoneSummaries(entries: OverviewEntry[]) {
   });
 
   return Array.from(summaries.values()).sort((first, second) => (
-    second.due - first.due
-    || second.soon - first.soon
+    getOverviewZoneTemperature(first.zoneName) - getOverviewZoneTemperature(second.zoneName)
     || first.zoneName.localeCompare(second.zoneName)
   ));
+}
+
+function getOverviewZoneTemperature(zoneName: string) {
+  const temperatureMatch = zoneName.match(/-?\d+(?:[.,]\d+)?/);
+  if (!temperatureMatch) return Number.POSITIVE_INFINITY;
+
+  const temperature = Number.parseFloat(temperatureMatch[0].replace(',', '.'));
+  return Number.isFinite(temperature) ? temperature : Number.POSITIVE_INFINITY;
 }
 
 function sortOverviewEntries(first: OverviewEntry, second: OverviewEntry, order: OverviewSortOrder) {
@@ -1897,11 +1905,6 @@ function getWeeklyStatus(daysSince: number | null): WeeklyStatus {
   return 'ok';
 }
 
-function formatWeeklyBadgeAge(daysSince: number | null, date: string | undefined, t: TFunction) {
-  if (daysSince === null || !date) return t('weeklyNoRecentReading');
-  return `${daysSince} ${t('weeklyDayShort')}`;
-}
-
 function getDaysSinceDate(date: string) {
   const parsedDate = new Date(`${date}T00:00:00`);
   if (Number.isNaN(parsedDate.getTime())) return null;
@@ -1910,15 +1913,41 @@ function getDaysSinceDate(date: string) {
   return Math.max(0, Math.floor((todayStart.getTime() - parsedDate.getTime()) / 86_400_000));
 }
 
-function OverviewMiniChart({ box, t }: { box: OverviewBox; t: TFunction }) {
-  const [activeDate, setActiveDate] = useState<string | null>(null);
-  const measurementDates = box.measurements.map((point) => point.date);
-  const temperaturePoints = box.temperatures.filter((point) => Number.isFinite(point.average_temperature_c));
-  const temperatureDates = temperaturePoints.map((point) => point.date);
-  const dates = Array.from(new Set([...measurementDates, ...temperatureDates])).sort();
-  const hasChart = dates.length >= 2 && (box.measurements.length >= 2 || temperaturePoints.length >= 2);
+function OverviewMiniChart({
+  box,
+  language,
+  t,
+}: {
+  box: OverviewBox;
+  language: Language;
+  t: TFunction;
+}) {
+  const [windowOffset, setWindowOffset] = useState(0);
+  const orderedMeasurements = useMemo(
+    () => [...box.measurements].sort((left, right) => left.date.localeCompare(right.date)),
+    [box.measurements],
+  );
+  const sourceDates = useMemo(
+    () => [
+      ...orderedMeasurements.map((measurement) => measurement.date),
+      ...(box.locations ?? []).flatMap((location) => [location.starts_at, location.ends_at]),
+    ],
+    [box.locations, orderedMeasurements],
+  );
+  const chartWindow = useMemo(
+    () => buildChartWindow(sourceDates, windowOffset, 3),
+    [sourceDates, windowOffset],
+  );
 
-  if (!hasChart) {
+  useEffect(() => {
+    if (windowOffset !== chartWindow.offset) setWindowOffset(chartWindow.offset);
+  }, [chartWindow.offset, windowOffset]);
+
+  useEffect(() => setWindowOffset(0), [box.id]);
+
+  const latestDate = orderedMeasurements[orderedMeasurements.length - 1]?.date;
+
+  if (!latestDate) {
     return (
       <div className="overview-chart overview-chart-empty">
         <strong>{t('overviewChartTitle')}</strong>
@@ -1927,151 +1956,64 @@ function OverviewMiniChart({ box, t }: { box: OverviewBox; t: TFunction }) {
     );
   }
 
-  const width = 420;
-  const height = 168;
-  const padding = { top: 16, right: 14, bottom: 28, left: 28 };
-  const innerWidth = width - padding.left - padding.right;
-  const innerHeight = height - padding.top - padding.bottom;
-  const countMax = Math.max(
-    1,
-    ...box.measurements.map((point) => Math.max(point.polyp_count, point.ephyrae_count)),
+  const locations = (box.locations?.length
+    ? box.locations.map((location) => ({
+      id: location.id,
+      name: location.thermal_zone.name,
+      startsAt: location.starts_at,
+      endsAt: location.ends_at,
+    }))
+    : box.thermal_zone
+      ? [{
+        id: `current-${box.thermal_zone.id}`,
+        name: box.thermal_zone.name,
+        startsAt: chartWindow.startDate,
+        endsAt: chartWindow.endDate,
+      }]
+      : []
   );
-  const temperatureValues = temperaturePoints.map((point) => point.average_temperature_c);
-  const minTemperature = temperatureValues.length ? Math.min(...temperatureValues) : 0;
-  const maxTemperature = temperatureValues.length ? Math.max(...temperatureValues) : 1;
-  const temperatureRange = Math.max(1, maxTemperature - minTemperature);
-  const measurementByDate = new Map(box.measurements.map((point) => [point.date, point]));
-  const temperatureByDate = new Map(temperaturePoints.map((point) => [point.date, point]));
-  const xForDate = (date: string) => {
-    const dateIndex = dates.indexOf(date);
-    return padding.left + (dateIndex / Math.max(1, dates.length - 1)) * innerWidth;
-  };
-  const yForCount = (value: number) => padding.top + innerHeight - (value / countMax) * innerHeight;
-  const yForTemperature = (value: number) => (
-    padding.top + innerHeight - ((value - minTemperature) / temperatureRange) * innerHeight
-  );
-  const polypPath = buildOverviewPath(
-    box.measurements.map((point) => ({ date: point.date, value: point.polyp_count })),
-    xForDate,
-    yForCount,
-  );
-  const ephyraePath = buildOverviewPath(
-    box.measurements.map((point) => ({ date: point.date, value: point.ephyrae_count })),
-    xForDate,
-    yForCount,
-  );
-  const temperaturePath = buildOverviewPath(
-    temperaturePoints.map((point) => ({ date: point.date, value: point.average_temperature_c })),
-    xForDate,
-    yForTemperature,
-  );
-  const activeDateValue = activeDate;
-  const activeMeasurement = activeDateValue ? measurementByDate.get(activeDateValue) : undefined;
-  const activeTemperature = activeDateValue ? temperatureByDate.get(activeDateValue) : undefined;
-  const activeX = activeDateValue ? xForDate(activeDateValue) : null;
-  const tooltipLeft = activeX === null ? 50 : Math.min(82, Math.max(18, (activeX / width) * 100));
 
   return (
-    <div className="overview-chart">
-      <header>
-        <strong>{t('overviewChartTitle')}</strong>
-        <div className="overview-chart-legend">
-          <span className="is-polyps">{t('polyps')}</span>
-          <span className="is-ephyrae">{t('ephyraeFull')}</span>
-          <span className="is-temperature">{t('temperatureShort')}</span>
-        </div>
-      </header>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={t('overviewChartTitle')}>
-        <line className="overview-chart-grid" x1={padding.left} x2={width - padding.right} y1={padding.top} y2={padding.top} />
-        <line className="overview-chart-grid" x1={padding.left} x2={width - padding.right} y1={padding.top + innerHeight / 2} y2={padding.top + innerHeight / 2} />
-        <line className="overview-chart-axis" x1={padding.left} x2={width - padding.right} y1={padding.top + innerHeight} y2={padding.top + innerHeight} />
-        {polypPath ? <path className="overview-chart-line is-polyps" d={polypPath} /> : null}
-        {ephyraePath ? <path className="overview-chart-line is-ephyrae" d={ephyraePath} /> : null}
-        {temperaturePath ? <path className="overview-chart-line is-temperature" d={temperaturePath} /> : null}
-        {activeDateValue && activeX !== null ? (
-          <line
-            className="overview-chart-hover-line"
-            x1={activeX}
-            x2={activeX}
-            y1={padding.top}
-            y2={padding.top + innerHeight}
-          />
-        ) : null}
-        {box.measurements.flatMap((point) => [
-          <circle
-            className="overview-chart-dot is-polyps"
-            key={`${point.date}-polyps`}
-            cx={xForDate(point.date)}
-            cy={yForCount(point.polyp_count)}
-            r={activeDate === point.date ? 4.2 : 3}
-          />,
-          <circle
-            className="overview-chart-dot is-ephyrae"
-            key={`${point.date}-ephyrae`}
-            cx={xForDate(point.date)}
-            cy={yForCount(point.ephyrae_count)}
-            r={activeDate === point.date ? 4.2 : 3}
-          />,
-        ])}
-        {temperaturePoints.map((point) => (
-          <circle
-            className="overview-chart-dot is-temperature"
-            key={`${point.date}-temperature`}
-            cx={xForDate(point.date)}
-            cy={yForTemperature(point.average_temperature_c)}
-            r={activeDate === point.date ? 4.2 : 3}
-          />
+    <div className="overview-mini-chart">
+      <ChartWindowControls
+        compact
+        endDate={chartWindow.endDate}
+        hasNewerWindow={chartWindow.hasNewerWindow}
+        hasOlderWindow={chartWindow.hasOlderWindow}
+        language={language}
+        longStep={3}
+        onMove={(months) => setWindowOffset((current) => (
+          Math.max(0, Math.min(chartWindow.maxOffset, current + months))
         ))}
-        {dates.map((date) => {
-          const x = xForDate(date);
-          const hitWidth = Math.max(20, innerWidth / Math.max(1, dates.length - 1) * 0.75);
-
-          return (
-            <rect
-              aria-label={formatIsoWeekDateLabel(date)}
-              className="overview-chart-hit-area"
-              key={`hit-${date}`}
-              tabIndex={0}
-              x={x - hitWidth / 2}
-              y={padding.top}
-              width={hitWidth}
-              height={innerHeight}
-              onClick={() => setActiveDate((currentDate) => (currentDate === date ? null : date))}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  setActiveDate((currentDate) => (currentDate === date ? null : date));
-                }
-              }}
-            />
-          );
-        })}
-        <text className="overview-chart-label" x={padding.left} y={height - 8}>{formatIsoWeekDateLabel(dates[0])}</text>
-        <text className="overview-chart-label is-end" x={width - padding.right} y={height - 8}>{formatIsoWeekDateLabel(dates[dates.length - 1])}</text>
-        <text className="overview-chart-y-label" x={padding.left - 6} y={padding.top + 4}>{countMax}</text>
-        <text className="overview-chart-y-label" x={padding.left - 6} y={padding.top + innerHeight + 4}>0</text>
-      </svg>
-      {activeDateValue ? (
-        <div className="overview-chart-detail" style={{ left: `${tooltipLeft}%` }}>
-          <strong>{formatIsoWeekDateLabel(activeDateValue)}</strong>
-          <span>{t('polyps')} : {activeMeasurement?.polyp_count ?? '-'}</span>
-          <span>{t('ephyraeFull')} : {activeMeasurement?.ephyrae_count ?? '-'}</span>
-          <span>{t('temperatureShort')} : {formatTemperature(activeTemperature?.average_temperature_c)}</span>
-        </div>
-      ) : null}
+        startDate={chartWindow.startDate}
+        windowMonths={3}
+      />
+      <BiologicalTrendChart
+        compact
+        detailDisplay="inline"
+        startDate={chartWindow.startDate}
+        endDate={chartWindow.endDate}
+        measurements={orderedMeasurements.map((point) => ({
+          id: point.date,
+          date: point.date,
+          polypCount: point.polyp_count,
+          ephyraeCount: point.ephyrae_count,
+        }))}
+        locations={locations}
+        selectionScope={box.id}
+        labels={{
+          chartTitle: t('overviewChartTitle'),
+          empty: t('overviewNoHistory'),
+          ephyrae: t('ephyraeFull'),
+          location: language === 'fr' ? 'Emplacement' : 'Location',
+          missingReading: t('chartMissingReading'),
+          movement: t('movementEvent'),
+          polyps: t('polyps'),
+          selectedReading: language === 'fr' ? 'Relevé sélectionné' : 'Selected reading',
+        }}
+      />
     </div>
   );
-}
-
-function buildOverviewPath(
-  points: Array<{ date: string; value: number }>,
-  xForDate: (date: string) => number,
-  yForValue: (value: number) => number,
-) {
-  if (points.length < 2) return '';
-  return points
-    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${xForDate(point.date).toFixed(1)} ${yForValue(point.value).toFixed(1)}`)
-    .join(' ');
 }
 
 function getLastItem<T>(items: T[]): T | undefined {
@@ -2096,19 +2038,43 @@ function SuggestionList({
         <span>{boxes.length}</span>
       </div>
 
-      <div className="suggestion-list">
+      <div className="suggestion-list" id="box-suggestions" role="listbox">
         {boxes.map((box) => (
           <button
             key={box.id}
+            id={`box-suggestion-${box.id}`}
             className={selectedBoxId === box.id ? 'suggestion-row is-selected' : 'suggestion-row'}
             type="button"
+            role="option"
+            aria-selected={selectedBoxId === box.id}
             onClick={() => onSelectBox(box.id)}
           >
-            <span>
+            <span className="suggestion-identity">
               <strong>{box.global_code}</strong>
               <small>{box.species.scientific_name}</small>
             </span>
-            <span>{box.thermal_zone?.name ?? t('noZone')}</span>
+            <span className="suggestion-reading">
+              {box.latest_measurement ? (
+                <>
+                  <strong>
+                    {box.latest_measurement.polyp_count} {t('polyps').toLocaleLowerCase()},{' '}
+                    {box.latest_measurement.ephyrae_count} {t('ephyrae').toLocaleLowerCase()}
+                  </strong>
+                  <small>{formatDisplayDate(box.latest_measurement.measured_on)}</small>
+                </>
+              ) : (
+                <small>{t('noMeasurementHistory')}</small>
+              )}
+            </span>
+            <span className="suggestion-location">
+              <strong>{box.thermal_zone?.name ?? t('noZone')}</strong>
+              {box.active_alert_count > 0 ? (
+                <small className="suggestion-alert-count">
+                  {box.active_alert_count} {t('activeAlerts')}
+                </small>
+              ) : null}
+            </span>
+            <span className="suggestion-chevron" aria-hidden="true">›</span>
           </button>
         ))}
       </div>
@@ -2226,6 +2192,7 @@ function BoxPage({
   const [isMoveOpen, setIsMoveOpen] = useState(false);
   const [isSavingMove, setIsSavingMove] = useState(false);
   const [isChangingBoxStatus, setIsChangingBoxStatus] = useState(false);
+  const [pendingBoxStatus, setPendingBoxStatus] = useState<'active' | 'archived' | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [moveMessage, setMoveMessage] = useState<string | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
@@ -2259,6 +2226,7 @@ function BoxPage({
     setIsMoveOpen(false);
     setIsSavingMove(false);
     setIsChangingBoxStatus(false);
+    setPendingBoxStatus(null);
     setMoveError(null);
     setMoveMessage(null);
     setStatusError(null);
@@ -2303,6 +2271,12 @@ function BoxPage({
     if (editingMeasurementId != null || !defaultSalinity) return;
     setForm((current) => (current.salinity ? current : { ...current, salinity: defaultSalinity }));
   }, [defaultSalinity, editingMeasurementId]);
+
+  useEffect(() => {
+    if (pendingBoxStatus && pendingBoxStatus === box?.status) {
+      setPendingBoxStatus(null);
+    }
+  }, [box?.status, pendingBoxStatus]);
 
   useEffect(() => {
     if (activeInsightTab !== 'lineage' || !box?.id || lineageGraph || isLineageGraphLoading) {
@@ -2386,10 +2360,11 @@ function BoxPage({
   const lineage = getBoxLineage(box);
   const currentZone = getCurrentThermalZone(box, zones);
   const displayDate = getBoxDisplayDate(box, measurements);
-  const statusPresentation = getBoxStatusPresentation(box.status, language);
+  const effectiveBoxStatus = pendingBoxStatus ?? box.status;
+  const statusPresentation = getBoxStatusPresentation(effectiveBoxStatus, language);
   const canWriteLabData = userCanWriteLabData(profile, box.organization.id);
   const canChangeBoxStatus = userCanArchiveBox(profile, box.organization.id);
-  const isBoxActive = box.status === 'active';
+  const isBoxActive = effectiveBoxStatus === 'active';
   const canShowStatusButton = canChangeBoxStatus && ['active', 'archived'].includes(box.status);
 
   async function saveMeasurement(): Promise<boolean> {
@@ -2531,7 +2506,7 @@ function BoxPage({
 
   async function handleChangeBoxStatus() {
     if (!box || isChangingBoxStatus) return;
-    const isActivating = box.status === 'archived';
+    const isActivating = effectiveBoxStatus === 'archived';
     const confirmed = await confirmAction({
       title: t(isActivating ? 'confirmActivateBoxTitle' : 'confirmArchiveBoxTitle'),
       message: t(isActivating ? 'confirmActivateBoxMessage' : 'confirmArchiveBoxMessage'),
@@ -2546,6 +2521,7 @@ function BoxPage({
     if (!confirmed) return;
 
     setIsChangingBoxStatus(true);
+    setPendingBoxStatus(isActivating ? 'active' : 'archived');
     setStatusError(null);
     setStatusMessage(null);
 
@@ -2558,6 +2534,7 @@ function BoxPage({
         setStatusMessage(t('boxArchived'));
       }
     } catch (requestError) {
+      setPendingBoxStatus(null);
       if (requestError instanceof ApiError && requestError.status === 403) {
         setStatusError(t(isActivating ? 'boxActivateForbidden' : 'boxArchiveForbidden'));
       } else {
@@ -2611,8 +2588,8 @@ function BoxPage({
         {t('backToPilotage')}
       </button>
 
-      <header className={`box-sheet-hero is-status-${statusPresentation.tone}`}>
-        <div className="box-sheet-identity">
+      <header className={`entity-header entity-header--box box-sheet-hero is-status-${statusPresentation.tone}`}>
+        <div className="entity-header__identity box-sheet-identity">
           <div>
             <p className="box-page-label">{t('boxSheet')}</p>
             <div className="box-code-line">
@@ -2627,7 +2604,9 @@ function BoxPage({
               value={displayDate.date ? formatDisplayDate(displayDate.date) : t('noDate')}
             />
           </div>
+        </div>
 
+        <div className="box-header-tools">
           {qr && canWriteLabData ? (
             <button
               className="box-hero-qr"
@@ -2635,24 +2614,28 @@ function BoxPage({
               title={qr.scanUrl}
               onClick={() => setIsQrLabelOpen(true)}
             >
-              <img src={qr.imageUrl} alt={`${t('qrCode')} ${box.global_code}`} width={58} height={58} />
-              <span>{t('qrCode')}</span>
+              <QrLabel
+                altLabel={t('qrCode')}
+                item={buildQrLabelItem(box, qr.imageUrl)}
+                showMetadata={false}
+                variant="trigger"
+              />
             </button>
           ) : null}
+
+          <button
+            className={checkCount > 0 ? 'entity-header__alert box-alert-trigger' : 'entity-header__alert box-alert-trigger is-empty'}
+            type="button"
+            aria-label={`${t('boxChecksButton')} (${checkCount})`}
+            title={`${t('boxChecksButton')} (${checkCount})`}
+            onClick={() => setIsChecksOpen(true)}
+          >
+            <BellIcon />
+            <strong>{checkCount}</strong>
+          </button>
         </div>
 
-        <button
-          className={checkCount > 0 ? 'box-alert-trigger' : 'box-alert-trigger is-empty'}
-          type="button"
-          aria-label={`${t('boxChecksButton')} (${checkCount})`}
-          title={`${t('boxChecksButton')} (${checkCount})`}
-          onClick={() => setIsChecksOpen(true)}
-        >
-          <BellIcon />
-          <strong>{checkCount}</strong>
-        </button>
-
-        <div className="box-zone-summary">
+        <div className="entity-header__summary box-zone-summary">
           {box.thermal_zone ? (
             <button
               className="info-pill is-strong box-zone-link"
@@ -2672,7 +2655,7 @@ function BoxPage({
           <InfoPill label={t('temperatureShort')} value={formatTemperature(currentZone?.latest_temperature?.average_temperature_c)} />
         </div>
 
-        <div className="box-action-stack">
+        <div className="entity-header__actions box-action-stack">
           {canWriteLabData ? (
             <>
               <button className="move-trigger" type="button" onClick={() => setIsMoveOpen(true)}>
@@ -2710,7 +2693,8 @@ function BoxPage({
         <p className="inline-error box-action-feedback">{statusError}</p>
       ) : null}
 
-      <div className="box-page-grid">
+      <div className={`box-page-grid${!isBoxActive ? ' is-inactive' : ''}`}>
+        {isBoxActive ? (
         <section className={saveMessage ? 'last-reading-card is-fresh' : 'last-reading-card'}>
           <div>
             <h2>{t('lastMeasurement')}</h2>
@@ -2724,8 +2708,9 @@ function BoxPage({
             <p>{lastComment || t('noComment')}</p>
           </div>
         </section>
+        ) : null}
 
-        {canWriteLabData ? (
+        {isBoxActive && canWriteLabData ? (
           <section className="box-section measurement-form-section">
             <form className="fake-form" onSubmit={handleSubmit}>
               <div className="section-title">
@@ -2927,9 +2912,9 @@ function BoxPage({
             labels={getBoxInsightsLabels(t)}
             language={language}
             lineage={lineage}
+            locations={'locations' in box ? box.locations : []}
             measurements={measurements}
             movements={getBoxMovements(box)}
-            temperatureHistory={'temperature_history' in box ? box.temperature_history : []}
             onLoadLineageGraph={handleLoadLineageGraph}
             onOpenHistory={() => setIsHistoryOpen(true)}
             onSelectBox={onOpenBox}
@@ -3119,7 +3104,8 @@ function BoxChecksModal({
   const hasAlerts = activeAlerts.length > 0 || polypDropDetected;
 
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+    <ModalPortal>
+      <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <section
         className="box-checks-modal"
         role="dialog"
@@ -3188,8 +3174,9 @@ function BoxChecksModal({
           ) : null}
 
         </div>
-      </section>
-    </div>
+        </section>
+      </div>
+    </ModalPortal>
   );
 }
 
@@ -3273,6 +3260,7 @@ function getProfileLabels(t: TFunction) {
     logoutError: t('logoutError'),
     profileEmail: t('profileEmail'),
     profileLanguage: t('profileLanguage'),
+    profileAdminAction: t('profileAdminAction'),
     profileAdminTitle: t('profileAdminTitle'),
     profileAdminText: t('profileAdminText'),
     profileMemberships: t('profileMemberships'),
@@ -3748,7 +3736,7 @@ function getCurrentRoute(): RouteState {
   }
 
   if (path === '/administration') {
-    return { tab: 'profile', boxCode: null, boxId: null };
+    return { tab: 'admin', boxCode: null, boxId: null };
   }
 
   if (path === '/profile') {

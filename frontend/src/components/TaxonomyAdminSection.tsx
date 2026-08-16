@@ -480,7 +480,7 @@ function LocalizedFields({
         })}
       </div>
       <label>
-        <span>{t('taxonomyNameByLanguage')} · {active.label}</span>
+        <span>{t('taxonomyNameByLanguage')}: {active.label}</span>
         <input
           required={active.required}
           value={value.name}
@@ -489,7 +489,7 @@ function LocalizedFields({
         />
       </label>
       <label>
-        <span>{t('taxonomyDescriptionByLanguage')} · {active.label}</span>
+        <span>{t('taxonomyDescriptionByLanguage')}: {active.label}</span>
         <textarea
           rows={4}
           value={value.description}

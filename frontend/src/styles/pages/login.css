@@ -1,0 +1,112 @@
+.login-screen {
+  display: grid;
+  min-height: 100dvh;
+  padding: clamp(24px, 5vw, 72px);
+  place-items: center;
+  background: var(--color-page);
+}
+
+.login-content {
+  display: grid;
+  width: min(880px, 100%);
+  grid-template-columns: minmax(220px, .7fr) minmax(340px, 1fr);
+  align-items: center;
+  gap: clamp(32px, 7vw, 90px);
+}
+
+.login-brand {
+  display: grid;
+  align-content: center;
+  gap: var(--space-3);
+}
+
+.login-brand .brand-mark {
+  width: 62px;
+  height: 72px;
+}
+
+.login-brand strong {
+  font-size: 2.5rem;
+  font-style: italic;
+  line-height: 1;
+}
+
+.login-form {
+  display: grid;
+  padding: clamp(24px, 4vw, 42px);
+  gap: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-top: 4px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+}
+
+.login-form header {
+  margin-bottom: var(--space-2);
+}
+
+.login-form h1 {
+  margin-bottom: var(--space-2);
+  font-size: 2rem;
+}
+
+.login-form header p {
+  margin: 0;
+  color: var(--color-muted);
+}
+
+.login-form label {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.login-error,
+.login-success {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+}
+
+.login-error {
+  color: #8f3028;
+  background: var(--color-danger-soft);
+}
+
+.login-success {
+  color: #17673f;
+  background: var(--color-success-soft);
+}
+
+.login-link {
+  width: max-content;
+  color: var(--color-primary-hover);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.login-link:hover {
+  text-decoration: underline;
+}
+
+.login-submit {
+  min-height: var(--control-height);
+  color: #fff;
+  font-weight: 800;
+  background: var(--color-primary);
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.login-submit:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+@media (max-width: 759px) {
+  .login-screen { padding: var(--space-4); }
+  .login-content { grid-template-columns: 1fr; gap: var(--space-5); }
+  .login-brand { justify-items: center; text-align: center; }
+  .login-brand strong { font-size: 2rem; }
+  .login-form { padding: var(--space-5); }
+}

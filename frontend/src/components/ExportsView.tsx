@@ -4,6 +4,7 @@ import { line } from 'd3-shape';
 
 import { apiDownload, apiGet } from '../api/client';
 import type { ExportOptions } from '../types';
+import ModalPortal from './ModalPortal';
 import PageLoader from './PageLoader';
 
 type Language = 'fr' | 'en';
@@ -612,9 +613,7 @@ export default function ExportsView({
           {exportState.matchingBoxes.length ? (
             <p className="export-review-count">
               <strong>{exportState.matchingBoxes.length}</strong> {labels.boxesFound}
-              <span>·</span>
               <strong>{exportState.speciesCount}</strong> {labels.speciesFound}
-              <span>·</span>
               <strong>{exportState.organizationCount}</strong> {labels.organizationsFound}
             </p>
           ) : (
@@ -888,8 +887,8 @@ function buildPointTooltip(
       return `${getPreviewMetricLabel(drawn, language, labels)}: ${formatPreviewMetricValue(value, drawn)}`;
     })
     .filter((part): part is string => part !== null);
-  if (!parts.length) return `${week} · ${getNoMeasurementLabel(language)}`;
-  return `${week} · ${parts.join(' · ')}`;
+  if (!parts.length) return `${week}, ${getNoMeasurementLabel(language)}`;
+  return `${week}, ${parts.join(', ')}`;
 }
 
 function getPreviewMetricValue(point: ExportPreviewPoint | undefined, metric: PreviewMetric) {
@@ -951,8 +950,8 @@ function formatWeekDetail(label: string, language: Language) {
   const match = label.match(/^(\d{4})_S(\d{1,2})$/);
   if (!match) return label;
   return language === 'fr'
-    ? `Semaine ${match[2]} · ${match[1]}`
-    : `Week ${match[2]} · ${match[1]}`;
+    ? `Semaine ${match[2]} (${match[1]})`
+    : `Week ${match[2]} (${match[1]})`;
 }
 
 function isAbortError(error: unknown) {
@@ -979,7 +978,8 @@ function ExportChartsModal({
   onClose: () => void;
 }) {
   return (
-    <div className="modal-backdrop export-charts-backdrop" onMouseDown={onClose}>
+    <ModalPortal>
+      <div className="modal-backdrop export-charts-backdrop" onMouseDown={onClose}>
       <section
         className="export-charts-modal"
         role="dialog"
@@ -1012,8 +1012,9 @@ function ExportChartsModal({
             </article>
           ))}
         </div>
-      </section>
-    </div>
+        </section>
+      </div>
+    </ModalPortal>
   );
 }
 
@@ -1205,7 +1206,7 @@ function buildComparisonGroups(
         id: box.id,
         key: `box-${box.id}`,
         label: box.global_code,
-        detail: strain ? `${strain.species_name} · ${strain.code}` : box.local_code || '',
+        detail: strain ? `${strain.species_name}, ${strain.code}` : box.local_code || '',
         mode,
       };
     });

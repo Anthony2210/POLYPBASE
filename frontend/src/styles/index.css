@@ -1,0 +1,29 @@
+/* The layer order is the CSS contract. Specific pages build on shared components. */
+@layer tokens, base, layout, components, pages, responsive, print;
+
+@import './tokens.css' layer(tokens);
+@import './base.css' layer(base);
+@import './layout.css' layer(layout);
+@import './components/primitives.css' layer(components);
+@import './components/buttons.css' layer(components);
+@import './components/forms.css' layer(components);
+@import './components/tabs.css' layer(components);
+@import './components/modals.css' layer(components);
+@import './components/lab-dialogs.css' layer(components);
+@import './components/states.css' layer(components);
+@import './components/entity-header.css' layer(components);
+@import './components/qr-label.css' layer(components);
+@import './components/biological-trend-chart.css' layer(components);
+@import './components/chart-window-controls.css' layer(components);
+@import './pages/login.css' layer(pages);
+@import './pages/box-detail.css' layer(pages);
+@import './pages/box-insights.css' layer(pages);
+@import './pages/overview.css' layer(pages);
+@import './pages/pilotage.css' layer(pages);
+@import './pages/zones.css' layer(pages);
+@import './pages/exports-labels.css' layer(pages);
+@import './pages/profile.css' layer(pages);
+@import './pages/administration.css' layer(pages);
+@import './responsive/tablet.css' layer(responsive);
+@import './responsive/phone.css' layer(responsive);
+@import './responsive/print.css' layer(print);

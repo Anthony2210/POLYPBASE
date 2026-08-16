@@ -1,4 +1,32 @@
-type PageLoaderVariant = 'pilotage' | 'box' | 'zones' | 'zone' | 'exports' | 'admin' | 'profile';
+import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
+
+export type PageLoaderVariant =
+  | 'pilotage'
+  | 'overview'
+  | 'box'
+  | 'zones'
+  | 'zone'
+  | 'exports'
+  | 'labels'
+  | 'admin'
+  | 'profile';
+
+const LOADER_DELAY_MS = 140;
+
+function Block({ className = '' }: { className?: string }) {
+  return <span className={`loader-block ${className}`.trim()} />;
+}
+
+function Blocks({ count, className = '' }: { count: number; className?: string }) {
+  return Array.from({ length: count }, (_, index) => (
+    <span className={`loader-block ${className}`.trim()} key={index} />
+  ));
+}
+
+function Panel({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <div className={`loader-panel ${className}`.trim()}>{children}</div>;
+}
 
 export default function PageLoader({
   label = 'Chargement',
@@ -7,14 +35,23 @@ export default function PageLoader({
   label?: string;
   variant: PageLoaderVariant;
 }) {
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setIsVisible(true), LOADER_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   return (
     <section
-      className={`page-loader page-loader-${variant}`}
+      className={`page-loader page-loader-${variant}${isVisible ? ' is-visible' : ''}`}
       aria-busy="true"
       aria-live="polite"
     >
       <span className="sr-only">{label}</span>
-      {renderLoaderContent(variant)}
+      <div className="page-loader-content" aria-hidden="true">
+        {renderLoaderContent(variant)}
+      </div>
     </section>
   );
 }
@@ -24,114 +61,185 @@ function renderLoaderContent(variant: PageLoaderVariant) {
     case 'pilotage':
       return (
         <>
-          <div className="page-loader-search">
-            <span />
-            <strong />
+          <div className="loader-search">
+            <Block className="is-label" />
+            <Block className="is-input" />
           </div>
-          <div className="page-loader-strip">
-            {Array.from({ length: 5 }, (_, index) => <span key={index} />)}
+          <div className="loader-recent">
+            <Block className="is-heading" />
+            <div className="loader-strip"><Blocks count={5} /></div>
           </div>
-          <div className="page-loader-scan" aria-hidden="true">
-            <span />
+          <Block className="loader-scanner" />
+        </>
+      );
+
+    case 'overview':
+      return (
+        <>
+          <div className="loader-summary"><Blocks count={3} /></div>
+          <Panel className="loader-zone-filters">
+            <Block className="is-heading" />
+            <div className="loader-strip"><Blocks count={4} /></div>
+          </Panel>
+          <Panel className="loader-filter-bar"><Blocks count={4} /></Panel>
+          <div className="loader-overview-grid">
+            {Array.from({ length: 4 }, (_, index) => (
+              <div className="loader-panel loader-overview-card" key={index}>
+                <Block className="is-heading" />
+                <Block className="is-metric" />
+                <Block className="is-chart" />
+              </div>
+            ))}
           </div>
         </>
       );
+
     case 'box':
       return (
         <>
-          <div className="page-loader-hero">
-            <div>
-              <strong />
-              <span />
-              <span />
+          <Panel className="loader-entity-header">
+            <div className="loader-identity">
+              <Block className="is-label" />
+              <Block className="is-title" />
+              <Block className="is-text" />
+              <Block className="is-meta" />
             </div>
-            <div className="page-loader-qr" />
+            <Block className="loader-qr" />
+            <div className="loader-location">
+              <Block className="is-label" />
+              <Block className="is-heading" />
+              <div className="loader-metrics"><Blocks count={3} /></div>
+            </div>
+            <div className="loader-actions"><Blocks count={3} /></div>
+          </Panel>
+          <div className="loader-box-body">
+            <Panel className="loader-measurement-form">
+              <Block className="is-heading" />
+              <Block className="is-input-wide" />
+              <div className="loader-form-grid"><Blocks count={3} /></div>
+              <Block className="is-textarea" />
+              <Block className="is-button" />
+            </Panel>
+            <Panel className="loader-last-measurement">
+              <Block className="is-heading" />
+              <Blocks count={3} className="is-metric" />
+            </Panel>
           </div>
-          <div className="page-loader-body">
-            <div className="page-loader-form">
-              <span />
-              <strong />
-              <strong />
-              <button aria-hidden="true" type="button" />
-            </div>
-            <div className="page-loader-side">
-              <span />
-              <strong />
-              <strong />
-            </div>
-          </div>
+          <Panel className="loader-insights">
+            <Block className="is-tabs" />
+            <Block className="is-chart" />
+          </Panel>
         </>
       );
+
     case 'zones':
       return (
-        <>
-          <div className="page-loader-summary" />
-          <div className="page-loader-grid">
-            {Array.from({ length: 5 }, (_, index) => <span key={index} />)}
-          </div>
-        </>
+        <div className="loader-zones-grid">
+          {Array.from({ length: 6 }, (_, index) => (
+            <div className="loader-panel loader-zone-card" key={index}>
+              <Block className="is-heading" />
+              <Block className="is-text" />
+              <div className="loader-form-grid"><Blocks count={2} /></div>
+              <Block className="is-progress" />
+              <div className="loader-form-grid"><Blocks count={2} /></div>
+            </div>
+          ))}
+        </div>
       );
+
     case 'zone':
       return (
         <>
-          <div className="page-loader-hero is-zone">
-            <div>
-              <strong />
-              <span />
+          <Panel className="loader-zone-header">
+            <div className="loader-identity">
+              <Block className="is-label" />
+              <Block className="is-title" />
+              <Block className="is-text" />
             </div>
-            <div className="page-loader-metrics">
-              <span />
-              <span />
-              <span />
-            </div>
-          </div>
-          <div className="page-loader-thermal">
-            <span />
-            <strong />
-          </div>
-          <div className="page-loader-grid is-wide">
-            {Array.from({ length: 4 }, (_, index) => <span key={index} />)}
+            <div className="loader-summary"><Blocks count={5} /></div>
+          </Panel>
+          <Panel className="loader-thermal-chart">
+            <Block className="is-heading" />
+            <Block className="is-chart" />
+            <div className="loader-summary"><Blocks count={4} /></div>
+          </Panel>
+          <div className="loader-zone-body">
+            <Panel className="loader-list"><Blocks count={7} /></Panel>
+            <Panel className="loader-side-chart">
+              <Block className="is-heading" />
+              <Blocks count={5} className="is-bar" />
+            </Panel>
           </div>
         </>
       );
+
     case 'exports':
       return (
         <>
-          <div className="page-loader-export-head">
-            <span />
-            <span />
-          </div>
-          <div className="page-loader-chart">
-            <span />
-            <span />
-            <span />
-          </div>
+          <Panel className="loader-period">
+            <Block className="is-heading" />
+            <div className="loader-form-grid"><Blocks count={2} /></div>
+          </Panel>
+          <Panel className="loader-filter-list"><Blocks count={5} /></Panel>
+          <Panel className="loader-export-chart">
+            <Block className="is-heading" />
+            <Block className="is-chart" />
+          </Panel>
+          <Block className="loader-download" />
         </>
       );
+
+    case 'labels':
+      return (
+        <>
+          <Panel className="loader-label-toolbar">
+            <Block className="is-input-wide" />
+            <Block className="is-button" />
+          </Panel>
+          <Panel className="loader-label-list">
+            <Block className="is-input-wide" />
+            <div className="loader-label-grid"><Blocks count={9} /></div>
+          </Panel>
+          <Panel className="loader-sheet-preview">
+            <Block className="is-heading" />
+            <div className="loader-sheet"><Blocks count={12} /></div>
+          </Panel>
+        </>
+      );
+
     case 'admin':
       return (
         <>
-          <div className="page-loader-admin-table">
-            {Array.from({ length: 4 }, (_, index) => <span key={index} />)}
-          </div>
-          <div className="page-loader-grid">
-            {Array.from({ length: 2 }, (_, index) => <span key={index} />)}
-          </div>
+          <Block className="loader-admin-tabs" />
+          <div className="loader-summary"><Blocks count={4} /></div>
+          <Panel className="loader-admin-form">
+            <Block className="is-heading" />
+            <div className="loader-form-grid"><Blocks count={4} /></div>
+            <Block className="is-button" />
+          </Panel>
+          <Panel className="loader-table"><Blocks count={5} /></Panel>
         </>
       );
+
     case 'profile':
       return (
         <>
-          <div className="page-loader-profile">
-            <span />
-            <div>
-              <strong />
-              <small />
+          <Panel className="loader-profile-header">
+            <div className="loader-identity">
+              <Block className="is-label" />
+              <Block className="is-title" />
+              <Block className="is-text" />
             </div>
-          </div>
-          <div className="page-loader-grid">
-            {Array.from({ length: 2 }, (_, index) => <span key={index} />)}
-          </div>
+            <Block className="is-button" />
+          </Panel>
+          <Panel className="loader-organizations">
+            <Block className="is-heading" />
+            <div className="loader-strip"><Blocks count={3} /></div>
+          </Panel>
+          <Panel className="loader-preferences">
+            <Block className="is-heading" />
+            <Block className="is-input" />
+          </Panel>
         </>
       );
   }

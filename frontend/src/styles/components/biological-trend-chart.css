@@ -1,0 +1,554 @@
+.bio-trend {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-2);
+}
+
+.chart-periods {
+  display: inline-flex;
+  width: max-content;
+  min-width: 0;
+  padding: 3px;
+  align-items: center;
+  gap: 3px;
+  background: var(--color-surface-subtle);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-pill);
+}
+
+.chart-periods button {
+  min-width: 0;
+  min-height: 30px;
+  padding-inline: var(--space-3);
+  color: var(--color-muted);
+  font-size: .74rem;
+  font-weight: 800;
+  white-space: nowrap;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+
+.chart-periods button.is-active {
+  color: #fff;
+  background: var(--color-primary);
+}
+
+.bio-trend-heading {
+  display: flex;
+  min-height: 26px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.bio-trend-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.bio-trend-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-muted);
+  font-size: .76rem;
+  font-weight: 750;
+}
+
+.bio-trend-legend span::before {
+  width: 18px;
+  height: 3px;
+  content: '';
+  background: var(--series-color);
+  border-radius: var(--radius-pill);
+}
+
+.bio-trend-legend .is-polyps { --series-color: var(--color-primary); }
+.bio-trend-legend .is-ephyrae { --series-color: var(--color-ephyrae); }
+
+.bio-trend-legend .is-missing::before {
+  height: 8px;
+  background: repeating-linear-gradient(
+    135deg,
+    rgb(93 108 120 / 24%) 0 1px,
+    transparent 1px 4px
+  );
+  border: 1px solid rgb(93 108 120 / 22%);
+  border-radius: 2px;
+}
+
+.bio-trend.has-inline-detail .bio-trend-heading { min-height: 88px; }
+
+.bio-trend-readout {
+  display: grid;
+  min-width: 0;
+  width: 100%;
+  min-height: 88px;
+  grid-template-columns: minmax(170px, .62fr) minmax(0, 2.38fr);
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+  background: var(--color-surface);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 22%, var(--color-line));
+  border-left: 4px solid var(--color-primary);
+  border-radius: var(--radius-md);
+}
+
+.bio-trend-readout-header {
+  display: grid;
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  align-content: center;
+  gap: 5px;
+  background: var(--color-primary-faint);
+  border-right: 1px solid var(--color-line);
+}
+
+.bio-trend-readout-header span {
+  color: var(--color-primary-hover);
+  font-size: .66rem;
+  font-weight: 850;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.bio-trend-readout-header time {
+  min-width: 0;
+  color: var(--color-ink);
+  font-size: 1rem;
+  font-weight: 850;
+  line-height: 1.15;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.bio-trend-detail-values {
+  display: grid;
+  min-width: 0;
+  margin: 0;
+  grid-template-columns: repeat(5, minmax(90px, 1fr));
+  align-items: stretch;
+}
+
+.bio-trend-detail-values > div,
+.bio-trend-tooltip > span {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.bio-trend-detail-values > div {
+  --detail-accent: var(--color-muted);
+  padding: 11px 13px;
+  align-content: center;
+  background: transparent;
+  border-top: 2px solid transparent;
+  border-left: 1px solid var(--color-line-soft);
+  border-radius: 0;
+}
+
+.bio-trend-detail-values > .is-polyps {
+  --detail-accent: var(--color-primary);
+  border-top-color: var(--color-primary);
+}
+
+.bio-trend-detail-values > .is-ephyrae {
+  --detail-accent: var(--color-ephyrae);
+  border-top-color: var(--color-ephyrae);
+}
+
+.bio-trend-detail-values > .is-salinity { --detail-accent: var(--color-temperature); }
+.bio-trend-detail-values > .is-location { --detail-accent: var(--color-warning); }
+.bio-trend-detail-values > .is-user { --detail-accent: var(--color-success); }
+
+.bio-trend-detail-values dt,
+.bio-trend-tooltip small {
+  color: var(--color-muted);
+  font-size: .62rem;
+  font-weight: 750;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.bio-trend-detail-values dt {
+  display: block;
+  min-width: 0;
+  margin: 0;
+  line-height: 1.15;
+}
+
+.bio-trend-detail-values :is(.is-polyps, .is-ephyrae) dt { color: var(--detail-accent); }
+
+.bio-trend-detail-values dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: .9rem;
+  font-weight: 800;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bio-trend-detail-values :is(.is-polyps, .is-ephyrae) dd {
+  color: var(--detail-accent);
+  font-size: 1.28rem;
+}
+
+.bio-trend-detail-values > .is-note {
+  grid-column: 1 / -1;
+  padding-block: 9px;
+  background: var(--color-surface-subtle);
+  border-top: 1px solid var(--color-line-soft);
+}
+
+.bio-trend-detail-values > .is-note dd {
+  font-size: .8rem;
+  font-weight: 650;
+  line-height: 1.35;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.bio-trend-canvas {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.bio-trend svg {
+  display: block;
+  width: 100%;
+  min-height: 240px;
+  overflow: visible;
+}
+
+.bio-trend.is-compact svg {
+  height: auto;
+  min-height: 0;
+  aspect-ratio: 640 / 238;
+}
+
+.bio-trend-location-band rect { fill: var(--zone-band-color); }
+
+.bio-trend-location-band line {
+  stroke: var(--zone-border-color);
+  stroke-width: .8;
+  opacity: .55;
+}
+
+.bio-trend-location-band text {
+  fill: var(--zone-text-color);
+  font-size: .78rem;
+  font-weight: 800;
+}
+
+:where(.bio-trend-axis, .bio-trend-grid) {
+  stroke: var(--color-line);
+  stroke-width: 1;
+}
+
+.bio-trend-grid { stroke-dasharray: 4 6; }
+
+.bio-trend-time-tick {
+  pointer-events: none;
+}
+
+.bio-trend-time-tick line {
+  stroke: color-mix(in srgb, var(--color-line) 64%, transparent);
+  stroke-width: .7;
+}
+
+.bio-trend-time-tick text {
+  fill: var(--color-muted);
+  font-family: inherit;
+  font-size: .54rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+
+.bio-trend-line {
+  fill: none;
+  stroke: var(--series-color);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.bio-trend-line.is-polyps,
+.bio-trend-dot.is-polyps { --series-color: var(--color-primary); }
+
+.bio-trend-line.is-ephyrae,
+.bio-trend-dot.is-ephyrae { --series-color: var(--color-ephyrae); }
+
+.bio-trend-dot {
+  fill: var(--color-surface);
+  stroke: var(--series-color);
+  stroke-width: 1.8;
+  transition: r var(--transition-fast), stroke-width var(--transition-fast), filter var(--transition-fast);
+}
+
+.bio-trend-measurement:focus { outline: none; }
+.bio-trend-measurement:is(:hover, :focus) .bio-trend-dot {
+  filter: drop-shadow(0 2px 4px rgb(16 25 35 / 24%));
+}
+
+.bio-trend-measurement.is-selected .bio-trend-dot {
+  stroke-width: 2.4;
+  filter: drop-shadow(0 1px 3px rgb(16 25 35 / 22%));
+}
+
+.bio-trend-measurement:focus-visible .bio-trend-dot {
+  stroke-width: 2.8;
+}
+
+.bio-trend-overflow {
+  fill: var(--series-color);
+  stroke: var(--color-surface);
+  stroke-width: .8;
+  pointer-events: none;
+}
+
+.bio-trend-overflow.is-polyps { --series-color: var(--color-primary); }
+.bio-trend-overflow.is-ephyrae { --series-color: var(--color-ephyrae); }
+
+.bio-trend-selection-guide {
+  stroke: color-mix(in srgb, var(--color-ink) 52%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+  pointer-events: none;
+}
+
+.bio-trend-hit-area {
+  fill: transparent;
+  cursor: pointer;
+}
+
+.bio-trend-missing-pattern-fill { fill: color-mix(in srgb, var(--color-surface) 48%, transparent); }
+
+.bio-trend-missing-pattern-line {
+  stroke: color-mix(in srgb, var(--color-muted) 38%, transparent);
+  stroke-width: 1;
+}
+
+.bio-trend-missing-range rect { opacity: 1; }
+
+.bio-trend-missing-boundary {
+  stroke: color-mix(in srgb, var(--color-muted) 68%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 4 5;
+  pointer-events: none;
+}
+
+.bio-trend-missing-separator {
+  stroke: color-mix(in srgb, var(--color-muted) 58%, transparent);
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+.bio-trend-missing-label {
+  fill: color-mix(in srgb, var(--color-muted) 92%, var(--color-ink));
+  font-family: inherit;
+  font-size: .58rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.bio-trend-missing-dates {
+  fill: var(--color-muted);
+  font-size: .5rem;
+  font-weight: 650;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.bio-trend-event { cursor: pointer; }
+.bio-trend-event:focus { outline: none; }
+.bio-trend-event line {
+  stroke: rgb(16 25 35 / 30%);
+  stroke-width: 1;
+  stroke-dasharray: 4 5;
+}
+
+.bio-trend-event path {
+  fill: var(--color-surface);
+  stroke: var(--color-ink);
+  stroke-width: 2;
+}
+
+.bio-trend-event.is-subculture path { stroke: var(--color-ephyrae); }
+
+.bio-trend-event.is-movement line {
+  stroke: var(--color-danger);
+  stroke-width: 1.8;
+  stroke-dasharray: none;
+}
+
+.bio-trend-event.is-movement path {
+  fill: var(--color-danger);
+  stroke: var(--color-surface);
+  stroke-width: 1.5;
+}
+
+.bio-trend-event-label {
+  fill: var(--color-danger);
+  font-size: .56rem;
+  font-weight: 850;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+:where(.bio-trend-label, .bio-trend-y-label, .bio-trend-empty) {
+  fill: var(--color-muted);
+  font-family: inherit;
+  font-size: .64rem;
+  font-weight: 650;
+}
+
+.bio-trend-label.is-end,
+.bio-trend-y-label { text-anchor: end; }
+
+.bio-trend-empty {
+  font-size: .76rem;
+  font-style: italic;
+  font-weight: 700;
+  text-anchor: middle;
+}
+
+.bio-trend-tooltip {
+  position: absolute;
+  z-index: 3;
+  display: grid;
+  width: max-content;
+  min-width: 150px;
+  max-width: min(240px, calc(100% - 24px));
+  padding: var(--space-2) var(--space-3);
+  gap: 3px;
+  color: var(--color-ink);
+  font-size: .78rem;
+  background: var(--color-surface);
+  border: 2px solid var(--color-ink);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-float);
+  pointer-events: none;
+}
+
+.bio-trend-tooltip.is-above {
+  transform: translate(-50%, -100%);
+}
+
+.bio-trend-tooltip.is-below {
+  transform: translate(-50%, 12px);
+}
+
+.bio-trend-tooltip > strong { color: var(--color-primary-hover); }
+.bio-trend-tooltip span { color: var(--color-muted); font-weight: 650; }
+.bio-trend-tooltip span strong { color: var(--color-ink); }
+
+.bio-trend-legend .is-overflow::before {
+  width: 0;
+  height: 0;
+  background: transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 8px solid var(--color-ink);
+  border-left: 5px solid transparent;
+  border-radius: 0;
+}
+
+.bio-trend.is-compact {
+  min-height: 270px;
+  align-self: end;
+  gap: 2px;
+}
+
+.bio-trend.is-compact .bio-trend-heading { min-height: auto; }
+
+.bio-trend.is-compact .bio-trend-readout {
+  min-height: 62px;
+  grid-template-columns: minmax(112px, .42fr) minmax(0, 1.58fr);
+}
+
+.bio-trend.is-compact .bio-trend-readout-header { padding: 8px 10px; }
+.bio-trend.is-compact .bio-trend-readout-header span { font-size: .58rem; }
+.bio-trend.is-compact .bio-trend-readout-header time { font-size: .88rem; }
+
+.bio-trend.is-compact .bio-trend-detail-values {
+  grid-template-columns: minmax(62px, .68fr) minmax(66px, .72fr) minmax(118px, 1.6fr);
+}
+
+.bio-trend.is-compact .bio-trend-detail-values > div { padding: 7px 8px; }
+.bio-trend.is-compact .bio-trend-detail-values dd { font-size: .82rem; }
+.bio-trend.is-compact .bio-trend-detail-values :is(.is-polyps, .is-ephyrae) dd { font-size: 1.05rem; }
+
+.bio-trend.is-compact .bio-trend-location-band text,
+.bio-trend.is-compact .bio-trend-label,
+.bio-trend.is-compact .bio-trend-y-label {
+  font-size: .62rem;
+}
+
+.bio-trend.is-compact .bio-trend-line {
+  stroke-width: 2.2;
+}
+
+.bio-trend.is-compact .bio-trend-dot {
+  stroke-width: 1.9;
+}
+
+.bio-trend.is-compact .bio-trend-location-band text {
+  font-weight: 850;
+}
+
+.bio-trend.is-compact .bio-trend-grid {
+  stroke-dasharray: 5 7;
+}
+
+.bio-trend.is-compact .bio-trend-canvas {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+@media (max-width: 759px), (max-width: 900px) and (orientation: portrait) {
+  .chart-periods {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .chart-periods button { flex: 1 0 auto; }
+  .bio-trend-heading { align-items: flex-start; }
+  .bio-trend.has-inline-detail .bio-trend-heading {
+    min-height: auto;
+    flex-direction: column;
+  }
+
+  .bio-trend-readout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .bio-trend-readout-header {
+    padding: 10px 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-line);
+  }
+  .bio-trend-detail-values { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bio-trend-detail-values > div:nth-child(n + 3):not(.is-note) { border-top-color: var(--color-line-soft); }
+  .bio-trend-detail-values > div:nth-child(odd) { border-left: 0; }
+  .bio-trend-detail-values > .is-note { grid-column: 1 / -1; }
+  .bio-trend.is-compact .bio-trend-heading { min-height: auto; }
+  .bio-trend.is-compact .bio-trend-readout { grid-template-columns: minmax(0, 1fr); }
+  .bio-trend.is-compact .bio-trend-detail-values { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bio-trend.is-compact .bio-trend-detail-values > .is-location { grid-column: 1 / -1; }
+  .bio-trend-canvas { overflow-x: auto; }
+  .bio-trend:not(.is-compact) svg { width: 640px; min-width: 640px; }
+  .bio-trend-tooltip { max-width: min(220px, calc(100% - 20px)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bio-trend-dot { transition: none; }
+}
