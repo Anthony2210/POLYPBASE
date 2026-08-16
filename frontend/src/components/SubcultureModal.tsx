@@ -6,6 +6,7 @@ import type {
   SubculturePayload,
   ThermalZone,
 } from '../types';
+import ModalPortal from './ModalPortal';
 
 type Language = 'fr' | 'en';
 
@@ -124,7 +125,8 @@ export default function SubcultureModal({
   }
 
   return (
-    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+    <ModalPortal>
+      <div className="modal-backdrop" role="presentation" onClick={onClose}>
       <section
         className="subculture-modal"
         role="dialog"
@@ -134,7 +136,7 @@ export default function SubcultureModal({
       >
         <header className="subculture-heading">
           <div>
-            <p>{text.parent} · {box.global_code}</p>
+            <p>{text.parent}: {box.global_code}</p>
             <h2 id="subculture-title">{text.title}</h2>
           </div>
           <button type="button" aria-label={text.cancel} title={text.cancel} onClick={onClose}>
@@ -241,8 +243,9 @@ export default function SubcultureModal({
             </button>
           </footer>
         </form>
-      </section>
-    </div>
+        </section>
+      </div>
+    </ModalPortal>
   );
 }
 

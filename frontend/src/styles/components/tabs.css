@@ -1,0 +1,32 @@
+.segmented-control,
+.insight-tabs,
+.zone-filter-tabs {
+  display: inline-flex;
+  min-height: 42px;
+  padding: 3px;
+  align-items: center;
+  gap: 2px;
+  background: var(--color-surface-subtle);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-pill);
+}
+
+.segmented-control button,
+.insight-tabs button,
+.zone-filter-tabs button {
+  min-height: 34px;
+  padding: 0 var(--space-4);
+  color: var(--color-muted);
+  font-weight: 700;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+
+.segmented-control button.is-active,
+.insight-tabs button.is-active,
+.zone-filter-tabs button.is-active {
+  color: #fff;
+  background: var(--color-primary);
+}

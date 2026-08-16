@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "vite",
     "dev:lan": "vite --host 0.0.0.0",
+    "check:css": "node scripts/check-css.mjs",
     "typecheck": "tsc --noEmit",
-    "build": "tsc --noEmit && vite build",
+    "build": "npm run check:css && tsc --noEmit && vite build",
     "preview": "vite preview"
   },
   "dependencies": {

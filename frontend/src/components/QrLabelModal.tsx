@@ -5,6 +5,8 @@ import {
   printQrLabels,
   type QrLabelItem,
 } from '../utils/qrLabels';
+import ModalPortal from './ModalPortal';
+import QrLabel from './QrLabel';
 
 type QrLabelModalLabels = {
   addToSelection: string;
@@ -40,7 +42,8 @@ export default function QrLabelModal({
   const isSelected = selectedLabels.some((item) => item.id === label.id);
 
   return (
-    <div className="modal-backdrop qr-print-backdrop" role="presentation" onClick={onClose}>
+    <ModalPortal>
+      <div className="modal-backdrop qr-print-backdrop" role="presentation" onClick={onClose}>
       <section
         className="qr-label-modal"
         role="dialog"
@@ -58,16 +61,12 @@ export default function QrLabelModal({
           </button>
         </header>
 
-        <div className="qr-label-print-sheet">
-          <div className="qr-label-code">
-            <img src={label.qrImageUrl} alt={`${labels.qrCode} ${label.globalCode}`} />
-          </div>
-
-          <div className="qr-label-main">
-            <strong>{label.globalCode}</strong>
-            <span>{label.speciesName}</span>
-          </div>
-        </div>
+        <QrLabel
+          altLabel={labels.qrCode}
+          className="qr-label-print-sheet"
+          item={label}
+          variant="full"
+        />
 
         <section className="qr-label-selection-panel">
           <div>
@@ -97,7 +96,8 @@ export default function QrLabelModal({
             {labels.print}
           </button>
         </footer>
-      </section>
-    </div>
+        </section>
+      </div>
+    </ModalPortal>
   );
 }

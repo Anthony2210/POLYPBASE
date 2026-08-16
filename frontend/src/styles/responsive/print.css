@@ -1,0 +1,72 @@
+@media print {
+  @page {
+    margin: 8mm;
+  }
+
+  .sidebar,
+  .page-heading,
+  .text-button,
+  button:not(.print-keep),
+  .no-print {
+    display: none !important;
+  }
+
+  .app-shell,
+  .workspace,
+  .workspace-page {
+    display: block;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: #fff;
+  }
+
+  * {
+    box-shadow: none !important;
+  }
+
+  body:has(.qr-print-backdrop) * {
+    visibility: hidden !important;
+  }
+
+  :where(.qr-label-print-sheet, .qr-label-print-sheet *) {
+    visibility: visible !important;
+  }
+
+  .qr-print-backdrop,
+  .qr-label-modal {
+    position: static;
+    display: block;
+    width: auto;
+    padding: 0;
+    background: white;
+  }
+
+  :where(.qr-label-modal-heading, .qr-label-selection-panel, .qr-label-modal-actions) {
+    display: none !important;
+  }
+
+  .qr-label-print-sheet {
+    --qr-label-image-size: 31mm;
+    --qr-label-padding: 3.5mm;
+    position: fixed;
+    inset: 0 auto auto 0;
+    width: 50mm;
+    min-height: 50mm;
+    border: 0.4mm solid #000;
+    border-radius: 3mm;
+    print-color-adjust: exact;
+  }
+
+  .qr-label-print-sheet .qr-label__metadata {
+    gap: 0.8mm;
+  }
+
+  .qr-label-print-sheet .qr-label__metadata strong {
+    font-size: 9.2pt;
+  }
+
+  .qr-label-print-sheet .qr-label__metadata small {
+    font-size: 6.2pt;
+  }
+}

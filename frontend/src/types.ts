@@ -107,6 +107,7 @@ export type OverviewBox = {
     id: number;
     name: string;
   } | null;
+  locations: BoxLocation[];
   measurements: OverviewMeasurementPoint[];
   temperatures: OverviewTemperaturePoint[];
 };

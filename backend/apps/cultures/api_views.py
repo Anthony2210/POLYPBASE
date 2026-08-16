@@ -490,9 +490,19 @@ class OverviewActiveBoxesAPIView(APIView):
         months = self._get_months(request)
         start_date = timezone.localdate() - timedelta(days=months * 31)
         organization_ids = get_active_organization_ids(request)
+        location_history = (
+            BoxLocation.objects.filter(
+                Q(ends_at__isnull=True) | Q(ends_at__date__gte=start_date)
+            )
+            .select_related("thermal_zone")
+            .order_by("starts_at")
+        )
         boxes = list(
             box_list_queryset_for_user(request.user, organization_ids=organization_ids)
             .filter(status=Box.Status.ACTIVE)
+            .prefetch_related(
+                Prefetch("locations", queryset=location_history, to_attr="overview_locations")
+            )
             .order_by("strain__species__scientific_name", "global_code")
         )
         box_ids = [box.id for box in boxes]
@@ -576,6 +586,19 @@ class OverviewActiveBoxesAPIView(APIView):
                 if box.thermal_zone
                 else None
             ),
+            "locations": [
+                {
+                    "id": location.id,
+                    "thermal_zone": {
+                        "id": location.thermal_zone.id,
+                        "name": location.thermal_zone.name,
+                    },
+                    "starts_at": location.starts_at.isoformat(),
+                    "ends_at": location.ends_at.isoformat() if location.ends_at else None,
+                    "notes": location.notes,
+                }
+                for location in box.overview_locations
+            ],
             "measurements": measurements,
             "temperatures": temperatures,
         }

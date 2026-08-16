@@ -1,0 +1,238 @@
+.app-shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  min-height: 100dvh;
+  background: var(--color-page);
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  min-width: 0;
+  height: 100dvh;
+  padding: var(--space-6) var(--space-4);
+  flex-direction: column;
+  gap: var(--space-6);
+  overflow: visible;
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-line);
+}
+
+.brand-switcher {
+  position: relative;
+}
+
+.brand-block {
+  display: grid;
+  width: 100%;
+  min-height: 48px;
+  padding: 0;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+  text-align: left;
+  color: var(--color-ink);
+  background: transparent;
+  border: 0;
+}
+
+.brand-block.is-clickable {
+  cursor: pointer;
+}
+
+.brand-mark {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+}
+
+.brand-mark img {
+  display: block;
+  width: 28px;
+  height: 34px;
+  object-fit: contain;
+}
+
+.brand-block .eyebrow {
+  margin: 0 0 2px;
+  color: var(--color-muted);
+  font-size: 0.7rem;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.brand-block strong {
+  display: block;
+  overflow: hidden;
+  font-size: 0.92rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tabbar {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.workspace {
+  min-width: 0;
+  padding: var(--space-8) clamp(24px, 4vw, 56px) var(--space-10);
+}
+
+.page-heading,
+.workspace-page {
+  width: min(var(--content-max), 100%);
+  margin-inline: auto;
+}
+
+.page-heading h1 {
+  margin-bottom: var(--space-6);
+}
+
+.workspace-page {
+  animation: workspace-enter var(--transition-page) both;
+}
+
+@keyframes workspace-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.organization-menu {
+  position: absolute;
+  z-index: 80;
+  top: calc(100% + 8px);
+  left: 0;
+  width: min(310px, calc(100vw - 32px));
+  padding: var(--space-2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+}
+
+.organization-menu-title {
+  margin: var(--space-2);
+  color: var(--color-muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.organization-menu > button {
+  display: flex;
+  width: 100%;
+  min-height: 48px;
+  padding: var(--space-2) var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.organization-menu > button:hover,
+.organization-menu > button.is-active {
+  background: var(--color-primary-soft);
+}
+
+.organization-menu strong,
+.organization-menu small {
+  display: block;
+}
+
+.organization-menu small {
+  color: var(--color-muted);
+}
+
+.organization-menu > button > span:last-child {
+  flex: 0 0 auto;
+  color: var(--color-primary-hover);
+  font-size: .72rem;
+  font-weight: 800;
+}
+
+.organization-choice-panel {
+  display: grid;
+  width: min(680px, 100%);
+  padding: var(--space-8);
+  gap: var(--space-5);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+}
+
+.organization-choice-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.organization-choice-brand h1 {
+  margin: 0;
+  font-size: 1.65rem;
+}
+
+.organization-choice-intro {
+  margin: 0;
+  color: var(--color-muted);
+}
+
+.organization-choice-list {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.organization-choice-card {
+  display: flex;
+  width: 100%;
+  min-height: 68px;
+  padding: var(--space-3) var(--space-4);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  text-align: left;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.organization-choice-card:hover {
+  background: var(--color-primary-faint);
+  border-color: var(--color-primary);
+}
+
+.organization-choice-card :is(strong, small) {
+  display: block;
+}
+
+.organization-choice-card small {
+  color: var(--color-muted);
+}
+
+.organization-choice-card > span:last-child {
+  color: var(--color-primary-hover);
+  font-weight: 800;
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: .7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}

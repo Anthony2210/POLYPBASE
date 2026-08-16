@@ -1,0 +1,188 @@
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  padding: var(--space-5);
+  place-items: center;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: rgb(236 243 247 / 78%);
+  backdrop-filter: blur(3px);
+}
+
+:where(
+  .history-modal,
+  .lineage-modal,
+  .subculture-modal,
+  .move-modal,
+  .zone-management-modal,
+  .box-checks-modal,
+  .zone-alerts-modal
+) {
+  width: min(100%, 960px);
+  min-width: 0;
+  max-height: calc(100dvh - 2 * var(--space-5));
+  overflow: hidden;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+}
+
+.modal-heading {
+  display: flex;
+  min-height: 68px;
+  padding: var(--space-4) var(--space-5);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.modal-heading :is(h2, p) { margin: 0; }
+
+.modal-heading h2 {
+  font-size: 1.1rem;
+  font-style: italic;
+}
+
+.modal-heading :is(p, span),
+.modal-kicker {
+  color: var(--color-muted);
+  font-size: .78rem;
+}
+
+.confirm-action-backdrop {
+  background: rgb(236 243 247 / 82%);
+}
+
+.confirm-action-modal {
+  width: min(520px, 100%);
+  min-width: 0;
+  max-height: calc(100dvh - 2 * var(--space-5));
+  overflow: auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+}
+
+.confirm-action-heading {
+  display: grid;
+  padding: var(--space-5);
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.confirm-action-heading :is(p, h2) { margin: 0; }
+
+.confirm-action-heading p {
+  margin-bottom: var(--space-1);
+  color: var(--color-muted);
+  font-size: .72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.confirm-action-heading h2 {
+  font-size: 1.35rem;
+  font-style: italic;
+  line-height: 1.1;
+}
+
+.confirm-action-mark {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  color: var(--color-primary-hover);
+  font-weight: 850;
+  background: var(--color-primary-soft);
+  border-radius: var(--radius-md);
+}
+
+.confirm-action-modal.is-warning .confirm-action-mark {
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+
+.confirm-action-modal.is-danger .confirm-action-mark {
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+
+.confirm-action-message {
+  margin: 0;
+  padding: var(--space-4) var(--space-5) 0;
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+
+.confirm-action-details {
+  display: grid;
+  margin: var(--space-4) var(--space-5) 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.confirm-action-details div {
+  min-width: 0;
+  padding: var(--space-3);
+  background: var(--color-surface-info);
+  border: 1px solid var(--color-line-soft);
+  border-radius: var(--radius-sm);
+}
+
+.confirm-action-details dt {
+  margin-bottom: var(--space-1);
+  color: var(--color-muted);
+  font-size: .76rem;
+  font-weight: 700;
+}
+
+.confirm-action-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-weight: 800;
+}
+
+.confirm-action-footer {
+  display: flex;
+  padding: var(--space-5);
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.confirm-action-submit.is-warning {
+  color: #fff;
+  background: var(--color-warning);
+  border-color: var(--color-warning);
+}
+
+.confirm-action-submit.is-danger {
+  color: #fff;
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+@media (max-width: 559px) {
+  .modal-backdrop { padding: var(--space-3); }
+
+  .confirm-action-heading {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .confirm-action-mark { display: none; }
+  .confirm-action-details { grid-template-columns: 1fr; }
+
+  .confirm-action-footer {
+    flex-direction: column-reverse;
+  }
+
+  .confirm-action-footer button { width: 100%; }
+}

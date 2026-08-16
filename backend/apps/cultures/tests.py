@@ -135,6 +135,11 @@ class PolypbaseApiTests(TestCase):
             polyp_count=30,
             user=self.user,
         )
+        BoxLocation.objects.create(
+            box=app_tracked_box,
+            thermal_zone=self.zone,
+            starts_at=timezone.now() - timedelta(days=10),
+        )
 
         response = self.client.get(reverse("api_overview_active_boxes"))
 
@@ -142,6 +147,10 @@ class PolypbaseApiTests(TestCase):
         boxes_by_code = {box["global_code"]: box for box in response.json()["results"]}
         self.assertFalse(boxes_by_code[self.box.global_code]["tracked_in_app"])
         self.assertTrue(boxes_by_code[app_tracked_box.global_code]["tracked_in_app"])
+        self.assertEqual(
+            boxes_by_code[app_tracked_box.global_code]["locations"][0]["thermal_zone"]["name"],
+            self.zone.name,
+        )
 
     def test_lab_technician_can_create_box_directly(self):
         self.client.login(username="tech", password="secret")

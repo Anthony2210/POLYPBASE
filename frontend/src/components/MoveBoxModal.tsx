@@ -1,6 +1,7 @@
 import { type FormEvent, useMemo, useState } from 'react';
 
 import type { BoxDetail, BoxItem, BoxLocation, BoxMovePayload, ThermalZone } from '../types';
+import ModalPortal from './ModalPortal';
 
 type Language = 'fr' | 'en';
 
@@ -87,7 +88,8 @@ export default function MoveBoxModal({
   }
 
   return (
-    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+    <ModalPortal>
+      <div className="modal-backdrop" role="presentation" onClick={onClose}>
       <section
         className="move-modal"
         role="dialog"
@@ -97,7 +99,7 @@ export default function MoveBoxModal({
       >
         <header className="subculture-heading">
           <div>
-            <p>{text.box} · {box.global_code}</p>
+            <p>{text.box}: {box.global_code}</p>
             <h2 id="move-title">{text.title}</h2>
           </div>
           <button type="button" aria-label={text.cancel} title={text.cancel} onClick={onClose}>
@@ -176,8 +178,9 @@ export default function MoveBoxModal({
             </button>
           </footer>
         </form>
-      </section>
-    </div>
+        </section>
+      </div>
+    </ModalPortal>
   );
 }
 

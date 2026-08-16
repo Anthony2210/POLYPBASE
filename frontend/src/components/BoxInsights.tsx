@@ -1,24 +1,36 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { scaleLinear, scaleTime } from 'd3-scale';
-import { line } from 'd3-shape';
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 
 import type {
   BiologicalMeasurement,
+  BoxLocation,
   BoxLineage,
   BoxMovement,
-  BoxTemperaturePoint,
   LineageGraph,
 } from '../types';
 import { formatDisplayDate } from '../utils/dateFormat';
+import { buildChartWindow } from '../utils/chartWindow';
+import BiologicalTrendChart, {
+  type TrendEvent,
+  type TrendLocation,
+  type TrendMeasurement,
+} from './BiologicalTrendChart';
+import ChartWindowControls from './ChartWindowControls';
+import ModalPortal from './ModalPortal';
 
 const InteractiveLineageGraph = lazy(() => import('./InteractiveLineageGraph'));
 
 export type BoxInsightTab = 'measurements' | 'movements' | 'lineage';
 
 type Language = 'fr' | 'en';
-type PeriodId = '1m' | '3m' | '6m' | '12m';
-type SeriesId = 'polyps' | 'ephyrae' | 'temperature' | 'events';
 
 type BoxInsightsLabels = {
   chartEmpty: string;
@@ -71,20 +83,6 @@ type LifecycleEvent = {
   detail: string;
 };
 
-type ChartTooltip = {
-  left: number;
-  top: number;
-  title: string;
-  lines: string[];
-};
-
-const PERIODS: Array<{ id: PeriodId; days: number | null; labelKey: keyof BoxInsightsLabels }> = [
-  { id: '1m', days: 31, labelKey: 'oneMonth' },
-  { id: '3m', days: 92, labelKey: 'threeMonths' },
-  { id: '6m', days: 184, labelKey: 'sixMonths' },
-  { id: '12m', days: 365, labelKey: 'oneYear' },
-];
-
 export default function BoxInsights({
   activeTab,
   graph,
@@ -95,7 +93,7 @@ export default function BoxInsights({
   lineage,
   measurements,
   movements,
-  temperatureHistory,
+  locations,
   onLoadLineageGraph,
   onOpenHistory,
   onSelectBox,
@@ -110,7 +108,7 @@ export default function BoxInsights({
   lineage: BoxLineage;
   measurements: BiologicalMeasurement[];
   movements: BoxMovement[];
-  temperatureHistory: BoxTemperaturePoint[];
+  locations: BoxLocation[];
   onLoadLineageGraph: () => void;
   onOpenHistory: () => void;
   onSelectBox: (boxId: number, globalCode: string) => void;
@@ -146,15 +144,13 @@ export default function BoxInsights({
 
       {activeTab === 'measurements' ? (
         <div className="insight-panel">
-          <div className="insight-heading">
-            <h2>{labels.chartTitle}</h2>
-            <button type="button" onClick={onOpenHistory}>{labels.historyButton}</button>
-          </div>
-          <MeasurementTrendChart
+          <SharedMeasurementTrendChart
             events={lifecycleEvents}
             labels={labels}
+            language={language}
+            locations={locations}
             measurements={measurements}
-            temperatureHistory={temperatureHistory}
+            onOpenHistory={onOpenHistory}
           />
         </div>
       ) : null}
@@ -202,377 +198,150 @@ export default function BoxInsights({
   );
 }
 
-function MeasurementTrendChart({
+function SharedMeasurementTrendChart({
   events,
   labels,
+  language,
+  locations,
   measurements,
-  temperatureHistory,
+  onOpenHistory,
 }: {
   events: LifecycleEvent[];
   labels: BoxInsightsLabels;
+  language: Language;
+  locations: BoxLocation[];
   measurements: BiologicalMeasurement[];
-  temperatureHistory: BoxTemperaturePoint[];
+  onOpenHistory: () => void;
 }) {
-  const [period, setPeriod] = useState<PeriodId>('6m');
-  const [visibleSeries, setVisibleSeries] = useState<Record<SeriesId, boolean>>({
-    polyps: true,
-    ephyrae: true,
-    temperature: true,
-    events: true,
-  });
-  const [tooltip, setTooltip] = useState<ChartTooltip | null>(null);
-
+  const [windowOffset, setWindowOffset] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragOrigin = useRef<number | null>(null);
+  const didDrag = useRef(false);
+  const timelineKey = useMemo(
+    () => [
+      measurements.length,
+      measurements[0]?.measured_on,
+      measurements[measurements.length - 1]?.measured_on,
+      locations.length,
+      events.length,
+    ].join('-'),
+    [events.length, locations.length, measurements],
+  );
   const preparedData = useMemo(
-    () => prepareChartData(measurements, temperatureHistory, events, period),
-    [measurements, temperatureHistory, events, period],
+    () => prepareSharedChartData(measurements, locations, events, windowOffset),
+    [events, locations, measurements, windowOffset],
   );
 
-  const chartGeometry = useMemo(() => {
-    const width = 860;
-    const countHeight = 250;
-    const countPadding = { top: 30, right: 58, bottom: 34, left: 44 };
-    const xScale = scaleTime()
-      .domain([preparedData.startDate, preparedData.endDate])
-      .range([countPadding.left, width - countPadding.right]);
-    const maxCount = Math.max(
-      1,
-      ...preparedData.measurements.flatMap((measurement) => [
-        measurement.polyp_count,
-        measurement.ephyrae_count,
-      ]),
-    );
-    const yCount = scaleLinear()
-      .domain([0, maxCount])
-      .nice()
-      .range([countHeight - countPadding.bottom, countPadding.top]);
-    const temperatureValues = preparedData.temperatures.map((point) => point.average_temperature_c);
-    const minTemperature = temperatureValues.length ? Math.min(...temperatureValues) : 0;
-    const maxTemperature = temperatureValues.length ? Math.max(...temperatureValues) : 1;
-    const temperatureDomainMin = Math.floor(minTemperature - 0.5);
-    const temperatureDomainMax = Math.ceil(maxTemperature + 0.5);
-    const yTemperature = scaleLinear()
-      .domain([temperatureDomainMin, temperatureDomainMax])
-      .range([countHeight - countPadding.bottom, countPadding.top]);
-    const xPosition = (date: string) => xScale(parseChartDate(date));
-    const measurementSegments = splitMeasurementsOnGaps(preparedData.measurements);
-    const missingRanges = buildMissingRanges(preparedData.measurements);
-    const hasMeasurementData = preparedData.measurements.length > 0;
-    const hasTemperaturePoints = preparedData.temperatures.length > 0;
-    const canDrawTemperatureLine = preparedData.temperatures.length >= 2;
-    const hasEventData = preparedData.events.length > 0;
-    const countLine = (selector: (measurement: BiologicalMeasurement) => number) =>
-      line<BiologicalMeasurement>()
-        .x((measurement) => xPosition(measurement.measured_on))
-        .y((measurement) => yCount(selector(measurement)));
-    const temperatureLine = line<BoxTemperaturePoint>()
-      .x((point) => xPosition(point.date))
-      .y((point) => yTemperature(point.average_temperature_c));
+  useEffect(() => setWindowOffset(0), [timelineKey]);
 
-    return {
-      canDrawTemperatureLine,
-      countHeight,
-      countLine,
-      countPadding,
-      hasAnyData: hasMeasurementData || hasTemperaturePoints || hasEventData,
-      hasTemperaturePoints,
-      maxCount,
-      measurementSegments,
-      missingRanges,
-      temperatureDomainMax,
-      temperatureDomainMin,
-      temperatureLine,
-      width,
-      xPosition,
-      yCount,
-      yTemperature,
-    };
-  }, [preparedData]);
-  const {
-    canDrawTemperatureLine,
-    countHeight,
-    countLine,
-    countPadding,
-    hasAnyData,
-    hasTemperaturePoints,
-    maxCount,
-    measurementSegments,
-    missingRanges,
-    temperatureDomainMax,
-    temperatureDomainMin,
-    temperatureLine,
-    width,
-    xPosition,
-    yCount,
-    yTemperature,
-  } = chartGeometry;
+  useEffect(() => {
+    if (windowOffset > preparedData.maxWindowOffset) {
+      setWindowOffset(preparedData.maxWindowOffset);
+    }
+  }, [preparedData.maxWindowOffset, windowOffset]);
 
-  function toggleSeries(series: SeriesId) {
-    setVisibleSeries((current) => ({ ...current, [series]: !current[series] }));
+  function moveWindow(months: number) {
+    setWindowOffset((current) => (
+      Math.min(preparedData.maxWindowOffset, Math.max(0, current + months))
+    ));
+  }
+
+  function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    dragOrigin.current = event.clientX;
+    didDrag.current = false;
+    setIsDragging(false);
+  }
+
+  function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (dragOrigin.current == null) return;
+    if (Math.abs(event.clientX - dragOrigin.current) >= 10) {
+      didDrag.current = true;
+      setIsDragging(true);
+      if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }
+    }
+  }
+
+  function handlePointerEnd(event: ReactPointerEvent<HTMLDivElement>) {
+    if (dragOrigin.current == null) return;
+    const distance = event.clientX - dragOrigin.current;
+    dragOrigin.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    if (Math.abs(distance) >= 60) {
+      event.preventDefault();
+      moveWindow(distance < 0 ? 1 : -1);
+    }
+    setIsDragging(false);
+  }
+
+  function handleClickCapture(event: ReactMouseEvent<HTMLDivElement>) {
+    if (!didDrag.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    didDrag.current = false;
   }
 
   return (
-    <div className="measurement-chart activity-chart" aria-label={labels.chartTitle}>
-      <div className="chart-toolbar">
-        <div className="chart-periods" aria-label="Periode">
-          {PERIODS.map((item) => (
-            <button
-              key={item.id}
-              className={period === item.id ? 'is-active' : ''}
-              type="button"
-              onClick={() => setPeriod(item.id)}
-            >
-              {labels[item.labelKey]}
-            </button>
-          ))}
+    <div className="measurement-chart">
+      <ChartWindowControls
+        action={(
+          <button type="button" className="secondary-button compact-button" onClick={onOpenHistory}>
+            {labels.historyButton}
+          </button>
+        )}
+        endDate={preparedData.endDate}
+        hasNewerWindow={preparedData.hasNewerWindow}
+        hasOlderWindow={preparedData.hasOlderWindow}
+        language={language}
+        longStep={6}
+        onMove={moveWindow}
+        startDate={preparedData.startDate}
+        title={labels.chartTitle}
+        windowMonths={6}
+      />
+
+      <div
+        className={`chart-window-viewport${isDragging ? ' is-dragging' : ''}`}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerEnd}
+        onPointerCancel={handlePointerEnd}
+        onClickCapture={handleClickCapture}
+      >
+        <div className="chart-window-content">
+          <BiologicalTrendChart
+            detailDisplay="inline"
+            startDate={preparedData.startDate}
+            endDate={preparedData.endDate}
+            measurements={preparedData.measurements}
+            locations={preparedData.locations}
+            events={preparedData.events}
+            selectionScope={timelineKey}
+            labels={{
+              chartTitle: labels.chartTitle,
+              closeDetail: language === 'fr' ? 'Fermer le détail' : 'Close details',
+              empty: labels.chartEmpty,
+              enteredBy: labels.historyEnteredBy,
+              ephyrae: labels.ephyraeFull,
+              location: language === 'fr' ? 'Emplacement' : 'Location',
+              missingReading: labels.missingReading,
+              movement: language === 'fr' ? 'Transfert' : 'Transfer',
+              observation: labels.historyObservation,
+              polyps: labels.polyps,
+              salinity: labels.salinityFull,
+              selectReading: language === 'fr'
+                ? 'Sélectionnez un point du graphique pour afficher le relevé.'
+                : 'Select a chart point to display the reading.',
+              selectedReading: language === 'fr' ? 'Relevé sélectionné' : 'Selected reading',
+            }}
+          />
         </div>
-        <div className="chart-series-controls">
-          <ToggleButton active={visibleSeries.polyps} label={labels.polyps} onClick={() => toggleSeries('polyps')} />
-          <ToggleButton active={visibleSeries.ephyrae} label={labels.ephyraeFull} onClick={() => toggleSeries('ephyrae')} />
-          <ToggleButton active={visibleSeries.temperature} label={labels.temperature} onClick={() => toggleSeries('temperature')} />
-          <ToggleButton active={visibleSeries.events} label={labels.events} onClick={() => toggleSeries('events')} />
-        </div>
-      </div>
-
-      <div className="activity-chart-canvas" onPointerLeave={() => setTooltip(null)}>
-        <svg className="activity-count-chart" viewBox={`0 0 ${width} ${countHeight}`} role="img">
-          <line className="chart-axis" x1={countPadding.left} y1={countHeight - countPadding.bottom} x2={width - countPadding.right} y2={countHeight - countPadding.bottom} />
-          <line className="chart-axis" x1={countPadding.left} y1={countPadding.top} x2={countPadding.left} y2={countHeight - countPadding.bottom} />
-          {visibleSeries.temperature ? (
-            <line
-              className="chart-axis is-temperature-axis"
-              x1={width - countPadding.right}
-              y1={countPadding.top}
-              x2={width - countPadding.right}
-              y2={countHeight - countPadding.bottom}
-            />
-          ) : null}
-          {[0.25, 0.5, 0.75].map((ratio) => {
-            const y = countPadding.top + ratio * (countHeight - countPadding.top - countPadding.bottom);
-            return <line key={ratio} className="chart-grid-line" x1={countPadding.left} y1={y} x2={width - countPadding.right} y2={y} />;
-          })}
-
-          {!hasAnyData ? (
-            <text
-              className="chart-empty-label"
-              x={width / 2}
-              y={countPadding.top + (countHeight - countPadding.top - countPadding.bottom) / 2}
-            >
-              {labels.chartEmpty}
-            </text>
-          ) : null}
-
-          {missingRanges.map((range) => {
-            const x1 = xPosition(range.start);
-            const x2 = xPosition(range.end);
-            return (
-              <g
-                key={`${range.start}-${range.end}`}
-                className="chart-missing-range"
-                onPointerEnter={() => setTooltip({
-                  left: ((x1 + x2) / 2 / width) * 100,
-                  top: 24,
-                  title: labels.missingReading,
-                  lines: [`${formatDisplayDate(range.start)} - ${formatDisplayDate(range.end)}`],
-                })}
-              >
-                <rect
-                  x={x1}
-                  y={countPadding.top}
-                  width={Math.max(3, x2 - x1)}
-                  height={countHeight - countPadding.top - countPadding.bottom}
-                />
-              </g>
-            );
-          })}
-
-          {visibleSeries.polyps ? measurementSegments.map((segment, index) => (
-            <path
-              key={`polyps-${index}`}
-              className="chart-line is-polyps"
-              d={countLine((measurement) => measurement.polyp_count)(segment) ?? ''}
-            />
-          )) : null}
-          {visibleSeries.ephyrae ? measurementSegments.map((segment, index) => (
-            <path
-              key={`ephyrae-${index}`}
-              className="chart-line is-ephyrae"
-              d={countLine((measurement) => measurement.ephyrae_count)(segment) ?? ''}
-            />
-          )) : null}
-          {visibleSeries.temperature && canDrawTemperatureLine ? (
-            <path className="chart-line is-temperature" d={temperatureLine(preparedData.temperatures) ?? ''} />
-          ) : null}
-
-          {visibleSeries.events ? preparedData.events.map((event) => {
-            const x = xPosition(event.date);
-            return (
-              <g
-                key={event.id}
-                className={`chart-event-marker is-${event.type}`}
-                transform={`translate(${x} ${countPadding.top - 3})`}
-                onPointerEnter={() => setTooltip({
-                  left: (x / width) * 100,
-                  top: 9,
-                  title: event.title,
-                  lines: [formatDisplayDate(event.date), event.detail].filter(Boolean),
-                })}
-              >
-                <line x1={0} y1={9} x2={0} y2={countHeight - countPadding.top - countPadding.bottom + 3} />
-                <path d="M0 0 L6 6 L0 12 L-6 6 Z" />
-              </g>
-            );
-          }) : null}
-
-          {preparedData.measurements.map((measurement) => {
-            const x = xPosition(measurement.measured_on);
-            return (
-              <g
-                key={measurement.id}
-                className="chart-measurement-point"
-                onPointerEnter={() => setTooltip({
-                  left: (x / width) * 100,
-                  top: Math.max(
-                    12,
-                    (Math.min(
-                      yCount(measurement.polyp_count),
-                      yCount(measurement.ephyrae_count),
-                    ) / countHeight) * 100 - 5,
-                  ),
-                  title: formatDisplayDate(measurement.measured_on),
-                  lines: [
-                    `${labels.polyps} : ${measurement.polyp_count}`,
-                    `${labels.ephyraeFull} : ${measurement.ephyrae_count}`,
-                    measurement.salinity_psu ? `${labels.salinityFull} : ${formatDecimal(measurement.salinity_psu)}` : '',
-                  ].filter(Boolean),
-                })}
-              >
-                {visibleSeries.polyps ? (
-                  <circle
-                    className="chart-dot is-polyps"
-                    cx={x}
-                    cy={yCount(measurement.polyp_count)}
-                    r={measurement.polyp_count === 0 ? 5 : 4}
-                  />
-                ) : null}
-                {visibleSeries.ephyrae ? (
-                  <circle
-                    className="chart-dot is-ephyrae"
-                    cx={x}
-                    cy={yCount(measurement.ephyrae_count)}
-                    r={measurement.ephyrae_count === 0 ? 5 : 4}
-                  />
-                ) : null}
-                <rect
-                  className="chart-hit-area"
-                  x={x - 12}
-                  y={countPadding.top}
-                  width={24}
-                  height={countHeight - countPadding.top - countPadding.bottom}
-                />
-              </g>
-            );
-          })}
-
-          {visibleSeries.temperature && !hasTemperaturePoints ? (
-            <text
-              className="chart-empty-label is-small"
-              x={width - countPadding.right - 76}
-              y={countPadding.top + 18}
-            >
-              {labels.temperatureNoData}
-            </text>
-          ) : null}
-
-          {visibleSeries.temperature ? preparedData.temperatures.map((point) => {
-            const x = xPosition(point.date);
-            const y = yTemperature(point.average_temperature_c);
-            return (
-              <g
-                key={`${point.date}-${point.zone_id}`}
-                className="chart-temperature-point"
-                onPointerEnter={() => setTooltip({
-                  left: (x / width) * 100,
-                  top: Math.max(12, (y / countHeight) * 100 - 5),
-                  title: formatDisplayDate(point.date),
-                  lines: [
-                    `${labels.temperature} : ${point.average_temperature_c.toFixed(1)}\u00b0C`,
-                    point.zone_name,
-                  ],
-                })}
-              >
-                <circle className="chart-dot is-temperature" cx={x} cy={y} r={3.5} />
-                <rect
-                  className="chart-hit-area"
-                  x={x - 10}
-                  y={countPadding.top}
-                  width={20}
-                  height={countHeight - countPadding.top - countPadding.bottom}
-                />
-              </g>
-            );
-          }) : null}
-
-          <text className="chart-label" x={countPadding.left} y={countHeight - 10}>
-            {formatDisplayDate(toDateString(preparedData.startDate))}
-          </text>
-          <text className="chart-label is-end" x={width - countPadding.right} y={countHeight - 10}>
-            {formatDisplayDate(toDateString(preparedData.endDate))}
-          </text>
-          <text className="chart-y-label" x={countPadding.left - 8} y={countPadding.top + 4}>{maxCount}</text>
-          <text className="chart-y-label" x={countPadding.left - 8} y={countHeight - countPadding.bottom + 4}>0</text>
-          {visibleSeries.temperature && hasTemperaturePoints ? (
-            <>
-              <text className="chart-temperature-label" x={width - countPadding.right + 8} y={countPadding.top + 4}>
-                {`${temperatureDomainMax}\u00b0C`}
-              </text>
-              <text className="chart-temperature-label" x={width - countPadding.right + 8} y={countHeight - countPadding.bottom + 4}>
-                {`${temperatureDomainMin}\u00b0C`}
-              </text>
-            </>
-          ) : null}
-        </svg>
-
-        {tooltip ? (
-          <div
-            className="chart-tooltip"
-            style={{ left: `${tooltip.left}%`, top: `${tooltip.top}%` }}
-          >
-            <strong>{tooltip.title}</strong>
-            {tooltip.lines.map((lineText) => (
-              <span key={lineText}>{lineText}</span>
-            ))}
-          </div>
-        ) : null}
-      </div>
-
-      <div className="chart-legend">
-        <span className="is-polyps">{labels.polyps}</span>
-        <span className="is-ephyrae">{labels.ephyraeFull}</span>
-        <span className="is-temperature">{labels.temperature}</span>
-        <span className="is-missing">{labels.missingReading}</span>
       </div>
     </div>
-  );
-}
-
-function ToggleButton({
-  active,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      className={active ? 'is-active' : ''}
-      type="button"
-      aria-pressed={active}
-      onClick={onClick}
-    >
-      {label}
-    </button>
   );
 }
 
@@ -669,8 +438,9 @@ export function MeasurementHistoryModal({
     });
   }
 
-  return createPortal(
-    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+  return (
+    <ModalPortal>
+      <div className="modal-backdrop" role="presentation" onClick={onClose}>
       <section
         className="history-modal measurement-history-modal"
         role="dialog"
@@ -716,9 +486,9 @@ export function MeasurementHistoryModal({
             </button>
           </footer>
         ) : null}
-      </section>
-    </div>,
-    document.body,
+        </section>
+      </div>
+    </ModalPortal>
   );
 }
 
@@ -802,60 +572,62 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function prepareChartData(
+function prepareSharedChartData(
   measurements: BiologicalMeasurement[],
-  temperatures: BoxTemperaturePoint[],
+  locations: BoxLocation[],
   events: LifecycleEvent[],
-  period: PeriodId,
+  requestedWindowOffset: number,
 ) {
-  const sortedMeasurements = [...measurements].sort((left, right) => left.measured_on.localeCompare(right.measured_on));
-  const sortedTemperatures = [...temperatures].sort((left, right) => left.date.localeCompare(right.date));
-  const sortedEvents = [...events].sort((left, right) => left.date.localeCompare(right.date));
-  const lastDate = getLastDate(sortedMeasurements, sortedTemperatures, sortedEvents);
-  const periodConfig = PERIODS.find((item) => item.id === period);
-  const startDate = periodConfig?.days ? addDays(lastDate, -periodConfig.days) : getFirstDate(sortedMeasurements, sortedTemperatures, sortedEvents);
-  const endDate = addDays(lastDate, 1);
-  const startText = toDateString(startDate);
-  const endText = toDateString(endDate);
+  const measurementDates = measurements.map((measurement) => measurement.measured_on);
+  const eventDates = events.map((event) => event.date);
+  const locationDates = locations.flatMap((location) => [
+    location.starts_at.slice(0, 10),
+    location.ends_at?.slice(0, 10),
+  ]).filter(Boolean) as string[];
+  const chartWindow = buildChartWindow(
+    [...measurementDates, ...eventDates, ...locationDates],
+    requestedWindowOffset,
+    6,
+  );
+  const startText = chartWindow.startDate;
+  const endText = chartWindow.endDate;
+
+  const sharedMeasurements: TrendMeasurement[] = measurements
+    .map((measurement) => ({
+      id: measurement.id,
+      date: measurement.measured_on,
+      polypCount: measurement.polyp_count,
+      ephyraeCount: measurement.ephyrae_count,
+      salinity: measurement.salinity_psu,
+      enteredBy: measurement.user,
+      note: measurement.notes,
+    }));
+  const sharedLocations: TrendLocation[] = locations.map((location) => ({
+    id: location.id,
+    name: location.thermal_zone.name,
+    startsAt: location.starts_at,
+    endsAt: location.ends_at,
+  }));
+  const sharedEvents: TrendEvent[] = events
+    .filter((event) => event.date >= startText && event.date <= endText)
+    .map((event) => ({
+      id: event.id,
+      date: event.date,
+      title: event.title,
+      detail: event.detail,
+      kind: event.type,
+    }));
 
   return {
-    startDate,
-    endDate,
-    measurements: sortedMeasurements.filter((measurement) => measurement.measured_on >= startText && measurement.measured_on <= endText),
-    temperatures: sortedTemperatures.filter((point) => point.date >= startText && point.date <= endText),
-    events: sortedEvents.filter((event) => event.date >= startText && event.date <= endText),
+    startDate: startText,
+    endDate: endText,
+    measurements: sharedMeasurements,
+    locations: sharedLocations,
+    events: sharedEvents,
+    hasNewerWindow: chartWindow.hasNewerWindow,
+    hasOlderWindow: chartWindow.hasOlderWindow,
+    maxWindowOffset: chartWindow.maxOffset,
   };
-}
-
-function splitMeasurementsOnGaps(measurements: BiologicalMeasurement[]) {
-  const segments: BiologicalMeasurement[][] = [];
-  let currentSegment: BiologicalMeasurement[] = [];
-
-  measurements.forEach((measurement, index) => {
-    const previous = measurements[index - 1];
-    if (previous && getDaysBetween(previous.measured_on, measurement.measured_on) > 10) {
-      if (currentSegment.length) segments.push(currentSegment);
-      currentSegment = [];
-    }
-    currentSegment.push(measurement);
-  });
-
-  if (currentSegment.length) segments.push(currentSegment);
-  return segments;
-}
-
-function buildMissingRanges(measurements: BiologicalMeasurement[]) {
-  return measurements.flatMap((measurement, index) => {
-    const previous = measurements[index - 1];
-    if (!previous) return [];
-    const gap = getDaysBetween(previous.measured_on, measurement.measured_on);
-    if (gap <= 10) return [];
-
-    return [{
-      start: toDateString(addDays(parseChartDate(previous.measured_on), 1)),
-      end: toDateString(addDays(parseChartDate(measurement.measured_on), -1)),
-    }];
-  });
 }
 
 function buildLifecycleEvents(
@@ -901,54 +673,6 @@ function buildLifecycleEvents(
   });
 
   return [...events.values()].sort((left, right) => left.date.localeCompare(right.date));
-}
-
-function getFirstDate(
-  measurements: BiologicalMeasurement[],
-  temperatures: BoxTemperaturePoint[],
-  events: LifecycleEvent[],
-) {
-  const dates = [
-    measurements[0]?.measured_on,
-    temperatures[0]?.date,
-    events[0]?.date,
-  ].filter(Boolean) as string[];
-  return dates.length ? parseChartDate(dates.sort()[0]) : addDays(new Date(), -30);
-}
-
-function getLastDate(
-  measurements: BiologicalMeasurement[],
-  temperatures: BoxTemperaturePoint[],
-  events: LifecycleEvent[],
-) {
-  const dates = [
-    measurements.length ? measurements[measurements.length - 1]?.measured_on : undefined,
-    temperatures.length ? temperatures[temperatures.length - 1]?.date : undefined,
-    events.length ? events[events.length - 1]?.date : undefined,
-  ].filter(Boolean) as string[];
-  const sortedDates = dates.sort();
-  return sortedDates.length ? parseChartDate(sortedDates[sortedDates.length - 1]) : new Date();
-}
-
-function getDaysBetween(firstDate: string, secondDate: string) {
-  const diff = parseChartDate(secondDate).getTime() - parseChartDate(firstDate).getTime();
-  return Math.round(diff / 86_400_000);
-}
-
-function parseChartDate(value: string) {
-  return new Date(`${value.slice(0, 10)}T00:00:00`);
-}
-
-function addDays(date: Date, days: number) {
-  const copy = new Date(date);
-  copy.setDate(copy.getDate() + days);
-  return copy;
-}
-
-function toDateString(date: Date) {
-  const copy = new Date(date);
-  copy.setMinutes(copy.getMinutes() - copy.getTimezoneOffset());
-  return copy.toISOString().slice(0, 10);
 }
 
 function formatDecimal(value: string | number) {

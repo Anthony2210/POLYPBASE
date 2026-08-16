@@ -1,0 +1,1079 @@
+.zone-page,
+.zone-overview {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.zone-overview,
+.zone-page {
+  width: 100%;
+  max-width: 1120px;
+  margin-inline: auto;
+}
+
+.zone-overview-shell {
+  width: 100%;
+}
+
+/* Overview */
+.zone-card-heading,
+.zone-temperature-heading,
+.zone-boxes-heading {
+  display: flex;
+  align-items: center;
+}
+
+.zone-filter-tabs {
+  padding: 3px;
+  gap: var(--space-1);
+  background: var(--color-surface-subtle);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-pill);
+}
+
+.zone-filter-tabs button {
+  min-height: 34px;
+  padding-inline: var(--space-3);
+  color: var(--color-muted);
+  font-weight: 750;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-pill);
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.zone-filter-tabs button:is(:hover, .is-active) {
+  color: #fff;
+  background: var(--color-primary);
+}
+
+.zone-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+  gap: var(--space-3);
+}
+
+.zone-card {
+  --zone-accent: var(--color-muted);
+  --zone-soft: var(--color-surface);
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--zone-soft);
+  border: 1px solid var(--color-line);
+  border-left: 3px solid var(--zone-accent);
+  border-radius: var(--radius-md);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
+}
+
+.zone-card.is-stable {
+  --zone-accent: var(--color-success);
+}
+
+.zone-card.is-warning {
+  --zone-accent: var(--color-warning);
+}
+
+.zone-card.is-critical {
+  --zone-accent: var(--color-danger);
+}
+
+.zone-card.is-missing {
+  --zone-accent: var(--color-muted);
+}
+
+.zone-card:hover {
+  border-color: color-mix(in srgb, var(--zone-accent) 42%, var(--color-line));
+  box-shadow: 0 8px 22px rgb(15 55 68 / 7%);
+  transform: translateY(-2px);
+}
+
+.zone-card-body {
+  display: grid;
+  width: 100%;
+  min-height: 184px;
+  padding: var(--space-4);
+  gap: var(--space-2);
+  color: var(--color-ink);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.zone-card-heading {
+  min-width: 0;
+  min-height: 42px;
+  padding-right: 82px;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+:is(.zone-card-heading, .zone-box-row, .zone-count-row) :is(strong, small),
+.zone-activity-list :is(strong, small) {
+  display: block;
+}
+
+.zone-card-heading strong {
+  font-size: 1.08rem;
+}
+
+.zone-card-heading small,
+.zone-box-row small,
+.zone-count-row small,
+.zone-activity-list small {
+  color: var(--color-muted);
+}
+
+.zone-card-arrow {
+  position: absolute;
+  top: 27px;
+  right: var(--space-4);
+  width: 9px;
+  height: 9px;
+  border-top: 2px solid var(--color-primary);
+  border-right: 2px solid var(--color-primary);
+  transform: rotate(45deg);
+  transition: transform var(--transition-fast);
+}
+
+.zone-card:hover .zone-card-arrow {
+  transform: translateX(3px) rotate(45deg);
+}
+
+.zone-card-readings,
+.zone-card-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.zone-card-reading,
+.zone-card-fact {
+  display: grid;
+  min-width: 0;
+  align-content: center;
+  gap: 2px;
+}
+
+:is(.zone-card-reading, .zone-card-fact) small {
+  color: var(--color-muted);
+  font-size: 0.7rem;
+}
+
+.zone-card-reading strong {
+  font-size: 1rem;
+}
+
+.zone-card-reading.is-primary strong {
+  color: var(--zone-accent);
+  font-size: 1.22rem;
+}
+
+.zone-card-thermal-line {
+  position: relative;
+  height: 7px;
+  margin-inline: var(--space-1);
+  background: #dcebef;
+  border-radius: var(--radius-pill);
+}
+
+.zone-card-target,
+.zone-card-current {
+  position: absolute;
+  left: 50%;
+}
+
+.zone-card-target {
+  inset-block: -4px;
+  width: 2px;
+  background: var(--color-ink);
+}
+
+.zone-card-current {
+  top: 50%;
+  left: var(--zone-temperature-position);
+  width: 12px;
+  height: 12px;
+  background: var(--zone-accent);
+  border: 3px solid #fff;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.zone-card-facts {
+  margin-top: var(--space-1);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-line);
+}
+
+.zone-card-fact > strong {
+  font-size: 0.92rem;
+}
+
+.zone-card-fact > strong.is-missing {
+  color: var(--color-muted);
+}
+
+.zone-card-fact-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.zone-card-capacity-track {
+  display: block;
+  height: 4px;
+  margin-top: var(--space-1);
+  overflow: hidden;
+  background: var(--color-line-soft);
+  border-radius: var(--radius-pill);
+}
+
+.zone-card-capacity-track > span {
+  display: block;
+  width: var(--zone-occupancy);
+  height: 100%;
+  background: var(--color-primary);
+  border-radius: inherit;
+}
+
+.zone-card.occupancy-warning .zone-card-capacity-track > span {
+  background: var(--color-warning);
+}
+
+.zone-card.occupancy-full .zone-card-capacity-track > span {
+  background: var(--color-danger);
+}
+
+/* Bell notifications shared by overview cards and zone sheets. */
+.zone-card-alert,
+.zone-alert-trigger {
+  position: relative;
+  display: inline-grid;
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+  padding: 0;
+  place-items: center;
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 24%, transparent);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: transform var(--transition-fast), border-color var(--transition-fast);
+}
+
+.zone-card-alert:hover,
+.zone-alert-trigger:hover {
+  border-color: var(--color-danger);
+  transform: translateY(-1px);
+}
+
+.zone-card > .zone-card-alert {
+  position: absolute;
+  z-index: 2;
+  top: var(--space-3);
+  right: 42px;
+}
+
+:is(.zone-card-alert, .zone-alert-trigger) strong {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  display: grid;
+  min-width: 19px;
+  height: 19px;
+  padding-inline: 5px;
+  place-items: center;
+  color: #fff;
+  font-size: 0.62rem;
+  line-height: 1;
+  background: var(--color-danger);
+  border: 2px solid #fff;
+  border-radius: var(--radius-pill);
+}
+
+:is(.zone-card-alert, .zone-alert-trigger).is-empty {
+  color: var(--color-muted);
+  background: #fff;
+  border-color: var(--color-line);
+}
+
+:is(.zone-card-alert, .zone-alert-trigger).is-empty strong {
+  background: var(--color-muted);
+}
+
+/* Zone sheet */
+.zone-back-button {
+  justify-self: start;
+}
+
+.zone-sheet-hero {
+  --entity-columns: minmax(240px, 0.8fr) minmax(500px, 1.5fr) 48px;
+}
+
+.zone-sheet-title {
+  display: grid;
+  min-width: 0;
+  align-content: center;
+}
+
+.zone-sheet-title span {
+  margin-top: var(--space-1);
+  color: var(--color-muted);
+}
+
+.zone-hero-summary {
+  display: grid;
+  padding-left: var(--space-4);
+  grid-template-columns: repeat(5, minmax(74px, 1fr));
+  align-items: center;
+  gap: var(--space-2);
+  border-left: 1px solid var(--color-line);
+}
+
+.zone-hero-summary .metric {
+  min-height: 64px;
+  background: rgb(237 247 250 / 82%);
+  border: 1px solid rgb(13 120 144 / 7%);
+}
+
+.zone-hero-summary .metric strong {
+  margin-top: 2px;
+  font-size: 1.1rem;
+}
+
+.zone-hero-actions {
+  display: grid;
+  place-items: start end;
+}
+
+.zone-page-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(300px, 0.7fr);
+  align-items: start;
+  gap: var(--space-4);
+}
+
+.zone-page-section,
+.zone-temperature-panel {
+  display: grid;
+  min-width: 0;
+  padding: var(--space-4);
+  gap: var(--space-3);
+  background: rgb(255 255 255 / 88%);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+}
+
+.zone-secondary-stack,
+.probe-list,
+.zone-count-chart,
+.zone-activity-list {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.zone-boxes-heading,
+.zone-temperature-heading {
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.zone-box-list {
+  display: grid;
+  max-height: 620px;
+  padding-right: 3px;
+  gap: 7px;
+  overflow: auto;
+}
+
+.zone-box-row {
+  display: grid;
+  min-height: 60px;
+  padding: 11px var(--space-3);
+  grid-template-columns: minmax(180px, 1fr) minmax(150px, auto) auto auto;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--color-ink);
+  text-align: left;
+  background: rgb(255 255 255 / 80%);
+  border: 1px solid rgb(13 120 144 / 7%);
+  border-left: 4px solid var(--box-state, var(--color-line));
+  border-radius: var(--radius-md);
+  transition: transform var(--transition-fast), border-color var(--transition-fast);
+}
+
+.zone-box-row.is-alive { --box-state: var(--color-success); }
+.zone-box-row.is-dead { --box-state: var(--color-danger); }
+.zone-box-row.is-warning { --box-state: var(--color-warning); }
+
+.zone-box-row:hover {
+  border-color: color-mix(in srgb, var(--box-state) 40%, var(--color-line));
+  transform: translateX(2px);
+}
+
+.zone-box-main,
+.zone-count-identity {
+  min-width: 0;
+}
+
+:is(.zone-box-main, .zone-count-identity) strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zone-box-reading {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  text-align: right;
+}
+
+.zone-box-reading small {
+  font-size: 0.74rem;
+}
+
+.zone-box-row .box-life-status {
+  display: none;
+}
+
+.zone-alert-pill {
+  display: inline-grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  color: var(--color-danger);
+  font-size: 0.7rem;
+  font-weight: 800;
+  background: var(--color-danger-soft);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 24%, transparent);
+  border-radius: var(--radius-pill);
+}
+
+.probe-list p {
+  display: flex;
+  margin: 0;
+  padding-block: var(--space-2);
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.probe-list p:last-child {
+  border: 0;
+}
+
+.probe-list span {
+  color: var(--color-muted);
+  font-size: 0.82rem;
+}
+
+/* Temperature inherits one status color across the panel and gauge. */
+.zone-temperature-panel {
+  --temperature-accent: var(--color-success);
+  --temperature-soft: var(--color-success-soft);
+  border-left: 4px solid var(--temperature-accent);
+}
+
+.zone-temperature-panel:is(.is-watch, .is-warning) {
+  --temperature-accent: var(--color-warning);
+  --temperature-soft: var(--color-warning-soft);
+}
+
+.zone-temperature-panel.is-missing {
+  --temperature-accent: var(--color-muted);
+  --temperature-soft: #eef3f6;
+}
+
+.zone-temperature-heading h2,
+.zone-temperature-heading p {
+  margin: 0;
+}
+
+.zone-temperature-heading h2 {
+  font-size: 1rem;
+  font-style: italic;
+}
+
+.zone-temperature-heading p,
+.temperature-source-note {
+  margin-top: 3px;
+  color: var(--color-muted);
+  font-size: 0.78rem;
+}
+
+.temperature-source-note {
+  font-weight: 700;
+}
+
+.temperature-status-chip {
+  display: inline-flex;
+  min-height: 34px;
+  padding-inline: var(--space-3);
+  align-items: center;
+  color: var(--temperature-accent);
+  font-size: 0.76rem;
+  font-weight: 800;
+  background: var(--temperature-soft);
+  border-radius: var(--radius-pill);
+}
+
+.temperature-gauge {
+  position: relative;
+  height: 150px;
+  overflow: hidden;
+  background: linear-gradient(90deg, #f1f8fa, #fffaf0);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+}
+
+.temperature-gauge-safe-band,
+.temperature-gauge-track,
+.temperature-gauge-range,
+.temperature-gauge-target,
+.temperature-gauge-cap,
+.temperature-gauge-current {
+  position: absolute;
+}
+
+.temperature-gauge-safe-band {
+  inset: 24px auto 24px 41.666%;
+  width: 16.667%;
+  background: color-mix(in srgb, var(--temperature-accent) 10%, transparent);
+  border-radius: var(--radius-md);
+}
+
+.temperature-gauge-track,
+.temperature-gauge-range {
+  top: 72px;
+  height: 7px;
+  border-radius: var(--radius-pill);
+}
+
+.temperature-gauge-track {
+  right: var(--space-6);
+  left: var(--space-6);
+  background: #dcebef;
+}
+
+.temperature-gauge-range {
+  left: var(--temperature-range-start);
+  width: var(--temperature-range-width);
+  background: color-mix(in srgb, var(--temperature-accent) 72%, transparent);
+  opacity: 0;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 700ms cubic-bezier(.2, .78, .28, 1), opacity 180ms ease;
+}
+
+.temperature-gauge-target {
+  inset-block: 34px 36px;
+  left: 50%;
+  width: 2px;
+  background: var(--color-ink);
+  border-radius: var(--radius-pill);
+  transform: translateX(-50%);
+}
+
+.temperature-gauge-target span {
+  position: absolute;
+  bottom: -19px;
+  left: 50%;
+  padding-inline: 5px;
+  color: var(--color-ink);
+  font-size: 0.7rem;
+  font-weight: 800;
+  white-space: nowrap;
+  background: #f9fcfd;
+  border-radius: var(--radius-xs);
+  transform: translateX(-50%);
+}
+
+.temperature-gauge-cap {
+  top: 72px;
+  width: 11px;
+  height: 11px;
+  background: #fff;
+  border: 3px solid var(--temperature-accent);
+  border-radius: 50%;
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0);
+  transition: transform 420ms ease 190ms, opacity 180ms ease 190ms;
+}
+
+.temperature-gauge-current {
+  z-index: 2;
+  top: 72px;
+  left: 50%;
+  display: inline-flex;
+  min-width: 64px;
+  min-height: 36px;
+  padding-inline: var(--space-2);
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 800;
+  background: var(--temperature-accent);
+  border-radius: var(--radius-pill);
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(.92);
+  transition: left 760ms cubic-bezier(.2, .78, .28, 1), transform 280ms ease 330ms, opacity 180ms ease 330ms;
+}
+
+.temperature-gauge.is-ready .temperature-gauge-range {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+.temperature-gauge.is-ready :is(.temperature-gauge-cap, .temperature-gauge-current) {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.temperature-gauge.is-ready .temperature-gauge-current {
+  left: var(--temperature-current-position);
+}
+
+.temperature-gauge.is-point .temperature-gauge-safe-band {
+  left: calc(var(--temperature-current-position) - 5%);
+  width: 10%;
+}
+
+.temperature-gauge.is-point :is(.temperature-gauge-range, .temperature-gauge-cap) {
+  display: none;
+}
+
+.temperature-scale-labels {
+  display: flex;
+  margin: -4px var(--space-4) 0;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--color-muted);
+  font-size: 0.76rem;
+}
+
+.temperature-scale-labels strong {
+  color: var(--color-ink);
+}
+
+.temperature-details-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.temperature-details-grid .metric {
+  min-height: 62px;
+  background: var(--color-surface-info);
+}
+
+.manual-temperature-form {
+  display: grid;
+  padding: var(--space-3);
+  grid-template-columns: minmax(180px, 1fr) repeat(2, minmax(150px, .72fr)) minmax(170px, auto);
+  align-items: end;
+  gap: var(--space-3);
+  background: #fff;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+}
+
+.manual-temperature-heading,
+.manual-temperature-form label {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.manual-temperature-heading strong {
+  font-style: italic;
+}
+
+.manual-temperature-heading span,
+.manual-temperature-form label {
+  color: var(--color-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.manual-temperature-form > strong {
+  display: none;
+}
+
+.manual-temperature-form :is(input, button) {
+  min-height: 44px;
+  border-radius: var(--radius-md);
+}
+
+.manual-temperature-form input {
+  width: 100%;
+  padding-inline: var(--space-3);
+  color: var(--color-ink);
+  font: inherit;
+  background: #fff;
+  border: 1px solid var(--color-line);
+}
+
+.manual-temperature-form button {
+  padding-inline: var(--space-4);
+  color: #fff;
+  font-weight: 800;
+  background: var(--color-primary);
+  border: 0;
+}
+
+.manual-temperature-form button:disabled {
+  opacity: .48;
+}
+
+.manual-temperature-form :is(.inline-success, .inline-error) {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+/* Counts and recent activity */
+.zone-count-row {
+  display: grid;
+  padding: var(--space-3);
+  grid-template-columns: minmax(120px, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  background: #fff;
+  border: 1px solid rgb(13 120 144 / 8%);
+  border-radius: var(--radius-md);
+}
+
+.zone-count-identity :is(span, small) {
+  overflow: hidden;
+  color: var(--color-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zone-count-identity span {
+  font-size: 0.78rem;
+}
+
+.zone-count-values {
+  display: grid;
+  grid-template-columns: repeat(2, 54px);
+  gap: var(--space-2);
+}
+
+.zone-count-values span {
+  display: grid;
+  justify-items: end;
+}
+
+.zone-count-values small {
+  font-size: 0.64rem;
+  font-weight: 800;
+}
+
+.zone-count-bars {
+  display: grid;
+  min-width: 0;
+  grid-column: 1 / -1;
+  gap: var(--space-1);
+}
+
+.zone-count-bar {
+  display: block;
+  min-width: 4px;
+  height: 6px;
+  background: var(--bar-color);
+  border-radius: var(--radius-pill);
+}
+
+.zone-count-bar.is-polyps { --bar-color: var(--color-primary); }
+.zone-count-bar.is-ephyrae { --bar-color: var(--color-ephyrae); }
+
+.zone-activity-section {
+  gap: 0;
+}
+
+.zone-activity-list {
+  gap: 0;
+}
+
+.zone-activity-list button {
+  display: grid;
+  min-height: 58px;
+  padding: var(--space-2) var(--space-1);
+  grid-template-columns: 108px minmax(0, 1fr) repeat(2, 70px);
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--color-ink);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.zone-activity-list button:is(:last-child, :hover) {
+  border-bottom-color: transparent;
+}
+
+.zone-activity-list button:hover {
+  background: var(--color-surface-subtle);
+}
+
+.zone-activity-date,
+.zone-activity-values small {
+  color: var(--color-muted);
+  font-size: 0.76rem;
+}
+
+.zone-activity-values {
+  text-align: right;
+}
+
+/* Dialogs */
+.zone-alerts-modal,
+.zone-management-modal {
+  width: min(720px, calc(100vw - 36px));
+}
+
+.zone-alerts-heading p {
+  margin: var(--space-1) 0 0;
+  color: var(--color-muted);
+  font-size: 0.86rem;
+}
+
+.zone-alerts-list {
+  display: grid;
+  max-height: min(68vh, 560px);
+  padding-right: var(--space-1);
+  gap: var(--space-2);
+  overflow: auto;
+}
+
+.zone-alert-item {
+  display: grid;
+  padding: var(--space-3);
+  grid-template-columns: 128px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  background: #fff;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+}
+
+.zone-alert-item p {
+  max-width: 58ch;
+  margin: 0;
+  line-height: 1.45;
+}
+
+.zone-alert-item button {
+  min-height: 36px;
+  padding-inline: var(--space-3);
+  color: var(--color-primary);
+  font-size: 0.78rem;
+  font-weight: 800;
+  background: #fff;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-pill);
+}
+
+.zone-management-form label {
+  display: grid;
+  gap: var(--space-1);
+  color: var(--color-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.zone-management-form :is(input, select) {
+  min-height: var(--control-height);
+  padding-inline: var(--space-3);
+  color: var(--color-ink);
+  font: inherit;
+  background: #fff;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+}
+
+.zone-management-form > :is(.inline-error, button) {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 1023px) {
+  .zone-page-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .zone-overview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .manual-temperature-form {
+    grid-template-columns: minmax(160px, 1fr) repeat(2, minmax(130px, .8fr)) auto;
+  }
+}
+
+@media (max-width: 759px), (max-width: 900px) and (orientation: portrait) {
+  .zone-boxes-heading,
+  .zone-temperature-heading {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .zone-boxes-heading {
+    display: grid;
+  }
+
+  .zone-filter-tabs {
+    display: grid;
+    width: 100%;
+  }
+
+  .zone-filter-tabs { grid-template-columns: repeat(3, 1fr); }
+
+  .zone-filter-tabs button {
+    min-width: 0;
+    padding-inline: var(--space-2);
+  }
+
+  .zone-overview-grid {
+    grid-template-columns: 1fr;
+    gap: var(--space-3);
+  }
+
+  .zone-card-body {
+    min-height: 0;
+    padding: var(--space-3);
+  }
+
+  .zone-sheet-hero {
+    --entity-areas: "identity actions" "summary summary";
+  }
+
+  .zone-sheet-hero .box-page-label {
+    display: block;
+  }
+
+  .zone-sheet-title h2 {
+    overflow: hidden;
+    max-width: calc(100vw - 106px);
+    font-size: 2rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .zone-hero-summary {
+    padding: var(--space-3) 0 0;
+    grid-template-columns: repeat(2, 1fr);
+    border-top: 1px solid var(--color-line);
+    border-left: 0;
+  }
+
+  .zone-hero-summary .metric:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .zone-hero-actions .zone-alert-trigger {
+    width: 46px;
+    height: 46px;
+  }
+
+  .zone-temperature-panel,
+  .zone-page-section {
+    padding: var(--space-3);
+  }
+
+  .temperature-status-chip {
+    justify-content: center;
+  }
+
+  .temperature-gauge {
+    height: 126px;
+  }
+
+  .temperature-gauge-track,
+  .temperature-gauge-range,
+  .temperature-gauge-cap,
+  .temperature-gauge-current {
+    top: 60px;
+  }
+
+  .temperature-gauge-target {
+    inset-block: 24px 30px;
+  }
+
+  .temperature-details-grid,
+  .manual-temperature-form {
+    grid-template-columns: 1fr;
+  }
+
+  .zone-box-list {
+    max-height: none;
+    padding: 0;
+  }
+
+  .zone-box-row {
+    min-height: 68px;
+    padding: var(--space-3);
+    grid-template-columns: 1fr auto;
+    gap: var(--space-2) var(--space-3);
+  }
+
+  .zone-alert-pill {
+    grid-area: 2 / 2;
+    justify-self: end;
+  }
+
+  .zone-count-row,
+  .zone-alert-item,
+  .zone-management-form {
+    grid-template-columns: 1fr;
+  }
+
+  .zone-count-values {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .zone-count-values span {
+    justify-items: start;
+  }
+
+  .zone-activity-list button {
+    grid-template-columns: 82px minmax(0, 1fr) repeat(2, 48px);
+    gap: var(--space-2);
+  }
+
+  .zone-alerts-modal,
+  .zone-management-modal {
+    width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+  }
+
+  .zone-alert-item button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 420px) {
+  .zone-activity-list button {
+    grid-template-columns: minmax(0, 1fr) repeat(2, 46px);
+  }
+
+  .zone-activity-date {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zone-card,
+  .zone-card-arrow,
+  .temperature-gauge-range,
+  .temperature-gauge-cap,
+  .temperature-gauge-current {
+    transition: none;
+  }
+}

@@ -9,6 +9,7 @@ import {
   type QrLabelPrintSettings,
 } from '../utils/qrLabels';
 import PageLoader from './PageLoader';
+import QrLabel from './QrLabel';
 
 type LabelsViewLabels = {
   allZones: string;
@@ -128,7 +129,7 @@ export default function LabelsView({
   } as CSSProperties;
 
   if (isLoading) {
-    return <PageLoader variant="profile" label={labels.qrLabelSelectionTitle} />;
+    return <PageLoader variant="labels" label={labels.qrLabelSelectionTitle} />;
   }
 
   if (!profile || !canManageQrLabels) return null;
@@ -253,11 +254,7 @@ export default function LabelsView({
                             >
                               {label && startsZone ? <span className="label-preview-zone-marker">{label.zoneName}</span> : null}
                               {label ? (
-                                <div className="label-preview-tile">
-                                  <img src={label.qrImageUrl} alt="" />
-                                  <strong>{label.globalCode}</strong>
-                                  <small>{label.speciesName}</small>
-                                </div>
+                                <QrLabel item={label} />
                               ) : (
                                 <div className="label-preview-tile is-empty" />
                               )}

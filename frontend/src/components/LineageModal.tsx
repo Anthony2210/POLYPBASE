@@ -1,6 +1,7 @@
 import { getBoxStatusPresentation } from '../boxStatus';
 import type { BoxLineage, LineageGraph } from '../types';
 import InteractiveLineageGraph from './InteractiveLineageGraph';
+import ModalPortal from './ModalPortal';
 
 type Language = 'fr' | 'en';
 
@@ -55,7 +56,8 @@ export default function LineageModal({
   const text = labels[language];
 
   return (
-    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+    <ModalPortal>
+      <div className="modal-backdrop" role="presentation" onClick={onClose}>
       <section
         className="lineage-modal"
         role="dialog"
@@ -101,8 +103,9 @@ export default function LineageModal({
             />
           </div>
         </div>
-      </section>
-    </div>
+        </section>
+      </div>
+    </ModalPortal>
   );
 }
 

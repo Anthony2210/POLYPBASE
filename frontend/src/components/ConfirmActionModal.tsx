@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
+import ModalPortal from './ModalPortal';
+
 export type ConfirmActionVariant = 'default' | 'warning' | 'danger';
 
 export type ConfirmActionDetail = {
@@ -69,7 +71,8 @@ function ConfirmActionModal({
   }, [onCancel]);
 
   return (
-    <div className="modal-backdrop confirm-action-backdrop" role="presentation" onMouseDown={onCancel}>
+    <ModalPortal>
+      <div className="modal-backdrop confirm-action-backdrop" role="presentation" onMouseDown={onCancel}>
       <section
         className={`confirm-action-modal is-${variant}`}
         role="dialog"
@@ -111,7 +114,8 @@ function ConfirmActionModal({
             {action.confirmLabel}
           </button>
         </footer>
-      </section>
-    </div>
+        </section>
+      </div>
+    </ModalPortal>
   );
 }

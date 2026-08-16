@@ -1,0 +1,316 @@
+/* Shared surfaces. Page modules only define layout and meaningful variants. */
+:where(
+  .measurement-form-section,
+  .box-insights-section,
+  .zone-page-section,
+  .export-period,
+  .export-preview,
+  .label-sheet-preview,
+  .profile-identity-card,
+  .profile-block,
+  .profile-organization-options button,
+  .admin-flow-nav,
+  .admin-form,
+  .transfer-work-card,
+  .member-add-form,
+  .account-list-toolbar,
+  .member-card,
+  .taxonomy-form,
+  .taxonomy-reference-card,
+  .environment-action-panel,
+  .environment-settings-panel,
+  .environment-zone-editor,
+  .organization-create-panel,
+  .organization-directory-panel,
+  .organization-card,
+  .transfer-box-picker,
+  .transfer-selected-box-card,
+  .transfer-import-preview,
+  .transfer-package,
+  .admin-audit-filters,
+  .admin-audit-table,
+  .export-chart-card,
+  .export-comparison-card
+) {
+  min-width: 0;
+  background: var(--panel-background, var(--color-surface));
+  border: 1px solid var(--panel-border, var(--color-line));
+  border-radius: var(--panel-radius, var(--radius-md));
+}
+
+:where(.last-reading-card .metric, .zone-hero-summary .metric) {
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--metric-background, var(--color-surface));
+  border-radius: var(--radius-sm);
+}
+
+.box-life-status {
+  --life-color: var(--color-muted);
+  padding: 2px var(--space-2);
+  color: var(--life-color);
+  font-size: .68rem;
+  font-weight: 800;
+  background: color-mix(in srgb, var(--life-color) 12%, white);
+  border: 1px solid color-mix(in srgb, var(--life-color) 28%, white);
+  border-radius: var(--radius-pill);
+}
+
+.box-life-status.is-alive { --life-color: var(--color-success); }
+.box-life-status.is-dead { --life-color: var(--color-danger); }
+.box-life-status.is-warning { --life-color: var(--color-warning); }
+.box-life-status.is-neutral { --life-color: var(--color-muted); }
+
+:where(.single-panel, .login-notice, .empty-box-state) {
+  min-width: 0;
+  padding: var(--space-5);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+}
+
+:where(.box-list, .activity-list, .skeleton-stack) {
+  display: grid;
+  gap: var(--space-2);
+}
+
+:where(
+  .move-fields,
+  .subculture-event-fields,
+  .taxonomy-inline-fields,
+  .admin-form,
+  .probe-create-form,
+  .admin-organization-form,
+  .admin-organization-edit-form,
+  .transfer-destination-grid,
+  .zone-management-form
+) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+:where(
+  .section-title,
+  .subculture-child-title,
+  .organization-edit-heading,
+  .chart-toolbar,
+  .export-step-heading,
+  .label-panel-heading,
+  .label-print-page-heading,
+  .overview-chart > header
+) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+:where(
+  .admin-section-heading,
+  .admin-environment-topbar,
+  .admin-organizations-topbar,
+  .transfer-admin-hero,
+  .taxonomy-admin-heading,
+  .taxonomy-toolbar,
+  .taxonomy-form-heading,
+  .taxonomy-form-actions,
+  .transfer-work-card-head,
+  .transfer-import-title-row,
+  .environment-settings-heading,
+  .organization-directory-heading,
+  .member-add-header,
+  .admin-audit-page-heading,
+  .insight-heading
+) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+:where(.organization-choice-page, .error-boundary) {
+  display: grid;
+  min-height: 100dvh;
+  padding: var(--space-6);
+  place-items: center;
+  background: var(--color-page);
+}
+
+:where(.chart-line, .export-chart-line) {
+  fill: none;
+  stroke: var(--series-color);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+:where(
+  .export-comparison-card > header :where(strong, span),
+  .profile-organization-options :where(strong, small)
+) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.section-title h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-style: italic;
+}
+
+.section-title > span {
+  color: var(--color-muted);
+  font-size: .78rem;
+}
+
+.box-row {
+  display: flex;
+  min-width: 0;
+  min-height: 58px;
+  padding: var(--space-2) var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  color: inherit;
+  text-align: left;
+  text-decoration: none;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.box-row:is(:hover, .is-selected) {
+  background: var(--color-primary-faint);
+  border-color: var(--color-primary);
+}
+
+.box-row :is(strong, small) {
+  display: block;
+}
+
+.box-row strong {
+  color: var(--color-ink);
+}
+
+.box-row small {
+  color: var(--color-muted);
+}
+
+.info-pill,
+.metric {
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-info);
+  border-radius: var(--radius-sm);
+}
+
+:where(.info-pill, .metric) :is(small, strong) {
+  display: block;
+}
+
+:where(.info-pill, .metric) small {
+  color: var(--color-muted);
+}
+
+:where(.info-pill, .metric) strong {
+  margin-top: 2px;
+  color: var(--color-ink);
+  font-size: 1rem;
+}
+
+.info-pill.is-strong {
+  color: var(--color-primary-hover);
+  background: var(--color-primary-soft);
+}
+
+.empty-box-state {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+  align-content: center;
+  color: var(--color-muted);
+  text-align: center;
+  border-style: dashed;
+}
+
+.empty-box-state :is(h2, p) {
+  margin-bottom: var(--space-2);
+}
+
+.check-empty-icon {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  margin-bottom: var(--space-2);
+  place-items: center;
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+  border-radius: 50%;
+}
+
+.box-section {
+  min-width: 0;
+}
+
+.activity-list p {
+  margin: 0;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.activity-list p:last-child {
+  border-bottom: 0;
+}
+
+.pill,
+.login-notice a {
+  display: inline-flex;
+  min-height: 34px;
+  padding: 0 var(--space-3);
+  align-items: center;
+  color: var(--color-primary-hover);
+  font-weight: 750;
+  text-decoration: none;
+  background: var(--color-primary-faint);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-pill);
+}
+
+.pill.is-active,
+.login-notice a {
+  color: #fff;
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.compact-text {
+  font-size: .8rem;
+}
+
+.empty-state {
+  margin: 0;
+  padding: var(--space-6);
+  color: var(--color-muted);
+  text-align: center;
+  border: 1px dashed var(--color-line-strong);
+  border-radius: var(--radius-md);
+}
+
+.bell-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
