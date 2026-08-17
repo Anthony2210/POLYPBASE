@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the Polypbase PostgreSQL backup every night
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+Persistent=true
+RandomizedDelaySec=15m
+Unit=polypbase-backup.service
+
+[Install]
+WantedBy=timers.target

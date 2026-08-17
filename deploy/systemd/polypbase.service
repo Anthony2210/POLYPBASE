@@ -1,7 +1,7 @@
 [Unit]
 Description=Polypbase Django application
-After=network-online.target
-Wants=network-online.target
+After=network-online.target postgresql.service
+Wants=network-online.target postgresql.service
 
 [Service]
 Type=simple
