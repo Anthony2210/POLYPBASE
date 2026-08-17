@@ -12,6 +12,7 @@ backend/db.sqlite3
 
 # Real Aquarium files and temporary prototypes stay outside Git.
 /data/
+/.codex_rebuild/
 /docs/maquette_figma/
 *.aux
 *.fdb_latexmk

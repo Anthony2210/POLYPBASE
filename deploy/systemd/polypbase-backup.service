@@ -1,0 +1,18 @@
+[Unit]
+Description=Polypbase PostgreSQL backup
+After=postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=oneshot
+User=polypbase
+Group=polypbase
+WorkingDirectory=/srv/polypbase/app/backend
+EnvironmentFile=/srv/polypbase/app/backend/.env
+ExecStart=/srv/polypbase/app/.venv/bin/python /srv/polypbase/app/deploy/scripts/backup_database.py --label polypbase --retention-days 14
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+NoNewPrivileges=true
+RestrictSUIDSGID=true
+UMask=0077
