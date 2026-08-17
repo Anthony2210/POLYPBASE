@@ -1,0 +1,26 @@
+[Unit]
+Description=Polypbase Django application
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=polypbase
+Group=polypbase
+WorkingDirectory=/srv/polypbase/app/backend
+EnvironmentFile=/srv/polypbase/app/backend/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/srv/polypbase/app/.venv/bin/gunicorn config.wsgi:application --bind 127.0.0.1:8000 --workers 3 --timeout 60 --access-logfile - --error-logfile -
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGQUIT
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+NoNewPrivileges=true
+RestrictSUIDSGID=true
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target
