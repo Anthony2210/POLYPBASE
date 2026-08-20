@@ -227,6 +227,10 @@ function SharedMeasurementTrendChart({
     ].join('-'),
     [events.length, locations.length, measurements],
   );
+  const chartSourceDates = useMemo(
+    () => getSharedChartSourceDates(measurements, locations, events),
+    [events, locations, measurements],
+  );
   const preparedData = useMemo(
     () => prepareSharedChartData(measurements, locations, events, windowOffset),
     [events, locations, measurements, windowOffset],
@@ -240,9 +244,25 @@ function SharedMeasurementTrendChart({
     }
   }, [preparedData.maxWindowOffset, windowOffset]);
 
+  function canMoveWindow(months: number) {
+    const targetOffset = Math.min(
+      preparedData.maxWindowOffset,
+      Math.max(0, windowOffset + months),
+    );
+    if (targetOffset === windowOffset) return false;
+
+    const targetWindow = buildChartWindow(chartSourceDates, targetOffset, 6);
+    return measurements.some((measurement) => (
+      measurement.measured_on >= targetWindow.startDate
+      && measurement.measured_on <= targetWindow.endDate
+    ));
+  }
+
   function moveWindow(months: number) {
-    setWindowOffset((current) => (
-      Math.min(preparedData.maxWindowOffset, Math.max(0, current + months))
+    if (!canMoveWindow(months)) return;
+    setWindowOffset(Math.min(
+      preparedData.maxWindowOffset,
+      Math.max(0, windowOffset + months),
     ));
   }
 
@@ -296,6 +316,7 @@ function SharedMeasurementTrendChart({
         endDate={preparedData.endDate}
         hasNewerWindow={preparedData.hasNewerWindow}
         hasOlderWindow={preparedData.hasOlderWindow}
+        canMove={canMoveWindow}
         language={language}
         longStep={6}
         onMove={moveWindow}
@@ -578,14 +599,8 @@ function prepareSharedChartData(
   events: LifecycleEvent[],
   requestedWindowOffset: number,
 ) {
-  const measurementDates = measurements.map((measurement) => measurement.measured_on);
-  const eventDates = events.map((event) => event.date);
-  const locationDates = locations.flatMap((location) => [
-    location.starts_at.slice(0, 10),
-    location.ends_at?.slice(0, 10),
-  ]).filter(Boolean) as string[];
   const chartWindow = buildChartWindow(
-    [...measurementDates, ...eventDates, ...locationDates],
+    getSharedChartSourceDates(measurements, locations, events),
     requestedWindowOffset,
     6,
   );
@@ -628,6 +643,21 @@ function prepareSharedChartData(
     hasOlderWindow: chartWindow.hasOlderWindow,
     maxWindowOffset: chartWindow.maxOffset,
   };
+}
+
+function getSharedChartSourceDates(
+  measurements: BiologicalMeasurement[],
+  locations: BoxLocation[],
+  events: LifecycleEvent[],
+) {
+  const measurementDates = measurements.map((measurement) => measurement.measured_on);
+  const eventDates = events.map((event) => event.date);
+  const locationDates = locations.flatMap((location) => [
+    location.starts_at.slice(0, 10),
+    location.ends_at?.slice(0, 10),
+  ]).filter(Boolean) as string[];
+
+  return [...measurementDates, ...eventDates, ...locationDates];
 }
 
 function buildLifecycleEvents(

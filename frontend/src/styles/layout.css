@@ -67,7 +67,9 @@
 .brand-block strong {
   display: block;
   overflow: hidden;
+  color: var(--color-ink);
   font-size: 0.92rem;
+  opacity: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

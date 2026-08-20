@@ -90,6 +90,7 @@ export type OverviewMeasurementPoint = {
   date: string;
   polyp_count: number;
   ephyrae_count: number;
+  salinity_psu: string | null;
 };
 
 export type OverviewTemperaturePoint = {

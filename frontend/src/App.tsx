@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { Plus, Search } from 'lucide-react';
 
 import {
   ApiError,
@@ -46,6 +47,7 @@ import MoveBoxModal from './components/MoveBoxModal';
 import PageLoader from './components/PageLoader';
 import ProfileView from './components/ProfileView';
 import QuickCountButtons from './components/QuickCountButtons';
+import QuickStrainCreator, { type QuickCreatedStrain } from './components/QuickStrainCreator';
 import QrLabel from './components/QrLabel';
 import QrLabelModal from './components/QrLabelModal';
 import SearchField from './components/SearchField';
@@ -829,27 +831,38 @@ export default function App() {
     );
   }
 
+  const brandIdentity = (
+    <>
+      <span className="brand-mark" aria-hidden="true">
+        <img src="/jellyfish.svg" alt="" />
+      </span>
+      <div>
+        <p className="eyebrow">Polypbase</p>
+        <strong>{brandOrganizationName}</strong>
+      </div>
+    </>
+  );
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
         <div className="brand-switcher">
-          <button
-            className={selectableOrganizations.length > 1 ? 'brand-block is-clickable' : 'brand-block'}
-            type="button"
-            disabled={selectableOrganizations.length <= 1}
-            onClick={() => setIsOrganizationMenuOpen((isOpen) => !isOpen)}
-          >
-            <span className="brand-mark" aria-hidden="true">
-              <img src="/jellyfish.svg" alt="" />
-            </span>
-            <div>
-              <p className="eyebrow">Polypbase</p>
-              <strong>{brandOrganizationName}</strong>
-            </div>
-          </button>
+          {selectableOrganizations.length > 1 ? (
+            <button
+              className="brand-block is-clickable"
+              type="button"
+              aria-expanded={isOrganizationMenuOpen}
+              aria-haspopup="menu"
+              onClick={() => setIsOrganizationMenuOpen((isOpen) => !isOpen)}
+            >
+              {brandIdentity}
+            </button>
+          ) : (
+            <div className="brand-block">{brandIdentity}</div>
+          )}
 
           {isOrganizationMenuOpen && selectableOrganizations.length > 1 ? (
-            <div className="organization-menu">
+            <div className="organization-menu" role="menu">
               <p className="organization-menu-title">{t('organizationMenuTitle')}</p>
               {selectableOrganizations.map((organization) => {
                 const role = getMembershipRoleLabel(data.profile, organization.id);
@@ -858,6 +871,7 @@ export default function App() {
                     key={organization.id}
                     className={organization.id === activeOrganization?.id ? 'is-active' : ''}
                     type="button"
+                    role="menuitem"
                     onClick={() => void chooseOrganization(organization.id)}
                   >
                     <span>
@@ -1343,11 +1357,23 @@ function CreateBoxPanel({
   const [boxNumber, setBoxNumber] = useState('');
   const [enteredOn, setEnteredOn] = useState(() => new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState('');
+  const [strainSearch, setStrainSearch] = useState('');
+  const [createdStrains, setCreatedStrains] = useState<QuickCreatedStrain[]>([]);
+  const [isQuickStrainOpen, setIsQuickStrainOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const strains = exportOptions?.strains ?? [];
+  const strains = useMemo(() => {
+    const options = exportOptions?.strains ?? [];
+    return [...options, ...createdStrains.filter((created) =>
+      !options.some((option) => option.id === created.id))];
+  }, [createdStrains, exportOptions?.strains]);
+  const normalizedStrainSearch = strainSearch.trim().toLocaleLowerCase('fr-FR');
+  const filteredStrains = strains.filter((strain) => {
+    if (!normalizedStrainSearch || strain.id === strainId) return true;
+    return `${strain.species_name} ${strain.code}`.toLocaleLowerCase('fr-FR').includes(normalizedStrainSearch);
+  });
   const selectedStrain = strains.find((strain) => strain.id === strainId) ?? null;
   const availableZones = (exportOptions?.zones ?? []).filter((zone) => zone.organization_id === organizationId);
   const selectedOrganization = writableOrganizations.find((organization) => organization.id === organizationId) ?? null;
@@ -1475,9 +1501,33 @@ function CreateBoxPanel({
             </select>
           </label>
 
-          <label>
-            <span>{t('createBoxStrain')}</span>
+          <div className="create-box-strain-field">
+            <div className="create-box-field-heading">
+              <span>{t('createBoxStrain')}</span>
+              {userHasAdminRole(profile) ? (
+                <button
+                  className="create-box-reference-action"
+                  type="button"
+                  title={t('quickStrainTitle')}
+                  onClick={() => setIsQuickStrainOpen(true)}
+                >
+                  <Plus aria-hidden="true" size={17} />
+                  {t('quickStrainAdd')}
+                </button>
+              ) : null}
+            </div>
+            <label className="create-box-strain-search">
+              <Search aria-hidden="true" size={16} />
+              <span className="sr-only">{t('quickStrainSearch')}</span>
+              <input
+                type="search"
+                value={strainSearch}
+                placeholder={t('quickStrainSearch')}
+                onChange={(event) => setStrainSearch(event.target.value)}
+              />
+            </label>
             <select
+              aria-label={t('createBoxStrain')}
               value={strainId ?? ''}
               onChange={(event) => {
                 setStrainId(Number(event.target.value));
@@ -1485,13 +1535,13 @@ function CreateBoxPanel({
                 setBoxNumber('');
               }}
             >
-              {strains.map((strain) => (
+              {filteredStrains.map((strain) => (
                 <option key={strain.id} value={strain.id}>
                   {strain.species_name} - {strain.code}
                 </option>
               ))}
             </select>
-          </label>
+          </div>
 
           <label>
             <span>{t('createBoxZone')}</span>
@@ -1531,6 +1581,21 @@ function CreateBoxPanel({
           {message ? <p className="inline-success">{message}</p> : null}
           {error ? <p className="inline-error">{error}</p> : null}
         </form>
+      ) : null}
+
+      {isQuickStrainOpen ? (
+        <QuickStrainCreator
+          t={t}
+          onClose={() => setIsQuickStrainOpen(false)}
+          onCreated={(strain) => {
+            setCreatedStrains((current) => [...current.filter((item) => item.id !== strain.id), strain]);
+            setStrainId(strain.id);
+            setStrainSearch(`${strain.species_name} ${strain.code}`);
+            setGlobalCode('');
+            setBoxNumber('');
+            setIsQuickStrainOpen(false);
+          }}
+        />
       ) : null}
     </section>
   );
@@ -1655,6 +1720,20 @@ function OverviewView({
   const toggleZoneFilter = (targetZoneName: string) => {
     setZoneFilter((currentZoneName) => (currentZoneName === targetZoneName ? '' : targetZoneName));
   };
+  const hasCustomizedOverview = Boolean(
+    focusFilter !== 'all'
+    || speciesFilter
+    || zoneFilter
+    || normalizedQuery
+    || sortOrder !== 'oldest',
+  );
+  const resetOverview = () => {
+    setFocusFilter('all');
+    setSpeciesFilter('');
+    setZoneFilter('');
+    setQuery('');
+    setSortOrder('oldest');
+  };
 
   useEffect(() => {
     setVisibleCount(12);
@@ -1680,16 +1759,6 @@ function OverviewView({
           </button>
           <button
             type="button"
-            aria-pressed={focusFilter === 'due'}
-            className={focusFilter === 'due' ? 'is-active is-due' : 'is-due'}
-            onClick={() => toggleFocusFilter('due')}
-          >
-            <span>{t('weeklyDueNow')}</span>
-            <strong>{dueCount}</strong>
-            <small>{focusFilter === 'due' ? t('overviewClearFilter') : t('overviewFilterHint')}</small>
-          </button>
-          <button
-            type="button"
             aria-pressed={focusFilter === 'soon'}
             className={focusFilter === 'soon' ? 'is-active is-soon' : 'is-soon'}
             onClick={() => toggleFocusFilter('soon')}
@@ -1697,6 +1766,16 @@ function OverviewView({
             <span>{t('weeklyDueSoon')}</span>
             <strong>{soonCount}</strong>
             <small>{focusFilter === 'soon' ? t('overviewClearFilter') : t('overviewFilterHint')}</small>
+          </button>
+          <button
+            type="button"
+            aria-pressed={focusFilter === 'due'}
+            className={focusFilter === 'due' ? 'is-active is-due' : 'is-due'}
+            onClick={() => toggleFocusFilter('due')}
+          >
+            <span>{t('weeklyDueNow')}</span>
+            <strong>{dueCount}</strong>
+            <small>{focusFilter === 'due' ? t('overviewClearFilter') : t('overviewFilterHint')}</small>
           </button>
         </div>
       </header>
@@ -1742,50 +1821,60 @@ function OverviewView({
       ) : null}
 
       <section className="overview-filters overview-filters-priority" aria-label={t('overviewFilters')}>
-        <label>
-          <span>{t('overviewSearch')}</span>
-          <input
-            type="search"
-            placeholder={t('overviewSearchPlaceholder')}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-        </label>
-        <div className="overview-sort-control">
-          <span>{t('overviewSort')}</span>
-          <div className="overview-sort-buttons">
-            <button
-              type="button"
-              className={sortOrder === 'oldest' ? 'is-active' : ''}
-              onClick={() => setSortOrder('oldest')}
-            >
-              {t('overviewSortOldest')}
-            </button>
-            <button
-              type="button"
-              className={sortOrder === 'newest' ? 'is-active' : ''}
-              onClick={() => setSortOrder('newest')}
-            >
-              {t('overviewSortNewest')}
-            </button>
+        <header className="overview-filters-header">
+          <div>
+            <strong>{t('overviewRefineList')}</strong>
+            <span>
+              <b>{visibleEntries.length}</b>/{filteredEntries.length} {t('overviewShowing')}
+            </span>
+          </div>
+          {hasCustomizedOverview ? (
+            <button type="button" onClick={resetOverview}>{t('overviewResetFilters')}</button>
+          ) : null}
+        </header>
+        <div className="overview-filter-fields">
+          <label>
+            <span>{t('overviewSearch')}</span>
+            <input
+              type="search"
+              placeholder={t('overviewSearchPlaceholder')}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
+          <label>
+            <span>{t('speciesLabel')}</span>
+            <select value={speciesFilter} onChange={(event) => setSpeciesFilter(event.target.value)}>
+              <option value="">{t('overviewFilterAllSpecies')}</option>
+              {speciesOptions.map((speciesName) => (
+                <option key={speciesName} value={speciesName}>{speciesName}</option>
+              ))}
+            </select>
+          </label>
+          <div className="overview-sort-control">
+            <span>{t('overviewSort')}</span>
+            <div className="overview-sort-buttons">
+              <button
+                type="button"
+                className={sortOrder === 'oldest' ? 'is-active' : ''}
+                onClick={() => setSortOrder('oldest')}
+              >
+                {t('overviewSortOldest')}
+              </button>
+              <button
+                type="button"
+                className={sortOrder === 'newest' ? 'is-active' : ''}
+                onClick={() => setSortOrder('newest')}
+              >
+                {t('overviewSortNewest')}
+              </button>
+            </div>
           </div>
         </div>
-        <label>
-          <span>{t('speciesLabel')}</span>
-          <select value={speciesFilter} onChange={(event) => setSpeciesFilter(event.target.value)}>
-            <option value="">{t('overviewFilterAllSpecies')}</option>
-            {speciesOptions.map((speciesName) => (
-              <option key={speciesName} value={speciesName}>{speciesName}</option>
-            ))}
-          </select>
-        </label>
       </section>
 
       {trackedEntries.length > 0 && filteredEntries.length > 0 ? (
         <div className="overview-list">
-          <div className="overview-result-count" aria-label={t('overviewShowing')}>
-            <strong>{visibleEntries.length}/{filteredEntries.length}</strong>
-          </div>
           <div className="overview-box-list">
             {visibleEntries.map((entry) => (
               <article
@@ -1793,21 +1882,37 @@ function OverviewView({
                 key={entry.box.id}
               >
                 <header>
-                  <button type="button" onClick={() => onSelectBox(entry.box.id)}>
+                  <div
+                    className="overview-reading-age"
+                    aria-label={`${entry.daysSince == null ? t('weeklyNoRecentReading') : t('weeklyLastReading')} ${entry.daysSince ?? ''}`.trim()}
+                  >
+                    <strong>
+                      {entry.daysSince == null
+                        ? '—'
+                        : `${entry.daysSince} ${t(entry.daysSince === 1 ? 'weeklyDay' : 'weeklyDays')}`}
+                    </strong>
+                  </div>
+                  <button
+                    type="button"
+                    className="overview-box-identity"
+                    onClick={() => onSelectBox(entry.box.id)}
+                  >
                     <strong>{entry.box.global_code}</strong>
                     <span>{entry.box.species_name}</span>
                   </button>
-                  {entry.box.thermal_zone ? (
-                    <button
-                      type="button"
-                      className="overview-zone-button"
-                      onClick={() => onOpenZone(entry.box.thermal_zone!.id)}
-                    >
-                      {entry.zoneName}
-                    </button>
-                  ) : (
-                    <small>{entry.zoneName}</small>
-                  )}
+                  <div className="overview-zone-context">
+                    {entry.box.thermal_zone ? (
+                      <button
+                        type="button"
+                        className="overview-zone-button"
+                        onClick={() => onOpenZone(entry.box.thermal_zone!.id)}
+                      >
+                        {entry.zoneName}
+                      </button>
+                    ) : (
+                      <small className="overview-zone-label">{entry.zoneName}</small>
+                    )}
+                  </div>
                 </header>
 
                 <OverviewMiniChart box={entry.box} language={language} t={t} />
@@ -1946,6 +2051,18 @@ function OverviewMiniChart({
   useEffect(() => setWindowOffset(0), [box.id]);
 
   const latestDate = orderedMeasurements[orderedMeasurements.length - 1]?.date;
+  const canMoveOverviewWindow = (months: number) => {
+    const targetOffset = Math.max(
+      0,
+      Math.min(chartWindow.maxOffset, chartWindow.offset + months),
+    );
+    if (targetOffset === chartWindow.offset) return false;
+
+    const targetWindow = buildChartWindow(sourceDates, targetOffset, 3);
+    return orderedMeasurements.some((measurement) => (
+      measurement.date >= targetWindow.startDate && measurement.date <= targetWindow.endDate
+    ));
+  };
 
   if (!latestDate) {
     return (
@@ -1976,15 +2093,20 @@ function OverviewMiniChart({
   return (
     <div className="overview-mini-chart">
       <ChartWindowControls
+        canMove={canMoveOverviewWindow}
         compact
         endDate={chartWindow.endDate}
         hasNewerWindow={chartWindow.hasNewerWindow}
         hasOlderWindow={chartWindow.hasOlderWindow}
         language={language}
         longStep={3}
-        onMove={(months) => setWindowOffset((current) => (
-          Math.max(0, Math.min(chartWindow.maxOffset, current + months))
-        ))}
+        onMove={(months) => {
+          if (!canMoveOverviewWindow(months)) return;
+          setWindowOffset(Math.max(
+            0,
+            Math.min(chartWindow.maxOffset, chartWindow.offset + months),
+          ));
+        }}
         startDate={chartWindow.startDate}
         windowMonths={3}
       />
@@ -1998,6 +2120,7 @@ function OverviewMiniChart({
           date: point.date,
           polypCount: point.polyp_count,
           ephyraeCount: point.ephyrae_count,
+          salinity: point.salinity_psu,
         }))}
         locations={locations}
         selectionScope={box.id}
@@ -2009,6 +2132,7 @@ function OverviewMiniChart({
           missingReading: t('chartMissingReading'),
           movement: t('movementEvent'),
           polyps: t('polyps'),
+          salinity: 'PSU',
           selectedReading: language === 'fr' ? 'Relevé sélectionné' : 'Selected reading',
         }}
       />

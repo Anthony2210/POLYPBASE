@@ -1,6 +1,5 @@
 import {
   useEffect,
-  useId,
   useMemo,
   useState,
   type CSSProperties,
@@ -108,7 +107,6 @@ export default function BiologicalTrendChart({
   selectionScope?: number | string;
   startDate: string;
 }) {
-  const missingPatternId = `bio-trend-missing-${useId().replace(/:/g, '')}`;
   const [activeDetail, setActiveDetail] = useState<ActiveDetail | null>(null);
   const geometry = useMemo(
     () => buildGeometry(measurements, locations, events, startDate, endDate, compact),
@@ -148,6 +146,7 @@ export default function BiologicalTrendChart({
   const {
     countHeight,
     countLine,
+    chartAreaHeight,
     end,
     eventPoints,
     locationBands,
@@ -155,12 +154,15 @@ export default function BiologicalTrendChart({
     measurementSegments,
     missingRanges,
     padding,
+    plotHeight,
+    plotTop,
     plottedMeasurements,
     start,
     timeTicks,
     width,
     xPosition,
     yCount,
+    zoneBandHeight,
   } = geometry;
   const latestMeasurement = useMemo(() => {
     const sortedMeasurements = [...measurements].sort((left, right) => left.date.localeCompare(right.date));
@@ -188,8 +190,8 @@ export default function BiologicalTrendChart({
       id: `measurement-${measurement.id}`,
       date: measurement.date,
       left: (x / width) * 100,
-      placement: topY < padding.top + 82 ? 'below' : 'above',
-      top: Math.max(padding.top + 10, topY - 8),
+      placement: topY < plotTop + 82 ? 'below' : 'above',
+      top: Math.max(plotTop + 10, topY - 8),
       title: formatDisplayDate(measurement.date),
       lines: buildMeasurementDetailLines(measurement, labels, locations, locationName),
     };
@@ -197,12 +199,14 @@ export default function BiologicalTrendChart({
   });
   const selectedDetailId = detailDisplay === 'inline' ? inlineDetail?.id : activeDetail?.id;
   const selectedReading = plottedReadingDetails.find(({ detail }) => detail.id === selectedDetailId) ?? null;
+  const inlineReadoutLines = inlineDetail?.lines.filter((item) => item.kind !== 'location') ?? [];
+  const inlineReadoutColumnCount = Math.max(
+    1,
+    inlineReadoutLines.filter((item) => item.kind !== 'note').length,
+  );
   const hasOverflow = plottedMeasurements.some((measurement) => (
     measurement.polypCount > maxCount || measurement.ephyraeCount > maxCount
   ));
-  const missingOverlayTop = padding.top + (compact ? 20 : 26);
-  const missingOverlayHeight = countHeight - padding.bottom - missingOverlayTop;
-
   function handleMeasurementKey(
     event: KeyboardEvent<SVGGElement>,
     detail: ActiveDetail,
@@ -243,8 +247,11 @@ export default function BiologicalTrendChart({
               <span>{labels.selectedReading ?? labels.chartTitle}</span>
               <time dateTime={inlineDetail.date}>{inlineDetail.title}</time>
             </header>
-            <dl className="bio-trend-detail-values">
-              {inlineDetail.lines.map((item) => (
+            <dl
+              className="bio-trend-detail-values"
+              style={{ '--detail-columns': inlineReadoutColumnCount } as CSSProperties}
+            >
+              {inlineReadoutLines.map((item) => (
                 <div key={`${item.kind}-${item.label}`} className={`is-${item.kind}`}>
                   <dt>{item.label}</dt>
                   <dd>{item.value}</dd>
@@ -267,13 +274,6 @@ export default function BiologicalTrendChart({
             }
           }}
         >
-          <defs>
-            <pattern id={missingPatternId} width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-              <rect className="bio-trend-missing-pattern-fill" width="8" height="8" />
-              <line className="bio-trend-missing-pattern-line" x1="0" y1="0" x2="0" y2="8" />
-            </pattern>
-          </defs>
-
           {locationBands.map((band) => {
             const zoneColor = getZoneColor(band.name);
             return (
@@ -286,12 +286,31 @@ export default function BiologicalTrendChart({
                   '--zone-text-color': zoneColor.text,
                 } as CSSProperties}
               >
-                <rect x={band.x1} y={padding.top} width={band.width} height={geometry.innerHeight} />
+                <rect
+                  x={band.x1}
+                  y={padding.top}
+                  width={band.width}
+                  height={zoneBandHeight}
+                  rx={compact ? 2 : 3}
+                />
+                <line
+                  className="bio-trend-location-band-baseline"
+                  x1={band.x1}
+                  x2={band.x1 + band.width}
+                  y1={padding.top + zoneBandHeight}
+                  y2={padding.top + zoneBandHeight}
+                />
                 {band.width >= (compact ? 72 : 92) ? (
-                  <text x={band.x1 + 8} y={padding.top + 16}>{band.name}</text>
+                  <text
+                    x={band.x1 + 8}
+                    y={padding.top + zoneBandHeight / 2}
+                    dominantBaseline="middle"
+                  >
+                    {band.name}
+                  </text>
                 ) : null}
                 {band.x1 > padding.left + 1 ? (
-                  <line x1={band.x1} x2={band.x1} y1={padding.top} y2={countHeight - padding.bottom} />
+                  <line x1={band.x1} x2={band.x1} y1={padding.top} y2={padding.top + zoneBandHeight} />
                 ) : null}
               </g>
             );
@@ -302,7 +321,7 @@ export default function BiologicalTrendChart({
               <line
                 x1={tick.x}
                 x2={tick.x}
-                y1={padding.top}
+                y1={plotTop}
                 y2={countHeight - padding.bottom}
               />
               <text
@@ -316,65 +335,21 @@ export default function BiologicalTrendChart({
           ))}
 
           {[0.25, 0.5, 0.75].map((ratio) => {
-            const y = padding.top + ratio * geometry.innerHeight;
+            const y = plotTop + ratio * plotHeight;
             return <line key={ratio} className="bio-trend-grid" x1={padding.left} y1={y} x2={width - padding.right} y2={y} />;
           })}
           <line className="bio-trend-axis" x1={padding.left} y1={countHeight - padding.bottom} x2={width - padding.right} y2={countHeight - padding.bottom} />
-          <line className="bio-trend-axis" x1={padding.left} y1={padding.top} x2={padding.left} y2={countHeight - padding.bottom} />
+          <line className="bio-trend-axis" x1={padding.left} y1={plotTop} x2={padding.left} y2={countHeight - padding.bottom} />
 
           {missingRanges.map((range) => (
             <g key={`${range.start}-${range.end}`} className="bio-trend-missing-range">
               <rect
+                className="bio-trend-missing-wash"
                 x={range.x1}
-                y={missingOverlayTop}
+                y={plotTop}
                 width={range.width}
-                height={missingOverlayHeight}
-                fill={`url(#${missingPatternId})`}
+                height={plotHeight}
               />
-              <line
-                className="bio-trend-missing-separator"
-                x1={range.x1}
-                x2={range.x1 + range.width}
-                y1={missingOverlayTop}
-                y2={missingOverlayTop}
-              />
-              {range.x1 > padding.left + 2 ? (
-                <line
-                  className="bio-trend-missing-boundary"
-                  x1={range.x1}
-                  x2={range.x1}
-                  y1={missingOverlayTop}
-                  y2={countHeight - padding.bottom}
-                />
-              ) : null}
-              {range.x1 + range.width < width - padding.right - 2 ? (
-                <line
-                  className="bio-trend-missing-boundary"
-                  x1={range.x1 + range.width}
-                  x2={range.x1 + range.width}
-                  y1={missingOverlayTop}
-                  y2={countHeight - padding.bottom}
-                />
-              ) : null}
-              {range.width >= (compact ? 96 : 112) ? (
-                <text
-                  className="bio-trend-missing-label"
-                  x={range.x1 + range.width / 2}
-                  y={missingOverlayTop + missingOverlayHeight / 2 - (!compact && range.width >= 170 ? 5 : 0)}
-                  textAnchor="middle"
-                >
-                  <tspan x={range.x1 + range.width / 2}>{labels.missingReading}</tspan>
-                  {!compact && range.width >= 170 ? (
-                    <tspan
-                      className="bio-trend-missing-dates"
-                      x={range.x1 + range.width / 2}
-                      dy={16}
-                    >
-                      {formatDisplayDate(range.start)} - {formatDisplayDate(range.end)}
-                    </tspan>
-                  ) : null}
-                </text>
-              ) : null}
               <title>{`${labels.missingReading}: ${formatDisplayDate(range.start)} - ${formatDisplayDate(range.end)}`}</title>
             </g>
           ))}
@@ -384,7 +359,7 @@ export default function BiologicalTrendChart({
               className="bio-trend-selection-guide"
               x1={selectedReading.x}
               x2={selectedReading.x}
-              y1={padding.top}
+              y1={plotTop}
               y2={countHeight - padding.bottom}
             />
           ) : null}
@@ -402,7 +377,7 @@ export default function BiologicalTrendChart({
               id: `event-${event.id}`,
               left: (x / width) * 100,
               placement: 'below' as const,
-              top: padding.top + 6,
+              top: plotTop + 6,
               title: `${eventTitle} - ${formatDisplayDate(event.date)}`,
               lines: event.detail
                 ? [{ kind: 'location' as const, label: labels.location, value: event.detail }]
@@ -419,12 +394,25 @@ export default function BiologicalTrendChart({
                 onClick={(clickEvent) => stopAndToggle(clickEvent, detail)}
                 onKeyDown={(keyEvent) => handleDetailKey(keyEvent, detail)}
               >
-                <line x1={0} y1={event.kind === 'movement' ? 0 : 10} x2={0} y2={geometry.innerHeight} />
-                <path d="M0 0 L6 6 L0 12 L-6 6 Z" />
+                <line
+                  className="bio-trend-event-hit-area"
+                  x1={0}
+                  y1={event.kind === 'movement' ? 0 : plotTop - padding.top}
+                  x2={0}
+                  y2={chartAreaHeight}
+                />
+                <line
+                  className="bio-trend-event-line"
+                  x1={0}
+                  y1={event.kind === 'movement' ? 0 : plotTop - padding.top}
+                  x2={0}
+                  y2={chartAreaHeight}
+                />
+                {event.kind !== 'movement' ? <path d="M0 0 L6 6 L0 12 L-6 6 Z" /> : null}
                 {event.kind === 'movement' ? (
                   <text
                     className="bio-trend-event-label"
-                    x={-geometry.innerHeight / 2}
+                    x={-chartAreaHeight / 2}
                     y={-8}
                     textAnchor="middle"
                     transform="rotate(-90)"
@@ -455,22 +443,22 @@ export default function BiologicalTrendChart({
                 {measurement.polypCount > maxCount ? (
                   <path
                     className="bio-trend-overflow is-polyps"
-                    d={`M${x - 4} ${padding.top + 8} L${x} ${padding.top + 1} L${x + 4} ${padding.top + 8} Z`}
+                    d={`M${x - 4} ${plotTop + 8} L${x} ${plotTop + 1} L${x + 4} ${plotTop + 8} Z`}
                   />
                 ) : null}
                 {measurement.ephyraeCount > maxCount ? (
                   <path
                     className="bio-trend-overflow is-ephyrae"
-                    d={`M${x - 4} ${padding.top + 14} L${x} ${padding.top + 7} L${x + 4} ${padding.top + 14} Z`}
+                    d={`M${x - 4} ${plotTop + 14} L${x} ${plotTop + 7} L${x + 4} ${plotTop + 14} Z`}
                   />
                 ) : null}
-                <rect className="bio-trend-hit-area" x={x - 13} y={padding.top} width={26} height={geometry.innerHeight} />
+                <rect className="bio-trend-hit-area" x={x - 13} y={plotTop} width={26} height={plotHeight} />
               </g>
             );
           })}
 
           {!plottedMeasurements.length ? (
-            <text className="bio-trend-empty" x={width / 2} y={padding.top + geometry.innerHeight / 2}>{labels.empty}</text>
+            <text className="bio-trend-empty" x={width / 2} y={plotTop + plotHeight / 2}>{labels.empty}</text>
           ) : null}
 
           <text className="bio-trend-label" x={padding.left} y={countHeight - 9}>{formatDisplayDate(start)}</text>
@@ -586,8 +574,8 @@ function buildGeometry(
   const width = compact ? 640 : 860;
   const countHeight = compact ? 238 : 260;
   const padding = compact
-    ? { top: 18, right: 22, bottom: 34, left: 44 }
-    : { top: 34, right: 26, bottom: 34, left: 44 };
+    ? { top: 6, right: 22, bottom: 34, left: 44 }
+    : { top: 8, right: 26, bottom: 34, left: 44 };
   const start = normalizeDate(startDate);
   const requestedEnd = normalizeDate(endDate);
   const end = requestedEnd <= start ? addDays(start, 1) : requestedEnd;
@@ -599,19 +587,23 @@ function buildGeometry(
   const plottedEvents = [...events]
     .filter((event) => event.date >= startText && event.date <= endText)
     .sort((left, right) => left.date.localeCompare(right.date));
-  const innerHeight = countHeight - padding.top - padding.bottom;
   const xScale = scaleTime().domain([start, end]).range([padding.left, width - padding.right]);
+  const xPosition = (date: string) => xScale(normalizeDate(date));
+  const locationBands = buildLocationBands(locations, startText, endText, xPosition);
+  const zoneBandHeight = locationBands.length ? (compact ? 18 : 22) : 0;
+  const zoneBandGap = locationBands.length ? (compact ? 4 : 6) : 0;
+  const plotTop = padding.top + zoneBandHeight + zoneBandGap;
+  const plotHeight = countHeight - padding.bottom - plotTop;
+  const chartAreaHeight = countHeight - padding.bottom - padding.top;
   const maxCount = BIOLOGICAL_COUNT_AXIS_MAX;
   const yCount = scaleLinear()
     .domain([0, maxCount])
-    .range([countHeight - padding.bottom, padding.top])
+    .range([countHeight - padding.bottom, plotTop])
     .clamp(true);
-  const xPosition = (date: string) => xScale(normalizeDate(date));
   const countLine = (selector: (point: TrendMeasurement) => number) => line<TrendMeasurement>()
     .x((point) => xPosition(point.date))
     .y((point) => yCount(selector(point)));
 
-  const locationBands = buildLocationBands(locations, startText, endText, xPosition);
   const timeTicks = buildTimeTicks(start, end, xPosition, padding, width, compact);
   const explicitEventPoints = plottedEvents.map((event) => ({
     event,
@@ -635,10 +627,10 @@ function buildGeometry(
   return {
     countHeight,
     countLine,
+    chartAreaHeight,
     end: endText,
     eventPoints: [...explicitEventPoints, ...generatedTransferPoints]
       .sort((left, right) => left.x - right.x),
-    innerHeight,
     locationBands,
     maxCount,
     measurementSegments: splitMeasurementsOnGaps(plottedMeasurements),
@@ -648,12 +640,15 @@ function buildGeometry(
       width: Math.max(3, xPosition(range.end) - xPosition(range.start)),
     })),
     padding,
+    plotHeight,
+    plotTop,
     plottedMeasurements,
     start: startText,
     timeTicks,
     width,
     xPosition,
     yCount,
+    zoneBandHeight,
   };
 }
 
@@ -674,7 +669,7 @@ function buildTimeTicks(
 
   const maxTicks = compact ? 3 : 6;
   const step = Math.max(1, Math.ceil(candidates.length / maxTicks));
-  const edgeClearance = compact ? 66 : 92;
+  const edgeClearance = compact ? 104 : 92;
   return candidates
     .filter((_, index) => index % step === 0)
     .map((date) => {

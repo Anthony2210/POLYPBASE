@@ -134,12 +134,18 @@
 .loader-metrics > .loader-block { height: 58px; }
 
 .loader-scanner {
+  display: none;
   width: min(210px, 42vw);
   height: auto;
   aspect-ratio: 1;
   margin: var(--space-8) auto;
   background: var(--color-primary-faint);
   border: 1px solid var(--color-line);
+}
+
+@media (max-width: 1023px),
+  (min-width: 760px) and (max-width: 1180px) and (pointer: coarse) {
+  .loader-scanner { display: block; }
 }
 
 .loader-summary + .loader-zone-filters { margin-top: var(--space-1); }
