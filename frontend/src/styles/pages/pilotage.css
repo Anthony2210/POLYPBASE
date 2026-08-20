@@ -315,6 +315,62 @@
 .create-box-form label { display: grid; gap: 6px; font-size: .82rem; }
 .create-box-form textarea { min-height: 78px; }
 
+.create-box-strain-field {
+  display: grid;
+  gap: 6px;
+}
+
+.create-box-field-heading {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--color-ink-soft);
+  font-size: .82rem;
+  font-weight: 650;
+}
+
+.create-box-reference-action {
+  display: inline-flex;
+  min-height: 30px;
+  padding: 0 var(--space-2);
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-primary-hover);
+  font-size: .74rem;
+  font-weight: 780;
+  background: var(--color-primary-faint);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.create-box-reference-action:hover {
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary);
+}
+
+.create-box-strain-search {
+  position: relative;
+}
+
+.create-box-strain-search > svg {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: var(--space-3);
+  color: var(--color-muted);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.create-box-strain-search input {
+  min-height: 36px;
+  padding-left: 38px;
+  font-size: .78rem;
+}
+
 .create-box-form button[type='submit'] {
   min-height: var(--control-height);
   padding-inline: var(--space-4);
@@ -545,6 +601,12 @@
     background: var(--color-page);
   }
 
+  .lookup-panel:has(.create-box-form) { z-index: 221; }
+  .workspace-page:has(.create-box-form) {
+    position: relative;
+    z-index: 230;
+  }
+
   .create-box-panel:has(.create-box-form) .create-box-toggle {
     position: sticky;
     top: calc(var(--space-2) + env(safe-area-inset-top));
@@ -553,7 +615,7 @@
     width: auto;
     min-height: 42px;
     padding-right: 14px;
-    box-shadow: var(--shadow-float);
+    box-shadow: none;
   }
 
   .create-box-form {

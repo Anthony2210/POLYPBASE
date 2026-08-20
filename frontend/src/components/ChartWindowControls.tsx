@@ -1,10 +1,17 @@
 import type { ReactNode } from 'react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+} from 'lucide-react';
 
 import type { Language } from '../i18n';
 import { formatDisplayDate } from '../utils/dateFormat';
 
 export default function ChartWindowControls({
   action,
+  canMove,
   compact = false,
   endDate,
   hasNewerWindow,
@@ -17,6 +24,7 @@ export default function ChartWindowControls({
   windowMonths,
 }: {
   action?: ReactNode;
+  canMove?: (months: number) => boolean;
   compact?: boolean;
   endDate: string;
   hasNewerWindow: boolean;
@@ -34,45 +42,60 @@ export default function ChartWindowControls({
   const moveLabel = (direction: 'newer' | 'older', value: number) => language === 'fr'
     ? `${direction === 'older' ? 'Reculer' : 'Avancer'} de ${monthLabel(value)}`
     : `Move ${direction === 'older' ? 'back' : 'forward'} ${monthLabel(value)}`;
+  const formattedStartDate = formatDisplayDate(startDate);
+  const formattedEndDate = formatDisplayDate(endDate);
+  const rangeLabel = language === 'fr'
+    ? `de ${monthLabel(windowMonths)}`
+    : `for ${monthLabel(windowMonths)}`;
+  const displayedPeriodLabel = language === 'fr' ? 'Période affichée' : 'Displayed period';
+  const datePrefix = language === 'fr' ? 'du' : 'from';
+  const dateSeparator = language === 'fr' ? 'au' : 'to';
 
   return (
     <header className={`chart-window-header${compact ? ' is-compact' : ''}`}>
       {title ? <h2>{title}</h2> : null}
       <div className="chart-window-navigation" role="group" aria-label={monthLabel(windowMonths)}>
-        <WindowButton
-          direction="left"
-          isLongStep
-          accessibleLabel={moveLabel('older', longStep)}
-          disabled={!hasOlderWindow}
-          onClick={() => onMove(longStep)}
-        />
-        <WindowButton
-          direction="left"
-          accessibleLabel={moveLabel('older', 1)}
-          disabled={!hasOlderWindow}
-          onClick={() => onMove(1)}
-        />
+        <div className="chart-window-step-group is-older">
+          <WindowButton
+            direction="left"
+            isLongStep
+            accessibleLabel={moveLabel('older', longStep)}
+            disabled={canMove ? !canMove(longStep) : !hasOlderWindow}
+            onClick={() => onMove(longStep)}
+          />
+          <WindowButton
+            direction="left"
+            accessibleLabel={moveLabel('older', 1)}
+            disabled={canMove ? !canMove(1) : !hasOlderWindow}
+            onClick={() => onMove(1)}
+          />
+        </div>
         <div className="chart-window-range" aria-live="polite">
-          <small>{monthLabel(windowMonths)}</small>
+          <span className="chart-window-range-label">
+            <small>{displayedPeriodLabel} {rangeLabel}</small>
+          </span>
           <div className="chart-window-dates">
-            <time dateTime={startDate}>{formatDisplayDate(startDate)}</time>
-            <span className="chart-window-date-arrow" aria-hidden="true">→</span>
-            <time dateTime={endDate}>{formatDisplayDate(endDate)}</time>
+            <span className="chart-window-date-prefix">{datePrefix}</span>
+            <time dateTime={startDate}>{formattedStartDate}</time>
+            <span className="chart-window-date-separator">{dateSeparator}</span>
+            <time dateTime={endDate}>{formattedEndDate}</time>
           </div>
         </div>
-        <WindowButton
-          direction="right"
-          accessibleLabel={moveLabel('newer', 1)}
-          disabled={!hasNewerWindow}
-          onClick={() => onMove(-1)}
-        />
-        <WindowButton
-          direction="right"
-          isLongStep
-          accessibleLabel={moveLabel('newer', longStep)}
-          disabled={!hasNewerWindow}
-          onClick={() => onMove(-longStep)}
-        />
+        <div className="chart-window-step-group is-newer">
+          <WindowButton
+            direction="right"
+            accessibleLabel={moveLabel('newer', 1)}
+            disabled={canMove ? !canMove(-1) : !hasNewerWindow}
+            onClick={() => onMove(-1)}
+          />
+          <WindowButton
+            direction="right"
+            isLongStep
+            accessibleLabel={moveLabel('newer', longStep)}
+            disabled={canMove ? !canMove(-longStep) : !hasNewerWindow}
+            onClick={() => onMove(-longStep)}
+          />
+        </div>
       </div>
       {action ? <div className="chart-window-action">{action}</div> : null}
     </header>
@@ -92,6 +115,10 @@ function WindowButton({
   isLongStep?: boolean;
   onClick: () => void;
 }) {
+  const Icon = direction === 'left'
+    ? (isLongStep ? ChevronsLeft : ChevronLeft)
+    : (isLongStep ? ChevronsRight : ChevronRight);
+
   return (
     <button
       type="button"
@@ -100,13 +127,7 @@ function WindowButton({
       disabled={disabled}
       onClick={onClick}
     >
-      <span
-        className={`chart-window-icon is-${direction}${isLongStep ? ' is-double' : ''}`}
-        aria-hidden="true"
-      >
-        <span />
-        {isLongStep ? <span /> : null}
-      </span>
+      <Icon aria-hidden="true" size={18} strokeWidth={2.1} />
     </button>
   );
 }

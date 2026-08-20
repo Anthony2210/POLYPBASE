@@ -92,7 +92,7 @@
   border-radius: var(--radius-md);
 }
 
-.measurement-chart svg { display: block; width: 100%; min-height: 232px; overflow: visible; }
+.measurement-chart .bio-trend-svg { display: block; width: 100%; min-height: 232px; overflow: visible; }
 
 :where(.chart-axis, .chart-grid-line) { stroke: var(--color-line); stroke-width: 1; }
 .chart-axis.is-temperature-axis { stroke: color-mix(in srgb, var(--color-temperature) 45%, transparent); }

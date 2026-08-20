@@ -70,54 +70,53 @@
 .bio-trend-legend .is-ephyrae { --series-color: var(--color-ephyrae); }
 
 .bio-trend-legend .is-missing::before {
-  height: 8px;
+  height: 5px;
   background: repeating-linear-gradient(
-    135deg,
-    rgb(93 108 120 / 24%) 0 1px,
-    transparent 1px 4px
+    90deg,
+    color-mix(in srgb, var(--color-muted) 58%, transparent) 0 5px,
+    transparent 5px 8px
   );
-  border: 1px solid rgb(93 108 120 / 22%);
-  border-radius: 2px;
+  border: 0;
+  border-radius: 1px;
 }
 
-.bio-trend.has-inline-detail .bio-trend-heading { min-height: 88px; }
+.bio-trend.has-inline-detail .bio-trend-heading { min-height: 72px; }
 
 .bio-trend-readout {
   display: grid;
   min-width: 0;
   width: 100%;
-  min-height: 88px;
-  grid-template-columns: minmax(170px, .62fr) minmax(0, 2.38fr);
+  min-height: 72px;
+  grid-template-columns: minmax(205px, .78fr) minmax(0, 2.22fr);
   overflow: hidden;
   font-variant-numeric: tabular-nums;
   background: var(--color-surface);
-  border: 1px solid color-mix(in srgb, var(--color-primary) 22%, var(--color-line));
-  border-left: 4px solid var(--color-primary);
-  border-radius: var(--radius-md);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
 }
 
 .bio-trend-readout-header {
   display: grid;
   min-width: 0;
-  padding: var(--space-3) var(--space-4);
+  padding: 10px var(--space-4) 10px calc(var(--space-4) - 3px);
   align-content: center;
-  gap: 5px;
-  background: var(--color-primary-faint);
+  gap: 4px;
+  background: var(--color-surface-subtle);
+  border-left: 3px solid var(--color-primary);
   border-right: 1px solid var(--color-line);
 }
 
 .bio-trend-readout-header span {
-  color: var(--color-primary-hover);
-  font-size: .66rem;
-  font-weight: 850;
+  color: var(--color-muted);
+  font-size: .7rem;
+  font-weight: 700;
   letter-spacing: 0;
-  text-transform: uppercase;
 }
 
 .bio-trend-readout-header time {
   min-width: 0;
   color: var(--color-ink);
-  font-size: 1rem;
+  font-size: 1.04rem;
   font-weight: 850;
   line-height: 1.15;
   text-decoration: none;
@@ -128,7 +127,7 @@
   display: grid;
   min-width: 0;
   margin: 0;
-  grid-template-columns: repeat(5, minmax(90px, 1fr));
+  grid-template-columns: repeat(var(--detail-columns, 4), minmax(90px, 1fr));
   align-items: stretch;
 }
 
@@ -140,36 +139,20 @@
 }
 
 .bio-trend-detail-values > div {
-  --detail-accent: var(--color-muted);
-  padding: 11px 13px;
+  padding: 10px 15px;
   align-content: center;
   background: transparent;
-  border-top: 2px solid transparent;
-  border-left: 1px solid var(--color-line-soft);
   border-radius: 0;
 }
 
-.bio-trend-detail-values > .is-polyps {
-  --detail-accent: var(--color-primary);
-  border-top-color: var(--color-primary);
-}
-
-.bio-trend-detail-values > .is-ephyrae {
-  --detail-accent: var(--color-ephyrae);
-  border-top-color: var(--color-ephyrae);
-}
-
-.bio-trend-detail-values > .is-salinity { --detail-accent: var(--color-temperature); }
-.bio-trend-detail-values > .is-location { --detail-accent: var(--color-warning); }
-.bio-trend-detail-values > .is-user { --detail-accent: var(--color-success); }
+.bio-trend-detail-values > div:not(:first-child) { border-left: 1px solid var(--color-line-soft); }
 
 .bio-trend-detail-values dt,
 .bio-trend-tooltip small {
   color: var(--color-muted);
-  font-size: .62rem;
-  font-weight: 750;
+  font-size: .68rem;
+  font-weight: 700;
   letter-spacing: 0;
-  text-transform: uppercase;
 }
 
 .bio-trend-detail-values dt {
@@ -179,24 +162,24 @@
   line-height: 1.15;
 }
 
-.bio-trend-detail-values :is(.is-polyps, .is-ephyrae) dt { color: var(--detail-accent); }
-
 .bio-trend-detail-values dd {
   min-width: 0;
   margin: 0;
   overflow: hidden;
   color: var(--color-ink);
   font-size: .9rem;
-  font-weight: 800;
+  font-weight: 750;
   line-height: 1.15;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .bio-trend-detail-values :is(.is-polyps, .is-ephyrae) dd {
-  color: var(--detail-accent);
-  font-size: 1.28rem;
+  font-size: 1.14rem;
 }
+
+.bio-trend-detail-values > .is-polyps dd { color: var(--color-primary); }
+.bio-trend-detail-values > .is-ephyrae dd { color: var(--color-ephyrae); }
 
 .bio-trend-detail-values > .is-note {
   grid-column: 1 / -1;
@@ -235,17 +218,26 @@
   aspect-ratio: 640 / 238;
 }
 
-.bio-trend-location-band rect { fill: var(--zone-band-color); }
+.bio-trend-location-band rect {
+  fill: color-mix(in srgb, var(--zone-band-color) 56%, var(--color-surface));
+  stroke: none;
+}
 
-.bio-trend-location-band line {
+.bio-trend-location-band line:not(.bio-trend-location-band-baseline) {
   stroke: var(--zone-border-color);
   stroke-width: .8;
-  opacity: .55;
+  opacity: .42;
+}
+
+.bio-trend-location-band-baseline {
+  stroke: var(--zone-border-color);
+  stroke-width: 1.1;
+  opacity: .68;
 }
 
 .bio-trend-location-band text {
   fill: var(--zone-text-color);
-  font-size: .78rem;
+  font-size: .68rem;
   font-weight: 800;
 }
 
@@ -330,51 +322,23 @@
   cursor: pointer;
 }
 
-.bio-trend-missing-pattern-fill { fill: color-mix(in srgb, var(--color-surface) 48%, transparent); }
-
-.bio-trend-missing-pattern-line {
-  stroke: color-mix(in srgb, var(--color-muted) 38%, transparent);
-  stroke-width: 1;
-}
-
-.bio-trend-missing-range rect { opacity: 1; }
-
-.bio-trend-missing-boundary {
-  stroke: color-mix(in srgb, var(--color-muted) 68%, transparent);
-  stroke-width: 1;
-  stroke-dasharray: 4 5;
+.bio-trend-missing-wash {
+  fill: color-mix(in srgb, var(--color-muted) 5%, transparent);
   pointer-events: none;
-}
-
-.bio-trend-missing-separator {
-  stroke: color-mix(in srgb, var(--color-muted) 58%, transparent);
-  stroke-width: 1;
-  pointer-events: none;
-}
-
-.bio-trend-missing-label {
-  fill: color-mix(in srgb, var(--color-muted) 92%, var(--color-ink));
-  font-family: inherit;
-  font-size: .58rem;
-  font-weight: 800;
-  letter-spacing: 0;
-  text-transform: uppercase;
-}
-
-.bio-trend-missing-dates {
-  fill: var(--color-muted);
-  font-size: .5rem;
-  font-weight: 650;
-  letter-spacing: 0;
-  text-transform: none;
 }
 
 .bio-trend-event { cursor: pointer; }
 .bio-trend-event:focus { outline: none; }
-.bio-trend-event line {
+.bio-trend-event-line {
   stroke: rgb(16 25 35 / 30%);
   stroke-width: 1;
   stroke-dasharray: 4 5;
+}
+
+.bio-trend-event-hit-area {
+  stroke: transparent;
+  stroke-width: 14;
+  pointer-events: stroke;
 }
 
 .bio-trend-event path {
@@ -385,22 +349,20 @@
 
 .bio-trend-event.is-subculture path { stroke: var(--color-ephyrae); }
 
-.bio-trend-event.is-movement line {
+.bio-trend-event.is-movement .bio-trend-event-line {
   stroke: var(--color-danger);
-  stroke-width: 1.8;
-  stroke-dasharray: none;
-}
-
-.bio-trend-event.is-movement path {
-  fill: var(--color-danger);
-  stroke: var(--color-surface);
-  stroke-width: 1.5;
+  stroke-width: 1.35;
+  stroke-dasharray: 4 3;
+  opacity: .88;
 }
 
 .bio-trend-event-label {
   fill: var(--color-danger);
-  font-size: .56rem;
-  font-weight: 850;
+  stroke: var(--color-surface);
+  stroke-width: 2.4;
+  paint-order: stroke fill;
+  font-size: .52rem;
+  font-weight: 800;
   letter-spacing: 0;
   text-transform: uppercase;
 }
@@ -416,9 +378,9 @@
 .bio-trend-y-label { text-anchor: end; }
 
 .bio-trend-empty {
-  font-size: .76rem;
-  font-style: italic;
-  font-weight: 700;
+  fill: var(--color-ink-soft);
+  font-size: .74rem;
+  font-weight: 750;
   text-anchor: middle;
 }
 
@@ -471,16 +433,18 @@
 .bio-trend.is-compact .bio-trend-heading { min-height: auto; }
 
 .bio-trend.is-compact .bio-trend-readout {
-  min-height: 62px;
-  grid-template-columns: minmax(112px, .42fr) minmax(0, 1.58fr);
+  min-height: 58px;
+  grid-template-columns: minmax(126px, .46fr) minmax(0, 1.54fr);
 }
 
 .bio-trend.is-compact .bio-trend-readout-header { padding: 8px 10px; }
-.bio-trend.is-compact .bio-trend-readout-header span { font-size: .58rem; }
-.bio-trend.is-compact .bio-trend-readout-header time { font-size: .88rem; }
+.bio-trend.is-compact .bio-trend-readout-header { border-right: 0; }
+.bio-trend.is-compact .bio-trend-detail-values > div:not(:first-child) { border-left: 0; }
+.bio-trend.is-compact .bio-trend-readout-header span { font-size: .62rem; }
+.bio-trend.is-compact .bio-trend-readout-header time { font-size: .84rem; }
 
 .bio-trend.is-compact .bio-trend-detail-values {
-  grid-template-columns: minmax(62px, .68fr) minmax(66px, .72fr) minmax(118px, 1.6fr);
+  grid-template-columns: repeat(var(--detail-columns, 2), minmax(62px, 1fr));
 }
 
 .bio-trend.is-compact .bio-trend-detail-values > div { padding: 7px 8px; }
@@ -505,6 +469,19 @@
   font-weight: 850;
 }
 
+.bio-trend.is-compact .bio-trend-legend {
+  gap: 10px;
+}
+
+.bio-trend.is-compact .bio-trend-legend span {
+  gap: 5px;
+  font-size: .66rem;
+}
+
+.bio-trend.is-compact .bio-trend-legend span::before {
+  width: 15px;
+}
+
 .bio-trend.is-compact .bio-trend-grid {
   stroke-dasharray: 5 7;
 }
@@ -513,6 +490,18 @@
   background: transparent;
   border: 0;
   border-radius: 0;
+}
+
+@media (min-width: 760px) and (max-width: 1180px) {
+  .bio-trend.is-compact .bio-trend-location-band text,
+  .bio-trend.is-compact .bio-trend-label,
+  .bio-trend.is-compact .bio-trend-y-label,
+  .bio-trend.is-compact .bio-trend-time-tick text {
+    font-size: .8rem;
+  }
+
+  .bio-trend.is-compact .bio-trend-legend span { font-size: .68rem; }
+  .bio-trend.is-compact .bio-trend-legend span::before { width: 16px; }
 }
 
 @media (max-width: 759px), (max-width: 900px) and (orientation: portrait) {

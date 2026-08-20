@@ -1,4 +1,5 @@
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
+import { ChevronLeft, ChevronRight, Pencil, Plus, Search, X } from 'lucide-react';
 
 import { apiGet, apiPatch, apiPost } from '../api/client';
 import type { Translator } from '../i18n';
@@ -13,6 +14,7 @@ import type {
   TaxonomyReferences,
 } from '../types/admin';
 import { getErrorMessage } from '../utils/errors';
+import AdminActionPanel from './AdminActionPanel';
 import PageLoader from './PageLoader';
 
 type ReferenceTab = 'species' | 'strains';
@@ -22,12 +24,14 @@ type FormState =
   | null;
 
 const EMPTY_TRANSLATION = { name: '', description: '' };
+const REFERENCE_PAGE_SIZE = 24;
 
 export default function TaxonomyAdminSection({ t }: { t: Translator }) {
   const [data, setData] = useState<TaxonomyReferences | null>(null);
   const [activeTab, setActiveTab] = useState<ReferenceTab>('species');
   const [formState, setFormState] = useState<FormState>(null);
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -75,6 +79,16 @@ export default function TaxonomyAdminSection({ t }: { t: Translator }) {
     }),
     [data?.strains, normalizedSearch],
   );
+  const activeResults = activeTab === 'species' ? filteredSpecies : filteredStrains;
+  const pageCount = Math.max(1, Math.ceil(activeResults.length / REFERENCE_PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const pageStart = (currentPage - 1) * REFERENCE_PAGE_SIZE;
+  const visibleSpecies = filteredSpecies.slice(pageStart, pageStart + REFERENCE_PAGE_SIZE);
+  const visibleStrains = filteredStrains.slice(pageStart, pageStart + REFERENCE_PAGE_SIZE);
+
+  useEffect(() => {
+    setPage(1);
+  }, [activeTab, normalizedSearch]);
 
   function saveSpecies(species: SpeciesReference) {
     setData((current) => current ? {
@@ -133,7 +147,7 @@ export default function TaxonomyAdminSection({ t }: { t: Translator }) {
             : undefined}
           onClick={() => setFormState({ kind: activeTab })}
         >
-          <span aria-hidden="true">+</span>
+          <Plus aria-hidden="true" size={18} />
           {activeTab === 'species' ? t('taxonomyNewSpecies') : t('taxonomyNewStrain')}
         </button>
       </header>
@@ -161,6 +175,7 @@ export default function TaxonomyAdminSection({ t }: { t: Translator }) {
         </div>
         <label className="taxonomy-search">
           <span className="sr-only">{t('taxonomySearch')}</span>
+          <Search aria-hidden="true" size={17} />
           <input
             type="search"
             value={search}
@@ -170,31 +185,41 @@ export default function TaxonomyAdminSection({ t }: { t: Translator }) {
         </label>
       </div>
 
-      {formState?.kind === 'species' ? (
-        <SpeciesForm
-          key={formState.item?.id ?? 'new-species'}
-          initialSpecies={formState.item}
-          languages={data.languages}
-          t={t}
-          onCancel={() => setFormState(null)}
-          onSaved={saveSpecies}
-        />
-      ) : null}
-      {formState?.kind === 'strains' ? (
-        <StrainForm
-          key={formState.item?.id ?? 'new-strain'}
-          initialStrain={formState.item}
-          languages={data.languages}
-          species={data.species}
-          t={t}
-          onCancel={() => setFormState(null)}
-          onSaved={saveStrain}
-        />
+      {formState ? (
+        <AdminActionPanel
+          wide
+          title={t(formState.kind === 'species'
+            ? (formState.item ? 'taxonomyEditSpecies' : 'taxonomyNewSpecies')
+            : (formState.item ? 'taxonomyEditStrain' : 'taxonomyNewStrain'))}
+          closeLabel={t('close')}
+          onClose={() => setFormState(null)}
+        >
+          {formState.kind === 'species' ? (
+            <SpeciesForm
+              key={formState.item?.id ?? 'new-species'}
+              initialSpecies={formState.item}
+              languages={data.languages}
+              t={t}
+              onCancel={() => setFormState(null)}
+              onSaved={saveSpecies}
+            />
+          ) : (
+            <StrainForm
+              key={formState.item?.id ?? 'new-strain'}
+              initialStrain={formState.item}
+              languages={data.languages}
+              species={data.species}
+              t={t}
+              onCancel={() => setFormState(null)}
+              onSaved={saveStrain}
+            />
+          )}
+        </AdminActionPanel>
       ) : null}
 
       {activeTab === 'species' ? (
         <ReferenceGrid emptyText={t('taxonomyEmptySpecies')}>
-          {filteredSpecies.map((species) => (
+          {visibleSpecies.map((species) => (
             <SpeciesCard
               key={species.id}
               species={species}
@@ -206,7 +231,7 @@ export default function TaxonomyAdminSection({ t }: { t: Translator }) {
         </ReferenceGrid>
       ) : (
         <ReferenceGrid emptyText={t('taxonomyEmptyStrains')}>
-          {filteredStrains.map((strain) => (
+          {visibleStrains.map((strain) => (
             <StrainCard
               key={strain.id}
               strain={strain}
@@ -217,6 +242,32 @@ export default function TaxonomyAdminSection({ t }: { t: Translator }) {
           ))}
         </ReferenceGrid>
       )}
+
+      {activeResults.length > REFERENCE_PAGE_SIZE ? (
+        <nav className="admin-pagination" aria-label={t('adminPaginationLabel')}>
+          <button
+            type="button"
+            aria-label={t('adminPreviousPage')}
+            title={t('adminPreviousPage')}
+            disabled={currentPage === 1}
+            onClick={() => setPage((current) => Math.max(1, current - 1))}
+          >
+            <ChevronLeft aria-hidden="true" size={18} />
+          </button>
+          <span>
+            {t('adminPage')} <strong>{currentPage}</strong> / {pageCount}
+          </span>
+          <button
+            type="button"
+            aria-label={t('adminNextPage')}
+            title={t('adminNextPage')}
+            disabled={currentPage === pageCount}
+            onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+          >
+            <ChevronRight aria-hidden="true" size={18} />
+          </button>
+        </nav>
+      ) : null}
     </section>
   );
 }
@@ -513,7 +564,9 @@ function FormHeading({
   return (
     <header className="taxonomy-form-heading">
       <h3>{title}</h3>
-      <button className="icon-button" type="button" aria-label={closeLabel} onClick={onCancel}>×</button>
+      <button className="icon-button" type="button" aria-label={closeLabel} title={closeLabel} onClick={onCancel}>
+        <X aria-hidden="true" size={18} />
+      </button>
     </header>
   );
 }
@@ -572,7 +625,10 @@ function SpeciesCard({
         </div>
         <div className="taxonomy-card-actions">
           {species.genus_species_code ? <span className="reference-code">{species.genus_species_code}</span> : null}
-          <button className="taxonomy-edit-button" type="button" onClick={onEdit}>{t('taxonomyEdit')}</button>
+          <button className="taxonomy-edit-button" type="button" onClick={onEdit}>
+            <Pencil aria-hidden="true" size={15} />
+            {t('taxonomyEdit')}
+          </button>
         </div>
       </header>
       <dl>
@@ -606,7 +662,10 @@ function StrainCard({
         </div>
         <div className="taxonomy-card-actions">
           {strain.origin_code ? <span className="reference-code">{strain.origin_code}</span> : null}
-          <button className="taxonomy-edit-button" type="button" onClick={onEdit}>{t('taxonomyEdit')}</button>
+          <button className="taxonomy-edit-button" type="button" onClick={onEdit}>
+            <Pencil aria-hidden="true" size={15} />
+            {t('taxonomyEdit')}
+          </button>
         </div>
       </header>
       <dl>

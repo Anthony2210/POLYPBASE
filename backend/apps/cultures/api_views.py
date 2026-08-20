@@ -530,6 +530,7 @@ class OverviewActiveBoxesAPIView(APIView):
                     "date": measurement.measured_on.isoformat(),
                     "polyp_count": measurement.polyp_count,
                     "ephyrae_count": measurement.ephyrae_count,
+                    "salinity_psu": _json_value(measurement.salinity_psu),
                 }
             )
 

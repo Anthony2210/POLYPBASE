@@ -1,5 +1,21 @@
 ﻿import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from 'react';
 
+import {
+  ArrowDownToLine,
+  ArrowRightLeft,
+  ArrowUpFromLine,
+  Building2,
+  ClipboardList,
+  Dna,
+  MapPinned,
+  Pencil,
+  Plus,
+  RadioTower,
+  ShieldCheck,
+  UserRoundPlus,
+  UsersRound,
+} from 'lucide-react';
+
 import { apiGet, apiPatch, apiPost } from '../api/client';
 import type {
   AccountMember,
@@ -25,6 +41,7 @@ import { getErrorMessage } from '../utils/errors';
 import { buildQrLabelItem, printQrLabels } from '../utils/qrLabels';
 import { decrementDecimalValue, incrementDecimalValue } from '../utils/stepValue';
 import { getZoneOccupancyLevel } from '../utils/zoneOccupancy';
+import AdminActionPanel from './AdminActionPanel';
 import { useConfirmAction } from './ConfirmActionModal';
 import PageLoader from './PageLoader';
 import SkeletonRows from './SkeletonRows';
@@ -85,12 +102,12 @@ type AdminAuditLogResponse = {
 const ADMIN_AUDIT_PAGE_SIZE = 40;
 
 const ADMIN_FLOW_ITEMS = [
-  { key: 'accounts', panelId: 'admin-accounts', label: 'adminTabUsers' },
-  { key: 'references', panelId: 'admin-taxonomy', label: 'adminTabReferences' },
-  { key: 'environment', panelId: 'admin-environment', label: 'adminTabLocations' },
-  { key: 'organizations', panelId: 'admin-organizations', label: 'adminTabOrganizations' },
-  { key: 'transfers', panelId: 'admin-transfers', label: 'adminTabTransfers' },
-  { key: 'history', panelId: 'admin-history', label: 'adminTabHistory' },
+  { key: 'accounts', panelId: 'admin-accounts', label: 'adminTabUsers', icon: UsersRound },
+  { key: 'references', panelId: 'admin-taxonomy', label: 'adminTabReferences', icon: Dna },
+  { key: 'environment', panelId: 'admin-environment', label: 'adminTabLocations', icon: MapPinned },
+  { key: 'organizations', panelId: 'admin-organizations', label: 'adminTabOrganizations', icon: Building2 },
+  { key: 'transfers', panelId: 'admin-transfers', label: 'adminTabTransfers', icon: ArrowRightLeft },
+  { key: 'history', panelId: 'admin-history', label: 'adminTabHistory', icon: ClipboardList },
 ] as const;
 
 type AdminFlowKey = (typeof ADMIN_FLOW_ITEMS)[number]['key'];
@@ -309,6 +326,7 @@ function AccountManagementSection({ t }: { t: TFunction }) {
   const [accountSearch, setAccountSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<MembershipRole | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [isMemberFormOpen, setIsMemberFormOpen] = useState(false);
 
   useEffect(() => {
     let isActive = true;
@@ -375,6 +393,7 @@ function AccountManagementSection({ t }: { t: TFunction }) {
       setForm(emptyMemberForm);
       setRole('viewer');
       setMessage(t('manageMemberAdded'));
+      setIsMemberFormOpen(false);
     } catch (requestError) {
       setFormError(getErrorMessage(requestError));
     } finally {
@@ -484,6 +503,10 @@ function AccountManagementSection({ t }: { t: TFunction }) {
         <div>
           <h2>{t('manageAccountsTitle')}</h2>
         </div>
+        <button className="admin-primary-action" type="button" onClick={() => setIsMemberFormOpen(true)}>
+          <UserRoundPlus aria-hidden="true" size={18} />
+          {t('manageAddTitle')}
+        </button>
       </div>
 
       <div className="account-overview">
@@ -523,18 +546,14 @@ function AccountManagementSection({ t }: { t: TFunction }) {
         </button>
       </div>
 
-      <form className="member-add-form" onSubmit={handleAddMember}>
-        <div className="member-add-header">
-          <div>
-            <p className="member-add-title">{t('manageAddTitle')}</p>
-            <small>{t('manageAddSubtitle')}</small>
-          </div>
-          <div className="member-password-flow">
-            <strong>{t('manageTemporaryPasswordTitle')}</strong>
-            <span>{t('manageTemporaryPasswordText')}</span>
-          </div>
-        </div>
-        <div className="member-add-grid">
+      {isMemberFormOpen ? (
+        <AdminActionPanel title={t('manageAddTitle')} closeLabel={t('close')} onClose={() => setIsMemberFormOpen(false)}>
+          <form className="member-add-form" onSubmit={handleAddMember}>
+            <div className="member-password-flow">
+              <strong>{t('manageTemporaryPasswordTitle')}</strong>
+              <span>{t('manageTemporaryPasswordText')}</span>
+            </div>
+            <div className="member-add-grid">
           <label>
             {t('manageFieldUsername')}
             <input
@@ -595,14 +614,17 @@ function AccountManagementSection({ t }: { t: TFunction }) {
               ))}
             </select>
           </label>
-        </div>
+            </div>
 
-        {formError ? <p className="inline-error">{formError}</p> : null}
+            {formError ? <p className="inline-error">{formError}</p> : null}
 
-        <button type="submit" disabled={isAdding || organizationId == null}>
-          {isAdding ? t('manageAdding') : t('manageAddAction')}
-        </button>
-      </form>
+            <button type="submit" disabled={isAdding || organizationId == null}>
+              <UserRoundPlus aria-hidden="true" size={18} />
+              {isAdding ? t('manageAdding') : t('manageAddAction')}
+            </button>
+          </form>
+        </AdminActionPanel>
+      ) : null}
 
       {message ? <p className="inline-success">{message}</p> : null}
       {loadError && data ? <p className="inline-error">{loadError}</p> : null}
@@ -1445,16 +1467,6 @@ function getOrganizationSearchText(organization: Organization) {
     .toLocaleLowerCase('fr-FR');
 }
 
-function PencilIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="M15.8 4.8l3.4 3.4" />
-      <path d="M5 19l3.9-.8L19.1 8a2.4 2.4 0 0 0-3.4-3.4L5.6 14.8 5 19z" />
-      <path d="M12.8 7.7l3.5 3.5" />
-    </svg>
-  );
-}
-
 function OrganizationManagementList({
   organizations,
   profile,
@@ -1691,7 +1703,7 @@ function OrganizationManagementList({
                         aria-label={`${t('adminEditOrganization')} ${organization.name}`}
                         onClick={() => startEdit(organization)}
                       >
-                        <PencilIcon />
+                        <Pencil aria-hidden="true" size={17} />
                       </button>
                     ) : null}
                   </div>
@@ -3056,21 +3068,30 @@ function AdminFlowNav({
   t: TFunction;
 }) {
   return (
-    <nav className="admin-flow-nav" aria-label={t('adminFlowLabel')}>
-      {ADMIN_FLOW_ITEMS.map((item) => (
-        <span className="admin-flow-step" key={item.key}>
-          <button
-            type="button"
-            className={activeSection === item.key ? 'is-active' : ''}
-            aria-controls={item.panelId}
-            aria-current={activeSection === item.key ? 'page' : undefined}
-            onClick={() => onSelect(item.key)}
-          >
-            {t(item.label)}
-          </button>
-        </span>
-      ))}
-    </nav>
+    <aside className="admin-sidebar">
+      <header className="admin-sidebar__heading">
+        <span aria-hidden="true"><ShieldCheck size={20} /></span>
+        <strong>{t('adminTitle')}</strong>
+      </header>
+      <nav className="admin-flow-nav" aria-label={t('adminFlowLabel')}>
+        {ADMIN_FLOW_ITEMS.map((item) => {
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.key}
+              type="button"
+              className={activeSection === item.key ? 'admin-flow-step is-active' : 'admin-flow-step'}
+              aria-controls={item.panelId}
+              aria-current={activeSection === item.key ? 'page' : undefined}
+              onClick={() => onSelect(item.key)}
+            >
+              <Icon aria-hidden="true" size={18} strokeWidth={1.9} />
+              <span>{t(item.label)}</span>
+            </button>
+          );
+        })}
+      </nav>
+    </aside>
   );
 }
 
@@ -3091,7 +3112,7 @@ function EnvironmentAdminSection({
   onUpdateZone: (zoneId: number, payload: ThermalZonePayload) => Promise<void>;
   t: TFunction;
 }) {
-  const [activeAction, setActiveAction] = useState<EnvironmentAction>('zone');
+  const [activeAction, setActiveAction] = useState<EnvironmentAction | null>(null);
   const adminOrgIds = useMemo(() => getAdminOrganizationIds(profile), [profile]);
   const adminEditableZones = useMemo(
     () =>
@@ -3113,52 +3134,48 @@ function EnvironmentAdminSection({
         <div>
           <h2>{t('adminZonesProbesTitle')}</h2>
         </div>
-        <div className="admin-environment-summary" aria-label={t('adminZonesProbesTitle')}>
-          <span>
-            <strong>{adminEditableZones.length}</strong>
-            {t('adminEnvironmentZonesCount')}
-          </span>
-          <span>
-            <strong>{adminProbeCount}</strong>
-            {t('adminEnvironmentProbesCount')}
-          </span>
-          <span>
-            <strong>{capacityCount ? `${activeBoxCount} / ${capacityCount}` : activeBoxCount}</strong>
-            {t('adminEnvironmentCapacityCount')}
-          </span>
+        <div className="admin-heading-actions">
+          <button className="admin-secondary-action" type="button" onClick={() => setActiveAction('probe')}>
+            <RadioTower aria-hidden="true" size={18} />
+            {t('adminEnvironmentProbePanel')}
+          </button>
+          <button className="admin-primary-action" type="button" onClick={() => setActiveAction('zone')}>
+            <Plus aria-hidden="true" size={18} />
+            {t('adminEnvironmentZonePanel')}
+          </button>
         </div>
       </div>
 
+      <div className="admin-environment-summary" aria-label={t('adminZonesProbesTitle')}>
+        <span>
+          <strong>{adminEditableZones.length}</strong>
+          {t('adminEnvironmentZonesCount')}
+        </span>
+        <span>
+          <strong>{adminProbeCount}</strong>
+          {t('adminEnvironmentProbesCount')}
+        </span>
+        <span>
+          <strong>{capacityCount ? `${activeBoxCount} / ${capacityCount}` : activeBoxCount}</strong>
+          {t('adminEnvironmentCapacityCount')}
+        </span>
+      </div>
+
+      {activeAction ? (
+        <AdminActionPanel
+          title={t(activeAction === 'zone' ? 'adminEnvironmentZonePanel' : 'adminEnvironmentProbePanel')}
+          closeLabel={t('close')}
+          onClose={() => setActiveAction(null)}
+        >
+          {activeAction === 'zone' ? (
+            <ZoneCreateForm profile={profile} onCreateZone={onCreateZone} t={t} />
+          ) : (
+            <ProbeCreateForm profile={profile} zones={zones} onCreateProbe={onCreateProbe} t={t} />
+          )}
+        </AdminActionPanel>
+      ) : null}
+
       <div className="admin-environment-workspace">
-        <aside className="environment-action-panel">
-          <div className="environment-action-tabs" role="tablist" aria-label={t('adminZonesProbesTitle')}>
-            <button
-              type="button"
-              className={activeAction === 'zone' ? 'is-active' : ''}
-              aria-selected={activeAction === 'zone'}
-              onClick={() => setActiveAction('zone')}
-            >
-              {t('adminEnvironmentZonePanel')}
-            </button>
-            <button
-              type="button"
-              className={activeAction === 'probe' ? 'is-active' : ''}
-              aria-selected={activeAction === 'probe'}
-              onClick={() => setActiveAction('probe')}
-            >
-              {t('adminEnvironmentProbePanel')}
-            </button>
-          </div>
-
-          <div className="environment-action-body">
-            {activeAction === 'zone' ? (
-              <ZoneCreateForm profile={profile} onCreateZone={onCreateZone} t={t} />
-            ) : (
-              <ProbeCreateForm profile={profile} zones={zones} onCreateProbe={onCreateProbe} t={t} />
-            )}
-          </div>
-        </aside>
-
         <section className="environment-settings-panel" aria-labelledby="environment-settings-title">
           <div className="environment-settings-heading">
             <h3 id="environment-settings-title">{t('adminEnvironmentSettingsPanel')}</h3>
@@ -3185,6 +3202,7 @@ function OrganizationsAdminSection({
   onUpdateOrganization: (organizationId: number, payload: OrganizationPayload) => Promise<void>;
   t: TFunction;
 }) {
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
   const countryCount = useMemo(
     () => new Set(organizations.map((organization) => organization.country).filter(Boolean)).size,
     [organizations],
@@ -3196,29 +3214,35 @@ function OrganizationsAdminSection({
         <div>
           <h2>{t('adminOrganizationsTitle')}</h2>
         </div>
-        <div className="admin-organizations-summary" aria-label={t('adminOrganizationsTitle')}>
-          <span>
-            <strong>{organizations.length}</strong>
-            {t('adminOrganizationsKnownCount')}
-          </span>
-          <span>
-            <strong>{countryCount}</strong>
-            {t('adminOrganizationsCountriesCount')}
-          </span>
-        </div>
+        <button className="admin-primary-action" type="button" onClick={() => setIsCreateOpen(true)}>
+          <Plus aria-hidden="true" size={18} />
+          {t('adminAddOrganization')}
+        </button>
       </div>
 
-      <div className="admin-organizations-workspace">
-        <aside className="organization-create-panel">
-          <h3>{t('adminAddOrganization')}</h3>
+      <div className="admin-organizations-summary" aria-label={t('adminOrganizationsTitle')}>
+        <span>
+          <strong>{organizations.length}</strong>
+          {t('adminOrganizationsKnownCount')}
+        </span>
+        <span>
+          <strong>{countryCount}</strong>
+          {t('adminOrganizationsCountriesCount')}
+        </span>
+      </div>
+
+      {isCreateOpen ? (
+        <AdminActionPanel title={t('adminAddOrganization')} closeLabel={t('close')} onClose={() => setIsCreateOpen(false)}>
           <OrganizationCreateForm
             organizations={organizations}
             profile={profile}
             onCreateOrganization={onCreateOrganization}
             t={t}
           />
-        </aside>
+        </AdminActionPanel>
+      ) : null}
 
+      <div className="admin-organizations-workspace">
         <section className="organization-directory-panel" aria-labelledby="organization-directory-title">
           <div className="organization-directory-heading">
             <h3 id="organization-directory-title">{t('adminExistingOrganizations')}</h3>
@@ -3251,6 +3275,7 @@ function TransfersAdminSection({
   zones: ThermalZone[];
   t: TFunction;
 }) {
+  const [transferMode, setTransferMode] = useState<'outgoing' | 'incoming'>('outgoing');
   const adminOrgIds = getAdminOrganizationIds(profile);
   const transferableBoxCount = boxes.filter(
     (box) =>
@@ -3269,42 +3294,69 @@ function TransfersAdminSection({
         <div>
           <h2>{t('adminTransferTitle')}</h2>
         </div>
-        <div className="transfer-admin-metrics" aria-label={t('adminTransferTitle')}>
-          <span>
-            <strong>{transferableBoxCount}</strong>
-            {t('adminTransferBoxesAvailable')}
-          </span>
-          <span>
-            <strong>{organizations.length}</strong>
-            {t('adminTransferKnownInstitutions')}
-          </span>
-          <span>
-            <strong>{activeZoneCount}</strong>
-            {t('adminTransferActiveZones')}
-          </span>
+        <div className="admin-mode-switch" role="tablist" aria-label={t('adminTransferTitle')}>
+          <button
+            className={transferMode === 'outgoing' ? 'is-active' : ''}
+            type="button"
+            role="tab"
+            aria-selected={transferMode === 'outgoing'}
+            onClick={() => setTransferMode('outgoing')}
+          >
+            <ArrowUpFromLine aria-hidden="true" size={18} />
+            {t('adminTransferOutgoingTitle')}
+          </button>
+          <button
+            className={transferMode === 'incoming' ? 'is-active' : ''}
+            type="button"
+            role="tab"
+            aria-selected={transferMode === 'incoming'}
+            onClick={() => setTransferMode('incoming')}
+          >
+            <ArrowDownToLine aria-hidden="true" size={18} />
+            {t('adminTransferIncomingTitle')}
+          </button>
         </div>
       </div>
 
-      <div className="transfer-admin-workspace">
-        <section className="transfer-work-card transfer-work-card-outgoing">
-          <header className="transfer-work-card-head">
-            <h3>{t('adminTransferOutgoingTitle')}</h3>
-          </header>
-          <TransferCreateForm
-            profile={profile}
-            boxes={boxes}
-            organizations={organizations}
-            onCreateTransfer={onCreateTransfer}
-            t={t}
-          />
-        </section>
+      <div className="transfer-admin-metrics" aria-label={t('adminTransferTitle')}>
+        <span>
+          <strong>{transferableBoxCount}</strong>
+          {t('adminTransferBoxesAvailable')}
+        </span>
+        <span>
+          <strong>{organizations.length}</strong>
+          {t('adminTransferKnownInstitutions')}
+        </span>
+        <span>
+          <strong>{activeZoneCount}</strong>
+          {t('adminTransferActiveZones')}
+        </span>
+      </div>
 
-        <section className="transfer-work-card transfer-work-card-incoming">
-          <header className="transfer-work-card-head">
-            <h3>{t('adminTransferIncomingTitle')}</h3>
-          </header>
-          <TransferImportForm profile={profile} zones={zones} boxes={boxes} t={t} />
-        </section>
+      <div className="transfer-admin-workspace">
+        {transferMode === 'outgoing' ? (
+          <section className="transfer-work-card transfer-work-card-outgoing">
+            <header className="transfer-work-card-head">
+              <ArrowUpFromLine aria-hidden="true" size={19} />
+              <h3>{t('adminTransferOutgoingTitle')}</h3>
+            </header>
+            <TransferCreateForm
+              profile={profile}
+              boxes={boxes}
+              organizations={organizations}
+              onCreateTransfer={onCreateTransfer}
+              t={t}
+            />
+          </section>
+        ) : (
+          <section className="transfer-work-card transfer-work-card-incoming">
+            <header className="transfer-work-card-head">
+              <ArrowDownToLine aria-hidden="true" size={19} />
+              <h3>{t('adminTransferIncomingTitle')}</h3>
+            </header>
+            <TransferImportForm profile={profile} zones={zones} boxes={boxes} t={t} />
+          </section>
+        )}
       </div>
     </section>
   );

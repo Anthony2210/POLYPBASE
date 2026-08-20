@@ -133,6 +133,7 @@ class PolypbaseApiTests(TestCase):
             box=app_tracked_box,
             measured_on=date(2026, 7, 1),
             polyp_count=30,
+            salinity_psu=Decimal("31.50"),
             user=self.user,
         )
         BoxLocation.objects.create(
@@ -147,6 +148,10 @@ class PolypbaseApiTests(TestCase):
         boxes_by_code = {box["global_code"]: box for box in response.json()["results"]}
         self.assertFalse(boxes_by_code[self.box.global_code]["tracked_in_app"])
         self.assertTrue(boxes_by_code[app_tracked_box.global_code]["tracked_in_app"])
+        self.assertEqual(
+            boxes_by_code[app_tracked_box.global_code]["measurements"][0]["salinity_psu"],
+            "31.50",
+        )
         self.assertEqual(
             boxes_by_code[app_tracked_box.global_code]["locations"][0]["thermal_zone"]["name"],
             self.zone.name,

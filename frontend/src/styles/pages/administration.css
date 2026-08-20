@@ -916,6 +916,11 @@ button.account-overview-card:is(:hover, .is-active) {
   color: var(--color-muted);
 }
 
+.transfer-box-option > span {
+  display: grid;
+  gap: 2px;
+}
+
 .transfer-box-option em {
   grid-column: 2;
   grid-row: 1 / span 2;
@@ -935,6 +940,16 @@ button.account-overview-card:is(:hover, .is-active) {
   padding: var(--space-3);
   background: var(--color-primary-faint);
 }
+
+.transfer-selected-box-card > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.transfer-selected-box-card > div > span { color: var(--color-muted); }
+.transfer-selected-box-card > div > em { color: var(--color-ink-soft); }
 
 .transfer-package-actions {
   display: flex;
@@ -1133,4 +1148,529 @@ button.account-overview-card:is(:hover, .is-active) {
   .account-visible-count { display: none; }
   .environment-zone-grid { grid-template-columns: 1fr; }
   .admin-audit-row { grid-template-columns: 130px 110px minmax(180px, 1fr) minmax(110px, .4fr) 20px; }
+}
+
+/* Research workspace: keep directories visible and open occasional actions in a side panel. */
+.admin-workspace {
+  grid-template-columns: 236px minmax(0, 1fr);
+  gap: var(--space-5);
+}
+
+.admin-sidebar {
+  position: sticky;
+  top: var(--space-5);
+  display: grid;
+  gap: var(--space-3);
+  padding-right: var(--space-4);
+  border-right: 1px solid var(--color-line);
+}
+
+.admin-sidebar__heading {
+  display: flex;
+  min-height: 48px;
+  padding: 0 var(--space-2);
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-ink);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.admin-sidebar__heading > span {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  color: var(--color-primary-hover);
+  background: var(--color-primary-faint);
+  border-radius: var(--radius-sm);
+}
+
+.admin-flow-nav {
+  position: static;
+  display: grid;
+  gap: 2px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.admin-flow-step {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  width: 100%;
+  min-height: 46px;
+  padding: var(--space-2) var(--space-3);
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-ink-soft);
+  font-weight: 720;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-left: 3px solid transparent;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  cursor: pointer;
+}
+
+.admin-flow-step:hover,
+.admin-flow-step:focus-visible {
+  color: var(--color-primary-hover);
+  background: var(--color-primary-faint);
+}
+
+.admin-flow-step.is-active {
+  color: var(--color-primary-hover);
+  background: var(--color-primary-soft);
+  border-left-color: var(--color-primary);
+}
+
+.admin-flow-panel {
+  min-height: 650px;
+  padding-bottom: var(--space-6);
+}
+
+:where(
+  .account-management,
+  .taxonomy-admin-section,
+  .admin-environment-section,
+  .admin-organizations-section,
+  .admin-transfer-section,
+  .admin-audit-page
+) {
+  gap: var(--space-4);
+}
+
+:where(
+  .admin-section-heading,
+  .admin-environment-topbar,
+  .admin-organizations-topbar,
+  .transfer-admin-hero,
+  .taxonomy-admin-heading
+) {
+  min-height: 52px;
+  margin-bottom: 0;
+  padding-bottom: var(--space-3);
+  align-items: center;
+  border-bottom: 1px solid var(--color-line);
+}
+
+:where(
+  .admin-section-heading,
+  .admin-environment-topbar,
+  .admin-organizations-topbar,
+  .transfer-admin-hero,
+  .taxonomy-admin-heading
+) h2 {
+  font-size: 1.18rem;
+}
+
+.admin-heading-actions,
+.admin-primary-action,
+.admin-secondary-action,
+.admin-mode-switch,
+.admin-mode-switch button,
+.taxonomy-add-button,
+.taxonomy-edit-button {
+  display: flex;
+  align-items: center;
+}
+
+.admin-heading-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.admin-primary-action,
+.admin-secondary-action {
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  gap: var(--space-2);
+  font-weight: 780;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.admin-primary-action {
+  color: #fff;
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary);
+}
+
+.admin-primary-action:hover { background: var(--color-primary-hover); }
+
+.admin-secondary-action {
+  color: var(--color-primary-hover);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line-strong);
+}
+
+.admin-secondary-action:hover {
+  background: var(--color-primary-faint);
+  border-color: var(--color-primary);
+}
+
+:where(.account-overview, .admin-environment-summary, .admin-organizations-summary, .transfer-admin-metrics) {
+  display: grid;
+  width: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+}
+
+.account-overview { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.admin-environment-summary,
+.transfer-admin-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.admin-organizations-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+:where(
+  .account-overview-card,
+  .admin-environment-summary span,
+  .admin-organizations-summary span,
+  .transfer-admin-metrics span
+) {
+  min-width: 0;
+  min-height: 58px;
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-ink-soft);
+  background: transparent;
+  border: 0;
+  border-right: 1px solid var(--color-line);
+  border-radius: 0;
+}
+
+:where(
+  .account-overview-card,
+  .admin-environment-summary span,
+  .admin-organizations-summary span,
+  .transfer-admin-metrics span
+):last-child { border-right: 0; }
+
+:where(
+  .account-overview-card,
+  .admin-environment-summary span,
+  .admin-organizations-summary span,
+  .transfer-admin-metrics span
+) strong {
+  display: inline;
+  margin-right: var(--space-1);
+  font-size: 1rem;
+}
+
+button.account-overview-card:is(:hover, .is-active) {
+  color: var(--color-primary-hover);
+  background: var(--color-primary-faint);
+  border-color: var(--color-line);
+}
+
+.account-list-toolbar,
+.environment-directory-toolbar,
+.organization-directory-toolbar,
+.taxonomy-toolbar,
+.admin-audit-filters {
+  padding: var(--space-3) 0;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--color-line);
+  border-radius: 0;
+}
+
+.member-card-list,
+.admin-organization-list,
+.taxonomy-reference-grid {
+  gap: 0;
+  overflow: hidden;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+}
+
+.member-card,
+.organization-card,
+.taxonomy-reference-card {
+  border: 0;
+  border-bottom: 1px solid var(--color-line);
+  border-radius: 0;
+}
+
+:where(.member-card, .organization-card, .taxonomy-reference-card):last-child {
+  border-bottom: 0;
+}
+
+.member-card {
+  min-height: 72px;
+  padding: var(--space-3);
+  border-left: 0;
+}
+
+.member-card.is-inactive {
+  background: var(--color-surface-subtle);
+  opacity: 1;
+}
+
+.member-card-controls { gap: var(--space-3); }
+.member-last-login { min-width: 124px; }
+
+.taxonomy-reference-grid { grid-template-columns: minmax(0, 1fr); }
+.taxonomy-reference-card { padding: var(--space-3) var(--space-4); }
+.taxonomy-reference-card dl { grid-template-columns: repeat(2, minmax(120px, 220px)); }
+
+.taxonomy-toolbar {
+  display: grid;
+  grid-template-columns: auto minmax(240px, 380px);
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.taxonomy-search {
+  position: relative;
+  width: 100%;
+}
+
+.taxonomy-search > svg {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: var(--space-3);
+  color: var(--color-muted);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.taxonomy-search input { padding-left: 38px; }
+.taxonomy-add-button,
+.taxonomy-edit-button { gap: var(--space-2); }
+
+.admin-environment-workspace,
+.admin-organizations-workspace,
+.transfer-admin-workspace {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.environment-settings-panel,
+.organization-directory-panel {
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.environment-zone-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.environment-zone-editor {
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+}
+
+.environment-zone-metrics > div { background: var(--color-surface-subtle); }
+
+.organization-card { padding: var(--space-3) var(--space-4); border-left: 0; }
+.organization-card.is-editing { border: 1px solid var(--color-primary); }
+
+.organization-edit-button {
+  border-radius: var(--radius-sm);
+}
+
+.admin-mode-switch {
+  padding: 3px;
+  background: var(--color-surface-subtle);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+}
+
+.admin-mode-switch button {
+  min-height: 38px;
+  padding: 0 var(--space-3);
+  gap: var(--space-2);
+  color: var(--color-muted);
+  font-weight: 750;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+
+.admin-mode-switch button.is-active {
+  color: var(--color-primary-hover);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+}
+
+.transfer-work-card {
+  width: 100%;
+  padding: var(--space-4);
+  border-radius: var(--radius-sm);
+}
+
+.transfer-work-card-head {
+  padding: 0 0 var(--space-3);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.transfer-work-card-head::before { content: none; }
+
+/* Shared side panel for occasional administration forms. */
+.admin-action-backdrop {
+  position: fixed;
+  z-index: 260;
+  inset: 0;
+  display: flex;
+  justify-content: flex-end;
+  background: rgb(22 39 46 / 32%);
+}
+
+.admin-action-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(520px, 100%);
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-line-strong);
+}
+
+.admin-action-panel.is-wide { width: min(820px, 100%); }
+
+.admin-action-panel__header {
+  display: flex;
+  min-height: 64px;
+  padding: 0 var(--space-4);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.admin-action-panel__header h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.admin-action-panel__header .icon-button { border-radius: var(--radius-sm); }
+
+.admin-action-panel__body {
+  min-width: 0;
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+
+.admin-action-panel :where(.member-add-form, .taxonomy-form, .admin-form) {
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.admin-action-panel .taxonomy-form-heading { display: none; }
+.admin-action-panel .taxonomy-form-columns { grid-template-columns: minmax(0, 1fr); }
+.admin-action-panel .taxonomy-form fieldset { padding: var(--space-3); }
+.admin-action-panel .member-add-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.admin-action-panel :where(.member-add-form, .admin-form) > button[type='submit'] {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+.quick-reference-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 3px;
+  background: var(--color-surface-subtle);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+}
+
+.quick-reference-tabs button {
+  min-height: 38px;
+  color: var(--color-muted);
+  font-weight: 750;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+
+.quick-reference-tabs button.active {
+  color: var(--color-primary-hover);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+}
+
+.quick-reference-form {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.quick-reference-form label {
+  display: grid;
+  gap: var(--space-1);
+  color: var(--color-muted);
+  font-size: .76rem;
+  font-weight: 750;
+}
+
+.quick-reference-two-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.quick-reference-inline-action {
+  display: flex;
+  width: max-content;
+  min-height: 36px;
+  padding: 0;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-primary-hover);
+  font-weight: 750;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.quick-reference-submit {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+.admin-pagination {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  color: var(--color-muted);
+}
+
+.admin-pagination button {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  place-items: center;
+  color: var(--color-primary-hover);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.admin-pagination span { font-size: .78rem; }
+.admin-pagination strong { color: var(--color-ink); }
+
+@media (max-width: 1180px) {
+  .admin-workspace { grid-template-columns: 200px minmax(0, 1fr); }
+  .admin-sidebar { padding-right: var(--space-3); }
+  .admin-flow-step { padding-inline: var(--space-2); }
+  .environment-zone-grid { grid-template-columns: minmax(0, 1fr); }
 }
