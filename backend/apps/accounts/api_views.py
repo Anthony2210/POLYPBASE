@@ -362,32 +362,31 @@ class OrganizationMemberListCreateAPIView(APIView):
         if not username:
             raise ValidationError({"username": "Un identifiant est requis."})
 
-        email = (data.get("email") or "").strip()
+        email = (data.get("email") or "").strip().lower()
+        if not email:
+            raise ValidationError({"email": "Une adresse email est requise."})
+
         user_model = get_user_model()
         with transaction.atomic():
-            user = self._resolve_target_user(user_model, username, email)
-            if user is None:
-                user = self._create_user(user_model, username, data)
+            self._validate_new_user_identity(user_model, username, email)
+            user = self._create_user(user_model, username, email, data)
 
-            membership, created = OrganizationMembership.objects.get_or_create(
+            membership = OrganizationMembership.objects.create(
                 user=user,
                 organization=organization,
-                defaults={"role": role, "is_active": True},
+                role=role,
+                is_active=True,
             )
-            if not created:
-                membership.role = role
-                membership.is_active = True
-                membership.save(update_fields=["role", "is_active"])
 
             UserPreference.objects.get_or_create(user=user)
 
         AuditLog.objects.create(
             organization=organization,
             user=request.user,
-            action=AuditLog.Action.CREATION if created else AuditLog.Action.UPDATE,
+            action=AuditLog.Action.CREATION,
             object_type="account",
             object_id=user.get_username(),
-            description="Member access created" if created else "Member access restored",
+            description="Member access created",
             metadata={
                 "user_id": user.id,
                 "membership_id": membership.id,
@@ -397,7 +396,7 @@ class OrganizationMemberListCreateAPIView(APIView):
 
         return Response(
             _member_data(membership, current_user=request.user),
-            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+            status=status.HTTP_201_CREATED,
         )
 
     def _get_managed_organization(self, organization_id, admin_org_ids):
@@ -414,36 +413,14 @@ class OrganizationMemberListCreateAPIView(APIView):
             raise PermissionDenied("You cannot manage members for this organization.")
         return Organization.objects.get(id=organization_id)
 
-    def _resolve_target_user(self, user_model, username, email):
-        candidates = []
-
-        user_from_username = user_model.objects.filter(username__iexact=username).first()
-        if user_from_username is not None:
-            candidates.append(user_from_username)
-
-        user_from_username_email = (
-            user_model.objects.filter(email__iexact=username).first()
-            if username
-            else None
-        )
-        if user_from_username_email is not None:
-            candidates.append(user_from_username_email)
-
-        user_from_email = (
-            user_model.objects.filter(email__iexact=email).first()
-            if email
-            else None
-        )
-        if user_from_email is not None:
-            candidates.append(user_from_email)
-
-        distinct_users = {user.id: user for user in candidates}.values()
-        if len(distinct_users) > 1:
-            raise ValidationError({
-                "email": "Cet email est déjà associé à un autre compte.",
-            })
-
-        return next(iter(distinct_users), None)
+    def _validate_new_user_identity(self, user_model, username, email):
+        errors = {}
+        if user_model.objects.filter(username__iexact=username).exists():
+            errors["username"] = "Cet identifiant est déjà utilisé."
+        if user_model.objects.filter(email__iexact=email).exists():
+            errors["email"] = "Cette adresse email est déjà utilisée."
+        if errors:
+            raise ValidationError(errors)
 
     def _validate_role(self, role):
         valid_roles = {value for value, _label in OrganizationMembership.Role.choices}
@@ -451,15 +428,10 @@ class OrganizationMemberListCreateAPIView(APIView):
             raise ValidationError({"role": "Rôle invalide."})
         return role
 
-    def _create_user(self, user_model, username, data):
+    def _create_user(self, user_model, username, email, data):
         password = (data.get("password") or "").strip()
         generated_password = False
-        email = (data.get("email") or "").strip()
         if not password:
-            if not email:
-                raise ValidationError(
-                    {"email": "Un email est requis pour envoyer le mot de passe temporaire."}
-                )
             password = get_random_string(
                 14,
                 allowed_chars="abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789",
@@ -526,14 +498,21 @@ class OrganizationMembershipDetailAPIView(APIView):
         if "role" in request.data:
             next_role = self._validate_role(request.data.get("role"))
             self._ensure_role_change_allowed(
-                request_user=request.user,
                 membership=membership,
                 next_role=next_role,
             )
             membership.role = next_role
             updated_fields.append("role")
         if "is_active" in request.data:
-            membership.is_active = bool(request.data.get("is_active"))
+            next_is_active = request.data.get("is_active")
+            if not isinstance(next_is_active, bool):
+                raise ValidationError({"is_active": "Statut invalide."})
+            self._ensure_activation_change_allowed(
+                request_user=request.user,
+                membership=membership,
+                next_is_active=next_is_active,
+            )
+            membership.is_active = next_is_active
             updated_fields.append("is_active")
 
         if updated_fields:
@@ -556,24 +535,38 @@ class OrganizationMembershipDetailAPIView(APIView):
 
         return Response(_member_data(membership, current_user=request.user))
 
-    def _ensure_role_change_allowed(self, request_user, membership, next_role):
-        if membership.user_id == request_user.id:
-            if next_role == OrganizationMembership.Role.ADMIN:
-                return
+    def _ensure_role_change_allowed(self, membership, next_role):
+        if (
+            membership.role == OrganizationMembership.Role.ADMIN
+            and next_role != OrganizationMembership.Role.ADMIN
+        ):
             other_admin_exists = OrganizationMembership.objects.filter(
                 organization=membership.organization,
                 is_active=True,
                 role=OrganizationMembership.Role.ADMIN,
-            ).exclude(user_id=request_user.id).exists()
+            ).exclude(pk=membership.pk).exists()
             if not other_admin_exists:
                 raise PermissionDenied(
-                    "Vous ne pouvez pas vous rétrograder tant qu'aucun autre administrateur n'est actif dans cette structure."
+                    "Le dernier administrateur actif de cette structure ne peut pas être rétrogradé."
                 )
-            return
 
-        if membership.role == OrganizationMembership.Role.ADMIN and next_role != OrganizationMembership.Role.ADMIN:
+    def _ensure_activation_change_allowed(self, request_user, membership, next_is_active):
+        if next_is_active or not membership.is_active:
+            return
+        if membership.user_id == request_user.id:
             raise PermissionDenied(
-                "Vous ne pouvez pas rétrograder un autre administrateur de la même structure. Il doit se rétrograder lui-même."
+                "Vous ne pouvez pas désactiver votre propre accès."
+            )
+        if membership.role != OrganizationMembership.Role.ADMIN:
+            return
+        other_admin_exists = OrganizationMembership.objects.filter(
+            organization=membership.organization,
+            is_active=True,
+            role=OrganizationMembership.Role.ADMIN,
+        ).exclude(pk=membership.pk).exists()
+        if not other_admin_exists:
+            raise PermissionDenied(
+                "Le dernier administrateur actif de cette structure ne peut pas être désactivé."
             )
 
     def _validate_role(self, role):

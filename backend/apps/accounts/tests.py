@@ -196,7 +196,7 @@ class AccountMemberManagementTests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn("Mot de passe temporaire", mail.outbox[0].body)
 
-    def test_admin_can_link_existing_user_from_email_to_another_organization(self):
+    def test_admin_cannot_reuse_an_existing_email_from_another_organization(self):
         self.client.login(username="admin", password="secret")
         existing_user = get_user_model().objects.create_user(
             username="existing",
@@ -212,24 +212,25 @@ class AccountMemberManagementTests(TestCase):
         response = self.client.post(
             self.list_url,
             data={
-                "username": "existing@example.test",
+                "username": "existing",
+                "email": "existing@example.test",
                 "organization_id": self.paris.id,
                 "role": "viewer",
             },
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(UserPreference.objects.filter(user=existing_user).count(), 1)
-        self.assertTrue(
-            OrganizationMembership.objects.filter(
-                user=existing_user,
-                organization=self.paris,
-                role=OrganizationMembership.Role.VIEWER,
-            ).exists()
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json()["email"],
+            "Cette adresse email est déjà utilisée.",
+        )
+        self.assertEqual(response.json()["username"], "Cet identifiant est déjà utilisé.")
+        self.assertFalse(
+            OrganizationMembership.objects.filter(user=existing_user, organization=self.paris).exists()
         )
 
-    def test_admin_can_link_existing_user_using_email_field(self):
+    def test_admin_cannot_reuse_an_existing_email_with_a_new_username(self):
         self.client.login(username="admin", password="secret")
         existing_user = get_user_model().objects.create_user(
             username="existing",
@@ -248,18 +249,35 @@ class AccountMemberManagementTests(TestCase):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, 201)
-        self.assertTrue(
-            OrganizationMembership.objects.filter(
-                user=existing_user,
-                organization=self.paris,
-                role=OrganizationMembership.Role.VIEWER,
-            ).exists()
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json()["email"],
+            "Cette adresse email est déjà utilisée.",
+        )
+        self.assertFalse(
+            OrganizationMembership.objects.filter(user=existing_user, organization=self.paris).exists()
         )
         self.assertEqual(
             get_user_model().objects.filter(email="existing@example.test").count(),
             1,
         )
+
+    def test_admin_cannot_reuse_an_existing_username(self):
+        self.client.login(username="admin", password="secret")
+
+        response = self.client.post(
+            self.list_url,
+            data={
+                "username": "viewer",
+                "email": "another@example.test",
+                "organization_id": self.paris.id,
+                "role": "viewer",
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["username"], "Cet identifiant est déjà utilisé.")
 
     def test_admin_create_requires_email_for_generated_password(self):
         self.client.login(username="admin", password="secret")
@@ -354,7 +372,7 @@ class AccountMemberManagementTests(TestCase):
         membership.refresh_from_db()
         self.assertEqual(membership.role, OrganizationMembership.Role.ADMIN)
 
-    def test_admin_cannot_downgrade_another_admin_in_the_same_organization(self):
+    def test_admin_can_downgrade_another_admin_when_one_admin_remains(self):
         self.client.login(username="admin", password="secret")
         other_admin = get_user_model().objects.create_user(username="admin2", password="secret")
         OrganizationMembership.objects.create(
@@ -371,9 +389,24 @@ class AccountMemberManagementTests(TestCase):
             url, data={"role": "viewer"}, content_type="application/json"
         )
 
+        self.assertEqual(response.status_code, 200)
+        membership.refresh_from_db()
+        self.assertEqual(membership.role, OrganizationMembership.Role.VIEWER)
+
+    def test_admin_cannot_deactivate_their_own_access(self):
+        self.client.login(username="admin", password="secret")
+        membership = OrganizationMembership.objects.get(
+            user=self.admin, organization=self.paris
+        )
+        url = reverse("api_account_member_detail", args=[membership.id])
+
+        response = self.client.patch(
+            url, data={"is_active": False}, content_type="application/json"
+        )
+
         self.assertEqual(response.status_code, 403)
         membership.refresh_from_db()
-        self.assertEqual(membership.role, OrganizationMembership.Role.ADMIN)
+        self.assertTrue(membership.is_active)
 
 
 class PasswordResetTests(TestCase):

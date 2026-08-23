@@ -2,21 +2,13 @@
 
 import {
   ArrowDownToLine,
-  ArrowRightLeft,
   ArrowUpFromLine,
-  Building2,
-  ClipboardList,
-  Dna,
-  MapPinned,
   Pencil,
   Plus,
   RadioTower,
-  ShieldCheck,
-  UserRoundPlus,
-  UsersRound,
 } from 'lucide-react';
 
-import { apiGet, apiPatch, apiPost } from '../api/client';
+import { ApiError, apiGet, apiPatch, apiPost } from '../api/client';
 import type {
   AccountMember,
   AccountMembers,
@@ -102,20 +94,24 @@ type AdminAuditLogResponse = {
 const ADMIN_AUDIT_PAGE_SIZE = 40;
 
 const ADMIN_FLOW_ITEMS = [
-  { key: 'accounts', panelId: 'admin-accounts', label: 'adminTabUsers', icon: UsersRound },
-  { key: 'references', panelId: 'admin-taxonomy', label: 'adminTabReferences', icon: Dna },
-  { key: 'environment', panelId: 'admin-environment', label: 'adminTabLocations', icon: MapPinned },
-  { key: 'organizations', panelId: 'admin-organizations', label: 'adminTabOrganizations', icon: Building2 },
-  { key: 'transfers', panelId: 'admin-transfers', label: 'adminTabTransfers', icon: ArrowRightLeft },
-  { key: 'history', panelId: 'admin-history', label: 'adminTabHistory', icon: ClipboardList },
+  { key: 'accounts', panelId: 'admin-accounts', label: 'adminTabUsers', scope: 'aquarium' },
+  { key: 'references', panelId: 'admin-taxonomy', label: 'adminTabReferences', scope: 'shared' },
+  { key: 'environment', panelId: 'admin-environment', label: 'adminTabLocations', scope: 'aquarium' },
+  { key: 'transfers', panelId: 'admin-transfers', label: 'adminTabTransfers', scope: 'aquarium' },
+  { key: 'history', panelId: 'admin-history', label: 'adminTabHistory', scope: 'aquarium' },
+  { key: 'organizations', panelId: 'admin-organizations', label: 'adminTabOrganizations', scope: 'superuser' },
 ] as const;
 
-type AdminFlowKey = (typeof ADMIN_FLOW_ITEMS)[number]['key'];
+export type AdminSectionKey = (typeof ADMIN_FLOW_ITEMS)[number]['key'];
 
 function userHasAdminRole(profile: UserProfile | null) {
   if (!profile) return false;
   if (profile.is_superuser) return true;
-  return profile.memberships.some((membership) => membership.role === 'admin');
+  if (!profile.active_organization) return false;
+  return profile.memberships.some(
+    (membership) => membership.role === 'admin'
+      && membership.organization.id === profile.active_organization?.id,
+  );
 }
 
 // Zone capacity is added a rack at a time, and salinity is read off a
@@ -312,7 +308,26 @@ function SuggestionInput({
   );
 }
 
-function AccountManagementSection({ t }: { t: TFunction }) {
+type MemberFieldErrors = Partial<Record<'email' | 'username', string>>;
+
+function getMemberFieldError(error: unknown, field: keyof MemberFieldErrors) {
+  if (!(error instanceof ApiError) || !error.data || typeof error.data !== 'object') return null;
+  const value = (error.data as Record<string, unknown>)[field];
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    const message = value.find((item): item is string => typeof item === 'string');
+    return message ?? null;
+  }
+  return null;
+}
+
+function AccountManagementSection({
+  organizationName,
+  t,
+}: {
+  organizationName: string;
+  t: TFunction;
+}) {
   const [data, setData] = useState<AccountMembers | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -321,11 +336,10 @@ function AccountManagementSection({ t }: { t: TFunction }) {
   const [role, setRole] = useState<MembershipRole>('viewer');
   const [isAdding, setIsAdding] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [formFieldErrors, setFormFieldErrors] = useState<MemberFieldErrors>({});
   const [message, setMessage] = useState<string | null>(null);
   const [rowBusyId, setRowBusyId] = useState<number | null>(null);
-  const [accountSearch, setAccountSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<MembershipRole | 'all'>('all');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [isMemberFormOpen, setIsMemberFormOpen] = useState(false);
 
   useEffect(() => {
@@ -376,6 +390,7 @@ function AccountManagementSection({ t }: { t: TFunction }) {
 
     setIsAdding(true);
     setFormError(null);
+    setFormFieldErrors({});
     setMessage(null);
 
     const payload: NewMemberPayload = {
@@ -392,10 +407,16 @@ function AccountManagementSection({ t }: { t: TFunction }) {
       upsertMember(member);
       setForm(emptyMemberForm);
       setRole('viewer');
+      setFormFieldErrors({});
       setMessage(t('manageMemberAdded'));
       setIsMemberFormOpen(false);
     } catch (requestError) {
-      setFormError(getErrorMessage(requestError));
+      const fieldErrors = {
+        email: getMemberFieldError(requestError, 'email') ?? undefined,
+        username: getMemberFieldError(requestError, 'username') ?? undefined,
+      };
+      setFormFieldErrors(fieldErrors);
+      setFormError(fieldErrors.email || fieldErrors.username ? null : getErrorMessage(requestError));
     } finally {
       setIsAdding(false);
     }
@@ -461,50 +482,43 @@ function AccountManagementSection({ t }: { t: TFunction }) {
 
   if (!data) return null;
 
-  const organizations = data.manageable_organizations;
   const roles = data.roles;
-  const activeMemberCount = data.members.filter((member) => member.is_active).length;
   const adminMemberCount = data.members.filter((member) => member.role === 'admin').length;
   const technicianMemberCount = data.members.filter(
     (member) => member.role === 'lab_technician',
   ).length;
   const viewerMemberCount = data.members.filter((member) => member.role === 'viewer').length;
-  const normalizedAccountSearch = accountSearch.trim().toLocaleLowerCase('fr-FR');
-  const filteredMembers = data.members.filter((member) => {
-    const matchesSearch = normalizedAccountSearch
-      ? [
-          member.full_name,
-          member.username,
-          member.email,
-          member.organization.name,
-          member.role_label,
-        ].some((value) => value.toLocaleLowerCase('fr-FR').includes(normalizedAccountSearch))
-      : true;
-    const matchesRole = roleFilter === 'all' || member.role === roleFilter;
-    const matchesStatus =
-      statusFilter === 'all' ||
-      (statusFilter === 'active' ? member.is_active : !member.is_active);
-    return matchesSearch && matchesRole && matchesStatus;
-  });
+  const filteredMembers = roleFilter === 'all'
+    ? data.members
+    : data.members.filter((member) => member.role === roleFilter);
 
   function toggleRoleFilter(nextRole: MembershipRole) {
     setRoleFilter((currentRole) => (currentRole === nextRole ? 'all' : nextRole));
-    setStatusFilter('all');
   }
 
-  function toggleStatusFilter(nextStatus: 'active' | 'inactive') {
-    setStatusFilter((currentStatus) => (currentStatus === nextStatus ? 'all' : nextStatus));
-    setRoleFilter('all');
-  }
+  const selectedRoleDescription = role === 'admin'
+    ? t('roleDescAdmin')
+    : role === 'lab_technician'
+      ? t('roleDescTechnician')
+      : t('roleDescViewer');
 
   return (
     <section className="admin-section account-management" id="admin-accounts">
-      <div className="admin-section-heading account-management-heading">
+      <div className="admin-section-heading account-management-heading section-title">
         <div>
+          <span className="admin-section-scope">{organizationName}</span>
           <h2>{t('manageAccountsTitle')}</h2>
         </div>
-        <button className="admin-primary-action" type="button" onClick={() => setIsMemberFormOpen(true)}>
-          <UserRoundPlus aria-hidden="true" size={18} />
+        <button
+          className="admin-primary-action"
+          type="button"
+          onClick={() => {
+            setFormError(null);
+            setFormFieldErrors({});
+            setIsMemberFormOpen(true);
+          }}
+        >
+          <Plus aria-hidden="true" size={18} />
           {t('manageAddTitle')}
         </button>
       </div>
@@ -512,11 +526,11 @@ function AccountManagementSection({ t }: { t: TFunction }) {
       <div className="account-overview">
         <button
           type="button"
-          className={statusFilter === 'active' ? 'account-overview-card is-active' : 'account-overview-card'}
-          onClick={() => toggleStatusFilter('active')}
+          className={roleFilter === 'all' ? 'account-overview-card is-active' : 'account-overview-card'}
+          onClick={() => setRoleFilter('all')}
         >
-          <strong>{activeMemberCount}</strong>
-          <span>{t('manageActiveAccounts')}</span>
+          <strong>{data.members.length}</strong>
+          <span>{t('manageAllAccounts')}</span>
         </button>
         <button
           type="button"
@@ -554,72 +568,71 @@ function AccountManagementSection({ t }: { t: TFunction }) {
               <span>{t('manageTemporaryPasswordText')}</span>
             </div>
             <div className="member-add-grid">
-          <label>
-            {t('manageFieldUsername')}
-            <input
-              required
-              value={form.username}
-              onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))}
-            />
-          </label>
-          <label>
-            {t('manageFieldFirstName')}
-            <input
-              value={form.first_name}
-              onChange={(event) => setForm((current) => ({ ...current, first_name: event.target.value }))}
-              onBlur={() => setForm((current) => ({ ...current, first_name: formatFirstName(current.first_name) }))}
-            />
-          </label>
-          <label>
-            {t('manageFieldLastName')}
-            <input
-              value={form.last_name}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, last_name: event.target.value.toLocaleUpperCase('fr-FR') }))
-              }
-              onBlur={() => setForm((current) => ({ ...current, last_name: formatLastName(current.last_name) }))}
-            />
-          </label>
-          <label>
-            {t('manageFieldEmail')}
-            <input
-              required
-              type="email"
-              value={form.email}
-              onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
-            />
-          </label>
-          {organizations.length > 1 ? (
-            <label>
-              {t('manageFieldOrganization')}
-              <select
-                value={organizationId ?? ''}
-                onChange={(event) => setOrganizationId(Number(event.target.value))}
-              >
-                {organizations.map((organization) => (
-                  <option key={organization.id} value={organization.id}>
-                    {organization.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          <label>
-            {t('manageFieldRole')}
-            <select value={role} onChange={(event) => setRole(event.target.value as MembershipRole)}>
-              {roles.map((roleOption) => (
-                <option key={roleOption.value} value={roleOption.value}>
-                  {roleOption.label}
-                </option>
-              ))}
-            </select>
-          </label>
+              <label>
+                {t('manageFieldFirstName')}
+                <input
+                  value={form.first_name}
+                  onChange={(event) => setForm((current) => ({ ...current, first_name: event.target.value }))}
+                  onBlur={() => setForm((current) => ({ ...current, first_name: formatFirstName(current.first_name) }))}
+                />
+              </label>
+              <label>
+                {t('manageFieldLastName')}
+                <input
+                  value={form.last_name}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, last_name: event.target.value.toLocaleUpperCase('fr-FR') }))
+                  }
+                  onBlur={() => setForm((current) => ({ ...current, last_name: formatLastName(current.last_name) }))}
+                />
+              </label>
+              <label>
+                {t('manageFieldEmail')}
+                <input
+                  required
+                  type="email"
+                  autoComplete="email"
+                  aria-invalid={Boolean(formFieldErrors.email)}
+                  value={form.email}
+                  onChange={(event) => {
+                    setForm((current) => ({ ...current, email: event.target.value }));
+                    setFormFieldErrors((current) => ({ ...current, email: undefined }));
+                  }}
+                />
+                {formFieldErrors.email ? <small className="member-field-error">{formFieldErrors.email}</small> : null}
+              </label>
+              <label>
+                {t('manageFieldUsername')}
+                <input
+                  required
+                  autoComplete="username"
+                  aria-invalid={Boolean(formFieldErrors.username)}
+                  value={form.username}
+                  onChange={(event) => {
+                    setForm((current) => ({ ...current, username: event.target.value }));
+                    setFormFieldErrors((current) => ({ ...current, username: undefined }));
+                  }}
+                />
+                {formFieldErrors.username ? (
+                  <small className="member-field-error">{formFieldErrors.username}</small>
+                ) : null}
+              </label>
+              <label className="member-role-choice">
+                {t('manageFieldRole')}
+                <select value={role} onChange={(event) => setRole(event.target.value as MembershipRole)}>
+                  {roles.map((roleOption) => (
+                    <option key={roleOption.value} value={roleOption.value}>
+                      {roleOption.label}
+                    </option>
+                  ))}
+                </select>
+                <small>{selectedRoleDescription}</small>
+              </label>
             </div>
 
             {formError ? <p className="inline-error">{formError}</p> : null}
 
             <button type="submit" disabled={isAdding || organizationId == null}>
-              <UserRoundPlus aria-hidden="true" size={18} />
               {isAdding ? t('manageAdding') : t('manageAddAction')}
             </button>
           </form>
@@ -629,129 +642,74 @@ function AccountManagementSection({ t }: { t: TFunction }) {
       {message ? <p className="inline-success">{message}</p> : null}
       {loadError && data ? <p className="inline-error">{loadError}</p> : null}
 
-      <div className="account-list-toolbar">
-        <label className="account-search-field">
-          <span>{t('manageSearchLabel')}</span>
-          <input
-            type="search"
-            value={accountSearch}
-            placeholder={t('manageSearchPlaceholder')}
-            onChange={(event) => setAccountSearch(event.target.value)}
-          />
-        </label>
-        <label className="account-compact-filter">
-          <span>{t('manageColRole')}</span>
-          <select
-            value={roleFilter}
-            onChange={(event) => {
-              setRoleFilter(event.target.value as MembershipRole | 'all');
-              setStatusFilter('all');
-            }}
-          >
-            <option value="all">{t('manageRoleAll')}</option>
-            {roles.map((roleOption) => (
-              <option key={roleOption.value} value={roleOption.value}>
-                {roleOption.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="account-status-filter" aria-label={t('manageColStatus')}>
-          <button
-            type="button"
-            className={statusFilter === 'all' ? 'is-active' : ''}
-            onClick={() => setStatusFilter('all')}
-          >
-            {t('manageStatusAll')}
-          </button>
-          <button
-            type="button"
-            className={statusFilter === 'active' ? 'is-active' : ''}
-            onClick={() => {
-              setStatusFilter('active');
-              setRoleFilter('all');
-            }}
-          >
-            {t('manageStatusActive')}
-          </button>
-          <button
-            type="button"
-            className={statusFilter === 'inactive' ? 'is-active' : ''}
-            onClick={() => {
-              setStatusFilter('inactive');
-              setRoleFilter('all');
-            }}
-          >
-            {t('manageStatusInactive')}
-          </button>
-        </div>
-        <span className="account-visible-count">
-          {filteredMembers.length} / {data.members.length}
-        </span>
-      </div>
-
       {filteredMembers.length ? (
-        <div className="member-card-list">
-          {filteredMembers.map((member) => (
-            <article
-              key={member.membership_id}
-              className={member.is_active ? 'member-card' : 'member-card is-inactive'}
-            >
-              <div className="member-card-main">
-                <span className="member-identity">
-                  <strong>{getMemberDisplayName(member)}</strong>
-                  <small>
-                    @{member.username}
-                    {member.email ? `, ${member.email}` : ''}
-                  </small>
-                </span>
-              </div>
-
-              <div className="member-card-controls">
-                <label className="member-role-field">
-                  <span>{t('manageColRole')}</span>
-                  <select
-                    value={member.role}
-                    disabled={rowBusyId === member.membership_id}
-                    onChange={(event) =>
-                      handleRoleChange(member, event.target.value as MembershipRole)
-                    }
-                  >
-                    {roles.map((roleOption) => (
-                      <option key={roleOption.value} value={roleOption.value}>
-                        {roleOption.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <span className="member-last-login">
-                  <small>{t('manageColLastLogin')}</small>
-                  <strong>
-                    {member.last_login ? formatDisplayDate(member.last_login) : t('manageNeverConnected')}
-                  </strong>
-                </span>
-
-                <span className="member-status">
-                  <span className={member.is_active ? 'member-state is-on' : 'member-state is-off'}>
-                    {member.is_active ? t('manageStatusActive') : t('manageStatusInactive')}
-                  </span>
-                  {member.is_self ? (
-                    <em className="member-self-tag">{t('manageStatusSelf')}</em>
-                  ) : (
-                    <button
-                      type="button"
-                      className="member-toggle"
-                      disabled={rowBusyId === member.membership_id}
-                      onClick={() => handleToggleActive(member)}
-                    >
-                      {member.is_active ? t('manageDeactivate') : t('manageReactivate')}
-                    </button>
-                  )}
-                </span>
-              </div>
-            </article>
-          ))}
+        <div className="member-table-shell">
+          <table className="member-table">
+            <thead>
+              <tr>
+                <th scope="col">{t('manageColUser')}</th>
+                <th scope="col">{t('manageColRole')}</th>
+                <th scope="col">{t('manageColLastLogin')}</th>
+                <th scope="col">{t('manageColStatus')}</th>
+                <th scope="col" className="member-action-heading">{t('manageColActions')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredMembers.map((member) => {
+                const memberName = getMemberDisplayName(member);
+                return (
+                  <tr key={member.membership_id} className={member.is_active ? '' : 'is-inactive'}>
+                    <td>
+                      <span className="member-identity">
+                        <strong>{memberName}</strong>
+                        <small>@{member.username}</small>
+                        {member.email ? <small>{member.email}</small> : null}
+                      </span>
+                    </td>
+                    <td>
+                      <label className="member-role-field">
+                        <span className="sr-only">{t('manageColRole')} {memberName}</span>
+                        <select
+                          value={member.role}
+                          disabled={rowBusyId === member.membership_id}
+                          onChange={(event) =>
+                            handleRoleChange(member, event.target.value as MembershipRole)
+                          }
+                        >
+                          {roles.map((roleOption) => (
+                            <option key={roleOption.value} value={roleOption.value}>
+                              {roleOption.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </td>
+                    <td className="member-last-login">
+                      {member.last_login ? formatDisplayDate(member.last_login) : t('manageNeverConnected')}
+                    </td>
+                    <td>
+                      <span className={member.is_active ? 'member-state is-on' : 'member-state is-off'}>
+                        {member.is_active ? t('manageStatusActive') : t('manageStatusInactive')}
+                      </span>
+                      {member.is_self ? <em className="member-self-tag">{t('manageStatusSelf')}</em> : null}
+                    </td>
+                    <td className="member-action-cell">
+                      {member.is_self ? null : (
+                        <button
+                          type="button"
+                          className="member-toggle"
+                          disabled={rowBusyId === member.membership_id}
+                          onClick={() => handleToggleActive(member)}
+                        >
+                          {member.is_active ? t('manageDeactivate') : t('manageReactivate')}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       ) : (
         <p className="muted compact-text">
@@ -772,11 +730,15 @@ const PROBE_TYPE_OPTIONS = [
 function getAdminOrganizationIds(profile: UserProfile): Set<number> | null {
   // null means "all organizations" (superuser).
   if (profile.is_superuser) return null;
-  return new Set(
-    profile.memberships
-      .filter((membership) => membership.role === 'admin')
-      .map((membership) => membership.organization.id),
+  const activeOrganizationId = profile.active_organization?.id;
+  if (activeOrganizationId == null) return new Set();
+  const canAdministerActiveOrganization = profile.memberships.some(
+    (membership) => membership.role === 'admin'
+      && membership.organization.id === activeOrganizationId,
   );
+  return canAdministerActiveOrganization
+    ? new Set([activeOrganizationId])
+    : new Set();
 }
 
 function sortAdminZones(a: ThermalZone, b: ThermalZone) {
@@ -3060,36 +3022,53 @@ function groupAuditEntriesByDay(entries: AdminAuditLogEntry[]) {
 
 function AdminFlowNav({
   activeSection,
+  aquariumName,
+  isSuperuser,
   onSelect,
   t,
 }: {
-  activeSection: AdminFlowKey;
-  onSelect: (section: AdminFlowKey) => void;
+  activeSection: AdminSectionKey;
+  aquariumName: string;
+  isSuperuser: boolean;
+  onSelect: (section: AdminSectionKey) => void;
   t: TFunction;
 }) {
+  const aquariumItems = ADMIN_FLOW_ITEMS.filter((item) => item.scope === 'aquarium');
+  const sharedItems = ADMIN_FLOW_ITEMS.filter((item) => item.scope === 'shared');
+  const superuserItems = ADMIN_FLOW_ITEMS.filter((item) => item.scope === 'superuser');
+
+  function renderItems(items: typeof ADMIN_FLOW_ITEMS[number][]) {
+    return items.map((item) => (
+      <button
+        key={item.key}
+        type="button"
+        className={activeSection === item.key ? 'admin-flow-step is-active' : 'admin-flow-step'}
+        aria-controls={item.panelId}
+        aria-current={activeSection === item.key ? 'page' : undefined}
+        onClick={() => onSelect(item.key)}
+      >
+        {t(item.label)}
+      </button>
+    ));
+  }
+
   return (
     <aside className="admin-sidebar">
-      <header className="admin-sidebar__heading">
-        <span aria-hidden="true"><ShieldCheck size={20} /></span>
-        <strong>{t('adminTitle')}</strong>
-      </header>
       <nav className="admin-flow-nav" aria-label={t('adminFlowLabel')}>
-        {ADMIN_FLOW_ITEMS.map((item) => {
-          const Icon = item.icon;
-          return (
-            <button
-              key={item.key}
-              type="button"
-              className={activeSection === item.key ? 'admin-flow-step is-active' : 'admin-flow-step'}
-              aria-controls={item.panelId}
-              aria-current={activeSection === item.key ? 'page' : undefined}
-              onClick={() => onSelect(item.key)}
-            >
-              <Icon aria-hidden="true" size={18} strokeWidth={1.9} />
-              <span>{t(item.label)}</span>
-            </button>
-          );
-        })}
+        <div className="admin-nav-group">
+          <span className="admin-nav-group-label">{aquariumName}</span>
+          {renderItems(aquariumItems)}
+        </div>
+        <div className="admin-nav-group">
+          <span className="admin-nav-group-label">{t('adminSharedNavigation')}</span>
+          {renderItems(sharedItems)}
+        </div>
+        {isSuperuser ? (
+          <div className="admin-nav-group">
+            <span className="admin-nav-group-label">{t('adminSuperuserNavigation')}</span>
+            {renderItems(superuserItems)}
+          </div>
+        ) : null}
       </nav>
     </aside>
   );
@@ -3363,11 +3342,13 @@ function TransfersAdminSection({
 }
 
 export default function AdminView({
+  activeSection,
   boxes,
   exportOptions,
   isLoading,
   isOptionsLoading,
   profile,
+  onSelectSection,
   onRequestOptions,
   onCreateZone,
   onUpdateZone,
@@ -3380,12 +3361,14 @@ export default function AdminView({
   t,
   zones,
 }: {
+  activeSection: AdminSectionKey;
   onEditMeasurement: (measurement: EditableMeasurement) => void;
   boxes: BoxItem[];
   exportOptions: ExportOptions | null;
   isLoading: boolean;
   isOptionsLoading: boolean;
   profile: UserProfile | null;
+  onSelectSection: (section: AdminSectionKey) => void;
   onRequestOptions: () => void;
   onCreateZone: (payload: ThermalZonePayload) => Promise<void>;
   onUpdateZone: (zoneId: number, payload: ThermalZonePayload) => Promise<void>;
@@ -3397,11 +3380,15 @@ export default function AdminView({
   t: TFunction;
   zones: ThermalZone[];
 }) {
-  const [activeAdminSection, setActiveAdminSection] = useState<AdminFlowKey>('accounts');
-  const activeSectionNeedsOptions = activeAdminSection === 'organizations' || activeAdminSection === 'transfers';
+  const activeSectionNeedsOptions = activeSection === 'organizations' || activeSection === 'transfers';
 
-  function selectAdminSection(section: AdminFlowKey) {
-    setActiveAdminSection(section);
+  useEffect(() => {
+    if (!profile || profile.is_superuser || activeSection !== 'organizations') return;
+    onSelectSection('accounts');
+  }, [activeSection, onSelectSection, profile]);
+
+  function selectAdminSection(section: AdminSectionKey) {
+    onSelectSection(section);
     if ((section === 'organizations' || section === 'transfers') && !exportOptions) {
       onRequestOptions();
     }
@@ -3414,60 +3401,67 @@ export default function AdminView({
   if (!profile || !userHasAdminRole(profile)) return null;
 
   const organizations = exportOptions?.organizations ?? profile.organizations;
+  const activeOrganizationName = profile.active_organization?.name ?? '-';
 
   return (
-    <section className="admin-panel admin-workspace">
-      <AdminFlowNav
-        activeSection={activeAdminSection}
-        onSelect={selectAdminSection}
-        t={t}
-      />
+    <section className="admin-panel">
+      <div className="admin-workspace">
+        <AdminFlowNav
+          activeSection={activeSection}
+          aquariumName={activeOrganizationName}
+          isSuperuser={profile.is_superuser}
+          onSelect={selectAdminSection}
+          t={t}
+        />
 
-      <div className="admin-flow-panel">
-        {activeSectionNeedsOptions && isOptionsLoading ? (
-          <PageLoader variant="admin" label={t('loading')} />
-        ) : null}
+        <div className="admin-flow-panel">
+          {activeSectionNeedsOptions && isOptionsLoading ? (
+            <PageLoader variant="admin" label={t('loading')} />
+          ) : null}
 
-        {activeAdminSection === 'accounts' ? <AccountManagementSection t={t} /> : null}
+          {activeSection === 'accounts' ? (
+            <AccountManagementSection organizationName={activeOrganizationName} t={t} />
+          ) : null}
 
-        {activeAdminSection === 'references' ? <TaxonomyAdminSection t={t} /> : null}
+          {activeSection === 'references' ? <TaxonomyAdminSection t={t} /> : null}
 
-        {activeAdminSection === 'environment' ? (
-          <EnvironmentAdminSection
-            profile={profile}
-            zones={zones}
-            onCreateZone={onCreateZone}
-            onCreateProbe={onCreateProbe}
-            onUpdateZone={onUpdateZone}
-            t={t}
-          />
-        ) : null}
+          {activeSection === 'environment' ? (
+            <EnvironmentAdminSection
+              profile={profile}
+              zones={zones}
+              onCreateZone={onCreateZone}
+              onCreateProbe={onCreateProbe}
+              onUpdateZone={onUpdateZone}
+              t={t}
+            />
+          ) : null}
 
-        {activeAdminSection === 'organizations' && !isOptionsLoading ? (
-          <OrganizationsAdminSection
-            organizations={organizations}
-            profile={profile}
-            onCreateOrganization={onCreateOrganization}
-            onDeleteOrganization={onDeleteOrganization}
-            onUpdateOrganization={onUpdateOrganization}
-            t={t}
-          />
-        ) : null}
+          {activeSection === 'organizations' && profile.is_superuser && !isOptionsLoading ? (
+            <OrganizationsAdminSection
+              organizations={organizations}
+              profile={profile}
+              onCreateOrganization={onCreateOrganization}
+              onDeleteOrganization={onDeleteOrganization}
+              onUpdateOrganization={onUpdateOrganization}
+              t={t}
+            />
+          ) : null}
 
-        {activeAdminSection === 'transfers' && !isOptionsLoading ? (
-          <TransfersAdminSection
-            profile={profile}
-            boxes={boxes}
-            organizations={organizations}
-            onCreateTransfer={onCreateTransfer}
-            zones={zones}
-            t={t}
-          />
-        ) : null}
+          {activeSection === 'transfers' && !isOptionsLoading ? (
+            <TransfersAdminSection
+              profile={profile}
+              boxes={boxes}
+              organizations={organizations}
+              onCreateTransfer={onCreateTransfer}
+              zones={zones}
+              t={t}
+            />
+          ) : null}
 
-        {activeAdminSection === 'history' ? (
-          <AdminAuditLogSection onEditMeasurement={onEditMeasurement} t={t} />
-        ) : null}
+          {activeSection === 'history' ? (
+            <AdminAuditLogSection onEditMeasurement={onEditMeasurement} t={t} />
+          ) : null}
+        </div>
       </div>
     </section>
   );

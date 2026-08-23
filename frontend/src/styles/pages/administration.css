@@ -1674,3 +1674,342 @@ button.account-overview-card:is(:hover, .is-active) {
   .admin-flow-step { padding-inline: var(--space-2); }
   .environment-zone-grid { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Administration shell and team directory */
+.admin-panel {
+  display: grid;
+  gap: 0;
+}
+
+.admin-section-scope,
+.admin-nav-group-label {
+  color: var(--color-muted);
+  font-size: .72rem;
+  font-weight: 750;
+}
+
+.admin-workspace {
+  grid-template-columns: 196px minmax(0, 1fr);
+  gap: var(--space-6);
+}
+
+.admin-sidebar {
+  top: var(--space-4);
+  gap: 0;
+  padding: 0 var(--space-4) 0 0;
+}
+
+.admin-flow-nav,
+.admin-nav-group {
+  display: grid;
+}
+
+.admin-flow-nav {
+  gap: var(--space-5);
+}
+
+.admin-nav-group {
+  gap: 2px;
+}
+
+.admin-nav-group-label {
+  min-height: 28px;
+  padding: 0 var(--space-3);
+  align-content: center;
+}
+
+.admin-nav-group:first-child .admin-nav-group-label {
+  color: var(--color-ink);
+  font-size: .78rem;
+}
+
+.admin-flow-step {
+  display: block;
+  min-height: 42px;
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-ink-soft);
+  font-size: .86rem;
+  font-weight: 720;
+  line-height: 1.25;
+  border-left-width: 2px;
+}
+
+.admin-flow-panel {
+  min-height: 580px;
+}
+
+.account-management-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.account-management-heading > div {
+  display: grid;
+  gap: 2px;
+}
+
+.account-management-heading h2 {
+  font-size: 1rem;
+  font-style: italic;
+  line-height: 1.2;
+}
+
+.account-overview {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.account-overview-card {
+  display: flex;
+  min-height: 44px;
+  padding-inline: var(--space-3);
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--color-ink-soft);
+  text-align: left;
+  transition:
+    color var(--transition-fast),
+    background-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.account-overview-card strong {
+  display: inline;
+  margin: 0;
+  font-size: .9rem;
+  line-height: 1.1;
+}
+
+.account-overview-card span {
+  display: inline;
+  margin: 0;
+  font-size: .68rem;
+  font-weight: 700;
+}
+
+button.account-overview-card:hover:not(.is-active) {
+  color: var(--color-ink);
+  background: var(--color-surface-subtle);
+}
+
+button.account-overview-card.is-active {
+  color: var(--color-primary-hover);
+  background: var(--color-surface);
+  box-shadow: inset 0 -2px 0 var(--color-primary);
+}
+
+.member-table-shell {
+  min-width: 0;
+  overflow-x: auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+}
+
+.member-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.member-table th {
+  height: 38px;
+  padding: 0 var(--space-3);
+  color: var(--color-muted);
+  font-size: .7rem;
+  font-weight: 780;
+  text-align: left;
+  background: var(--color-surface-subtle);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.member-table th:first-child { width: 28%; }
+.member-table th:nth-child(2) { width: 24%; }
+.member-table th:nth-child(3) { width: 18%; }
+.member-table th:nth-child(4) { width: 12%; }
+.member-table th:last-child { width: 18%; }
+
+.member-table td {
+  min-height: 56px;
+  padding: 10px var(--space-3);
+  vertical-align: middle;
+  border-bottom: 1px solid var(--color-line-soft);
+}
+
+.member-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.member-table tbody tr:hover {
+  background: var(--color-surface-subtle);
+}
+
+.member-table tbody tr.is-inactive {
+  background: var(--color-surface-subtle);
+}
+
+.member-table tbody tr.is-inactive .member-identity {
+  opacity: .68;
+}
+
+.member-identity {
+  display: grid;
+  gap: 1px;
+}
+
+.member-identity strong,
+.member-identity small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.member-identity strong {
+  color: var(--color-ink);
+  font-size: .82rem;
+}
+
+.member-identity small {
+  color: var(--color-muted);
+  font-size: .68rem;
+}
+
+.member-role-field {
+  display: block;
+  min-width: 0;
+}
+
+.member-role-field select {
+  width: 100%;
+  min-height: 34px;
+  padding-block: 0;
+  font-size: .78rem;
+  font-weight: 650;
+}
+
+.member-role-field select:disabled {
+  color: var(--color-ink-soft);
+  background: var(--color-surface-subtle);
+  cursor: not-allowed;
+}
+
+.member-last-login {
+  color: var(--color-ink-soft);
+  font-size: .74rem;
+  font-weight: 680;
+}
+
+.member-state,
+.member-self-tag {
+  min-height: 0;
+  padding: 0;
+  font-size: .7rem;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.member-table .member-state.is-on,
+.member-table .member-state.is-off {
+  background: transparent;
+  border: 0;
+}
+
+.member-self-tag {
+  display: block;
+  margin-top: 2px;
+  color: var(--color-muted);
+}
+
+.member-table .member-action-heading,
+.member-table .member-action-cell {
+  text-align: right;
+}
+
+.member-toggle {
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  font-size: .72rem;
+  border-radius: var(--radius-xs);
+}
+
+.member-password-flow {
+  max-width: none;
+  padding: 6px 0 6px var(--space-3);
+  background: transparent;
+  border-left: 2px solid var(--color-line-strong);
+}
+
+.member-password-flow strong {
+  font-size: .86rem;
+}
+
+.member-password-flow span {
+  font-size: .7rem;
+}
+
+.member-add-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.member-role-choice {
+  grid-column: 1 / -1;
+}
+
+.member-role-choice small {
+  color: var(--color-muted);
+  font-size: .68rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.admin-action-panel .member-add-form {
+  gap: var(--space-3);
+}
+
+.admin-action-panel .member-add-grid {
+  gap: var(--space-3);
+}
+
+.admin-action-panel .member-add-grid label {
+  font-size: .72rem;
+}
+
+.admin-action-panel .member-add-grid :is(input, select) {
+  min-height: 40px;
+  font-size: .8rem;
+}
+
+.member-field-error {
+  color: var(--color-danger);
+  font-size: .68rem;
+  font-weight: 650;
+}
+
+.admin-action-panel .member-add-form > button[type='submit'] {
+  color: #fff;
+  font-size: .82rem;
+  font-weight: 780;
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  cursor: pointer;
+}
+
+.admin-action-panel .member-add-form > button[type='submit']:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+}
+
+.admin-action-panel .member-add-form > button[type='submit']:disabled {
+  color: var(--color-muted);
+  background: var(--color-surface-subtle);
+  border-color: var(--color-line);
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+@media (max-width: 1180px) {
+  .admin-workspace { grid-template-columns: 176px minmax(0, 1fr); }
+  .member-table { min-width: 820px; }
+}

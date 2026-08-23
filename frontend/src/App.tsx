@@ -28,7 +28,7 @@ import {
   type TranslationKey,
   type Translator,
 } from './i18n';
-import type { EditableMeasurement } from './components/AdminView';
+import type { AdminSectionKey, EditableMeasurement } from './components/AdminView';
 import BiologicalTrendChart from './components/BiologicalTrendChart';
 import ChartWindowControls from './components/ChartWindowControls';
 import { buildChartWindow } from './utils/chartWindow';
@@ -147,6 +147,16 @@ type RouteState = {
   boxCode: string | null;
   boxId: number | null;
   zoneId?: number | null;
+  adminSection?: AdminSectionKey;
+};
+
+const ADMIN_SECTION_PATHS: Record<AdminSectionKey, string> = {
+  accounts: '/administration/team',
+  references: '/administration/reference-data',
+  environment: '/administration/laboratory',
+  transfers: '/administration/transfers',
+  history: '/administration/history',
+  organizations: '/administration/institutions',
 };
 
 
@@ -203,7 +213,7 @@ export default function App() {
     activeTab === 'exports' || exportOptionsRequested
   ) && data.exportOptions === null;
   const isOverviewLoading = activeTab === 'overview' && data.overview === null;
-  const workspacePageKey = `${activeTab}-${route.boxCode ?? route.boxId ?? 'list'}-${route.zoneId ?? 'list'}`;
+  const workspacePageKey = `${activeTab}-${route.boxCode ?? route.boxId ?? 'list'}-${route.zoneId ?? 'list'}-${route.adminSection ?? 'default'}`;
   const brandOrganizationName = getBrandOrganizationName(data.profile, t);
   const selectableOrganizations = useMemo(() => getSelectableOrganizations(data.profile), [data.profile]);
   const activeOrganization = useMemo(
@@ -519,16 +529,27 @@ export default function App() {
   }
 
   function openTab(tab: TabId) {
+    if (tab === 'admin') {
+      openAdminSection('accounts');
+      return;
+    }
     const paths: Record<TabId, string> = {
       pilotage: '/',
       overview: '/overview',
       zones: '/zones',
       exports: '/exports',
       labels: '/labels',
-      admin: '/administration',
+      admin: ADMIN_SECTION_PATHS.accounts,
       profile: '/profile',
     };
     navigateTo({ tab, boxCode: null, boxId: null }, paths[tab]);
+  }
+
+  function openAdminSection(section: AdminSectionKey) {
+    navigateTo(
+      { tab: 'admin', boxCode: null, boxId: null, adminSection: section },
+      ADMIN_SECTION_PATHS[section],
+    );
   }
 
   function addQrLabelToSelection(label: QrLabelItem) {
@@ -1023,11 +1044,13 @@ export default function App() {
 
             {activeTab === 'admin' && (
               <AdminView
+                activeSection={route.adminSection ?? 'accounts'}
                 boxes={data.boxes}
                 exportOptions={data.exportOptions}
                 isLoading={isLoading}
                 isOptionsLoading={isExportOptionsLoading}
                 profile={data.profile}
+                onSelectSection={openAdminSection}
                 onRequestOptions={() => setExportOptionsRequested(true)}
                 onCreateZone={createThermalZone}
                 onUpdateZone={updateThermalZone}
@@ -3859,8 +3882,20 @@ function getCurrentRoute(): RouteState {
     return { tab: 'exports', boxCode: null, boxId: null };
   }
 
-  if (path === '/administration') {
-    return { tab: 'admin', boxCode: null, boxId: null };
+  if (path === '/administration' || path === '/administration/') {
+    return { tab: 'admin', boxCode: null, boxId: null, adminSection: 'accounts' };
+  }
+
+  const adminSection = Object.entries(ADMIN_SECTION_PATHS).find(([, sectionPath]) => (
+    path === sectionPath || path === `${sectionPath}/`
+  ));
+  if (adminSection) {
+    return {
+      tab: 'admin',
+      boxCode: null,
+      boxId: null,
+      adminSection: adminSection[0] as AdminSectionKey,
+    };
   }
 
   if (path === '/profile') {
