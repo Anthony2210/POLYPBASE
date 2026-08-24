@@ -1,5 +1,7 @@
 import type { KeyboardEvent } from 'react';
 
+import PolypbaseIcon from './PolypbaseIcon';
+
 type SearchFieldLabels = {
   label: string;
   placeholder: string;
@@ -45,6 +47,7 @@ export default function SearchField({
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={onKeyDown}
         />
+        <PolypbaseIcon name="search" size={17} />
       </label>
     </form>
   );

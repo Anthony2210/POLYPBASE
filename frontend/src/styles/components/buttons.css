@@ -6,6 +6,18 @@ button {
     transform var(--transition-fast);
 }
 
+.polypbase-icon {
+  display: block;
+  flex: 0 0 auto;
+}
+
+.button-icon-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
 .tab,
 .measurement-save-button,
 .admin-panel button[type='submit'] {

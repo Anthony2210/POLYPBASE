@@ -6,6 +6,7 @@ import { apiDownload, apiGet } from '../api/client';
 import type { ExportOptions } from '../types';
 import ModalPortal from './ModalPortal';
 import PageLoader from './PageLoader';
+import PolypbaseIcon from './PolypbaseIcon';
 
 type Language = 'fr' | 'en';
 type FilterKey = 'organizations' | 'species' | 'strains' | 'boxes' | 'zones';
@@ -630,7 +631,10 @@ export default function ExportsView({
           disabled={isDownloading || invalidPeriod || !exportState.matchingBoxes.length}
           onClick={handleDownload}
         >
-          {isDownloading ? labels.downloading : labels.download}
+          <span className="button-icon-label">
+            {!isDownloading ? <PolypbaseIcon name="download" size={18} /> : null}
+            {isDownloading ? labels.downloading : labels.download}
+          </span>
         </button>
       </section>
 

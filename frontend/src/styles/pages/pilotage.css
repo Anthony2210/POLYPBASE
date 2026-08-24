@@ -47,6 +47,16 @@
 .search-field,
 .search-field label { display: grid; gap: var(--space-2); }
 
+.search-field label { position: relative; }
+
+.search-field .polypbase-icon {
+  position: absolute;
+  right: var(--space-3);
+  bottom: 12px;
+  color: var(--color-muted);
+  pointer-events: none;
+}
+
 .desktop-search-panel {
   width: min(100%, 680px);
   margin-bottom: var(--space-5);

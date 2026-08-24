@@ -7,6 +7,7 @@ import type {
   ThermalZone,
 } from '../types';
 import ModalPortal from './ModalPortal';
+import PolypbaseIcon from './PolypbaseIcon';
 
 type Language = 'fr' | 'en';
 
@@ -140,7 +141,7 @@ export default function SubcultureModal({
             <h2 id="subculture-title">{text.title}</h2>
           </div>
           <button type="button" aria-label={text.cancel} title={text.cancel} onClick={onClose}>
-            ×
+            <PolypbaseIcon name="close" size={19} />
           </button>
         </header>
 
@@ -186,7 +187,7 @@ export default function SubcultureModal({
                       title={text.removeChild}
                       onClick={() => removeChild(child.key)}
                     >
-                      ×
+                      <PolypbaseIcon name="close" size={17} />
                     </button>
                   ) : null}
                 </div>

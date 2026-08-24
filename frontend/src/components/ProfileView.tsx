@@ -3,6 +3,7 @@ import { useState } from 'react';
 import type { UserProfile } from '../types';
 import { getErrorMessage } from '../utils/errors';
 import PageLoader from './PageLoader';
+import PolypbaseIcon from './PolypbaseIcon';
 
 type ProfileLabels = {
   account: string;
@@ -115,7 +116,10 @@ export default function ProfileView({
             disabled={isLoggingOut}
             onClick={handleLogout}
           >
-            {isLoggingOut ? labels.saving : labels.logoutAction}
+            <span className="button-icon-label">
+              {!isLoggingOut ? <PolypbaseIcon name="logout" size={17} /> : null}
+              {isLoggingOut ? labels.saving : labels.logoutAction}
+            </span>
           </button>
           {logoutError ? <p className="inline-error">{logoutError}</p> : null}
         </div>
@@ -127,7 +131,9 @@ export default function ProfileView({
             <strong>{labels.labelsTitle}</strong>
             <small>{labels.profileLabelsMobileText}</small>
           </span>
-          <span className="profile-link-arrow" aria-hidden="true">›</span>
+          <span className="profile-link-arrow" aria-hidden="true">
+            <PolypbaseIcon name="chevron-right" size={18} />
+          </span>
         </button>
       </section>
 
@@ -172,7 +178,9 @@ export default function ProfileView({
           </div>
           <button className="profile-admin-button" type="button" onClick={onOpenAdmin}>
             <span>{labels.profileAdminAction}</span>
-            <span className="profile-link-arrow" aria-hidden="true">›</span>
+            <span className="profile-link-arrow" aria-hidden="true">
+              <PolypbaseIcon name="chevron-right" size={18} />
+            </span>
           </button>
         </section>
       ) : null}

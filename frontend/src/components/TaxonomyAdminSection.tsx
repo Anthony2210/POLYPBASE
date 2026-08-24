@@ -1,5 +1,4 @@
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, Pencil, Plus, Search, X } from 'lucide-react';
 
 import { apiGet, apiPatch, apiPost } from '../api/client';
 import type { Translator } from '../i18n';
@@ -15,6 +14,7 @@ import type {
 } from '../types/admin';
 import { getErrorMessage } from '../utils/errors';
 import AdminActionPanel from './AdminActionPanel';
+import PolypbaseIcon from './PolypbaseIcon';
 import PageLoader from './PageLoader';
 
 type ReferenceTab = 'species' | 'strains';
@@ -147,7 +147,7 @@ export default function TaxonomyAdminSection({ t }: { t: Translator }) {
             : undefined}
           onClick={() => setFormState({ kind: activeTab })}
         >
-          <Plus aria-hidden="true" size={18} />
+          <PolypbaseIcon name="plus" size={18} />
           {activeTab === 'species' ? t('taxonomyNewSpecies') : t('taxonomyNewStrain')}
         </button>
       </header>
@@ -175,7 +175,7 @@ export default function TaxonomyAdminSection({ t }: { t: Translator }) {
         </div>
         <label className="taxonomy-search">
           <span className="sr-only">{t('taxonomySearch')}</span>
-          <Search aria-hidden="true" size={17} />
+          <PolypbaseIcon name="search" size={17} />
           <input
             type="search"
             value={search}
@@ -252,7 +252,7 @@ export default function TaxonomyAdminSection({ t }: { t: Translator }) {
             disabled={currentPage === 1}
             onClick={() => setPage((current) => Math.max(1, current - 1))}
           >
-            <ChevronLeft aria-hidden="true" size={18} />
+            <PolypbaseIcon name="chevron-left" size={18} />
           </button>
           <span>
             {t('adminPage')} <strong>{currentPage}</strong> / {pageCount}
@@ -264,7 +264,7 @@ export default function TaxonomyAdminSection({ t }: { t: Translator }) {
             disabled={currentPage === pageCount}
             onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
           >
-            <ChevronRight aria-hidden="true" size={18} />
+            <PolypbaseIcon name="chevron-right" size={18} />
           </button>
         </nav>
       ) : null}
@@ -565,7 +565,7 @@ function FormHeading({
     <header className="taxonomy-form-heading">
       <h3>{title}</h3>
       <button className="icon-button" type="button" aria-label={closeLabel} title={closeLabel} onClick={onCancel}>
-        <X aria-hidden="true" size={18} />
+        <PolypbaseIcon name="close" size={18} />
       </button>
     </header>
   );
@@ -626,7 +626,7 @@ function SpeciesCard({
         <div className="taxonomy-card-actions">
           {species.genus_species_code ? <span className="reference-code">{species.genus_species_code}</span> : null}
           <button className="taxonomy-edit-button" type="button" onClick={onEdit}>
-            <Pencil aria-hidden="true" size={15} />
+            <PolypbaseIcon name="edit" size={15} />
             {t('taxonomyEdit')}
           </button>
         </div>
@@ -663,7 +663,7 @@ function StrainCard({
         <div className="taxonomy-card-actions">
           {strain.origin_code ? <span className="reference-code">{strain.origin_code}</span> : null}
           <button className="taxonomy-edit-button" type="button" onClick={onEdit}>
-            <Pencil aria-hidden="true" size={15} />
+            <PolypbaseIcon name="edit" size={15} />
             {t('taxonomyEdit')}
           </button>
         </div>

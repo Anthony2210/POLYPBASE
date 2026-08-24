@@ -134,82 +134,128 @@
 
 .overview-zone-progress-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-  gap: var(--space-2);
+  grid-template-columns: repeat(auto-fit, minmax(205px, 1fr));
+  gap: 10px;
+}
+
+.overview-zone-progress-list[data-layout='1'] {
+  grid-template-columns: minmax(260px, 360px);
+}
+
+.overview-zone-progress-list[data-layout='2'] {
+  grid-template-columns: repeat(2, minmax(240px, 360px));
+}
+
+.overview-zone-progress-list[data-layout='3'] {
+  max-width: 1000px;
+  grid-template-columns: repeat(3, minmax(220px, 1fr));
+}
+
+.overview-zone-progress-list[data-layout='4'] {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.overview-zone-progress-list[data-layout='5'] {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.overview-zone-progress-list[data-layout='many'] {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
 
 .overview-zone-progress-card {
   display: grid;
-  min-height: 76px;
-  padding: 10px var(--space-3);
+  min-height: 78px;
+  padding: 12px var(--space-3) 10px 17px;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: var(--space-2);
+  gap: 8px var(--space-3);
   color: var(--color-ink);
   text-align: left;
-  background: var(--color-surface);
+  background: linear-gradient(100deg, var(--status-soft), var(--color-surface) 72%);
   border: 1px solid var(--color-line);
-  border-left: 5px solid var(--status-color);
+  border-left: 4px solid var(--status-color);
   border-radius: var(--radius-md);
   cursor: pointer;
   transition:
-    background var(--transition-fast),
+    background-color var(--transition-fast),
     border-color var(--transition-fast),
-    box-shadow var(--transition-fast),
-    transform var(--transition-fast);
+    color var(--transition-fast);
+}
+
+.overview-zone-progress-card:hover {
+  background: var(--status-soft);
+}
+
+.overview-zone-progress-card:focus-visible {
+  outline: 2px solid var(--status-color);
+  outline-offset: 2px;
 }
 
 .overview-zone-progress-card.is-active {
   color: #fff;
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-  border-left-color: var(--color-primary);
-  box-shadow: none;
+  background: var(--status-color);
+  border-color: var(--status-color);
 }
 
-.overview-zone-progress-card span {
+.overview-zone-progress-copy {
   display: grid;
   min-width: 0;
-  gap: 2px;
+  gap: 4px;
 }
 
 .overview-zone-progress-card :is(strong, small, em) {
   color: inherit;
 }
 
-.overview-zone-progress-card strong {
+.overview-zone-progress-copy > strong {
   overflow: hidden;
   color: var(--color-primary-hover);
+  font-size: 0.88rem;
+  font-weight: 800;
+  line-height: 1.15;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.overview-zone-progress-card small {
+.overview-zone-progress-copy > small {
   color: var(--color-muted);
-  font-size: 0.74rem;
+  font-size: 0.72rem;
   font-weight: 700;
+  line-height: 1.2;
 }
 
-.overview-zone-progress-card em {
+.overview-zone-progress-count {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: end;
+  gap: 1px;
   font-style: normal;
-  font-weight: 800;
+  font-variant-numeric: tabular-nums;
 }
 
-.overview-zone-filter-hint {
-  justify-self: end;
-  font-size: 0.66rem;
-  text-transform: uppercase;
+.overview-zone-progress-count strong {
+  color: var(--status-color);
+  font-size: 1.25rem;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.overview-zone-progress-count span {
+  color: var(--color-muted);
+  font-size: 0.76rem;
+  font-weight: 800;
 }
 
 .overview-zone-progress-card i {
   grid-column: 1 / -1;
-  height: 6px;
+  height: 3px;
   overflow: hidden;
-  background: var(--color-primary-soft);
+  background: color-mix(in srgb, var(--status-color) 14%, var(--color-surface));
   border-radius: var(--radius-pill);
 }
 
-.overview-zone-progress-card b {
+.overview-zone-progress-card i > b {
   display: block;
   height: 100%;
   background: var(--status-color);
@@ -220,11 +266,7 @@
   background: #fff;
 }
 
-.overview-zone-progress-card.is-active .overview-zone-filter-hint {
-  color: #fff;
-}
-
-.overview-zone-progress-card.is-active :is(strong, small, em) {
+.overview-zone-progress-card.is-active :is(strong, small, em, span) {
   color: #fff;
 }
 
@@ -674,6 +716,11 @@
 
 @media (max-width: 840px) {
   .overview-summary-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .overview-zone-progress-list[data-layout] {
+    max-width: none;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .overview-zone-progress-list[data-layout='1'] { grid-template-columns: minmax(0, 1fr); }
   .overview-filter-fields { grid-template-columns: 1fr; }
   .overview-show-more { width: 100%; }
 }
@@ -685,7 +732,7 @@
   .overview-summary-actions span { gap: 6px; font-size: 0.72rem; }
   .overview-summary-actions span::after { width: 22px; }
   .overview-summary-actions strong { font-size: 1.35rem; }
-  .overview-zone-progress-list, .overview-box-list { grid-template-columns: minmax(0, 1fr); }
+  .overview-zone-progress-list[data-layout], .overview-box-list { grid-template-columns: minmax(0, 1fr); }
   .overview-box-summary { min-height: 0; }
   .overview-chart > header { align-items: flex-start; flex-direction: column; }
   .overview-chart-legend { justify-content: flex-start; }

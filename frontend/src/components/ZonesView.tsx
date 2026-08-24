@@ -10,6 +10,7 @@ import { getErrorMessage } from '../utils/errors';
 import { getZoneOccupancyLevel } from '../utils/zoneOccupancy';
 import ModalPortal from './ModalPortal';
 import PageLoader from './PageLoader';
+import PolypbaseIcon from './PolypbaseIcon';
 
 type Language = 'fr' | 'en';
 type TFunction = (key: string) => string;
@@ -281,7 +282,9 @@ function ZoneManagementModal({
             <p className="modal-kicker">{mode === 'probe' ? t('probes') : t('zonesTitle')}</p>
             <h2>{title}</h2>
           </div>
-          <button className="icon-button" type="button" onClick={onClose} aria-label={t('close')}>×</button>
+          <button className="icon-button" type="button" onClick={onClose} aria-label={t('close')}>
+            <PolypbaseIcon name="close" size={19} />
+          </button>
         </header>
 
         {mode === 'probe' ? (
@@ -808,7 +811,9 @@ function ZoneAlertsModal({
             <h2 id="zone-alerts-title">{t('zoneOverviewAttentionTitle')}</h2>
             <p>{title}</p>
           </div>
-          <button type="button" aria-label={t('close')} onClick={onClose}>×</button>
+          <button type="button" aria-label={t('close')} onClick={onClose}>
+            <PolypbaseIcon name="close" size={19} />
+          </button>
         </header>
 
         <div className="box-checks-list zone-alerts-list">

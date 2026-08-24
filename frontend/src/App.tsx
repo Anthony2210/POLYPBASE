@@ -4,12 +4,12 @@ import {
   type FormEvent,
   type KeyboardEvent,
   type PointerEvent,
+  type ReactNode,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
-import { Plus, Search } from 'lucide-react';
 
 import {
   ApiError,
@@ -45,6 +45,7 @@ import MeasurementSaveButton from './components/MeasurementSaveButton';
 import ModalPortal from './components/ModalPortal';
 import MoveBoxModal from './components/MoveBoxModal';
 import PageLoader from './components/PageLoader';
+import PolypbaseIcon from './components/PolypbaseIcon';
 import ProfileView from './components/ProfileView';
 import QuickCountButtons from './components/QuickCountButtons';
 import QuickStrainCreator, { type QuickCreatedStrain } from './components/QuickStrainCreator';
@@ -1493,7 +1494,9 @@ function CreateBoxPanel({
           setIsOpen((current) => !current);
         }}
       >
-        <span aria-hidden="true">{isOpen ? '×' : '+'}</span>
+        <span aria-hidden="true">
+          <PolypbaseIcon name={isOpen ? 'close' : 'plus'} size={18} />
+        </span>
         <strong>{isOpen ? t('createBoxClose') : t('createBoxOpen')}</strong>
       </button>
 
@@ -1534,13 +1537,13 @@ function CreateBoxPanel({
                   title={t('quickStrainTitle')}
                   onClick={() => setIsQuickStrainOpen(true)}
                 >
-                  <Plus aria-hidden="true" size={17} />
+                  <PolypbaseIcon name="plus" size={17} />
                   {t('quickStrainAdd')}
                 </button>
               ) : null}
             </div>
             <label className="create-box-strain-search">
-              <Search aria-hidden="true" size={16} />
+              <PolypbaseIcon name="search" size={16} />
               <span className="sr-only">{t('quickStrainSearch')}</span>
               <input
                 type="search"
@@ -1808,7 +1811,10 @@ function OverviewView({
           <header>
             <h2>{t('overviewByZone')}</h2>
           </header>
-          <div className="overview-zone-progress-list">
+          <div
+            className="overview-zone-progress-list"
+            data-layout={zoneSummaries.length > 5 ? 'many' : zoneSummaries.length}
+          >
             {zoneSummaries.map((summary) => {
               const doneRatio = summary.done / Math.max(1, summary.total);
               const isZoneActive = zoneFilter === summary.zoneName;
@@ -1821,7 +1827,7 @@ function OverviewView({
                   className={`overview-zone-progress-card ${summary.due ? 'is-due' : 'is-ok'} ${isZoneActive ? 'is-active' : ''}`}
                   onClick={() => toggleZoneFilter(summary.zoneName)}
                 >
-                  <span>
+                  <span className="overview-zone-progress-copy">
                     <strong>{summary.zoneName}</strong>
                     <small>
                       {summary.due
@@ -1829,10 +1835,10 @@ function OverviewView({
                         : t('overviewZoneUpToDate')}
                     </small>
                   </span>
-                  <em>{summary.done}/{summary.total}</em>
-                  <small className="overview-zone-filter-hint">
-                    {isZoneActive ? t('overviewClearFilter') : t('overviewFilterHint')}
-                  </small>
+                  <em className="overview-zone-progress-count">
+                    <strong>{summary.done}</strong>
+                    <span>/{summary.total}</span>
+                  </em>
                   <i aria-hidden="true">
                     <b style={{ width: `${Math.round(doneRatio * 100)}%` }} />
                   </i>
@@ -1852,7 +1858,12 @@ function OverviewView({
             </span>
           </div>
           {hasCustomizedOverview ? (
-            <button type="button" onClick={resetOverview}>{t('overviewResetFilters')}</button>
+            <button type="button" onClick={resetOverview}>
+              <span className="button-icon-label">
+                <PolypbaseIcon name="reset-filter" size={15} />
+                {t('overviewResetFilters')}
+              </span>
+            </button>
           ) : null}
         </header>
         <div className="overview-filter-fields">
@@ -2821,7 +2832,12 @@ function BoxPage({
               disabled={isChangingBoxStatus}
               onClick={() => void handleChangeBoxStatus()}
             >
-              {isChangingBoxStatus ? t('saving') : t(isBoxActive ? 'boxArchiveAction' : 'boxActivateAction')}
+              <span className="button-icon-label">
+                {!isChangingBoxStatus ? (
+                  <PolypbaseIcon name={isBoxActive ? 'archive' : 'restore'} size={17} />
+                ) : null}
+                {isChangingBoxStatus ? t('saving') : t(isBoxActive ? 'boxArchiveAction' : 'boxActivateAction')}
+              </span>
             </button>
           ) : null}
         </div>
@@ -2886,7 +2902,7 @@ function BoxPage({
                         polypCount: decrementCountValue(current.polypCount),
                       }))}
                     >
-                      -
+                      <PolypbaseIcon name="minus" size={18} />
                     </StepperButton>
                     <input
                       min="0"
@@ -2904,7 +2920,7 @@ function BoxPage({
                         polypCount: incrementCountValue(current.polypCount, 1),
                       }))}
                     >
-                      +
+                      <PolypbaseIcon name="plus" size={18} />
                     </StepperButton>
                   </div>
                   <QuickCountButtons
@@ -2926,7 +2942,7 @@ function BoxPage({
                         ephyraeCount: decrementCountValue(current.ephyraeCount),
                       }))}
                     >
-                      -
+                      <PolypbaseIcon name="minus" size={18} />
                     </StepperButton>
                     <input
                       min="0"
@@ -2944,7 +2960,7 @@ function BoxPage({
                         ephyraeCount: incrementCountValue(current.ephyraeCount, 1),
                       }))}
                     >
-                      +
+                      <PolypbaseIcon name="plus" size={18} />
                     </StepperButton>
                   </div>
                   <QuickCountButtons
@@ -2966,7 +2982,7 @@ function BoxPage({
                         salinity: decrementDecimalValue(current.salinity, SALINITY_STEP),
                       }))}
                     >
-                      -
+                      <PolypbaseIcon name="minus" size={18} />
                     </StepperButton>
                     {/* No step attribute: browsers reject off-step values, and
                         the field must accept whatever the refractometer reads
@@ -2986,7 +3002,7 @@ function BoxPage({
                         salinity: incrementDecimalValue(current.salinity, SALINITY_STEP),
                       }))}
                     >
-                      +
+                      <PolypbaseIcon name="plus" size={18} />
                     </StepperButton>
                   </div>
                 </label>
@@ -3039,7 +3055,10 @@ function BoxPage({
                           className="measurement-edit-button"
                           onClick={startEditingLastMeasurement}
                         >
-                          {t('editLastMeasurement')}
+                          <span className="button-icon-label">
+                            <PolypbaseIcon name="edit" size={16} />
+                            {t('editLastMeasurement')}
+                          </span>
                         </button>
                       </>
                     )}
@@ -3172,7 +3191,7 @@ function StepperButton({
   onStep,
 }: {
   'aria-label': string;
-  children: string;
+  children: ReactNode;
   onStep: () => void;
 }) {
   const delayRef = useRef<number | null>(null);
@@ -3264,7 +3283,9 @@ function BoxChecksModal({
           <div>
             <h2 id="box-checks-title">{t('boxChecksTitle')}</h2>
           </div>
-          <button type="button" aria-label={t('close')} onClick={onClose}>×</button>
+          <button type="button" aria-label={t('close')} onClick={onClose}>
+            <PolypbaseIcon name="close" size={19} />
+          </button>
         </header>
 
         <div className="box-checks-list">

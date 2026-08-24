@@ -3,9 +3,6 @@
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
-  Pencil,
-  Plus,
-  RadioTower,
 } from 'lucide-react';
 
 import { ApiError, apiGet, apiPatch, apiPost } from '../api/client';
@@ -36,6 +33,7 @@ import { getZoneOccupancyLevel } from '../utils/zoneOccupancy';
 import AdminActionPanel from './AdminActionPanel';
 import { useConfirmAction } from './ConfirmActionModal';
 import PageLoader from './PageLoader';
+import PolypbaseIcon from './PolypbaseIcon';
 import SkeletonRows from './SkeletonRows';
 import TaxonomyAdminSection from './TaxonomyAdminSection';
 
@@ -518,7 +516,7 @@ function AccountManagementSection({
             setIsMemberFormOpen(true);
           }}
         >
-          <Plus aria-hidden="true" size={18} />
+          <PolypbaseIcon name="plus" size={18} />
           {t('manageAddTitle')}
         </button>
       </div>
@@ -1665,7 +1663,7 @@ function OrganizationManagementList({
                         aria-label={`${t('adminEditOrganization')} ${organization.name}`}
                         onClick={() => startEdit(organization)}
                       >
-                        <Pencil aria-hidden="true" size={17} />
+                        <PolypbaseIcon name="edit" size={17} />
                       </button>
                     ) : null}
                   </div>
@@ -3115,11 +3113,11 @@ function EnvironmentAdminSection({
         </div>
         <div className="admin-heading-actions">
           <button className="admin-secondary-action" type="button" onClick={() => setActiveAction('probe')}>
-            <RadioTower aria-hidden="true" size={18} />
+            <PolypbaseIcon name="probe" size={18} />
             {t('adminEnvironmentProbePanel')}
           </button>
           <button className="admin-primary-action" type="button" onClick={() => setActiveAction('zone')}>
-            <Plus aria-hidden="true" size={18} />
+            <PolypbaseIcon name="plus" size={18} />
             {t('adminEnvironmentZonePanel')}
           </button>
         </div>
@@ -3194,7 +3192,7 @@ function OrganizationsAdminSection({
           <h2>{t('adminOrganizationsTitle')}</h2>
         </div>
         <button className="admin-primary-action" type="button" onClick={() => setIsCreateOpen(true)}>
-          <Plus aria-hidden="true" size={18} />
+          <PolypbaseIcon name="plus" size={18} />
           {t('adminAddOrganization')}
         </button>
       </div>
