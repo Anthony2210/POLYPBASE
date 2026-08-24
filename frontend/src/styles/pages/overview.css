@@ -27,28 +27,40 @@
 .overview-summary-actions {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-3);
+  gap: 10px;
 }
 
 .overview-summary-actions button {
   display: grid;
-  min-height: 74px;
-  padding: var(--space-3) var(--space-4);
-  grid-template: 'label value' 'hint value' / minmax(0, 1fr) auto;
+  min-height: 72px;
+  padding: 13px var(--space-4) 12px 18px;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: var(--space-1) var(--space-3);
+  gap: var(--space-4);
   color: var(--color-ink);
   text-align: left;
-  background: linear-gradient(135deg, var(--status-soft), var(--color-surface) 68%);
+  background: linear-gradient(100deg, var(--status-soft), var(--color-surface) 62%);
   border: 1px solid var(--color-line);
-  border-left: 5px solid var(--status-color);
+  border-left: 4px solid var(--status-color);
   border-radius: var(--radius-md);
   cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background-color var(--transition-fast),
+    border-color var(--transition-fast);
 }
 
 :where(.overview-summary-actions button, .overview-zone-progress-card):hover {
   border-color: var(--status-color);
-  transform: translateY(-1px);
+}
+
+.overview-summary-actions button:hover {
+  background: var(--status-soft);
+}
+
+.overview-summary-actions button:focus-visible {
+  outline: 2px solid var(--status-color);
+  outline-offset: 2px;
 }
 
 .overview-summary-actions button.is-active {
@@ -57,30 +69,41 @@
   border-color: var(--status-color);
 }
 
-.overview-summary-actions :is(span, strong, small) {
+.overview-summary-actions :is(span, strong) {
   min-width: 0;
   color: inherit;
 }
 
 .overview-summary-actions span {
-  grid-area: label;
-  overflow: hidden;
-  font-size: 0.78rem;
-  font-weight: 800;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  font-weight: 750;
+  line-height: 1.15;
+}
+
+.overview-summary-actions span::after {
+  width: 30px;
+  height: 2px;
+  background: var(--status-color);
+  border-radius: var(--radius-pill);
+  content: '';
+}
+
+.overview-summary-actions button.is-active span::after {
+  background: rgb(255 255 255 / 72%);
 }
 
 .overview-summary-actions strong {
-  grid-area: value;
-  font-size: 1.55rem;
+  color: var(--status-color);
+  font-size: 1.6rem;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
-.overview-summary-actions small {
-  grid-area: hint;
-  font-size: 0.7rem;
-  font-weight: 800;
-  text-transform: uppercase;
+.overview-summary-actions button.is-active strong {
+  color: #fff;
 }
 
 .overview-zone-progress,
@@ -658,10 +681,10 @@
 @media (max-width: 759px), (max-width: 900px) and (orientation: portrait) {
   .overview-page { gap: var(--space-3); }
   .overview-summary-actions { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
-  .overview-summary-actions button { min-height: 68px; padding: var(--space-2); }
-  .overview-summary-actions span { font-size: 0.68rem; white-space: normal; }
-  .overview-summary-actions strong { font-size: 1.25rem; }
-  .overview-summary-actions small { display: none; }
+  .overview-summary-actions button { min-height: 66px; padding: 10px 11px 9px 12px; gap: var(--space-2); }
+  .overview-summary-actions span { gap: 6px; font-size: 0.72rem; }
+  .overview-summary-actions span::after { width: 22px; }
+  .overview-summary-actions strong { font-size: 1.35rem; }
   .overview-zone-progress-list, .overview-box-list { grid-template-columns: minmax(0, 1fr); }
   .overview-box-summary { min-height: 0; }
   .overview-chart > header { align-items: flex-start; flex-direction: column; }

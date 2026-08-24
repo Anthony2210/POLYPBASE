@@ -1773,32 +1773,32 @@ function OverviewView({
           <button
             type="button"
             aria-pressed={focusFilter === 'done'}
+            aria-label={`${t('overviewRecordedBoxes')} : ${doneCount} ${t('boxes')}`}
             className={focusFilter === 'done' ? 'is-active is-done' : 'is-done'}
             onClick={() => toggleFocusFilter('done')}
           >
             <span>{t('overviewRecordedBoxes')}</span>
             <strong>{doneCount}</strong>
-            <small>{focusFilter === 'done' ? t('overviewClearFilter') : t('overviewFilterHint')}</small>
           </button>
           <button
             type="button"
             aria-pressed={focusFilter === 'soon'}
+            aria-label={`${t('weeklyDueSoon')} : ${soonCount} ${t('boxes')}`}
             className={focusFilter === 'soon' ? 'is-active is-soon' : 'is-soon'}
             onClick={() => toggleFocusFilter('soon')}
           >
             <span>{t('weeklyDueSoon')}</span>
             <strong>{soonCount}</strong>
-            <small>{focusFilter === 'soon' ? t('overviewClearFilter') : t('overviewFilterHint')}</small>
           </button>
           <button
             type="button"
             aria-pressed={focusFilter === 'due'}
+            aria-label={`${t('weeklyDueNow')} : ${dueCount} ${t('boxes')}`}
             className={focusFilter === 'due' ? 'is-active is-due' : 'is-due'}
             onClick={() => toggleFocusFilter('due')}
           >
             <span>{t('weeklyDueNow')}</span>
             <strong>{dueCount}</strong>
-            <small>{focusFilter === 'due' ? t('overviewClearFilter') : t('overviewFilterHint')}</small>
           </button>
         </div>
       </header>
