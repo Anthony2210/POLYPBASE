@@ -100,6 +100,16 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .zone-sheet-hero {
+    --entity-columns: minmax(0, 1fr);
+    --entity-areas: "identity" "summary" "actions";
+  }
+
+  .zone-directory-hero {
+    --entity-columns: minmax(0, 1fr);
+    --entity-areas: "identity" "summary";
+  }
+
   .profile-identity-card {
     padding: var(--space-4);
     align-items: flex-start;

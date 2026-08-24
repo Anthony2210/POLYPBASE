@@ -311,7 +311,7 @@
 }
 
 .zone-sheet-hero {
-  --entity-columns: minmax(240px, 0.8fr) minmax(500px, 1.5fr) 48px;
+  --entity-columns: minmax(220px, 0.72fr) minmax(460px, 1.45fr) auto;
 }
 
 .zone-sheet-title {
@@ -346,8 +346,306 @@
 }
 
 .zone-hero-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.zone-box-directory-trigger {
+  display: inline-flex;
+  min-height: 42px;
+  padding: 0 var(--space-3);
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-primary-hover);
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
+  background: #fff;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-line));
+  border-radius: var(--radius-sm);
+  transition: color var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.zone-box-directory-trigger strong {
   display: grid;
-  place-items: start end;
+  min-width: 24px;
+  height: 24px;
+  padding-inline: 6px;
+  place-items: center;
+  color: #fff;
+  font-size: 0.7rem;
+  line-height: 1;
+  background: var(--color-primary);
+  border-radius: var(--radius-pill);
+}
+
+.zone-box-directory-trigger:hover {
+  color: var(--color-primary-hover);
+  background: var(--color-primary-faint);
+  border-color: var(--color-primary);
+}
+
+/* Boxes by species */
+.zone-directory-hero {
+  --entity-columns: minmax(240px, 0.75fr) minmax(500px, 1.55fr);
+  --entity-areas: "identity summary";
+}
+
+.zone-directory-summary {
+  display: grid;
+  padding-left: var(--space-4);
+  grid-template-columns: repeat(4, minmax(84px, 1fr));
+  align-items: center;
+  gap: var(--space-2);
+  border-left: 1px solid var(--color-line);
+}
+
+.zone-directory-summary .metric {
+  min-height: 64px;
+  background: rgb(237 247 250 / 82%);
+  border: 1px solid rgb(13 120 144 / 7%);
+}
+
+.zone-directory-summary .metric strong {
+  font-size: 1.1rem;
+}
+
+.zone-species-directory {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.zone-species-section {
+  min-width: 0;
+}
+
+.zone-species-heading {
+  display: flex;
+  min-height: 82px;
+  padding: var(--space-3) var(--space-4);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  background: linear-gradient(90deg, var(--color-primary-faint), #fff 72%);
+  border-block: 1px solid color-mix(in srgb, var(--color-primary) 20%, var(--color-line));
+  border-left: 4px solid var(--color-primary);
+}
+
+.zone-species-heading > div {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.zone-species-heading small {
+  color: var(--color-primary-hover);
+  font-size: 0.68rem;
+  font-weight: 850;
+}
+
+.zone-species-heading h2 {
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 1.16rem;
+  font-style: italic;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zone-species-heading > div > span {
+  color: var(--color-muted);
+  font-size: 0.78rem;
+}
+
+.zone-species-heading p {
+  display: grid;
+  min-width: 64px;
+  margin: 0;
+  justify-items: end;
+  gap: 1px;
+}
+
+.zone-species-heading p strong {
+  color: var(--color-primary-hover);
+  font-size: 1.2rem;
+}
+
+.zone-species-heading p span {
+  color: var(--color-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.zone-strain-list {
+  display: grid;
+}
+
+.zone-strain-section {
+  display: grid;
+  padding: var(--space-3) 0 0 var(--space-4);
+  grid-template-columns: minmax(130px, 0.18fr) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-3);
+}
+
+.zone-strain-section + .zone-strain-section {
+  margin-top: var(--space-3);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-line);
+}
+
+.zone-strain-heading {
+  display: flex;
+  min-width: 0;
+  padding-top: 11px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.zone-strain-heading > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.zone-strain-heading small {
+  color: var(--color-muted);
+  font-size: 0.67rem;
+  font-weight: 750;
+}
+
+.zone-strain-heading strong {
+  overflow: hidden;
+  color: var(--color-primary-hover);
+  font-size: 0.87rem;
+  text-overflow: ellipsis;
+}
+
+.zone-strain-heading > span {
+  color: var(--color-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.zone-directory-box-list {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+}
+
+.zone-directory-box-row {
+  --follow-up-color: var(--color-muted);
+  display: grid;
+  min-width: 0;
+  min-height: 64px;
+  padding: 9px var(--space-3);
+  grid-template-columns: minmax(170px, 1.15fr) minmax(94px, 0.55fr) minmax(190px, 0.95fr) minmax(128px, 0.62fr) 12px;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--color-ink);
+  text-align: left;
+  background: #fff;
+  border: 1px solid var(--color-line);
+  border-left: 3px solid var(--follow-up-color);
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.zone-directory-box-row.is-due { --follow-up-color: var(--color-danger); }
+.zone-directory-box-row.is-soon { --follow-up-color: var(--color-warning); }
+.zone-directory-box-row.is-ok { --follow-up-color: var(--color-success); }
+.zone-directory-box-row.is-missing,
+.zone-directory-box-row.is-inactive { --follow-up-color: var(--color-muted); }
+
+.zone-directory-box-row:hover {
+  background: var(--color-primary-faint);
+  border-color: color-mix(in srgb, var(--follow-up-color) 42%, var(--color-line));
+  transform: translateX(2px);
+}
+
+.zone-directory-box-identity {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.zone-directory-box-identity strong {
+  overflow: hidden;
+  color: var(--color-primary-hover);
+  font-size: 0.9rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zone-directory-box-identity small {
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zone-directory-follow-up {
+  color: var(--follow-up-color);
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.zone-directory-counts {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: var(--space-3);
+  color: var(--color-muted);
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
+.zone-directory-counts strong {
+  color: var(--color-ink);
+  font-size: 0.87rem;
+}
+
+.zone-directory-counts span:last-child strong {
+  color: var(--color-coral);
+}
+
+.zone-directory-reading-date {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+.zone-directory-reading-date small {
+  color: var(--color-muted);
+  font-size: 0.66rem;
+  font-weight: 700;
+}
+
+.zone-directory-reading-date :is(time, strong) {
+  color: var(--color-ink-soft);
+  font-size: 0.76rem;
+  font-weight: 750;
+}
+
+.zone-directory-row-arrow {
+  width: 8px;
+  height: 8px;
+  border-top: 2px solid var(--color-primary);
+  border-right: 2px solid var(--color-primary);
+  transform: rotate(45deg);
+}
+
+.zone-directory-empty {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
 }
 
 .zone-page-grid {
@@ -908,6 +1206,15 @@
     grid-template-columns: 1fr;
   }
 
+  .zone-strain-section {
+    padding-left: 0;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .zone-strain-heading {
+    padding: 0 var(--space-1);
+  }
+
   .zone-overview-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -951,7 +1258,8 @@
   }
 
   .zone-sheet-hero {
-    --entity-areas: "identity actions" "summary summary";
+    --entity-columns: minmax(0, 1fr);
+    --entity-areas: "identity" "summary" "actions";
   }
 
   .zone-sheet-hero .box-page-label {
@@ -981,6 +1289,47 @@
     width: 46px;
     height: 46px;
   }
+
+  .zone-hero-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .zone-box-directory-trigger {
+    flex: 1;
+    justify-content: space-between;
+  }
+
+  .zone-directory-hero {
+    --entity-columns: minmax(0, 1fr);
+    --entity-areas: "identity" "summary";
+  }
+
+  .zone-directory-summary {
+    padding: var(--space-3) 0 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    border-top: 1px solid var(--color-line);
+    border-left: 0;
+  }
+
+  .zone-species-heading {
+    min-height: 72px;
+    padding-inline: var(--space-3);
+  }
+
+  .zone-directory-box-row {
+    grid-template-columns: minmax(150px, 1fr) auto 12px;
+    grid-template-areas:
+      "identity followup arrow"
+      "counts date arrow";
+    row-gap: var(--space-2);
+  }
+
+  .zone-directory-box-identity { grid-area: identity; }
+  .zone-directory-follow-up { grid-area: followup; text-align: right; }
+  .zone-directory-counts { grid-area: counts; }
+  .zone-directory-reading-date { grid-area: date; }
+  .zone-directory-row-arrow { grid-area: arrow; }
 
   .zone-temperature-panel,
   .zone-page-section {

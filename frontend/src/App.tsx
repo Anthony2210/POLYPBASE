@@ -108,6 +108,9 @@ const LabelsView = lazy(() => import('./components/LabelsView'));
 const ZoneDetailPage = lazy(() =>
   import('./components/ZonesView').then((module) => ({ default: module.ZoneDetailPage })),
 );
+const ZoneBoxesPage = lazy(() =>
+  import('./components/ZonesView').then((module) => ({ default: module.ZoneBoxesPage })),
+);
 const ZonesView = lazy(() =>
   import('./components/ZonesView').then((module) => ({ default: module.ZonesView })),
 );
@@ -148,6 +151,7 @@ type RouteState = {
   boxCode: string | null;
   boxId: number | null;
   zoneId?: number | null;
+  zoneBoxes?: boolean;
   adminSection?: AdminSectionKey;
 };
 
@@ -214,7 +218,7 @@ export default function App() {
     activeTab === 'exports' || exportOptionsRequested
   ) && data.exportOptions === null;
   const isOverviewLoading = activeTab === 'overview' && data.overview === null;
-  const workspacePageKey = `${activeTab}-${route.boxCode ?? route.boxId ?? 'list'}-${route.zoneId ?? 'list'}-${route.adminSection ?? 'default'}`;
+  const workspacePageKey = `${activeTab}-${route.boxCode ?? route.boxId ?? 'list'}-${route.zoneId ?? 'list'}-${route.zoneBoxes ? 'boxes' : 'detail'}-${route.adminSection ?? 'default'}`;
   const brandOrganizationName = getBrandOrganizationName(data.profile, t);
   const selectableOrganizations = useMemo(() => getSelectableOrganizations(data.profile), [data.profile]);
   const activeOrganization = useMemo(
@@ -432,6 +436,10 @@ export default function App() {
     if (selectedBoxId == null) return null;
     return data.boxes.find((box) => box.id === selectedBoxId) ?? null;
   }, [data.boxes, selectedBoxId]);
+  const selectedZone = useMemo(() => {
+    if (route.zoneId == null) return null;
+    return data.zones.find((zone) => zone.id === route.zoneId) ?? null;
+  }, [data.zones, route.zoneId]);
 
   const selectedBoxDetail = selectedBoxId != null ? data.boxDetails[selectedBoxId] ?? null : null;
 
@@ -527,6 +535,13 @@ export default function App() {
 
   function openZone(zoneId: number) {
     navigateTo({ tab: 'zones', boxCode: null, boxId: null, zoneId }, `/zones/${zoneId}`);
+  }
+
+  function openZoneBoxes(zoneId: number) {
+    navigateTo(
+      { tab: 'zones', boxCode: null, boxId: null, zoneId, zoneBoxes: true },
+      `/zones/${zoneId}/boxes`,
+    );
   }
 
   function openTab(tab: TabId) {
@@ -1010,20 +1025,32 @@ export default function App() {
 
             {activeTab === 'zones' && (
               route.zoneId != null ? (
-                <ZoneDetailPage
-                  boxes={data.boxes}
-                  isLoading={isLoading}
-                  language={language}
-                  zone={data.zones.find((zone) => zone.id === route.zoneId) ?? null}
-                  canRecordManualTemperature={userCanWriteLabData(
-                    data.profile,
-                    data.zones.find((zone) => zone.id === route.zoneId)?.organization.id ?? -1,
-                  )}
-                  onBack={closeZonePage}
-                  onRecordManualTemperature={recordManualTemperature}
-                  onOpenBox={openBox}
-                  t={t}
-                />
+                route.zoneBoxes ? (
+                  <ZoneBoxesPage
+                    boxes={data.boxes}
+                    isLoading={isLoading}
+                    language={language}
+                    zone={selectedZone}
+                    onBack={() => openZone(route.zoneId as number)}
+                    onOpenBox={openBox}
+                    t={t}
+                  />
+                ) : (
+                  <ZoneDetailPage
+                    boxes={data.boxes}
+                    isLoading={isLoading}
+                    zone={selectedZone}
+                    canRecordManualTemperature={userCanWriteLabData(
+                      data.profile,
+                      selectedZone?.organization.id ?? -1,
+                    )}
+                    onBack={closeZonePage}
+                    onOpenBoxes={openZoneBoxes}
+                    onRecordManualTemperature={recordManualTemperature}
+                    onOpenBox={openBox}
+                    t={t}
+                  />
+                )
               ) : (
                 <ZonesView
                   boxes={data.boxes}
@@ -3887,6 +3914,17 @@ function getCurrentRoute(): RouteState {
 
   if (path === '/labels') {
     return { tab: 'labels', boxCode: null, boxId: null };
+  }
+
+  const zoneBoxesMatch = path.match(/^\/zones\/(\d+)\/boxes\/?$/);
+  if (zoneBoxesMatch) {
+    return {
+      tab: 'zones',
+      boxCode: null,
+      boxId: null,
+      zoneId: Number(zoneBoxesMatch[1]),
+      zoneBoxes: true,
+    };
   }
 
   const zoneMatch = path.match(/^\/zones\/(\d+)\/?$/);

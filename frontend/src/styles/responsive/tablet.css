@@ -70,7 +70,12 @@
   }
 
   .zone-sheet-hero {
-    --entity-columns: minmax(230px, 0.75fr) minmax(500px, 1.5fr) 48px;
+    --entity-columns: minmax(210px, 0.65fr) minmax(0, 1.35fr) auto;
+  }
+
+  .zone-directory-hero {
+    --entity-columns: minmax(210px, 0.65fr) minmax(0, 1.35fr);
+    --entity-areas: "identity summary";
   }
 
   .zone-hero-summary {
