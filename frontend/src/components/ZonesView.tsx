@@ -435,25 +435,24 @@ function BellIcon() {
 export function ZoneDetailPage({
   boxes,
   isLoading,
-  language,
   zone,
   canRecordManualTemperature,
   onBack,
+  onOpenBoxes,
   onRecordManualTemperature,
   onOpenBox,
   t,
 }: {
   boxes: BoxItem[];
   isLoading: boolean;
-  language: Language;
   zone: ThermalZone | null;
   canRecordManualTemperature: boolean;
   onBack: () => void;
+  onOpenBoxes: (zoneId: number) => void;
   onRecordManualTemperature: (zoneId: number, payload: ManualTemperaturePayload) => Promise<ThermalZone>;
   onOpenBox: (id: number) => void;
   t: TFunction;
 }) {
-  const [boxFilter, setBoxFilter] = useState<'all' | 'living' | 'attention'>('all');
   const [isZoneAlertsOpen, setIsZoneAlertsOpen] = useState(false);
 
   if (isLoading) {
@@ -479,30 +478,6 @@ export function ZoneDetailPage({
   const zoneOverviewEntry = buildZoneOverviewEntry(zone, boxes);
   const zoneAlertItems = getZoneAlertItems(zoneOverviewEntry, t);
   const zoneAlertCount = zoneAlertItems.length;
-  const filteredBoxes = boxFilter === 'living'
-    ? livingBoxes
-    : boxFilter === 'attention'
-      ? attentionBoxes
-      : zoneBoxes;
-  const sortedFilteredBoxes = [...filteredBoxes].sort((first, second) => {
-    if (first.status !== second.status) {
-      return first.status === 'active' ? -1 : 1;
-    }
-
-    const firstAlertCount = first.active_alert_count ?? 0;
-    const secondAlertCount = second.active_alert_count ?? 0;
-    if (firstAlertCount !== secondAlertCount) {
-      return secondAlertCount - firstAlertCount;
-    }
-
-    const firstDate = first.latest_measurement?.measured_on ?? '';
-    const secondDate = second.latest_measurement?.measured_on ?? '';
-    if (firstDate !== secondDate) {
-      return secondDate.localeCompare(firstDate);
-    }
-
-    return first.global_code.localeCompare(second.global_code);
-  });
 
   return (
     <section className="zone-page">
@@ -525,6 +500,14 @@ export function ZoneDetailPage({
         </div>
         <div className="entity-header__actions zone-hero-actions">
           <button
+            className="zone-box-directory-trigger"
+            type="button"
+            onClick={() => onOpenBoxes(zone.id)}
+          >
+            <span>{t('zoneBoxesDirectoryAction')}</span>
+            <strong>{zoneBoxes.length}</strong>
+          </button>
+          <button
             className={zoneAlertCount ? 'box-alert-trigger zone-alert-trigger' : 'box-alert-trigger zone-alert-trigger is-empty'}
             type="button"
             aria-label={`${t('zoneOverviewAttentionTitle')} (${zoneAlertCount})`}
@@ -545,111 +528,27 @@ export function ZoneDetailPage({
       />
 
       <div className="zone-page-grid">
-        <section className="zone-page-section zone-boxes-section">
-          <div className="zone-boxes-heading">
-            <div className="section-title">
-              <h2>{t('zoneBoxesTitle')}</h2>
-            </div>
-            <div className="zone-filter-tabs" role="tablist" aria-label={t('zoneBoxesTitle')}>
-              <button
-                className={boxFilter === 'all' ? 'is-active' : ''}
-                type="button"
-                role="tab"
-                aria-selected={boxFilter === 'all'}
-                onClick={() => setBoxFilter('all')}
-              >
-                {t('zoneFilterAll')}
-              </button>
-              <button
-                className={boxFilter === 'living' ? 'is-active' : ''}
-                type="button"
-                role="tab"
-                aria-selected={boxFilter === 'living'}
-                onClick={() => setBoxFilter('living')}
-              >
-                {t('zoneFilterLiving')}
-              </button>
-              <button
-                className={boxFilter === 'attention' ? 'is-active' : ''}
-                type="button"
-                role="tab"
-                aria-selected={boxFilter === 'attention'}
-                onClick={() => setBoxFilter('attention')}
-              >
-                {t('zoneFilterAttention')}
-              </button>
-            </div>
+        <section className="zone-page-section zone-chart-section">
+          <div className="section-title">
+            <h2>{t('latestCounts')}</h2>
           </div>
-          {filteredBoxes.length ? (
-            <div className="zone-box-list">
-              {sortedFilteredBoxes.map((box) => {
-                const status = getBoxStatusPresentation(box.status, language);
-
-                return (
-                  <button
-                    className={`zone-box-row is-${status.tone}`}
-                    key={box.id}
-                    type="button"
-                    onClick={() => onOpenBox(box.id)}
-                  >
-                    <span className="zone-box-main">
-                      <strong>{box.global_code}</strong>
-                      <small>{box.species.scientific_name}</small>
-                    </span>
-                    <span className="zone-box-reading">
-                      {box.latest_measurement ? (
-                        <>
-                          <strong>
-                            {box.latest_measurement.polyp_count} {t('polyps')}
-                          </strong>
-                          <small>
-                            {box.latest_measurement.ephyrae_count} {t('ephyrae')}, {formatDisplayDate(box.latest_measurement.measured_on)}
-                          </small>
-                        </>
-                      ) : (
-                        <strong>{t('recentMeasurementMissing')}</strong>
-                      )}
-                    </span>
-                    {box.active_alert_count > 0 ? (
-                      <span className="zone-alert-pill">{box.active_alert_count}</span>
-                    ) : null}
-                    {box.status !== 'active' ? (
-                      <span className={`box-life-status is-${status.tone}`}>
-                        {status.label}
-                      </span>
-                    ) : null}
-                  </button>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="muted compact-text">{boxFilter === 'all' ? t('emptyZone') : t('zoneNoAttention')}</p>
-          )}
+          <ZoneLatestCountsChart boxes={livingBoxes} t={t} />
         </section>
 
-        <div className="zone-secondary-stack">
-          <section className="zone-page-section zone-chart-section">
-            <div className="section-title">
-              <h2>{t('latestCounts')}</h2>
-            </div>
-            <ZoneLatestCountsChart boxes={livingBoxes} t={t} />
-          </section>
-
-          <section className="zone-page-section">
-            <div className="section-title">
-              <h2>{t('zoneProbesTitle')}</h2>
-              <span>{zone.probes.length}</span>
-            </div>
-            <div className="probe-list">
-              {zone.probes.length ? zone.probes.map((probe) => (
-                <p key={probe.id}>
-                  <strong>{probe.code}</strong>
-                  <span>{probe.probe_type}</span>
-                </p>
-              )) : <p className="muted compact-text">-</p>}
-            </div>
-          </section>
-        </div>
+        <section className="zone-page-section">
+          <div className="section-title">
+            <h2>{t('zoneProbesTitle')}</h2>
+            <span>{zone.probes.length}</span>
+          </div>
+          <div className="probe-list">
+            {zone.probes.length ? zone.probes.map((probe) => (
+              <p key={probe.id}>
+                <strong>{probe.code}</strong>
+                <span>{probe.probe_type}</span>
+              </p>
+            )) : <p className="muted compact-text">-</p>}
+          </div>
+        </section>
       </div>
 
       <ZoneRecentActivity boxes={zoneBoxes} onOpenBox={onOpenBox} t={t} />
@@ -667,6 +566,232 @@ export function ZoneDetailPage({
 
     </section>
   );
+}
+
+type ZoneBoxFollowUp = 'due' | 'inactive' | 'missing' | 'ok' | 'soon';
+
+type ZoneBoxSpeciesGroup = {
+  species: BoxItem['species'];
+  boxCount: number;
+  strains: Array<{
+    strain: BoxItem['strain'];
+    boxes: BoxItem[];
+  }>;
+};
+
+export function ZoneBoxesPage({
+  boxes,
+  isLoading,
+  language,
+  zone,
+  onBack,
+  onOpenBox,
+  t,
+}: {
+  boxes: BoxItem[];
+  isLoading: boolean;
+  language: Language;
+  zone: ThermalZone | null;
+  onBack: () => void;
+  onOpenBox: (id: number) => void;
+  t: TFunction;
+}) {
+  const collator = useMemo(
+    () => new Intl.Collator(language, { numeric: true, sensitivity: 'base' }),
+    [language],
+  );
+  const zoneBoxes = useMemo(
+    () => boxes.filter((box) => box.thermal_zone?.id === zone?.id),
+    [boxes, zone?.id],
+  );
+  const speciesOptions = useMemo(() => {
+    const speciesById = new Map(zoneBoxes.map((box) => [box.species.id, box.species]));
+    return Array.from(speciesById.values()).sort((first, second) => (
+      collator.compare(first.scientific_name, second.scientific_name)
+    ));
+  }, [collator, zoneBoxes]);
+
+  const groupedBoxes = useMemo(
+    () => buildZoneBoxSpeciesGroups(zoneBoxes, collator),
+    [collator, zoneBoxes],
+  );
+  const livingBoxCount = zoneBoxes.filter((box) => box.status === 'active').length;
+  const strainCount = new Set(zoneBoxes.map((box) => box.strain.id)).size;
+
+  if (isLoading) {
+    return <PageLoader variant="zone" label={t('zoneBoxesDirectoryTitle')} />;
+  }
+
+  if (!zone) {
+    return (
+      <section className="zone-page">
+        <button className="text-button" type="button" onClick={onBack}>
+          {t('backToZones')}
+        </button>
+        <p className="muted compact-text">{t('noZone')}</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="zone-page zone-box-directory-page">
+      <button className="text-button zone-back-button" type="button" onClick={onBack}>
+        {t('zoneBoxesDirectoryBack')}
+      </button>
+
+      <header className="entity-header entity-header--zone zone-directory-hero">
+        <div className="entity-header__identity zone-sheet-title">
+          <p className="box-page-label">{t('zoneBoxesDirectoryTitle')}</p>
+          <h2>{zone.name}</h2>
+          <span>{zone.organization.name}</span>
+        </div>
+        <div className="entity-header__summary zone-directory-summary" aria-label={t('zoneBoxesDirectoryTitle')}>
+          <Metric label={t('boxes')} value={String(zoneBoxes.length)} />
+          <Metric label={t('zoneSummaryAlive')} value={String(livingBoxCount)} />
+          <Metric label={t('taxonomySpecies')} value={String(speciesOptions.length)} />
+          <Metric label={t('taxonomyStrains')} value={String(strainCount)} />
+        </div>
+      </header>
+
+      {groupedBoxes.length ? (
+        <div className="zone-species-directory">
+          {groupedBoxes.map((speciesGroup) => (
+            <section className="zone-species-section" key={speciesGroup.species.id}>
+              <header className="zone-species-heading">
+                <div>
+                  <small>{speciesGroup.species.genus_species_code}</small>
+                  <h2>{speciesGroup.species.scientific_name}</h2>
+                  {speciesGroup.species.common_name ? <span>{speciesGroup.species.common_name}</span> : null}
+                </div>
+                <p>
+                  <strong>{speciesGroup.boxCount}</strong>
+                  <span>{t('boxes')}</span>
+                </p>
+              </header>
+
+              <div className="zone-strain-list">
+                {speciesGroup.strains.map((strainGroup) => (
+                  <section className="zone-strain-section" key={strainGroup.strain.id}>
+                    <header className="zone-strain-heading">
+                      <div>
+                        <small>{t('taxonomyStrains')}</small>
+                        <strong>{strainGroup.strain.code}</strong>
+                      </div>
+                      <span>{strainGroup.boxes.length} {t('boxes')}</span>
+                    </header>
+                    <div className="zone-directory-box-list">
+                      {strainGroup.boxes.map((box) => {
+                        const followUp = getZoneBoxFollowUp(box);
+                        const measurement = box.latest_measurement;
+                        const boxStatus = getBoxStatusPresentation(box.status, language);
+
+                        return (
+                          <button
+                            className={`zone-directory-box-row is-${followUp} is-${boxStatus.tone}`}
+                            type="button"
+                            key={box.id}
+                            onClick={() => onOpenBox(box.id)}
+                          >
+                            <span className="zone-directory-box-identity">
+                              <strong>{box.global_code}</strong>
+                              {box.local_code && box.local_code !== box.global_code ? (
+                                <small>{box.local_code}</small>
+                              ) : null}
+                            </span>
+                            <span className={`zone-directory-follow-up is-${followUp}`}>
+                              {getZoneBoxFollowUpLabel(followUp, t)}
+                            </span>
+                            <span className="zone-directory-counts">
+                              <span><strong>{measurement?.polyp_count ?? '-'}</strong> {t('polyps')}</span>
+                              <span><strong>{measurement?.ephyrae_count ?? '-'}</strong> {t('ephyrae')}</span>
+                            </span>
+                            <span className="zone-directory-reading-date">
+                              <small>{t('latestReadingDate')}</small>
+                              {measurement ? (
+                                <time dateTime={measurement.measured_on}>{formatDisplayDate(measurement.measured_on)}</time>
+                              ) : <strong>-</strong>}
+                            </span>
+                            <span className="zone-directory-row-arrow" aria-hidden="true" />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      ) : (
+        <div className="empty-state zone-directory-empty">
+          <strong>{t('zoneBoxesDirectoryEmpty')}</strong>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function buildZoneBoxSpeciesGroups(boxes: BoxItem[], collator: Intl.Collator): ZoneBoxSpeciesGroup[] {
+  const speciesGroups = new Map<number, {
+    species: BoxItem['species'];
+    strains: Map<number, { strain: BoxItem['strain']; boxes: BoxItem[] }>;
+  }>();
+
+  for (const box of boxes) {
+    const speciesGroup = speciesGroups.get(box.species.id) ?? {
+      species: box.species,
+      strains: new Map(),
+    };
+    const strainGroup = speciesGroup.strains.get(box.strain.id) ?? {
+      strain: box.strain,
+      boxes: [],
+    };
+    strainGroup.boxes.push(box);
+    speciesGroup.strains.set(box.strain.id, strainGroup);
+    speciesGroups.set(box.species.id, speciesGroup);
+  }
+
+  return Array.from(speciesGroups.values())
+    .sort((first, second) => collator.compare(
+      first.species.scientific_name,
+      second.species.scientific_name,
+    ))
+    .map((group) => ({
+      species: group.species,
+      boxCount: Array.from(group.strains.values()).reduce(
+        (total, strainGroup) => total + strainGroup.boxes.length,
+        0,
+      ),
+      strains: Array.from(group.strains.values())
+        .sort((first, second) => collator.compare(first.strain.code, second.strain.code))
+        .map((strainGroup) => ({
+          ...strainGroup,
+          boxes: [...strainGroup.boxes].sort((first, second) => (
+            collator.compare(first.global_code, second.global_code)
+          )),
+        })),
+    }));
+}
+
+function getZoneBoxFollowUp(box: BoxItem): ZoneBoxFollowUp {
+  if (box.status !== 'active') return 'inactive';
+  if (!box.latest_measurement) return 'missing';
+
+  const measuredOn = new Date(`${box.latest_measurement.measured_on}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const elapsedDays = Math.max(0, Math.floor((today.getTime() - measuredOn.getTime()) / 86_400_000));
+  if (elapsedDays >= 7) return 'due';
+  if (elapsedDays >= 5) return 'soon';
+  return 'ok';
+}
+
+function getZoneBoxFollowUpLabel(followUp: ZoneBoxFollowUp, t: TFunction) {
+  if (followUp === 'due') return t('weeklyDueNow');
+  if (followUp === 'soon') return t('weeklyDueSoon');
+  if (followUp === 'ok') return t('weeklyUpToDate');
+  if (followUp === 'inactive') return t('zoneBoxesDirectoryInactive');
+  return t('recentMeasurementMissing');
 }
 
 function buildZoneOverviewEntry(zone: ThermalZone, boxes: BoxItem[]): ZoneOverviewEntry {
