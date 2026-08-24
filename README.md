@@ -291,6 +291,22 @@ cd frontend
 npm run build
 ```
 
+## Production deployment
+
+From an up-to-date `main` branch on Anthony's workstation, run the guarded
+deployment command:
+
+```powershell
+.\deploy\deploy_vm.ps1
+```
+
+It validates the release locally, creates and verifies a production database
+backup, performs a fast-forward-only update, builds the application, applies
+committed migrations, restarts the services, and checks the public HTTPS
+endpoints. Use `-PreflightOnly` to run the local release checks without changing
+the VM. The detailed fallback procedure is documented in
+`docs/deploiement_vm.md`.
+
 ## Database updates
 
 Apply every committed migration after pulling a new application version and

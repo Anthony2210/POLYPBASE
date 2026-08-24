@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
+from django.db import DatabaseError
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -81,6 +82,17 @@ class PolypbaseApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "ok")
+
+    @patch(
+        "apps.cultures.api_views.connection.cursor",
+        side_effect=DatabaseError("database unavailable"),
+    )
+    def test_health_endpoint_reports_database_unavailability(self, _cursor):
+        response = self.client.get(reverse("api_health"))
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["status"], "unavailable")
+        self.assertEqual(response.json()["service"], "polypbase")
 
     def test_legacy_french_api_routes_are_removed(self):
         self.client.login(username="tech", password="secret")

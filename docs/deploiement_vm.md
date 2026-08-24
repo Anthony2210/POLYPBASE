@@ -1,6 +1,6 @@
 # Déploiement de Polypbase sur la VM
 
-Ce document décrit l’état vérifié du serveur Polypbase au 17 août 2026 et les
+Ce document décrit l’état vérifié du serveur Polypbase au 24 août 2026 et les
 opérations restantes. Les mots de passe, clés SSH, clés Django et identifiants
 de base de données ne doivent jamais être ajoutés au dépôt.
 
@@ -17,9 +17,9 @@ de base de données ne doivent jamais être ajoutés au dépôt.
 | PostgreSQL de production | Version 18, cluster `18/main`, port local 5433 |
 | Base active | `polypbase`, rôle local `polypbase`, authentification `peer` |
 | Ancien cluster local | PostgreSQL 17, vide, encore présent sur le port 5432 |
-| Domaine | DNS encore dirigé vers la redirection Gandi |
-| HTTPS | En attente du changement DNS |
-| HSTS | Désactivé avec une durée de 0 jusqu’à validation de HTTPS |
+| Domaine | `polypbase.org` et `www.polypbase.org` dirigés vers la VM |
+| HTTPS | Actif sur les deux noms, avec redirection HTTP vers HTTPS |
+| Déploiement | Automatisé et contrôlé par `deploy/deploy_vm.ps1` |
 
 Les services suivants sont installés, activés au démarrage et opérationnels :
 
@@ -28,7 +28,7 @@ systemctl is-active polypbase nginx postgresql
 systemctl is-enabled polypbase nginx postgresql
 ```
 
-Le frontend répond en HTTP sur l’adresse publique de la VM. Gunicorn et les
+Le frontend répond en HTTPS sur le domaine public. Gunicorn et les
 deux clusters PostgreSQL n’écoutent que sur l’interface locale.
 
 ## Base historique nettoyée
@@ -134,7 +134,46 @@ EMAIL_USE_TLS=1
 EMAIL_USE_SSL=0
 ```
 
-## Mise à jour de l’application
+## Déploiement automatisé
+
+Le déploiement normal se lance depuis PowerShell, à la racine d’une copie locale
+du dépôt alignée avec `origin/main` :
+
+```powershell
+.\deploy\deploy_vm.ps1
+```
+
+La commande effectue elle-même les opérations suivantes :
+
+1. vérification de la branche `main`, de l’état Git et du commit poussé ;
+2. contrôles Django, migrations manquantes, tests backend et build frontend ;
+3. vérification de l’empreinte SSH publique de la VM ;
+4. transfert et contrôle SHA-256 de l’exécuteur Linux versionné ;
+5. verrou empêchant deux déploiements simultanés ;
+6. sauvegarde PostgreSQL au format custom et validation avec `pg_restore` ;
+7. mise à jour Git strictement en fast-forward vers le commit demandé ;
+8. installation des dépendances verrouillées et build frontend dans un dossier
+   de préparation distinct ;
+9. plan de migration, migrations, fichiers statiques et contrôles Django ;
+10. publication du frontend, redémarrage de Gunicorn et validation de Nginx ;
+11. contrôles de santé, des routes React, de HTTPS et du commit réellement servi.
+
+Le script s’arrête au premier échec. Il ne restaure jamais la base et n’annule
+jamais une migration automatiquement. Le journal distant, la sauvegarde et
+l’ancien build frontend sont conservés sous `/srv/polypbase` pour permettre un
+diagnostic ou un retour arrière décidé explicitement.
+
+Pour exécuter uniquement les contrôles locaux sans contacter la VM :
+
+```powershell
+.\deploy\deploy_vm.ps1 -PreflightOnly
+```
+
+La clé PuTTY est cherchée dans la variable `POLYPBASE_SSH_KEY`, puis dans le
+chemin local historique d’Anthony. Un autre chemin peut être fourni avec
+`-SshKeyPath`. La clé et son contenu ne sont jamais copiés dans le dépôt.
+
+## Procédure manuelle de secours
 
 Après un push validé sur `main` :
 
@@ -163,18 +202,18 @@ Après l'activation de Certbot, ne pas écraser directement la configuration
 Nginx active avec le gabarit HTTP du dépôt : reporter les nouvelles directives
 dans le bloc HTTPS généré, puis valider avec `nginx -t` avant le rechargement.
 
-## DNS à demander au webmestre
+## État DNS
 
-Gandi renvoie encore actuellement :
+État vérifié le 24 août 2026 :
 
-- `polypbase.org` vers l’adresse de redirection Gandi
-- `www.polypbase.org` vers `webredir.vip.gandi.net`
+- `polypbase.org` possède une entrée A vers `217.71.122.88` ;
+- `www.polypbase.org` est utilisable en HTTPS et rejoint la même application.
 
-Le webmestre doit remplacer cette redirection par :
+La configuration attendue reste :
 
 | Nom | Type | Valeur | TTL conseillé |
 |---|---|---|---|
-| `@` | `A` | `<IP_VM>` | 300 |
+| `@` | `A` | `217.71.122.88` | 300 |
 | `www` | `CNAME` | `polypbase.org.` | 300 |
 
 Contrôler ensuite la propagation :
@@ -184,30 +223,27 @@ getent ahostsv4 polypbase.org
 getent ahostsv4 www.polypbase.org
 ```
 
-Les deux noms doivent finalement renvoyer l’adresse IPv4 de la VM.
+Les deux noms doivent continuer à rejoindre l’adresse IPv4 de la VM.
 
-## Activation de HTTPS
+## HTTPS
 
-Certbot ne doit être lancé qu’après propagation des deux entrées DNS :
+Le certificat est actif et HTTP redirige vers HTTPS. Les contrôles d’exploitation
+restants sont :
 
 ```bash
-apt update
-apt install -y certbot python3-certbot-nginx
-certbot --nginx -d polypbase.org -d www.polypbase.org --redirect
 systemctl status certbot.timer --no-pager
+certbot certificates
 certbot renew --dry-run
 ```
 
-Après validation complète de la connexion, des API, des QR codes et du scan sur
-téléphone, `DJANGO_SECURE_HSTS_SECONDS` pourra passer progressivement à `86400`.
+La connexion, les API, les QR codes et le scan doivent être revérifiés après une
+modification importante de Nginx ou des paramètres HTTPS.
 
 ## Points encore ouverts
 
-1. faire modifier les deux entrées DNS par Améni
-2. installer le certificat HTTPS et vérifier son renouvellement
-3. configurer un serveur SMTP pour les invitations et mots de passe oubliés
-4. copier régulièrement les sauvegardes vers un stockage hors de la VM
-5. intégrer plus tard les corrections métier des fichiers d’anomalies lorsqu’Anaïs et Étienne auront répondu
+1. configurer un serveur SMTP pour les invitations et mots de passe oubliés ;
+2. copier régulièrement les sauvegardes vers un stockage hors de la VM ;
+3. intégrer plus tard les corrections métier des fichiers d’anomalies lorsqu’Anaïs et Étienne auront répondu.
 
 Les fichiers d’anomalies non corrigés ne bloquent pas la mise en ligne : la base
 de production conserve exactement l’import historique déjà effectué. Leurs
