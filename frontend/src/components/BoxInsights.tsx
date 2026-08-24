@@ -23,6 +23,7 @@ import BiologicalTrendChart, {
   type TrendLocation,
   type TrendMeasurement,
 } from './BiologicalTrendChart';
+import PolypbaseIcon from './PolypbaseIcon';
 import ChartWindowControls from './ChartWindowControls';
 import ModalPortal from './ModalPortal';
 
@@ -476,7 +477,7 @@ export function MeasurementHistoryModal({
             <p>{labels.historyCountLabel} : <strong>{filteredMeasurements.length}</strong></p>
           </div>
           <button className="measurement-history-close" type="button" aria-label={labels.close} onClick={onClose}>
-            <span aria-hidden="true">×</span>
+            <PolypbaseIcon name="close" size={19} />
           </button>
         </header>
 

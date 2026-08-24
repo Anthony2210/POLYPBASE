@@ -9,6 +9,7 @@ import {
   type QrLabelPrintSettings,
 } from '../utils/qrLabels';
 import PageLoader from './PageLoader';
+import PolypbaseIcon from './PolypbaseIcon';
 import QrLabel from './QrLabel';
 
 type LabelsViewLabels = {
@@ -275,7 +276,10 @@ export default function LabelsView({
                 disabled={!selectedLabels.length}
                 onClick={() => printQrLabels(selectedLabels, printSettings)}
               >
-                {labels.qrLabelPrintSelection}
+                <span className="button-icon-label">
+                  <PolypbaseIcon name="print" size={18} />
+                  {labels.qrLabelPrintSelection}
+                </span>
               </button>
             </div>
           </section>

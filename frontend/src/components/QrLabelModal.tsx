@@ -6,6 +6,7 @@ import {
   type QrLabelItem,
 } from '../utils/qrLabels';
 import ModalPortal from './ModalPortal';
+import PolypbaseIcon from './PolypbaseIcon';
 import QrLabel from './QrLabel';
 
 type QrLabelModalLabels = {
@@ -57,7 +58,7 @@ export default function QrLabelModal({
             <span>{labels.help}</span>
           </div>
           <button type="button" aria-label={labels.close} onClick={onClose}>
-            x
+            <PolypbaseIcon name="close" size={19} />
           </button>
         </header>
 
@@ -90,10 +91,16 @@ export default function QrLabelModal({
 
         <footer className="qr-label-modal-actions">
           <button type="button" className="is-secondary" onClick={() => void downloadQrLabel(label)}>
-            {labels.download}
+            <span className="button-icon-label">
+              <PolypbaseIcon name="download" size={17} />
+              {labels.download}
+            </span>
           </button>
           <button type="button" onClick={() => printQrLabels([label])}>
-            {labels.print}
+            <span className="button-icon-label">
+              <PolypbaseIcon name="print" size={17} />
+              {labels.print}
+            </span>
           </button>
         </footer>
         </section>

@@ -1,13 +1,8 @@
 import type { ReactNode } from 'react';
-import {
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
-} from 'lucide-react';
 
 import type { Language } from '../i18n';
 import { formatDisplayDate } from '../utils/dateFormat';
+import PolypbaseIcon, { type PolypbaseIconName } from './PolypbaseIcon';
 
 export default function ChartWindowControls({
   action,
@@ -115,9 +110,9 @@ function WindowButton({
   isLongStep?: boolean;
   onClick: () => void;
 }) {
-  const Icon = direction === 'left'
-    ? (isLongStep ? ChevronsLeft : ChevronLeft)
-    : (isLongStep ? ChevronsRight : ChevronRight);
+  const iconName: PolypbaseIconName = direction === 'left'
+    ? (isLongStep ? 'chevrons-left' : 'chevron-left')
+    : (isLongStep ? 'chevrons-right' : 'chevron-right');
 
   return (
     <button
@@ -127,7 +122,7 @@ function WindowButton({
       disabled={disabled}
       onClick={onClick}
     >
-      <Icon aria-hidden="true" size={18} strokeWidth={2.1} />
+      <PolypbaseIcon name={iconName} size={18} strokeWidth={2.1} />
     </button>
   );
 }

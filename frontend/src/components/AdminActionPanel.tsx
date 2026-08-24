@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect } from 'react';
-import { X } from 'lucide-react';
 
 import ModalPortal from './ModalPortal';
+import PolypbaseIcon from './PolypbaseIcon';
 
 export default function AdminActionPanel({
   children,
@@ -38,7 +38,7 @@ export default function AdminActionPanel({
           <header className="admin-action-panel__header">
             <h2>{title}</h2>
             <button className="icon-button" type="button" aria-label={closeLabel} title={closeLabel} onClick={onClose}>
-              <X aria-hidden="true" size={19} strokeWidth={2} />
+              <PolypbaseIcon name="close" size={19} />
             </button>
           </header>
           <div className="admin-action-panel__body">{children}</div>

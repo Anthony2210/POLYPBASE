@@ -1,5 +1,4 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Check, Plus } from 'lucide-react';
 
 import { apiGet, apiPost } from '../api/client';
 import type { Translator } from '../i18n';
@@ -12,6 +11,7 @@ import type {
 } from '../types/admin';
 import { getErrorMessage } from '../utils/errors';
 import AdminActionPanel from './AdminActionPanel';
+import PolypbaseIcon from './PolypbaseIcon';
 import PageLoader from './PageLoader';
 
 export type QuickCreatedStrain = {
@@ -178,7 +178,7 @@ export default function QuickStrainCreator({
                 </select>
               </label>
               <button className="quick-reference-inline-action" type="button" onClick={() => setMode('species')}>
-                <Plus aria-hidden="true" size={17} />
+                <PolypbaseIcon name="plus" size={17} />
                 {t('quickStrainNewSpecies')}
               </button>
               <div className="quick-reference-two-columns">
@@ -204,14 +204,14 @@ export default function QuickStrainCreator({
                 <textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} />
               </label>
               <button className="primary-button quick-reference-submit" disabled={isSaving || speciesId == null} type="submit">
-                <Check aria-hidden="true" size={18} />
+                <PolypbaseIcon name="check" size={18} />
                 {isSaving ? t('taxonomyCreating') : t('quickStrainCreateAndUse')}
               </button>
             </form>
           ) : (
             <form className="quick-reference-form" onSubmit={createSpecies}>
               <button className="quick-reference-inline-action" type="button" onClick={() => setMode('strain')}>
-                <ArrowLeft aria-hidden="true" size={17} />
+                <PolypbaseIcon name="chevron-left" size={17} />
                 {t('quickStrainBackToStrain')}
               </button>
               <label>
@@ -233,7 +233,7 @@ export default function QuickStrainCreator({
                 <textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} />
               </label>
               <button className="primary-button quick-reference-submit" disabled={isSaving} type="submit">
-                <Plus aria-hidden="true" size={18} />
+                <PolypbaseIcon name="plus" size={18} />
                 {isSaving ? t('taxonomyCreating') : t('taxonomyNewSpecies')}
               </button>
             </form>
