@@ -37,9 +37,10 @@ function Invoke-NativeCommand {
         return (($output | Out-String).Trim())
     }
 
-    & $FilePath @Arguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Label failed with exit code $LASTEXITCODE"
+    & $FilePath @Arguments 2>&1 | ForEach-Object { Write-Host $_ }
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        throw "$Label failed with exit code $exitCode"
     }
 }
 

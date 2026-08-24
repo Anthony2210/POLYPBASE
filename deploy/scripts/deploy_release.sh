@@ -107,6 +107,9 @@ STAGED_DIST="$RELEASE_DIR/frontend-dist"
     ./node_modules/.bin/vite build --outDir "$STAGED_DIST" --emptyOutDir
 )
 [[ -s "$STAGED_DIST/index.html" ]] || fail "staged frontend build has no index.html"
+# The deployment umask protects logs and backups. Nginx still needs to traverse
+# directories and read the public frontend files after the atomic move.
+chmod -R o+rX "$STAGED_DIST"
 
 CURRENT_STEP="Django validation"
 PYTHON="$APP_DIR/.venv/bin/python"
