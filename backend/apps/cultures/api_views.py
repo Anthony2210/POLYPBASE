@@ -4,7 +4,7 @@ from datetime import timedelta
 import re
 
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import transaction
+from django.db import DatabaseError, connection, transaction
 from django.db.models import Count, OuterRef, Prefetch, Q, Subquery, Sum
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
@@ -405,11 +405,25 @@ def thermal_zone_summary_queryset(queryset):
 
 
 class HealthAPIView(APIView):
-    """Small public endpoint used by deployments and local checks."""
+    """Small public endpoint used by deployments and infrastructure checks."""
 
     permission_classes = [AllowAny]
 
     def get(self, request):
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1")
+                cursor.fetchone()
+        except DatabaseError:
+            return Response(
+                {
+                    "status": "unavailable",
+                    "service": "polypbase",
+                    "timestamp": timezone.now().isoformat(),
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
         return Response(
             {
                 "status": "ok",
