@@ -111,7 +111,11 @@ Endpoints utilisés :
 
 La page de connexion permet d'ouvrir une session Django depuis React. Le bouton de déconnexion est disponible dans le profil.
 
-Le système de mot de passe temporaire est prévu dans la gestion des comptes. Lorsqu'un administrateur crée un accès, un mot de passe temporaire est généré. L'idée retenue dans l'interface est que le mot de passe soit envoyé par mail, puis remplacé par l'utilisateur lors de sa première connexion ou via une procédure de réinitialisation.
+Lorsqu'un administrateur crée un accès, Polypbase crée un compte sans mot de
+passe utilisable et envoie un lien d'activation à usage unique. La personne
+choisit elle-même son mot de passe avec les validateurs Django. Le lien expire
+après une heure et le compte n'est pas créé si l'email d'invitation ne peut pas
+être envoyé.
 
 ## 6. Page Suivi
 
@@ -599,7 +603,9 @@ La section Comptes permet :
 - de changer le rôle ;
 - de désactiver ou réactiver un accès.
 
-La création de compte prépare un mot de passe temporaire. Le backend génère ce mot de passe dans `backend/apps/accounts/api_views.py`.
+La création de compte envoie une invitation sécurisée depuis
+`backend/apps/accounts/api_views.py`. Aucun administrateur ne peut définir ou
+recevoir le mot de passe d'une autre personne.
 
 ### Référentiel biologique
 

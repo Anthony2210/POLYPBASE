@@ -52,3 +52,28 @@ class UserPreference(models.Model):
 
     def __str__(self):
         return f"{self.user} preferences"
+
+
+class AuthenticationThrottle(models.Model):
+    """Shared authentication counters used by every application worker."""
+
+    scope = models.CharField(max_length=40)
+    key_hash = models.CharField(max_length=64)
+    event_count = models.PositiveIntegerField(default=0)
+    window_started_at = models.DateTimeField()
+    blocked_until = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["scope", "key_hash"],
+                name="unique_authentication_throttle_key",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["updated_at"], name="accounts_auth_updated_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.scope}:{self.key_hash[:10]}"

@@ -1,6 +1,6 @@
 # Tests automatisés — backend POLYPBASE
 
-Récapitulatif lisible des **100 tests** de la suite Django, avec ce que chacun
+Récapitulatif lisible des **139 tests** de la suite Django, avec ce que chacun
 vérifie. Les tests couvrent l'API REST, les permissions par rôle et par
 organisation, le cycle de vie des boîtes (relevés, repiquage, déplacement,
 lignée), les QR codes, la gestion des comptes, les exports, les écrans
@@ -17,16 +17,18 @@ d'administration (armoires, sondes, structures, transferts) et la salinité.
 
 | Domaine | Fichier | Nombre |
 |---|---|---|
-| Cultures (boîtes, relevés, lignée, QR) | `apps/cultures/tests.py` | 45 |
+| Cultures (boîtes, relevés, lignée, QR) | `apps/cultures/tests.py` | 46 |
 | Administration (armoires, sondes, structures, transferts) | `apps/cultures/tests_admin_api.py` | 27 |
-| Comptes (auth, rôles, membres) | `apps/accounts/tests.py` | 14 |
+| Comptes (auth, rôles, membres) | `apps/accounts/tests.py` | 37 |
+| Audit et relevés en lot | `apps/accounts/tests_audit_measurement.py` | 10 |
 | Relevés (édition + salinité) | `apps/measurements/tests.py` | 8 |
 | Exports (CSV) | `apps/exports/tests.py` | 6 |
-| **Total** | | **100** |
+| Référentiel taxonomique | `apps/taxonomy/tests.py` | 5 |
+| **Total** | | **139** |
 
 ---
 
-## 1. Cultures — `apps/cultures/tests.py` (45 tests)
+## 1. Cultures — `apps/cultures/tests.py` (46 tests)
 
 ### Accès & périmètre (scoping)
 
@@ -88,7 +90,7 @@ d'administration (armoires, sondes, structures, transferts) et la salinité.
 
 ---
 
-## 2. Comptes — `apps/accounts/tests.py` (14 tests)
+## 2. Comptes — `apps/accounts/tests.py` (37 tests)
 
 ### Préférences & session
 
@@ -108,7 +110,7 @@ d'administration (armoires, sondes, structures, transferts) et la salinité.
 | `test_admin_lists_only_managed_org_members` | un admin ne voit que les membres des organisations qu'il administre. |
 | `test_viewer_cannot_access_member_management` | un lecteur ne peut pas accéder à la gestion des membres. |
 | `test_admin_creates_new_member` | un admin crée un nouveau membre. |
-| `test_admin_create_requires_password_for_new_user` | un mot de passe initial est requis pour un nouveau compte. |
+| `test_admin_create_requires_email_for_invitation` | une adresse email est requise pour envoyer le lien d’activation. |
 | `test_admin_cannot_create_in_unmanaged_org` | un admin ne peut pas créer un membre dans une organisation qu'il ne gère pas. |
 | `test_admin_changes_member_role` | un admin peut modifier le rôle d'un membre. |
 | `test_admin_cannot_change_own_role` | un admin ne peut pas modifier son propre rôle. |
@@ -197,6 +199,6 @@ droit de créer quoi**, et **on ne peut jamais atteindre une autre structure**.
 - **Non-régression** : les bugs signalés par les utilisateurs sont figés en test
   (ex. la salinité qui disparaissait après un relevé sans salinité).
 
-> Apps sans tests dédiés à ce jour : `audit`, `organizations`, `taxonomy` (leurs
-> comportements sont couverts indirectement par les tests des autres apps —
-> `organizations` l'est par `tests_admin_api.py`).
+> Les modèles d'audit et les organisations restent couverts depuis les suites
+> comptes et administration. Le référentiel taxonomique dispose de sa propre
+> suite dédiée.

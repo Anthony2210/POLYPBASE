@@ -145,6 +145,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'config.middleware.BrowserSecurityHeadersMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -205,6 +206,22 @@ else:
 # long window for a link that grants account access; one hour is enough to read
 # an email and still limits exposure if the mailbox is compromised later.
 PASSWORD_RESET_TIMEOUT = int(os.getenv("DJANGO_PASSWORD_RESET_TIMEOUT", "3600"))
+
+# Authentication limits are stored in the database so every Gunicorn worker
+# shares the same counters. Values can be tuned without changing application
+# code, while the defaults remain deliberately conservative.
+AUTH_LOGIN_IP_MAX_FAILURES = int(os.getenv("AUTH_LOGIN_IP_MAX_FAILURES", "10"))
+AUTH_LOGIN_IP_WINDOW_SECONDS = int(os.getenv("AUTH_LOGIN_IP_WINDOW_SECONDS", "900"))
+AUTH_LOGIN_IP_BLOCK_SECONDS = int(os.getenv("AUTH_LOGIN_IP_BLOCK_SECONDS", "900"))
+AUTH_LOGIN_ACCOUNT_MAX_FAILURES = int(os.getenv("AUTH_LOGIN_ACCOUNT_MAX_FAILURES", "20"))
+AUTH_LOGIN_ACCOUNT_WINDOW_SECONDS = int(os.getenv("AUTH_LOGIN_ACCOUNT_WINDOW_SECONDS", "3600"))
+AUTH_LOGIN_ACCOUNT_BLOCK_SECONDS = int(os.getenv("AUTH_LOGIN_ACCOUNT_BLOCK_SECONDS", "1800"))
+AUTH_RESET_IP_MAX_REQUESTS = int(os.getenv("AUTH_RESET_IP_MAX_REQUESTS", "5"))
+AUTH_RESET_IP_WINDOW_SECONDS = int(os.getenv("AUTH_RESET_IP_WINDOW_SECONDS", "900"))
+AUTH_RESET_IP_BLOCK_SECONDS = int(os.getenv("AUTH_RESET_IP_BLOCK_SECONDS", "900"))
+AUTH_RESET_ACCOUNT_MAX_REQUESTS = int(os.getenv("AUTH_RESET_ACCOUNT_MAX_REQUESTS", "3"))
+AUTH_RESET_ACCOUNT_WINDOW_SECONDS = int(os.getenv("AUTH_RESET_ACCOUNT_WINDOW_SECONDS", "3600"))
+AUTH_RESET_ACCOUNT_BLOCK_SECONDS = int(os.getenv("AUTH_RESET_ACCOUNT_BLOCK_SECONDS", "3600"))
 
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -272,6 +289,14 @@ EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = env_flag("EMAIL_USE_TLS", default=True)
 EMAIL_USE_SSL = env_flag("EMAIL_USE_SSL", default=False)
 EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", "10"))
+EMAIL_DELIVERY_ENABLED = env_flag(
+    "EMAIL_DELIVERY_ENABLED",
+    default=EMAIL_BACKEND
+    not in {
+        "django.core.mail.backends.console.EmailBackend",
+        "django.core.mail.backends.dummy.EmailBackend",
+    },
+)
 
 # The React app owns the UI: authentication redirects must land there, never on
 # a server-rendered page (the old HTML pages have been removed).
