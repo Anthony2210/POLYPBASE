@@ -3,8 +3,6 @@ from rest_framework import generics, status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
-from apps.accounts.models import OrganizationMembership
-from apps.accounts.permissions import user_is_org_admin
 from apps.audit.models import AuditLog
 
 from .models import Organization
@@ -37,19 +35,10 @@ class OrganizationCreateAPIView(generics.CreateAPIView):
     serializer_class = OrganizationCreateSerializer
 
     def perform_create(self, serializer):
-        if not user_is_org_admin(self.request.user):
+        if not self.request.user.is_superuser:
             raise PermissionDenied("Ce compte ne peut pas creer une structure.")
 
         organization = serializer.save()
-        if not self.request.user.is_superuser:
-            OrganizationMembership.objects.get_or_create(
-                user=self.request.user,
-                organization=organization,
-                defaults={
-                    "role": OrganizationMembership.Role.ADMIN,
-                    "is_active": True,
-                },
-            )
         AuditLog.objects.create(
             organization=organization,
             user=self.request.user,

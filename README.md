@@ -26,11 +26,18 @@ Install `uv` on Windows PowerShell:
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-Create the local environment and install the locked dependencies:
+Create the local environment and install the locked server dependencies:
 
 ```powershell
 uv venv
 uv sync
+```
+
+Install the additional analysis and notebook environment only on machines that
+need it:
+
+```powershell
+uv sync --group analysis
 ```
 
 Add a Python package:
@@ -39,10 +46,10 @@ Add a Python package:
 uv add package-name
 ```
 
-Add a development-only package:
+Add an analysis or notebook package:
 
 ```powershell
-uv add --dev package-name
+uv add --group analysis package-name
 ```
 
 Commit `pyproject.toml` and `uv.lock` after changing dependencies. Do not edit

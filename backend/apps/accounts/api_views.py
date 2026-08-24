@@ -1,3 +1,4 @@
+import logging
 import re
 
 from django.conf import settings
@@ -10,14 +11,13 @@ from django.db import transaction
 from django.db.models import Count
 from django.db.models.functions import Coalesce
 from django.utils import translation
-from django.utils.crypto import get_random_string
 from django.utils.dateparse import parse_date
 from django.utils.decorators import method_decorator
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from django.views.decorators.csrf import csrf_protect, ensure_csrf_cookie
 from rest_framework import status
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -39,6 +39,82 @@ from .serializers import (
     UserProfileSerializer,
     available_interface_languages,
 )
+from .throttling import (
+    clear_events,
+    consume_event,
+    get_client_ip,
+    login_account_policy,
+    login_ip_policy,
+    password_reset_account_policy,
+    password_reset_ip_policy,
+    record_event,
+    retry_after,
+)
+
+
+logger = logging.getLogger(__name__)
+
+LOGIN_IP_SCOPE = "login_ip"
+LOGIN_ACCOUNT_SCOPE = "login_account"
+PASSWORD_RESET_IP_SCOPE = "password_reset_ip"
+PASSWORD_RESET_ACCOUNT_SCOPE = "password_reset_account"
+
+
+class EmailDeliveryUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = (
+        "L'envoi d'email n'est pas disponible. Configurez le serveur SMTP avant "
+        "de créer un accès."
+    )
+    default_code = "email_delivery_unavailable"
+
+
+def _too_many_attempts(retry_seconds):
+    response = Response(
+        {"detail": "Trop de tentatives. Réessayez plus tard."},
+        status=status.HTTP_429_TOO_MANY_REQUESTS,
+    )
+    response["Retry-After"] = str(max(1, retry_seconds))
+    return response
+
+
+def _password_setup_link(user):
+    uid = urlsafe_base64_encode(force_bytes(user.pk))
+    token = default_token_generator.make_token(user)
+    return f"{settings.PUBLIC_BASE_URL}/reset-password/{uid}/{token}"
+
+
+def _send_password_email(user, *, invitation):
+    link = _password_setup_link(user)
+    if invitation:
+        subject = "Invitation Polypbase"
+        message = (
+            "Bonjour,\n\n"
+            "Un accès Polypbase vient d'être créé pour vous.\n"
+            f"Identifiant : {user.get_username()}\n\n"
+            "Choisissez votre mot de passe avec ce lien à usage unique :\n"
+            f"{link}\n\n"
+            "Ce lien est valable une heure.\n"
+        )
+    else:
+        subject = "Réinitialisation de votre mot de passe Polypbase"
+        message = (
+            "Bonjour,\n\n"
+            "Vous avez demandé la réinitialisation de votre mot de passe Polypbase.\n"
+            f"Identifiant : {user.get_username()}\n\n"
+            "Choisissez un nouveau mot de passe avec ce lien à usage unique :\n"
+            f"{link}\n\n"
+            "Ce lien est valable une heure. Si vous n'êtes pas à l'origine de cette "
+            "demande, ignorez ce message : votre mot de passe reste inchangé.\n"
+        )
+
+    return send_mail(
+        subject,
+        message,
+        settings.DEFAULT_FROM_EMAIL,
+        [user.email],
+        fail_silently=False,
+    )
 
 
 @method_decorator(ensure_csrf_cookie, name="dispatch")
@@ -55,14 +131,42 @@ class SessionLoginAPIView(APIView):
     def post(self, request):
         username = str(request.data.get("username", "")).strip()
         password = str(request.data.get("password", ""))
+        client_ip = get_client_ip(request)
+        user_model = get_user_model()
+        account = user_model.objects.filter(
+            username__iexact=username,
+            is_active=True,
+        ).only("pk").first()
+
+        retry_seconds = retry_after(LOGIN_IP_SCOPE, client_ip, login_ip_policy())
+        if account is not None:
+            retry_seconds = max(
+                retry_seconds,
+                retry_after(
+                    LOGIN_ACCOUNT_SCOPE,
+                    account.pk,
+                    login_account_policy(),
+                ),
+            )
+        if retry_seconds:
+            return _too_many_attempts(retry_seconds)
+
         user = authenticate(request, username=username, password=password)
 
         if user is None or not user.is_active:
+            record_event(LOGIN_IP_SCOPE, client_ip, login_ip_policy())
+            if account is not None:
+                record_event(
+                    LOGIN_ACCOUNT_SCOPE,
+                    account.pk,
+                    login_account_policy(),
+                )
             return Response(
                 {"detail": "Invalid credentials."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        clear_events(LOGIN_ACCOUNT_SCOPE, user.pk)
         login(request, user)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -92,37 +196,35 @@ class PasswordResetRequestAPIView(APIView):
 
     def post(self, request):
         email = str(request.data.get("email", "")).strip()
+        client_ip = get_client_ip(request)
+        retry_seconds = consume_event(
+            PASSWORD_RESET_IP_SCOPE,
+            client_ip,
+            password_reset_ip_policy(),
+        )
+        if retry_seconds:
+            return _too_many_attempts(retry_seconds)
 
         if email:
             # An address could in theory be shared by several accounts; each one
             # gets its own link. Inactive accounts are skipped.
             for user in get_user_model().objects.filter(email__iexact=email, is_active=True):
-                self._send_reset_link(user)
+                account_retry = consume_event(
+                    PASSWORD_RESET_ACCOUNT_SCOPE,
+                    user.pk,
+                    password_reset_account_policy(),
+                )
+                if not account_retry and settings.EMAIL_DELIVERY_ENABLED:
+                    self._send_reset_link(user)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def _send_reset_link(self, user):
-        uid = urlsafe_base64_encode(force_bytes(user.pk))
-        token = default_token_generator.make_token(user)
-        # PUBLIC_BASE_URL points at the React app, not at Django: the link must
-        # open the reset screen, not a bare server-rendered page.
-        link = f"{settings.PUBLIC_BASE_URL}/reset-password/{uid}/{token}"
-        message = (
-            "Bonjour,\n\n"
-            "Vous avez demande la reinitialisation de votre mot de passe Polypbase.\n"
-            f"Identifiant : {user.get_username()}\n\n"
-            f"Cliquez sur ce lien pour choisir un nouveau mot de passe :\n{link}\n\n"
-            "Ce lien est valable un temps limite et ne peut servir qu'une fois.\n"
-            "Si vous n'etes pas a l'origine de cette demande, ignorez ce message : "
-            "votre mot de passe reste inchange.\n"
-        )
-        send_mail(
-            "Reinitialisation de votre mot de passe Polypbase",
-            message,
-            settings.DEFAULT_FROM_EMAIL,
-            [user.email],
-            fail_silently=True,
-        )
+        try:
+            _send_password_email(user, invitation=False)
+        except Exception:
+            # The public response stays identical to avoid revealing accounts.
+            logger.exception("Password-reset email delivery failed")
 
 
 @method_decorator(ensure_csrf_cookie, name="dispatch")
@@ -365,6 +467,12 @@ class OrganizationMemberListCreateAPIView(APIView):
         email = (data.get("email") or "").strip().lower()
         if not email:
             raise ValidationError({"email": "Une adresse email est requise."})
+        if data.get("password") not in (None, ""):
+            raise ValidationError(
+                {"password": "Un mot de passe ne peut pas être défini par un administrateur."}
+            )
+        if not settings.EMAIL_DELIVERY_ENABLED:
+            raise EmailDeliveryUnavailable()
 
         user_model = get_user_model()
         with transaction.atomic():
@@ -379,6 +487,7 @@ class OrganizationMemberListCreateAPIView(APIView):
             )
 
             UserPreference.objects.get_or_create(user=user)
+            self._send_account_invitation(user)
 
         AuditLog.objects.create(
             organization=organization,
@@ -429,47 +538,23 @@ class OrganizationMemberListCreateAPIView(APIView):
         return role
 
     def _create_user(self, user_model, username, email, data):
-        password = (data.get("password") or "").strip()
-        generated_password = False
-        if not password:
-            password = get_random_string(
-                14,
-                allowed_chars="abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789",
-            )
-            generated_password = True
-        if len(password) < 8:
-            raise ValidationError(
-                {"password": "Le mot de passe doit contenir au moins 8 caractères."}
-            )
         user = user_model(
             username=username,
             email=email,
             first_name=_format_first_name(data.get("first_name")),
             last_name=_format_last_name(data.get("last_name")),
         )
-        user.set_password(password)
+        user.set_unusable_password()
         user.save()
-        if generated_password:
-            self._send_temporary_password(user, password)
         return user
 
-    def _send_temporary_password(self, user, password):
-        if not user.email:
-            return
-        message = (
-            "Bonjour,\n\n"
-            "Un compte Polypbase vient d'etre cree pour vous.\n"
-            f"Identifiant : {user.username}\n"
-            f"Mot de passe temporaire : {password}\n\n"
-            "Connectez-vous, puis remplacez ce mot de passe par un mot de passe personnel.\n"
-        )
-        send_mail(
-            "Acces Polypbase",
-            message,
-            settings.DEFAULT_FROM_EMAIL,
-            [user.email],
-            fail_silently=True,
-        )
+    def _send_account_invitation(self, user):
+        try:
+            sent_count = _send_password_email(user, invitation=True)
+        except Exception as error:
+            raise EmailDeliveryUnavailable() from error
+        if sent_count != 1:
+            raise EmailDeliveryUnavailable()
 
 
 @method_decorator(ensure_csrf_cookie, name="dispatch")

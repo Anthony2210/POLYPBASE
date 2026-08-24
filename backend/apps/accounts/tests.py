@@ -12,7 +12,7 @@ from django.utils.http import urlsafe_base64_encode
 from apps.audit.models import AuditLog
 from apps.organizations.models import Organization
 
-from .models import OrganizationMembership, UserPreference
+from .models import AuthenticationThrottle, OrganizationMembership, UserPreference
 
 
 class AccountPreferenceTests(TestCase):
@@ -84,6 +84,55 @@ class SessionLoginApiTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
 
+    @override_settings(
+        AUTH_LOGIN_IP_MAX_FAILURES=2,
+        AUTH_LOGIN_IP_WINDOW_SECONDS=900,
+        AUTH_LOGIN_IP_BLOCK_SECONDS=900,
+    )
+    def test_session_login_is_rate_limited_after_repeated_failures(self):
+        for _attempt in range(2):
+            response = self.client.post(
+                self.login_url,
+                data={"username": "tech", "password": "invalid"},
+            )
+            self.assertEqual(response.status_code, 400)
+
+        response = self.client.post(
+            self.login_url,
+            data={"username": "tech", "password": "invalid"},
+        )
+
+        self.assertEqual(response.status_code, 429)
+        self.assertIn("Retry-After", response)
+
+    def test_successful_login_clears_previous_failures(self):
+        self.client.post(
+            self.login_url,
+            data={"username": "tech", "password": "invalid"},
+        )
+
+        response = self.client.post(
+            self.login_url,
+            data={"username": "tech", "password": "secret"},
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(
+            AuthenticationThrottle.objects.filter(scope="login_account").exists()
+        )
+        self.assertTrue(
+            AuthenticationThrottle.objects.filter(scope="login_ip").exists()
+        )
+
+    def test_login_response_includes_browser_security_headers(self):
+        response = self.client.get(self.login_url)
+
+        self.assertIn("Content-Security-Policy", response)
+        self.assertEqual(
+            response["Permissions-Policy"],
+            "camera=(self), microphone=(), geolocation=()",
+        )
+
     def test_session_logout_clears_the_current_session(self):
         client = Client(enforce_csrf_checks=True)
         client.login(username="tech", password="secret")
@@ -99,7 +148,10 @@ class SessionLoginApiTests(TestCase):
         self.assertEqual(client.get(reverse("api_profile")).status_code, 403)
 
 
-@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+@override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    EMAIL_DELIVERY_ENABLED=True,
+)
 class AccountMemberManagementTests(TestCase):
     def setUp(self):
         user_model = get_user_model()
@@ -153,7 +205,6 @@ class AccountMemberManagementTests(TestCase):
                 "first_name": "kylian",
                 "last_name": "mbappé",
                 "email": "new@example.test",
-                "password": "averysafepwd",
                 "organization_id": self.paris.id,
                 "role": "lab_technician",
             },
@@ -167,7 +218,11 @@ class AccountMemberManagementTests(TestCase):
         self.assertEqual(membership.role, OrganizationMembership.Role.LAB_TECHNICIAN)
         self.assertEqual(membership.user.first_name, "Kylian")
         self.assertEqual(membership.user.last_name, "MBAPPÉ")
+        self.assertFalse(membership.user.has_usable_password())
         self.assertEqual(response.json()["full_name"], "Kylian MBAPPÉ")
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("/reset-password/", mail.outbox[0].body)
+        self.assertNotIn("Mot de passe temporaire", mail.outbox[0].body)
 
         log = AuditLog.objects.get(
             action=AuditLog.Action.CREATION,
@@ -178,7 +233,7 @@ class AccountMemberManagementTests(TestCase):
         self.assertEqual(log.user, self.admin)
         self.assertEqual(log.metadata["valeurs"]["role"], OrganizationMembership.Role.LAB_TECHNICIAN)
 
-    def test_admin_creates_new_member_with_generated_password(self):
+    def test_admin_cannot_assign_a_password_to_a_new_member(self):
         self.client.login(username="admin", password="secret")
 
         response = self.client.post(
@@ -186,15 +241,54 @@ class AccountMemberManagementTests(TestCase):
             data={
                 "username": "nopwd",
                 "email": "nopwd@example.test",
+                "password": "mot-de-passe-impose",
                 "organization_id": self.paris.id,
                 "role": "viewer",
             },
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(len(mail.outbox), 1)
-        self.assertIn("Mot de passe temporaire", mail.outbox[0].body)
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(get_user_model().objects.filter(username="nopwd").exists())
+        self.assertEqual(len(mail.outbox), 0)
+
+    @override_settings(EMAIL_DELIVERY_ENABLED=False)
+    def test_member_creation_rolls_back_when_email_delivery_is_disabled(self):
+        self.client.login(username="admin", password="secret")
+
+        response = self.client.post(
+            self.list_url,
+            data={
+                "username": "no-smtp",
+                "email": "no-smtp@example.test",
+                "organization_id": self.paris.id,
+                "role": "viewer",
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(get_user_model().objects.filter(username="no-smtp").exists())
+
+    @patch("apps.accounts.api_views.send_mail", side_effect=OSError("SMTP unavailable"))
+    def test_member_creation_rolls_back_when_email_sending_fails(self, _send_mail):
+        self.client.login(username="admin", password="secret")
+
+        response = self.client.post(
+            self.list_url,
+            data={
+                "username": "smtp-failure",
+                "email": "smtp-failure@example.test",
+                "organization_id": self.paris.id,
+                "role": "viewer",
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(
+            get_user_model().objects.filter(username="smtp-failure").exists()
+        )
 
     def test_admin_cannot_reuse_an_existing_email_from_another_organization(self):
         self.client.login(username="admin", password="secret")
@@ -279,7 +373,7 @@ class AccountMemberManagementTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["username"], "Cet identifiant est déjà utilisé.")
 
-    def test_admin_create_requires_email_for_generated_password(self):
+    def test_admin_create_requires_email_for_invitation(self):
         self.client.login(username="admin", password="secret")
 
         response = self.client.post(
@@ -297,7 +391,6 @@ class AccountMemberManagementTests(TestCase):
             self.list_url,
             data={
                 "username": "intruder",
-                "password": "averysafepwd",
                 "organization_id": self.partner.id,
                 "role": "viewer",
             },
@@ -409,6 +502,10 @@ class AccountMemberManagementTests(TestCase):
         self.assertTrue(membership.is_active)
 
 
+@override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    EMAIL_DELIVERY_ENABLED=True,
+)
 class PasswordResetTests(TestCase):
     """The "forgot password" flow reachable from the login page."""
 
@@ -474,6 +571,27 @@ class PasswordResetTests(TestCase):
 
         self.assertEqual(response.status_code, 204)
         self.assertEqual(len(mail.outbox), 0)
+
+    @override_settings(
+        AUTH_RESET_IP_MAX_REQUESTS=2,
+        AUTH_RESET_IP_WINDOW_SECONDS=900,
+        AUTH_RESET_IP_BLOCK_SECONDS=900,
+    )
+    def test_password_reset_is_rate_limited_by_ip(self):
+        self.assertEqual(self.request_reset("personne@example.org").status_code, 204)
+        self.assertEqual(self.request_reset("personne@example.org").status_code, 204)
+
+        response = self.request_reset("personne@example.org")
+
+        self.assertEqual(response.status_code, 429)
+        self.assertIn("Retry-After", response)
+
+    @override_settings(AUTH_RESET_ACCOUNT_MAX_REQUESTS=3)
+    def test_password_reset_sends_at_most_three_links_per_account(self):
+        responses = [self.request_reset("bio@example.org") for _attempt in range(4)]
+
+        self.assertTrue(all(response.status_code == 204 for response in responses))
+        self.assertEqual(len(mail.outbox), 3)
 
     def test_valid_link_sets_the_new_password(self):
         uid, token = self.make_link_parts()

@@ -122,7 +122,16 @@ DJANGO_ALLOWED_HOSTS=polypbase.org,www.polypbase.org,<IP_VM>,127.0.0.1
 DJANGO_CSRF_TRUSTED_ORIGINS=https://polypbase.org,https://www.polypbase.org
 PUBLIC_BASE_URL=https://polypbase.org
 DJANGO_SECURE_SSL_REDIRECT=1
-DJANGO_SECURE_HSTS_SECONDS=0
+DJANGO_SECURE_HSTS_SECONDS=86400
+EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+EMAIL_DELIVERY_ENABLED=1
+DEFAULT_FROM_EMAIL=Polypbase <no-reply@polypbase.org>
+EMAIL_HOST=<serveur_smtp>
+EMAIL_PORT=587
+EMAIL_HOST_USER=<utilisateur_smtp>
+EMAIL_HOST_PASSWORD=<mot_de_passe_smtp>
+EMAIL_USE_TLS=1
+EMAIL_USE_SSL=0
 ```
 
 ## Mise à jour de l’application
@@ -149,6 +158,10 @@ systemctl reload nginx
 
 Toujours créer une sauvegarde avant une migration Django qui modifie le schéma.
 Ne jamais éditer le code directement dans la copie de production.
+
+Après l'activation de Certbot, ne pas écraser directement la configuration
+Nginx active avec le gabarit HTTP du dépôt : reporter les nouvelles directives
+dans le bloc HTTPS généré, puis valider avec `nginx -t` avant le rechargement.
 
 ## DNS à demander au webmestre
 
