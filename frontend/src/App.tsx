@@ -1726,7 +1726,6 @@ function OverviewView({
   const noZoneLabel = t('noZone');
   const trackedEntries = useMemo<OverviewEntry[]>(
     () => overviewBoxes
-      .filter((box) => box.tracked_in_app)
       .map((box) => {
         const latest = getLastItem(box.measurements);
         const daysSince = latest ? getDaysSinceDate(latest.date) : null;

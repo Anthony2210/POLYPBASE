@@ -126,7 +126,7 @@ class PolypbaseApiTests(TestCase):
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], self.box.id)
 
-    def test_overview_marks_boxes_tracked_from_application_measurements(self):
+    def test_overview_includes_all_organization_boxes_measured_in_2026(self):
         self.client.login(username="tech", password="secret")
         app_tracked_box = Box.objects.create(
             organization=self.organization,
@@ -136,9 +136,26 @@ class PolypbaseApiTests(TestCase):
             origin=self.origin,
             thermal_zone=self.zone,
         )
+        stopped_box = Box.objects.create(
+            organization=self.organization,
+            global_code="AAU-1.003-ATL",
+            box_number="003",
+            strain=self.strain,
+            origin=self.origin,
+            thermal_zone=self.zone,
+            status=Box.Status.STOPPED,
+        )
+        old_box = Box.objects.create(
+            organization=self.organization,
+            global_code="AAU-1.004-ATL",
+            box_number="004",
+            strain=self.strain,
+            origin=self.origin,
+            thermal_zone=self.zone,
+        )
         BiologicalMeasurement.objects.create(
             box=self.box,
-            measured_on=date(2026, 7, 1),
+            measured_on=date(2026, 1, 10),
             polyp_count=20,
         )
         BiologicalMeasurement.objects.create(
@@ -147,6 +164,21 @@ class PolypbaseApiTests(TestCase):
             polyp_count=30,
             salinity_psu=Decimal("31.50"),
             user=self.user,
+        )
+        BiologicalMeasurement.objects.create(
+            box=stopped_box,
+            measured_on=date(2026, 3, 1),
+            polyp_count=10,
+        )
+        BiologicalMeasurement.objects.create(
+            box=old_box,
+            measured_on=date(2025, 12, 31),
+            polyp_count=40,
+        )
+        BiologicalMeasurement.objects.create(
+            box=Box.objects.get(global_code="AAU-1.001-TKY"),
+            measured_on=date(2026, 6, 1),
+            polyp_count=50,
         )
         BoxLocation.objects.create(
             box=app_tracked_box,
@@ -158,8 +190,13 @@ class PolypbaseApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         boxes_by_code = {box["global_code"]: box for box in response.json()["results"]}
+        self.assertEqual(
+            set(boxes_by_code),
+            {self.box.global_code, app_tracked_box.global_code, stopped_box.global_code},
+        )
         self.assertFalse(boxes_by_code[self.box.global_code]["tracked_in_app"])
         self.assertTrue(boxes_by_code[app_tracked_box.global_code]["tracked_in_app"])
+        self.assertEqual(boxes_by_code[self.box.global_code]["measurements"][0]["date"], "2026-01-10")
         self.assertEqual(
             boxes_by_code[app_tracked_box.global_code]["measurements"][0]["salinity_psu"],
             "31.50",

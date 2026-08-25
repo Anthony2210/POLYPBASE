@@ -1,6 +1,6 @@
 from collections import defaultdict
 from decimal import Decimal
-from datetime import timedelta
+from datetime import date, timedelta
 import re
 
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -498,22 +498,28 @@ class DashboardAPIView(APIView):
 
 
 class OverviewActiveBoxesAPIView(APIView):
-    """Return active boxes with recent biological and temperature history."""
+    """Return boxes measured in 2026 with their biological and temperature history."""
+
+    # Temporary launch rule: replace this fixed year with a durable researcher-approved policy.
+    measurement_year = 2026
 
     def get(self, request):
         months = self._get_months(request)
         start_date = timezone.localdate() - timedelta(days=months * 31)
+        overview_year_start = date(self.measurement_year, 1, 1)
+        history_start_date = min(start_date, overview_year_start)
         organization_ids = get_active_organization_ids(request)
         location_history = (
             BoxLocation.objects.filter(
-                Q(ends_at__isnull=True) | Q(ends_at__date__gte=start_date)
+                Q(ends_at__isnull=True) | Q(ends_at__date__gte=history_start_date)
             )
             .select_related("thermal_zone")
             .order_by("starts_at")
         )
         boxes = list(
             box_list_queryset_for_user(request.user, organization_ids=organization_ids)
-            .filter(status=Box.Status.ACTIVE)
+            .filter(biological_measurements__measured_on__year=self.measurement_year)
+            .distinct()
             .prefetch_related(
                 Prefetch("locations", queryset=location_history, to_attr="overview_locations")
             )
@@ -534,7 +540,7 @@ class OverviewActiveBoxesAPIView(APIView):
         measurements = (
             BiologicalMeasurement.objects.filter(
                 box_id__in=box_ids,
-                measured_on__gte=start_date,
+                measured_on__gte=history_start_date,
             )
             .order_by("box_id", "measured_on", "created_at")
         )
@@ -552,7 +558,7 @@ class OverviewActiveBoxesAPIView(APIView):
         temperatures = (
             DailyTemperature.objects.filter(
                 thermal_zone_id__in=zone_ids,
-                date__gte=start_date,
+                date__gte=history_start_date,
             )
             .order_by("thermal_zone_id", "date")
         )
