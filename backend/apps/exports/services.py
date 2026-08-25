@@ -3,15 +3,22 @@ from collections import Counter
 from datetime import timedelta
 from io import StringIO
 
-from django.db.models import Prefetch
+from django.db.models import Case, Exists, F, IntegerField, OuterRef, Prefetch, Q, Subquery, When
 from django.utils import timezone
 
 from apps.cultures.models import BoxLocation
 from apps.measurements.models import BiologicalMeasurement, DailyTemperature
 
 
-def build_weekly_measurement_csv(*, boxes, date_from=None, date_to=None):
-    """Build a weekly wide CSV similar to the historical tracking workbooks."""
+def select_measurement_export_data(
+    *,
+    boxes,
+    date_from=None,
+    date_to=None,
+    zone_ids=None,
+    include_other_zones=False,
+):
+    """Return boxes and measurements that genuinely contribute to an export."""
     selected_boxes = list(
         boxes.select_related(
             "organization",
@@ -25,25 +32,65 @@ def build_weekly_measurement_csv(*, boxes, date_from=None, date_to=None):
             )
         )
     )
+    measurements = _measurement_queryset(
+        boxes=[box.id for box in selected_boxes],
+        date_from=date_from,
+        date_to=date_to,
+    ).select_related("box", "box__thermal_zone", "user")
+    measurements = _filter_measurements_by_zones(
+        measurements,
+        zone_ids=zone_ids,
+        include_other_zones=include_other_zones,
+    )
+    measurement_list = list(measurements.order_by("measured_on", "created_at"))
+
+    contributing_box_ids = {measurement.box_id for measurement in measurement_list}
+    selected_boxes = [box for box in selected_boxes if box.id in contributing_box_ids]
     export_codes = _build_export_codes(selected_boxes)
     selected_boxes.sort(key=lambda box: export_codes[box.id])
+    return selected_boxes, measurement_list
 
-    measurements = BiologicalMeasurement.objects.filter(
-        box_id__in=[box.id for box in selected_boxes],
-    ).select_related(
-        "box",
-        "box__thermal_zone",
-    ).order_by(
-        "measured_on",
-        "created_at",
+
+def get_measurement_export_eligibility(
+    *,
+    boxes,
+    date_from=None,
+    date_to=None,
+    zone_ids=None,
+    include_other_zones=False,
+):
+    """Return contributing box identifiers without building an export file."""
+    measurements = _measurement_queryset(
+        boxes=boxes,
+        date_from=date_from,
+        date_to=date_to,
     )
+    measurements = _filter_measurements_by_zones(
+        measurements,
+        zone_ids=zone_ids,
+        include_other_zones=include_other_zones,
+    )
+    box_ids = list(measurements.order_by().values_list("box_id", flat=True).distinct())
+    return box_ids, measurements.count()
 
-    if date_from:
-        measurements = measurements.filter(measured_on__gte=date_from)
-    if date_to:
-        measurements = measurements.filter(measured_on__lte=date_to)
 
-    measurement_list = list(measurements)
+def build_weekly_measurement_csv(
+    *,
+    boxes,
+    date_from=None,
+    date_to=None,
+    zone_ids=None,
+    include_other_zones=False,
+):
+    """Build a weekly wide CSV similar to the historical tracking workbooks."""
+    selected_boxes, measurement_list = select_measurement_export_data(
+        boxes=boxes,
+        date_from=date_from,
+        date_to=date_to,
+        zone_ids=zone_ids,
+        include_other_zones=include_other_zones,
+    )
+    export_codes = _build_export_codes(selected_boxes)
     measurement_by_week_and_box = {}
     for measurement in measurement_list:
         week_key = _iso_week_key(measurement.measured_on)
@@ -119,6 +166,7 @@ def build_weekly_measurement_csv(*, boxes, date_from=None, date_to=None):
 
     return output.getvalue(), {
         "box_count": len(selected_boxes),
+        "box_ids": [box.id for box in selected_boxes],
         "measurement_count": len(measurement_list),
         "week_count": len(week_keys),
         "date_from": effective_start,
@@ -126,12 +174,21 @@ def build_weekly_measurement_csv(*, boxes, date_from=None, date_to=None):
     }
 
 
-def build_weekly_measurement_preview(*, boxes, date_from=None, date_to=None):
+def build_weekly_measurement_preview(
+    *,
+    boxes,
+    date_from=None,
+    date_to=None,
+    zone_ids=None,
+    include_other_zones=False,
+):
     """Build aggregated chart data from the same selection as the CSV export."""
     csv_content, metadata = build_weekly_measurement_csv(
         boxes=boxes,
         date_from=date_from,
         date_to=date_to,
+        zone_ids=zone_ids,
+        include_other_zones=include_other_zones,
     )
     rows = list(csv.reader(StringIO(csv_content)))
     if not rows:
@@ -275,12 +332,57 @@ def _measurement_temperature(*, box, measured_on, daily_temperatures):
 
 
 def _thermal_zone_for_date(box, measured_on):
-    for location in box.locations.all():
+    locations = list(box.locations.all())
+    for location in locations:
         starts_on = _local_date(location.starts_at)
         ends_on = _local_date(location.ends_at) if location.ends_at else None
         if starts_on <= measured_on and (ends_on is None or measured_on <= ends_on):
             return location.thermal_zone
-    return box.thermal_zone
+    return box.thermal_zone if not locations else None
+
+
+def _measurement_queryset(*, boxes, date_from=None, date_to=None):
+    measurements = BiologicalMeasurement.objects.filter(box_id__in=boxes)
+    if date_from:
+        measurements = measurements.filter(measured_on__gte=date_from)
+    if date_to:
+        measurements = measurements.filter(measured_on__lte=date_to)
+    return measurements
+
+
+def _filter_measurements_by_zones(measurements, *, zone_ids=None, include_other_zones=False):
+    selected_zone_ids = set(zone_ids or [])
+    if not selected_zone_ids:
+        return measurements
+
+    matching_location = BoxLocation.objects.filter(
+        box_id=OuterRef("box_id"),
+        starts_at__date__lte=OuterRef("measured_on"),
+    ).filter(
+        Q(ends_at__isnull=True) | Q(ends_at__date__gte=OuterRef("measured_on")),
+    ).order_by("-starts_at")
+    location_history = BoxLocation.objects.filter(box_id=OuterRef("box_id"))
+    zoned_measurements = measurements.annotate(
+        matched_zone_id=Subquery(
+            matching_location.values("thermal_zone_id")[:1],
+            output_field=IntegerField(),
+        ),
+        has_location_history=Exists(location_history),
+    ).annotate(
+        export_zone_id=Case(
+            When(has_location_history=False, then=F("box__thermal_zone_id")),
+            default=F("matched_zone_id"),
+            output_field=IntegerField(),
+        )
+    )
+    measurements_in_selected_zones = zoned_measurements.filter(
+        export_zone_id__in=selected_zone_ids,
+    )
+    if not include_other_zones:
+        return measurements_in_selected_zones
+
+    qualifying_box_ids = measurements_in_selected_zones.order_by().values("box_id").distinct()
+    return measurements.filter(box_id__in=Subquery(qualifying_box_ids))
 
 
 def _local_date(value):

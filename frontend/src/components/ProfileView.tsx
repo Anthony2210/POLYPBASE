@@ -154,13 +154,16 @@ export default function ProfileView({
                   key={organization.id}
                   className={isActive ? 'is-active' : ''}
                   type="button"
+                  aria-pressed={isActive}
                   onClick={() => onSelectOrganization(organization.id)}
                 >
-                  <span>
+                  <span className="profile-organization-identity">
                     <strong>{organization.name}</strong>
                     <small>{membership?.role_label ?? labels.profileFullAccess}</small>
                   </span>
-                  {isActive ? <em>{labels.profileDefaultOrganization}</em> : null}
+                  {isActive ? (
+                    <span className="profile-organization-state">{labels.profileDefaultOrganization}</span>
+                  ) : null}
                 </button>
               );
             })}

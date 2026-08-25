@@ -8,10 +8,32 @@ export type { TranslationKey };
 export type Translator = (key: TranslationKey) => string;
 
 export const DEFAULT_LANGUAGE: Language = 'fr';
+const INTERFACE_LANGUAGE_STORAGE_KEY = 'polypbase.interfaceLanguage';
 
 export function resolveLanguage(language: string | null | undefined): Language {
   const shortCode = language?.trim().toLocaleLowerCase().split('-')[0];
   return shortCode && shortCode in translations ? shortCode as Language : DEFAULT_LANGUAGE;
+}
+
+export function getStoredInterfaceLanguage(): Language | null {
+  try {
+    const storedLanguage = window.localStorage.getItem(INTERFACE_LANGUAGE_STORAGE_KEY);
+    return storedLanguage ? resolveLanguage(storedLanguage) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setStoredInterfaceLanguage(language: string): Language {
+  const resolvedLanguage = resolveLanguage(language);
+
+  try {
+    window.localStorage.setItem(INTERFACE_LANGUAGE_STORAGE_KEY, resolvedLanguage);
+  } catch {
+    // The server preference remains authoritative when storage is unavailable.
+  }
+
+  return resolvedLanguage;
 }
 
 export function createTranslator(language: Language): Translator {

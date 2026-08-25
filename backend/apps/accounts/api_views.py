@@ -168,7 +168,11 @@ class SessionLoginAPIView(APIView):
 
         clear_events(LOGIN_ACCOUNT_SCOPE, user.pk)
         login(request, user)
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        preference, _created = UserPreference.objects.get_or_create(user=user)
+        request.session["interface_language"] = preference.interface_language
+        translation.activate(preference.interface_language)
+        request.LANGUAGE_CODE = preference.interface_language
+        return Response({"interface_language": preference.interface_language})
 
 
 class SessionLogoutAPIView(APIView):

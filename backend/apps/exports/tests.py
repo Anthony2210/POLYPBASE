@@ -1,15 +1,16 @@
 import csv
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from io import StringIO
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.accounts.models import OrganizationMembership
 from apps.audit.models import AuditLog
-from apps.cultures.models import Box, ThermalZone
+from apps.cultures.models import Box, BoxLocation, ThermalZone
 from apps.measurements.models import BiologicalMeasurement, DailyTemperature
 from apps.organizations.models import Organization
 from apps.taxonomy.models import Species, Strain
@@ -147,6 +148,158 @@ class MeasurementExportApiTests(TestCase):
             AuditLog.objects.filter(action=AuditLog.Action.EXPORT).count(),
             1,
         )
+
+    def test_box_trend_returns_only_period_chart_data(self):
+        BoxLocation.objects.create(
+            box=self.box,
+            thermal_zone=self.zone,
+            starts_at=timezone.make_aware(datetime(2026, 5, 1, 8, 0)),
+        )
+        self.client.login(username="exporter", password="secret")
+
+        response = self.client.get(
+            reverse("api_export_box_trend", args=[self.box.id]),
+            {
+                "date_from": "2026-05-05",
+                "date_to": "2026-05-10",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(
+            set(payload),
+            {"id", "biological_measurements", "locations", "movements"},
+        )
+        self.assertEqual(
+            [measurement["measured_on"] for measurement in payload["biological_measurements"]],
+            ["2026-05-06"],
+        )
+        self.assertEqual(payload["locations"][0]["thermal_zone"]["id"], self.zone.id)
+        self.assertEqual(payload["movements"], [])
+
+    def test_box_trend_hides_boxes_from_another_organization(self):
+        foreign_box = Box.objects.create(
+            organization=self.other_organization,
+            global_code="ALA-9.001-PAR",
+            box_number="001",
+            strain=self.strain,
+        )
+        self.client.login(username="exporter", password="secret")
+
+        response = self.client.get(
+            reverse("api_export_box_trend", args=[foreign_box.id]),
+            {
+                "date_from": "2026-05-01",
+                "date_to": "2026-05-31",
+            },
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_eligible_boxes_and_csv_exclude_boxes_without_measurements_in_period(self):
+        empty_box = Box.objects.create(
+            organization=self.organization,
+            global_code="ALA-1.004-ATL",
+            local_code="1.04",
+            box_number="004",
+            strain=self.strain,
+            thermal_zone=self.zone,
+        )
+        BiologicalMeasurement.objects.create(
+            box=empty_box,
+            measured_on=date(2026, 4, 20),
+            polyp_count=12,
+            ephyrae_count=1,
+            user=self.user,
+        )
+        self.client.login(username="exporter", password="secret")
+
+        filters = {"date_from": "2026-05-01", "date_to": "2026-05-17"}
+        eligibility_response = self.client.get(
+            reverse("api_export_eligible_boxes"),
+            filters,
+        )
+        csv_response = self.client.get(
+            reverse("api_export_measurements_csv"),
+            filters,
+        )
+
+        self.assertEqual(eligibility_response.status_code, 200)
+        self.assertEqual(eligibility_response.json()["box_ids"], [self.box.id])
+        self.assertEqual(csv_response.status_code, 200)
+        header = next(csv.reader(StringIO(csv_response.content.decode("utf-8-sig"))))
+        self.assertIn("1.03_polypes", header)
+        self.assertNotIn("1.04_polypes", header)
+
+    def test_zone_scope_can_limit_measurements_or_include_other_locations(self):
+        second_zone = ThermalZone.objects.create(
+            organization=self.organization,
+            name="Armoire 15 C",
+            target_temperature_c=Decimal("15.0"),
+        )
+        BoxLocation.objects.create(
+            box=self.box,
+            thermal_zone=self.zone,
+            starts_at=timezone.make_aware(datetime(2026, 5, 1, 8, 0)),
+            ends_at=timezone.make_aware(datetime(2026, 5, 7, 18, 0)),
+        )
+        BoxLocation.objects.create(
+            box=self.box,
+            thermal_zone=second_zone,
+            starts_at=timezone.make_aware(datetime(2026, 5, 8, 8, 0)),
+        )
+        self.box.thermal_zone = second_zone
+        self.box.save(update_fields=["thermal_zone"])
+        self.client.login(username="exporter", password="secret")
+
+        filters = {
+            "zones": str(self.zone.id),
+            "date_from": "2026-05-01",
+            "date_to": "2026-05-17",
+        }
+        strict_response = self.client.get(
+            reverse("api_export_box_trend", args=[self.box.id]),
+            filters,
+        )
+        extended_response = self.client.get(
+            reverse("api_export_box_trend", args=[self.box.id]),
+            {**filters, "include_other_zones": "true"},
+        )
+
+        self.assertEqual(strict_response.status_code, 200)
+        self.assertEqual(
+            [item["measured_on"] for item in strict_response.json()["biological_measurements"]],
+            ["2026-05-04", "2026-05-06"],
+        )
+        self.assertEqual(extended_response.status_code, 200)
+        self.assertEqual(
+            [item["measured_on"] for item in extended_response.json()["biological_measurements"]],
+            ["2026-05-04", "2026-05-06", "2026-05-11"],
+        )
+
+        eligibility_response = self.client.get(
+            reverse("api_export_eligible_boxes"),
+            filters,
+        )
+        self.assertEqual(eligibility_response.status_code, 200)
+        self.assertEqual(eligibility_response.json()["box_ids"], [self.box.id])
+
+        strict_csv_response = self.client.get(
+            reverse("api_export_measurements_csv"),
+            filters,
+        )
+        extended_csv_response = self.client.get(
+            reverse("api_export_measurements_csv"),
+            {**filters, "include_other_zones": "true"},
+        )
+        strict_rows = list(csv.reader(StringIO(strict_csv_response.content.decode("utf-8-sig"))))
+        extended_rows = list(csv.reader(StringIO(extended_csv_response.content.decode("utf-8-sig"))))
+        polyp_column = strict_rows[0].index("1.03_polypes")
+        strict_week_20 = next(row for row in strict_rows if row[0] == "2026_S20")
+        extended_week_20 = next(row for row in extended_rows if row[0] == "2026_S20")
+        self.assertEqual(strict_week_20[polyp_column], "")
+        self.assertEqual(extended_week_20[polyp_column], "0")
 
     def test_preview_returns_aggregated_values_without_recording_an_export(self):
         self.client.login(username="exporter", password="secret")

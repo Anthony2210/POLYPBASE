@@ -102,6 +102,14 @@ const ADMIN_FLOW_ITEMS = [
 
 export type AdminSectionKey = (typeof ADMIN_FLOW_ITEMS)[number]['key'];
 
+const DISABLED_ADMIN_SECTIONS: ReadonlySet<AdminSectionKey> = new Set([
+  'references',
+  'environment',
+  'transfers',
+  'history',
+  'organizations',
+]);
+
 function userHasAdminRole(profile: UserProfile | null) {
   if (!profile) return false;
   if (profile.is_superuser) return true;
@@ -3036,18 +3044,22 @@ function AdminFlowNav({
   const superuserItems = ADMIN_FLOW_ITEMS.filter((item) => item.scope === 'superuser');
 
   function renderItems(items: typeof ADMIN_FLOW_ITEMS[number][]) {
-    return items.map((item) => (
-      <button
-        key={item.key}
-        type="button"
-        className={activeSection === item.key ? 'admin-flow-step is-active' : 'admin-flow-step'}
-        aria-controls={item.panelId}
-        aria-current={activeSection === item.key ? 'page' : undefined}
-        onClick={() => onSelect(item.key)}
-      >
-        {t(item.label)}
-      </button>
-    ));
+    return items.map((item) => {
+      const isDisabled = DISABLED_ADMIN_SECTIONS.has(item.key);
+      return (
+        <button
+          key={item.key}
+          type="button"
+          className={activeSection === item.key ? 'admin-flow-step is-active' : 'admin-flow-step'}
+          aria-controls={isDisabled ? undefined : item.panelId}
+          aria-current={activeSection === item.key ? 'page' : undefined}
+          disabled={isDisabled}
+          onClick={() => onSelect(item.key)}
+        >
+          {t(item.label)}
+        </button>
+      );
+    });
   }
 
   return (
@@ -3378,16 +3390,21 @@ export default function AdminView({
   t: TFunction;
   zones: ThermalZone[];
 }) {
-  const activeSectionNeedsOptions = activeSection === 'organizations' || activeSection === 'transfers';
+  const displayedSection = DISABLED_ADMIN_SECTIONS.has(activeSection) ? 'accounts' : activeSection;
+  const activeSectionNeedsOptions = displayedSection === 'organizations';
 
   useEffect(() => {
-    if (!profile || profile.is_superuser || activeSection !== 'organizations') return;
-    onSelectSection('accounts');
+    const sectionIsUnavailable = DISABLED_ADMIN_SECTIONS.has(activeSection);
+    const organizationAccessIsDenied = Boolean(
+      profile && !profile.is_superuser && activeSection === 'organizations',
+    );
+    if (sectionIsUnavailable || organizationAccessIsDenied) onSelectSection('accounts');
   }, [activeSection, onSelectSection, profile]);
 
   function selectAdminSection(section: AdminSectionKey) {
+    if (DISABLED_ADMIN_SECTIONS.has(section)) return;
     onSelectSection(section);
-    if ((section === 'organizations' || section === 'transfers') && !exportOptions) {
+    if (section === 'organizations' && !exportOptions) {
       onRequestOptions();
     }
   }
@@ -3405,7 +3422,7 @@ export default function AdminView({
     <section className="admin-panel">
       <div className="admin-workspace">
         <AdminFlowNav
-          activeSection={activeSection}
+          activeSection={displayedSection}
           aquariumName={activeOrganizationName}
           isSuperuser={profile.is_superuser}
           onSelect={selectAdminSection}
@@ -3417,13 +3434,13 @@ export default function AdminView({
             <PageLoader variant="admin" label={t('loading')} />
           ) : null}
 
-          {activeSection === 'accounts' ? (
+          {displayedSection === 'accounts' ? (
             <AccountManagementSection organizationName={activeOrganizationName} t={t} />
           ) : null}
 
-          {activeSection === 'references' ? <TaxonomyAdminSection t={t} /> : null}
+          {displayedSection === 'references' ? <TaxonomyAdminSection t={t} /> : null}
 
-          {activeSection === 'environment' ? (
+          {displayedSection === 'environment' ? (
             <EnvironmentAdminSection
               profile={profile}
               zones={zones}
@@ -3434,7 +3451,7 @@ export default function AdminView({
             />
           ) : null}
 
-          {activeSection === 'organizations' && profile.is_superuser && !isOptionsLoading ? (
+          {displayedSection === 'organizations' && profile.is_superuser && !isOptionsLoading ? (
             <OrganizationsAdminSection
               organizations={organizations}
               profile={profile}
@@ -3445,7 +3462,7 @@ export default function AdminView({
             />
           ) : null}
 
-          {activeSection === 'transfers' && !isOptionsLoading ? (
+          {displayedSection === 'transfers' && !isOptionsLoading ? (
             <TransfersAdminSection
               profile={profile}
               boxes={boxes}
@@ -3456,7 +3473,7 @@ export default function AdminView({
             />
           ) : null}
 
-          {activeSection === 'history' ? (
+          {displayedSection === 'history' ? (
             <AdminAuditLogSection onEditMeasurement={onEditMeasurement} t={t} />
           ) : null}
         </div>

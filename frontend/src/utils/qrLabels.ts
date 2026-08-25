@@ -130,11 +130,18 @@ async function getQrDataUrl(qrImageUrl: string) {
 }
 
 function buildQrPrintDocument(labels: QrLabelItem[], settings: QrLabelPrintSettings) {
-  const labelMarkup = labels.map((label, index) => {
-    const previousLabel = labels[index - 1];
-    const startsZone = Boolean(label.zoneName) && (!previousLabel || previousLabel.zoneName !== label.zoneName);
-    return renderPrintableQrLabel(label, settings, startsZone);
-  }).join('');
+  const labelsPerPage = settings.columns * getQrLabelSheetRows(settings);
+  const pageMarkup = [];
+  for (let pageStart = 0; pageStart < labels.length; pageStart += labelsPerPage) {
+    const labelsOnPage = labels.slice(pageStart, pageStart + labelsPerPage);
+    const labelMarkup = labelsOnPage.map((label, pageIndex) => {
+      const globalIndex = pageStart + pageIndex;
+      const previousLabel = labels[globalIndex - 1];
+      const startsZone = Boolean(label.zoneName) && (!previousLabel || previousLabel.zoneName !== label.zoneName);
+      return renderPrintableQrLabel(label, settings, startsZone);
+    }).join('');
+    pageMarkup.push(`<main class="sheet">${labelMarkup}</main>`);
+  }
   const fontFamily = getPrintFontFamily(settings.fontFamily);
 
   return `<!doctype html>
@@ -146,21 +153,30 @@ function buildQrPrintDocument(labels: QrLabelItem[], settings: QrLabelPrintSetti
   @page { size: A4 ${settings.orientation}; margin: 10mm; }
   * { box-sizing: border-box; }
   body { margin: 0; color: #000; font-family: ${fontFamily}; }
-  .sheet { display: grid; grid-template-columns: repeat(${settings.columns}, ${settings.labelWidthMm}mm); gap: ${settings.gapMm}mm; width: max-content; max-width: 100%; margin: 0 auto; padding-left: 4mm; align-items: start; justify-content: center; }
-  .label-slot { position: relative; width: ${settings.labelWidthMm}mm; min-height: ${settings.labelHeightMm}mm; break-inside: avoid; page-break-inside: avoid; }
-  .label { display: grid; align-content: center; justify-items: center; gap: 1.2mm; width: 100%; min-height: ${settings.labelHeightMm}mm; padding: ${settings.paddingMm}mm; border: 0.35mm solid #000; border-radius: 2mm; text-align: center; }
+  .sheet { display: grid; grid-template-columns: repeat(${settings.columns}, ${settings.labelWidthMm}mm); grid-auto-rows: ${settings.labelHeightMm}mm; gap: ${settings.gapMm}mm; width: max-content; max-width: 100%; margin: 0 auto; padding-left: 4mm; align-items: start; justify-content: center; break-after: page; page-break-after: always; }
+  .sheet:last-child { break-after: auto; page-break-after: auto; }
+  .label-slot { position: relative; width: ${settings.labelWidthMm}mm; height: ${settings.labelHeightMm}mm; overflow: hidden; break-inside: avoid; page-break-inside: avoid; }
+  .label { display: grid; align-content: center; justify-items: center; gap: 1.2mm; width: 100%; height: 100%; min-height: 0; overflow: hidden; padding: ${settings.paddingMm}mm; border: 0.35mm solid #000; border-radius: 2mm; text-align: center; }
   .label-main { display: grid; gap: 0.6mm; min-width: 0; width: 100%; }
-  .label-code { display: block; width: 100%; font-size: ${settings.codeFontPt}pt; font-style: italic; font-weight: 900; line-height: 0.92; overflow-wrap: anywhere; }
-  .label-species { display: ${settings.showSpecies ? 'block' : 'none'}; color: #333; font-size: ${settings.speciesFontPt}pt; line-height: 1.1; overflow-wrap: anywhere; }
+  .label-code { display: block; width: 100%; overflow: hidden; font-size: ${settings.codeFontPt}pt; font-style: italic; font-weight: 900; line-height: 0.92; text-overflow: ellipsis; white-space: nowrap; }
+  .label-species { display: ${settings.showSpecies ? '-webkit-box' : 'none'}; overflow: hidden; color: #333; font-size: ${settings.speciesFontPt}pt; line-height: 1.1; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
   .label-qr { display: grid; justify-items: center; }
   .label-qr img { width: ${settings.qrSizeMm}mm; height: ${settings.qrSizeMm}mm; image-rendering: pixelated; }
   .zone-marker { position: absolute; top: 1mm; bottom: 1mm; left: -3.4mm; z-index: 2; display: grid; align-items: center; padding-left: 0.8mm; border-left: 0.25mm solid #000; color: #000; font-size: 4.2pt; font-weight: 800; line-height: 1; letter-spacing: 0.2px; writing-mode: vertical-rl; transform: rotate(180deg); }
 </style>
 </head>
 <body>
-  <main class="sheet">${labelMarkup}</main>
+  ${pageMarkup.join('')}
 </body>
 </html>`;
+}
+
+export function getQrLabelSheetRows(settings: QrLabelPrintSettings) {
+  const printableHeightMm = settings.orientation === 'portrait' ? 277 : 190;
+  return Math.max(
+    1,
+    Math.floor((printableHeightMm + settings.gapMm) / (settings.labelHeightMm + settings.gapMm)),
+  );
 }
 
 function renderPrintableQrLabel(label: QrLabelItem, settings: QrLabelPrintSettings, showZoneMarker: boolean) {

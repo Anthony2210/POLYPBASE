@@ -23,7 +23,9 @@ import {
 import { getBoxStatusPresentation } from './boxStatus';
 import {
   createTranslator,
+  getStoredInterfaceLanguage,
   resolveLanguage,
+  setStoredInterfaceLanguage,
   type Language,
   type TranslationKey,
   type Translator,
@@ -308,6 +310,8 @@ export default function App() {
         const profile = await apiGet<UserProfile>('/api/profile/', { skipOrganizationContext: true });
 
         if (!isActive) return;
+
+        setStoredInterfaceLanguage(profile.interface_language);
 
         const organizations = getSelectableOrganizations(profile);
         const preferredOrganizationId = activeOrganizationId ?? getStoredActiveOrganizationId();
@@ -641,14 +645,36 @@ export default function App() {
   }
 
   async function updateLanguage(language: string) {
-    const profile = await apiPatch<UserProfile>('/api/profile/', {
-      interface_language: language,
-    });
+    const previousLanguage = getLanguage(data.profile);
+    const nextLanguage = setStoredInterfaceLanguage(language);
 
     setData((current) => ({
       ...current,
-      profile,
+      profile: current.profile
+        ? { ...current.profile, interface_language: nextLanguage }
+        : null,
     }));
+
+    try {
+      const profile = await apiPatch<UserProfile>('/api/profile/', {
+        interface_language: nextLanguage,
+      });
+
+      setStoredInterfaceLanguage(profile.interface_language);
+      setData((current) => ({
+        ...current,
+        profile,
+      }));
+    } catch (requestError) {
+      setStoredInterfaceLanguage(previousLanguage);
+      setData((current) => ({
+        ...current,
+        profile: current.profile
+          ? { ...current.profile, interface_language: previousLanguage }
+          : null,
+      }));
+      throw requestError;
+    }
   }
 
   async function logoutCurrentUser() {
@@ -1399,9 +1425,8 @@ function CreateBoxPanel({
   t: TFunction;
 }) {
   const [isOpen, setIsOpen] = useState(false);
-  const writableOrganizations = useMemo(() => getWritableOrganizations(profile), [profile]);
-  const initialOrganizationId = writableOrganizations[0]?.id ?? null;
-  const [organizationId, setOrganizationId] = useState<number | null>(initialOrganizationId);
+  const activeOrganization = profile?.active_organization ?? null;
+  const organizationId = activeOrganization?.id ?? null;
   const [strainId, setStrainId] = useState<number | null>(null);
   const [zoneId, setZoneId] = useState<number | null>(null);
   const [globalCode, setGlobalCode] = useState('');
@@ -1427,14 +1452,8 @@ function CreateBoxPanel({
   });
   const selectedStrain = strains.find((strain) => strain.id === strainId) ?? null;
   const availableZones = (exportOptions?.zones ?? []).filter((zone) => zone.organization_id === organizationId);
-  const selectedOrganization = writableOrganizations.find((organization) => organization.id === organizationId) ?? null;
   const selectedZone = availableZones.find((zone) => zone.id === zoneId) ?? null;
   const canSubmit = organizationId != null && strainId != null && globalCode.trim() && boxNumber.trim();
-
-  useEffect(() => {
-    if (organizationId != null || initialOrganizationId == null) return;
-    setOrganizationId(initialOrganizationId);
-  }, [initialOrganizationId, organizationId]);
 
   useEffect(() => {
     if (!strains.length || strainId != null) return;
@@ -1472,7 +1491,7 @@ function CreateBoxPanel({
         { label: t('confirmDetailBox'), value: globalCode.trim() },
         { label: t('confirmDetailSpecies'), value: selectedStrain?.species_name },
         { label: t('confirmDetailStrain'), value: selectedStrain?.code },
-        { label: t('confirmDetailOrganization'), value: selectedOrganization?.name },
+        { label: t('confirmDetailOrganization'), value: activeOrganization?.name },
         { label: t('confirmDetailLocation'), value: selectedZone?.name ?? t('createBoxNoZone') },
       ],
     });
@@ -1484,7 +1503,6 @@ function CreateBoxPanel({
 
     try {
       const created = await onCreateBox({
-        organization: organizationId,
         strain: strainId,
         thermal_zone: zoneId,
         global_code: globalCode.trim(),
@@ -1536,24 +1554,6 @@ function CreateBoxPanel({
           {isOptionsLoading ? <p className="muted compact-text">{t('loading')}</p> : null}
           {!isOptionsLoading && !strains.length ? <p className="muted compact-text">{t('createBoxNoOptions')}</p> : null}
 
-          <label>
-            <span>{t('createBoxOrganization')}</span>
-            <select
-              value={organizationId ?? ''}
-              onChange={(event) => {
-                setOrganizationId(Number(event.target.value));
-                setGlobalCode('');
-                setBoxNumber('');
-              }}
-            >
-              {writableOrganizations.map((organization) => (
-                <option key={organization.id} value={organization.id}>
-                  {organization.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
           <div className="create-box-strain-field">
             <div className="create-box-field-heading">
               <span>{t('createBoxStrain')}</span>
@@ -1596,7 +1596,7 @@ function CreateBoxPanel({
             </select>
           </div>
 
-          <label>
+          <label className="create-box-location-field">
             <span>{t('createBoxZone')}</span>
             <select value={zoneId ?? ''} onChange={(event) => setZoneId(event.target.value ? Number(event.target.value) : null)}>
               <option value="">{t('createBoxNoZone')}</option>
@@ -1608,17 +1608,17 @@ function CreateBoxPanel({
             </select>
           </label>
 
-          <label>
+          <label className="create-box-code-field">
             <span>{t('createBoxGlobalCode')}</span>
             <input required value={globalCode} onChange={(event) => setGlobalCode(event.target.value)} />
           </label>
 
-          <label>
+          <label className="create-box-number-field">
             <span>{t('createBoxNumber')}</span>
             <input required value={boxNumber} onChange={(event) => setBoxNumber(event.target.value)} />
           </label>
 
-          <label>
+          <label className="create-box-date-field">
             <span>{t('createBoxEnteredOn')}</span>
             <input required type="date" value={enteredOn} onChange={(event) => setEnteredOn(event.target.value)} />
           </label>
@@ -3487,6 +3487,9 @@ function getLabelsViewLabels(t: TFunction) {
     qrLabelPreview: t('qrLabelPreview'),
     qrLabelPrintSelection: t('qrLabelPrintSelection'),
     qrLabelSearchTitle: t('qrLabelSearchTitle'),
+    qrLabelSelectionEmpty: t('qrLabelSelectionEmpty'),
+    qrLabelSelectionFilter: t('qrLabelSelectionFilter'),
+    qrLabelSelectionHelp: t('qrLabelSelectionHelp'),
     qrLabelSelectionSearch: t('qrLabelSelectionSearch'),
     qrLabelSelectionTitle: t('qrLabelSelectionTitle'),
     qrLabelSearchPlaceholder: t('adminPrintLabelsSearchPlaceholder'),
@@ -3698,7 +3701,11 @@ function uniqueNumbers(values: number[]) {
 }
 
 function getLanguage(profile: UserProfile | null): Language {
-  return resolveLanguage(profile?.interface_language ?? window.navigator.language);
+  return resolveLanguage(
+    profile?.interface_language
+      ?? getStoredInterfaceLanguage()
+      ?? window.navigator.language,
+  );
 }
 
 function getSelectableOrganizations(profile: UserProfile | null) {
@@ -3770,26 +3777,6 @@ function userCanCreateBoxes(profile: UserProfile | null) {
   if (!profile) return false;
   if (profile.is_superuser) return true;
   return ['admin', 'lab_technician'].includes(getMembershipRole(profile, getActiveOrganizationId(profile)) ?? '');
-}
-
-function getWritableOrganizations(profile: UserProfile | null) {
-  if (!profile) return [];
-  const activeOrganizationId = getActiveOrganizationId(profile);
-  const activeOrganization = getOrganizationById(profile, activeOrganizationId);
-
-  if (profile.is_superuser) return activeOrganization ? [activeOrganization] : profile.organizations;
-
-  const writableIds = new Set(
-    profile.memberships
-      .filter((membership) => ['admin', 'lab_technician'].includes(membership.role))
-      .map((membership) => membership.organization.id),
-  );
-
-  if (activeOrganization && writableIds.has(activeOrganization.id)) {
-    return [activeOrganization];
-  }
-
-  return [];
 }
 
 function buildNextBoxCode(

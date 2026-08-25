@@ -192,18 +192,32 @@ function renderLoaderContent(variant: PageLoaderVariant) {
     case 'labels':
       return (
         <>
-          <Panel className="loader-label-toolbar">
-            <Block className="is-input-wide" />
-            <Block className="is-button" />
-          </Panel>
-          <Panel className="loader-label-list">
-            <Block className="is-input-wide" />
-            <div className="loader-label-grid"><Blocks count={9} /></div>
-          </Panel>
-          <Panel className="loader-sheet-preview">
-            <Block className="is-heading" />
-            <div className="loader-sheet"><Blocks count={12} /></div>
-          </Panel>
+          <div className="loader-label-tabs"><Blocks count={2} /></div>
+          <div className="loader-label-workspace">
+            <Panel className="loader-label-selection">
+              <div className="loader-label-heading">
+                <div>
+                  <Block className="is-heading" />
+                  <Block className="is-text" />
+                </div>
+                <div className="loader-label-actions"><Blocks count={2} /></div>
+              </div>
+              <div className="loader-label-controls"><Blocks count={2} className="is-input-wide" /></div>
+              <Block className="loader-label-group-heading" />
+              <div className="loader-label-grid"><Blocks count={8} /></div>
+              <Block className="loader-label-group-heading" />
+              <div className="loader-label-grid"><Blocks count={4} /></div>
+            </Panel>
+            <Panel className="loader-sheet-preview">
+              <div className="loader-label-preview-heading">
+                <Block className="is-heading" />
+                <Block className="is-button" />
+              </div>
+              <div className="loader-label-preview-summary"><Blocks count={2} /></div>
+              <div className="loader-sheet"><Blocks count={12} /></div>
+              <Block className="is-button" />
+            </Panel>
+          </div>
         </>
       );
 

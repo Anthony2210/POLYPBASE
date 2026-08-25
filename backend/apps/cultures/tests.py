@@ -213,7 +213,6 @@ class PolypbaseApiTests(TestCase):
             reverse("api_box_list"),
             data=json.dumps(
                 {
-                    "organization": self.organization.id,
                     "strain": self.strain.id,
                     "thermal_zone": self.zone.id,
                     "global_code": "1-ATL.002",
@@ -229,6 +228,7 @@ class PolypbaseApiTests(TestCase):
 
         self.assertEqual(response.status_code, 201)
         created_box = Box.objects.get(global_code="1-ATL.002")
+        self.assertEqual(created_box.organization, self.organization)
         self.assertEqual(created_box.status, Box.Status.ACTIVE)
         self.assertEqual(created_box.thermal_zone, self.zone)
         self.assertTrue(BoxLocation.objects.filter(box=created_box, thermal_zone=self.zone).exists())
@@ -255,7 +255,6 @@ class PolypbaseApiTests(TestCase):
             reverse("api_box_list"),
             data=json.dumps(
                 {
-                    "organization": self.organization.id,
                     "strain": self.strain.id,
                     "thermal_zone": self.zone.id,
                     "global_code": "1-ATL.002",
@@ -269,6 +268,29 @@ class PolypbaseApiTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertFalse(Box.objects.filter(global_code="1-ATL.002").exists())
 
+    def test_create_box_ignores_submitted_organization_and_uses_active_context(self):
+        self.client.login(username="tech", password="secret")
+
+        response = self.client.post(
+            reverse("api_box_list"),
+            data=json.dumps(
+                {
+                    "organization": self.other_organization.id,
+                    "strain": self.strain.id,
+                    "thermal_zone": self.zone.id,
+                    "global_code": "1-ATL.002",
+                    "box_number": "002",
+                    "entered_on": "2026-07-16",
+                }
+            ),
+            content_type="application/json",
+            HTTP_X_ORGANIZATION_ID=str(self.organization.id),
+        )
+
+        self.assertEqual(response.status_code, 201)
+        created_box = Box.objects.get(global_code="1-ATL.002")
+        self.assertEqual(created_box.organization, self.organization)
+
     def test_create_box_rejects_duplicate_global_code_with_french_error(self):
         self.client.login(username="tech", password="secret")
 
@@ -276,7 +298,6 @@ class PolypbaseApiTests(TestCase):
             reverse("api_box_list"),
             data=json.dumps(
                 {
-                    "organization": self.organization.id,
                     "strain": self.strain.id,
                     "thermal_zone": self.zone.id,
                     "global_code": self.box.global_code,
@@ -297,7 +318,6 @@ class PolypbaseApiTests(TestCase):
             reverse("api_box_list"),
             data=json.dumps(
                 {
-                    "organization": self.organization.id,
                     "strain": self.strain.id,
                     "thermal_zone": self.zone.id,
                     "global_code": "1-ATL.004",

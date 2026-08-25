@@ -6,6 +6,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from apps.accounts.models import UserPreference
+from apps.accounts.permissions import get_active_organization_from_request, user_can_write_lab_data
 from apps.audit.models import Alert, AuditLog
 from apps.cultures import qr
 from apps.cultures.models import (
@@ -335,7 +336,6 @@ class BiologicalMeasurementCreateSerializer(serializers.ModelSerializer):
 
 
 class BoxCreateSerializer(serializers.Serializer):
-    organization = serializers.PrimaryKeyRelatedField(queryset=Organization.objects.filter(is_active=True))
     strain = serializers.PrimaryKeyRelatedField(queryset=Strain.objects.select_related("species"))
     thermal_zone = serializers.PrimaryKeyRelatedField(
         queryset=ThermalZone.objects.filter(is_active=True),
@@ -351,16 +351,13 @@ class BoxCreateSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         request = self.context["request"]
-        organization = attrs["organization"]
+        organization = get_active_organization_from_request(request)
         thermal_zone = attrs.get("thermal_zone")
         global_code = attrs["global_code"].strip()
         box_number = attrs["box_number"].strip()
 
-        if not request.user.is_superuser:
-            from apps.accounts.permissions import user_can_write_lab_data
-
-            if not user_can_write_lab_data(request.user, organization):
-                raise serializers.ValidationError("Ce compte ne peut pas créer de boîte pour cette structure.")
+        if organization is None or not user_can_write_lab_data(request.user, organization):
+            raise serializers.ValidationError("Ce compte ne peut pas créer de boîte pour cette structure.")
 
         if thermal_zone and thermal_zone.organization_id != organization.id:
             raise serializers.ValidationError("L’emplacement doit appartenir à la structure de la boîte.")
@@ -381,6 +378,7 @@ class BoxCreateSerializer(serializers.Serializer):
 
         attrs["global_code"] = global_code
         attrs["box_number"] = box_number
+        attrs["organization"] = organization
 
         return attrs
 

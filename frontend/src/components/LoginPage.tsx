@@ -1,7 +1,11 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 
 import { ApiError, apiEnsureCsrfCookie, apiPost } from '../api/client';
-import type { Translator } from '../i18n';
+import { setStoredInterfaceLanguage, type Translator } from '../i18n';
+
+type SessionLoginResponse = {
+  interface_language: string;
+};
 
 type Props = {
   onAuthenticated: () => void;
@@ -61,7 +65,8 @@ export default function LoginPage({ onAuthenticated, t }: Props) {
 
     try {
       await apiEnsureCsrfCookie();
-      await apiPost<void>('/api/auth/session/', { username, password });
+      const session = await apiPost<SessionLoginResponse>('/api/auth/session/', { username, password });
+      setStoredInterfaceLanguage(session.interface_language);
       onAuthenticated();
     } catch (requestError) {
       if (requestError instanceof ApiError && requestError.status === 400) {

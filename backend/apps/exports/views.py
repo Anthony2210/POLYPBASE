@@ -1,6 +1,8 @@
 from datetime import date
 
+from django.db.models import Q
 from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -12,11 +14,21 @@ from apps.accounts.permissions import (
 )
 from apps.audit.models import AuditLog
 from apps.cultures.models import Box, ThermalZone
+from apps.cultures.serializers import (
+    BiologicalMeasurementSerializer,
+    BoxLocationSerializer,
+    BoxMovementSerializer,
+)
 from apps.taxonomy.models import Species, Strain
 
 from .models import DataExport
-from .serializers import MeasurementExportFilterSerializer
-from .services import build_weekly_measurement_csv, build_weekly_measurement_preview
+from .serializers import MeasurementExportFilterSerializer, MeasurementTrendFilterSerializer
+from .services import (
+    build_weekly_measurement_csv,
+    build_weekly_measurement_preview,
+    get_measurement_export_eligibility,
+    select_measurement_export_data,
+)
 
 
 class MeasurementExportOptionsAPIView(APIView):
@@ -94,6 +106,55 @@ class MeasurementExportOptionsAPIView(APIView):
         )
 
 
+class BoxMeasurementTrendAPIView(APIView):
+    """Return only the data needed to draw one box trend in the export page."""
+
+    def get(self, request, box_id):
+        serializer = MeasurementTrendFilterSerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        date_from = serializer.validated_data["date_from"]
+        date_to = serializer.validated_data["date_to"]
+        box = get_object_or_404(
+            Box.objects.filter(
+                organization_id__in=get_active_organization_ids(request),
+            ).only("id"),
+            id=box_id,
+        )
+
+        _, measurements = select_measurement_export_data(
+            boxes=Box.objects.filter(id=box.id),
+            date_from=date_from,
+            date_to=date_to,
+            zone_ids=serializer.validated_data["zones"],
+            include_other_zones=serializer.validated_data["include_other_zones"],
+        )
+        locations = box.locations.filter(
+            starts_at__date__lte=date_to,
+        ).filter(
+            Q(ends_at__isnull=True) | Q(ends_at__date__gte=date_from),
+        ).select_related("thermal_zone").order_by("starts_at")
+        movements = box.movements.filter(
+            moved_at__date__gte=date_from,
+            moved_at__date__lte=date_to,
+        ).select_related(
+            "from_thermal_zone",
+            "to_thermal_zone",
+            "user",
+        ).order_by("moved_at")
+
+        return Response(
+            {
+                "id": box.id,
+                "biological_measurements": BiologicalMeasurementSerializer(
+                    measurements,
+                    many=True,
+                ).data,
+                "locations": BoxLocationSerializer(locations, many=True).data,
+                "movements": BoxMovementSerializer(movements, many=True).data,
+            }
+        )
+
+
 class WeeklyMeasurementCSVExportAPIView(APIView):
     """Export biological measurements in the historical weekly wide format."""
 
@@ -111,7 +172,14 @@ class WeeklyMeasurementCSVExportAPIView(APIView):
             boxes=boxes,
             date_from=filters.get("date_from"),
             date_to=filters.get("date_to"),
+            zone_ids=filters["zones"],
+            include_other_zones=filters["include_other_zones"],
         )
+        if metadata["box_count"] == 0:
+            return Response(
+                {"detail": "Aucun relevé ne correspond aux filtres et à la période sélectionnés."},
+                status=400,
+            )
         filename = f"polypbase_suivi_{date.today():%Y%m%d}.csv"
         recorded_filters = {
             key: value.isoformat() if hasattr(value, "isoformat") else value
@@ -120,7 +188,9 @@ class WeeklyMeasurementCSVExportAPIView(APIView):
         }
 
         exported_organization_ids = list(
-            boxes.values_list("organization_id", flat=True).distinct()
+            boxes.filter(id__in=metadata["box_ids"])
+            .values_list("organization_id", flat=True)
+            .distinct()
         )
         for organization_id in exported_organization_ids:
             DataExport.objects.create(
@@ -180,7 +250,30 @@ class WeeklyMeasurementPreviewAPIView(APIView):
                 boxes=boxes,
                 date_from=filters.get("date_from"),
                 date_to=filters.get("date_to"),
+                zone_ids=filters["zones"],
+                include_other_zones=filters["include_other_zones"],
             )
+        )
+
+
+class MeasurementExportEligibleBoxesAPIView(APIView):
+    """Return boxes that have at least one measurement matching the export scope."""
+
+    def get(self, request):
+        filters = _get_validated_export_filters(request)
+        boxes = _get_filtered_export_boxes(request, filters)
+        box_ids, measurement_count = get_measurement_export_eligibility(
+            boxes=boxes,
+            date_from=filters.get("date_from"),
+            date_to=filters.get("date_to"),
+            zone_ids=filters["zones"],
+            include_other_zones=filters["include_other_zones"],
+        )
+        return Response(
+            {
+                "box_ids": box_ids,
+                "measurement_count": measurement_count,
+            }
         )
 
 
@@ -211,6 +304,4 @@ def _apply_measurement_export_filters(boxes, filters):
         boxes = boxes.filter(strain_id__in=filters["strains"])
     if filters["boxes"]:
         boxes = boxes.filter(id__in=filters["boxes"])
-    if filters["zones"]:
-        boxes = boxes.filter(thermal_zone_id__in=filters["zones"])
     return boxes.distinct()

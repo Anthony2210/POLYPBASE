@@ -38,6 +38,7 @@ class MeasurementExportFilterSerializer(serializers.Serializer):
     strains = CommaSeparatedIntegerListField(required=False, default=list)
     boxes = CommaSeparatedIntegerListField(required=False, default=list)
     zones = CommaSeparatedIntegerListField(required=False, default=list)
+    include_other_zones = serializers.BooleanField(required=False, default=False)
     date_from = serializers.DateField(required=False)
     date_to = serializers.DateField(required=False)
 
@@ -45,6 +46,20 @@ class MeasurementExportFilterSerializer(serializers.Serializer):
         date_from = attrs.get("date_from")
         date_to = attrs.get("date_to")
         if date_from and date_to and date_from > date_to:
+            raise serializers.ValidationError(
+                {"date_to": "The end date must be after or equal to the start date."}
+            )
+        return attrs
+
+
+class MeasurementTrendFilterSerializer(serializers.Serializer):
+    zones = CommaSeparatedIntegerListField(required=False, default=list)
+    include_other_zones = serializers.BooleanField(required=False, default=False)
+    date_from = serializers.DateField(required=True)
+    date_to = serializers.DateField(required=True)
+
+    def validate(self, attrs):
+        if attrs["date_from"] > attrs["date_to"]:
             raise serializers.ValidationError(
                 {"date_to": "The end date must be after or equal to the start date."}
             )
