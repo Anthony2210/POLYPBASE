@@ -116,7 +116,7 @@ if ([string]::IsNullOrWhiteSpace($SshKeyPath)) {
         $SshKeyPath = $env:POLYPBASE_SSH_KEY
     }
     else {
-        $SshKeyPath = Join-Path $HOME 'OneDrive\Documents\polypbase-vm-anthony.ppk'
+        throw 'SSH key path is required. Set POLYPBASE_SSH_KEY or use -SshKeyPath.'
     }
 }
 $script:ResolvedKeyPath = (Resolve-Path -LiteralPath $SshKeyPath).Path
