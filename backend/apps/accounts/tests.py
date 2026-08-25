@@ -61,6 +61,10 @@ class SessionLoginApiTests(TestCase):
         self.login_url = reverse("api_session_login")
 
     def test_session_login_sets_an_authenticated_session(self):
+        UserPreference.objects.create(
+            user=self.user,
+            interface_language=UserPreference.InterfaceLanguage.ENGLISH,
+        )
         client = Client(enforce_csrf_checks=True)
         csrf_response = client.get(self.login_url)
         csrf_token = csrf_response.cookies["csrftoken"].value
@@ -71,7 +75,9 @@ class SessionLoginApiTests(TestCase):
             HTTP_X_CSRFTOKEN=csrf_token,
         )
 
-        self.assertEqual(response.status_code, 204)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["interface_language"], UserPreference.InterfaceLanguage.ENGLISH)
+        self.assertEqual(client.session["interface_language"], UserPreference.InterfaceLanguage.ENGLISH)
         profile_response = client.get(reverse("api_profile"))
         self.assertEqual(profile_response.status_code, 200)
         self.assertEqual(profile_response.json()["username"], self.user.username)
@@ -116,7 +122,7 @@ class SessionLoginApiTests(TestCase):
             data={"username": "tech", "password": "secret"},
         )
 
-        self.assertEqual(response.status_code, 204)
+        self.assertEqual(response.status_code, 200)
         self.assertFalse(
             AuthenticationThrottle.objects.filter(scope="login_account").exists()
         )

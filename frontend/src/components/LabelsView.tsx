@@ -1,16 +1,17 @@
-import { type CSSProperties, useMemo, useState } from 'react';
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { BoxItem, UserProfile } from '../types';
 import {
   DEFAULT_QR_LABEL_PRINT_SETTINGS,
   buildQrLabelItem,
+  getQrLabelSheetRows,
   printQrLabels,
   type QrLabelItem,
-  type QrLabelPrintSettings,
 } from '../utils/qrLabels';
 import PageLoader from './PageLoader';
-import PolypbaseIcon from './PolypbaseIcon';
 import QrLabel from './QrLabel';
+
+const LABEL_TABLET_MEDIA_QUERY = '(min-width: 760px) and (max-width: 1023px), (min-width: 760px) and (max-width: 1180px) and (pointer: coarse)';
 
 type LabelsViewLabels = {
   allZones: string;
@@ -23,6 +24,9 @@ type LabelsViewLabels = {
   qrLabelPreview: string;
   qrLabelPrintSelection: string;
   qrLabelSearchTitle: string;
+  qrLabelSelectionEmpty: string;
+  qrLabelSelectionFilter: string;
+  qrLabelSelectionHelp: string;
   qrLabelSelectionSearch: string;
   qrLabelSelectionTitle: string;
   qrLabelSearchPlaceholder: string;
@@ -51,6 +55,11 @@ export default function LabelsView({
 }) {
   const [labelSearch, setLabelSearch] = useState('');
   const [zoneFilter, setZoneFilter] = useState('all');
+  const [usesTabletZoneFilters, setUsesTabletZoneFilters] = useState(matchesLabelTabletLayout);
+  const [activeWorkspacePanel, setActiveWorkspacePanel] = useState<'selection' | 'preview'>('selection');
+  const [previewPageIndex, setPreviewPageIndex] = useState(0);
+  const workspaceRef = useRef<HTMLElement | null>(null);
+  const selectorRef = useRef<HTMLDivElement | null>(null);
   const printSettings = DEFAULT_QR_LABEL_PRINT_SETTINGS;
   const labelCutoffDate = useMemo(() => getRecentLabelCutoffDate(), []);
   const canManageQrLabels = profile ? userCanManageQrLabels(profile) : false;
@@ -85,6 +94,9 @@ export default function LabelsView({
     () => getLabelZoneOptions(eligibleLabelBoxes, labels.noZone),
     [eligibleLabelBoxes, labels.noZone],
   );
+  const activeZoneFilter = usesTabletZoneFilters
+    ? zoneOptions.find((zone) => zone.key === zoneFilter)?.key ?? zoneOptions[0]?.key ?? 'all'
+    : zoneFilter;
   const selectedLabels = useMemo(
     () => qrLabelSelection
       .filter((label) => authorizedBoxIds.has(label.id))
@@ -101,7 +113,7 @@ export default function LabelsView({
   );
   const labelBoxes = useMemo(() => {
     return eligibleLabelBoxes.filter((box) => {
-      if (zoneFilter !== 'all' && getLabelZoneKey(box) !== zoneFilter) return false;
+      if (activeZoneFilter !== 'all' && getLabelZoneKey(box) !== activeZoneFilter) return false;
       if (!normalizedLabelSearch) return true;
 
       return [
@@ -113,21 +125,41 @@ export default function LabelsView({
         .filter(Boolean)
         .some((value) => value!.toLocaleLowerCase().includes(normalizedLabelSearch));
     });
-  }, [eligibleLabelBoxes, normalizedLabelSearch, zoneFilter]);
+  }, [activeZoneFilter, eligibleLabelBoxes, normalizedLabelSearch]);
   const labelGroups = useMemo(
     () => groupLabelBoxes(labelBoxes, labels.noZone),
     [labelBoxes, labels.noZone],
   );
-  const sheetRows = getSheetRows(printSettings);
+  const labelBoxesToAdd = useMemo(
+    () => labelBoxes.filter((box) => !selectedLabelIds.has(box.id)),
+    [labelBoxes, selectedLabelIds],
+  );
+  const sheetRows = getQrLabelSheetRows(printSettings);
   const labelsPerPage = printSettings.columns * sheetRows;
   const previewPages = useMemo(
     () => chunkLabels(selectedLabels, labelsPerPage),
     [labelsPerPage, selectedLabels],
   );
+  const previewPageCount = Math.max(previewPages.length, 1);
+  const previewPageLabels = previewPages[previewPageIndex] ?? [];
   const sheetPreviewStyle = {
     '--label-sheet-columns': String(printSettings.columns),
     '--label-sheet-rows': String(sheetRows),
+    '--label-preview-ratio': `${printSettings.labelWidthMm} / ${printSettings.labelHeightMm}`,
   } as CSSProperties;
+
+  useEffect(() => {
+    setPreviewPageIndex((currentIndex) => Math.min(currentIndex, previewPageCount - 1));
+  }, [previewPageCount]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(LABEL_TABLET_MEDIA_QUERY);
+    const updateTabletLayout = () => setUsesTabletZoneFilters(mediaQuery.matches);
+
+    updateTabletLayout();
+    mediaQuery.addEventListener('change', updateTabletLayout);
+    return () => mediaQuery.removeEventListener('change', updateTabletLayout);
+  }, []);
 
   if (isLoading) {
     return <PageLoader variant="labels" label={labels.qrLabelSelectionTitle} />;
@@ -144,11 +176,89 @@ export default function LabelsView({
     onAddQrLabel(label);
   }
 
+  function showWorkspacePanel(panel: 'selection' | 'preview') {
+    setActiveWorkspacePanel(panel);
+    requestAnimationFrame(() => {
+      workspaceRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
+  function selectZoneFilter(zoneKey: string) {
+    setZoneFilter(zoneKey);
+    requestAnimationFrame(() => {
+      selectorRef.current?.scrollIntoView({ block: 'start' });
+    });
+  }
+
   return (
     <section className="profile-page labels-page">
-      <section className="profile-block profile-label-section">
+      <section className="profile-block profile-label-section" ref={workspaceRef}>
+        <nav className="label-workspace-tabs" aria-label={labels.qrLabelSettingsTitle}>
+          <button
+            className={activeWorkspacePanel === 'selection' ? 'is-active' : undefined}
+            type="button"
+            aria-pressed={activeWorkspacePanel === 'selection'}
+            onClick={() => showWorkspacePanel('selection')}
+          >
+            {labels.qrLabelSelectionTitle}
+          </button>
+          <button
+            className={activeWorkspacePanel === 'preview' ? 'is-active' : undefined}
+            type="button"
+            aria-pressed={activeWorkspacePanel === 'preview'}
+            onClick={() => showWorkspacePanel('preview')}
+          >
+            {labels.qrLabelPreview}
+          </button>
+        </nav>
+
         <div className="label-page-stack">
-          <section className="label-step-card">
+          <section className={`label-step-card label-selection-card${activeWorkspacePanel === 'selection' ? '' : ' is-tablet-hidden'}`}>
+            <div className="label-tablet-zone-filters" role="group" aria-label={labels.zoneLabel}>
+              {zoneOptions.map((zone) => {
+                const isActive = activeZoneFilter === zone.key;
+                return (
+                  <button
+                    type="button"
+                    className={`overview-zone-progress-card label-tablet-zone-filter${isActive ? ' is-active' : ''}`}
+                    aria-pressed={isActive}
+                    key={zone.key}
+                    onClick={() => selectZoneFilter(zone.key)}
+                    onPointerUp={(event) => event.currentTarget.blur()}
+                  >
+                    <span className="overview-zone-progress-copy">
+                      <strong>{zone.name}</strong>
+                    </span>
+                    <em className="overview-zone-progress-count">
+                      <strong>{zone.count}</strong>
+                    </em>
+                  </button>
+                );
+              })}
+            </div>
+
+            <header className="label-selection-heading">
+              <div className="label-selection-copy">
+                <div>
+                  <h2>{labels.qrLabelSelectionTitle}</h2>
+                  <span>{selectedLabels.length} / {eligibleLabelBoxes.length}</span>
+                </div>
+                <p>{labels.qrLabelSelectionHelp}</p>
+              </div>
+              <div className="admin-label-actions">
+                <button
+                  type="button"
+                  disabled={!labelBoxesToAdd.length}
+                  onClick={() => labelBoxesToAdd.forEach((box) => onAddQrLabel(buildQrLabelItem(box)))}
+                >
+                  {labels.qrLabelAddToSelection}
+                </button>
+                <button type="button" disabled={!selectedLabels.length} onClick={onClearQrLabelSelection}>
+                  {labels.qrLabelClearSelection}
+                </button>
+              </div>
+            </header>
+
             <div className="profile-label-toolbar">
               <label className="admin-label-search profile-label-search">
                 <span>{labels.qrLabelSearchTitle}</span>
@@ -159,22 +269,7 @@ export default function LabelsView({
                   onChange={(event) => setLabelSearch(event.target.value)}
                 />
               </label>
-              <div className="admin-label-actions">
-                <button
-                  type="button"
-                  disabled={!labelBoxes.length}
-                  onClick={() => labelBoxes.forEach((box) => onAddQrLabel(buildQrLabelItem(box)))}
-                >
-                  {labels.qrLabelAddToSelection}
-                </button>
-                <button type="button" disabled={!qrLabelSelection.length} onClick={onClearQrLabelSelection}>
-                  {labels.qrLabelClearSelection}
-                </button>
-              </div>
-            </div>
-
-            <div className="label-filter-panel">
-              <label>
+              <label className="label-filter-panel">
                 <span>{labels.zoneLabel}</span>
                 <select value={zoneFilter} onChange={(event) => setZoneFilter(event.target.value)}>
                   <option value="all">{labels.allZones}</option>
@@ -187,7 +282,7 @@ export default function LabelsView({
               </label>
             </div>
 
-            <div className="admin-label-selector profile-label-selector">
+            <div className="admin-label-selector profile-label-selector" ref={selectorRef}>
               {labelGroups.map((group) => (
                 <section className="label-zone-group" key={group.key}>
                   <header>
@@ -199,17 +294,20 @@ export default function LabelsView({
                     {group.boxes.map((box) => {
                       const isSelected = selectedLabelIds.has(box.id);
                       return (
-                        <label className={isSelected ? 'is-selected' : undefined} key={box.id}>
+                        <label
+                          className={isSelected ? 'is-selected' : undefined}
+                          key={box.id}
+                          title={`${box.global_code} — ${box.species.scientific_name}`}
+                        >
                           <input
                             type="checkbox"
                             checked={isSelected}
                             onChange={() => toggleQrLabel(box)}
                           />
-                          <span>
-                            <strong>{box.global_code}</strong>
-                            <small>{box.species.scientific_name}</small>
+                          <span className="label-box-copy">
+                            <strong title={box.global_code}>{box.global_code}</strong>
+                            <small title={box.species.scientific_name}>{box.species.scientific_name}</small>
                           </span>
-                          <em>{box.strain.code}</em>
                         </label>
                       );
                     })}
@@ -223,49 +321,75 @@ export default function LabelsView({
 
           </section>
 
-          <section className="label-step-card label-layout-card">
+          <section className={`label-step-card label-layout-card${activeWorkspacePanel === 'preview' ? '' : ' is-tablet-hidden'}`}>
             <section className="label-preview-card">
               <div className="label-panel-heading">
                 <h3>{labels.qrLabelPreview}</h3>
+                <div className="label-preview-pagination">
+                  <button
+                    type="button"
+                    disabled={previewPageIndex === 0}
+                    aria-label={`${labels.qrLabelPage} ${Math.max(previewPageIndex, 1)}`}
+                    onClick={() => setPreviewPageIndex((currentIndex) => Math.max(currentIndex - 1, 0))}
+                  >
+                    <span aria-hidden="true">&#8249;</span>
+                  </button>
+                  <span>{labels.qrLabelPage} {previewPageIndex + 1} / {previewPageCount}</span>
+                  <button
+                    type="button"
+                    disabled={previewPageIndex >= previewPageCount - 1}
+                    aria-label={`${labels.qrLabelPage} ${Math.min(previewPageIndex + 2, previewPageCount)}`}
+                    onClick={() => setPreviewPageIndex((currentIndex) => Math.min(currentIndex + 1, previewPageCount - 1))}
+                  >
+                    <span aria-hidden="true">&#8250;</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="label-preview-summary">
+                <div>
+                  <span>{labels.qrLabelSelectionFilter}</span>
+                  <strong>{selectedLabels.length}</strong>
+                </div>
+                <div>
+                  <span>{labels.qrLabelPerPage}</span>
+                  <strong>{labelsPerPage}</strong>
+                </div>
               </div>
 
               <div className="label-pages-preview">
-                {(previewPages.length ? previewPages : [[]]).map((pageLabels, pageIndex) => (
-                  <article className="label-print-page-preview" key={`page-${pageIndex}`}>
-                    <div className="label-print-page-heading">
-                      <strong>
-                        {labels.qrLabelPage} {pageIndex + 1}
-                      </strong>
-                      <span>
-                        {pageLabels.length} / {labelsPerPage}
-                      </span>
-                    </div>
-                    <div className="label-preview-stage">
-                      <div className="label-sheet-preview" style={sheetPreviewStyle}>
-                        {Array.from({ length: labelsPerPage }).map((_, index) => {
-                          const label = pageLabels[index];
-                          const globalIndex = pageIndex * labelsPerPage + index;
-                          const previousLabel = selectedLabels[globalIndex - 1];
-                          const startsZone = Boolean(label?.zoneName)
-                            && (!previousLabel || previousLabel.zoneName !== label.zoneName);
-                          return (
-                            <div
-                              className="label-preview-slot"
-                              key={label?.id ?? `empty-${pageIndex}-${index}`}
-                            >
-                              {label && startsZone ? <span className="label-preview-zone-marker">{label.zoneName}</span> : null}
-                              {label ? (
-                                <QrLabel item={label} />
-                              ) : (
-                                <div className="label-preview-tile is-empty" />
-                              )}
-                            </div>
-                          );
-                        })}
+                <article className="label-print-page-preview" key={`page-${previewPageIndex}`}>
+                  <div className={`label-preview-stage${selectedLabels.length ? '' : ' is-empty'}`}>
+                    {!selectedLabels.length ? (
+                      <div className="label-preview-empty">
+                        <strong>{labels.qrLabelSelectionEmpty}</strong>
+                        <span>{labels.qrLabelSelectionHelp}</span>
                       </div>
+                    ) : null}
+                    <div className="label-sheet-preview" style={sheetPreviewStyle}>
+                      {Array.from({ length: labelsPerPage }).map((_, index) => {
+                        const label = previewPageLabels[index];
+                        const globalIndex = previewPageIndex * labelsPerPage + index;
+                        const previousLabel = selectedLabels[globalIndex - 1];
+                        const startsZone = Boolean(label?.zoneName)
+                          && (!previousLabel || previousLabel.zoneName !== label.zoneName);
+                        return (
+                          <div
+                            className="label-preview-slot"
+                            key={label?.id ?? `empty-${previewPageIndex}-${index}`}
+                          >
+                            {label && startsZone ? <span className="label-preview-zone-marker">{label.zoneName}</span> : null}
+                            {label ? (
+                              <QrLabel item={label} />
+                            ) : (
+                              <div className="label-preview-tile is-empty" />
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
-                  </article>
-                ))}
+                  </div>
+                </article>
               </div>
             </section>
 
@@ -276,10 +400,7 @@ export default function LabelsView({
                 disabled={!selectedLabels.length}
                 onClick={() => printQrLabels(selectedLabels, printSettings)}
               >
-                <span className="button-icon-label">
-                  <PolypbaseIcon name="print" size={18} />
-                  {labels.qrLabelPrintSelection}
-                </span>
+                {labels.qrLabelPrintSelection}
               </button>
             </div>
           </section>
@@ -353,13 +474,18 @@ function groupLabelBoxes(boxes: BoxItem[], noZoneLabel: string) {
 }
 
 function getLabelZoneOptions(boxes: BoxItem[], noZoneLabel: string) {
-  const zones = new Map<string, string>();
+  const zones = new Map<string, { name: string; count: number }>();
 
   boxes.forEach((box) => {
-    zones.set(getLabelZoneKey(box), box.thermal_zone?.name ?? noZoneLabel);
+    const key = getLabelZoneKey(box);
+    const zone = zones.get(key);
+    zones.set(key, {
+      name: box.thermal_zone?.name ?? noZoneLabel,
+      count: (zone?.count ?? 0) + 1,
+    });
   });
 
-  return Array.from(zones, ([key, name]) => ({ key, name }))
+  return Array.from(zones, ([key, zone]) => ({ key, ...zone }))
     .sort((first, second) => compareLabelValue(first.name, second.name));
 }
 
@@ -367,19 +493,15 @@ function getLabelZoneKey(box: BoxItem) {
   return box.thermal_zone ? `zone-${box.thermal_zone.id}` : 'zone-none';
 }
 
+function matchesLabelTabletLayout() {
+  return typeof window !== 'undefined' && window.matchMedia(LABEL_TABLET_MEDIA_QUERY).matches;
+}
+
 function getRecentLabelCutoffDate() {
   const date = new Date();
   date.setMonth(date.getMonth() - 15);
   date.setHours(0, 0, 0, 0);
   return date;
-}
-
-function getSheetRows(settings: QrLabelPrintSettings) {
-  const printableHeightMm = 277;
-  return Math.max(
-    1,
-    Math.floor((printableHeightMm + settings.gapMm) / (settings.labelHeightMm + settings.gapMm)),
-  );
 }
 
 function chunkLabels(labels: QrLabelItem[], size: number) {

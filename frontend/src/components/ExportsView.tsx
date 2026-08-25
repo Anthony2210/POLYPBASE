@@ -1,19 +1,19 @@
-import { useEffect, useMemo, useState } from 'react';
-import { scaleLinear, scalePoint, type ScaleLinear } from 'd3-scale';
-import { line } from 'd3-shape';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { apiDownload, apiGet } from '../api/client';
-import type { ExportOptions } from '../types';
-import ModalPortal from './ModalPortal';
+import type { BoxDetail, ExportOptions } from '../types';
+import { addChartMonths, parseChartDate, toChartDateString } from '../utils/chartWindow';
+import BiologicalTrendChart from './BiologicalTrendChart';
 import PageLoader from './PageLoader';
 import PolypbaseIcon from './PolypbaseIcon';
 
 type Language = 'fr' | 'en';
-type FilterKey = 'organizations' | 'species' | 'strains' | 'boxes' | 'zones';
+type FilterKey = 'species' | 'strains' | 'boxes' | 'zones';
 
 type ExportFilters = Record<FilterKey, number[]> & {
   dateFrom: string;
   dateTo: string;
+  includeOtherZones: boolean;
 };
 
 type FilterOption = {
@@ -22,72 +22,48 @@ type FilterOption = {
   detail?: string;
 };
 
-type ExportPreviewPoint = {
+type PreviewBoxOption = {
+  id: number;
   label: string;
-  polyp_count: number;
-  ephyrae_count: number;
-  average_temperature_c: number | null;
+  detail: string;
+  zone: string | null;
+};
+
+type BoxTrendPreview = Pick<
+  BoxDetail,
+  'id' | 'biological_measurements' | 'locations' | 'movements'
+>;
+
+type ExportEligibility = {
+  box_ids: number[];
   measurement_count: number;
 };
 
-type ExportPreview = {
-  points: ExportPreviewPoint[];
-  metadata: {
-    box_count: number;
-    measurement_count: number;
-    week_count: number;
-    date_from: string | null;
-    date_to: string | null;
-  };
-};
-
-type ComparisonMode = 'boxes' | 'strains';
-type PreviewMetric = 'general' | 'polyps' | 'ephyrae' | 'temperature';
-
-// Metrics overlaid when the "general" view is selected.
-const GENERAL_METRICS: PreviewMetric[] = ['polyps', 'ephyrae', 'temperature'];
-
-type ComparisonGroup = {
-  id: number;
-  key: string;
-  label: string;
-  detail: string;
-  mode: ComparisonMode;
-};
+const PREVIEW_PICKER_PAGE_SIZE = 16;
 
 const emptyFilters: ExportFilters = {
-  organizations: [],
   species: [],
   strains: [],
   boxes: [],
   zones: [],
   dateFrom: '',
   dateTo: '',
+  includeOtherZones: false,
 };
-
-const DEFAULT_WEEKS_WINDOW = 20;
-const MIN_WEEKS_WINDOW = 4;
 
 const copy = {
   fr: {
     all: 'Toutes',
-    allCharts: 'Voir tous les graphiques',
-    comparisonByBoxes: 'Par bo\u00eete',
-    comparisonByStrains: 'Par souche',
-    comparisonTitle: 'Comparer les relev\u00e9s',
-    close: 'Fermer',
     filtersTitle: 'Filtres',
     periodTitle: 'P\u00e9riode',
-    selectedMeasurementsTitle: 'Relev\u00e9s s\u00e9lectionn\u00e9s',
+    selectedMeasurementsTitle: 'Analyse des relev\u00e9s',
     allHistory: "Tout l'historique",
-    weeksWindowLabel: 'Semaines affich\u00e9es',
-    weeksShown: 'derni\u00e8res semaines',
-    allWeeksShort: "Tout l'historique",
-    selectFilterPrompt: 'S\u00e9lectionnez au moins un filtre (structure, esp\u00e8ce, souche, emplacement, bo\u00eete ou p\u00e9riode) pour afficher les graphiques.',
     boxes: 'Boîtes',
     boxesFound: 'boîtes',
+    boxPreviewHelp: 'Lecture détaillée d’une boîte sur la période d’export.',
     clear: 'Effacer',
     dateFrom: 'Date de début',
+    dateRangeSeparator: 'au',
     dateTo: 'Date de fin',
     download: 'Télécharger le CSV',
     downloading: 'Préparation...',
@@ -96,49 +72,59 @@ const copy = {
     format: 'CSV hebdomadaire',
     formatHelp: 'Polypes, éphyrules et température pour chaque boîte.',
     invalidPeriod: 'La date de fin doit être postérieure à la date de début.',
+    eligibilityError: 'Impossible de vérifier les relevés correspondant aux filtres.',
     noBoxes: 'Aucune boîte ne correspond à ces filtres.',
-    organizations: 'Structures',
-    organizationsFound: 'structures',
+    noLocation: 'Sans emplacement',
+    noPreviewBox: 'Aucune boîte trouvée',
     optionCount: 'valeurs',
-    previewEmpty: 'Aucune donnée à afficher avec cette sélection.',
-    previewError: 'Impossible de charger l’aperçu.',
-    previewLoading: 'Chargement de l’aperçu...',
-    previewMeasurements: 'relevés',
-    previewTitle: 'Aperçu des données sélectionnées',
+    previewEmpty: 'Aucun relevé à afficher pour cette boîte et cette période.',
+    previewEmptyHint: 'Modifiez la période ou consultez une autre boîte.',
+    previewEmptyTitle: 'Aucun relevé sur cette période',
+    previewError: 'Impossible de charger les relevés de cette boîte.',
+    previewLoading: 'Chargement des relevés...',
+    previewMeasurements: 'Relevés',
+    previewPagination: 'Pages des boîtes',
+    previewPaginationNext: 'Page suivante',
+    previewPaginationPage: 'Page',
+    previewPaginationPrevious: 'Page précédente',
+    previewPeriod: 'Période analysée',
+    previewReading: 'Relevé consulté',
+    previewTitle: 'Évolution des relevés',
+    previewZone: 'Emplacement actuel',
+    previousBox: 'Boîte précédente',
+    nextBox: 'Boîte suivante',
     reset: 'Tout réinitialiser',
     searchBoxes: 'Rechercher une boîte',
     searchBoxesPlaceholder: 'Code global, local, espèce ou souche',
+    searchPreviewBoxPlaceholder: 'Code, espèce, souche ou emplacement',
     searchSpecies: 'Rechercher une espèce',
     searchSpeciesPlaceholder: 'Nom scientifique ou commun',
     searchStrains: 'Rechercher une souche',
     searchStrainsPlaceholder: 'Code souche ou espèce',
     selected: 'sélection',
+    selectPreviewBox: 'Boîte analysée',
+    selectPreviewBoxPlaceholder: 'Choisir une boîte',
     species: 'Espèces',
     speciesFound: 'espèces',
     strains: 'Souches',
     temperature: 'Température',
     success: 'Fichier téléchargé',
     zones: 'Emplacements thermiques',
+    zoneScopeLabel: 'Inclure aussi les relevés réalisés dans d’autres emplacements',
+    zoneScopeHelp: 'Sinon, seuls les relevés réalisés dans les emplacements sélectionnés sont conservés.',
   },
   en: {
     all: 'All',
-    allCharts: 'View all charts',
-    comparisonByBoxes: 'By box',
-    comparisonByStrains: 'By strain',
-    comparisonTitle: 'Compare measurements',
-    close: 'Close',
     filtersTitle: 'Filters',
     periodTitle: 'Period',
-    selectedMeasurementsTitle: 'Selected measurements',
+    selectedMeasurementsTitle: 'Measurement review',
     allHistory: 'Full history',
-    weeksWindowLabel: 'Weeks shown',
-    weeksShown: 'last weeks',
-    allWeeksShort: 'Full history',
-    selectFilterPrompt: 'Select at least one filter (organization, species, strain, zone, box or period) to display the charts.',
     boxes: 'Boxes',
     boxesFound: 'boxes',
+    boxPreviewHelp: 'Detailed review of one box over the export period.',
     clear: 'Clear',
     dateFrom: 'Start date',
+    dateRangeSeparator: 'to',
     dateTo: 'End date',
     download: 'Download CSV',
     downloading: 'Preparing...',
@@ -147,29 +133,46 @@ const copy = {
     format: 'Weekly CSV',
     formatHelp: 'Polyps, ephyrae and temperature for each box.',
     invalidPeriod: 'The end date must be after the start date.',
+    eligibilityError: 'Unable to check measurements matching the filters.',
     noBoxes: 'No box matches these filters.',
-    organizations: 'Organizations',
-    organizationsFound: 'organizations',
+    noLocation: 'No location',
+    noPreviewBox: 'No box found',
     optionCount: 'values',
-    previewEmpty: 'No data to show for this selection.',
-    previewError: 'Unable to load the preview.',
-    previewLoading: 'Loading preview...',
-    previewMeasurements: 'measurements',
-    previewTitle: 'Selected data preview',
+    previewEmpty: 'No measurement to show for this box and period.',
+    previewEmptyHint: 'Change the period or review another box.',
+    previewEmptyTitle: 'No measurement in this period',
+    previewError: 'Unable to load this box’s measurements.',
+    previewLoading: 'Loading measurements...',
+    previewMeasurements: 'Measurements',
+    previewPagination: 'Box pages',
+    previewPaginationNext: 'Next page',
+    previewPaginationPage: 'Page',
+    previewPaginationPrevious: 'Previous page',
+    previewPeriod: 'Analysed period',
+    previewReading: 'Reviewed measurement',
+    previewTitle: 'Measurement trends',
+    previewZone: 'Current location',
+    previousBox: 'Previous box',
+    nextBox: 'Next box',
     reset: 'Reset all',
     searchBoxes: 'Search for a box',
     searchBoxesPlaceholder: 'Global code, local code, species or strain',
+    searchPreviewBoxPlaceholder: 'Code, species, strain or location',
     searchSpecies: 'Search for a species',
     searchSpeciesPlaceholder: 'Scientific or common name',
     searchStrains: 'Search for a strain',
     searchStrainsPlaceholder: 'Strain code or species',
     selected: 'selected',
+    selectPreviewBox: 'Analysed box',
+    selectPreviewBoxPlaceholder: 'Choose a box',
     species: 'Species',
     speciesFound: 'species',
     strains: 'Strains',
     temperature: 'Temperature',
     success: 'File downloaded',
     zones: 'Thermal zones',
+    zoneScopeLabel: 'Also include measurements recorded in other locations',
+    zoneScopeHelp: 'Otherwise, only measurements recorded in the selected locations are kept.',
   },
 };
 
@@ -184,84 +187,159 @@ export default function ExportsView({
 }) {
   const [filters, setFilters] = useState<ExportFilters>(emptyFilters);
   const [isDownloading, setIsDownloading] = useState(false);
-  const [preview, setPreview] = useState<ExportPreview | null>(null);
+  const [selectedPreviewBoxId, setSelectedPreviewBoxId] = useState<number | null>(null);
+  const [trendCache, setTrendCache] = useState<Record<string, BoxTrendPreview>>({});
+  const [eligibleBoxIds, setEligibleBoxIds] = useState<Set<number> | null>(null);
+  const [isEligibilityLoading, setIsEligibilityLoading] = useState(false);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
-  const [comparisonMode, setComparisonMode] = useState<ComparisonMode>('boxes');
-  const [previewMetric, setPreviewMetric] = useState<PreviewMetric>('general');
-  const [weeksWindow, setWeeksWindow] = useState(DEFAULT_WEEKS_WINDOW);
-  const [comparisonPreviews, setComparisonPreviews] = useState<Record<string, ExportPreview>>({});
-  const [isComparisonLoading, setIsComparisonLoading] = useState(false);
-  const [isAllComparisonsOpen, setIsAllComparisonsOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const previewPanelElementRef = useRef<HTMLDivElement | null>(null);
+  const previewMinimumHeightRef = useRef<number | null>(null);
+  const previewScrollPositionRef = useRef<number | null>(null);
   const labels = copy[language];
+  const invalidPeriod = Boolean(
+    filters.dateFrom && filters.dateTo && filters.dateFrom > filters.dateTo,
+  );
+
+  useEffect(() => {
+    if (!options) return;
+    if (invalidPeriod) {
+      setEligibleBoxIds(new Set());
+      setIsEligibilityLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setIsEligibilityLoading(true);
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const query = buildEligibilityQuery(filters);
+        const eligibility = await apiGet<ExportEligibility>(
+          `/api/exports/eligible-boxes/${query ? `?${query}` : ''}`,
+          { signal: controller.signal },
+        );
+        setEligibleBoxIds(new Set(eligibility.box_ids));
+      } catch (eligibilityLoadError) {
+        if (isAbortError(eligibilityLoadError)) return;
+        setEligibleBoxIds((current) => current ?? new Set());
+        setError(
+          eligibilityLoadError instanceof Error
+            ? eligibilityLoadError.message
+            : labels.eligibilityError,
+        );
+      } finally {
+        if (!controller.signal.aborted) setIsEligibilityLoading(false);
+      }
+    }, 120);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [
+    filters.dateFrom,
+    filters.dateTo,
+    filters.includeOtherZones,
+    filters.zones,
+    invalidPeriod,
+    labels.eligibilityError,
+    options,
+  ]);
 
   const exportState = useMemo(() => {
-    if (!options) return null;
+    if (!options || eligibleBoxIds === null) return null;
 
-    const matchingBoxes = filterBoxes(options, filters);
-    const matchingOrganizationIds = new Set(matchingBoxes.map((box) => box.organization_id));
+    const eligibleOptions = {
+      ...options,
+      boxes: options.boxes.filter((box) => eligibleBoxIds.has(box.id)),
+    };
+    const matchingBoxes = filterBoxes(eligibleOptions, filters);
     const matchingSpeciesIds = new Set(matchingBoxes.map((box) => box.species_id));
 
     return {
       matchingBoxes,
-      organizationCount: matchingOrganizationIds.size,
       speciesCount: matchingSpeciesIds.size,
       groups: {
-        organizations: buildOrganizationOptions(options),
         species: buildSpeciesOptions(
           options,
-          withSelected(availableIds(options, filters, 'species', 'species_id'), filters.species),
+          withSelected(
+            availableIds(eligibleOptions, filters, 'species', 'species_id'),
+            filters.species,
+          ),
         ),
         strains: buildStrainOptions(
           options,
-          withSelected(availableIds(options, filters, 'strains', 'strain_id'), filters.strains),
+          withSelected(
+            availableIds(eligibleOptions, filters, 'strains', 'strain_id'),
+            filters.strains,
+          ),
         ),
         zones: buildZoneOptions(
           options,
-          withSelected(
-            availableIds(options, filters, 'zones', 'thermal_zone_id'),
-            filters.zones,
-          ),
+          new Set(options.zones.map((zone) => zone.id)),
         ),
         boxes: buildBoxOptions(
           options,
-          withSelected(availableIds(options, filters, 'boxes', 'id'), filters.boxes),
+          withSelected(availableIds(eligibleOptions, filters, 'boxes', 'id'), filters.boxes),
         ),
       },
     };
-  }, [filters, options]);
-
-  const invalidPeriod = Boolean(
-    filters.dateFrom && filters.dateTo && filters.dateFrom > filters.dateTo,
-  );
+  }, [eligibleBoxIds, filters, options]);
   const hasFilters = (Object.keys(emptyFilters) as Array<keyof ExportFilters>).some((key) => {
     const value = filters[key];
     return Array.isArray(value) ? value.length > 0 : Boolean(value);
   });
-  const comparisonGroups = useMemo(
+  const previewBoxOptions = useMemo(
     () => (exportState && options
-      ? buildComparisonGroups(exportState.matchingBoxes, options, comparisonMode)
+      ? buildPreviewBoxOptions(exportState.matchingBoxes, options)
       : []),
-    [comparisonMode, exportState, options],
+    [exportState, options],
   );
-  const sidebarComparisonGroups = useMemo(
-    () => comparisonGroups.slice(0, 3),
-    [comparisonGroups],
+  const selectedPreviewIndex = previewBoxOptions.findIndex(
+    (box) => box.id === selectedPreviewBoxId,
   );
-  const requestedComparisonGroups = useMemo(
-    () => (isAllComparisonsOpen ? comparisonGroups : sidebarComparisonGroups),
-    [comparisonGroups, isAllComparisonsOpen, sidebarComparisonGroups],
+  const selectedPreviewOption = selectedPreviewIndex >= 0
+    ? previewBoxOptions[selectedPreviewIndex]
+    : null;
+  const previewWindow = useMemo(
+    () => buildPreviewWindow(filters.dateFrom, filters.dateTo),
+    [filters.dateFrom, filters.dateTo],
   );
+  const selectedPreviewCacheKey = selectedPreviewBoxId === null
+    ? null
+    : [
+        selectedPreviewBoxId,
+        previewWindow.startDate,
+        previewWindow.endDate,
+        filters.zones.join(','),
+        filters.includeOtherZones ? 'all-zones' : 'selected-zones',
+      ].join(':');
+  const selectedPreviewDetail = selectedPreviewCacheKey === null
+    ? null
+    : trendCache[selectedPreviewCacheKey] ?? null;
+
+  useEffect(() => {
+    if (
+      selectedPreviewBoxId !== null
+      && !previewBoxOptions.some((box) => box.id === selectedPreviewBoxId)
+    ) {
+      setSelectedPreviewBoxId(null);
+      setPreviewError(null);
+    }
+  }, [previewBoxOptions, selectedPreviewBoxId]);
 
   useEffect(() => {
     const controller = new AbortController();
 
-    async function loadPreview() {
-      if (!hasFilters || !exportState?.matchingBoxes.length || invalidPeriod) {
-        setPreview(null);
-        setPreviewError(null);
+    async function loadSelectedBox() {
+      if (
+        selectedPreviewBoxId === null
+        || selectedPreviewCacheKey === null
+        || trendCache[selectedPreviewCacheKey]
+        || invalidPeriod
+      ) {
         setIsPreviewLoading(false);
         return;
       }
@@ -270,15 +348,26 @@ export default function ExportsView({
       setPreviewError(null);
 
       try {
-        const query = buildExportQuery(filters);
-        const data = await apiGet<ExportPreview>(
-          `/api/exports/measurements/preview/${query ? `?${query}` : ''}`,
+        const query = new URLSearchParams({
+          date_from: previewWindow.startDate,
+          date_to: previewWindow.endDate,
+        });
+        if (filters.zones.length) query.set('zones', filters.zones.join(','));
+        if (filters.zones.length && filters.includeOtherZones) {
+          query.set('include_other_zones', 'true');
+        }
+        const detail = await apiGet<BoxTrendPreview>(
+          `/api/exports/boxes/${selectedPreviewBoxId}/trend/?${query}`,
           { signal: controller.signal },
         );
-        setPreview(data);
+        setTrendCache((current) => {
+          const next = { ...current, [selectedPreviewCacheKey]: detail };
+          const keys = Object.keys(next);
+          if (keys.length > 20) delete next[keys[0]];
+          return next;
+        });
       } catch (previewLoadError) {
         if (isAbortError(previewLoadError)) return;
-        setPreview(null);
         setPreviewError(
           previewLoadError instanceof Error ? previewLoadError.message : labels.previewError,
         );
@@ -287,52 +376,43 @@ export default function ExportsView({
       }
     }
 
-    const timeoutId = window.setTimeout(() => void loadPreview(), 250);
+    void loadSelectedBox();
 
-    return () => {
-      window.clearTimeout(timeoutId);
-      controller.abort();
-    };
-  }, [exportState?.matchingBoxes.length, filters, invalidPeriod, labels.previewError]);
+    return () => controller.abort();
+  }, [
+    invalidPeriod,
+    labels.previewError,
+    filters.includeOtherZones,
+    filters.zones,
+    previewWindow.endDate,
+    previewWindow.startDate,
+    selectedPreviewBoxId,
+    selectedPreviewCacheKey,
+    trendCache,
+  ]);
 
-  useEffect(() => {
-    const controller = new AbortController();
+  useLayoutEffect(() => {
+    const scrollPosition = previewScrollPositionRef.current;
+    if (scrollPosition === null) return;
 
-    async function loadComparisons() {
-      if (!hasFilters || !requestedComparisonGroups.length || invalidPeriod) {
-        setComparisonPreviews({});
-        setIsComparisonLoading(false);
-        return;
-      }
+    window.scrollTo(0, scrollPosition);
+    const frame = window.requestAnimationFrame(() => {
+      window.scrollTo(0, scrollPosition);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedPreviewBoxId]);
 
-      setIsComparisonLoading(true);
-      try {
-        const loadedPreviews = await Promise.all(
-          requestedComparisonGroups.map(async (group) => {
-            const query = buildExportQuery(buildComparisonFilters(filters, group));
-            const preview = await apiGet<ExportPreview>(
-              `/api/exports/measurements/preview/${query ? `?${query}` : ''}`,
-              { signal: controller.signal },
-            );
-            return [group.key, preview] as const;
-          }),
-        );
-        setComparisonPreviews(Object.fromEntries(loadedPreviews));
-      } catch (comparisonLoadError) {
-        if (isAbortError(comparisonLoadError)) return;
-        setComparisonPreviews({});
-      } finally {
-        if (!controller.signal.aborted) setIsComparisonLoading(false);
-      }
-    }
+  useLayoutEffect(() => {
+    const scrollPosition = previewScrollPositionRef.current;
+    if (scrollPosition === null || isPreviewLoading) return;
 
-    const timeoutId = window.setTimeout(() => void loadComparisons(), 250);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-      controller.abort();
-    };
-  }, [filters, invalidPeriod, requestedComparisonGroups]);
+    const frame = window.requestAnimationFrame(() => {
+      window.scrollTo(0, scrollPosition);
+      previewScrollPositionRef.current = null;
+      previewMinimumHeightRef.current = null;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [isPreviewLoading, previewError, selectedPreviewDetail]);
 
   function updateDate(key: 'dateFrom' | 'dateTo', value: string) {
     setFilters((current) => ({ ...current, [key]: value }));
@@ -340,17 +420,27 @@ export default function ExportsView({
   }
 
   function toggleFilter(key: FilterKey, id: number) {
-    setFilters((current) => ({
-      ...current,
-      [key]: current[key].includes(id)
+    setFilters((current) => {
+      const nextValues = current[key].includes(id)
         ? current[key].filter((value) => value !== id)
-        : [...current[key], id],
-    }));
+        : [...current[key], id];
+      return {
+        ...current,
+        [key]: nextValues,
+        includeOtherZones: key === 'zones' && nextValues.length === 0
+          ? false
+          : current.includeOtherZones,
+      };
+    });
     clearFeedback();
   }
 
   function clearFilter(key: FilterKey) {
-    setFilters((current) => ({ ...current, [key]: [] }));
+    setFilters((current) => ({
+      ...current,
+      [key]: [],
+      includeOtherZones: key === 'zones' ? false : current.includeOtherZones,
+    }));
     clearFeedback();
   }
 
@@ -382,13 +472,39 @@ export default function ExportsView({
     return <PageLoader variant="exports" label={labels.previewLoading} />;
   }
 
-  const totalWeeks = preview?.points.length ?? 0;
-  const effectiveWeeks = totalWeeks ? Math.min(weeksWindow, totalWeeks) : weeksWindow;
-  const primaryPoints = preview ? preview.points.slice(-effectiveWeeks) : [];
+  function selectPreviewBox(boxId: number) {
+    if (boxId === selectedPreviewBoxId) return;
+    const currentPanelHeight = previewPanelElementRef.current?.getBoundingClientRect().height;
+    if (currentPanelHeight) {
+      previewMinimumHeightRef.current = Math.max(
+        previewMinimumHeightRef.current ?? 0,
+        Math.ceil(currentPanelHeight),
+      );
+    }
+    previewScrollPositionRef.current = window.scrollY;
+    setIsPreviewLoading(true);
+    setSelectedPreviewBoxId(boxId);
+    setPreviewError(null);
+  }
+
+  const visiblePreviewMeasurements = selectedPreviewDetail
+    ? selectedPreviewDetail.biological_measurements.filter((measurement) => (
+        measurement.measured_on >= previewWindow.startDate
+        && measurement.measured_on <= previewWindow.endDate
+      )).sort((left, right) => left.measured_on.localeCompare(right.measured_on))
+    : [];
+  const visiblePreviewMeasurementCount = visiblePreviewMeasurements.length;
+
+  function selectAdjacentPreviewBox(offset: number) {
+    const nextIndex = selectedPreviewIndex + offset;
+    const nextBox = previewBoxOptions[nextIndex];
+    if (!nextBox) return;
+    selectPreviewBox(nextBox.id);
+  }
 
   return (
     <section className="export-page">
-      <section className="export-step">
+      <section className="export-step export-period-step">
         <header className="export-step-heading">
           <h2>{labels.periodTitle}</h2>
           <span>
@@ -408,6 +524,9 @@ export default function ExportsView({
               onChange={(event) => updateDate('dateFrom', event.target.value)}
             />
           </label>
+          <span className="export-period-separator" aria-hidden="true">
+            {labels.dateRangeSeparator}
+          </span>
           <label>
             {labels.dateTo}
             <input
@@ -440,14 +559,6 @@ export default function ExportsView({
 
         <div className="export-filter-list">
           <FilterDisclosure
-            title={labels.organizations}
-            options={exportState.groups.organizations}
-            selectedIds={filters.organizations}
-            labels={labels}
-            onToggle={(id) => toggleFilter('organizations', id)}
-            onClear={() => clearFilter('organizations')}
-          />
-          <FilterDisclosure
             title={labels.species}
             options={exportState.groups.species}
             selectedIds={filters.species}
@@ -476,6 +587,25 @@ export default function ExportsView({
             labels={labels}
             onToggle={(id) => toggleFilter('zones', id)}
             onClear={() => clearFilter('zones')}
+            extraContent={filters.zones.length ? (
+              <label className="export-zone-scope">
+                <input
+                  type="checkbox"
+                  checked={filters.includeOtherZones}
+                  onChange={(event) => {
+                    setFilters((current) => ({
+                      ...current,
+                      includeOtherZones: event.target.checked,
+                    }));
+                    clearFeedback();
+                  }}
+                />
+                <span>
+                  <strong>{labels.zoneScopeLabel}</strong>
+                  <small>{labels.zoneScopeHelp}</small>
+                </span>
+              </label>
+            ) : null}
           />
           <FilterDisclosure
             title={labels.boxes}
@@ -491,122 +621,139 @@ export default function ExportsView({
 
       <section className="export-preview">
         <header className="export-step-heading">
-          <h2>{labels.selectedMeasurementsTitle}</h2>
-          {preview ? (
-            <span>
-              {preview.metadata.measurement_count} {labels.previewMeasurements}
-            </span>
-          ) : null}
+          <div>
+            <h2>{labels.selectedMeasurementsTitle}</h2>
+            <p>{labels.boxPreviewHelp}</p>
+          </div>
+          <span aria-live="polite">
+            {isEligibilityLoading ? '...' : previewBoxOptions.length} {labels.boxesFound}
+          </span>
         </header>
 
-        {hasFilters ? (
-          <>
-        <div className="export-comparison-toolbar">
-          <div className="export-chart-tabs">
-            <div className="export-comparison-tabs" role="tablist" aria-label={labels.comparisonTitle}>
-              <button
-                className={comparisonMode === 'boxes' ? 'is-active' : ''}
-                type="button"
-                role="tab"
-                aria-selected={comparisonMode === 'boxes'}
-                onClick={() => setComparisonMode('boxes')}
-              >
-                {labels.comparisonByBoxes}
-              </button>
-              <button
-                className={comparisonMode === 'strains' ? 'is-active' : ''}
-                type="button"
-                role="tab"
-                aria-selected={comparisonMode === 'strains'}
-                onClick={() => setComparisonMode('strains')}
-              >
-                {labels.comparisonByStrains}
-              </button>
-            </div>
-            <div className="export-metric-tabs" role="tablist" aria-label={labels.selectedMeasurementsTitle}>
-              {(['general', 'polyps', 'ephyrae', 'temperature'] as PreviewMetric[]).map((metric) => (
-                <button
-                  className={previewMetric === metric ? 'is-active' : ''}
-                  key={metric}
-                  type="button"
-                  role="tab"
-                  aria-selected={previewMetric === metric}
-                  onClick={() => setPreviewMetric(metric)}
-                >
-                  {getPreviewMetricLabel(metric, language, labels)}
-                </button>
-              ))}
-            </div>
-          </div>
-          {comparisonGroups.length > 3 ? (
-            <button
-              className="export-all-charts"
-              type="button"
-              onClick={() => setIsAllComparisonsOpen(true)}
-            >
-              {labels.allCharts} ({comparisonGroups.length})
-            </button>
-          ) : null}
+        <div className="export-preview-selector">
+          <button
+            type="button"
+            title={labels.previousBox}
+            aria-label={labels.previousBox}
+            disabled={selectedPreviewIndex <= 0}
+            onClick={() => selectAdjacentPreviewBox(-1)}
+          >
+            <PolypbaseIcon name="chevron-left" size={18} />
+          </button>
+          <PreviewBoxPicker
+            emptyLabel={labels.noPreviewBox}
+            label={labels.selectPreviewBox}
+            placeholder={labels.selectPreviewBoxPlaceholder}
+            resultsLabel={labels.boxesFound}
+            searchLabel={labels.searchBoxes}
+            searchPlaceholder={labels.searchPreviewBoxPlaceholder}
+            paginationLabel={labels.previewPagination}
+            paginationNextLabel={labels.previewPaginationNext}
+            paginationPageLabel={labels.previewPaginationPage}
+            paginationPreviousLabel={labels.previewPaginationPrevious}
+            options={previewBoxOptions}
+            selectedId={selectedPreviewBoxId}
+            onSelect={selectPreviewBox}
+          />
+          <button
+            type="button"
+            title={labels.nextBox}
+            aria-label={labels.nextBox}
+            disabled={selectedPreviewIndex < 0 || selectedPreviewIndex >= previewBoxOptions.length - 1}
+            onClick={() => selectAdjacentPreviewBox(1)}
+          >
+            <PolypbaseIcon name="chevron-right" size={18} />
+          </button>
         </div>
 
-        <div className="export-chart-layout">
-          <div className="export-chart-primary">
-            <ExportPreviewChart
-              labels={labels}
-              language={language}
-              isLoading={isPreviewLoading}
-              error={previewError}
-              metric={previewMetric}
-              points={primaryPoints}
-            />
-            {totalWeeks > MIN_WEEKS_WINDOW ? (
-              <div className="export-weeks-window">
-                <label>
-                  <span>{labels.weeksWindowLabel}</span>
-                  <input
-                    type="range"
-                    min={MIN_WEEKS_WINDOW}
-                    max={totalWeeks}
-                    step={1}
-                    value={effectiveWeeks}
-                    onChange={(event) => setWeeksWindow(Number(event.target.value))}
-                  />
-                </label>
-                <span className="export-weeks-window-value">
-                  {effectiveWeeks >= totalWeeks
-                    ? labels.allWeeksShort
-                    : `${effectiveWeeks} ${labels.weeksShown}`}
-                </span>
+        {isPreviewLoading ? (
+          <div
+            ref={previewPanelElementRef}
+            className="export-chart-state"
+            style={{ minHeight: previewMinimumHeightRef.current ?? undefined }}
+            aria-busy="true"
+          >
+            {labels.previewLoading}
+          </div>
+        ) : null}
+        {previewError ? <div className="export-chart-state is-error">{previewError}</div> : null}
+        {!selectedPreviewOption && !isPreviewLoading ? (
+          <div className="export-chart-state is-empty">{labels.boxPreviewHelp}</div>
+        ) : null}
+        {selectedPreviewOption && selectedPreviewDetail && !previewError ? (
+          <div
+            ref={previewPanelElementRef}
+            className={`export-trend-panel${visiblePreviewMeasurementCount ? '' : ' is-empty'}`}
+          >
+            <section className="export-trend-overview">
+              <dl className="export-trend-context">
+                <div>
+                  <dt>{labels.previewPeriod}</dt>
+                  <dd>{formatPeriod(previewWindow.startDate, previewWindow.endDate, language)}</dd>
+                </div>
+                <div>
+                  <dt>{labels.previewZone}</dt>
+                  <dd>{selectedPreviewOption.zone || labels.noLocation}</dd>
+                </div>
+                <div>
+                  <dt>{labels.previewMeasurements}</dt>
+                  <dd>{visiblePreviewMeasurementCount}</dd>
+                </div>
+              </dl>
+            </section>
+            {visiblePreviewMeasurementCount > 0 ? (
+              <BiologicalTrendChart
+                detailDisplay="inline"
+                startDate={previewWindow.startDate}
+                endDate={previewWindow.endDate}
+                measurements={visiblePreviewMeasurements.map((measurement) => ({
+                  id: measurement.id,
+                  date: measurement.measured_on,
+                  polypCount: measurement.polyp_count,
+                  ephyraeCount: measurement.ephyrae_count,
+                  salinity: measurement.salinity_psu,
+                  enteredBy: measurement.user,
+                  note: measurement.notes,
+                }))}
+                locations={selectedPreviewDetail.locations.map((location) => ({
+                  id: location.id,
+                  name: location.thermal_zone.name,
+                  startsAt: location.starts_at,
+                  endsAt: location.ends_at,
+                }))}
+                events={selectedPreviewDetail.movements.map((movement) => ({
+                  id: `movement-${movement.id}`,
+                  date: movement.moved_at,
+                  title: language === 'fr' ? 'Transfert' : 'Transfer',
+                  detail: movement.to_thermal_zone.name,
+                  kind: 'movement' as const,
+                }))}
+                selectionScope={`${selectedPreviewDetail.id}-${previewWindow.startDate}-${previewWindow.endDate}`}
+                labels={{
+                  chartTitle: labels.previewTitle,
+                  empty: labels.previewEmpty,
+                  enteredBy: language === 'fr' ? 'Saisi par' : 'Entered by',
+                  ephyrae: language === 'fr' ? 'Éphyrules' : 'Ephyrae',
+                  location: language === 'fr' ? 'Emplacement' : 'Location',
+                  missingReading: language === 'fr' ? 'Période sans relevé' : 'Period without measurement',
+                  movement: language === 'fr' ? 'Transfert' : 'Transfer',
+                  observation: language === 'fr' ? 'Observation' : 'Observation',
+                  polyps: language === 'fr' ? 'Polypes' : 'Polyps',
+                  salinity: 'PSU',
+                  selectReading: language === 'fr'
+                    ? 'Sélectionnez un point pour consulter le relevé.'
+                    : 'Select a point to review the measurement.',
+                  selectedReading: labels.previewReading,
+                }}
+              />
+            ) : (
+              <div className="export-trend-empty">
+                <strong>{labels.previewEmptyTitle}</strong>
+                <span>{labels.previewEmptyHint}</span>
               </div>
-            ) : null}
+            )}
           </div>
-
-          {sidebarComparisonGroups.length ? (
-            <aside className="export-chart-comparisons" aria-label={labels.comparisonTitle}>
-              {sidebarComparisonGroups.map((group) => (
-                <article className="export-comparison-card" key={group.key}>
-                  <header>
-                    <strong>{group.label}</strong>
-                    <span>{group.detail}</span>
-                  </header>
-                  <ExportPreviewChart
-                    compact
-                    labels={labels}
-                    language={language}
-                    isLoading={isComparisonLoading}
-                    error={null}
-                    metric={previewMetric}
-                    points={(comparisonPreviews[group.key]?.points ?? []).slice(-effectiveWeeks)}
-                  />
-                </article>
-              ))}
-            </aside>
-          ) : null}
-        </div>
-          </>
-        ) : (
-          <p className="export-chart-state export-charts-prompt">{labels.selectFilterPrompt}</p>
-        )}
+        ) : null}
       </section>
 
       <section className="export-review">
@@ -615,7 +762,6 @@ export default function ExportsView({
             <p className="export-review-count">
               <strong>{exportState.matchingBoxes.length}</strong> {labels.boxesFound}
               <strong>{exportState.speciesCount}</strong> {labels.speciesFound}
-              <strong>{exportState.organizationCount}</strong> {labels.organizationsFound}
             </p>
           ) : (
             <p className="export-no-result">{labels.noBoxes}</p>
@@ -628,7 +774,12 @@ export default function ExportsView({
 
         <button
           type="button"
-          disabled={isDownloading || invalidPeriod || !exportState.matchingBoxes.length}
+          disabled={
+            isDownloading
+            || isEligibilityLoading
+            || invalidPeriod
+            || !exportState.matchingBoxes.length
+          }
           onClick={handleDownload}
         >
           <span className="button-icon-label">
@@ -640,386 +791,232 @@ export default function ExportsView({
 
       {message ? <p className="inline-success export-feedback">{message}</p> : null}
       {error ? <p className="inline-error export-feedback">{error}</p> : null}
-
-      {isAllComparisonsOpen ? (
-        <ExportChartsModal
-          groups={comparisonGroups}
-          previews={comparisonPreviews}
-          labels={labels}
-          language={language}
-          isLoading={isComparisonLoading}
-          metric={previewMetric}
-          weeksWindow={effectiveWeeks}
-          onClose={() => setIsAllComparisonsOpen(false)}
-        />
-      ) : null}
     </section>
   );
 }
 
-function ExportPreviewChart({
-  points,
-  labels,
-  language,
-  isLoading,
-  error,
-  metric,
-  compact = false,
+function PreviewBoxPicker({
+  emptyLabel,
+  label,
+  onSelect,
+  options,
+  paginationLabel,
+  paginationNextLabel,
+  paginationPageLabel,
+  paginationPreviousLabel,
+  placeholder,
+  resultsLabel,
+  searchLabel,
+  searchPlaceholder,
+  selectedId,
 }: {
-  points: ExportPreviewPoint[];
-  labels: (typeof copy)[Language];
-  language: Language;
-  isLoading: boolean;
-  error: string | null;
-  metric: PreviewMetric;
-  compact?: boolean;
+  emptyLabel: string;
+  label: string;
+  onSelect: (boxId: number) => void;
+  options: PreviewBoxOption[];
+  paginationLabel: string;
+  paginationNextLabel: string;
+  paginationPageLabel: string;
+  paginationPreviousLabel: string;
+  placeholder: string;
+  resultsLabel: string;
+  searchLabel: string;
+  searchPlaceholder: string;
+  selectedId: number | null;
 }) {
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
-
-  if (isLoading) {
-    return (
-      <div className="export-chart-state export-chart-loading" aria-busy="true">
-        <span className="sr-only">{labels.previewLoading}</span>
-      </div>
-    );
-  }
-
-  if (error) {
-    return <div className="export-chart-state is-error">{error}</div>;
-  }
-
-  const isGeneral = metric === 'general';
-  const drawnMetrics: PreviewMetric[] = isGeneral ? GENERAL_METRICS : [metric];
-
-  const hasMeasurement = points.some((point) =>
-    drawnMetrics.some((drawn) => !isMissingMeasurement(point, drawn)));
-  if (!points.length || !hasMeasurement) {
-    return <div className="export-chart-state">{labels.previewEmpty}</div>;
-  }
-
-  const width = compact ? 440 : 900;
-  const height = compact ? 180 : 320;
-  const padding = compact
-    ? { top: 18, right: 20, bottom: 32, left: isGeneral ? 20 : 40 }
-    : { top: 30, right: 34, bottom: 48, left: isGeneral ? 34 : 58 };
-  const innerHeight = height - padding.top - padding.bottom;
-
-  // Each metric keeps its own scale so trends stay readable side by side.
-  const domains = {} as Record<PreviewMetric, [number, number]>;
-  for (const drawn of drawnMetrics) {
-    const values = points
-      .map((point) => getPreviewMetricValue(point, drawn))
-      .filter((value): value is number => value !== null);
-    domains[drawn] = getChartDomain(values, drawn);
-  }
-
-  const lastMeasuredIndex = points.reduce(
-    (lastIndex, point, index) =>
-      (drawnMetrics.some((drawn) => !isMissingMeasurement(point, drawn)) ? index : lastIndex),
-    -1,
+  const selectedOption = options.find((option) => option.id === selectedId) ?? null;
+  const selectedIndex = options.findIndex((option) => option.id === selectedId);
+  const [query, setQuery] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
+  const [page, setPage] = useState(0);
+  const optionsElementRef = useRef<HTMLDivElement | null>(null);
+  const queryTokens = normalizeSearchText(query).split(/\s+/).filter(Boolean);
+  const matchingOptions = queryTokens.length
+    ? options.filter((option) => {
+        const searchableText = normalizeSearchText(
+          [option.label, option.detail, option.zone].filter(Boolean).join(' '),
+        );
+        return queryTokens.every((token) => matchesSearchToken(searchableText, token));
+      })
+    : options;
+  const pageCount = Math.ceil(matchingOptions.length / PREVIEW_PICKER_PAGE_SIZE);
+  const currentPage = pageCount ? Math.min(page, pageCount - 1) : 0;
+  const pageStart = currentPage * PREVIEW_PICKER_PAGE_SIZE;
+  const visibleOptions = matchingOptions.slice(
+    pageStart,
+    pageStart + PREVIEW_PICKER_PAGE_SIZE,
   );
-  const activeIndex = hoveredIndex ?? lastMeasuredIndex;
-  const activePoint = points[activeIndex];
-  const ariaLabel = isGeneral
-    ? getPreviewMetricLabel('general', language, labels)
-    : getPreviewMetricLabel(metric, language, labels);
+  const paginationItems = buildPaginationItems(currentPage, pageCount);
 
-  // D3 scales: x maps the week index to a pixel, y is per-metric (each series
-  // keeps its own domain). The d3 line generator draws the path and breaks it
-  // on missing weeks via .defined().
-  const indices = points.map((_, index) => index);
-  const xScale = scalePoint<number>()
-    .domain(indices)
-    .range([padding.left, width - padding.right]);
-  const yScales = {} as Record<PreviewMetric, ScaleLinear<number, number>>;
-  for (const drawn of drawnMetrics) {
-    yScales[drawn] = scaleLinear()
-      .domain(domains[drawn])
-      .range([height - padding.bottom, padding.top]);
+  function selectOption(option: PreviewBoxOption) {
+    onSelect(option.id);
+    setQuery('');
+    setIsOpen(false);
   }
 
-  const xPosition = (index: number) => xScale(index) ?? padding.left;
-
-  function linePath(drawn: PreviewMetric) {
-    const yScale = yScales[drawn];
-    const generator = line<number>()
-      .defined((index) => getPreviewMetricValue(points[index], drawn) !== null)
-      .x((index) => xPosition(index))
-      .y((index) => yScale(getPreviewMetricValue(points[index], drawn) as number));
-    return generator(indices) ?? '';
+  function goToPage(nextPage: number) {
+    setPage(Math.min(Math.max(0, nextPage), Math.max(0, pageCount - 1)));
+    if (optionsElementRef.current) optionsElementRef.current.scrollTop = 0;
   }
-
-  const dotRadius = compact ? 3.5 : 5;
 
   return (
-    <div className={compact ? 'export-chart-card is-compact' : 'export-chart-card'}>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={ariaLabel}>
-        <line
-          className="export-chart-axis"
-          x1={padding.left}
-          x2={padding.left}
-          y1={padding.top}
-          y2={height - padding.bottom}
-        />
-        <line
-          className="export-chart-axis"
-          x1={padding.left}
-          x2={width - padding.right}
-          y1={height - padding.bottom}
-          y2={height - padding.bottom}
-        />
-        {[0, 1 / 3, 2 / 3, 1].map((ratio) => {
-          const y = padding.top + innerHeight - ratio * innerHeight;
-          return (
-            <g key={ratio}>
-              <line
-                className="export-chart-grid"
-                x1={padding.left}
-                x2={width - padding.right}
-                y1={y}
-                y2={y}
-              />
-              {/* Axis numbers only make sense for a single scale. */}
-              {!isGeneral ? (
-                <text className="export-chart-label" x={padding.left - 10} y={y + 4}>
-                  {formatAxisValue(domains[metric][0] + (domains[metric][1] - domains[metric][0]) * ratio, metric)}
-                </text>
-              ) : null}
-            </g>
-          );
-        })}
-        {drawnMetrics.map((drawn) => (
-          <path key={drawn} className={`export-chart-line is-${drawn}`} d={linePath(drawn)} />
-        ))}
-        {points.map((point, index) => {
-          const x = xPosition(index);
-          const allMissing = drawnMetrics.every((drawn) => isMissingMeasurement(point, drawn));
-          return (
-            <g
-              key={point.label}
-              className={index === activeIndex ? 'export-chart-hit is-active' : 'export-chart-hit'}
-              tabIndex={0}
-              onBlur={() => setHoveredIndex(null)}
-              onFocus={() => setHoveredIndex(index)}
-              onMouseEnter={() => setHoveredIndex(index)}
-              onMouseLeave={() => setHoveredIndex(null)}
-            >
-              <rect
-                x={x - 18}
-                y={padding.top}
-                width={36}
-                height={innerHeight}
-                rx={8}
-              />
-              {allMissing ? (
-                <g className="export-chart-missing" aria-hidden="true">
-                  <line x1={x - 5} x2={x + 5} y1={height - padding.bottom - 8} y2={height - padding.bottom - 8} />
-                  <circle cx={x} cy={height - padding.bottom - 8} r={3.5} />
-                </g>
-              ) : (
-                drawnMetrics.map((drawn) => {
-                  const value = getPreviewMetricValue(point, drawn);
-                  if (value === null) return null;
-                  return (
-                    <circle
-                      key={drawn}
-                      className={`export-chart-dot is-${drawn}`}
-                      cx={x}
-                      cy={yScales[drawn](value)}
-                      r={dotRadius}
-                    />
-                  );
-                })
-              )}
-              {shouldShowWeekLabel(index, points.length, compact) ? (
-                <text className="export-chart-week" x={x} y={height - 16}>
-                  {formatWeekLabel(point.label)}
-                </text>
-              ) : null}
-              <title>{buildPointTooltip(point, drawnMetrics, language, labels)}</title>
-            </g>
-          );
-        })}
-      </svg>
-
-      <div className="export-chart-details">
-        <strong>{formatWeekDetail(activePoint.label, language)}</strong>
-        {drawnMetrics.every((drawn) => isMissingMeasurement(activePoint, drawn)) ? (
-          <span className="is-missing">{getNoMeasurementLabel(language)}</span>
-        ) : (
-          <>
-            {drawnMetrics.map((drawn) => {
-              const value = getPreviewMetricValue(activePoint, drawn);
-              return (
-                <span key={drawn} className={`is-${drawn}`}>
-                  {getPreviewMetricLabel(drawn, language, labels)} : {value === null
-                    ? getNoMeasurementLabel(language)
-                    : formatPreviewMetricValue(value, drawn)}
-                </span>
-              );
-            })}
-            {!isGeneral ? (
-              <span>{activePoint.measurement_count} {labels.previewMeasurements}</span>
-            ) : null}
-          </>
-        )}
-      </div>
-
-      <div className="chart-legend export-chart-legend">
-        {drawnMetrics.map((drawn) => (
-          <span key={drawn} className={`is-${drawn}`}>
-            {getPreviewMetricLabel(drawn, language, labels)}
-          </span>
-        ))}
-        <span className="is-missing">{getNoMeasurementLabel(language)}</span>
-      </div>
+    <div
+      className="export-preview-picker"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setIsOpen(false);
+          setQuery('');
+        }
+      }}
+    >
+      <button
+        className="export-preview-picker-trigger"
+        type="button"
+        aria-expanded={isOpen}
+        aria-controls="export-preview-box-options"
+        aria-haspopup="listbox"
+        onClick={() => {
+          if (!isOpen) {
+            setPage(selectedIndex < 0 ? 0 : Math.floor(selectedIndex / PREVIEW_PICKER_PAGE_SIZE));
+          }
+          setIsOpen((current) => !current);
+          setQuery('');
+        }}
+      >
+        <span>
+          <small>{label}</small>
+          <strong>{selectedOption?.label ?? placeholder}</strong>
+          {selectedOption ? <em>{selectedOption.detail}</em> : null}
+        </span>
+      </button>
+      {isOpen ? (
+        <div className="export-preview-picker-panel">
+          <label className="export-preview-picker-search">
+            <span>{searchLabel}</span>
+            <input
+              type="search"
+              role="combobox"
+              autoComplete="off"
+              autoFocus
+              aria-expanded="true"
+              aria-controls="export-preview-box-options"
+              placeholder={searchPlaceholder}
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setPage(0);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  setIsOpen(false);
+                  setQuery('');
+                } else if (event.key === 'Enter' && visibleOptions[0]) {
+                  event.preventDefault();
+                  selectOption(visibleOptions[0]);
+                }
+              }}
+            />
+          </label>
+          <div className="export-preview-picker-summary">
+            <strong>{matchingOptions.length}</strong>
+            <span>{resultsLabel}</span>
+          </div>
+          <div
+            ref={optionsElementRef}
+            id="export-preview-box-options"
+            className="export-preview-picker-options"
+            role="listbox"
+          >
+            {visibleOptions.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                role="option"
+                aria-selected={option.id === selectedId}
+                onClick={() => selectOption(option)}
+              >
+                <strong>{option.label}</strong>
+                <span>{option.detail}</span>
+                <small>{option.zone ?? ''}</small>
+              </button>
+            ))}
+            {!visibleOptions.length ? <p>{emptyLabel}</p> : null}
+          </div>
+          {pageCount > 1 ? (
+            <nav className="export-preview-picker-pagination" aria-label={paginationLabel}>
+              <button
+                type="button"
+                aria-label={paginationPreviousLabel}
+                disabled={currentPage === 0}
+                onClick={() => goToPage(currentPage - 1)}
+              >
+                <PolypbaseIcon name="chevron-left" size={15} />
+              </button>
+              {paginationItems.map((item, index) => (
+                item === null ? (
+                  <span key={`ellipsis-${index}`} aria-hidden="true">...</span>
+                ) : (
+                  <button
+                    key={item}
+                    type="button"
+                    aria-current={item === currentPage ? 'page' : undefined}
+                    aria-label={`${paginationPageLabel} ${item + 1}`}
+                    onClick={() => goToPage(item)}
+                  >
+                    {item + 1}
+                  </button>
+                )
+              ))}
+              <button
+                type="button"
+                aria-label={paginationNextLabel}
+                disabled={currentPage === pageCount - 1}
+                onClick={() => goToPage(currentPage + 1)}
+              >
+                <PolypbaseIcon name="chevron-right" size={15} />
+              </button>
+            </nav>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function buildPointTooltip(
-  point: ExportPreviewPoint,
-  drawnMetrics: PreviewMetric[],
-  language: Language,
-  labels: (typeof copy)[Language],
-) {
-  const week = formatWeekDetail(point.label, language);
-  const parts = drawnMetrics
-    .map((drawn) => {
-      const value = getPreviewMetricValue(point, drawn);
-      if (value === null) return null;
-      return `${getPreviewMetricLabel(drawn, language, labels)}: ${formatPreviewMetricValue(value, drawn)}`;
-    })
-    .filter((part): part is string => part !== null);
-  if (!parts.length) return `${week}, ${getNoMeasurementLabel(language)}`;
-  return `${week}, ${parts.join(', ')}`;
-}
+function buildPaginationItems(currentPage: number, pageCount: number): Array<number | null> {
+  if (pageCount <= 7) return Array.from({ length: pageCount }, (_, index) => index);
 
-function getPreviewMetricValue(point: ExportPreviewPoint | undefined, metric: PreviewMetric) {
-  if (!point) return null;
-  if (metric === 'temperature') return point.average_temperature_c;
-  return metric === 'polyps' ? point.polyp_count : point.ephyrae_count;
-}
-
-function isMissingMeasurement(point: ExportPreviewPoint | undefined, metric: PreviewMetric) {
-  if (!point) return true;
-  if (metric === 'temperature') return point.average_temperature_c === null;
-  return point.measurement_count === 0;
-}
-
-function getChartDomain(values: number[], metric: PreviewMetric): [number, number] {
-  const minimum = Math.min(...values);
-  const maximum = Math.max(...values);
-
-  if (metric !== 'temperature') {
-    return [0, Math.max(1, maximum * 1.08)];
+  const pages = new Set<number>([0, pageCount - 1]);
+  if (currentPage <= 3) {
+    [1, 2, 3, 4].forEach((page) => pages.add(page));
+  } else if (currentPage >= pageCount - 4) {
+    for (let page = pageCount - 5; page < pageCount - 1; page += 1) pages.add(page);
+  } else {
+    [currentPage - 1, currentPage, currentPage + 1].forEach((page) => pages.add(page));
   }
 
-  const padding = Math.max(0.25, (maximum - minimum) * 0.16);
-  return [minimum - padding, maximum + padding];
+  const sortedPages = Array.from(pages).sort((left, right) => left - right);
+  const items: Array<number | null> = [];
+  sortedPages.forEach((page, index) => {
+    const previousPage = sortedPages[index - 1];
+    if (index > 0 && page - previousPage > 1) items.push(null);
+    items.push(page);
+  });
+  return items;
 }
 
-function formatAxisValue(value: number, metric: PreviewMetric) {
-  return metric === 'temperature' ? `${value.toFixed(1)}°` : String(Math.round(value));
+function normalizeSearchText(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLocaleLowerCase();
 }
 
-function formatPreviewMetricValue(value: number | null, metric: PreviewMetric) {
-  if (value === null) return '-';
-  return metric === 'temperature' ? `${value.toFixed(1)}°C` : String(value);
-}
-
-function getPreviewMetricLabel(
-  metric: PreviewMetric,
-  language: Language,
-  labels: (typeof copy)[Language],
-) {
-  if (metric === 'general') return language === 'fr' ? 'Général' : 'General';
-  if (metric === 'polyps') return language === 'fr' ? 'Polypes' : 'Polyps';
-  if (metric === 'ephyrae') return language === 'fr' ? 'Éphyrules' : 'Ephyrae';
-  return labels.temperature;
-}
-
-function getNoMeasurementLabel(language: Language) {
-  return language === 'fr' ? 'Aucun relevé' : 'No measurement';
-}
-
-function shouldShowWeekLabel(index: number, total: number, compact: boolean) {
-  if (total <= (compact ? 3 : 7)) return true;
-  const targetLabelCount = compact ? 3 : 6;
-  const interval = Math.ceil((total - 1) / (targetLabelCount - 1));
-  return index === 0 || index === total - 1 || index % interval === 0;
-}
-
-function formatWeekDetail(label: string, language: Language) {
-  const match = label.match(/^(\d{4})_S(\d{1,2})$/);
-  if (!match) return label;
-  return language === 'fr'
-    ? `Semaine ${match[2]} (${match[1]})`
-    : `Week ${match[2]} (${match[1]})`;
-}
-
-function isAbortError(error: unknown) {
-  return error instanceof DOMException && error.name === 'AbortError';
-}
-
-function ExportChartsModal({
-  groups,
-  previews,
-  labels,
-  language,
-  isLoading,
-  metric,
-  weeksWindow,
-  onClose,
-}: {
-  groups: ComparisonGroup[];
-  previews: Record<string, ExportPreview>;
-  labels: (typeof copy)[Language];
-  language: Language;
-  isLoading: boolean;
-  metric: PreviewMetric;
-  weeksWindow: number;
-  onClose: () => void;
-}) {
-  return (
-    <ModalPortal>
-      <div className="modal-backdrop export-charts-backdrop" onMouseDown={onClose}>
-      <section
-        className="export-charts-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="export-charts-title"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <header>
-          <h2 id="export-charts-title">{labels.comparisonTitle}</h2>
-          <button type="button" onClick={onClose}>
-            {labels.close}
-          </button>
-        </header>
-        <div className="export-charts-modal-grid">
-          {groups.map((group) => (
-            <article className="export-comparison-card" key={group.key}>
-              <header>
-                <strong>{group.label}</strong>
-                <span>{group.detail}</span>
-              </header>
-              <ExportPreviewChart
-                compact
-                labels={labels}
-                language={language}
-                isLoading={isLoading}
-                error={null}
-                metric={metric}
-                points={(previews[group.key]?.points ?? []).slice(-weeksWindow)}
-              />
-            </article>
-          ))}
-        </div>
-        </section>
-      </div>
-    </ModalPortal>
-  );
+function matchesSearchToken(searchableText: string, token: string) {
+  if (!/^\d+(?:[.,]\d+)?$/.test(token)) return searchableText.includes(token);
+  const escapedToken = token.replaceAll('.', '\\.');
+  return new RegExp('(^|\\D)' + escapedToken + '(?=\\D|$)').test(searchableText);
 }
 
 function FilterDisclosure({
@@ -1030,6 +1027,7 @@ function FilterDisclosure({
   searchable = false,
   searchLabel,
   searchPlaceholder,
+  extraContent,
   onToggle,
   onClear,
 }: {
@@ -1040,17 +1038,20 @@ function FilterDisclosure({
   searchable?: boolean;
   searchLabel?: string;
   searchPlaceholder?: string;
+  extraContent?: ReactNode;
   onToggle: (id: number) => void;
   onClear: () => void;
 }) {
   const [query, setQuery] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
   const selectedOptions = options.filter((option) => selectedIds.includes(option.id));
   const normalizedQuery = query.trim().toLocaleLowerCase();
-  const visibleOptions = normalizedQuery
+  const matchingOptions = normalizedQuery
     ? options.filter((option) => [option.label, option.detail]
       .filter(Boolean)
       .some((value) => value!.toLocaleLowerCase().includes(normalizedQuery)))
     : options;
+  const visibleOptions = searchable ? matchingOptions.slice(0, 60) : matchingOptions;
   const summary =
     selectedOptions.length === 0
       ? labels.all
@@ -1059,15 +1060,18 @@ function FilterDisclosure({
         : `${selectedOptions.length} ${labels.selected}`;
 
   return (
-    <details className="export-filter">
+    <details
+      className="export-filter"
+      onToggle={(event) => setIsOpen(event.currentTarget.open)}
+    >
       <summary>
         <strong>{title}</strong>
         <span>{summary}</span>
       </summary>
-      <div className="export-filter-content">
+      {isOpen ? <div className="export-filter-content">
         <div className="export-filter-actions">
           <span>
-            {visibleOptions.length} {labels.optionCount}
+            {matchingOptions.length} {labels.optionCount}
           </span>
           {selectedIds.length ? (
             <button type="button" onClick={onClear}>
@@ -1102,7 +1106,11 @@ function FilterDisclosure({
             </label>
           ))}
         </div>
-      </div>
+        {matchingOptions.length > visibleOptions.length ? (
+          <p className="export-filter-limit">{visibleOptions.length} / {matchingOptions.length}</p>
+        ) : null}
+        {extraContent}
+      </div> : null}
     </details>
   );
 }
@@ -1114,10 +1122,8 @@ function filterBoxes(
 ) {
   return options.boxes.filter((box) => {
     return (
-      matchesFilter(filters.organizations, box.organization_id, excludedFilter === 'organizations') &&
       matchesFilter(filters.species, box.species_id, excludedFilter === 'species') &&
       matchesFilter(filters.strains, box.strain_id, excludedFilter === 'strains') &&
-      matchesFilter(filters.zones, box.thermal_zone_id, excludedFilter === 'zones') &&
       matchesFilter(filters.boxes, box.id, excludedFilter === 'boxes')
     );
   });
@@ -1129,11 +1135,25 @@ function matchesFilter(values: number[], value: number | null, excluded: boolean
 
 function buildExportQuery(filters: ExportFilters) {
   const params = new URLSearchParams();
-  for (const key of ['organizations', 'species', 'strains', 'boxes', 'zones'] as FilterKey[]) {
+  for (const key of ['species', 'strains', 'boxes', 'zones'] as FilterKey[]) {
     if (filters[key].length) params.set(key, filters[key].join(','));
   }
   if (filters.dateFrom) params.set('date_from', filters.dateFrom);
   if (filters.dateTo) params.set('date_to', filters.dateTo);
+  if (filters.zones.length && filters.includeOtherZones) {
+    params.set('include_other_zones', 'true');
+  }
+  return params.toString();
+}
+
+function buildEligibilityQuery(filters: ExportFilters) {
+  const params = new URLSearchParams();
+  if (filters.zones.length) params.set('zones', filters.zones.join(','));
+  if (filters.dateFrom) params.set('date_from', filters.dateFrom);
+  if (filters.dateTo) params.set('date_to', filters.dateTo);
+  if (filters.zones.length && filters.includeOtherZones) {
+    params.set('include_other_zones', 'true');
+  }
   return params.toString();
 }
 
@@ -1153,13 +1173,6 @@ function availableIds(
 function withSelected(available: Set<number>, selectedIds: number[]) {
   selectedIds.forEach((id) => available.add(id));
   return available;
-}
-
-function buildOrganizationOptions(options: ExportOptions): FilterOption[] {
-  return options.organizations.map((organization) => ({
-    id: organization.id,
-    label: organization.name,
-  }));
 }
 
 function buildSpeciesOptions(options: ExportOptions, available: Set<number>): FilterOption[] {
@@ -1184,7 +1197,6 @@ function buildZoneOptions(options: ExportOptions, available: Set<number>): Filte
     .map((zone) => ({
       id: zone.id,
       label: zone.name,
-      detail: getOrganizationName(options, zone.organization_id),
     }));
 }
 
@@ -1198,53 +1210,42 @@ function buildBoxOptions(options: ExportOptions, available: Set<number>): Filter
     }));
 }
 
-function buildComparisonGroups(
+function buildPreviewBoxOptions(
   boxes: ExportOptions['boxes'],
   options: ExportOptions,
-  mode: ComparisonMode,
-): ComparisonGroup[] {
-  if (mode === 'boxes') {
-    return boxes.map((box) => {
-      const strain = options.strains.find((candidate) => candidate.id === box.strain_id);
+): PreviewBoxOption[] {
+  const speciesById = new Map(options.species.map((species) => [species.id, species.name]));
+  const strainsById = new Map(options.strains.map((strain) => [strain.id, strain]));
+  const zonesById = new Map(options.zones.map((zone) => [zone.id, zone.name]));
+
+  return boxes
+    .map((box) => {
+      const strain = strainsById.get(box.strain_id);
       return {
         id: box.id,
-        key: `box-${box.id}`,
         label: box.global_code,
-        detail: strain ? `${strain.species_name}, ${strain.code}` : box.local_code || '',
-        mode,
+        detail: [speciesById.get(box.species_id), strain?.code].filter(Boolean).join(', '),
+        zone: box.thermal_zone_id === null ? null : zonesById.get(box.thermal_zone_id) ?? null,
       };
-    });
-  }
-
-  return Array.from(new Set(boxes.map((box) => box.strain_id)))
-    .filter((strainId): strainId is number => strainId !== null)
-    .map((strainId) => {
-      const strain = options.strains.find((candidate) => candidate.id === strainId);
-      return {
-        id: strainId,
-        key: `strain-${strainId}`,
-        label: strain?.code || String(strainId),
-        detail: strain?.species_name || '',
-        mode,
-      };
-    });
+    })
+    .sort((left, right) => left.label.localeCompare(right.label));
 }
 
-function buildComparisonFilters(filters: ExportFilters, group: ComparisonGroup): ExportFilters {
+function buildPreviewWindow(dateFrom: string, dateTo: string) {
+  const today = toChartDateString(new Date());
+  let endDate = dateTo || today;
+  if (dateFrom && !dateTo && dateFrom > endDate) endDate = dateFrom;
+
   return {
-    ...filters,
-    boxes: group.mode === 'boxes' ? [group.id] : filters.boxes,
-    strains: group.mode === 'strains' ? [group.id] : filters.strains,
+    endDate,
+    startDate: dateFrom || (dateTo
+      ? toChartDateString(addChartMonths(parseChartDate(dateTo), -6))
+      : toChartDateString(addChartMonths(parseChartDate(endDate), -6))),
   };
 }
 
-function getOrganizationName(options: ExportOptions, organizationId: number) {
-  return options.organizations.find((organization) => organization.id === organizationId)?.name;
-}
-
-function formatWeekLabel(label: string) {
-  const match = label.match(/^\d{4}_S(\d{1,2})$/);
-  return match ? `S${match[1]}` : label;
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === 'AbortError';
 }
 
 function formatPeriod(dateFrom: string, dateTo: string, language: Language) {
@@ -1255,5 +1256,5 @@ function formatPeriod(dateFrom: string, dateTo: string, language: Language) {
   });
   const start = dateFrom ? formatter.format(new Date(`${dateFrom}T00:00:00`)) : '…';
   const end = dateTo ? formatter.format(new Date(`${dateTo}T00:00:00`)) : '…';
-  return `${start} → ${end}`;
+  return language === 'fr' ? `du ${start} au ${end}` : `from ${start} to ${end}`;
 }

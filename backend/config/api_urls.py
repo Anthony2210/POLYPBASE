@@ -41,6 +41,8 @@ from apps.taxonomy.api_views import (
     TaxonomyReferenceListAPIView,
 )
 from apps.exports.views import (
+    BoxMeasurementTrendAPIView,
+    MeasurementExportEligibleBoxesAPIView,
     MeasurementExportOptionsAPIView,
     WeeklyMeasurementCSVExportAPIView,
     WeeklyMeasurementPreviewAPIView,
@@ -134,6 +136,16 @@ urlpatterns = [
         "exports/options/",
         MeasurementExportOptionsAPIView.as_view(),
         name="api_export_options",
+    ),
+    path(
+        "exports/boxes/<int:box_id>/trend/",
+        BoxMeasurementTrendAPIView.as_view(),
+        name="api_export_box_trend",
+    ),
+    path(
+        "exports/eligible-boxes/",
+        MeasurementExportEligibleBoxesAPIView.as_view(),
+        name="api_export_eligible_boxes",
     ),
     path(
         "exports/measurements.csv",

@@ -238,7 +238,6 @@ export type BoxMovePayload = {
 };
 
 export type BoxCreatePayload = {
-  organization: number;
   strain: number;
   thermal_zone: number | null;
   global_code: string;

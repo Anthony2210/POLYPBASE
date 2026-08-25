@@ -86,16 +86,23 @@
 }
 
 .profile-organization-context {
-  gap: var(--space-4);
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
   border: 1px solid var(--color-line);
-  border-left: 4px solid var(--color-primary);
-  background: var(--color-surface-info);
+  background: var(--color-surface);
+}
+
+.profile-organization-context .section-title {
+  padding: var(--space-4) var(--space-5);
+  background: var(--color-surface-subtle);
+  border-bottom: 1px solid var(--color-line);
 }
 
 .profile-organization-options {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-  gap: var(--space-3);
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
 }
 
 .profile-organization-options button {
@@ -103,24 +110,35 @@
   grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--space-3);
   align-items: center;
-  min-height: 78px;
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-md);
+  min-height: 64px;
+  padding: var(--space-3) var(--space-5);
+  border: 0;
+  border-bottom: 1px solid var(--color-line-soft);
+  border-radius: 0;
   background: var(--color-surface);
   color: var(--color-ink);
   text-align: left;
   cursor: pointer;
 }
 
-.profile-organization-options button:hover {
-  border-color: var(--color-primary);
+.profile-organization-options button:last-child {
+  border-bottom: 0;
+}
+
+.profile-organization-options button:hover:not(.is-active) {
+  background: var(--color-surface-subtle);
 }
 
 .profile-organization-options button.is-active {
-  border-color: var(--color-primary);
   background: var(--color-primary-faint);
-  box-shadow: inset 4px 0 0 var(--color-primary);
+  box-shadow: inset 3px 0 0 var(--color-primary);
+}
+
+.profile-organization-options button:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--color-primary);
+  outline-offset: -3px;
 }
 
 .profile-organization-options :where(strong, small) {
@@ -128,19 +146,16 @@
 }
 
 .profile-organization-options small {
-  margin-top: var(--space-1);
+  margin-top: 2px;
   color: var(--color-muted);
   font-size: 0.8rem;
 }
 
-.profile-organization-options em {
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-pill);
-  background: var(--color-primary-soft);
+.profile-organization-state {
   color: var(--color-primary-hover);
-  font-size: 0.72rem;
-  font-style: normal;
+  font-size: 0.7rem;
   font-weight: 750;
+  text-transform: uppercase;
 }
 
 .profile-language-select {

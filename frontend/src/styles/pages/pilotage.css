@@ -309,10 +309,12 @@
 
 .create-box-form {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-3);
+  width: min(840px, 100%);
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  align-items: start;
+  gap: 12px 14px;
   margin-top: var(--space-3);
-  padding: var(--space-4);
+  padding: 18px;
   background: var(--color-surface);
   border: 1px solid var(--color-line);
   border-radius: var(--radius-md);
@@ -323,12 +325,19 @@
 }
 
 .create-box-form label { display: grid; gap: 6px; font-size: .82rem; }
-.create-box-form textarea { min-height: 78px; }
+.create-box-form :is(input, select) { min-height: 40px; }
+.create-box-form textarea { min-height: 62px; }
 
 .create-box-strain-field {
   display: grid;
+  grid-column: span 7;
   gap: 6px;
 }
+
+.create-box-location-field { grid-column: span 5; }
+.create-box-code-field { grid-column: span 5; }
+.create-box-number-field { grid-column: span 3; }
+.create-box-date-field { grid-column: span 4; }
 
 .create-box-field-heading {
   display: flex;
@@ -382,7 +391,9 @@
 }
 
 .create-box-form button[type='submit'] {
+  width: min(180px, 100%);
   min-height: var(--control-height);
+  justify-self: end;
   padding-inline: var(--space-4);
   color: #fff;
   background: var(--color-primary);
@@ -629,15 +640,31 @@
   }
 
   .create-box-form {
+    width: 100%;
     grid-template-columns: minmax(0, 1fr);
     margin: 0;
     padding: var(--space-4);
     border-radius: var(--radius-md);
   }
 
+  .create-box-form :is(
+    .create-box-strain-field,
+    .create-box-location-field,
+    .create-box-code-field,
+    .create-box-number-field,
+    .create-box-date-field
+  ) {
+    grid-column: 1 / -1;
+  }
+
   .create-box-form :is(input, select) { min-height: var(--touch-target); font-size: 16px; }
   .create-box-form textarea { min-height: 92px; font-size: 16px; }
-  .create-box-form button[type='submit'] { position: sticky; bottom: env(safe-area-inset-bottom); min-height: 54px; }
+  .create-box-form button[type='submit'] {
+    position: sticky;
+    bottom: env(safe-area-inset-bottom);
+    width: 100%;
+    min-height: 54px;
+  }
 }
 
 @keyframes scanner-sweep {
