@@ -14,6 +14,9 @@ backend/db.sqlite3
 /data/
 /.codex_rebuild/
 /docs/maquette_figma/
+
+# Local project notes, audits, and operational drafts must never be committed.
+/.local-docs/
 *.aux
 *.fdb_latexmk
 *.fls

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Polypbase Deploy"
+  short_description: "Deployer Polypbase sur la VM en securite"
+  default_prompt: "Utilise $polypbase-deploy pour preparer et verifier une mise a jour de la VM Polypbase."
