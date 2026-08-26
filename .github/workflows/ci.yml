@@ -1,73 +1,95 @@
 name: CI
 
-# Garde-fous: empeche de pousser du code qui casse l'app.
-# - frontend: tsc --noEmit (attrape variable supprimee, prop manquante, mauvais type)
-#   Vite/esbuild ne type-check PAS, donc sans ca les bugs passent en prod.
-# - backend: migration oubliee + suite de tests.
 on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   frontend:
-    name: Frontend (typecheck + build)
+    name: Frontend checks
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: frontend
-    steps:
-      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: '22'
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - run: npm ci
+      - name: Install frontend dependencies
+        run: npm ci
 
-      # Le garde-fou principal: bloque les erreurs de type.
-      - name: Type-check
-        run: npm run typecheck
-
-      - name: Build
-        run: npx vite build
+      - name: Check CSS, TypeScript, and production build
+        run: npm run build
 
   backend:
-    name: Backend (migrations + tests)
+    name: Backend checks
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: backend
-    # Pas de POSTGRES_DB => settings.py bascule sur SQLite, pas besoin de service Postgres.
     env:
-      DJANGO_SECRET_KEY: ci-secret-key-not-used-in-production
-      DJANGO_DEBUG: '0'
-    steps:
-      - uses: actions/checkout@v4
+      DJANGO_DEBUG: "0"
+      DJANGO_SECRET_KEY: ci-only-secret-key-with-enough-length-never-used-outside-actions
+      EMAIL_BACKEND: django.core.mail.backends.locmem.EmailBackend
+      EMAIL_DELIVERY_ENABLED: "0"
+      POSTGRES_DB: ""
+      PYTHONDONTWRITEBYTECODE: "1"
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
+          cache-dependency-glob: uv.lock
+          python-version: "3.12"
 
-      - name: Install dependencies
+      - name: Install backend dependencies
         run: uv sync --frozen
         working-directory: .
 
-      - name: Django checks
-        run: uv run python manage.py check
+      - name: Check Django configuration
+        run: >-
+          uv run --frozen python manage.py check
+          --settings=config.test_settings
 
-      # Production security audit (HTTPS, secure cookies, secret key...).
-      # DEBUG is already 0 here, so this reflects the real production posture.
-      - name: Security checks (deploy)
-        run: uv run python manage.py check --deploy
+      - name: Check production security settings
+        run: >-
+          uv run --frozen python manage.py check --deploy
+          --settings=config.settings
 
-      # Bloque un changement de modele sans sa migration (le bug qui a casse
-      # le migrate de l'equipe avec salinity_psu).
-      - name: Missing migrations?
-        run: uv run python manage.py makemigrations --check --dry-run
+      - name: Check for missing migrations
+        run: >-
+          uv run --frozen python manage.py makemigrations
+          --check --dry-run --settings=config.test_settings
 
-      - name: Tests
-        run: uv run python manage.py test
+      - name: Run backend tests
+        run: >-
+          uv run --frozen python manage.py test
+          --settings=config.test_settings
