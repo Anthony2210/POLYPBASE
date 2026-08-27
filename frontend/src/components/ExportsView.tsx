@@ -720,6 +720,7 @@ export default function ExportsView({
                   name: location.thermal_zone.name,
                   startsAt: location.starts_at,
                   endsAt: location.ends_at,
+                  endDateUnknown: location.end_date_unknown,
                 }))}
                 events={selectedPreviewDetail.movements.map((movement) => ({
                   id: `movement-${movement.id}`,

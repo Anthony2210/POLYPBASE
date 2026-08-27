@@ -350,7 +350,7 @@ class Command(BaseCommand):
             ("aau_002", paris, "AAU-1.002-ATL", "002", strains["aurelia_atl"], zones["paris_15"], Box.Status.ACTIVE),
             ("aau_003", paris, "AAU-1.003-ATL", "003", strains["aurelia_atl"], zones["paris_20"], Box.Status.ACTIVE),
             ("cco_001", paris, "CCO-2.001-PAC", "001", strains["chrysaora_pac"], zones["paris_10"], Box.Status.ACTIVE),
-            ("can_001", paris, "CAN-1.001-LAB", "001", strains["cassiopea_lab"], zones["paris_incubator"], Box.Status.STOPPED),
+            ("can_001", paris, "CAN-1.001-LAB", "001", strains["cassiopea_lab"], zones["paris_incubator"], Box.Status.INACTIVE),
             ("partner_aau", partner, "AAU-3.001-MED", "001", strains["aurelia_med"], zones["partner_15"], Box.Status.ACTIVE),
         ]
 
@@ -368,7 +368,7 @@ class Command(BaseCommand):
                     "status": status,
                     "entered_on": date(2026, 4, 1),
                     "volume_liters": Decimal("0.30"),
-                    "stop_reason": "Demo stopped culture." if status == Box.Status.STOPPED else "",
+                    "stop_reason": "Demo inactive culture." if status == Box.Status.INACTIVE else "",
                     "notes": "Demo box used for local development.",
                 },
             )

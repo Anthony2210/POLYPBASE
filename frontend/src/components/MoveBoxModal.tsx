@@ -26,6 +26,7 @@ const labels = {
     notesPlaceholder: 'Ex. changement de température, rangement, manipulation',
     history: 'Historique des emplacements',
     current: 'actuel',
+    unknownEnd: 'date de fin inconnue',
     noHistory: 'Aucun historique d’emplacement pour cette boîte.',
     cancel: 'Annuler',
     save: 'Enregistrer le transfert',
@@ -42,6 +43,7 @@ const labels = {
     notesPlaceholder: 'For example, temperature change, storage, handling',
     history: 'Location history',
     current: 'current',
+    unknownEnd: 'end date unknown',
     noHistory: 'No location history for this box.',
     cancel: 'Cancel',
     save: 'Save movement',
@@ -161,7 +163,11 @@ export default function MoveBoxModal({
                   <small>
                     {formatDateTime(location.starts_at, language)}
                     {' -> '}
-                    {location.ends_at ? formatDateTime(location.ends_at, language) : text.current}
+                    {location.end_date_unknown
+                      ? text.unknownEnd
+                      : location.ends_at
+                        ? formatDateTime(location.ends_at, language)
+                        : text.current}
                   </small>
                 </div>
                 {location.notes ? <p>{location.notes}</p> : null}

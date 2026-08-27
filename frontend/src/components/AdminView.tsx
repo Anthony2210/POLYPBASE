@@ -2919,10 +2919,9 @@ function translateAuditValue(value: string | number | boolean) {
   if (typeof value === 'number') return String(value);
 
   const labels: Record<string, string> = {
+    pending_review: 'À vérifier',
     active: 'Active',
-    archived: 'Inactive',
-    stopped: 'Arrêtée',
-    lost: 'Perdue',
+    inactive: 'Inactive',
     not_specified: 'Non précisé',
     good: 'Bon',
     medium: 'Moyen',

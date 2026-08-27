@@ -623,6 +623,7 @@ function prepareSharedChartData(
     name: location.thermal_zone.name,
     startsAt: location.starts_at,
     endsAt: location.ends_at,
+    endDateUnknown: location.end_date_unknown,
   }));
   const sharedEvents: TrendEvent[] = events
     .filter((event) => event.date >= startText && event.date <= endText)

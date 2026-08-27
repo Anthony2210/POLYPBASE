@@ -27,6 +27,7 @@ export type TrendLocation = {
   name: string;
   startsAt: string;
   endsAt: string | null;
+  endDateUnknown?: boolean;
 };
 
 export type TrendEvent = {
@@ -504,6 +505,7 @@ export default function BiologicalTrendChart({
 function findLocationAtDate(locations: TrendLocation[], date: string) {
   return locations.find((location) => (
     location.startsAt.slice(0, 10) <= date
+    && (!location.endDateUnknown || location.startsAt.slice(0, 10) === date)
     && (!location.endsAt || location.endsAt.slice(0, 10) >= date)
   ))?.name;
 }
@@ -693,11 +695,20 @@ function buildLocationBands(
   xPosition: (date: string) => number,
 ): LocationBand[] {
   return [...locations]
-    .filter((location) => location.startsAt.slice(0, 10) <= endDate && (!location.endsAt || location.endsAt.slice(0, 10) >= startDate))
+    .filter((location) => (
+      location.startsAt.slice(0, 10) <= endDate
+      && (
+        location.endDateUnknown
+          ? location.startsAt.slice(0, 10) >= startDate
+          : !location.endsAt || location.endsAt.slice(0, 10) >= startDate
+      )
+    ))
     .sort((left, right) => left.startsAt.localeCompare(right.startsAt))
     .map((location) => {
       const clippedStart = location.startsAt.slice(0, 10) < startDate ? startDate : location.startsAt.slice(0, 10);
-      const rawEnd = location.endsAt?.slice(0, 10) ?? endDate;
+      const rawEnd = location.endDateUnknown
+        ? location.startsAt.slice(0, 10)
+        : location.endsAt?.slice(0, 10) ?? endDate;
       const clippedEnd = rawEnd > endDate ? endDate : rawEnd;
       const x1 = xPosition(clippedStart);
       const x2 = xPosition(clippedEnd);

@@ -122,6 +122,8 @@ export type BoxDetail = BoxItem & {
   created_on: string;
   volume_liters: string | null;
   stop_reason: string;
+  stop_reason_missing_from_history: boolean;
+  deactivated_on: string | null;
   notes: string;
   lineage: BoxLineage;
   locations: BoxLocation[];
@@ -138,6 +140,7 @@ export type BoxLocation = {
   thermal_zone: ThermalZoneSummary;
   starts_at: string;
   ends_at: string | null;
+  end_date_unknown: boolean;
   notes: string;
 };
 
@@ -239,7 +242,7 @@ export type BoxMovePayload = {
 
 export type BoxCreatePayload = {
   strain: number;
-  thermal_zone: number | null;
+  thermal_zone: number;
   global_code: string;
   local_code: string;
   box_number: string;

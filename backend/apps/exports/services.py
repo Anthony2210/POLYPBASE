@@ -336,6 +336,10 @@ def _thermal_zone_for_date(box, measured_on):
     for location in locations:
         starts_on = _local_date(location.starts_at)
         ends_on = _local_date(location.ends_at) if location.ends_at else None
+        if location.end_date_unknown:
+            if starts_on == measured_on:
+                return location.thermal_zone
+            continue
         if starts_on <= measured_on and (ends_on is None or measured_on <= ends_on):
             return location.thermal_zone
     return box.thermal_zone if not locations else None
@@ -359,7 +363,9 @@ def _filter_measurements_by_zones(measurements, *, zone_ids=None, include_other_
         box_id=OuterRef("box_id"),
         starts_at__date__lte=OuterRef("measured_on"),
     ).filter(
-        Q(ends_at__isnull=True) | Q(ends_at__date__gte=OuterRef("measured_on")),
+        Q(ends_at__isnull=True, end_date_unknown=False)
+        | Q(ends_at__date__gte=OuterRef("measured_on"))
+        | Q(end_date_unknown=True, starts_at__date=OuterRef("measured_on")),
     ).order_by("-starts_at")
     location_history = BoxLocation.objects.filter(box_id=OuterRef("box_id"))
     zoned_measurements = measurements.annotate(

@@ -232,15 +232,27 @@ class Command(BaseCommand):
             if strain is None:
                 self.counts["boxes_skipped"] += 1
                 continue
-            box, created = Box.objects.update_or_create(
+            imported_values = {
+                "organization": organization,
+                "local_code": row["code_local"].strip(),
+                "box_number": (row.get("numero_boite_local") or "").strip(),
+                "strain": strain,
+            }
+            box, created = Box.objects.get_or_create(
                 global_code=global_codes[row["id_boite"]],
                 defaults={
-                    "organization": organization,
-                    "local_code": row["code_local"].strip(),
-                    "box_number": (row.get("numero_boite_local") or "").strip(),
-                    "strain": strain,
+                    **imported_values,
+                    "status": Box.Status.PENDING_REVIEW,
                 },
             )
+            if not created and box.organization_id != organization.id:
+                raise CommandError(
+                    f"Box code {box.global_code} already belongs to another organization."
+                )
+            if not created:
+                for field, value in imported_values.items():
+                    setattr(box, field, value)
+                box.save(update_fields=list(imported_values))
             mapping[row["id_boite"]] = box
             self.counts["boxes_created"] += int(created)
             self.counts["boxes_total"] += 1
@@ -258,6 +270,9 @@ class Command(BaseCommand):
         for box_id, entries in rows_by_box.items():
             box = boxes.get(box_id)
             if box is None:
+                continue
+            if box.status != Box.Status.PENDING_REVIEW:
+                self.counts["locations_skipped_qualified_box"] += 1
                 continue
             entries.sort(key=lambda item: item[0])
 
@@ -294,6 +309,9 @@ class Command(BaseCommand):
             box = boxes.get(row["id_boite"])
             if box is None:
                 self.counts["measurements_skipped"] += 1
+                continue
+            if box.status == Box.Status.INACTIVE:
+                self.counts["measurements_skipped_inactive_box"] += 1
                 continue
             measured_on = self._week_to_date(row.get("annee"), row.get("semaine"))
             if measured_on is None:
