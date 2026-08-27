@@ -761,7 +761,7 @@ export default function App() {
   }
 
   async function archiveBox(boxId: number) {
-    const detail = await apiPost<BoxDetail>(`/api/boxes/${boxId}/archive/`, {});
+    const detail = await apiPost<BoxDetail>(`/api/boxes/${boxId}/deactivate/`, {});
 
     setData((current) => ({
       ...mergeBoxDetail(current, detail),
@@ -1453,7 +1453,7 @@ function CreateBoxPanel({
   const selectedStrain = strains.find((strain) => strain.id === strainId) ?? null;
   const availableZones = (exportOptions?.zones ?? []).filter((zone) => zone.organization_id === organizationId);
   const selectedZone = availableZones.find((zone) => zone.id === zoneId) ?? null;
-  const canSubmit = organizationId != null && strainId != null && globalCode.trim() && boxNumber.trim();
+  const canSubmit = organizationId != null && strainId != null && zoneId != null && globalCode.trim() && boxNumber.trim();
 
   useEffect(() => {
     if (!strains.length || strainId != null) return;
@@ -1474,7 +1474,7 @@ function CreateBoxPanel({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isSaving || !canSubmit || organizationId == null || strainId == null) return;
+    if (isSaving || !canSubmit || organizationId == null || strainId == null || zoneId == null) return;
 
     if (!boxCodeMatchesBoxNumber(globalCode, boxNumber)) {
       setMessage(null);
@@ -1598,8 +1598,8 @@ function CreateBoxPanel({
 
           <label className="create-box-location-field">
             <span>{t('createBoxZone')}</span>
-            <select value={zoneId ?? ''} onChange={(event) => setZoneId(event.target.value ? Number(event.target.value) : null)}>
-              <option value="">{t('createBoxNoZone')}</option>
+            <select required value={zoneId ?? ''} onChange={(event) => setZoneId(event.target.value ? Number(event.target.value) : null)}>
+              <option value="" disabled>{t('createBoxNoZone')}</option>
               {availableZones.map((zone) => (
                 <option key={zone.id} value={zone.id}>
                   {zone.name}
@@ -2139,6 +2139,7 @@ function OverviewMiniChart({
       name: location.thermal_zone.name,
       startsAt: location.starts_at,
       endsAt: location.ends_at,
+      endDateUnknown: location.end_date_unknown,
     }))
     : box.thermal_zone
       ? [{
@@ -2376,7 +2377,7 @@ function BoxPage({
   const [isMoveOpen, setIsMoveOpen] = useState(false);
   const [isSavingMove, setIsSavingMove] = useState(false);
   const [isChangingBoxStatus, setIsChangingBoxStatus] = useState(false);
-  const [pendingBoxStatus, setPendingBoxStatus] = useState<'active' | 'archived' | null>(null);
+  const [pendingBoxStatus, setPendingBoxStatus] = useState<'active' | 'inactive' | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [moveMessage, setMoveMessage] = useState<string | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
@@ -2549,7 +2550,7 @@ function BoxPage({
   const canWriteLabData = userCanWriteLabData(profile, box.organization.id);
   const canChangeBoxStatus = userCanArchiveBox(profile, box.organization.id);
   const isBoxActive = effectiveBoxStatus === 'active';
-  const canShowStatusButton = canChangeBoxStatus && ['active', 'archived'].includes(box.status);
+  const canShowStatusButton = canChangeBoxStatus && ['active', 'inactive'].includes(box.status);
 
   async function saveMeasurement(): Promise<boolean> {
     if (!box || isSaving) return false;
@@ -2690,7 +2691,7 @@ function BoxPage({
 
   async function handleChangeBoxStatus() {
     if (!box || isChangingBoxStatus) return;
-    const isActivating = effectiveBoxStatus === 'archived';
+    const isActivating = effectiveBoxStatus === 'inactive';
     const confirmed = await confirmAction({
       title: t(isActivating ? 'confirmActivateBoxTitle' : 'confirmArchiveBoxTitle'),
       message: t(isActivating ? 'confirmActivateBoxMessage' : 'confirmArchiveBoxMessage'),
@@ -2705,7 +2706,7 @@ function BoxPage({
     if (!confirmed) return;
 
     setIsChangingBoxStatus(true);
-    setPendingBoxStatus(isActivating ? 'active' : 'archived');
+    setPendingBoxStatus(isActivating ? 'active' : 'inactive');
     setStatusError(null);
     setStatusMessage(null);
 

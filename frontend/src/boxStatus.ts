@@ -9,16 +9,14 @@ type BoxStatusPresentation = {
 
 const statusLabels: Record<Language, Record<string, BoxStatusPresentation>> = {
   fr: {
-    active: { label: 'Vivante', tone: 'alive' },
-    stopped: { label: 'Morte', tone: 'dead' },
-    lost: { label: 'Perdue', tone: 'warning' },
-    archived: { label: 'Archivée', tone: 'dead' },
+    pending_review: { label: 'À vérifier', tone: 'warning' },
+    active: { label: 'Active', tone: 'alive' },
+    inactive: { label: 'Inactive', tone: 'dead' },
   },
   en: {
-    active: { label: 'Alive', tone: 'alive' },
-    stopped: { label: 'Dead', tone: 'dead' },
-    lost: { label: 'Lost', tone: 'warning' },
-    archived: { label: 'Archived', tone: 'dead' },
+    pending_review: { label: 'Pending review', tone: 'warning' },
+    active: { label: 'Active', tone: 'alive' },
+    inactive: { label: 'Inactive', tone: 'dead' },
   },
 };
 

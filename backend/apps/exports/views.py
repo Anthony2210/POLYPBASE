@@ -131,7 +131,9 @@ class BoxMeasurementTrendAPIView(APIView):
         locations = box.locations.filter(
             starts_at__date__lte=date_to,
         ).filter(
-            Q(ends_at__isnull=True) | Q(ends_at__date__gte=date_from),
+            Q(ends_at__isnull=True, end_date_unknown=False)
+            | Q(ends_at__date__gte=date_from)
+            | Q(end_date_unknown=True),
         ).select_related("thermal_zone").order_by("starts_at")
         movements = box.movements.filter(
             moved_at__date__gte=date_from,

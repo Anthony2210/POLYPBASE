@@ -136,14 +136,14 @@ class PolypbaseApiTests(TestCase):
             origin=self.origin,
             thermal_zone=self.zone,
         )
-        stopped_box = Box.objects.create(
+        inactive_box = Box.objects.create(
             organization=self.organization,
             global_code="AAU-1.003-ATL",
             box_number="003",
             strain=self.strain,
             origin=self.origin,
             thermal_zone=self.zone,
-            status=Box.Status.STOPPED,
+            status=Box.Status.INACTIVE,
         )
         old_box = Box.objects.create(
             organization=self.organization,
@@ -166,7 +166,7 @@ class PolypbaseApiTests(TestCase):
             user=self.user,
         )
         BiologicalMeasurement.objects.create(
-            box=stopped_box,
+            box=inactive_box,
             measured_on=date(2026, 3, 1),
             polyp_count=10,
         )
@@ -192,7 +192,7 @@ class PolypbaseApiTests(TestCase):
         boxes_by_code = {box["global_code"]: box for box in response.json()["results"]}
         self.assertEqual(
             set(boxes_by_code),
-            {self.box.global_code, app_tracked_box.global_code, stopped_box.global_code},
+            {self.box.global_code, app_tracked_box.global_code},
         )
         self.assertFalse(boxes_by_code[self.box.global_code]["tracked_in_app"])
         self.assertTrue(boxes_by_code[app_tracked_box.global_code]["tracked_in_app"])
@@ -396,17 +396,29 @@ class PolypbaseApiTests(TestCase):
         )
         self.client.login(username="box_admin", password="secret")
 
-        response = self.client.post(reverse("api_box_archive", args=[self.box.id]))
+        initial_location = BoxLocation.objects.create(
+            box=self.box,
+            thermal_zone=self.zone,
+            starts_at=timezone.now() - timedelta(days=3),
+        )
+        response = self.client.post(
+            reverse("api_box_archive", args=[self.box.id]),
+            data={"reason": "Culture terminée."},
+        )
 
         self.assertEqual(response.status_code, 200)
         self.box.refresh_from_db()
-        self.assertEqual(self.box.status, Box.Status.ARCHIVED)
+        initial_location.refresh_from_db()
+        self.assertEqual(self.box.status, Box.Status.INACTIVE)
+        self.assertIsNone(self.box.thermal_zone)
+        self.assertIsNotNone(initial_location.ends_at)
+        self.assertEqual(self.box.stop_reason, "Culture terminée.")
         self.assertTrue(BiologicalMeasurement.objects.filter(box=self.box).exists())
         self.assertTrue(
             AuditLog.objects.filter(
                 organization=self.organization,
                 user=admin,
-                action=AuditLog.Action.ARCHIVE,
+                action=AuditLog.Action.UPDATE,
                 object_id=self.box.global_code,
             ).exists()
         )
@@ -414,13 +426,16 @@ class PolypbaseApiTests(TestCase):
     def test_technician_cannot_mark_box_inactive(self):
         self.client.login(username="tech", password="secret")
 
-        response = self.client.post(reverse("api_box_archive", args=[self.box.id]))
+        response = self.client.post(
+            reverse("api_box_archive", args=[self.box.id]),
+            data={"reason": "Culture terminée."},
+        )
 
         self.assertEqual(response.status_code, 403)
         self.box.refresh_from_db()
         self.assertEqual(self.box.status, Box.Status.ACTIVE)
 
-    def test_admin_can_reactivate_archived_box(self):
+    def test_admin_can_reactivate_inactive_box(self):
         user_model = get_user_model()
         admin = user_model.objects.create_user(username="box_admin", password="secret")
         OrganizationMembership.objects.create(
@@ -428,16 +443,21 @@ class PolypbaseApiTests(TestCase):
             organization=self.organization,
             role=OrganizationMembership.Role.ADMIN,
         )
-        self.box.status = Box.Status.ARCHIVED
+        self.box.status = Box.Status.INACTIVE
+        self.box.thermal_zone = None
         self.box.stop_reason = "Erreur de manipulation."
-        self.box.save(update_fields=["status", "stop_reason"])
+        self.box.save(update_fields=["status", "thermal_zone", "stop_reason"])
         self.client.login(username="box_admin", password="secret")
 
-        response = self.client.post(reverse("api_box_activate", args=[self.box.id]))
+        response = self.client.post(
+            reverse("api_box_activate", args=[self.box.id]),
+            data={"thermal_zone_id": self.second_zone.id},
+        )
 
         self.assertEqual(response.status_code, 200)
         self.box.refresh_from_db()
         self.assertEqual(self.box.status, Box.Status.ACTIVE)
+        self.assertEqual(self.box.thermal_zone, self.second_zone)
         self.assertEqual(self.box.stop_reason, "")
         self.assertTrue(
             AuditLog.objects.filter(
@@ -556,7 +576,7 @@ class PolypbaseApiTests(TestCase):
             box_number="005",
             strain=self.strain,
             thermal_zone=self.zone,
-            status=Box.Status.STOPPED,
+            status=Box.Status.INACTIVE,
         )
         first_event = SubcultureEvent.objects.create(
             parent_box=self.box,
@@ -596,7 +616,7 @@ class PolypbaseApiTests(TestCase):
         )
         self.assertEqual(
             next(node for node in payload["nodes"] if node["id"] == grandchild_box.id)["status"],
-            Box.Status.STOPPED,
+            Box.Status.INACTIVE,
         )
 
     def test_drf_lineage_graph_excludes_other_organizations(self):

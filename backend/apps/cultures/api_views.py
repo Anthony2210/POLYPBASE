@@ -33,10 +33,13 @@ from .serializers import (
     AuditLogAccessSerializer,
     BiologicalMeasurementCreateSerializer,
     BiologicalMeasurementSerializer,
+    BoxActivateSerializer,
     BoxCreateSerializer,
+    BoxDeactivateSerializer,
     BoxDetailSerializer,
     BoxListSerializer,
     BoxMoveCreateSerializer,
+    BoxQualifySerializer,
     BoxTransferCreateSerializer,
     ManualTemperatureCreateSerializer,
     ProbeCreateSerializer,
@@ -45,7 +48,14 @@ from .serializers import (
     ThermalZoneCreateSerializer,
     ThermalZoneSerializer,
 )
-from .services import build_lineage_graph, create_subculture, move_box_to_thermal_zone
+from .services import (
+    build_lineage_graph,
+    create_subculture,
+    deactivate_box,
+    move_box_to_thermal_zone,
+    qualify_pending_box,
+    reactivate_box,
+)
 
 
 TEMPERATURE_ALERT_THRESHOLD_C = Decimal("1.0")
@@ -511,7 +521,8 @@ class OverviewActiveBoxesAPIView(APIView):
         organization_ids = get_active_organization_ids(request)
         location_history = (
             BoxLocation.objects.filter(
-                Q(ends_at__isnull=True) | Q(ends_at__date__gte=history_start_date)
+                Q(ends_at__isnull=True, end_date_unknown=False)
+                | Q(ends_at__date__gte=history_start_date)
             )
             .select_related("thermal_zone")
             .order_by("starts_at")
@@ -519,6 +530,7 @@ class OverviewActiveBoxesAPIView(APIView):
         boxes = list(
             box_list_queryset_for_user(request.user, organization_ids=organization_ids)
             .filter(biological_measurements__measured_on__year=self.measurement_year)
+            .exclude(status=Box.Status.INACTIVE)
             .distinct()
             .prefetch_related(
                 Prefetch("locations", queryset=location_history, to_attr="overview_locations")
@@ -616,6 +628,7 @@ class OverviewActiveBoxesAPIView(APIView):
                     },
                     "starts_at": location.starts_at.isoformat(),
                     "ends_at": location.ends_at.isoformat() if location.ends_at else None,
+                    "end_date_unknown": location.end_date_unknown,
                     "notes": location.notes,
                 }
                 for location in box.overview_locations
@@ -727,7 +740,7 @@ class BoxAccessAPIView(APIView):
         return Response(status=status.HTTP_201_CREATED)
 
 
-class BoxArchiveAPIView(APIView):
+class BoxDeactivateAPIView(APIView):
     """Mark a box inactive without deleting its history."""
 
     def post(self, request, box_id):
@@ -736,34 +749,17 @@ class BoxArchiveAPIView(APIView):
             id=box_id,
         )
         if box.organization_id not in get_active_admin_organization_ids(request):
-            raise PermissionDenied("This user cannot archive this box.")
-
-        before_values = {
-            "statut": box.status,
-            "raison_arret": box.stop_reason,
-        }
-        box.status = Box.Status.ARCHIVED
-        if not box.stop_reason:
-            box.stop_reason = "Mise inactive depuis l'administration."
-        box.save(update_fields=["status", "stop_reason"])
-
-        after_values = {
-            "statut": box.status,
-            "raison_arret": box.stop_reason,
-        }
-        AuditLog.objects.create(
-            organization=box.organization,
-            user=request.user,
-            action=AuditLog.Action.ARCHIVE,
-            object_type="box",
-            object_id=box.global_code,
-            description=f"Box archived: {box.global_code}",
-            metadata={
-                "box_id": box.id,
-                "valeurs": after_values,
-                "modifications": _changed_values(before_values, after_values),
-            },
-        )
+            raise PermissionDenied("This user cannot deactivate this box.")
+        serializer = BoxDeactivateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            deactivate_box(
+                box=box,
+                user=request.user,
+                reason=serializer.validated_data["reason"],
+            )
+        except DjangoValidationError as exc:
+            raise DRFValidationError(exc.messages) from exc
 
         updated_box = get_object_or_404(
             box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
@@ -773,7 +769,7 @@ class BoxArchiveAPIView(APIView):
 
 
 class BoxActivateAPIView(APIView):
-    """Reactivate an archived box when an admin made a mistake."""
+    """Reactivate an inactive box in an explicitly selected location."""
 
     def post(self, request, box_id):
         box = get_object_or_404(
@@ -782,32 +778,52 @@ class BoxActivateAPIView(APIView):
         )
         if box.organization_id not in get_active_admin_organization_ids(request):
             raise PermissionDenied("This user cannot activate this box.")
-
-        before_values = {
-            "statut": box.status,
-            "raison_arret": box.stop_reason,
-        }
-        box.status = Box.Status.ACTIVE
-        box.stop_reason = ""
-        box.save(update_fields=["status", "stop_reason"])
-
-        after_values = {
-            "statut": box.status,
-            "raison_arret": box.stop_reason,
-        }
-        AuditLog.objects.create(
-            organization=box.organization,
-            user=request.user,
-            action=AuditLog.Action.UPDATE,
-            object_type="box",
-            object_id=box.global_code,
-            description=f"Box activated: {box.global_code}",
-            metadata={
-                "box_id": box.id,
-                "valeurs": after_values,
-                "modifications": _changed_values(before_values, after_values),
-            },
+        serializer = BoxActivateSerializer(
+            data=request.data,
+            context={"box": box},
         )
+        serializer.is_valid(raise_exception=True)
+        try:
+            reactivate_box(
+                box=box,
+                thermal_zone=serializer.validated_data["thermal_zone"],
+                user=request.user,
+                notes=serializer.validated_data["notes"],
+            )
+        except DjangoValidationError as exc:
+            raise DRFValidationError(exc.messages) from exc
+
+        updated_box = get_object_or_404(
+            box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
+            id=box.id,
+        )
+        return Response(BoxDetailSerializer(updated_box).data, status=status.HTTP_200_OK)
+
+
+class BoxQualifyAPIView(APIView):
+    """Resolve the initial review state of one historical box."""
+
+    def post(self, request, box_id):
+        box = get_object_or_404(
+            box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
+            id=box_id,
+        )
+        if box.organization_id not in get_active_admin_organization_ids(request):
+            raise PermissionDenied("This user cannot qualify this box.")
+        serializer = BoxQualifySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            qualify_pending_box(
+                box=box,
+                target_status=serializer.validated_data["target_status"],
+                user=request.user,
+                reason=serializer.validated_data["reason"],
+                reason_missing_from_history=serializer.validated_data[
+                    "reason_missing_from_history"
+                ],
+            )
+        except DjangoValidationError as exc:
+            raise DRFValidationError(exc.messages) from exc
 
         updated_box = get_object_or_404(
             box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
@@ -834,6 +850,8 @@ class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
         box = self._get_box(request, box_id)
         if not user_can_write_lab_data(request.user, box.organization):
             raise PermissionDenied("This user cannot create or update lab measurements.")
+        if box.status == Box.Status.INACTIVE:
+            raise DRFValidationError("An inactive box cannot receive a new measurement.")
 
         serializer = BiologicalMeasurementCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

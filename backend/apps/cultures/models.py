@@ -43,10 +43,9 @@ class ThermalZone(models.Model):
 
 class Box(models.Model):
     class Status(models.TextChoices):
+        PENDING_REVIEW = "pending_review", _("À vérifier")
         ACTIVE = "active", "Active"
-        ARCHIVED = "archived", _("Archivée")
-        LOST = "lost", _("Perdue")
-        STOPPED = "stopped", _("Arrêtée")
+        INACTIVE = "inactive", _("Inactive")
 
     organization = models.ForeignKey(
         "organizations.Organization",
@@ -70,6 +69,8 @@ class Box(models.Model):
     entered_on = models.DateField(null=True, blank=True)
     volume_liters = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     stop_reason = models.CharField(max_length=250, blank=True)
+    stop_reason_missing_from_history = models.BooleanField(default=False)
+    deactivated_on = models.DateField(null=True, blank=True)
     notes = models.TextField(blank=True)
 
     class Meta:
@@ -88,6 +89,7 @@ class BoxLocation(models.Model):
     thermal_zone = models.ForeignKey(ThermalZone, on_delete=models.PROTECT, related_name="box_locations")
     starts_at = models.DateTimeField(default=timezone.now)
     ends_at = models.DateTimeField(null=True, blank=True)
+    end_date_unknown = models.BooleanField(default=False)
     notes = models.TextField(blank=True)
 
     class Meta:
@@ -96,13 +98,36 @@ class BoxLocation(models.Model):
             models.Index(fields=["box", "starts_at"]),
             models.Index(fields=["thermal_zone", "starts_at"]),
         ]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(end_date_unknown=False) | Q(ends_at__isnull=True),
+                name="box_location_unknown_end_has_no_date",
+            )
+        ]
 
     def clean(self):
         if self.ends_at and self.ends_at <= self.starts_at:
             raise ValidationError("The end date must be after the start date.")
+        if self.ends_at and self.end_date_unknown:
+            raise ValidationError("A location with an unknown end date cannot also have an end date.")
 
     def __str__(self):
         return f"{self.box} in {self.thermal_zone}"
+
+
+class BoxInventoryInitialization(models.Model):
+    organization = models.OneToOneField(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="box_inventory_initialization",
+    )
+    initialized_at = models.DateTimeField(auto_now_add=True)
+    box_count = models.PositiveIntegerField()
+    previous_status_counts = models.JSONField(default=dict)
+    selection_hash = models.CharField(max_length=64)
+
+    def __str__(self):
+        return f"Box inventory initialized for {self.organization}"
 
 
 class BoxMovement(models.Model):

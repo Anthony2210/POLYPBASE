@@ -2,6 +2,7 @@ import re
 from datetime import timedelta
 from decimal import Decimal
 
+from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -86,7 +87,7 @@ class BoxLocationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = BoxLocation
-        fields = ["id", "thermal_zone", "starts_at", "ends_at", "notes"]
+        fields = ["id", "thermal_zone", "starts_at", "ends_at", "end_date_unknown", "notes"]
 
 
 class BoxMovementSerializer(serializers.ModelSerializer):
@@ -217,6 +218,8 @@ class BoxDetailSerializer(BoxListSerializer):
             "created_on",
             "volume_liters",
             "stop_reason",
+            "stop_reason_missing_from_history",
+            "deactivated_on",
             "notes",
             "tags",
             "active_alerts",
@@ -254,7 +257,10 @@ class BoxDetailSerializer(BoxListSerializer):
         points = {}
         for location in locations:
             start_date = max(location.starts_at.date(), lower_bound)
-            end_date = location.ends_at.date() if location.ends_at else today
+            if location.end_date_unknown:
+                end_date = location.starts_at.date()
+            else:
+                end_date = location.ends_at.date() if location.ends_at else today
             if end_date < lower_bound:
                 continue
 
@@ -339,8 +345,6 @@ class BoxCreateSerializer(serializers.Serializer):
     strain = serializers.PrimaryKeyRelatedField(queryset=Strain.objects.select_related("species"))
     thermal_zone = serializers.PrimaryKeyRelatedField(
         queryset=ThermalZone.objects.filter(is_active=True),
-        required=False,
-        allow_null=True,
     )
     global_code = serializers.CharField(max_length=100)
     local_code = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
@@ -382,21 +386,75 @@ class BoxCreateSerializer(serializers.Serializer):
 
         return attrs
 
+    @transaction.atomic
     def create(self, validated_data):
-        thermal_zone = validated_data.pop("thermal_zone", None)
+        thermal_zone = validated_data.pop("thermal_zone")
         box = Box.objects.create(
             **validated_data,
             thermal_zone=thermal_zone,
             status=Box.Status.ACTIVE,
         )
-        if thermal_zone:
-            BoxLocation.objects.create(
-                box=box,
-                thermal_zone=thermal_zone,
-                starts_at=timezone.now(),
-                notes="Initial location after manual creation.",
-            )
+        BoxLocation.objects.create(
+            box=box,
+            thermal_zone=thermal_zone,
+            starts_at=timezone.now(),
+            notes="Initial location after manual creation.",
+        )
         return box
+
+
+class BoxDeactivateSerializer(serializers.Serializer):
+    reason = serializers.CharField(max_length=250, allow_blank=False, trim_whitespace=True)
+
+
+class BoxActivateSerializer(serializers.Serializer):
+    thermal_zone_id = serializers.PrimaryKeyRelatedField(
+        queryset=ThermalZone.objects.filter(is_active=True),
+        source="thermal_zone",
+    )
+    notes = serializers.CharField(required=False, allow_blank=True, default="")
+
+    def validate_thermal_zone_id(self, thermal_zone):
+        box = self.context["box"]
+        if thermal_zone.organization_id != box.organization_id:
+            raise serializers.ValidationError(
+                "The thermal zone must belong to the box organization."
+            )
+        return thermal_zone
+
+
+class BoxQualifySerializer(serializers.Serializer):
+    target_status = serializers.ChoiceField(
+        choices=[Box.Status.ACTIVE, Box.Status.INACTIVE],
+    )
+    reason = serializers.CharField(
+        max_length=250,
+        required=False,
+        allow_blank=True,
+        default="",
+        trim_whitespace=True,
+    )
+    reason_missing_from_history = serializers.BooleanField(required=False, default=False)
+
+    def validate(self, attrs):
+        target_status = attrs["target_status"]
+        reason = attrs["reason"]
+        reason_missing = attrs["reason_missing_from_history"]
+
+        if target_status == Box.Status.ACTIVE:
+            attrs["reason"] = ""
+            attrs["reason_missing_from_history"] = False
+            return attrs
+
+        if reason and reason_missing:
+            raise serializers.ValidationError(
+                "Provide either a reason or indicate that the historical reason is missing."
+            )
+        if not reason and not reason_missing:
+            raise serializers.ValidationError(
+                "A reason is required unless it was missing from the historical data."
+            )
+        return attrs
 
 
 class BoxMoveCreateSerializer(serializers.Serializer):

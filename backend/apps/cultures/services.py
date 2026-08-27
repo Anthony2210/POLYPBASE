@@ -15,6 +15,229 @@ from .models import Box, BoxLineage, BoxLocation, BoxMovement, SubcultureEvent
 LINEAGE_GRAPH_MAX_NODES = 250
 
 
+def _locked_box(box):
+    return (
+        Box.objects.select_for_update()
+        .select_related("organization", "thermal_zone")
+        .get(pk=box.pk)
+    )
+
+
+def _close_current_locations(*, box, ended_at=None, end_date_unknown=False):
+    current_locations = list(
+        BoxLocation.objects.select_for_update()
+        .filter(box=box, ends_at__isnull=True, end_date_unknown=False)
+        .order_by("-starts_at")
+    )
+    if ended_at is not None:
+        future_location = next(
+            (location for location in current_locations if location.starts_at >= ended_at),
+            None,
+        )
+        if future_location is not None:
+            raise ValidationError(
+                "The deactivation date must be after the current location start."
+            )
+
+    for location in current_locations:
+        if end_date_unknown:
+            location.end_date_unknown = True
+            location.save(update_fields=["end_date_unknown"])
+        else:
+            location.ends_at = ended_at
+            location.save(update_fields=["ends_at"])
+    return current_locations
+
+
+def _status_values(box):
+    return {
+        "status": box.status,
+        "thermal_zone_id": box.thermal_zone_id,
+        "stop_reason": box.stop_reason,
+        "stop_reason_missing_from_history": box.stop_reason_missing_from_history,
+        "deactivated_on": box.deactivated_on.isoformat() if box.deactivated_on else None,
+    }
+
+
+@transaction.atomic
+def qualify_pending_box(
+    *,
+    box,
+    target_status,
+    user,
+    reason="",
+    reason_missing_from_history=False,
+):
+    """Qualify one historical box without inventing missing lifecycle data."""
+    box = _locked_box(box)
+    if box.status != Box.Status.PENDING_REVIEW:
+        raise ValidationError("Only a box pending review can be qualified.")
+    if target_status not in {Box.Status.ACTIVE, Box.Status.INACTIVE}:
+        raise ValidationError("A pending box can only become active or inactive.")
+
+    before_values = _status_values(box)
+    closed_location_ids = []
+    if target_status == Box.Status.ACTIVE:
+        box.status = Box.Status.ACTIVE
+        box.stop_reason = ""
+        box.stop_reason_missing_from_history = False
+        box.deactivated_on = None
+    else:
+        reason = reason.strip()
+        if reason and reason_missing_from_history:
+            raise ValidationError(
+                "Provide either a reason or indicate that the historical reason is missing."
+            )
+        if not reason and not reason_missing_from_history:
+            raise ValidationError(
+                "A reason is required unless it was missing from the historical data."
+            )
+        closed_locations = _close_current_locations(
+            box=box,
+            end_date_unknown=True,
+        )
+        closed_location_ids = [location.id for location in closed_locations]
+        box.status = Box.Status.INACTIVE
+        box.thermal_zone = None
+        box.stop_reason = reason
+        box.stop_reason_missing_from_history = reason_missing_from_history
+        box.deactivated_on = None
+
+    box.save(
+        update_fields=[
+            "status",
+            "thermal_zone",
+            "stop_reason",
+            "stop_reason_missing_from_history",
+            "deactivated_on",
+        ]
+    )
+    after_values = _status_values(box)
+    AuditLog.objects.create(
+        organization=box.organization,
+        user=user,
+        action=AuditLog.Action.UPDATE,
+        object_type="box",
+        object_id=box.global_code,
+        description=f"Historical box qualified as {target_status}: {box.global_code}",
+        metadata={
+            "box_id": box.id,
+            "transition": f"{Box.Status.PENDING_REVIEW}->{target_status}",
+            "before": before_values,
+            "after": after_values,
+            "closed_location_ids": closed_location_ids,
+        },
+    )
+    return box
+
+
+@transaction.atomic
+def deactivate_box(*, box, user, reason):
+    """Deactivate an active box and release its current location atomically."""
+    box = _locked_box(box)
+    if box.status != Box.Status.ACTIVE:
+        raise ValidationError("Only an active box can be deactivated.")
+    reason = reason.strip()
+    if not reason:
+        raise ValidationError("A reason is required to deactivate an active box.")
+
+    changed_at = timezone.now()
+    before_values = _status_values(box)
+    closed_locations = _close_current_locations(box=box, ended_at=changed_at)
+    box.status = Box.Status.INACTIVE
+    box.thermal_zone = None
+    box.stop_reason = reason
+    box.stop_reason_missing_from_history = False
+    box.deactivated_on = timezone.localdate(changed_at)
+    box.save(
+        update_fields=[
+            "status",
+            "thermal_zone",
+            "stop_reason",
+            "stop_reason_missing_from_history",
+            "deactivated_on",
+        ]
+    )
+    after_values = _status_values(box)
+    AuditLog.objects.create(
+        organization=box.organization,
+        user=user,
+        action=AuditLog.Action.UPDATE,
+        object_type="box",
+        object_id=box.global_code,
+        description=f"Box deactivated: {box.global_code}",
+        metadata={
+            "box_id": box.id,
+            "transition": f"{Box.Status.ACTIVE}->{Box.Status.INACTIVE}",
+            "before": before_values,
+            "after": after_values,
+            "closed_location_ids": [location.id for location in closed_locations],
+            "changed_at": changed_at.isoformat(),
+        },
+    )
+    return box
+
+
+@transaction.atomic
+def reactivate_box(*, box, thermal_zone, user, notes=""):
+    """Reactivate an inactive box in a newly selected active location."""
+    box = _locked_box(box)
+    if box.status != Box.Status.INACTIVE:
+        raise ValidationError("Only an inactive box can be reactivated.")
+    if thermal_zone.organization_id != box.organization_id:
+        raise ValidationError("The thermal zone must belong to the box organization.")
+    if not thermal_zone.is_active:
+        raise ValidationError("The selected thermal zone must be active.")
+
+    before_values = _status_values(box)
+    legacy_open_locations = _close_current_locations(
+        box=box,
+        end_date_unknown=True,
+    )
+    if box.thermal_zone_id is not None:
+        box.thermal_zone = None
+        box.save(update_fields=["thermal_zone"])
+    movement = move_box_to_thermal_zone(
+        box=box,
+        thermal_zone=thermal_zone,
+        moved_at=timezone.now(),
+        user=user,
+        notes=notes,
+    )
+    box.status = Box.Status.ACTIVE
+    box.stop_reason = ""
+    box.stop_reason_missing_from_history = False
+    box.deactivated_on = None
+    box.save(
+        update_fields=[
+            "status",
+            "stop_reason",
+            "stop_reason_missing_from_history",
+            "deactivated_on",
+        ]
+    )
+    after_values = _status_values(box)
+    AuditLog.objects.create(
+        organization=box.organization,
+        user=user,
+        action=AuditLog.Action.UPDATE,
+        object_type="box",
+        object_id=box.global_code,
+        description=f"Box reactivated: {box.global_code}",
+        metadata={
+            "box_id": box.id,
+            "transition": f"{Box.Status.INACTIVE}->{Box.Status.ACTIVE}",
+            "before": before_values,
+            "after": after_values,
+            "movement_id": movement.id,
+            "legacy_closed_location_ids": [
+                location.id for location in legacy_open_locations
+            ],
+        },
+    )
+    return box
+
+
 @transaction.atomic
 def create_subculture(*, parent_box, user, event_date, reason, notes, children):
     """Create one subculture event and all its child boxes atomically."""
@@ -102,7 +325,7 @@ def move_box_to_thermal_zone(*, box, thermal_zone, moved_at, user, notes):
     from_thermal_zone = box.thermal_zone
     active_locations = list(
         BoxLocation.objects.select_for_update()
-        .filter(box=box, ends_at__isnull=True)
+        .filter(box=box, ends_at__isnull=True, end_date_unknown=False)
         .order_by("-starts_at")
     )
 
