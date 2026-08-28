@@ -32,6 +32,10 @@ import {
 } from './i18n';
 import type { AdminSectionKey, EditableMeasurement } from './components/AdminView';
 import BiologicalTrendChart from './components/BiologicalTrendChart';
+import BoxLifecycleModal, {
+  type BoxLifecycleAction,
+  type BoxLifecycleSubmission,
+} from './components/BoxLifecycleModal';
 import ChartWindowControls from './components/ChartWindowControls';
 import { buildChartWindow } from './utils/chartWindow';
 
@@ -59,13 +63,17 @@ import TabletQrScanner from './components/TabletQrScanner';
 import { useIsDesktopApp } from './hooks/useIsDesktopApp';
 import type {
   BiologicalMeasurement,
+  BoxActivatePayload,
   BoxAlert,
   BoxCreatePayload,
+  BoxDeactivatePayload,
   BoxDetail,
+  BoxInitialLocationPayload,
   BoxItem,
   BoxLineage,
   BoxMovement,
   BoxMovePayload,
+  BoxQualifyPayload,
   Dashboard,
   ExportOptions,
   LineageGraph,
@@ -159,6 +167,7 @@ type RouteState = {
 
 const ADMIN_SECTION_PATHS: Record<AdminSectionKey, string> = {
   accounts: '/administration/team',
+  inventory: '/administration/box-inventory',
   references: '/administration/reference-data',
   environment: '/administration/laboratory',
   transfers: '/administration/transfers',
@@ -215,7 +224,7 @@ export default function App() {
   useEffect(() => {
     document.documentElement.lang = language;
   }, [language]);
-  const canUseAdmin = isDesktopApp && hasAdminRole;
+  const canUseAdmin = hasAdminRole;
   const isExportOptionsLoading = (
     activeTab === 'exports' || exportOptionsRequested
   ) && data.exportOptions === null;
@@ -760,8 +769,8 @@ export default function App() {
     }));
   }
 
-  async function archiveBox(boxId: number) {
-    const detail = await apiPost<BoxDetail>(`/api/boxes/${boxId}/deactivate/`, {});
+  async function deactivateBox(boxId: number, payload: BoxDeactivatePayload) {
+    const detail = await apiPost<BoxDetail>(`/api/boxes/${boxId}/deactivate/`, payload);
 
     setData((current) => ({
       ...mergeBoxDetail(current, detail),
@@ -771,12 +780,39 @@ export default function App() {
     }));
   }
 
-  async function activateBox(boxId: number) {
-    const detail = await apiPost<BoxDetail>(`/api/boxes/${boxId}/activate/`, {});
+  async function reactivateBox(boxId: number, payload: BoxActivatePayload) {
+    const detail = await apiPost<BoxDetail>(`/api/boxes/${boxId}/activate/`, payload);
 
     setData((current) => ({
       ...mergeBoxDetail(current, detail),
       boxes: upsertBoxes(current.boxes, [detail]),
+      overview: null,
+      exportOptions: null,
+    }));
+  }
+
+  async function qualifyBox(boxId: number, payload: BoxQualifyPayload) {
+    const detail = await apiPost<BoxDetail>(`/api/boxes/${boxId}/qualify/`, payload);
+
+    setData((current) => ({
+      ...mergeBoxDetail(current, detail),
+      boxes: upsertBoxes(current.boxes, [detail]),
+      overview: null,
+      exportOptions: null,
+    }));
+  }
+
+  async function assignBoxInitialLocation(boxId: number, payload: BoxInitialLocationPayload) {
+    const detail = await apiPost<BoxDetail>(
+      `/api/admin/box-inventory/${boxId}/assign-location/`,
+      payload,
+    );
+    const zones = await apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80');
+
+    setData((current) => ({
+      ...mergeBoxDetail(current, detail),
+      boxes: upsertBoxes(current.boxes, [detail]),
+      zones: zones.results,
       overview: null,
       exportOptions: null,
     }));
@@ -1003,8 +1039,8 @@ export default function App() {
                 onUpdateMeasurement={updateMeasurement}
                 onCreateSubculture={createSubculture}
                 onMoveBox={moveBox}
-                onArchiveBox={archiveBox}
-                onActivateBox={activateBox}
+                onDeactivateBox={deactivateBox}
+                onReactivateBox={reactivateBox}
                 onResolveAlert={resolveAlert}
                 onLoadLineageGraph={loadLineageGraph}
                 measurementPrefill={measurementPrefill}
@@ -1103,6 +1139,7 @@ export default function App() {
                 exportOptions={data.exportOptions}
                 isLoading={isLoading}
                 isOptionsLoading={isExportOptionsLoading}
+                language={language}
                 profile={data.profile}
                 onSelectSection={openAdminSection}
                 onRequestOptions={() => setExportOptionsRequested(true)}
@@ -1113,6 +1150,10 @@ export default function App() {
                 onUpdateOrganization={updateOrganization}
                 onDeleteOrganization={deleteOrganization}
                 onCreateTransfer={createBoxTransfer}
+                onAssignBoxLocation={assignBoxInitialLocation}
+                onDeactivateBox={deactivateBox}
+                onQualifyBox={qualifyBox}
+                onReactivateBox={reactivateBox}
                 onEditMeasurement={editMeasurementFromHistory}
                 t={t}
                 zones={data.zones}
@@ -2323,8 +2364,8 @@ function BoxPage({
   onUpdateMeasurement,
   onCreateSubculture,
   onMoveBox,
-  onArchiveBox,
-  onActivateBox,
+  onDeactivateBox,
+  onReactivateBox,
   onResolveAlert,
   onLoadLineageGraph,
   measurementPrefill,
@@ -2352,8 +2393,8 @@ function BoxPage({
   ) => Promise<BiologicalMeasurement>;
   onCreateSubculture: (boxId: number, payload: SubculturePayload) => Promise<void>;
   onMoveBox: (boxId: number, payload: BoxMovePayload) => Promise<void>;
-  onArchiveBox: (boxId: number) => Promise<void>;
-  onActivateBox: (boxId: number) => Promise<void>;
+  onDeactivateBox: (boxId: number, payload: BoxDeactivatePayload) => Promise<void>;
+  onReactivateBox: (boxId: number, payload: BoxActivatePayload) => Promise<void>;
   onResolveAlert: (boxId: number, alertId: number) => Promise<void>;
   onLoadLineageGraph: (boxId: number) => Promise<LineageGraph>;
   measurementPrefill: HistoryMeasurementPrefill | null;
@@ -2377,7 +2418,7 @@ function BoxPage({
   const [isMoveOpen, setIsMoveOpen] = useState(false);
   const [isSavingMove, setIsSavingMove] = useState(false);
   const [isChangingBoxStatus, setIsChangingBoxStatus] = useState(false);
-  const [pendingBoxStatus, setPendingBoxStatus] = useState<'active' | 'inactive' | null>(null);
+  const [lifecycleAction, setLifecycleAction] = useState<BoxLifecycleAction | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [moveMessage, setMoveMessage] = useState<string | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
@@ -2411,7 +2452,7 @@ function BoxPage({
     setIsMoveOpen(false);
     setIsSavingMove(false);
     setIsChangingBoxStatus(false);
-    setPendingBoxStatus(null);
+    setLifecycleAction(null);
     setMoveError(null);
     setMoveMessage(null);
     setStatusError(null);
@@ -2456,12 +2497,6 @@ function BoxPage({
     if (editingMeasurementId != null || !defaultSalinity) return;
     setForm((current) => (current.salinity ? current : { ...current, salinity: defaultSalinity }));
   }, [defaultSalinity, editingMeasurementId]);
-
-  useEffect(() => {
-    if (pendingBoxStatus && pendingBoxStatus === box?.status) {
-      setPendingBoxStatus(null);
-    }
-  }, [box?.status, pendingBoxStatus]);
 
   useEffect(() => {
     if (activeInsightTab !== 'lineage' || !box?.id || lineageGraph || isLineageGraphLoading) {
@@ -2545,11 +2580,10 @@ function BoxPage({
   const lineage = getBoxLineage(box);
   const currentZone = getCurrentThermalZone(box, zones);
   const displayDate = getBoxDisplayDate(box, measurements);
-  const effectiveBoxStatus = pendingBoxStatus ?? box.status;
-  const statusPresentation = getBoxStatusPresentation(effectiveBoxStatus, language);
+  const statusPresentation = getBoxStatusPresentation(box.status, language);
   const canWriteLabData = userCanWriteLabData(profile, box.organization.id);
   const canChangeBoxStatus = userCanArchiveBox(profile, box.organization.id);
-  const isBoxActive = effectiveBoxStatus === 'active';
+  const isBoxActive = box.status === 'active';
   const canShowStatusButton = canChangeBoxStatus && ['active', 'inactive'].includes(box.status);
 
   async function saveMeasurement(): Promise<boolean> {
@@ -2689,39 +2723,24 @@ function BoxPage({
     }
   }
 
-  async function handleChangeBoxStatus() {
+  async function handleLifecycleSubmit(submission: BoxLifecycleSubmission) {
     if (!box || isChangingBoxStatus) return;
-    const isActivating = effectiveBoxStatus === 'inactive';
-    const confirmed = await confirmAction({
-      title: t(isActivating ? 'confirmActivateBoxTitle' : 'confirmArchiveBoxTitle'),
-      message: t(isActivating ? 'confirmActivateBoxMessage' : 'confirmArchiveBoxMessage'),
-      confirmLabel: t(isActivating ? 'confirmActivateBoxAction' : 'confirmArchiveBoxAction'),
-      cancelLabel: t('confirmCancel'),
-      variant: isActivating ? 'default' : 'danger',
-      details: [
-        { label: t('confirmDetailBox'), value: box.global_code },
-        { label: t('confirmDetailSpecies'), value: box.species.scientific_name },
-      ],
-    });
-    if (!confirmed) return;
-
     setIsChangingBoxStatus(true);
-    setPendingBoxStatus(isActivating ? 'active' : 'inactive');
     setStatusError(null);
     setStatusMessage(null);
 
     try {
-      if (isActivating) {
-        await onActivateBox(box.id);
+      if (submission.action === 'reactivate') {
+        await onReactivateBox(box.id, submission.payload);
         setStatusMessage(t('boxActivated'));
-      } else {
-        await onArchiveBox(box.id);
+      } else if (submission.action === 'deactivate') {
+        await onDeactivateBox(box.id, submission.payload);
         setStatusMessage(t('boxArchived'));
       }
+      setLifecycleAction(null);
     } catch (requestError) {
-      setPendingBoxStatus(null);
       if (requestError instanceof ApiError && requestError.status === 403) {
-        setStatusError(t(isActivating ? 'boxActivateForbidden' : 'boxArchiveForbidden'));
+        setStatusError(t(submission.action === 'reactivate' ? 'boxActivateForbidden' : 'boxArchiveForbidden'));
       } else {
         setStatusError(getErrorMessage(requestError));
       }
@@ -2857,7 +2876,11 @@ function BoxPage({
               className={isBoxActive ? 'archive-box-trigger' : 'activate-box-trigger'}
               type="button"
               disabled={isChangingBoxStatus}
-              onClick={() => void handleChangeBoxStatus()}
+              onClick={() => {
+                setStatusError(null);
+                setStatusMessage(null);
+                setLifecycleAction(isBoxActive ? 'deactivate' : 'reactivate');
+              }}
             >
               <span className="button-icon-label">
                 {!isChangingBoxStatus ? (
@@ -3160,6 +3183,21 @@ function BoxPage({
             t={t}
             onClose={() => setIsChecksOpen(false)}
             onResolve={handleResolveAlert}
+          />
+        ) : null}
+
+        {lifecycleAction && (lifecycleAction === 'deactivate' || lifecycleAction === 'reactivate') ? (
+          <BoxLifecycleModal
+            action={lifecycleAction}
+            box={box}
+            error={statusError}
+            isSaving={isChangingBoxStatus}
+            onClose={() => {
+              if (!isChangingBoxStatus) setLifecycleAction(null);
+            }}
+            onSubmit={handleLifecycleSubmit}
+            t={t}
+            zones={zones}
           />
         ) : null}
 

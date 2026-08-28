@@ -86,6 +86,38 @@ export type BoxItem = {
   active_alert_count: number;
 };
 
+export type BoxInventoryItem = {
+  id: number;
+  global_code: string;
+  local_code: string;
+  status: 'pending_review' | 'active' | 'inactive';
+  species: Species;
+  thermal_zone: ThermalZoneSummary | null;
+  created_on: string;
+  latest_measurement: BiologicalMeasurement | null;
+};
+
+export type BoxQualifyPayload = {
+  target_status: 'active' | 'inactive';
+  reason?: string;
+  reason_missing_from_history?: boolean;
+  thermal_zone_id?: number | null;
+};
+
+export type BoxDeactivatePayload = {
+  reason: string;
+};
+
+export type BoxActivatePayload = {
+  thermal_zone_id: number;
+  notes?: string;
+};
+
+export type BoxInitialLocationPayload = {
+  thermal_zone_id: number;
+  notes?: string;
+};
+
 export type OverviewMeasurementPoint = {
   date: string;
   polyp_count: number;

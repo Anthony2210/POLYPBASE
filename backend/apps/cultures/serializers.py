@@ -202,6 +202,39 @@ class BoxListSerializer(serializers.ModelSerializer):
         return obj.alerts.filter(resolved_at__isnull=True).count()
 
 
+class BoxInventorySerializer(serializers.ModelSerializer):
+    species = serializers.SerializerMethodField()
+    thermal_zone = ThermalZoneSummarySerializer(read_only=True)
+    latest_measurement = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Box
+        fields = [
+            "id",
+            "global_code",
+            "local_code",
+            "status",
+            "species",
+            "thermal_zone",
+            "created_on",
+            "latest_measurement",
+        ]
+
+    def get_species(self, obj):
+        return SpeciesSummarySerializer(obj.strain.species).data
+
+    def get_latest_measurement(self, obj):
+        measurements = _prefetched_list(obj, "biological_measurements")
+        if measurements is not None:
+            measurement = next(iter(measurements), None)
+        else:
+            measurement = obj.biological_measurements.order_by(
+                "-measured_on",
+                "-created_at",
+            ).first()
+        return BiologicalMeasurementSerializer(measurement).data if measurement else None
+
+
 class BoxDetailSerializer(BoxListSerializer):
     tags = IdentificationTagSerializer(many=True, read_only=True)
     active_alerts = serializers.SerializerMethodField()
@@ -435,16 +468,41 @@ class BoxQualifySerializer(serializers.Serializer):
         trim_whitespace=True,
     )
     reason_missing_from_history = serializers.BooleanField(required=False, default=False)
+    thermal_zone_id = serializers.PrimaryKeyRelatedField(
+        queryset=ThermalZone.objects.filter(is_active=True),
+        source="thermal_zone",
+        required=False,
+        allow_null=True,
+    )
+
+    def validate_thermal_zone_id(self, thermal_zone):
+        box = self.context["box"]
+        if thermal_zone.organization_id != box.organization_id:
+            raise serializers.ValidationError(
+                "The thermal zone must belong to the box organization."
+            )
+        return thermal_zone
 
     def validate(self, attrs):
         target_status = attrs["target_status"]
         reason = attrs["reason"]
         reason_missing = attrs["reason_missing_from_history"]
+        thermal_zone = attrs.get("thermal_zone")
 
         if target_status == Box.Status.ACTIVE:
+            box = self.context["box"]
+            if box.thermal_zone_id is not None and thermal_zone is not None:
+                raise serializers.ValidationError(
+                    "A pending box that already has a location cannot be moved during qualification."
+                )
             attrs["reason"] = ""
             attrs["reason_missing_from_history"] = False
             return attrs
+
+        if thermal_zone is not None:
+            raise serializers.ValidationError(
+                "An inactive box cannot be assigned a thermal zone."
+            )
 
         if reason and reason_missing:
             raise serializers.ValidationError(
@@ -455,6 +513,22 @@ class BoxQualifySerializer(serializers.Serializer):
                 "A reason is required unless it was missing from the historical data."
             )
         return attrs
+
+
+class BoxInitialLocationSerializer(serializers.Serializer):
+    thermal_zone_id = serializers.PrimaryKeyRelatedField(
+        queryset=ThermalZone.objects.filter(is_active=True),
+        source="thermal_zone",
+    )
+    notes = serializers.CharField(required=False, allow_blank=True, default="")
+
+    def validate_thermal_zone_id(self, thermal_zone):
+        box = self.context["box"]
+        if thermal_zone.organization_id != box.organization_id:
+            raise serializers.ValidationError(
+                "The thermal zone must belong to the box organization."
+            )
+        return thermal_zone
 
 
 class BoxMoveCreateSerializer(serializers.Serializer):

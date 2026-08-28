@@ -11,6 +11,8 @@ from apps.accounts.api_views import (
     UserProfileAPIView,
 )
 from apps.cultures.api_views import (
+    AdminBoxInitialLocationAPIView,
+    AdminBoxInventoryListAPIView,
     AlertResolveAPIView,
     BoxAccessAPIView,
     BoxActivateAPIView,
@@ -65,6 +67,16 @@ urlpatterns = [
     ),
     path("dashboard/", DashboardAPIView.as_view(), name="api_dashboard"),
     path("overview/active-boxes/", OverviewActiveBoxesAPIView.as_view(), name="api_overview_active_boxes"),
+    path(
+        "admin/box-inventory/",
+        AdminBoxInventoryListAPIView.as_view(),
+        name="api_admin_box_inventory",
+    ),
+    path(
+        "admin/box-inventory/<int:box_id>/assign-location/",
+        AdminBoxInitialLocationAPIView.as_view(),
+        name="api_admin_box_initial_location",
+    ),
     path("boxes/", BoxListAPIView.as_view(), name="api_box_list"),
     path("boxes/<int:pk>/", BoxDetailAPIView.as_view(), name="api_box_detail"),
     path(

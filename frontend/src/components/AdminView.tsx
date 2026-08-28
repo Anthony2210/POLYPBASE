@@ -9,7 +9,11 @@ import { ApiError, apiGet, apiPatch, apiPost } from '../api/client';
 import type {
   AccountMember,
   AccountMembers,
+  BoxActivatePayload,
+  BoxDeactivatePayload,
+  BoxInitialLocationPayload,
   BoxItem,
+  BoxQualifyPayload,
   ExportOptions,
   MembershipRole,
   NewMemberPayload,
@@ -18,6 +22,7 @@ import type {
   ThermalZone,
   UserProfile,
 } from '../types';
+import type { Language } from '../i18n';
 import type {
   BoxTransferPayload,
   BoxTransferResult,
@@ -31,6 +36,7 @@ import { buildQrLabelItem, printQrLabels } from '../utils/qrLabels';
 import { decrementDecimalValue, incrementDecimalValue } from '../utils/stepValue';
 import { getZoneOccupancyLevel } from '../utils/zoneOccupancy';
 import AdminActionPanel from './AdminActionPanel';
+import BoxInventoryAdminSection from './BoxInventoryAdminSection';
 import { useConfirmAction } from './ConfirmActionModal';
 import PageLoader from './PageLoader';
 import PolypbaseIcon from './PolypbaseIcon';
@@ -93,6 +99,7 @@ const ADMIN_AUDIT_PAGE_SIZE = 40;
 
 const ADMIN_FLOW_ITEMS = [
   { key: 'accounts', panelId: 'admin-accounts', label: 'adminTabUsers', scope: 'aquarium' },
+  { key: 'inventory', panelId: 'admin-inventory', label: 'adminTabInventory', scope: 'aquarium' },
   { key: 'references', panelId: 'admin-taxonomy', label: 'adminTabReferences', scope: 'shared' },
   { key: 'environment', panelId: 'admin-environment', label: 'adminTabLocations', scope: 'aquarium' },
   { key: 'transfers', panelId: 'admin-transfers', label: 'adminTabTransfers', scope: 'aquarium' },
@@ -3356,6 +3363,7 @@ export default function AdminView({
   exportOptions,
   isLoading,
   isOptionsLoading,
+  language,
   profile,
   onSelectSection,
   onRequestOptions,
@@ -3366,6 +3374,10 @@ export default function AdminView({
   onDeleteOrganization,
   onUpdateOrganization,
   onCreateTransfer,
+  onAssignBoxLocation,
+  onDeactivateBox,
+  onQualifyBox,
+  onReactivateBox,
   onEditMeasurement,
   t,
   zones,
@@ -3376,6 +3388,7 @@ export default function AdminView({
   exportOptions: ExportOptions | null;
   isLoading: boolean;
   isOptionsLoading: boolean;
+  language: Language;
   profile: UserProfile | null;
   onSelectSection: (section: AdminSectionKey) => void;
   onRequestOptions: () => void;
@@ -3386,6 +3399,10 @@ export default function AdminView({
   onDeleteOrganization: (organizationId: number) => Promise<void>;
   onUpdateOrganization: (organizationId: number, payload: OrganizationPayload) => Promise<void>;
   onCreateTransfer: (payload: BoxTransferPayload) => Promise<BoxTransferResult>;
+  onAssignBoxLocation: (boxId: number, payload: BoxInitialLocationPayload) => Promise<void>;
+  onDeactivateBox: (boxId: number, payload: BoxDeactivatePayload) => Promise<void>;
+  onQualifyBox: (boxId: number, payload: BoxQualifyPayload) => Promise<void>;
+  onReactivateBox: (boxId: number, payload: BoxActivatePayload) => Promise<void>;
   t: TFunction;
   zones: ThermalZone[];
 }) {
@@ -3435,6 +3452,18 @@ export default function AdminView({
 
           {displayedSection === 'accounts' ? (
             <AccountManagementSection organizationName={activeOrganizationName} t={t} />
+          ) : null}
+
+          {displayedSection === 'inventory' ? (
+            <BoxInventoryAdminSection
+              language={language}
+              onAssignLocation={onAssignBoxLocation}
+              onDeactivate={onDeactivateBox}
+              onQualify={onQualifyBox}
+              onReactivate={onReactivateBox}
+              t={t}
+              zones={zones}
+            />
           ) : null}
 
           {displayedSection === 'references' ? <TaxonomyAdminSection t={t} /> : null}

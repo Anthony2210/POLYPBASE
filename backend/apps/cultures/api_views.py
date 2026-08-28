@@ -5,12 +5,13 @@ import re
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import DatabaseError, connection, transaction
-from django.db.models import Count, OuterRef, Prefetch, Q, Subquery, Sum
+from django.db.models import Case, Count, IntegerField, OuterRef, Prefetch, Q, Subquery, Sum, When
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.exceptions import PermissionDenied, ValidationError as DRFValidationError
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -37,6 +38,8 @@ from .serializers import (
     BoxCreateSerializer,
     BoxDeactivateSerializer,
     BoxDetailSerializer,
+    BoxInitialLocationSerializer,
+    BoxInventorySerializer,
     BoxListSerializer,
     BoxMoveCreateSerializer,
     BoxQualifySerializer,
@@ -49,6 +52,7 @@ from .serializers import (
     ThermalZoneSerializer,
 )
 from .services import (
+    assign_unlocated_active_box,
     build_lineage_graph,
     create_subculture,
     deactivate_box,
@@ -374,6 +378,34 @@ def box_list_queryset_for_user(user, organization_ids=None):
         .annotate(
             active_alert_count_annotation=active_alert_count,
             latest_salinity_annotation=latest_salinity,
+        )
+        .prefetch_related(
+            Prefetch("biological_measurements", queryset=latest_measurements)
+        )
+        .filter(organization_id__in=organization_ids)
+    )
+
+
+def box_inventory_queryset_for_user(user, organization_ids=None):
+    """Minimal queryset for the paginated administration inventory."""
+    organization_ids = organization_ids or get_authorized_organization_ids(user)
+
+    latest_measurement_id = Subquery(
+        BiologicalMeasurement.objects.filter(box_id=OuterRef("box_id"))
+        .order_by("-measured_on", "-created_at")
+        .values("id")[:1]
+    )
+    latest_measurements = (
+        BiologicalMeasurement.objects.filter(id__in=latest_measurement_id)
+        .select_related("user")
+        .order_by("-measured_on", "-created_at")
+    )
+
+    return (
+        Box.objects.select_related(
+            "strain",
+            "strain__species",
+            "thermal_zone",
         )
         .prefetch_related(
             Prefetch("biological_measurements", queryset=latest_measurements)
@@ -710,6 +742,101 @@ class BoxListAPIView(generics.ListCreateAPIView):
         return Response(BoxDetailSerializer(created_box).data, status=status.HTTP_201_CREATED)
 
 
+class BoxInventoryPagination(LimitOffsetPagination):
+    default_limit = 24
+    max_limit = 96
+
+
+class AdminBoxInventoryListAPIView(generics.ListAPIView):
+    """Paginated inventory for administrators of the active organization."""
+
+    serializer_class = BoxInventorySerializer
+    pagination_class = BoxInventoryPagination
+
+    def get_queryset(self):
+        organization_ids = get_active_admin_organization_ids(self.request)
+        if not organization_ids:
+            raise PermissionDenied("This user cannot view this box inventory.")
+
+        queryset = box_inventory_queryset_for_user(
+            self.request.user,
+            organization_ids=organization_ids,
+        )
+
+        status_filter = self.request.query_params.get("status", "").strip()
+        if status_filter:
+            if status_filter not in Box.Status.values:
+                raise DRFValidationError({"status": "Unknown box status."})
+            queryset = queryset.filter(status=status_filter)
+
+        location_filter = self.request.query_params.get("location", "").strip()
+        if location_filter == "none":
+            queryset = queryset.filter(thermal_zone__isnull=True)
+        elif location_filter:
+            try:
+                thermal_zone_id = int(location_filter)
+            except (TypeError, ValueError) as error:
+                raise DRFValidationError({"location": "Invalid thermal zone."}) from error
+            if not ThermalZone.objects.filter(
+                id=thermal_zone_id,
+                organization_id__in=organization_ids,
+                is_active=True,
+            ).exists():
+                raise DRFValidationError({"location": "Unknown thermal zone."})
+            queryset = queryset.filter(thermal_zone_id=thermal_zone_id)
+
+        search = self.request.query_params.get("q", "").strip()
+        if search:
+            queryset = queryset.filter(
+                Q(global_code__icontains=search)
+                | Q(local_code__icontains=search)
+                | Q(strain__species__scientific_name__icontains=search)
+            )
+
+        return queryset.annotate(
+            inventory_status_order=Case(
+                When(status=Box.Status.PENDING_REVIEW, then=0),
+                When(status=Box.Status.ACTIVE, then=1),
+                When(status=Box.Status.INACTIVE, then=2),
+                default=3,
+                output_field=IntegerField(),
+            )
+        ).order_by("inventory_status_order", "global_code")
+
+
+class AdminBoxInitialLocationAPIView(APIView):
+    """Assign a first current location to an active historical box."""
+
+    def post(self, request, box_id):
+        organization_ids = get_active_admin_organization_ids(request)
+        if not organization_ids:
+            raise PermissionDenied("This user cannot assign box locations.")
+        box = get_object_or_404(
+            box_queryset_for_user(request.user, organization_ids=organization_ids),
+            id=box_id,
+        )
+        serializer = BoxInitialLocationSerializer(
+            data=request.data,
+            context={"box": box},
+        )
+        serializer.is_valid(raise_exception=True)
+        try:
+            assign_unlocated_active_box(
+                box=box,
+                thermal_zone=serializer.validated_data["thermal_zone"],
+                user=request.user,
+                notes=serializer.validated_data["notes"],
+            )
+        except DjangoValidationError as exc:
+            raise DRFValidationError(exc.messages) from exc
+
+        updated_box = get_object_or_404(
+            box_queryset_for_user(request.user, organization_ids=organization_ids),
+            id=box.id,
+        )
+        return Response(BoxDetailSerializer(updated_box).data, status=status.HTTP_200_OK)
+
+
 class BoxDetailAPIView(generics.RetrieveAPIView):
     serializer_class = BoxDetailSerializer
 
@@ -810,7 +937,7 @@ class BoxQualifyAPIView(APIView):
         )
         if box.organization_id not in get_active_admin_organization_ids(request):
             raise PermissionDenied("This user cannot qualify this box.")
-        serializer = BoxQualifySerializer(data=request.data)
+        serializer = BoxQualifySerializer(data=request.data, context={"box": box})
         serializer.is_valid(raise_exception=True)
         try:
             qualify_pending_box(
@@ -821,6 +948,7 @@ class BoxQualifyAPIView(APIView):
                 reason_missing_from_history=serializer.validated_data[
                     "reason_missing_from_history"
                 ],
+                thermal_zone=serializer.validated_data.get("thermal_zone"),
             )
         except DjangoValidationError as exc:
             raise DRFValidationError(exc.messages) from exc
