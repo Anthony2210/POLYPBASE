@@ -67,6 +67,7 @@ def qualify_pending_box(
     user,
     reason="",
     reason_missing_from_history=False,
+    thermal_zone=None,
 ):
     """Qualify one historical box without inventing missing lifecycle data."""
     box = _locked_box(box)
@@ -78,6 +79,18 @@ def qualify_pending_box(
     before_values = _status_values(box)
     closed_location_ids = []
     if target_status == Box.Status.ACTIVE:
+        if box.thermal_zone_id is not None and thermal_zone is not None:
+            raise ValidationError(
+                "A pending box that already has a location cannot be moved during qualification."
+            )
+        if thermal_zone is not None:
+            move_box_to_thermal_zone(
+                box=box,
+                thermal_zone=thermal_zone,
+                moved_at=timezone.now(),
+                user=user,
+                notes="Initial location assigned during historical qualification.",
+            )
         box.status = Box.Status.ACTIVE
         box.stop_reason = ""
         box.stop_reason_missing_from_history = False
@@ -129,6 +142,24 @@ def qualify_pending_box(
         },
     )
     return box
+
+
+@transaction.atomic
+def assign_unlocated_active_box(*, box, thermal_zone, user, notes=""):
+    """Assign the first known location without turning the action into a transfer."""
+    box = _locked_box(box)
+    if box.status != Box.Status.ACTIVE:
+        raise ValidationError("Only an active box can receive an initial location.")
+    if box.thermal_zone_id is not None:
+        raise ValidationError("This box already has a current location.")
+
+    return move_box_to_thermal_zone(
+        box=box,
+        thermal_zone=thermal_zone,
+        moved_at=timezone.now(),
+        user=user,
+        notes=notes,
+    )
 
 
 @transaction.atomic

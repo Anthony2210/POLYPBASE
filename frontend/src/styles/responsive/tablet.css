@@ -87,9 +87,51 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .admin-workspace,
   .tab-admin,
   .tab-exports {
     display: none;
+  }
+
+  .admin-workspace {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+  }
+
+  .admin-sidebar {
+    position: static;
+    padding: 0;
+    overflow-x: auto;
+  }
+
+  .admin-flow-nav {
+    display: flex;
+    min-width: max-content;
+    gap: var(--space-3);
+  }
+
+  .admin-nav-group {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .admin-nav-group-label {
+    max-width: 170px;
+  }
+
+  .admin-flow-step {
+    min-width: 132px;
+    min-height: 48px;
+    border-left: 0;
+    border-bottom: 2px solid transparent;
+  }
+
+  .admin-flow-step.is-active {
+    border-bottom-color: var(--color-primary);
+  }
+
+  .admin-flow-panel {
+    min-height: 0;
   }
 }
