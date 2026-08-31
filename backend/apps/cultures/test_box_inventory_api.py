@@ -218,6 +218,42 @@ class AdminBoxInventoryApiTests(TestCase):
         self.assertEqual(results[zero_box.id]["latest_measurement"]["ephyrae_count"], 0)
         self.assertIsNone(results[empty_box.id]["latest_measurement"])
 
+    def test_inventory_uses_first_measurement_as_displayed_creation_date_for_imported_boxes(self):
+        imported = self.create_box(1)
+        imported_without_measurement = self.create_box(2)
+        regular = self.create_box(3)
+        Box.objects.filter(id__in=[imported.id, imported_without_measurement.id]).update(
+            created_on=date(2026, 7, 3)
+        )
+        Box.objects.filter(id=regular.id).update(created_on=date(2026, 7, 4))
+        BiologicalMeasurement.objects.create(
+            box=imported,
+            measured_on=date(2021, 5, 12),
+            polyp_count=0,
+        )
+        BiologicalMeasurement.objects.create(
+            box=imported,
+            measured_on=date(2023, 6, 8),
+            polyp_count=4,
+        )
+        BiologicalMeasurement.objects.create(
+            box=regular,
+            measured_on=date(2020, 1, 2),
+            polyp_count=2,
+        )
+        self.login_admin()
+
+        response = self.client.get(reverse("api_admin_box_inventory"))
+        results = {item["id"]: item for item in response.data["results"]}
+
+        self.assertEqual(results[imported.id]["created_on"], "2026-07-03")
+        self.assertEqual(results[imported.id]["inventory_created_on"], "2021-05-12")
+        self.assertEqual(
+            results[imported_without_measurement.id]["inventory_created_on"],
+            "2026-07-03",
+        )
+        self.assertEqual(results[regular.id]["inventory_created_on"], "2026-07-04")
+
     def test_admin_can_assign_first_location_only_to_active_unlocated_box(self):
         unlocated = self.create_box(1, status=Box.Status.ACTIVE)
         located = self.create_box(2, status=Box.Status.ACTIVE, zone=self.zone)

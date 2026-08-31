@@ -391,6 +391,12 @@ def box_inventory_queryset_for_user(user, organization_ids=None):
     """Minimal queryset for the paginated administration inventory."""
     organization_ids = organization_ids or get_authorized_organization_ids(user)
 
+    first_measurement_on = Subquery(
+        BiologicalMeasurement.objects.filter(box_id=OuterRef("pk"))
+        .order_by("measured_on", "created_at")
+        .values("measured_on")[:1]
+    )
+
     latest_measurement_id = Subquery(
         BiologicalMeasurement.objects.filter(box_id=OuterRef("box_id"))
         .order_by("-measured_on", "-created_at")
@@ -408,6 +414,7 @@ def box_inventory_queryset_for_user(user, organization_ids=None):
             "strain__species",
             "thermal_zone",
         )
+        .annotate(first_measurement_on_annotation=first_measurement_on)
         .prefetch_related(
             Prefetch("biological_measurements", queryset=latest_measurements)
         )

@@ -1,5 +1,5 @@
 import re
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 
 from django.db import transaction
@@ -23,6 +23,11 @@ from apps.measurements.models import BiologicalMeasurement, Probe
 from apps.organizations.models import Organization
 from apps.organizations.serializers import OrganizationSummarySerializer
 from apps.taxonomy.models import Species, Strain
+
+
+# The historical import stamped existing boxes with its execution date rather
+# than their original creation date. The inventory uses their first measurement.
+HISTORICAL_BOX_IMPORT_DATE = date(2026, 7, 3)
 
 
 #: Salinity can reach the serializer as a Decimal (model field, PostgreSQL) or
@@ -205,6 +210,7 @@ class BoxListSerializer(serializers.ModelSerializer):
 class BoxInventorySerializer(serializers.ModelSerializer):
     species = serializers.SerializerMethodField()
     thermal_zone = ThermalZoneSummarySerializer(read_only=True)
+    inventory_created_on = serializers.SerializerMethodField()
     latest_measurement = serializers.SerializerMethodField()
 
     class Meta:
@@ -217,11 +223,25 @@ class BoxInventorySerializer(serializers.ModelSerializer):
             "species",
             "thermal_zone",
             "created_on",
+            "inventory_created_on",
             "latest_measurement",
         ]
 
     def get_species(self, obj):
         return SpeciesSummarySerializer(obj.strain.species).data
+
+    def get_inventory_created_on(self, obj):
+        if obj.created_on != HISTORICAL_BOX_IMPORT_DATE:
+            return obj.created_on.isoformat()
+
+        if hasattr(obj, "first_measurement_on_annotation"):
+            first_measurement_on = obj.first_measurement_on_annotation
+        else:
+            first_measurement_on = obj.biological_measurements.order_by(
+                "measured_on",
+                "created_at",
+            ).values_list("measured_on", flat=True).first()
+        return (first_measurement_on or obj.created_on).isoformat()
 
     def get_latest_measurement(self, obj):
         measurements = _prefetched_list(obj, "biological_measurements")
