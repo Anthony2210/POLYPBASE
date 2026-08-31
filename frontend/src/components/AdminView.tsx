@@ -12,6 +12,8 @@ import type {
   BoxActivatePayload,
   BoxDeactivatePayload,
   BoxInitialLocationPayload,
+  BoxInventoryBatchQualifyPayload,
+  BoxInventoryBatchResult,
   BoxItem,
   BoxQualifyPayload,
   ExportOptions,
@@ -3375,6 +3377,7 @@ export default function AdminView({
   onUpdateOrganization,
   onCreateTransfer,
   onAssignBoxLocation,
+  onBatchQualifyBoxes,
   onDeactivateBox,
   onQualifyBox,
   onReactivateBox,
@@ -3400,6 +3403,7 @@ export default function AdminView({
   onUpdateOrganization: (organizationId: number, payload: OrganizationPayload) => Promise<void>;
   onCreateTransfer: (payload: BoxTransferPayload) => Promise<BoxTransferResult>;
   onAssignBoxLocation: (boxId: number, payload: BoxInitialLocationPayload) => Promise<void>;
+  onBatchQualifyBoxes: (payload: BoxInventoryBatchQualifyPayload) => Promise<BoxInventoryBatchResult>;
   onDeactivateBox: (boxId: number, payload: BoxDeactivatePayload) => Promise<void>;
   onQualifyBox: (boxId: number, payload: BoxQualifyPayload) => Promise<void>;
   onReactivateBox: (boxId: number, payload: BoxActivatePayload) => Promise<void>;
@@ -3456,8 +3460,10 @@ export default function AdminView({
 
           {displayedSection === 'inventory' ? (
             <BoxInventoryAdminSection
+              key={profile.active_organization?.id ?? 'no-organization'}
               language={language}
               onAssignLocation={onAssignBoxLocation}
+              onBatchQualify={onBatchQualifyBoxes}
               onDeactivate={onDeactivateBox}
               onQualify={onQualifyBox}
               onReactivate={onReactivateBox}

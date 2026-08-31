@@ -116,6 +116,31 @@
     flex: 1 1 100%;
   }
 
+  .box-inventory-selection-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .box-inventory-selected-boxes {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .box-inventory-batch-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .box-inventory-batch-actions button,
+  .box-inventory-page-selection {
+    width: 100%;
+  }
+
+  .box-inventory-page-selection span {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 1px;
+  }
+
   .page-heading h1 {
     margin-bottom: var(--space-4);
     font-size: 1.7rem;

@@ -2178,6 +2178,139 @@ button.account-overview-card.is-active {
   margin: 0;
 }
 
+.box-inventory-selection-toolbar {
+  display: grid;
+  padding: var(--space-3);
+  grid-template-columns: auto minmax(180px, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  background: var(--color-primary-faint);
+  border: 1px solid var(--color-primary);
+  border-left-width: 4px;
+  border-radius: var(--radius-sm);
+}
+
+.box-inventory-selection-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-primary-hover);
+  font-size: .74rem;
+  font-weight: 760;
+}
+
+.box-inventory-selection-summary span {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.box-inventory-selection-summary strong {
+  font-size: 1.05rem;
+}
+
+.box-inventory-selection-summary button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  place-items: center;
+  color: var(--color-muted);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.box-inventory-selected-boxes {
+  display: flex;
+  max-height: 72px;
+  margin: 0;
+  padding: 0;
+  flex-wrap: wrap;
+  gap: 5px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.box-inventory-selected-boxes li {
+  padding: 4px 7px;
+  color: var(--color-ink-soft);
+  font-size: .66rem;
+  font-weight: 750;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-xs);
+}
+
+.box-inventory-batch-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.box-inventory-batch-actions button {
+  display: inline-flex;
+  min-height: 38px;
+  padding: 0 var(--space-3);
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  font-size: .7rem;
+  font-weight: 780;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.box-inventory-batch-actions .is-active-action {
+  color: #fff;
+  background: var(--color-success);
+  border: 1px solid var(--color-success);
+}
+
+.box-inventory-batch-actions .is-inactive-action {
+  color: var(--color-ink-soft);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line-strong);
+}
+
+.box-inventory-page-selection {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 38px;
+  padding: 0 var(--space-3);
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-ink-soft);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.box-inventory-page-selection input,
+.box-inventory-selection-cell input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.box-inventory-page-selection span {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: .72rem;
+  font-weight: 760;
+}
+
+.box-inventory-page-selection small {
+  color: var(--color-muted);
+  font-size: .64rem;
+}
+
 .box-inventory-list {
   min-width: 0;
   overflow: hidden;
@@ -2190,6 +2323,7 @@ button.account-overview-card.is-active {
 .box-inventory-row {
   display: grid;
   grid-template-columns:
+    42px
     minmax(118px, 1.05fr)
     minmax(138px, 1.25fr)
     minmax(88px, .72fr)
@@ -2234,6 +2368,11 @@ button.account-overview-card.is-active {
   box-shadow: inset 3px 0 0 var(--color-warning);
 }
 
+.box-inventory-row.is-selected {
+  background: var(--color-primary-faint);
+  box-shadow: inset 3px 0 0 var(--color-primary);
+}
+
 .box-inventory-cell {
   display: flex;
   min-width: 0;
@@ -2248,6 +2387,11 @@ button.account-overview-card.is-active {
 
 .box-inventory-cell::before {
   content: none;
+}
+
+.box-inventory-selection-cell {
+  justify-content: center;
+  padding-inline: var(--space-2);
 }
 
 .box-inventory-identity,
@@ -2469,6 +2613,15 @@ button.account-overview-card.is-active {
     justify-self: stretch;
   }
 
+  .box-inventory-selection-toolbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .box-inventory-selected-boxes {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
   .box-inventory-table-head {
     display: none;
   }
@@ -2492,6 +2645,14 @@ button.account-overview-card.is-active {
     border-radius: var(--radius-sm);
   }
 
+  .box-inventory-selection-cell {
+    position: absolute;
+    top: var(--space-3);
+    right: var(--space-3);
+    display: block;
+    padding: 0;
+  }
+
   .box-inventory-row:last-child {
     border-bottom: 1px solid var(--color-line);
   }
@@ -2513,6 +2674,7 @@ button.account-overview-card.is-active {
 
   .box-inventory-identity {
     grid-column: span 1;
+    padding-right: 34px;
   }
 
   .box-inventory-dates,

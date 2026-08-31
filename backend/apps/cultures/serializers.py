@@ -515,6 +515,50 @@ class BoxQualifySerializer(serializers.Serializer):
         return attrs
 
 
+class BoxBatchQualifySerializer(serializers.Serializer):
+    box_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+        max_length=500,
+    )
+    target_status = serializers.ChoiceField(
+        choices=[Box.Status.ACTIVE, Box.Status.INACTIVE],
+    )
+    reason = serializers.CharField(
+        max_length=250,
+        required=False,
+        allow_blank=True,
+        default="",
+        trim_whitespace=True,
+    )
+    reason_missing_from_history = serializers.BooleanField(required=False, default=False)
+
+    def validate_box_ids(self, box_ids):
+        if len(box_ids) != len(set(box_ids)):
+            raise serializers.ValidationError("Each box can only be selected once.")
+        return box_ids
+
+    def validate(self, attrs):
+        target_status = attrs["target_status"]
+        reason = attrs["reason"]
+        reason_missing = attrs["reason_missing_from_history"]
+
+        if target_status == Box.Status.ACTIVE:
+            attrs["reason"] = ""
+            attrs["reason_missing_from_history"] = False
+            return attrs
+
+        if reason and reason_missing:
+            raise serializers.ValidationError(
+                "Provide either a common reason or indicate that the historical reason is missing."
+            )
+        if not reason and not reason_missing:
+            raise serializers.ValidationError(
+                "A common reason is required unless it was missing from the historical data."
+            )
+        return attrs
+
+
 class BoxInitialLocationSerializer(serializers.Serializer):
     thermal_zone_id = serializers.PrimaryKeyRelatedField(
         queryset=ThermalZone.objects.filter(is_active=True),

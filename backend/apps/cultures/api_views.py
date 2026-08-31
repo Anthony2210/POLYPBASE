@@ -35,6 +35,7 @@ from .serializers import (
     BiologicalMeasurementCreateSerializer,
     BiologicalMeasurementSerializer,
     BoxActivateSerializer,
+    BoxBatchQualifySerializer,
     BoxCreateSerializer,
     BoxDeactivateSerializer,
     BoxDetailSerializer,
@@ -802,6 +803,107 @@ class AdminBoxInventoryListAPIView(generics.ListAPIView):
                 output_field=IntegerField(),
             )
         ).order_by("inventory_status_order", "global_code")
+
+
+class AdminBoxInventoryBatchQualifyAPIView(APIView):
+    """Qualify explicitly selected historical boxes with per-box atomicity."""
+
+    def post(self, request):
+        organization_ids = get_active_admin_organization_ids(request)
+        if not organization_ids:
+            raise PermissionDenied("This user cannot qualify this box inventory.")
+
+        serializer = BoxBatchQualifySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        box_ids = serializer.validated_data["box_ids"]
+        target_status = serializer.validated_data["target_status"]
+        reason = serializer.validated_data["reason"]
+        reason_missing = serializer.validated_data["reason_missing_from_history"]
+
+        successes = []
+        failures = []
+        for box_id in box_ids:
+            global_code = None
+            success_item = None
+            try:
+                with transaction.atomic():
+                    box = (
+                        Box.objects.select_for_update()
+                        .filter(id=box_id, organization_id__in=organization_ids)
+                        .first()
+                    )
+                    if box is None:
+                        failures.append(
+                            {
+                                "box_id": box_id,
+                                "global_code": None,
+                                "error": "Box not found in the active institution.",
+                            }
+                        )
+                        continue
+
+                    global_code = box.global_code
+                    qualified_box = qualify_pending_box(
+                        box=box,
+                        target_status=target_status,
+                        user=request.user,
+                        reason=reason,
+                        reason_missing_from_history=reason_missing,
+                    )
+                    success_item = {
+                        "box_id": qualified_box.id,
+                        "global_code": qualified_box.global_code,
+                        "status": qualified_box.status,
+                        "has_location": qualified_box.thermal_zone_id is not None,
+                    }
+                successes.append(success_item)
+            except DjangoValidationError as exc:
+                failures.append(
+                    {
+                        "box_id": box_id,
+                        "global_code": global_code,
+                        "error": "; ".join(str(message) for message in exc.messages),
+                    }
+                )
+            except Box.DoesNotExist:
+                failures.append(
+                    {
+                        "box_id": box_id,
+                        "global_code": global_code,
+                        "error": "Box no longer exists in the active institution.",
+                    }
+                )
+            except DatabaseError:
+                failures.append(
+                    {
+                        "box_id": box_id,
+                        "global_code": global_code,
+                        "error": "The box could not be updated because of a database error.",
+                    }
+                )
+
+        active_with_location_count = sum(
+            1
+            for item in successes
+            if item["status"] == Box.Status.ACTIVE and item["has_location"]
+        )
+        active_without_location_count = sum(
+            1
+            for item in successes
+            if item["status"] == Box.Status.ACTIVE and not item["has_location"]
+        )
+        return Response(
+            {
+                "requested_count": len(box_ids),
+                "success_count": len(successes),
+                "failure_count": len(failures),
+                "active_with_location_count": active_with_location_count,
+                "active_without_location_count": active_without_location_count,
+                "successes": successes,
+                "failures": failures,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class AdminBoxInitialLocationAPIView(APIView):

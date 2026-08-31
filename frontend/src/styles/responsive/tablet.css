@@ -134,4 +134,19 @@
   .admin-flow-panel {
     min-height: 0;
   }
+
+  .box-inventory-page-selection {
+    min-height: 48px;
+  }
+
+  .box-inventory-page-selection input,
+  .box-inventory-selection-cell input {
+    width: 24px;
+    height: 24px;
+  }
+
+  .box-inventory-batch-actions button {
+    min-height: 48px;
+    padding-inline: var(--space-4);
+  }
 }
