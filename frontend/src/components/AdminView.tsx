@@ -3377,6 +3377,8 @@ export default function AdminView({
   onUpdateOrganization,
   onCreateTransfer,
   onAssignBoxLocation,
+  onOpenBox,
+  onOpenZone,
   onBatchQualifyBoxes,
   onDeactivateBox,
   onQualifyBox,
@@ -3403,6 +3405,8 @@ export default function AdminView({
   onUpdateOrganization: (organizationId: number, payload: OrganizationPayload) => Promise<void>;
   onCreateTransfer: (payload: BoxTransferPayload) => Promise<BoxTransferResult>;
   onAssignBoxLocation: (boxId: number, payload: BoxInitialLocationPayload) => Promise<void>;
+  onOpenBox: (boxId: number, code: string) => void;
+  onOpenZone: (zoneId: number) => void;
   onBatchQualifyBoxes: (payload: BoxInventoryBatchQualifyPayload) => Promise<BoxInventoryBatchResult>;
   onDeactivateBox: (boxId: number, payload: BoxDeactivatePayload) => Promise<void>;
   onQualifyBox: (boxId: number, payload: BoxQualifyPayload) => Promise<void>;
@@ -3463,6 +3467,8 @@ export default function AdminView({
               key={profile.active_organization?.id ?? 'no-organization'}
               language={language}
               onAssignLocation={onAssignBoxLocation}
+              onOpenBox={onOpenBox}
+              onOpenZone={onOpenZone}
               onBatchQualify={onBatchQualifyBoxes}
               onDeactivate={onDeactivateBox}
               onQualify={onQualifyBox}

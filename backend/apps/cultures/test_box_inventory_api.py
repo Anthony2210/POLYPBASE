@@ -141,6 +141,65 @@ class AdminBoxInventoryApiTests(TestCase):
         )
         self.assertNotIn(inactive.id, [item["id"] for item in zone_response.data["results"]])
 
+    def test_summary_counts_are_institution_wide_not_filtered_or_paginated(self):
+        self.create_box(1, status=Box.Status.PENDING_REVIEW)
+        self.create_box(2, status=Box.Status.PENDING_REVIEW, zone=self.zone)
+        self.create_box(3, status=Box.Status.ACTIVE)
+        self.create_box(4, status=Box.Status.ACTIVE, zone=self.zone)
+        self.create_box(5, status=Box.Status.INACTIVE)
+        self.create_box(99, status=Box.Status.PENDING_REVIEW, organization=self.other_organization)
+        # Even an administrator of both institutions must see only the active one.
+        OrganizationMembership.objects.create(
+            user=self.admin, organization=self.other_organization,
+            role=OrganizationMembership.Role.ADMIN,
+        )
+        self.login_admin()
+        for filters in ({}, {"limit": 1, "offset": 1}, {"q": "absent"},
+                        {"status": "active", "location": "none"}):
+            with self.subTest(filters=filters):
+                response = self.client.get(
+                    reverse("api_admin_box_inventory"), filters,
+                    HTTP_X_ORGANIZATION_ID=str(self.organization.id),
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.data["summary"], {
+                    "pending_review_count": 2,
+                    "active_without_location_count": 1,
+                    "pending_without_location_count": 1,
+                })
+
+    def test_summary_keeps_zero_counts_for_empty_inventory(self):
+        self.login_admin()
+        response = self.client.get(reverse("api_admin_box_inventory"))
+        self.assertEqual(response.data["summary"], {
+            "pending_review_count": 0,
+            "active_without_location_count": 0,
+            "pending_without_location_count": 0,
+        })
+
+    def test_summary_refreshes_after_individual_and_batch_qualification(self):
+        first = self.create_box(1, status=Box.Status.PENDING_REVIEW)
+        second = self.create_box(2, status=Box.Status.PENDING_REVIEW)
+        self.login_admin()
+        individual = self.client.post(
+            reverse("api_box_qualify", args=[first.id]),
+            data={"target_status": "active", "thermal_zone_id": None},
+            content_type="application/json",
+        )
+        self.assertEqual(individual.status_code, 200)
+        batch = self.client.post(
+            reverse("api_admin_box_inventory_batch_qualify"),
+            data={"box_ids": [second.id], "target_status": "inactive", "reason_missing_from_history": True},
+            content_type="application/json",
+        )
+        self.assertEqual(batch.data["success_count"], 1)
+        summary = self.client.get(reverse("api_admin_box_inventory")).data["summary"]
+        self.assertEqual(summary, {
+            "pending_review_count": 0,
+            "active_without_location_count": 1,
+            "pending_without_location_count": 0,
+        })
+
     def test_inventory_preserves_zero_and_distinguishes_missing_measurements(self):
         zero_box = self.create_box(1, zone=self.zone)
         empty_box = self.create_box(2, zone=self.zone)

@@ -15,6 +15,7 @@
 @import './components/qr-label.css' layer(components);
 @import './components/biological-trend-chart.css' layer(components);
 @import './components/chart-window-controls.css' layer(components);
+@import './components/popovers.css' layer(components);
 @import './pages/login.css' layer(pages);
 @import './pages/box-detail.css' layer(pages);
 @import './pages/box-insights.css' layer(pages);

@@ -1174,7 +1174,14 @@ export default function App() {
               />
             )}
 
-            {activeTab === 'admin' && (
+            {activeTab === 'admin' && !isDesktopApp && (
+              <section className="single-panel" role="status">
+                <h2>{t('adminSubtitle')}</h2>
+                <p>{t('adminDesktopOnly')}</p>
+              </section>
+            )}
+
+            {activeTab === 'admin' && isDesktopApp && (
               <AdminView
                 activeSection={route.adminSection ?? 'accounts'}
                 boxes={data.boxes}
@@ -1193,6 +1200,8 @@ export default function App() {
                 onDeleteOrganization={deleteOrganization}
                 onCreateTransfer={createBoxTransfer}
                 onAssignBoxLocation={assignBoxInitialLocation}
+                onOpenBox={openBox}
+                onOpenZone={openZone}
                 onBatchQualifyBoxes={qualifyBoxesBatch}
                 onDeactivateBox={deactivateBox}
                 onQualifyBox={qualifyBox}
@@ -1222,7 +1231,7 @@ export default function App() {
                 labels={getProfileLabels(t)}
                 profile={data.profile}
                 activeOrganizationId={activeOrganizationId}
-                canOpenAdmin={canUseAdmin}
+                canOpenAdmin={canUseAdmin && isDesktopApp}
                 onSelectOrganization={(organizationId) => void chooseOrganization(organizationId)}
                 onOpenAdmin={() => openTab('admin')}
                 onOpenLabels={() => openTab('labels')}

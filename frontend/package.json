@@ -8,6 +8,8 @@
     "dev:lan": "vite --host 0.0.0.0",
     "check:css": "node scripts/check-css.mjs",
     "typecheck": "tsc --noEmit",
+    "test:api": "node --test scripts/test-api-errors.mjs",
+    "test:charts": "node --test scripts/test-chart-window.mjs",
     "build": "npm run check:css && tsc --noEmit && vite build",
     "preview": "vite preview"
   },

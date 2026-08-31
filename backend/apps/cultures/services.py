@@ -17,7 +17,8 @@ LINEAGE_GRAPH_MAX_NODES = 250
 
 def _locked_box(box):
     return (
-        Box.objects.select_for_update()
+        # Lock the box, not the nullable location side of the outer join.
+        Box.objects.select_for_update(of=("self",))
         .select_related("organization", "thermal_zone")
         .get(pk=box.pk)
     )

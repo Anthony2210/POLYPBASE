@@ -97,6 +97,14 @@ export type BoxInventoryItem = {
   latest_measurement: BiologicalMeasurement | null;
 };
 
+export type BoxInventoryResponse = PaginatedResponse<BoxInventoryItem> & {
+  summary: {
+    pending_review_count: number;
+    active_without_location_count: number;
+    pending_without_location_count: number;
+  };
+};
+
 export type BoxQualifyPayload = {
   target_status: 'active' | 'inactive';
   reason?: string;

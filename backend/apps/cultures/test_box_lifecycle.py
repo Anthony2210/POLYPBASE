@@ -10,7 +10,9 @@ from django.apps import apps as django_apps
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import TestCase
+from django.db import connection, transaction
+from django.test import TestCase, skipUnlessDBFeature
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -23,6 +25,7 @@ from apps.taxonomy.models import Species, Strain
 from .management.commands.import_bdd_csv import Command as HistoricalImportCommand
 from .management.commands.initialize_box_inventory import _selection_hash
 from .models import Box, BoxInventoryInitialization, BoxLocation, ThermalZone
+from .services import _locked_box
 
 
 class BoxLifecycleTests(TestCase):
@@ -132,6 +135,30 @@ class BoxLifecycleTests(TestCase):
         box.refresh_from_db()
         self.assertEqual(box.status, Box.Status.ACTIVE)
         self.assertIsNone(box.thermal_zone)
+
+    def test_qualification_accepts_explicit_null_location_from_the_form(self):
+        box = self.create_box(status=Box.Status.PENDING_REVIEW, zone=False)
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse("api_box_qualify", args=[box.id]),
+            data={"target_status": "active", "thermal_zone_id": None},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        box.refresh_from_db()
+        self.assertEqual(box.status, Box.Status.ACTIVE)
+        self.assertIsNone(box.thermal_zone_id)
+
+    @skipUnlessDBFeature("has_select_for_update_of")
+    def test_lifecycle_lock_targets_only_box_with_nullable_location_join(self):
+        box = self.create_box(status=Box.Status.PENDING_REVIEW, zone=False)
+        with transaction.atomic(), CaptureQueriesContext(connection) as queries:
+            locked_box = _locked_box(box)
+        self.assertEqual(locked_box.pk, box.pk)
+        self.assertIsNone(locked_box.thermal_zone)
+        lock_queries = [query["sql"] for query in queries if "FOR UPDATE" in query["sql"]]
+        self.assertEqual(len(lock_queries), 1)
+        self.assertIn('FOR UPDATE OF "cultures_box"', lock_queries[0])
 
     def test_pending_box_can_be_qualified_inactive_with_unknown_historical_end(self):
         box = self.create_box(status=Box.Status.PENDING_REVIEW)
