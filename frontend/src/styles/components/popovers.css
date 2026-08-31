@@ -1,0 +1,96 @@
+.anchored-popover {
+  position: fixed;
+  z-index: 180;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
+  color: var(--color-ink);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-float);
+}
+
+.anchored-popover :is(button, a, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.box-inventory-row-menu {
+  display: grid;
+  min-width: 192px;
+  padding: var(--space-1);
+}
+
+.box-inventory-row-menu button {
+  min-height: 36px;
+  padding: 6px var(--space-3);
+  color: var(--color-ink-soft);
+  font-size: .8rem;
+  font-weight: 650;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+
+.box-inventory-row-menu button:is(:hover, :focus-visible) { background: var(--color-primary-faint); }
+.box-inventory-row-menu button.is-danger { color: var(--color-danger-hover); }
+.box-inventory-row-menu button.is-danger:is(:hover, :focus-visible) { background: var(--color-danger-soft); }
+
+.box-tracking-preview { width: 660px; padding: var(--space-3); }
+
+.box-tracking-preview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.box-tracking-preview-heading > div { display: grid; gap: 1px; min-width: 0; }
+.box-tracking-preview-heading strong { color: var(--color-primary-hover); font-size: .95rem; }
+.box-tracking-preview-heading span { color: var(--color-muted); font-size: .75rem; font-style: italic; }
+
+.box-tracking-preview-heading button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--color-muted);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+
+.box-tracking-preview-heading button:hover { background: var(--color-surface-info); }
+.box-tracking-preview-location { margin: var(--space-2) 0 0; color: var(--color-ink-soft); font-size: .72rem; }
+.box-tracking-preview .measurement-chart { gap: var(--space-2); }
+.box-tracking-preview .chart-window-header { padding-block: var(--space-2); }
+.box-tracking-preview .chart-window-viewport { min-height: 0; }
+.box-tracking-preview .bio-trend { border: 0; }
+
+.box-tracking-preview-state {
+  display: grid;
+  min-height: 220px;
+  padding: var(--space-4);
+  align-content: center;
+  color: var(--color-muted);
+  font-size: .8rem;
+}
+
+.box-tracking-preview-state button {
+  justify-self: start;
+  min-height: 36px;
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-primary-hover);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}

@@ -139,6 +139,11 @@
     min-height: 48px;
   }
 
+  .box-inventory-actions button,
+  .box-inventory-cell a {
+    min-height: 44px;
+  }
+
   .box-inventory-page-selection input,
   .box-inventory-selection-cell input {
     width: 24px;

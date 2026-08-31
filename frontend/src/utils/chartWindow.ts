@@ -37,6 +37,16 @@ export function buildChartWindow(
   };
 }
 
+export function getLatestChartWindowOffset(sourceDates: string[]) {
+  const dates = sourceDates.filter(isValidChartDate).sort();
+  const latest = dates[dates.length - 1];
+  if (!latest) return 0;
+  const date = parseChartDate(latest);
+  const today = startOfLocalDay(new Date());
+  const months = (today.getFullYear() - date.getFullYear()) * 12 + today.getMonth() - date.getMonth();
+  return Math.max(0, months - (addChartMonths(today, -months) < date ? 1 : 0));
+}
+
 export function addChartMonths(date: Date, months: number) {
   const result = new Date(date);
   const day = result.getDate();

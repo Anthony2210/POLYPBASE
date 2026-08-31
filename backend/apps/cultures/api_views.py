@@ -759,6 +759,18 @@ class AdminBoxInventoryListAPIView(generics.ListAPIView):
         if not organization_ids:
             raise PermissionDenied("This user cannot view this box inventory.")
 
+        # Institution-wide counters, independent of the current page and filters.
+        self.inventory_summary = Box.objects.filter(
+            organization_id__in=organization_ids,
+        ).aggregate(
+            pending_review_count=Count("pk", filter=Q(status=Box.Status.PENDING_REVIEW)),
+            active_without_location_count=Count(
+                "pk", filter=Q(status=Box.Status.ACTIVE, thermal_zone__isnull=True),
+            ),
+            pending_without_location_count=Count(
+                "pk", filter=Q(status=Box.Status.PENDING_REVIEW, thermal_zone__isnull=True),
+            ),
+        )
         queryset = box_inventory_queryset_for_user(
             self.request.user,
             organization_ids=organization_ids,
@@ -803,6 +815,11 @@ class AdminBoxInventoryListAPIView(generics.ListAPIView):
                 output_field=IntegerField(),
             )
         ).order_by("inventory_status_order", "global_code")
+
+    def get_paginated_response(self, data):
+        response = super().get_paginated_response(data)
+        response.data["summary"] = self.inventory_summary
+        return response
 
 
 class AdminBoxInventoryBatchQualifyAPIView(APIView):

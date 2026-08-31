@@ -1,17 +1,17 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
-  AlertTriangle,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
   CircleOff,
-  MapPinOff,
+  FilterX,
   Search,
   X,
 } from 'lucide-react';
 
 import { apiGet } from '../api/client';
+import { getBoxInventoryCounters } from '../api/boxInventory';
 import { getBoxStatusPresentation } from '../boxStatus';
 import type { Language, Translator } from '../i18n';
 import type {
@@ -21,8 +21,8 @@ import type {
   BoxInventoryBatchQualifyPayload,
   BoxInventoryBatchResult,
   BoxInventoryItem,
+  BoxInventoryResponse,
   BoxQualifyPayload,
-  PaginatedResponse,
   ThermalZone,
 } from '../types';
 import { formatDisplayDate } from '../utils/dateFormat';
@@ -32,9 +32,13 @@ import BoxLifecycleModal, {
   type BoxLifecycleSubmission,
 } from './BoxLifecycleModal';
 import BoxInventoryBatchModal, { type BoxInventoryBatchAction } from './BoxInventoryBatchModal';
+import BoxInventoryRowMenu from './BoxInventoryRowMenu';
+import BoxTrackingPreview from './BoxTrackingPreview';
 import SkeletonRows from './SkeletonRows';
 
 const INVENTORY_PAGE_SIZE = 24;
+// Keep the inventory shortcuts available for a future reactivation.
+const SHOW_INVENTORY_SUMMARY = false;
 
 type InventoryLifecycleState = {
   action: BoxLifecycleAction;
@@ -51,6 +55,8 @@ export default function BoxInventoryAdminSection({
   onAssignLocation,
   onBatchQualify,
   onDeactivate,
+  onOpenBox,
+  onOpenZone,
   onQualify,
   onReactivate,
   t,
@@ -60,12 +66,14 @@ export default function BoxInventoryAdminSection({
   onAssignLocation: (boxId: number, payload: BoxInitialLocationPayload) => Promise<void>;
   onBatchQualify: (payload: BoxInventoryBatchQualifyPayload) => Promise<BoxInventoryBatchResult>;
   onDeactivate: (boxId: number, payload: BoxDeactivatePayload) => Promise<void>;
+  onOpenBox: (boxId: number, code: string) => void;
+  onOpenZone: (zoneId: number) => void;
   onQualify: (boxId: number, payload: BoxQualifyPayload) => Promise<void>;
   onReactivate: (boxId: number, payload: BoxActivatePayload) => Promise<void>;
   t: Translator;
   zones: ThermalZone[];
 }) {
-  const [response, setResponse] = useState<PaginatedResponse<BoxInventoryItem> | null>(null);
+  const [response, setResponse] = useState<BoxInventoryResponse | null>(null);
   const [statusFilter, setStatusFilter] = useState('');
   const [locationFilter, setLocationFilter] = useState('');
   const [search, setSearch] = useState('');
@@ -115,15 +123,17 @@ export default function BoxInventoryAdminSection({
 
     setIsLoading(true);
     setLoadError(null);
-    void apiGet<PaginatedResponse<BoxInventoryItem>>(`/api/admin/box-inventory/?${params.toString()}`)
-      .then((nextResponse) => {
+    void apiGet<BoxInventoryResponse>(`/api/admin/box-inventory/?${params.toString()}`)
+      .then(async (nextResponse) => {
         if (!isCurrent) return;
         if (offset > 0 && nextResponse.results.length === 0 && nextResponse.count > 0) {
           const lastOffset = Math.floor((nextResponse.count - 1) / INVENTORY_PAGE_SIZE) * INVENTORY_PAGE_SIZE;
           setOffset(lastOffset);
           return;
         }
-        setResponse(nextResponse);
+        const counters = await getBoxInventoryCounters(nextResponse);
+        if (!isCurrent) return;
+        setResponse({ ...nextResponse, summary: { ...nextResponse.summary, ...counters } });
       })
       .catch((requestError) => {
         if (isCurrent) setLoadError(getErrorMessage(requestError));
@@ -149,9 +159,10 @@ export default function BoxInventoryAdminSection({
     setMessage(null);
   }
 
-  function showActiveWithoutLocation() {
-    setStatusFilter('active');
-    setLocationFilter('none');
+  function applySummaryFilter(status: string, location: string) {
+    setStatusFilter(status);
+    setLocationFilter(location);
+    setSearch('');
     setOffset(0);
     setMessage(null);
   }
@@ -253,17 +264,46 @@ export default function BoxInventoryAdminSection({
   const endResult = Math.min(offset + (response?.results.length ?? 0), totalCount);
   const currentPage = Math.floor(offset / INVENTORY_PAGE_SIZE) + 1;
   const totalPages = Math.max(1, Math.ceil(totalCount / INVENTORY_PAGE_SIZE));
-  const shortcutIsActive = statusFilter === 'active' && locationFilter === 'none';
+  const hasFilters = Boolean(statusFilter || locationFilter || search);
+  const summaryCards = [
+    { key: 'pending_review_count', label: 'boxInventoryStatusPending', status: 'pending_review', location: '', tone: 'is-soon' },
+    { key: 'active_without_location_count', label: 'boxInventoryActiveWithoutLocation', status: 'active', location: 'none', tone: 'is-unlocated' },
+  ] as const;
 
   return (
     <section className="admin-section box-inventory-section" id="admin-inventory">
       <header className="box-inventory-heading">
         <div>
           <h2>{t('boxInventoryTitle')}</h2>
-          <p>{t('boxInventorySubtitle')}</p>
         </div>
         <strong>{totalCount} {t('boxInventoryBoxes')}</strong>
       </header>
+
+      {SHOW_INVENTORY_SUMMARY ? (
+        <div className="box-inventory-summary" role="group" aria-label={t('boxInventorySummary')} aria-busy={isLoading}>
+          {summaryCards.map((card) => {
+            const isActive = statusFilter === card.status && locationFilter === card.location && !search.trim();
+            return (
+              <button
+                key={card.key}
+                type="button"
+                className={`${card.tone}${isActive ? ' is-active' : ''}`}
+                aria-pressed={isActive}
+                onClick={() => applySummaryFilter(card.status, card.location)}
+              >
+                <span>{t(card.label)}</span>
+                <strong>{response?.summary?.[card.key] ?? (isLoading ? (
+                  <span className="loader-block box-inventory-count-loading" aria-label={t('loading')} />
+                ) : null)}</strong>
+              </button>
+            );
+          })}
+          <button type="button" disabled className="is-unavailable">
+            <span>{t('boxInventorySuspectedInactive')}</span>
+            <small>{t('adminWorkInProgress')}</small>
+          </button>
+        </div>
+      ) : null}
 
       <div className="box-inventory-filters">
         <label className="box-inventory-search">
@@ -282,25 +322,15 @@ export default function BoxInventoryAdminSection({
           </span>
         </label>
 
-        <fieldset className="box-inventory-status-filter">
-          <legend>{t('boxInventoryStatus')}</legend>
-          {[
-            ['', 'boxInventoryStatusAll'],
-            ['pending_review', 'boxInventoryStatusPending'],
-            ['active', 'boxInventoryStatusActive'],
-            ['inactive', 'boxInventoryStatusInactive'],
-          ].map(([value, key]) => (
-            <button
-              type="button"
-              className={statusFilter === value ? 'is-active' : ''}
-              aria-pressed={statusFilter === value}
-              key={value || 'all'}
-              onClick={() => updateStatusFilter(value)}
-            >
-              {t(key as Parameters<Translator>[0])}
-            </button>
-          ))}
-        </fieldset>
+        <label className="box-inventory-status-filter">
+          <span>{t('boxInventoryStatus')}</span>
+          <select value={statusFilter} onChange={(event) => updateStatusFilter(event.target.value)}>
+            <option value="">{t('boxInventoryStatusAll')}</option>
+            <option value="pending_review">{t('boxInventoryStatusPending')}</option>
+            <option value="active">{t('boxInventoryStatusActive')}</option>
+            <option value="inactive">{t('boxInventoryStatusInactive')}</option>
+          </select>
+        </label>
 
         <label className="box-inventory-location-filter">
           <span>{t('boxInventoryLocation')}</span>
@@ -312,80 +342,84 @@ export default function BoxInventoryAdminSection({
             ))}
           </select>
         </label>
-
-        <button
-          type="button"
-          className={shortcutIsActive ? 'box-inventory-anomaly-shortcut is-active' : 'box-inventory-anomaly-shortcut'}
-          aria-pressed={shortcutIsActive}
-          onClick={showActiveWithoutLocation}
-        >
-          <MapPinOff aria-hidden="true" size={18} />
-          <span>{t('boxInventoryActiveWithoutLocation')}</span>
-        </button>
+        <div className="box-inventory-reset-slot">
+          {hasFilters ? (
+            <button
+              type="button"
+              aria-label={t('overviewResetFilters')}
+              title={t('overviewResetFilters')}
+              onClick={() => applySummaryFilter('', '')}
+            >
+              <FilterX size={17} aria-hidden="true" />
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {message ? <p className="inline-success box-inventory-feedback">{message}</p> : null}
       {loadError ? <p className="inline-error box-inventory-feedback">{loadError}</p> : null}
 
-      {selectedBoxes.size > 0 ? (
+      {pendingBoxesOnPage.length > 0 || selectedBoxes.size > 0 ? (
         <aside className="box-inventory-selection-toolbar" aria-label={t('boxInventoryBatchSelectionTitle')}>
+          {pendingBoxesOnPage.length > 0 ? (
+            <label className="box-inventory-page-selection">
+              <input
+                ref={pageSelectionRef}
+                type="checkbox"
+                checked={allPendingOnPageAreSelected}
+                disabled={isLoading}
+                onChange={(event) => togglePageSelection(event.target.checked)}
+              />
+              <span>
+                {t('boxInventorySelectVisiblePage')}
+                <small>{pendingBoxesOnPage.length} {t('boxInventoryBatchPendingOnPage')}</small>
+              </span>
+            </label>
+          ) : null}
           <div className="box-inventory-selection-summary">
-            <span>
+            <span aria-live="polite">
               <strong>{selectedBoxes.size}</strong>
               {t(selectedBoxes.size === 1 ? 'boxInventoryBatchSelectedOne' : 'boxInventoryBatchSelected')}
             </span>
-            <button
-              type="button"
-              aria-label={t('boxInventoryBatchClearSelection')}
-              title={t('boxInventoryBatchClearSelection')}
-              onClick={() => setSelectedBoxes(new Map())}
-            >
-              <X aria-hidden="true" size={17} />
-            </button>
+            {selectedBoxes.size > 0 ? (
+              <button
+                type="button"
+                aria-label={t('boxInventoryBatchClearSelection')}
+                title={t('boxInventoryBatchClearSelection')}
+                onClick={() => setSelectedBoxes(new Map())}
+              >
+                <X aria-hidden="true" size={17} />
+              </button>
+            ) : null}
           </div>
-          <ul className="box-inventory-selected-boxes">
-            {Array.from(selectedBoxes.values()).map((box) => (
-              <li key={box.id}>{box.global_code}</li>
-            ))}
-          </ul>
           <div className="box-inventory-batch-actions">
-            <button type="button" className="is-active-action" onClick={() => openBatchAction('active')}>
+            <button type="button" className="is-active-action" disabled={!selectedBoxes.size} onClick={() => openBatchAction('active')}>
               <CheckCircle2 aria-hidden="true" size={17} />
               {t('boxInventoryBatchMakeActive')}
             </button>
-            <button type="button" className="is-inactive-action" onClick={() => openBatchAction('inactive')}>
+            <button type="button" className="is-inactive-action" disabled={!selectedBoxes.size} onClick={() => openBatchAction('inactive')}>
               <CircleOff aria-hidden="true" size={17} />
               {t('boxInventoryBatchMakeInactive')}
             </button>
           </div>
+          {selectedBoxes.size > 0 ? (
+            <ul className="box-inventory-selected-boxes" aria-label={t('boxInventoryBatchAffectedBoxes')}>
+              {Array.from(selectedBoxes.values()).map((box) => (
+                <li key={box.id}>{box.global_code}</li>
+              ))}
+            </ul>
+          ) : null}
         </aside>
       ) : null}
 
-      {pendingBoxesOnPage.length ? (
-        <label className="box-inventory-page-selection">
-          <input
-            ref={pageSelectionRef}
-            type="checkbox"
-            checked={allPendingOnPageAreSelected}
-            onChange={(event) => togglePageSelection(event.target.checked)}
-          />
-          <span>
-            {t('boxInventoryBatchSelectPage')}
-            <small>{pendingBoxesOnPage.length} {t('boxInventoryBatchPendingOnPage')}</small>
-          </span>
-        </label>
-      ) : null}
-
-      <div className="box-inventory-list" aria-busy={isLoading}>
+      <div className={`box-inventory-list${pendingBoxesOnPage.length ? ' has-selection-column' : ''}`} aria-busy={isLoading}>
         <div className="box-inventory-table-head" aria-hidden="true">
-          <span>{t('boxInventoryBatchSelectionColumn')}</span>
+          {pendingBoxesOnPage.length ? <span /> : null}
           <span>{t('boxInventoryBox')}</span>
-          <span>{t('boxInventorySpecies')}</span>
-          <span>{t('boxInventoryStatus')}</span>
           <span>{t('boxInventoryLocation')}</span>
           <span>{t('boxInventoryDates')}</span>
           <span>{t('boxInventoryLatestCounts')}</span>
-          <span>{t('boxInventoryActions')}</span>
+          <span />
         </div>
 
         {isLoading && !response ? (
@@ -394,46 +428,54 @@ export default function BoxInventoryAdminSection({
           response.results.map((box) => {
             const status = getBoxStatusPresentation(box.status, language);
             const isActiveWithoutLocation = box.status === 'active' && box.thermal_zone == null;
+            const currentZone = box.status === 'inactive' ? null : box.thermal_zone;
             const measurement = box.latest_measurement;
             const isSelected = selectedBoxes.has(box.id);
             return (
               <article
                 className={[
                   'box-inventory-row',
-                  isActiveWithoutLocation ? 'has-location-anomaly' : '',
+                  `is-${status.tone}`,
                   isSelected ? 'is-selected' : '',
                 ].filter(Boolean).join(' ')}
                 key={box.id}
+                aria-label={`${box.global_code}, ${status.label}`}
               >
+                {box.status !== 'active' ? <span className="box-inventory-row-status">{box.status === 'pending_review' ? t('boxInventoryReviewMarker') : status.label}</span> : null}
+                {pendingBoxesOnPage.length ? (
                 <div className="box-inventory-cell box-inventory-selection-cell" data-label={t('boxInventoryBatchSelectionColumn')}>
                   {box.status === 'pending_review' ? (
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      aria-label={`${t('boxInventoryBatchSelectBox')} ${box.global_code}`}
-                      onChange={(event) => toggleBoxSelection(box, event.target.checked)}
-                    />
+                    <label className="box-inventory-row-selection">
+                      <input
+                        type="checkbox"
+                        disabled={isLoading}
+                        checked={isSelected}
+                        aria-label={`${t('boxInventoryBatchSelectBox')} ${box.global_code}`}
+                        onChange={(event) => toggleBoxSelection(box, event.target.checked)}
+                      />
+                    </label>
                   ) : null}
                 </div>
+                ) : null}
                 <div className="box-inventory-cell box-inventory-identity" data-label={t('boxInventoryBox')}>
-                  <strong>{box.global_code}</strong>
-                  {box.local_code ? <small>{box.local_code}</small> : null}
-                </div>
-                <div className="box-inventory-cell box-inventory-species" data-label={t('boxInventorySpecies')}>
-                  <span>{box.species.scientific_name}</span>
-                </div>
-                <div className="box-inventory-cell" data-label={t('boxInventoryStatus')}>
-                  <span className={`box-inventory-status is-${status.tone}`}>{status.label}</span>
+                  <BoxTrackingPreview boxId={box.id} code={box.global_code} speciesName={box.species.scientific_name} language={language} onOpenBox={onOpenBox} t={t} />
+                  <span className="box-inventory-species">{box.species.scientific_name}</span>
                 </div>
                 <div className="box-inventory-cell box-inventory-location" data-label={t('boxInventoryLocation')}>
-                  {box.thermal_zone ? (
-                    <strong>{box.thermal_zone.name}</strong>
-                  ) : (
-                    <span className={isActiveWithoutLocation ? 'is-anomaly' : 'is-muted'}>
-                      {isActiveWithoutLocation ? <AlertTriangle aria-hidden="true" size={16} /> : null}
-                      {t('boxInventoryWithoutLocation')}
-                    </span>
-                  )}
+                  {currentZone ? (
+                    <a
+                      href={`/zones/${currentZone.id}`}
+                      onClick={(event) => {
+                        if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+                        event.preventDefault();
+                        onOpenZone(currentZone.id);
+                      }}
+                    >{currentZone.name}</a>
+                  ) : isActiveWithoutLocation ? (
+                    <button className="box-inventory-assign" type="button" disabled={isLoading} onClick={() => openLifecycleAction('assign', box)}>
+                      {t('boxInventoryAssignLocation')}
+                    </button>
+                  ) : <span className="is-muted">{t('boxInventoryWithoutLocation')}</span>}
                 </div>
                 <div className="box-inventory-cell box-inventory-dates" data-label={t('boxInventoryDates')}>
                   <span>
@@ -456,26 +498,7 @@ export default function BoxInventoryAdminSection({
                   )}
                 </div>
                 <div className="box-inventory-cell box-inventory-actions" data-label={t('boxInventoryActions')}>
-                  {box.status === 'pending_review' ? (
-                    <button type="button" onClick={() => openLifecycleAction('qualify', box)}>
-                      {t('boxInventoryQualify')}
-                    </button>
-                  ) : null}
-                  {isActiveWithoutLocation ? (
-                    <button className="is-primary" type="button" onClick={() => openLifecycleAction('assign', box)}>
-                      {t('boxInventoryAssignLocation')}
-                    </button>
-                  ) : null}
-                  {box.status === 'active' ? (
-                    <button type="button" onClick={() => openLifecycleAction('deactivate', box)}>
-                      {t('boxInventoryDeactivate')}
-                    </button>
-                  ) : null}
-                  {box.status === 'inactive' ? (
-                    <button className="is-primary" type="button" onClick={() => openLifecycleAction('reactivate', box)}>
-                      {t('boxInventoryReactivate')}
-                    </button>
-                  ) : null}
+                  <BoxInventoryRowMenu box={box} disabled={isLoading} onAction={(action) => openLifecycleAction(action, box)} t={t} />
                 </div>
               </article>
             );

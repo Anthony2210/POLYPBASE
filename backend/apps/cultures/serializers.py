@@ -476,6 +476,8 @@ class BoxQualifySerializer(serializers.Serializer):
     )
 
     def validate_thermal_zone_id(self, thermal_zone):
+        if thermal_zone is None:
+            return None
         box = self.context["box"]
         if thermal_zone.organization_id != box.organization_id:
             raise serializers.ValidationError(
