@@ -480,7 +480,7 @@ export default function BoxInventoryAdminSection({
                 <div className="box-inventory-cell box-inventory-dates" data-label={t('boxInventoryDates')}>
                   <span>
                     <small>{t('boxInventoryCreatedOn')}</small>
-                    <strong>{formatDisplayDate(box.created_on)}</strong>
+                    <strong>{formatDisplayDate(box.inventory_created_on)}</strong>
                   </span>
                   <span>
                     <small>{t('boxInventoryLastMeasurement')}</small>

@@ -94,6 +94,7 @@ export type BoxInventoryItem = {
   species: Species;
   thermal_zone: ThermalZoneSummary | null;
   created_on: string;
+  inventory_created_on: string;
   latest_measurement: BiologicalMeasurement | null;
 };
 
