@@ -11,6 +11,7 @@ from apps.accounts.api_views import (
     UserProfileAPIView,
 )
 from apps.cultures.api_views import (
+    AdminBoxInventoryBatchQualifyAPIView,
     AdminBoxInitialLocationAPIView,
     AdminBoxInventoryListAPIView,
     AlertResolveAPIView,
@@ -76,6 +77,11 @@ urlpatterns = [
         "admin/box-inventory/<int:box_id>/assign-location/",
         AdminBoxInitialLocationAPIView.as_view(),
         name="api_admin_box_initial_location",
+    ),
+    path(
+        "admin/box-inventory/batch-qualify/",
+        AdminBoxInventoryBatchQualifyAPIView.as_view(),
+        name="api_admin_box_inventory_batch_qualify",
     ),
     path("boxes/", BoxListAPIView.as_view(), name="api_box_list"),
     path("boxes/<int:pk>/", BoxDetailAPIView.as_view(), name="api_box_detail"),

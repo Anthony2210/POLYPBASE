@@ -1,6 +1,15 @@
-import { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 
-import { AlertTriangle, ChevronLeft, ChevronRight, MapPinOff, Search } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  CircleOff,
+  MapPinOff,
+  Search,
+  X,
+} from 'lucide-react';
 
 import { apiGet } from '../api/client';
 import { getBoxStatusPresentation } from '../boxStatus';
@@ -9,6 +18,8 @@ import type {
   BoxActivatePayload,
   BoxDeactivatePayload,
   BoxInitialLocationPayload,
+  BoxInventoryBatchQualifyPayload,
+  BoxInventoryBatchResult,
   BoxInventoryItem,
   BoxQualifyPayload,
   PaginatedResponse,
@@ -20,6 +31,7 @@ import BoxLifecycleModal, {
   type BoxLifecycleAction,
   type BoxLifecycleSubmission,
 } from './BoxLifecycleModal';
+import BoxInventoryBatchModal, { type BoxInventoryBatchAction } from './BoxInventoryBatchModal';
 import SkeletonRows from './SkeletonRows';
 
 const INVENTORY_PAGE_SIZE = 24;
@@ -29,9 +41,15 @@ type InventoryLifecycleState = {
   box: BoxInventoryItem;
 };
 
+type InventoryBatchState = {
+  action: BoxInventoryBatchAction;
+  boxes: BoxInventoryItem[];
+};
+
 export default function BoxInventoryAdminSection({
   language,
   onAssignLocation,
+  onBatchQualify,
   onDeactivate,
   onQualify,
   onReactivate,
@@ -40,6 +58,7 @@ export default function BoxInventoryAdminSection({
 }: {
   language: Language;
   onAssignLocation: (boxId: number, payload: BoxInitialLocationPayload) => Promise<void>;
+  onBatchQualify: (payload: BoxInventoryBatchQualifyPayload) => Promise<BoxInventoryBatchResult>;
   onDeactivate: (boxId: number, payload: BoxDeactivatePayload) => Promise<void>;
   onQualify: (boxId: number, payload: BoxQualifyPayload) => Promise<void>;
   onReactivate: (boxId: number, payload: BoxActivatePayload) => Promise<void>;
@@ -59,12 +78,30 @@ export default function BoxInventoryAdminSection({
   const [lifecycleState, setLifecycleState] = useState<InventoryLifecycleState | null>(null);
   const [lifecycleError, setLifecycleError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [selectedBoxes, setSelectedBoxes] = useState<Map<number, BoxInventoryItem>>(() => new Map());
+  const [batchState, setBatchState] = useState<InventoryBatchState | null>(null);
+  const [batchResult, setBatchResult] = useState<BoxInventoryBatchResult | null>(null);
+  const [batchError, setBatchError] = useState<string | null>(null);
+  const [isBatchSaving, setIsBatchSaving] = useState(false);
+  const pageSelectionRef = useRef<HTMLInputElement>(null);
   const activeZones = useMemo(
     () => zones.filter((zone) => zone.is_active).sort((first, second) => (
       first.name.localeCompare(second.name, 'fr', { numeric: true, sensitivity: 'base' })
     )),
     [zones],
   );
+  const pendingBoxesOnPage = useMemo(
+    () => response?.results.filter((box) => box.status === 'pending_review') ?? [],
+    [response],
+  );
+  const selectedOnPageCount = pendingBoxesOnPage.filter((box) => selectedBoxes.has(box.id)).length;
+  const allPendingOnPageAreSelected = pendingBoxesOnPage.length > 0
+    && selectedOnPageCount === pendingBoxesOnPage.length;
+
+  useEffect(() => {
+    if (!pageSelectionRef.current) return;
+    pageSelectionRef.current.indeterminate = selectedOnPageCount > 0 && !allPendingOnPageAreSelected;
+  }, [allPendingOnPageAreSelected, selectedOnPageCount]);
 
   useEffect(() => {
     let isCurrent = true;
@@ -125,6 +162,61 @@ export default function BoxInventoryAdminSection({
     setLifecycleState({ action, box });
   }
 
+  function toggleBoxSelection(box: BoxInventoryItem, checked: boolean) {
+    if (box.status !== 'pending_review') return;
+    setSelectedBoxes((current) => {
+      const next = new Map(current);
+      if (checked) next.set(box.id, box);
+      else next.delete(box.id);
+      return next;
+    });
+    setMessage(null);
+  }
+
+  function togglePageSelection(checked: boolean) {
+    setSelectedBoxes((current) => {
+      const next = new Map(current);
+      pendingBoxesOnPage.forEach((box) => {
+        if (checked) next.set(box.id, box);
+        else next.delete(box.id);
+      });
+      return next;
+    });
+    setMessage(null);
+  }
+
+  function openBatchAction(action: BoxInventoryBatchAction) {
+    const boxes = Array.from(selectedBoxes.values());
+    if (!boxes.length) return;
+    setBatchError(null);
+    setBatchResult(null);
+    setBatchState({ action, boxes });
+  }
+
+  async function handleBatchConfirm() {
+    if (!batchState || isBatchSaving || batchResult) return;
+    setIsBatchSaving(true);
+    setBatchError(null);
+
+    try {
+      const result = await onBatchQualify({
+        box_ids: batchState.boxes.map((box) => box.id),
+        target_status: batchState.action,
+        ...(batchState.action === 'inactive'
+          ? { reason_missing_from_history: true }
+          : {}),
+      });
+      setBatchResult(result);
+      setSelectedBoxes(new Map());
+      setRefreshVersion((current) => current + 1);
+      setMessage(t('boxInventoryBatchInventoryRefreshed'));
+    } catch (requestError) {
+      setBatchError(getErrorMessage(requestError));
+    } finally {
+      setIsBatchSaving(false);
+    }
+  }
+
   async function handleLifecycleSubmit(submission: BoxLifecycleSubmission) {
     if (!lifecycleState || isSaving) return;
     setIsSaving(true);
@@ -140,6 +232,12 @@ export default function BoxInventoryAdminSection({
       } else {
         await onAssignLocation(lifecycleState.box.id, submission.payload);
       }
+      setSelectedBoxes((current) => {
+        if (!current.has(lifecycleState.box.id)) return current;
+        const next = new Map(current);
+        next.delete(lifecycleState.box.id);
+        return next;
+      });
       setLifecycleState(null);
       setMessage(t('boxInventoryActionSaved'));
       setRefreshVersion((current) => current + 1);
@@ -229,8 +327,58 @@ export default function BoxInventoryAdminSection({
       {message ? <p className="inline-success box-inventory-feedback">{message}</p> : null}
       {loadError ? <p className="inline-error box-inventory-feedback">{loadError}</p> : null}
 
+      {selectedBoxes.size > 0 ? (
+        <aside className="box-inventory-selection-toolbar" aria-label={t('boxInventoryBatchSelectionTitle')}>
+          <div className="box-inventory-selection-summary">
+            <span>
+              <strong>{selectedBoxes.size}</strong>
+              {t(selectedBoxes.size === 1 ? 'boxInventoryBatchSelectedOne' : 'boxInventoryBatchSelected')}
+            </span>
+            <button
+              type="button"
+              aria-label={t('boxInventoryBatchClearSelection')}
+              title={t('boxInventoryBatchClearSelection')}
+              onClick={() => setSelectedBoxes(new Map())}
+            >
+              <X aria-hidden="true" size={17} />
+            </button>
+          </div>
+          <ul className="box-inventory-selected-boxes">
+            {Array.from(selectedBoxes.values()).map((box) => (
+              <li key={box.id}>{box.global_code}</li>
+            ))}
+          </ul>
+          <div className="box-inventory-batch-actions">
+            <button type="button" className="is-active-action" onClick={() => openBatchAction('active')}>
+              <CheckCircle2 aria-hidden="true" size={17} />
+              {t('boxInventoryBatchMakeActive')}
+            </button>
+            <button type="button" className="is-inactive-action" onClick={() => openBatchAction('inactive')}>
+              <CircleOff aria-hidden="true" size={17} />
+              {t('boxInventoryBatchMakeInactive')}
+            </button>
+          </div>
+        </aside>
+      ) : null}
+
+      {pendingBoxesOnPage.length ? (
+        <label className="box-inventory-page-selection">
+          <input
+            ref={pageSelectionRef}
+            type="checkbox"
+            checked={allPendingOnPageAreSelected}
+            onChange={(event) => togglePageSelection(event.target.checked)}
+          />
+          <span>
+            {t('boxInventoryBatchSelectPage')}
+            <small>{pendingBoxesOnPage.length} {t('boxInventoryBatchPendingOnPage')}</small>
+          </span>
+        </label>
+      ) : null}
+
       <div className="box-inventory-list" aria-busy={isLoading}>
         <div className="box-inventory-table-head" aria-hidden="true">
+          <span>{t('boxInventoryBatchSelectionColumn')}</span>
           <span>{t('boxInventoryBox')}</span>
           <span>{t('boxInventorySpecies')}</span>
           <span>{t('boxInventoryStatus')}</span>
@@ -247,11 +395,26 @@ export default function BoxInventoryAdminSection({
             const status = getBoxStatusPresentation(box.status, language);
             const isActiveWithoutLocation = box.status === 'active' && box.thermal_zone == null;
             const measurement = box.latest_measurement;
+            const isSelected = selectedBoxes.has(box.id);
             return (
               <article
-                className={isActiveWithoutLocation ? 'box-inventory-row has-location-anomaly' : 'box-inventory-row'}
+                className={[
+                  'box-inventory-row',
+                  isActiveWithoutLocation ? 'has-location-anomaly' : '',
+                  isSelected ? 'is-selected' : '',
+                ].filter(Boolean).join(' ')}
                 key={box.id}
               >
+                <div className="box-inventory-cell box-inventory-selection-cell" data-label={t('boxInventoryBatchSelectionColumn')}>
+                  {box.status === 'pending_review' ? (
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      aria-label={`${t('boxInventoryBatchSelectBox')} ${box.global_code}`}
+                      onChange={(event) => toggleBoxSelection(box, event.target.checked)}
+                    />
+                  ) : null}
+                </div>
                 <div className="box-inventory-cell box-inventory-identity" data-label={t('boxInventoryBox')}>
                   <strong>{box.global_code}</strong>
                   {box.local_code ? <small>{box.local_code}</small> : null}
@@ -364,6 +527,25 @@ export default function BoxInventoryAdminSection({
           onSubmit={handleLifecycleSubmit}
           t={t}
           zones={activeZones}
+        />
+      ) : null}
+
+      {batchState ? (
+        <BoxInventoryBatchModal
+          action={batchState.action}
+          error={batchError}
+          isSaving={isBatchSaving}
+          onClose={() => {
+            if (!isBatchSaving) {
+              setBatchState(null);
+              setBatchResult(null);
+              setBatchError(null);
+            }
+          }}
+          onConfirm={handleBatchConfirm}
+          result={batchResult}
+          selectedBoxes={batchState.boxes}
+          t={t}
         />
       ) : null}
     </section>

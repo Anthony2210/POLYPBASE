@@ -118,6 +118,36 @@ export type BoxInitialLocationPayload = {
   notes?: string;
 };
 
+export type BoxInventoryBatchQualifyPayload = {
+  box_ids: number[];
+  target_status: 'active' | 'inactive';
+  reason?: string;
+  reason_missing_from_history?: boolean;
+};
+
+export type BoxInventoryBatchSuccess = {
+  box_id: number;
+  global_code: string;
+  status: 'active' | 'inactive';
+  has_location: boolean;
+};
+
+export type BoxInventoryBatchFailure = {
+  box_id: number;
+  global_code: string | null;
+  error: string;
+};
+
+export type BoxInventoryBatchResult = {
+  requested_count: number;
+  success_count: number;
+  failure_count: number;
+  active_with_location_count: number;
+  active_without_location_count: number;
+  successes: BoxInventoryBatchSuccess[];
+  failures: BoxInventoryBatchFailure[];
+};
+
 export type OverviewMeasurementPoint = {
   date: string;
   polyp_count: number;

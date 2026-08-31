@@ -69,6 +69,8 @@ import type {
   BoxDeactivatePayload,
   BoxDetail,
   BoxInitialLocationPayload,
+  BoxInventoryBatchQualifyPayload,
+  BoxInventoryBatchResult,
   BoxItem,
   BoxLineage,
   BoxMovement,
@@ -818,6 +820,46 @@ export default function App() {
     }));
   }
 
+  async function qualifyBoxesBatch(payload: BoxInventoryBatchQualifyPayload) {
+    const result = await apiPost<BoxInventoryBatchResult>(
+      '/api/admin/box-inventory/batch-qualify/',
+      payload,
+    );
+    const successfulStatuses = new Map(
+      result.successes.map((item) => [item.box_id, item.status]),
+    );
+
+    setData((current) => {
+      const boxDetails = { ...current.boxDetails };
+      result.successes.forEach((item) => {
+        const detail = boxDetails[item.box_id];
+        if (!detail) return;
+        boxDetails[item.box_id] = {
+          ...detail,
+          status: item.status,
+          thermal_zone: item.status === 'inactive' ? null : detail.thermal_zone,
+        };
+      });
+
+      return {
+        ...current,
+        boxes: current.boxes.map((box) => {
+          const nextStatus = successfulStatuses.get(box.id);
+          if (!nextStatus) return box;
+          return {
+            ...box,
+            status: nextStatus,
+            thermal_zone: nextStatus === 'inactive' ? null : box.thermal_zone,
+          };
+        }),
+        boxDetails,
+        overview: null,
+        exportOptions: null,
+      };
+    });
+    return result;
+  }
+
   async function resolveAlert(boxId: number, alertId: number) {
     await apiPost<{ id: number; resolved: boolean }>(`/api/alerts/${alertId}/resolve/`, {});
     const detail = await apiGet<BoxDetail>(`/api/boxes/${boxId}/`);
@@ -1151,6 +1193,7 @@ export default function App() {
                 onDeleteOrganization={deleteOrganization}
                 onCreateTransfer={createBoxTransfer}
                 onAssignBoxLocation={assignBoxInitialLocation}
+                onBatchQualifyBoxes={qualifyBoxesBatch}
                 onDeactivateBox={deactivateBox}
                 onQualifyBox={qualifyBox}
                 onReactivateBox={reactivateBox}

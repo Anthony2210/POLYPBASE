@@ -1,10 +1,13 @@
 from datetime import date
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError
 from django.test import TestCase
 from django.urls import reverse
 
 from apps.accounts.models import OrganizationMembership
+from apps.audit.models import AuditLog
 from apps.measurements.models import BiologicalMeasurement
 from apps.organizations.models import Organization
 from apps.taxonomy.models import Species, Strain
@@ -234,3 +237,218 @@ class AdminBoxInventoryApiTests(TestCase):
         self.assertEqual(response.status_code, 403)
         box.refresh_from_db()
         self.assertIsNone(box.thermal_zone)
+
+    def test_batch_qualify_active_reports_locations_without_assigning_one(self):
+        located = self.create_box(
+            1,
+            status=Box.Status.PENDING_REVIEW,
+            zone=self.zone,
+        )
+        unlocated = self.create_box(2, status=Box.Status.PENDING_REVIEW)
+        self.login_admin()
+
+        response = self.client.post(
+            reverse("api_admin_box_inventory_batch_qualify"),
+            data={
+                "box_ids": [located.id, unlocated.id],
+                "target_status": Box.Status.ACTIVE,
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["requested_count"], 2)
+        self.assertEqual(response.data["success_count"], 2)
+        self.assertEqual(response.data["failure_count"], 0)
+        self.assertEqual(response.data["active_with_location_count"], 1)
+        self.assertEqual(response.data["active_without_location_count"], 1)
+        located.refresh_from_db()
+        unlocated.refresh_from_db()
+        self.assertEqual(located.status, Box.Status.ACTIVE)
+        self.assertEqual(located.thermal_zone, self.zone)
+        self.assertEqual(unlocated.status, Box.Status.ACTIVE)
+        self.assertIsNone(unlocated.thermal_zone)
+        self.assertFalse(BoxLocation.objects.filter(box=unlocated).exists())
+
+        anomaly_response = self.client.get(
+            reverse("api_admin_box_inventory"),
+            {"status": Box.Status.ACTIVE, "location": "none"},
+        )
+        self.assertEqual(
+            [item["id"] for item in anomaly_response.data["results"]],
+            [unlocated.id],
+        )
+
+    def test_batch_qualify_inactive_uses_missing_historical_reason(self):
+        box = self.create_box(
+            1,
+            status=Box.Status.PENDING_REVIEW,
+            zone=self.zone,
+        )
+        location = BoxLocation.objects.create(box=box, thermal_zone=self.zone)
+        self.login_admin()
+
+        response = self.client.post(
+            reverse("api_admin_box_inventory_batch_qualify"),
+            data={
+                "box_ids": [box.id],
+                "target_status": Box.Status.INACTIVE,
+                "reason_missing_from_history": True,
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["success_count"], 1)
+        box.refresh_from_db()
+        location.refresh_from_db()
+        self.assertEqual(box.status, Box.Status.INACTIVE)
+        self.assertIsNone(box.thermal_zone)
+        self.assertEqual(box.stop_reason, "")
+        self.assertTrue(box.stop_reason_missing_from_history)
+        self.assertIsNone(box.deactivated_on)
+        self.assertTrue(location.end_date_unknown)
+        self.assertIsNone(location.ends_at)
+
+    def test_batch_qualify_allows_partial_success_and_hides_foreign_boxes(self):
+        valid = self.create_box(1, status=Box.Status.PENDING_REVIEW)
+        changed_since_selection = self.create_box(2, status=Box.Status.ACTIVE)
+        foreign = self.create_box(
+            3,
+            status=Box.Status.PENDING_REVIEW,
+            organization=self.other_organization,
+        )
+        missing_id = max(valid.id, changed_since_selection.id, foreign.id) + 1000
+        self.login_admin()
+
+        response = self.client.post(
+            reverse("api_admin_box_inventory_batch_qualify"),
+            data={
+                "box_ids": [valid.id, changed_since_selection.id, foreign.id, missing_id],
+                "target_status": Box.Status.ACTIVE,
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["requested_count"], 4)
+        self.assertEqual(response.data["success_count"], 1)
+        self.assertEqual(response.data["failure_count"], 3)
+        failures = {item["box_id"]: item for item in response.data["failures"]}
+        self.assertIn("pending review", failures[changed_since_selection.id]["error"])
+        self.assertIsNone(failures[foreign.id]["global_code"])
+        self.assertEqual(
+            failures[foreign.id]["error"],
+            "Box not found in the active institution.",
+        )
+        self.assertIsNone(failures[missing_id]["global_code"])
+        valid.refresh_from_db()
+        changed_since_selection.refresh_from_db()
+        foreign.refresh_from_db()
+        self.assertEqual(valid.status, Box.Status.ACTIVE)
+        self.assertEqual(changed_since_selection.status, Box.Status.ACTIVE)
+        self.assertEqual(foreign.status, Box.Status.PENDING_REVIEW)
+
+    def test_batch_qualify_rolls_back_only_the_box_that_fails(self):
+        succeeds = self.create_box(
+            1,
+            status=Box.Status.PENDING_REVIEW,
+            zone=self.zone,
+        )
+        fails = self.create_box(
+            2,
+            status=Box.Status.PENDING_REVIEW,
+            zone=self.zone,
+        )
+        succeeds_location = BoxLocation.objects.create(box=succeeds, thermal_zone=self.zone)
+        fails_location = BoxLocation.objects.create(box=fails, thermal_zone=self.zone)
+        original_create = AuditLog.objects.create
+
+        def create_audit_or_fail(**kwargs):
+            if kwargs.get("object_id") == fails.global_code:
+                raise IntegrityError("Simulated audit failure")
+            return original_create(**kwargs)
+
+        self.login_admin()
+        with patch(
+            "apps.cultures.services.AuditLog.objects.create",
+            side_effect=create_audit_or_fail,
+        ):
+            response = self.client.post(
+                reverse("api_admin_box_inventory_batch_qualify"),
+                data={
+                    "box_ids": [succeeds.id, fails.id],
+                    "target_status": Box.Status.INACTIVE,
+                    "reason_missing_from_history": True,
+                },
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["success_count"], 1)
+        self.assertEqual(response.data["failure_count"], 1)
+        succeeds.refresh_from_db()
+        fails.refresh_from_db()
+        succeeds_location.refresh_from_db()
+        fails_location.refresh_from_db()
+        self.assertEqual(succeeds.status, Box.Status.INACTIVE)
+        self.assertTrue(succeeds_location.end_date_unknown)
+        self.assertEqual(fails.status, Box.Status.PENDING_REVIEW)
+        self.assertEqual(fails.thermal_zone, self.zone)
+        self.assertFalse(fails.stop_reason_missing_from_history)
+        self.assertFalse(fails_location.end_date_unknown)
+        self.assertIsNone(fails_location.ends_at)
+
+    def test_batch_qualify_is_admin_only(self):
+        box = self.create_box(1, status=Box.Status.PENDING_REVIEW)
+        self.client.login(username=self.technician.username, password="secret")
+
+        response = self.client.post(
+            reverse("api_admin_box_inventory_batch_qualify"),
+            data={"box_ids": [box.id], "target_status": Box.Status.ACTIVE},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        box.refresh_from_db()
+        self.assertEqual(box.status, Box.Status.PENDING_REVIEW)
+
+    def test_batch_qualify_keeps_zero_measurements_visible(self):
+        box = self.create_box(1, status=Box.Status.PENDING_REVIEW)
+        BiologicalMeasurement.objects.create(
+            box=box,
+            measured_on=date(2026, 8, 28),
+            polyp_count=0,
+            ephyrae_count=0,
+        )
+        self.login_admin()
+
+        batch_response = self.client.post(
+            reverse("api_admin_box_inventory_batch_qualify"),
+            data={"box_ids": [box.id], "target_status": Box.Status.ACTIVE},
+            content_type="application/json",
+        )
+        self.assertEqual(batch_response.status_code, 200)
+
+        inventory_response = self.client.get(reverse("api_admin_box_inventory"))
+        item = next(
+            result
+            for result in inventory_response.data["results"]
+            if result["id"] == box.id
+        )
+        self.assertEqual(item["latest_measurement"]["polyp_count"], 0)
+        self.assertEqual(item["latest_measurement"]["ephyrae_count"], 0)
+
+    def test_batch_qualify_rejects_duplicate_ids(self):
+        box = self.create_box(1, status=Box.Status.PENDING_REVIEW)
+        self.login_admin()
+
+        response = self.client.post(
+            reverse("api_admin_box_inventory_batch_qualify"),
+            data={"box_ids": [box.id, box.id], "target_status": Box.Status.ACTIVE},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        box.refresh_from_db()
+        self.assertEqual(box.status, Box.Status.PENDING_REVIEW)
