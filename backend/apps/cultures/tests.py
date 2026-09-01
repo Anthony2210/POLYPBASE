@@ -811,6 +811,86 @@ class PolypbaseApiTests(TestCase):
         self.assertIsNotNone(alert.resolved_at)
         self.assertEqual(alert.resolved_by, self.user)
 
+    def test_manual_temperatures_update_the_daily_aggregate_exactly(self):
+        measured_on = date(2026, 5, 7)
+        DailyTemperature.objects.create(
+            thermal_zone=self.zone,
+            date=measured_on,
+            min_temperature_c=Decimal("10.00"),
+            average_temperature_c=Decimal("10.00"),
+            max_temperature_c=Decimal("10.00"),
+            measurement_count=1,
+        )
+        self.client.login(username="tech", password="secret")
+        url = reverse("api_thermal_zone_manual_temperature", args=[self.zone.id])
+
+        for temperature_c in ("20.00", "30.00"):
+            response = self.client.post(
+                url,
+                data=json.dumps(
+                    {
+                        "measured_on": measured_on.isoformat(),
+                        "temperature_c": temperature_c,
+                    }
+                ),
+                content_type="application/json",
+            )
+            self.assertEqual(response.status_code, 201)
+
+        aggregate = DailyTemperature.objects.get(
+            thermal_zone=self.zone,
+            date=measured_on,
+        )
+        self.assertEqual(aggregate.measurement_count, 3)
+        self.assertEqual(aggregate.average_temperature_c, Decimal("20.00"))
+        self.assertEqual(aggregate.min_temperature_c, Decimal("10.00"))
+        self.assertEqual(aggregate.max_temperature_c, Decimal("30.00"))
+
+    def test_manual_temperature_rolls_back_when_audit_creation_fails(self):
+        measured_on = date(2026, 5, 7)
+        aggregate = DailyTemperature.objects.create(
+            thermal_zone=self.zone,
+            date=measured_on,
+            min_temperature_c=Decimal("10.00"),
+            average_temperature_c=Decimal("10.00"),
+            max_temperature_c=Decimal("10.00"),
+            measurement_count=1,
+        )
+        self.client.login(username="tech", password="secret")
+
+        with patch(
+            "apps.cultures.api_views.AuditLog.objects.create",
+            side_effect=RuntimeError("forced audit failure"),
+        ), self.assertRaises(RuntimeError):
+            self.client.post(
+                reverse("api_thermal_zone_manual_temperature", args=[self.zone.id]),
+                data=json.dumps(
+                    {
+                        "measured_on": measured_on.isoformat(),
+                        "temperature_c": "20.00",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+        aggregate.refresh_from_db()
+        self.assertEqual(aggregate.measurement_count, 1)
+        self.assertEqual(aggregate.average_temperature_c, Decimal("10.00"))
+        self.assertEqual(aggregate.min_temperature_c, Decimal("10.00"))
+        self.assertEqual(aggregate.max_temperature_c, Decimal("10.00"))
+        self.assertFalse(
+            Alert.objects.filter(
+                thermal_zone=self.zone,
+                alert_type=Alert.AlertType.TEMPERATURE,
+            ).exists()
+        )
+        self.assertFalse(
+            AuditLog.objects.filter(
+                object_type="thermal_zone",
+                object_id=self.zone.name,
+            ).exists()
+        )
+
     def test_drf_measurement_endpoint_blocks_read_only_users(self):
         user_model = get_user_model()
         viewer = user_model.objects.create_user(username="viewer", password="secret")
