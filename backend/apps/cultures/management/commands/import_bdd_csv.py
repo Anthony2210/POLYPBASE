@@ -20,12 +20,14 @@ from pathlib import Path
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.cultures.models import (
     Box,
     BoxLineage,
     BoxLocation,
+    BoxTransferImport,
     SubcultureEvent,
     ThermalZone,
 )
@@ -59,7 +61,8 @@ class Command(BaseCommand):
             "--reset-boxes",
             action="store_true",
             help=(
-                "Delete all existing boxes (and their lineage, subculture "
+                "Delete existing boxes owned by the target organization "
+                "(and their lineage, subculture "
                 "events, locations, movements, measurements...) before importing, "
                 "so boxes are recreated with fresh global codes."
             ),
@@ -75,9 +78,9 @@ class Command(BaseCommand):
 
         try:
             with transaction.atomic():
-                if options["reset_boxes"]:
-                    self._reset_boxes()
                 organization = self._get_organization(options["organization"])
+                if options["reset_boxes"]:
+                    self._reset_boxes(organization)
                 species = self._import_species(csv_dir)
                 strains = self._import_strains(csv_dir, species)
                 zones = self._import_zones(csv_dir, organization)
@@ -121,6 +124,26 @@ class Command(BaseCommand):
         except ValueError:
             return 0
 
+    def _as_biological_count(self, value, *, field_name, row_number):
+        normalized = "" if value is None else str(value).strip()
+        if not normalized:
+            raise CommandError(
+                f"Missing {field_name} in saisir_releve.csv row {row_number}."
+            )
+        try:
+            count = round(float(normalized))
+        except (OverflowError, ValueError) as error:
+            raise CommandError(
+                f"Invalid {field_name} in saisir_releve.csv row {row_number}: "
+                f"{normalized!r}."
+            ) from error
+        if count < 0:
+            raise CommandError(
+                f"Invalid {field_name} in saisir_releve.csv row {row_number}: "
+                f"{normalized!r}."
+            )
+        return count
+
     def _aware(self, day):
         return timezone.make_aware(datetime.combine(day, time.min))
 
@@ -131,16 +154,28 @@ class Command(BaseCommand):
         self.counts["organization_created"] += int(created)
         return organization
 
-    def _reset_boxes(self):
-        """Delete every box so they can be recreated with fresh global codes.
+    def _reset_boxes(self, organization):
+        """Delete one organization's boxes for recreation with fresh codes.
 
         Lineage and subculture events point at boxes with on_delete=PROTECT,
-        so they must be removed first. Everything else (locations, movements,
-        measurements, transfers, alerts, tags) cascades with the box.
+        and transfer import records also protect their created box. Remove only
+        records tied to the target organization's boxes before deleting those
+        boxes. Everything else (locations, movements, measurements, transfers,
+        alerts, tags) cascades with the box.
         """
-        self.counts["lineages_deleted"] = BoxLineage.objects.all().delete()[0]
-        self.counts["subcultures_deleted"] = SubcultureEvent.objects.all().delete()[0]
-        self.counts["boxes_deleted"] = Box.objects.all().delete()[0]
+        self.counts["lineages_deleted"] = BoxLineage.objects.filter(
+            Q(parent_box__organization=organization)
+            | Q(child_box__organization=organization)
+        ).delete()[0]
+        self.counts["transfer_imports_deleted"] = BoxTransferImport.objects.filter(
+            created_box__organization=organization
+        ).delete()[0]
+        self.counts["subcultures_deleted"] = SubcultureEvent.objects.filter(
+            parent_box__organization=organization
+        ).delete()[0]
+        self.counts["boxes_deleted"] = Box.objects.filter(
+            organization=organization
+        ).delete()[0]
 
     def _import_species(self, csv_dir):
         mapping = {}
@@ -305,7 +340,9 @@ class Command(BaseCommand):
                 )
 
     def _import_measurements(self, csv_dir, boxes):
-        for row in self._read(csv_dir, "saisir_releve.csv"):
+        for row_number, row in enumerate(
+            self._read(csv_dir, "saisir_releve.csv"), start=2
+        ):
             box = boxes.get(row["id_boite"])
             if box is None:
                 self.counts["measurements_skipped"] += 1
@@ -317,12 +354,22 @@ class Command(BaseCommand):
             if measured_on is None:
                 self.counts["measurements_skipped"] += 1
                 continue
+            polyp_count = self._as_biological_count(
+                row.get("nombre_polypes"),
+                field_name="nombre_polypes",
+                row_number=row_number,
+            )
+            ephyrae_count = self._as_biological_count(
+                row.get("nombre_ephyrules"),
+                field_name="nombre_ephyrules",
+                row_number=row_number,
+            )
             BiologicalMeasurement.objects.update_or_create(
                 box=box,
                 measured_on=measured_on,
                 defaults={
-                    "polyp_count": self._as_int(row.get("nombre_polypes")),
-                    "ephyrae_count": self._as_int(row.get("nombre_ephyrules")),
+                    "polyp_count": polyp_count,
+                    "ephyrae_count": ephyrae_count,
                 },
             )
             self.counts["measurements_total"] += 1

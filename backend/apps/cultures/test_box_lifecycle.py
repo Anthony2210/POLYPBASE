@@ -17,14 +17,25 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.accounts.models import OrganizationMembership
-from apps.audit.models import AuditLog
-from apps.measurements.models import BiologicalMeasurement
+from apps.audit.models import Alert, AuditLog
+from apps.measurements.models import BiologicalMeasurement, Observation
 from apps.organizations.models import Organization
 from apps.taxonomy.models import Species, Strain
 
 from .management.commands.import_bdd_csv import Command as HistoricalImportCommand
 from .management.commands.initialize_box_inventory import _selection_hash
-from .models import Box, BoxInventoryInitialization, BoxLocation, ThermalZone
+from .models import (
+    Box,
+    BoxInventoryInitialization,
+    BoxLineage,
+    BoxLocation,
+    BoxMovement,
+    BoxTransfer,
+    BoxTransferImport,
+    IdentificationTag,
+    SubcultureEvent,
+    ThermalZone,
+)
 from .services import _locked_box
 
 
@@ -496,6 +507,238 @@ class HistoricalInventoryInitializationTests(TestCase):
             )
             command._import_measurements(Path(directory), boxes)
             self.assertFalse(BiologicalMeasurement.objects.filter(box=imported).exists())
+
+    def test_historical_measurement_count_preserves_zero_and_numeric_formats(self):
+        command = HistoricalImportCommand()
+
+        for value, expected in (
+            (0, 0),
+            ("0", 0),
+            (" 0.0 ", 0),
+            (12, 12),
+            ("12", 12),
+            ("12.6", 13),
+        ):
+            with self.subTest(value=value):
+                self.assertEqual(
+                    command._as_biological_count(
+                        value,
+                        field_name="nombre_polypes",
+                        row_number=2,
+                    ),
+                    expected,
+                )
+
+    def test_historical_measurement_count_rejects_absent_and_invalid_values(self):
+        command = HistoricalImportCommand()
+
+        for value in (None, "", "   "):
+            with self.subTest(value=value), self.assertRaisesRegex(
+                CommandError,
+                "Missing nombre_polypes in saisir_releve.csv row 2",
+            ):
+                command._as_biological_count(
+                    value,
+                    field_name="nombre_polypes",
+                    row_number=2,
+                )
+
+        for value in ("not-a-number", "NaN", "Infinity", "-1"):
+            with self.subTest(value=value), self.assertRaisesRegex(
+                CommandError,
+                "Invalid nombre_polypes in saisir_releve.csv row 2",
+            ):
+                command._as_biological_count(
+                    value,
+                    field_name="nombre_polypes",
+                    row_number=2,
+                )
+
+    def test_historical_measurement_import_keeps_zero_and_rejects_missing_data(self):
+        command = HistoricalImportCommand()
+        command.counts = defaultdict(int)
+        with TemporaryDirectory() as directory:
+            csv_path = Path(directory) / "saisir_releve.csv"
+            csv_path.write_text(
+                "id_boite,annee,semaine,nombre_polypes,nombre_ephyrules\n"
+                "42,2026,34,0,12.6\n",
+                encoding="utf-8",
+            )
+            command._import_measurements(Path(directory), {"42": self.box})
+
+            measurement = BiologicalMeasurement.objects.get(box=self.box)
+            self.assertEqual(measurement.polyp_count, 0)
+            self.assertEqual(measurement.ephyrae_count, 13)
+
+            measurement.delete()
+            for missing_row in (
+                "42,2026,34,,4\n",
+                "42,2026,34,4,\n",
+                "42,2026,34,invalid,4\n",
+                "42,2026,34,4,invalid\n",
+            ):
+                with self.subTest(row=missing_row):
+                    csv_path.write_text(
+                        "id_boite,annee,semaine,nombre_polypes,nombre_ephyrules\n"
+                        + missing_row,
+                        encoding="utf-8",
+                    )
+                    with self.assertRaises(CommandError):
+                        command._import_measurements(
+                            Path(directory), {"42": self.box}
+                        )
+                    self.assertFalse(
+                        BiologicalMeasurement.objects.filter(box=self.box).exists()
+                    )
+
+    def test_historical_reset_is_strictly_scoped_to_target_organization(self):
+        target_zone = ThermalZone.objects.create(
+            organization=self.organization,
+            name="Historical target zone",
+        )
+        untouched_zone = ThermalZone.objects.create(
+            organization=self.other_organization,
+            name="Historical untouched zone",
+        )
+        target_child = Box.objects.create(
+            organization=self.organization,
+            global_code="AHI-LAB-1.003",
+            box_number="003",
+            strain=self.strain,
+            status=Box.Status.ACTIVE,
+            thermal_zone=target_zone,
+        )
+        untouched_child = Box.objects.create(
+            organization=self.other_organization,
+            global_code="AHI-LAB-1.004",
+            box_number="004",
+            strain=self.strain,
+            status=Box.Status.ACTIVE,
+            thermal_zone=untouched_zone,
+        )
+        target_relations = self._create_historical_box_relations(
+            self.box,
+            target_child,
+            target_zone,
+            self.organization,
+            self.other_organization,
+            "target",
+        )
+        untouched_relations = self._create_historical_box_relations(
+            self.other_box,
+            untouched_child,
+            untouched_zone,
+            self.other_organization,
+            self.organization,
+            "untouched",
+        )
+
+        with TemporaryDirectory() as directory:
+            csv_dir = Path(directory)
+            empty_tables = {
+                "espece.csv": "id_espece,nom_scientifique,code_espece\n",
+                "souche.csv": (
+                    "id_souche,id_espece,code_souche,numero_souche_local,"
+                    "code_provenance\n"
+                ),
+                "zone_thermique.csv": "id_zone,nom_zone,temperature_cible\n",
+                "boite.csv": (
+                    "id_boite,id_souche,code_local,numero_boite_local\n"
+                ),
+                "range.csv": "id_boite,annee,semaine,id_zone\n",
+                "saisir_releve.csv": (
+                    "id_boite,annee,semaine,nombre_polypes,nombre_ephyrules\n"
+                ),
+            }
+            for name, content in empty_tables.items():
+                (csv_dir / name).write_text(content, encoding="utf-8")
+
+            call_command(
+                "import_bdd_csv",
+                path=directory,
+                organization=self.organization.name,
+                reset_boxes=True,
+                stdout=StringIO(),
+            )
+
+        self.assertFalse(Box.objects.filter(organization=self.organization).exists())
+        for model, object_id in target_relations:
+            self.assertFalse(model.objects.filter(pk=object_id).exists())
+
+        self.other_box.refresh_from_db()
+        untouched_child.refresh_from_db()
+        self.assertEqual(self.other_box.organization, self.other_organization)
+        self.assertEqual(untouched_child.organization, self.other_organization)
+        self.assertEqual(untouched_child.thermal_zone, untouched_zone)
+        for model, object_id in untouched_relations:
+            self.assertTrue(model.objects.filter(pk=object_id).exists())
+
+    def _create_historical_box_relations(
+        self,
+        parent_box,
+        child_box,
+        zone,
+        organization,
+        other_organization,
+        suffix,
+    ):
+        location = BoxLocation.objects.create(box=parent_box, thermal_zone=zone)
+        movement = BoxMovement.objects.create(
+            box=parent_box,
+            from_thermal_zone=None,
+            to_thermal_zone=zone,
+        )
+        measurement = BiologicalMeasurement.objects.create(
+            box=parent_box,
+            measured_on=date(2026, 1, 5),
+            polyp_count=0,
+            ephyrae_count=2,
+        )
+        observation = Observation.objects.create(
+            box=parent_box,
+            notes=f"Historical {suffix} observation",
+        )
+        subculture = SubcultureEvent.objects.create(parent_box=parent_box)
+        lineage = BoxLineage.objects.create(
+            parent_box=parent_box,
+            child_box=child_box,
+            subculture_event=subculture,
+        )
+        tag = IdentificationTag.objects.create(
+            code=f"historical-{suffix}-tag",
+            box=parent_box,
+        )
+        transfer = BoxTransfer.objects.create(
+            box=parent_box,
+            from_organization=organization,
+            to_organization=other_organization,
+        )
+        alert = Alert.objects.create(
+            organization=organization,
+            box=parent_box,
+            alert_type=Alert.AlertType.BIOLOGICAL,
+            message=f"Historical {suffix} alert",
+        )
+        transfer_import = BoxTransferImport.objects.create(
+            format_version="test-v1",
+            source_transfer_id=f"historical-{suffix}",
+            source_organization_name=other_organization.name,
+            source_global_code=parent_box.global_code,
+            destination_organization=organization,
+            created_box=parent_box,
+        )
+        return (
+            (BoxLocation, location.pk),
+            (BoxMovement, movement.pk),
+            (BiologicalMeasurement, measurement.pk),
+            (Observation, observation.pk),
+            (SubcultureEvent, subculture.pk),
+            (BoxLineage, lineage.pk),
+            (IdentificationTag, tag.pk),
+            (BoxTransfer, transfer.pk),
+            (Alert, alert.pk),
+            (BoxTransferImport, transfer_import.pk),
+        )
 
     def test_historical_import_refuses_a_code_owned_by_another_organization(self):
         command = HistoricalImportCommand()
