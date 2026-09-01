@@ -1324,9 +1324,12 @@ class ThermalZoneDetailAPIView(generics.RetrieveUpdateAPIView):
 
 
 class ThermalZoneManualTemperatureAPIView(APIView):
+    @transaction.atomic
     def post(self, request, pk):
         zone = get_object_or_404(
-            ThermalZone.objects.select_related("organization"),
+            # The zone exists before its daily aggregate, so locking it also
+            # serializes concurrent first readings for the same zone.
+            ThermalZone.objects.select_for_update().select_related("organization"),
             pk=pk,
             organization_id__in=get_active_organization_ids(request),
         )
@@ -1338,7 +1341,7 @@ class ThermalZoneManualTemperatureAPIView(APIView):
         measured_on = serializer.validated_data["measured_on"]
         temperature_c = serializer.validated_data["temperature_c"]
 
-        daily_temperature, created = DailyTemperature.objects.get_or_create(
+        daily_temperature, created = DailyTemperature.objects.select_for_update().get_or_create(
             thermal_zone=zone,
             date=measured_on,
             defaults={
