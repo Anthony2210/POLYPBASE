@@ -8,12 +8,15 @@ it blank. That is the behaviour users reported as "the salinity disappears".
 
 import json
 from datetime import date, timedelta
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.urls import reverse
 
 from apps.accounts.models import OrganizationMembership
+from apps.audit.models import Alert, AuditLog
 from apps.cultures.models import Box, ThermalZone
 from apps.organizations.models import Organization
 from apps.taxonomy.models import Species, Strain
@@ -104,6 +107,156 @@ class MeasurementEditingApiTests(TestCase):
         self.assertEqual(str(measurement.salinity_psu), "35.00")
         self.assertEqual(response.json()["salinity_psu"], "35.00")
 
+    def test_zero_counts_are_created_as_real_measurements(self):
+        self.client.login(username="tech", password="secret")
+
+        response = self.client.post(
+            reverse("api_box_measurements", args=[self.box.id]),
+            data={
+                "measured_on": self.today.isoformat(),
+                "polyp_count": 0,
+                "ephyrae_count": 0,
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        measurement = BiologicalMeasurement.objects.get(
+            box=self.box,
+            measured_on=self.today,
+        )
+        self.assertEqual(measurement.polyp_count, 0)
+        self.assertEqual(measurement.ephyrae_count, 0)
+        self.assertEqual(response.json()["polyp_count"], 0)
+        self.assertEqual(response.json()["ephyrae_count"], 0)
+
+    def test_post_for_existing_date_updates_one_measurement_including_to_zero(self):
+        self.client.login(username="tech", password="secret")
+        url = reverse("api_box_measurements", args=[self.box.id])
+
+        created_response = self.client.post(
+            url,
+            data={
+                "measured_on": self.today.isoformat(),
+                "polyp_count": 12,
+                "ephyrae_count": 3,
+            },
+            content_type="application/json",
+        )
+        updated_response = self.client.post(
+            url,
+            data={
+                "measured_on": self.today.isoformat(),
+                "polyp_count": 0,
+                "ephyrae_count": 0,
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(created_response.status_code, 201)
+        self.assertEqual(updated_response.status_code, 200)
+        self.assertEqual(created_response.json()["id"], updated_response.json()["id"])
+        self.assertEqual(
+            BiologicalMeasurement.objects.filter(
+                box=self.box,
+                measured_on=self.today,
+            ).count(),
+            1,
+        )
+        measurement = BiologicalMeasurement.objects.get(box=self.box, measured_on=self.today)
+        self.assertEqual(measurement.polyp_count, 0)
+        self.assertEqual(measurement.ephyrae_count, 0)
+        audit = AuditLog.objects.get(
+            object_type="box",
+            metadata__measurement_id=measurement.id,
+        )
+        self.assertEqual(audit.action, AuditLog.Action.UPDATE)
+        self.assertEqual(audit.metadata["valeurs"]["polypes"], 0)
+        self.assertEqual(audit.metadata["valeurs"]["ephyrules"], 0)
+        self.assertEqual(audit.metadata["modifications"]["polypes"]["avant"], 12)
+        self.assertEqual(audit.metadata["modifications"]["polypes"]["apres"], 0)
+
+    def test_measurement_and_alert_roll_back_when_audit_fails(self):
+        BiologicalMeasurement.objects.create(
+            box=self.box,
+            measured_on=self.today - timedelta(days=1),
+            polyp_count=80,
+            ephyrae_count=2,
+        )
+        self.client.login(username="tech", password="secret")
+
+        with patch(
+            "apps.cultures.api_views._record_measurement_audit",
+            side_effect=RuntimeError("forced audit failure"),
+        ), self.assertRaises(RuntimeError):
+            self.client.post(
+                reverse("api_box_measurements", args=[self.box.id]),
+                data={
+                    "measured_on": self.today.isoformat(),
+                    "polyp_count": 60,
+                    "ephyrae_count": 0,
+                },
+                content_type="application/json",
+            )
+
+        self.assertFalse(
+            BiologicalMeasurement.objects.filter(
+                box=self.box,
+                measured_on=self.today,
+            ).exists()
+        )
+        self.assertFalse(
+            Alert.objects.filter(
+                box=self.box,
+                alert_type=Alert.AlertType.BIOLOGICAL,
+            ).exists()
+        )
+        self.assertFalse(AuditLog.objects.filter(object_id=self.box.global_code).exists())
+
+    def test_database_rejects_a_second_measurement_for_the_same_box_and_date(self):
+        BiologicalMeasurement.objects.create(
+            box=self.box,
+            measured_on=self.today,
+            polyp_count=10,
+        )
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            BiologicalMeasurement.objects.create(
+                box=self.box,
+                measured_on=self.today,
+                polyp_count=20,
+            )
+
+        self.assertEqual(
+            BiologicalMeasurement.objects.filter(
+                box=self.box,
+                measured_on=self.today,
+            ).count(),
+            1,
+        )
+
+    def test_measurement_cannot_be_created_for_another_organization(self):
+        foreign_box = Box.objects.create(
+            organization=self.other_organization,
+            global_code="TKY-AAU-1.003",
+            box_number="003",
+            strain=self.strain,
+        )
+        self.client.login(username="tech", password="secret")
+
+        response = self.client.post(
+            reverse("api_box_measurements", args=[foreign_box.id]),
+            data={
+                "measured_on": self.today.isoformat(),
+                "polyp_count": 10,
+                "ephyrae_count": 2,
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(BiologicalMeasurement.objects.filter(box=foreign_box).exists())
+
     # -- editing an existing measurement ----------------------------------
 
     def test_technician_updates_a_measurement_and_untouched_fields_are_kept(self):
@@ -129,6 +282,35 @@ class MeasurementEditingApiTests(TestCase):
         # Partial update: a field that was not sent must not be wiped.
         self.assertEqual(measurement.ephyrae_count, 2)
         self.assertEqual(measurement.user, self.technician)
+
+    def test_measurement_update_and_alert_roll_back_when_audit_fails(self):
+        BiologicalMeasurement.objects.create(
+            box=self.box,
+            measured_on=self.today - timedelta(days=1),
+            polyp_count=20,
+        )
+        measurement = BiologicalMeasurement.objects.create(
+            box=self.box,
+            measured_on=self.today,
+            polyp_count=15,
+        )
+        self.client.login(username="tech", password="secret")
+
+        with patch(
+            "apps.cultures.api_views._record_measurement_audit",
+            side_effect=RuntimeError("forced audit failure"),
+        ), self.assertRaises(RuntimeError):
+            self.patch_measurement(self.box, measurement, {"polyp_count": 5})
+
+        measurement.refresh_from_db()
+        self.assertEqual(measurement.polyp_count, 15)
+        self.assertFalse(
+            Alert.objects.filter(
+                box=self.box,
+                alert_type=Alert.AlertType.BIOLOGICAL,
+            ).exists()
+        )
+        self.assertFalse(AuditLog.objects.filter(object_id=self.box.global_code).exists())
 
     def test_read_only_user_cannot_update_a_measurement(self):
         measurement = BiologicalMeasurement.objects.create(
