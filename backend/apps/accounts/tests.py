@@ -157,6 +157,7 @@ class SessionLoginApiTests(TestCase):
 @override_settings(
     EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
     EMAIL_DELIVERY_ENABLED=True,
+    DEFAULT_FROM_EMAIL="Polypbase <noreply@polypbase.org>",
 )
 class AccountMemberManagementTests(TestCase):
     def setUp(self):
@@ -227,6 +228,10 @@ class AccountMemberManagementTests(TestCase):
         self.assertFalse(membership.user.has_usable_password())
         self.assertEqual(response.json()["full_name"], "Kylian MBAPPÉ")
         self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(
+            mail.outbox[0].from_email,
+            "Polypbase <noreply@polypbase.org>",
+        )
         self.assertIn("/reset-password/", mail.outbox[0].body)
         self.assertNotIn("Mot de passe temporaire", mail.outbox[0].body)
 
@@ -511,6 +516,7 @@ class AccountMemberManagementTests(TestCase):
 @override_settings(
     EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
     EMAIL_DELIVERY_ENABLED=True,
+    DEFAULT_FROM_EMAIL="Polypbase <noreply@polypbase.org>",
 )
 class PasswordResetTests(TestCase):
     """The "forgot password" flow reachable from the login page."""
@@ -549,8 +555,21 @@ class PasswordResetTests(TestCase):
 
         self.assertEqual(response.status_code, 204)
         self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(
+            mail.outbox[0].from_email,
+            "Polypbase <noreply@polypbase.org>",
+        )
         self.assertIn("/reset-password/", mail.outbox[0].body)
         self.assertEqual(mail.outbox[0].to, ["bio@example.org"])
+
+    @patch("apps.accounts.api_views.send_mail", side_effect=OSError("SMTP unavailable"))
+    def test_smtp_failure_keeps_password_reset_response_indistinguishable(self, _send_mail):
+        with self.assertLogs("apps.accounts.api_views", level="ERROR"):
+            response = self.request_reset("bio@example.org")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(response.content, b"")
+        self.assertEqual(len(mail.outbox), 0)
 
     def test_address_is_matched_regardless_of_case(self):
         response = self.request_reset("BIO@Example.ORG")
