@@ -125,13 +125,14 @@ DJANGO_SECURE_SSL_REDIRECT=1
 DJANGO_SECURE_HSTS_SECONDS=86400
 EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
 EMAIL_DELIVERY_ENABLED=1
-DEFAULT_FROM_EMAIL=Polypbase <no-reply@polypbase.org>
-EMAIL_HOST=<serveur_smtp>
+DEFAULT_FROM_EMAIL=Polypbase <noreply@polypbase.org>
+EMAIL_HOST=mail.gandi.net
 EMAIL_PORT=587
-EMAIL_HOST_USER=<utilisateur_smtp>
-EMAIL_HOST_PASSWORD=<mot_de_passe_smtp>
+EMAIL_HOST_USER=noreply@polypbase.org
+EMAIL_HOST_PASSWORD=<mot_de_passe_de_la_boite>
 EMAIL_USE_TLS=1
 EMAIL_USE_SSL=0
+EMAIL_TIMEOUT=10
 ```
 
 ## Déploiement automatisé
