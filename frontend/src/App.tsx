@@ -760,15 +760,35 @@ export default function App() {
   }
 
   async function moveBox(boxId: number, payload: BoxMovePayload) {
-    const detail = await apiPost<BoxDetail>(`/api/boxes/${boxId}/move/`, payload);
-    const zones = await apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80');
+    try {
+      const detail = await apiPost<BoxDetail>(`/api/boxes/${boxId}/move/`, payload);
+      const zones = await apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80');
 
-    setData((current) => ({
-      ...mergeBoxDetail(current, detail),
-      zones: zones.results,
-      overview: null,
-      exportOptions: null,
-    }));
+      setData((current) => ({
+        ...mergeBoxDetail(current, detail),
+        zones: zones.results,
+        overview: null,
+        exportOptions: null,
+      }));
+    } catch (requestError) {
+      if (isBoxLocationChangedError(requestError)) {
+        try {
+          const [detail, zones] = await Promise.all([
+            apiGet<BoxDetail>(`/api/boxes/${boxId}/`),
+            apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80'),
+          ]);
+          setData((current) => ({
+            ...mergeBoxDetail(current, detail),
+            zones: zones.results,
+            overview: null,
+            exportOptions: null,
+          }));
+        } catch {
+          // Keep the original conflict visible if the targeted refresh also fails.
+        }
+      }
+      throw requestError;
+    }
   }
 
   async function deactivateBox(boxId: number, payload: BoxDeactivatePayload) {
@@ -3754,11 +3774,23 @@ function getSubcultureSaveError(error: unknown, t: TFunction) {
 }
 
 function getMoveSaveError(error: unknown, t: TFunction) {
+  if (isBoxLocationChangedError(error)) {
+    return t('moveLocationChanged');
+  }
   if (error instanceof ApiError && error.status === 403) {
     return t('moveForbidden');
   }
 
   return getErrorMessage(error);
+}
+
+function isBoxLocationChangedError(error: unknown) {
+  return error instanceof ApiError
+    && error.status === 409
+    && typeof error.data === 'object'
+    && error.data !== null
+    && 'code' in error.data
+    && error.data.code === 'box_location_changed';
 }
 
 function formatTemperature(value: string | number | null | undefined) {

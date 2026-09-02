@@ -83,6 +83,7 @@ export default function MoveBoxModal({
     if (isSaving || !selectedZoneId) return;
 
     await onSubmit({
+      expected_thermal_zone_id: box.thermal_zone?.id ?? null,
       thermal_zone_id: Number(selectedZoneId),
       moved_at: new Date(movedAt).toISOString(),
       notes: notes.trim(),

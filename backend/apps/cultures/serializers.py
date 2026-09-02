@@ -598,6 +598,11 @@ class BoxInitialLocationSerializer(serializers.Serializer):
 
 
 class BoxMoveCreateSerializer(serializers.Serializer):
+    expected_thermal_zone_id = serializers.IntegerField(
+        required=True,
+        allow_null=True,
+        min_value=1,
+    )
     thermal_zone_id = serializers.PrimaryKeyRelatedField(
         queryset=ThermalZone.objects.filter(is_active=True),
         source="thermal_zone",
@@ -611,8 +616,6 @@ class BoxMoveCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 "The thermal zone must belong to the box organization."
             )
-        if box.thermal_zone_id == thermal_zone.id:
-            raise serializers.ValidationError("The box is already in this thermal zone.")
         return thermal_zone
 
 

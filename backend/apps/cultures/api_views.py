@@ -53,6 +53,7 @@ from .serializers import (
     ThermalZoneSerializer,
 )
 from .services import (
+    StaleBoxLocationError,
     assign_unlocated_active_box,
     build_lineage_graph,
     create_subculture,
@@ -1233,6 +1234,17 @@ class BoxMoveAPIView(generics.GenericAPIView):
                 box=box,
                 user=request.user,
                 **serializer.validated_data,
+            )
+        except StaleBoxLocationError as error:
+            return Response(
+                {
+                    "code": "box_location_changed",
+                    "detail": error.messages[0],
+                    "expected_thermal_zone_id": error.expected_thermal_zone_id,
+                    "current_thermal_zone_id": error.current_thermal_zone_id,
+                    "current_thermal_zone_name": error.current_thermal_zone_name,
+                },
+                status=status.HTTP_409_CONFLICT,
             )
         except DjangoValidationError as error:
             raise DRFValidationError(error.messages) from error

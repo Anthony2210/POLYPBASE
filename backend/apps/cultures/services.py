@@ -10,9 +10,27 @@ from django.utils import timezone
 from apps.audit.models import AuditLog
 from apps.measurements.models import BiologicalMeasurement
 
-from .models import Box, BoxLineage, BoxLocation, BoxMovement, SubcultureEvent
+from .models import Box, BoxLineage, BoxLocation, BoxMovement, SubcultureEvent, ThermalZone
 
 LINEAGE_GRAPH_MAX_NODES = 250
+_EXPECTED_THERMAL_ZONE_UNSET = object()
+
+
+class StaleBoxLocationError(ValidationError):
+    """The requested move was based on a location that is no longer current."""
+
+    def __init__(self, *, expected_thermal_zone_id, current_thermal_zone):
+        self.expected_thermal_zone_id = expected_thermal_zone_id
+        self.current_thermal_zone_id = (
+            current_thermal_zone.id if current_thermal_zone is not None else None
+        )
+        self.current_thermal_zone_name = (
+            current_thermal_zone.name if current_thermal_zone is not None else None
+        )
+        super().__init__(
+            "The box location changed since this movement was prepared. "
+            "Refresh the box before moving it."
+        )
 
 
 def _locked_box(box):
@@ -346,15 +364,38 @@ def create_subculture(*, parent_box, user, event_date, reason, notes, children):
 
 
 @transaction.atomic
-def move_box_to_thermal_zone(*, box, thermal_zone, moved_at, user, notes):
+def move_box_to_thermal_zone(
+    *,
+    box,
+    thermal_zone,
+    moved_at,
+    user,
+    notes,
+    expected_thermal_zone_id=_EXPECTED_THERMAL_ZONE_UNSET,
+):
     """Move a box to another thermal zone and keep a location history."""
+    requested_box = box
+    box = _locked_box(box)
+    current_thermal_zone = (
+        ThermalZone.objects.get(pk=box.thermal_zone_id)
+        if box.thermal_zone_id is not None
+        else None
+    )
     if thermal_zone.organization_id != box.organization_id:
         raise ValidationError("The thermal zone must belong to the box organization.")
+    if (
+        expected_thermal_zone_id is not _EXPECTED_THERMAL_ZONE_UNSET
+        and box.thermal_zone_id != expected_thermal_zone_id
+    ):
+        raise StaleBoxLocationError(
+            expected_thermal_zone_id=expected_thermal_zone_id,
+            current_thermal_zone=current_thermal_zone,
+        )
     if box.thermal_zone_id == thermal_zone.id:
         raise ValidationError("The box is already in this thermal zone.")
 
     moved_at = moved_at or timezone.now()
-    from_thermal_zone = box.thermal_zone
+    from_thermal_zone = current_thermal_zone
     active_locations = list(
         BoxLocation.objects.select_for_update()
         .filter(box=box, ends_at__isnull=True, end_date_unknown=False)
@@ -384,6 +425,7 @@ def move_box_to_thermal_zone(*, box, thermal_zone, moved_at, user, notes):
     )
     box.thermal_zone = thermal_zone
     box.save(update_fields=["thermal_zone"])
+    requested_box.thermal_zone = thermal_zone
 
     AuditLog.objects.create(
         organization=box.organization,
