@@ -496,6 +496,7 @@ export const en: Record<TranslationKey, string> = {
   saveMeasurementEdit: 'Save adjustment',
   moveAction: 'Move',
   moveForbidden: 'This account cannot move boxes.',
+  moveLocationChanged: 'This box location has changed. Its information has been refreshed: review it before moving the box again.',
   moveSaved: 'Movement saved',
   movementHistoryTitle: 'Location history',
   noMovementHistory: 'No movement recorded for this box.',

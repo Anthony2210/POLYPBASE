@@ -306,6 +306,7 @@ export type SubcultureResult = {
 };
 
 export type BoxMovePayload = {
+  expected_thermal_zone_id: number | null;
   thermal_zone_id: number;
   moved_at: string;
   notes: string;

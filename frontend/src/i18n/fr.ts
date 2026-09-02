@@ -494,6 +494,7 @@ export const fr = {
   saveMeasurementEdit: 'Enregistrer l’ajustement',
   moveAction: 'Transférer',
   moveForbidden: 'Ce compte ne peut pas transférer de boîte.',
+  moveLocationChanged: 'L’emplacement de cette boîte a changé. Les informations ont été actualisées : vérifiez-les avant de relancer le transfert.',
   moveSaved: 'Transfert enregistré',
   movementHistoryTitle: 'Historique des emplacements',
   noMovementHistory: 'Aucun déplacement enregistré pour cette boîte.',
