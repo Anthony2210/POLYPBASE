@@ -1103,51 +1103,73 @@ class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
 
     def post(self, request, box_id):
         box = self._get_box(request, box_id)
-        if not user_can_write_lab_data(request.user, box.organization):
-            raise PermissionDenied("This user cannot create or update lab measurements.")
-        if box.status == Box.Status.INACTIVE:
-            raise DRFValidationError("An inactive box cannot receive a new measurement.")
+        self._validate_write(request, box)
 
         serializer = BiologicalMeasurementCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data.copy()
         measured_on = data.pop("measured_on")
-        existing_measurement = BiologicalMeasurement.objects.filter(
-            box=box,
-            measured_on=measured_on,
-        ).first()
-        before_values = _measurement_audit_values(existing_measurement) if existing_measurement else None
 
-        measurement, created = BiologicalMeasurement.objects.update_or_create(
-            box=box,
-            measured_on=measured_on,
-            defaults={**data, "user": request.user},
-        )
-        _sync_polyp_drop_alert(box=box, measurement=measurement, user=request.user)
-        after_values = _measurement_audit_values(measurement)
-        metadata = {
-            "measurement_id": measurement.id,
-            "valeurs": after_values,
-        }
-        if before_values is not None:
-            metadata["modifications"] = _changed_values(before_values, after_values)
+        with transaction.atomic():
+            box = self._get_box(request, box_id, for_update=True)
+            self._validate_write(request, box)
+            existing_measurement = (
+                BiologicalMeasurement.objects.select_for_update()
+                .filter(box=box, measured_on=measured_on)
+                .first()
+            )
+            before_values = (
+                _measurement_audit_values(existing_measurement)
+                if existing_measurement
+                else None
+            )
 
-        _record_measurement_audit(
-            box=box,
-            measurement=measurement,
-            user=request.user,
-            action=AuditLog.Action.ENTRY if created else AuditLog.Action.UPDATE,
-            metadata=metadata,
-        )
+            measurement, created = BiologicalMeasurement.objects.update_or_create(
+                box=box,
+                measured_on=measured_on,
+                defaults={**data, "user": request.user},
+            )
+            _sync_polyp_drop_alert(box=box, measurement=measurement, user=request.user)
+            after_values = _measurement_audit_values(measurement)
+            metadata = {
+                "measurement_id": measurement.id,
+                "valeurs": after_values,
+            }
+            if before_values is not None:
+                metadata["modifications"] = _changed_values(before_values, after_values)
+
+            _record_measurement_audit(
+                box=box,
+                measurement=measurement,
+                user=request.user,
+                action=AuditLog.Action.ENTRY if created else AuditLog.Action.UPDATE,
+                metadata=metadata,
+            )
 
         response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
         return Response(BiologicalMeasurementSerializer(measurement).data, status=response_status)
 
-    def _get_box(self, request, box_id):
+    def _get_box(self, request, box_id, *, for_update=False):
+        if for_update:
+            queryset = Box.objects.select_for_update().select_related("organization").filter(
+                organization_id__in=get_active_organization_ids(request)
+            )
+        else:
+            queryset = box_queryset_for_user(
+                request.user,
+                organization_ids=get_active_organization_ids(request),
+            )
         return get_object_or_404(
-            box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
+            queryset,
             id=box_id,
         )
+
+    @staticmethod
+    def _validate_write(request, box):
+        if not user_can_write_lab_data(request.user, box.organization):
+            raise PermissionDenied("This user cannot create or update lab measurements.")
+        if box.status == Box.Status.INACTIVE:
+            raise DRFValidationError("An inactive box cannot receive a new measurement.")
 
 
 class BoxMeasurementDetailAPIView(generics.GenericAPIView):
@@ -1156,34 +1178,40 @@ class BoxMeasurementDetailAPIView(generics.GenericAPIView):
     serializer_class = BiologicalMeasurementSerializer
 
     def patch(self, request, box_id, pk):
-        box = get_object_or_404(
-            box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
-            id=box_id,
-        )
-        if not user_can_write_lab_data(request.user, box.organization):
-            raise PermissionDenied("This user cannot update lab measurements.")
+        with transaction.atomic():
+            box = get_object_or_404(
+                Box.objects.select_for_update().select_related("organization").filter(
+                    organization_id__in=get_active_organization_ids(request)
+                ),
+                id=box_id,
+            )
+            if not user_can_write_lab_data(request.user, box.organization):
+                raise PermissionDenied("This user cannot update lab measurements.")
 
-        measurement = get_object_or_404(box.biological_measurements, id=pk)
-        serializer = BiologicalMeasurementCreateSerializer(
-            measurement, data=request.data, partial=True
-        )
-        serializer.is_valid(raise_exception=True)
-        before_values = _measurement_audit_values(measurement)
-        measurement = serializer.save(user=request.user)
-        _sync_polyp_drop_alert(box=box, measurement=measurement, user=request.user)
-        after_values = _measurement_audit_values(measurement)
+            measurement = get_object_or_404(
+                BiologicalMeasurement.objects.select_for_update().filter(box=box),
+                id=pk,
+            )
+            serializer = BiologicalMeasurementCreateSerializer(
+                measurement, data=request.data, partial=True
+            )
+            serializer.is_valid(raise_exception=True)
+            before_values = _measurement_audit_values(measurement)
+            measurement = serializer.save(user=request.user)
+            _sync_polyp_drop_alert(box=box, measurement=measurement, user=request.user)
+            after_values = _measurement_audit_values(measurement)
 
-        _record_measurement_audit(
-            box=box,
-            measurement=measurement,
-            user=request.user,
-            action=AuditLog.Action.UPDATE,
-            metadata={
-                "measurement_id": measurement.id,
-                "valeurs": after_values,
-                "modifications": _changed_values(before_values, after_values),
-            },
-        )
+            _record_measurement_audit(
+                box=box,
+                measurement=measurement,
+                user=request.user,
+                action=AuditLog.Action.UPDATE,
+                metadata={
+                    "measurement_id": measurement.id,
+                    "valeurs": after_values,
+                    "modifications": _changed_values(before_values, after_values),
+                },
+            )
         return Response(BiologicalMeasurementSerializer(measurement).data)
 
 

@@ -34,6 +34,12 @@ class BiologicalMeasurement(models.Model):
 
     class Meta:
         ordering = ["-measured_on", "-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["box", "measured_on"],
+                name="unique_biological_measurement_per_box_date",
+            )
+        ]
         indexes = [
             models.Index(fields=["box", "measured_on"]),
         ]
