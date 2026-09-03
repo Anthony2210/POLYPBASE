@@ -130,8 +130,22 @@
   }
 
   .box-inventory-batch-actions button,
-  .box-inventory-page-selection {
+  .box-inventory-page-selection,
+  .box-inventory-select-filtered {
     width: 100%;
+  }
+
+  .box-inventory-selection-toolbar.is-sticky {
+    position: static;
+  }
+
+  .box-tracking-preview-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .box-tracking-preview-facts > div + div {
+    border-top: 1px solid var(--color-line);
+    border-left: 0;
   }
 
   .box-inventory-selection-summary {

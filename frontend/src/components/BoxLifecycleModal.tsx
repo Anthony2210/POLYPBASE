@@ -8,6 +8,7 @@ import type {
   BoxDeactivatePayload,
   BoxInitialLocationPayload,
   BoxItem,
+  BoxLocation,
   BoxQualifyPayload,
   ThermalZone,
 } from '../types';
@@ -24,12 +25,16 @@ export type BoxLifecycleSubmission =
 type LifecycleBox = Pick<
   BoxItem,
   'id' | 'global_code' | 'local_code' | 'status' | 'species' | 'thermal_zone'
->;
+> & {
+  last_location?: BoxLocation | null;
+  locations?: BoxLocation[];
+};
 
 export default function BoxLifecycleModal({
   action,
   box,
   error,
+  initialTargetStatus = 'active',
   isSaving,
   onClose,
   onSubmit,
@@ -39,13 +44,14 @@ export default function BoxLifecycleModal({
   action: BoxLifecycleAction;
   box: LifecycleBox;
   error: string | null;
+  initialTargetStatus?: 'active' | 'inactive';
   isSaving: boolean;
   onClose: () => void;
   onSubmit: (submission: BoxLifecycleSubmission) => Promise<void>;
   t: Translator;
   zones: ThermalZone[];
 }) {
-  const [targetStatus, setTargetStatus] = useState<'active' | 'inactive'>('active');
+  const [targetStatus, setTargetStatus] = useState<'active' | 'inactive'>(initialTargetStatus);
   const [zoneId, setZoneId] = useState<number | null>(null);
   const [reason, setReason] = useState('');
   const [reasonMissing, setReasonMissing] = useState(false);
@@ -56,6 +62,16 @@ export default function BoxLifecycleModal({
     )),
     [zones],
   );
+  const lastLocation = useMemo(() => (
+    box.last_location
+    ?? [...(box.locations ?? [])].sort((first, second) => (
+      second.starts_at.localeCompare(first.starts_at)
+    ))[0]
+    ?? null
+  ), [box.last_location, box.locations]);
+  const reusableLastZone = action === 'reactivate' && lastLocation
+    ? availableZones.find((zone) => zone.id === lastLocation.thermal_zone.id) ?? null
+    : null;
   const isQualification = action === 'qualify';
   const qualifyingAsActive = isQualification && targetStatus === 'active';
   const needsRequiredZone = action === 'reactivate' || action === 'assign';
@@ -188,23 +204,40 @@ export default function BoxLifecycleModal({
             ) : null}
 
             {showsZoneChoice ? (
-              <label className="box-lifecycle-field">
-                <span>
-                  {t(needsRequiredZone ? 'boxLifecycleNewLocationRequired' : 'boxLifecycleLocationOptional')}
-                </span>
-                <select
-                  value={zoneId ?? ''}
-                  required={needsRequiredZone}
-                  onChange={(event) => setZoneId(event.target.value ? Number(event.target.value) : null)}
-                >
-                  <option value="">
-                    {t(needsRequiredZone ? 'boxLifecycleChooseLocation' : 'boxLifecycleKeepWithoutLocation')}
-                  </option>
-                  {availableZones.map((zone) => (
-                    <option key={zone.id} value={zone.id}>{zone.name}</option>
-                  ))}
-                </select>
-              </label>
+              <>
+                {action === 'reactivate' && lastLocation ? (
+                  <div className="box-lifecycle-last-location">
+                    <span>
+                      <small>{t('boxLifecycleLastKnownLocation')}</small>
+                      <strong>{lastLocation.thermal_zone.name}</strong>
+                    </span>
+                    {reusableLastZone ? (
+                      <button type="button" onClick={() => setZoneId(reusableLastZone.id)}>
+                        {t('boxLifecycleReuseLastLocation')}
+                      </button>
+                    ) : (
+                      <small>{t('boxLifecycleLastLocationUnavailable')}</small>
+                    )}
+                  </div>
+                ) : null}
+                <label className="box-lifecycle-field">
+                  <span>
+                    {t(needsRequiredZone ? 'boxLifecycleNewLocationRequired' : 'boxLifecycleLocationOptional')}
+                  </span>
+                  <select
+                    value={zoneId ?? ''}
+                    required={needsRequiredZone}
+                    onChange={(event) => setZoneId(event.target.value ? Number(event.target.value) : null)}
+                  >
+                    <option value="">
+                      {t(needsRequiredZone ? 'boxLifecycleChooseLocation' : 'boxLifecycleKeepWithoutLocation')}
+                    </option>
+                    {availableZones.map((zone) => (
+                      <option key={zone.id} value={zone.id}>{zone.name}</option>
+                    ))}
+                  </select>
+                </label>
+              </>
             ) : null}
 
             {activeWithoutLocation ? (

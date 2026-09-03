@@ -1,16 +1,30 @@
-from collections import defaultdict
-from decimal import Decimal
-from datetime import date, timedelta
 import re
+from calendar import monthrange
+from collections import defaultdict
+from datetime import date, timedelta
+from decimal import Decimal
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import DatabaseError, connection, transaction
-from django.db.models import Case, Count, IntegerField, OuterRef, Prefetch, Q, Subquery, Sum, When
-from django.db.models.functions import Coalesce
+from django.db.models import (
+    Case,
+    Count,
+    DateField,
+    F,
+    IntegerField,
+    OuterRef,
+    Prefetch,
+    Q,
+    Subquery,
+    Sum,
+    When,
+)
+from django.db.models.functions import Coalesce, ExtractYear
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, status
-from rest_framework.exceptions import PermissionDenied, ValidationError as DRFValidationError
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -24,12 +38,25 @@ from apps.accounts.permissions import (
     user_can_write_lab_data,
 )
 from apps.audit.models import Alert, AuditLog
-from apps.measurements.models import BiologicalMeasurement, DailyTemperature, SalinityMeasurement
+from apps.measurements.models import (
+    BiologicalMeasurement,
+    DailyTemperature,
+    SalinityMeasurement,
+)
 from apps.organizations.serializers import OrganizationSummarySerializer
 from apps.taxonomy.models import Species, Strain
 
-from .models import Box, BoxLineage, BoxLocation, BoxMovement, BoxTransferImport, ThermalZone
+from .models import (
+    Box,
+    BoxLineage,
+    BoxLocation,
+    BoxMovement,
+    BoxTransferImport,
+    ThermalZone,
+)
 from .serializers import (
+    BOX_INVENTORY_BATCH_MAX_ITEMS,
+    HISTORICAL_BOX_IMPORT_DATE,
     AlertSummarySerializer,
     AuditLogAccessSerializer,
     BiologicalMeasurementCreateSerializer,
@@ -62,7 +89,6 @@ from .services import (
     qualify_pending_box,
     reactivate_box,
 )
-
 
 TEMPERATURE_ALERT_THRESHOLD_C = Decimal("1.0")
 
@@ -314,7 +340,9 @@ def box_queryset_for_user(user, organization_ids=None):
         ),
         Prefetch(
             "locations",
-            queryset=BoxLocation.objects.select_related("thermal_zone").order_by("-starts_at"),
+            queryset=BoxLocation.objects.filter(
+                thermal_zone__organization_id__in=organization_ids,
+            ).select_related("thermal_zone").order_by("-starts_at"),
         ),
         Prefetch(
             "movements",
@@ -398,6 +426,13 @@ def box_inventory_queryset_for_user(user, organization_ids=None):
         .values("measured_on")[:1]
     )
 
+    latest_measurement_on = Subquery(
+        BiologicalMeasurement.objects.filter(box_id=OuterRef("pk"))
+        .order_by("-measured_on", "-created_at")
+        .values("measured_on")[:1],
+        output_field=DateField(),
+    )
+
     latest_measurement_id = Subquery(
         BiologicalMeasurement.objects.filter(box_id=OuterRef("box_id"))
         .order_by("-measured_on", "-created_at")
@@ -409,15 +444,53 @@ def box_inventory_queryset_for_user(user, organization_ids=None):
         .order_by("-measured_on", "-created_at")
     )
 
+    latest_location_id = Subquery(
+        BoxLocation.objects.filter(
+            box_id=OuterRef("box_id"),
+            thermal_zone__organization_id__in=organization_ids,
+        )
+        .order_by("-starts_at", "-id")
+        .values("id")[:1]
+    )
+    latest_locations = (
+        BoxLocation.objects.filter(
+            id__in=latest_location_id,
+            thermal_zone__organization_id__in=organization_ids,
+        )
+        .select_related("thermal_zone")
+        .order_by("-starts_at", "-id")
+    )
+
     return (
         Box.objects.select_related(
             "strain",
             "strain__species",
             "thermal_zone",
         )
-        .annotate(first_measurement_on_annotation=first_measurement_on)
+        .annotate(
+            first_measurement_on_annotation=first_measurement_on,
+            inventory_created_on_annotation=Case(
+                When(
+                    created_on=HISTORICAL_BOX_IMPORT_DATE,
+                    then=Coalesce(first_measurement_on, F("created_on")),
+                ),
+                default=F("created_on"),
+                output_field=DateField(),
+            ),
+            latest_measurement_on_annotation=latest_measurement_on,
+        )
+        .annotate(
+            inventory_created_year_annotation=ExtractYear(
+                "inventory_created_on_annotation",
+            ),
+        )
         .prefetch_related(
-            Prefetch("biological_measurements", queryset=latest_measurements)
+            Prefetch("biological_measurements", queryset=latest_measurements),
+            Prefetch(
+                "locations",
+                queryset=latest_locations,
+                to_attr="inventory_last_locations",
+            ),
         )
         .filter(organization_id__in=organization_ids)
     )
@@ -756,6 +829,115 @@ class BoxInventoryPagination(LimitOffsetPagination):
     max_limit = 96
 
 
+def _subtract_calendar_months(value, months):
+    month_index = value.year * 12 + value.month - 1 - months
+    year, zero_based_month = divmod(month_index, 12)
+    month = zero_based_month + 1
+    day = min(value.day, monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+def _box_inventory_filter_state(request):
+    reference_date = timezone.localdate()
+    raw_reference_date = request.query_params.get("reference_date", "").strip()
+    if raw_reference_date:
+        try:
+            reference_date = date.fromisoformat(raw_reference_date)
+        except ValueError as error:
+            raise DRFValidationError({"reference_date": "Invalid reference date."}) from error
+
+    creation_year = None
+    raw_creation_year = request.query_params.get("creation_year", "").strip()
+    if raw_creation_year:
+        try:
+            creation_year = int(raw_creation_year)
+        except ValueError as error:
+            raise DRFValidationError({"creation_year": "Invalid creation year."}) from error
+        if creation_year < 1 or creation_year > 9999:
+            raise DRFValidationError({"creation_year": "Invalid creation year."})
+
+    measurement_filter = request.query_params.get("measurement_filter", "").strip()
+    if measurement_filter not in {"", "older_than", "none"}:
+        raise DRFValidationError({"measurement_filter": "Unknown measurement filter."})
+
+    age_months = None
+    if measurement_filter == "older_than":
+        raw_age_months = request.query_params.get("age_months", "").strip()
+        try:
+            age_months = int(raw_age_months)
+        except ValueError as error:
+            raise DRFValidationError({"age_months": "Enter a valid number of months."}) from error
+        if age_months < 1 or age_months > 1200:
+            raise DRFValidationError({"age_months": "Enter between 1 and 1200 months."})
+
+    return {
+        "age_months": age_months,
+        "creation_year": creation_year,
+        "measurement_filter": measurement_filter,
+        "reference_date": reference_date,
+    }
+
+
+def _apply_box_inventory_filters(queryset, request, organization_ids, filter_state):
+    status_filter = request.query_params.get("status", "").strip()
+    if status_filter:
+        if status_filter not in Box.Status.values:
+            raise DRFValidationError({"status": "Unknown box status."})
+        queryset = queryset.filter(status=status_filter)
+
+    location_filter = request.query_params.get("location", "").strip()
+    if location_filter == "none":
+        queryset = queryset.filter(thermal_zone__isnull=True)
+    elif location_filter:
+        try:
+            thermal_zone_id = int(location_filter)
+        except (TypeError, ValueError) as error:
+            raise DRFValidationError({"location": "Invalid thermal zone."}) from error
+        if not ThermalZone.objects.filter(
+            id=thermal_zone_id,
+            organization_id__in=organization_ids,
+            is_active=True,
+        ).exists():
+            raise DRFValidationError({"location": "Unknown thermal zone."})
+        queryset = queryset.filter(thermal_zone_id=thermal_zone_id)
+
+    search = request.query_params.get("q", "").strip()
+    if search:
+        queryset = queryset.filter(
+            Q(global_code__icontains=search)
+            | Q(local_code__icontains=search)
+            | Q(strain__species__scientific_name__icontains=search)
+        )
+
+    if filter_state["creation_year"] is not None:
+        queryset = queryset.filter(
+            inventory_created_year_annotation=filter_state["creation_year"],
+        )
+
+    if filter_state["measurement_filter"] == "none":
+        queryset = queryset.filter(latest_measurement_on_annotation__isnull=True)
+    elif filter_state["measurement_filter"] == "older_than":
+        cutoff_date = _subtract_calendar_months(
+            filter_state["reference_date"],
+            filter_state["age_months"],
+        )
+        queryset = queryset.filter(latest_measurement_on_annotation__lt=cutoff_date)
+
+    return queryset
+
+
+def _order_box_inventory(queryset):
+    return queryset.annotate(
+        inventory_status_order=Case(
+            When(status=Box.Status.PENDING_REVIEW, then=0),
+            When(status=Box.Status.ACTIVE, then=1),
+            When(status=Box.Status.INACTIVE, then=2),
+            default=3,
+            output_field=IntegerField(),
+        )
+    ).order_by("inventory_status_order", "global_code")
+
+
 class AdminBoxInventoryListAPIView(generics.ListAPIView):
     """Paginated inventory for administrators of the active organization."""
 
@@ -783,51 +965,102 @@ class AdminBoxInventoryListAPIView(generics.ListAPIView):
             self.request.user,
             organization_ids=organization_ids,
         )
-
-        status_filter = self.request.query_params.get("status", "").strip()
-        if status_filter:
-            if status_filter not in Box.Status.values:
-                raise DRFValidationError({"status": "Unknown box status."})
-            queryset = queryset.filter(status=status_filter)
-
-        location_filter = self.request.query_params.get("location", "").strip()
-        if location_filter == "none":
-            queryset = queryset.filter(thermal_zone__isnull=True)
-        elif location_filter:
-            try:
-                thermal_zone_id = int(location_filter)
-            except (TypeError, ValueError) as error:
-                raise DRFValidationError({"location": "Invalid thermal zone."}) from error
-            if not ThermalZone.objects.filter(
-                id=thermal_zone_id,
-                organization_id__in=organization_ids,
-                is_active=True,
-            ).exists():
-                raise DRFValidationError({"location": "Unknown thermal zone."})
-            queryset = queryset.filter(thermal_zone_id=thermal_zone_id)
-
-        search = self.request.query_params.get("q", "").strip()
-        if search:
-            queryset = queryset.filter(
-                Q(global_code__icontains=search)
-                | Q(local_code__icontains=search)
-                | Q(strain__species__scientific_name__icontains=search)
-            )
-
-        return queryset.annotate(
-            inventory_status_order=Case(
-                When(status=Box.Status.PENDING_REVIEW, then=0),
-                When(status=Box.Status.ACTIVE, then=1),
-                When(status=Box.Status.INACTIVE, then=2),
-                default=3,
-                output_field=IntegerField(),
-            )
-        ).order_by("inventory_status_order", "global_code")
+        self.inventory_filter_state = _box_inventory_filter_state(self.request)
+        self.available_creation_years = list(
+            queryset.order_by()
+            .values_list("inventory_created_year_annotation", flat=True)
+            .distinct()
+            .order_by("inventory_created_year_annotation")
+        )
+        queryset = _apply_box_inventory_filters(
+            queryset,
+            self.request,
+            organization_ids,
+            self.inventory_filter_state,
+        )
+        self.selection_eligible_count = queryset.filter(
+            status=Box.Status.PENDING_REVIEW,
+        ).count()
+        return _order_box_inventory(queryset)
 
     def get_paginated_response(self, data):
         response = super().get_paginated_response(data)
         response.data["summary"] = self.inventory_summary
+        response.data["filter_options"] = {
+            "creation_years": self.available_creation_years,
+            "reference_date": self.inventory_filter_state["reference_date"].isoformat(),
+        }
+        response.data["selection"] = {
+            "eligible_count": self.selection_eligible_count,
+            "max_count": BOX_INVENTORY_BATCH_MAX_ITEMS,
+        }
         return response
+
+
+class AdminBoxInventorySelectionAPIView(APIView):
+    """Return only the filtered pending boxes needed for an explicit selection."""
+
+    def get(self, request):
+        organization_ids = get_active_admin_organization_ids(request)
+        if not organization_ids:
+            raise PermissionDenied("This user cannot select this box inventory.")
+
+        filter_state = _box_inventory_filter_state(request)
+        queryset = _apply_box_inventory_filters(
+            box_inventory_queryset_for_user(request.user, organization_ids=organization_ids),
+            request,
+            organization_ids,
+            filter_state,
+        )
+        counts = queryset.order_by().aggregate(
+            matched_count=Count("pk"),
+            eligible_count=Count(
+                "pk",
+                filter=Q(status=Box.Status.PENDING_REVIEW),
+            ),
+        )
+        eligible_count = counts["eligible_count"]
+        if eligible_count > BOX_INVENTORY_BATCH_MAX_ITEMS:
+            return Response(
+                {
+                    "detail": (
+                        f"The filtered selection contains {eligible_count} eligible boxes. "
+                        f"Narrow the filters to {BOX_INVENTORY_BATCH_MAX_ITEMS} boxes or fewer."
+                    ),
+                    "code": "selection_too_large",
+                    "eligible_count": eligible_count,
+                    "max_count": BOX_INVENTORY_BATCH_MAX_ITEMS,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        selected_boxes = list(
+            _order_box_inventory(queryset.filter(status=Box.Status.PENDING_REVIEW)).values(
+                "id",
+                "global_code",
+                "status",
+                "thermal_zone_id",
+                "strain__species__scientific_name",
+            )
+        )
+        return Response(
+            {
+                "matched_count": counts["matched_count"],
+                "eligible_count": eligible_count,
+                "ineligible_count": counts["matched_count"] - eligible_count,
+                "max_count": BOX_INVENTORY_BATCH_MAX_ITEMS,
+                "results": [
+                    {
+                        "id": item["id"],
+                        "global_code": item["global_code"],
+                        "status": item["status"],
+                        "has_location": item["thermal_zone_id"] is not None,
+                        "species_name": item["strain__species__scientific_name"],
+                    }
+                    for item in selected_boxes
+                ],
+            }
+        )
 
 
 class AdminBoxInventoryBatchQualifyAPIView(APIView):

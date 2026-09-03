@@ -39,6 +39,52 @@
 .box-inventory-row-menu button.is-danger { color: var(--color-danger-hover); }
 .box-inventory-row-menu button.is-danger:is(:hover, :focus-visible) { background: var(--color-danger-soft); }
 
+.box-inventory-suggestion-popover {
+  width: 290px;
+  padding: var(--space-3);
+}
+
+.box-inventory-suggestion-popover > strong {
+  display: block;
+  color: var(--color-ink);
+  font-size: .78rem;
+}
+
+.box-inventory-suggestion-popover dl {
+  display: grid;
+  margin: var(--space-2) 0 0;
+  gap: 5px;
+}
+
+.box-inventory-suggestion-popover dl > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.box-inventory-suggestion-popover dt {
+  color: var(--color-muted);
+  font-size: .68rem;
+}
+
+.box-inventory-suggestion-popover dd {
+  margin: 0;
+  color: var(--color-ink-soft);
+  font-size: .7rem;
+  font-weight: 720;
+  text-align: right;
+}
+
+.box-inventory-suggestion-popover p {
+  margin: var(--space-2) 0 0;
+  padding-top: var(--space-2);
+  color: var(--color-ink-soft);
+  font-size: .68rem;
+  font-weight: 700;
+  border-top: 1px solid var(--color-line);
+}
+
 .box-tracking-preview { width: 660px; padding: var(--space-3); }
 
 .box-tracking-preview-heading {
@@ -69,7 +115,24 @@
 }
 
 .box-tracking-preview-heading button:hover { background: var(--color-surface-info); }
-.box-tracking-preview-location { margin: var(--space-2) 0 0; color: var(--color-ink-soft); font-size: .72rem; }
+.box-tracking-preview-facts {
+  display: grid;
+  margin: var(--space-2) 0 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 1px solid var(--color-line);
+}
+
+.box-tracking-preview-facts > div {
+  display: grid;
+  min-width: 0;
+  padding: var(--space-2);
+  gap: 2px;
+}
+
+.box-tracking-preview-facts > div + div { border-left: 1px solid var(--color-line); }
+.box-tracking-preview-facts dt { color: var(--color-muted); font-size: .62rem; font-weight: 700; }
+.box-tracking-preview-facts dd { margin: 0; color: var(--color-ink-soft); font-size: .7rem; font-weight: 700; }
+
 .box-tracking-preview .measurement-chart { gap: var(--space-2); }
 .box-tracking-preview .chart-window-header { padding-block: var(--space-2); }
 .box-tracking-preview .chart-window-viewport { min-height: 0; }

@@ -7,7 +7,10 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from apps.accounts.models import UserPreference
-from apps.accounts.permissions import get_active_organization_from_request, user_can_write_lab_data
+from apps.accounts.permissions import (
+    get_active_organization_from_request,
+    user_can_write_lab_data,
+)
 from apps.audit.models import Alert, AuditLog
 from apps.cultures import qr
 from apps.cultures.models import (
@@ -24,10 +27,10 @@ from apps.organizations.models import Organization
 from apps.organizations.serializers import OrganizationSummarySerializer
 from apps.taxonomy.models import Species, Strain
 
-
 # The historical import stamped existing boxes with its execution date rather
 # than their original creation date. The inventory uses their first measurement.
 HISTORICAL_BOX_IMPORT_DATE = date(2026, 7, 3)
+BOX_INVENTORY_BATCH_MAX_ITEMS = 500
 
 
 #: Salinity can reach the serializer as a Decimal (model field, PostgreSQL) or
@@ -212,6 +215,7 @@ class BoxInventorySerializer(serializers.ModelSerializer):
     thermal_zone = ThermalZoneSummarySerializer(read_only=True)
     inventory_created_on = serializers.SerializerMethodField()
     latest_measurement = serializers.SerializerMethodField()
+    last_location = serializers.SerializerMethodField()
 
     class Meta:
         model = Box
@@ -225,12 +229,17 @@ class BoxInventorySerializer(serializers.ModelSerializer):
             "created_on",
             "inventory_created_on",
             "latest_measurement",
+            "last_location",
         ]
 
     def get_species(self, obj):
         return SpeciesSummarySerializer(obj.strain.species).data
 
     def get_inventory_created_on(self, obj):
+        annotated_date = getattr(obj, "inventory_created_on_annotation", None)
+        if annotated_date is not None:
+            return annotated_date.isoformat()
+
         if obj.created_on != HISTORICAL_BOX_IMPORT_DATE:
             return obj.created_on.isoformat()
 
@@ -253,6 +262,17 @@ class BoxInventorySerializer(serializers.ModelSerializer):
                 "-created_at",
             ).first()
         return BiologicalMeasurementSerializer(measurement).data if measurement else None
+
+    def get_last_location(self, obj):
+        locations = getattr(obj, "inventory_last_locations", None)
+        if locations is not None:
+            location = next(iter(locations), None)
+        else:
+            location = obj.locations.select_related("thermal_zone").order_by(
+                "-starts_at",
+                "-id",
+            ).first()
+        return BoxLocationSerializer(location).data if location else None
 
 
 class BoxDetailSerializer(BoxListSerializer):
@@ -541,7 +561,7 @@ class BoxBatchQualifySerializer(serializers.Serializer):
     box_ids = serializers.ListField(
         child=serializers.IntegerField(min_value=1),
         allow_empty=False,
-        max_length=500,
+        max_length=BOX_INVENTORY_BATCH_MAX_ITEMS,
     )
     target_status = serializers.ChoiceField(
         choices=[Box.Status.ACTIVE, Box.Status.INACTIVE],

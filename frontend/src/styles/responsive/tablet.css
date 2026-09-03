@@ -139,6 +139,14 @@
     min-height: 48px;
   }
 
+  .box-inventory-selection-toolbar.is-sticky {
+    top: 72px;
+  }
+
+  .box-inventory-select-filtered {
+    min-height: 48px;
+  }
+
   .box-inventory-actions button,
   .box-inventory-cell a {
     min-height: 44px;

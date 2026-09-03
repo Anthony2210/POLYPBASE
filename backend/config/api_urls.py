@@ -11,9 +11,10 @@ from apps.accounts.api_views import (
     UserProfileAPIView,
 )
 from apps.cultures.api_views import (
-    AdminBoxInventoryBatchQualifyAPIView,
     AdminBoxInitialLocationAPIView,
+    AdminBoxInventoryBatchQualifyAPIView,
     AdminBoxInventoryListAPIView,
+    AdminBoxInventorySelectionAPIView,
     AlertResolveAPIView,
     BoxAccessAPIView,
     BoxActivateAPIView,
@@ -36,20 +37,23 @@ from apps.cultures.api_views import (
     ThermalZoneListCreateAPIView,
     ThermalZoneManualTemperatureAPIView,
 )
-from apps.organizations.api_views import OrganizationCreateAPIView, OrganizationDetailAPIView
-from apps.taxonomy.api_views import (
-    SpeciesReferenceDetailAPIView,
-    SpeciesReferenceListCreateAPIView,
-    StrainReferenceDetailAPIView,
-    StrainReferenceListCreateAPIView,
-    TaxonomyReferenceListAPIView,
-)
 from apps.exports.views import (
     BoxMeasurementTrendAPIView,
     MeasurementExportEligibleBoxesAPIView,
     MeasurementExportOptionsAPIView,
     WeeklyMeasurementCSVExportAPIView,
     WeeklyMeasurementPreviewAPIView,
+)
+from apps.organizations.api_views import (
+    OrganizationCreateAPIView,
+    OrganizationDetailAPIView,
+)
+from apps.taxonomy.api_views import (
+    SpeciesReferenceDetailAPIView,
+    SpeciesReferenceListCreateAPIView,
+    StrainReferenceDetailAPIView,
+    StrainReferenceListCreateAPIView,
+    TaxonomyReferenceListAPIView,
 )
 
 urlpatterns = [
@@ -72,6 +76,11 @@ urlpatterns = [
         "admin/box-inventory/",
         AdminBoxInventoryListAPIView.as_view(),
         name="api_admin_box_inventory",
+    ),
+    path(
+        "admin/box-inventory/selection/",
+        AdminBoxInventorySelectionAPIView.as_view(),
+        name="api_admin_box_inventory_selection",
     ),
     path(
         "admin/box-inventory/<int:box_id>/assign-location/",

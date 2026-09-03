@@ -3,7 +3,7 @@ import { useEffect, useMemo } from 'react';
 import { AlertTriangle, CheckCircle2, X, XCircle } from 'lucide-react';
 
 import type { Translator } from '../i18n';
-import type { BoxInventoryBatchResult, BoxInventoryItem } from '../types';
+import type { BoxInventoryBatchResult, BoxInventorySelectionItem } from '../types';
 import ModalPortal from './ModalPortal';
 
 export type BoxInventoryBatchAction = 'active' | 'inactive';
@@ -24,14 +24,14 @@ export default function BoxInventoryBatchModal({
   onClose: () => void;
   onConfirm: () => Promise<void>;
   result: BoxInventoryBatchResult | null;
-  selectedBoxes: BoxInventoryItem[];
+  selectedBoxes: BoxInventorySelectionItem[];
   t: Translator;
 }) {
   const selectedById = useMemo(
     () => new Map(selectedBoxes.map((box) => [box.id, box])),
     [selectedBoxes],
   );
-  const withLocationCount = selectedBoxes.filter((box) => box.thermal_zone != null).length;
+  const withLocationCount = selectedBoxes.filter((box) => box.has_location).length;
   const withoutLocationCount = selectedBoxes.length - withLocationCount;
 
   useEffect(() => {
@@ -163,7 +163,7 @@ export default function BoxInventoryBatchModal({
                   {selectedBoxes.map((box) => (
                     <li key={box.id}>
                       <strong>{box.global_code}</strong>
-                      <span>{box.species.scientific_name}</span>
+                      <span>{box.species_name}</span>
                     </li>
                   ))}
                 </ul>

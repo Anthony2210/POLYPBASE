@@ -84,10 +84,13 @@ export default function BoxTrackingChart({
     if (targetOffset === windowOffset) return false;
 
     const targetWindow = buildChartWindow(chartSourceDates, targetOffset, 6);
-    return measurements.some((measurement) => (
-      measurement.measured_on >= targetWindow.startDate
-      && measurement.measured_on <= targetWindow.endDate
-    ));
+    return hasTimelineDataInWindow(
+      measurements,
+      locations,
+      events,
+      targetWindow.startDate,
+      targetWindow.endDate,
+    );
   }
 
   function moveWindow(months: number) {
@@ -198,6 +201,27 @@ export default function BoxTrackingChart({
       </div>
     </div>
   );
+}
+
+function hasTimelineDataInWindow(
+  measurements: BiologicalMeasurement[],
+  locations: BoxLocation[],
+  events: LifecycleEvent[],
+  startDate: string,
+  endDate: string,
+) {
+  if (measurements.some((measurement) => (
+    measurement.measured_on >= startDate && measurement.measured_on <= endDate
+  ))) return true;
+  if (events.some((event) => event.date >= startDate && event.date <= endDate)) return true;
+  return locations.some((location) => (
+    location.starts_at.slice(0, 10) <= endDate
+    && (
+      location.end_date_unknown
+        ? location.starts_at.slice(0, 10) >= startDate
+        : !location.ends_at || location.ends_at.slice(0, 10) >= startDate
+    )
+  ));
 }
 
 function prepareSharedChartData(
