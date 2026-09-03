@@ -295,6 +295,59 @@ class BoxLifecycleTests(TestCase):
             ).exists()
         )
 
+    def test_reactivation_in_same_zone_creates_a_distinct_location_period(self):
+        box = self.create_box(status=Box.Status.ACTIVE)
+        previous_location = BoxLocation.objects.create(
+            box=box,
+            thermal_zone=self.zone,
+            starts_at=timezone.now() - timedelta(days=30),
+        )
+        self.client.login(username=self.admin.username, password="secret")
+        deactivated = self.client.post(
+            reverse("api_box_archive", args=[box.id]),
+            data={"reason": "Historical culture stopped."},
+        )
+        self.assertEqual(deactivated.status_code, 200)
+        previous_location.refresh_from_db()
+        previous_end = previous_location.ends_at
+
+        reactivated = self.client.post(
+            reverse("api_box_activate", args=[box.id]),
+            data={"thermal_zone_id": self.zone.id},
+        )
+
+        self.assertEqual(reactivated.status_code, 200)
+        previous_location.refresh_from_db()
+        periods = list(BoxLocation.objects.filter(box=box).order_by("starts_at", "id"))
+        self.assertEqual(len(periods), 2)
+        self.assertEqual(periods[0].id, previous_location.id)
+        self.assertEqual(periods[0].ends_at, previous_end)
+        self.assertEqual(periods[1].thermal_zone, self.zone)
+        self.assertIsNone(periods[1].ends_at)
+        self.assertFalse(periods[1].end_date_unknown)
+
+    def test_reactivation_rejects_an_inactive_last_location(self):
+        box = self.create_box(status=Box.Status.INACTIVE, zone=False)
+        self.zone.is_active = False
+        self.zone.save(update_fields=["is_active"])
+        BoxLocation.objects.create(
+            box=box,
+            thermal_zone=self.zone,
+            starts_at=timezone.now() - timedelta(days=30),
+            end_date_unknown=True,
+        )
+        self.client.login(username=self.admin.username, password="secret")
+
+        response = self.client.post(
+            reverse("api_box_activate", args=[box.id]),
+            data={"thermal_zone_id": self.zone.id},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        box.refresh_from_db()
+        self.assertEqual(box.status, Box.Status.INACTIVE)
+        self.assertIsNone(box.thermal_zone)
+
     def test_inactive_box_rejects_new_measurement_but_allows_zero_correction(self):
         box = self.create_box(status=Box.Status.INACTIVE, zone=False)
         measurement = BiologicalMeasurement.objects.create(

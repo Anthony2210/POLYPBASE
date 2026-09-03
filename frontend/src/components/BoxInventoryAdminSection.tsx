@@ -6,6 +6,7 @@ import {
   ChevronRight,
   CircleOff,
   FilterX,
+  ListChecks,
   Search,
   X,
 } from 'lucide-react';
@@ -22,18 +23,30 @@ import type {
   BoxInventoryBatchResult,
   BoxInventoryItem,
   BoxInventoryResponse,
+  BoxInventorySelectionItem,
+  BoxInventorySelectionResponse,
   BoxQualifyPayload,
   ThermalZone,
 } from '../types';
 import { formatDisplayDate } from '../utils/dateFormat';
 import { getErrorMessage } from '../utils/errors';
+import {
+  buildBoxInventoryQuery,
+  getActiveInventoryMeasurementFilter,
+  getDeactivationSuggestionAge,
+  getLocalDateInputValue,
+  isZeroZeroMeasurement,
+  type InventoryMeasurementFilter,
+} from '../utils/boxInventory';
 import BoxLifecycleModal, {
   type BoxLifecycleAction,
   type BoxLifecycleSubmission,
 } from './BoxLifecycleModal';
 import BoxInventoryBatchModal, { type BoxInventoryBatchAction } from './BoxInventoryBatchModal';
 import BoxInventoryRowMenu from './BoxInventoryRowMenu';
+import BoxInventorySuggestion from './BoxInventorySuggestion';
 import BoxTrackingPreview from './BoxTrackingPreview';
+import PolypbaseIcon from './PolypbaseIcon';
 import SkeletonRows from './SkeletonRows';
 
 const INVENTORY_PAGE_SIZE = 24;
@@ -43,11 +56,12 @@ const SHOW_INVENTORY_SUMMARY = false;
 type InventoryLifecycleState = {
   action: BoxLifecycleAction;
   box: BoxInventoryItem;
+  initialTargetStatus?: 'active' | 'inactive';
 };
 
 type InventoryBatchState = {
   action: BoxInventoryBatchAction;
-  boxes: BoxInventoryItem[];
+  boxes: BoxInventorySelectionItem[];
 };
 
 export default function BoxInventoryAdminSection({
@@ -76,6 +90,12 @@ export default function BoxInventoryAdminSection({
   const [response, setResponse] = useState<BoxInventoryResponse | null>(null);
   const [statusFilter, setStatusFilter] = useState('');
   const [locationFilter, setLocationFilter] = useState('');
+  const [creationYearFilter, setCreationYearFilter] = useState('');
+  const [measurementFilter, setMeasurementFilter] = useState<InventoryMeasurementFilter>('');
+  const [ageMonths, setAgeMonths] = useState('6');
+  const [initialReferenceDate] = useState(getLocalDateInputValue);
+  const [referenceDate, setReferenceDate] = useState(initialReferenceDate);
+  const [isQualificationAidOpen, setIsQualificationAidOpen] = useState(false);
   const [search, setSearch] = useState('');
   const deferredSearch = useDeferredValue(search.trim());
   const [offset, setOffset] = useState(0);
@@ -86,12 +106,17 @@ export default function BoxInventoryAdminSection({
   const [lifecycleState, setLifecycleState] = useState<InventoryLifecycleState | null>(null);
   const [lifecycleError, setLifecycleError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [selectedBoxes, setSelectedBoxes] = useState<Map<number, BoxInventoryItem>>(() => new Map());
+  const [selectedBoxes, setSelectedBoxes] = useState<Map<number, BoxInventorySelectionItem>>(() => new Map());
+  const [isSelectingAll, setIsSelectingAll] = useState(false);
+  const [selectionError, setSelectionError] = useState<string | null>(null);
   const [batchState, setBatchState] = useState<InventoryBatchState | null>(null);
   const [batchResult, setBatchResult] = useState<BoxInventoryBatchResult | null>(null);
   const [batchError, setBatchError] = useState<string | null>(null);
   const [isBatchSaving, setIsBatchSaving] = useState(false);
   const pageSelectionRef = useRef<HTMLInputElement>(null);
+  const isQualificationWorkflow = statusFilter === 'pending_review';
+  const activeMeasurementFilter = getActiveInventoryMeasurementFilter(statusFilter, measurementFilter);
+  const isCandidateView = activeMeasurementFilter === 'older_than';
   const activeZones = useMemo(
     () => zones.filter((zone) => zone.is_active).sort((first, second) => (
       first.name.localeCompare(second.name, 'fr', { numeric: true, sensitivity: 'base' })
@@ -113,17 +138,19 @@ export default function BoxInventoryAdminSection({
 
   useEffect(() => {
     let isCurrent = true;
-    const params = new URLSearchParams({
-      limit: String(INVENTORY_PAGE_SIZE),
-      offset: String(offset),
-    });
-    if (statusFilter) params.set('status', statusFilter);
-    if (locationFilter) params.set('location', locationFilter);
-    if (deferredSearch) params.set('q', deferredSearch);
+    const query = buildBoxInventoryQuery({
+      ageMonths,
+      creationYear: creationYearFilter,
+      location: locationFilter,
+      measurementFilter: activeMeasurementFilter,
+      referenceDate,
+      search: deferredSearch,
+      status: statusFilter,
+    }, { limit: INVENTORY_PAGE_SIZE, offset });
 
     setIsLoading(true);
     setLoadError(null);
-    void apiGet<BoxInventoryResponse>(`/api/admin/box-inventory/?${params.toString()}`)
+    void apiGet<BoxInventoryResponse>(`/api/admin/box-inventory/?${query}`)
       .then(async (nextResponse) => {
         if (!isCurrent) return;
         if (offset > 0 && nextResponse.results.length === 0 && nextResponse.count > 0) {
@@ -145,39 +172,69 @@ export default function BoxInventoryAdminSection({
     return () => {
       isCurrent = false;
     };
-  }, [deferredSearch, locationFilter, offset, refreshVersion, statusFilter]);
+  }, [activeMeasurementFilter, ageMonths, creationYearFilter, deferredSearch, locationFilter, offset, referenceDate, refreshVersion, statusFilter]);
+
+  function clearSelectionAfterFilterChange() {
+    if (selectedBoxes.size > 0) {
+      setSelectedBoxes(new Map());
+      setMessage(t('boxInventorySelectionClearedByFilters'));
+    } else {
+      setMessage(null);
+    }
+    setSelectionError(null);
+  }
 
   function updateStatusFilter(value: string) {
+    clearSelectionAfterFilterChange();
     setStatusFilter(value);
     setOffset(0);
-    setMessage(null);
   }
 
   function updateLocationFilter(value: string) {
+    clearSelectionAfterFilterChange();
     setLocationFilter(value);
     setOffset(0);
-    setMessage(null);
+  }
+
+  function updateCreationYearFilter(value: string) {
+    clearSelectionAfterFilterChange();
+    setCreationYearFilter(value);
+    setOffset(0);
+  }
+
+  function updateMeasurementFilter(value: InventoryMeasurementFilter) {
+    clearSelectionAfterFilterChange();
+    setMeasurementFilter(value);
+    setOffset(0);
   }
 
   function applySummaryFilter(status: string, location: string) {
+    clearSelectionAfterFilterChange();
     setStatusFilter(status);
     setLocationFilter(location);
     setSearch('');
+    setCreationYearFilter('');
+    setMeasurementFilter('');
+    setAgeMonths('6');
+    setReferenceDate(initialReferenceDate);
     setOffset(0);
-    setMessage(null);
   }
 
-  function openLifecycleAction(action: BoxLifecycleAction, box: BoxInventoryItem) {
+  function openLifecycleAction(
+    action: BoxLifecycleAction,
+    box: BoxInventoryItem,
+    initialTargetStatus?: 'active' | 'inactive',
+  ) {
     setLifecycleError(null);
     setMessage(null);
-    setLifecycleState({ action, box });
+    setLifecycleState({ action, box, initialTargetStatus });
   }
 
   function toggleBoxSelection(box: BoxInventoryItem, checked: boolean) {
     if (box.status !== 'pending_review') return;
     setSelectedBoxes((current) => {
       const next = new Map(current);
-      if (checked) next.set(box.id, box);
+      if (checked) next.set(box.id, toSelectionItem(box));
       else next.delete(box.id);
       return next;
     });
@@ -188,12 +245,41 @@ export default function BoxInventoryAdminSection({
     setSelectedBoxes((current) => {
       const next = new Map(current);
       pendingBoxesOnPage.forEach((box) => {
-        if (checked) next.set(box.id, box);
+        if (checked) next.set(box.id, toSelectionItem(box));
         else next.delete(box.id);
       });
       return next;
     });
     setMessage(null);
+  }
+
+  async function selectAllFilteredResults() {
+    if (isSelectingAll) return;
+    setIsSelectingAll(true);
+    setSelectionError(null);
+    setMessage(null);
+    const query = buildBoxInventoryQuery({
+      ageMonths,
+      creationYear: creationYearFilter,
+      location: locationFilter,
+      measurementFilter: activeMeasurementFilter,
+      referenceDate,
+      search: deferredSearch,
+      status: statusFilter,
+    });
+    try {
+      const selection = await apiGet<BoxInventorySelectionResponse>(
+        `/api/admin/box-inventory/selection/?${query}`,
+      );
+      setSelectedBoxes(new Map(selection.results.map((box) => [box.id, box])));
+      setMessage(selection.ineligible_count > 0
+        ? `${selection.eligible_count} ${t('boxInventoryEligibleSelected')}. ${selection.ineligible_count} ${t('boxInventoryIneligibleSkipped')}.`
+        : `${selection.eligible_count} ${t('boxInventoryFilteredSelected')}.`);
+    } catch (requestError) {
+      setSelectionError(getErrorMessage(requestError));
+    } finally {
+      setIsSelectingAll(false);
+    }
   }
 
   function openBatchAction(action: BoxInventoryBatchAction) {
@@ -264,7 +350,10 @@ export default function BoxInventoryAdminSection({
   const endResult = Math.min(offset + (response?.results.length ?? 0), totalCount);
   const currentPage = Math.floor(offset / INVENTORY_PAGE_SIZE) + 1;
   const totalPages = Math.max(1, Math.ceil(totalCount / INVENTORY_PAGE_SIZE));
-  const hasFilters = Boolean(statusFilter || locationFilter || search);
+  const selectionEligibleCount = response?.selection.eligible_count ?? 0;
+  const hasFilters = Boolean(
+    statusFilter || locationFilter || search || creationYearFilter || activeMeasurementFilter,
+  );
   const summaryCards = [
     { key: 'pending_review_count', label: 'boxInventoryStatusPending', status: 'pending_review', location: '', tone: 'is-soon' },
     { key: 'active_without_location_count', label: 'boxInventoryActiveWithoutLocation', status: 'active', location: 'none', tone: 'is-unlocated' },
@@ -315,6 +404,7 @@ export default function BoxInventoryAdminSection({
               value={search}
               placeholder={t('boxInventorySearchPlaceholder')}
               onChange={(event) => {
+                clearSelectionAfterFilterChange();
                 setSearch(event.target.value);
                 setOffset(0);
               }}
@@ -342,6 +432,15 @@ export default function BoxInventoryAdminSection({
             ))}
           </select>
         </label>
+        <label className="box-inventory-year-filter">
+          <span>{t('boxInventoryCreationYear')}</span>
+          <select value={creationYearFilter} onChange={(event) => updateCreationYearFilter(event.target.value)}>
+            <option value="">{t('boxInventoryAllYears')}</option>
+            {(response?.filter_options.creation_years ?? []).map((year) => (
+              <option key={year} value={year}>{year}</option>
+            ))}
+          </select>
+        </label>
         <div className="box-inventory-reset-slot">
           {hasFilters ? (
             <button
@@ -356,11 +455,86 @@ export default function BoxInventoryAdminSection({
         </div>
       </div>
 
+      {isQualificationWorkflow ? (
+        <section className="box-inventory-qualification-aid" aria-label={t('boxInventoryQualificationAid')}>
+          <button
+            type="button"
+            className="box-inventory-qualification-toggle"
+            aria-controls="box-inventory-qualification-controls"
+            aria-expanded={isQualificationAidOpen}
+            onClick={() => setIsQualificationAidOpen((isOpen) => !isOpen)}
+          >
+            <strong>{t('boxInventoryQualificationAid')}</strong>
+            <PolypbaseIcon
+              name={isQualificationAidOpen ? 'chevron-up' : 'chevron-down'}
+              size={16}
+              strokeWidth={1.8}
+            />
+          </button>
+          {isQualificationAidOpen ? (
+            <div className="box-inventory-qualification-controls" id="box-inventory-qualification-controls">
+              <label className="box-inventory-suggestion-switch">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  checked={isCandidateView}
+                  onChange={(event) => updateMeasurementFilter(event.target.checked ? 'older_than' : '')}
+                />
+                <span className="box-inventory-switch-track" aria-hidden="true" />
+                <span>{t('boxInventoryAgeSuggestions')}</span>
+              </label>
+              <label className={!isCandidateView ? 'is-disabled' : undefined}>
+                <span>{t('boxInventoryAgeThreshold')}</span>
+                <span className="box-inventory-month-control">
+                  <input
+                    type="number"
+                    min="1"
+                    max="1200"
+                    disabled={!isCandidateView}
+                    value={ageMonths}
+                    onChange={(event) => {
+                      if (!event.target.value) return;
+                      clearSelectionAfterFilterChange();
+                      setAgeMonths(String(Math.min(1200, Math.max(1, Number(event.target.value)))));
+                      setOffset(0);
+                    }}
+                  />
+                  <small>{t('boxInventoryMonths')}</small>
+                </span>
+              </label>
+              <label className={!isCandidateView ? 'is-disabled' : undefined}>
+                <span>{t('boxInventoryReferenceDate')}</span>
+                <input
+                  type="date"
+                  disabled={!isCandidateView}
+                  value={referenceDate}
+                  onChange={(event) => {
+                    if (!event.target.value) return;
+                    clearSelectionAfterFilterChange();
+                    setReferenceDate(event.target.value);
+                    setOffset(0);
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                className="box-inventory-aid-mode is-no-measurement"
+                aria-pressed={measurementFilter === 'none'}
+                onClick={() => updateMeasurementFilter(measurementFilter === 'none' ? '' : 'none')}
+              >
+                {t('boxInventoryNoMeasurementFilter')}
+              </button>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
       {message ? <p className="inline-success box-inventory-feedback">{message}</p> : null}
       {loadError ? <p className="inline-error box-inventory-feedback">{loadError}</p> : null}
+      {selectionError ? <p className="inline-error box-inventory-feedback">{selectionError}</p> : null}
 
-      {pendingBoxesOnPage.length > 0 || selectedBoxes.size > 0 ? (
-        <aside className="box-inventory-selection-toolbar" aria-label={t('boxInventoryBatchSelectionTitle')}>
+      {selectionEligibleCount > 0 || selectedBoxes.size > 0 ? (
+        <aside className={`box-inventory-selection-toolbar${selectedBoxes.size ? ' is-sticky' : ''}`} aria-label={t('boxInventoryBatchSelectionTitle')}>
           {pendingBoxesOnPage.length > 0 ? (
             <label className="box-inventory-page-selection">
               <input
@@ -376,6 +550,20 @@ export default function BoxInventoryAdminSection({
               </span>
             </label>
           ) : null}
+          {selectionEligibleCount > 0 ? (
+            <button
+              type="button"
+              className="box-inventory-select-filtered"
+              disabled={isLoading || isSelectingAll}
+              onClick={() => void selectAllFilteredResults()}
+            >
+              <ListChecks size={17} aria-hidden="true" />
+              <span>
+                {t(isCandidateView ? 'boxInventoryPreselectCandidates' : 'boxInventorySelectAllFiltered')}
+                <small>{selectionEligibleCount} {t('boxInventoryEligiblePending')}</small>
+              </span>
+            </button>
+          ) : null}
           <div className="box-inventory-selection-summary">
             <span aria-live="polite">
               <strong>{selectedBoxes.size}</strong>
@@ -386,7 +574,10 @@ export default function BoxInventoryAdminSection({
                 type="button"
                 aria-label={t('boxInventoryBatchClearSelection')}
                 title={t('boxInventoryBatchClearSelection')}
-                onClick={() => setSelectedBoxes(new Map())}
+                onClick={() => {
+                  setSelectedBoxes(new Map());
+                  setMessage(null);
+                }}
               >
                 <X aria-hidden="true" size={17} />
               </button>
@@ -404,9 +595,10 @@ export default function BoxInventoryAdminSection({
           </div>
           {selectedBoxes.size > 0 ? (
             <ul className="box-inventory-selected-boxes" aria-label={t('boxInventoryBatchAffectedBoxes')}>
-              {Array.from(selectedBoxes.values()).map((box) => (
+              {Array.from(selectedBoxes.values()).slice(0, 8).map((box) => (
                 <li key={box.id}>{box.global_code}</li>
               ))}
+              {selectedBoxes.size > 8 ? <li>+{selectedBoxes.size - 8}</li> : null}
             </ul>
           ) : null}
         </aside>
@@ -431,6 +623,17 @@ export default function BoxInventoryAdminSection({
             const currentZone = box.status === 'inactive' ? null : box.thermal_zone;
             const measurement = box.latest_measurement;
             const isSelected = selectedBoxes.has(box.id);
+            const measurementAge = getDeactivationSuggestionAge(
+              box.status,
+              measurement,
+              activeMeasurementFilter,
+              referenceDate,
+              Number(ageMonths),
+            );
+            const reviewSignal = measurementAge == null ? null : {
+              ageMonths: measurementAge,
+              zeroZero: isZeroZeroMeasurement(measurement),
+            };
             return (
               <article
                 className={[
@@ -475,6 +678,13 @@ export default function BoxInventoryAdminSection({
                     <button className="box-inventory-assign" type="button" disabled={isLoading} onClick={() => openLifecycleAction('assign', box)}>
                       {t('boxInventoryAssignLocation')}
                     </button>
+                  ) : box.status === 'inactive' ? (
+                    box.last_location ? (
+                      <span className="box-inventory-last-location">
+                        <small>{t('boxInventoryLastKnownLocation')}</small>
+                        <strong>{box.last_location.thermal_zone.name}</strong>
+                      </span>
+                    ) : <span className="is-muted">{t('boxInventoryNoHistoricalLocation')}</span>
                   ) : <span className="is-muted">{t('boxInventoryWithoutLocation')}</span>}
                 </div>
                 <div className="box-inventory-cell box-inventory-dates" data-label={t('boxInventoryDates')}>
@@ -500,6 +710,15 @@ export default function BoxInventoryAdminSection({
                 <div className="box-inventory-cell box-inventory-actions" data-label={t('boxInventoryActions')}>
                   <BoxInventoryRowMenu box={box} disabled={isLoading} onAction={(action) => openLifecycleAction(action, box)} t={t} />
                 </div>
+                {reviewSignal ? (
+                  <BoxInventorySuggestion
+                    ageMonths={reviewSignal.ageMonths}
+                    onSetInactive={() => openLifecycleAction('qualify', box, 'inactive')}
+                    thresholdMonths={Number(ageMonths)}
+                    t={t}
+                    zeroZero={reviewSignal.zeroZero}
+                  />
+                ) : null}
               </article>
             );
           })
@@ -543,6 +762,7 @@ export default function BoxInventoryAdminSection({
           action={lifecycleState.action}
           box={lifecycleState.box}
           error={lifecycleError}
+          initialTargetStatus={lifecycleState.initialTargetStatus}
           isSaving={isSaving}
           onClose={() => {
             if (!isSaving) setLifecycleState(null);
@@ -573,4 +793,14 @@ export default function BoxInventoryAdminSection({
       ) : null}
     </section>
   );
+}
+
+function toSelectionItem(box: BoxInventoryItem): BoxInventorySelectionItem {
+  return {
+    id: box.id,
+    global_code: box.global_code,
+    status: 'pending_review',
+    has_location: box.thermal_zone !== null,
+    species_name: box.species.scientific_name,
+  };
 }

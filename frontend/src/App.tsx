@@ -6,6 +6,7 @@ import {
   type PointerEvent,
   type ReactNode,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -601,12 +602,19 @@ export default function App() {
     openTab('labels');
   }
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (activeTab === 'admin' && !isDesktopApp) {
+      replaceRoute({ tab: 'pilotage', boxCode: null, boxId: null }, '/');
+      return;
+    }
     if (isLoading || !data.profile) return;
-    if (availableTabs.includes(activeTab) || (activeTab === 'admin' && canUseAdmin)) return;
+    if (
+      availableTabs.includes(activeTab)
+      || (activeTab === 'admin' && canUseAdmin && isDesktopApp)
+    ) return;
 
     navigateTo({ tab: 'pilotage', boxCode: null, boxId: null }, '/');
-  }, [activeTab, availableTabs, canUseAdmin, data.profile, isLoading]);
+  }, [activeTab, availableTabs, canUseAdmin, data.profile, isDesktopApp, isLoading]);
 
   useEffect(() => {
     const shouldLoadExportOptions =
@@ -652,6 +660,11 @@ export default function App() {
 
   function navigateTo(nextRoute: RouteState, path: string) {
     window.history.pushState(null, '', path);
+    setRoute(nextRoute);
+  }
+
+  function replaceRoute(nextRoute: RouteState, path: string) {
+    window.history.replaceState(null, '', path);
     setRoute(nextRoute);
   }
 
@@ -992,6 +1005,8 @@ export default function App() {
     );
   }
 
+  if (activeTab === 'admin' && !isDesktopApp) return null;
+
   const brandIdentity = (
     <>
       <span className="brand-mark" aria-hidden="true">
@@ -1192,13 +1207,6 @@ export default function App() {
                 options={data.exportOptions}
                 language={language}
               />
-            )}
-
-            {activeTab === 'admin' && !isDesktopApp && (
-              <section className="single-panel" role="status">
-                <h2>{t('adminSubtitle')}</h2>
-                <p>{t('adminDesktopOnly')}</p>
-              </section>
             )}
 
             {activeTab === 'admin' && isDesktopApp && (

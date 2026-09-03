@@ -2118,7 +2118,7 @@ button.account-overview-card.is-active {
 .box-inventory-filters {
   display: grid;
   padding: 0 0 var(--space-2);
-  grid-template-columns: minmax(160px, 1.4fr) minmax(110px, .7fr) minmax(160px, 1fr) 36px;
+  grid-template-columns: minmax(180px, 1.4fr) minmax(110px, .65fr) minmax(150px, 1fr) minmax(132px, .72fr) 36px;
   align-items: end;
   gap: var(--space-3);
   border-bottom: 1px solid var(--color-line);
@@ -2175,6 +2175,155 @@ button.account-overview-card.is-active {
   background: var(--color-primary-soft);
 }
 
+.box-inventory-qualification-aid {
+  border-bottom: 1px solid var(--color-line);
+}
+
+.box-inventory-qualification-toggle {
+  display: flex;
+  width: 100%;
+  min-height: 38px;
+  padding: 0 4px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  color: var(--color-ink-soft);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.box-inventory-qualification-toggle:hover {
+  color: var(--color-primary-hover);
+  background: var(--color-primary-faint);
+}
+
+.box-inventory-qualification-toggle strong {
+  font-size: .74rem;
+}
+
+.box-inventory-qualification-controls {
+  display: grid;
+  padding: 4px 0 var(--space-2);
+  grid-template-columns: minmax(230px, 1.3fr) minmax(116px, .55fr) minmax(152px, .7fr) auto;
+  align-items: end;
+  gap: var(--space-2);
+}
+
+.box-inventory-qualification-controls > label { min-width: 0; }
+
+.box-inventory-qualification-controls > label:not(.box-inventory-suggestion-switch) > span:first-child {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--color-muted);
+  font-size: .62rem;
+  font-weight: 700;
+}
+
+.box-inventory-qualification-controls > label:not(.box-inventory-suggestion-switch) > input,
+.box-inventory-month-control input {
+  width: 100%;
+  height: 36px;
+  min-height: 36px;
+  padding-block: 4px;
+  font-size: .78rem;
+  font-weight: 650;
+}
+
+.box-inventory-qualification-controls label.is-disabled {
+  opacity: .46;
+}
+
+.box-inventory-suggestion-switch {
+  position: relative;
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-ink-soft);
+  font-size: .7rem;
+  font-weight: 720;
+  cursor: pointer;
+}
+
+.box-inventory-suggestion-switch input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+}
+
+.box-inventory-switch-track {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  flex: 0 0 auto;
+  background: var(--color-line-strong);
+  border: 1px solid transparent;
+  border-radius: 10px;
+}
+
+.box-inventory-switch-track::after {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  content: '';
+  background: var(--color-surface);
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgb(20 45 55 / 20%);
+}
+
+.box-inventory-suggestion-switch input:checked + .box-inventory-switch-track {
+  background: var(--color-primary);
+}
+
+.box-inventory-suggestion-switch input:checked + .box-inventory-switch-track::after {
+  left: 16px;
+}
+
+.box-inventory-suggestion-switch input:focus-visible + .box-inventory-switch-track {
+  outline: 3px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+.box-inventory-aid-mode {
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  color: var(--color-ink-soft);
+  font-size: .7rem;
+  font-weight: 720;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.box-inventory-aid-mode:is(:hover, [aria-pressed='true']) {
+  color: var(--color-primary-hover);
+  background: var(--color-primary-faint);
+  border-color: var(--color-primary);
+}
+
+.box-inventory-month-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.box-inventory-month-control small {
+  color: var(--color-muted);
+  font-size: .68rem;
+  font-weight: 700;
+}
+
 .box-inventory-feedback { margin: 0; }
 
 .box-inventory-selection-toolbar {
@@ -2184,6 +2333,50 @@ button.account-overview-card.is-active {
   align-items: center;
   gap: var(--space-3);
   border-bottom: 1px solid var(--color-line);
+}
+
+.box-inventory-selection-toolbar.is-sticky {
+  position: sticky;
+  top: var(--space-2);
+  z-index: 20;
+  padding: var(--space-2) var(--space-3);
+  background: color-mix(in srgb, var(--color-surface) 96%, transparent);
+  border: 1px solid var(--color-line-strong);
+  border-left: 3px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-soft);
+}
+
+.box-inventory-select-filtered {
+  display: inline-flex;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-primary-hover);
+  background: var(--color-surface-info);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.box-inventory-select-filtered > span {
+  display: grid;
+  gap: 1px;
+  text-align: left;
+  font-size: .72rem;
+  font-weight: 780;
+}
+
+.box-inventory-select-filtered small {
+  color: var(--color-muted);
+  font-size: .62rem;
+  font-weight: 650;
+}
+
+.box-inventory-select-filtered:disabled {
+  opacity: .55;
+  cursor: wait;
 }
 
 .box-inventory-selection-summary {
@@ -2314,6 +2507,25 @@ button.account-overview-card.is-active {
   font-size: .64rem;
 }
 
+.box-inventory-last-location {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.box-inventory-last-location small {
+  color: var(--color-muted);
+  font-size: .6rem;
+}
+
+.box-inventory-last-location strong {
+  overflow: hidden;
+  color: var(--color-ink-soft);
+  font-size: .7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 
 .box-inventory-list {
   --inventory-columns: minmax(164px, 1.35fr) minmax(140px, 1fr) minmax(180px, 1.1fr) minmax(116px, .85fr) 36px;
@@ -2368,6 +2580,66 @@ button.account-overview-card.is-active {
 .box-inventory-row:last-child { border-bottom: 0; }
 .box-inventory-row:hover { background: var(--color-surface-subtle); }
 .box-inventory-row.is-selected { background: var(--color-primary-faint); }
+
+.box-inventory-suggestion {
+  display: flex;
+  min-height: 34px;
+  padding: 4px var(--space-2) 4px 48px;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  color: var(--color-primary-hover);
+  background: color-mix(in srgb, var(--color-primary-faint) 55%, var(--color-surface));
+  border-top: 1px solid var(--color-line-soft);
+}
+
+.box-inventory-suggestion-label {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  font-size: .68rem;
+  font-weight: 750;
+}
+
+.box-inventory-suggestion-label button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--color-primary-hover);
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  cursor: help;
+}
+
+.box-inventory-suggestion-label button:is(:hover, [aria-expanded='true']) {
+  background: var(--color-primary-soft);
+}
+
+.box-inventory-suggestion-action {
+  display: inline-flex;
+  min-height: 30px;
+  padding: 0 var(--space-2);
+  align-items: center;
+  gap: 6px;
+  color: var(--color-primary-hover);
+  font-size: .68rem;
+  font-weight: 750;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+
+.box-inventory-suggestion-action:hover {
+  background: var(--color-surface-info);
+  border-color: var(--color-primary);
+}
 
 .box-inventory-row-status {
   position: absolute;
@@ -2604,4 +2876,7 @@ button.account-overview-card.is-active {
   .box-inventory-reset-slot { grid-column: 3; grid-row: 1; }
   .box-inventory-status-filter { grid-column: 1; }
   .box-inventory-location-filter { grid-column: 2 / 4; }
+  .box-inventory-year-filter { grid-column: 1 / 4; }
+  .box-inventory-qualification-controls { grid-template-columns: minmax(0, 1fr) minmax(116px, .55fr); }
+  .box-inventory-suggestion-switch { grid-column: 1 / -1; }
 }

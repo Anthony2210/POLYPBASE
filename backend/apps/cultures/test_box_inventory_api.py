@@ -1,10 +1,12 @@
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.db import IntegrityError
+from django.db import IntegrityError, connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.accounts.models import OrganizationMembership
 from apps.audit.models import AuditLog
@@ -253,6 +255,323 @@ class AdminBoxInventoryApiTests(TestCase):
             "2026-07-03",
         )
         self.assertEqual(results[regular.id]["inventory_created_on"], "2026-07-04")
+
+    def test_creation_year_options_and_combined_filter_are_scoped_to_active_institution(self):
+        target = self.create_box(
+            1,
+            status=Box.Status.PENDING_REVIEW,
+            zone=self.zone,
+        )
+        regular = self.create_box(2, status=Box.Status.ACTIVE, zone=self.zone)
+        foreign = self.create_box(
+            99,
+            status=Box.Status.PENDING_REVIEW,
+            organization=self.other_organization,
+        )
+        Box.objects.filter(id__in=[target.id, foreign.id]).update(
+            created_on=date(2026, 7, 3),
+        )
+        Box.objects.filter(id=regular.id).update(created_on=date(2024, 4, 2))
+        BiologicalMeasurement.objects.create(
+            box=target,
+            measured_on=date(2021, 5, 12),
+            polyp_count=0,
+            ephyrae_count=3,
+        )
+        BiologicalMeasurement.objects.create(
+            box=foreign,
+            measured_on=date(1998, 2, 1),
+            polyp_count=4,
+            ephyrae_count=0,
+        )
+        OrganizationMembership.objects.create(
+            user=self.admin,
+            organization=self.other_organization,
+            role=OrganizationMembership.Role.ADMIN,
+        )
+        self.login_admin()
+
+        response = self.client.get(
+            reverse("api_admin_box_inventory"),
+            {
+                "creation_year": 2021,
+                "status": Box.Status.PENDING_REVIEW,
+                "location": self.zone.id,
+                "q": target.global_code,
+            },
+            HTTP_X_ORGANIZATION_ID=str(self.organization.id),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([item["id"] for item in response.data["results"]], [target.id])
+        self.assertEqual(response.data["filter_options"]["creation_years"], [2021, 2024])
+        self.assertNotIn(1998, response.data["filter_options"]["creation_years"])
+
+    def test_measurement_age_filter_keeps_zero_and_separates_missing_future_and_recent(self):
+        old_zero = self.create_box(1, status=Box.Status.PENDING_REVIEW)
+        boundary = self.create_box(2, status=Box.Status.PENDING_REVIEW)
+        future = self.create_box(3, status=Box.Status.PENDING_REVIEW)
+        without_measurement = self.create_box(4, status=Box.Status.PENDING_REVIEW)
+        old_positive = self.create_box(5, status=Box.Status.PENDING_REVIEW)
+        recent_zero = self.create_box(6, status=Box.Status.PENDING_REVIEW)
+        measurements = (
+            (old_zero, date(2026, 2, 27), 0, 0),
+            (boundary, date(2026, 2, 28), 1, 0),
+            (future, date(2026, 6, 15), 2, 1),
+            (old_positive, date(2025, 12, 31), 12, 3),
+            (recent_zero, date(2026, 5, 20), 0, 0),
+        )
+        for box, measured_on, polyps, ephyrae in measurements:
+            BiologicalMeasurement.objects.create(
+                box=box,
+                measured_on=measured_on,
+                polyp_count=polyps,
+                ephyrae_count=ephyrae,
+            )
+        self.login_admin()
+
+        older_response = self.client.get(
+            reverse("api_admin_box_inventory"),
+            {
+                "measurement_filter": "older_than",
+                "age_months": 3,
+                "reference_date": "2026-05-31",
+            },
+        )
+        older_results = {item["id"]: item for item in older_response.data["results"]}
+
+        self.assertEqual(older_response.status_code, 200)
+        self.assertEqual(set(older_results), {old_zero.id, old_positive.id})
+        self.assertEqual(older_results[old_zero.id]["latest_measurement"]["polyp_count"], 0)
+        self.assertEqual(older_results[old_zero.id]["latest_measurement"]["ephyrae_count"], 0)
+        self.assertNotIn(boundary.id, older_results)
+        self.assertNotIn(future.id, older_results)
+        self.assertNotIn(recent_zero.id, older_results)
+        self.assertNotIn(without_measurement.id, older_results)
+
+        missing_response = self.client.get(
+            reverse("api_admin_box_inventory"),
+            {"measurement_filter": "none", "reference_date": "2026-05-31"},
+        )
+        self.assertEqual(
+            [item["id"] for item in missing_response.data["results"]],
+            [without_measurement.id],
+        )
+
+    def test_measurement_age_defaults_to_server_today(self):
+        old = self.create_box(1, status=Box.Status.PENDING_REVIEW)
+        BiologicalMeasurement.objects.create(
+            box=old,
+            measured_on=date(2026, 5, 31),
+            polyp_count=0,
+            ephyrae_count=2,
+        )
+        self.login_admin()
+
+        with patch(
+            "apps.cultures.api_views.timezone.localdate",
+            return_value=date(2026, 9, 1),
+        ):
+            response = self.client.get(
+                reverse("api_admin_box_inventory"),
+                {"measurement_filter": "older_than", "age_months": 3},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["filter_options"]["reference_date"], "2026-09-01")
+        self.assertEqual([item["id"] for item in response.data["results"]], [old.id])
+
+    def test_inventory_rejects_invalid_review_filters(self):
+        self.login_admin()
+
+        for filters, field in (
+            ({"creation_year": "unknown"}, "creation_year"),
+            ({"creation_year": 0}, "creation_year"),
+            ({"reference_date": "31-05-2026"}, "reference_date"),
+            ({"measurement_filter": "stale"}, "measurement_filter"),
+            ({"measurement_filter": "older_than", "age_months": ""}, "age_months"),
+            ({"measurement_filter": "older_than", "age_months": 0}, "age_months"),
+        ):
+            with self.subTest(filters=filters):
+                response = self.client.get(reverse("api_admin_box_inventory"), filters)
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(field, response.data)
+
+    def test_inactive_inventory_exposes_real_last_location_and_detail_keeps_history(self):
+        located = self.create_box(1, status=Box.Status.INACTIVE)
+        never_located = self.create_box(2, status=Box.Status.INACTIVE)
+        now = timezone.now()
+        first = BoxLocation.objects.create(
+            box=located,
+            thermal_zone=self.zone,
+            starts_at=now - timedelta(days=40),
+            ends_at=now - timedelta(days=20),
+        )
+        last = BoxLocation.objects.create(
+            box=located,
+            thermal_zone=self.second_zone,
+            starts_at=now - timedelta(days=19),
+            end_date_unknown=True,
+        )
+        self.login_admin()
+
+        response = self.client.get(
+            reverse("api_admin_box_inventory"),
+            {"status": Box.Status.INACTIVE},
+        )
+        results = {item["id"]: item for item in response.data["results"]}
+
+        self.assertEqual(results[located.id]["last_location"]["id"], last.id)
+        self.assertEqual(
+            results[located.id]["last_location"]["thermal_zone"]["id"],
+            self.second_zone.id,
+        )
+        self.assertIsNone(results[never_located.id]["last_location"])
+        detail = self.client.get(reverse("api_box_detail", args=[located.id]))
+        self.assertEqual(detail.status_code, 200)
+        self.assertIsNone(detail.data["thermal_zone"])
+        self.assertEqual(
+            {item["id"] for item in detail.data["locations"]},
+            {first.id, last.id},
+        )
+
+    def test_location_history_never_exposes_a_foreign_institution_zone(self):
+        box = self.create_box(1, status=Box.Status.INACTIVE)
+        now = timezone.now()
+        local_location = BoxLocation.objects.create(
+            box=box,
+            thermal_zone=self.zone,
+            starts_at=now - timedelta(days=20),
+            ends_at=now - timedelta(days=10),
+        )
+        BoxLocation.objects.create(
+            box=box,
+            thermal_zone=self.foreign_zone,
+            starts_at=now - timedelta(days=5),
+            end_date_unknown=True,
+        )
+        self.login_admin()
+
+        inventory = self.client.get(reverse("api_admin_box_inventory"))
+        inventory_box = next(
+            item for item in inventory.data["results"] if item["id"] == box.id
+        )
+        detail = self.client.get(reverse("api_box_detail", args=[box.id]))
+
+        self.assertEqual(inventory_box["last_location"]["id"], local_location.id)
+        self.assertEqual(
+            [item["id"] for item in detail.data["locations"]],
+            [local_location.id],
+        )
+        self.assertNotContains(inventory, self.foreign_zone.name)
+        self.assertNotContains(detail, self.foreign_zone.name)
+
+    def test_filtered_selection_returns_only_eligible_boxes_from_active_institution(self):
+        eligible = self.create_box(1, status=Box.Status.PENDING_REVIEW)
+        active = self.create_box(2, status=Box.Status.ACTIVE)
+        foreign = self.create_box(
+            99,
+            status=Box.Status.PENDING_REVIEW,
+            organization=self.other_organization,
+        )
+        OrganizationMembership.objects.create(
+            user=self.admin,
+            organization=self.other_organization,
+            role=OrganizationMembership.Role.ADMIN,
+        )
+        self.login_admin()
+
+        response = self.client.get(
+            reverse("api_admin_box_inventory_selection"),
+            HTTP_X_ORGANIZATION_ID=str(self.organization.id),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["matched_count"], 2)
+        self.assertEqual(response.data["eligible_count"], 1)
+        self.assertEqual(response.data["ineligible_count"], 1)
+        self.assertEqual([item["id"] for item in response.data["results"]], [eligible.id])
+        self.assertNotIn(foreign.id, [item["id"] for item in response.data["results"]])
+        self.assertNotIn(active.id, [item["id"] for item in response.data["results"]])
+
+        self.client.logout()
+        self.client.login(username=self.technician.username, password="secret")
+        forbidden = self.client.get(reverse("api_admin_box_inventory_selection"))
+        self.assertEqual(forbidden.status_code, 403)
+
+    def test_filtered_selection_reuses_measurement_filters_and_preserves_zero(self):
+        candidate = self.create_box(1, status=Box.Status.PENDING_REVIEW, zone=self.zone)
+        recent = self.create_box(2, status=Box.Status.PENDING_REVIEW, zone=self.zone)
+        BiologicalMeasurement.objects.create(
+            box=candidate,
+            measured_on=date(2025, 12, 1),
+            polyp_count=0,
+            ephyrae_count=0,
+        )
+        BiologicalMeasurement.objects.create(
+            box=recent,
+            measured_on=date(2026, 5, 1),
+            polyp_count=0,
+            ephyrae_count=0,
+        )
+        self.login_admin()
+
+        response = self.client.get(
+            reverse("api_admin_box_inventory_selection"),
+            {
+                "status": Box.Status.PENDING_REVIEW,
+                "location": self.zone.id,
+                "measurement_filter": "older_than",
+                "age_months": 3,
+                "reference_date": "2026-05-31",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([item["id"] for item in response.data["results"]], [candidate.id])
+
+    def test_filtered_selection_and_batch_reject_more_than_supported_limit(self):
+        self.create_box(1, status=Box.Status.PENDING_REVIEW)
+        self.create_box(2, status=Box.Status.PENDING_REVIEW)
+        self.login_admin()
+
+        with patch("apps.cultures.api_views.BOX_INVENTORY_BATCH_MAX_ITEMS", 1):
+            selection = self.client.get(reverse("api_admin_box_inventory_selection"))
+        self.assertEqual(selection.status_code, 400)
+        self.assertEqual(selection.data["code"], "selection_too_large")
+        self.assertEqual(selection.data["eligible_count"], 2)
+
+        batch = self.client.post(
+            reverse("api_admin_box_inventory_batch_qualify"),
+            data={
+                "box_ids": list(range(1, 502)),
+                "target_status": Box.Status.ACTIVE,
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(batch.status_code, 400)
+        self.assertIn("box_ids", batch.data)
+
+    def test_inventory_query_count_does_not_grow_with_page_size(self):
+        self.create_box(1, status=Box.Status.PENDING_REVIEW, zone=self.zone)
+        self.login_admin()
+        self.client.get(reverse("api_admin_box_inventory"))
+        with CaptureQueriesContext(connection) as one_box_queries:
+            self.client.get(reverse("api_admin_box_inventory"))
+
+        for number in range(2, 22):
+            box = self.create_box(number, status=Box.Status.PENDING_REVIEW, zone=self.zone)
+            BoxLocation.objects.create(box=box, thermal_zone=self.zone)
+            BiologicalMeasurement.objects.create(
+                box=box,
+                measured_on=date(2026, 1, 1),
+                polyp_count=number,
+                ephyrae_count=0,
+            )
+        with CaptureQueriesContext(connection) as full_page_queries:
+            self.client.get(reverse("api_admin_box_inventory"))
+
+        self.assertEqual(len(full_page_queries), len(one_box_queries))
 
     def test_admin_can_assign_first_location_only_to_active_unlocated_box(self):
         unlocated = self.create_box(1, status=Box.Status.ACTIVE)

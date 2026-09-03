@@ -3,6 +3,8 @@ import type { ReactNode, SVGProps } from 'react';
 const iconPaths = {
   'chevron-left': <path d="M15 18l-6-6 6-6" />,
   'chevron-right': <path d="M9 18l6-6-6-6" />,
+  'chevron-up': <path d="M18 15l-6-6-6 6" />,
+  'chevron-down': <path d="M6 9l6 6 6-6" />,
   'chevrons-left': <path d="M11 17l-5-5 5-5M18 17l-5-5 5-5" />,
   'chevrons-right': <path d="M13 17l5-5-5-5M6 17l5-5-5-5" />,
   close: <path d="M18 6L6 18M6 6l12 12" />,
@@ -21,6 +23,12 @@ const iconPaths = {
     </>
   ),
   check: <path d="M20 6L9 17l-5-5" />,
+  info: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 16v-5M12 7h.01" />
+    </>
+  ),
   download: (
     <>
       <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
@@ -44,6 +52,14 @@ const iconPaths = {
     <>
       <rect x="3" y="4" width="18" height="4" rx="1" />
       <path d="M5 8v11a2 2 0 002 2h10a2 2 0 002-2V8M10 12h4" />
+    </>
+  ),
+  'inactive-alt': (
+    <>
+      <rect x="5" y="3" width="14" height="4" rx="1" />
+      <path d="M6 7v13a1 1 0 001 1h4.5M18 7v4.5" />
+      <circle cx="16" cy="16" r="4" />
+      <path d="M14 16h4" />
     </>
   ),
   restore: (

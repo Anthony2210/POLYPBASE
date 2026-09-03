@@ -96,6 +96,7 @@ export type BoxInventoryItem = {
   created_on: string;
   inventory_created_on: string;
   latest_measurement: BiologicalMeasurement | null;
+  last_location: BoxLocation | null;
 };
 
 export type BoxInventoryResponse = PaginatedResponse<BoxInventoryItem> & {
@@ -104,6 +105,30 @@ export type BoxInventoryResponse = PaginatedResponse<BoxInventoryItem> & {
     active_without_location_count: number;
     pending_without_location_count: number;
   };
+  filter_options: {
+    creation_years: number[];
+    reference_date: string;
+  };
+  selection: {
+    eligible_count: number;
+    max_count: number;
+  };
+};
+
+export type BoxInventorySelectionItem = {
+  id: number;
+  global_code: string;
+  status: 'pending_review';
+  has_location: boolean;
+  species_name: string;
+};
+
+export type BoxInventorySelectionResponse = {
+  matched_count: number;
+  eligible_count: number;
+  ineligible_count: number;
+  max_count: number;
+  results: BoxInventorySelectionItem[];
 };
 
 export type BoxQualifyPayload = {
