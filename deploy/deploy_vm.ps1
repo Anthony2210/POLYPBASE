@@ -25,8 +25,10 @@ function Invoke-NativeCommand {
     )
 
     Write-Step $Label
+    # PowerShell 5.1 turns captured native stderr into error records, so let stderr
+    # flow to the console untouched and rely on $LASTEXITCODE as the success/failure gate.
     if ($Capture) {
-        $output = & $FilePath @Arguments 2>&1
+        $output = & $FilePath @Arguments
         $exitCode = $LASTEXITCODE
         if ($output) {
             $output | ForEach-Object { Write-Host $_ }
@@ -37,7 +39,7 @@ function Invoke-NativeCommand {
         return (($output | Out-String).Trim())
     }
 
-    & $FilePath @Arguments 2>&1 | ForEach-Object { Write-Host $_ }
+    & $FilePath @Arguments
     $exitCode = $LASTEXITCODE
     if ($exitCode -ne 0) {
         throw "$Label failed with exit code $exitCode"
