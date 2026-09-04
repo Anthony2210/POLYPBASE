@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEven
 
 import type { BiologicalMeasurement, BoxLocation, BoxLineage, BoxMovement } from '../types';
 import type { Language } from '../i18n';
-import { buildChartWindow } from '../utils/chartWindow';
+import { buildChartWindow, getLatestChartWindowOffset } from '../utils/chartWindow';
 import BiologicalTrendChart, { type TrendEvent, type TrendLocation, type TrendMeasurement } from './BiologicalTrendChart';
 import ChartWindowControls from './ChartWindowControls';
 
@@ -28,7 +28,7 @@ type LifecycleEvent = {
 
 export default function BoxTrackingChart({
   compact = false,
-  initialWindowOffset = 0,
+  initialWindowOffset,
   events,
   labels,
   language,
@@ -45,10 +45,6 @@ export default function BoxTrackingChart({
   measurements: BiologicalMeasurement[];
   onOpenHistory?: () => void;
 }) {
-  const [windowOffset, setWindowOffset] = useState(initialWindowOffset);
-  const [isDragging, setIsDragging] = useState(false);
-  const dragOrigin = useRef<number | null>(null);
-  const didDrag = useRef(false);
   const timelineKey = useMemo(
     () => [
       measurements.length,
@@ -63,12 +59,24 @@ export default function BoxTrackingChart({
     () => getSharedChartSourceDates(measurements, locations, events),
     [events, locations, measurements],
   );
+  const defaultWindowOffset = useMemo(
+    () => initialWindowOffset ?? getLatestChartWindowOffset(
+      chartSourceDates,
+      measurements.map((measurement) => measurement.measured_on),
+      6,
+    ),
+    [chartSourceDates, initialWindowOffset, measurements],
+  );
+  const [windowOffset, setWindowOffset] = useState(defaultWindowOffset);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragOrigin = useRef<number | null>(null);
+  const didDrag = useRef(false);
   const preparedData = useMemo(
     () => prepareSharedChartData(measurements, locations, events, windowOffset),
     [events, locations, measurements, windowOffset],
   );
 
-  useEffect(() => setWindowOffset(initialWindowOffset), [initialWindowOffset, timelineKey]);
+  useEffect(() => setWindowOffset(defaultWindowOffset), [defaultWindowOffset, timelineKey]);
 
   useEffect(() => {
     if (windowOffset > preparedData.maxWindowOffset) {

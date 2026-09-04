@@ -3,7 +3,18 @@ from collections import Counter
 from datetime import timedelta
 from io import StringIO
 
-from django.db.models import Case, Exists, F, IntegerField, OuterRef, Prefetch, Q, Subquery, When
+from django.db.models import (
+    Case,
+    Exists,
+    F,
+    IntegerField,
+    Max,
+    OuterRef,
+    Prefetch,
+    Q,
+    Subquery,
+    When,
+)
 from django.utils import timezone
 
 from apps.cultures.models import BoxLocation
@@ -70,8 +81,17 @@ def get_measurement_export_eligibility(
         zone_ids=zone_ids,
         include_other_zones=include_other_zones,
     )
-    box_ids = list(measurements.order_by().values_list("box_id", flat=True).distinct())
-    return box_ids, measurements.count()
+    latest_measurements = list(
+        measurements.order_by()
+        .values("box_id")
+        .annotate(latest_measurement_on=Max("measured_on"))
+        .order_by("box_id")
+    )
+    return (
+        [item["box_id"] for item in latest_measurements],
+        measurements.count(),
+        {item["box_id"]: item["latest_measurement_on"] for item in latest_measurements},
+    )
 
 
 def build_weekly_measurement_csv(

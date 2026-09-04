@@ -227,6 +227,10 @@ class MeasurementExportApiTests(TestCase):
 
         self.assertEqual(eligibility_response.status_code, 200)
         self.assertEqual(eligibility_response.json()["box_ids"], [self.box.id])
+        self.assertEqual(
+            eligibility_response.json()["latest_measurement_on_by_box"],
+            {str(self.box.id): "2026-05-11"},
+        )
         self.assertEqual(csv_response.status_code, 200)
         header = next(csv.reader(StringIO(csv_response.content.decode("utf-8-sig"))))
         self.assertIn("1.03_polypes", header)
@@ -284,6 +288,10 @@ class MeasurementExportApiTests(TestCase):
         )
         self.assertEqual(eligibility_response.status_code, 200)
         self.assertEqual(eligibility_response.json()["box_ids"], [self.box.id])
+        self.assertEqual(
+            eligibility_response.json()["latest_measurement_on_by_box"],
+            {str(self.box.id): "2026-05-06"},
+        )
 
         strict_csv_response = self.client.get(
             reverse("api_export_measurements_csv"),

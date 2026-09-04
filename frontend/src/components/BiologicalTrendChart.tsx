@@ -10,6 +10,11 @@ import { scaleLinear, scaleTime } from 'd3-scale';
 import { line } from 'd3-shape';
 
 import { formatDisplayDate } from '../utils/dateFormat';
+import {
+  findChartLocationAtDate,
+  resolveChartLocationPeriods,
+  type ChartLocation,
+} from '../utils/chartLocations';
 import { getZoneColor } from '../utils/zoneColor';
 
 export type TrendMeasurement = {
@@ -22,13 +27,7 @@ export type TrendMeasurement = {
   note?: string | null;
 };
 
-export type TrendLocation = {
-  id: number | string;
-  name: string;
-  startsAt: string;
-  endsAt: string | null;
-  endDateUnknown?: boolean;
-};
+export type TrendLocation = ChartLocation;
 
 export type TrendEvent = {
   id: number | string;
@@ -186,7 +185,7 @@ export default function BiologicalTrendChart({
   const plottedReadingDetails = plottedMeasurements.map((measurement) => {
     const x = xPosition(measurement.date);
     const topY = Math.min(yCount(measurement.polypCount), yCount(measurement.ephyraeCount));
-    const locationName = findLocationAtDate(locations, measurement.date);
+    const locationName = findChartLocationAtDate(locations, measurement.date);
     const detail: ActiveDetail = {
       id: `measurement-${measurement.id}`,
       date: measurement.date,
@@ -502,21 +501,13 @@ export default function BiologicalTrendChart({
   );
 }
 
-function findLocationAtDate(locations: TrendLocation[], date: string) {
-  return locations.find((location) => (
-    location.startsAt.slice(0, 10) <= date
-    && (!location.endDateUnknown || location.startsAt.slice(0, 10) === date)
-    && (!location.endsAt || location.endsAt.slice(0, 10) >= date)
-  ))?.name;
-}
-
 function buildMeasurementDetailLines(
   measurement: TrendMeasurement,
   labels: TrendLabels,
   locations: TrendLocation[],
   knownLocationName?: string,
 ): DetailLine[] {
-  const locationName = knownLocationName ?? findLocationAtDate(locations, measurement.date);
+  const locationName = knownLocationName ?? findChartLocationAtDate(locations, measurement.date);
   const lines: DetailLine[] = [
     {
       kind: 'polyps',
@@ -591,7 +582,17 @@ function buildGeometry(
     .sort((left, right) => left.date.localeCompare(right.date));
   const xScale = scaleTime().domain([start, end]).range([padding.left, width - padding.right]);
   const xPosition = (date: string) => xScale(normalizeDate(date));
-  const locationBands = buildLocationBands(locations, startText, endText, xPosition);
+  const measurementDates = measurements
+    .map((measurement) => measurement.date)
+    .sort();
+  const latestMeasurementDate = measurementDates[measurementDates.length - 1] ?? '';
+  const locationBands = buildLocationBands(
+    locations,
+    startText,
+    endText,
+    latestMeasurementDate,
+    xPosition,
+  );
   const zoneBandHeight = locationBands.length ? (compact ? 18 : 22) : 0;
   const zoneBandGap = locationBands.length ? (compact ? 4 : 6) : 0;
   const plotTop = padding.top + zoneBandHeight + zoneBandGap;
@@ -692,24 +693,16 @@ function buildLocationBands(
   locations: TrendLocation[],
   startDate: string,
   endDate: string,
+  latestMeasurementDate: string,
   xPosition: (date: string) => number,
 ): LocationBand[] {
-  return [...locations]
+  return resolveChartLocationPeriods(locations, endDate, latestMeasurementDate)
     .filter((location) => (
-      location.startsAt.slice(0, 10) <= endDate
-      && (
-        location.endDateUnknown
-          ? location.startsAt.slice(0, 10) >= startDate
-          : !location.endsAt || location.endsAt.slice(0, 10) >= startDate
-      )
+      location.startDate <= endDate && location.endDate >= startDate
     ))
-    .sort((left, right) => left.startsAt.localeCompare(right.startsAt))
     .map((location) => {
-      const clippedStart = location.startsAt.slice(0, 10) < startDate ? startDate : location.startsAt.slice(0, 10);
-      const rawEnd = location.endDateUnknown
-        ? location.startsAt.slice(0, 10)
-        : location.endsAt?.slice(0, 10) ?? endDate;
-      const clippedEnd = rawEnd > endDate ? endDate : rawEnd;
+      const clippedStart = location.startDate < startDate ? startDate : location.startDate;
+      const clippedEnd = location.endDate > endDate ? endDate : location.endDate;
       const x1 = xPosition(clippedStart);
       const x2 = xPosition(clippedEnd);
       return {
