@@ -379,7 +379,7 @@ class BoxLifecycleTests(TestCase):
         self.assertEqual(measurement.polyp_count, 0)
         self.assertEqual(measurement.ephyrae_count, 0)
 
-    def test_overview_excludes_inactive_boxes_but_keeps_pending_review_boxes(self):
+    def test_overview_excludes_pending_review_and_inactive_boxes(self):
         pending = self.create_box(code="ALC-LAB-1.010", status=Box.Status.PENDING_REVIEW)
         inactive = self.create_box(code="ALC-LAB-1.011", status=Box.Status.INACTIVE)
         for box in (pending, inactive):
@@ -395,7 +395,7 @@ class BoxLifecycleTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         codes = {item["global_code"] for item in response.json()["results"]}
-        self.assertIn(pending.global_code, codes)
+        self.assertNotIn(pending.global_code, codes)
         self.assertNotIn(inactive.global_code, codes)
 
 

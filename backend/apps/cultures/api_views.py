@@ -622,16 +622,11 @@ class DashboardAPIView(APIView):
 
 
 class OverviewActiveBoxesAPIView(APIView):
-    """Return boxes measured in 2026 with their biological and temperature history."""
-
-    # Temporary launch rule: replace this fixed year with a durable researcher-approved policy.
-    measurement_year = 2026
+    """Return every active box with its recent biological and temperature history."""
 
     def get(self, request):
         months = self._get_months(request)
-        start_date = timezone.localdate() - timedelta(days=months * 31)
-        overview_year_start = date(self.measurement_year, 1, 1)
-        history_start_date = min(start_date, overview_year_start)
+        history_start_date = timezone.localdate() - timedelta(days=months * 31)
         organization_ids = get_active_organization_ids(request)
         location_history = (
             BoxLocation.objects.filter(
@@ -643,9 +638,7 @@ class OverviewActiveBoxesAPIView(APIView):
         )
         boxes = list(
             box_list_queryset_for_user(request.user, organization_ids=organization_ids)
-            .filter(biological_measurements__measured_on__year=self.measurement_year)
-            .exclude(status=Box.Status.INACTIVE)
-            .distinct()
+            .filter(status=Box.Status.ACTIVE)
             .prefetch_related(
                 Prefetch("locations", queryset=location_history, to_attr="overview_locations")
             )
