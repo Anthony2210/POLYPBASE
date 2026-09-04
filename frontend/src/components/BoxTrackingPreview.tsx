@@ -6,9 +6,7 @@ import { apiGet } from '../api/client';
 import { useAnchoredPopover } from '../hooks/useAnchoredPopover';
 import type { Language, Translator } from '../i18n';
 import type { BoxDetail } from '../types';
-import { formatDisplayDate } from '../utils/dateFormat';
 import { getErrorMessage } from '../utils/errors';
-import { getLatestChartWindowOffset } from '../utils/chartWindow';
 import SkeletonRows from './SkeletonRows';
 
 const TrackingChart = lazy(async () => {
@@ -17,12 +15,7 @@ const TrackingChart = lazy(async () => {
     const events = useMemo(() => buildLifecycleEvents(detail.lineage, detail.movements, {
       movementEvent: t('movementEvent'), subcultureEvent: t('subcultureEvent'),
     }), [detail, t]);
-    const initialOffset = useMemo(() => getLatestChartWindowOffset([
-      ...detail.biological_measurements.map((measurement) => measurement.measured_on),
-      ...detail.locations.flatMap((location) => [location.starts_at, location.ends_at].filter(Boolean) as string[]),
-      ...detail.movements.map((movement) => movement.moved_at),
-    ]), [detail]);
-    return <BoxTrackingChart compact initialWindowOffset={initialOffset} measurements={detail.biological_measurements} locations={detail.locations} events={events} language={language} labels={{
+    return <BoxTrackingChart compact measurements={detail.biological_measurements} locations={detail.locations} events={events} language={language} labels={{
       chartTitle: t('chartTitle'), chartEmpty: t('chartEmpty'), polyps: t('polyps'),
       ephyraeFull: t('ephyraeFull'), missingReading: t('chartMissingReading'),
       historyEnteredBy: t('historyEnteredBy'), historyObservation: t('historyObservation'), salinityFull: t('salinityFull'),
@@ -157,11 +150,6 @@ function BoxTrackingPreviewContent({ boxId, language, t }: {
   const loading = <div className="box-tracking-preview-state" role="status" aria-label={t('loading')}><SkeletonRows count={3} /></div>;
   if (error) return <div className="box-tracking-preview-state" role="alert"><p>{error}</p><button type="button" onClick={() => setAttempt((current) => current + 1)}>{t('lineageRetry')}</button></div>;
   if (!detail) return loading;
-  const latestMeasurement = detail.biological_measurements[0] ?? null;
-  const lastLocation = detail.locations[0] ?? null;
-  const displayedLocation = detail.status === 'inactive'
-    ? lastLocation?.thermal_zone ?? null
-    : detail.thermal_zone;
   const hasTimeline = detail.biological_measurements.length > 0
     || detail.locations.length > 0
     || detail.movements.length > 0
@@ -169,26 +157,9 @@ function BoxTrackingPreviewContent({ boxId, language, t }: {
     || detail.lineage.children.some((relation) => relation.event != null);
   return (
     <>
-      <dl className="box-tracking-preview-facts">
-        <div>
-          <dt>{t(detail.status === 'inactive' ? 'boxInventoryLastLocation' : 'boxInventoryLocation')}</dt>
-          <dd>{displayedLocation?.name ?? t(detail.status === 'inactive' ? 'boxInventoryNoHistoricalLocation' : 'boxInventoryWithoutLocation')}</dd>
-        </div>
-        <div>
-          <dt>{t('boxInventoryLastMeasurement')}</dt>
-          <dd>{latestMeasurement ? formatPreviewMeasurement(latestMeasurement, t) : t('boxInventoryNoMeasurement')}</dd>
-        </div>
-      </dl>
       {hasTimeline ? (
         <Suspense fallback={loading}><TrackingChart detail={detail} language={language} t={t} /></Suspense>
       ) : <div className="box-tracking-preview-state"><p>{t('noMeasurementHistory')}</p></div>}
     </>
   );
-}
-
-function formatPreviewMeasurement(
-  measurement: BoxDetail['biological_measurements'][number],
-  t: Translator,
-) {
-  return `${formatDisplayDate(measurement.measured_on)} | ${t('polyps')}: ${measurement.polyp_count} | ${t('ephyraeFull')}: ${measurement.ephyrae_count}`;
 }

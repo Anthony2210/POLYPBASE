@@ -37,14 +37,33 @@ export function buildChartWindow(
   };
 }
 
-export function getLatestChartWindowOffset(sourceDates: string[]) {
+export function getLatestChartWindowOffset(
+  sourceDates: string[],
+  focusDates: string[] = sourceDates,
+  windowMonths = 6,
+) {
   const dates = sourceDates.filter(isValidChartDate).sort();
-  const latest = dates[dates.length - 1];
+  const focusedDates = focusDates.filter(isValidChartDate).sort();
+  const latest = focusedDates[focusedDates.length - 1];
   if (!latest) return 0;
   const date = parseChartDate(latest);
   const today = startOfLocalDay(new Date());
-  const months = (today.getFullYear() - date.getFullYear()) * 12 + today.getMonth() - date.getMonth();
-  return Math.max(0, months - (addChartMonths(today, -months) < date ? 1 : 0));
+  const latestSourceDate = dates.length ? parseChartDate(dates[dates.length - 1]) : date;
+  const anchorDate = latestSourceDate > today ? latestSourceDate : today;
+  const months = (
+    (anchorDate.getFullYear() - date.getFullYear()) * 12
+    + anchorDate.getMonth()
+    - date.getMonth()
+  );
+  const requestedOffset = Math.max(
+    0,
+    months - (addChartMonths(anchorDate, -months) < date ? 1 : 0),
+  );
+  return buildChartWindow(
+    dates.length ? dates : focusedDates,
+    requestedOffset,
+    windowMonths,
+  ).offset;
 }
 
 export function addChartMonths(date: Date, months: number) {

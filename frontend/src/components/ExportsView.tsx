@@ -2,7 +2,13 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 
 import { apiDownload, apiGet } from '../api/client';
 import type { BoxDetail, ExportOptions } from '../types';
-import { addChartMonths, parseChartDate, toChartDateString } from '../utils/chartWindow';
+import {
+  addChartMonths,
+  buildChartWindow,
+  getLatestChartWindowOffset,
+  parseChartDate,
+  toChartDateString,
+} from '../utils/chartWindow';
 import BiologicalTrendChart from './BiologicalTrendChart';
 import PageLoader from './PageLoader';
 import PolypbaseIcon from './PolypbaseIcon';
@@ -26,6 +32,7 @@ type PreviewBoxOption = {
   id: number;
   label: string;
   detail: string;
+  latestMeasurementOn: string | null;
   zone: string | null;
 };
 
@@ -36,6 +43,7 @@ type BoxTrendPreview = Pick<
 
 type ExportEligibility = {
   box_ids: number[];
+  latest_measurement_on_by_box: Record<string, string>;
   measurement_count: number;
 };
 
@@ -190,6 +198,7 @@ export default function ExportsView({
   const [selectedPreviewBoxId, setSelectedPreviewBoxId] = useState<number | null>(null);
   const [trendCache, setTrendCache] = useState<Record<string, BoxTrendPreview>>({});
   const [eligibleBoxIds, setEligibleBoxIds] = useState<Set<number> | null>(null);
+  const [latestMeasurementDates, setLatestMeasurementDates] = useState<Record<string, string>>({});
   const [isEligibilityLoading, setIsEligibilityLoading] = useState(false);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -207,6 +216,7 @@ export default function ExportsView({
     if (!options) return;
     if (invalidPeriod) {
       setEligibleBoxIds(new Set());
+      setLatestMeasurementDates({});
       setIsEligibilityLoading(false);
       return;
     }
@@ -221,9 +231,11 @@ export default function ExportsView({
           { signal: controller.signal },
         );
         setEligibleBoxIds(new Set(eligibility.box_ids));
+        setLatestMeasurementDates(eligibility.latest_measurement_on_by_box);
       } catch (eligibilityLoadError) {
         if (isAbortError(eligibilityLoadError)) return;
         setEligibleBoxIds((current) => current ?? new Set());
+        setLatestMeasurementDates({});
         setError(
           eligibilityLoadError instanceof Error
             ? eligibilityLoadError.message
@@ -293,9 +305,9 @@ export default function ExportsView({
   });
   const previewBoxOptions = useMemo(
     () => (exportState && options
-      ? buildPreviewBoxOptions(exportState.matchingBoxes, options)
+      ? buildPreviewBoxOptions(exportState.matchingBoxes, options, latestMeasurementDates)
       : []),
-    [exportState, options],
+    [exportState, latestMeasurementDates, options],
   );
   const selectedPreviewIndex = previewBoxOptions.findIndex(
     (box) => box.id === selectedPreviewBoxId,
@@ -304,8 +316,12 @@ export default function ExportsView({
     ? previewBoxOptions[selectedPreviewIndex]
     : null;
   const previewWindow = useMemo(
-    () => buildPreviewWindow(filters.dateFrom, filters.dateTo),
-    [filters.dateFrom, filters.dateTo],
+    () => buildPreviewWindow(
+      filters.dateFrom,
+      filters.dateTo,
+      selectedPreviewOption?.latestMeasurementOn ?? null,
+    ),
+    [filters.dateFrom, filters.dateTo, selectedPreviewOption?.latestMeasurementOn],
   );
   const selectedPreviewCacheKey = selectedPreviewBoxId === null
     ? null
@@ -1214,6 +1230,7 @@ function buildBoxOptions(options: ExportOptions, available: Set<number>): Filter
 function buildPreviewBoxOptions(
   boxes: ExportOptions['boxes'],
   options: ExportOptions,
+  latestMeasurementDates: Record<string, string>,
 ): PreviewBoxOption[] {
   const speciesById = new Map(options.species.map((species) => [species.id, species.name]));
   const strainsById = new Map(options.strains.map((strain) => [strain.id, strain]));
@@ -1226,13 +1243,28 @@ function buildPreviewBoxOptions(
         id: box.id,
         label: box.global_code,
         detail: [speciesById.get(box.species_id), strain?.code].filter(Boolean).join(', '),
+        latestMeasurementOn: latestMeasurementDates[String(box.id)] ?? null,
         zone: box.thermal_zone_id === null ? null : zonesById.get(box.thermal_zone_id) ?? null,
       };
     })
     .sort((left, right) => left.label.localeCompare(right.label));
 }
 
-function buildPreviewWindow(dateFrom: string, dateTo: string) {
+function buildPreviewWindow(
+  dateFrom: string,
+  dateTo: string,
+  latestMeasurementOn: string | null,
+) {
+  if (!dateFrom && !dateTo && latestMeasurementOn) {
+    const sourceDates = [latestMeasurementOn];
+    const offset = getLatestChartWindowOffset(sourceDates);
+    const chartWindow = buildChartWindow(sourceDates, offset, 6);
+    return {
+      endDate: chartWindow.endDate,
+      startDate: chartWindow.startDate,
+    };
+  }
+
   const today = toChartDateString(new Date());
   let endDate = dateTo || today;
   if (dateFrom && !dateTo && dateFrom > endDate) endDate = dateFrom;

@@ -264,17 +264,20 @@ class MeasurementExportEligibleBoxesAPIView(APIView):
     def get(self, request):
         filters = _get_validated_export_filters(request)
         boxes = _get_filtered_export_boxes(request, filters)
-        box_ids, measurement_count = get_measurement_export_eligibility(
-            boxes=boxes,
-            date_from=filters.get("date_from"),
-            date_to=filters.get("date_to"),
-            zone_ids=filters["zones"],
-            include_other_zones=filters["include_other_zones"],
+        box_ids, measurement_count, latest_measurement_on_by_box = (
+            get_measurement_export_eligibility(
+                boxes=boxes,
+                date_from=filters.get("date_from"),
+                date_to=filters.get("date_to"),
+                zone_ids=filters["zones"],
+                include_other_zones=filters["include_other_zones"],
+            )
         )
         return Response(
             {
                 "box_ids": box_ids,
                 "measurement_count": measurement_count,
+                "latest_measurement_on_by_box": latest_measurement_on_by_box,
             }
         )
 
