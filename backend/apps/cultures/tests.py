@@ -126,7 +126,7 @@ class PolypbaseApiTests(TestCase):
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], self.box.id)
 
-    def test_overview_includes_all_organization_boxes_measured_in_2026(self):
+    def test_overview_includes_every_active_box_in_the_selected_organization(self):
         self.client.login(username="tech", password="secret")
         app_tracked_box = Box.objects.create(
             organization=self.organization,
@@ -149,6 +149,14 @@ class PolypbaseApiTests(TestCase):
             organization=self.organization,
             global_code="AAU-1.004-ATL",
             box_number="004",
+            strain=self.strain,
+            origin=self.origin,
+            thermal_zone=self.zone,
+        )
+        unmeasured_box = Box.objects.create(
+            organization=self.organization,
+            global_code="AAU-1.005-ATL",
+            box_number="005",
             strain=self.strain,
             origin=self.origin,
             thermal_zone=self.zone,
@@ -192,11 +200,16 @@ class PolypbaseApiTests(TestCase):
         boxes_by_code = {box["global_code"]: box for box in response.json()["results"]}
         self.assertEqual(
             set(boxes_by_code),
-            {self.box.global_code, app_tracked_box.global_code},
+            {
+                self.box.global_code,
+                app_tracked_box.global_code,
+                old_box.global_code,
+                unmeasured_box.global_code,
+            },
         )
         self.assertFalse(boxes_by_code[self.box.global_code]["tracked_in_app"])
         self.assertTrue(boxes_by_code[app_tracked_box.global_code]["tracked_in_app"])
-        self.assertEqual(boxes_by_code[self.box.global_code]["measurements"][0]["date"], "2026-01-10")
+        self.assertEqual(boxes_by_code[self.box.global_code]["measurements"], [])
         self.assertEqual(
             boxes_by_code[app_tracked_box.global_code]["measurements"][0]["salinity_psu"],
             "31.50",
@@ -205,6 +218,8 @@ class PolypbaseApiTests(TestCase):
             boxes_by_code[app_tracked_box.global_code]["locations"][0]["thermal_zone"]["name"],
             self.zone.name,
         )
+        self.assertEqual(boxes_by_code[old_box.global_code]["measurements"], [])
+        self.assertEqual(boxes_by_code[unmeasured_box.global_code]["measurements"], [])
 
     def test_lab_technician_can_create_box_directly(self):
         self.client.login(username="tech", password="secret")
