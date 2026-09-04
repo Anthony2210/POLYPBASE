@@ -16,6 +16,7 @@ Ne jamais lire tous les fichiers de `docs/context/` par défaut. Une tâche tran
 - Ne pas imposer une solution technique avant inspection ni ajouter une dépendance de production sans accord.
 - Ne jamais inventer une règle biologique, scientifique, opérationnelle ou d'autorisation. Si le besoin, le code, les tests et la documentation ne permettent pas de conclure, demander une décision métier.
 - Garder les changements dans le périmètre demandé. Éviter les refactorisations opportunistes et vérifier tous les consommateurs avant de modifier un contrat API.
+- Garder les identifiants, commentaires et docstrings du code en anglais simple. Tout texte visible utilisateur passe par le système i18n français/anglais existant.
 
 ## Invariants non négociables
 
