@@ -221,6 +221,48 @@ class PolypbaseApiTests(TestCase):
         self.assertEqual(boxes_by_code[old_box.global_code]["measurements"], [])
         self.assertEqual(boxes_by_code[unmeasured_box.global_code]["measurements"], [])
 
+    def test_overview_never_exposes_location_from_another_organization(self):
+        now = timezone.now()
+        local_location = BoxLocation.objects.create(
+            box=self.box,
+            thermal_zone=self.zone,
+            starts_at=now - timedelta(days=20),
+            ends_at=now - timedelta(days=10),
+            notes="Local location notes",
+        )
+        BoxLocation.objects.create(
+            box=self.box,
+            thermal_zone=self.other_zone,
+            starts_at=now - timedelta(days=5),
+            ends_at=now - timedelta(days=1),
+            notes="Foreign location notes",
+        )
+        self.client.login(username="tech", password="secret")
+
+        response = self.client.get(
+            reverse("api_overview_active_boxes"),
+            HTTP_X_ORGANIZATION_ID=str(self.organization.id),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        overview_box = next(
+            item for item in response.json()["results"] if item["id"] == self.box.id
+        )
+        locations = overview_box["locations"]
+        self.assertEqual([location["id"] for location in locations], [local_location.id])
+        self.assertNotIn(
+            self.other_zone.id,
+            [location["thermal_zone"]["id"] for location in locations],
+        )
+        self.assertNotIn(
+            self.other_zone.name,
+            [location["thermal_zone"]["name"] for location in locations],
+        )
+        self.assertNotIn(
+            "Foreign location notes",
+            [location["notes"] for location in locations],
+        )
+
     def test_lab_technician_can_create_box_directly(self):
         self.client.login(username="tech", password="secret")
 
