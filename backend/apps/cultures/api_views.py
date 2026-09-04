@@ -631,7 +631,8 @@ class OverviewActiveBoxesAPIView(APIView):
         location_history = (
             BoxLocation.objects.filter(
                 Q(ends_at__isnull=True, end_date_unknown=False)
-                | Q(ends_at__date__gte=history_start_date)
+                | Q(ends_at__date__gte=history_start_date),
+                thermal_zone__organization_id__in=organization_ids,
             )
             .select_related("thermal_zone")
             .order_by("starts_at")
