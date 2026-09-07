@@ -42,7 +42,16 @@
     min-height: 48px;
     padding-inline: var(--space-4);
     text-align: center;
+    justify-content: center;
     border-radius: var(--radius-md);
+  }
+
+  .tab-icon {
+    display: none;
+  }
+
+  .sidebar-footer {
+    display: none;
   }
 
   .workspace {

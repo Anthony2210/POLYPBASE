@@ -503,6 +503,8 @@ export const fr = {
   organizationChoiceOpen: 'Ouvrir',
   organizationMenuTitle: 'Institution de travail',
   mainNavigation: 'Navigation principale',
+  sidebarCollapse: 'Réduire le menu',
+  sidebarExpand: 'Agrandir le menu',
   pageLoading: 'Chargement de la page',
   loginRequired: 'Connexion requise',
   logoutAction: 'Se d\u00e9connecter',

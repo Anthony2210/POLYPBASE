@@ -49,7 +49,7 @@ import MeasurementSaveButton from './components/MeasurementSaveButton';
 import ModalPortal from './components/ModalPortal';
 import MoveBoxModal from './components/MoveBoxModal';
 import PageLoader from './components/PageLoader';
-import PolypbaseIcon from './components/PolypbaseIcon';
+import PolypbaseIcon, { type PolypbaseIconName } from './components/PolypbaseIcon';
 import ProfileView from './components/ProfileView';
 import QuickCountButtons from './components/QuickCountButtons';
 import QuickStrainCreator, { type QuickCreatedStrain } from './components/QuickStrainCreator';
@@ -138,6 +138,34 @@ const SALINITY_STEP = 5;
 
 type TabId = 'pilotage' | 'overview' | 'zones' | 'exports' | 'labels' | 'admin' | 'profile';
 
+const TAB_ICONS: Record<TabId, PolypbaseIconName> = {
+  pilotage: 'box-alt',
+  overview: 'overview',
+  zones: 'location',
+  exports: 'export-data',
+  labels: 'qr-scan',
+  admin: 'settings',
+  profile: 'user',
+};
+
+const SIDEBAR_COLLAPSED_STORAGE_KEY = 'polypbase.sidebarCollapsed';
+
+function getStoredSidebarCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function setStoredSidebarCollapsed(collapsed: boolean): void {
+  try {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(collapsed));
+  } catch {
+    // Local storage unavailable
+  }
+}
+
 type AppData = {
   boxes: BoxItem[];
   boxDetails: Record<number, BoxDetail>;
@@ -219,6 +247,17 @@ export default function App() {
   const t = useMemo(() => createTranslator(language), [language]);
   const { confirmAction, confirmActionModal } = useConfirmAction();
   const isDesktopApp = useIsDesktopApp();
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => getStoredSidebarCollapsed());
+
+  function toggleSidebar() {
+    setIsSidebarCollapsed((collapsed) => {
+      const next = !collapsed;
+      setStoredSidebarCollapsed(next);
+      return next;
+    });
+  }
+
+  const isEffectiveCollapsed = isDesktopApp && isSidebarCollapsed;
   const hasAdminRole = userHasAdminRole(data.profile, activeOrganizationId);
 
   useEffect(() => {
@@ -1009,7 +1048,7 @@ export default function App() {
       <span className="brand-mark" aria-hidden="true">
         <img src="/jellyfish.svg" alt="" />
       </span>
-      <div>
+      <div className="brand-text">
         <p className="eyebrow">Polypbase</p>
         <strong>{brandOrganizationName}</strong>
       </div>
@@ -1017,8 +1056,8 @@ export default function App() {
   );
 
   return (
-    <main className="app-shell">
-      <aside className="sidebar">
+    <main className={isEffectiveCollapsed ? 'app-shell is-sidebar-collapsed' : 'app-shell'}>
+      <aside className={isEffectiveCollapsed ? 'sidebar is-collapsed' : 'sidebar'}>
         <div className="brand-switcher">
           {selectableOrganizations.length > 1 ? (
             <button
@@ -1060,17 +1099,47 @@ export default function App() {
         </div>
 
         <nav className="tabbar" aria-label={t('mainNavigation')}>
-          {availableTabs.map((tab) => (
-            <button
-              key={tab}
-              className={tab === activeTab ? `tab tab-${tab} is-active` : `tab tab-${tab}`}
-              type="button"
-              onClick={() => openTab(tab)}
-            >
-              {t(tab)}
-            </button>
-          ))}
+          {availableTabs.map((tab) => {
+            const label = t(tab);
+            return (
+              <button
+                key={tab}
+                className={tab === activeTab ? `tab tab-${tab} is-active` : `tab tab-${tab}`}
+                type="button"
+                aria-label={isEffectiveCollapsed ? label : undefined}
+                title={isEffectiveCollapsed ? label : undefined}
+                onClick={() => openTab(tab)}
+              >
+                {isDesktopApp ? (
+                  <PolypbaseIcon
+                    name={TAB_ICONS[tab]}
+                    size={19}
+                    className="tab-icon"
+                  />
+                ) : null}
+                <span className="tab-label">{label}</span>
+              </button>
+            );
+          })}
         </nav>
+
+        {isDesktopApp ? (
+          <div className="sidebar-footer">
+            <button
+              className="sidebar-toggle"
+              type="button"
+              onClick={toggleSidebar}
+              aria-label={isSidebarCollapsed ? t('sidebarExpand') : t('sidebarCollapse')}
+              title={isSidebarCollapsed ? t('sidebarExpand') : t('sidebarCollapse')}
+            >
+              <PolypbaseIcon
+                name={isSidebarCollapsed ? 'chevrons-right' : 'chevrons-left'}
+                size={18}
+                className="sidebar-toggle-icon"
+              />
+            </button>
+          </div>
+        ) : null}
       </aside>
 
       <section className="workspace">

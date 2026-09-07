@@ -505,6 +505,8 @@ export const en: Record<TranslationKey, string> = {
   organizationChoiceOpen: 'Open',
   organizationMenuTitle: 'Working institution',
   mainNavigation: 'Main navigation',
+  sidebarCollapse: 'Collapse sidebar',
+  sidebarExpand: 'Expand sidebar',
   pageLoading: 'Loading page',
   loginRequired: 'Sign-in required',
   logoutAction: 'Sign out',
