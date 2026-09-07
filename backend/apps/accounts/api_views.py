@@ -259,18 +259,19 @@ class PasswordResetConfirmAPIView(APIView):
         except DjangoValidationError as error:
             return Response({"password": list(error.messages)}, status=status.HTTP_400_BAD_REQUEST)
 
-        user.set_password(password)
-        user.save(update_fields=["password"])
+        with transaction.atomic():
+            user.set_password(password)
+            user.save(update_fields=["password"])
 
-        # Saving the new password changes the hash the token is derived from, so
-        # the link stops working here: it can only be used once.
-        AuditLog.objects.create(
-            user=user,
-            action=AuditLog.Action.UPDATE,
-            object_type="account",
-            object_id=user.get_username(),
-            description="Password reset from the login page",
-        )
+            # Saving the new password changes the hash the token is derived from, so
+            # the link stops working here: it can only be used once.
+            AuditLog.objects.create(
+                user=user,
+                action=AuditLog.Action.UPDATE,
+                object_type="account",
+                object_id=user.get_username(),
+                description="Password reset from the login page",
+            )
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 

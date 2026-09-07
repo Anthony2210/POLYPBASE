@@ -634,6 +634,22 @@ class PasswordResetTests(TestCase):
             ).exists()
         )
 
+    @patch(
+        "apps.accounts.api_views.AuditLog.objects.create",
+        side_effect=RuntimeError("Audit log unavailable"),
+    )
+    def test_audit_failure_rolls_back_password_reset(self, _create_audit_log):
+        uid, token = self.make_link_parts()
+
+        with self.assertRaisesMessage(RuntimeError, "Audit log unavailable"):
+            self.confirm_reset(uid, token, "un-mot-de-passe-solide-42")
+
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.check_password("un-mot-de-passe-solide-42"))
+        self.assertTrue(self.user.check_password("ancien-mot-de-passe"))
+        self.assertTrue(default_token_generator.check_token(self.user, token))
+        self.assertFalse(AuditLog.objects.filter(user=self.user).exists())
+
     def test_link_cannot_be_used_twice(self):
         uid, token = self.make_link_parts()
         self.confirm_reset(uid, token, "un-mot-de-passe-solide-42")
