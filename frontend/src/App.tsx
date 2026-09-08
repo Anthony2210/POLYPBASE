@@ -42,9 +42,9 @@ import BoxLifecycleModal, {
 type HistoryMeasurementPrefill = EditableMeasurement;
 import type { BoxInsightTab } from './components/BoxInsights';
 import { useConfirmAction, type ConfirmActionOptions } from './components/ConfirmActionModal';
+import ApplicationErrorNotice from './components/ApplicationErrorNotice';
 import LoginPage from './components/LoginPage';
 import PasswordResetPage from './components/PasswordResetPage';
-import LoginNotice from './components/LoginNotice';
 import MeasurementSaveButton from './components/MeasurementSaveButton';
 import ModalPortal from './components/ModalPortal';
 import MoveBoxModal from './components/MoveBoxModal';
@@ -98,6 +98,12 @@ import type {
 import { upsertBoxes } from './utils/boxCollection';
 import { formatDisplayDate } from './utils/dateFormat';
 import { getErrorMessage } from './utils/errors';
+import {
+  getPasswordResetRoute,
+  isPublicAuthPath,
+  requiresSignInRecovery,
+  shouldRedirectToLogin,
+} from './utils/authRouting';
 import {
   decrementDecimalValue,
   formatDecimalValue,
@@ -176,6 +182,11 @@ type AppData = {
   profile: UserProfile | null;
 };
 
+type ApplicationError = {
+  message: string;
+  requiresAuthentication: boolean;
+};
+
 type MeasurementPayload = {
   measured_on: string;
   polyp_count: number;
@@ -215,7 +226,7 @@ export default function App() {
   const [isLoginRoute, setIsLoginRoute] = useState(() => window.location.pathname === '/login');
   // Reached from the link emailed by the "forgot password" flow, so it has to
   // render before any authentication check.
-  const [passwordReset, setPasswordReset] = useState(() => getPasswordResetRoute());
+  const [passwordReset, setPasswordReset] = useState(() => getPasswordResetRoute(window.location.pathname));
   const [search, setSearch] = useState('');
   const [recentBoxIds, setRecentBoxIds] = useState<number[]>([]);
   const [qrLabelSelection, setQrLabelSelection] = useState<QrLabelItem[]>([]);
@@ -238,7 +249,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [isBoxLoading, setIsBoxLoading] = useState(false);
   const [exportOptionsRequested, setExportOptionsRequested] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ApplicationError | null>(null);
 
   const activeTab = route.tab;
   const isBoxRoute = route.boxCode != null || route.boxId != null;
@@ -325,7 +336,7 @@ export default function App() {
       setData(nextData);
       setRecentBoxIds(buildRecentBoxIds(nextData.boxes, nextData.dashboard));
     } catch (requestError) {
-      setError(getErrorMessage(requestError));
+      setError(await getApplicationError(requestError));
     } finally {
       setIsLoading(false);
     }
@@ -335,6 +346,7 @@ export default function App() {
     function syncRoute() {
       setRoute(getCurrentRoute());
       setIsLoginRoute(window.location.pathname === '/login');
+      setPasswordReset(getPasswordResetRoute(window.location.pathname));
     }
 
     window.addEventListener('popstate', syncRoute);
@@ -342,7 +354,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (isLoginRoute) {
+    if (isPublicAuthPath(window.location.pathname)) {
       setError(null);
       setIsLoading(false);
       return;
@@ -351,11 +363,14 @@ export default function App() {
     let isActive = true;
 
     async function loadData() {
+      let profileLoaded = false;
+
       try {
         setIsLoading(true);
         setError(null);
 
         const profile = await apiGet<UserProfile>('/api/profile/', { skipOrganizationContext: true });
+        profileLoaded = true;
 
         if (!isActive) return;
 
@@ -408,7 +423,8 @@ export default function App() {
       } catch (requestError) {
         if (!isActive) return;
 
-        if (requestError instanceof ApiError && [401, 403].includes(requestError.status)) {
+        const status = requestError instanceof ApiError ? requestError.status : null;
+        if (shouldRedirectToLogin(profileLoaded, status)) {
           const requestedPath = `${window.location.pathname}${window.location.search}`;
           const loginPath = `/login?next=${encodeURIComponent(requestedPath)}`;
           window.history.replaceState(null, '', loginPath);
@@ -417,7 +433,9 @@ export default function App() {
           return;
         }
 
-        setError(getErrorMessage(requestError));
+        const applicationError = await getApplicationError(requestError);
+        if (!isActive) return;
+        setError(applicationError);
       } finally {
         if (isActive) {
           setIsLoading(false);
@@ -430,7 +448,7 @@ export default function App() {
     return () => {
       isActive = false;
     };
-  }, [isLoginRoute]);
+  }, [isLoginRoute, passwordReset]);
 
   useEffect(() => {
     if (isLoginRoute || needsOrganizationChoice || activeOrganizationId == null || activeTab !== 'overview' || data.overview !== null) return;
@@ -444,7 +462,9 @@ export default function App() {
         setData((current) => ({ ...current, overview: overview.results }));
       } catch (requestError) {
         if (!isActive) return;
-        setError(getErrorMessage(requestError));
+        const applicationError = await getApplicationError(requestError);
+        if (!isActive) return;
+        setError(applicationError);
       }
     }
 
@@ -506,7 +526,9 @@ export default function App() {
         setData((current) => mergeBoxDetail(current, detail));
       } catch (requestError) {
         if (!isActive) return;
-        setError(getErrorMessage(requestError));
+        const applicationError = await getApplicationError(requestError);
+        if (!isActive) return;
+        setError(applicationError);
       } finally {
         if (isActive) setIsBoxLoading(false);
       }
@@ -581,7 +603,7 @@ export default function App() {
         setSearch(detail.global_code);
         navigateTo({ tab: 'pilotage', boxCode: detail.global_code, boxId: null }, `/boxes/${encodeURIComponent(detail.global_code)}`);
       })
-      .catch((requestError) => setError(getErrorMessage(requestError)))
+      .catch(async (requestError) => setError(await getApplicationError(requestError)))
       .finally(() => setIsBoxLoading(false));
   }
 
@@ -672,10 +694,11 @@ export default function App() {
         setData((current) => ({ ...current, exportOptions }));
         setExportOptionsRequested(false);
       } catch (requestError) {
-        if (isActive) {
-          setError(getErrorMessage(requestError));
-          setExportOptionsRequested(false);
-        }
+        if (!isActive) return;
+        const applicationError = await getApplicationError(requestError);
+        if (!isActive) return;
+        setError(applicationError);
+        setExportOptionsRequested(false);
       }
     }
 
@@ -1150,12 +1173,15 @@ export default function App() {
         ) : null}
 
         {error ? (
-          <LoginNotice
+          <ApplicationErrorNotice
+            actionHref={error.requiresAuthentication
+              ? `/login?next=${encodeURIComponent(`${window.location.pathname}${window.location.search}`)}`
+              : `${window.location.pathname}${window.location.search}`}
             labels={{
-              action: t('loginAction'),
-              title: t('loginRequired'),
+              action: error.requiresAuthentication ? t('loginAction') : t('reloadAction'),
+              title: error.requiresAuthentication ? t('loginRequired') : t('pageLoadErrorTitle'),
             }}
-            message={error}
+            message={error.message}
           />
         ) : null}
 
@@ -3551,19 +3577,27 @@ function getTitle(tab: TabId, t: TFunction) {
   return t('profileTitle');
 }
 
-/**
- * Reads /reset-password/<uid>/<token>, the address carried by the email sent by
- * the "forgot password" flow. Returns null on any other page. The two parts are
- * handed to the API untouched; it is what decides whether they are still valid.
- */
-function getPasswordResetRoute(): { uid: string; token: string } | null {
-  const segments = window.location.pathname.split('/').filter(Boolean);
-  if (segments.length !== 3 || segments[0] !== 'reset-password') return null;
+async function getApplicationError(error: unknown): Promise<ApplicationError> {
+  const status = error instanceof ApiError ? error.status : null;
+  let profileStatus: number | null = null;
 
-  const [, uid, token] = segments;
-  if (!uid || !token) return null;
+  // DRF SessionAuthentication uses 403 both when the session is missing and
+  // when an authenticated user is genuinely forbidden. Re-check the
+  // organization-independent profile endpoint instead of interpreting every
+  // 403 as logout.
+  if (status === 403) {
+    try {
+      await apiGet<UserProfile>('/api/profile/', { skipOrganizationContext: true });
+      profileStatus = 200;
+    } catch (profileError) {
+      profileStatus = profileError instanceof ApiError ? profileError.status : null;
+    }
+  }
 
-  return { uid: decodeURIComponent(uid), token: decodeURIComponent(token) };
+  return {
+    message: getErrorMessage(error),
+    requiresAuthentication: requiresSignInRecovery(status, profileStatus),
+  };
 }
 
 function getCurrentRoute(): RouteState {

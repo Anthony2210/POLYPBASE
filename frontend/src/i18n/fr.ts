@@ -506,6 +506,8 @@ export const fr = {
   sidebarCollapse: 'Réduire le menu',
   sidebarExpand: 'Agrandir le menu',
   pageLoading: 'Chargement de la page',
+  pageLoadErrorTitle: 'Page indisponible',
+  reloadAction: 'Recharger',
   loginRequired: 'Connexion requise',
   logoutAction: 'Se d\u00e9connecter',
   logoutError: 'D\u00e9connexion impossible pour le moment.',

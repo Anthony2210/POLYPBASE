@@ -508,6 +508,8 @@ export const en: Record<TranslationKey, string> = {
   sidebarCollapse: 'Collapse sidebar',
   sidebarExpand: 'Expand sidebar',
   pageLoading: 'Loading page',
+  pageLoadErrorTitle: 'Page unavailable',
+  reloadAction: 'Reload',
   loginRequired: 'Sign-in required',
   logoutAction: 'Sign out',
   logoutError: 'Unable to sign out at the moment.',

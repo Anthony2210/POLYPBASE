@@ -8,6 +8,7 @@
     "dev:lan": "vite --host 0.0.0.0",
     "check:css": "node scripts/check-css.mjs",
     "typecheck": "tsc --noEmit",
+    "test:auth": "node --test scripts/test-auth-routing.mjs",
     "test:api": "node --test scripts/test-api-errors.mjs",
     "test:charts": "node --test scripts/test-chart-window.mjs",
     "test:inventory": "node --test scripts/test-box-inventory.mjs",
