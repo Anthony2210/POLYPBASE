@@ -16,13 +16,31 @@
   outline-offset: 2px;
 }
 
-.box-inventory-row-menu {
+.row-action-menu-trigger {
+  display: grid;
+  width: 32px;
+  height: 36px;
+  padding: 0;
+  place-items: center;
+  color: var(--color-muted);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+
+.row-action-menu-trigger:is(:hover, [aria-expanded='true']) {
+  color: var(--color-primary-hover);
+  background: var(--color-primary-soft);
+}
+
+.row-action-menu {
   display: grid;
   min-width: 192px;
   padding: var(--space-1);
 }
 
-.box-inventory-row-menu button {
+.row-action-menu button {
   min-height: 36px;
   padding: 6px var(--space-3);
   color: var(--color-ink-soft);
@@ -35,9 +53,9 @@
   cursor: pointer;
 }
 
-.box-inventory-row-menu button:is(:hover, :focus-visible) { background: var(--color-primary-faint); }
-.box-inventory-row-menu button.is-danger { color: var(--color-danger-hover); }
-.box-inventory-row-menu button.is-danger:is(:hover, :focus-visible) { background: var(--color-danger-soft); }
+.row-action-menu button:is(:hover, :focus-visible) { background: var(--color-primary-faint); }
+.row-action-menu button.is-danger { color: var(--color-danger-hover); }
+.row-action-menu button.is-danger:is(:hover, :focus-visible) { background: var(--color-danger-soft); }
 
 .box-inventory-suggestion-popover {
   width: 290px;

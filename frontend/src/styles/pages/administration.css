@@ -2799,23 +2799,9 @@ button.account-overview-card.is-active {
 
 .box-inventory-actions { justify-content: center; padding: 0; }
 
-.box-inventory-menu-trigger {
-  display: grid;
-  width: 32px;
-  height: 36px;
-  padding: 0;
-  place-items: center;
-  color: var(--color-muted);
-  background: transparent;
-  border: 0;
-  border-radius: var(--radius-xs);
-  cursor: pointer;
-}
 
-.box-inventory-menu-trigger:is(:hover, [aria-expanded='true']) {
-  color: var(--color-primary-hover);
-  background: var(--color-primary-soft);
-}
+
+
 
 .box-inventory-loading {
   padding: var(--space-4);
