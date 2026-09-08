@@ -140,8 +140,8 @@ msgstr "POLYPBASE only collects information needed to track polyp cultures, mana
 msgid "Données collectées"
 msgstr "Collected data"
 
-msgid "Identité de compte : nom d'utilisateur, adresse email si renseignée, rôle et organisation."
-msgstr "Account identity: username, email address when provided, role, and organization."
+msgid "Identité de compte : nom complet, adresse email, rôle et organisation."
+msgstr "Account identity: full name, email address, role, and organization."
 
 msgid "Données métier : boîtes, espèces, souches, relevés biologiques, salinités, températures et mouvements."
 msgstr "Business data: boxes, species, strains, biological measurements, salinity, temperature, and movements."

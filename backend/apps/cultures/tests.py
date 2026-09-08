@@ -23,7 +23,7 @@ from .models import Box, BoxLineage, BoxLocation, BoxTransfer, BoxTransferImport
 class PolypbaseApiTests(TestCase):
     def setUp(self):
         user_model = get_user_model()
-        self.user = user_model.objects.create_user(username="tech", password="secret")
+        self.user = user_model.objects.create_user(username="tech", email="tech@example.org",password="secret")
 
         self.organization = Organization.objects.create(name="Aquarium de Paris", slug="aquariumdeparis")
         self.other_organization = Organization.objects.create(name="Aquarium de Tokyo", slug="aquariumdetokyo")
@@ -112,7 +112,7 @@ class PolypbaseApiTests(TestCase):
 
     def test_drf_box_list_allows_read_only_users_to_consult_their_organization(self):
         user_model = get_user_model()
-        viewer = user_model.objects.create_user(username="box_viewer", password="secret")
+        viewer = user_model.objects.create_user(username="box_viewer", email="box_viewer@example.org",password="secret")
         OrganizationMembership.objects.create(
             user=viewer,
             organization=self.organization,
@@ -300,7 +300,7 @@ class PolypbaseApiTests(TestCase):
 
     def test_viewer_cannot_create_box_directly(self):
         user_model = get_user_model()
-        viewer = user_model.objects.create_user(username="box_viewer", password="secret")
+        viewer = user_model.objects.create_user(username="box_viewer", email="box_viewer@example.org",password="secret")
         OrganizationMembership.objects.create(
             user=viewer,
             organization=self.organization,
@@ -439,7 +439,7 @@ class PolypbaseApiTests(TestCase):
 
     def test_admin_can_mark_box_inactive_without_deleting_history(self):
         user_model = get_user_model()
-        admin = user_model.objects.create_user(username="box_admin", password="secret")
+        admin = user_model.objects.create_user(username="box_admin", email="box_admin@example.org",password="secret")
         OrganizationMembership.objects.create(
             user=admin,
             organization=self.organization,
@@ -494,7 +494,7 @@ class PolypbaseApiTests(TestCase):
 
     def test_admin_can_reactivate_inactive_box(self):
         user_model = get_user_model()
-        admin = user_model.objects.create_user(username="box_admin", password="secret")
+        admin = user_model.objects.create_user(username="box_admin", email="box_admin@example.org",password="secret")
         OrganizationMembership.objects.create(
             user=admin,
             organization=self.organization,
@@ -527,7 +527,7 @@ class PolypbaseApiTests(TestCase):
 
     def test_box_accesses_are_saved_for_the_current_account_only(self):
         user_model = get_user_model()
-        other_user = user_model.objects.create_user(username="other_tech", password="secret")
+        other_user = user_model.objects.create_user(username="other_tech", email="other_tech@example.org",password="secret")
         OrganizationMembership.objects.create(
             user=other_user,
             organization=self.organization,
@@ -819,7 +819,7 @@ class PolypbaseApiTests(TestCase):
         self.assertIsNone(alert.resolved_at)
 
     def test_viewer_cannot_resolve_an_alert(self):
-        viewer = get_user_model().objects.create_user(username="alert_viewer", password="secret")
+        viewer = get_user_model().objects.create_user(username="alert_viewer", email="alert_viewer@example.org",password="secret")
         OrganizationMembership.objects.create(
             user=viewer,
             organization=self.organization,
@@ -950,7 +950,7 @@ class PolypbaseApiTests(TestCase):
 
     def test_drf_measurement_endpoint_blocks_read_only_users(self):
         user_model = get_user_model()
-        viewer = user_model.objects.create_user(username="viewer", password="secret")
+        viewer = user_model.objects.create_user(username="viewer", email="viewer@example.org",password="secret")
         OrganizationMembership.objects.create(
             user=viewer,
             organization=self.organization,
@@ -1214,7 +1214,7 @@ class PolypbaseApiTests(TestCase):
 
     def test_drf_subculture_endpoint_blocks_read_only_users(self):
         user_model = get_user_model()
-        viewer = user_model.objects.create_user(username="subculture_viewer", password="secret")
+        viewer = user_model.objects.create_user(username="subculture_viewer", email="subculture_viewer@example.org",password="secret")
         OrganizationMembership.objects.create(
             user=viewer,
             organization=self.organization,
@@ -1395,7 +1395,7 @@ class PolypbaseApiTests(TestCase):
 
     def test_drf_move_endpoint_blocks_read_only_users(self):
         user_model = get_user_model()
-        viewer = user_model.objects.create_user(username="move_viewer", password="secret")
+        viewer = user_model.objects.create_user(username="move_viewer", email="move_viewer@example.org",password="secret")
         OrganizationMembership.objects.create(
             user=viewer,
             organization=self.organization,

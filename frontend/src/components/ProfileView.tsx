@@ -101,7 +101,6 @@ export default function ProfileView({
         <div className="profile-identity-main">
           <p className="eyebrow">{labels.account}</p>
           <h2>{fullName}</h2>
-          <p className="profile-username">@{profile.username}</p>
           <div className="profile-identity-meta">
             <span className="profile-meta-item">
               <small>{labels.profileEmail}</small>
@@ -214,7 +213,7 @@ export default function ProfileView({
 function formatProfileName(profile: UserProfile): string {
   const firstName = formatFirstName(profile.first_name);
   const lastName = formatLastName(profile.last_name);
-  return [firstName, lastName].filter(Boolean).join(' ') || profile.username;
+  return [firstName, lastName].filter(Boolean).join(' ') || profile.email || '—';
 }
 
 function formatFirstName(value: string) {

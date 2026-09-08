@@ -13,10 +13,18 @@
 
     <h1>{% trans "Mon profil" %}</h1>
 
+    {% with full_name=request.user.get_full_name %}
+    {% if full_name %}
     <p>
-        <strong>{% trans "Utilisateur :" %}</strong>
-        {{ request.user.get_username }}
+        <strong>{% trans "Nom :" %}</strong>
+        {{ full_name }}
     </p>
+    {% endif %}
+    <p>
+        <strong>{% trans "Email :" %}</strong>
+        {{ request.user.email }}
+    </p>
+    {% endwith %}
 
     <h2>{% trans "Préférences" %}</h2>
 

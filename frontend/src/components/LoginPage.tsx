@@ -13,8 +13,8 @@ type Props = {
 };
 
 export default function LoginPage({ onAuthenticated, t }: Props) {
-  const usernameRef = useRef<HTMLInputElement | null>(null);
-  const [username, setUsername] = useState('');
+  const emailRef = useRef<HTMLInputElement | null>(null);
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +25,7 @@ export default function LoginPage({ onAuthenticated, t }: Props) {
   const [resetSent, setResetSent] = useState(false);
 
   useEffect(() => {
-    usernameRef.current?.focus();
+    emailRef.current?.focus();
     void apiEnsureCsrfCookie().catch(() => undefined);
   }, []);
 
@@ -65,7 +65,7 @@ export default function LoginPage({ onAuthenticated, t }: Props) {
 
     try {
       await apiEnsureCsrfCookie();
-      const session = await apiPost<SessionLoginResponse>('/api/auth/session/', { username, password });
+      const session = await apiPost<SessionLoginResponse>('/api/auth/session/', { email, password });
       setStoredInterfaceLanguage(session.interface_language);
       onAuthenticated();
     } catch (requestError) {
@@ -141,14 +141,15 @@ export default function LoginPage({ onAuthenticated, t }: Props) {
           </header>
 
           <label>
-            {t('username')}
+            {t('emailAddress')}
             <input
-              ref={usernameRef}
-              autoComplete="username"
+              ref={emailRef}
+              autoComplete="email"
               disabled={isSubmitting}
               required
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
             />
           </label>
 

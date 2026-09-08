@@ -42,8 +42,8 @@ from .services import _locked_box
 class BoxLifecycleTests(TestCase):
     def setUp(self):
         user_model = get_user_model()
-        self.admin = user_model.objects.create_user(username="lifecycle_admin", password="secret")
-        self.technician = user_model.objects.create_user(username="lifecycle_tech", password="secret")
+        self.admin = user_model.objects.create_user(username="lifecycle_admin", email="lifecycle_admin@example.org",password="secret")
+        self.technician = user_model.objects.create_user(username="lifecycle_tech", email="lifecycle_tech@example.org",password="secret")
         self.organization = Organization.objects.create(name="Lifecycle laboratory")
         self.other_organization = Organization.objects.create(name="Other laboratory")
         OrganizationMembership.objects.create(

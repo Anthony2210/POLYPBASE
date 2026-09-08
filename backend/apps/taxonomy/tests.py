@@ -18,18 +18,14 @@ class TaxonomyReferenceApiTests(TestCase):
             name="Aquarium de Paris",
             slug="paris",
         )
-        self.admin = user_model.objects.create_user(
-            username="taxonomy_admin",
-            password="secret",
+        self.admin = user_model.objects.create_user(username="taxonomy_admin", email="taxonomy_admin@example.org",password="secret",
         )
         OrganizationMembership.objects.create(
             user=self.admin,
             organization=self.organization,
             role=OrganizationMembership.Role.ADMIN,
         )
-        self.viewer = user_model.objects.create_user(
-            username="taxonomy_viewer",
-            password="secret",
+        self.viewer = user_model.objects.create_user(username="taxonomy_viewer", email="taxonomy_viewer@example.org",password="secret",
         )
         OrganizationMembership.objects.create(
             user=self.viewer,

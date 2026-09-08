@@ -403,7 +403,6 @@ export type Dashboard = {
 
 export type UserProfile = {
   id: number;
-  username: string;
   email: string;
   first_name: string;
   last_name: string;
@@ -431,7 +430,6 @@ export type MembershipRole = 'admin' | 'lab_technician' | 'viewer';
 export type AccountMember = {
   membership_id: number;
   user_id: number;
-  username: string;
   full_name: string;
   email: string;
   organization: {
@@ -460,7 +458,6 @@ export type AccountMembers = {
 };
 
 export type NewMemberPayload = {
-  username: string;
   first_name: string;
   last_name: string;
   email: string;

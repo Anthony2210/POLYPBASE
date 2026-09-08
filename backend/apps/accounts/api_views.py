@@ -1,5 +1,6 @@
 import logging
 import re
+import uuid
 
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login, logout
@@ -7,7 +8,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.mail import send_mail
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count
 from django.db.models.functions import Coalesce
 from django.utils import translation
@@ -60,6 +61,59 @@ PASSWORD_RESET_IP_SCOPE = "password_reset_ip"
 PASSWORD_RESET_ACCOUNT_SCOPE = "password_reset_account"
 
 
+EMAIL_LOCAL_PATTERN = re.compile(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+$")
+EMAIL_DOMAIN_PATTERN = re.compile(
+    r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+    r"(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
+)
+
+
+def _ascii_lower(value):
+    return str(value or "").translate(
+        str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+    )
+
+
+def _canonical_email(value):
+    candidate = str(value or "").strip()
+    if candidate.count("@") != 1:
+        return None
+    local, domain = candidate.split("@")
+    local = _ascii_lower(local)
+    if (
+        not local
+        or local.startswith(".")
+        or local.endswith(".")
+        or ".." in local
+        or not local.isascii()
+        or not EMAIL_LOCAL_PATTERN.fullmatch(local)
+    ):
+        return None
+    try:
+        ascii_domain = domain.encode("idna").decode("ascii").lower()
+    except UnicodeError:
+        return None
+    if not EMAIL_DOMAIN_PATTERN.fullmatch(ascii_domain):
+        return None
+    canonical = f"{local}@{ascii_domain}"
+    return canonical if len(canonical) <= 254 else None
+
+
+def normalize_email(value):
+    """Normalize an email identity, preserving invalid input for safe lookup."""
+    candidate = str(value or "").strip()
+    canonical = _canonical_email(candidate)
+    return canonical if canonical is not None else _ascii_lower(candidate)
+
+
+def validate_email_identity(value):
+    """Validate and canonicalize the Polypbase email identity domain."""
+    email = _canonical_email(value)
+    if email is None:
+        raise ValidationError("Enter a valid email address.")
+    return email
+
+
 class EmailDeliveryUnavailable(APIException):
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     default_detail = (
@@ -89,19 +143,17 @@ def _send_password_email(user, *, invitation):
     if invitation:
         subject = "Invitation Polypbase"
         message = (
-            "Bonjour,\n\n"
-            "Un accès Polypbase vient d'être créé pour vous.\n"
-            f"Identifiant : {user.get_username()}\n\n"
-            "Choisissez votre mot de passe avec ce lien à usage unique :\n"
+            "Hello,\n\n"
+            "A Polypbase account has been created for you.\n\n"
+            "Use this one-time link to choose your password:\n"
             f"{link}\n\n"
-            "Ce lien est valable une heure.\n"
+            "This link is valid for one hour and can only be used once.\n"
         )
     else:
         subject = "Réinitialisation de votre mot de passe Polypbase"
         message = (
             "Bonjour,\n\n"
             "Vous avez demandé la réinitialisation de votre mot de passe Polypbase.\n"
-            f"Identifiant : {user.get_username()}\n\n"
             "Choisissez un nouveau mot de passe avec ce lien à usage unique :\n"
             f"{link}\n\n"
             "Ce lien est valable une heure. Si vous n'êtes pas à l'origine de cette "
@@ -129,14 +181,18 @@ class SessionLoginAPIView(APIView):
         return Response({"detail": "CSRF cookie set."})
 
     def post(self, request):
-        username = str(request.data.get("username", "")).strip()
+        email = normalize_email(request.data.get("email"))
         password = str(request.data.get("password", ""))
         client_ip = get_client_ip(request)
         user_model = get_user_model()
-        account = user_model.objects.filter(
-            username__iexact=username,
-            is_active=True,
-        ).only("pk").first()
+        matching_accounts = (
+            list(user_model.objects.filter(email=email, is_active=True).only("pk")[:2])
+            if email
+            else []
+        )
+        if len(matching_accounts) > 1:
+            logger.error("Ambiguous email identity encountered during login.")
+        account = matching_accounts[0] if len(matching_accounts) == 1 else None
 
         retry_seconds = retry_after(LOGIN_IP_SCOPE, client_ip, login_ip_policy())
         if account is not None:
@@ -151,7 +207,11 @@ class SessionLoginAPIView(APIView):
         if retry_seconds:
             return _too_many_attempts(retry_seconds)
 
-        user = authenticate(request, username=username, password=password)
+        user = authenticate(
+            request,
+            username=account.get_username() if account is not None else "",
+            password=password,
+        )
 
         if user is None or not user.is_active:
             record_event(LOGIN_IP_SCOPE, client_ip, login_ip_policy())
@@ -199,7 +259,7 @@ class PasswordResetRequestAPIView(APIView):
         return Response({"detail": "CSRF cookie set."})
 
     def post(self, request):
-        email = str(request.data.get("email", "")).strip()
+        email = normalize_email(request.data.get("email"))
         client_ip = get_client_ip(request)
         retry_seconds = consume_event(
             PASSWORD_RESET_IP_SCOPE,
@@ -210,9 +270,13 @@ class PasswordResetRequestAPIView(APIView):
             return _too_many_attempts(retry_seconds)
 
         if email:
-            # An address could in theory be shared by several accounts; each one
-            # gets its own link. Inactive accounts are skipped.
-            for user in get_user_model().objects.filter(email__iexact=email, is_active=True):
+            matching_users = list(
+                get_user_model().objects.filter(email=email, is_active=True)[:2]
+            )
+            if len(matching_users) > 1:
+                logger.error("Ambiguous email identity encountered during password reset.")
+            user = matching_users[0] if len(matching_users) == 1 else None
+            if user is not None:
                 account_retry = consume_event(
                     PASSWORD_RESET_ACCOUNT_SCOPE,
                     user.pk,
@@ -324,7 +388,6 @@ class UserProfileAPIView(APIView):
         serializer = UserProfileSerializer(
             {
                 "id": user.id,
-                "username": user.get_username(),
                 "email": user.email,
                 "first_name": user.first_name,
                 "last_name": user.last_name,
@@ -376,8 +439,7 @@ def _member_data(membership, *, current_user):
     return {
         "membership_id": membership.id,
         "user_id": user.id,
-        "username": user.get_username(),
-        "full_name": full_name or user.get_username(),
+        "full_name": full_name,
         "email": user.email,
         "organization": {
             "id": membership.organization.id,
@@ -398,7 +460,6 @@ def _member_audit_values(membership):
         part for part in [user.first_name, user.last_name] if part
     ).strip()
     return {
-        "identifiant": user.get_username(),
         "nom": full_name or user.get_username(),
         "email": user.email,
         "structure": membership.organization.name,
@@ -435,7 +496,7 @@ class OrganizationMemberListCreateAPIView(APIView):
         memberships = (
             OrganizationMembership.objects.filter(organization_id__in=organization_ids)
             .select_related("organization", "user")
-            .order_by("organization__name", "user__username")
+            .order_by("organization__name", "user__last_name", "user__first_name", "user__email")
         )
         organizations = get_admin_organizations(request.user).filter(id__in=organization_ids).order_by("name")
 
@@ -465,13 +526,13 @@ class OrganizationMemberListCreateAPIView(APIView):
         organization = self._get_managed_organization(data.get("organization_id"), admin_org_ids)
         role = self._validate_role(data.get("role"))
 
-        username = (data.get("username") or "").strip()
-        if not username:
-            raise ValidationError({"username": "Un identifiant est requis."})
-
-        email = (data.get("email") or "").strip().lower()
+        email = normalize_email(data.get("email"))
         if not email:
             raise ValidationError({"email": "Une adresse email est requise."})
+        try:
+            email = validate_email_identity(email)
+        except ValidationError as error:
+            raise ValidationError({"email": error.detail})
         if data.get("password") not in (None, ""):
             raise ValidationError(
                 {"password": "Un mot de passe ne peut pas être défini par un administrateur."}
@@ -481,8 +542,8 @@ class OrganizationMemberListCreateAPIView(APIView):
 
         user_model = get_user_model()
         with transaction.atomic():
-            self._validate_new_user_identity(user_model, username, email)
-            user = self._create_user(user_model, username, email, data)
+            self._validate_new_user_identity(user_model, email)
+            user = self._create_user(user_model, email, data)
 
             membership = OrganizationMembership.objects.create(
                 user=user,
@@ -527,14 +588,9 @@ class OrganizationMemberListCreateAPIView(APIView):
             raise PermissionDenied("You cannot manage members for this organization.")
         return Organization.objects.get(id=organization_id)
 
-    def _validate_new_user_identity(self, user_model, username, email):
-        errors = {}
-        if user_model.objects.filter(username__iexact=username).exists():
-            errors["username"] = "Cet identifiant est déjà utilisé."
-        if user_model.objects.filter(email__iexact=email).exists():
-            errors["email"] = "Cette adresse email est déjà utilisée."
-        if errors:
-            raise ValidationError(errors)
+    def _validate_new_user_identity(self, user_model, email):
+        if user_model.objects.filter(email=email).exists():
+            raise ValidationError({"email": "Cette adresse email est déjà utilisée."})
 
     def _validate_role(self, role):
         valid_roles = {value for value, _label in OrganizationMembership.Role.choices}
@@ -542,16 +598,24 @@ class OrganizationMemberListCreateAPIView(APIView):
             raise ValidationError({"role": "Rôle invalide."})
         return role
 
-    def _create_user(self, user_model, username, email, data):
-        user = user_model(
-            username=username,
-            email=email,
-            first_name=_format_first_name(data.get("first_name")),
-            last_name=_format_last_name(data.get("last_name")),
-        )
-        user.set_unusable_password()
-        user.save()
-        return user
+    def _create_user(self, user_model, email, data):
+        for _attempt in range(5):
+            user = user_model(
+                username=f"internal_{uuid.uuid4().hex}",
+                email=email,
+                first_name=_format_first_name(data.get("first_name")),
+                last_name=_format_last_name(data.get("last_name")),
+            )
+            user.set_unusable_password()
+            try:
+                with transaction.atomic():
+                    user.save(force_insert=True)
+            except IntegrityError:
+                if user_model.objects.filter(email=email).exists():
+                    raise ValidationError({"email": "Cette adresse email est déjà utilisée."})
+                continue
+            return user
+        raise ValidationError({"detail": "Unable to create the account. Please try again."})
 
     def _send_account_invitation(self, user):
         try:

@@ -30,8 +30,14 @@ class ManualTemperatureConcurrencyTests(TransactionTestCase):
 
     def setUp(self):
         user_model = get_user_model()
-        self.user_one = user_model.objects.create_user(username="temperature-user-one")
-        self.user_two = user_model.objects.create_user(username="temperature-user-two")
+        self.user_one = user_model.objects.create_user(
+            username="temperature-user-one",
+            email="temperature-user-one@example.org",
+        )
+        self.user_two = user_model.objects.create_user(
+            username="temperature-user-two",
+            email="temperature-user-two@example.org",
+        )
         self.organization = Organization.objects.create(name="Temperature concurrency QA")
         for user in (self.user_one, self.user_two):
             OrganizationMembership.objects.create(

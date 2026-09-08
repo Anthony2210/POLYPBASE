@@ -27,21 +27,21 @@ class AdminResourceCreationApiTests(TestCase):
         self.organization = Organization.objects.create(name="Aquarium de Paris", slug="paris")
         self.other_organization = Organization.objects.create(name="Aquarium de Tokyo", slug="tokyo")
 
-        self.admin = user_model.objects.create_user(username="org_admin", password="secret")
+        self.admin = user_model.objects.create_user(username="org_admin", email="org_admin@example.org",password="secret")
         OrganizationMembership.objects.create(
             user=self.admin,
             organization=self.organization,
             role=OrganizationMembership.Role.ADMIN,
         )
 
-        self.technician = user_model.objects.create_user(username="tech", password="secret")
+        self.technician = user_model.objects.create_user(username="tech", email="tech@example.org",password="secret")
         OrganizationMembership.objects.create(
             user=self.technician,
             organization=self.organization,
             role=OrganizationMembership.Role.LAB_TECHNICIAN,
         )
 
-        self.superuser = user_model.objects.create_superuser(username="root", password="secret")
+        self.superuser = user_model.objects.create_superuser(username="root", email="root@example.org", password="secret")
 
         self.species = Species.objects.create(
             scientific_name="Aurelia aurita",
@@ -205,7 +205,7 @@ class AdminResourceCreationApiTests(TestCase):
         )
 
     def test_viewer_cannot_record_manual_zone_temperature(self):
-        viewer = get_user_model().objects.create_user(username="viewer", password="secret")
+        viewer = get_user_model().objects.create_user(username="viewer", email="viewer@example.org",password="secret")
         OrganizationMembership.objects.create(
             user=viewer,
             organization=self.organization,

@@ -20,13 +20,9 @@ from .models import Box, BoxLocation, BoxMovement, ThermalZone
 class AdminBoxInventoryApiTests(TestCase):
     def setUp(self):
         user_model = get_user_model()
-        self.admin = user_model.objects.create_user(
-            username="inventory_admin",
-            password="secret",
+        self.admin = user_model.objects.create_user(username="inventory_admin", email="inventory_admin@example.org",password="secret",
         )
-        self.technician = user_model.objects.create_user(
-            username="inventory_technician",
-            password="secret",
+        self.technician = user_model.objects.create_user(username="inventory_technician", email="inventory_technician@example.org",password="secret",
         )
         self.organization = Organization.objects.create(name="Inventory laboratory")
         self.other_organization = Organization.objects.create(name="Other inventory laboratory")

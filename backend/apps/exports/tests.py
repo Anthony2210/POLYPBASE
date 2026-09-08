@@ -21,7 +21,7 @@ from .models import DataExport
 class MeasurementExportApiTests(TestCase):
     def setUp(self):
         user_model = get_user_model()
-        self.user = user_model.objects.create_user(username="exporter", password="secret")
+        self.user = user_model.objects.create_user(username="exporter", email="exporter@example.org",password="secret")
         self.organization = Organization.objects.create(
             name="Aquarium de Paris",
             slug="aquarium-de-paris",

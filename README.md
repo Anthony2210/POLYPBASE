@@ -58,8 +58,8 @@ Commit `pyproject.toml` and `uv.lock` after changing dependencies. Do not edit
 ## Backend
 
 The backend uses Django. It stores the data, exposes API endpoints, manages
-users and roles, provides the Django admin, and will generate server-side
-exports.
+users and roles, provides authenticated API administration, and will generate
+server-side exports.
 
 Run backend commands from the `backend/` directory:
 

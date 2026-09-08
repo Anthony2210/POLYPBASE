@@ -136,7 +136,6 @@ const ZONE_CAPACITY_STEP = 10;
 const ZONE_SALINITY_STEP = 5;
 
 const emptyMemberForm = {
-  username: '',
   first_name: '',
   last_name: '',
   email: '',
@@ -158,7 +157,7 @@ function formatLastName(value: string) {
 
 function getMemberDisplayName(member: AccountMember) {
   const displayName = member.full_name.trim();
-  if (!displayName) return member.username;
+  if (!displayName) return member.email;
 
   const parts = displayName.split(/\s+/).filter(Boolean);
   if (parts.length === 1) return formatFirstName(parts[0]);
@@ -332,7 +331,7 @@ function SuggestionInput({
   );
 }
 
-type MemberFieldErrors = Partial<Record<'email' | 'username', string>>;
+type MemberFieldErrors = Partial<Record<'email', string>>;
 
 function getMemberFieldError(error: unknown, field: keyof MemberFieldErrors) {
   if (!(error instanceof ApiError) || !error.data || typeof error.data !== 'object') return null;
@@ -402,7 +401,8 @@ function AccountManagementSection({
       members.sort(
         (a, b) =>
           a.organization.name.localeCompare(b.organization.name) ||
-          a.username.localeCompare(b.username),
+          a.full_name.localeCompare(b.full_name) ||
+          a.email.localeCompare(b.email),
       );
       return { ...current, members };
     });
@@ -419,7 +419,7 @@ function AccountManagementSection({
 
     const payload: NewMemberPayload = {
       ...form,
-      username: form.username.trim(),
+      email: form.email.trim(),
       first_name: formatFirstName(form.first_name),
       last_name: formatLastName(form.last_name),
       organization_id: organizationId,
@@ -437,10 +437,9 @@ function AccountManagementSection({
     } catch (requestError) {
       const fieldErrors = {
         email: getMemberFieldError(requestError, 'email') ?? undefined,
-        username: getMemberFieldError(requestError, 'username') ?? undefined,
       };
       setFormFieldErrors(fieldErrors);
-      setFormError(fieldErrors.email || fieldErrors.username ? null : getErrorMessage(requestError));
+      setFormError(fieldErrors.email ? null : getErrorMessage(requestError));
     } finally {
       setIsAdding(false);
     }
@@ -625,22 +624,6 @@ function AccountManagementSection({
                 />
                 {formFieldErrors.email ? <small className="member-field-error">{formFieldErrors.email}</small> : null}
               </label>
-              <label>
-                {t('manageFieldUsername')}
-                <input
-                  required
-                  autoComplete="username"
-                  aria-invalid={Boolean(formFieldErrors.username)}
-                  value={form.username}
-                  onChange={(event) => {
-                    setForm((current) => ({ ...current, username: event.target.value }));
-                    setFormFieldErrors((current) => ({ ...current, username: undefined }));
-                  }}
-                />
-                {formFieldErrors.username ? (
-                  <small className="member-field-error">{formFieldErrors.username}</small>
-                ) : null}
-              </label>
               <label className="member-role-choice">
                 {t('manageFieldRole')}
                 <select value={role} onChange={(event) => setRole(event.target.value as MembershipRole)}>
@@ -686,8 +669,7 @@ function AccountManagementSection({
                     <td>
                       <span className="member-identity">
                         <strong>{memberName}</strong>
-                        <small>@{member.username}</small>
-                        {member.email ? <small>{member.email}</small> : null}
+                        {member.full_name.trim() && member.email ? <small>{member.email}</small> : null}
                       </span>
                     </td>
                     <td>

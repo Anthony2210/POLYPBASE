@@ -29,8 +29,14 @@ class BoxMoveConcurrencyTests(TransactionTestCase):
 
     def setUp(self):
         user_model = get_user_model()
-        self.user_one = user_model.objects.create_user(username="move-user-one")
-        self.user_two = user_model.objects.create_user(username="move-user-two")
+        self.user_one = user_model.objects.create_user(
+            username="move-user-one",
+            email="move-user-one@example.org",
+        )
+        self.user_two = user_model.objects.create_user(
+            username="move-user-two",
+            email="move-user-two@example.org",
+        )
         self.organization = Organization.objects.create(name="Box movement concurrency QA")
         for user in (self.user_one, self.user_two):
             OrganizationMembership.objects.create(

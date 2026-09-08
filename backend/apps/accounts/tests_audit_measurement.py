@@ -25,7 +25,7 @@ class AuditLogMeasurementLinkTests(TestCase):
         user_model = get_user_model()
 
         self.organization = Organization.objects.create(name="Aquarium de Paris", slug="paris")
-        self.admin = user_model.objects.create_user(username="org_admin", password="secret")
+        self.admin = user_model.objects.create_user(username="org_admin", email="org_admin@example.org",password="secret")
         OrganizationMembership.objects.create(
             user=self.admin,
             organization=self.organization,

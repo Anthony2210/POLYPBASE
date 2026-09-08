@@ -31,14 +31,14 @@ class MeasurementEditingApiTests(TestCase):
         self.organization = Organization.objects.create(name="Aquarium de Paris", slug="paris")
         self.other_organization = Organization.objects.create(name="Aquarium de Tokyo", slug="tokyo")
 
-        self.technician = user_model.objects.create_user(username="tech", password="secret")
+        self.technician = user_model.objects.create_user(username="tech", email="tech@example.org",password="secret")
         OrganizationMembership.objects.create(
             user=self.technician,
             organization=self.organization,
             role=OrganizationMembership.Role.LAB_TECHNICIAN,
         )
 
-        self.viewer = user_model.objects.create_user(username="viewer", password="secret")
+        self.viewer = user_model.objects.create_user(username="viewer", email="viewer@example.org",password="secret")
         OrganizationMembership.objects.create(
             user=self.viewer,
             organization=self.organization,

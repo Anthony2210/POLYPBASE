@@ -30,8 +30,14 @@ class BiologicalMeasurementConcurrencyTests(TransactionTestCase):
 
     def setUp(self):
         user_model = get_user_model()
-        self.first_user = user_model.objects.create_user(username="measurement-user-one")
-        self.second_user = user_model.objects.create_user(username="measurement-user-two")
+        self.first_user = user_model.objects.create_user(
+            username="measurement-user-one",
+            email="measurement-user-one@example.org",
+        )
+        self.second_user = user_model.objects.create_user(
+            username="measurement-user-two",
+            email="measurement-user-two@example.org",
+        )
         self.organization = Organization.objects.create(name="Measurement concurrency QA")
         for user in (self.first_user, self.second_user):
             OrganizationMembership.objects.create(

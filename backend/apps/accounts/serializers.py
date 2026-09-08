@@ -26,7 +26,6 @@ class UserPreferenceSerializer(serializers.ModelSerializer):
 
 class UserProfileSerializer(serializers.Serializer):
     id = serializers.IntegerField()
-    username = serializers.CharField()
     email = serializers.EmailField(allow_blank=True)
     first_name = serializers.CharField(allow_blank=True)
     last_name = serializers.CharField(allow_blank=True)
