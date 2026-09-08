@@ -783,6 +783,7 @@ class BoxListAPIView(generics.ListCreateAPIView):
             return queryset.filter(organization_id=int(value))
         return queryset.filter(organization__slug=value)
 
+    @transaction.atomic
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)

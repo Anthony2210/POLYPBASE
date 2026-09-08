@@ -298,6 +298,35 @@ class PolypbaseApiTests(TestCase):
             ).exists()
         )
 
+    def test_manual_box_creation_rolls_back_box_and_location_when_audit_fails(self):
+        self.client.force_login(self.user)
+        box_location_count = BoxLocation.objects.count()
+        global_code = "1-ATL.002"
+
+        with patch(
+            "apps.cultures.api_views.AuditLog.objects.create",
+            side_effect=RuntimeError("forced audit failure"),
+        ), self.assertRaises(RuntimeError):
+            self.client.post(
+                reverse("api_box_list"),
+                data=json.dumps(
+                    {
+                        "strain": self.strain.id,
+                        "thermal_zone": self.zone.id,
+                        "global_code": global_code,
+                        "local_code": "",
+                        "box_number": "002",
+                        "entered_on": "2026-07-16",
+                        "volume_liters": "0.30",
+                        "notes": "Création manuelle.",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+        self.assertFalse(Box.objects.filter(global_code=global_code).exists())
+        self.assertEqual(BoxLocation.objects.count(), box_location_count)
+
     def test_viewer_cannot_create_box_directly(self):
         user_model = get_user_model()
         viewer = user_model.objects.create_user(username="box_viewer", email="box_viewer@example.org",password="secret")
