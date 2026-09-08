@@ -291,13 +291,22 @@ function SuggestionInput({
   const shouldShowSuggestions = isFocused && suggestions.length > 0 && (!exactMatch || suggestions.length > 1);
 
   return (
-    <div className="admin-suggest-field">
+    <div
+      className="admin-suggest-field"
+      onBlurCapture={(event) => {
+        const next = event.relatedTarget;
+        // Keep the menu open while focus stays inside the field (input or a
+        // suggestion button); otherwise the menu disappears under the focused
+        // button and keyboard focus is lost.
+        if (next instanceof Node && event.currentTarget.contains(next)) return;
+        window.setTimeout(() => setIsFocused(false), 120);
+      }}
+    >
       <input
         id={id}
         type="text"
         value={value}
         autoComplete="off"
-        onBlur={() => window.setTimeout(() => setIsFocused(false), 120)}
         onChange={(event) => onChange(event.target.value)}
         onFocus={() => setIsFocused(true)}
       />
