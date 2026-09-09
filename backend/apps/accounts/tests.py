@@ -1,4 +1,5 @@
-from datetime import datetime, timedelta
+import re
+from datetime import datetime, timedelta, timezone
 from importlib import import_module
 from unittest.mock import patch
 
@@ -17,6 +18,7 @@ from apps.organizations.models import Organization
 
 from .models import AuthenticationThrottle, OrganizationMembership, UserPreference
 from .api_views import normalize_email, validate_email_identity
+from .tokens import INVITATION_TOKEN_PREFIX, invitation_token_generator
 
 
 class AccountPreferenceTests(TestCase):
@@ -430,6 +432,34 @@ class AccountMemberManagementTests(TestCase):
             [org["name"] for org in body["manageable_organizations"]], ["Paris"]
         )
 
+    def test_member_list_returns_full_last_login_timestamp_and_null(self):
+        last_login = datetime(2026, 9, 9, 12, 5, 37, 123456, tzinfo=timezone.utc)
+        self.viewer.last_login = last_login
+        self.viewer.save(update_fields=["last_login"])
+        never_logged_in = get_user_model().objects.create_user(
+            username="never-logged-in",
+            email="never@example.org",
+            password="secret",
+        )
+        OrganizationMembership.objects.create(
+            user=never_logged_in,
+            organization=self.paris,
+            role=OrganizationMembership.Role.VIEWER,
+        )
+        self.client.login(username="admin", password="secret")
+
+        response = self.client.get(self.list_url)
+
+        self.assertEqual(response.status_code, 200)
+        members_by_email = {
+            member["email"]: member for member in response.json()["members"]
+        }
+        self.assertEqual(
+            members_by_email[self.viewer.email]["last_login"],
+            "2026-09-09T12:05:37.123456+00:00",
+        )
+        self.assertIsNone(members_by_email[never_logged_in.email]["last_login"])
+
     def test_viewer_cannot_access_member_management(self):
         self.client.login(username="viewer", password="secret")
 
@@ -470,6 +500,8 @@ class AccountMemberManagementTests(TestCase):
         self.assertIn("/reset-password/", mail.outbox[0].body)
         self.assertNotIn("Mot de passe temporaire", mail.outbox[0].body)
         self.assertIn("Hello,", mail.outbox[0].body)
+        self.assertIn("valid for 24 hours", mail.outbox[0].body)
+        self.assertNotIn("valid for one hour", mail.outbox[0].body)
         self.assertNotIn(membership.user.username, mail.outbox[0].body)
         self.assertNotIn("Paris", mail.outbox[0].body)
         self.assertNotIn("admin@example.org", mail.outbox[0].body)
@@ -482,6 +514,90 @@ class AccountMemberManagementTests(TestCase):
         self.assertEqual(log.organization, self.paris)
         self.assertEqual(log.user, self.admin)
         self.assertEqual(log.metadata["valeurs"]["role"], OrganizationMembership.Role.LAB_TECHNICIAN)
+
+    def _create_invitation_at(self, issued_at, email):
+        self.client.login(username="admin", password="secret")
+        with patch.object(
+            type(invitation_token_generator), "_now", return_value=issued_at
+        ):
+            response = self.client.post(
+                self.list_url,
+                data={
+                    "email": email,
+                    "organization_id": self.paris.id,
+                    "role": "viewer",
+                },
+                content_type="application/json",
+            )
+        self.assertEqual(response.status_code, 201)
+        link_match = re.search(
+            rf"/reset-password/([^/\s]+)/({INVITATION_TOKEN_PREFIX}[^\s]+)",
+            mail.outbox[-1].body,
+        )
+        self.assertIsNotNone(link_match)
+        return link_match.groups()
+
+    def _confirm_invitation_at(self, checked_at, uid, token, password):
+        with patch.object(
+            type(invitation_token_generator), "_now", return_value=checked_at
+        ):
+            return self.client.post(
+                reverse("api_password_reset_confirm"),
+                data={"uid": uid, "token": token, "password": password},
+                content_type="application/json",
+            )
+
+    def test_invitation_is_valid_before_24_hours(self):
+        issued_at = datetime(2026, 9, 9, 8, 0)
+        uid, token = self._create_invitation_at(issued_at, "before-24h@example.org")
+
+        response = self._confirm_invitation_at(
+            issued_at + timedelta(hours=23, minutes=59),
+            uid,
+            token,
+            "un-mot-de-passe-solide-42",
+        )
+
+        self.assertEqual(response.status_code, 204)
+        invited_user = get_user_model().objects.get(email="before-24h@example.org")
+        self.assertTrue(invited_user.check_password("un-mot-de-passe-solide-42"))
+
+    def test_invitation_is_invalid_after_24_hours(self):
+        issued_at = datetime(2026, 9, 9, 8, 0)
+        uid, token = self._create_invitation_at(issued_at, "after-24h@example.org")
+
+        response = self._confirm_invitation_at(
+            issued_at + timedelta(hours=24, seconds=1),
+            uid,
+            token,
+            "un-mot-de-passe-solide-42",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        invited_user = get_user_model().objects.get(email="after-24h@example.org")
+        self.assertFalse(invited_user.has_usable_password())
+
+    def test_invitation_cannot_be_used_after_password_setup(self):
+        issued_at = datetime(2026, 9, 9, 8, 0)
+        uid, token = self._create_invitation_at(issued_at, "one-time@example.org")
+        first_response = self._confirm_invitation_at(
+            issued_at + timedelta(hours=2),
+            uid,
+            token,
+            "un-mot-de-passe-solide-42",
+        )
+
+        second_response = self._confirm_invitation_at(
+            issued_at + timedelta(hours=3),
+            uid,
+            token,
+            "encore-un-autre-mdp-77",
+        )
+
+        self.assertEqual(first_response.status_code, 204)
+        self.assertEqual(second_response.status_code, 400)
+        invited_user = get_user_model().objects.get(email="one-time@example.org")
+        self.assertTrue(invited_user.check_password("un-mot-de-passe-solide-42"))
 
     def test_admin_cannot_assign_a_password_to_a_new_member(self):
         self.client.login(username="admin", password="secret")
@@ -853,6 +969,8 @@ class PasswordResetTests(TestCase):
         )
         self.assertIn("/reset-password/", mail.outbox[0].body)
         self.assertEqual(mail.outbox[0].to, ["bio@example.org"])
+        self.assertIn("une heure", mail.outbox[0].body)
+        self.assertNotIn("24 hours", mail.outbox[0].body)
 
     @patch("apps.accounts.api_views.send_mail", side_effect=OSError("SMTP unavailable"))
     def test_smtp_failure_keeps_password_reset_response_indistinguishable(self, _send_mail):
@@ -973,6 +1091,64 @@ class PasswordResetTests(TestCase):
             type(default_token_generator), "_now", return_value=later
         ):
             response = self.confirm_reset(uid, token, "un-mot-de-passe-solide-42")
+
+        self.assertEqual(response.status_code, 400)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("ancien-mot-de-passe"))
+
+    def test_expired_reset_token_cannot_be_converted_to_an_invitation(self):
+        issued_at = datetime(2026, 9, 9, 8, 0)
+        with patch.object(
+            type(default_token_generator), "_now", return_value=issued_at
+        ):
+            uid, reset_token = self.make_link_parts()
+
+        checked_at = issued_at + timedelta(hours=2)
+        with override_settings(PASSWORD_RESET_TIMEOUT=3600), patch.object(
+            type(default_token_generator), "_now", return_value=checked_at
+        ), patch.object(
+            type(invitation_token_generator), "_now", return_value=checked_at
+        ):
+            self.assertFalse(default_token_generator.check_token(self.user, reset_token))
+            self.assertFalse(
+                invitation_token_generator.check_token(self.user, reset_token)
+            )
+            response = self.confirm_reset(
+                uid,
+                f"{INVITATION_TOKEN_PREFIX}{reset_token}",
+                "un-mot-de-passe-solide-42",
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("ancien-mot-de-passe"))
+
+    def test_invitation_token_without_marker_cannot_be_used_as_a_reset_token(self):
+        issued_at = datetime(2026, 9, 9, 8, 0)
+        with patch.object(
+            type(invitation_token_generator), "_now", return_value=issued_at
+        ):
+            invitation_token = invitation_token_generator.make_token(self.user)
+
+        marked_token = f"{INVITATION_TOKEN_PREFIX}{invitation_token}"
+        reset_shaped_token = marked_token.removeprefix(INVITATION_TOKEN_PREFIX)
+        checked_at = issued_at + timedelta(minutes=30)
+        with patch.object(
+            type(default_token_generator), "_now", return_value=checked_at
+        ), patch.object(
+            type(invitation_token_generator), "_now", return_value=checked_at
+        ):
+            self.assertTrue(
+                invitation_token_generator.check_token(self.user, invitation_token)
+            )
+            self.assertFalse(
+                default_token_generator.check_token(self.user, reset_shaped_token)
+            )
+            response = self.confirm_reset(
+                urlsafe_base64_encode(force_bytes(self.user.pk)),
+                reset_shaped_token,
+                "un-mot-de-passe-solide-42",
+            )
 
         self.assertEqual(response.status_code, 400)
         self.user.refresh_from_db()

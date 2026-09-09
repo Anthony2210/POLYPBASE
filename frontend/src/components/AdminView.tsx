@@ -32,7 +32,8 @@ import type {
   ProbePayload,
   ThermalZonePayload,
 } from '../types/admin';
-import { formatDisplayDate } from '../utils/dateFormat';
+import { getMemberRowAction, type MemberRowAction } from '../utils/accountMembers';
+import { formatDisplayDate, formatRelativeDateTime } from '../utils/dateFormat';
 import { getErrorMessage } from '../utils/errors';
 import { buildQrLabelItem, printQrLabels } from '../utils/qrLabels';
 import { decrementDecimalValue, incrementDecimalValue } from '../utils/stepValue';
@@ -42,6 +43,7 @@ import BoxInventoryAdminSection from './BoxInventoryAdminSection';
 import { useConfirmAction } from './ConfirmActionModal';
 import PageLoader from './PageLoader';
 import PolypbaseIcon from './PolypbaseIcon';
+import { RowActionMenu } from './RowActionMenu';
 import SkeletonRows from './SkeletonRows';
 import TaxonomyAdminSection from './TaxonomyAdminSection';
 
@@ -664,6 +666,22 @@ function AccountManagementSection({
             <tbody>
               {filteredMembers.map((member) => {
                 const memberName = getMemberDisplayName(member);
+                const lastLogin = member.last_login
+                  ? formatRelativeDateTime(member.last_login, {
+                      todayAt: t('manageLastLoginTodayAt'),
+                      yesterdayAt: t('manageLastLoginYesterdayAt'),
+                    })
+                  : null;
+                const memberAction = getMemberRowAction(member);
+                const memberActions: Array<{
+                  action: MemberRowAction;
+                  label: string;
+                  danger?: boolean;
+                }> = memberAction == null
+                  ? []
+                  : memberAction === 'deactivate'
+                    ? [{ action: 'deactivate', label: t('manageDeactivate'), danger: true }]
+                    : [{ action: 'reactivate', label: t('manageReactivate') }];
                 return (
                   <tr key={member.membership_id} className={member.is_active ? '' : 'is-inactive'}>
                     <td>
@@ -691,7 +709,15 @@ function AccountManagementSection({
                       </label>
                     </td>
                     <td className="member-last-login">
-                      {member.last_login ? formatDisplayDate(member.last_login) : t('manageNeverConnected')}
+                      {member.last_login && lastLogin ? (
+                        <time
+                          dateTime={member.last_login}
+                          title={lastLogin.exact}
+                          aria-label={`${lastLogin.relative}. ${lastLogin.exact}`}
+                        >
+                          {lastLogin.relative}
+                        </time>
+                      ) : t('manageNeverConnected')}
                     </td>
                     <td>
                       <span className={member.is_active ? 'member-state is-on' : 'member-state is-off'}>
@@ -700,16 +726,12 @@ function AccountManagementSection({
                       {member.is_self ? <em className="member-self-tag">{t('manageStatusSelf')}</em> : null}
                     </td>
                     <td className="member-action-cell">
-                      {member.is_self ? null : (
-                        <button
-                          type="button"
-                          className="member-toggle"
-                          disabled={rowBusyId === member.membership_id}
-                          onClick={() => handleToggleActive(member)}
-                        >
-                          {member.is_active ? t('manageDeactivate') : t('manageReactivate')}
-                        </button>
-                      )}
+                      <RowActionMenu<MemberRowAction>
+                        disabled={rowBusyId === member.membership_id || memberActions.length === 0}
+                        actions={memberActions}
+                        ariaLabel={`${t('manageMemberActions')} ${memberName}`}
+                        onAction={() => handleToggleActive(member)}
+                      />
                     </td>
                   </tr>
                 );

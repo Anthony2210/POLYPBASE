@@ -12,6 +12,8 @@
     "test:api": "node --test scripts/test-api-errors.mjs",
     "test:charts": "node --test scripts/test-chart-window.mjs",
     "test:inventory": "node --test scripts/test-box-inventory.mjs",
+    "test:dates": "node --test scripts/test-date-format.mjs",
+    "test:members": "node --test scripts/test-account-members.mjs",
     "build": "npm run check:css && tsc --noEmit && vite build",
     "preview": "vite preview"
   },

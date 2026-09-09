@@ -51,6 +51,10 @@ from .throttling import (
     record_event,
     retry_after,
 )
+from .tokens import (
+    INVITATION_TOKEN_PREFIX,
+    invitation_token_generator,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -132,14 +136,17 @@ def _too_many_attempts(retry_seconds):
     return response
 
 
-def _password_setup_link(user):
+def _password_setup_link(user, *, invitation):
     uid = urlsafe_base64_encode(force_bytes(user.pk))
-    token = default_token_generator.make_token(user)
+    if invitation:
+        token = f"{INVITATION_TOKEN_PREFIX}{invitation_token_generator.make_token(user)}"
+    else:
+        token = default_token_generator.make_token(user)
     return f"{settings.PUBLIC_BASE_URL}/reset-password/{uid}/{token}"
 
 
 def _send_password_email(user, *, invitation):
-    link = _password_setup_link(user)
+    link = _password_setup_link(user, invitation=invitation)
     if invitation:
         subject = "Invitation Polypbase"
         message = (
@@ -147,7 +154,7 @@ def _send_password_email(user, *, invitation):
             "A Polypbase account has been created for you.\n\n"
             "Use this one-time link to choose your password:\n"
             f"{link}\n\n"
-            "This link is valid for one hour and can only be used once.\n"
+            "This link is valid for 24 hours and can only be used once.\n"
         )
     else:
         subject = "Réinitialisation de votre mot de passe Polypbase"
@@ -312,7 +319,7 @@ class PasswordResetConfirmAPIView(APIView):
         password = str(request.data.get("password", ""))
 
         user = self._get_user(uid)
-        if user is None or not default_token_generator.check_token(user, token):
+        if user is None or not self._check_token(user, token):
             return Response(
                 {"detail": "Ce lien est invalide ou a expire. Demandez-en un nouveau."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -338,6 +345,12 @@ class PasswordResetConfirmAPIView(APIView):
             )
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _check_token(self, user, token):
+        if token.startswith(INVITATION_TOKEN_PREFIX):
+            invitation_token = token.removeprefix(INVITATION_TOKEN_PREFIX)
+            return invitation_token_generator.check_token(user, invitation_token)
+        return default_token_generator.check_token(user, token)
 
     def _get_user(self, uid):
         user_model = get_user_model()
@@ -448,7 +461,7 @@ def _member_data(membership, *, current_user):
         "role": membership.role,
         "role_label": membership.get_role_display(),
         "is_active": membership.is_active,
-        "last_login": user.last_login.date().isoformat() if user.last_login else None,
+        "last_login": user.last_login.isoformat() if user.last_login else None,
         "is_self": user.id == current_user.id,
     }
 

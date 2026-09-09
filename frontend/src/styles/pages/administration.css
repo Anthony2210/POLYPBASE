@@ -1938,11 +1938,8 @@ button.account-overview-card.is-active {
   text-align: right;
 }
 
-.member-toggle {
-  min-height: 32px;
-  padding: 0 var(--space-3);
-  font-size: .72rem;
-  border-radius: var(--radius-xs);
+.member-action-cell .row-action-menu-trigger {
+  margin-left: auto;
 }
 
 .member-password-flow {
