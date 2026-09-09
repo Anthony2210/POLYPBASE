@@ -238,6 +238,50 @@ class SessionLoginApiTests(TestCase):
         parents = set(graph.node_map[("accounts", "0005_email_identity")].parents)
         self.assertIn(("auth", "0012_alter_user_first_name_max_length"), parents)
 
+    def test_postgresql_identity_guard_bypasses_psycopg_placeholder_parsing(self):
+        from psycopg import _queries
+        from psycopg.adapt import Transformer
+
+        migration = import_module("apps.accounts.migrations.0005_email_identity")
+
+        class FakeUserModel:
+            class _meta:
+                db_table = "auth_user"
+
+        class FakeApps:
+            def get_model(self, _app, _model):
+                return FakeUserModel
+
+        class FakeConnection:
+            vendor = "postgresql"
+
+        class FakeSchemaEditor:
+            connection = FakeConnection()
+
+            def __init__(self):
+                self.executions = []
+
+            def quote_name(self, name):
+                return f'"{name}"'
+
+            def execute(self, sql, params=()):
+                self.executions.append((sql, params))
+
+        schema_editor = FakeSchemaEditor()
+        migration.create_email_identity_guard(FakeApps(), schema_editor)
+
+        self.assertEqual(len(schema_editor.executions), 1)
+        sql, params = schema_editor.executions[0]
+        query = _queries.PostgresQuery(Transformer())
+        query.convert(sql, params)
+
+        self.assertIsNone(params)
+        self.assertEqual(query.query.decode(), sql)
+        self.assertIn("#$%&''*+", sql)
+        self.assertIn("NOT LIKE '.%'", sql)
+        self.assertIn("NOT LIKE '%.'", sql)
+        self.assertIn("NOT LIKE '%..%'", sql)
+
     def test_identity_migration_rejects_invalid_legacy_email(self):
         migration = import_module("apps.accounts.migrations.0005_email_identity")
 

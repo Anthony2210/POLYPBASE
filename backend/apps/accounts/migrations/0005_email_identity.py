@@ -215,6 +215,8 @@ def create_email_identity_guard(apps, schema_editor):
         )
         return
     if schema_editor.connection.vendor == "postgresql":
+        # Django defaults params to (), which makes psycopg parse literal percent
+        # characters as placeholders. None sends this parameter-free SQL verbatim.
         schema_editor.execute(
             f"""
             ALTER TABLE {table}
@@ -230,7 +232,8 @@ def create_email_identity_guard(apps, schema_editor):
                 AND split_part(email, '@', 1) NOT LIKE '%.'
                 AND split_part(email, '@', 1) NOT LIKE '%..%'
             )
-            """
+            """,
+            params=None,
         )
         return
     raise RuntimeError(
