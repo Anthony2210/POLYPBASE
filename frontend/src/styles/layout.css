@@ -16,24 +16,31 @@
   display: flex;
   min-width: 0;
   height: 100dvh;
-  padding: var(--space-6) var(--space-4);
+  --sidebar-icon-axis: 34px;
+  --sidebar-icon-slot: 38px;
+  --sidebar-axis-inset: calc(var(--sidebar-icon-axis) - (var(--sidebar-icon-slot) / 2));
+  --sidebar-border-width: 1px;
+  padding: var(--space-6) var(--space-4) var(--space-6) var(--sidebar-axis-inset);
   flex-direction: column;
   gap: var(--space-6);
   overflow: visible;
   background: var(--color-surface);
-  border-right: 1px solid var(--color-line);
+  border-right: var(--sidebar-border-width) solid var(--color-line);
 }
 
 .sidebar.is-collapsed {
   width: var(--sidebar-collapsed-width);
-  padding: var(--space-6) var(--space-2);
+  /* Balance the border-right with equal left padding so the collapsed content
+     box stays centered on the 68px frame and centered icons share the 34px axis. */
+  padding: var(--space-6) 0 var(--space-6) var(--sidebar-border-width);
 }
 
 .sidebar.is-collapsed .brand-block {
   display: grid;
-  grid-template-columns: 38px;
-  justify-content: start;
-  padding-left: 8px;
+  grid-template-columns: var(--sidebar-icon-slot);
+  width: 44px;
+  margin-inline: auto;
+  justify-content: center;
 }
 
 .sidebar.is-collapsed .brand-text {
@@ -57,7 +64,7 @@
   width: 100%;
   min-height: 48px;
   padding: 0;
-  grid-template-columns: 38px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-icon-slot) minmax(0, 1fr);
   align-items: center;
   gap: var(--space-3);
   text-align: left;
@@ -72,8 +79,16 @@
 
 .brand-mark {
   display: grid;
-  width: 38px;
+  width: var(--sidebar-icon-slot);
   height: 38px;
+  place-items: center;
+}
+
+.tab-icon-slot {
+  display: grid;
+  width: var(--sidebar-icon-slot);
+  height: 38px;
+  flex: 0 0 var(--sidebar-icon-slot);
   place-items: center;
 }
 

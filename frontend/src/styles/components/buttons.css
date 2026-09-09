@@ -91,7 +91,7 @@ button {
   display: flex;
   width: 100%;
   min-height: 44px;
-  padding: 0 var(--space-3) 0 8px;
+  padding: 0 var(--space-3) 0 0;
   align-items: center;
   gap: var(--space-3);
   text-align: left;
@@ -111,10 +111,6 @@ button {
   color: #075d72;
   font-weight: 750;
   background: var(--color-primary-soft);
-}
-
-.tab-icon {
-  flex-shrink: 0;
 }
 
 .tab-label {
@@ -153,6 +149,11 @@ button {
 
 .sidebar.is-collapsed .tab .tab-label {
   display: none;
+}
+
+.sidebar.is-collapsed .tab-icon-slot {
+  width: var(--sidebar-icon-slot);
+  flex-basis: var(--sidebar-icon-slot);
 }
 
 .text-button {

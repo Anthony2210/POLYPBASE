@@ -1134,11 +1134,13 @@ export default function App() {
                 onClick={() => openTab(tab)}
               >
                 {isDesktopApp ? (
-                  <PolypbaseIcon
-                    name={TAB_ICONS[tab]}
-                    size={19}
-                    className="tab-icon"
-                  />
+                  <span className="tab-icon-slot" aria-hidden="true">
+                    <PolypbaseIcon
+                      name={TAB_ICONS[tab]}
+                      size={19}
+                      className="tab-icon"
+                    />
+                  </span>
                 ) : null}
                 <span className="tab-label">{label}</span>
               </button>
