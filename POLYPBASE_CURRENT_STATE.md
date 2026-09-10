@@ -4,23 +4,23 @@ Last updated: 2026-09-10
 
 ## Repository
 
-- Current worktree: `C:\Users\antoc\worktrees\POLYPBASE\docs-current-state\POLYPBASE`
-- Current branch: `docs/current-state`
-- Current commit: `df317438c418e1c3d313fe4a91174e4b8b18334b` (`fix: prevent last admin concurrency race`)
-- `main` and `origin/main` are aligned at `df317438c418e1c3d313fe4a91174e4b8b18334b`.
+- Canonical repository: `C:\Users\antoc\POLYPBASE`
+- Canonical branch: `main`
+- Latest completed application milestone: `df31743` (`fix: prevent last admin concurrency race`).
+- S-01 is complete, independently reviewed, PostgreSQL validated, and pushed.
+- Documentation-only commits after `df31743` do not change the application milestone.
 
 ## Worktrees
 
-- `C:\Users\antoc\POLYPBASE` — `main`, `df31743`; local work present in `docs/PROJECT_CONTEXT.md` and untracked `docs/audits/`.
-- `C:\Users\antoc\worktrees\POLYPBASE\docs-current-state\POLYPBASE` — `docs/current-state`, `df31743`; clean before this state-file update.
-- `C:\Users\antoc\worktrees\POLYPBASE\boxinsights-a1\POLYPBASE` — `experiment/boxinsights-scientific-soft`, `6877190`; FROZEN experiment with local modifications and untracked `output/`. Do not modify or integrate unless Anthony explicitly reopens it.
+- `C:\Users\antoc\POLYPBASE` - `main`; local work present in `docs/PROJECT_CONTEXT.md` and untracked `docs/audits/`.
+- `C:\Users\antoc\worktrees\POLYPBASE\boxinsights-a1\POLYPBASE` - `experiment/boxinsights-scientific-soft`, `6877190`; FROZEN experiment with local modifications and untracked `output/`. Do not modify or integrate unless Anthony explicitly reopens it.
 
 ## Completed milestones
 
-- `9910b15` — improve team access management — DONE, PUSHED, NOT DEPLOYED.
-- `23fa202` — align sidebar brand and navigation — DONE, PUSHED, NOT DEPLOYED.
-- `c6972a2` — make invitation audit atomic (S-03) — DONE, independently reviewed, integrated to `main`, PUSHED, no migration, NOT DEPLOYED.
-- `df31743` — prevent last admin concurrency race (S-01) — DONE, independently reviewed, integrated to `main`, PUSHED, no migration, NOT DEPLOYED.
+- `9910b15` - improve team access management - DONE, PUSHED, NOT DEPLOYED.
+- `23fa202` - align sidebar brand and navigation - DONE, PUSHED, NOT DEPLOYED.
+- `c6972a2` - make invitation audit atomic (S-03) - DONE, independently reviewed, integrated to `main`, PUSHED, no migration, NOT DEPLOYED.
+- `df31743` - prevent last admin concurrency race (S-01) - DONE, independently reviewed, PostgreSQL validated, integrated to `main`, PUSHED, no migration, NOT DEPLOYED.
 
 ## Active / frozen work
 
@@ -70,19 +70,20 @@ Last updated: 2026-09-10
 
 ## Current priorities
 
-1. Clean the finished S-01 worktree if still needed.
-2. Freeze unrelated Git writers.
+1. Freeze unrelated Git writers.
+2. Preserve intentional local/private state outside the rewrite workspace.
 3. Prepare/create private `POLYPBASE-ANALYSES`.
-4. Preserve private scientific analyses.
-5. Perform controlled public Git-history cleanup in a separately approved workflow.
-6. Verify the sanitized repository.
-7. Recreate a clean local POLYPBASE clone/worktree environment.
-8. Handle production Git realignment separately.
-9. Resume the contractual product roadmap.
+4. Preserve private scientific analysis material.
+5. Create and restore-test a complete private backup before history rewriting.
+6. Test the privacy rewrite in a fresh isolated GitHub-sourced workspace.
+7. Verify the sanitized history and public refs.
+8. Perform the separately approved controlled public history replacement.
+9. Adopt a fresh sanitized local POLYPBASE environment.
+10. Handle production Git realignment separately.
+11. Resume contractual roadmap work.
 
 ## Important local state
 
-- This `docs/current-state` worktree was clean before this file was created.
 - The `main` worktree contains intentionally unrelated local changes in `docs/PROJECT_CONTEXT.md` and untracked `docs/audits/`; preserve them.
 - The BoxInsights worktree contains local experiment changes and untracked `output/`; preserve it while the experiment remains frozen.
 - `test_membership_concurrency.py` is part of the S-01 tracked work if present; it is not local-only state.
