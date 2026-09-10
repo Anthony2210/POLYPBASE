@@ -419,6 +419,50 @@ class AccountMemberManagementTests(TestCase):
 
         self.list_url = reverse("api_account_members")
 
+    def _invitation_object_ids(self, email):
+        invited_user = get_user_model().objects.get(email=email)
+        membership = OrganizationMembership.objects.get(
+            user=invited_user,
+            organization=self.paris,
+        )
+        preference = UserPreference.objects.get(user=invited_user)
+        audit_log = AuditLog.objects.get(
+            organization=self.paris,
+            user=self.admin,
+            action=AuditLog.Action.CREATION,
+            object_type="account",
+            object_id=invited_user.get_username(),
+            description="Member access created",
+        )
+        return {
+            "user": invited_user.id,
+            "membership": membership.id,
+            "preference": preference.id,
+            "audit_log": audit_log.id,
+        }
+
+    def _assert_invitation_objects_rolled_back(self, invitation_object_ids):
+        self.assertEqual(
+            set(invitation_object_ids),
+            {"user", "membership", "preference", "audit_log"},
+        )
+        self.assertFalse(
+            get_user_model().objects.filter(pk=invitation_object_ids["user"]).exists()
+        )
+        self.assertFalse(
+            OrganizationMembership.objects.filter(
+                pk=invitation_object_ids["membership"]
+            ).exists()
+        )
+        self.assertFalse(
+            UserPreference.objects.filter(
+                pk=invitation_object_ids["preference"]
+            ).exists()
+        )
+        self.assertFalse(
+            AuditLog.objects.filter(pk=invitation_object_ids["audit_log"]).exists()
+        )
+
     def test_admin_lists_only_managed_org_members(self):
         self.client.login(username="admin", password="secret")
 
@@ -514,6 +558,65 @@ class AccountMemberManagementTests(TestCase):
         self.assertEqual(log.organization, self.paris)
         self.assertEqual(log.user, self.admin)
         self.assertEqual(log.metadata["valeurs"]["role"], OrganizationMembership.Role.LAB_TECHNICIAN)
+
+    @patch("apps.accounts.api_views._send_password_email")
+    def test_invitation_audit_is_created_in_transaction_before_email_send(
+        self, send_password_email
+    ):
+        self.client.login(username="admin", password="secret")
+
+        def assert_invitation_state(user, *, invitation):
+            self.assertTrue(connection.in_atomic_block)
+            self.assertTrue(invitation)
+            membership = OrganizationMembership.objects.get(
+                user=user,
+                organization=self.paris,
+            )
+            self.assertTrue(UserPreference.objects.filter(user=user).exists())
+            self.assertTrue(
+                AuditLog.objects.filter(
+                    organization=self.paris,
+                    user=self.admin,
+                    action=AuditLog.Action.CREATION,
+                    object_type="account",
+                    object_id=user.get_username(),
+                    metadata__membership_id=membership.id,
+                ).exists()
+            )
+            return 1
+
+        send_password_email.side_effect = assert_invitation_state
+
+        response = self.client.post(
+            self.list_url,
+            data={
+                "email": "ordered-invitation@example.test",
+                "organization_id": self.paris.id,
+                "role": "viewer",
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        send_password_email.assert_called_once()
+        invited_user = get_user_model().objects.get(
+            email="ordered-invitation@example.test"
+        )
+        self.assertTrue(
+            OrganizationMembership.objects.filter(
+                user=invited_user,
+                organization=self.paris,
+            ).exists()
+        )
+        self.assertTrue(UserPreference.objects.filter(user=invited_user).exists())
+        self.assertTrue(
+            AuditLog.objects.filter(
+                organization=self.paris,
+                action=AuditLog.Action.CREATION,
+                object_type="account",
+                object_id=invited_user.get_username(),
+            ).exists()
+        )
 
     def _create_invitation_at(self, issued_at, email):
         self.client.login(username="admin", password="secret")
@@ -634,9 +737,18 @@ class AccountMemberManagementTests(TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertFalse(get_user_model().objects.filter(email="no-smtp@example.test").exists())
 
-    @patch("apps.accounts.api_views.send_mail", side_effect=OSError("SMTP unavailable"))
-    def test_member_creation_rolls_back_when_email_sending_fails(self, _send_mail):
+    @patch("apps.accounts.api_views.send_mail")
+    def test_member_creation_rolls_back_when_email_sending_fails(self, send_mail):
         self.client.login(username="admin", password="secret")
+        invitation_object_ids = {}
+
+        def fail_after_recording_invitation(*_args, **_kwargs):
+            invitation_object_ids.update(
+                self._invitation_object_ids("smtp-failure@example.test")
+            )
+            raise OSError("SMTP unavailable")
+
+        send_mail.side_effect = fail_after_recording_invitation
 
         response = self.client.post(
             self.list_url,
@@ -649,9 +761,85 @@ class AccountMemberManagementTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 503)
-        self.assertFalse(
-            get_user_model().objects.filter(email="smtp-failure@example.test").exists()
+        send_mail.assert_called_once()
+        self._assert_invitation_objects_rolled_back(invitation_object_ids)
+
+    def test_member_creation_rolls_back_when_email_send_count_is_not_one(self):
+        self.client.login(username="admin", password="secret")
+        unrelated_user = self.tech
+        unrelated_membership = OrganizationMembership.objects.get(
+            user=unrelated_user,
+            organization=self.partner,
         )
+        unrelated_preference = UserPreference.objects.create(
+            user=unrelated_user,
+            interface_language=UserPreference.InterfaceLanguage.ENGLISH,
+        )
+        unrelated_audit = AuditLog.objects.create(
+            organization=self.partner,
+            user=unrelated_user,
+            action=AuditLog.Action.UPDATE,
+            object_type="account",
+            object_id=unrelated_user.get_username(),
+            description="Pre-existing account audit",
+            metadata={"source": "test fixture"},
+        )
+        unrelated_objects = [
+            unrelated_user,
+            unrelated_membership,
+            unrelated_preference,
+            unrelated_audit,
+        ]
+        unrelated_values = [
+            {
+                field.attname: getattr(unrelated_object, field.attname)
+                for field in unrelated_object._meta.concrete_fields
+            }
+            for unrelated_object in unrelated_objects
+        ]
+
+        for send_count in (0, 2):
+            with self.subTest(send_count=send_count), patch(
+                "apps.accounts.api_views.send_mail"
+            ) as send_mail:
+                email = f"send-count-{send_count}@example.test"
+                invitation_object_ids = {}
+
+                def return_count_after_recording_invitation(*_args, **_kwargs):
+                    invitation_object_ids.update(
+                        self._invitation_object_ids(email)
+                    )
+                    return send_count
+
+                send_mail.side_effect = return_count_after_recording_invitation
+
+                response = self.client.post(
+                    self.list_url,
+                    data={
+                        "email": email,
+                        "organization_id": self.paris.id,
+                        "role": "viewer",
+                    },
+                    content_type="application/json",
+                )
+
+                self.assertEqual(response.status_code, 503)
+                send_mail.assert_called_once()
+                self._assert_invitation_objects_rolled_back(invitation_object_ids)
+
+                for unrelated_object, expected_values in zip(
+                    unrelated_objects,
+                    unrelated_values,
+                    strict=True,
+                ):
+                    unrelated_object.refresh_from_db()
+                    self.assertEqual(
+                        {
+                            field.attname: getattr(unrelated_object, field.attname)
+                            for field in unrelated_object._meta.concrete_fields
+                        },
+                        expected_values,
+                    )
 
     def test_admin_cannot_reuse_an_existing_email_from_another_organization(self):
         self.client.login(username="admin", password="secret")

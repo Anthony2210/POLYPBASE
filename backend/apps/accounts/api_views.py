@@ -566,21 +566,20 @@ class OrganizationMemberListCreateAPIView(APIView):
             )
 
             UserPreference.objects.get_or_create(user=user)
+            AuditLog.objects.create(
+                organization=organization,
+                user=request.user,
+                action=AuditLog.Action.CREATION,
+                object_type="account",
+                object_id=user.get_username(),
+                description="Member access created",
+                metadata={
+                    "user_id": user.id,
+                    "membership_id": membership.id,
+                    "valeurs": _member_audit_values(membership),
+                },
+            )
             self._send_account_invitation(user)
-
-        AuditLog.objects.create(
-            organization=organization,
-            user=request.user,
-            action=AuditLog.Action.CREATION,
-            object_type="account",
-            object_id=user.get_username(),
-            description="Member access created",
-            metadata={
-                "user_id": user.id,
-                "membership_id": membership.id,
-                "valeurs": _member_audit_values(membership),
-            },
-        )
 
         return Response(
             _member_data(membership, current_user=request.user),
