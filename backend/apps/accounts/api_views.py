@@ -642,6 +642,7 @@ class OrganizationMemberListCreateAPIView(APIView):
 class OrganizationMembershipDetailAPIView(APIView):
     """Update a single membership (role or activation) within a managed organization."""
 
+    @transaction.atomic
     def patch(self, request, pk):
         if not user_is_org_admin(request.user):
             raise PermissionDenied("This account cannot manage members.")
@@ -658,6 +659,19 @@ class OrganizationMembershipDetailAPIView(APIView):
 
         if membership.organization_id not in admin_org_ids:
             raise PermissionDenied("You cannot manage members for this organization.")
+
+        # Serialize last-admin decisions per organization, then discard the
+        # membership state read before waiting for the lock.
+        organization = Organization.objects.select_for_update().get(
+            pk=membership.organization_id
+        )
+        if organization.pk not in get_active_admin_organization_ids(request):
+            raise PermissionDenied(
+                "This account cannot manage members for the selected organization."
+            )
+        membership = OrganizationMembership.objects.select_related(
+            "organization", "user"
+        ).get(pk=pk, organization=organization)
 
         before_values = _member_audit_values(membership)
         updated_fields = []

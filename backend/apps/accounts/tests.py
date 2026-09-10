@@ -1038,6 +1038,25 @@ class AccountMemberManagementTests(TestCase):
             OrganizationMembership.Role.ADMIN,
         )
 
+    @patch("apps.accounts.api_views.AuditLog.objects.create")
+    def test_member_update_rolls_back_when_audit_write_fails(self, create_audit_log):
+        create_audit_log.side_effect = RuntimeError("Audit unavailable")
+        self.client.login(username="admin", password="secret")
+        membership = OrganizationMembership.objects.get(
+            user=self.viewer, organization=self.paris
+        )
+        url = reverse("api_account_member_detail", args=[membership.id])
+
+        with self.assertRaises(RuntimeError):
+            self.client.patch(
+                url,
+                data={"role": OrganizationMembership.Role.LAB_TECHNICIAN},
+                content_type="application/json",
+            )
+
+        membership.refresh_from_db()
+        self.assertEqual(membership.role, OrganizationMembership.Role.VIEWER)
+
     def test_admin_can_change_own_role_when_another_admin_exists(self):
         self.client.login(username="admin", password="secret")
         other_admin = get_user_model().objects.create_user(username="admin2", email="admin2@example.org",password="secret")
