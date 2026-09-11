@@ -52,3 +52,9 @@ Le code décrit ce qui existe, mais un comportement observé n'est pas automatiq
 - [`sondes/`](sondes/) : documentation exploratoire des sondes; vérifier le code avant de considérer une intégration comme active.
 
 Ces documents peuvent dater d'étapes différentes.
+
+## Audits datés
+
+Un audit daté de [`audits/`](audits/) est un instantané : il décrit un état observé à une date donnée et ne constitue pas une vérité courante. Ne le charger que pour une tâche d'audit ou de refactorisation, et revalider chaque constat dans le code actuel avant d'agir.
+
+- [`maintainability-2026-09.md`](audits/maintainability-2026-09.md) : hotspots, couplage, tests et performances.
