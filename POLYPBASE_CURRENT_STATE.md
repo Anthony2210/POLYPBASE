@@ -4,9 +4,9 @@ Last updated: 2026-09-11
 
 ## Repository
 
-- Canonical development repository: `C:\Users\antoc\POLYPBASE`
+- Canonical sanitized repository: `C:\Users\antoc\POLYPBASE`
 - Canonical branch: `main`
-- Canonical sanitized HEAD: `0474f6e5e8fb5a4a9e8cd527e4b9a99182cd7c06`
+- Archive-retention review baseline: `0c7bf77848da147e6aa1cbfb36563f2a0fd2647f`
 - `origin` fetch/push: `https://github.com/Anthony2210/POLYPBASE.git`
 - The public history rewrite is complete and independently verified. Normal development may resume from sanitized `main`.
 
@@ -24,9 +24,25 @@ Last updated: 2026-09-11
 - Old HEAD: `c506a1e85e30b8ce5e6ea950da1d4e2bed75023b`
 - Push URL intentionally disabled: `disabled://old-history-do-not-push`
 - Contains old rewritten history, 18 local branches (including `main`), 4 stashes, local `docs/PROJECT_CONTEXT.md`, local `docs/audits/maintainability-2026-09.md`, and ignored `docs/audits/security-2026-09.md`.
-- Historical Codex checkpoint refs currently report as broken after archival relocation; leave them untouched pending separate classification.
+- Branch/stash classification is complete: 18 branches and 4 stashes reviewed. No valuable functional work is missing from sanitized `main`, and no branch or stash requires code recreation. `stash@{3}` retains forbidden historical institutional-data objects and must not be restored.
+- Selective branch/stash cleanup is not planned. Whole-archive retirement is the chosen future cleanup strategy.
+- The two broken historical Codex checkpoint refs are classified: neither contains unique valuable application work requiring preservation.
+- Codex-ref retention is no longer a cleanup blocker.
+- The archive remains quarantined and must not yet be deleted.
 - No old-history ref may be merged, rebased or transplanted directly into sanitized history. Useful old work must be reviewed at file/diff level and recreated as new commits on sanitized ancestry.
-- Old branches, stashes and docs remain pending classification and must never be pushed or merged directly into sanitized history.
+
+### Old archive deletion blockers
+
+- Final deletion still requires the GitHub Support ticket `#4748399` to be resolved, or Anthony to explicitly decide the old-history evidence is no longer needed.
+- A final read-only preflight is required before any deletion.
+- Explicit destructive-action approval from Anthony is required.
+- The archive is not ready for immediate deletion.
+
+## Private retention
+
+- Required private security material has been retained outside Git in encrypted storage and independently reviewed.
+- It is not part of the public repository.
+- Private-retention requirements for eventual old-archive retirement are satisfied.
 
 ## Private analysis repository
 
@@ -89,14 +105,13 @@ Last updated: 2026-09-11
 
 ## Next operational work
 
-1. Review and port `docs/PROJECT_CONTEXT.md` and audits if appropriate, at file/diff level and recreated as new commits on sanitized ancestry.
-2. Classify old local branches and stashes from the old-history archive.
-3. Wait for the GitHub Support response on ticket `#4748399`.
-4. Clean `POLYPBASE_SPLIT_RESIDUAL_20260911` only after explicit verification.
-5. Perform production realignment separately, if and when approved.
-6. Resume contractual roadmap work.
+1. Old-history branch/stash and Codex-ref classification is complete; no valuable functional work remains to port.
+2. Wait for the GitHub Support response on ticket `#4748399`.
+3. Clean `POLYPBASE_SPLIT_RESIDUAL_20260911` only after explicit verification.
+4. Perform production realignment separately, if and when approved.
+5. Resume contractual roadmap work.
 
 ## Important local state
 
-- The old-history archive holds local `docs/PROJECT_CONTEXT.md` and `docs/audits/` material; preserve it pending classification.
+- The old-history archive holds local `docs/PROJECT_CONTEXT.md` and `docs/audits/` material; keep it quarantined pending final deletion approval. The private security-audit versions are retained separately (see Private retention).
 - `test_membership_concurrency.py` is part of the S-01 tracked work if present; it is not local-only state.
