@@ -14,6 +14,7 @@
     "test:inventory": "node --test scripts/test-box-inventory.mjs",
     "test:dates": "node --test scripts/test-date-format.mjs",
     "test:members": "node --test scripts/test-account-members.mjs",
+    "test:phone-nav": "node --test scripts/test-phone-navigation.mjs",
     "build": "npm run check:css && tsc --noEmit && vite build",
     "preview": "vite preview"
   },

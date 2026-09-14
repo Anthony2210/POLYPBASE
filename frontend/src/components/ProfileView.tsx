@@ -18,7 +18,6 @@ type ProfileLabels = {
   profileNoEmail: string;
   profileNoMembership: string;
   profileAllOrganizationsAccess: string;
-  profileLabelsMobileText: string;
   profilePreferences: string;
   profileActiveOrganization: string;
   profileActiveOrganizationHelp: string;
@@ -28,7 +27,6 @@ type ProfileLabels = {
   roleDescTechnician: string;
   roleDescViewer: string;
   saving: string;
-  labelsTitle: string;
 };
 
 export default function ProfileView({
@@ -36,7 +34,6 @@ export default function ProfileView({
   labels,
   canOpenAdmin,
   onOpenAdmin,
-  onOpenLabels,
   onSelectOrganization,
   onLogout,
   onUpdateLanguage,
@@ -48,7 +45,6 @@ export default function ProfileView({
   canOpenAdmin: boolean;
   labels: ProfileLabels;
   onOpenAdmin: () => void;
-  onOpenLabels: () => void;
   onSelectOrganization: (organizationId: number) => void;
   onLogout: () => Promise<void>;
   onUpdateLanguage: (language: string) => Promise<void>;
@@ -124,17 +120,6 @@ export default function ProfileView({
         </div>
       </header>
 
-      <section className="profile-block profile-mobile-labels-link">
-        <button className="profile-mobile-labels-button" type="button" onClick={onOpenLabels}>
-          <span>
-            <strong>{labels.labelsTitle}</strong>
-            <small>{labels.profileLabelsMobileText}</small>
-          </span>
-          <span className="profile-link-arrow" aria-hidden="true">
-            <PolypbaseIcon name="chevron-right" size={18} />
-          </span>
-        </button>
-      </section>
 
       {organizations.length > 0 ? (
         <section className="profile-block profile-organization-context">

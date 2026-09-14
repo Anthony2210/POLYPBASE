@@ -2,6 +2,7 @@ import type { IScannerControls } from '@zxing/browser';
 import { useEffect, useRef, useState } from 'react';
 
 import type { BoxItem } from '../types';
+import { getBoxIdFromQrValue } from '../utils/boxLookup';
 import { triggerHaptic } from '../utils/haptics';
 
 type TabletQrScannerLabels = {
@@ -14,10 +15,12 @@ type TabletQrScannerLabels = {
 };
 
 export default function TabletQrScanner({
+  autoStart = false,
   boxes,
   labels,
   onSelectBox,
 }: {
+  autoStart?: boolean;
   boxes: BoxItem[];
   labels: TabletQrScannerLabels;
   onSelectBox: (id: number) => void;
@@ -32,8 +35,13 @@ export default function TabletQrScanner({
   } = labels;
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerControlsRef = useRef<IScannerControls | null>(null);
-  const [isScanning, setIsScanning] = useState(false);
+  const onSelectBoxRef = useRef(onSelectBox);
+  const [isScanning, setIsScanning] = useState(autoStart);
   const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    onSelectBoxRef.current = onSelectBox;
+  }, [onSelectBox]);
 
   useEffect(() => {
     if (!isScanning) {
@@ -79,7 +87,7 @@ export default function TabletQrScanner({
             triggerHaptic([10, 34, 12]);
             setMessage(found);
             setIsScanning(false);
-            onSelectBox(scannedBoxId);
+            onSelectBoxRef.current(scannedBoxId);
           },
         );
 
@@ -101,7 +109,7 @@ export default function TabletQrScanner({
       isCancelled = true;
       stopQrScanner(scannerControlsRef);
     };
-  }, [isScanning, boxes, found, onSelectBox, permission, secureContext, unsupported]);
+  }, [isScanning, boxes, found, permission, secureContext, unsupported]);
 
   return (
     <section className={isScanning ? 'tablet-scanner-panel is-scanning' : 'tablet-scanner-panel'}>
@@ -141,26 +149,4 @@ export default function TabletQrScanner({
 function stopQrScanner(scannerControlsRef: { current: IScannerControls | null }) {
   scannerControlsRef.current?.stop();
   scannerControlsRef.current = null;
-}
-
-function getBoxIdFromQrValue(value: string, boxes: BoxItem[]) {
-  const trimmedValue = value.trim();
-  const routeMatch = trimmedValue.match(/\/bac\/(\d+)\/?/) ?? trimmedValue.match(/\/boxes\/([^/?#]+)\/?/);
-
-  if (routeMatch?.[1]) {
-    const routeValue = decodeURIComponent(routeMatch[1]);
-    const routeId = Number(routeValue);
-    if (Number.isInteger(routeId)) return routeId;
-
-    const routeBox = boxes.find((box) => box.global_code.toLowerCase() === routeValue.toLowerCase());
-    if (routeBox) return routeBox.id;
-  }
-
-  const normalizedValue = trimmedValue.toLowerCase();
-  const directBox = boxes.find((box) => (
-    box.global_code.toLowerCase() === normalizedValue ||
-    box.local_code.toLowerCase() === normalizedValue
-  ));
-
-  return directBox?.id ?? null;
 }
