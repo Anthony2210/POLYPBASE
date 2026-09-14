@@ -20,7 +20,7 @@ Last updated: 2026-09-14
 
 ## Old history archive
 
-- Preserved locally at: `C:\Users\antoc\POLYPBASE_OLD_HISTORY_20260911`
+- Retirement is DONE: `C:\Users\antoc\POLYPBASE_OLD_HISTORY_20260911` was permanently deleted after the final read-only preflight and Anthony's explicit approval.
 - Old HEAD: `c506a1e85e30b8ce5e6ea950da1d4e2bed75023b`
 - Push URL intentionally disabled: `disabled://old-history-do-not-push`
 - Contains old rewritten history, 18 local branches (including `main`), 4 stashes, local `docs/PROJECT_CONTEXT.md`, local `docs/audits/maintainability-2026-09.md`, and ignored `docs/audits/security-2026-09.md`.
@@ -28,14 +28,12 @@ Last updated: 2026-09-14
 - Selective branch/stash cleanup is not planned. Whole-archive retirement is the chosen future cleanup strategy.
 - The two broken historical Codex checkpoint refs are classified: neither contains unique valuable application work requiring preservation.
 - Codex-ref retention is no longer a cleanup blocker.
-- The archive remains quarantined and must not yet be deleted.
+- Old archive deletion is no longer an operational blocker or future action.
 - No old-history ref may be merged, rebased or transplanted directly into sanitized history. Useful old work must be reviewed at file/diff level and recreated as new commits on sanitized ancestry.
 
 ### Old archive deletion blockers
 
-- A final read-only preflight is required before any deletion.
-- Explicit destructive-action approval from Anthony is required.
-- The archive is not ready for immediate deletion.
+- None. Final read-only preflight completed and Anthony's explicit destructive-action approval was received.
 
 ## Private retention
 
@@ -105,12 +103,10 @@ Last updated: 2026-09-14
 ## Next operational work
 
 1. Old-history branch/stash and Codex-ref classification is complete; no valuable functional work remains to port.
-2. Perform a final read-only preflight before any old-archive deletion.
-3. Clean `POLYPBASE_SPLIT_RESIDUAL_20260911` only after explicit verification.
-4. Perform production realignment separately, if and when approved.
-5. Resume contractual roadmap work.
+2. Perform production realignment separately, if and when approved.
+3. Resume contractual roadmap work.
 
 ## Important local state
 
-- The old-history archive holds local `docs/PROJECT_CONTEXT.md` and `docs/audits/` material; keep it quarantined pending final deletion approval. The private security-audit versions are retained separately (see Private retention).
+- The old-history archive was retired after its local documentation and audit material were classified; the private security-audit versions are retained separately (see Private retention).
 - `test_membership_concurrency.py` is part of the S-01 tracked work if present; it is not local-only state.
