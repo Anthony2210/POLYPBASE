@@ -191,37 +191,6 @@
 
 .profile-admin-button .profile-link-arrow { color: inherit; }
 
-.profile-mobile-labels-link {
-  display: none;
-}
-
-.profile-mobile-labels-button {
-  display: flex;
-  width: 100%;
-  min-height: 64px;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-info);
-  color: var(--color-ink);
-  text-align: left;
-}
-
-.profile-mobile-labels-button span:first-child {
-  display: grid;
-}
-
-.profile-mobile-labels-button strong {
-  color: var(--color-primary);
-}
-
-.profile-mobile-labels-button small {
-  color: var(--color-muted);
-  font-size: 0.8rem;
-}
 
 .profile-link-arrow {
   color: var(--color-primary);
@@ -243,9 +212,6 @@
     width: 100%;
   }
 
-  .profile-mobile-labels-link {
-    display: block;
-  }
 
   .profile-organization-options {
     grid-template-columns: 1fr;

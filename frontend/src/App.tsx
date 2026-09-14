@@ -60,6 +60,7 @@ import SubcultureModal from './components/SubcultureModal';
 import TabletQrScanner from './components/TabletQrScanner';
 import TabletQrScannerModal from './components/TabletQrScannerModal';
 import { useIsDesktopApp } from './hooks/useIsDesktopApp';
+import { useIsPhoneLayout } from './hooks/useIsPhoneLayout';
 import { useIsTabletLayout } from './hooks/useIsTabletLayout';
 import type {
   BiologicalMeasurement,
@@ -98,6 +99,7 @@ import type {
   ThermalZonePayload,
 } from './types/admin';
 import { upsertBoxes } from './utils/boxCollection';
+import { filterBoxes } from './utils/boxLookup';
 import { formatDisplayDate } from './utils/dateFormat';
 import { getErrorMessage } from './utils/errors';
 import {
@@ -113,6 +115,7 @@ import {
   parsePositiveDecimal,
 } from './utils/stepValue';
 import { triggerHaptic } from './utils/haptics';
+import { PHONE_NAVIGATION_ITEMS, type PhoneDestination } from './utils/phoneNavigation';
 import { buildQrLabelItem, getBoxQrImageUrl, getBoxScanUrl, type QrLabelItem } from './utils/qrLabels';
 
 const AdminView = lazy(() => import('./components/AdminView'));
@@ -232,6 +235,7 @@ export default function App() {
   const [search, setSearch] = useState('');
   const [recentBoxIds, setRecentBoxIds] = useState<number[]>([]);
   const [qrLabelSelection, setQrLabelSelection] = useState<QrLabelItem[]>([]);
+  const [isPhoneQrOpen, setIsPhoneQrOpen] = useState(false);
   // Values carried over when the history sends the user to correct a
   // measurement; consumed once by the box sheet, then cleared.
   const [measurementPrefill, setMeasurementPrefill] = useState<HistoryMeasurementPrefill | null>(null);
@@ -260,6 +264,7 @@ export default function App() {
   const t = useMemo(() => createTranslator(language), [language]);
   const { confirmAction, confirmActionModal } = useConfirmAction();
   const isDesktopApp = useIsDesktopApp();
+  const isPhoneLayout = useIsPhoneLayout();
   const isTabletLayout = useIsTabletLayout();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => getStoredSidebarCollapsed());
   const [isTabletScannerOpen, setIsTabletScannerOpen] = useState(false);
@@ -486,26 +491,10 @@ export default function App() {
     };
   }, [activeOrganizationId, activeTab, data.overview, isLoginRoute, needsOrganizationChoice]);
 
-  const boxSearchIndex = useMemo(() => data.boxes.map((box) => ({
-    box,
-    searchableFields: [
-      box.global_code,
-      box.local_code,
-      box.box_number,
-      box.species.scientific_name,
-      box.strain.code,
-      box.thermal_zone?.name ?? '',
-    ].map((field) => field.toLowerCase()),
-  })), [data.boxes]);
-
-  const filteredBoxes = useMemo(() => {
-    const value = search.trim().toLowerCase();
-    if (!value) return data.boxes;
-
-    return boxSearchIndex
-      .filter((entry) => entry.searchableFields.some((field) => field.includes(value)))
-      .map((entry) => entry.box);
-  }, [boxSearchIndex, data.boxes, search]);
+  const filteredBoxes = useMemo(
+    () => filterBoxes(data.boxes, search),
+    [data.boxes, search],
+  );
 
   const selectedBoxId = useMemo(() => {
     if (route.boxId != null) return route.boxId;
@@ -675,6 +664,10 @@ export default function App() {
   function openQrLabelSelection() {
     openTab('labels');
   }
+
+  useEffect(() => {
+    if (!isPhoneLayout) setIsPhoneQrOpen(false);
+  }, [isPhoneLayout]);
 
   useLayoutEffect(() => {
     if (activeTab === 'admin' && !isDesktopApp) {
@@ -1178,6 +1171,15 @@ export default function App() {
           })}
         </nav>
 
+        {isPhoneLayout ? (
+          <PhoneBottomNavigation
+            activeTab={activeTab}
+            t={t}
+            onOpenQr={() => setIsPhoneQrOpen(true)}
+            onSelectTab={openTab}
+          />
+        ) : null}
+
         {isDesktopApp ? (
           <div className="sidebar-footer">
             <button
@@ -1387,7 +1389,6 @@ export default function App() {
                 canOpenAdmin={canUseAdmin && isDesktopApp}
                 onSelectOrganization={(organizationId) => void chooseOrganization(organizationId)}
                 onOpenAdmin={() => openTab('admin')}
-                onOpenLabels={() => openTab('labels')}
                 onLogout={logoutCurrentUser}
                 onUpdateLanguage={updateLanguage}
               />
@@ -1416,7 +1417,233 @@ export default function App() {
           onSelectBox={openScannedBox}
         />
       ) : null}
+
+      {isPhoneLayout && isPhoneQrOpen ? (
+        <QrSearchModal
+          boxes={data.boxes}
+          t={t}
+          onClose={() => setIsPhoneQrOpen(false)}
+          onSelectBox={(boxId) => {
+            setIsPhoneQrOpen(false);
+            openBox(boxId);
+          }}
+        />
+      ) : null}
     </main>
+  );
+}
+
+function PhoneBottomNavigation({
+  activeTab,
+  t,
+  onOpenQr,
+  onSelectTab,
+}: {
+  activeTab: TabId;
+  t: TFunction;
+  onOpenQr: () => void;
+  onSelectTab: (tab: PhoneDestination) => void;
+}) {
+  return (
+    <nav className="phone-bottom-nav" aria-label={t('mainNavigation')}>
+      {PHONE_NAVIGATION_ITEMS.map((item) => {
+        const label = t(item.labelKey);
+
+        if (item.kind === 'action') {
+          return (
+            <button
+              key={item.action}
+              className="phone-nav-item phone-nav-qr"
+              type="button"
+              aria-label={t('searchOrScan')}
+              title={label}
+              onClick={onOpenQr}
+            >
+              <span className="phone-nav-icon" aria-hidden="true">
+                <PolypbaseIcon name={item.icon} size={30} />
+              </span>
+            </button>
+          );
+        }
+
+        const isActive = item.tab === activeTab;
+        return (
+          <button
+            key={item.tab}
+            className={isActive ? 'phone-nav-item is-active' : 'phone-nav-item'}
+            type="button"
+            aria-label={label}
+            title={label}
+            aria-current={isActive ? 'page' : undefined}
+            onClick={() => onSelectTab(item.tab)}
+          >
+            <span className="phone-nav-icon" aria-hidden="true">
+              <PolypbaseIcon name={item.icon} size={24} />
+            </span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+function QrSearchModal({
+  boxes,
+  t,
+  onClose,
+  onSelectBox,
+}: {
+  boxes: BoxItem[];
+  t: TFunction;
+  onClose: () => void;
+  onSelectBox: (boxId: number) => void;
+}) {
+  const dialogRef = useRef<HTMLElement | null>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+  const [query, setQuery] = useState('');
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const results = useMemo(
+    () => query.trim() ? filterBoxes(boxes, query).slice(0, 5) : [],
+    [boxes, query],
+  );
+
+  useEffect(() => {
+    returnFocusRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    dialogRef.current?.querySelector<HTMLButtonElement>('.modal-close-button')?.focus();
+
+    function handleKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])',
+      ));
+      if (!focusable.length) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || !dialog.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      returnFocusRef.current?.focus({ preventScroll: true });
+    };
+  }, [onClose]);
+
+  function selectHighlightedResult() {
+    const selected = results[highlightedIndex] ?? results[0];
+    if (selected) onSelectBox(selected.id);
+  }
+
+  function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (!results.length) return;
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setHighlightedIndex((current) => (current + 1) % results.length);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setHighlightedIndex((current) => (current - 1 + results.length) % results.length);
+    }
+  }
+
+  return (
+    <ModalPortal>
+      <div className="modal-backdrop qr-search-backdrop" role="presentation" onMouseDown={onClose}>
+        <section
+          ref={dialogRef}
+          className="qr-search-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="qr-search-title"
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <header className="qr-search-heading">
+            <h2 id="qr-search-title">{t('searchOrScan')}</h2>
+            <button className="modal-close-button" type="button" aria-label={t('close')} onClick={onClose}>
+              <PolypbaseIcon name="close" size={18} />
+            </button>
+          </header>
+
+          <div className="qr-search-content">
+            <TabletQrScanner
+              autoStart
+              boxes={boxes}
+              labels={{
+                found: t('qrScannerFound'),
+                loading: t('qrScannerLoading'),
+                permission: t('qrScannerPermission'),
+                secureContext: t('qrScannerSecureContext'),
+                start: t('qrScannerStart'),
+                stop: t('qrScannerStop'),
+                unsupported: t('qrScannerUnsupported'),
+              }}
+              onSelectBox={onSelectBox}
+            />
+
+            <div className="qr-search-manual">
+              <SearchField
+                activeDescendant={results[highlightedIndex] ? `qr-search-result-${results[highlightedIndex].id}` : undefined}
+                controls="qr-search-results"
+                expanded={results.length > 0}
+                labels={{ label: t('searchOrScan'), placeholder: t('searchPlaceholder') }}
+                value={query}
+                onChange={(value) => {
+                  setQuery(value);
+                  setHighlightedIndex(0);
+                }}
+                onKeyDown={handleSearchKeyDown}
+                onSubmit={selectHighlightedResult}
+              />
+
+              {results.length > 0 ? (
+                <div className="qr-search-results" id="qr-search-results" role="listbox">
+                  <div className="qr-search-results-heading">
+                    <span>{t('suggestions')}</span>
+                    <span>{results.length}</span>
+                  </div>
+                  {results.map((box, index) => (
+                    <button
+                      key={box.id}
+                      id={`qr-search-result-${box.id}`}
+                      className={index === highlightedIndex ? 'qr-search-result is-selected' : 'qr-search-result'}
+                      type="button"
+                      role="option"
+                      aria-selected={index === highlightedIndex}
+                      onClick={() => onSelectBox(box.id)}
+                    >
+                      <span>
+                        <strong>{box.global_code}</strong>
+                        <small>{box.species.scientific_name}</small>
+                      </span>
+                      <small>{box.thermal_zone?.name ?? t('noZone')}</small>
+                    </button>
+                  ))}
+                </div>
+              ) : query.trim() ? (
+                <p className="qr-search-empty">{t('searchNoResults')}</p>
+              ) : null}
+            </div>
+          </div>
+        </section>
+      </div>
+    </ModalPortal>
   );
 }
 
@@ -3235,7 +3462,6 @@ function getProfileLabels(t: TFunction) {
     profileNoEmail: t('profileNoEmail'),
     profileNoMembership: t('profileNoMembership'),
     profileAllOrganizationsAccess: t('profileAllOrganizationsAccess'),
-    profileLabelsMobileText: t('profileLabelsMobileText'),
     profilePreferences: t('profilePreferences'),
     profileActiveOrganization: t('profileActiveOrganization'),
     profileActiveOrganizationHelp: t('profileActiveOrganizationHelp'),
@@ -3245,7 +3471,6 @@ function getProfileLabels(t: TFunction) {
     roleDescTechnician: t('roleDescTechnician'),
     roleDescViewer: t('roleDescViewer'),
     saving: t('saving'),
-    labelsTitle: t('labelsTitle'),
   };
 }
 

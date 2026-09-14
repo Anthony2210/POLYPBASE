@@ -17,28 +17,104 @@
     position: fixed;
     z-index: 100;
     top: auto;
-    right: 10px;
-    bottom: max(10px, env(safe-area-inset-bottom));
-    left: 10px;
+    right: 0;
+    bottom: 0;
+    left: 0;
     display: block;
     width: auto;
     height: auto;
-    padding: 4px;
+    padding: 5px 8px max(5px, env(safe-area-inset-bottom));
+    background: transparent;
+    border: 0;
+  }
+
+  /* The white panel is the visible navigation band. Its top edge sits on the
+     QR circle's vertical center (half the circle above it, half inside it) and
+     it still reaches the viewport bottom, so the safe-area strip stays covered.
+     Geometry: bar box = 5px padding + 68px nav row + safe area, so a 25px inset
+     leaves a 48px band above the strip - exactly one destination slot, the band
+     the four destinations are vertically centered in. */
+  .sidebar::before {
+    position: absolute;
+    z-index: 0;
+    inset: 25px 0 0;
+    content: '';
     background: rgb(255 255 255 / 96%);
-    border: 1px solid var(--color-line);
-    border-radius: var(--radius-pill);
-    box-shadow: 0 10px 30px rgb(20 45 55 / 14%);
-    backdrop-filter: blur(12px);
   }
 
   .brand-switcher {
     display: none;
   }
 
-  .tabbar {
+  .sidebar > .tabbar {
+    display: none;
+  }
+
+  .phone-bottom-nav {
+    position: relative;
+    z-index: 1;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 2px;
+    width: min(100%, 320px);
+    margin-inline: auto;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    align-items: end;
+    justify-items: center;
+    gap: 0 2px;
+  }
+
+  /* No vertical padding: each slot's bottom edge rests on the safe-area
+     boundary, which is what centers the destinations in the band. */
+  .phone-nav-item {
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    min-height: 48px;
+    padding: 0;
+    place-items: center;
+    align-content: center;
+    overflow: visible;
+    color: var(--color-muted);
+    background: transparent;
+    border: 0;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+  }
+
+  .phone-nav-item:focus-visible {
+    outline: none;
+    box-shadow: var(--shadow-focus);
+  }
+
+  .phone-nav-icon {
+    display: grid;
+    width: 48px;
+    height: 48px;
+    place-items: center;
+    border-radius: 14px;
+  }
+
+  .phone-nav-item.is-active {
+    color: var(--color-primary-hover);
+  }
+
+  .phone-nav-item.is-active .phone-nav-icon {
+    background: var(--color-primary-soft);
+  }
+
+  .phone-nav-qr .phone-nav-icon {
+    width: 68px;
+    height: 68px;
+    color: #fff;
+    background: var(--color-primary);
+    border: 3px solid var(--color-surface);
+    border-radius: 50%;
+    /* The slot center sits 34px above the safe-area strip and the band top sits
+       48px above it, so the circle center lands on the band top edge. */
+    transform: translateY(-14px);
+  }
+
+  .phone-nav-qr:is(:hover, :focus-visible) .phone-nav-icon {
+    background: var(--color-primary-hover);
   }
 
   .tab {
@@ -71,7 +147,25 @@
   }
 
   .workspace {
-    padding: var(--space-4) 10px calc(86px + env(safe-area-inset-bottom));
+    padding: var(--space-4) 10px calc(100px + env(safe-area-inset-bottom));
+  }
+
+  .qr-search-backdrop {
+    padding: calc(10px + env(safe-area-inset-top)) 10px calc(10px + env(safe-area-inset-bottom));
+  }
+
+  .qr-search-modal {
+    max-height: calc(100dvh - 20px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  }
+
+  .qr-search-modal .tablet-scanner-panel {
+    min-height: 190px;
+    padding: var(--space-3);
+  }
+
+  .qr-search-modal .tablet-scanner-panel.is-scanning .scanner-preview {
+    width: 100%;
+    height: min(48vw, 220px);
   }
 
   .admin-workspace {
@@ -229,26 +323,6 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .profile-mobile-labels-link {
-    display: block;
-  }
-
-  .profile-mobile-labels-button {
-    display: flex;
-    width: 100%;
-    min-height: 58px;
-    padding: var(--space-2) var(--space-3);
-    align-items: center;
-    justify-content: space-between;
-    text-align: left;
-    background: transparent;
-    border: 0;
-  }
-
-  .profile-mobile-labels-button strong,
-  .profile-mobile-labels-button small {
-    display: block;
-  }
 
   .profile-link-arrow {
     color: var(--color-primary);

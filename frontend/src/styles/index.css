@@ -13,6 +13,7 @@
 @import './components/states.css' layer(components);
 @import './components/entity-header.css' layer(components);
 @import './components/qr-label.css' layer(components);
+@import './components/qr-search.css' layer(components);
 @import './components/biological-trend-chart.css' layer(components);
 @import './components/chart-window-controls.css' layer(components);
 @import './components/popovers.css' layer(components);
