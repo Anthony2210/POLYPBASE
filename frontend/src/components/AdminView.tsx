@@ -1,4 +1,4 @@
-﻿import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from 'react';
+﻿import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   ArrowDownToLine,
@@ -32,9 +32,17 @@ import type {
   ProbePayload,
   ThermalZonePayload,
 } from '../types/admin';
-import { getMemberRowAction, type MemberRowAction } from '../utils/accountMembers';
+import { getMemberRowActions, type MemberRowAction } from '../utils/accountMembers';
 import { formatDisplayDate, formatRelativeDateTime } from '../utils/dateFormat';
 import { getErrorMessage } from '../utils/errors';
+import { beginMemberMutation, endMemberMutation } from '../utils/memberMutationLock';
+import {
+  getMemberRowClassName,
+  MEMBER_FEEDBACK_MS,
+  MEMBER_MUTATION_FEEDBACK,
+  type MemberFeedbackTone,
+  type MemberMutationKind,
+} from '../utils/memberFeedback';
 import { buildQrLabelItem, printQrLabels } from '../utils/qrLabels';
 import { decrementDecimalValue, incrementDecimalValue } from '../utils/stepValue';
 import { getZoneOccupancyLevel } from '../utils/zoneOccupancy';
@@ -362,10 +370,18 @@ function AccountManagementSection({
   const [isAdding, setIsAdding] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [formFieldErrors, setFormFieldErrors] = useState<MemberFieldErrors>({});
-  const [message, setMessage] = useState<string | null>(null);
-  const [rowBusyId, setRowBusyId] = useState<number | null>(null);
+  const [feedback, setFeedback] = useState<{
+    membershipId: number;
+    message: string;
+    tone: MemberFeedbackTone;
+  } | null>(null);
+  const feedbackTimerRef = useRef<number | null>(null);
+  const busyMemberIdsRef = useRef<Set<number>>(new Set());
+  const [busyMemberIds, setBusyMemberIds] = useState<ReadonlySet<number>>(() => new Set());
   const [roleFilter, setRoleFilter] = useState<MembershipRole | 'all'>('all');
   const [isMemberFormOpen, setIsMemberFormOpen] = useState(false);
+  const [isInvitationInfoOpen, setIsInvitationInfoOpen] = useState(false);
+  const { confirmAction, confirmActionModal } = useConfirmAction();
 
   useEffect(() => {
     let isActive = true;
@@ -417,7 +433,6 @@ function AccountManagementSection({
     setIsAdding(true);
     setFormError(null);
     setFormFieldErrors({});
-    setMessage(null);
 
     const payload: NewMemberPayload = {
       ...form,
@@ -434,8 +449,8 @@ function AccountManagementSection({
       setForm(emptyMemberForm);
       setRole('viewer');
       setFormFieldErrors({});
-      setMessage(t('manageMemberAdded'));
       setIsMemberFormOpen(false);
+      showMemberFeedback(member.membership_id, 'created');
     } catch (requestError) {
       const fieldErrors = {
         email: getMemberFieldError(requestError, 'email') ?? undefined,
@@ -447,39 +462,86 @@ function AccountManagementSection({
     }
   }
 
-  async function handleRoleChange(member: AccountMember, nextRole: MembershipRole) {
-    if (nextRole === member.role) return;
-    setRowBusyId(member.membership_id);
-    setMessage(null);
-    setLoadError(null);
-    try {
-      const updated = await apiPatch<AccountMember>(
-        `/api/accounts/members/${member.membership_id}/`,
-        { role: nextRole },
-      );
-      upsertMember(updated);
-      setMessage(t('manageRoleUpdated'));
-    } catch (requestError) {
-      setLoadError(getErrorMessage(requestError));
-    } finally {
-      setRowBusyId(null);
+  // Clears any pending row feedback when the section unmounts.
+  useEffect(() => () => {
+    if (feedbackTimerRef.current != null) window.clearTimeout(feedbackTimerRef.current);
+  }, []);
+
+  function showMemberFeedback(membershipId: number, kind: MemberMutationKind) {
+    if (feedbackTimerRef.current != null) window.clearTimeout(feedbackTimerRef.current);
+    const { key, tone } = MEMBER_MUTATION_FEEDBACK[kind];
+    setFeedback({ membershipId, message: t(key), tone });
+    feedbackTimerRef.current = window.setTimeout(() => {
+      feedbackTimerRef.current = null;
+      setFeedback(null);
+    }, MEMBER_FEEDBACK_MS);
+  }
+
+  function beginBusyMember(membershipId: number): boolean {
+    if (!beginMemberMutation(busyMemberIdsRef.current, membershipId)) return false;
+    setBusyMemberIds(new Set(busyMemberIdsRef.current));
+    return true;
+  }
+
+  function endBusyMember(membershipId: number) {
+    endMemberMutation(busyMemberIdsRef.current, membershipId);
+    setBusyMemberIds(new Set(busyMemberIdsRef.current));
+  }
+
+  function memberActionLabel(action: MemberRowAction): string {
+    switch (action) {
+      case 'promote':
+        return t('managePromoteToTechnician');
+      case 'demote':
+        return t('manageDemoteToViewer');
+      case 'deactivate':
+        return t('manageDeactivate');
+      case 'reactivate':
+        return t('manageReactivate');
     }
   }
 
-  async function handleToggleActive(member: AccountMember) {
-    setRowBusyId(member.membership_id);
-    setMessage(null);
+  async function handleMemberAction(member: AccountMember, action: MemberRowAction) {
     setLoadError(null);
+
+    if (action === 'deactivate') {
+      const confirmed = await confirmAction({
+        title: t('manageDeactivateConfirmTitle'),
+        message: t('manageDeactivateConfirmMessage'),
+        details: [
+          { label: t('manageConfirmMember'), value: getMemberDisplayName(member) },
+          { label: t('manageConfirmOrganization'), value: organizationName },
+        ],
+        confirmLabel: t('manageDeactivate'),
+        cancelLabel: t('confirmCancel'),
+        variant: 'danger',
+      });
+
+      if (!confirmed) return;
+    }
+
+    // The dialog and the confirmation resolver already protect the confirmation
+    // phase; the lock only needs to cover the in-flight request.
+    if (!beginBusyMember(member.membership_id)) return;
+
+    const payload =
+      action === 'promote'
+        ? { role: 'lab_technician' as MembershipRole }
+        : action === 'demote'
+          ? { role: 'viewer' as MembershipRole }
+          : { is_active: action === 'reactivate' };
+
     try {
       const updated = await apiPatch<AccountMember>(
         `/api/accounts/members/${member.membership_id}/`,
-        { is_active: !member.is_active },
+        payload,
       );
       upsertMember(updated);
+      showMemberFeedback(member.membership_id, action);
     } catch (requestError) {
       setLoadError(getErrorMessage(requestError));
     } finally {
-      setRowBusyId(null);
+      endBusyMember(member.membership_id);
     }
   }
 
@@ -540,6 +602,7 @@ function AccountManagementSection({
           onClick={() => {
             setFormError(null);
             setFormFieldErrors({});
+            setIsInvitationInfoOpen(false);
             setIsMemberFormOpen(true);
           }}
         >
@@ -589,8 +652,21 @@ function AccountManagementSection({
         <AdminActionPanel title={t('manageAddTitle')} closeLabel={t('close')} onClose={() => setIsMemberFormOpen(false)}>
           <form className="member-add-form" onSubmit={handleAddMember}>
             <div className="member-password-flow">
-              <strong>{t('manageTemporaryPasswordTitle')}</strong>
-              <span>{t('manageTemporaryPasswordText')}</span>
+              <div className="member-password-flow-heading">
+                <strong>{t('manageTemporaryPasswordTitle')}</strong>
+                <button
+                  type="button"
+                  className="member-info-button"
+                  aria-label={t('manageInvitationInfoLabel')}
+                  aria-expanded={isInvitationInfoOpen}
+                  onClick={() => setIsInvitationInfoOpen((open) => !open)}
+                >
+                  <PolypbaseIcon name="info" size={16} />
+                </button>
+              </div>
+              {isInvitationInfoOpen ? (
+                <span className="member-password-flow-help">{t('manageTemporaryPasswordText')}</span>
+              ) : null}
             </div>
             <div className="member-add-grid">
               <label>
@@ -648,7 +724,7 @@ function AccountManagementSection({
         </AdminActionPanel>
       ) : null}
 
-      {message ? <p className="inline-success">{message}</p> : null}
+      <p className="sr-only" role="status">{feedback?.message ?? ''}</p>
       {loadError && data ? <p className="inline-error">{loadError}</p> : null}
 
       {filteredMembers.length ? (
@@ -660,7 +736,7 @@ function AccountManagementSection({
                 <th scope="col">{t('manageColRole')}</th>
                 <th scope="col">{t('manageColLastLogin')}</th>
                 <th scope="col">{t('manageColStatus')}</th>
-                <th scope="col" className="member-action-heading">{t('manageColActions')}</th>
+                <th scope="col" className="member-action-heading" />
               </tr>
             </thead>
             <tbody>
@@ -672,18 +748,18 @@ function AccountManagementSection({
                       yesterdayAt: t('manageLastLoginYesterdayAt'),
                     })
                   : null;
-                const memberAction = getMemberRowAction(member);
-                const memberActions: Array<{
-                  action: MemberRowAction;
-                  label: string;
-                  danger?: boolean;
-                }> = memberAction == null
-                  ? []
-                  : memberAction === 'deactivate'
-                    ? [{ action: 'deactivate', label: t('manageDeactivate'), danger: true }]
-                    : [{ action: 'reactivate', label: t('manageReactivate') }];
+                const memberActions = getMemberRowActions(member).map((item) => ({
+                  ...item,
+                  label: memberActionLabel(item.action),
+                }));
                 return (
-                  <tr key={member.membership_id} className={member.is_active ? '' : 'is-inactive'}>
+                  <tr
+                    key={member.membership_id}
+                    className={getMemberRowClassName(
+                      member.is_active,
+                      feedback?.membershipId === member.membership_id ? feedback.tone : null,
+                    )}
+                  >
                     <td>
                       <span className="member-identity">
                         <strong>{memberName}</strong>
@@ -691,22 +767,7 @@ function AccountManagementSection({
                       </span>
                     </td>
                     <td>
-                      <label className="member-role-field">
-                        <span className="sr-only">{t('manageColRole')} {memberName}</span>
-                        <select
-                          value={member.role}
-                          disabled={rowBusyId === member.membership_id}
-                          onChange={(event) =>
-                            handleRoleChange(member, event.target.value as MembershipRole)
-                          }
-                        >
-                          {roles.map((roleOption) => (
-                            <option key={roleOption.value} value={roleOption.value}>
-                              {roleOption.label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                      <span className="member-role-value">{member.role_label}</span>
                     </td>
                     <td className="member-last-login">
                       {member.last_login && lastLogin ? (
@@ -723,14 +784,13 @@ function AccountManagementSection({
                       <span className={member.is_active ? 'member-state is-on' : 'member-state is-off'}>
                         {member.is_active ? t('manageStatusActive') : t('manageStatusInactive')}
                       </span>
-                      {member.is_self ? <em className="member-self-tag">{t('manageStatusSelf')}</em> : null}
                     </td>
                     <td className="member-action-cell">
                       <RowActionMenu<MemberRowAction>
-                        disabled={rowBusyId === member.membership_id || memberActions.length === 0}
+                        disabled={busyMemberIds.has(member.membership_id) || memberActions.length === 0}
                         actions={memberActions}
                         ariaLabel={`${t('manageMemberActions')} ${memberName}`}
-                        onAction={() => handleToggleActive(member)}
+                        onAction={(action) => handleMemberAction(member, action)}
                       />
                     </td>
                   </tr>
@@ -744,6 +804,7 @@ function AccountManagementSection({
           {data.members.length ? t('manageNoFilteredMembers') : t('manageNoMembers')}
         </p>
       )}
+      {confirmActionModal}
     </section>
   );
 }

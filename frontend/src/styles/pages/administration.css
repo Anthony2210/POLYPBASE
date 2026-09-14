@@ -138,12 +138,6 @@ button.account-overview-card {
   cursor: pointer;
 }
 
-button.account-overview-card:is(:hover, .is-active) {
-  color: var(--color-primary-hover);
-  background: var(--color-primary-soft);
-  border-color: var(--color-primary);
-}
-
 :where(
   .member-add-form,
   .taxonomy-form,
@@ -392,10 +386,6 @@ button.account-overview-card:is(:hover, .is-active) {
   color: var(--color-muted);
 }
 
-.member-role-field {
-  min-width: 150px;
-}
-
 .member-status {
   display: flex;
   align-items: center;
@@ -403,7 +393,6 @@ button.account-overview-card:is(:hover, .is-active) {
 }
 
 .member-state,
-.member-self-tag,
 .probe-chip,
 .zone-occupancy,
 .environment-zone-type,
@@ -1361,12 +1350,6 @@ button.account-overview-card:is(:hover, .is-active) {
   font-size: 1rem;
 }
 
-button.account-overview-card:is(:hover, .is-active) {
-  color: var(--color-primary-hover);
-  background: var(--color-primary-faint);
-  border-color: var(--color-line);
-}
-
 .account-list-toolbar,
 .environment-directory-toolbar,
 .organization-directory-toolbar,
@@ -1766,14 +1749,23 @@ button.account-overview-card:is(:hover, .is-active) {
   line-height: 1.2;
 }
 
+/* Account role filters render as one segmented control: the four segments are
+   contiguous, the container owns the outer border, and each segment owns a
+   full-width 2px indicator that no border or gap can shift. */
 .account-overview {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
 }
 
 .account-overview-card {
+  position: relative;
   display: flex;
+  width: 100%;
+  min-width: 0;
   min-height: 44px;
   padding-inline: var(--space-3);
+  background: transparent;
+  border: 0;
   align-items: center;
   justify-content: center;
   gap: 6px;
@@ -1783,6 +1775,17 @@ button.account-overview-card:is(:hover, .is-active) {
     color var(--transition-fast),
     background-color var(--transition-fast),
     box-shadow var(--transition-fast);
+}
+
+/* Segment separators are drawn inside the segment so they cannot resize it. */
+.account-overview-card + .account-overview-card::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 1px;
+  background: var(--color-line);
+  content: '';
 }
 
 .account-overview-card strong {
@@ -1800,14 +1803,31 @@ button.account-overview-card:is(:hover, .is-active) {
 }
 
 button.account-overview-card:hover:not(.is-active) {
-  color: var(--color-ink);
-  background: var(--color-surface-subtle);
+  color: var(--color-primary-hover);
 }
 
 button.account-overview-card.is-active {
   color: var(--color-primary-hover);
   background: var(--color-surface);
-  box-shadow: inset 0 -2px 0 var(--color-primary);
+}
+
+/* Active indicator: owned by the segment, edge to edge, with no gap or offset. */
+button.account-overview-card.is-active::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: var(--color-primary);
+  content: '';
+}
+
+/* Inset focus ring: the container clips an outer shadow, so the outline is
+   drawn inside the segment. */
+button.account-overview-card:focus-visible {
+  box-shadow: none;
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
 }
 
 .member-table-shell {
@@ -1852,8 +1872,8 @@ button.account-overview-card.is-active {
   border-bottom: 0;
 }
 
-.member-table tbody tr:hover {
-  background: var(--color-surface-subtle);
+.member-table tbody tr {
+  transition: background-color var(--transition-fast);
 }
 
 .member-table tbody tr.is-inactive {
@@ -1862,6 +1882,21 @@ button.account-overview-card.is-active {
 
 .member-table tbody tr.is-inactive .member-identity {
   opacity: .68;
+}
+
+/* Shared primary tint, so hover stays distinct from the inactive row background. */
+.member-table tbody tr:hover {
+  background: var(--color-primary-faint);
+}
+
+/* A promotion or reactivation briefly highlights its row without moving the layout. */
+.member-table tbody tr.is-updated-positive {
+  background: var(--color-success-soft);
+}
+
+/* A demotion or deactivation briefly highlights its row the same non-disruptive way. */
+.member-table tbody tr.is-updated-negative {
+  background: var(--color-danger-soft);
 }
 
 .member-identity {
@@ -1886,23 +1921,14 @@ button.account-overview-card.is-active {
   font-size: .68rem;
 }
 
-.member-role-field {
+.member-role-value {
   display: block;
-  min-width: 0;
-}
-
-.member-role-field select {
-  width: 100%;
-  min-height: 34px;
-  padding-block: 0;
+  overflow: hidden;
+  color: var(--color-ink);
   font-size: .78rem;
   font-weight: 650;
-}
-
-.member-role-field select:disabled {
-  color: var(--color-ink-soft);
-  background: var(--color-surface-subtle);
-  cursor: not-allowed;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .member-last-login {
@@ -1911,8 +1937,7 @@ button.account-overview-card.is-active {
   font-weight: 680;
 }
 
-.member-state,
-.member-self-tag {
+.member-state {
   min-height: 0;
   padding: 0;
   font-size: .7rem;
@@ -1925,12 +1950,6 @@ button.account-overview-card.is-active {
 .member-table .member-state.is-off {
   background: transparent;
   border: 0;
-}
-
-.member-self-tag {
-  display: block;
-  margin-top: 2px;
-  color: var(--color-muted);
 }
 
 .member-table .member-action-heading,
@@ -1947,6 +1966,31 @@ button.account-overview-card.is-active {
   padding: 6px 0 6px var(--space-3);
   background: transparent;
   border-left: 2px solid var(--color-line-strong);
+}
+
+.member-password-flow-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.member-info-button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--color-muted);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+
+.member-info-button:is(:hover, [aria-expanded='true']) {
+  color: var(--color-primary-hover);
+  background: var(--color-primary-soft);
 }
 
 .member-password-flow strong {

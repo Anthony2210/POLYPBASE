@@ -80,7 +80,9 @@ export function RowActionMenu<TAction extends string>({
         >
           {actions.map((item) => (
             <button className={item.danger ? 'is-danger' : undefined} key={item.action} type="button" role="menuitem" onClick={() => {
-              close();
+              // Keep focus on the trigger so a dialog opened by the action has a
+              // stable, still-connected control to restore focus to.
+              close(true);
               onAction(item.action);
             }}>{item.label}</button>
           ))}
