@@ -5,53 +5,116 @@
     --control-height: 48px;
   }
 
-  .app-shell {
-    display: block;
-    min-height: 100dvh;
+  /* The rail class is set by the same layout detection that drives the React
+     tree, so rail geometry never leaks into the portrait tablet phone layout. */
+  .app-shell.is-tablet-rail {
+    --tablet-rail-width: 88px;
+    --tablet-rail-target: 56px;
+    grid-template-columns: var(--tablet-rail-width) minmax(0, 1fr);
   }
 
-  .sidebar {
+  /* Permanent icon-only rail: every control shares one centered 56px axis. */
+  .app-shell.is-tablet-rail .sidebar {
     position: sticky;
     top: 0;
     z-index: 50;
-    display: grid;
-    width: 100%;
-    height: 70px;
-    padding: 8px 20px;
-    grid-template-columns: minmax(190px, 0.8fr) minmax(440px, 1.2fr);
-    align-items: center;
-    gap: var(--space-5);
-    border-right: 0;
-    border-bottom: 1px solid var(--color-line);
-  }
-
-  .brand-block {
-    max-width: 230px;
-  }
-
-  .tabbar {
     display: flex;
-    flex-direction: row;
-    justify-content: flex-end;
+    width: auto;
+    height: 100dvh;
+    /* 1px left padding balances the 1px right border so the content box stays
+       centered on the 88px column and every control shares the same axis. */
+    padding: var(--space-4) 0 var(--space-4) 1px;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-3);
+    border-right: 1px solid var(--color-line);
+    border-bottom: 0;
+  }
+
+  .app-shell.is-tablet-rail .brand-switcher {
+    width: var(--tablet-rail-target);
+  }
+
+  .app-shell.is-tablet-rail .brand-block {
+    width: var(--tablet-rail-target);
+    min-height: var(--tablet-rail-target);
+    grid-template-columns: 1fr;
+    gap: 0;
+    justify-items: center;
+  }
+
+  /* Keep the organization name available to assistive tech without showing it in the rail. */
+  .app-shell.is-tablet-rail .brand-block .brand-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+
+  .app-shell.is-tablet-rail .tablet-qr-action {
+    display: grid;
+    width: var(--tablet-rail-target);
+    height: var(--tablet-rail-target);
+    padding: 0;
+    place-items: center;
+    color: #fff;
+    background: var(--color-primary);
+    border: 1px solid var(--color-primary);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+  }
+
+  .app-shell.is-tablet-rail .tablet-qr-action:active {
+    background: var(--color-primary-hover);
+    border-color: var(--color-primary-hover);
+  }
+
+  .app-shell.is-tablet-rail .tabbar {
+    display: flex;
+    width: var(--tablet-rail-target);
+    min-height: 0;
+    flex-direction: column;
+    justify-content: flex-start;
     gap: var(--space-2);
   }
 
-  .tab {
-    width: auto;
-    min-width: 96px;
-    min-height: 48px;
-    padding-inline: var(--space-4);
-    text-align: center;
+  .app-shell.is-tablet-rail .tab {
+    position: relative;
+    width: var(--tablet-rail-target);
+    min-height: var(--tablet-rail-target);
+    padding: 0;
     justify-content: center;
     border-radius: var(--radius-md);
   }
 
-  .tab-icon {
+  .app-shell.is-tablet-rail .tab .tab-label {
     display: none;
   }
 
-  .sidebar-footer {
-    display: none;
+  /* Active marker stays inside the touch target so geometry never shifts. */
+  .app-shell.is-tablet-rail .tab::before {
+    position: absolute;
+    top: 50%;
+    left: 2px;
+    width: 3px;
+    height: 22px;
+    border-radius: var(--radius-pill);
+    background: transparent;
+    content: '';
+    transform: translateY(-50%);
+  }
+
+  .app-shell.is-tablet-rail .tab.is-active::before {
+    background: var(--color-primary);
+  }
+
+  .app-shell.is-tablet-rail .tab-profile {
+    margin-top: auto;
   }
 
   .workspace {
@@ -61,6 +124,16 @@
   .page-heading h1 {
     margin-bottom: var(--space-4);
     font-size: 1.65rem;
+  }
+
+  .tablet-scanner-modal .tablet-scanner-panel {
+    min-height: min(430px, calc(100dvh - 150px));
+    padding: var(--space-5);
+  }
+
+  .tablet-scanner-modal .tablet-scanner-panel.is-scanning .scanner-preview {
+    width: min(100%, 640px);
+    height: min(380px, calc(100dvh - 220px));
   }
 
   .entity-header {

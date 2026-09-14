@@ -3,9 +3,11 @@ import { useEffect, useRef, useState } from 'react';
 
 import type { BoxItem } from '../types';
 import { triggerHaptic } from '../utils/haptics';
+import { getBoxIdFromQrValue } from '../utils/qrScanner';
 
-type TabletQrScannerLabels = {
+export type TabletQrScannerLabels = {
   found: string;
+  loading: string;
   permission: string;
   secureContext: string;
   start: string;
@@ -14,10 +16,12 @@ type TabletQrScannerLabels = {
 };
 
 export default function TabletQrScanner({
+  autoStart = false,
   boxes,
   labels,
   onSelectBox,
 }: {
+  autoStart?: boolean;
   boxes: BoxItem[];
   labels: TabletQrScannerLabels;
   onSelectBox: (id: number) => void;
@@ -30,14 +34,21 @@ export default function TabletQrScanner({
     stop,
     unsupported,
   } = labels;
+  const boxesRef = useRef(boxes);
+  const onSelectBoxRef = useRef(onSelectBox);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerControlsRef = useRef<IScannerControls | null>(null);
-  const [isScanning, setIsScanning] = useState(false);
+  const [isScanning, setIsScanning] = useState(autoStart);
+  const [isStarting, setIsStarting] = useState(autoStart);
   const [message, setMessage] = useState<string | null>(null);
+
+  boxesRef.current = boxes;
+  onSelectBoxRef.current = onSelectBox;
 
   useEffect(() => {
     if (!isScanning) {
       stopQrScanner(scannerControlsRef);
+      setIsStarting(false);
       return;
     }
 
@@ -72,14 +83,14 @@ export default function TabletQrScanner({
           (result) => {
             if (!result || isCancelled || hasDetectedBox) return;
 
-            const scannedBoxId = getBoxIdFromQrValue(result.getText(), boxes);
+            const scannedBoxId = getBoxIdFromQrValue(result.getText(), boxesRef.current);
             if (scannedBoxId == null) return;
 
             hasDetectedBox = true;
             triggerHaptic([10, 34, 12]);
             setMessage(found);
             setIsScanning(false);
-            onSelectBox(scannedBoxId);
+            onSelectBoxRef.current(scannedBoxId);
           },
         );
 
@@ -89,6 +100,7 @@ export default function TabletQrScanner({
         }
 
         scannerControlsRef.current = controls;
+        setIsStarting(false);
       } catch {
         setMessage(permission);
         setIsScanning(false);
@@ -101,23 +113,27 @@ export default function TabletQrScanner({
       isCancelled = true;
       stopQrScanner(scannerControlsRef);
     };
-  }, [isScanning, boxes, found, onSelectBox, permission, secureContext, unsupported]);
+  }, [isScanning, found, permission, secureContext, unsupported]);
 
   return (
     <section className={isScanning ? 'tablet-scanner-panel is-scanning' : 'tablet-scanner-panel'}>
       <button
         className="scanner-preview"
         type="button"
-        aria-label={isScanning ? stop : start}
+        aria-label={isScanning ? (isStarting ? labels.loading : stop) : start}
         onClick={() => {
           setMessage(null);
-          setIsScanning((current) => !current);
+          setIsScanning((current) => {
+            const next = !current;
+            setIsStarting(next);
+            return next;
+          });
         }}
       >
         {isScanning ? (
           <>
             <video ref={videoRef} muted playsInline />
-            <span className="scanner-live-label">{stop}</span>
+            <span className="scanner-live-label" aria-live="polite">{isStarting ? labels.loading : stop}</span>
           </>
         ) : (
           <span className="scanner-placeholder">
@@ -141,26 +157,4 @@ export default function TabletQrScanner({
 function stopQrScanner(scannerControlsRef: { current: IScannerControls | null }) {
   scannerControlsRef.current?.stop();
   scannerControlsRef.current = null;
-}
-
-function getBoxIdFromQrValue(value: string, boxes: BoxItem[]) {
-  const trimmedValue = value.trim();
-  const routeMatch = trimmedValue.match(/\/bac\/(\d+)\/?/) ?? trimmedValue.match(/\/boxes\/([^/?#]+)\/?/);
-
-  if (routeMatch?.[1]) {
-    const routeValue = decodeURIComponent(routeMatch[1]);
-    const routeId = Number(routeValue);
-    if (Number.isInteger(routeId)) return routeId;
-
-    const routeBox = boxes.find((box) => box.global_code.toLowerCase() === routeValue.toLowerCase());
-    if (routeBox) return routeBox.id;
-  }
-
-  const normalizedValue = trimmedValue.toLowerCase();
-  const directBox = boxes.find((box) => (
-    box.global_code.toLowerCase() === normalizedValue ||
-    box.local_code.toLowerCase() === normalizedValue
-  ));
-
-  return directBox?.id ?? null;
 }

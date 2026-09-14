@@ -463,6 +463,55 @@
   font-style: italic;
 }
 
+.tablet-scanner-backdrop {
+  background: rgb(12 32 41 / 76%);
+  backdrop-filter: blur(5px);
+}
+
+.tablet-scanner-modal {
+  width: min(720px, 100%);
+  min-width: 0;
+  max-height: calc(100dvh - 2 * var(--space-5));
+  overflow: hidden;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+}
+
+.tablet-scanner-modal-heading {
+  display: flex;
+  min-height: 84px;
+  padding: var(--space-4) var(--space-5);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.tablet-scanner-modal-heading :is(h2, p) {
+  margin: 0;
+}
+
+.tablet-scanner-modal-heading h2 {
+  font-size: 1.25rem;
+  font-style: italic;
+}
+
+.tablet-scanner-modal-heading p {
+  max-width: 520px;
+  margin-top: var(--space-1);
+  color: var(--color-muted);
+  font-size: .82rem;
+  line-height: 1.4;
+}
+
+.tablet-scanner-close {
+  width: 52px;
+  min-width: 52px;
+  height: 52px;
+}
+
 .modal-heading :is(p, span),
 .modal-kicker {
   color: var(--color-muted);
