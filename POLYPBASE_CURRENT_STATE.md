@@ -1,6 +1,6 @@
 # POLYPBASE CURRENT STATE
 
-Last updated: 2026-09-11
+Last updated: 2026-09-14
 
 ## Repository
 
@@ -16,7 +16,7 @@ Last updated: 2026-09-11
 - The GitHub public repository now contains only `main`.
 - Deleted public branches: `ajout-notebook-nettoyage`, `docs/mcd`, `import-excel-historique`.
 - `C:\Users\antoc\POLYPBASE` is again the canonical development repository; it no longer holds the old public history.
-- GitHub Support ticket `#4748399` remains open for server-side cleanup of old PR references, cached views and unreachable pre-rewrite objects.
+- GitHub Support cleanup for the old pull-request and history references is complete (request `#4748399`). PR #3 and PR #4 are no longer accessible, and representative pre-rewrite commits are no longer resolvable. No further GitHub-side history-cleanup action is currently pending.
 
 ## Old history archive
 
@@ -33,7 +33,6 @@ Last updated: 2026-09-11
 
 ### Old archive deletion blockers
 
-- Final deletion still requires the GitHub Support ticket `#4748399` to be resolved, or Anthony to explicitly decide the old-history evidence is no longer needed.
 - A final read-only preflight is required before any deletion.
 - Explicit destructive-action approval from Anthony is required.
 - The archive is not ready for immediate deletion.
@@ -106,7 +105,7 @@ Last updated: 2026-09-11
 ## Next operational work
 
 1. Old-history branch/stash and Codex-ref classification is complete; no valuable functional work remains to port.
-2. Wait for the GitHub Support response on ticket `#4748399`.
+2. Perform a final read-only preflight before any old-archive deletion.
 3. Clean `POLYPBASE_SPLIT_RESIDUAL_20260911` only after explicit verification.
 4. Perform production realignment separately, if and when approved.
 5. Resume contractual roadmap work.
