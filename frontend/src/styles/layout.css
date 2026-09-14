@@ -166,6 +166,10 @@
   flex-shrink: 0;
 }
 
+.tablet-qr-action {
+  display: none;
+}
+
 .workspace {
   min-width: 0;
   padding: var(--space-8) clamp(24px, 4vw, 56px) var(--space-10);

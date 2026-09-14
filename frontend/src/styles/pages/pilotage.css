@@ -37,7 +37,8 @@
 
 .jellyfish-pattern img:nth-child(n + 8) { display: none; }
 
-.tablet-lookup-panel,
+.tablet-search-panel,
+.phone-lookup-panel,
 .mobile-suggestion-slot,
 .tablet-scanner-panel { display: none; }
 
@@ -418,11 +419,11 @@
   .desktop-search-panel,
   .desktop-suggestion-slot { display: none; }
 
-  .tablet-lookup-panel,
+  .tablet-search-panel,
   .mobile-suggestion-slot { display: block; }
 
   .lookup-panel,
-  .tablet-lookup-panel { display: grid; gap: var(--space-3); }
+  .tablet-search-panel { display: grid; gap: var(--space-3); }
 
   .tablet-lookup-tabs {
     display: grid;
@@ -546,6 +547,7 @@
 
   .scanner-status { margin: 0; color: var(--color-muted); font-size: .82rem; text-align: center; }
 
+  .tablet-search-panel .search-field,
   .tablet-manual-search .search-field {
     width: min(100%, var(--lookup-width));
     margin: 0 auto;
@@ -568,6 +570,13 @@
 }
 
 @media (max-width: 759px), (max-width: 900px) and (orientation: portrait) {
+  .tablet-search-panel { display: none; }
+
+  .phone-lookup-panel {
+    display: grid;
+    gap: var(--space-3);
+  }
+
   .pilotage-flow {
     --scan-width: min(76vw, 280px);
     --scan-height: min(58vw, 214px);

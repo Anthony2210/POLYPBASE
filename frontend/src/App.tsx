@@ -58,7 +58,9 @@ import QrLabelModal from './components/QrLabelModal';
 import SearchField from './components/SearchField';
 import SubcultureModal from './components/SubcultureModal';
 import TabletQrScanner from './components/TabletQrScanner';
+import TabletQrScannerModal from './components/TabletQrScannerModal';
 import { useIsDesktopApp } from './hooks/useIsDesktopApp';
+import { useIsTabletLayout } from './hooks/useIsTabletLayout';
 import type {
   BiologicalMeasurement,
   BoxActivatePayload,
@@ -258,7 +260,9 @@ export default function App() {
   const t = useMemo(() => createTranslator(language), [language]);
   const { confirmAction, confirmActionModal } = useConfirmAction();
   const isDesktopApp = useIsDesktopApp();
+  const isTabletLayout = useIsTabletLayout();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => getStoredSidebarCollapsed());
+  const [isTabletScannerOpen, setIsTabletScannerOpen] = useState(false);
 
   function toggleSidebar() {
     setIsSidebarCollapsed((collapsed) => {
@@ -269,6 +273,8 @@ export default function App() {
   }
 
   const isEffectiveCollapsed = isDesktopApp && isSidebarCollapsed;
+  // The tablet rail is always icon-only, so it hides labels just like the collapsed desktop sidebar.
+  const isNavLabelHidden = isEffectiveCollapsed || isTabletLayout;
   const hasAdminRole = userHasAdminRole(data.profile, activeOrganizationId);
 
   useEffect(() => {
@@ -344,6 +350,7 @@ export default function App() {
 
   useEffect(() => {
     function syncRoute() {
+      setIsTabletScannerOpen(false);
       setRoute(getCurrentRoute());
       setIsLoginRoute(window.location.pathname === '/login');
       setPasswordReset(getPasswordResetRoute(window.location.pathname));
@@ -352,6 +359,10 @@ export default function App() {
     window.addEventListener('popstate', syncRoute);
     return () => window.removeEventListener('popstate', syncRoute);
   }, []);
+
+  useEffect(() => {
+    if (!isTabletLayout) setIsTabletScannerOpen(false);
+  }, [isTabletLayout]);
 
   useEffect(() => {
     if (isPublicAuthPath(window.location.pathname)) {
@@ -633,6 +644,11 @@ export default function App() {
       profile: '/profile',
     };
     navigateTo({ tab, boxCode: null, boxId: null }, paths[tab]);
+  }
+
+  function openScannedBox(boxId: number) {
+    setIsTabletScannerOpen(false);
+    openBox(boxId);
   }
 
   function openAdminSection(section: AdminSectionKey) {
@@ -1079,7 +1095,9 @@ export default function App() {
   );
 
   return (
-    <main className={isEffectiveCollapsed ? 'app-shell is-sidebar-collapsed' : 'app-shell'}>
+    <main
+      className={`app-shell${isEffectiveCollapsed ? ' is-sidebar-collapsed' : ''}${isTabletLayout ? ' is-tablet-rail' : ''}`}
+    >
       <aside className={isEffectiveCollapsed ? 'sidebar is-collapsed' : 'sidebar'}>
         <div className="brand-switcher">
           {selectableOrganizations.length > 1 ? (
@@ -1121,6 +1139,18 @@ export default function App() {
           ) : null}
         </div>
 
+        {isTabletLayout ? (
+          <button
+            className="tablet-qr-action"
+            type="button"
+            aria-label={t('qrScannerTitle')}
+            title={t('qrScannerTitle')}
+            onClick={() => setIsTabletScannerOpen(true)}
+          >
+            <PolypbaseIcon name="qr-scan" size={22} />
+          </button>
+        ) : null}
+
         <nav className="tabbar" aria-label={t('mainNavigation')}>
           {availableTabs.map((tab) => {
             const label = t(tab);
@@ -1129,15 +1159,15 @@ export default function App() {
                 key={tab}
                 className={tab === activeTab ? `tab tab-${tab} is-active` : `tab tab-${tab}`}
                 type="button"
-                aria-label={isEffectiveCollapsed ? label : undefined}
-                title={isEffectiveCollapsed ? label : undefined}
+                aria-label={isNavLabelHidden ? label : undefined}
+                title={isNavLabelHidden ? label : undefined}
                 onClick={() => openTab(tab)}
               >
-                {isDesktopApp ? (
+                {isDesktopApp || isTabletLayout ? (
                   <span className="tab-icon-slot" aria-hidden="true">
                     <PolypbaseIcon
-                      name={TAB_ICONS[tab]}
-                      size={19}
+                      name={tab === 'labels' && isTabletLayout ? 'label-qr' : TAB_ICONS[tab]}
+                      size={isTabletLayout ? 22 : 19}
                       className="tab-icon"
                     />
                   </span>
@@ -1231,6 +1261,7 @@ export default function App() {
                 boxes={data.boxes}
                 exportOptions={data.exportOptions}
                 isLoading={isLoading}
+                isTabletLayout={isTabletLayout}
                 isOptionsLoading={isExportOptionsLoading}
                 profile={data.profile}
                 search={search}
@@ -1366,6 +1397,25 @@ export default function App() {
         )}
         {confirmActionModal}
       </section>
+      {isTabletScannerOpen && isTabletLayout ? (
+        <TabletQrScannerModal
+          boxes={data.boxes}
+          labels={{
+            close: t('close'),
+            description: t('qrScannerText'),
+            found: t('qrScannerFound'),
+            loading: t('qrScannerLoading'),
+            permission: t('qrScannerPermission'),
+            secureContext: t('qrScannerSecureContext'),
+            start: t('qrScannerStart'),
+            stop: t('qrScannerStop'),
+            title: t('qrScannerTitle'),
+            unsupported: t('qrScannerUnsupported'),
+          }}
+          onClose={() => setIsTabletScannerOpen(false)}
+          onSelectBox={openScannedBox}
+        />
+      ) : null}
     </main>
   );
 }
@@ -1442,6 +1492,7 @@ function PilotageView({
   boxes,
   exportOptions,
   isLoading,
+  isTabletLayout,
   isOptionsLoading,
   profile,
   recentBoxes,
@@ -1457,6 +1508,7 @@ function PilotageView({
   boxes: BoxItem[];
   exportOptions: ExportOptions | null;
   isLoading: boolean;
+  isTabletLayout: boolean;
   isOptionsLoading: boolean;
   profile: UserProfile | null;
   recentBoxes: BoxItem[];
@@ -1529,50 +1581,63 @@ function PilotageView({
           <SearchField {...searchFieldProps} />
         </div>
 
-        <section className={`tablet-lookup-panel is-${tabletLookupMode}-mode`}>
-          <div className="tablet-lookup-tabs" role="tablist" aria-label={t('searchOrScan')}>
-            <button
-              className={tabletLookupMode === 'qr' ? 'is-active' : ''}
-              type="button"
-              role="tab"
-              aria-selected={tabletLookupMode === 'qr'}
-              onClick={() => setTabletLookupMode('qr')}
-            >
-              {t('qrCode')}
-            </button>
-            <button
-              className={tabletLookupMode === 'search' ? 'is-active' : ''}
-              type="button"
-              role="tab"
-              aria-selected={tabletLookupMode === 'search'}
-              onClick={() => setTabletLookupMode('search')}
-            >
-              {t('searchTab')}
-            </button>
-          </div>
+        <div className="tablet-search-panel">
+          <SearchField
+            {...searchFieldProps}
+            labels={{
+              label: t('searchTab'),
+              placeholder: t('searchPlaceholder'),
+            }}
+          />
+        </div>
 
-          {tabletLookupMode === 'qr' ? (
-            <TabletQrScanner
-              boxes={boxes}
-              labels={{
-                found: t('qrScannerFound'),
-                permission: t('qrScannerPermission'),
-                secureContext: t('qrScannerSecureContext'),
-                start: t('qrScannerStart'),
-                stop: t('qrScannerStop'),
-                unsupported: t('qrScannerUnsupported'),
-              }}
-              onSelectBox={onSelectBox}
-            />
-          ) : (
-            <div className="tablet-manual-search">
-              <SearchField {...searchFieldProps} />
+        {!isTabletLayout ? (
+          <section className={`phone-lookup-panel is-${tabletLookupMode}-mode`}>
+            <div className="tablet-lookup-tabs" role="tablist" aria-label={t('searchOrScan')}>
+              <button
+                className={tabletLookupMode === 'qr' ? 'is-active' : ''}
+                type="button"
+                role="tab"
+                aria-selected={tabletLookupMode === 'qr'}
+                onClick={() => setTabletLookupMode('qr')}
+              >
+                {t('qrCode')}
+              </button>
+              <button
+                className={tabletLookupMode === 'search' ? 'is-active' : ''}
+                type="button"
+                role="tab"
+                aria-selected={tabletLookupMode === 'search'}
+                onClick={() => setTabletLookupMode('search')}
+              >
+                {t('searchTab')}
+              </button>
             </div>
-          )}
-        </section>
+
+            {tabletLookupMode === 'qr' ? (
+              <TabletQrScanner
+                boxes={boxes}
+                labels={{
+                  found: t('qrScannerFound'),
+                  loading: t('qrScannerLoading'),
+                  permission: t('qrScannerPermission'),
+                  secureContext: t('qrScannerSecureContext'),
+                  start: t('qrScannerStart'),
+                  stop: t('qrScannerStop'),
+                  unsupported: t('qrScannerUnsupported'),
+                }}
+                onSelectBox={onSelectBox}
+              />
+            ) : (
+              <div className="tablet-manual-search">
+                <SearchField {...searchFieldProps} />
+              </div>
+            )}
+          </section>
+        ) : null}
 
         <div className="mobile-suggestion-slot">
-          {tabletLookupMode === 'search' && visibleSuggestions.length > 0 ? (
+          {(isTabletLayout || tabletLookupMode === 'search') && visibleSuggestions.length > 0 ? (
             <SuggestionList
               boxes={visibleSuggestions}
               selectedBoxId={visibleSuggestions[highlightedSuggestionIndex]?.id ?? null}
@@ -1883,7 +1948,7 @@ function RecentAccessList({
   }
 
   return (
-    <section className="recent-panel" aria-label="Derniers scans et recherches">
+    <section className="recent-panel" aria-label={t('recentAccessAriaLabel')}>
       <div className="section-title">
         <h2>{t('recentAccess')}</h2>
         <span>{t('scanSearch')}</span>
