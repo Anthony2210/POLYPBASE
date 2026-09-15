@@ -166,15 +166,24 @@ class MeasurementEditingApiTests(TestCase):
         measurement = BiologicalMeasurement.objects.get(box=self.box, measured_on=self.today)
         self.assertEqual(measurement.polyp_count, 0)
         self.assertEqual(measurement.ephyrae_count, 0)
-        audit = AuditLog.objects.get(
-            object_type="box",
-            metadata__measurement_id=measurement.id,
+        audits = list(
+            AuditLog.objects.filter(
+                object_type="box",
+                metadata__measurement_id=measurement.id,
+            ).order_by("created_at", "id")
         )
-        self.assertEqual(audit.action, AuditLog.Action.UPDATE)
-        self.assertEqual(audit.metadata["valeurs"]["polypes"], 0)
-        self.assertEqual(audit.metadata["valeurs"]["ephyrules"], 0)
-        self.assertEqual(audit.metadata["modifications"]["polypes"]["avant"], 12)
-        self.assertEqual(audit.metadata["modifications"]["polypes"]["apres"], 0)
+        self.assertEqual(len(audits), 2)
+        self.assertEqual(audits[0].action, AuditLog.Action.ENTRY)
+        self.assertEqual(audits[0].metadata["valeurs"]["polypes"], 12)
+        correction = audits[1]
+        self.assertEqual(correction.action, AuditLog.Action.UPDATE)
+        self.assertEqual(correction.metadata["before"]["polypes"], 12)
+        self.assertEqual(correction.metadata["after"]["polypes"], 0)
+        self.assertEqual(correction.metadata["after"]["ephyrules"], 0)
+        self.assertEqual(correction.metadata["valeurs"]["polypes"], 0)
+        self.assertEqual(correction.metadata["valeurs"]["ephyrules"], 0)
+        self.assertEqual(correction.metadata["modifications"]["polypes"]["avant"], 12)
+        self.assertEqual(correction.metadata["modifications"]["polypes"]["apres"], 0)
 
     def test_measurement_and_alert_roll_back_when_audit_fails(self):
         BiologicalMeasurement.objects.create(
@@ -325,6 +334,9 @@ class MeasurementEditingApiTests(TestCase):
         self.assertEqual(response.status_code, 403)
         measurement.refresh_from_db()
         self.assertEqual(measurement.polyp_count, 10)
+        self.assertFalse(
+            AuditLog.objects.filter(metadata__measurement_id=measurement.id).exists()
+        )
 
     def test_a_measurement_cannot_be_updated_through_another_box(self):
         measurement = BiologicalMeasurement.objects.create(
@@ -360,6 +372,9 @@ class MeasurementEditingApiTests(TestCase):
         self.assertEqual(response.status_code, 404)
         measurement.refresh_from_db()
         self.assertEqual(measurement.polyp_count, 10)
+        self.assertFalse(
+            AuditLog.objects.filter(metadata__measurement_id=measurement.id).exists()
+        )
 
     # -- salinity persistence ----------------------------------------------
 

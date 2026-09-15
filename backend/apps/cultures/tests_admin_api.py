@@ -301,7 +301,6 @@ class AdminResourceCreationApiTests(TestCase):
             object_type="box",
             object_id=self.box.global_code,
             description="Biological measurement for 2026-07-08",
-            metadata={"measurement_id": 999999},
         )
         self.client.login(username="org_admin", password="secret")
 
