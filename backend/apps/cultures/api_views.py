@@ -229,56 +229,14 @@ def _changed_values(before, after):
 
 
 def _record_measurement_audit(*, box, measurement, user, action, metadata):
-    """Keep a single history entry per measurement.
-
-    Correcting a measurement overwrites the stored row, so adding a second entry
-    would show the same reading twice. The existing entry is updated in place
-    instead; created_at is auto_now_add, so it keeps the date the measurement
-    was first recorded, and the metadata carries what changed.
-    """
-    existing = (
-        AuditLog.objects.filter(
-            object_type="box",
-            metadata__measurement_id=measurement.id,
-        )
-        .order_by("created_at")
-        .first()
-    )
-    description = f"Biological measurement for {measurement.measured_on}"
-
-    if existing is not None:
-        existing.organization = box.organization
-        existing.user = user
-        existing.action = action
-        existing.object_id = box.global_code
-        existing.description = description
-        existing.metadata = metadata
-        # created_at keeps the date the measurement was first recorded, so the
-        # correction would otherwise stay buried at its old position. edited_at
-        # is what makes it surface, and says the entry was corrected.
-        existing.edited_at = timezone.now()
-        existing.edited_by = user
-        existing.save(
-            update_fields=[
-                "organization",
-                "user",
-                "action",
-                "object_id",
-                "description",
-                "metadata",
-                "edited_at",
-                "edited_by",
-            ]
-        )
-        return existing
-
+    """Record one immutable business event for a measurement write."""
     return AuditLog.objects.create(
         organization=box.organization,
         user=user,
         action=action,
         object_type="box",
         object_id=box.global_code,
-        description=description,
+        description=f"Biological measurement for {measurement.measured_on}",
         metadata=metadata,
     )
 
@@ -1364,7 +1322,13 @@ class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
                 "valeurs": after_values,
             }
             if before_values is not None:
-                metadata["modifications"] = _changed_values(before_values, after_values)
+                metadata.update(
+                    {
+                        "before": before_values,
+                        "after": after_values,
+                        "modifications": _changed_values(before_values, after_values),
+                    }
+                )
 
             _record_measurement_audit(
                 box=box,
@@ -1436,6 +1400,8 @@ class BoxMeasurementDetailAPIView(generics.GenericAPIView):
                 action=AuditLog.Action.UPDATE,
                 metadata={
                     "measurement_id": measurement.id,
+                    "before": before_values,
+                    "after": after_values,
                     "valeurs": after_values,
                     "modifications": _changed_values(before_values, after_values),
                 },

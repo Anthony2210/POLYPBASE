@@ -164,14 +164,28 @@ class BiologicalMeasurementConcurrencyTests(TransactionTestCase):
         self.assertEqual(measurement.ephyrae_count, expected_values[1])
         self.assertEqual(measurement.user, self.second_user)
 
-        audit = AuditLog.objects.get(
-            object_type="box",
-            metadata__measurement_id=measurement.id,
+        audits = list(
+            AuditLog.objects.filter(
+                object_type="box",
+                metadata__measurement_id=measurement.id,
+            ).order_by("created_at", "id")
         )
-        self.assertEqual(audit.action, AuditLog.Action.UPDATE)
-        self.assertEqual(audit.user, self.second_user)
-        self.assertEqual(audit.metadata["valeurs"]["polypes"], expected_values[0])
-        self.assertEqual(audit.metadata["valeurs"]["ephyrules"], expected_values[1])
+        self.assertEqual(len(audits), 2)
+        creation, correction = audits
+        self.assertEqual(creation.action, AuditLog.Action.ENTRY)
+        self.assertEqual(creation.user, self.first_user)
+        self.assertEqual(correction.action, AuditLog.Action.UPDATE)
+        self.assertEqual(correction.user, self.second_user)
+        self.assertEqual(
+            correction.metadata["before"]["polypes"],
+            creation.metadata["valeurs"]["polypes"],
+        )
+        self.assertEqual(
+            correction.metadata["before"]["ephyrules"],
+            creation.metadata["valeurs"]["ephyrules"],
+        )
+        self.assertEqual(correction.metadata["after"]["polypes"], expected_values[0])
+        self.assertEqual(correction.metadata["after"]["ephyrules"], expected_values[1])
 
     def test_concurrent_first_entries_are_serialized_as_create_then_update(self):
         first_response, second_response = self._run_ordered_concurrent_posts(

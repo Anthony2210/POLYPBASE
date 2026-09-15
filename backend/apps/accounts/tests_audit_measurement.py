@@ -10,6 +10,7 @@ from datetime import date
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.audit.models import AuditLog
 from apps.cultures.models import Box, ThermalZone
@@ -31,6 +32,22 @@ class AuditLogMeasurementLinkTests(TestCase):
             organization=self.organization,
             role=OrganizationMembership.Role.ADMIN,
         )
+        self.second_user = user_model.objects.create_user(
+            username="second_user",
+            email="second_user@example.org",
+            password="secret",
+        )
+        self.third_user = user_model.objects.create_user(
+            username="third_user",
+            email="third_user@example.org",
+            password="secret",
+        )
+        for user in (self.second_user, self.third_user):
+            OrganizationMembership.objects.create(
+                user=user,
+                organization=self.organization,
+                role=OrganizationMembership.Role.LAB_TECHNICIAN,
+            )
         self.other_organization = Organization.objects.create(
             name="Partner Laboratory",
             slug="partner-laboratory",
@@ -264,18 +281,142 @@ class AuditLogMeasurementLinkTests(TestCase):
 
         self.assertIsNone(entry["editable_measurement"])
 
-    def test_correcting_a_measurement_keeps_a_single_history_entry(self):
-        # The correction overwrites the stored measurement, so the history must
-        # not end up showing the same reading twice.
+    def test_measurement_creation_and_corrections_are_append_only(self):
+        measurement_date = date(2026, 6, 16)
         self.client.login(username="org_admin", password="secret")
-        url = reverse("api_box_measurement_detail", args=[self.box.id, self.measurement.id])
+        creation_started_at = timezone.now()
+        creation_response = self.client.post(
+            reverse("api_box_measurements", args=[self.box.id]),
+            data={
+                "measured_on": measurement_date.isoformat(),
+                "polyp_count": 12,
+                "ephyrae_count": 3,
+            },
+            content_type="application/json",
+        )
+        creation_finished_at = timezone.now()
+        self.assertEqual(creation_response.status_code, 201)
+        measurement_id = creation_response.json()["id"]
+        detail_url = reverse(
+            "api_box_measurement_detail",
+            args=[self.box.id, measurement_id],
+        )
+        creation_event = AuditLog.objects.get(
+            metadata__measurement_id=measurement_id,
+            action=AuditLog.Action.ENTRY,
+        )
+        creation_snapshot = {
+            "user_id": creation_event.user_id,
+            "created_at": creation_event.created_at,
+            "metadata": creation_event.metadata,
+        }
 
-        self.client.patch(url, data={"polyp_count": 50}, content_type="application/json")
-        self.client.patch(url, data={"polyp_count": 60}, content_type="application/json")
+        self.client.login(username="second_user", password="secret")
+        second_started_at = timezone.now()
+        second_response = self.client.patch(
+            detail_url,
+            data={"polyp_count": 0, "ephyrae_count": 0},
+            content_type="application/json",
+        )
+        second_finished_at = timezone.now()
+        self.assertEqual(second_response.status_code, 200)
+        second_event = AuditLog.objects.get(
+            metadata__measurement_id=measurement_id,
+            user=self.second_user,
+        )
+        second_snapshot = {
+            "user_id": second_event.user_id,
+            "created_at": second_event.created_at,
+            "metadata": second_event.metadata,
+        }
 
-        entries = AuditLog.objects.filter(metadata__measurement_id=self.measurement.id)
-        self.assertEqual(entries.count(), 1)
-        self.assertEqual(entries.first().metadata["valeurs"]["polypes"], 60)
+        self.client.login(username="third_user", password="secret")
+        third_started_at = timezone.now()
+        third_response = self.client.patch(
+            detail_url,
+            data={"polyp_count": 7},
+            content_type="application/json",
+        )
+        third_finished_at = timezone.now()
+        self.assertEqual(third_response.status_code, 200)
+
+        events = list(
+            AuditLog.objects.filter(metadata__measurement_id=measurement_id).order_by(
+                "created_at", "id"
+            )
+        )
+        self.assertEqual(len(events), 3)
+        self.assertEqual(
+            [event.user_id for event in events],
+            [self.admin.id, self.second_user.id, self.third_user.id],
+        )
+        self.assertEqual(
+            [event.action for event in events],
+            [AuditLog.Action.ENTRY, AuditLog.Action.UPDATE, AuditLog.Action.UPDATE],
+        )
+        self.assertTrue(
+            all(event.organization_id == self.organization.id for event in events)
+        )
+        self.assertGreaterEqual(events[0].created_at, creation_started_at)
+        self.assertLessEqual(events[0].created_at, creation_finished_at)
+        self.assertGreaterEqual(events[1].created_at, second_started_at)
+        self.assertLessEqual(events[1].created_at, second_finished_at)
+        self.assertGreaterEqual(events[2].created_at, third_started_at)
+        self.assertLessEqual(events[2].created_at, third_finished_at)
+        self.assertTrue(all(event.edited_at is None for event in events))
+        self.assertTrue(all(event.edited_by_id is None for event in events))
+
+        creation_event.refresh_from_db()
+        second_event.refresh_from_db()
+        self.assertEqual(
+            {
+                "user_id": creation_event.user_id,
+                "created_at": creation_event.created_at,
+                "metadata": creation_event.metadata,
+            },
+            creation_snapshot,
+        )
+        self.assertEqual(
+            {
+                "user_id": second_event.user_id,
+                "created_at": second_event.created_at,
+                "metadata": second_event.metadata,
+            },
+            second_snapshot,
+        )
+
+        self.assertEqual(second_event.metadata["before"]["polypes"], 12)
+        self.assertEqual(second_event.metadata["after"]["polypes"], 0)
+        self.assertEqual(second_event.metadata["after"]["ephyrules"], 0)
+        third_event = events[2]
+        self.assertEqual(third_event.metadata["before"]["polypes"], 0)
+        self.assertEqual(third_event.metadata["before"]["ephyrules"], 0)
+        self.assertEqual(third_event.metadata["after"]["polypes"], 7)
+        self.assertEqual(
+            third_event.metadata["modifications"]["polypes"],
+            {"avant": 0, "apres": 7},
+        )
+
+        self.client.login(username="org_admin", password="secret")
+        serialized_events = [
+            entry
+            for entry in self.get_entries()
+            if entry["metadata"].get("measurement_id") == measurement_id
+        ]
+        self.assertEqual(len(serialized_events), 3)
+        serialized_by_user = {entry["user"]: entry for entry in serialized_events}
+        self.assertEqual(
+            set(serialized_by_user),
+            {"org_admin", "second_user", "third_user"},
+        )
+        self.assertEqual(
+            serialized_by_user["third_user"]["metadata"]["before"]["polypes"],
+            0,
+        )
+        self.assertEqual(
+            serialized_by_user["third_user"]["metadata"]["after"]["polypes"],
+            7,
+        )
 
     def test_the_entry_keeps_the_date_the_measurement_was_first_recorded(self):
         self.client.login(username="org_admin", password="secret")
@@ -298,15 +439,15 @@ class AuditLogMeasurementLinkTests(TestCase):
 
         first.refresh_from_db()
         self.assertEqual(first.created_at, recorded_at)
-        self.assertEqual(first.metadata["valeurs"]["polypes"], 77)
+        self.assertEqual(first.metadata, {"measurement_id": self.measurement.id})
+        correction = AuditLog.objects.get(
+            metadata__measurement_id=self.measurement.id,
+            action=AuditLog.Action.UPDATE,
+        )
+        self.assertEqual(correction.metadata["before"]["polypes"], 42)
+        self.assertEqual(correction.metadata["after"]["polypes"], 77)
 
-    def test_a_correction_surfaces_at_the_top_of_the_history(self):
-        """The corrected entry must be visible, not buried at its old date.
-
-        Its entry is updated in place and keeps created_at, so without ordering
-        on the edit time the user would correct a measurement and see nothing
-        change in the history.
-        """
+    def test_a_correction_surfaces_as_a_new_history_event(self):
         old_entry = AuditLog.objects.create(
             organization=self.organization,
             user=self.admin,
@@ -333,10 +474,16 @@ class AuditLogMeasurementLinkTests(TestCase):
             content_type="application/json",
         )
 
+        correction = AuditLog.objects.get(
+            metadata__measurement_id=self.measurement.id,
+            action=AuditLog.Action.UPDATE,
+        )
         entries = self.get_entries()
-        self.assertEqual(entries[0]["id"], old_entry.id)
-        self.assertIsNotNone(entries[0]["edited_at"])
-        self.assertEqual(entries[0]["edited_by"], "org_admin")
+        self.assertEqual(entries[0]["id"], correction.id)
+        self.assertNotEqual(entries[0]["id"], old_entry.id)
+        self.assertEqual(entries[0]["user"], "org_admin")
+        self.assertIsNone(entries[0]["edited_at"])
+        self.assertIsNone(entries[0]["edited_by"])
         self.assertEqual(entries[0]["metadata"]["valeurs"]["polypes"], 90)
 
     def test_an_untouched_entry_reports_no_edit(self):
@@ -368,8 +515,7 @@ class AuditLogMeasurementLinkTests(TestCase):
         self.measurement.refresh_from_db()
         self.assertEqual(self.measurement.polyp_count, 50)
         self.assertEqual(self.measurement.notes, "Comptage corrige")
-        # The correction is itself recorded, which is the whole point of doing
-        # it this way rather than rewriting the history entry.
+        # The correction is recorded as its own event.
         self.assertTrue(
             AuditLog.objects.filter(
                 action=AuditLog.Action.UPDATE,

@@ -834,9 +834,9 @@ class AdminAuditLogListAPIView(APIView):
 
         logs = list(
             logs_query.select_related("organization", "user", "edited_by")
-            # Sorted on the last time the entry changed: a corrected measurement
-            # updates its existing entry in place, so ordering on created_at
-            # alone would leave the correction buried in the past.
+            # New events are ordered by creation time. edited_at remains part of
+            # the compatibility contract for rows produced by the legacy mutable
+            # measurement-audit behavior.
             .annotate(effective_at=Coalesce("edited_at", "created_at"))
             .order_by("-effective_at")[offset : offset + limit + 1]
         )
@@ -892,8 +892,8 @@ class AdminAuditLogListAPIView(APIView):
             "object_type": log.object_type,
             "object_id": log.object_id,
             "description": log.description,
-            # The entry is placed in the timeline by effective_at, but still
-            # shows created_at as the moment the measurement was recorded.
+            # Legacy mutable rows may still have a later effective_at. New
+            # append-only events use their own created_at for both values.
             "effective_at": getattr(log, "effective_at", None) or log.created_at,
             "edited_at": log.edited_at,
             "edited_by": log.edited_by.get_username() if log.edited_by else None,
