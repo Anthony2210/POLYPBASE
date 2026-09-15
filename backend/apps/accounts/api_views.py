@@ -28,6 +28,9 @@ from apps.accounts.permissions import (
     get_admin_organizations,
     get_authorized_organizations,
     get_required_active_organization_from_request,
+    user_can_administer_organization,
+    user_can_manage_admin_memberships,
+    user_can_relinquish_responsable,
     user_is_org_admin,
 )
 from apps.audit.models import AuditLog
@@ -122,6 +125,13 @@ def validate_email_identity(value):
     if email is None:
         raise ValidationError("Enter a valid email address.")
     return email
+
+
+class AccountPermissionDenied(PermissionDenied):
+    """Return a stable code so the frontend can translate expected denials."""
+
+    def __init__(self, detail, *, error_code):
+        super().__init__({"detail": detail, "code": error_code})
 
 
 class EmailDeliveryUnavailable(APIException):
@@ -423,6 +433,7 @@ class UserProfileAPIView(APIView):
                         },
                         "role": membership.role,
                         "role_label": membership.get_role_display(),
+                        "is_responsable": membership.is_responsable,
                     }
                     for membership in memberships
                 ],
@@ -432,12 +443,33 @@ class UserProfileAPIView(APIView):
         return serializer.data
 
 
-def _role_choices():
-    """Return the assignable roles with their display labels."""
-    return [
-        {"value": value, "label": str(label)}
-        for value, label in OrganizationMembership.Role.choices
-    ]
+def _role_choices(*, can_manage_admin_memberships):
+    """Return roles the current actor may assign to a membership."""
+    choices = OrganizationMembership.Role.choices
+    if not can_manage_admin_memberships:
+        choices = [
+            choice
+            for choice in choices
+            if choice[0] != OrganizationMembership.Role.ADMIN
+        ]
+    return [{"value": value, "label": str(label)} for value, label in choices]
+
+
+def _account_management_capabilities(user, organization):
+    can_manage_admin_memberships = user_can_manage_admin_memberships(
+        user,
+        organization,
+    )
+    return {
+        "roles": _role_choices(
+            can_manage_admin_memberships=can_manage_admin_memberships,
+        ),
+        "can_manage_admin_memberships": can_manage_admin_memberships,
+        "can_relinquish_responsable": user_can_relinquish_responsable(
+            user,
+            organization,
+        ),
+    }
 
 
 def _changed_values(before, after):
@@ -466,6 +498,7 @@ def _member_data(membership, *, current_user):
         },
         "role": membership.role,
         "role_label": membership.get_role_display(),
+        "is_responsable": membership.is_responsable,
         "is_active": membership.is_active,
         "last_login": user.last_login.isoformat() if user.last_login else None,
         "is_self": user.id == current_user.id,
@@ -483,6 +516,7 @@ def _member_audit_values(membership):
         "email": user.email,
         "structure": membership.organization.name,
         "role": membership.role,
+        "is_responsable": membership.is_responsable,
         "acces_actif": membership.is_active,
     }
 
@@ -518,6 +552,7 @@ class OrganizationMemberListCreateAPIView(APIView):
             .order_by("organization__name", "user__last_name", "user__first_name", "user__email")
         )
         organizations = get_admin_organizations(request.user).filter(id__in=organization_ids).order_by("name")
+        active_organization = organizations.get(pk=organization_ids[0])
 
         return Response(
             {
@@ -529,7 +564,10 @@ class OrganizationMemberListCreateAPIView(APIView):
                     {"id": organization.id, "name": organization.name}
                     for organization in organizations
                 ],
-                "roles": _role_choices(),
+                **_account_management_capabilities(
+                    request.user,
+                    active_organization,
+                ),
             }
         )
 
@@ -541,9 +579,17 @@ class OrganizationMemberListCreateAPIView(APIView):
         if not admin_org_ids:
             raise PermissionDenied("This account cannot manage members for the selected organization.")
         data = request.data
+        if "is_responsable" in data:
+            raise ValidationError(
+                {"is_responsable": "Responsable status cannot be assigned by invitation."}
+            )
 
         organization = self._get_managed_organization(data.get("organization_id"), admin_org_ids)
-        role = self._validate_role(data.get("role"))
+        capabilities = _account_management_capabilities(request.user, organization)
+        role = self._validate_role(
+            data.get("role"),
+            allowed_roles={choice["value"] for choice in capabilities["roles"]},
+        )
 
         email = normalize_email(data.get("email"))
         if not email:
@@ -561,6 +607,11 @@ class OrganizationMemberListCreateAPIView(APIView):
 
         user_model = get_user_model()
         with transaction.atomic():
+            organization = self._lock_invitation_organization(
+                request.user,
+                organization,
+                role=role,
+            )
             self._validate_new_user_identity(user_model, email)
             user = self._create_user(user_model, email, data)
 
@@ -606,14 +657,47 @@ class OrganizationMemberListCreateAPIView(APIView):
             raise PermissionDenied("You cannot manage members for this organization.")
         return Organization.objects.get(id=organization_id)
 
+    def _lock_invitation_organization(self, actor, organization, *, role):
+        try:
+            locked_organization = Organization.objects.select_for_update().get(
+                pk=organization.pk,
+                is_active=True,
+            )
+        except Organization.DoesNotExist as error:
+            raise AccountPermissionDenied(
+                "This account cannot manage members for the selected organization.",
+                error_code="membership_admin_required",
+            ) from error
+        if not user_can_administer_organization(actor, locked_organization):
+            raise AccountPermissionDenied(
+                "This account cannot manage members for the selected organization.",
+                error_code="membership_admin_required",
+            )
+        if (
+            role == OrganizationMembership.Role.ADMIN
+            and not user_can_manage_admin_memberships(actor, locked_organization)
+        ):
+            raise AccountPermissionDenied(
+                "Only an institution Responsable can assign the Admin role.",
+                error_code="responsable_required",
+            )
+        return locked_organization
+
     def _validate_new_user_identity(self, user_model, email):
         if user_model.objects.filter(email=email).exists():
             raise ValidationError({"email": "Cette adresse email est déjà utilisée."})
 
-    def _validate_role(self, role):
-        valid_roles = {value for value, _label in OrganizationMembership.Role.choices}
-        if role not in valid_roles:
+    def _validate_role(self, role, *, allowed_roles):
+        stored_roles = {
+            value for value, _label in OrganizationMembership.Role.choices
+        }
+        if role not in stored_roles:
             raise ValidationError({"role": "Rôle invalide."})
+        if role not in allowed_roles:
+            raise AccountPermissionDenied(
+                "Only an institution Responsable can assign the Admin role.",
+                error_code="responsable_required",
+            )
         return role
 
     def _create_user(self, user_model, email, data):
@@ -646,7 +730,7 @@ class OrganizationMemberListCreateAPIView(APIView):
 
 @method_decorator(ensure_csrf_cookie, name="dispatch")
 class OrganizationMembershipDetailAPIView(APIView):
-    """Update a single membership (role or activation) within a managed organization."""
+    """Update a membership after validating its complete final state."""
 
     @transaction.atomic
     def patch(self, request, pk):
@@ -657,48 +741,56 @@ class OrganizationMembershipDetailAPIView(APIView):
         if not admin_org_ids:
             raise PermissionDenied("This account cannot manage members for the selected organization.")
         try:
-            membership = OrganizationMembership.objects.select_related(
-                "organization", "user"
+            initial_membership = OrganizationMembership.objects.only(
+                "organization_id"
             ).get(pk=pk)
         except OrganizationMembership.DoesNotExist:
             raise ValidationError({"detail": "Membre introuvable."})
 
-        if membership.organization_id not in admin_org_ids:
+        if initial_membership.organization_id not in admin_org_ids:
             raise PermissionDenied("You cannot manage members for this organization.")
 
-        # Serialize last-admin decisions per organization, then discard the
-        # membership state read before waiting for the lock.
         organization = Organization.objects.select_for_update().get(
-            pk=membership.organization_id
+            pk=initial_membership.organization_id
         )
-        if organization.pk not in get_active_admin_organization_ids(request):
-            raise PermissionDenied(
-                "This account cannot manage members for the selected organization."
-            )
+        actor = get_user_model().objects.get(pk=request.user.pk)
+        actor_membership = self._get_fresh_actor_membership(actor, organization)
         membership = OrganizationMembership.objects.select_related(
             "organization", "user"
         ).get(pk=pk, organization=organization)
 
+        if "is_responsable" in request.data:
+            raise ValidationError(
+                {"is_responsable": "Responsable status requires a controlled action."}
+            )
+        if "status" in request.data:
+            raise ValidationError({"status": "Statut invalide."})
+
+        final_role = membership.role
+        if "role" in request.data:
+            final_role = self._validate_stored_role(request.data.get("role"))
+
+        final_is_active = membership.is_active
+        if "is_active" in request.data:
+            final_is_active = request.data.get("is_active")
+            if not isinstance(final_is_active, bool):
+                raise ValidationError({"is_active": "Statut invalide."})
+
+        self._validate_final_state(
+            actor=actor,
+            actor_membership=actor_membership,
+            membership=membership,
+            final_role=final_role,
+            final_is_active=final_is_active,
+        )
+
         before_values = _member_audit_values(membership)
         updated_fields = []
-        if "role" in request.data:
-            next_role = self._validate_role(request.data.get("role"))
-            self._ensure_role_change_allowed(
-                membership=membership,
-                next_role=next_role,
-            )
-            membership.role = next_role
+        if final_role != membership.role:
+            membership.role = final_role
             updated_fields.append("role")
-        if "is_active" in request.data:
-            next_is_active = request.data.get("is_active")
-            if not isinstance(next_is_active, bool):
-                raise ValidationError({"is_active": "Statut invalide."})
-            self._ensure_activation_change_allowed(
-                request_user=request.user,
-                membership=membership,
-                next_is_active=next_is_active,
-            )
-            membership.is_active = next_is_active
+        if final_is_active != membership.is_active:
+            membership.is_active = final_is_active
             updated_fields.append("is_active")
 
         if updated_fields:
@@ -706,7 +798,7 @@ class OrganizationMembershipDetailAPIView(APIView):
             after_values = _member_audit_values(membership)
             AuditLog.objects.create(
                 organization=membership.organization,
-                user=request.user,
+                user=actor,
                 action=AuditLog.Action.UPDATE,
                 object_type="account",
                 object_id=membership.user.get_username(),
@@ -717,68 +809,191 @@ class OrganizationMembershipDetailAPIView(APIView):
                     "valeurs": after_values,
                     "modifications": _changed_values(before_values, after_values),
                 },
-        )
+            )
 
-        return Response(_member_data(membership, current_user=request.user))
+        return Response(_member_data(membership, current_user=actor))
 
-    def _ensure_role_change_allowed(self, membership, next_role):
-        if (
-            membership.role == OrganizationMembership.Role.ADMIN
-            and next_role != OrganizationMembership.Role.ADMIN
-        ):
-            other_admin_exists = OrganizationMembership.objects.filter(
-                organization=membership.organization,
+    def _get_fresh_actor_membership(self, actor, organization):
+        if not organization.is_active:
+            raise AccountPermissionDenied(
+                "This account cannot manage members for the selected organization.",
+                error_code="membership_admin_required",
+            )
+        if actor.is_superuser:
+            return None
+        try:
+            return OrganizationMembership.objects.get(
+                user=actor,
+                organization=organization,
                 is_active=True,
                 role=OrganizationMembership.Role.ADMIN,
-            ).exclude(pk=membership.pk).exists()
-            if not other_admin_exists:
+            )
+        except OrganizationMembership.DoesNotExist as error:
+            raise AccountPermissionDenied(
+                "This account cannot manage members for the selected organization.",
+                error_code="membership_admin_required",
+            ) from error
+
+    def _validate_final_state(
+        self,
+        *,
+        actor,
+        actor_membership,
+        membership,
+        final_role,
+        final_is_active,
+    ):
+        role_changes = final_role != membership.role
+        activation_changes = final_is_active != membership.is_active
+        if not role_changes and not activation_changes:
+            return
+
+        if membership.is_responsable:
+            raise AccountPermissionDenied(
+                "Responsable status can only be changed through a controlled action.",
+                error_code="responsable_membership_protected",
+            )
+
+        actor_can_manage_admins = (
+            actor.is_superuser or actor_membership.is_responsable
+        )
+        target_is_self = membership.user_id == actor.id
+        original_is_admin = membership.role == OrganizationMembership.Role.ADMIN
+        final_is_admin = final_role == OrganizationMembership.Role.ADMIN
+
+        if not actor_can_manage_admins:
+            if target_is_self:
+                if activation_changes and not final_is_active:
+                    raise PermissionDenied(
+                        "Vous ne pouvez pas désactiver votre propre accès."
+                    )
+                if role_changes and not original_is_admin:
+                    raise PermissionDenied(
+                        "You cannot change your own membership role."
+                    )
+            elif original_is_admin and (role_changes or activation_changes):
+                if activation_changes and not role_changes:
+                    raise PermissionDenied(
+                        "Un administrateur ne peut pas désactiver un autre administrateur."
+                    )
+                raise AccountPermissionDenied(
+                    "An ordinary Admin cannot modify another Admin membership.",
+                    error_code="responsable_required",
+                )
+
+            if not original_is_admin and final_is_admin:
+                raise AccountPermissionDenied(
+                    "Only an institution Responsable can assign the Admin role.",
+                    error_code="responsable_required",
+                )
+
+        removes_active_admin = (
+            membership.is_active
+            and original_is_admin
+            and not (final_is_active and final_is_admin)
+        )
+        if removes_active_admin and not self._other_active_admin_exists(membership):
+            if role_changes:
                 raise PermissionDenied(
                     "Le dernier administrateur actif de cette structure ne peut pas être rétrogradé."
                 )
-
-    def _ensure_activation_change_allowed(self, request_user, membership, next_is_active):
-        if next_is_active or not membership.is_active:
-            return
-        if membership.user_id == request_user.id:
-            raise PermissionDenied(
-                "Vous ne pouvez pas désactiver votre propre accès."
-            )
-        if membership.role != OrganizationMembership.Role.ADMIN:
-            return
-        if self._actor_is_institution_admin(request_user, membership.organization_id):
-            raise PermissionDenied(
-                "Un administrateur ne peut pas désactiver un autre administrateur."
-            )
-        other_admin_exists = OrganizationMembership.objects.filter(
-            organization=membership.organization,
-            is_active=True,
-            role=OrganizationMembership.Role.ADMIN,
-        ).exclude(pk=membership.pk).exists()
-        if not other_admin_exists:
             raise PermissionDenied(
                 "Le dernier administrateur actif de cette structure ne peut pas être désactivé."
             )
 
-    def _actor_is_institution_admin(self, request_user, organization_id):
-        """Return True when the acting user administers the target institution.
-
-        Administrators are peers inside an institution, so an institution admin
-        cannot deactivate another admin. A Django superuser without an admin
-        membership in that institution keeps the platform-level access it
-        already had.
-        """
+    def _other_active_admin_exists(self, membership):
         return OrganizationMembership.objects.filter(
-            user=request_user,
-            organization_id=organization_id,
+            organization=membership.organization,
             is_active=True,
             role=OrganizationMembership.Role.ADMIN,
-        ).exists()
+        ).exclude(pk=membership.pk).exists()
 
-    def _validate_role(self, role):
+    def _validate_stored_role(self, role):
         valid_roles = {value for value, _label in OrganizationMembership.Role.choices}
         if role not in valid_roles:
             raise ValidationError({"role": "Rôle invalide."})
         return role
+
+
+@method_decorator(ensure_csrf_cookie, name="dispatch")
+class InstitutionResponsableRelinquishAPIView(APIView):
+    """Let an active Responsable relinquish only their own status."""
+
+    def post(self, request):
+        initial_organization = get_required_active_organization_from_request(request)
+
+        with transaction.atomic():
+            organization = Organization.objects.select_for_update().get(
+                pk=initial_organization.pk
+            )
+            actor = get_user_model().objects.get(pk=request.user.pk)
+            membership = self._get_active_responsable_membership(actor, organization)
+            self._ensure_another_active_responsable(membership)
+
+            before_values = _member_audit_values(membership)
+            membership.is_responsable = False
+            membership.save(update_fields=["is_responsable"])
+            after_values = _member_audit_values(membership)
+            AuditLog.objects.create(
+                organization=organization,
+                user=actor,
+                action=AuditLog.Action.UPDATE,
+                object_type="account",
+                object_id=membership.user.get_username(),
+                description="Institution Responsable relinquished",
+                metadata={
+                    "user_id": actor.id,
+                    "membership_id": membership.id,
+                    "valeurs": after_values,
+                    "modifications": _changed_values(before_values, after_values),
+                },
+            )
+
+            membership = OrganizationMembership.objects.select_related(
+                "organization",
+                "user",
+            ).get(pk=membership.pk)
+            return Response(
+                {
+                    "member": _member_data(membership, current_user=actor),
+                    **_account_management_capabilities(actor, organization),
+                }
+            )
+
+    def _get_active_responsable_membership(self, actor, organization):
+        if actor.is_superuser or not organization.is_active:
+            raise AccountPermissionDenied(
+                "This account is not an active institution Responsable.",
+                error_code="active_responsable_required",
+            )
+        try:
+            return OrganizationMembership.objects.select_related(
+                "organization",
+                "user",
+            ).get(
+                user=actor,
+                organization=organization,
+                is_active=True,
+                role=OrganizationMembership.Role.ADMIN,
+                is_responsable=True,
+            )
+        except OrganizationMembership.DoesNotExist as error:
+            raise AccountPermissionDenied(
+                "This account is not an active institution Responsable.",
+                error_code="active_responsable_required",
+            ) from error
+
+    def _ensure_another_active_responsable(self, membership):
+        if not OrganizationMembership.objects.filter(
+            organization=membership.organization,
+            is_active=True,
+            role=OrganizationMembership.Role.ADMIN,
+            is_responsable=True,
+        ).exclude(pk=membership.pk).exists():
+            raise AccountPermissionDenied(
+                "The last active institution Responsable cannot relinquish status.",
+                error_code="last_active_responsable",
+            )
 
 
 class PersonalAuditLogListAPIView(APIView):

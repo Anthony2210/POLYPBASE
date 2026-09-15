@@ -7,7 +7,15 @@ export const MEMBER_FEEDBACK_MS = 2400;
 
 export type MemberFeedbackTone = 'positive' | 'negative';
 
-export type MemberMutationKind = 'created' | 'promote' | 'demote' | 'deactivate' | 'reactivate';
+export type MemberMutationKind =
+  | 'created'
+  | 'promote'
+  | 'demote'
+  | 'promote_to_admin'
+  | 'demote_to_technician'
+  | 'deactivate'
+  | 'reactivate'
+  | 'relinquish_responsable';
 
 // Message shown and announced after each member mutation succeeds, with the
 // direction of the action: promotions and reactivations read as positive,
@@ -19,8 +27,11 @@ export const MEMBER_MUTATION_FEEDBACK: Record<
   created: { key: 'manageMemberAdded', tone: 'positive' },
   promote: { key: 'manageMemberPromoted', tone: 'positive' },
   demote: { key: 'manageMemberDemoted', tone: 'negative' },
+  promote_to_admin: { key: 'manageMemberPromotedToAdmin', tone: 'positive' },
+  demote_to_technician: { key: 'manageMemberDemotedToTechnician', tone: 'negative' },
   deactivate: { key: 'manageMemberDeactivated', tone: 'negative' },
   reactivate: { key: 'manageMemberReactivated', tone: 'positive' },
+  relinquish_responsable: { key: 'manageResponsableRelinquished', tone: 'negative' },
 };
 
 // Row classes: an inactive membership stays dimmed, and a just-updated one keeps

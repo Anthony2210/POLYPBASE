@@ -98,6 +98,7 @@ import type {
   ProbePayload,
   ThermalZonePayload,
 } from './types/admin';
+import { getAccountMemberRoleLabel } from './utils/accountMembers';
 import { upsertBoxes } from './utils/boxCollection';
 import { filterBoxes } from './utils/boxLookup';
 import { formatDisplayDate } from './utils/dateFormat';
@@ -320,6 +321,22 @@ export default function App() {
       exportOptions: null,
       profile: scopedProfile,
     };
+  }
+
+  function updateProfileMembershipResponsable(organizationId: number, isResponsable: boolean) {
+    setData((current) => current.profile
+      ? {
+          ...current,
+          profile: {
+            ...current.profile,
+            memberships: current.profile.memberships.map((membership) =>
+              membership.organization.id === organizationId
+                ? { ...membership, is_responsable: isResponsable }
+                : membership,
+            ),
+          },
+        }
+      : current);
   }
 
   async function chooseOrganization(organizationId: number) {
@@ -1111,7 +1128,11 @@ export default function App() {
             <div className="organization-menu" role="menu">
               <p className="organization-menu-title">{t('organizationMenuTitle')}</p>
               {selectableOrganizations.map((organization) => {
-                const role = getMembershipRoleLabel(data.profile, organization.id);
+                const role = getMembershipRoleLabel(
+                  data.profile,
+                  organization.id,
+                  t('roleResponsable'),
+                );
                 return (
                   <button
                     key={organization.id}
@@ -1345,6 +1366,7 @@ export default function App() {
                 isOptionsLoading={isExportOptionsLoading}
                 language={language}
                 profile={data.profile}
+                onResponsableChange={updateProfileMembershipResponsable}
                 onSelectSection={openAdminSection}
                 onRequestOptions={() => setExportOptionsRequested(true)}
                 onCreateZone={createThermalZone}
@@ -1693,7 +1715,11 @@ function OrganizationChoiceScreen({
 
         <div className="organization-choice-list">
           {organizations.map((organization) => {
-            const roleLabel = getMembershipRoleLabel(profile, organization.id) ?? t('profileFullAccess');
+            const roleLabel = getMembershipRoleLabel(
+              profile,
+              organization.id,
+              t('roleResponsable'),
+            ) ?? t('profileFullAccess');
             return (
               <button
                 key={organization.id}
@@ -3467,6 +3493,7 @@ function getProfileLabels(t: TFunction) {
     profileActiveOrganizationHelp: t('profileActiveOrganizationHelp'),
     profileDefaultOrganization: t('profileDefaultOrganization'),
     profileFullAccess: t('profileFullAccess'),
+    roleResponsable: t('roleResponsable'),
     roleDescAdmin: t('roleDescAdmin'),
     roleDescTechnician: t('roleDescTechnician'),
     roleDescViewer: t('roleDescViewer'),
@@ -3763,9 +3790,14 @@ function getMembershipRole(profile: UserProfile | null, organizationId: number |
   return profile.memberships.find((membership) => membership.organization.id === organizationId)?.role ?? null;
 }
 
-function getMembershipRoleLabel(profile: UserProfile | null, organizationId: number | null) {
+function getMembershipRoleLabel(
+  profile: UserProfile | null,
+  organizationId: number | null,
+  responsableLabel: string,
+) {
   if (!profile || organizationId == null) return null;
-  return profile.memberships.find((membership) => membership.organization.id === organizationId)?.role_label ?? null;
+  const membership = profile.memberships.find((item) => item.organization.id === organizationId);
+  return membership ? getAccountMemberRoleLabel(membership, responsableLabel) : null;
 }
 
 function getBrandOrganizationName(profile: UserProfile | null, t: TFunction) {

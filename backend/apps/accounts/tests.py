@@ -1023,7 +1023,7 @@ class AccountMemberManagementTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
 
-    def test_admin_changes_member_role(self):
+    def test_admin_changes_lower_member_role(self):
         self.client.login(username="admin", password="secret")
         membership = OrganizationMembership.objects.get(
             user=self.viewer, organization=self.paris
@@ -1031,12 +1031,17 @@ class AccountMemberManagementTests(TestCase):
         url = reverse("api_account_member_detail", args=[membership.id])
 
         response = self.client.patch(
-            url, data={"role": "admin"}, content_type="application/json"
+            url,
+            data={"role": OrganizationMembership.Role.LAB_TECHNICIAN},
+            content_type="application/json",
         )
 
         self.assertEqual(response.status_code, 200)
         membership.refresh_from_db()
-        self.assertEqual(membership.role, OrganizationMembership.Role.ADMIN)
+        self.assertEqual(
+            membership.role,
+            OrganizationMembership.Role.LAB_TECHNICIAN,
+        )
 
         log = AuditLog.objects.get(
             action=AuditLog.Action.UPDATE,
@@ -1050,7 +1055,7 @@ class AccountMemberManagementTests(TestCase):
         )
         self.assertEqual(
             log.metadata["modifications"]["role"]["apres"],
-            OrganizationMembership.Role.ADMIN,
+            OrganizationMembership.Role.LAB_TECHNICIAN,
         )
 
     @patch("apps.accounts.api_views.AuditLog.objects.create")
@@ -1108,7 +1113,7 @@ class AccountMemberManagementTests(TestCase):
         membership.refresh_from_db()
         self.assertEqual(membership.role, OrganizationMembership.Role.ADMIN)
 
-    def test_admin_can_downgrade_another_admin_when_one_admin_remains(self):
+    def test_ordinary_admin_cannot_downgrade_another_admin(self):
         self.client.login(username="admin", password="secret")
         other_admin = get_user_model().objects.create_user(username="admin2", email="admin2@example.org",password="secret")
         OrganizationMembership.objects.create(
@@ -1125,9 +1130,9 @@ class AccountMemberManagementTests(TestCase):
             url, data={"role": "viewer"}, content_type="application/json"
         )
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 403)
         membership.refresh_from_db()
-        self.assertEqual(membership.role, OrganizationMembership.Role.VIEWER)
+        self.assertEqual(membership.role, OrganizationMembership.Role.ADMIN)
 
     def test_admin_cannot_deactivate_their_own_access(self):
         self.client.login(username="admin", password="secret")

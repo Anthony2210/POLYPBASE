@@ -8,7 +8,13 @@
 - `lab_technician` : écriture des données de laboratoire;
 - `viewer` : consultation.
 
-Le superutilisateur Django est un mécanisme technique, pas un rôle produit à reproduire dans l'interface. Aucun rôle futur de responsable d'institution, administrateur de plateforme ou sponsor ne doit être présenté comme implémenté sans décision et code correspondants.
+Responsable n'est pas un quatrième rôle. C'est un privilège institutionnel porté par un membership Admin : `role="admin"` et `is_responsable=True`. Une contrainte de base interdit de conserver ce privilège avec un autre rôle. Aucun Admin existant n'est désigné automatiquement.
+
+Un Responsable actif conserve toutes les capacités Admin et peut, en plus, inviter, promouvoir, rétrograder, activer ou désactiver des Admins ordinaires dans son institution, sous réserve des protections du dernier Admin actif. Un Admin ordinaire continue de gérer les Techniciens et Lecteurs, mais ne peut pas nommer ou modifier un autre Admin. Aucun utilisateur produit ne peut attribuer le privilège Responsable ni modifier un membership qui le porte par l'endpoint générique.
+
+Un Responsable actif peut renoncer uniquement à son propre privilège lorsqu'un autre membership actif `role="admin"`, `is_responsable=True` existe déjà dans la même institution. L'opération conserve son rôle Admin, verrouille l'institution et écrit l'audit dans la même transaction. La définition produit des Responsables inactifs reste volontairement non décidée; ils ne sont pas comptés pour cette opération active et les mutations génériques les concernant restent bloquées.
+
+Le superutilisateur Django est un mécanisme technique, pas un rôle produit à reproduire dans l'interface. Il conserve un break-glass explicite sur les memberships ordinaires. L'attribution ou le retrait forcé du privilège Responsable passe par la commande contrôlée `set_institution_responsable`, jamais par l'interface produit ou le `ModelAdmin` en lecture seule. Les capacités de sponsor ou de création d'institution restent hors périmètre.
 
 Les comptes utilisent les sessions Django. Les parcours de connexion, invitation et récupération de mot de passe vivent dans `backend/apps/accounts/`; la configuration du transport e-mail vient de l'environnement. Une invitation ou un lien de réinitialisation constitue un secret d'accès pendant sa validité et ne doit jamais apparaître dans les logs ou la documentation.
 
@@ -65,7 +71,8 @@ Les tests backend doivent utiliser une configuration isolée. Les commandes sont
 
 - Modèles de comptes : `backend/apps/accounts/models.py`.
 - Résolution de l'organisation : `backend/apps/accounts/permissions.py`.
-- API des membres et invitations : `backend/apps/accounts/api_views.py`.
+- API des membres, invitations et renoncement Responsable : `backend/apps/accounts/api_views.py`.
+- Attribution plateforme du privilège : `backend/apps/accounts/management/commands/set_institution_responsable.py`.
 - Modèle d'institution : `backend/apps/organizations/`.
 - Client API frontend : `frontend/src/api/client.ts`.
 - Traçabilité du modèle : [`../tracabilite_mcd.md`](../tracabilite_mcd.md).

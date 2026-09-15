@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import type { UserProfile } from '../types';
+import { getAccountMemberRoleLabel } from '../utils/accountMembers';
 import { getErrorMessage } from '../utils/errors';
 import PageLoader from './PageLoader';
 import PolypbaseIcon from './PolypbaseIcon';
@@ -23,6 +24,7 @@ type ProfileLabels = {
   profileActiveOrganizationHelp: string;
   profileDefaultOrganization: string;
   profileFullAccess: string;
+  roleResponsable: string;
   roleDescAdmin: string;
   roleDescTechnician: string;
   roleDescViewer: string;
@@ -143,7 +145,11 @@ export default function ProfileView({
                 >
                   <span className="profile-organization-identity">
                     <strong>{organization.name}</strong>
-                    <small>{membership?.role_label ?? labels.profileFullAccess}</small>
+                    <small>
+                      {membership
+                        ? getAccountMemberRoleLabel(membership, labels.roleResponsable)
+                        : labels.profileFullAccess}
+                    </small>
                   </span>
                   {isActive ? (
                     <span className="profile-organization-state">{labels.profileDefaultOrganization}</span>

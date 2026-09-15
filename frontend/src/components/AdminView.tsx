@@ -21,6 +21,7 @@ import type {
   NewMemberPayload,
   Organization,
   Probe,
+  ResponsableRelinquishResponse,
   ThermalZone,
   UserProfile,
 } from '../types';
@@ -32,9 +33,16 @@ import type {
   ProbePayload,
   ThermalZonePayload,
 } from '../types/admin';
-import { getMemberRowActions, type MemberRowAction } from '../utils/accountMembers';
+import {
+  filterMembersByRole,
+  getAccountMemberRoleLabel,
+  getMemberRoleCounts,
+  getMemberRowActions,
+  type MemberRoleFilter,
+  type MemberRowAction,
+} from '../utils/accountMembers';
 import { formatDisplayDate, formatRelativeDateTime } from '../utils/dateFormat';
-import { getErrorMessage } from '../utils/errors';
+import { getAccountErrorMessage, getErrorMessage } from '../utils/errors';
 import { beginMemberMutation, endMemberMutation } from '../utils/memberMutationLock';
 import {
   getMemberRowClassName,
@@ -139,15 +147,6 @@ function userHasAdminRole(profile: UserProfile | null) {
   );
 }
 
-// The institution role of the acting user, without the superuser shortcut: the
-// backend only applies the institution rules to an actual admin membership.
-function userIsInstitutionAdmin(profile: UserProfile | null) {
-  if (!profile?.active_organization) return false;
-  return profile.memberships.some(
-    (membership) => membership.role === 'admin'
-      && membership.organization.id === profile.active_organization?.id,
-  );
-}
 
 // Zone capacity is added a rack at a time, and salinity is read off a
 // refractometer that lands on round values, so the -/+ buttons move in the
@@ -366,11 +365,11 @@ function getMemberFieldError(error: unknown, field: keyof MemberFieldErrors) {
 
 function AccountManagementSection({
   organizationName,
-  actorIsInstitutionAdmin,
+  onResponsableChange,
   t,
 }: {
   organizationName: string;
-  actorIsInstitutionAdmin: boolean;
+  onResponsableChange: (organizationId: number, isResponsable: boolean) => void;
   t: TFunction;
 }) {
   const [data, setData] = useState<AccountMembers | null>(null);
@@ -390,7 +389,7 @@ function AccountManagementSection({
   const feedbackTimerRef = useRef<number | null>(null);
   const busyMemberIdsRef = useRef<Set<number>>(new Set());
   const [busyMemberIds, setBusyMemberIds] = useState<ReadonlySet<number>>(() => new Set());
-  const [roleFilter, setRoleFilter] = useState<MembershipRole | 'all'>('all');
+  const [roleFilter, setRoleFilter] = useState<MemberRoleFilter>('all');
   const [isMemberFormOpen, setIsMemberFormOpen] = useState(false);
   const [isInvitationInfoOpen, setIsInvitationInfoOpen] = useState(false);
   const { confirmAction, confirmActionModal } = useConfirmAction();
@@ -405,9 +404,12 @@ function AccountManagementSection({
         if (!isActive) return;
         setData(response);
         setOrganizationId(response.manageable_organizations[0]?.id ?? null);
+        setRole(response.roles.find((roleOption) => roleOption.value === 'viewer')?.value
+          ?? response.roles[0]?.value
+          ?? 'viewer');
       } catch (requestError) {
         if (!isActive) return;
-        setLoadError(getErrorMessage(requestError));
+        setLoadError(getAccountErrorMessage(requestError, t));
       } finally {
         if (isActive) setIsLoading(false);
       }
@@ -459,7 +461,9 @@ function AccountManagementSection({
       const member = await apiPost<AccountMember>('/api/accounts/members/', payload);
       upsertMember(member);
       setForm(emptyMemberForm);
-      setRole('viewer');
+      setRole(data.roles.find((roleOption) => roleOption.value === 'viewer')?.value
+        ?? data.roles[0]?.value
+        ?? 'viewer');
       setFormFieldErrors({});
       setIsMemberFormOpen(false);
       showMemberFeedback(member.membership_id, 'created');
@@ -468,7 +472,7 @@ function AccountManagementSection({
         email: getMemberFieldError(requestError, 'email') ?? undefined,
       };
       setFormFieldErrors(fieldErrors);
-      setFormError(fieldErrors.email ? null : getErrorMessage(requestError));
+      setFormError(fieldErrors.email ? null : getAccountErrorMessage(requestError, t));
     } finally {
       setIsAdding(false);
     }
@@ -506,25 +510,36 @@ function AccountManagementSection({
         return t('managePromoteToTechnician');
       case 'demote':
         return t('manageDemoteToViewer');
+      case 'promote_to_admin':
+        return t('managePromoteToAdmin');
+      case 'demote_to_technician':
+        return t('manageDemoteToTechnician');
       case 'deactivate':
         return t('manageDeactivate');
       case 'reactivate':
         return t('manageReactivate');
+      case 'relinquish_responsable':
+        return t('manageRelinquishResponsable');
     }
   }
 
   async function handleMemberAction(member: AccountMember, action: MemberRowAction) {
     setLoadError(null);
 
-    if (action === 'deactivate') {
+    if (action === 'deactivate' || action === 'relinquish_responsable') {
+      const isRelinquishing = action === 'relinquish_responsable';
       const confirmed = await confirmAction({
-        title: t('manageDeactivateConfirmTitle'),
-        message: t('manageDeactivateConfirmMessage'),
+        title: t(isRelinquishing
+          ? 'manageRelinquishResponsableConfirmTitle'
+          : 'manageDeactivateConfirmTitle'),
+        message: t(isRelinquishing
+          ? 'manageRelinquishResponsableConfirmMessage'
+          : 'manageDeactivateConfirmMessage'),
         details: [
           { label: t('manageConfirmMember'), value: getMemberDisplayName(member) },
           { label: t('manageConfirmOrganization'), value: organizationName },
         ],
-        confirmLabel: t('manageDeactivate'),
+        confirmLabel: t(isRelinquishing ? 'manageRelinquishResponsable' : 'manageDeactivate'),
         cancelLabel: t('confirmCancel'),
         variant: 'danger',
       });
@@ -536,22 +551,49 @@ function AccountManagementSection({
     // phase; the lock only needs to cover the in-flight request.
     if (!beginBusyMember(member.membership_id)) return;
 
-    const payload =
-      action === 'promote'
-        ? { role: 'lab_technician' as MembershipRole }
-        : action === 'demote'
-          ? { role: 'viewer' as MembershipRole }
-          : { is_active: action === 'reactivate' };
-
     try {
-      const updated = await apiPatch<AccountMember>(
-        `/api/accounts/members/${member.membership_id}/`,
-        payload,
-      );
-      upsertMember(updated);
-      showMemberFeedback(member.membership_id, action);
+      if (action === 'relinquish_responsable') {
+        const response = await apiPost<ResponsableRelinquishResponse>(
+          '/api/accounts/responsable/relinquish/',
+          {},
+        );
+        setData((current) => current
+          ? {
+              ...current,
+              members: current.members.map((item) =>
+                item.membership_id === response.member.membership_id ? response.member : item,
+              ),
+              roles: response.roles,
+              can_manage_admin_memberships: response.can_manage_admin_memberships,
+              can_relinquish_responsable: response.can_relinquish_responsable,
+            }
+          : current);
+        setRole((currentRole) => response.roles.some((roleOption) => roleOption.value === currentRole)
+          ? currentRole
+          : response.roles.find((roleOption) => roleOption.value === 'viewer')?.value
+            ?? response.roles[0]?.value
+            ?? 'viewer');
+        onResponsableChange(response.member.organization.id, response.member.is_responsable);
+        showMemberFeedback(member.membership_id, action);
+      } else {
+        const payload = action === 'promote'
+          ? { role: 'lab_technician' as MembershipRole }
+          : action === 'demote'
+            ? { role: 'viewer' as MembershipRole }
+            : action === 'promote_to_admin'
+              ? { role: 'admin' as MembershipRole }
+              : action === 'demote_to_technician'
+                ? { role: 'lab_technician' as MembershipRole }
+                : { is_active: action === 'reactivate' };
+        const updated = await apiPatch<AccountMember>(
+          `/api/accounts/members/${member.membership_id}/`,
+          payload,
+        );
+        upsertMember(updated);
+        showMemberFeedback(member.membership_id, action);
+      }
     } catch (requestError) {
-      setLoadError(getErrorMessage(requestError));
+      setLoadError(getAccountErrorMessage(requestError, t));
     } finally {
       endBusyMember(member.membership_id);
     }
@@ -582,14 +624,8 @@ function AccountManagementSection({
   if (!data) return null;
 
   const roles = data.roles;
-  const adminMemberCount = data.members.filter((member) => member.role === 'admin').length;
-  const technicianMemberCount = data.members.filter(
-    (member) => member.role === 'lab_technician',
-  ).length;
-  const viewerMemberCount = data.members.filter((member) => member.role === 'viewer').length;
-  const filteredMembers = roleFilter === 'all'
-    ? data.members
-    : data.members.filter((member) => member.role === roleFilter);
+  const memberCounts = getMemberRoleCounts(data.members);
+  const filteredMembers = filterMembersByRole(data.members, roleFilter);
 
   function toggleRoleFilter(nextRole: MembershipRole) {
     setRoleFilter((currentRole) => (currentRole === nextRole ? 'all' : nextRole));
@@ -628,7 +664,7 @@ function AccountManagementSection({
           className={roleFilter === 'all' ? 'account-overview-card is-active' : 'account-overview-card'}
           onClick={() => setRoleFilter('all')}
         >
-          <strong>{data.members.length}</strong>
+          <strong>{memberCounts.all}</strong>
           <span>{t('manageAllAccounts')}</span>
         </button>
         <button
@@ -636,7 +672,7 @@ function AccountManagementSection({
           className={roleFilter === 'admin' ? 'account-overview-card is-active' : 'account-overview-card'}
           onClick={() => toggleRoleFilter('admin')}
         >
-          <strong>{adminMemberCount}</strong>
+          <strong>{memberCounts.admin}</strong>
           <span>{t('manageAdminAccounts')}</span>
         </button>
         <button
@@ -646,7 +682,7 @@ function AccountManagementSection({
           }
           onClick={() => toggleRoleFilter('lab_technician')}
         >
-          <strong>{technicianMemberCount}</strong>
+          <strong>{memberCounts.lab_technician}</strong>
           <span>{t('manageTechnicianAccounts')}</span>
         </button>
         <button
@@ -654,7 +690,7 @@ function AccountManagementSection({
           className={roleFilter === 'viewer' ? 'account-overview-card is-active' : 'account-overview-card'}
           onClick={() => toggleRoleFilter('viewer')}
         >
-          <strong>{viewerMemberCount}</strong>
+          <strong>{memberCounts.viewer}</strong>
           <span>{t('manageViewerAccounts')}</span>
         </button>
       </div>
@@ -760,7 +796,8 @@ function AccountManagementSection({
                     })
                   : null;
                 const memberActions = getMemberRowActions(member, {
-                  actorIsInstitutionAdmin,
+                  canManageAdminMemberships: data.can_manage_admin_memberships,
+                  canRelinquishResponsable: data.can_relinquish_responsable,
                 }).map((item) => ({
                   ...item,
                   label: memberActionLabel(item.action),
@@ -780,7 +817,9 @@ function AccountManagementSection({
                       </span>
                     </td>
                     <td>
-                      <span className="member-role-value">{member.role_label}</span>
+                      <span className="member-role-value">
+                        {getAccountMemberRoleLabel(member, t('roleResponsable'))}
+                      </span>
                     </td>
                     <td className="member-last-login">
                       {member.last_login && lastLogin ? (
@@ -3454,6 +3493,7 @@ export default function AdminView({
   isOptionsLoading,
   language,
   profile,
+  onResponsableChange,
   onSelectSection,
   onRequestOptions,
   onCreateZone,
@@ -3482,6 +3522,7 @@ export default function AdminView({
   isOptionsLoading: boolean;
   language: Language;
   profile: UserProfile | null;
+  onResponsableChange: (organizationId: number, isResponsable: boolean) => void;
   onSelectSection: (section: AdminSectionKey) => void;
   onRequestOptions: () => void;
   onCreateZone: (payload: ThermalZonePayload) => Promise<void>;
@@ -3548,7 +3589,7 @@ export default function AdminView({
           {displayedSection === 'accounts' ? (
             <AccountManagementSection
               organizationName={activeOrganizationName}
-              actorIsInstitutionAdmin={userIsInstitutionAdmin(profile)}
+              onResponsableChange={onResponsableChange}
               t={t}
             />
           ) : null}

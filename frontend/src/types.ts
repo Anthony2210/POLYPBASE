@@ -418,6 +418,7 @@ export type UserProfile = {
     };
     role: 'admin' | 'lab_technician' | 'viewer';
     role_label: string;
+    is_responsable: boolean;
   }>;
   available_languages: Array<{
     code: string;
@@ -438,6 +439,7 @@ export type AccountMember = {
   };
   role: MembershipRole;
   role_label: string;
+  is_responsable: boolean;
   is_active: boolean;
   last_login: string | null;
   is_self: boolean;
@@ -455,6 +457,15 @@ export type AccountMembers = {
     name: string;
   }>;
   roles: RoleOption[];
+  can_manage_admin_memberships: boolean;
+  can_relinquish_responsable: boolean;
+};
+
+export type ResponsableRelinquishResponse = {
+  member: AccountMember;
+  roles: RoleOption[];
+  can_manage_admin_memberships: boolean;
+  can_relinquish_responsable: boolean;
 };
 
 export type NewMemberPayload = {

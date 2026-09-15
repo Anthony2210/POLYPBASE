@@ -89,21 +89,29 @@ def get_admin_organization_ids(user):
     return list(get_admin_organizations(user).values_list("id", flat=True))
 
 
+def user_can_administer_organization(user, organization):
+    """Return whether the user actively administers this organization."""
+    if not organization.is_active:
+        return False
+    if user.is_superuser:
+        return True
+    return OrganizationMembership.objects.filter(
+        user=user,
+        organization=organization,
+        is_active=True,
+        role=OrganizationMembership.Role.ADMIN,
+    ).exists()
+
+
 def get_active_admin_organization_ids(request):
     """Return the selected organization if the user can administer it."""
     organization = get_active_organization_from_request(request)
     if organization is None:
         return []
-    if request.user.is_superuser:
-        return [organization.id]
-    if OrganizationMembership.objects.filter(
-        user=request.user,
-        organization=organization,
-        is_active=True,
-        role=OrganizationMembership.Role.ADMIN,
-    ).exists():
-        return [organization.id]
-    return []
+    return [organization.id] if user_can_administer_organization(
+        request.user,
+        organization,
+    ) else []
 
 
 def user_is_org_admin(user):
@@ -117,3 +125,38 @@ def user_is_org_admin(user):
         role=OrganizationMembership.Role.ADMIN,
         organization__is_active=True,
     ).exists()
+
+
+def user_is_active_institution_responsable(user, organization):
+    """Return whether the user is the active product Responsable in an institution."""
+    if user.is_superuser or not organization.is_active:
+        return False
+
+    return OrganizationMembership.objects.filter(
+        user=user,
+        organization=organization,
+        is_active=True,
+        role=OrganizationMembership.Role.ADMIN,
+        is_responsable=True,
+    ).exists()
+
+
+def user_can_manage_admin_memberships(user, organization):
+    """Return whether the actor may manage ordinary Admin memberships."""
+    return user.is_superuser or user_is_active_institution_responsable(
+        user,
+        organization,
+    )
+
+
+def user_can_relinquish_responsable(user, organization):
+    """Return whether the actor can currently relinquish their Responsable status."""
+    if not user_is_active_institution_responsable(user, organization):
+        return False
+
+    return OrganizationMembership.objects.filter(
+        organization=organization,
+        is_active=True,
+        role=OrganizationMembership.Role.ADMIN,
+        is_responsable=True,
+    ).exclude(user=user).exists()

@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -17,6 +18,7 @@ class OrganizationMembership(models.Model):
         related_name="memberships",
     )
     role = models.CharField(max_length=30, choices=Role.choices, default=Role.VIEWER)
+    is_responsable = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     starts_on = models.DateField(default=timezone.localdate)
     ends_on = models.DateField(null=True, blank=True)
@@ -26,8 +28,22 @@ class OrganizationMembership(models.Model):
             models.UniqueConstraint(
                 fields=["user", "organization"],
                 name="unique_user_organization_membership",
-            )
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(is_responsable=False)
+                    | models.Q(role="admin")
+                ),
+                name="responsable_requires_admin_role",
+            ),
         ]
+
+    def clean(self):
+        super().clean()
+        if self.is_responsable and self.role != self.Role.ADMIN:
+            raise ValidationError(
+                {"is_responsable": "An institution Responsable must have the admin role."}
+            )
 
     def __str__(self):
         return f"{self.user} - {self.organization} - {self.role}"
