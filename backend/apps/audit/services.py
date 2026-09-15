@@ -90,6 +90,27 @@ def paginate_audit_logs(queryset, *, limit, offset, legacy_effective_order=False
     return logs[:limit], has_more
 
 
+def readable_account_label(user):
+    """Return a human-readable account label, never an internal username.
+
+    The product shows "First name LAST NAME", falls back to the email, and
+    never exposes the opaque ``internal_<uuid>`` username used as a technical
+    login. When neither a name nor an email is available, return ``None`` so
+    the caller can omit the value instead of guessing an identity.
+    """
+    if user is None:
+        return None
+
+    full_name = " ".join(
+        part for part in [user.first_name, user.last_name] if part
+    ).strip()
+    if full_name:
+        return full_name
+
+    email = (user.email or "").strip()
+    return email or None
+
+
 def serialize_personal_audit_log(log):
     """Serialize one action without exposing raw or administration-only metadata."""
     return {
@@ -100,10 +121,31 @@ def serialize_personal_audit_log(log):
         "resource": {
             "type": log.object_type,
             "identifier": log.object_id,
+            "label": _personal_resource_label(log),
         },
         "description": log.description,
         "details": _personal_audit_details(log),
     }
+
+
+def _personal_resource_label(log):
+    """Give account resources a readable target instead of an internal username."""
+    if log.object_type != "account":
+        return log.object_id
+
+    metadata = log.metadata if isinstance(log.metadata, dict) else {}
+    values = metadata.get("valeurs")
+    if not isinstance(values, dict):
+        return None
+
+    name = values.get("nom")
+    if isinstance(name, str) and name.strip() and not name.strip().startswith("internal_"):
+        return name.strip()
+
+    email = values.get("email")
+    if isinstance(email, str) and email.strip():
+        return email.strip()
+    return None
 
 
 def _personal_audit_details(log):

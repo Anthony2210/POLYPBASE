@@ -523,3 +523,143 @@ class ActionApiTests(TestCase):
         self.assertEqual(first_ids, expected_ids[:2])
         self.assertEqual(second_ids, expected_ids[2:4])
         self.assertFalse(set(first_ids) & set(second_ids))
+
+    def test_personal_account_actions_expose_a_readable_target(self):
+        named = get_user_model().objects.create_user(
+            username="internal_0123456789abcdef",
+            email="camille@example.org",
+            first_name="Camille",
+            last_name="Durand",
+        )
+        named_action = AuditLog.objects.create(
+            organization=self.organization,
+            user=self.admin,
+            action=AuditLog.Action.CREATION,
+            object_type="account",
+            object_id=named.get_username(),
+            description="Member access created",
+            metadata={
+                "user_id": named.id,
+                "valeurs": {"nom": "Camille DURAND", "email": "camille@example.org"},
+            },
+        )
+        email_only = get_user_model().objects.create_user(
+            username="internal_fedcba9876543210",
+            email="sans-nom@example.org",
+        )
+        email_action = AuditLog.objects.create(
+            organization=self.organization,
+            user=self.admin,
+            action=AuditLog.Action.UPDATE,
+            object_type="account",
+            object_id=email_only.get_username(),
+            description="Member access updated",
+            metadata={
+                "user_id": email_only.id,
+                "valeurs": {"nom": email_only.get_username(), "email": "sans-nom@example.org"},
+            },
+        )
+
+        response = self._personal_actions(self.admin, self.organization)
+
+        self.assertEqual(response.status_code, 200)
+        labels = {
+            entry["id"]: entry["resource"]["label"]
+            for entry in response.json()["results"]
+        }
+        self.assertEqual(labels[named_action.id], "Camille DURAND")
+        self.assertEqual(labels[email_action.id], "sans-nom@example.org")
+        for label in labels.values():
+            self.assertFalse((label or "").startswith("internal_"))
+
+    def test_personal_account_action_without_readable_identity_has_no_label(self):
+        action = AuditLog.objects.create(
+            organization=self.organization,
+            user=self.admin,
+            action=AuditLog.Action.UPDATE,
+            object_type="account",
+            object_id="internal_0000000000000000",
+            description="Member access updated",
+            metadata={"user_id": self.alice.id},
+        )
+
+        response = self._personal_actions(self.admin, self.organization)
+
+        entry = next(
+            item for item in response.json()["results"] if item["id"] == action.id
+        )
+        self.assertIsNone(entry["resource"]["label"])
+
+    def test_personal_box_actions_keep_the_business_identifier_as_label(self):
+        action = self._create_action(user=self.alice)
+
+        response = self._personal_actions(self.alice, self.organization)
+
+        entry = next(
+            item for item in response.json()["results"] if item["id"] == action.id
+        )
+        self.assertEqual(entry["resource"]["identifier"], self.box.global_code)
+        self.assertEqual(entry["resource"]["label"], self.box.global_code)
+
+    def test_administration_exposes_a_readable_actor_without_internal_username(self):
+        actor = get_user_model().objects.create_user(
+            username="internal_abcdefabcdefabcd",
+            email="lea@example.org",
+            first_name="Lea",
+            last_name="Martin",
+        )
+        OrganizationMembership.objects.create(
+            user=actor,
+            organization=self.organization,
+            role=OrganizationMembership.Role.LAB_TECHNICIAN,
+        )
+        action = self._create_action(user=actor)
+
+        response = self._admin_actions(self.organization)
+
+        self.assertEqual(response.status_code, 200)
+        entry = next(
+            item for item in response.json()["results"] if item["id"] == action.id
+        )
+        self.assertEqual(entry["user"], actor.get_username())
+        self.assertEqual(entry["user_display"], "Lea Martin")
+        self.assertFalse(entry["user_display"].startswith("internal_"))
+
+    def test_administration_actor_display_falls_back_to_email(self):
+        actor = get_user_model().objects.create_user(
+            username="internal_1111222233334444",
+            email="technicien@example.org",
+        )
+        OrganizationMembership.objects.create(
+            user=actor,
+            organization=self.organization,
+            role=OrganizationMembership.Role.LAB_TECHNICIAN,
+        )
+        action = self._create_action(user=actor)
+
+        response = self._admin_actions(self.organization)
+
+        entry = next(
+            item for item in response.json()["results"] if item["id"] == action.id
+        )
+        self.assertEqual(entry["user_display"], "technicien@example.org")
+
+    def test_administration_actor_display_is_null_without_a_readable_actor(self):
+        # A deleted actor leaves the audit row without a user: the history must
+        # not invent an identity from the remaining opaque data.
+        action = AuditLog.objects.create(
+            organization=self.organization,
+            user=None,
+            action=AuditLog.Action.UPDATE,
+            object_type="box",
+            object_id=self.box.global_code,
+            description="Box moved to Cabinet-15",
+        )
+
+        response = self._admin_actions(self.organization)
+
+        entry = next(
+            item for item in response.json()["results"] if item["id"] == action.id
+        )
+        self.assertIsNone(entry["user"])
+        self.assertIsNone(entry["user_display"])

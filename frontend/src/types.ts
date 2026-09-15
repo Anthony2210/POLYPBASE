@@ -468,6 +468,38 @@ export type ResponsableRelinquishResponse = {
   can_relinquish_responsable: boolean;
 };
 
+export type PersonalActionValue = string | number | boolean | null;
+
+export type PersonalActionResource = {
+  type: string;
+  identifier: string;
+  /** Readable target resolved by the backend; null when none is available. */
+  label: string | null;
+};
+
+export type PersonalActionDetails = {
+  values?: Record<string, PersonalActionValue>;
+  changes?: Record<string, { before: PersonalActionValue; after: PersonalActionValue }>;
+};
+
+export type PersonalAction = {
+  id: number;
+  created_at: string;
+  action: string;
+  action_label: string;
+  resource: PersonalActionResource;
+  description: string;
+  details: PersonalActionDetails;
+};
+
+export type PersonalActionsResponse = {
+  results: PersonalAction[];
+  limit?: number;
+  offset?: number;
+  has_more?: boolean;
+  next_offset?: number | null;
+};
+
 export type NewMemberPayload = {
   first_name: string;
   last_name: string;

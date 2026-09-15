@@ -97,7 +97,7 @@ export function formatIsoWeekDateLabel(value: string) {
   return `S${week} ${longDate}`;
 }
 
-function getDocumentLocale() {
+export function getDocumentLocale() {
   const language = typeof document === 'undefined' ? 'fr' : document.documentElement.lang;
   if (language.startsWith('en')) return 'en-GB';
   if (language.startsWith('ja')) return 'ja-JP';

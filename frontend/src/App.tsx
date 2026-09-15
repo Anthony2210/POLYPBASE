@@ -1413,6 +1413,7 @@ export default function App() {
                 onOpenAdmin={() => openTab('admin')}
                 onLogout={logoutCurrentUser}
                 onUpdateLanguage={updateLanguage}
+                t={t}
               />
             )}
             </Suspense>

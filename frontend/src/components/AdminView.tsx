@@ -42,6 +42,22 @@ import {
   type MemberRowAction,
 } from '../utils/accountMembers';
 import { formatDisplayDate, formatRelativeDateTime } from '../utils/dateFormat';
+import {
+  filterAuditDisplayRecord,
+  fillTemplate,
+  formatAuditChange,
+  formatAuditDateTime,
+  formatAuditMetadataValue,
+  getAccountDisplayLabel,
+  getAuditActionLabel,
+  getAuditDescriptionLabel,
+  getAuditEditedMark,
+  getAuditMetadataKeyLabel,
+  getAuditObjectTypeLabel,
+  getAuditTargetLabel,
+  getMetadataRecord,
+  groupAuditEntriesByDay,
+} from '../utils/auditPresentation';
 import { getAccountErrorMessage, getErrorMessage } from '../utils/errors';
 import { beginMemberMutation, endMemberMutation } from '../utils/memberMutationLock';
 import {
@@ -70,6 +86,9 @@ type AdminAuditLogEntry = {
   created_at: string;
   organization: string | null;
   user: string | null;
+  // Readable actor label resolved by the backend (name, then email). The raw
+  // `user` value is an opaque internal username and must never be displayed.
+  user_display: string | null;
   action: string;
   action_label: string;
   object_type: string;
@@ -82,6 +101,7 @@ type AdminAuditLogEntry = {
   effective_at: string;
   edited_at: string | null;
   edited_by: string | null;
+  edited_by_display: string | null;
   // Present only when the entry is a measurement that still exists, so the
   // history can send the user to correct it. Exports, transfers and account
   // changes never carry this.
@@ -133,7 +153,6 @@ const DISABLED_ADMIN_SECTIONS: ReadonlySet<AdminSectionKey> = new Set([
   'references',
   'environment',
   'transfers',
-  'history',
   'organizations',
 ]);
 
@@ -2651,7 +2670,10 @@ function AdminAuditLogSection({
     }
   }
 
-  const dayGroups = useMemo(() => groupAuditEntriesByDay(entries), [entries]);
+  const dayGroups = useMemo(
+    () => groupAuditEntriesByDay(entries, (entry) => entry.effective_at),
+    [entries],
+  );
   const hasFilters = Boolean(actionFilter || dateFilter);
 
   return (
@@ -2673,7 +2695,7 @@ function AdminAuditLogSection({
             <option value="">{t('adminAuditAllActions')}</option>
             {actionOptions.map((option) => (
               <option value={option.value} key={option.value}>
-                {getFrenchAuditAction({ action: option.value, action_label: option.label })}
+                {getAuditActionLabel({ action: option.value, action_label: option.label }, t)}
                 {option.count ? ` (${option.count})` : ''}
               </option>
             ))}
@@ -2719,29 +2741,28 @@ function AdminAuditLogSection({
                           onClick={() => setExpandedEntryId(isExpanded ? null : entry.id)}
                         >
                           <span>
-                            <strong>{formatAuditDate(entry.effective_at)}</strong>
+                            <strong>{formatAuditDateTime(entry.effective_at)}</strong>
                             <small>{entry.organization ?? '-'}</small>
                           </span>
-                          <span>{entry.user ?? '-'}</span>
+                          <span>{getAccountDisplayLabel(entry.user_display) || '-'}</span>
                           <span>
-                            <strong>{getFrenchAuditAction(entry)}</strong>
-                            <small>{formatAuditDescription(entry)}</small>
+                            <strong>{getAuditActionLabel(entry, t)}</strong>
+                            <small>{getAuditDescriptionLabel(entry, t)}</small>
                             {entry.edited_at ? (
                               <small className="admin-audit-edited-mark">
-                                Corrigé le {formatAuditDate(entry.edited_at)}
-                                {entry.edited_by ? ` par ${entry.edited_by}` : ''}, relevé
-                                enregistré le {formatAuditDate(entry.created_at)}
+                                {getAuditEditedMark(entry, t)}
                               </small>
                             ) : null}
                           </span>
                           <span>
-                            <strong>{entry.object_id || '-'}</strong>
-                            <small>{formatAuditObjectType(entry.object_type)}</small>
+                            <strong>{getAuditTargetLabel(entry) || '-'}</strong>
+                            <small>{getAuditObjectTypeLabel(entry.object_type, t)}</small>
                           </span>
                         </button>
                         {isExpanded ? (
                           <AuditLogDetails
                             entry={entry}
+                            t={t}
                             onEditMeasurement={() => {
                               if (entry.editable_measurement) {
                                 onEditMeasurement(entry.editable_measurement);
@@ -2773,9 +2794,11 @@ function AdminAuditLogSection({
 function AuditLogDetails({
   entry,
   onEditMeasurement,
+  t,
 }: {
   entry: AdminAuditLogEntry;
   onEditMeasurement: () => void;
+  t: TFunction;
 }) {
   const metadataEntries = Object.entries(entry.metadata ?? {});
   const values = filterAuditDisplayRecord(getMetadataRecord(entry.metadata?.valeurs));
@@ -2785,41 +2808,41 @@ function AuditLogDetails({
   return (
     <div className="admin-audit-details">
       <div>
-        <small>Date</small>
-        <strong>{formatAuditDate(entry.created_at)}</strong>
+        <small>{t('adminAuditDate')}</small>
+        <strong>{formatAuditDateTime(entry.created_at)}</strong>
       </div>
       <div>
-        <small>Structure</small>
+        <small>{t('auditDetailOrganization')}</small>
         <strong>{entry.organization ?? '-'}</strong>
       </div>
       <div>
-        <small>Utilisateur</small>
-        <strong>{entry.user ?? '-'}</strong>
+        <small>{t('adminAuditUser')}</small>
+        <strong>{getAccountDisplayLabel(entry.user_display) || '-'}</strong>
       </div>
       <div>
-        <small>Action</small>
-        <strong>{getFrenchAuditAction(entry)}</strong>
+        <small>{t('adminAuditAction')}</small>
+        <strong>{getAuditActionLabel(entry, t)}</strong>
       </div>
       <div>
-        <small>Objet</small>
-        <strong>{entry.object_id || '-'}</strong>
+        <small>{t('adminAuditObject')}</small>
+        <strong>{getAuditTargetLabel(entry) || '-'}</strong>
       </div>
       <div>
-        <small>Type</small>
-        <strong>{formatAuditObjectType(entry.object_type)}</strong>
+        <small>{t('auditDetailType')}</small>
+        <strong>{getAuditObjectTypeLabel(entry.object_type, t)}</strong>
       </div>
       <div className="admin-audit-detail-wide">
-        <small>Description</small>
-        <strong>{formatAuditDescription(entry)}</strong>
+        <small>{t('auditDetailDescription')}</small>
+        <strong>{getAuditDescriptionLabel(entry, t)}</strong>
       </div>
       {values ? (
         <div className="admin-audit-detail-wide">
-          <small>Valeurs enregistrées</small>
+          <small>{t('auditDetailValues')}</small>
           <dl>
             {Object.entries(values).map(([key, value]) => (
               <div key={key}>
-                <dt>{formatAuditMetadataKey(key)}</dt>
-                <dd>{formatAuditMetadataValue(value)}</dd>
+                <dt>{getAuditMetadataKeyLabel(key, t)}</dt>
+                <dd>{formatAuditMetadataValue(value, t)}</dd>
               </div>
             ))}
           </dl>
@@ -2827,12 +2850,12 @@ function AuditLogDetails({
       ) : null}
       {changes ? (
         <div className="admin-audit-detail-wide">
-          <small>Changements</small>
+          <small>{t('auditDetailChanges')}</small>
           <dl>
             {Object.entries(changes).map(([key, value]) => (
               <div key={key}>
-                <dt>{formatAuditMetadataKey(key)}</dt>
-                <dd>{formatAuditChange(value)}</dd>
+                <dt>{getAuditMetadataKeyLabel(key, t)}</dt>
+                <dd>{formatAuditChange(value, t)}</dd>
               </div>
             ))}
           </dl>
@@ -2840,12 +2863,12 @@ function AuditLogDetails({
       ) : null}
       {remainingMetadataEntries.length ? (
         <div className="admin-audit-detail-wide">
-          <small>Détails techniques</small>
+          <small>{t('auditDetailTechnical')}</small>
           <dl>
             {remainingMetadataEntries.map(([key, value]) => (
               <div key={key}>
-                <dt>{formatAuditMetadataKey(key)}</dt>
-                <dd>{formatAuditMetadataValue(value)}</dd>
+                <dt>{getAuditMetadataKeyLabel(key, t)}</dt>
+                <dd>{formatAuditMetadataValue(value, t)}</dd>
               </div>
             ))}
           </dl>
@@ -2854,11 +2877,13 @@ function AuditLogDetails({
       {entry.editable_measurement ? (
         <div className="admin-audit-detail-wide admin-audit-edit-measurement">
           <button className="admin-audit-correct-button" type="button" onClick={onEditMeasurement}>
-            Corriger ce relevé
+            {t('auditCorrectMeasurement')}
           </button>
           <small>
-            Ouvre la fiche de {entry.editable_measurement.box_code}, relevé du{' '}
-            {formatDisplayDate(entry.editable_measurement.measured_on)} pré-rempli.
+            {fillTemplate(t('auditCorrectMeasurementHelp'), {
+              code: entry.editable_measurement.box_code,
+              date: formatDisplayDate(entry.editable_measurement.measured_on),
+            })}
           </small>
         </div>
       ) : null}
@@ -2866,299 +2891,6 @@ function AuditLogDetails({
   );
 }
 
-function getMetadataRecord(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  return value as Record<string, unknown>;
-}
-
-const hiddenAuditDisplayKeys = new Set(['strobiles', 'statut_culture', 'a_verifier']);
-
-function filterAuditDisplayRecord(record: Record<string, unknown> | null) {
-  if (!record) return null;
-  return Object.fromEntries(
-    Object.entries(record).filter(([key]) => !hiddenAuditDisplayKeys.has(key)),
-  );
-}
-
-function formatAuditChange(value: unknown) {
-  const change = getMetadataRecord(value);
-  if (!change || !('avant' in change) || !('apres' in change)) {
-    return formatAuditMetadataValue(value);
-  }
-  return `${formatAuditMetadataValue(change.avant)} -> ${formatAuditMetadataValue(change.apres)}`;
-}
-
-function formatAuditDescription(entry: AdminAuditLogEntry) {
-  const description = entry.description || '';
-  const metadata = entry.metadata ?? {};
-
-  if (description.startsWith('Biological measurement edited for ')) {
-    return `Relevé biologique modifié pour le ${formatTechnicalDate(description.replace('Biological measurement edited for ', ''))}`;
-  }
-  if (description.startsWith('Biological measurement for ')) {
-    return `Relevé biologique enregistré pour le ${formatTechnicalDate(description.replace('Biological measurement for ', ''))}`;
-  }
-  if (description.startsWith('Box opened: ')) {
-    return `Fiche boîte ouverte : ${description.replace('Box opened: ', '')}`;
-  }
-  if (description.startsWith('QR scan of ')) {
-    return `QR code scanné : ${description.replace('QR scan of ', '')}`;
-  }
-  if (description.startsWith('Box archived: ')) {
-    return `Boîte mise inactive : ${description.replace('Box archived: ', '')}`;
-  }
-  if (description.startsWith('Box activated: ')) {
-    return `Boîte remise active : ${description.replace('Box activated: ', '')}`;
-  }
-  if (description.startsWith('Box created manually: ')) {
-    return `Boîte créée manuellement : ${description.replace('Box created manually: ', '')}`;
-  }
-  if (description.startsWith('Box moved to ')) {
-    return `Boîte déplacée vers ${description.replace('Box moved to ', '')}`;
-  }
-  if (description.startsWith('Subculture created from ')) {
-    return `Repiquage créé depuis ${description.replace('Subculture created from ', '')}`;
-  }
-  if (description.startsWith('Manual temperature recorded: ')) {
-    return `Température manuelle enregistrée : ${description.replace('Manual temperature recorded: ', '')}`;
-  }
-  if (description.startsWith('Thermal zone created: ')) {
-    return `Emplacement créé : ${description.replace('Thermal zone created: ', '')}`;
-  }
-  if (description.startsWith('Thermal zone updated: ')) {
-    return `Emplacement modifié : ${description.replace('Thermal zone updated: ', '')}`;
-  }
-  if (description.startsWith('Probe created: ')) {
-    return `Sonde ajoutée : ${description.replace('Probe created: ', '')}`;
-  }
-  if (description.startsWith('Box transfer prepared: ')) {
-    return `Transfert préparé : ${description.replace('Box transfer prepared: ', '')}`;
-  }
-  if (description === 'Member access created') {
-    return 'Accès utilisateur créé';
-  }
-  if (description === 'Member access restored') {
-    return 'Accès utilisateur réactivé';
-  }
-  if (description === 'Member access updated') {
-    return 'Accès utilisateur modifié';
-  }
-  if (description === 'Weekly biological measurement CSV export') {
-    return 'Export CSV hebdomadaire des relevés biologiques';
-  }
-  if (description === 'Organization created') {
-    return 'Structure créée';
-  }
-  if (description === 'Organization updated') {
-    return 'Structure modifiée';
-  }
-  if (description === 'Organization deleted') {
-    return 'Structure supprimée';
-  }
-
-  if (metadata && typeof metadata === 'object' && 'source' in metadata && metadata.source === 'web_app') {
-    return 'Action effectuée depuis l’application';
-  }
-  return description || '-';
-}
-
-function formatAuditObjectType(value: string) {
-  const labels: Record<string, string> = {
-    box: 'Boîte',
-    measurement: 'Relevé',
-    measurements: 'Relevés',
-    thermal_zone: 'Emplacement',
-    organization: 'Structure',
-    user: 'Utilisateur',
-    account: 'Compte',
-    probe: 'Sonde',
-  };
-  return labels[value] ?? (value || '-');
-}
-
-function formatAuditMetadataKey(key: string) {
-  const labels: Record<string, string> = {
-    acces_actif: 'Accès actif',
-    a_verifier: 'A vérifier',
-    ancienne_zone: 'Ancienne zone',
-    apres: 'Après',
-    avant: 'Avant',
-    box_id: 'Identifiant boîte',
-    box_count: 'Nombre de boîtes',
-    capacite: 'Capacité',
-    child_global_codes: 'Boîtes créées',
-    child_box_ids: 'Identifiants des boîtes créées',
-    code: 'Code',
-    code_global: 'Code global',
-    date: 'Date',
-    date_deplacement: 'Date du déplacement',
-    date_entree: 'Date d’entrée',
-    email: 'Email',
-    email_contact: 'Email contact',
-    ephyrules: 'Éphyrules',
-    espece: 'Espèce',
-    emplacement: 'Emplacement',
-    file_name: 'Fichier',
-    filters: 'Filtres',
-    from_thermal_zone_name: 'Ancienne zone',
-    initial_polyp_counts: 'Polypes initiaux',
-    measurement_count: 'Nombre de relevés',
-    measurement_id: 'Identifiant relevé',
-    membership_id: 'Identifiant accès',
-    movement_id: 'Identifiant déplacement',
-    nom: 'Nom',
-    nouvelle_zone: 'Nouvelle zone',
-    numero_boite: 'Numéro de boîte',
-    note: 'Note',
-    notes: 'Notes',
-    pays: 'Pays',
-    position: 'Position',
-    probe_id: 'Identifiant sonde',
-    polypes: 'Polypes',
-    raison_arret: 'Raison d’arrêt',
-    role: 'Rôle',
-    salinite_psu: 'Salinité (PSU)',
-    source: 'Source',
-    souche: 'Souche',
-    statut: 'Statut',
-    structure: 'Structure',
-    statut_culture: 'Statut culture',
-    strobiles: 'Strobiles',
-    subculture_event_id: 'Identifiant repiquage',
-    temperature_consigne: 'Température consigne',
-    temperature_c: 'Température mesurée',
-    thermal_zone_id: 'Identifiant emplacement',
-    to_organization: 'Structure destinataire',
-    to_thermal_zone_name: 'Nouvelle zone',
-    transfer_id: 'Identifiant transfert',
-    type: 'Type',
-    user_id: 'Identifiant utilisateur',
-    identifiant: 'Identifiant',
-    ville: 'Ville',
-    volume_litres: 'Volume (L)',
-    week_count: 'Nombre de semaines',
-  };
-  return labels[key] ?? key.replace(/_/g, ' ');
-}
-
-function formatAuditMetadataValue(value: unknown) {
-  if (value === null || value === undefined || value === '') return '-';
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-    return translateAuditValue(value);
-  }
-  return JSON.stringify(value);
-}
-
-function translateAuditValue(value: string | number | boolean) {
-  if (typeof value === 'boolean') return value ? 'Oui' : 'Non';
-  if (typeof value === 'number') return String(value);
-
-  const labels: Record<string, string> = {
-    pending_review: 'À vérifier',
-    active: 'Active',
-    inactive: 'Inactive',
-    not_specified: 'Non précisé',
-    good: 'Bon',
-    medium: 'Moyen',
-    bad: 'Mauvais',
-    dead: 'Mort',
-    web_app: 'Application web',
-    csv: 'CSV',
-    measurements: 'Relevés',
-    box: 'Boîte',
-    admin: 'Administrateur',
-    lab_technician: 'Technicien',
-    viewer: 'Lecteur',
-    cabinet: 'Armoire',
-    incubator: 'Étuve',
-    manual: 'Saisie manuelle',
-    other: 'Autre',
-  };
-  return labels[value] ?? formatTechnicalDate(value);
-}
-
-function formatTechnicalDate(value: string) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-  const [year, month, day] = value.split('-');
-  return `${day}/${month}/${year}`;
-}
-
-// Only needs the action itself, so it also serves the filter dropdown, which
-// has no full log entry to hand.
-function getFrenchAuditAction(entry: { action: string; action_label?: string }) {
-  switch (entry.action) {
-    case 'entry':
-      return 'Nouvelle donnée enregistrée';
-    case 'update':
-      return 'Modification enregistrée';
-    case 'creation':
-      return 'Création enregistrée';
-    case 'archive':
-      return 'Archivage enregistré';
-    case 'subculture':
-      return 'Repiquage enregistré';
-    case 'transfer':
-      return 'Transfert préparé';
-    case 'import':
-      return 'Import enregistré';
-    case 'export':
-      return 'Export effectué';
-    case 'login':
-      return 'Connexion';
-    default:
-      return entry.action_label || entry.action || '-';
-  }
-}
-
-function formatAuditDate(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat('fr-FR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
-}
-
-function formatAuditDay(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat('fr-FR', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  }).format(date);
-}
-
-function getAuditDayKey(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function groupAuditEntriesByDay(entries: AdminAuditLogEntry[]) {
-  const groups: Array<{ key: string; label: string; entries: AdminAuditLogEntry[] }> = [];
-  entries.forEach((entry) => {
-    const key = getAuditDayKey(entry.effective_at);
-    const currentGroup = groups.find((group) => group.key === key);
-    if (currentGroup) {
-      currentGroup.entries.push(entry);
-      return;
-    }
-    groups.push({
-      key,
-      label: formatAuditDay(entry.effective_at),
-      entries: [entry],
-    });
-  });
-  return groups;
-}
 
 function AdminFlowNav({
   activeSection,

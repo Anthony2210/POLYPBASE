@@ -38,6 +38,7 @@ from apps.audit.services import (
     impactful_audit_logs,
     paginate_audit_logs,
     parse_audit_pagination,
+    readable_account_label,
     serialize_personal_audit_log,
 )
 from apps.measurements.models import BiologicalMeasurement
@@ -1128,6 +1129,10 @@ class AdminAuditLogListAPIView(APIView):
             "created_at": log.created_at,
             "organization": log.organization.name if log.organization else None,
             "user": log.user.get_username() if log.user else None,
+            # Readable actor for the history UI. The raw username stays available
+            # for compatibility, but it is an opaque internal_<uuid> for accounts
+            # created by the application, so it must never be displayed.
+            "user_display": readable_account_label(log.user),
             "action": log.action,
             "action_label": log.get_action_display(),
             "object_type": log.object_type,
@@ -1138,6 +1143,7 @@ class AdminAuditLogListAPIView(APIView):
             "effective_at": getattr(log, "effective_at", None) or log.created_at,
             "edited_at": log.edited_at,
             "edited_by": log.edited_by.get_username() if log.edited_by else None,
+            "edited_by_display": readable_account_label(log.edited_by),
             "metadata": self._enriched_metadata(log, measurement),
             # Lets the history open the measurement itself for correction,
             # instead of sending the user off to the box sheet.

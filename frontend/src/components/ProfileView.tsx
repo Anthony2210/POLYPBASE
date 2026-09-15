@@ -1,10 +1,12 @@
 import { useState } from 'react';
 
+import type { Translator } from '../i18n';
 import type { UserProfile } from '../types';
 import { getAccountMemberRoleLabel } from '../utils/accountMembers';
 import { getErrorMessage } from '../utils/errors';
 import PageLoader from './PageLoader';
 import PolypbaseIcon from './PolypbaseIcon';
+import ProfileActionsSection from './ProfileActionsSection';
 
 type ProfileLabels = {
   account: string;
@@ -41,6 +43,7 @@ export default function ProfileView({
   onUpdateLanguage,
   activeOrganizationId,
   profile,
+  t,
 }: {
   isLoading: boolean;
   activeOrganizationId: number | null;
@@ -51,6 +54,7 @@ export default function ProfileView({
   onLogout: () => Promise<void>;
   onUpdateLanguage: (language: string) => Promise<void>;
   profile: UserProfile | null;
+  t: Translator;
 }) {
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -177,6 +181,12 @@ export default function ProfileView({
           </button>
         </section>
       ) : null}
+
+      <ProfileActionsSection
+        activeOrganizationId={activeOrganizationId}
+        key={activeOrganizationId ?? 'none'}
+        t={t}
+      />
 
       <section className="profile-block">
         <div className="section-title">
