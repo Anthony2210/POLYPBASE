@@ -9,6 +9,16 @@
   max-width: var(--content-max);
 }
 
+/* Labels benefits from a wider two-panel workspace without changing the global
+   page width used by the rest of the application. */
+.workspace-page:has(> .labels-page) {
+  width: min(1480px, 100%);
+}
+
+.labels-page {
+  max-width: none;
+}
+
 :where(.export-step, .export-preview, .label-step-card) {
   display: grid;
   gap: var(--space-4);
@@ -756,8 +766,8 @@
 }
 
 .labels-page .label-step-card {
-  gap: 14px;
-  padding: 18px;
+  gap: 10px;
+  padding: 14px;
 }
 
 .label-selection-heading {
@@ -765,39 +775,39 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  padding-bottom: 14px;
+  padding-bottom: 10px;
   border-bottom: 1px solid var(--color-line-soft);
 }
 
 .label-selection-copy {
   display: grid;
   min-width: 0;
-  gap: 4px;
+  gap: 2px;
 }
 
 .label-selection-copy > div {
   display: flex;
   align-items: baseline;
-  gap: 10px;
+  gap: 8px;
 }
 
 .label-selection-heading h2 {
   margin: 0;
-  font-size: 1rem;
+  font-size: 0.92rem;
   font-style: italic;
   white-space: nowrap;
 }
 
 .label-selection-copy span {
   color: var(--color-muted);
-  font-size: 0.74rem;
-  font-weight: 750;
+  font-size: 0.7rem;
+  font-weight: 700;
 }
 
 .label-selection-copy p {
   margin: 0;
   color: var(--color-muted);
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   line-height: 1.35;
 }
 
@@ -813,7 +823,7 @@
 .profile-label-toolbar {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(180px, 0.6fr);
-  gap: 12px;
+  gap: 10px;
   align-items: end;
 }
 
@@ -873,12 +883,13 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-2);
-  max-height: min(68vh, 620px);
+  max-height: min(72vh, 680px);
   overflow: auto;
 }
 
 .profile-label-selector {
-  gap: 14px;
+  align-content: start;
+  gap: 10px;
   padding-right: 6px;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
@@ -891,11 +902,12 @@
 .label-zone-group {
   display: grid;
   grid-column: 1 / -1;
-  gap: 6px;
+  align-content: start;
+  gap: 4px;
 }
 
 .label-zone-group + .label-zone-group {
-  padding-top: 8px;
+  padding-top: 6px;
   border-top: 1px solid var(--color-line-soft);
 }
 
@@ -906,65 +918,78 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 32px;
-  padding: 5px var(--space-1);
+  min-height: 24px;
+  padding: 2px var(--space-1);
   background: var(--color-surface);
 }
 
 .label-zone-group > header strong {
   color: var(--color-primary-hover);
-  font-size: 0.84rem;
+  font-size: 0.74rem;
   font-style: italic;
+  font-weight: 700;
 }
 
 .label-zone-group > header span {
   display: grid;
-  min-width: 30px;
-  height: 22px;
+  min-width: 22px;
+  height: 17px;
   place-items: center;
   border: 1px solid var(--color-line);
   border-radius: var(--radius-xs);
   background: var(--color-surface-subtle);
-  color: var(--color-primary-hover);
-  font-size: 0.72rem;
-  font-weight: 800;
+  color: var(--color-muted);
+  font-size: 0.62rem;
+  font-weight: 700;
 }
 
 .label-zone-group-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: 4px;
 }
 
 .labels-page .profile-label-selector label {
   position: relative;
-  grid-template-columns: 18px minmax(0, 1fr);
-  min-height: 50px;
+  grid-template-columns: 15px minmax(0, 1fr);
+  min-height: 36px;
+  align-self: start;
   align-items: center;
-  padding: 8px 10px;
+  gap: 6px;
+  padding: 4px 8px;
   border-color: var(--color-line);
   border-radius: var(--radius-xs);
   background: var(--color-surface);
 }
 
+.labels-page .profile-label-selector input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+
 .labels-page .profile-label-selector .label-box-copy {
   display: grid;
   min-width: 0;
-  gap: 2px;
+  gap: 1px;
 }
 
 .labels-page .profile-label-selector strong {
-  font-size: 0.76rem;
+  font-size: 0.72rem;
+  line-height: 1.2;
 }
 
 .labels-page .profile-label-selector small {
-  font-size: 0.67rem;
+  font-size: 0.63rem;
+  line-height: 1.2;
 }
 
 .labels-page .profile-label-selector label.is-selected {
   border-color: color-mix(in srgb, var(--color-success) 48%, var(--color-line));
   background: var(--color-success-soft);
-  box-shadow: inset 4px 0 0 var(--color-success);
+  box-shadow: inset 3px 0 0 var(--color-success);
 }
 
 .labels-page .profile-label-selector label.is-selected strong {
@@ -983,14 +1008,14 @@
 .label-pages-preview {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
+  gap: 10px;
   align-items: start;
 }
 
 .label-print-page-preview,
 .label-preview-card {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-2);
   min-width: 0;
 }
 
@@ -1001,21 +1026,21 @@
 
 .label-panel-heading h3 {
   margin: 0;
-  font-size: 0.96rem;
+  font-size: 0.88rem;
   font-style: italic;
 }
 
 .label-preview-pagination {
   display: grid;
-  grid-template-columns: 32px auto 32px;
+  grid-template-columns: 28px auto 28px;
   align-items: center;
   gap: 6px;
 }
 
 .label-preview-pagination button {
   display: grid;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   place-items: center;
   padding: 0;
   border: 1px solid var(--color-line);
@@ -1037,14 +1062,14 @@
 }
 
 .label-preview-pagination button span {
-  font-size: 1.35rem;
+  font-size: 1.15rem;
   line-height: 1;
 }
 
 .label-preview-pagination > span {
   color: var(--color-ink-soft);
-  font-size: 0.7rem;
-  font-weight: 750;
+  font-size: 0.68rem;
+  font-weight: 700;
   white-space: nowrap;
 }
 
@@ -1058,8 +1083,8 @@
 .label-preview-summary > div {
   display: grid;
   min-width: 0;
-  gap: 2px;
-  padding: 9px 10px;
+  gap: 1px;
+  padding: 6px 9px;
 }
 
 .label-preview-summary > div + div {
@@ -1069,14 +1094,14 @@
 .label-preview-summary span {
   overflow: hidden;
   color: var(--color-muted);
-  font-size: 0.64rem;
+  font-size: 0.62rem;
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .label-preview-summary strong {
-  font-size: 0.92rem;
+  font-size: 0.84rem;
 }
 
 .label-preview-stage {
@@ -1084,7 +1109,7 @@
   display: grid;
   justify-items: center;
   min-height: 0;
-  padding: 14px;
+  padding: 10px;
   overflow: auto;
   border: 1px dashed var(--color-line-strong);
   background: var(--color-surface-subtle);
@@ -1121,21 +1146,28 @@
 }
 
 .label-sheet-preview {
-  display: grid;
   container-type: inline-size;
-  grid-template-columns: repeat(var(--label-sheet-columns), minmax(0, 1fr));
-  grid-auto-rows: auto;
-  align-content: start;
-  gap: 2.7174%;
-  width: min(100%, 430px);
+  width: min(100%, 520px);
   aspect-ratio: 210 / 297;
-  padding: 4.7619% 5.2381% 4.7619% 7.1429%;
+  overflow: hidden;
   border: 1px solid var(--color-line-strong);
   background: white;
 }
 
+/* The grid reuses the canonical print geometry: every track, gap and margin is
+   the physical millimetre value expressed as a percentage of the A4 width. */
+.label-sheet-grid {
+  display: grid;
+  height: 100%;
+  grid-template-columns: repeat(var(--label-sheet-columns), var(--label-sheet-column-width));
+  grid-auto-rows: auto;
+  align-content: start;
+  justify-content: center;
+  gap: var(--label-sheet-gap);
+  padding: var(--label-sheet-padding);
+}
+
 .label-preview-slot {
-  position: relative;
   display: grid;
   min-width: 0;
   min-height: 0;
@@ -1143,24 +1175,7 @@
 }
 
 .label-preview-slot > .qr-label {
-  --qr-label-image-size: 68.9655%;
-  --qr-label-padding: 4.8276%;
   height: 100%;
-  gap: max(1px, 0.57cqi);
-  overflow: hidden;
-  border-radius: max(2px, 0.95cqi);
-}
-
-.label-preview-slot .qr-label__metadata {
-  gap: max(1px, 0.29cqi);
-}
-
-.label-preview-slot .qr-label__metadata strong {
-  font-size: 8px;
-}
-
-.label-preview-slot .qr-label__metadata small {
-  font-size: 5.5px;
 }
 
 .label-preview-tile.is-empty {
@@ -1170,28 +1185,15 @@
   border-style: dashed;
 }
 
-.label-preview-zone-marker {
-  position: absolute;
-  z-index: 1;
-  inset: 4px auto 4px -1.65cqi;
-  padding-left: 0.48cqi;
-  border-left: 1px solid #111;
-  color: #111;
-  font-size: 4.5px;
-  font-weight: 900;
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
-}
-
 .label-print-toolbar {
   justify-content: flex-end;
-  padding-top: 12px;
+  padding-top: 10px;
   border-top: 1px solid var(--color-line-soft);
 }
 
 .profile-print-labels-button {
   width: 100%;
-  min-height: 42px;
+  min-height: 38px;
 }
 
 /* Single-label modal */
@@ -1205,8 +1207,12 @@
   box-shadow: var(--shadow-float);
 }
 
-.qr-label-print-sheet {
+/* Container for the single-label preview: `cqw` inside the label resolves
+   against this frame, so the preview keeps the physical 40:30 proportions. */
+.qr-label-print-frame {
+  container-type: inline-size;
   justify-self: center;
+  width: min(100%, 340px);
 }
 
 .qr-label-selection-panel {
@@ -1336,7 +1342,7 @@
   }
 
   .label-layout-card .label-sheet-preview {
-    width: min(100%, 440px);
+    width: min(100%, 520px);
   }
 }
 
@@ -1489,13 +1495,13 @@
 
 @media (min-width: 1120px) {
   .label-page-stack {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr);
   }
 
   .label-selection-card,
   .label-layout-card {
     height: min(820px, calc(100dvh - 150px));
-    min-height: 650px;
+    min-height: 560px;
   }
 
   .label-selection-card {
@@ -1537,7 +1543,7 @@
   }
 
   .label-layout-card .label-sheet-preview {
-    width: min(100%, 410px);
+    width: min(100%, 520px);
   }
 }
 
@@ -1612,6 +1618,10 @@
 
   .label-sheet-preview {
     width: 100%;
+  }
+
+  .qr-label-print-frame {
+    width: min(100%, 260px);
   }
 
   .qr-label-selection-panel {

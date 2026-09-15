@@ -1,7 +1,11 @@
+import { type CSSProperties } from 'react';
+
 import type { BoxDetail, BoxItem } from '../types';
 import {
+  DEFAULT_QR_LABEL_PRINT_SETTINGS,
   buildQrLabelItem,
   downloadQrLabel,
+  getQrLabelPreviewCssVariables,
   printQrLabels,
   type QrLabelItem,
 } from '../utils/qrLabels';
@@ -41,6 +45,8 @@ export default function QrLabelModal({
 }) {
   const label = buildQrLabelItem(box, qrImageUrl);
   const isSelected = selectedLabels.some((item) => item.id === label.id);
+  // The frame is the query container the label reads its physical geometry from.
+  const frameStyle = getQrLabelPreviewCssVariables(DEFAULT_QR_LABEL_PRINT_SETTINGS) as CSSProperties;
 
   return (
     <ModalPortal>
@@ -62,12 +68,14 @@ export default function QrLabelModal({
           </button>
         </header>
 
-        <QrLabel
-          altLabel={labels.qrCode}
-          className="qr-label-print-sheet"
-          item={label}
-          variant="full"
-        />
+        <div className="qr-label-print-frame" style={frameStyle}>
+          <QrLabel
+            altLabel={labels.qrCode}
+            className="qr-label-print-sheet"
+            item={label}
+            variant="label"
+          />
+        </div>
 
         <section className="qr-label-selection-panel">
           <div>

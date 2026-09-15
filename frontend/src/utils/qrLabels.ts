@@ -19,22 +19,58 @@ export type QrLabelPrintSettings = {
   gapMm: number;
   paddingMm: number;
   qrSizeMm: number;
-  codeFontPt: number;
-  speciesFontPt: number;
+  textFontPt: number;
   fontFamily: QrLabelFontFamily;
   showSpecies: boolean;
 };
 
+// A4 sheet used by the browser print document and by the Labels page preview.
+export const QR_LABEL_PAGE_WIDTH_MM = 210;
+export const QR_LABEL_PAGE_HEIGHT_MM = 297;
+export const QR_LABEL_PAGE_MARGIN_MM = 10;
+export const QR_LABEL_PRINTABLE_WIDTH_MM = QR_LABEL_PAGE_WIDTH_MM - 2 * QR_LABEL_PAGE_MARGIN_MM;
+export const QR_LABEL_PRINTABLE_HEIGHT_MM = QR_LABEL_PAGE_HEIGHT_MM - 2 * QR_LABEL_PAGE_MARGIN_MM;
+
+// Physical label requested by Aquarium de Paris: 30 x 40 mm stock, used in
+// landscape so the label reads 40 mm wide x 30 mm high. The QR sits at the left
+// extremity and the code/species block is rotated 90 degrees in the right band.
+// These values are shared by print, previews, the modal and the downloaded SVG.
+export const QR_LABEL_WIDTH_MM = 40;
+export const QR_LABEL_HEIGHT_MM = 30;
+export const QR_LABEL_QR_SIZE_MM = 25;
+export const QR_LABEL_PADDING_MM = 0.8;
+export const QR_LABEL_GAP_MM = 5;
+export const QR_LABEL_BORDER_MM = 0.35;
+export const QR_LABEL_QR_TEXT_GAP_MM = 0.5;
+export const QR_LABEL_TEXT_GAP_MM = 0.4;
+// The rotated block is laid out at full inner-label length before rotation. Its
+// height becomes the visible width of the narrow band beside the QR.
+export const QR_LABEL_TEXT_ZONE_MM = Math.round((
+  QR_LABEL_WIDTH_MM
+  - 2 * QR_LABEL_BORDER_MM
+  - 2 * QR_LABEL_PADDING_MM
+  - QR_LABEL_QR_SIZE_MM
+  - QR_LABEL_QR_TEXT_GAP_MM
+) * 1000) / 1000;
+export const QR_LABEL_TEXT_LINE_LENGTH_MM = Math.round((
+  QR_LABEL_HEIGHT_MM
+  - 2 * QR_LABEL_BORDER_MM
+  - 2 * QR_LABEL_PADDING_MM
+) * 1000) / 1000;
+// At 7 pt, the longest representative code (PARTNER-AAU-1.001) and species
+// (Cassiopea andromeda) fit the 27.7 mm line without compression. At 7.5 pt,
+// the bold code no longer fits under the conservative Arial width estimate.
+export const QR_LABEL_TEXT_FONT_PT = 7;
+
 export const DEFAULT_QR_LABEL_PRINT_SETTINGS: QrLabelPrintSettings = {
   orientation: 'portrait',
-  columns: 3,
-  labelWidthMm: 58,
-  labelHeightMm: 58,
-  gapMm: 5,
-  paddingMm: 2.8,
-  qrSizeMm: 40,
-  codeFontPt: 11.4,
-  speciesFontPt: 7.4,
+  columns: getQrLabelSheetColumns(QR_LABEL_WIDTH_MM, QR_LABEL_GAP_MM),
+  labelWidthMm: QR_LABEL_WIDTH_MM,
+  labelHeightMm: QR_LABEL_HEIGHT_MM,
+  gapMm: QR_LABEL_GAP_MM,
+  paddingMm: QR_LABEL_PADDING_MM,
+  qrSizeMm: QR_LABEL_QR_SIZE_MM,
+  textFontPt: QR_LABEL_TEXT_FONT_PT,
   fontFamily: 'arial',
   showSpecies: true,
 };
@@ -129,17 +165,12 @@ async function getQrDataUrl(qrImageUrl: string) {
   }
 }
 
-function buildQrPrintDocument(labels: QrLabelItem[], settings: QrLabelPrintSettings) {
+export function buildQrPrintDocument(labels: QrLabelItem[], settings: QrLabelPrintSettings) {
   const labelsPerPage = settings.columns * getQrLabelSheetRows(settings);
   const pageMarkup = [];
   for (let pageStart = 0; pageStart < labels.length; pageStart += labelsPerPage) {
     const labelsOnPage = labels.slice(pageStart, pageStart + labelsPerPage);
-    const labelMarkup = labelsOnPage.map((label, pageIndex) => {
-      const globalIndex = pageStart + pageIndex;
-      const previousLabel = labels[globalIndex - 1];
-      const startsZone = Boolean(label.zoneName) && (!previousLabel || previousLabel.zoneName !== label.zoneName);
-      return renderPrintableQrLabel(label, settings, startsZone);
-    }).join('');
+    const labelMarkup = labelsOnPage.map((label) => renderPrintableQrLabel(label, settings)).join('');
     pageMarkup.push(`<main class="sheet">${labelMarkup}</main>`);
   }
   const fontFamily = getPrintFontFamily(settings.fontFamily);
@@ -150,19 +181,19 @@ function buildQrPrintDocument(labels: QrLabelItem[], settings: QrLabelPrintSetti
 <meta charset="utf-8">
 <title>Etiquettes Polypbase</title>
 <style>
-  @page { size: A4 ${settings.orientation}; margin: 10mm; }
+  @page { size: A4 ${settings.orientation}; margin: ${QR_LABEL_PAGE_MARGIN_MM}mm; }
   * { box-sizing: border-box; }
   body { margin: 0; color: #000; font-family: ${fontFamily}; }
-  .sheet { display: grid; grid-template-columns: repeat(${settings.columns}, ${settings.labelWidthMm}mm); grid-auto-rows: ${settings.labelHeightMm}mm; gap: ${settings.gapMm}mm; width: max-content; max-width: 100%; margin: 0 auto; padding-left: 4mm; align-items: start; justify-content: center; break-after: page; page-break-after: always; }
+  .sheet { display: grid; grid-template-columns: repeat(${settings.columns}, ${settings.labelWidthMm}mm); grid-auto-rows: ${settings.labelHeightMm}mm; gap: ${settings.gapMm}mm; width: max-content; margin: 0 auto; align-items: start; break-after: page; page-break-after: always; }
   .sheet:last-child { break-after: auto; page-break-after: auto; }
-  .label-slot { position: relative; width: ${settings.labelWidthMm}mm; height: ${settings.labelHeightMm}mm; overflow: hidden; break-inside: avoid; page-break-inside: avoid; }
-  .label { display: grid; align-content: center; justify-items: center; gap: 1.2mm; width: 100%; height: 100%; min-height: 0; overflow: hidden; padding: ${settings.paddingMm}mm; border: 0.35mm solid #000; border-radius: 2mm; text-align: center; }
-  .label-main { display: grid; gap: 0.6mm; min-width: 0; width: 100%; }
-  .label-code { display: block; width: 100%; overflow: hidden; font-size: ${settings.codeFontPt}pt; font-style: italic; font-weight: 900; line-height: 0.92; text-overflow: ellipsis; white-space: nowrap; }
-  .label-species { display: ${settings.showSpecies ? '-webkit-box' : 'none'}; overflow: hidden; color: #333; font-size: ${settings.speciesFontPt}pt; line-height: 1.1; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-  .label-qr { display: grid; justify-items: center; }
-  .label-qr img { width: ${settings.qrSizeMm}mm; height: ${settings.qrSizeMm}mm; image-rendering: pixelated; }
-  .zone-marker { position: absolute; top: 1mm; bottom: 1mm; left: -3.4mm; z-index: 2; display: grid; align-items: center; padding-left: 0.8mm; border-left: 0.25mm solid #000; color: #000; font-size: 4.2pt; font-weight: 800; line-height: 1; letter-spacing: 0.2px; writing-mode: vertical-rl; transform: rotate(180deg); }
+  .label-slot { width: ${settings.labelWidthMm}mm; height: ${settings.labelHeightMm}mm; break-inside: avoid; page-break-inside: avoid; }
+  .label { display: flex; flex-direction: row; align-items: center; width: 100%; height: 100%; overflow: hidden; padding: ${settings.paddingMm}mm; border: ${QR_LABEL_BORDER_MM}mm solid #000; border-radius: 1.5mm; }
+  .label-qr { flex: 0 0 auto; display: grid; justify-items: center; }
+  .label-qr img { display: block; width: ${settings.qrSizeMm}mm; height: ${settings.qrSizeMm}mm; object-fit: contain; }
+  .label-main { position: relative; flex: 1 1 auto; align-self: stretch; min-width: 0; margin-left: ${QR_LABEL_QR_TEXT_GAP_MM}mm; overflow: hidden; }
+  .label-text { position: absolute; top: 50%; left: 50%; display: grid; align-content: center; width: ${QR_LABEL_TEXT_LINE_LENGTH_MM}mm; height: ${QR_LABEL_TEXT_ZONE_MM}mm; gap: ${QR_LABEL_TEXT_GAP_MM}mm; text-align: center; transform: translate(-50%, -50%) rotate(-90deg); transform-origin: center; }
+  .label-code { display: block; width: 100%; font-size: ${settings.textFontPt}pt; font-style: italic; font-weight: 900; line-height: 1.05; overflow-wrap: break-word; }
+  .label-species { display: ${settings.showSpecies ? 'block' : 'none'}; width: 100%; color: #333; font-size: ${settings.textFontPt}pt; line-height: 1.1; overflow-wrap: break-word; }
 </style>
 </head>
 <body>
@@ -171,40 +202,121 @@ function buildQrPrintDocument(labels: QrLabelItem[], settings: QrLabelPrintSetti
 </html>`;
 }
 
+export function getQrLabelSheetColumns(labelWidthMm: number, gapMm: number) {
+  return Math.max(
+    1,
+    Math.floor((QR_LABEL_PRINTABLE_WIDTH_MM + gapMm) / (labelWidthMm + gapMm)),
+  );
+}
+
 export function getQrLabelSheetRows(settings: QrLabelPrintSettings) {
-  const printableHeightMm = settings.orientation === 'portrait' ? 277 : 190;
+  const printableHeightMm = settings.orientation === 'landscape'
+    ? QR_LABEL_PRINTABLE_WIDTH_MM
+    : QR_LABEL_PRINTABLE_HEIGHT_MM;
   return Math.max(
     1,
     Math.floor((printableHeightMm + settings.gapMm) / (settings.labelHeightMm + settings.gapMm)),
   );
 }
 
-function renderPrintableQrLabel(label: QrLabelItem, settings: QrLabelPrintSettings, showZoneMarker: boolean) {
+// Express a physical millimetre value as a percentage of the A4 sheet width, so
+// the Labels page preview can reuse the canonical print geometry through CSS.
+export function getQrLabelSheetWidthPercent(mm: number) {
+  return roundPercent((mm / QR_LABEL_PAGE_WIDTH_MM) * 100);
+}
+
+// Express a physical millimetre value as a percentage of the label width, for
+// previews whose query container is the label itself.
+export function getQrLabelWidthPercent(mm: number) {
+  return roundPercent((mm / QR_LABEL_WIDTH_MM) * 100);
+}
+
+export function pointsToMillimetres(pt: number) {
+  return (pt * 25.4) / 72;
+}
+
+// CSS custom properties for the single-label preview. They are read as `cqw`
+// units, so the label must sit inside a `container-type: inline-size` frame
+// whose width is the label width.
+export function getQrLabelPreviewCssVariables(settings: QrLabelPrintSettings) {
+  return {
+    '--label-preview-ratio': `${settings.labelWidthMm} / ${settings.labelHeightMm}`,
+    '--label-preview-qr-size': `${getQrLabelWidthPercent(settings.qrSizeMm)}cqw`,
+    '--label-preview-padding': `${getQrLabelWidthPercent(settings.paddingMm)}cqw`,
+    '--label-preview-gap': `${getQrLabelWidthPercent(QR_LABEL_QR_TEXT_GAP_MM)}cqw`,
+    '--label-preview-text-gap': `${getQrLabelWidthPercent(QR_LABEL_TEXT_GAP_MM)}cqw`,
+    '--label-preview-text-zone-width': `${getQrLabelWidthPercent(QR_LABEL_TEXT_ZONE_MM)}cqw`,
+    '--label-preview-text-line-length': `${getQrLabelWidthPercent(QR_LABEL_TEXT_LINE_LENGTH_MM)}cqw`,
+    '--label-preview-font-size': `${getQrLabelWidthPercent(pointsToMillimetres(settings.textFontPt))}cqw`,
+  };
+}
+
+// CSS custom properties for the Labels page sheet preview. They are read as
+// `cqi` units, so the sheet must be a `container-type: inline-size` element
+// whose width is the A4 sheet width.
+export function getQrLabelSheetCssVariables(settings: QrLabelPrintSettings) {
+  return {
+    '--label-sheet-columns': String(settings.columns),
+    '--label-sheet-column-width': `${getQrLabelSheetWidthPercent(settings.labelWidthMm)}cqi`,
+    '--label-sheet-gap': `${getQrLabelSheetWidthPercent(settings.gapMm)}cqi`,
+    '--label-sheet-padding': `${getQrLabelSheetWidthPercent(QR_LABEL_PAGE_MARGIN_MM)}cqi`,
+    '--label-preview-ratio': `${settings.labelWidthMm} / ${settings.labelHeightMm}`,
+    '--label-preview-qr-size': `${getQrLabelSheetWidthPercent(settings.qrSizeMm)}cqi`,
+    '--label-preview-padding': `${getQrLabelSheetWidthPercent(settings.paddingMm)}cqi`,
+    '--label-preview-gap': `${getQrLabelSheetWidthPercent(QR_LABEL_QR_TEXT_GAP_MM)}cqi`,
+    '--label-preview-text-gap': `${getQrLabelSheetWidthPercent(QR_LABEL_TEXT_GAP_MM)}cqi`,
+    '--label-preview-text-zone-width': `${getQrLabelSheetWidthPercent(QR_LABEL_TEXT_ZONE_MM)}cqi`,
+    '--label-preview-text-line-length': `${getQrLabelSheetWidthPercent(QR_LABEL_TEXT_LINE_LENGTH_MM)}cqi`,
+    '--label-preview-font-size': `${getQrLabelSheetWidthPercent(pointsToMillimetres(settings.textFontPt))}cqi`,
+  };
+}
+
+function roundPercent(value: number) {
+  return Math.round(value * 10000) / 10000;
+}
+
+function renderPrintableQrLabel(label: QrLabelItem, settings: QrLabelPrintSettings) {
   return `<div class="label-slot">
-  ${showZoneMarker ? `<span class="zone-marker">${escapeHtml(label.zoneName)}</span>` : ''}
   <section class="label">
   <div class="label-qr">
     <img src="${escapeAttribute(new URL(label.qrImageUrl, window.location.origin).href)}" alt="">
   </div>
   <div class="label-main">
-    <strong class="label-code">${escapeHtml(label.globalCode)}</strong>
-    ${settings.showSpecies ? `<span class="label-species">${escapeHtml(label.speciesName)}</span>` : ''}
+    <div class="label-text">
+      <strong class="label-code">${escapeHtml(label.globalCode)}</strong>
+      ${settings.showSpecies ? `<span class="label-species">${escapeHtml(label.speciesName)}</span>` : ''}
+    </div>
   </div>
 </section>
 </div>`;
 }
 
 function normalizeQrLabelPrintSettings(settings?: Partial<QrLabelPrintSettings>): QrLabelPrintSettings {
+  const labelWidthMm = clampNumber(
+    settings?.labelWidthMm ?? DEFAULT_QR_LABEL_PRINT_SETTINGS.labelWidthMm,
+    20,
+    80,
+  );
+  const labelHeightMm = clampNumber(
+    settings?.labelHeightMm ?? DEFAULT_QR_LABEL_PRINT_SETTINGS.labelHeightMm,
+    20,
+    80,
+  );
+  const gapMm = clampNumber(settings?.gapMm ?? DEFAULT_QR_LABEL_PRINT_SETTINGS.gapMm, 2, 18);
+
   return {
     orientation: 'portrait',
-    columns: clampInteger(settings?.columns ?? DEFAULT_QR_LABEL_PRINT_SETTINGS.columns, 1, 4),
-    labelWidthMm: clampNumber(settings?.labelWidthMm ?? DEFAULT_QR_LABEL_PRINT_SETTINGS.labelWidthMm, 30, 80),
-    labelHeightMm: clampNumber(settings?.labelHeightMm ?? DEFAULT_QR_LABEL_PRINT_SETTINGS.labelHeightMm, 30, 80),
-    gapMm: clampNumber(settings?.gapMm ?? DEFAULT_QR_LABEL_PRINT_SETTINGS.gapMm, 2, 18),
-    paddingMm: clampNumber(settings?.paddingMm ?? DEFAULT_QR_LABEL_PRINT_SETTINGS.paddingMm, 2, 12),
+    columns: clampInteger(
+      settings?.columns ?? DEFAULT_QR_LABEL_PRINT_SETTINGS.columns,
+      1,
+      getQrLabelSheetColumns(labelWidthMm, gapMm),
+    ),
+    labelWidthMm,
+    labelHeightMm,
+    gapMm,
+    paddingMm: clampNumber(settings?.paddingMm ?? DEFAULT_QR_LABEL_PRINT_SETTINGS.paddingMm, 0.5, 12),
     qrSizeMm: clampNumber(settings?.qrSizeMm ?? DEFAULT_QR_LABEL_PRINT_SETTINGS.qrSizeMm, 14, 55),
-    codeFontPt: clampNumber(settings?.codeFontPt ?? DEFAULT_QR_LABEL_PRINT_SETTINGS.codeFontPt, 9, 42),
-    speciesFontPt: clampNumber(settings?.speciesFontPt ?? DEFAULT_QR_LABEL_PRINT_SETTINGS.speciesFontPt, 6, 18),
+    textFontPt: clampNumber(settings?.textFontPt ?? DEFAULT_QR_LABEL_PRINT_SETTINGS.textFontPt, 6, 18),
     fontFamily: isQrLabelFontFamily(settings?.fontFamily)
       ? settings.fontFamily
       : DEFAULT_QR_LABEL_PRINT_SETTINGS.fontFamily,
@@ -239,19 +351,108 @@ function clampNumber(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
-function buildQrLabelSvg(label: QrLabelItem, qrImageUrl: string) {
-  const width = 420;
-  const height = 420;
-  const code = escapeXml(label.globalCode);
-  const species = escapeXml(label.speciesName);
-  const image = escapeXml(qrImageUrl);
+// Rough Arial advance width per character, used only to wrap the downloaded SVG
+// text. The browser print document stays the authoritative artifact.
+const QR_LABEL_SVG_CHAR_WIDTH_RATIO = 0.55;
+const QR_LABEL_SVG_BOLD_CHAR_WIDTH_RATIO = 0.62;
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-  <rect x="10" y="10" width="400" height="400" rx="18" fill="#fff" stroke="#000" stroke-width="3"/>
-  <image href="${image}" x="92" y="34" width="236" height="236"/>
-  <text x="210" y="326" text-anchor="middle" font-family="Arial, sans-serif" font-size="36" font-weight="900" font-style="italic" fill="#111827">${code}</text>
-  <text x="210" y="362" text-anchor="middle" font-family="Arial, sans-serif" font-size="19" fill="#4b5563">${species}</text>
+// The downloaded SVG mirrors the printed label: 40 x 30 mm landscape, QR at the
+// left extremity, with the text block rotated counter-clockwise in the right band.
+export function buildQrLabelSvg(label: QrLabelItem, qrImageUrl: string) {
+  const width = QR_LABEL_WIDTH_MM;
+  const height = QR_LABEL_HEIGHT_MM;
+  const inset = QR_LABEL_BORDER_MM + QR_LABEL_PADDING_MM;
+  const fontSize = pointsToMillimetres(QR_LABEL_TEXT_FONT_PT);
+  const codeLineHeight = fontSize * 1.05;
+  const speciesLineHeight = fontSize * 1.1;
+  const qrX = inset;
+  const qrY = (height - QR_LABEL_QR_SIZE_MM) / 2;
+  const textZoneLeft = qrX + QR_LABEL_QR_SIZE_MM + QR_LABEL_QR_TEXT_GAP_MM;
+  const textZoneRight = width - inset;
+  const textCenterX = (textZoneLeft + textZoneRight) / 2;
+
+  const codeLines = wrapSvgText(
+    label.globalCode,
+    QR_LABEL_TEXT_LINE_LENGTH_MM,
+    fontSize,
+    QR_LABEL_SVG_BOLD_CHAR_WIDTH_RATIO,
+    2,
+  );
+  const speciesLines = wrapSvgText(
+    label.speciesName,
+    QR_LABEL_TEXT_LINE_LENGTH_MM,
+    fontSize,
+    QR_LABEL_SVG_CHAR_WIDTH_RATIO,
+    2,
+  );
+
+  const codeBlockHeight = codeLines.length * codeLineHeight;
+  const speciesBlockHeight = speciesLines.length * speciesLineHeight;
+  const textBlockHeight = codeBlockHeight + QR_LABEL_TEXT_GAP_MM + speciesBlockHeight;
+  const textTop = -textBlockHeight / 2;
+
+  const codeMarkup = codeLines.map((line, index) => (
+    `<text x="0" y="${roundMm(textTop + codeLineHeight * (index + 0.8))}" text-anchor="middle" font-family="Arial, sans-serif" font-size="${roundMm(fontSize)}" font-weight="900" font-style="italic" fill="#111"${svgTextFitAttributes(line, fontSize, QR_LABEL_TEXT_LINE_LENGTH_MM, QR_LABEL_SVG_BOLD_CHAR_WIDTH_RATIO)}>${escapeXml(line)}</text>`
+  )).join('\n    ');
+  const speciesMarkup = speciesLines.map((line, index) => (
+    `<text x="0" y="${roundMm(textTop + codeBlockHeight + QR_LABEL_TEXT_GAP_MM + speciesLineHeight * (index + 0.8))}" text-anchor="middle" font-family="Arial, sans-serif" font-size="${roundMm(fontSize)}" fill="#333"${svgTextFitAttributes(line, fontSize, QR_LABEL_TEXT_LINE_LENGTH_MM, QR_LABEL_SVG_CHAR_WIDTH_RATIO)}>${escapeXml(line)}</text>`
+  )).join('\n    ');
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}mm" height="${height}mm" viewBox="0 0 ${width} ${height}">
+  <rect x="${roundMm(QR_LABEL_BORDER_MM / 2)}" y="${roundMm(QR_LABEL_BORDER_MM / 2)}" width="${roundMm(width - QR_LABEL_BORDER_MM)}" height="${roundMm(height - QR_LABEL_BORDER_MM)}" rx="1.5" fill="#fff" stroke="#000" stroke-width="${QR_LABEL_BORDER_MM}"/>
+  <image href="${escapeXml(qrImageUrl)}" x="${roundMm(qrX)}" y="${roundMm(qrY)}" width="${QR_LABEL_QR_SIZE_MM}" height="${QR_LABEL_QR_SIZE_MM}"/>
+  <g class="label-text" transform="translate(${roundMm(textCenterX)} ${roundMm(height / 2)}) rotate(-90)">
+    ${codeMarkup}
+    ${speciesMarkup}
+  </g>
 </svg>`;
+}
+
+// Greedy wrap that honours the break opportunities a browser uses: after a
+// hyphen and after a space. Remaining words stay on the last line instead of
+// being dropped.
+function wrapSvgText(
+  value: string,
+  maxWidthMm: number,
+  fontSizeMm: number,
+  charWidthRatio: number,
+  maxLines: number,
+) {
+  const segments = value.match(/[^\s-]+[\s-]*/g) ?? [];
+  if (!segments.length) return [''];
+
+  const widthOf = (text: string) => text.length * fontSizeMm * charWidthRatio;
+  const lines: string[] = [];
+
+  for (const segment of segments) {
+    const current = lines[lines.length - 1];
+    if (current && widthOf(`${current}${segment}`) <= maxWidthMm) {
+      lines[lines.length - 1] = `${current}${segment}`;
+      continue;
+    }
+    if (lines.length < maxLines) {
+      lines.push(segment);
+      continue;
+    }
+    lines[lines.length - 1] = `${lines[lines.length - 1]}${segment}`;
+  }
+
+  return lines.map((line) => line.trim());
+}
+
+function svgTextFitAttributes(
+  value: string,
+  fontSizeMm: number,
+  maxWidthMm: number,
+  charWidthRatio: number,
+) {
+  const estimatedWidthMm = value.length * fontSizeMm * charWidthRatio;
+  if (estimatedWidthMm <= maxWidthMm) return '';
+  return ` textLength="${roundMm(maxWidthMm)}" lengthAdjust="spacingAndGlyphs"`;
+}
+
+function roundMm(value: number) {
+  return Math.round(value * 1000) / 1000;
 }
 
 function downloadTextFile(content: string, fileName: string, type: string) {

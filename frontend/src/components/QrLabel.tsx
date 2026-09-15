@@ -1,6 +1,6 @@
 import type { QrLabelItem } from '../utils/qrLabels';
 
-export type QrLabelVariant = 'trigger' | 'preview' | 'full';
+export type QrLabelVariant = 'trigger' | 'preview' | 'label';
 
 export default function QrLabel({
   altLabel = 'QR code',
@@ -33,8 +33,10 @@ export default function QrLabel({
       />
       {showMetadata ? (
         <span className="qr-label__metadata">
-          <strong>{item.globalCode}</strong>
-          <small>{item.speciesName}</small>
+          <span className="qr-label__text">
+            <strong>{item.globalCode}</strong>
+            <small>{item.speciesName}</small>
+          </span>
         </span>
       ) : null}
     </span>

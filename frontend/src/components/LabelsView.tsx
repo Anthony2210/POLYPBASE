@@ -4,6 +4,7 @@ import type { BoxItem, UserProfile } from '../types';
 import {
   DEFAULT_QR_LABEL_PRINT_SETTINGS,
   buildQrLabelItem,
+  getQrLabelSheetCssVariables,
   getQrLabelSheetRows,
   printQrLabels,
   type QrLabelItem,
@@ -142,11 +143,10 @@ export default function LabelsView({
   );
   const previewPageCount = Math.max(previewPages.length, 1);
   const previewPageLabels = previewPages[previewPageIndex] ?? [];
-  const sheetPreviewStyle = {
-    '--label-sheet-columns': String(printSettings.columns),
-    '--label-sheet-rows': String(sheetRows),
-    '--label-preview-ratio': `${printSettings.labelWidthMm} / ${printSettings.labelHeightMm}`,
-  } as CSSProperties;
+  // The preview reuses the canonical print geometry: every millimetre value is
+  // expressed as a percentage of the A4 sheet width, then read as `cqi` units by
+  // the sheet container.
+  const sheetPreviewStyle = getQrLabelSheetCssVariables(printSettings) as CSSProperties;
 
   useEffect(() => {
     setPreviewPageIndex((currentIndex) => Math.min(currentIndex, previewPageCount - 1));
@@ -367,26 +367,23 @@ export default function LabelsView({
                       </div>
                     ) : null}
                     <div className="label-sheet-preview" style={sheetPreviewStyle}>
-                      {Array.from({ length: labelsPerPage }).map((_, index) => {
-                        const label = previewPageLabels[index];
-                        const globalIndex = previewPageIndex * labelsPerPage + index;
-                        const previousLabel = selectedLabels[globalIndex - 1];
-                        const startsZone = Boolean(label?.zoneName)
-                          && (!previousLabel || previousLabel.zoneName !== label.zoneName);
-                        return (
-                          <div
-                            className="label-preview-slot"
-                            key={label?.id ?? `empty-${previewPageIndex}-${index}`}
-                          >
-                            {label && startsZone ? <span className="label-preview-zone-marker">{label.zoneName}</span> : null}
-                            {label ? (
-                              <QrLabel item={label} />
-                            ) : (
-                              <div className="label-preview-tile is-empty" />
-                            )}
-                          </div>
-                        );
-                      })}
+                      <div className="label-sheet-grid">
+                        {Array.from({ length: labelsPerPage }).map((_, index) => {
+                          const label = previewPageLabels[index];
+                          return (
+                            <div
+                              className="label-preview-slot"
+                              key={label?.id ?? `empty-${previewPageIndex}-${index}`}
+                            >
+                              {label ? (
+                                <QrLabel item={label} variant="label" />
+                              ) : (
+                                <div className="label-preview-tile is-empty" />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
                 </article>

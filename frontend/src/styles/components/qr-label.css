@@ -31,6 +31,12 @@
   line-height: 1;
 }
 
+.qr-label__text {
+  display: grid;
+  min-width: 0;
+  gap: inherit;
+}
+
 .qr-label__metadata :where(strong, small) {
   display: block;
   max-width: 100%;
@@ -61,31 +67,61 @@
 
 .qr-label--image-only { gap: 0; }
 
-.qr-label--full {
-  --qr-label-image-size: clamp(180px, 36vw, 220px);
-  --qr-label-padding: var(--space-6);
-  width: min(100%, 360px);
-  aspect-ratio: 1;
-  gap: var(--space-3);
-  border-width: 2px;
-  border-radius: var(--radius-md);
+/* Physical label: 40 x 30 mm landscape, with a 25 x 25 mm QR at the left
+   extremity. The text block is rotated counter-clockwise so it reads upward in
+   the remaining band. Geometry comes from the shared preview CSS variables. */
+.qr-label--label {
+  --qr-label-image-size: var(--label-preview-qr-size);
+  --qr-label-padding: var(--label-preview-padding);
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: max(1px, var(--label-preview-gap));
+  width: 100%;
+  aspect-ratio: var(--label-preview-ratio);
+  overflow: hidden;
+  border-radius: var(--radius-xs);
 }
 
-.qr-label--full .qr-label__metadata { gap: var(--space-1); }
+.qr-label--label .qr-label__image {
+  flex: 0 0 auto;
+  /* The QR is a vector SVG: keep it crisp instead of pixelated. */
+  image-rendering: auto;
+}
 
-.qr-label--full .qr-label__metadata strong {
-  font-size: 2rem;
-  line-height: 0.92;
+.qr-label--label .qr-label__metadata {
+  position: relative;
+  flex: 1 1 auto;
+  align-self: stretch;
+  width: auto;
+  overflow: hidden;
+}
+
+.qr-label--label .qr-label__text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--label-preview-text-line-length);
+  height: var(--label-preview-text-zone-width);
+  align-content: center;
+  gap: max(1px, var(--label-preview-text-gap));
+  transform: translate(-50%, -50%) rotate(-90deg);
+  transform-origin: center;
+}
+
+.qr-label--label .qr-label__metadata :where(strong, small) {
   overflow: visible;
-  overflow-wrap: anywhere;
+  font-size: max(4px, var(--label-preview-font-size));
+  line-height: 1.05;
+  overflow-wrap: break-word;
+  text-overflow: clip;
   white-space: normal;
 }
 
-.qr-label--full .qr-label__metadata small {
-  font-size: 1.05rem;
-  line-height: 1.15;
-  overflow: visible;
-  white-space: normal;
+.qr-label--label .qr-label__metadata small {
+  color: #333;
+  line-height: 1.1;
 }
 
 @media (min-width: 760px) and (max-width: 1180px) {
@@ -94,13 +130,4 @@
     width: 66px;
     min-height: 66px;
   }
-}
-
-@media (max-width: 759px), (max-width: 900px) and (orientation: portrait) {
-  .qr-label--full {
-    --qr-label-image-size: min(52vw, 210px);
-    --qr-label-padding: var(--space-5);
-  }
-
-  .qr-label--full .qr-label__metadata strong { font-size: 1.65rem; }
 }

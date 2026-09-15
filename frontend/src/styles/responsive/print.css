@@ -47,26 +47,50 @@
   }
 
   .qr-label-print-sheet {
-    --qr-label-image-size: 31mm;
-    --qr-label-padding: 3.5mm;
     position: fixed;
     inset: 0 auto auto 0;
-    width: 50mm;
-    min-height: 50mm;
-    border: 0.4mm solid #000;
-    border-radius: 3mm;
+    width: 40mm;
+    height: 30mm;
+    padding: 0.8mm;
+    gap: 0.5mm;
+    border: 0.35mm solid #000;
+    border-radius: 1.5mm;
     print-color-adjust: exact;
   }
 
+  .qr-label-print-sheet .qr-label__image {
+    width: 25mm;
+    height: 25mm;
+    /* The QR is a vector SVG: keep it crisp instead of pixelated. */
+    image-rendering: auto;
+  }
+
   .qr-label-print-sheet .qr-label__metadata {
-    gap: 0.8mm;
+    position: relative;
+    align-self: stretch;
+    overflow: hidden;
+  }
+
+  .qr-label-print-sheet .qr-label__text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 27.7mm;
+    height: 12.2mm;
+    gap: 0.4mm;
+    transform: translate(-50%, -50%) rotate(-90deg);
+    transform-origin: center;
+  }
+
+  .qr-label-print-sheet .qr-label__metadata :where(strong, small) {
+    font-size: 7pt;
   }
 
   .qr-label-print-sheet .qr-label__metadata strong {
-    font-size: 9.2pt;
+    line-height: 1.05;
   }
 
   .qr-label-print-sheet .qr-label__metadata small {
-    font-size: 6.2pt;
+    line-height: 1.1;
   }
 }

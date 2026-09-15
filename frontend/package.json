@@ -13,6 +13,7 @@
     "test:charts": "node --test scripts/test-chart-window.mjs",
     "test:inventory": "node --test scripts/test-box-inventory.mjs",
     "test:qr": "node --test scripts/test-qr-scanner.mjs",
+    "test:labels": "node --test scripts/test-qr-labels.mjs",
     "test:dates": "node --test scripts/test-date-format.mjs",
     "test:members": "node --test scripts/test-account-members.mjs",
     "test:audit": "node --test scripts/test-audit-presentation.mjs",
