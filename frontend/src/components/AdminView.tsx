@@ -139,6 +139,16 @@ function userHasAdminRole(profile: UserProfile | null) {
   );
 }
 
+// The institution role of the acting user, without the superuser shortcut: the
+// backend only applies the institution rules to an actual admin membership.
+function userIsInstitutionAdmin(profile: UserProfile | null) {
+  if (!profile?.active_organization) return false;
+  return profile.memberships.some(
+    (membership) => membership.role === 'admin'
+      && membership.organization.id === profile.active_organization?.id,
+  );
+}
+
 // Zone capacity is added a rack at a time, and salinity is read off a
 // refractometer that lands on round values, so the -/+ buttons move in the
 // steps the technicians actually work in. Typing stays free (see ZoneStepField).
@@ -356,9 +366,11 @@ function getMemberFieldError(error: unknown, field: keyof MemberFieldErrors) {
 
 function AccountManagementSection({
   organizationName,
+  actorIsInstitutionAdmin,
   t,
 }: {
   organizationName: string;
+  actorIsInstitutionAdmin: boolean;
   t: TFunction;
 }) {
   const [data, setData] = useState<AccountMembers | null>(null);
@@ -593,7 +605,6 @@ function AccountManagementSection({
     <section className="admin-section account-management" id="admin-accounts">
       <div className="admin-section-heading account-management-heading section-title">
         <div>
-          <span className="admin-section-scope">{organizationName}</span>
           <h2>{t('manageAccountsTitle')}</h2>
         </div>
         <button
@@ -748,7 +759,9 @@ function AccountManagementSection({
                       yesterdayAt: t('manageLastLoginYesterdayAt'),
                     })
                   : null;
-                const memberActions = getMemberRowActions(member).map((item) => ({
+                const memberActions = getMemberRowActions(member, {
+                  actorIsInstitutionAdmin,
+                }).map((item) => ({
                   ...item,
                   label: memberActionLabel(item.action),
                 }));
@@ -3533,7 +3546,11 @@ export default function AdminView({
           ) : null}
 
           {displayedSection === 'accounts' ? (
-            <AccountManagementSection organizationName={activeOrganizationName} t={t} />
+            <AccountManagementSection
+              organizationName={activeOrganizationName}
+              actorIsInstitutionAdmin={userIsInstitutionAdmin(profile)}
+              t={t}
+            />
           ) : null}
 
           {displayedSection === 'inventory' ? (

@@ -19,8 +19,8 @@ const accountMembers = loadModule('../src/utils/accountMembers.ts');
 const memberMutationLock = loadModule('../src/utils/memberMutationLock.ts');
 const memberFeedback = loadModule('../src/utils/memberFeedback.ts');
 
-function actionsFor(member) {
-  return accountMembers.getMemberRowActions(member).map((item) => item.action).join(',');
+function actionsFor(member, context = { actorIsInstitutionAdmin: false }) {
+  return accountMembers.getMemberRowActions(member, context).map((item) => item.action).join(',');
 }
 
 test('a viewer can be promoted to lab technician', () => {
@@ -38,6 +38,38 @@ test('an administrator exposes no editable role action', () => {
   assert.equal(actionsFor({ role: 'admin', is_active: true, is_self: false }), 'deactivate');
 });
 
+test('an institution admin cannot deactivate another admin', () => {
+  assert.equal(
+    actionsFor(
+      { role: 'admin', is_active: true, is_self: false },
+      { actorIsInstitutionAdmin: true },
+    ),
+    '',
+  );
+});
+
+test('an institution admin keeps deactivating non-admin members', () => {
+  const context = { actorIsInstitutionAdmin: true };
+  assert.equal(
+    actionsFor({ role: 'viewer', is_active: true, is_self: false }, context),
+    'promote,deactivate',
+  );
+  assert.equal(
+    actionsFor({ role: 'lab_technician', is_active: true, is_self: false }, context),
+    'demote,deactivate',
+  );
+});
+
+test('an inactive admin is still reactivated', () => {
+  assert.equal(
+    actionsFor(
+      { role: 'admin', is_active: false, is_self: false },
+      { actorIsInstitutionAdmin: true },
+    ),
+    'reactivate',
+  );
+});
+
 test('an inactive member is reactivated instead of deactivated', () => {
   assert.equal(
     actionsFor({ role: 'viewer', is_active: false, is_self: false }),
@@ -51,19 +83,25 @@ test('self-protection leaves no access-toggle action available', () => {
 });
 
 test('destructive role and access actions are marked as danger', () => {
-  const actions = accountMembers.getMemberRowActions({
-    role: 'lab_technician',
-    is_active: true,
-    is_self: false,
-  });
+  const actions = accountMembers.getMemberRowActions(
+    {
+      role: 'lab_technician',
+      is_active: true,
+      is_self: false,
+    },
+    { actorIsInstitutionAdmin: true },
+  );
   const danger = Object.fromEntries(actions.map((item) => [item.action, item.danger]));
   assert.equal(danger.demote, true);
   assert.equal(danger.deactivate, true);
-  const promotion = accountMembers.getMemberRowActions({
-    role: 'viewer',
-    is_active: false,
-    is_self: false,
-  });
+  const promotion = accountMembers.getMemberRowActions(
+    {
+      role: 'viewer',
+      is_active: false,
+      is_self: false,
+    },
+    { actorIsInstitutionAdmin: true },
+  );
   assert.equal(promotion[0].danger, undefined);
   assert.equal(promotion[1].danger, undefined);
 });

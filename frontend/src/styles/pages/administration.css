@@ -1665,7 +1665,6 @@ button.account-overview-card {
   gap: 0;
 }
 
-.admin-section-scope,
 .admin-nav-group-label {
   color: var(--color-muted);
   font-size: .72rem;

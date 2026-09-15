@@ -463,6 +463,21 @@ class AccountMemberManagementTests(TestCase):
             AuditLog.objects.filter(pk=invitation_object_ids["audit_log"]).exists()
         )
 
+    def _create_member(self, username, organization, role):
+        user = get_user_model().objects.create_user(
+            username=username,
+            email=f"{username}@example.org",
+            password="secret",
+        )
+        return OrganizationMembership.objects.create(
+            user=user,
+            organization=organization,
+            role=role,
+        )
+
+    def _member_detail_url(self, membership):
+        return reverse("api_account_member_detail", args=[membership.id])
+
     def test_admin_lists_only_managed_org_members(self):
         self.client.login(username="admin", password="secret")
 
@@ -1128,6 +1143,138 @@ class AccountMemberManagementTests(TestCase):
         self.assertEqual(response.status_code, 403)
         membership.refresh_from_db()
         self.assertTrue(membership.is_active)
+
+    def test_admin_cannot_deactivate_another_admin(self):
+        self.client.login(username="admin", password="secret")
+        other_admin = self._create_member(
+            "admin2", self.paris, OrganizationMembership.Role.ADMIN
+        )
+
+        response = self.client.patch(
+            self._member_detail_url(other_admin),
+            data={"is_active": False},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.json()["detail"],
+            "Un administrateur ne peut pas désactiver un autre administrateur.",
+        )
+        other_admin.refresh_from_db()
+        self.assertTrue(other_admin.is_active)
+        self.assertFalse(
+            AuditLog.objects.filter(
+                organization=self.paris,
+                object_type="account",
+                description="Member access updated",
+            ).exists()
+        )
+
+    def test_direct_api_call_cannot_deactivate_another_admin(self):
+        # The rule lives in the API: a hand-crafted request that skips the
+        # interface is rejected the same way.
+        self.client.login(username="admin", password="secret")
+        other_admin = self._create_member(
+            "admin2", self.paris, OrganizationMembership.Role.ADMIN
+        )
+
+        response = self.client.patch(
+            self._member_detail_url(other_admin),
+            data={"is_active": False},
+            content_type="application/json",
+            HTTP_X_ORGANIZATION_ID=str(self.paris.id),
+        )
+
+        self.assertEqual(response.status_code, 403)
+        other_admin.refresh_from_db()
+        self.assertTrue(other_admin.is_active)
+
+    def test_admin_can_still_deactivate_a_technician(self):
+        self.client.login(username="admin", password="secret")
+        technician = self._create_member(
+            "tech-paris", self.paris, OrganizationMembership.Role.LAB_TECHNICIAN
+        )
+
+        response = self.client.patch(
+            self._member_detail_url(technician),
+            data={"is_active": False},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        technician.refresh_from_db()
+        self.assertFalse(technician.is_active)
+        self.assertTrue(
+            AuditLog.objects.filter(
+                organization=self.paris,
+                object_type="account",
+                description="Member access updated",
+            ).exists()
+        )
+
+    def test_admin_cannot_deactivate_an_admin_from_another_organization(self):
+        self.client.login(username="admin", password="secret")
+        partner_admin = self._create_member(
+            "partner-admin", self.partner, OrganizationMembership.Role.ADMIN
+        )
+
+        response = self.client.patch(
+            self._member_detail_url(partner_admin),
+            data={"is_active": False},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        partner_admin.refresh_from_db()
+        self.assertTrue(partner_admin.is_active)
+
+    def test_superuser_cannot_deactivate_the_last_admin_of_an_organization(self):
+        superuser = get_user_model().objects.create_superuser(
+            username="platform", email="platform@example.org", password="secret"
+        )
+        self.client.force_login(superuser)
+        membership = OrganizationMembership.objects.get(
+            user=self.admin, organization=self.paris
+        )
+
+        response = self.client.patch(
+            self._member_detail_url(membership),
+            data={"is_active": False},
+            content_type="application/json",
+            HTTP_X_ORGANIZATION_ID=str(self.paris.id),
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            response.json()["detail"],
+            "Le dernier administrateur actif de cette structure ne peut pas être désactivé.",
+        )
+        membership.refresh_from_db()
+        self.assertTrue(membership.is_active)
+
+    def test_superuser_can_deactivate_an_admin_when_another_admin_remains(self):
+        # The institution rule targets institution admins. A Django superuser
+        # without an admin membership in the organization keeps the
+        # platform-level access it already had.
+        superuser = get_user_model().objects.create_superuser(
+            username="platform", email="platform@example.org", password="secret"
+        )
+        self.client.force_login(superuser)
+        other_admin = self._create_member(
+            "admin2", self.paris, OrganizationMembership.Role.ADMIN
+        )
+
+        response = self.client.patch(
+            self._member_detail_url(other_admin),
+            data={"is_active": False},
+            content_type="application/json",
+            HTTP_X_ORGANIZATION_ID=str(self.paris.id),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        other_admin.refresh_from_db()
+        self.assertFalse(other_admin.is_active)
 
 
 @override_settings(
