@@ -262,9 +262,6 @@
     font-size: 1.7rem;
   }
 
-  .workspace-page {
-    width: 100%;
-  }
 
   .entity-header {
     --entity-columns: minmax(0, 1fr) 42px;

@@ -19,6 +19,7 @@
     "test:audit": "node --test scripts/test-audit-presentation.mjs",
     "test:confirm": "node --test scripts/test-confirm-action.mjs",
     "test:phone-nav": "node --test scripts/test-phone-navigation.mjs",
+    "test:layout": "node --test scripts/test-page-layout.mjs",
     "build": "npm run check:css && tsc --noEmit && vite build",
     "preview": "vite preview"
   },

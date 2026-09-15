@@ -49,7 +49,8 @@
 
   --sidebar-width: 216px;
   --sidebar-collapsed-width: 68px;
-  --content-max: 1240px;
+  /* One outer page frame shared by every authenticated workspace page. */
+  --page-width: 1480px;
   --control-height: 44px;
   --touch-target: 48px;
   --transition-fast: 150ms ease;

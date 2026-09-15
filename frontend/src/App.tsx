@@ -1228,16 +1228,18 @@ export default function App() {
         ) : null}
 
         {error ? (
-          <ApplicationErrorNotice
-            actionHref={error.requiresAuthentication
-              ? `/login?next=${encodeURIComponent(`${window.location.pathname}${window.location.search}`)}`
-              : `${window.location.pathname}${window.location.search}`}
-            labels={{
-              action: error.requiresAuthentication ? t('loginAction') : t('reloadAction'),
-              title: error.requiresAuthentication ? t('loginRequired') : t('pageLoadErrorTitle'),
-            }}
-            message={error.message}
-          />
+          <div className="workspace-page">
+            <ApplicationErrorNotice
+              actionHref={error.requiresAuthentication
+                ? `/login?next=${encodeURIComponent(`${window.location.pathname}${window.location.search}`)}`
+                : `${window.location.pathname}${window.location.search}`}
+              labels={{
+                action: error.requiresAuthentication ? t('loginAction') : t('reloadAction'),
+                title: error.requiresAuthentication ? t('loginRequired') : t('pageLoadErrorTitle'),
+              }}
+              message={error.message}
+            />
+          </div>
         ) : null}
 
         {!error && (

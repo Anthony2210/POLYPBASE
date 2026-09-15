@@ -272,18 +272,22 @@ test('the Labels page preview and the modal share the physical label variant', (
   assert.doesNotMatch(labelsView, /label-preview-zone-marker/);
 });
 
-test('the Labels desktop workspace expands without stretching sparse box groups', () => {
+test('the Labels desktop workspace uses the shared page frame without stretching sparse box groups', () => {
   const css = readFileSync(new URL('../src/styles/pages/exports-labels.css', import.meta.url), 'utf8');
-  const workspaceRule = css.match(/\.workspace-page:has\(> \.labels-page\) \{([^}]*)\}/)[1];
-  const pageRule = css.match(/\.labels-page \{([^}]*)\}/)[1];
+  const layout = readFileSync(new URL('../src/styles/layout.css', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
   const selectorRule = css.match(/\.profile-label-selector \{([^}]*)\}/)[1];
   const groupRule = css.match(/\.label-zone-group \{([^}]*)\}/)[1];
   const groupListRule = css.match(/\.label-zone-group-list \{([^}]*)\}/)[1];
   const cardRules = [...css.matchAll(/\.labels-page \.profile-label-selector label \{([^}]*)\}/g)]
     .map((match) => match[1]);
 
-  assert.match(workspaceRule, /width: min\(1480px, 100%\)/);
-  assert.match(pageRule, /max-width: none/);
+  // Labels inherits the one shared outer frame; it owns no local width.
+  assert.match(layout, /\.page-heading,\s*\n\.workspace-page\s*\{[^}]*width:\s*min\(var\(--page-width\),\s*100%\)/s);
+  assert.match(app, /<section className="workspace">/);
+  assert.doesNotMatch(app, /page-width-/);
+  assert.doesNotMatch(css, /\.workspace-page:has\(/);
+  assert.doesNotMatch(css, /\.labels-page\s*\{[^}]*max-width/s);
   assert.match(selectorRule, /align-content: start/);
   assert.match(groupRule, /align-content: start/);
   assert.match(groupListRule, /grid-auto-rows: max-content/);

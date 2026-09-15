@@ -177,7 +177,7 @@
 
 .page-heading,
 .workspace-page {
-  width: min(var(--content-max), 100%);
+  width: min(var(--page-width), 100%);
   margin-inline: auto;
 }
 

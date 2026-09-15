@@ -4,16 +4,6 @@
   gap: var(--space-4);
 }
 
-.zone-overview,
-.zone-page {
-  width: 100%;
-  max-width: 1120px;
-  margin-inline: auto;
-}
-
-.zone-overview-shell {
-  width: 100%;
-}
 
 /* Overview */
 .zone-card-heading,

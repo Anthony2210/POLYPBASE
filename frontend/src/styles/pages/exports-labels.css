@@ -2,22 +2,8 @@
 :where(.export-page, .labels-page, .label-page-stack) {
   display: grid;
   gap: var(--space-4);
-  width: 100%;
 }
 
-:where(.export-page, .labels-page) {
-  max-width: var(--content-max);
-}
-
-/* Labels benefits from a wider two-panel workspace without changing the global
-   page width used by the rest of the application. */
-.workspace-page:has(> .labels-page) {
-  width: min(1480px, 100%);
-}
-
-.labels-page {
-  max-width: none;
-}
 
 :where(.export-step, .export-preview, .label-step-card) {
   display: grid;
