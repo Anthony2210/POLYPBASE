@@ -739,6 +739,10 @@ class OrganizationMembershipDetailAPIView(APIView):
             )
         if membership.role != OrganizationMembership.Role.ADMIN:
             return
+        if self._actor_is_institution_admin(request_user, membership.organization_id):
+            raise PermissionDenied(
+                "Un administrateur ne peut pas désactiver un autre administrateur."
+            )
         other_admin_exists = OrganizationMembership.objects.filter(
             organization=membership.organization,
             is_active=True,
@@ -748,6 +752,21 @@ class OrganizationMembershipDetailAPIView(APIView):
             raise PermissionDenied(
                 "Le dernier administrateur actif de cette structure ne peut pas être désactivé."
             )
+
+    def _actor_is_institution_admin(self, request_user, organization_id):
+        """Return True when the acting user administers the target institution.
+
+        Administrators are peers inside an institution, so an institution admin
+        cannot deactivate another admin. A Django superuser without an admin
+        membership in that institution keeps the platform-level access it
+        already had.
+        """
+        return OrganizationMembership.objects.filter(
+            user=request_user,
+            organization_id=organization_id,
+            is_active=True,
+            role=OrganizationMembership.Role.ADMIN,
+        ).exists()
 
     def _validate_role(self, role):
         valid_roles = {value for value, _label in OrganizationMembership.Role.choices}
