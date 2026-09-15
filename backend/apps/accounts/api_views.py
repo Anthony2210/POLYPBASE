@@ -842,22 +842,25 @@ class AdminAuditLogListAPIView(APIView):
         )
         has_more = len(logs) > limit
         logs = logs[:limit]
-        measurement_ids = [
-            log.metadata.get("measurement_id")
-            for log in logs
-            if isinstance(log.metadata, dict) and log.metadata.get("measurement_id")
-        ]
+        measurement_ids = []
+        for log in logs:
+            if not isinstance(log.metadata, dict):
+                continue
+            measurement_id = log.metadata.get("measurement_id")
+            if type(measurement_id) is int and measurement_id > 0:
+                measurement_ids.append(measurement_id)
         measurements_by_id = {
             measurement.id: measurement
             # select_related: the edit link reads measurement.box.global_code.
             for measurement in BiologicalMeasurement.objects.filter(
-                id__in=measurement_ids
+                id__in=measurement_ids,
+                box__organization_id__in=organization_ids,
             ).select_related("box")
         }
 
         payload = {
             "results": [
-                self._serialize_log(log, measurements_by_id)
+                self._serialize_log(log, measurements_by_id, organization_ids)
                 for log in logs
             ],
             "limit": limit,
@@ -872,11 +875,13 @@ class AdminAuditLogListAPIView(APIView):
 
         return Response(payload)
 
-    def _serialize_log(self, log, measurements_by_id):
+    def _serialize_log(self, log, measurements_by_id, organization_ids):
         # Resolved once and reused: the fallback lookup hits the database, so
         # doing it separately for the metadata and for the edit link would
         # double the queries.
-        measurement = self._resolve_measurement(log, measurements_by_id)
+        measurement = self._resolve_measurement(
+            log, measurements_by_id, organization_ids
+        )
         return {
             "id": log.id,
             "created_at": log.created_at,
@@ -898,13 +903,15 @@ class AdminAuditLogListAPIView(APIView):
             "editable_measurement": self._editable_measurement(log, measurement),
         }
 
-    def _resolve_measurement(self, log, measurements_by_id):
+    def _resolve_measurement(self, log, measurements_by_id, organization_ids):
         metadata = log.metadata if isinstance(log.metadata, dict) else {}
-        measurement_id = metadata.get("measurement_id")
-        if measurement_id and measurement_id in measurements_by_id:
-            return measurements_by_id[measurement_id]
-        # An entry may predate measurement_id, or point at a deleted row.
-        return self._find_measurement_from_log(log)
+        if "measurement_id" in metadata:
+            measurement_id = metadata["measurement_id"]
+            if type(measurement_id) is not int or measurement_id <= 0:
+                return None
+            return measurements_by_id.get(measurement_id)
+        # Entries created before measurement_id was recorded use the legacy lookup.
+        return self._find_measurement_from_log(log, organization_ids)
 
     def _editable_measurement(self, log, measurement):
         """Only a real measurement entry may be corrected from the history.
@@ -938,6 +945,10 @@ class AdminAuditLogListAPIView(APIView):
 
     def _enriched_metadata(self, log, measurement):
         metadata = dict(log.metadata or {})
+        if measurement is None:
+            # Do not expose an explicit foreign, deleted, or otherwise invalid
+            # measurement reference from the institution-scoped response.
+            metadata.pop("measurement_id", None)
         if "valeurs" in metadata:
             return metadata
 
@@ -954,7 +965,7 @@ class AdminAuditLogListAPIView(APIView):
             }
         return metadata
 
-    def _find_measurement_from_log(self, log):
+    def _find_measurement_from_log(self, log, organization_ids):
         if log.object_type != "box" or not log.object_id:
             return None
 
@@ -965,6 +976,7 @@ class AdminAuditLogListAPIView(APIView):
         return (
             BiologicalMeasurement.objects.filter(
                 box__global_code=log.object_id,
+                box__organization_id__in=organization_ids,
                 measured_on=match.group(1),
             )
             .select_related("box")

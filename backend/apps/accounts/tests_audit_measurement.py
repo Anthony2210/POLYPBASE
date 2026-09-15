@@ -31,6 +31,15 @@ class AuditLogMeasurementLinkTests(TestCase):
             organization=self.organization,
             role=OrganizationMembership.Role.ADMIN,
         )
+        self.other_organization = Organization.objects.create(
+            name="Partner Laboratory",
+            slug="partner-laboratory",
+        )
+        OrganizationMembership.objects.create(
+            user=self.admin,
+            organization=self.other_organization,
+            role=OrganizationMembership.Role.VIEWER,
+        )
 
         species = Species.objects.create(scientific_name="Aurelia aurita", genus_species_code="AAU")
         strain = Strain.objects.create(species=species, code="1-ATL", number=1, origin_code="ATL")
@@ -54,9 +63,33 @@ class AuditLogMeasurementLinkTests(TestCase):
             notes="Releve du matin",
             user=self.admin,
         )
+        other_zone = ThermalZone.objects.create(
+            organization=self.other_organization,
+            name="Partner cabinet",
+            zone_type=ThermalZone.ZoneType.CABINET,
+        )
+        self.other_box = Box.objects.create(
+            organization=self.other_organization,
+            global_code="PARTNER-AAU-1.001",
+            box_number="001",
+            strain=strain,
+            thermal_zone=other_zone,
+        )
+        self.other_measurement = BiologicalMeasurement.objects.create(
+            box=self.other_box,
+            measured_on=date(2026, 6, 15),
+            polyp_count=987,
+            ephyrae_count=654,
+            salinity_psu="31.25",
+            notes="Foreign institution note",
+            user=self.admin,
+        )
 
     def get_entries(self):
-        response = self.client.get(reverse("api_account_audit_log"))
+        response = self.client.get(
+            reverse("api_account_audit_log"),
+            HTTP_X_ORGANIZATION_ID=str(self.organization.id),
+        )
         self.assertEqual(response.status_code, 200)
         return response.json()["results"]
 
@@ -83,6 +116,87 @@ class AuditLogMeasurementLinkTests(TestCase):
         self.assertEqual(editable["polyp_count"], 42)
         self.assertEqual(editable["ephyrae_count"], 3)
         self.assertEqual(editable["notes"], "Releve du matin")
+        self.assertEqual(entry["metadata"]["valeurs"]["polypes"], 42)
+        self.assertEqual(entry["metadata"]["valeurs"]["strobiles"], 0)
+
+    def test_foreign_direct_measurement_reference_is_not_enriched(self):
+        AuditLog.objects.create(
+            organization=self.organization,
+            user=self.admin,
+            action=AuditLog.Action.ENTRY,
+            object_type="box",
+            object_id=self.box.global_code,
+            description="Biological measurement recorded",
+            metadata={"measurement_id": self.other_measurement.id},
+        )
+        self.client.login(username="org_admin", password="secret")
+
+        entry = self.get_entries()[0]
+
+        self.assertIsNone(entry["editable_measurement"])
+        self.assertEqual(entry["metadata"], {})
+
+    def test_invalid_direct_measurement_reference_does_not_use_fallback(self):
+        AuditLog.objects.create(
+            organization=self.organization,
+            user=self.admin,
+            action=AuditLog.Action.ENTRY,
+            object_type="box",
+            object_id=self.box.global_code,
+            description="Biological measurement for 2026-06-15",
+            metadata={"measurement_id": "not-a-measurement-id"},
+        )
+        self.client.login(username="org_admin", password="secret")
+
+        entry = self.get_entries()[0]
+
+        self.assertIsNone(entry["editable_measurement"])
+        self.assertEqual(entry["metadata"], {})
+
+    def test_same_institution_legacy_box_date_reference_is_enriched(self):
+        AuditLog.objects.create(
+            organization=self.organization,
+            user=self.admin,
+            action=AuditLog.Action.ENTRY,
+            object_type="box",
+            object_id=self.box.global_code,
+            description="Biological measurement for 2026-06-15",
+        )
+        self.client.login(username="org_admin", password="secret")
+
+        entry = self.get_entries()[0]
+
+        self.assertIsNone(entry["editable_measurement"])
+        self.assertEqual(entry["metadata"]["valeurs"]["polypes"], 42)
+        self.assertEqual(entry["metadata"]["valeurs"]["ephyrules"], 3)
+        self.assertEqual(entry["metadata"]["valeurs"]["strobiles"], 0)
+        self.assertEqual(entry["metadata"]["valeurs"]["note"], "Releve du matin")
+
+    def test_foreign_legacy_box_date_reference_is_not_enriched(self):
+        AuditLog.objects.create(
+            organization=self.organization,
+            user=self.admin,
+            action=AuditLog.Action.ENTRY,
+            object_type="box",
+            object_id=self.other_box.global_code,
+            description="Biological measurement for 2026-06-15",
+        )
+        self.client.login(username="org_admin", password="secret")
+
+        entry = self.get_entries()[0]
+
+        self.assertIsNone(entry["editable_measurement"])
+        self.assertEqual(entry["metadata"], {})
+
+    def test_non_admin_cannot_view_selected_organization_audit_log(self):
+        self.client.login(username="org_admin", password="secret")
+
+        response = self.client.get(
+            reverse("api_account_audit_log"),
+            HTTP_X_ORGANIZATION_ID=str(self.other_organization.id),
+        )
+
+        self.assertEqual(response.status_code, 403)
 
     def test_entry_without_a_measurement_is_not_editable(self):
         AuditLog.objects.create(
