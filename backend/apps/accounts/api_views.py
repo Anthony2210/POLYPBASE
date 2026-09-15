@@ -10,7 +10,6 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.mail import send_mail
 from django.db import IntegrityError, transaction
 from django.db.models import Count
-from django.db.models.functions import Coalesce
 from django.utils import translation
 from django.utils.dateparse import parse_date
 from django.utils.decorators import method_decorator
@@ -28,9 +27,16 @@ from apps.accounts.permissions import (
     get_active_organization_from_request,
     get_admin_organizations,
     get_authorized_organizations,
+    get_required_active_organization_from_request,
     user_is_org_admin,
 )
 from apps.audit.models import AuditLog
+from apps.audit.services import (
+    impactful_audit_logs,
+    paginate_audit_logs,
+    parse_audit_pagination,
+    serialize_personal_audit_log,
+)
 from apps.measurements.models import BiologicalMeasurement
 from apps.organizations.models import Organization
 
@@ -775,6 +781,32 @@ class OrganizationMembershipDetailAPIView(APIView):
         return role
 
 
+class PersonalAuditLogListAPIView(APIView):
+    """Return the current user's supported actions in the active organization."""
+
+    def get(self, request):
+        organization = get_required_active_organization_from_request(request)
+        limit, offset = parse_audit_pagination(request.query_params)
+        logs_query = impactful_audit_logs(
+            organization_id=organization.id,
+            actor=request.user,
+        )
+        logs, has_more = paginate_audit_logs(
+            logs_query,
+            limit=limit,
+            offset=offset,
+        )
+        return Response(
+            {
+                "results": [serialize_personal_audit_log(log) for log in logs],
+                "limit": limit,
+                "offset": offset,
+                "has_more": has_more,
+                "next_offset": offset + len(logs) if has_more else None,
+            }
+        )
+
+
 @method_decorator(ensure_csrf_cookie, name="dispatch")
 class AdminAuditLogListAPIView(APIView):
     """Return recent audit trail entries for organizations administered by the user."""
@@ -783,35 +815,12 @@ class AdminAuditLogListAPIView(APIView):
         if not user_is_org_admin(request.user):
             raise PermissionDenied("This account cannot view the audit log.")
 
-        try:
-            limit = int(request.query_params.get("limit", 40))
-        except (TypeError, ValueError):
-            limit = 40
-        limit = max(1, min(limit, 100))
-
-        try:
-            offset = int(request.query_params.get("offset", 0))
-        except (TypeError, ValueError):
-            offset = 0
-        offset = max(0, offset)
+        limit, offset = parse_audit_pagination(request.query_params)
 
         organization_ids = get_active_admin_organization_ids(request)
         if not organization_ids:
             raise PermissionDenied("This account cannot view the audit log for the selected organization.")
-        impactful_actions = [
-            AuditLog.Action.CREATION,
-            AuditLog.Action.UPDATE,
-            AuditLog.Action.ARCHIVE,
-            AuditLog.Action.ENTRY,
-            AuditLog.Action.SUBCULTURE,
-            AuditLog.Action.TRANSFER,
-            AuditLog.Action.IMPORT,
-            AuditLog.Action.EXPORT,
-        ]
-        logs_query = AuditLog.objects.filter(
-            organization_id__in=organization_ids,
-            action__in=impactful_actions,
-        )
+        logs_query = impactful_audit_logs(organization_id=organization_ids[0])
 
         date_filter = request.query_params.get("date", "").strip()
         if date_filter:
@@ -851,16 +860,14 @@ class AdminAuditLogListAPIView(APIView):
                 raise ValidationError({"action": "Type d'action invalide."})
             logs_query = logs_query.filter(action__in=selected_actions)
 
-        logs = list(
-            logs_query.select_related("organization", "user", "edited_by")
-            # New events are ordered by creation time. edited_at remains part of
-            # the compatibility contract for rows produced by the legacy mutable
-            # measurement-audit behavior.
-            .annotate(effective_at=Coalesce("edited_at", "created_at"))
-            .order_by("-effective_at")[offset : offset + limit + 1]
+        logs, has_more = paginate_audit_logs(
+            logs_query.select_related("organization", "user", "edited_by"),
+            limit=limit,
+            offset=offset,
+            # edited_at remains part of the Administration compatibility contract
+            # for rows produced by the legacy mutable measurement-audit behavior.
+            legacy_effective_order=True,
         )
-        has_more = len(logs) > limit
-        logs = logs[:limit]
         measurement_ids = []
         for log in logs:
             if not isinstance(log.metadata, dict):

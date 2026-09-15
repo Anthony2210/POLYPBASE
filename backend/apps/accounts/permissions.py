@@ -42,6 +42,13 @@ def get_active_organization_from_request(request):
         raise PermissionDenied("This account cannot access this organization.") from error
 
 
+def get_required_active_organization_from_request(request):
+    """Return an explicitly selected organization the user may access."""
+    if not request.headers.get("X-Organization-Id"):
+        raise PermissionDenied("Organization context is required.")
+    return get_active_organization_from_request(request)
+
+
 def get_active_organization_ids(request):
     """Return the currently selected organization ID as a list for filters."""
     organization = get_active_organization_from_request(request)

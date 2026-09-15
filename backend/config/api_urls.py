@@ -4,6 +4,7 @@ from apps.accounts.api_views import (
     AdminAuditLogListAPIView,
     OrganizationMemberListCreateAPIView,
     OrganizationMembershipDetailAPIView,
+    PersonalAuditLogListAPIView,
     PasswordResetConfirmAPIView,
     PasswordResetRequestAPIView,
     SessionLoginAPIView,
@@ -196,6 +197,11 @@ urlpatterns = [
         name="api_export_measurements_preview",
     ),
     path("profile/", UserProfileAPIView.as_view(), name="api_profile"),
+    path(
+        "profile/actions/",
+        PersonalAuditLogListAPIView.as_view(),
+        name="api_profile_actions",
+    ),
     path(
         "accounts/members/",
         OrganizationMemberListCreateAPIView.as_view(),
