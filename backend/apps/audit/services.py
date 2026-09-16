@@ -87,6 +87,7 @@ _ENVIRONMENT_FIELDS = {
     "type",
     "temperature_consigne",
     "capacite",
+    "salinite_psu",
     "active",
     "date",
     "temperature_c",

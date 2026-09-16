@@ -247,6 +247,7 @@ def _thermal_zone_audit_values(zone):
         "type": zone.zone_type,
         "temperature_consigne": _json_value(zone.target_temperature_c),
         "capacite": zone.capacity,
+        "salinite_psu": _json_value(zone.salinity_psu),
         "active": zone.is_active,
     }
 
@@ -1508,6 +1509,7 @@ class ThermalZoneListCreateAPIView(generics.ListCreateAPIView):
             "name",
         )
 
+    @transaction.atomic
     def perform_create(self, serializer):
         # Creating a zone is reserved to administrators of the owning organization.
         organization = serializer.validated_data["organization"]
@@ -1535,6 +1537,7 @@ class ThermalZoneDetailAPIView(generics.RetrieveUpdateAPIView):
         organization_ids = get_active_organization_ids(self.request)
         return ThermalZone.objects.filter(organization_id__in=organization_ids)
 
+    @transaction.atomic
     def perform_update(self, serializer):
         zone = self.get_object()
         if zone.organization_id not in get_active_admin_organization_ids(self.request):
@@ -1645,6 +1648,7 @@ class ThermalZoneManualTemperatureAPIView(APIView):
 class ProbeCreateAPIView(generics.CreateAPIView):
     serializer_class = ProbeCreateSerializer
 
+    @transaction.atomic
     def perform_create(self, serializer):
         # A probe inherits its organization from the chosen zone; only that
         # organization's admins may register it.

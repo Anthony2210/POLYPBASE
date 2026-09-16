@@ -798,6 +798,23 @@ class ThermalZoneCreateSerializer(serializers.ModelSerializer):
         queryset=Organization.objects.filter(is_active=True)
     )
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        organization_field = self.fields["organization"]
+        if self.instance is not None:
+            organization_field.read_only = True
+            return
+
+        request = self.context.get("request")
+        active_organization = (
+            get_active_organization_from_request(request) if request is not None else None
+        )
+        organization_field.queryset = (
+            Organization.objects.filter(pk=active_organization.pk, is_active=True)
+            if active_organization is not None
+            else Organization.objects.none()
+        )
+
     class Meta:
         model = ThermalZone
         fields = [
@@ -846,6 +863,21 @@ class ProbeCreateSerializer(serializers.ModelSerializer):
         queryset=ThermalZone.objects.filter(is_active=True)
     )
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        active_organization = (
+            get_active_organization_from_request(request) if request is not None else None
+        )
+        self.fields["thermal_zone"].queryset = (
+            ThermalZone.objects.filter(
+                organization=active_organization,
+                is_active=True,
+            )
+            if active_organization is not None
+            else ThermalZone.objects.none()
+        )
+
     class Meta:
         model = Probe
         fields = ["id", "thermal_zone", "code", "probe_type", "location"]
@@ -858,7 +890,10 @@ class ProbeCreateSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         zone = attrs["thermal_zone"]
-        if Probe.objects.filter(organization=zone.organization, code=attrs["code"]).exists():
+        if Probe.objects.filter(
+            organization_id=zone.organization_id,
+            code=attrs["code"],
+        ).exists():
             raise serializers.ValidationError(
                 {"code": "Une sonde porte déjà ce code dans cette structure."}
             )

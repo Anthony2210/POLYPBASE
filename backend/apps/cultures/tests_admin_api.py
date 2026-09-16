@@ -6,6 +6,7 @@ to create what, and that a user can never reach another organization's data.
 
 import json
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -109,6 +110,19 @@ class AdminResourceCreationApiTests(TestCase):
         self.assertEqual(log.user, self.admin)
         self.assertEqual(log.metadata["valeurs"]["capacite"], 42)
 
+    @patch("apps.cultures.api_views.AuditLog.objects.create")
+    def test_zone_create_rolls_back_when_audit_fails(self, create_audit):
+        create_audit.side_effect = RuntimeError("Audit unavailable")
+        self.client.login(username="org_admin", password="secret")
+
+        with self.assertRaises(RuntimeError):
+            self.post(
+                "api_thermal_zone_list",
+                {"organization": self.organization.id, "name": "Rollback zone"},
+            )
+
+        self.assertFalse(ThermalZone.objects.filter(name="Rollback zone").exists())
+
     def test_admin_updates_thermal_zone_capacity(self):
         self.client.login(username="org_admin", password="secret")
 
@@ -121,6 +135,21 @@ class AdminResourceCreationApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.zone.refresh_from_db()
         self.assertEqual(self.zone.capacity, 30)
+
+    @patch("apps.cultures.api_views.AuditLog.objects.create")
+    def test_zone_update_rolls_back_when_audit_fails(self, create_audit):
+        create_audit.side_effect = RuntimeError("Audit unavailable")
+        self.client.login(username="org_admin", password="secret")
+
+        with self.assertRaises(RuntimeError):
+            self.client.patch(
+                reverse("api_thermal_zone_detail", args=[self.zone.id]),
+                {"capacity": 30},
+                content_type="application/json",
+            )
+
+        self.zone.refresh_from_db()
+        self.assertIsNone(self.zone.capacity)
 
     def test_admin_updates_thermal_zone_salinity(self):
         self.client.login(username="org_admin", password="secret")
@@ -137,6 +166,39 @@ class AdminResourceCreationApiTests(TestCase):
         # The box sheets render this straight from the API, so the shape of the
         # value must not drift between databases.
         self.assertEqual(response.json()["salinity_psu"], "35.00")
+        log = AuditLog.objects.get(
+            action=AuditLog.Action.UPDATE,
+            object_type="thermal_zone",
+            object_id=self.zone.name,
+        )
+        self.assertEqual(log.metadata["valeurs"]["salinite_psu"], "35.00")
+        self.assertEqual(
+            log.metadata["modifications"]["salinite_psu"],
+            {"avant": None, "apres": "35.00"},
+        )
+
+    def test_zone_audit_preserves_zero_salinity_as_distinct_from_null(self):
+        self.client.login(username="org_admin", password="secret")
+
+        response = self.client.patch(
+            reverse("api_thermal_zone_detail", args=[self.zone.id]),
+            {"salinity_psu": "0.00"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.zone.refresh_from_db()
+        self.assertEqual(self.zone.salinity_psu, Decimal("0.00"))
+        log = AuditLog.objects.get(
+            action=AuditLog.Action.UPDATE,
+            object_type="thermal_zone",
+            object_id=self.zone.name,
+        )
+        self.assertEqual(log.metadata["valeurs"]["salinite_psu"], "0.00")
+        self.assertEqual(
+            log.metadata["modifications"]["salinite_psu"],
+            {"avant": None, "apres": "0.00"},
+        )
 
     def test_admin_clears_thermal_zone_salinity(self):
         self.zone.salinity_psu = Decimal("35.00")
@@ -230,8 +292,38 @@ class AdminResourceCreationApiTests(TestCase):
             {"organization": self.other_organization.id, "name": "Etuve-25"},
         )
 
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 400)
         self.assertFalse(ThermalZone.objects.filter(name="Etuve-25").exists())
+
+    def test_update_payload_cannot_change_thermal_zone_organization(self):
+        self.client.login(username="org_admin", password="secret")
+
+        response = self.client.patch(
+            reverse("api_thermal_zone_detail", args=[self.zone.id]),
+            {"organization": self.other_organization.id, "capacity": 30},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.zone.refresh_from_db()
+        self.assertEqual(self.zone.organization, self.organization)
+        self.assertEqual(self.zone.capacity, 30)
+
+    def test_foreign_zone_name_does_not_trigger_local_duplicate_validation(self):
+        self.client.login(username="org_admin", password="secret")
+
+        response = self.post(
+            "api_thermal_zone_list",
+            {"organization": self.organization.id, "name": self.other_zone.name},
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(
+            ThermalZone.objects.filter(
+                organization=self.organization,
+                name=self.other_zone.name,
+            ).exists()
+        )
 
     def test_duplicate_zone_name_in_the_same_organization_is_rejected(self):
         self.client.login(username="org_admin", password="secret")
@@ -347,16 +439,69 @@ class AdminResourceCreationApiTests(TestCase):
         self.assertEqual(log.user, self.admin)
         self.assertEqual(log.metadata["valeurs"]["emplacement"], self.zone.name)
 
-    def test_admin_cannot_add_a_probe_to_another_organization_zone(self):
+    @patch("apps.cultures.api_views.AuditLog.objects.create")
+    def test_probe_create_rolls_back_when_audit_fails(self, create_audit):
+        create_audit.side_effect = RuntimeError("Audit unavailable")
+        self.client.login(username="org_admin", password="secret")
+
+        with self.assertRaises(RuntimeError):
+            self.post(
+                "api_probe_create",
+                {"thermal_zone": self.zone.id, "code": "ROLLBACK-PROBE"},
+            )
+
+        self.assertFalse(Probe.objects.filter(code="ROLLBACK-PROBE").exists())
+
+    def test_probe_validation_does_not_disclose_or_accept_foreign_zones(self):
+        inactive_foreign_zone = ThermalZone.objects.create(
+            organization=self.other_organization,
+            name="Inactive foreign zone",
+            is_active=False,
+        )
+        self.client.login(username="org_admin", password="secret")
+
+        zone_ids = [
+            self.other_zone.id,
+            inactive_foreign_zone.id,
+            inactive_foreign_zone.id + 1000,
+        ]
+        for index, zone_id in enumerate(zone_ids):
+            with self.subTest(zone_id=zone_id):
+                response = self.post(
+                    "api_probe_create",
+                    {"thermal_zone": zone_id, "code": f"FOREIGN-PROBE-{index}"},
+                )
+
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(
+                    response.data["thermal_zone"][0].code,
+                    "does_not_exist",
+                )
+                self.assertFalse(
+                    Probe.objects.filter(code=f"FOREIGN-PROBE-{index}").exists()
+                )
+
+    def test_foreign_probe_code_does_not_trigger_local_duplicate_validation(self):
+        Probe.objects.create(
+            organization=self.other_organization,
+            thermal_zone=self.other_zone,
+            code="SHARED-CODE",
+        )
         self.client.login(username="org_admin", password="secret")
 
         response = self.post(
             "api_probe_create",
-            {"thermal_zone": self.other_zone.id, "code": "SONDE-10-01"},
+            {"thermal_zone": self.zone.id, "code": "SHARED-CODE"},
         )
 
-        self.assertEqual(response.status_code, 403)
-        self.assertFalse(Probe.objects.filter(code="SONDE-10-01").exists())
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(
+            Probe.objects.filter(
+                organization=self.organization,
+                thermal_zone=self.zone,
+                code="SHARED-CODE",
+            ).exists()
+        )
 
     def test_duplicate_probe_code_in_the_same_organization_is_rejected(self):
         Probe.objects.create(
