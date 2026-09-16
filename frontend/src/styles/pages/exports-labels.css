@@ -737,7 +737,10 @@
   min-width: 0;
 }
 
-.profile-label-section {
+/* The labels workspace reuses the profile block wrapper but must stay flush with
+   the shared page frame. profile.css is imported after this module in the same
+   cascade layer, so the neutralization needs the extra specificity to win. */
+.labels-page .profile-label-section {
   padding: 0;
   border: 0;
   background: transparent;
