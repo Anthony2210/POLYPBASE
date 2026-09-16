@@ -57,6 +57,84 @@
 .row-action-menu button.is-danger { color: var(--color-danger-hover); }
 .row-action-menu button.is-danger:is(:hover, :focus-visible) { background: var(--color-danger-soft); }
 
+.audit-linked-actions-popover {
+  width: min(520px, calc(100vw - 24px));
+  max-height: min(620px, calc(100dvh - 24px));
+  padding: var(--space-3);
+}
+
+.audit-linked-actions-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.audit-linked-actions-heading h3 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: .9rem;
+  line-height: 1.4;
+}
+
+.audit-linked-actions-heading button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--color-muted);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+
+.audit-linked-actions-heading button:hover { background: var(--color-surface-info); }
+
+.audit-linked-actions-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.audit-linked-actions-list li {
+  display: grid;
+  gap: 2px;
+  padding-block: var(--space-3);
+}
+
+.audit-linked-actions-list li + li { border-top: 1px solid var(--color-line-soft); }
+.audit-linked-actions-list time { color: var(--color-muted); font-size: .7rem; font-variant-numeric: tabular-nums; }
+.audit-linked-action-summary { margin: 0; color: var(--color-ink); font-size: .82rem; font-weight: 600; }
+
+.audit-linked-actions-state {
+  display: grid;
+  min-height: 120px;
+  margin: 0;
+  align-content: center;
+  gap: var(--space-2);
+  color: var(--color-muted);
+  font-size: .78rem;
+}
+
+.audit-linked-actions-state p { margin: 0; }
+.audit-linked-actions-state > button {
+  width: max-content;
+  min-height: 36px;
+  padding-inline: var(--space-3);
+  color: var(--color-primary-hover);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+
 .box-inventory-suggestion-popover {
   width: 290px;
   padding: var(--space-3);

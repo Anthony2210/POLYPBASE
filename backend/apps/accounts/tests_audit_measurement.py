@@ -8,11 +8,14 @@ box it belongs to.
 from datetime import date
 
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
 from apps.audit.models import AuditLog
+from apps.audit.services import classify_audit_log, legacy_measurement_lookup_key
 from apps.cultures.models import Box, ThermalZone
 from apps.measurements.models import BiologicalMeasurement
 from apps.organizations.models import Organization
@@ -204,6 +207,159 @@ class AuditLogMeasurementLinkTests(TestCase):
 
         self.assertIsNone(entry["editable_measurement"])
         self.assertEqual(entry["metadata"], {})
+
+    def test_legacy_lookup_predicate_matches_measurement_classification(self):
+        legacy_measurement = AuditLog.objects.create(
+            organization=self.organization,
+            user=self.admin,
+            action=AuditLog.Action.UPDATE,
+            object_type="box",
+            object_id=self.box.global_code,
+            description="Biological measurement for 2026-06-15",
+        )
+        dated_movement = AuditLog.objects.create(
+            organization=self.organization,
+            user=self.admin,
+            action=AuditLog.Action.UPDATE,
+            object_type="box",
+            object_id=self.box.global_code,
+            description="Box moved on 2026-06-15",
+            metadata={
+                "movement_id": 12,
+                "to_thermal_zone_name": "Cabinet-15",
+            },
+        )
+
+        self.assertEqual(classify_audit_log(legacy_measurement), "measurements")
+        self.assertEqual(
+            legacy_measurement_lookup_key(legacy_measurement),
+            (self.box.global_code, date(2026, 6, 15)),
+        )
+        self.assertEqual(classify_audit_log(dated_movement), "boxes")
+        self.assertIsNone(legacy_measurement_lookup_key(dated_movement))
+
+    def test_unrelated_dated_box_events_are_not_measurement_enriched(self):
+        events = [
+            AuditLog.objects.create(
+                organization=self.organization,
+                user=self.admin,
+                action=AuditLog.Action.UPDATE,
+                object_type="box",
+                object_id=self.box.global_code,
+                description="Box moved on 2026-06-15",
+                metadata={
+                    "movement_id": 12,
+                    "from_thermal_zone_name": "Cabinet-14",
+                    "to_thermal_zone_name": "Cabinet-15",
+                },
+            ),
+            AuditLog.objects.create(
+                organization=self.organization,
+                user=self.admin,
+                action=AuditLog.Action.UPDATE,
+                object_type="box",
+                object_id=self.box.global_code,
+                description="Box deactivated on 2026-06-15",
+                metadata={
+                    "transition": "active->inactive",
+                    "after": {"stop_reason": "Culture ended"},
+                },
+            ),
+            AuditLog.objects.create(
+                organization=self.organization,
+                user=self.admin,
+                action=AuditLog.Action.UPDATE,
+                object_type="box",
+                object_id=self.box.global_code,
+                description="Arbitrary box note dated 2026-06-15",
+            ),
+        ]
+        self.client.login(username="org_admin", password="secret")
+
+        entries = {entry["id"]: entry for entry in self.get_entries()}
+
+        for event in events:
+            self.assertNotIn("valeurs", entries[event.id]["metadata"])
+            self.assertEqual(entries[event.id]["family"], "boxes")
+
+    def test_supported_legacy_format_must_match_the_complete_description(self):
+        event = AuditLog.objects.create(
+            organization=self.organization,
+            user=self.admin,
+            action=AuditLog.Action.UPDATE,
+            object_type="box",
+            object_id=self.box.global_code,
+            description="Biological measurement for 2026-06-15 corrected",
+        )
+        self.client.login(username="org_admin", password="secret")
+
+        entry = self.get_entries()[0]
+
+        self.assertEqual(classify_audit_log(event), "boxes")
+        self.assertIsNone(legacy_measurement_lookup_key(event))
+        self.assertEqual(entry["family"], "boxes")
+        self.assertNotIn("valeurs", entry["metadata"])
+
+    def test_unresolved_supported_legacy_measurement_degrades_safely(self):
+        AuditLog.objects.create(
+            organization=self.organization,
+            user=self.admin,
+            action=AuditLog.Action.ENTRY,
+            object_type="box",
+            object_id=self.box.global_code,
+            description="Biological measurement for 2026-06-14",
+        )
+        self.client.login(username="org_admin", password="secret")
+
+        entry = self.get_entries()[0]
+
+        self.assertEqual(entry["family"], "measurements")
+        self.assertEqual(entry["metadata"], {})
+        self.assertIsNone(entry["editable_measurement"])
+
+    def test_legacy_measurements_are_resolved_with_one_page_level_query(self):
+        measurements = [self.measurement]
+        for measured_on, polyp_count in [
+            (date(2026, 6, 16), 16),
+            (date(2026, 6, 17), 17),
+        ]:
+            measurements.append(
+                BiologicalMeasurement.objects.create(
+                    box=self.box,
+                    measured_on=measured_on,
+                    polyp_count=polyp_count,
+                    ephyrae_count=0,
+                    user=self.admin,
+                )
+            )
+        for measurement in measurements:
+            AuditLog.objects.create(
+                organization=self.organization,
+                user=self.admin,
+                action=AuditLog.Action.ENTRY,
+                object_type="box",
+                object_id=self.box.global_code,
+                description=f"Biological measurement for {measurement.measured_on}",
+            )
+        self.client.login(username="org_admin", password="secret")
+
+        with CaptureQueriesContext(connection) as queries:
+            entries = self.get_entries()
+
+        measurement_table = BiologicalMeasurement._meta.db_table.lower()
+        measurement_queries = [
+            query["sql"]
+            for query in queries.captured_queries
+            if measurement_table in query["sql"].lower()
+        ]
+        self.assertEqual(len(measurement_queries), 1)
+        self.assertEqual(
+            {
+                entry["metadata"]["valeurs"]["date"]
+                for entry in entries
+            },
+            {"2026-06-15", "2026-06-16", "2026-06-17"},
+        )
 
     def test_non_admin_cannot_view_selected_organization_audit_log(self):
         self.client.login(username="org_admin", password="secret")
@@ -522,4 +678,297 @@ class AuditLogMeasurementLinkTests(TestCase):
                 object_id=self.box.global_code,
                 metadata__measurement_id=self.measurement.id,
             ).exists()
+        )
+
+    def test_related_action_counts_use_one_grouped_scoped_query(self):
+        other_measurement = BiologicalMeasurement.objects.create(
+            box=self.box,
+            measured_on=date(2026, 6, 16),
+            polyp_count=8,
+            ephyrae_count=1,
+            user=self.admin,
+        )
+        root = AuditLog.objects.create(
+            organization=self.organization,
+            user=self.admin,
+            action=AuditLog.Action.ENTRY,
+            object_type="box",
+            object_id=self.box.global_code,
+            description="Biological measurement for 2026-06-15",
+            metadata={"measurement_id": self.measurement.id},
+        )
+        correction = AuditLog.objects.create(
+            organization=self.organization,
+            user=self.second_user,
+            action=AuditLog.Action.UPDATE,
+            object_type="box",
+            object_id=self.box.global_code,
+            description="Biological measurement for 2026-06-15",
+            metadata={"measurement_id": self.measurement.id},
+        )
+        unrelated = AuditLog.objects.create(
+            organization=self.organization,
+            user=self.admin,
+            action=AuditLog.Action.ENTRY,
+            object_type="box",
+            object_id=self.box.global_code,
+            description="Biological measurement for 2026-06-16",
+            metadata={"measurement_id": other_measurement.id},
+        )
+        legacy = AuditLog.objects.create(
+            organization=self.organization,
+            user=self.admin,
+            action=AuditLog.Action.UPDATE,
+            object_type="box",
+            object_id=self.box.global_code,
+            description="Biological measurement for 2026-06-15",
+        )
+        invalid = AuditLog.objects.create(
+            organization=self.organization,
+            user=self.admin,
+            action=AuditLog.Action.UPDATE,
+            object_type="box",
+            object_id=self.box.global_code,
+            description="Invalid structured measurement",
+            metadata={"measurement_id": "not-an-integer"},
+        )
+        transfer = AuditLog.objects.create(
+            organization=self.organization,
+            user=self.admin,
+            action=AuditLog.Action.TRANSFER,
+            object_type="box",
+            object_id=self.box.global_code,
+            description="Transfer with unrelated metadata",
+            metadata={"measurement_id": self.measurement.id},
+        )
+        AuditLog.objects.create(
+            organization=self.other_organization,
+            user=self.admin,
+            action=AuditLog.Action.UPDATE,
+            object_type="box",
+            object_id=self.other_box.global_code,
+            description="Foreign measurement event",
+            metadata={"measurement_id": self.measurement.id},
+        )
+        self.client.login(username="org_admin", password="secret")
+
+        with CaptureQueriesContext(connection) as queries:
+            entries = self.get_entries()
+
+        entries_by_id = {entry["id"]: entry for entry in entries}
+        self.assertEqual(entries_by_id[root.id]["related_action_count"], 1)
+        self.assertEqual(entries_by_id[correction.id]["related_action_count"], 1)
+        self.assertEqual(entries_by_id[unrelated.id]["related_action_count"], 0)
+        self.assertEqual(entries_by_id[legacy.id]["related_action_count"], 0)
+        self.assertEqual(entries_by_id[invalid.id]["related_action_count"], 0)
+        self.assertEqual(entries_by_id[transfer.id]["related_action_count"], 0)
+
+        audit_table = AuditLog._meta.db_table.lower()
+        grouped_count_queries = [
+            query["sql"]
+            for query in queries.captured_queries
+            if audit_table in query["sql"].lower()
+            and "measurement_id" in query["sql"].lower()
+            and "group by" in query["sql"].lower()
+        ]
+        self.assertEqual(len(grouped_count_queries), 1)
+
+    def test_linked_route_returns_complete_chronological_scoped_chain(self):
+        root = AuditLog.objects.create(
+            organization=self.organization,
+            user=self.admin,
+            action=AuditLog.Action.ENTRY,
+            object_type="box",
+            object_id=self.box.global_code,
+            description="Biological measurement for 2026-06-15",
+            metadata={"measurement_id": self.measurement.id},
+        )
+        correction_one = AuditLog.objects.create(
+            organization=self.organization,
+            user=self.second_user,
+            action=AuditLog.Action.UPDATE,
+            object_type="box",
+            object_id=self.box.global_code,
+            description="Biological measurement for 2026-06-15",
+            metadata={"measurement_id": self.measurement.id},
+        )
+        correction_two = AuditLog.objects.create(
+            organization=self.organization,
+            user=self.third_user,
+            action=AuditLog.Action.UPDATE,
+            object_type="box",
+            object_id=self.box.global_code,
+            description="Biological measurement for 2026-06-15",
+            metadata={"measurement_id": self.measurement.id},
+        )
+        other_measurement = BiologicalMeasurement.objects.create(
+            box=self.box,
+            measured_on=date(2026, 6, 16),
+            polyp_count=99,
+            ephyrae_count=0,
+            user=self.admin,
+        )
+        unrelated = AuditLog.objects.create(
+            organization=self.organization,
+            user=self.admin,
+            action=AuditLog.Action.ENTRY,
+            object_type="box",
+            object_id=self.box.global_code,
+            description="Biological measurement for 2026-06-16",
+            metadata={"measurement_id": other_measurement.id},
+        )
+        foreign = AuditLog.objects.create(
+            organization=self.other_organization,
+            user=self.admin,
+            action=AuditLog.Action.UPDATE,
+            object_type="box",
+            object_id=self.other_box.global_code,
+            description="Foreign event with matching metadata",
+            metadata={"measurement_id": self.measurement.id},
+        )
+        self.client.login(username="org_admin", password="secret")
+
+        response = self.client.get(
+            f"{reverse('api_account_audit_log_linked', args=[correction_one.id])}?limit=1&offset=2",
+            HTTP_X_ORGANIZATION_ID=str(self.organization.id),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        results = response.json()["results"]
+        self.assertEqual(
+            [entry["id"] for entry in results],
+            [root.id, correction_one.id, correction_two.id],
+        )
+        self.assertTrue(all(entry["related_action_count"] == 2 for entry in results))
+        self.assertTrue(
+            all(entry["editable_measurement"]["id"] == self.measurement.id for entry in results)
+        )
+        self.assertNotIn(unrelated.id, [entry["id"] for entry in results])
+        self.assertNotIn(foreign.id, [entry["id"] for entry in results])
+
+        foreign_response = self.client.get(
+            reverse("api_account_audit_log_linked", args=[foreign.id]),
+            HTTP_X_ORGANIZATION_ID=str(self.organization.id),
+        )
+        self.assertEqual(foreign_response.status_code, 404)
+
+    def test_linked_route_rejects_non_measurement_and_missing_measurement_roots(self):
+        non_measurement = AuditLog.objects.create(
+            organization=self.organization,
+            user=self.admin,
+            action=AuditLog.Action.CREATION,
+            object_type="box",
+            object_id=self.box.global_code,
+            description="Box created",
+        )
+        missing_measurement = AuditLog.objects.create(
+            organization=self.organization,
+            user=self.admin,
+            action=AuditLog.Action.ENTRY,
+            object_type="box",
+            object_id=self.box.global_code,
+            description="Deleted measurement",
+            metadata={"measurement_id": 999999},
+        )
+        self.client.login(username="org_admin", password="secret")
+
+        for root in (non_measurement, missing_measurement):
+            with self.subTest(root=root.id):
+                response = self.client.get(
+                    reverse("api_account_audit_log_linked", args=[root.id]),
+                    HTTP_X_ORGANIZATION_ID=str(self.organization.id),
+                )
+                self.assertEqual(response.status_code, 404)
+
+        self.client.login(username="second_user", password="secret")
+        forbidden = self.client.get(
+            reverse("api_account_audit_log_linked", args=[missing_measurement.id]),
+            HTTP_X_ORGANIZATION_ID=str(self.organization.id),
+        )
+        self.assertEqual(forbidden.status_code, 403)
+
+    def test_old_rows_expose_current_second_correction_and_remain_immutable(self):
+        root = AuditLog.objects.create(
+            organization=self.organization,
+            user=self.admin,
+            action=AuditLog.Action.ENTRY,
+            object_type="box",
+            object_id=self.box.global_code,
+            description="Biological measurement for 2026-06-15",
+            metadata={"measurement_id": self.measurement.id},
+        )
+        root_snapshot = {
+            "created_at": root.created_at,
+            "user_id": root.user_id,
+            "metadata": root.metadata,
+        }
+        self.client.login(username="org_admin", password="secret")
+        detail_url = reverse(
+            "api_box_measurement_detail",
+            args=[self.box.id, self.measurement.id],
+        )
+        first_response = self.client.patch(
+            detail_url,
+            data={"polyp_count": 55, "notes": "First correction"},
+            content_type="application/json",
+        )
+        self.assertEqual(first_response.status_code, 200)
+        first_correction = AuditLog.objects.get(
+            action=AuditLog.Action.UPDATE,
+            metadata__measurement_id=self.measurement.id,
+        )
+        first_snapshot = {
+            "created_at": first_correction.created_at,
+            "user_id": first_correction.user_id,
+            "metadata": first_correction.metadata,
+        }
+
+        old_row_response = self.client.get(
+            reverse("api_account_audit_log_linked", args=[root.id]),
+            HTTP_X_ORGANIZATION_ID=str(self.organization.id),
+        )
+        old_editable = old_row_response.json()["results"][0]["editable_measurement"]
+        second_response = self.client.patch(
+            reverse(
+                "api_box_measurement_detail",
+                args=[old_editable["box_id"], old_editable["id"]],
+            ),
+            data={"polyp_count": 77, "notes": "Second correction"},
+            content_type="application/json",
+        )
+        self.assertEqual(second_response.status_code, 200)
+
+        root.refresh_from_db()
+        first_correction.refresh_from_db()
+        self.assertEqual(
+            {
+                "created_at": root.created_at,
+                "user_id": root.user_id,
+                "metadata": root.metadata,
+            },
+            root_snapshot,
+        )
+        self.assertEqual(
+            {
+                "created_at": first_correction.created_at,
+                "user_id": first_correction.user_id,
+                "metadata": first_correction.metadata,
+            },
+            first_snapshot,
+        )
+
+        chain_response = self.client.get(
+            reverse("api_account_audit_log_linked", args=[root.id]),
+            HTTP_X_ORGANIZATION_ID=str(self.organization.id),
+        )
+        chain = chain_response.json()["results"]
+        self.assertEqual(len(chain), 3)
+        self.assertTrue(
+            all(entry["editable_measurement"]["polyp_count"] == 77 for entry in chain)
+        )
+        self.assertTrue(
+            all(
+                entry["editable_measurement"]["notes"] == "Second correction"
+                for entry in chain
+            )
         )

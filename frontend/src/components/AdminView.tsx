@@ -16,6 +16,7 @@ import type {
   BoxInventoryBatchResult,
   BoxItem,
   BoxQualifyPayload,
+  EditableMeasurement,
   ExportOptions,
   MembershipRole,
   NewMemberPayload,
@@ -42,22 +43,7 @@ import {
   type MemberRowAction,
 } from '../utils/accountMembers';
 import { formatDisplayDate, formatRelativeDateTime } from '../utils/dateFormat';
-import {
-  filterAuditDisplayRecord,
-  fillTemplate,
-  formatAuditChange,
-  formatAuditDateTime,
-  formatAuditMetadataValue,
-  getAccountDisplayLabel,
-  getAuditActionLabel,
-  getAuditDescriptionLabel,
-  getAuditEditedMark,
-  getAuditMetadataKeyLabel,
-  getAuditObjectTypeLabel,
-  getAuditTargetLabel,
-  getMetadataRecord,
-  groupAuditEntriesByDay,
-} from '../utils/auditPresentation';
+
 import { getAccountErrorMessage, getErrorMessage } from '../utils/errors';
 import { beginMemberMutation, endMemberMutation } from '../utils/memberMutationLock';
 import {
@@ -71,6 +57,7 @@ import { buildQrLabelItem, printQrLabels } from '../utils/qrLabels';
 import { decrementDecimalValue, incrementDecimalValue } from '../utils/stepValue';
 import { getZoneOccupancyLevel } from '../utils/zoneOccupancy';
 import AdminActionPanel from './AdminActionPanel';
+import AdminAuditSection from './AdminAuditSection';
 import BoxInventoryAdminSection from './BoxInventoryAdminSection';
 import { useConfirmAction } from './ConfirmActionModal';
 import PageLoader from './PageLoader';
@@ -81,61 +68,7 @@ import TaxonomyAdminSection from './TaxonomyAdminSection';
 
 type TFunction = (key: string) => string;
 
-type AdminAuditLogEntry = {
-  id: number;
-  created_at: string;
-  organization: string | null;
-  user: string | null;
-  // Readable actor label resolved by the backend (name, then email). The raw
-  // `user` value is an opaque internal username and must never be displayed.
-  user_display: string | null;
-  action: string;
-  action_label: string;
-  object_type: string;
-  object_id: string;
-  description: string;
-  metadata: Record<string, unknown>;
-  // When the entry last changed (its correction, or its creation): the entry is
-  // placed in the timeline by this, while created_at stays the moment the
-  // measurement was recorded.
-  effective_at: string;
-  edited_at: string | null;
-  edited_by: string | null;
-  edited_by_display: string | null;
-  // Present only when the entry is a measurement that still exists, so the
-  // history can send the user to correct it. Exports, transfers and account
-  // changes never carry this.
-  editable_measurement: EditableMeasurement | null;
-};
-
-export type EditableMeasurement = {
-  id: number;
-  box_id: number;
-  box_code: string;
-  measured_on: string;
-  polyp_count: number;
-  ephyrae_count: number;
-  salinity_psu: string;
-  notes: string;
-};
-
-type AdminAuditActionOption = {
-  value: string;
-  label: string;
-  count: number;
-};
-
-type AdminAuditLogResponse = {
-  results: AdminAuditLogEntry[];
-  limit?: number;
-  offset?: number;
-  has_more?: boolean;
-  next_offset?: number | null;
-  total_count?: number;
-  action_options?: AdminAuditActionOption[];
-};
-
-const ADMIN_AUDIT_PAGE_SIZE = 40;
+export type { EditableMeasurement } from '../types';
 
 const ADMIN_FLOW_ITEMS = [
   { key: 'accounts', panelId: 'admin-accounts', label: 'adminTabUsers', scope: 'aquarium' },
@@ -2588,310 +2521,6 @@ function sanitizeFilePart(value: string) {
   return value.trim().replace(/[^a-z0-9._-]+/gi, '_') || 'boite';
 }
 
-function AdminAuditLogSection({
-  onEditMeasurement,
-  t,
-}: {
-  onEditMeasurement: (measurement: EditableMeasurement) => void;
-  t: TFunction;
-}) {
-  const [entries, setEntries] = useState<AdminAuditLogEntry[]>([]);
-  const [actionOptions, setActionOptions] = useState<AdminAuditActionOption[]>([]);
-  const [actionFilter, setActionFilter] = useState('');
-  const [dateFilter, setDateFilter] = useState('');
-  const [hasMore, setHasMore] = useState(false);
-  const [nextOffset, setNextOffset] = useState<number | null>(null);
-  const [expandedEntryId, setExpandedEntryId] = useState<number | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let isActive = true;
-
-    async function loadAuditLog() {
-      const params = new URLSearchParams({
-        limit: String(ADMIN_AUDIT_PAGE_SIZE),
-        offset: '0',
-        include_options: '1',
-      });
-      if (actionFilter) params.set('action', actionFilter);
-      if (dateFilter) params.set('date', dateFilter);
-
-      try {
-        setIsLoading(true);
-        setError(null);
-        const response = await apiGet<AdminAuditLogResponse>(`/api/accounts/audit-log/?${params.toString()}`);
-        if (!isActive) return;
-        setEntries(response.results);
-        setActionOptions(response.action_options ?? []);
-        setHasMore(Boolean(response.has_more));
-        setNextOffset(response.next_offset ?? null);
-        setExpandedEntryId(null);
-      } catch (requestError) {
-        if (!isActive) return;
-        setError(getErrorMessage(requestError));
-      } finally {
-        if (isActive) setIsLoading(false);
-      }
-    }
-
-    loadAuditLog();
-    return () => {
-      isActive = false;
-    };
-  }, [actionFilter, dateFilter]);
-
-  async function loadMoreAuditLog() {
-    if (isLoadingMore || !hasMore || nextOffset == null) return;
-
-    const params = new URLSearchParams({
-      limit: String(ADMIN_AUDIT_PAGE_SIZE),
-      offset: String(nextOffset),
-    });
-    if (actionFilter) params.set('action', actionFilter);
-    if (dateFilter) params.set('date', dateFilter);
-
-    try {
-      setIsLoadingMore(true);
-      setError(null);
-      const response = await apiGet<AdminAuditLogResponse>(`/api/accounts/audit-log/?${params.toString()}`);
-      setEntries((current) => {
-        const knownIds = new Set(current.map((entry) => entry.id));
-        const nextEntries = response.results.filter((entry) => !knownIds.has(entry.id));
-        return [...current, ...nextEntries];
-      });
-      setHasMore(Boolean(response.has_more));
-      setNextOffset(response.next_offset ?? null);
-    } catch (requestError) {
-      setError(getErrorMessage(requestError));
-    } finally {
-      setIsLoadingMore(false);
-    }
-  }
-
-  const dayGroups = useMemo(
-    () => groupAuditEntriesByDay(entries, (entry) => entry.effective_at),
-    [entries],
-  );
-  const hasFilters = Boolean(actionFilter || dateFilter);
-
-  return (
-    <section className="admin-section admin-audit-section admin-audit-page" id="admin-history">
-      <div className="admin-audit-page-heading">
-        <div>
-          <h2>{t('adminAuditTitle')}</h2>
-        </div>
-        <strong>
-          {entries.length} {t('adminAuditLoaded')}
-          {hasMore ? ' +' : ''}
-        </strong>
-      </div>
-
-      <div className="admin-audit-filters" aria-label={t('adminAuditDialogText')}>
-        <label>
-          <span>{t('adminAuditFilterAction')}</span>
-          <select value={actionFilter} onChange={(event) => setActionFilter(event.target.value)}>
-            <option value="">{t('adminAuditAllActions')}</option>
-            {actionOptions.map((option) => (
-              <option value={option.value} key={option.value}>
-                {getAuditActionLabel({ action: option.value, action_label: option.label }, t)}
-                {option.count ? ` (${option.count})` : ''}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>{t('adminAuditFilterDate')}</span>
-          <input type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} />
-        </label>
-        {hasFilters ? (
-          <button
-            className="admin-audit-clear"
-            type="button"
-            onClick={() => {
-              setActionFilter('');
-              setDateFilter('');
-            }}
-          >
-            {t('adminAuditClearFilters')}
-          </button>
-        ) : null}
-      </div>
-
-      <div className="admin-audit-page-body">
-        {isLoading ? (
-          <SkeletonRows count={6} />
-        ) : error ? (
-          <p className="inline-error">{error}</p>
-        ) : dayGroups.length ? (
-          <div className="admin-audit-timeline">
-            {dayGroups.map((group) => (
-              <section className="admin-audit-day-group" key={group.key}>
-                <h3>{group.label}</h3>
-                <div className="admin-audit-table">
-                  {group.entries.map((entry) => {
-                    const isExpanded = expandedEntryId === entry.id;
-                    return (
-                      <article className="admin-audit-entry" key={entry.id}>
-                        <button
-                          className="admin-audit-row"
-                          type="button"
-                          aria-expanded={isExpanded}
-                          onClick={() => setExpandedEntryId(isExpanded ? null : entry.id)}
-                        >
-                          <span>
-                            <strong>{formatAuditDateTime(entry.effective_at)}</strong>
-                            <small>{entry.organization ?? '-'}</small>
-                          </span>
-                          <span>{getAccountDisplayLabel(entry.user_display) || '-'}</span>
-                          <span>
-                            <strong>{getAuditActionLabel(entry, t)}</strong>
-                            <small>{getAuditDescriptionLabel(entry, t)}</small>
-                            {entry.edited_at ? (
-                              <small className="admin-audit-edited-mark">
-                                {getAuditEditedMark(entry, t)}
-                              </small>
-                            ) : null}
-                          </span>
-                          <span>
-                            <strong>{getAuditTargetLabel(entry) || '-'}</strong>
-                            <small>{getAuditObjectTypeLabel(entry.object_type, t)}</small>
-                          </span>
-                        </button>
-                        {isExpanded ? (
-                          <AuditLogDetails
-                            entry={entry}
-                            t={t}
-                            onEditMeasurement={() => {
-                              if (entry.editable_measurement) {
-                                onEditMeasurement(entry.editable_measurement);
-                              }
-                            }}
-                          />
-                        ) : null}
-                      </article>
-                    );
-                  })}
-                </div>
-              </section>
-            ))}
-          </div>
-        ) : (
-          <p className="muted compact-text">{t('adminAuditEmpty')}</p>
-        )}
-        {!isLoading && hasMore ? (
-          <button className="admin-audit-load-more" type="button" disabled={isLoadingMore} onClick={loadMoreAuditLog}>
-            {isLoadingMore ? t('loading') : t('adminAuditLoadMore')}
-          </button>
-        ) : null}
-      </div>
-
-    </section>
-  );
-}
-
-function AuditLogDetails({
-  entry,
-  onEditMeasurement,
-  t,
-}: {
-  entry: AdminAuditLogEntry;
-  onEditMeasurement: () => void;
-  t: TFunction;
-}) {
-  const metadataEntries = Object.entries(entry.metadata ?? {});
-  const values = filterAuditDisplayRecord(getMetadataRecord(entry.metadata?.valeurs));
-  const changes = filterAuditDisplayRecord(getMetadataRecord(entry.metadata?.modifications));
-  const remainingMetadataEntries = metadataEntries.filter(([key]) => !['valeurs', 'modifications'].includes(key));
-
-  return (
-    <div className="admin-audit-details">
-      <div>
-        <small>{t('adminAuditDate')}</small>
-        <strong>{formatAuditDateTime(entry.created_at)}</strong>
-      </div>
-      <div>
-        <small>{t('auditDetailOrganization')}</small>
-        <strong>{entry.organization ?? '-'}</strong>
-      </div>
-      <div>
-        <small>{t('adminAuditUser')}</small>
-        <strong>{getAccountDisplayLabel(entry.user_display) || '-'}</strong>
-      </div>
-      <div>
-        <small>{t('adminAuditAction')}</small>
-        <strong>{getAuditActionLabel(entry, t)}</strong>
-      </div>
-      <div>
-        <small>{t('adminAuditObject')}</small>
-        <strong>{getAuditTargetLabel(entry) || '-'}</strong>
-      </div>
-      <div>
-        <small>{t('auditDetailType')}</small>
-        <strong>{getAuditObjectTypeLabel(entry.object_type, t)}</strong>
-      </div>
-      <div className="admin-audit-detail-wide">
-        <small>{t('auditDetailDescription')}</small>
-        <strong>{getAuditDescriptionLabel(entry, t)}</strong>
-      </div>
-      {values ? (
-        <div className="admin-audit-detail-wide">
-          <small>{t('auditDetailValues')}</small>
-          <dl>
-            {Object.entries(values).map(([key, value]) => (
-              <div key={key}>
-                <dt>{getAuditMetadataKeyLabel(key, t)}</dt>
-                <dd>{formatAuditMetadataValue(value, t)}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-      ) : null}
-      {changes ? (
-        <div className="admin-audit-detail-wide">
-          <small>{t('auditDetailChanges')}</small>
-          <dl>
-            {Object.entries(changes).map(([key, value]) => (
-              <div key={key}>
-                <dt>{getAuditMetadataKeyLabel(key, t)}</dt>
-                <dd>{formatAuditChange(value, t)}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-      ) : null}
-      {remainingMetadataEntries.length ? (
-        <div className="admin-audit-detail-wide">
-          <small>{t('auditDetailTechnical')}</small>
-          <dl>
-            {remainingMetadataEntries.map(([key, value]) => (
-              <div key={key}>
-                <dt>{getAuditMetadataKeyLabel(key, t)}</dt>
-                <dd>{formatAuditMetadataValue(value, t)}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-      ) : null}
-      {entry.editable_measurement ? (
-        <div className="admin-audit-detail-wide admin-audit-edit-measurement">
-          <button className="admin-audit-correct-button" type="button" onClick={onEditMeasurement}>
-            {t('auditCorrectMeasurement')}
-          </button>
-          <small>
-            {fillTemplate(t('auditCorrectMeasurementHelp'), {
-              code: entry.editable_measurement.box_code,
-              date: formatDisplayDate(entry.editable_measurement.measured_on),
-            })}
-          </small>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-
 function AdminFlowNav({
   activeSection,
   aquariumName,
@@ -3218,6 +2847,7 @@ function TransfersAdminSection({
 }
 
 export default function AdminView({
+  activeOrganizationId,
   activeSection,
   boxes,
   exportOptions,
@@ -3246,6 +2876,7 @@ export default function AdminView({
   t,
   zones,
 }: {
+  activeOrganizationId: number | null;
   activeSection: AdminSectionKey;
   onEditMeasurement: (measurement: EditableMeasurement) => void;
   boxes: BoxItem[];
@@ -3377,8 +3008,15 @@ export default function AdminView({
             />
           ) : null}
 
-          {displayedSection === 'history' ? (
-            <AdminAuditLogSection onEditMeasurement={onEditMeasurement} t={t} />
+          {displayedSection === 'history' && activeOrganizationId != null ? (
+            <AdminAuditSection
+              activeOrganizationId={activeOrganizationId}
+              key={activeOrganizationId}
+              language={language}
+              onEditMeasurement={onEditMeasurement}
+              onOpenBox={onOpenBox}
+              t={t}
+            />
           ) : null}
         </div>
       </div>

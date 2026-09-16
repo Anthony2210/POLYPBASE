@@ -1824,6 +1824,7 @@ class BoxTransferImportAPIView(APIView):
                 "transfer_import_id": transfer_import.id,
                 "source_transfer_id": source["transfer_id"],
                 "source_global_code": source["source_global_code"],
+                "source_organization": source["source_organization_name"],
                 "created_box_id": box.id,
             },
         )

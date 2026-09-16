@@ -1361,6 +1361,7 @@ export default function App() {
 
             {activeTab === 'admin' && isDesktopApp && (
               <AdminView
+                activeOrganizationId={activeOrganizationId}
                 activeSection={route.adminSection ?? 'accounts'}
                 boxes={data.boxes}
                 exportOptions={data.exportOptions}
@@ -1408,11 +1409,13 @@ export default function App() {
               <ProfileView
                 isLoading={isLoading}
                 labels={getProfileLabels(t)}
+                language={language}
                 profile={data.profile}
                 activeOrganizationId={activeOrganizationId}
                 canOpenAdmin={canUseAdmin && isDesktopApp}
                 onSelectOrganization={(organizationId) => void chooseOrganization(organizationId)}
                 onOpenAdmin={() => openTab('admin')}
+                onOpenBox={openBox}
                 onLogout={logoutCurrentUser}
                 onUpdateLanguage={updateLanguage}
                 t={t}

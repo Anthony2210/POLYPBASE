@@ -426,8 +426,6 @@ button.account-overview-card {
 .member-toggle,
 .admin-organization-actions button,
 .taxonomy-edit-button,
-.admin-audit-clear,
-.admin-audit-correct-button,
 .admin-transfer-open-box {
   min-height: 36px;
   padding: 0 var(--space-3);
@@ -1001,123 +999,214 @@ button.account-overview-card {
 /* Audit history */
 .admin-audit-page {
   display: grid;
-  gap: var(--space-4);
-}
-
-.admin-audit-page-heading :is(h2, strong) {
-  margin: 0;
-}
-
-.admin-audit-filters {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
-  align-items: end;
-  gap: var(--space-3);
-  padding: var(--space-3);
-}
-
-.admin-audit-timeline,
-.admin-audit-day-group {
-  display: grid;
   gap: var(--space-3);
 }
 
-.admin-audit-day-group h3 {
-  margin: var(--space-2) 0 0;
-  font-size: .9rem;
-}
-
-.admin-audit-entry + .admin-audit-entry {
-  border-top: 1px solid var(--color-line);
-}
-
-.admin-audit-row {
+.admin-audit-filter-bar {
   display: grid;
-  grid-template-columns: 150px 140px minmax(220px, 1fr) minmax(130px, .45fr) 24px;
+  gap: var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-line-soft);
+}
+
+.admin-audit-family-filters {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-3);
-  width: 100%;
-  padding: var(--space-3);
-  text-align: left;
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-}
-
-.admin-audit-row:hover,
-.admin-audit-row[aria-expanded='true'] {
-  background: var(--color-primary-faint);
-}
-
-.admin-audit-row :is(strong, small, span) {
-  min-width: 0;
-}
-
-.admin-audit-row :is(strong, small) {
-  display: block;
-}
-
-.admin-audit-row small {
-  color: var(--color-muted);
-}
-
-.admin-audit-details {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-3);
-  padding: 0 var(--space-3) var(--space-3);
-}
-
-.admin-audit-details > div {
-  min-width: 0;
-  padding: var(--space-3);
-  background: var(--color-surface-subtle);
-  border-radius: var(--radius-sm);
-}
-
-.admin-audit-details small,
-.admin-audit-details strong {
-  display: block;
-}
-
-.admin-audit-details small {
-  color: var(--color-muted);
-}
-
-.admin-audit-detail-wide {
-  grid-column: 1 / -1;
-}
-
-.admin-audit-details dl {
-  display: grid;
-  gap: var(--space-1);
-  margin: var(--space-2) 0 0;
-}
-
-.admin-audit-details dl > div {
-  display: grid;
-  grid-template-columns: minmax(120px, .35fr) minmax(0, 1fr);
+  align-content: start;
   gap: var(--space-2);
 }
 
-.admin-audit-details :is(dt, dd) {
-  margin: 0;
+.admin-audit-date-filter {
+  display: block;
+  width: max-content;
+}
+
+.admin-audit-date-filter input {
+  width: 164px;
+  min-width: 164px;
+  min-height: 36px;
+  padding: 0 var(--space-2);
+  font-size: .8rem;
+}
+
+
+.admin-audit-family-filters button {
+  display: inline-flex;
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-ink-soft);
+  font-size: .76rem;
+  font-weight: 650;
+  line-height: 1.2;
+  text-align: start;
+  white-space: nowrap;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  user-select: none;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.admin-audit-family-filters button:is(:hover, :focus-visible) {
+  color: var(--color-ink);
+  border-color: var(--color-line-strong);
+  background: var(--color-surface-subtle);
+}
+
+.admin-audit-family-filters button:active {
+  background: var(--color-surface-info);
+}
+
+.admin-audit-family-filters button[aria-pressed='true'] {
+  color: var(--color-primary-hover);
+  font-weight: 700;
+  background: var(--color-primary-faint);
+  border-color: var(--color-primary-soft);
+}
+
+/* The active pill keeps a distinct press feedback while remaining readable when
+   another pill is hovered. */
+.admin-audit-family-filters button[aria-pressed='true']:is(:hover, :focus-visible) {
+  color: var(--color-primary-hover);
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary);
+}
+
+.admin-audit-family-filters button:focus-visible,
+.admin-audit-date-filter input:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.admin-audit-family-filters small {
+  color: var(--color-muted);
+  font-size: .66rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.admin-audit-page-body {
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line-soft);
+  border-radius: var(--radius-sm);
+}
+
+.admin-audit-stream,
+.admin-audit-day-group {
+  display: grid;
+}
+
+.admin-audit-stream {
+  gap: var(--space-5);
+  font-family: var(--font-body);
+}
+.admin-audit-day-group { gap: var(--space-2); }
+
+.admin-audit-list {
+  display: grid;
+  border-top: 1px solid var(--color-line-soft);
+}
+
+.admin-audit-entry {
+  min-width: 0;
+  border-bottom: 1px solid var(--color-line-soft);
+  transition: background-color var(--transition-fast);
+}
+
+.admin-audit-entry:is(:hover, .is-expanded) { background: var(--color-surface-subtle); }
+
+.admin-audit-row {
+  display: grid;
+  grid-template-columns: 56px minmax(120px, 160px) minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-3);
+  min-height: 72px;
+  padding: var(--space-3) var(--space-2);
+}
+
+.admin-audit-time {
+  padding-top: 2px;
+  color: var(--color-muted);
+  font-size: .72rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+
+.admin-audit-author {
+  min-width: 0;
+  padding-top: 1px;
+  color: var(--color-ink);
+  font-size: .82rem;
+  font-weight: 700;
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
 
-.admin-audit-details dt {
+.admin-audit-main {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.admin-audit-summary {
+  margin: 0;
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: .84rem;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.admin-audit-target {
+  min-width: 0;
+  color: var(--color-muted);
+  font-size: .74rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.admin-audit-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: end;
+  gap: var(--space-1);
+}
+
+
+.admin-audit-details {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0 var(--space-2) var(--space-3) calc(216px + var(--space-5));
+}
+
+.admin-audit-provenance {
+  margin: 0;
   color: var(--color-muted);
   font-size: .72rem;
+  line-height: 1.45;
 }
 
-.admin-audit-edited-mark {
-  color: var(--color-warning);
-  font-weight: 800;
+.admin-audit-pagination {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
 }
 
-.admin-audit-load-more {
-  justify-self: center;
+.admin-audit-pagination-error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: .78rem;
 }
+
+.admin-audit-load-more { justify-self: center; }
 
 @keyframes admin-panel-enter {
   from {
@@ -1137,7 +1226,9 @@ button.account-overview-card {
   .account-list-toolbar { grid-template-columns: minmax(220px, 1fr) auto auto; }
   .account-visible-count { display: none; }
   .environment-zone-grid { grid-template-columns: 1fr; }
-  .admin-audit-row { grid-template-columns: 130px 110px minmax(180px, 1fr) minmax(110px, .4fr) 20px; }
+  .admin-audit-row { grid-template-columns: 52px minmax(100px, 130px) minmax(0, 1fr) auto; }
+  .admin-audit-details { margin-inline-start: calc(182px + var(--space-5)); }
+
 }
 
 /* Research workspace: keep directories visible and open occasional actions in a side panel. */

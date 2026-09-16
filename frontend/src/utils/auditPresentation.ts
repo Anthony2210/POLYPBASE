@@ -1,6 +1,38 @@
+import type { AuditBusinessDetails, AuditChanges, AuditFamily, AuditValue, AuditValues } from '../types';
 import { getDocumentLocale } from './dateFormat';
 
 type Translate = (key: string) => string;
+
+export const AUDIT_FAMILIES: readonly AuditFamily[] = [
+  'measurements',
+  'transfers',
+  'subcultures',
+  'boxes',
+  'exports',
+  'environment',
+  'accounts',
+  'references',
+];
+
+/**
+ * Central presentation boundary for backend family keys. Icons intentionally
+ * remain unset until the product taxonomy is approved; callers never choose
+ * an icon or label directly.
+ */
+export const AUDIT_FAMILY_PRESENTATION: Record<AuditFamily, { labelKey: string; icon: null }> = {
+  measurements: { labelKey: 'auditFamilyMeasurements', icon: null },
+  transfers: { labelKey: 'auditFamilyTransfers', icon: null },
+  subcultures: { labelKey: 'auditFamilySubcultures', icon: null },
+  boxes: { labelKey: 'auditFamilyBoxes', icon: null },
+  exports: { labelKey: 'auditFamilyExports', icon: null },
+  environment: { labelKey: 'auditFamilyEnvironment', icon: null },
+  accounts: { labelKey: 'auditFamilyAccounts', icon: null },
+  references: { labelKey: 'auditFamilyReferences', icon: null },
+};
+
+export function getAuditFamilyLabel(family: AuditFamily, t: Translate): string {
+  return t(AUDIT_FAMILY_PRESENTATION[family].labelKey);
+}
 
 export type AuditEntryLike = {
   action: string;
@@ -9,12 +41,30 @@ export type AuditEntryLike = {
   object_type?: string;
   object_id?: string;
   metadata?: Record<string, unknown>;
+  business_details?: AuditBusinessDetails | null;
 };
 
 export type AuditResourceLike = {
   type: string;
-  identifier: string;
+  identifier?: string | null;
   label?: string | null;
+};
+
+export type AuditEventFamily = AuditFamily;
+
+export type AuditInlineBusinessItem = {
+  key: string;
+  label: string;
+  value?: string;
+  before?: string;
+  after?: string;
+  unit?: string;
+  showLabel?: boolean;
+};
+
+export type AuditValueChange = {
+  before: unknown;
+  after: unknown;
 };
 
 const ACTION_LABEL_KEYS: Record<string, string> = {
@@ -48,6 +98,7 @@ const OBJECT_TYPE_KEYS: Record<string, string> = {
 
 const METADATA_KEY_KEYS: Record<string, string> = {
   acces_actif: 'auditMetaAccessActive',
+  actif: 'auditMetaAccessActive',
   a_verifier: 'auditMetaNeedsAttention',
   ancienne_zone: 'auditMetaPreviousZone',
   apres: 'auditMetaAfter',
@@ -90,6 +141,8 @@ const METADATA_KEY_KEYS: Record<string, string> = {
   role: 'auditMetaRole',
   salinite_psu: 'auditMetaSalinity',
   source: 'auditMetaSource',
+  source_global_code: 'auditMetaSourceGlobalCode',
+  source_organization: 'auditMetaSourceOrganization',
   souche: 'auditMetaStrain',
   statut: 'auditMetaStatus',
   statut_culture: 'auditMetaCultureStatus',
@@ -100,6 +153,10 @@ const METADATA_KEY_KEYS: Record<string, string> = {
   temperature_consigne: 'auditMetaTargetTemperature',
   thermal_zone_id: 'auditMetaThermalZoneId',
   to_organization: 'auditMetaTargetOrganization',
+  date_from: 'auditMetaDateFrom',
+  date_to: 'auditMetaDateTo',
+  include_other_zones: 'auditMetaIncludeOtherZones',
+  responsable: 'auditMetaResponsableStatus',
   to_thermal_zone_name: 'auditMetaNewZone',
   transfer_id: 'auditMetaTransferId',
   type: 'auditMetaType',
@@ -149,6 +206,31 @@ const DESCRIPTION_EXACT_KEYS: Record<string, string> = {
   'Password reset from the login page': 'auditDescriptionPasswordReset',
 };
 
+const BUSINESS_SUMMARY_PREFIX_KEYS: Array<[string, string]> = [
+  ['Box created manually: ', 'auditSummaryBoxCreated'],
+  ['Box opened: ', 'auditSummaryBoxOpened'],
+  ['QR scan of ', 'auditSummaryBoxScanned'],
+  ['Box archived: ', 'auditSummaryBoxArchived'],
+  ['Box activated: ', 'auditSummaryBoxActivated'],
+  ['Box deactivated: ', 'auditSummaryBoxDeactivated'],
+  ['Box reactivated: ', 'auditSummaryBoxReactivated'],
+  ['Box moved to ', 'auditSummaryBoxMoved'],
+  ['Subculture created from ', 'auditSummarySubcultureCreated'],
+  ['Manual temperature recorded: ', 'auditSummaryTemperatureRecorded'],
+  ['Thermal zone created: ', 'auditSummaryLocationCreated'],
+  ['Thermal zone updated: ', 'auditSummaryLocationUpdated'],
+  ['Probe created: ', 'auditSummaryProbeCreated'],
+  ['Box transfer prepared: ', 'auditSummaryTransferPrepared'],
+  ['Transfer imported from ', 'auditSummaryTransferImported'],
+  ['Alert resolved: ', 'auditSummaryAlertResolved'],
+  ['Historical box inventory initialized for ', 'auditSummaryInventoryInitialized'],
+  ['Historical box qualified as ', 'auditSummaryBoxQualified'],
+  ['Species created: ', 'auditSummarySpeciesCreated'],
+  ['Species updated: ', 'auditSummarySpeciesUpdated'],
+  ['Strain created: ', 'auditSummaryStrainCreated'],
+  ['Strain updated: ', 'auditSummaryStrainUpdated'],
+];
+
 const DESCRIPTION_RULES: Array<{
   prefix: string;
   render: (rest: string, t: Translate) => string;
@@ -190,6 +272,14 @@ const DESCRIPTION_RULES: Array<{
 ];
 
 const HIDDEN_DISPLAY_KEYS = new Set(['strobiles', 'statut_culture', 'a_verifier']);
+const AUDIT_FIELD_PRIORITY = [
+  'polypes',
+  'ephyrules',
+  'salinite_psu',
+  'date',
+  'note',
+  'notes',
+] as const;
 
 export function getAuditActionLabel(
   entry: Pick<AuditEntryLike, 'action' | 'action_label'>,
@@ -200,24 +290,121 @@ export function getAuditActionLabel(
   return entry.action_label || entry.action || '-';
 }
 
-export function getAuditDescriptionLabel(entry: AuditEntryLike, t: Translate): string {
+export function getAuditBoxSummaryParts(entry: AuditEntryLike, t: Translate): [string, string] | null {
+  const details = entry.business_details;
   const description = (entry.description || '').trim();
-  const metadata = getMetadataRecord(entry.metadata);
+  let key: string | null = null;
 
-  if (description.startsWith('Biological measurement edited for ')) {
-    return fillTemplate(t('auditDescriptionMeasurementCorrected'), {
-      date: formatTechnicalDate(description.slice('Biological measurement edited for '.length)),
+  if (details?.type === 'measurement') {
+    key = details.changes && Object.keys(details.changes).length
+      ? 'auditInlineMeasurementCorrected'
+      : 'auditInlineMeasurementRecorded';
+  } else if (details?.type === 'box_movement') {
+    key = 'auditInlineBoxMoved';
+  } else if (details?.type === 'box_status') {
+    if (details.transition?.to === 'inactive') key = 'auditInlineBoxDeactivated';
+    else if (details.transition?.from === 'inactive' && details.transition.to === 'active') key = 'auditInlineBoxReactivated';
+    else if (details.transition?.to === 'active') key = 'auditInlineBoxActivated';
+  } else if (details?.type === 'subculture') {
+    key = 'auditInlineSubculture';
+  } else if (details?.type === 'transfer_out') {
+    key = 'auditInlineTransferOut';
+  } else if (details?.type === 'transfer_import') {
+    key = 'auditInlineTransferImport';
+  } else if (description.startsWith('Box created')) {
+    key = 'auditInlineBoxCreated';
+  }
+
+  if (!key) return null;
+  const template = t(key);
+  const placeholderIndex = template.indexOf('{box}');
+  return placeholderIndex < 0
+    ? null
+    : [template.slice(0, placeholderIndex), template.slice(placeholderIndex + '{box}'.length)];
+}
+
+export function getAuditInlineBusinessItems(
+  details: AuditBusinessDetails | null | undefined,
+  t: Translate,
+): AuditInlineBusinessItem[] {
+  if (!details) return [];
+
+  if (details.type === 'measurement') {
+    const source = details.changes ?? details.values ?? {};
+    return ['polypes', 'ephyrules', 'salinite_psu'].flatMap<AuditInlineBusinessItem>((key) => {
+      if (!(key in source)) return [];
+      const label = getAuditMetadataKeyLabel(key, t);
+      const unit = key === 'salinite_psu' ? 'PSU' : undefined;
+      const change = getAuditValueChange(source[key]);
+      if (change) {
+        return [{
+          key,
+          label,
+          before: formatAuditMetadataValue(change.before, t),
+          after: formatAuditMetadataValue(change.after, t),
+          unit,
+        }];
+      }
+      return [{ key, label, value: formatAuditMetadataValue(source[key], t), unit }];
     });
   }
+
+  if (details.type === 'box_movement' && details.from_zone && details.to_zone) {
+    return [{
+      key: 'movement',
+      label: getAuditMetadataKeyLabel('emplacement', t),
+      before: details.from_zone,
+      after: details.to_zone,
+      showLabel: false,
+    }];
+  }
+
+  if (details.type === 'transfer_out') {
+    return compactAuditInlineItems([
+      details.destination_organization
+        ? { key: 'destination', label: getAuditMetadataKeyLabel('to_organization', t), value: details.destination_organization }
+        : null,
+      details.polyp_count !== undefined
+        ? { key: 'polypes', label: getAuditMetadataKeyLabel('polypes', t), value: String(details.polyp_count) }
+        : null,
+    ]);
+  }
+
+  if (details.type === 'transfer_import') {
+    return compactAuditInlineItems([
+      details.source_organization
+        ? { key: 'source', label: getAuditMetadataKeyLabel('source_organization', t), value: details.source_organization }
+        : null,
+      details.source_global_code
+        ? { key: 'source-code', label: getAuditMetadataKeyLabel('source_global_code', t), value: details.source_global_code }
+        : null,
+    ]);
+  }
+
+  return [];
+}
+
+export function getAuditBusinessSummary(entry: AuditEntryLike, t: Translate): string {
+  const description = (entry.description || '').trim();
+  if (entry.business_details?.type === 'box_movement' && entry.business_details.to_zone) {
+    return fillTemplate(t('auditSummaryBoxMovedTo'), { location: entry.business_details.to_zone });
+  }
+  const summaryRule = BUSINESS_SUMMARY_PREFIX_KEYS.find(([prefix]) => description.startsWith(prefix));
+  if (summaryRule) return t(summaryRule[1]);
+  return getAuditDescriptionLabel(entry, t);
+}
+
+export function getAuditDescriptionLabel(entry: AuditEntryLike, t: Translate): string {
+  const description = (entry.description || '').trim();
+
+  if (description.startsWith('Biological measurement edited for ')) {
+    return t('auditDescriptionMeasurementCorrected');
+  }
   if (description.startsWith('Biological measurement for ')) {
-    const date = formatTechnicalDate(description.slice('Biological measurement for '.length));
-    return fillTemplate(
-      t(
-        entry.action === 'entry'
-          ? 'auditDescriptionMeasurementCreated'
-          : 'auditDescriptionMeasurementCorrected',
-      ),
-      { date },
+    return t(
+      entry.action === 'entry'
+        ? 'auditDescriptionMeasurementCreated'
+        : 'auditDescriptionMeasurementCorrected',
     );
   }
 
@@ -226,8 +413,6 @@ export function getAuditDescriptionLabel(entry: AuditEntryLike, t: Translate): s
 
   const exactKey = DESCRIPTION_EXACT_KEYS[description];
   if (exactKey) return t(exactKey);
-
-  if (metadata?.source === 'web_app') return t('auditDescriptionFromApp');
   return description || '-';
 }
 
@@ -250,19 +435,35 @@ export function formatAuditMetadataValue(value: unknown, t: Translate): string {
   if (value === null || value === undefined || value === '') return '-';
   if (typeof value === 'boolean') return value ? t('auditValueYes') : t('auditValueNo');
   if (typeof value === 'number') return String(value);
-  if (typeof value === 'string') return getAuditValueLabel(value, t);
-  return JSON.stringify(value);
+  if (typeof value === 'string') return value.startsWith('internal_') ? '-' : getAuditValueLabel(value, t);
+  if (Array.isArray(value)) {
+    const items = value
+      .filter((item) => typeof item !== 'string' || !item.startsWith('internal_'))
+      .map((item) => formatAuditMetadataValue(item, t));
+    return items.length ? items.join(', ') : '-';
+  }
+  const change = getAuditValueChange(value);
+  return change ? formatAuditChange(change, t) : t('auditValueUnavailable');
+}
+
+export function getAuditValueChange(value: unknown): AuditValueChange | null {
+  const change = getMetadataRecord(value);
+  if (!change) return null;
+
+  const hasBefore = 'avant' in change || 'before' in change;
+  const hasAfter = 'apres' in change || 'after' in change;
+  if (!hasBefore && !hasAfter) return null;
+
+  return {
+    before: 'avant' in change ? change.avant : change.before,
+    after: 'apres' in change ? change.apres : change.after,
+  };
 }
 
 export function formatAuditChange(value: unknown, t: Translate): string {
-  const change = getMetadataRecord(value);
+  const change = getAuditValueChange(value);
   if (!change) return formatAuditMetadataValue(value, t);
-
-  const before = 'avant' in change ? change.avant : change.before;
-  const after = 'apres' in change ? change.apres : change.after;
-  if (before === undefined && after === undefined) return formatAuditMetadataValue(value, t);
-
-  return `${formatAuditMetadataValue(before, t)} -> ${formatAuditMetadataValue(after, t)}`;
+  return `${formatAuditMetadataValue(change.before, t)} -> ${formatAuditMetadataValue(change.after, t)}`;
 }
 
 export function formatAuditDateTime(value: string): string {
@@ -272,6 +473,15 @@ export function formatAuditDateTime(value: string): string {
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
+
+export function formatAuditTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(getDocumentLocale(), {
     hour: '2-digit',
     minute: '2-digit',
   }).format(date);
@@ -315,6 +525,147 @@ export function groupAuditEntriesByDay<T>(
   return groups;
 }
 
+export function getAuditEventFamily(entry: AuditEntryLike & { family?: AuditFamily }): AuditEventFamily {
+  if (entry.family && AUDIT_FAMILIES.includes(entry.family)) return entry.family;
+  if (entry.action === 'transfer' || entry.action === 'import' || entry.description.startsWith('Transfer')) {
+    return 'transfers';
+  }
+  if (entry.action === 'subculture') return 'subcultures';
+  if (entry.action === 'export') return 'exports';
+  if (entry.object_type === 'measurement' || entry.object_type === 'measurements') return 'measurements';
+  if (entry.object_type === 'account' || entry.object_type === 'user') return 'accounts';
+  if (entry.object_type === 'thermal_zone' || entry.object_type === 'probe' || entry.object_type === 'alert') {
+    return 'environment';
+  }
+  if (entry.object_type === 'species' || entry.object_type === 'strain' || entry.object_type === 'organization') {
+    return 'references';
+  }
+  return 'boxes';
+}
+
+export type AuditDetailContent = {
+  values: AuditValues | null;
+  changes: AuditChanges | null;
+};
+
+export function getAuditBusinessDetailContent(details: AuditBusinessDetails | null | undefined): AuditDetailContent {
+  if (!details || typeof details !== 'object') return { values: null, changes: null };
+
+  switch (details.type) {
+    case 'measurement':
+      return {
+        values: null,
+        changes: compactAuditChanges(withoutAuditInlineMeasurementFields(details.changes)),
+      };
+    case 'box':
+    case 'environment':
+    case 'account':
+    case 'reference':
+      return {
+        values: compactAuditRecord(withoutAuditRepeatedFields('values' in details ? details.values : undefined)),
+        changes: compactAuditChanges('changes' in details ? details.changes : undefined),
+      };
+    case 'transfer_out':
+    case 'transfer_import':
+    case 'box_movement':
+      return { values: null, changes: null };
+    case 'box_status':
+      return { values: null, changes: null };
+    case 'box_inventory_initialization':
+      return {
+        values: compactAuditRecord({ box_count: details.box_count, statut: details.target_status }),
+        changes: null,
+      };
+    case 'export':
+      return {
+        values: compactAuditRecord({
+          box_count: details.box_count,
+          measurement_count: details.measurement_count,
+          week_count: details.week_count,
+          ...(details.filters ?? {}),
+        }),
+        changes: null,
+      };
+    case 'subculture':
+    default:
+      return { values: null, changes: null };
+  }
+}
+
+export function getAuditBusinessNote(details: AuditBusinessDetails | null | undefined): string {
+  if (!details) return '';
+  if (details.type === 'measurement') {
+    const changedNote = getAuditValueChange(details.changes?.note ?? details.changes?.notes);
+    if (changedNote) return typeof changedNote.after === 'string' ? changedNote.after.trim() : '';
+    return getAuditNote(details.values);
+  }
+  if (details.type === 'transfer_out' || details.type === 'box_movement') {
+    return typeof details.note === 'string' ? details.note.trim() : '';
+  }
+  if (details.type === 'box_status') {
+    return typeof details.stop_reason === 'string' ? details.stop_reason.trim() : '';
+  }
+  if ('values' in details) return getAuditNote(details.values);
+  return '';
+}
+
+export function hasAuditBusinessDetails(details: AuditBusinessDetails | null | undefined): boolean {
+  const content = getAuditBusinessDetailContent(details);
+  return Boolean(content.values || content.changes);
+}
+
+
+function withoutAuditRepeatedFields(values: AuditValues | undefined): AuditValues | undefined {
+  if (!values) return undefined;
+  const repeatedKeys = new Set(['date', 'note', 'notes']);
+  return Object.fromEntries(Object.entries(values).filter(([key]) => !repeatedKeys.has(key)));
+}
+
+function getAuditNote(values: AuditValues | undefined): string {
+  const value = values?.note ?? values?.notes;
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function compactAuditRecord(record: Record<string, AuditValue | undefined> | undefined): AuditValues | null {
+  if (!record) return null;
+  const entries = Object.entries(record).filter(([, value]) => value !== undefined && value !== null && value !== '');
+  return entries.length ? Object.fromEntries(entries) as AuditValues : null;
+}
+
+function compactAuditChanges(changes: AuditChanges | undefined): AuditChanges | null {
+  return changes && Object.keys(changes).length ? changes : null;
+}
+
+function withoutAuditInlineMeasurementFields(changes: AuditChanges | undefined): AuditChanges | undefined {
+  if (!changes) return undefined;
+  const inlineKeys = new Set(['polypes', 'ephyrules', 'salinite_psu', 'note', 'notes']);
+  return Object.fromEntries(Object.entries(changes).filter(([key]) => !inlineKeys.has(key)));
+}
+
+function compactAuditInlineItems(
+  items: Array<AuditInlineBusinessItem | null>,
+): AuditInlineBusinessItem[] {
+  return items.filter((item): item is AuditInlineBusinessItem => item !== null);
+}
+
+export function orderAuditFieldEntries(
+  entries: ReadonlyArray<[string, unknown]>,
+): Array<[string, unknown]> {
+  const priorities = new Map<string, number>(AUDIT_FIELD_PRIORITY.map((key, index) => [key, index]));
+  return entries
+    .map((entry, index) => ({ entry, index }))
+    .sort((first, second) => {
+      const firstPriority = priorities.get(first.entry[0]) ?? AUDIT_FIELD_PRIORITY.length;
+      const secondPriority = priorities.get(second.entry[0]) ?? AUDIT_FIELD_PRIORITY.length;
+      return firstPriority - secondPriority || first.index - second.index;
+    })
+    .map(({ entry }) => entry);
+}
+
+export function isAuditNoteField(key: string): boolean {
+  return key === 'note' || key === 'notes';
+}
+
 export function getAuditEditedMark(
   entry: { edited_at: string | null; edited_by_display?: string | null; created_at: string },
   t: Translate,
@@ -336,24 +687,53 @@ export function getAuditEditedMark(
 }
 
 /**
+ * Object types whose stored object id is business-readable text written by the
+ * audit writers, such as a box global code, a zone name or a probe code.
+ * Every other object type is treated as an opaque internal identifier, so a new
+ * writer falls out of the interface by default instead of leaking a primary key.
+ */
+const READABLE_TARGET_OBJECT_TYPES = new Set([
+  'box',
+  'measurements',
+  'organization',
+  'probe',
+  'thermal_zone',
+]);
+
+/** A numeric primary key or a UUID is a database identifier, never a label. */
+const OPAQUE_IDENTIFIER = /^(?:\d+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+
+/**
+ * Resolve a secondary target only when it is a known business label. When no
+ * safe label exists the history renders no target instead of a technical value.
+ */
+function getReadableTargetLabel(objectType: string | undefined, value: string | null | undefined): string {
+  if (!objectType || !READABLE_TARGET_OBJECT_TYPES.has(objectType)) return '';
+  const label = (value ?? '').trim();
+  if (!label || label.startsWith('internal_') || OPAQUE_IDENTIFIER.test(label)) return '';
+  return label;
+}
+
+/**
  * Readable target of an administration entry. Account targets come from the
  * trusted audit values, because the raw object id is an opaque internal
  * username that must never reach the interface.
  */
 export function getAuditTargetLabel(entry: AuditEntryLike): string {
   if (entry.object_type === 'account') {
-    const values = getMetadataRecord(entry.metadata?.valeurs);
+    const details = entry.business_details;
+    const values = details?.type === 'account' ? details.values : undefined;
     const name = typeof values?.nom === 'string' ? values.nom : '';
     const email = typeof values?.email === 'string' ? values.email : '';
     return getAccountDisplayLabel(name) || getAccountDisplayLabel(email);
   }
-  return entry.object_id ?? '';
+  return getReadableTargetLabel(entry.object_type, entry.object_id);
 }
 
 export function getPersonalResourceLabel(resource: AuditResourceLike): string {
   const label = (resource.label ?? resource.identifier ?? '').trim();
-  if (!label || label.startsWith('internal_')) return '';
-  return resource.type === 'account' ? getAccountDisplayLabel(label) : label;
+  if (resource.type === 'account') return getAccountDisplayLabel(label);
+  return getReadableTargetLabel(resource.type, label);
 }
 
 export function getAccountDisplayLabel(value: string | null | undefined): string {

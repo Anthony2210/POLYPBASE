@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import type { Translator } from '../i18n';
+import type { Language, Translator } from '../i18n';
 import type { UserProfile } from '../types';
 import { getAccountMemberRoleLabel } from '../utils/accountMembers';
 import { getErrorMessage } from '../utils/errors';
@@ -36,8 +36,10 @@ type ProfileLabels = {
 export default function ProfileView({
   isLoading,
   labels,
+  language,
   canOpenAdmin,
   onOpenAdmin,
+  onOpenBox,
   onSelectOrganization,
   onLogout,
   onUpdateLanguage,
@@ -49,7 +51,9 @@ export default function ProfileView({
   activeOrganizationId: number | null;
   canOpenAdmin: boolean;
   labels: ProfileLabels;
+  language: Language;
   onOpenAdmin: () => void;
+  onOpenBox: (boxId: number, code: string) => void;
   onSelectOrganization: (organizationId: number) => void;
   onLogout: () => Promise<void>;
   onUpdateLanguage: (language: string) => Promise<void>;
@@ -185,6 +189,8 @@ export default function ProfileView({
       <ProfileActionsSection
         activeOrganizationId={activeOrganizationId}
         key={activeOrganizationId ?? 'none'}
+        language={language}
+        onOpenBox={onOpenBox}
         t={t}
       />
 

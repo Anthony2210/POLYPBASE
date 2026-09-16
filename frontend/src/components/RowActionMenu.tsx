@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useState } from 'react';
+import { useCallback, useLayoutEffect, useState, type MutableRefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { MoreVertical } from 'lucide-react';
 
@@ -15,6 +15,7 @@ export interface RowActionMenuProps<TAction extends string> {
   actions: RowActionMenuItem<TAction>[];
   onAction: (action: TAction) => void;
   ariaLabel: string;
+  triggerRef?: MutableRefObject<HTMLButtonElement | null>;
 }
 
 export function RowActionMenu<TAction extends string>({
@@ -22,6 +23,7 @@ export function RowActionMenu<TAction extends string>({
   actions,
   onAction,
   ariaLabel,
+  triggerRef,
 }: RowActionMenuProps<TAction>) {
   const [isOpen, setIsOpen] = useState(false);
   const close = useCallback((restoreFocus = false) => {
@@ -38,7 +40,10 @@ export function RowActionMenu<TAction extends string>({
     <>
       <button
         className="row-action-menu-trigger"
-        ref={anchorRef}
+        ref={(node) => {
+          anchorRef.current = node;
+          if (triggerRef) triggerRef.current = node;
+        }}
         type="button"
         disabled={disabled}
         aria-label={ariaLabel}

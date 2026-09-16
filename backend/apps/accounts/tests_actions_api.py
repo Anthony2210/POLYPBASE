@@ -6,7 +6,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-from apps.audit.models import AuditLog
+from apps.audit.models import Alert, AuditLog
 from apps.cultures.models import Box, ThermalZone
 from apps.organizations.models import Organization
 from apps.taxonomy.models import Species, Strain
@@ -342,6 +342,10 @@ class ActionApiTests(TestCase):
                 "resource",
                 "description",
                 "details",
+                "family",
+                "business_details",
+                "box_reference",
+                "context",
             },
         )
         self.assertEqual(entry["id"], action.id)
@@ -589,6 +593,35 @@ class ActionApiTests(TestCase):
             item for item in response.json()["results"] if item["id"] == action.id
         )
         self.assertIsNone(entry["resource"]["label"])
+
+    def test_personal_alert_actions_expose_no_database_identifier(self):
+        alert = Alert.objects.create(
+            organization=self.organization,
+            box=self.box,
+            alert_type=Alert.AlertType.TEMPERATURE,
+            message="Temperature hors plage",
+        )
+        self.client.logout()
+        self.client.login(username=self.alice.username, password="secret")
+        self.client.post(
+            reverse("api_alert_resolve", args=[alert.id]),
+            HTTP_X_ORGANIZATION_ID=str(self.organization.id),
+        )
+
+        response = self._personal_actions(self.alice, self.organization)
+
+        self.assertEqual(response.status_code, 200)
+        entry = next(
+            item
+            for item in response.json()["results"]
+            if item["resource"]["type"] == "alert"
+        )
+        # The personal payload is intentionally narrower than the admin one.
+        self.assertIsNone(entry["resource"]["identifier"])
+        self.assertIsNone(entry["resource"]["label"])
+        self.assertNotIn(str(alert.id), str(entry["resource"]))
+        # The useful alert information stays available in the safe summary.
+        self.assertIn("Temperature hors plage", entry["description"])
 
     def test_personal_box_actions_keep_the_business_identifier_as_label(self):
         action = self._create_action(user=self.alice)

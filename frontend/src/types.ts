@@ -468,18 +468,95 @@ export type ResponsableRelinquishResponse = {
   can_relinquish_responsable: boolean;
 };
 
-export type PersonalActionValue = string | number | boolean | null;
+export type AuditFamily =
+  | 'measurements'
+  | 'transfers'
+  | 'subcultures'
+  | 'boxes'
+  | 'exports'
+  | 'environment'
+  | 'accounts'
+  | 'references';
+
+export type AuditValue = string | number | boolean | null;
+
+export type AuditValueChange = {
+  before: AuditValue;
+  after: AuditValue;
+};
+
+export type AuditValues = Record<string, AuditValue>;
+export type AuditChanges = Record<string, AuditValueChange>;
+
+export type AuditBusinessDetails =
+  | { type: 'measurement'; values?: AuditValues; changes?: AuditChanges }
+  | { type: 'subculture'; child_global_codes?: string[]; initial_polyp_counts?: Record<string, number> }
+  | { type: 'transfer_out'; destination_organization?: string; date?: string; polyp_count?: number; note?: string }
+  | { type: 'transfer_import'; source_global_code?: string; source_organization?: string }
+  | { type: 'box_movement'; from_zone?: string; to_zone?: string; moved_at?: string; note?: string }
+  | {
+      type: 'box_status';
+      transition?: { from: string; to: string };
+      stop_reason?: string;
+      stop_reason_missing_from_history?: boolean;
+      deactivated_on?: string;
+    }
+  | { type: 'box_inventory_initialization'; box_count?: number; target_status?: string }
+  | {
+      type: 'export';
+      box_count?: number;
+      measurement_count?: number;
+      week_count?: number;
+      filters?: Record<string, AuditValue>;
+    }
+  | { type: 'box' | 'environment' | 'account' | 'reference'; values?: AuditValues; changes?: AuditChanges }
+  | { type: 'unknown' };
+
+export type AuditBoxReference = {
+  id: number;
+  global_code: string;
+  species_scientific_name: string;
+};
+
+export type AuditContext = {
+  measurement?: { id: number };
+  subculture?: {
+    parent_global_code: string;
+    children: Array<{ global_code: string; initial_polyp_count: number | null }>;
+  };
+  transfer?: {
+    source_organization: string | null;
+    destination_organization: string | null;
+    source_global_code: string | null;
+  };
+  movement?: {
+    from_zone: string | null;
+    to_zone: string | null;
+  };
+};
+
+export type EditableMeasurement = {
+  id: number;
+  box_id: number;
+  box_code: string;
+  measured_on: string;
+  polyp_count: number;
+  ephyrae_count: number;
+  salinity_psu: string;
+  notes: string;
+};
 
 export type PersonalActionResource = {
   type: string;
-  identifier: string;
+  /** Readable target resolved by the backend; null when none is available. */
+  identifier: string | null;
   /** Readable target resolved by the backend; null when none is available. */
   label: string | null;
 };
 
 export type PersonalActionDetails = {
-  values?: Record<string, PersonalActionValue>;
-  changes?: Record<string, { before: PersonalActionValue; after: PersonalActionValue }>;
+  values?: AuditValues;
+  changes?: AuditChanges;
 };
 
 export type PersonalAction = {
@@ -487,9 +564,13 @@ export type PersonalAction = {
   created_at: string;
   action: string;
   action_label: string;
+  family: AuditFamily;
   resource: PersonalActionResource;
   description: string;
   details: PersonalActionDetails;
+  business_details: AuditBusinessDetails;
+  box_reference: AuditBoxReference | null;
+  context: AuditContext;
 };
 
 export type PersonalActionsResponse = {

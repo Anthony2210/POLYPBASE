@@ -1,5 +1,5 @@
-import type { PersonalAction, PersonalActionDetails, PersonalActionsResponse } from '../types';
-import { filterAuditDisplayRecord, getMetadataRecord } from './auditPresentation';
+import type { AuditBusinessDetails, PersonalAction, PersonalActionsResponse } from '../types';
+import { getAuditBusinessDetailContent, hasAuditBusinessDetails } from './auditPresentation';
 
 /**
  * Append one page of personal actions, ignoring rows already displayed. The
@@ -71,18 +71,11 @@ export function applyPersonalActionsOutcome(
   }
 }
 
-export function getPersonalActionDetails(details: PersonalActionDetails | undefined): {
-  values: Record<string, unknown> | null;
-  changes: Record<string, unknown> | null;
-} {
-  return {
-    values: filterAuditDisplayRecord(getMetadataRecord(details?.values)),
-    changes: filterAuditDisplayRecord(getMetadataRecord(details?.changes)),
-  };
+export function getPersonalActionDetails(details: AuditBusinessDetails | null | undefined) {
+  return getAuditBusinessDetailContent(details);
 }
 
-/** Details are only offered when they carry useful business information. */
-export function hasPersonalActionDetails(details: PersonalActionDetails | undefined): boolean {
-  const { values, changes } = getPersonalActionDetails(details);
-  return Boolean(values && Object.keys(values).length) || Boolean(changes && Object.keys(changes).length);
+/** Details are only offered when normalized business information adds value. */
+export function hasPersonalActionDetails(details: AuditBusinessDetails | null | undefined): boolean {
+  return hasAuditBusinessDetails(details);
 }
