@@ -101,6 +101,14 @@ import type {
 import { getAccountMemberRoleLabel } from './utils/accountMembers';
 import { upsertBoxes } from './utils/boxCollection';
 import { filterBoxes } from './utils/boxLookup';
+import {
+  findMeasurementForWeek,
+  formatMeasurementCount,
+  getMeasurementEditorMode,
+  getMeasurementFormValues,
+  isMeasurementEditWindowExpired,
+  isMeasurementWeekConflict,
+} from './utils/boxMeasurement';
 import { formatDisplayDate } from './utils/dateFormat';
 import { getErrorMessage } from './utils/errors';
 import {
@@ -808,15 +816,26 @@ export default function App() {
     setIsLoginRoute(true);
   }
 
-  async function createMeasurement(boxId: number, payload: MeasurementPayload) {
-    const created = await apiPost<BiologicalMeasurement>(`/api/boxes/${boxId}/measurements/`, payload);
+  async function refreshBoxAfterMeasurement(boxId: number) {
     const detail = await apiGet<BoxDetail>(`/api/boxes/${boxId}/`);
-
     setData((current) => ({
       ...mergeBoxDetail(current, detail),
       overview: null,
     }));
-    return created;
+    return detail;
+  }
+
+  async function createMeasurement(boxId: number, payload: MeasurementPayload) {
+    try {
+      const created = await apiPost<BiologicalMeasurement>(`/api/boxes/${boxId}/measurements/`, payload);
+      await refreshBoxAfterMeasurement(boxId);
+      return created;
+    } catch (requestError) {
+      if (isMeasurementWeekConflict(requestError) || isMeasurementEditWindowExpired(requestError)) {
+        await refreshBoxAfterMeasurement(boxId);
+      }
+      throw requestError;
+    }
   }
 
   async function createBox(payload: BoxCreatePayload) {
@@ -832,17 +851,19 @@ export default function App() {
   }
 
   async function updateMeasurement(boxId: number, measurementId: number, payload: MeasurementPayload) {
-    const updated = await apiPatch<BiologicalMeasurement>(
-      `/api/boxes/${boxId}/measurements/${measurementId}/`,
-      payload,
-    );
-    const detail = await apiGet<BoxDetail>(`/api/boxes/${boxId}/`);
-
-    setData((current) => ({
-      ...mergeBoxDetail(current, detail),
-      overview: null,
-    }));
-    return updated;
+    try {
+      const updated = await apiPatch<BiologicalMeasurement>(
+        `/api/boxes/${boxId}/measurements/${measurementId}/`,
+        payload,
+      );
+      await refreshBoxAfterMeasurement(boxId);
+      return updated;
+    } catch (requestError) {
+      if (isMeasurementWeekConflict(requestError) || isMeasurementEditWindowExpired(requestError)) {
+        await refreshBoxAfterMeasurement(boxId);
+      }
+      throw requestError;
+    }
   }
 
   async function createSubculture(boxId: number, payload: SubculturePayload) {
@@ -1263,6 +1284,7 @@ export default function App() {
                 isLoading={isLoading || isBoxLoading}
                 onCreateMeasurement={createMeasurement}
                 onUpdateMeasurement={updateMeasurement}
+                onRefreshMeasurementState={refreshBoxAfterMeasurement}
                 onCreateSubculture={createSubculture}
                 onMoveBox={moveBox}
                 onDeactivateBox={deactivateBox}
@@ -2356,6 +2378,7 @@ function BoxPage({
   isLoading,
   onCreateMeasurement,
   onUpdateMeasurement,
+  onRefreshMeasurementState,
   onCreateSubculture,
   onMoveBox,
   onDeactivateBox,
@@ -2385,6 +2408,7 @@ function BoxPage({
     measurementId: number,
     payload: MeasurementPayload,
   ) => Promise<BiologicalMeasurement>;
+  onRefreshMeasurementState: (boxId: number) => Promise<BoxDetail>;
   onCreateSubculture: (boxId: number, payload: SubculturePayload) => Promise<void>;
   onMoveBox: (boxId: number, payload: BoxMovePayload) => Promise<void>;
   onDeactivateBox: (boxId: number, payload: BoxDeactivatePayload) => Promise<void>;
@@ -2425,9 +2449,6 @@ function BoxPage({
   const [alertResolveError, setAlertResolveError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  // Measurement saved during this visit (enables the "Modifier" button) and the
-  // one currently being edited (null = creating a new measurement).
-  const [lastSavedMeasurementId, setLastSavedMeasurementId] = useState<number | null>(null);
   const [editingMeasurementId, setEditingMeasurementId] = useState<number | null>(null);
   // Set while the form holds values brought over from the history, so the save
   // button can say "correct" rather than "record": the technician is fixing an
@@ -2436,6 +2457,46 @@ function BoxPage({
   const [subcultureError, setSubcultureError] = useState<string | null>(null);
   const [subcultureMessage, setSubcultureMessage] = useState<string | null>(null);
   const [activeInsightTab, setActiveInsightTab] = useState<BoxInsightTab>('measurements');
+  const [measurementReferenceDate, setMeasurementReferenceDate] = useState(getTodayDateValue);
+  const measurements = box ? getMeasurementHistory(box) : [];
+  const canWriteLabData = box
+    ? userCanWriteLabData(profile, box.organization.id)
+    : false;
+  const isBoxActive = box?.status === 'active';
+  const weeklyMeasurement = findMeasurementForWeek(measurements, measurementReferenceDate);
+  const measurementEditorMode = getMeasurementEditorMode({
+    measurement: weeklyMeasurement,
+    canWriteLabData,
+    boxIsActive: isBoxActive,
+  });
+  const editingMeasurement = editingMeasurementId == null
+    ? null
+    : measurements.find((measurement) => measurement.id === editingMeasurementId) ?? null;
+  const canShowMeasurementForm = measurementEditorMode === 'create'
+    || measurementEditorMode === 'edit'
+    || Boolean(editingMeasurement?.can_edit);
+
+  useEffect(() => {
+    const refreshDate = () => setMeasurementReferenceDate(getTodayDateValue());
+    window.addEventListener('focus', refreshDate);
+    const interval = window.setInterval(refreshDate, 60_000);
+    return () => {
+      window.removeEventListener('focus', refreshDate);
+      window.clearInterval(interval);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!box || !weeklyMeasurement?.can_edit || !weeklyMeasurement.edit_deadline) {
+      return;
+    }
+    const delay = Date.parse(weeklyMeasurement.edit_deadline) - Date.now() + 100;
+    const timeout = window.setTimeout(
+      () => void onRefreshMeasurementState(box.id),
+      Math.max(0, delay),
+    );
+    return () => window.clearTimeout(timeout);
+  }, [box?.id, weeklyMeasurement?.id, weeklyMeasurement?.can_edit, weeklyMeasurement?.edit_deadline]);
 
   useEffect(() => {
     setForm(getInitialMeasurementForm(defaultSalinity));
@@ -2456,7 +2517,6 @@ function BoxPage({
     setIsChecksOpen(false);
     setSaveError(null);
     setSaveMessage(null);
-    setLastSavedMeasurementId(null);
     setEditingMeasurementId(null);
     setSubcultureError(null);
     setSubcultureMessage(null);
@@ -2464,24 +2524,49 @@ function BoxPage({
     setIsCorrectingFromHistory(false);
   }, [box?.id]);
 
+  useEffect(() => {
+    if (isCorrectingFromHistory) return;
+    if (measurementEditorMode === 'edit' && weeklyMeasurement) {
+      setForm(getMeasurementFormValues(weeklyMeasurement));
+      setEditingMeasurementId(weeklyMeasurement.id);
+      return;
+    }
+    setEditingMeasurementId(null);
+    if (measurementEditorMode === 'create') {
+      setForm(getInitialMeasurementForm(defaultSalinity, measurementReferenceDate));
+    }
+  }, [
+    box?.id,
+    defaultSalinity,
+    isCorrectingFromHistory,
+    measurementEditorMode,
+    measurementReferenceDate,
+    weeklyMeasurement?.id,
+    weeklyMeasurement?.can_edit,
+  ]);
+
   // The history sends the user here to correct a measurement: fill the form
   // with what was recorded. Declared after the reset above so it runs last and
   // its values survive the box change. Keeping the original date matters: the
-  // API stores one measurement per box and date, so saving overwrites that
-  // measurement instead of adding a second one.
+  // API stores one measurement per box and week, so saving corrects that
+  // measurement instead of adding a second one for the week.
   useEffect(() => {
     if (!measurementPrefill || !box || measurementPrefill.box_id !== box.id) return;
+    // The journal carries the values, but only the box sheet's own history
+    // carries the server-computed correction capability. Wait for it instead of
+    // dropping the correction while the detail is still loading.
+    if (!('biological_measurements' in box)) return;
 
-    setForm({
-      measuredOn: measurementPrefill.measured_on,
-      polypCount: String(measurementPrefill.polyp_count),
-      ephyraeCount: String(measurementPrefill.ephyrae_count),
-      salinity: measurementPrefill.salinity_psu,
-      notes: measurementPrefill.notes,
-    });
-    setIsCorrectingFromHistory(true);
+    const target = measurements.find(
+      (measurement) => measurement.id === measurementPrefill.id,
+    );
     onMeasurementPrefillConsumed();
-  }, [measurementPrefill, box?.id]);
+    if (!target?.can_edit) return;
+
+    setForm(getMeasurementFormValues(target));
+    setEditingMeasurementId(target.id);
+    setIsCorrectingFromHistory(true);
+  }, [measurementPrefill, box, measurements]);
 
   // The zones can finish loading after the sheet is open, and the box can be
   // moved to another zone: seed the salinity once its control value is known.
@@ -2541,7 +2626,6 @@ function BoxPage({
     );
   }
 
-  const measurements = getMeasurementHistory(box);
   const lastComment = getLatestComment(measurements, box);
   const sortedMeasurements = [...measurements].sort(
     (first, second) =>
@@ -2575,9 +2659,7 @@ function BoxPage({
   const currentZone = getCurrentThermalZone(box, zones);
   const displayDate = getBoxDisplayDate(box, measurements);
   const statusPresentation = getBoxStatusPresentation(box.status, language);
-  const canWriteLabData = userCanWriteLabData(profile, box.organization.id);
   const canChangeBoxStatus = userCanArchiveBox(profile, box.organization.id);
-  const isBoxActive = box.status === 'active';
   const canShowStatusButton = canChangeBoxStatus && ['active', 'inactive'].includes(box.status);
 
   async function saveMeasurement(): Promise<boolean> {
@@ -2604,17 +2686,14 @@ function BoxPage({
     try {
       if (editingMeasurementId != null) {
         await onUpdateMeasurement(box.id, editingMeasurementId, payload);
-        setLastSavedMeasurementId(editingMeasurementId);
-        setEditingMeasurementId(null);
+        // The correction is done: let the weekly state drive the form again.
+        setIsCorrectingFromHistory(false);
         setSaveMessage(t('measurementUpdated'));
       } else {
         const created = await onCreateMeasurement(box.id, payload);
-        setLastSavedMeasurementId(created.id);
+        setEditingMeasurementId(created.id);
         setSaveMessage(t('measurementSaved'));
       }
-      setForm(getInitialMeasurementForm(defaultSalinity));
-      // The correction is done: the emptied form is a new measurement again.
-      setIsCorrectingFromHistory(false);
       triggerHaptic([12, 28, 12]);
       return true;
     } catch (requestError) {
@@ -2625,29 +2704,6 @@ function BoxPage({
     }
   }
 
-  // Load the just-saved measurement back into the form to correct it (mobile).
-  function startEditingLastMeasurement() {
-    if (lastSavedMeasurementId == null) return;
-    const target = measurements.find((measurement) => measurement.id === lastSavedMeasurementId);
-    if (!target) return;
-    setForm({
-      measuredOn: target.measured_on,
-      polypCount: String(target.polyp_count),
-      ephyraeCount: String(target.ephyrae_count),
-      salinity: target.salinity_psu ?? '',
-      notes: target.notes ?? '',
-    });
-    setEditingMeasurementId(lastSavedMeasurementId);
-    setSaveError(null);
-    setSaveMessage(null);
-  }
-
-  function cancelEditingMeasurement() {
-    setEditingMeasurementId(null);
-    setForm(getInitialMeasurementForm(defaultSalinity));
-    setSaveError(null);
-    setSaveMessage(null);
-  }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -2917,11 +2973,19 @@ function BoxPage({
         </section>
         ) : null}
 
-        {isBoxActive && canWriteLabData ? (
+        {canShowMeasurementForm ? (
           <section className="box-section measurement-form-section">
             <form className="fake-form" onSubmit={handleSubmit}>
               <div className="section-title">
-                <h2>{t('newMeasurement')}</h2>
+                <h2>
+                  {t(
+                    editingMeasurementId != null
+                      ? isCorrectingFromHistory
+                        ? 'correctMeasurement'
+                        : 'modifyWeeklyMeasurement'
+                      : 'newMeasurement',
+                  )}
+                </h2>
                 <span>{formatDisplayDate(form.measuredOn)}</span>
               </div>
 
@@ -2929,6 +2993,7 @@ function BoxPage({
                 <label className="measurement-date-field">
                   {t('measurementDate')}
                   <input
+                    disabled={editingMeasurementId != null}
                     required
                     type="date"
                     value={form.measuredOn}
@@ -3071,45 +3136,53 @@ function BoxPage({
                   isSuccess={Boolean(saveMessage)}
                   labels={{
                     hold: editingMeasurementId != null ? t('holdToUpdate') : t('holdToSave'),
-                    save: isCorrectingFromHistory
-                      ? t('correctMeasurement')
-                      : editingMeasurementId != null
-                        ? t('saveMeasurementEdit')
-                        : t('saveMeasurement'),
+                    save: editingMeasurementId != null
+                      ? t('saveMeasurementEdit')
+                      : t('saveMeasurement'),
                     saved: saveMessage || t('measurementSaved'),
                     saving: t('saving'),
                   }}
                   onSave={saveMeasurement}
                 />
 
-                {lastSavedMeasurementId != null || editingMeasurementId != null ? (
-                  <div className={editingMeasurementId != null ? 'measurement-edit-actions is-editing' : 'measurement-edit-actions'}>
-                    {editingMeasurementId != null ? (
-                      <>
-                        <span className="measurement-edit-hint">{t('measurementEditing')}</span>
-                        <button type="button" className="measurement-edit-cancel" onClick={cancelEditingMeasurement}>
-                          {t('cancelEdit')}
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <span className="measurement-edit-hint">{t('editLastMeasurementHelp')}</span>
-                        <button
-                          type="button"
-                          className="measurement-edit-button"
-                          onClick={startEditingLastMeasurement}
-                        >
-                          <span className="button-icon-label">
-                            <PolypbaseIcon name="edit" size={16} />
-                            {t('editLastMeasurement')}
-                          </span>
-                        </button>
-                      </>
-                    )}
-                  </div>
-                ) : null}
               </div>
             </form>
+          </section>
+        ) : null}
+
+        {canWriteLabData && weeklyMeasurement && !canShowMeasurementForm ? (
+          <section className="box-section measurement-form-section measurement-weekly-state">
+            <div className="section-title">
+              <div>
+                <h2>{t('weeklyMeasurementRecorded')}</h2>
+                <p>
+                  {weeklyMeasurement.edit_restriction === 'edit_window_expired'
+                    ? t('weeklyMeasurementWindowExpired')
+                    : t('weeklyMeasurementReadOnly')}
+                </p>
+              </div>
+              <span>{formatDisplayDate(weeklyMeasurement.measured_on)}</span>
+            </div>
+            <div className="measurement-entry-grid">
+              <Metric
+                label={t('polyps')}
+                value={formatMeasurementCount(weeklyMeasurement.polyp_count)}
+              />
+              <Metric
+                label={t('ephyraeFull')}
+                value={formatMeasurementCount(weeklyMeasurement.ephyrae_count)}
+              />
+              <Metric
+                label={t('salinityFull')}
+                value={formatSalinity(weeklyMeasurement.salinity_psu)}
+              />
+            </div>
+            {weeklyMeasurement.notes ? (
+              <div className="last-reading-comment">
+                <small>{t('observation')}</small>
+                <p>{weeklyMeasurement.notes}</p>
+              </div>
+            ) : null}
           </section>
         ) : null}
 
@@ -3255,6 +3328,10 @@ function StepperButton({
 }) {
   const delayRef = useRef<number | null>(null);
   const intervalRef = useRef<number | null>(null);
+  // The pressed look belongs to this button instance alone, so pressing one
+  // control can never mark another one pressed, including the same symbol in
+  // another field. It clears as soon as this button is released.
+  const [isPressed, setIsPressed] = useState(false);
 
   function clearRepeat() {
     if (delayRef.current != null) {
@@ -3266,6 +3343,8 @@ function StepperButton({
       window.clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
+
+    setIsPressed(false);
   }
 
   useEffect(() => clearRepeat, []);
@@ -3273,6 +3352,7 @@ function StepperButton({
   function startRepeat(event: PointerEvent<HTMLButtonElement>) {
     event.preventDefault();
     clearRepeat();
+    setIsPressed(true);
     onStep();
 
     delayRef.current = window.setTimeout(() => {
@@ -3290,7 +3370,7 @@ function StepperButton({
   return (
     <button
       type="button"
-      className="count-stepper-button"
+      className={isPressed ? 'count-stepper-button is-pressed' : 'count-stepper-button'}
       aria-label={ariaLabel}
       onPointerDown={startRepeat}
       onPointerUp={clearRepeat}
@@ -3550,9 +3630,12 @@ function mergeBoxDetail(current: AppData, detail: BoxDetail): AppData {
   };
 }
 
-function getInitialMeasurementForm(defaultSalinity = '') {
+function getInitialMeasurementForm(
+  defaultSalinity = '',
+  measuredOn = getTodayDateValue(),
+) {
   return {
-    measuredOn: getTodayDateValue(),
+    measuredOn,
     polypCount: '',
     ephyraeCount: '',
     salinity: defaultSalinity,
@@ -3662,6 +3745,12 @@ function decrementCountValue(currentValue: string) {
 }
 
 function getMeasurementSaveError(error: unknown, t: TFunction) {
+  if (isMeasurementWeekConflict(error)) {
+    return t('measurementWeekConflict');
+  }
+  if (isMeasurementEditWindowExpired(error)) {
+    return t('weeklyMeasurementWindowExpired');
+  }
   if (error instanceof ApiError && error.status === 403) {
     return t('measurementForbidden');
   }

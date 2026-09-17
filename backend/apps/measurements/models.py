@@ -1,3 +1,5 @@
+from datetime import date, datetime, timedelta
+
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
@@ -18,6 +20,7 @@ class BiologicalMeasurement(models.Model):
         related_name="biological_measurements",
     )
     measured_on = models.DateField()
+    week_start = models.DateField(editable=False)
     polyp_count = models.PositiveIntegerField(default=0)
     ephyrae_count = models.PositiveIntegerField(default=0)
     strobila_count = models.PositiveIntegerField(default=0)
@@ -36,13 +39,27 @@ class BiologicalMeasurement(models.Model):
         ordering = ["-measured_on", "-created_at"]
         constraints = [
             models.UniqueConstraint(
-                fields=["box", "measured_on"],
-                name="unique_biological_measurement_per_box_date",
+                fields=["box", "week_start"],
+                name="unique_biological_measurement_per_box_week",
             )
         ]
         indexes = [
             models.Index(fields=["box", "measured_on"]),
         ]
+
+    @staticmethod
+    def week_start_for(measured_on):
+        """Return the Monday that starts the ISO week containing the date."""
+        if isinstance(measured_on, datetime) or not isinstance(measured_on, date):
+            measured_on = models.DateField().to_python(measured_on)
+        return measured_on - timedelta(days=measured_on.weekday())
+
+    def save(self, *args, **kwargs):
+        self.week_start = self.week_start_for(self.measured_on)
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None and "measured_on" in update_fields:
+            kwargs["update_fields"] = set(update_fields) | {"week_start"}
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.box} - {self.measured_on}"

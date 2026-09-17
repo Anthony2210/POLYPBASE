@@ -60,13 +60,6 @@ class MeasurementExportApiTests(TestCase):
 
         BiologicalMeasurement.objects.create(
             box=self.box,
-            measured_on=date(2026, 5, 4),
-            polyp_count=90,
-            ephyrae_count=2,
-            user=self.user,
-        )
-        BiologicalMeasurement.objects.create(
-            box=self.box,
             measured_on=date(2026, 5, 6),
             polyp_count=100,
             ephyrae_count=5,
@@ -274,12 +267,12 @@ class MeasurementExportApiTests(TestCase):
         self.assertEqual(strict_response.status_code, 200)
         self.assertEqual(
             [item["measured_on"] for item in strict_response.json()["biological_measurements"]],
-            ["2026-05-04", "2026-05-06"],
+            ["2026-05-06"],
         )
         self.assertEqual(extended_response.status_code, 200)
         self.assertEqual(
             [item["measured_on"] for item in extended_response.json()["biological_measurements"]],
-            ["2026-05-04", "2026-05-06", "2026-05-11"],
+            ["2026-05-06", "2026-05-11"],
         )
 
         eligibility_response = self.client.get(
@@ -324,7 +317,7 @@ class MeasurementExportApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertEqual(payload["metadata"]["box_count"], 1)
-        self.assertEqual(payload["metadata"]["measurement_count"], 3)
+        self.assertEqual(payload["metadata"]["measurement_count"], 2)
         self.assertEqual(
             payload["points"],
             [

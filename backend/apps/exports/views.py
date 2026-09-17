@@ -150,6 +150,7 @@ class BoxMeasurementTrendAPIView(APIView):
                 "biological_measurements": BiologicalMeasurementSerializer(
                     measurements,
                     many=True,
+                    context={"request": request},
                 ).data,
                 "locations": BoxLocationSerializer(locations, many=True).data,
                 "movements": BoxMovementSerializer(movements, many=True).data,

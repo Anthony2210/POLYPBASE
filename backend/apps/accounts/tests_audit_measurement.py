@@ -320,8 +320,8 @@ class AuditLogMeasurementLinkTests(TestCase):
     def test_legacy_measurements_are_resolved_with_one_page_level_query(self):
         measurements = [self.measurement]
         for measured_on, polyp_count in [
-            (date(2026, 6, 16), 16),
-            (date(2026, 6, 17), 17),
+            (date(2026, 6, 22), 16),
+            (date(2026, 6, 29), 17),
         ]:
             measurements.append(
                 BiologicalMeasurement.objects.create(
@@ -358,7 +358,7 @@ class AuditLogMeasurementLinkTests(TestCase):
                 entry["metadata"]["valeurs"]["date"]
                 for entry in entries
             },
-            {"2026-06-15", "2026-06-16", "2026-06-17"},
+            {"2026-06-15", "2026-06-22", "2026-06-29"},
         )
 
     def test_non_admin_cannot_view_selected_organization_audit_log(self):
@@ -438,7 +438,7 @@ class AuditLogMeasurementLinkTests(TestCase):
         self.assertIsNone(entry["editable_measurement"])
 
     def test_measurement_creation_and_corrections_are_append_only(self):
-        measurement_date = date(2026, 6, 16)
+        measurement_date = date(2026, 6, 22)
         self.client.login(username="org_admin", password="secret")
         creation_started_at = timezone.now()
         creation_response = self.client.post(
@@ -683,7 +683,7 @@ class AuditLogMeasurementLinkTests(TestCase):
     def test_related_action_counts_use_one_grouped_scoped_query(self):
         other_measurement = BiologicalMeasurement.objects.create(
             box=self.box,
-            measured_on=date(2026, 6, 16),
+            measured_on=date(2026, 6, 22),
             polyp_count=8,
             ephyrae_count=1,
             user=self.admin,
@@ -712,7 +712,7 @@ class AuditLogMeasurementLinkTests(TestCase):
             action=AuditLog.Action.ENTRY,
             object_type="box",
             object_id=self.box.global_code,
-            description="Biological measurement for 2026-06-16",
+            description="Biological measurement for 2026-06-22",
             metadata={"measurement_id": other_measurement.id},
         )
         legacy = AuditLog.objects.create(
@@ -803,7 +803,7 @@ class AuditLogMeasurementLinkTests(TestCase):
         )
         other_measurement = BiologicalMeasurement.objects.create(
             box=self.box,
-            measured_on=date(2026, 6, 16),
+            measured_on=date(2026, 6, 22),
             polyp_count=99,
             ephyrae_count=0,
             user=self.admin,
@@ -814,7 +814,7 @@ class AuditLogMeasurementLinkTests(TestCase):
             action=AuditLog.Action.ENTRY,
             object_type="box",
             object_id=self.box.global_code,
-            description="Biological measurement for 2026-06-16",
+            description="Biological measurement for 2026-06-22",
             metadata={"measurement_id": other_measurement.id},
         )
         foreign = AuditLog.objects.create(

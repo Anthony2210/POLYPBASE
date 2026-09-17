@@ -68,6 +68,7 @@ class BiologicalMeasurementConcurrencyTests(TransactionTestCase):
         *,
         polyp_count,
         ephyrae_count,
+        measured_on=None,
         box_lock_attempted=None,
     ):
         close_old_connections()
@@ -75,7 +76,7 @@ class BiologicalMeasurementConcurrencyTests(TransactionTestCase):
             request = APIRequestFactory().post(
                 "/qa/measurements/",
                 {
-                    "measured_on": self.measured_on.isoformat(),
+                    "measured_on": (measured_on or self.measured_on).isoformat(),
                     "polyp_count": polyp_count,
                     "ephyrae_count": ephyrae_count,
                 },
@@ -104,7 +105,14 @@ class BiologicalMeasurementConcurrencyTests(TransactionTestCase):
         finally:
             connections.close_all()
 
-    def _run_ordered_concurrent_posts(self, *, first_values, second_values):
+    def _run_ordered_concurrent_posts(
+        self,
+        *,
+        first_values,
+        second_values,
+        first_measured_on=None,
+        second_measured_on=None,
+    ):
         first_inside_transaction = threading.Event()
         second_box_lock_attempted = threading.Event()
         release_first = threading.Event()
@@ -127,6 +135,7 @@ class BiologicalMeasurementConcurrencyTests(TransactionTestCase):
                 self.first_user,
                 polyp_count=first_values[0],
                 ephyrae_count=first_values[1],
+                measured_on=first_measured_on,
             )
             if not first_inside_transaction.wait(timeout=10):
                 raise TimeoutError("First measurement did not reach its transaction.")
@@ -135,6 +144,7 @@ class BiologicalMeasurementConcurrencyTests(TransactionTestCase):
                 self.second_user,
                 polyp_count=second_values[0],
                 ephyrae_count=second_values[1],
+                measured_on=second_measured_on,
                 box_lock_attempted=second_box_lock_attempted,
             )
             if not second_box_lock_attempted.wait(timeout=10):
@@ -194,6 +204,26 @@ class BiologicalMeasurementConcurrencyTests(TransactionTestCase):
         )
 
         self._assert_serialized_result(first_response, second_response, (20, 4))
+
+    def test_concurrent_different_dates_in_one_week_create_one_row(self):
+        first_response, second_response = self._run_ordered_concurrent_posts(
+            first_values=(10, 2),
+            second_values=(20, 4),
+            first_measured_on=date(2026, 9, 1),
+            second_measured_on=date(2026, 9, 2),
+        )
+
+        self.assertEqual(first_response.status_code, 201)
+        self.assertEqual(second_response.status_code, 409)
+        self.assertEqual(second_response.data["code"], "measurement_week_conflict")
+        self.assertEqual(BiologicalMeasurement.objects.filter(box=self.box).count(), 1)
+        measurement = BiologicalMeasurement.objects.get(box=self.box)
+        self.assertEqual(measurement.measured_on, date(2026, 9, 1))
+        self.assertEqual(measurement.polyp_count, 10)
+        self.assertEqual(
+            AuditLog.objects.filter(metadata__measurement_id=measurement.id).count(),
+            1,
+        )
 
     def test_concurrent_update_preserves_zero_as_the_second_value(self):
         first_response, second_response = self._run_ordered_concurrent_posts(

@@ -51,6 +51,9 @@ export type BiologicalMeasurement = {
   notes: string;
   user: string | null;
   created_at: string;
+  can_edit: boolean;
+  edit_deadline: string | null;
+  edit_restriction: 'edit_window_expired' | 'role_read_only' | null;
 };
 
 export type BoxTemperaturePoint = {

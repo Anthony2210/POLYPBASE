@@ -6,7 +6,7 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
 
-from apps.accounts.models import UserPreference
+from apps.accounts.models import OrganizationMembership, UserPreference
 from apps.accounts.permissions import (
     get_active_organization_from_request,
     user_can_write_lab_data,
@@ -23,6 +23,7 @@ from apps.cultures.models import (
     ThermalZone,
 )
 from apps.measurements.models import BiologicalMeasurement, Probe
+from apps.measurements.services import get_measurement_editability
 from apps.organizations.models import Organization
 from apps.organizations.serializers import OrganizationSummarySerializer
 from apps.taxonomy.models import Species, Strain
@@ -119,6 +120,9 @@ class AlertSummarySerializer(serializers.ModelSerializer):
 
 class BiologicalMeasurementSerializer(serializers.ModelSerializer):
     user = serializers.SerializerMethodField()
+    can_edit = serializers.SerializerMethodField()
+    edit_deadline = serializers.SerializerMethodField()
+    edit_restriction = serializers.SerializerMethodField()
 
     class Meta:
         model = BiologicalMeasurement
@@ -134,11 +138,53 @@ class BiologicalMeasurementSerializer(serializers.ModelSerializer):
             "notes",
             "user",
             "created_at",
+            "can_edit",
+            "edit_deadline",
+            "edit_restriction",
         ]
-        read_only_fields = ["id", "user", "created_at"]
+        read_only_fields = [
+            "id",
+            "user",
+            "created_at",
+            "can_edit",
+            "edit_deadline",
+            "edit_restriction",
+        ]
 
     def get_user(self, obj):
         return obj.user.get_username() if obj.user else None
+
+    def get_can_edit(self, obj):
+        return self._editability(obj)["can_edit"]
+
+    def get_edit_deadline(self, obj):
+        return self._editability(obj)["edit_deadline"]
+
+    def get_edit_restriction(self, obj):
+        return self._editability(obj)["edit_restriction"]
+
+    def _editability(self, obj):
+        cache = self.context.setdefault("measurement_editability", {})
+        if obj.pk not in cache:
+            request = self.context.get("request")
+            user = request.user if request else None
+            role_by_organization = self.context.get("measurement_role_by_organization")
+            if role_by_organization is None:
+                role_by_organization = {}
+                if user and user.is_authenticated:
+                    role_by_organization = dict(
+                        OrganizationMembership.objects.filter(
+                            user=user,
+                            is_active=True,
+                        ).values_list("organization_id", "role")
+                    )
+                self.context["measurement_role_by_organization"] = role_by_organization
+            cache[obj.pk] = get_measurement_editability(
+                user=user,
+                measurement=obj,
+                role=role_by_organization.get(obj.box.organization_id),
+            )
+        return cache[obj.pk]
 
 
 class BoxListSerializer(serializers.ModelSerializer):
@@ -175,7 +221,11 @@ class BoxListSerializer(serializers.ModelSerializer):
         measurement = _first_prefetched(obj, "biological_measurements")
         if measurement is None:
             measurement = obj.biological_measurements.order_by("-measured_on", "-created_at").first()
-        return BiologicalMeasurementSerializer(measurement).data if measurement else None
+        return (
+            BiologicalMeasurementSerializer(measurement, context=self.context).data
+            if measurement
+            else None
+        )
 
     def get_latest_salinity_psu(self, obj):
         # Salinity is entered per measurement but rarely changes, so we surface
@@ -261,7 +311,11 @@ class BoxInventorySerializer(serializers.ModelSerializer):
                 "-measured_on",
                 "-created_at",
             ).first()
-        return BiologicalMeasurementSerializer(measurement).data if measurement else None
+        return (
+            BiologicalMeasurementSerializer(measurement, context=self.context).data
+            if measurement
+            else None
+        )
 
     def get_last_location(self, obj):
         locations = getattr(obj, "inventory_last_locations", None)

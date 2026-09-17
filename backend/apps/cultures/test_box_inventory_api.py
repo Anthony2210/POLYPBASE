@@ -549,7 +549,17 @@ class AdminBoxInventoryApiTests(TestCase):
         self.assertIn("box_ids", batch.data)
 
     def test_inventory_query_count_does_not_grow_with_page_size(self):
-        self.create_box(1, status=Box.Status.PENDING_REVIEW, zone=self.zone)
+        # The baseline box carries a measurement too: serialising a measurement
+        # resolves the caller's role once per request, and comparing a page with
+        # measurements against a page without would measure that constant cost
+        # instead of growth with the page size.
+        baseline = self.create_box(1, status=Box.Status.PENDING_REVIEW, zone=self.zone)
+        BiologicalMeasurement.objects.create(
+            box=baseline,
+            measured_on=date(2026, 1, 1),
+            polyp_count=1,
+            ephyrae_count=0,
+        )
         self.login_admin()
         self.client.get(reverse("api_admin_box_inventory"))
         with CaptureQueriesContext(connection) as one_box_queries:

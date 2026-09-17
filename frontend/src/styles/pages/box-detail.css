@@ -173,7 +173,7 @@
 }
 
 .box-page-grid.is-inactive {
-  grid-template: "insights" auto / minmax(0, 1fr);
+  grid-template: "form" auto "insights" auto / minmax(0, 1fr);
 }
 
 .last-reading-card {
@@ -232,10 +232,35 @@
 
 .measurement-form-section .fake-form { display: grid; gap: var(--space-4); }
 
+/* The current week already has its measurement and this account cannot change
+   it: the form slot shows the recorded values as a locked summary instead, so
+   the week never looks open for a second entry. */
+.measurement-weekly-state {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  border-left: 3px solid var(--color-muted);
+}
+
+.measurement-weekly-state .section-title p {
+  margin: var(--space-1) 0 0;
+  color: var(--color-muted);
+  font-size: .82rem;
+}
+
+.measurement-weekly-state .metric {
+  min-height: 64px;
+  padding: var(--space-3);
+}
+
+.measurement-weekly-state .metric strong { font-size: 1.25rem; }
+
 .measurement-entry-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  align-items: end;
+  /* Top-aligned so the three numeric rows line up even though only the count
+     fields carry quick-action buttons under their stepper. */
+  align-items: start;
   gap: var(--space-3);
 }
 
@@ -253,9 +278,12 @@
   font-weight: 700;
 }
 
+/* Step buttons are square and share the numeric input's height, so each row
+   reads as one coherent [-] [value] [+] group. Touch layouts raise both values
+   together (52px tablets, 56px phones), which keeps them square there too. */
 .count-stepper {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) 42px;
+  grid-template-columns: var(--control-height) minmax(0, 1fr) var(--control-height);
   gap: var(--space-1);
 }
 
@@ -271,11 +299,32 @@
 }
 
 .count-stepper button {
+  /* The glyph is a block-level SVG (.polypbase-icon sets display: block), and the
+     user-agent only centres inline button content, so it must be centred
+     explicitly. Same pattern as the other icon-only buttons in the app. */
+  display: grid;
+  place-items: center;
   min-height: var(--control-height);
   font-size: 1.1rem;
 }
 
-:where(.count-stepper button, .quick-counts button):hover {
+/* Hover feedback only where a pointer really hovers: on touch a sticky :hover
+   would leave a previously tapped stepper looking active after release. */
+@media (hover: hover) {
+  :where(.count-stepper button):hover {
+    background: var(--color-primary-soft);
+    border-color: var(--color-primary);
+  }
+}
+
+/* The pressed look belongs to the single button being pressed, and clears as
+   soon as that button is released. */
+.count-stepper button.is-pressed {
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary);
+}
+
+:where(.quick-counts button):hover {
   background: var(--color-primary-soft);
   border-color: var(--color-primary);
 }

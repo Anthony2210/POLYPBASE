@@ -30,6 +30,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.accounts.models import OrganizationMembership
 from apps.accounts.permissions import (
     get_active_admin_organization_ids,
     get_active_organization_ids,
@@ -42,6 +43,10 @@ from apps.measurements.models import (
     BiologicalMeasurement,
     DailyTemperature,
     SalinityMeasurement,
+)
+from apps.measurements.services import (
+    get_active_measurement_role,
+    get_measurement_editability,
 )
 from apps.organizations.serializers import OrganizationSummarySerializer
 from apps.taxonomy.models import Species, Strain
@@ -566,7 +571,11 @@ class DashboardAPIView(APIView):
                     "measured_ephyrae": measurement_totals["ephyrae"] or 0,
                     "measured_strobilae": measurement_totals["strobilae"] or 0,
                 },
-                "latest_entries": BiologicalMeasurementSerializer(latest_entries, many=True).data,
+                "latest_entries": BiologicalMeasurementSerializer(
+                    latest_entries,
+                    many=True,
+                    context={"request": request},
+                ).data,
                 "recent_accesses": AuditLogAccessSerializer(recent_accesses, many=True).data,
                 "alerts": self._alert_payload(alerts[:12]),
             }
@@ -775,7 +784,10 @@ class BoxListAPIView(generics.ListCreateAPIView):
             ),
             id=box.id,
         )
-        return Response(BoxDetailSerializer(created_box).data, status=status.HTTP_201_CREATED)
+        return Response(
+            BoxDetailSerializer(created_box, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class BoxInventoryPagination(LimitOffsetPagination):
@@ -1148,7 +1160,7 @@ class AdminBoxInitialLocationAPIView(APIView):
             box_queryset_for_user(request.user, organization_ids=organization_ids),
             id=box.id,
         )
-        return Response(BoxDetailSerializer(updated_box).data, status=status.HTTP_200_OK)
+        return Response(BoxDetailSerializer(updated_box, context={"request": request}).data, status=status.HTTP_200_OK)
 
 
 class BoxDetailAPIView(generics.RetrieveAPIView):
@@ -1206,7 +1218,7 @@ class BoxDeactivateAPIView(APIView):
             box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
             id=box.id,
         )
-        return Response(BoxDetailSerializer(updated_box).data, status=status.HTTP_200_OK)
+        return Response(BoxDetailSerializer(updated_box, context={"request": request}).data, status=status.HTTP_200_OK)
 
 
 class BoxActivateAPIView(APIView):
@@ -1238,7 +1250,7 @@ class BoxActivateAPIView(APIView):
             box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
             id=box.id,
         )
-        return Response(BoxDetailSerializer(updated_box).data, status=status.HTTP_200_OK)
+        return Response(BoxDetailSerializer(updated_box, context={"request": request}).data, status=status.HTTP_200_OK)
 
 
 class BoxQualifyAPIView(APIView):
@@ -1271,7 +1283,12 @@ class BoxQualifyAPIView(APIView):
             box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
             id=box.id,
         )
-        return Response(BoxDetailSerializer(updated_box).data, status=status.HTTP_200_OK)
+        return Response(BoxDetailSerializer(updated_box, context={"request": request}).data, status=status.HTTP_200_OK)
+
+
+class MeasurementPermissionDenied(PermissionDenied):
+    def __init__(self, detail, *, error_code):
+        super().__init__({"detail": detail, "code": error_code})
 
 
 class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
@@ -1290,32 +1307,65 @@ class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
 
     def post(self, request, box_id):
         box = self._get_box(request, box_id)
-        self._validate_write(request, box)
+        role = self._validate_create(request, box)
 
         serializer = BiologicalMeasurementCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data.copy()
         measured_on = data.pop("measured_on")
+        week_start = BiologicalMeasurement.week_start_for(measured_on)
 
         with transaction.atomic():
             box = self._get_box(request, box_id, for_update=True)
-            self._validate_write(request, box)
+            role = self._validate_create(request, box)
             existing_measurement = (
                 BiologicalMeasurement.objects.select_for_update()
-                .filter(box=box, measured_on=measured_on)
+                .filter(box=box, week_start=week_start)
                 .first()
             )
+            if existing_measurement and existing_measurement.measured_on != measured_on:
+                return Response(
+                    {
+                        "detail": "A biological measurement already exists for this box and ISO week.",
+                        "code": "measurement_week_conflict",
+                        "measurement_id": existing_measurement.id,
+                        "week_start": week_start.isoformat(),
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+            if existing_measurement:
+                editability = get_measurement_editability(
+                    user=request.user,
+                    measurement=existing_measurement,
+                    role=role,
+                )
+                if not editability["can_edit"]:
+                    raise MeasurementPermissionDenied(
+                        "This biological measurement can no longer be corrected by this account.",
+                        error_code=editability["edit_restriction"],
+                    )
+
             before_values = (
                 _measurement_audit_values(existing_measurement)
                 if existing_measurement
                 else None
             )
 
-            measurement, created = BiologicalMeasurement.objects.update_or_create(
-                box=box,
-                measured_on=measured_on,
-                defaults={**data, "user": request.user},
-            )
+            if existing_measurement:
+                for field, value in data.items():
+                    setattr(existing_measurement, field, value)
+                existing_measurement.user = request.user
+                existing_measurement.save()
+                measurement = existing_measurement
+                created = False
+            else:
+                measurement = BiologicalMeasurement.objects.create(
+                    box=box,
+                    measured_on=measured_on,
+                    user=request.user,
+                    **data,
+                )
+                created = True
             _sync_polyp_drop_alert(box=box, measurement=measurement, user=request.user)
             after_values = _measurement_audit_values(measurement)
             metadata = {
@@ -1340,7 +1390,13 @@ class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
             )
 
         response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
-        return Response(BiologicalMeasurementSerializer(measurement).data, status=response_status)
+        return Response(
+            BiologicalMeasurementSerializer(
+                measurement,
+                context={"request": request},
+            ).data,
+            status=response_status,
+        )
 
     def _get_box(self, request, box_id, *, for_update=False):
         if for_update:
@@ -1358,11 +1414,19 @@ class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
         )
 
     @staticmethod
-    def _validate_write(request, box):
-        if not user_can_write_lab_data(request.user, box.organization):
-            raise PermissionDenied("This user cannot create or update lab measurements.")
+    def _validate_create(request, box):
+        role = get_active_measurement_role(user=request.user, organization=box.organization)
+        if role not in {
+            OrganizationMembership.Role.ADMIN,
+            OrganizationMembership.Role.LAB_TECHNICIAN,
+        }:
+            raise MeasurementPermissionDenied(
+                "This account cannot create biological measurements.",
+                error_code="measurement_write_forbidden",
+            )
         if box.status == Box.Status.INACTIVE:
             raise DRFValidationError("An inactive box cannot receive a new measurement.")
+        return role
 
 
 class BoxMeasurementDetailAPIView(generics.GenericAPIView):
@@ -1378,17 +1442,52 @@ class BoxMeasurementDetailAPIView(generics.GenericAPIView):
                 ),
                 id=box_id,
             )
-            if not user_can_write_lab_data(request.user, box.organization):
-                raise PermissionDenied("This user cannot update lab measurements.")
+            role = get_active_measurement_role(
+                user=request.user,
+                organization=box.organization,
+            )
 
             measurement = get_object_or_404(
                 BiologicalMeasurement.objects.select_for_update().filter(box=box),
                 id=pk,
             )
+            editability = get_measurement_editability(
+                user=request.user,
+                measurement=measurement,
+                role=role,
+            )
+            if not editability["can_edit"]:
+                raise MeasurementPermissionDenied(
+                    "This biological measurement can no longer be corrected by this account.",
+                    error_code=editability["edit_restriction"],
+                )
+
             serializer = BiologicalMeasurementCreateSerializer(
                 measurement, data=request.data, partial=True
             )
             serializer.is_valid(raise_exception=True)
+            measured_on = serializer.validated_data.get(
+                "measured_on",
+                measurement.measured_on,
+            )
+            week_start = BiologicalMeasurement.week_start_for(measured_on)
+            weekly_conflict = (
+                BiologicalMeasurement.objects.select_for_update()
+                .filter(box=box, week_start=week_start)
+                .exclude(pk=measurement.pk)
+                .first()
+            )
+            if weekly_conflict:
+                return Response(
+                    {
+                        "detail": "A biological measurement already exists for this box and ISO week.",
+                        "code": "measurement_week_conflict",
+                        "measurement_id": weekly_conflict.id,
+                        "week_start": week_start.isoformat(),
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+
             before_values = _measurement_audit_values(measurement)
             measurement = serializer.save(user=request.user)
             _sync_polyp_drop_alert(box=box, measurement=measurement, user=request.user)
@@ -1407,7 +1506,12 @@ class BoxMeasurementDetailAPIView(generics.GenericAPIView):
                     "modifications": _changed_values(before_values, after_values),
                 },
             )
-        return Response(BiologicalMeasurementSerializer(measurement).data)
+        return Response(
+            BiologicalMeasurementSerializer(
+                measurement,
+                context={"request": request},
+            ).data
+        )
 
 
 class BoxSubcultureCreateAPIView(generics.GenericAPIView):
@@ -1476,7 +1580,7 @@ class BoxMoveAPIView(generics.GenericAPIView):
             box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
             id=box.id,
         )
-        return Response(BoxDetailSerializer(updated_box).data, status=status.HTTP_200_OK)
+        return Response(BoxDetailSerializer(updated_box, context={"request": request}).data, status=status.HTTP_200_OK)
 
 
 class BoxLineageGraphAPIView(APIView):
@@ -1837,7 +1941,8 @@ class BoxTransferImportAPIView(APIView):
                 box_queryset_for_user(
                     request.user,
                     organization_ids=get_active_organization_ids(request),
-                ).get(pk=box.pk)
+                ).get(pk=box.pk),
+                context={"request": request},
             ).data,
             status=201,
         )

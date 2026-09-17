@@ -364,10 +364,23 @@ class Command(BaseCommand):
                 field_name="nombre_ephyrules",
                 row_number=row_number,
             )
+            week_start = BiologicalMeasurement.week_start_for(measured_on)
+            existing = BiologicalMeasurement.objects.filter(
+                box=box,
+                week_start=week_start,
+            ).first()
+            if existing and existing.measured_on != measured_on:
+                raise CommandError(
+                    "Historical import conflicts with an existing biological "
+                    f"measurement: box={box.global_code}, week_start={week_start}, "
+                    f"existing={existing.id}:{existing.measured_on}, "
+                    f"imported_date={measured_on}."
+                )
             BiologicalMeasurement.objects.update_or_create(
                 box=box,
-                measured_on=measured_on,
+                week_start=week_start,
                 defaults={
+                    "measured_on": measured_on,
                     "polyp_count": polyp_count,
                     "ephyrae_count": ephyrae_count,
                 },

@@ -7,10 +7,13 @@ it blank. That is the behaviour users reported as "the salinity disappears".
 """
 
 import json
-from datetime import date, timedelta
-from unittest.mock import patch
+from datetime import date, datetime, timedelta, timezone as datetime_timezone
+from io import StringIO
+from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.urls import reverse
@@ -36,6 +39,17 @@ class MeasurementEditingApiTests(TestCase):
             user=self.technician,
             organization=self.organization,
             role=OrganizationMembership.Role.LAB_TECHNICIAN,
+        )
+
+        self.admin = user_model.objects.create_user(
+            username="admin",
+            email="admin@example.org",
+            password="secret",
+        )
+        OrganizationMembership.objects.create(
+            user=self.admin,
+            organization=self.organization,
+            role=OrganizationMembership.Role.ADMIN,
         )
 
         self.viewer = user_model.objects.create_user(username="viewer", email="viewer@example.org",password="secret")
@@ -75,7 +89,7 @@ class MeasurementEditingApiTests(TestCase):
             thermal_zone=self.zone,
         )
 
-        self.today = date.today()
+        self.today = date(2026, 9, 16)
 
     def patch_measurement(self, box, measurement, payload):
         return self.client.patch(
@@ -188,7 +202,7 @@ class MeasurementEditingApiTests(TestCase):
     def test_measurement_and_alert_roll_back_when_audit_fails(self):
         BiologicalMeasurement.objects.create(
             box=self.box,
-            measured_on=self.today - timedelta(days=1),
+            measured_on=self.today - timedelta(days=7),
             polyp_count=80,
             ephyrae_count=2,
         )
@@ -295,7 +309,7 @@ class MeasurementEditingApiTests(TestCase):
     def test_measurement_update_and_alert_roll_back_when_audit_fails(self):
         BiologicalMeasurement.objects.create(
             box=self.box,
-            measured_on=self.today - timedelta(days=1),
+            measured_on=self.today - timedelta(days=7),
             polyp_count=20,
         )
         measurement = BiologicalMeasurement.objects.create(
@@ -376,6 +390,257 @@ class MeasurementEditingApiTests(TestCase):
             AuditLog.objects.filter(metadata__measurement_id=measurement.id).exists()
         )
 
+    def test_weekly_duplicate_diagnostic_reports_ids_and_dates_without_mutation(self):
+        rows = MagicMock()
+        rows.order_by.return_value.iterator.return_value = iter(
+            [
+                {
+                    "id": 11,
+                    "box_id": self.box.id,
+                    "box__global_code": self.box.global_code,
+                    "box__organization_id": self.organization.id,
+                    "box__organization__name": self.organization.name,
+                    "measured_on": date(2026, 9, 14),
+                },
+                {
+                    "id": 12,
+                    "box_id": self.box.id,
+                    "box__global_code": self.box.global_code,
+                    "box__organization_id": self.organization.id,
+                    "box__organization__name": self.organization.name,
+                    "measured_on": date(2026, 9, 20),
+                },
+            ]
+        )
+        output = StringIO()
+
+        with patch.object(
+            BiologicalMeasurement.objects,
+            "values",
+            return_value=rows,
+        ), self.assertRaises(CommandError):
+            call_command(
+                "check_biological_measurement_duplicates",
+                stdout=output,
+            )
+
+        report = output.getvalue()
+        self.assertIn("iso_week=2026-W38", report)
+        self.assertIn("week_start=2026-09-14", report)
+        self.assertIn("measurements=11:2026-09-14,12:2026-09-20", report)
+
+    def test_week_start_uses_monday_across_sunday_and_iso_year_boundaries(self):
+        cases = {
+            date(2026, 9, 14): date(2026, 9, 14),
+            date(2026, 9, 16): date(2026, 9, 14),
+            date(2026, 9, 20): date(2026, 9, 14),
+            date(2026, 9, 21): date(2026, 9, 21),
+            date(2020, 12, 31): date(2020, 12, 28),
+            date(2021, 1, 3): date(2020, 12, 28),
+            date(2021, 1, 4): date(2021, 1, 4),
+        }
+
+        for measured_on, expected in cases.items():
+            with self.subTest(measured_on=measured_on):
+                self.assertEqual(
+                    BiologicalMeasurement.week_start_for(measured_on),
+                    expected,
+                )
+
+    def test_database_rejects_different_dates_in_the_same_week(self):
+        first = BiologicalMeasurement.objects.create(
+            box=self.box,
+            measured_on=date(2026, 9, 14),
+            polyp_count=10,
+        )
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            BiologicalMeasurement.objects.create(
+                box=self.box,
+                measured_on=date(2026, 9, 20),
+                polyp_count=20,
+            )
+
+        self.assertEqual(first.week_start, date(2026, 9, 14))
+        self.assertEqual(BiologicalMeasurement.objects.filter(box=self.box).count(), 1)
+
+    def test_same_week_conflict_is_stable_and_zero_occupies_the_slot(self):
+        BiologicalMeasurement.objects.create(
+            box=self.box,
+            measured_on=date(2026, 9, 14),
+            polyp_count=0,
+            ephyrae_count=0,
+        )
+        self.client.login(username="admin", password="secret")
+
+        response = self.client.post(
+            reverse("api_box_measurements", args=[self.box.id]),
+            data={
+                "measured_on": "2026-09-20",
+                "polyp_count": 5,
+                "ephyrae_count": 1,
+            },
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["code"], "measurement_week_conflict")
+        self.assertEqual(response.json()["week_start"], "2026-09-14")
+        self.assertEqual(BiologicalMeasurement.objects.filter(box=self.box).count(), 1)
+
+    def test_next_week_and_separate_boxes_are_independent(self):
+        self.client.login(username="tech", password="secret")
+        for box, measured_on in (
+            (self.box, "2026-09-14"),
+            (self.other_box, "2026-09-16"),
+            (self.box, "2026-09-21"),
+        ):
+            response = self.client.post(
+                reverse("api_box_measurements", args=[box.id]),
+                data={
+                    "measured_on": measured_on,
+                    "polyp_count": 0,
+                    "ephyrae_count": 0,
+                },
+            )
+            self.assertEqual(response.status_code, 201)
+
+        self.assertEqual(BiologicalMeasurement.objects.filter(box=self.box).count(), 2)
+        self.assertEqual(BiologicalMeasurement.objects.filter(box=self.other_box).count(), 1)
+
+    def test_viewer_cannot_create_a_measurement(self):
+        self.client.login(username="viewer", password="secret")
+
+        response = self.client.post(
+            reverse("api_box_measurements", args=[self.box.id]),
+            data={
+                "measured_on": self.today.isoformat(),
+                "polyp_count": 1,
+                "ephyrae_count": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["code"], "measurement_write_forbidden")
+        self.assertFalse(BiologicalMeasurement.objects.filter(box=self.box).exists())
+
+    def test_technician_edit_window_is_open_only_before_the_exact_deadline(self):
+        measurement = BiologicalMeasurement.objects.create(
+            box=self.box,
+            measured_on=self.today,
+            polyp_count=10,
+        )
+        created_at = datetime(2026, 9, 16, 8, 0, tzinfo=datetime_timezone.utc)
+        BiologicalMeasurement.objects.filter(pk=measurement.pk).update(created_at=created_at)
+        measurement.refresh_from_db()
+        self.client.login(username="tech", password="secret")
+
+        with patch(
+            "apps.measurements.services.timezone.now",
+            return_value=created_at + timedelta(hours=24) - timedelta(microseconds=1),
+        ):
+            before_deadline = self.patch_measurement(
+                self.box,
+                measurement,
+                {"polyp_count": 11},
+            )
+        self.assertEqual(before_deadline.status_code, 200)
+
+        with patch(
+            "apps.measurements.services.timezone.now",
+            return_value=created_at + timedelta(hours=24),
+        ):
+            at_deadline = self.patch_measurement(
+                self.box,
+                measurement,
+                {"polyp_count": 12},
+            )
+        self.assertEqual(at_deadline.status_code, 403)
+        self.assertEqual(at_deadline.json()["code"], "edit_window_expired")
+
+        with patch(
+            "apps.measurements.services.timezone.now",
+            return_value=created_at + timedelta(hours=24, microseconds=1),
+        ):
+            after_deadline = self.patch_measurement(
+                self.box,
+                measurement,
+                {"polyp_count": 13},
+            )
+        self.assertEqual(after_deadline.status_code, 403)
+        measurement.refresh_from_db()
+        self.assertEqual(measurement.polyp_count, 11)
+        self.assertEqual(measurement.created_at, created_at)
+
+    def test_old_historical_measurement_is_locked_for_technician(self):
+        measurement = BiologicalMeasurement.objects.create(
+            box=self.box,
+            measured_on=date(2020, 1, 1),
+            polyp_count=10,
+        )
+        BiologicalMeasurement.objects.filter(pk=measurement.pk).update(
+            created_at=datetime(2020, 1, 1, tzinfo=datetime_timezone.utc)
+        )
+        self.client.login(username="tech", password="secret")
+
+        response = self.patch_measurement(self.box, measurement, {"polyp_count": 99})
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["code"], "edit_window_expired")
+
+    def test_admin_can_correct_old_measurement_on_inactive_box(self):
+        self.box.status = Box.Status.INACTIVE
+        self.box.save(update_fields=["status"])
+        measurement = BiologicalMeasurement.objects.create(
+            box=self.box,
+            measured_on=date(2020, 1, 1),
+            polyp_count=10,
+        )
+        BiologicalMeasurement.objects.filter(pk=measurement.pk).update(
+            created_at=datetime(2020, 1, 1, tzinfo=datetime_timezone.utc)
+        )
+        self.client.login(username="admin", password="secret")
+
+        response = self.patch_measurement(
+            self.box,
+            measurement,
+            {"polyp_count": 0, "ephyrae_count": 0},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        measurement.refresh_from_db()
+        self.assertEqual(measurement.polyp_count, 0)
+        self.assertEqual(measurement.ephyrae_count, 0)
+        self.assertEqual(
+            AuditLog.objects.filter(metadata__measurement_id=measurement.id).count(),
+            1,
+        )
+
+    def test_patch_cannot_move_measurement_into_an_occupied_week(self):
+        first = BiologicalMeasurement.objects.create(
+            box=self.box,
+            measured_on=date(2026, 9, 14),
+            polyp_count=10,
+        )
+        second = BiologicalMeasurement.objects.create(
+            box=self.box,
+            measured_on=date(2026, 9, 21),
+            polyp_count=20,
+        )
+        self.client.login(username="admin", password="secret")
+
+        response = self.patch_measurement(
+            self.box,
+            second,
+            {"measured_on": "2026-09-20"},
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["code"], "measurement_week_conflict")
+        second.refresh_from_db()
+        self.assertEqual(second.measured_on, date(2026, 9, 21))
+        self.assertFalse(AuditLog.objects.filter(metadata__measurement_id=second.id).exists())
+        self.assertEqual(BiologicalMeasurement.objects.filter(pk=first.pk).count(), 1)
+
     # -- salinity persistence ----------------------------------------------
 
     def test_latest_salinity_survives_a_newer_measurement_without_salinity(self):
@@ -383,7 +648,7 @@ class MeasurementEditingApiTests(TestCase):
         salinity used to make the displayed salinity disappear."""
         BiologicalMeasurement.objects.create(
             box=self.box,
-            measured_on=self.today - timedelta(days=2),
+            measured_on=self.today - timedelta(days=7),
             polyp_count=10,
             salinity_psu="35.0",
         )
@@ -405,7 +670,7 @@ class MeasurementEditingApiTests(TestCase):
     def test_box_list_also_exposes_the_last_recorded_salinity(self):
         BiologicalMeasurement.objects.create(
             box=self.box,
-            measured_on=self.today - timedelta(days=2),
+            measured_on=self.today - timedelta(days=7),
             polyp_count=10,
             salinity_psu="35.0",
         )

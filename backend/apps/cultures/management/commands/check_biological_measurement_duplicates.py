@@ -1,59 +1,69 @@
+from collections import defaultdict
+
 from django.core.management.base import BaseCommand, CommandError
-from django.db.models import Count
 
 from apps.measurements.models import BiologicalMeasurement
 
 
 class Command(BaseCommand):
-    help = (
-        "Read-only check for duplicate biological measurements sharing a box and date."
-    )
+    help = "Read-only check for multiple biological measurements in one box and ISO week."
 
     def handle(self, *args, **options):
-        groups = list(
-            BiologicalMeasurement.objects.values(
-                "box_id",
-                "box__global_code",
-                "box__organization_id",
-                "box__organization__name",
-                "measured_on",
-            )
-            .annotate(measurement_count=Count("id"))
-            .filter(measurement_count__gt=1)
-            .order_by("box__organization_id", "box__global_code", "measured_on")
+        grouped = defaultdict(list)
+        rows = BiologicalMeasurement.objects.values(
+            "id",
+            "box_id",
+            "box__global_code",
+            "box__organization_id",
+            "box__organization__name",
+            "measured_on",
+        ).order_by(
+            "box__organization_id",
+            "box__global_code",
+            "measured_on",
+            "id",
         )
-        rows_involved = sum(group["measurement_count"] for group in groups)
+        for measurement in rows.iterator():
+            week_start = BiologicalMeasurement.week_start_for(
+                measurement["measured_on"]
+            )
+            grouped[(measurement["box_id"], week_start)].append(measurement)
 
-        self.stdout.write(f"Duplicate groups: {len(groups)}")
+        conflicts = [items for items in grouped.values() if len(items) > 1]
+        rows_involved = sum(len(items) for items in conflicts)
+
+        self.stdout.write(f"Duplicate weekly groups: {len(conflicts)}")
         self.stdout.write(f"Rows involved: {rows_involved}")
-        for group in groups:
-            measurement_ids = list(
-                BiologicalMeasurement.objects.filter(
-                    box_id=group["box_id"],
-                    measured_on=group["measured_on"],
-                )
-                .order_by("id")
-                .values_list("id", flat=True)
+        for measurements in conflicts:
+            first = measurements[0]
+            week_start = BiologicalMeasurement.week_start_for(first["measured_on"])
+            iso_year, iso_week, _iso_day = week_start.isocalendar()
+            entries = ",".join(
+                f"{measurement['id']}:{measurement['measured_on'].isoformat()}"
+                for measurement in measurements
             )
             self.stdout.write(
                 " | ".join(
                     [
                         (
-                            f"organization={group['box__organization__name']} "
-                            f"({group['box__organization_id']})"
+                            f"organization={first['box__organization__name']} "
+                            f"({first['box__organization_id']})"
                         ),
-                        f"box={group['box__global_code']} ({group['box_id']})",
-                        f"date={group['measured_on'].isoformat()}",
-                        f"count={group['measurement_count']}",
-                        f"ids={','.join(str(pk) for pk in measurement_ids)}",
+                        f"box={first['box__global_code']} ({first['box_id']})",
+                        f"iso_week={iso_year}-W{iso_week:02d}",
+                        f"week_start={week_start.isoformat()}",
+                        f"count={len(measurements)}",
+                        f"measurements={entries}",
                     ]
                 )
             )
 
-        if groups:
+        if conflicts:
             raise CommandError(
-                "Duplicate biological measurements must be reviewed explicitly "
+                "Weekly biological measurement conflicts must be reviewed explicitly "
                 "before applying the uniqueness migration."
             )
 
-        self.stdout.write(self.style.SUCCESS("No duplicate biological measurements found."))
+        self.stdout.write(
+            self.style.SUCCESS("No weekly biological measurement conflicts found.")
+        )
