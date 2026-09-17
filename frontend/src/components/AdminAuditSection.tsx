@@ -17,6 +17,7 @@ import {
   getAuditFamilyLabel,
   getAuditTargetLabel,
   groupAuditEntriesByDay,
+  hasAuditSubcultureSummary,
 } from '../utils/auditPresentation';
 import {
   applyAdminAuditOutcome,
@@ -347,6 +348,7 @@ function AdminAuditRow({
 }) {
   const hasDetails = hasAdminAuditBusinessDetails(entry);
   const hasInlineBoxSummary = Boolean(entry.box_reference && getAuditBoxSummaryParts(entry, t));
+  const hasSubcultureSummary = hasAuditSubcultureSummary(entry.business_details);
   const targetLabel = getAuditTargetLabel(entry);
   const detailsId = `admin-audit-details-${entry.id}`;
 
@@ -367,7 +369,7 @@ function AdminAuditRow({
             t={t}
           />
           <AuditInlineBusinessSummary details={entry.business_details} t={t} />
-          {hasInlineBoxSummary ? null : entry.box_reference ? (
+          {hasInlineBoxSummary || hasSubcultureSummary ? null : entry.box_reference ? (
             <div className="admin-audit-target">
               <BoxTrackingPreview
                 boxId={entry.box_reference.id}
@@ -381,7 +383,11 @@ function AdminAuditRow({
           ) : targetLabel ? (
             <div className="admin-audit-target"><span>{targetLabel}</span></div>
           ) : null}
-          <AuditContextSummary context={entry.context} hidePrimaryResource={hasInlineBoxSummary} t={t} />
+          <AuditContextSummary
+            context={entry.context}
+            hidePrimaryResource={hasInlineBoxSummary || hasSubcultureSummary}
+            t={t}
+          />
           <AuditBusinessNote details={entry.business_details} />
         </div>
         <div className="admin-audit-row-actions">

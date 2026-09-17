@@ -617,7 +617,7 @@ class Command(BaseCommand):
         )
 
     def _create_audit_logs(self, paris, boxes, lab_user):
-        AuditLog.objects.update_or_create(
+        AuditLog.objects.get_or_create(
             organization=paris,
             user=lab_user,
             action=AuditLog.Action.SCAN,
@@ -628,14 +628,14 @@ class Command(BaseCommand):
                 "metadata": {"screen": "pilotage"},
             },
         )
-        AuditLog.objects.update_or_create(
+        AuditLog.objects.get_or_create(
             organization=paris,
             user=lab_user,
             action=AuditLog.Action.ENTRY,
             object_type="box",
             object_id=boxes["aau_002"].global_code,
             defaults={
-                "description": "Demo biological measurement entry.",
+                "description": "Biological measurement recorded",
                 "metadata": {"screen": "box_detail"},
             },
         )

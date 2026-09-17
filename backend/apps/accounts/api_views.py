@@ -46,6 +46,7 @@ from apps.audit.services import (
     related_measurement_action_counts,
     resolve_audit_box_references,
     resolve_audit_measurements,
+    resolve_audit_subculture_children,
     resolve_legacy_audit_measurements,
     serialize_audit_context,
     serialize_box_reference,
@@ -1030,6 +1031,10 @@ class PersonalAuditLogListAPIView(APIView):
             logs,
             organization_id=organization.id,
         )
+        subculture_children_by_log_id = resolve_audit_subculture_children(
+            logs,
+            organization_id=organization.id,
+        )
         return Response(
             {
                 "results": [
@@ -1041,6 +1046,7 @@ class PersonalAuditLogListAPIView(APIView):
                             if isinstance(log.metadata, dict)
                             else None
                         ),
+                        subculture_children=subculture_children_by_log_id.get(log.id),
                     )
                     for log in logs
                 ],
@@ -1155,6 +1161,10 @@ class AdminAuditLogListAPIView(APIView):
             logs,
             organization_id=organization_ids[0],
         )
+        subculture_children_by_log_id = resolve_audit_subculture_children(
+            logs,
+            organization_id=organization_ids[0],
+        )
 
         payload = {
             "results": [
@@ -1163,6 +1173,7 @@ class AdminAuditLogListAPIView(APIView):
                     measurements_by_id,
                     legacy_measurements_by_key,
                     boxes_by_code,
+                    subculture_children_by_log_id,
                     related_action_count=related_action_counts.get(log.id, 0),
                 )
                 for log in logs
@@ -1186,6 +1197,7 @@ class AdminAuditLogListAPIView(APIView):
         measurements_by_id,
         legacy_measurements_by_key,
         boxes_by_code,
+        subculture_children_by_log_id,
         *,
         related_action_count=0,
     ):
@@ -1219,9 +1231,14 @@ class AdminAuditLogListAPIView(APIView):
             "business_details": serialize_business_details(
                 log,
                 measurement=measurement,
+                subculture_children=subculture_children_by_log_id.get(log.id),
             ),
             "box_reference": serialize_box_reference(boxes_by_code.get(log.object_id)),
-            "context": serialize_audit_context(log, measurement=measurement),
+            "context": serialize_audit_context(
+                log,
+                measurement=measurement,
+                subculture_children=subculture_children_by_log_id.get(log.id),
+            ),
             # Lets the history open the measurement itself for correction,
             # instead of sending the user off to the box sheet.
             "editable_measurement": self._editable_measurement(log, measurement),
@@ -1365,6 +1382,7 @@ class AdminAuditLogLinkedAPIView(AdminAuditLogListAPIView):
                         measurements_by_id,
                         {},
                         boxes_by_code,
+                        {},
                         related_action_count=related_action_count,
                     )
                     for log in logs

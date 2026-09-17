@@ -840,6 +840,10 @@ class AuditLogMeasurementLinkTests(TestCase):
             [root.id, correction_one.id, correction_two.id],
         )
         self.assertTrue(all(entry["related_action_count"] == 2 for entry in results))
+        self.assertEqual(
+            [entry["user_display"] for entry in results],
+            ["org_admin@example.org", "second_user@example.org", "third_user@example.org"],
+        )
         self.assertTrue(
             all(entry["editable_measurement"]["id"] == self.measurement.id for entry in results)
         )

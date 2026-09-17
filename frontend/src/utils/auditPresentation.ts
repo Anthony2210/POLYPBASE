@@ -99,6 +99,7 @@ const OBJECT_TYPE_KEYS: Record<string, string> = {
 const METADATA_KEY_KEYS: Record<string, string> = {
   acces_actif: 'auditMetaAccessActive',
   actif: 'auditMetaAccessActive',
+  active: 'auditMetaActive',
   a_verifier: 'auditMetaNeedsAttention',
   ancienne_zone: 'auditMetaPreviousZone',
   apres: 'auditMetaAfter',
@@ -193,6 +194,10 @@ const DESCRIPTION_EXACT_KEYS: Record<string, string> = {
   // Legacy measurement rows carry no date in the description. They are still
   // creations, so they must never fall back to the raw English sentence.
   'Biological measurement recorded': 'auditDescriptionMeasurementCreatedLegacy',
+  'Demo biological measurement entry.': 'auditDescriptionMeasurementCreatedLegacy',
+  // A subculture row without a usable parent code loses its trailing separator,
+  // so it must still resolve to the translated subculture summary.
+  'Subculture created from': 'auditSummarySubcultureCreated',
   'Member access created': 'auditDescriptionMemberCreated',
   'Member access restored': 'auditDescriptionMemberRestored',
   'Member access updated': 'auditDescriptionMemberUpdated',
@@ -222,13 +227,8 @@ const BUSINESS_SUMMARY_PREFIX_KEYS: Array<[string, string]> = [
   ['Probe created: ', 'auditSummaryProbeCreated'],
   ['Box transfer prepared: ', 'auditSummaryTransferPrepared'],
   ['Transfer imported from ', 'auditSummaryTransferImported'],
-  ['Alert resolved: ', 'auditSummaryAlertResolved'],
   ['Historical box inventory initialized for ', 'auditSummaryInventoryInitialized'],
   ['Historical box qualified as ', 'auditSummaryBoxQualified'],
-  ['Species created: ', 'auditSummarySpeciesCreated'],
-  ['Species updated: ', 'auditSummarySpeciesUpdated'],
-  ['Strain created: ', 'auditSummaryStrainCreated'],
-  ['Strain updated: ', 'auditSummaryStrainUpdated'],
 ];
 
 const DESCRIPTION_RULES: Array<{
@@ -290,6 +290,17 @@ export function getAuditActionLabel(
   return entry.action_label || entry.action || '-';
 }
 
+/**
+ * A subculture entry only replaces the parent box presentation when the
+ * normalized payload actually carries both the parent and at least one usable
+ * child. Legacy rows without a usable child list keep the parent box visible.
+ */
+export function hasAuditSubcultureSummary(details: AuditBusinessDetails | null | undefined): boolean {
+  return details?.type === 'subculture'
+    && Boolean(details.parent_global_code)
+    && (details.child_global_codes?.length ?? 0) > 0;
+}
+
 export function getAuditBoxSummaryParts(entry: AuditEntryLike, t: Translate): [string, string] | null {
   const details = entry.business_details;
   const description = (entry.description || '').trim();
@@ -306,6 +317,9 @@ export function getAuditBoxSummaryParts(entry: AuditEntryLike, t: Translate): [s
     else if (details.transition?.from === 'inactive' && details.transition.to === 'active') key = 'auditInlineBoxReactivated';
     else if (details.transition?.to === 'active') key = 'auditInlineBoxActivated';
   } else if (details?.type === 'subculture') {
+    // Legacy subculture rows without a usable child list must keep the parent
+    // box visible instead of collapsing to a generic "subculture created" line.
+    if (hasAuditSubcultureSummary(details)) return null;
     key = 'auditInlineSubculture';
   } else if (details?.type === 'transfer_out') {
     key = 'auditInlineTransferOut';
@@ -334,29 +348,34 @@ export function getAuditInlineBusinessItems(
     return ['polypes', 'ephyrules', 'salinite_psu'].flatMap<AuditInlineBusinessItem>((key) => {
       if (!(key in source)) return [];
       const label = getAuditMetadataKeyLabel(key, t);
-      const unit = key === 'salinite_psu' ? 'PSU' : undefined;
       const change = getAuditValueChange(source[key]);
       if (change) {
         return [{
           key,
           label,
-          before: formatAuditMetadataValue(change.before, t),
-          after: formatAuditMetadataValue(change.after, t),
-          unit,
+          before: formatAuditMeasurementValue(key, change.before, t),
+          after: formatAuditMeasurementValue(key, change.after, t),
         }];
       }
-      return [{ key, label, value: formatAuditMetadataValue(source[key], t), unit }];
+      if (source[key] === null || source[key] === undefined || source[key] === '') return [];
+      return [{ key, label, value: formatAuditMeasurementValue(key, source[key], t) }];
     });
   }
 
-  if (details.type === 'box_movement' && details.from_zone && details.to_zone) {
-    return [{
-      key: 'movement',
-      label: getAuditMetadataKeyLabel('emplacement', t),
-      before: details.from_zone,
-      after: details.to_zone,
-      showLabel: false,
-    }];
+  if (details.type === 'box_movement' && details.to_zone) {
+    return [details.from_zone
+      ? {
+          key: 'movement',
+          label: getAuditMetadataKeyLabel('emplacement', t),
+          before: details.from_zone,
+          after: details.to_zone,
+          showLabel: false,
+        }
+      : {
+          key: 'movement',
+          label: getAuditMetadataKeyLabel('emplacement', t),
+          value: details.to_zone,
+        }];
   }
 
   if (details.type === 'transfer_out') {
@@ -375,9 +394,6 @@ export function getAuditInlineBusinessItems(
       details.source_organization
         ? { key: 'source', label: getAuditMetadataKeyLabel('source_organization', t), value: details.source_organization }
         : null,
-      details.source_global_code
-        ? { key: 'source-code', label: getAuditMetadataKeyLabel('source_global_code', t), value: details.source_global_code }
-        : null,
     ]);
   }
 
@@ -386,8 +402,16 @@ export function getAuditInlineBusinessItems(
 
 export function getAuditBusinessSummary(entry: AuditEntryLike, t: Translate): string {
   const description = (entry.description || '').trim();
-  if (entry.business_details?.type === 'box_movement' && entry.business_details.to_zone) {
-    return fillTemplate(t('auditSummaryBoxMovedTo'), { location: entry.business_details.to_zone });
+  const details = entry.business_details;
+  if (details?.type === 'box_movement' && details.to_zone) {
+    return fillTemplate(t('auditSummaryBoxMovedTo'), { location: details.to_zone });
+  }
+  if (details?.type === 'subculture' && hasAuditSubcultureSummary(details)) {
+    const children = details.child_global_codes ?? [];
+    return fillTemplate(
+      t(children.length === 1 ? 'auditSummarySubcultureOneChild' : 'auditSummarySubcultureManyChildren'),
+      { children: children.join(', '), parent: details.parent_global_code ?? '' },
+    );
   }
   const summaryRule = BUSINESS_SUMMARY_PREFIX_KEYS.find(([prefix]) => description.startsWith(prefix));
   if (summaryRule) return t(summaryRule[1]);
@@ -429,6 +453,11 @@ export function getAuditMetadataKeyLabel(key: string, t: Translate): string {
 export function getAuditValueLabel(value: string, t: Translate): string {
   const key = VALUE_LABEL_KEYS[value];
   return key ? t(key) : formatTechnicalDate(value);
+}
+
+function formatAuditMeasurementValue(key: string, value: unknown, t: Translate): string {
+  const formatted = formatAuditMetadataValue(value, t);
+  return key === 'salinite_psu' ? formatted.replace(/\s*PSU$/i, '') : formatted;
 }
 
 export function formatAuditMetadataValue(value: unknown, t: Translate): string {
@@ -558,13 +587,25 @@ export function getAuditBusinessDetailContent(details: AuditBusinessDetails | nu
         changes: compactAuditChanges(withoutAuditInlineMeasurementFields(details.changes)),
       };
     case 'box':
-    case 'environment':
     case 'account':
-    case 'reference':
+    case 'reference': {
+      const changes = compactAuditChanges('changes' in details ? details.changes : undefined);
       return {
-        values: compactAuditRecord(withoutAuditRepeatedFields('values' in details ? details.values : undefined)),
-        changes: compactAuditChanges('changes' in details ? details.changes : undefined),
+        values: compactAuditRecord(withoutAuditRepeatedFields(
+          'values' in details ? details.values : undefined,
+          changes,
+          true,
+        )),
+        changes,
       };
+    }
+    case 'environment': {
+      const changes = compactAuditChanges(details.changes);
+      return {
+        values: compactAuditRecord(withoutAuditRepeatedFields(details.values, changes, false)),
+        changes,
+      };
+    }
     case 'transfer_out':
     case 'transfer_import':
     case 'box_movement':
@@ -615,10 +656,16 @@ export function hasAuditBusinessDetails(details: AuditBusinessDetails | null | u
 }
 
 
-function withoutAuditRepeatedFields(values: AuditValues | undefined): AuditValues | undefined {
+function withoutAuditRepeatedFields(
+  values: AuditValues | undefined,
+  changes: AuditChanges | null,
+  hideDate: boolean,
+): AuditValues | undefined {
   if (!values) return undefined;
-  const repeatedKeys = new Set(['date', 'note', 'notes']);
-  return Object.fromEntries(Object.entries(values).filter(([key]) => !repeatedKeys.has(key)));
+  const repeatedKeys = new Set(['note', 'notes', ...(hideDate ? ['date'] : [])]);
+  return Object.fromEntries(
+    Object.entries(values).filter(([key]) => !repeatedKeys.has(key) && !(key in (changes ?? {}))),
+  );
 }
 
 function getAuditNote(values: AuditValues | undefined): string {
@@ -660,6 +707,15 @@ export function orderAuditFieldEntries(
       return firstPriority - secondPriority || first.index - second.index;
     })
     .map(({ entry }) => entry);
+}
+
+export function getAuditInitialPolypsLabel(count: number, t: Translate): string {
+  const key = count === 0
+    ? 'auditRelationInitialPolypsZero'
+    : count === 1
+      ? 'auditRelationInitialPolypsOne'
+      : 'auditRelationInitialPolypsMany';
+  return fillTemplate(t(key), { count: String(count) });
 }
 
 export function isAuditNoteField(key: string): boolean {

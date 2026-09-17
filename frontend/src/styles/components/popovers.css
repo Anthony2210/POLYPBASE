@@ -111,6 +111,7 @@
 
 .audit-linked-actions-list li + li { border-top: 1px solid var(--color-line-soft); }
 .audit-linked-actions-list time { color: var(--color-muted); font-size: .7rem; font-variant-numeric: tabular-nums; }
+.audit-linked-action-author { color: var(--color-muted); font-size: .7rem; }
 .audit-linked-action-summary { margin: 0; color: var(--color-ink); font-size: .82rem; font-weight: 600; }
 
 .audit-linked-actions-state {

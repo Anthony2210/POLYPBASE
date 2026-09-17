@@ -353,8 +353,8 @@ def create_subculture(*, parent_box, user, event_date, reason, notes, children):
             "child_box_ids": [box.id for box in child_boxes],
             "child_global_codes": [box.global_code for box in child_boxes],
             "initial_polyp_counts": {
-                child_data["global_code"]: child_data.get("initial_polyp_count")
-                for child_data in children
+                child_box.global_code: child_data.get("initial_polyp_count")
+                for child_box, child_data in zip(child_boxes, children, strict=True)
                 if child_data.get("initial_polyp_count") is not None
             },
         },

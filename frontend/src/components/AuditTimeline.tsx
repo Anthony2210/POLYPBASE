@@ -10,6 +10,7 @@ import {
   getAuditBusinessNote,
   getAuditBusinessSummary,
   getAuditInlineBusinessItems,
+  getAuditInitialPolypsLabel,
   getAuditMetadataKeyLabel,
   getAuditValueChange,
   isAuditNoteField,
@@ -187,19 +188,23 @@ export function AuditContextSummary({
   if (!context) return null;
 
   if (context.subculture) {
+    const parentCode = (context.subculture.parent_global_code ?? '').trim();
+    const children = context.subculture.children ?? [];
+    // Never invent a relation when neither the parent nor any child is known.
+    if (!parentCode && !children.length) return null;
     return (
       <div className="audit-relation" data-relation="subculture">
-        {hidePrimaryResource ? null : (
-          <p>{fillTemplate(t('auditRelationSubcultureFrom'), { code: context.subculture.parent_global_code })}</p>
+        {hidePrimaryResource || !parentCode ? null : (
+          <p>{fillTemplate(t('auditRelationSubcultureFrom'), { code: parentCode })}</p>
         )}
-        {context.subculture.children.length ? (
+        {children.length ? (
           <ul>
-            {context.subculture.children.map((child) => (
+            {children.map((child) => (
               <li key={child.global_code}>
                 <span aria-hidden="true">↳</span>
                 <span>{child.global_code}</span>
                 {child.initial_polyp_count !== null ? (
-                  <small>{fillTemplate(t('auditRelationInitialPolyps'), { count: String(child.initial_polyp_count) })}</small>
+                  <small>{getAuditInitialPolypsLabel(child.initial_polyp_count, t)}</small>
                 ) : null}
               </li>
             ))}

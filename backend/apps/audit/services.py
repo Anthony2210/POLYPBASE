@@ -62,6 +62,10 @@ _BOX_OBJECT_TYPES = {"box", "box_inventory_initialization"}
 # business-readable label, so it must never reach a user-facing payload.
 _PRIMARY_KEY_RESOURCE_OBJECT_TYPES = {"alert", "species", "strain"}
 
+# Pre-migration box statuses that no longer exist in the canonical lifecycle.
+# They are inactive-like and must be presented as the canonical inactive value.
+_LEGACY_BOX_STATUS_TOKENS = {"archived", "lost", "stopped"}
+
 _MEASUREMENT_FIELDS = {
     "date",
     "polypes",
@@ -80,6 +84,8 @@ _BOX_FIELDS = {
     "emplacement",
     "date_entree",
     "volume_litres",
+    "statut",
+    "raison_arret",
     "note",
 }
 _ENVIRONMENT_FIELDS = {
@@ -95,7 +101,15 @@ _ENVIRONMENT_FIELDS = {
     "emplacement",
     "position",
 }
-_ACCOUNT_FIELDS = {"nom", "email", "role", "actif", "responsable"}
+_ACCOUNT_FIELDS = {
+    "nom",
+    "email",
+    "role",
+    "acces_actif",
+    "is_responsable",
+    "actif",
+    "responsable",
+}
 _REFERENCE_FIELDS = {"nom", "ville", "pays", "email_contact", "notes"}
 _EXPORT_FILTER_FIELDS = {"date_from", "date_to", "include_other_zones"}
 
@@ -282,6 +296,38 @@ def resolve_audit_box_references(logs, *, organization_id):
     return {box.global_code: box for box in boxes}
 
 
+def resolve_audit_subculture_children(logs, *, organization_id):
+    """Resolve current child box codes from stored ids inside one institution."""
+    from apps.cultures.models import Box
+
+    child_ids_by_log_id = {}
+    all_child_ids = set()
+    for log in logs:
+        if log.action != AuditLog.Action.SUBCULTURE:
+            continue
+        raw_ids = _metadata(log).get("child_box_ids")
+        if not isinstance(raw_ids, list):
+            continue
+        child_ids = [
+            value if type(value) is int and value > 0 else None
+            for value in raw_ids
+        ]
+        child_ids_by_log_id[log.id] = child_ids
+        all_child_ids.update(child_id for child_id in child_ids if child_id is not None)
+
+    boxes_by_id = {
+        box.id: box
+        for box in Box.objects.filter(
+            id__in=all_child_ids,
+            organization_id=organization_id,
+        ).only("id", "global_code")
+    }
+    return {
+        log_id: [boxes_by_id.get(child_id) if child_id is not None else None for child_id in child_ids]
+        for log_id, child_ids in child_ids_by_log_id.items()
+    }
+
+
 def resolve_audit_measurements(logs, *, organization_id):
     """Resolve explicit measurement identities without crossing organizations."""
     from apps.measurements.models import BiologicalMeasurement
@@ -396,7 +442,13 @@ def readable_account_label(user):
     return email or None
 
 
-def serialize_personal_audit_log(log, *, box=None, measurement=None):
+def serialize_personal_audit_log(
+    log,
+    *,
+    box=None,
+    measurement=None,
+    subculture_children=None,
+):
     """Serialize one action without raw or administration-only metadata."""
     return {
         "id": log.id,
@@ -411,13 +463,21 @@ def serialize_personal_audit_log(log, *, box=None, measurement=None):
         },
         "description": log.description,
         "details": _personal_audit_details(log),
-        "business_details": serialize_business_details(log, measurement=measurement),
+        "business_details": serialize_business_details(
+            log,
+            measurement=measurement,
+            subculture_children=subculture_children,
+        ),
         "box_reference": serialize_box_reference(box),
-        "context": serialize_audit_context(log, measurement=measurement),
+        "context": serialize_audit_context(
+            log,
+            measurement=measurement,
+            subculture_children=subculture_children,
+        ),
     }
 
 
-def serialize_business_details(log, *, measurement=None):
+def serialize_business_details(log, *, measurement=None, subculture_children=None):
     """Normalize known business metadata into a stable discriminated contract."""
     metadata = _metadata(log)
     family = classify_audit_log(log)
@@ -433,19 +493,19 @@ def serialize_business_details(log, *, measurement=None):
         )
 
     if family == "subcultures":
-        child_codes = _safe_string_list(metadata.get("child_global_codes"))
-        counts = metadata.get("initial_polyp_counts")
-        safe_counts = {}
-        if isinstance(counts, dict):
-            safe_counts = {
-                code: value
-                for code, value in counts.items()
-                if code in child_codes and _is_safe_number(value)
-            }
+        children = _normalized_subculture_children(
+            metadata,
+            resolved_children=subculture_children,
+        )
         return _compact_details(
             "subculture",
-            child_global_codes=child_codes,
-            initial_polyp_counts=safe_counts,
+            parent_global_code=_safe_string(log.object_id),
+            child_global_codes=[child["global_code"] for child in children],
+            initial_polyp_counts={
+                child["global_code"]: child["initial_polyp_count"]
+                for child in children
+                if child["initial_polyp_count"] is not None
+            },
         )
 
     if family == "transfers" and log.action == AuditLog.Action.TRANSFER:
@@ -503,6 +563,11 @@ def serialize_business_details(log, *, measurement=None):
             deactivated_on=_safe_string(after.get("deactivated_on"), allow_empty=True),
         )
 
+    if family == "boxes":
+        legacy_status = _legacy_box_status_details(metadata)
+        if legacy_status is not None:
+            return legacy_status
+
     if family == "boxes" and log.object_type == "box_inventory_initialization":
         return _compact_details(
             "box_inventory_initialization",
@@ -518,6 +583,11 @@ def serialize_business_details(log, *, measurement=None):
     }.get(family, set())
     values = _allowlisted_values(metadata.get("valeurs"), field_allowlist)
     changes = _allowlisted_changes(metadata.get("modifications"), field_allowlist)
+    if family == "boxes":
+        # Legacy rows can store pre-migration status tokens. They are mapped to
+        # the canonical display value so no raw English token reaches the UI.
+        values = _normalized_box_status_values(values)
+        changes = _normalized_box_status_changes(changes)
     return _compact_details(family.rstrip("s"), values=values, changes=changes)
 
 
@@ -532,7 +602,7 @@ def serialize_box_reference(box):
     }
 
 
-def serialize_audit_context(log, *, measurement=None):
+def serialize_audit_context(log, *, measurement=None, subculture_children=None):
     """Expose only stable relationships explicitly stored by current writers."""
     metadata = _metadata(log)
     context = {}
@@ -545,21 +615,12 @@ def serialize_audit_context(log, *, measurement=None):
         context["measurement"] = {"id": measurement.id}
 
     if log.action == AuditLog.Action.SUBCULTURE:
-        child_codes = _safe_string_list(metadata.get("child_global_codes"))
-        counts = metadata.get("initial_polyp_counts")
         context["subculture"] = {
             "parent_global_code": log.object_id,
-            "children": [
-                {
-                    "global_code": code,
-                    "initial_polyp_count": (
-                        counts.get(code)
-                        if isinstance(counts, dict) and _is_safe_number(counts.get(code))
-                        else None
-                    ),
-                }
-                for code in child_codes
-            ],
+            "children": _normalized_subculture_children(
+                metadata,
+                resolved_children=subculture_children,
+            ),
         }
 
     if log.action == AuditLog.Action.TRANSFER:
@@ -582,6 +643,97 @@ def serialize_audit_context(log, *, measurement=None):
         }
 
     return context
+
+
+def _normalized_subculture_children(metadata, *, resolved_children=None):
+    stored_codes = _safe_string_list(metadata.get("child_global_codes"))
+    counts = metadata.get("initial_polyp_counts")
+
+    if resolved_children is None:
+        indexed_current_codes = list(enumerate(stored_codes))
+    else:
+        indexed_current_codes = [
+            (index, box.global_code if box is not None else stored_codes[index])
+            for index, box in enumerate(resolved_children)
+            if box is not None or index < len(stored_codes)
+        ]
+
+    children = []
+    for index, current_code in indexed_current_codes:
+        stored_code = stored_codes[index] if index < len(stored_codes) else current_code
+        count = None
+        if isinstance(counts, dict):
+            candidate = counts.get(current_code, counts.get(stored_code))
+            if _is_safe_number(candidate):
+                count = candidate
+        children.append(
+            {
+                "global_code": current_code,
+                "initial_polyp_count": count,
+            }
+        )
+    return children
+
+
+def _legacy_box_status_details(metadata):
+    modifications = metadata.get("modifications")
+    if not isinstance(modifications, dict):
+        return None
+    status_change = modifications.get("statut")
+    if not isinstance(status_change, dict):
+        return None
+
+    before = _normalized_legacy_box_status(status_change.get("avant"))
+    after = _normalized_legacy_box_status(status_change.get("apres"))
+    if before is None or after is None or before == after:
+        return None
+
+    values = metadata.get("valeurs")
+    values = values if isinstance(values, dict) else {}
+    stop_reason = _safe_string(values.get("raison_arret"), allow_empty=True)
+    reason_change = modifications.get("raison_arret")
+    if isinstance(reason_change, dict):
+        stop_reason = _safe_string(reason_change.get("apres"), allow_empty=True)
+
+    return _compact_details(
+        "box_status",
+        transition={"from": before, "to": after},
+        stop_reason=stop_reason,
+    )
+
+
+def _normalized_legacy_box_status(value):
+    status = _safe_string(value)
+    if status in _LEGACY_BOX_STATUS_TOKENS:
+        return "inactive"
+    return status
+
+
+def _normalized_box_status_values(values):
+    """Map a confirmed legacy status token to the canonical display value."""
+    if "statut" not in values:
+        return values
+    return {**values, "statut": _normalized_legacy_status_value(values["statut"])}
+
+
+def _normalized_box_status_changes(changes):
+    """Map confirmed legacy status tokens inside a stored change record."""
+    change = changes.get("statut")
+    if not isinstance(change, dict):
+        return changes
+    return {
+        **changes,
+        "statut": {
+            side: _normalized_legacy_status_value(value)
+            for side, value in change.items()
+        },
+    }
+
+
+def _normalized_legacy_status_value(value):
+    if isinstance(value, str) and value in _LEGACY_BOX_STATUS_TOKENS:
+        return "inactive"
+    return value
 
 
 def _personal_resource_identifier(log):
@@ -629,6 +781,13 @@ def _personal_audit_details(log):
     changes = _allowlisted_changes(metadata.get("modifications"), allowed_fields)
     if changes:
         details["changes"] = changes
+
+    if log.object_type == "box":
+        # Same legacy status normalization as the business details contract.
+        if "values" in details:
+            details["values"] = _normalized_box_status_values(details["values"])
+        if "changes" in details:
+            details["changes"] = _normalized_box_status_changes(details["changes"])
 
     return details
 

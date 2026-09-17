@@ -310,7 +310,6 @@ class BusinessAuditApiTests(TestCase):
             action=AuditLog.Action.SUBCULTURE,
             metadata={
                 "subculture_event_id": 91,
-                "child_box_ids": [92, 93],
                 "child_global_codes": ["ATL-AAU-1.002", "ATL-AAU-1.003"],
                 "initial_polyp_counts": {
                     "ATL-AAU-1.002": 0,
@@ -376,6 +375,7 @@ class BusinessAuditApiTests(TestCase):
             details[subculture.id],
             {
                 "type": "subculture",
+                "parent_global_code": self.box.global_code,
                 "child_global_codes": ["ATL-AAU-1.002", "ATL-AAU-1.003"],
                 "initial_polyp_counts": {
                     "ATL-AAU-1.002": 0,
@@ -416,6 +416,273 @@ class BusinessAuditApiTests(TestCase):
         self.assertEqual(details[export.id]["measurement_count"], 0)
         self.assertEqual(details[export.id]["week_count"], 0)
         self.assertEqual(details[export.id]["filters"], {"date_from": "2026-09-01"})
+
+    def test_account_details_accept_current_and_legacy_writer_keys(self):
+        current = self._log(
+            object_type="account",
+            object_id=self.user.username,
+            metadata={
+                "valeurs": {
+                    "nom": "Audit Admin",
+                    "acces_actif": True,
+                    "is_responsable": False,
+                },
+                "modifications": {
+                    "acces_actif": {"avant": False, "apres": True},
+                    "is_responsable": {"avant": True, "apres": False},
+                },
+            },
+        )
+        legacy = self._log(
+            object_type="account",
+            object_id=self.user.username,
+            metadata={
+                "valeurs": {"actif": True, "responsable": False},
+            },
+        )
+
+        entries = {entry["id"]: entry for entry in self._admin().json()["results"]}
+
+        self.assertEqual(
+            entries[current.id]["business_details"],
+            {
+                "type": "account",
+                "values": {
+                    "nom": "Audit Admin",
+                    "acces_actif": True,
+                    "is_responsable": False,
+                },
+                "changes": {
+                    "acces_actif": {"before": False, "after": True},
+                    "is_responsable": {"before": True, "after": False},
+                },
+            },
+        )
+        self.assertEqual(
+            entries[legacy.id]["business_details"],
+            {
+                "type": "account",
+                "values": {"actif": True, "responsable": False},
+            },
+        )
+        self.assertNotIn("user_id", str(entries[current.id]["business_details"]))
+
+    def test_subculture_children_use_current_codes_without_losing_count_association(self):
+        children = [
+            Box.objects.create(
+                organization=self.organization,
+                global_code=f"1-ATL.{number}",
+                box_number=number,
+                strain=self.box.strain,
+                thermal_zone=self.zone,
+            )
+            for number in ("002", "003", "004", "005")
+        ]
+        action = self._log(
+            action=AuditLog.Action.SUBCULTURE,
+            metadata={
+                "child_box_ids": [
+                    children[0].id,
+                    None,
+                    children[2].id,
+                    children[3].id,
+                ],
+                "child_global_codes": [
+                    "ATL-AAU-1.002",
+                    "ATL-AAU-1.003",
+                    "ATL-AAU-1.004",
+                    "ATL-AAU-1.005",
+                ],
+                "initial_polyp_counts": {
+                    "ATL-AAU-1.002": 0,
+                    "ATL-AAU-1.003": 1,
+                    "ATL-AAU-1.004": 2,
+                },
+            },
+            description=f"Subculture created from {self.box.global_code}",
+        )
+
+        for response in (self._admin(), self._personal()):
+            entry = next(item for item in response.json()["results"] if item["id"] == action.id)
+            self.assertEqual(
+                entry["business_details"],
+                {
+                    "type": "subculture",
+                    "parent_global_code": self.box.global_code,
+                    "child_global_codes": [
+                        "1-ATL.002",
+                        "ATL-AAU-1.003",
+                        "1-ATL.004",
+                        "1-ATL.005",
+                    ],
+                    "initial_polyp_counts": {
+                        "1-ATL.002": 0,
+                        "ATL-AAU-1.003": 1,
+                        "1-ATL.004": 2,
+                    },
+                },
+            )
+            self.assertEqual(
+                entry["context"]["subculture"]["children"],
+                [
+                    {"global_code": "1-ATL.002", "initial_polyp_count": 0},
+                    {"global_code": "ATL-AAU-1.003", "initial_polyp_count": 1},
+                    {"global_code": "1-ATL.004", "initial_polyp_count": 2},
+                    {"global_code": "1-ATL.005", "initial_polyp_count": None},
+                ],
+            )
+
+    def test_legacy_box_status_changes_preserve_precise_transition_and_reason(self):
+        reactivation = self._log(
+            description=f"Box activated: {self.box.global_code}",
+            metadata={
+                "valeurs": {"statut": "active", "raison_arret": ""},
+                "modifications": {
+                    "statut": {"avant": "archived", "apres": "active"},
+                    "raison_arret": {"avant": "Pause", "apres": ""},
+                },
+            },
+        )
+        deactivation = self._log(
+            action=AuditLog.Action.ARCHIVE,
+            description=f"Box archived: {self.box.global_code}",
+            metadata={
+                "valeurs": {"statut": "inactive", "raison_arret": "End of culture"},
+                "modifications": {
+                    "statut": {"avant": "active", "apres": "archived"},
+                },
+            },
+        )
+
+        entries = {entry["id"]: entry for entry in self._admin().json()["results"]}
+
+        self.assertEqual(
+            entries[reactivation.id]["business_details"],
+            {
+                "type": "box_status",
+                "transition": {"from": "inactive", "to": "active"},
+                "stop_reason": "",
+            },
+        )
+        self.assertEqual(
+            entries[deactivation.id]["business_details"],
+            {
+                "type": "box_status",
+                "transition": {"from": "active", "to": "inactive"},
+                "stop_reason": "End of culture",
+            },
+        )
+
+    def test_subculture_without_usable_children_keeps_the_parent_reference(self):
+        action = self._log(
+            action=AuditLog.Action.SUBCULTURE,
+            metadata={"subculture_event_id": 91},
+            description=f"Subculture created from {self.box.global_code}",
+        )
+
+        for response in (self._admin(), self._personal()):
+            entry = next(
+                item for item in response.json()["results"] if item["id"] == action.id
+            )
+            self.assertEqual(
+                entry["business_details"],
+                {"type": "subculture", "parent_global_code": self.box.global_code},
+            )
+            self.assertEqual(
+                entry["context"]["subculture"],
+                {"parent_global_code": self.box.global_code, "children": []},
+            )
+            # The parent box stays resolvable so the legacy relation fallback can
+            # render it instead of collapsing to a generic summary.
+            self.assertEqual(entry["box_reference"]["global_code"], self.box.global_code)
+
+    def test_subculture_unresolved_child_ids_keep_the_stored_historical_code(self):
+        action = self._log(
+            action=AuditLog.Action.SUBCULTURE,
+            metadata={
+                # A child id from another institution must never be resolved.
+                "child_box_ids": [self.other_box.id],
+                "child_global_codes": ["ATL-AAU-1.002"],
+                "initial_polyp_counts": {"ATL-AAU-1.002": 0},
+            },
+            description=f"Subculture created from {self.box.global_code}",
+        )
+
+        for response in (self._admin(), self._personal()):
+            entry = next(
+                item for item in response.json()["results"] if item["id"] == action.id
+            )
+            self.assertEqual(
+                entry["business_details"]["child_global_codes"],
+                ["ATL-AAU-1.002"],
+            )
+            self.assertEqual(
+                entry["context"]["subculture"]["children"],
+                [{"global_code": "ATL-AAU-1.002", "initial_polyp_count": 0}],
+            )
+            self.assertNotIn(
+                self.other_box.global_code,
+                str(entry["business_details"]),
+            )
+
+    def test_subculture_without_parent_or_children_invents_no_relation(self):
+        action = self._log(
+            action=AuditLog.Action.SUBCULTURE,
+            object_id="",
+            metadata={},
+            description="Subculture created from ",
+        )
+
+        for response in (self._admin(), self._personal()):
+            entry = next(
+                item for item in response.json()["results"] if item["id"] == action.id
+            )
+            self.assertEqual(entry["business_details"], {"type": "subculture"})
+            self.assertEqual(
+                entry["context"]["subculture"],
+                {"parent_global_code": "", "children": []},
+            )
+            self.assertIsNone(entry["box_reference"])
+
+    def test_legacy_box_status_values_are_normalized_for_display(self):
+        creation = self._log(
+            action=AuditLog.Action.CREATION,
+            description=f"Box created manually: {self.box.global_code}",
+            metadata={
+                "valeurs": {"statut": "archived", "raison_arret": "End of culture"},
+            },
+        )
+        equal_change = self._log(
+            description=f"Box archived: {self.box.global_code}",
+            metadata={
+                "valeurs": {"statut": "lost"},
+                "modifications": {"statut": {"avant": "lost", "apres": "lost"}},
+            },
+        )
+
+        admin_entries = {entry["id"]: entry for entry in self._admin().json()["results"]}
+        personal_entries = {
+            entry["id"]: entry for entry in self._personal().json()["results"]
+        }
+
+        self.assertEqual(
+            admin_entries[creation.id]["business_details"]["values"],
+            {"statut": "inactive", "raison_arret": "End of culture"},
+        )
+        self.assertEqual(
+            admin_entries[equal_change.id]["business_details"]["changes"]["statut"],
+            {"before": "inactive", "after": "inactive"},
+        )
+        for entry in (admin_entries, personal_entries):
+            for value in entry.values():
+                serialized = str(value["business_details"])
+                self.assertNotIn("'archived'", serialized)
+                self.assertNotIn("'lost'", serialized)
+                self.assertNotIn("'stopped'", serialized)
+        self.assertEqual(
+            personal_entries[creation.id]["details"]["values"]["statut"],
+            "inactive",
+        )
 
     def test_box_reference_is_safe_for_admin_and_personal_histories(self):
         action = self._log(action=AuditLog.Action.CREATION)

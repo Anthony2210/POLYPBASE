@@ -223,7 +223,8 @@ test('rich inline summaries preserve box wording, changes, notes, and zero', () 
 
   const recordedItems = audit.getAuditInlineBusinessItems(recorded, tFr);
   assert.equal(recordedItems[0].value, '0');
-  assert.equal(recordedItems[2].unit, 'PSU');
+  assert.equal(recordedItems[2].unit, undefined);
+  assert.equal(recordedItems[2].value, '2.00');
   const correctedItems = audit.getAuditInlineBusinessItems(corrected, tFr);
   assert.equal(JSON.stringify(correctedItems.map(({ key, before, after }) => ({ key, before, after }))), JSON.stringify([
     { key: 'polypes', before: '0', after: '5' },
@@ -235,6 +236,107 @@ test('rich inline summaries preserve box wording, changes, notes, and zero', () 
   assert.equal(JSON.stringify(audit.getAuditInlineBusinessItems(movement, tFr)), JSON.stringify([{
     key: 'movement', label: 'Emplacement', before: 'Cabinet 15 C', after: 'Cabinet 10 C', showLabel: false,
   }]));
+});
+
+test('subculture summaries name all children and the parent in FR and EN', () => {
+  const oneChild = {
+    action: 'subculture',
+    description: 'Subculture created from SF.001',
+    business_details: {
+      type: 'subculture',
+      parent_global_code: 'SF.001',
+      child_global_codes: ['SF.002'],
+    },
+  };
+  const manyChildren = {
+    ...oneChild,
+    business_details: {
+      ...oneChild.business_details,
+      child_global_codes: ['SF.002', 'SF.003', 'SF.004'],
+    },
+  };
+
+  assert.equal(audit.getAuditBusinessSummary(oneChild, tFr), 'SF.002 créée via repiquage de SF.001');
+  assert.equal(audit.getAuditBusinessSummary(oneChild, tEn), 'SF.002 created by subculturing SF.001');
+  assert.equal(
+    audit.getAuditBusinessSummary(manyChildren, tFr),
+    'SF.002, SF.003, SF.004 créées via repiquage de SF.001',
+  );
+  assert.equal(
+    audit.getAuditBusinessSummary(manyChildren, tEn),
+    'SF.002, SF.003, SF.004 created by subculturing SF.001',
+  );
+  // The rich child+parent summary replaces the parent presentation, so no
+  // second parent reference is rendered.
+  assert.equal(audit.hasAuditSubcultureSummary(oneChild.business_details), true);
+  assert.equal(audit.hasAuditSubcultureSummary(manyChildren.business_details), true);
+  assert.equal(audit.getAuditBoxSummaryParts(oneChild, tFr), null);
+  assert.equal(audit.getAuditBoxSummaryParts(manyChildren, tFr), null);
+});
+
+test('a legacy subculture without usable children keeps the parent box visible', () => {
+  const legacy = {
+    action: 'subculture',
+    description: 'Subculture created from SF.001',
+    business_details: { type: 'subculture', parent_global_code: 'SF.001' },
+  };
+
+  // No usable child list: the rich summary must not mask the parent, so the
+  // established relation presentation stays available.
+  assert.equal(audit.hasAuditSubcultureSummary(legacy.business_details), false);
+  assert.equal(
+    JSON.stringify(audit.getAuditBoxSummaryParts(legacy, tFr)),
+    JSON.stringify(['Repiquage depuis ', '']),
+  );
+  assert.equal(
+    JSON.stringify(audit.getAuditBoxSummaryParts(legacy, tEn)),
+    JSON.stringify(['Subculture from ', '']),
+  );
+});
+
+test('a subculture without parent or children invents no relation', () => {
+  const orphan = {
+    action: 'subculture',
+    description: 'Subculture created from ',
+    business_details: { type: 'subculture' },
+  };
+
+  assert.equal(audit.hasAuditSubcultureSummary(orphan.business_details), false);
+  assert.equal(audit.getAuditBusinessSummary(orphan, tFr), 'Repiquage créé');
+
+  const timelineSource = readSource('../src/components/AuditTimeline.tsx');
+  assert.match(timelineSource, /if \(!parentCode && !children\.length\) return null;/);
+  assert.match(timelineSource, /hidePrimaryResource \|\| !parentCode \? null/);
+});
+
+test('initial polyp wording distinguishes zero, one, plural, and missing values', () => {
+  assert.equal(audit.getAuditInitialPolypsLabel(0, tFr), '0 polypes initiaux');
+  assert.equal(audit.getAuditInitialPolypsLabel(1, tFr), '1 polype initial');
+  assert.equal(audit.getAuditInitialPolypsLabel(2, tFr), '2 polypes initiaux');
+  assert.equal(audit.getAuditInitialPolypsLabel(0, tEn), '0 initial polyps');
+  assert.equal(audit.getAuditInitialPolypsLabel(1, tEn), '1 initial polyp');
+  assert.equal(audit.getAuditInitialPolypsLabel(2, tEn), '2 initial polyps');
+
+  const timelineSource = readSource('../src/components/AuditTimeline.tsx');
+  assert.match(timelineSource, /child\.initial_polyp_count !== null/);
+  assert.match(timelineSource, /getAuditInitialPolypsLabel\(child\.initial_polyp_count, t\)/);
+});
+
+test('structured lifecycle transitions distinguish activation, reactivation, and deactivation', () => {
+  const cases = [
+    [{ from: 'pending_review', to: 'active' }, [' activée', ' activated']],
+    [{ from: 'inactive', to: 'active' }, [' réactivée', ' reactivated']],
+    [{ from: 'active', to: 'inactive' }, [' désactivée', ' deactivated']],
+  ];
+  for (const [transition, [frSuffix, enSuffix]] of cases) {
+    const entry = {
+      action: 'update',
+      description: 'Legacy wording must not decide the transition',
+      business_details: { type: 'box_status', transition },
+    };
+    assert.equal(JSON.stringify(audit.getAuditBoxSummaryParts(entry, tFr)), JSON.stringify(['', frSuffix]));
+    assert.equal(JSON.stringify(audit.getAuditBoxSummaryParts(entry, tEn)), JSON.stringify(['', enSuffix]));
+  }
 });
 
 test('known business events never fall through to raw English in FR', () => {
@@ -537,6 +639,44 @@ test('real normalized notes render without empty filler text', () => {
   assert.match(adminSource, /<AuditBusinessNote details=\{entry\.business_details\} \/>/);
 });
 
+test('a first location assignment keeps its destination without inventing an origin', () => {
+  const items = audit.getAuditInlineBusinessItems(
+    { type: 'box_movement', to_zone: 'Nursery B' },
+    tFr,
+  );
+  assert.equal(JSON.stringify(items), JSON.stringify([{
+    key: 'movement', label: 'Emplacement', value: 'Nursery B',
+  }]));
+});
+
+test('salinity rendering preserves zero, hides null, and never duplicates PSU', () => {
+  const normal = audit.getAuditInlineBusinessItems(
+    { type: 'measurement', values: { salinite_psu: '35.00 PSU' } },
+    tFr,
+  );
+  const zero = audit.getAuditInlineBusinessItems(
+    { type: 'measurement', values: { salinite_psu: 0 } },
+    tFr,
+  );
+  const missing = audit.getAuditInlineBusinessItems(
+    { type: 'measurement', values: { salinite_psu: null } },
+    tFr,
+  );
+  const correction = audit.getAuditInlineBusinessItems(
+    { type: 'measurement', changes: { salinite_psu: { before: null, after: '0 PSU' } } },
+    tFr,
+  );
+
+  assert.equal(normal[0].label, 'Salinité (PSU)');
+  assert.equal(normal[0].value, '35.00');
+  assert.equal(normal[0].unit, undefined);
+  assert.equal(zero[0].value, '0');
+  assert.equal(JSON.stringify(missing), JSON.stringify([]));
+  assert.equal(correction[0].before, '-');
+  assert.equal(correction[0].after, '0');
+  assert.equal(JSON.stringify([...normal, ...zero, ...correction]).includes('- PSU'), false);
+});
+
 test('movement summaries render the real transition inline without duplicate details', () => {
   const entry = {
     action: 'update',
@@ -556,6 +696,47 @@ test('movement summaries render the real transition inline without duplicate det
     JSON.stringify(audit.getAuditBusinessDetailContent(entry.business_details)),
     JSON.stringify({ values: null, changes: null }),
   );
+});
+
+test('manual temperature details keep the business date and hide repeated changed values', () => {
+  const temperature = audit.getAuditBusinessDetailContent({
+    type: 'environment',
+    values: { date: '2026-09-14', temperature_c: '12.5' },
+  });
+  assert.equal(
+    JSON.stringify(temperature),
+    JSON.stringify({ values: { date: '2026-09-14', temperature_c: '12.5' }, changes: null }),
+  );
+
+  const account = audit.getAuditBusinessDetailContent({
+    type: 'account',
+    values: { role: 'viewer', acces_actif: true, is_responsable: false },
+    changes: { acces_actif: { before: false, after: true } },
+  });
+  assert.equal(
+    JSON.stringify(account),
+    JSON.stringify({
+      values: { role: 'viewer', is_responsable: false },
+      changes: { acces_actif: { before: false, after: true } },
+    }),
+  );
+  assert.equal(audit.getAuditMetadataKeyLabel('active', tFr), 'Actif');
+});
+
+test('safe alert, species, and strain targets remain in final summaries without opaque ids', () => {
+  const cases = [
+    ['Alert resolved: Température haute', 'Alerte résolue : Température haute', 'Alert resolved: Température haute'],
+    ['Species created: Aurelia aurita', 'Espèce créée : Aurelia aurita', 'Species created: Aurelia aurita'],
+    ['Species updated: Aurelia aurita', 'Espèce modifiée : Aurelia aurita', 'Species updated: Aurelia aurita'],
+    ['Strain created: 1-ATL', 'Souche créée : 1-ATL', 'Strain created: 1-ATL'],
+    ['Strain updated: 1-ATL', 'Souche modifiée : 1-ATL', 'Strain updated: 1-ATL'],
+  ];
+  for (const [description, frLabel, enLabel] of cases) {
+    const entry = { action: 'update', description, object_id: '123' };
+    assert.equal(audit.getAuditBusinessSummary(entry, tFr), frLabel);
+    assert.equal(audit.getAuditBusinessSummary(entry, tEn), enLabel);
+    assert.equal(audit.getAuditBusinessSummary(entry, tFr).includes('123'), false);
+  }
 });
 
 test('box status details hide transition history while preserving the stop reason note', () => {
@@ -750,6 +931,33 @@ test('business metadata formatting keeps scalars readable and hides unknown stru
   assert.equal(audit.formatAuditMetadataValue({ before: 4, after: 0 }, tEn), '4 -> 0');
   assert.equal(audit.formatAuditMetadataValue({ transition: { from: 'active', to: 'inactive' } }, tEn), 'Information unavailable');
   assert.equal(audit.formatAuditMetadataValue('internal_0123456789abcdef', tEn), '-');
+});
+
+test('linked action popover displays the authorized actor supplied by the payload', () => {
+  const source = readSource('../src/components/AuditLinkedActionsPopover.tsx');
+  const popoverCss = readSource('../src/styles/components/popovers.css');
+  assert.match(source, /getAccountDisplayLabel\(linkedEntry\.user_display\)/);
+  assert.match(source, /auditLinkedActionAuthor/);
+  assert.equal(tFr('auditLinkedActionAuthor'), 'par {name}');
+  assert.equal(tEn('auditLinkedActionAuthor'), 'by {name}');
+  // The author is secondary metadata, never louder than the action summary.
+  assert.match(popoverCss, /\.audit-linked-action-author \{[^}]*color: var\(--color-muted\);[^}]*\}/s);
+  assert.match(popoverCss, /\.audit-linked-action-author \{[^}]*font-size: \.7rem;[^}]*\}/s);
+});
+
+test('demo measurement actions are translated without mutating existing audit rows', () => {
+  const source = readSource('../../backend/apps/cultures/management/commands/seed_demo_data.py');
+  assert.match(source, /AuditLog\.objects\.get_or_create/);
+  assert.doesNotMatch(source, /AuditLog\.objects\.update_or_create/);
+  assert.match(source, /"description": "Biological measurement recorded"/);
+  assert.doesNotMatch(source, /"description": "Demo biological measurement entry\."/);
+  assert.equal(
+    audit.getAuditDescriptionLabel(
+      { action: 'entry', description: 'Demo biological measurement entry.' },
+      tFr,
+    ),
+    'Relevé biologique enregistré',
+  );
 });
 
 test('new timeline labels exist in both languages', () => {
@@ -1236,8 +1444,10 @@ test('Profile and Admin share inline summaries without duplicating resolved box 
   for (const source of [profileSource, adminSource]) {
     assert.match(source, /<AuditPrimarySummary/);
     assert.match(source, /<AuditInlineBusinessSummary details=\{entry\.business_details\}/);
-    assert.match(source, /hasInlineBoxSummary \? null/);
-    assert.match(source, /hidePrimaryResource=\{hasInlineBoxSummary\}/);
+    assert.match(source, /hasInlineBoxSummary \|\| hasSubcultureSummary \? null/);
+    assert.match(source, /hidePrimaryResource=\{hasInlineBoxSummary \|\| hasSubcultureSummary\}/);
+    // Masking the parent is conditional on the rich child+parent summary.
+    assert.match(source, /const hasSubcultureSummary = hasAuditSubcultureSummary\(entry\.business_details\);/);
   }
 });
 

@@ -6,7 +6,12 @@ import { apiGet } from '../api/client';
 import { useAnchoredPopover } from '../hooks/useAnchoredPopover';
 import type { Language, Translator } from '../i18n';
 import type { EditableMeasurement } from '../types';
-import { fillTemplate, formatAuditDateTime, getAuditTargetLabel } from '../utils/auditPresentation';
+import {
+  fillTemplate,
+  formatAuditDateTime,
+  getAccountDisplayLabel,
+  getAuditTargetLabel,
+} from '../utils/auditPresentation';
 import { getErrorMessage } from '../utils/errors';
 import type { AdminAuditLogEntry } from './AdminAuditSection';
 import { AuditBusinessNote, AuditInlineBusinessSummary, AuditPrimarySummary } from './AuditTimeline';
@@ -151,20 +156,28 @@ function LinkedAuditContent({
 
   return (
     <ol className="audit-linked-actions-list">
-      {entries.map((linkedEntry) => (
-        <li key={linkedEntry.id}>
-          <time dateTime={linkedEntry.effective_at}>{formatAuditDateTime(linkedEntry.effective_at)}</time>
-          <AuditPrimarySummary
-            boxReference={linkedEntry.box_reference}
-            className="audit-linked-action-summary"
-            entry={linkedEntry}
-            language={language}
-            t={t}
-          />
-          <AuditInlineBusinessSummary details={linkedEntry.business_details} t={t} />
-          <AuditBusinessNote details={linkedEntry.business_details} />
-        </li>
-      ))}
+      {entries.map((linkedEntry) => {
+        const author = getAccountDisplayLabel(linkedEntry.user_display);
+        return (
+          <li key={linkedEntry.id}>
+            <time dateTime={linkedEntry.effective_at}>{formatAuditDateTime(linkedEntry.effective_at)}</time>
+            {author ? (
+              <span className="audit-linked-action-author">
+                {fillTemplate(t('auditLinkedActionAuthor'), { name: author })}
+              </span>
+            ) : null}
+            <AuditPrimarySummary
+              boxReference={linkedEntry.box_reference}
+              className="audit-linked-action-summary"
+              entry={linkedEntry}
+              language={language}
+              t={t}
+            />
+            <AuditInlineBusinessSummary details={linkedEntry.business_details} t={t} />
+            <AuditBusinessNote details={linkedEntry.business_details} />
+          </li>
+        );
+      })}
     </ol>
   );
 }

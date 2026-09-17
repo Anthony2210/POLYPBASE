@@ -490,7 +490,12 @@ export type AuditChanges = Record<string, AuditValueChange>;
 
 export type AuditBusinessDetails =
   | { type: 'measurement'; values?: AuditValues; changes?: AuditChanges }
-  | { type: 'subculture'; child_global_codes?: string[]; initial_polyp_counts?: Record<string, number> }
+  | {
+      type: 'subculture';
+      parent_global_code?: string;
+      child_global_codes?: string[];
+      initial_polyp_counts?: Record<string, number>;
+    }
   | { type: 'transfer_out'; destination_organization?: string; date?: string; polyp_count?: number; note?: string }
   | { type: 'transfer_import'; source_global_code?: string; source_organization?: string }
   | { type: 'box_movement'; from_zone?: string; to_zone?: string; moved_at?: string; note?: string }
