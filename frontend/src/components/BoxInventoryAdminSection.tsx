@@ -253,7 +253,6 @@ export default function BoxInventoryAdminSection({
       setSelectedBoxes(new Map());
       setIsSelectionMode(false);
       setRefreshVersion((current) => current + 1);
-      setMessage(t('boxInventoryBatchInventoryRefreshed'));
     } catch (requestError) {
       setBatchError(getErrorMessage(requestError));
     } finally {
@@ -283,7 +282,6 @@ export default function BoxInventoryAdminSection({
         return next;
       });
       setLifecycleState(null);
-      setMessage(t('boxInventoryActionSaved'));
       setRefreshVersion((current) => current + 1);
     } catch (requestError) {
       setLifecycleError(getErrorMessage(requestError));

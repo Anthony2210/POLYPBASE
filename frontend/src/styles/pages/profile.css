@@ -16,7 +16,7 @@
 
 .profile-identity-card {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-5);
   padding: var(--space-5);
@@ -160,42 +160,21 @@
   font-size: 0.82rem;
 }
 
-.profile-admin-entry {
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-5);
-  background: var(--color-surface);
-  border: 1px solid var(--color-line);
-  border-left: 4px solid var(--color-primary);
+.profile-admin-action {
+  min-height: 40px;
+  font-size: 0.82rem;
 }
 
-.profile-admin-button {
-  display: inline-flex;
-  min-height: 42px;
-  padding: 0 var(--space-4);
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  color: #fff;
-  font-weight: 800;
-  background: var(--color-primary);
-  border: 1px solid var(--color-primary);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
+/* Full-width session action at the bottom of the page, separated from the
+   ordinary Profile actions by a hairline. */
+.profile-logout-row {
+  display: grid;
+  gap: var(--space-2);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-line-soft);
 }
 
-.profile-admin-button:is(:hover, :focus-visible) {
-  background: var(--color-primary-hover);
-  border-color: var(--color-primary-hover);
-}
-
-.profile-admin-button .profile-link-arrow { color: inherit; }
-
-
-.profile-link-arrow {
-  color: var(--color-primary);
-  font-size: 1.4rem;
-}
+.profile-logout-row .profile-sign-out { width: 100%; }
 
 @media (max-width: 759px) {
   .profile-identity-card {
@@ -216,12 +195,6 @@
   .profile-organization-options {
     grid-template-columns: 1fr;
   }
-
-  .profile-admin-entry {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .profile-admin-button { width: 100%; }
 }
 
 /* Personal action history */

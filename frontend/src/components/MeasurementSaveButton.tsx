@@ -11,7 +11,6 @@ import { triggerHaptic } from '../utils/haptics';
 type MeasurementSaveButtonLabels = {
   hold: string;
   save: string;
-  saved: string;
   saving: string;
 };
 
@@ -19,14 +18,12 @@ export default function MeasurementSaveButton({
   isDesktop,
   isDisabled = false,
   isSaving,
-  isSuccess,
   labels,
   onSave,
 }: {
   isDesktop: boolean;
   isDisabled?: boolean;
   isSaving: boolean;
-  isSuccess: boolean;
   labels: MeasurementSaveButtonLabels;
   onSave: () => Promise<boolean>;
 }) {
@@ -92,8 +89,8 @@ export default function MeasurementSaveButton({
 
   if (isDesktop) {
     return (
-      <button className={isSuccess ? 'measurement-save-button is-success' : 'measurement-save-button'} type="submit" disabled={isDisabled || isSaving}>
-        <span>{isSaving ? labels.saving : isSuccess ? labels.saved : labels.save}</span>
+      <button className="measurement-save-button" type="submit" disabled={isDisabled || isSaving}>
+        <span>{isSaving ? labels.saving : labels.save}</span>
       </button>
     );
   }
@@ -102,7 +99,6 @@ export default function MeasurementSaveButton({
     'measurement-save-button',
     'is-hold-action',
     isHolding ? 'is-holding' : '',
-    isSuccess ? 'is-success' : '',
   ].filter(Boolean).join(' ');
 
   return (
@@ -135,7 +131,7 @@ export default function MeasurementSaveButton({
       }}
     >
       <span className="hold-save-progress" aria-hidden="true" />
-      <span>{isSaving ? labels.saving : isSuccess ? labels.saved : labels.save}</span>
+      <span>{isSaving ? labels.saving : labels.save}</span>
     </button>
   );
 }

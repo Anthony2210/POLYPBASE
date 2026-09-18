@@ -390,3 +390,70 @@ test('the Administration desktop-only redirect and render guards remain in place
   assert.match(appSource, /if \(activeTab === 'admin' && !isDesktopApp\) return null;/);
   assert.match(appSource, /\{activeTab === 'admin' && isDesktopApp && \(/);
 });
+
+test('Profile shows the institution selector only when there is a real choice', () => {
+  assert.match(profileViewSource, /const organizations = getSelectableOrganizations\(profile\);/);
+  assert.match(
+    profileViewSource,
+    /\{organizations\.length > 1 \? \(\s*<section className="profile-block profile-organization-context">/s,
+  );
+  assert.doesNotMatch(profileViewSource, /organizations\.length > 0/);
+
+  // Selecting an institution keeps its existing behaviour.
+  assert.match(profileViewSource, /onClick=\{\(\) => onSelectOrganization\(organization\.id\)\}/);
+  assert.match(profileViewSource, /aria-pressed=\{isActive\}/);
+  assert.match(profileViewSource, /className=\{isActive \? 'is-active' : ''\}/);
+});
+
+test('Profile carries the Administration action inside the account card', () => {
+  const profileCssSource = readSource('src/styles/pages/profile.css');
+  const cardStart = profileViewSource.indexOf('<header className="profile-identity-card">');
+  const cardSource = profileViewSource.slice(
+    cardStart,
+    profileViewSource.indexOf('</header>', cardStart),
+  );
+
+  assert.notEqual(cardStart, -1);
+  assert.match(
+    cardSource,
+    /\{canOpenAdmin \? \(\s*<button\s*className="secondary-button button-icon-label profile-admin-action"/s,
+  );
+  assert.match(cardSource, /onClick=\{onOpenAdmin\}/);
+  assert.match(cardSource, /<PolypbaseIcon name="settings" size=\{17\} \/>/);
+
+  // Logout is no longer inside the account card.
+  assert.doesNotMatch(cardSource, /profile-sign-out|profile-session-actions/);
+  assert.doesNotMatch(profileCssSource, /profile-session-actions/);
+
+  // The separate "Administration area" section is fully removed.
+  assert.doesNotMatch(profileViewSource, /profile-admin-entry|profile-admin-button|profile-link-arrow/);
+  assert.doesNotMatch(profileCssSource, /profile-admin-entry|profile-admin-button|profile-link-arrow/);
+
+  // One single capability condition, already desktop-only, drives the entry.
+  assert.match(appSource, /canOpenAdmin=\{canUseAdmin && isDesktopApp\}/);
+  assert.match(appSource, /const canUseAdmin = hasAdminRole;/);
+});
+
+test('Profile orders sections and places the full-width logout last', () => {
+  const profileCssSource = readSource('src/styles/pages/profile.css');
+  const preferencesIndex = profileViewSource.indexOf('{labels.profilePreferences}');
+  const actionsIndex = profileViewSource.indexOf('<ProfileActionsSection');
+  const logoutIndex = profileViewSource.indexOf('className="profile-logout-row"');
+
+  assert.notEqual(preferencesIndex, -1);
+  assert.notEqual(actionsIndex, -1);
+  assert.notEqual(logoutIndex, -1);
+  // Preferences comes before Mes actions.
+  assert.ok(preferencesIndex < actionsIndex, 'Préférences must precede Mes actions');
+  // Logout is the final Profile action.
+  assert.ok(logoutIndex > actionsIndex, 'logout must come after Mes actions');
+  assert.ok(logoutIndex > preferencesIndex, 'logout must come after Préférences');
+
+  // Logout is full width and separated at the bottom, still on the same handler.
+  assert.match(
+    profileCssSource,
+    /\.profile-logout-row \{\s*display: grid;\s*gap: var\(--space-2\);\s*padding-top: var\(--space-4\);\s*border-top: 1px solid var\(--color-line-soft\);\s*\}/s,
+  );
+  assert.match(profileCssSource, /\.profile-logout-row \.profile-sign-out \{ width: 100%; \}/);
+  assert.match(profileViewSource, /className="profile-sign-out"[\s\S]*?onClick=\{handleLogout\}/);
+});

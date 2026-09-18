@@ -70,3 +70,26 @@ test('profile no longer renders the phone-only labels shortcut', () => {
   assert.equal(profileSource.includes('profile-mobile-labels-link'), false);
   assert.equal(profileSource.includes('onOpenLabels'), false);
 });
+
+test('profile no longer renders the removed explanatory copy', () => {
+  const profileSource = readFileSync(new URL('../src/components/ProfileView.tsx', import.meta.url), 'utf8');
+  const fr = readFileSync(new URL('../src/i18n/fr.ts', import.meta.url), 'utf8');
+  const en = readFileSync(new URL('../src/i18n/en.ts', import.meta.url), 'utf8');
+
+  assert.doesNotMatch(profileSource, /profileAdminText|profileActiveOrganizationHelp/);
+  assert.doesNotMatch(fr, /Elle définit les données visibles et vos droits/);
+  assert.doesNotMatch(fr, /Gérer les comptes, les emplacements, les sondes/);
+  assert.doesNotMatch(en, /It defines the visible data and your permissions/);
+  assert.doesNotMatch(en, /Manage accounts, locations, probes and exchanges/);
+
+  // The separate Administration section and its heading are gone too.
+  assert.doesNotMatch(profileSource, /profileAdminTitle|profile-admin-entry/);
+  assert.doesNotMatch(fr, /Espace administrateur/);
+  assert.doesNotMatch(en, /Administration area/);
+
+  // The account identity, the logout action and the Administration action stay.
+  assert.match(profileSource, /<h2>\{fullName\}<\/h2>/);
+  assert.match(profileSource, /\{profile\.email \|\| labels\.profileNoEmail\}/);
+  assert.match(profileSource, /className="profile-sign-out"/);
+  assert.match(profileSource, /\{labels\.profileAdminAction\}/);
+});

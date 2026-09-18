@@ -112,7 +112,7 @@ test('measurement workflow uses PATCH for weekly corrections and locks server-de
     /if \(editingMeasurementId != null\) \{\s*await onUpdateMeasurement\(box\.id, editingMeasurementId, payload\);/s,
   );
   assert.match(appSource, /disabled=\{isMeasurementFormLocked\}/);
-  assert.match(appSource, /isDisabled=\{isMeasurementFormLocked\}/);
+  assert.match(appSource, /isDisabled=\{isMeasurementFormLocked \|\| isMeasurementDraftUnchanged\}/);
   assert.match(
     appSource,
     /const canShowMeasurementForm = measurementEditorMode === 'create'\s*\|\| \(isMeasurementEditorOpen && Boolean\(editingMeasurement\?\.can_edit\)\);/s,
@@ -235,11 +235,8 @@ test('measurement summary and editor are mutually exclusive states of one anchor
 });
 
 test('summary transition is restrained and reduced motion remains global', () => {
-  const css = readSource('../src/styles/pages/box-detail.css');
   const baseCss = readSource('../src/styles/base.css');
 
-  assert.match(css, /\.last-reading-card\.is-fresh \{ animation: reading-saved 280ms ease-out; \}/);
-  assert.match(css, /from \{ opacity: 0; transform: translateY\(6px\); \}/);
   assert.match(baseCss, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(baseCss, /animation-duration: 0\.01ms !important;/);
 });
@@ -254,6 +251,83 @@ test('weekly conflicts refresh server state before the error is shown', () => {
 
   assert.match(createSource, /isMeasurementWeekConflict\(requestError\)/);
   assert.match(createSource, /await refreshBoxAfterMeasurement\(boxId\);/);
+});
+
+test('draft comparison treats zero as a real value and ignores untouched fields', () => {
+  const zero = {
+    measured_on: '2026-09-14',
+    polyp_count: 0,
+    ephyrae_count: 0,
+    salinity_psu: null,
+    notes: '',
+  };
+
+  // 0 is a measurement, never a missing value.
+  assert.equal(exports.isMeasurementPayloadUnchanged(zero, { ...zero }), true);
+  assert.equal(exports.isMeasurementPayloadUnchanged(zero, { ...zero, polyp_count: 4 }), false);
+  assert.equal(exports.isMeasurementPayloadUnchanged(zero, { ...zero, ephyrae_count: 2 }), false);
+  assert.equal(exports.isMeasurementPayloadUnchanged(zero, { ...zero, notes: 'observation' }), false);
+  assert.equal(exports.isMeasurementPayloadUnchanged(zero, { ...zero, salinity_psu: '35' }), false);
+
+  const positive = { ...zero, polyp_count: 12, ephyrae_count: 3 };
+  assert.equal(exports.isMeasurementPayloadUnchanged(positive, { ...positive }), true);
+  assert.equal(exports.isMeasurementPayloadUnchanged(positive, { ...positive, polyp_count: 0 }), false);
+  assert.equal(exports.isMeasurementPayloadUnchanged(positive, { ...positive, ephyrae_count: 0 }), false);
+});
+
+test('an unchanged weekly measurement cannot be saved again', () => {
+  const appSource = readSource('../src/App.tsx');
+  const buttonSource = readSource('../src/components/MeasurementSaveButton.tsx');
+
+  assert.match(
+    appSource,
+    /const persistedMeasurementPayload = editingMeasurement\s*\? buildMeasurementPayload\(getMeasurementFormValues\(editingMeasurement\)\)\s*: null;/s,
+  );
+  assert.match(
+    appSource,
+    /const isMeasurementDraftUnchanged = persistedMeasurementPayload != null\s*&& isMeasurementPayloadUnchanged\(persistedMeasurementPayload, buildMeasurementPayload\(form\)\);/s,
+  );
+  assert.match(appSource, /if \(editingMeasurementId != null && isMeasurementDraftUnchanged\) return false;/);
+  assert.match(appSource, /const payload = buildMeasurementPayload\(form\);/);
+  assert.match(appSource, /isDisabled=\{isMeasurementFormLocked \|\| isMeasurementDraftUnchanged\}/);
+  assert.match(buttonSource, /disabled=\{isDisabled \|\| isSaving\}/);
+});
+
+test('generic post-action feedback is removed while meaningful errors remain', () => {
+  const appSource = readSource('../src/App.tsx');
+  const adminSource = readSource('../src/components/AdminView.tsx');
+  const inventorySource = readSource('../src/components/BoxInventoryAdminSection.tsx');
+  const buttonSource = readSource('../src/components/MeasurementSaveButton.tsx');
+  const frSource = readSource('../src/i18n/fr.ts');
+  const enSource = readSource('../src/i18n/en.ts');
+
+  assert.doesNotMatch(appSource, /saveMessage|subcultureMessage|moveMessage|statusMessage|inline-success/);
+  assert.doesNotMatch(buttonSource, /isSuccess|labels\.saved/);
+  assert.doesNotMatch(adminSource, /inline-success|setMessage\(/);
+  for (const key of [
+    'measurementSaved',
+    'measurementUpdated',
+    'createBoxSaved',
+    'subcultureSaved',
+    'moveSaved',
+    'boxActivated',
+    'boxArchived',
+    'adminZoneCreated',
+    'adminOrganizationDeleted',
+    'adminTransferImportSuccess',
+  ]) {
+    assert.doesNotMatch(frSource, new RegExp(`${key}:`));
+    assert.doesNotMatch(enSource, new RegExp(`${key}:`));
+  }
+
+  // Failures stay visible and actionable.
+  assert.match(appSource, /setSaveError\(getMeasurementSaveError\(requestError, t\)\)/);
+  assert.match(appSource, /setSubcultureError\(getSubcultureSaveError\(requestError, t\)\)/);
+  assert.match(appSource, /setMoveError\(getMoveSaveError\(requestError, t\)\)/);
+  assert.match(appSource, /setStatusError\(getErrorMessage\(requestError\)\)/);
+  assert.match(adminSource, /setError\(getErrorMessage\(requestError\)\)/);
+  assert.match(inventorySource, /setLifecycleError\(getErrorMessage\(requestError\)\)/);
+  assert.match(inventorySource, /setBatchError\(getErrorMessage\(requestError\)\)/);
 });
 
 function readSource(relativePath) {

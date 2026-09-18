@@ -44,6 +44,28 @@ export function getMeasurementFormValues(
   };
 }
 
+export type MeasurementPayloadValues = {
+  measured_on: string;
+  polyp_count: number;
+  ephyrae_count: number;
+  salinity_psu: string | null;
+  notes: string;
+};
+
+// Compares two normalized measurement payloads, so a draft that would send the
+// persisted values counts as unchanged and must not be saved again. Counts are
+// compared as numbers, never by truthiness: 0 is a real measurement.
+export function isMeasurementPayloadUnchanged(
+  persisted: MeasurementPayloadValues,
+  draft: MeasurementPayloadValues,
+): boolean {
+  return persisted.measured_on === draft.measured_on
+    && persisted.polyp_count === draft.polyp_count
+    && persisted.ephyrae_count === draft.ephyrae_count
+    && persisted.salinity_psu === draft.salinity_psu
+    && persisted.notes === draft.notes;
+}
+
 export function formatMeasurementCount(value: number | null | undefined): string {
   return value == null ? '-' : String(value);
 }

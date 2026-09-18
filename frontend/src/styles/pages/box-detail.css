@@ -158,8 +158,6 @@
 
 .box-alert-trigger.is-empty strong { background: var(--color-muted); }
 
-.box-action-feedback { margin: calc(-1 * var(--space-2)) 0 0; }
-
 .box-page-grid {
   display: grid;
   grid-template:
@@ -250,12 +248,9 @@
   color: var(--color-primary-hover);
 }
 
-.last-reading-comment-header .measurement-lock-note,
-.measurement-summary-feedback {
+.last-reading-comment-header .measurement-lock-note {
   margin: 0;
 }
-
-.measurement-summary-feedback { text-align: right; }
 
 .last-reading-comment {
   min-width: 0;
@@ -480,13 +475,6 @@
 .hold-save-progress { position: absolute; inset: 3px; border-radius: inherit; background: var(--color-danger-soft); }
 .measurement-save-button.is-holding { border-color: var(--color-danger); }
 
-.measurement-save-button.is-success {
-  color: #fff;
-  background: var(--color-success);
-}
-
-.measurement-save-button.is-success > span:last-child::before { content: "\2713\00a0"; }
-
 .measurement-cancel-button {
   width: 100%;
   min-height: 44px;
@@ -518,13 +506,6 @@
   cursor: pointer;
 }
 
-.last-reading-card.is-fresh { animation: reading-saved 280ms ease-out; }
-
-@keyframes reading-saved {
-  from { opacity: 0; transform: translateY(6px); }
-  55% { border-color: var(--color-success); background: var(--color-success-soft); }
-  to { opacity: 1; transform: translateY(0); }
-}
 
 .measurement-module.is-expanded .fake-form {
   animation: measurement-editor-open 240ms ease-out;

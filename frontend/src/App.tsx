@@ -108,6 +108,7 @@ import {
   getMeasurementEditorMode,
   getMeasurementFormValues,
   isMeasurementEditWindowExpired,
+  isMeasurementPayloadUnchanged,
   isMeasurementWeekConflict,
 } from './utils/boxMeasurement';
 import { formatDisplayDate } from './utils/dateFormat';
@@ -127,6 +128,7 @@ import {
 import { triggerHaptic } from './utils/haptics';
 import { PHONE_NAVIGATION_ITEMS, type PhoneDestination } from './utils/phoneNavigation';
 import { buildQrLabelItem, getBoxQrImageUrl, getBoxScanUrl, type QrLabelItem } from './utils/qrLabels';
+import { isRouteRequestCurrent } from './utils/routeSafety';
 
 const AdminView = lazy(() => import('./components/AdminView'));
 const BoxInsights = lazy(() => import('./components/BoxInsights'));
@@ -149,6 +151,10 @@ const ZonesView = lazy(() =>
 // Boxes are filtered client-side, so the whole collection must be loaded.
 // Kept well above the current box count to leave room for growth.
 const BOX_LIST_LIMIT = 1000;
+const PILOTAGE_RESULT_LIMIT = 15;
+const PHONE_RESULT_LIMIT = 5;
+const DIALOG_FOCUSABLE_SELECTOR =
+  'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
 
 // Salinity (PSU) is read off a refractometer and lands on round values, so the
 // +/- buttons move by 5 rather than by decimals. The field starts on the control
@@ -246,6 +252,7 @@ export default function App() {
   const [recentBoxIds, setRecentBoxIds] = useState<number[]>([]);
   const [qrLabelSelection, setQrLabelSelection] = useState<QrLabelItem[]>([]);
   const [isPhoneQrOpen, setIsPhoneQrOpen] = useState(false);
+  const [isCreateBoxOpen, setIsCreateBoxOpen] = useState(false);
   // Values carried over when the history sends the user to correct a
   // measurement; consumed once by the box sheet, then cleared.
   const [measurementPrefill, setMeasurementPrefill] = useState<HistoryMeasurementPrefill | null>(null);
@@ -253,6 +260,8 @@ export default function App() {
   const [needsOrganizationChoice, setNeedsOrganizationChoice] = useState(false);
   const [isOrganizationMenuOpen, setIsOrganizationMenuOpen] = useState(false);
   const lastRecordedBoxIdRef = useRef<number | null>(null);
+  const navigationGenerationRef = useRef(0);
+  const openBoxRequestGenerationRef = useRef(0);
   const [data, setData] = useState<AppData>({
     boxes: [],
     boxDetails: {},
@@ -291,10 +300,15 @@ export default function App() {
   // The tablet rail is always icon-only, so it hides labels just like the collapsed desktop sidebar.
   const isNavLabelHidden = isEffectiveCollapsed || isTabletLayout;
   const hasAdminRole = userHasAdminRole(data.profile, activeOrganizationId);
+  const canCreateBox = userCanCreateBoxes(data.profile);
 
   useEffect(() => {
     document.documentElement.lang = language;
   }, [language]);
+
+  useEffect(() => {
+    if (activeTab !== 'pilotage' || isBoxRoute || isPhoneLayout) setIsCreateBoxOpen(false);
+  }, [activeTab, isBoxRoute, isPhoneLayout]);
   const canUseAdmin = hasAdminRole;
   const isExportOptionsLoading = (
     activeTab === 'exports' || exportOptionsRequested
@@ -381,6 +395,7 @@ export default function App() {
 
   useEffect(() => {
     function syncRoute() {
+      navigationGenerationRef.current += 1;
       setIsTabletScannerOpen(false);
       setRoute(getCurrentRoute());
       setIsLoginRoute(window.location.pathname === '/login');
@@ -469,6 +484,7 @@ export default function App() {
         if (shouldRedirectToLogin(profileLoaded, status)) {
           const requestedPath = `${window.location.pathname}${window.location.search}`;
           const loginPath = `/login?next=${encodeURIComponent(requestedPath)}`;
+          navigationGenerationRef.current += 1;
           window.history.replaceState(null, '', loginPath);
           setIsLoginRoute(true);
           setError(null);
@@ -521,6 +537,10 @@ export default function App() {
     () => filterBoxes(data.boxes, search),
     [data.boxes, search],
   );
+
+  useEffect(() => {
+    if (activeTab === 'pilotage' && !isBoxRoute) setSearch('');
+  }, [activeTab, isBoxRoute]);
 
   const selectedBoxId = useMemo(() => {
     if (route.boxId != null) return route.boxId;
@@ -610,27 +630,49 @@ export default function App() {
   }
 
   function openBox(boxId: number, fallbackCode?: string) {
+    const requestGeneration = ++openBoxRequestGenerationRef.current;
     const box = data.boxes.find((item) => item.id === boxId);
     if (box) {
-      setSearch(box.global_code);
+      setIsBoxLoading(false);
       navigateTo({ tab: 'pilotage', boxCode: box.global_code, boxId: null }, `/boxes/${encodeURIComponent(box.global_code)}`);
       return;
     }
 
     if (fallbackCode) {
-      setSearch(fallbackCode);
       navigateTo({ tab: 'pilotage', boxCode: fallbackCode, boxId: null }, `/boxes/${encodeURIComponent(fallbackCode)}`);
     }
 
+    const navigationGeneration = navigationGenerationRef.current;
     setIsBoxLoading(true);
     void apiGet<BoxDetail>(`/api/boxes/${boxId}/`)
       .then((detail) => {
+        if (!isRouteRequestCurrent(
+          requestGeneration,
+          openBoxRequestGenerationRef.current,
+          navigationGeneration,
+          navigationGenerationRef.current,
+        )) return;
         setData((current) => mergeBoxDetail(current, detail));
-        setSearch(detail.global_code);
         navigateTo({ tab: 'pilotage', boxCode: detail.global_code, boxId: null }, `/boxes/${encodeURIComponent(detail.global_code)}`);
       })
-      .catch(async (requestError) => setError(await getApplicationError(requestError)))
-      .finally(() => setIsBoxLoading(false));
+      .catch(async (requestError) => {
+        if (!isRouteRequestCurrent(
+          requestGeneration,
+          openBoxRequestGenerationRef.current,
+          navigationGeneration,
+          navigationGenerationRef.current,
+        )) return;
+        const applicationError = await getApplicationError(requestError);
+        if (isRouteRequestCurrent(
+          requestGeneration,
+          openBoxRequestGenerationRef.current,
+          navigationGeneration,
+          navigationGenerationRef.current,
+        )) setError(applicationError);
+      })
+      .finally(() => {
+        if (requestGeneration === openBoxRequestGenerationRef.current) setIsBoxLoading(false);
+      });
   }
 
   function openZone(zoneId: number) {
@@ -645,6 +687,7 @@ export default function App() {
   }
 
   function openTab(tab: TabId) {
+    if (tab === 'pilotage') setSearch('');
     if (tab === 'admin') {
       openAdminSection('accounts');
       return;
@@ -745,6 +788,7 @@ export default function App() {
   }, [activeOrganizationId, activeTab, data.exportOptions, exportOptionsRequested, isLoginRoute, needsOrganizationChoice]);
 
   function closeBoxPage() {
+    setSearch('');
     navigateTo({ tab: 'pilotage', boxCode: null, boxId: null }, '/');
   }
 
@@ -753,11 +797,13 @@ export default function App() {
   }
 
   function navigateTo(nextRoute: RouteState, path: string) {
+    navigationGenerationRef.current += 1;
     window.history.pushState(null, '', path);
     setRoute(nextRoute);
   }
 
   function replaceRoute(nextRoute: RouteState, path: string) {
+    navigationGenerationRef.current += 1;
     window.history.replaceState(null, '', path);
     setRoute(nextRoute);
   }
@@ -811,6 +857,7 @@ export default function App() {
     setActiveOrganizationId(null);
     setNeedsOrganizationChoice(false);
     setIsOrganizationMenuOpen(false);
+    navigationGenerationRef.current += 1;
     window.history.replaceState(null, '', '/login');
     setRoute(getCurrentRoute());
     setError(null);
@@ -1075,6 +1122,7 @@ export default function App() {
       ? nextPath
       : '/';
 
+    navigationGenerationRef.current += 1;
     window.history.replaceState(null, '', destination);
     setRoute(getCurrentRoute());
     setError(null);
@@ -1088,6 +1136,7 @@ export default function App() {
         token={passwordReset.token}
         t={t}
         onDone={() => {
+          navigationGenerationRef.current += 1;
           window.history.replaceState(null, '', '/login');
           setPasswordReset(null);
           setIsLoginRoute(true);
@@ -1244,8 +1293,18 @@ export default function App() {
 
       <section className="workspace">
         {!isBoxRoute && !isZoneRoute ? (
-          <header className="page-heading">
+          <header className={activeTab === 'pilotage' ? 'page-heading pilotage-page-heading' : 'page-heading'}>
             <h1>{getTitle(activeTab, t)}</h1>
+            {activeTab === 'pilotage' && !isPhoneLayout && canCreateBox ? (
+              <button
+                className="secondary-button button-icon-label pilotage-create-action"
+                type="button"
+                onClick={() => setIsCreateBoxOpen(true)}
+              >
+                <PolypbaseIcon name="plus" size={18} />
+                {t('createBoxNew')}
+              </button>
+            ) : null}
           </header>
         ) : null}
 
@@ -1309,13 +1368,15 @@ export default function App() {
                 boxes={data.boxes}
                 exportOptions={data.exportOptions}
                 isLoading={isLoading}
-                isTabletLayout={isTabletLayout}
+                isCreateBoxOpen={isCreateBoxOpen}
+                isPhoneLayout={isPhoneLayout}
                 isOptionsLoading={isExportOptionsLoading}
                 profile={data.profile}
                 search={search}
-                suggestions={filteredBoxes.slice(0, 5)}
+                searchResults={filteredBoxes}
                 recentBoxes={recentBoxes}
                 onCreateBox={createBox}
+                onCreateBoxOpenChange={setIsCreateBoxOpen}
                 onRequestOptions={() => setExportOptionsRequested(true)}
                 confirmAction={confirmAction}
                 onSearch={setSearch}
@@ -1774,13 +1835,15 @@ function PilotageView({
   boxes,
   exportOptions,
   isLoading,
-  isTabletLayout,
+  isCreateBoxOpen,
+  isPhoneLayout,
   isOptionsLoading,
   profile,
   recentBoxes,
   search,
-  suggestions,
+  searchResults,
   onCreateBox,
+  onCreateBoxOpenChange,
   onRequestOptions,
   confirmAction,
   t,
@@ -1790,30 +1853,32 @@ function PilotageView({
   boxes: BoxItem[];
   exportOptions: ExportOptions | null;
   isLoading: boolean;
-  isTabletLayout: boolean;
+  isCreateBoxOpen: boolean;
+  isPhoneLayout: boolean;
   isOptionsLoading: boolean;
   profile: UserProfile | null;
   recentBoxes: BoxItem[];
   search: string;
-  suggestions: BoxItem[];
+  searchResults: BoxItem[];
   onCreateBox: (payload: BoxCreatePayload) => Promise<BoxDetail>;
+  onCreateBoxOpenChange: (isOpen: boolean) => void;
   onRequestOptions: () => void;
   confirmAction: ConfirmAction;
   t: TFunction;
   onSearch: (value: string) => void;
   onSelectBox: (id: number) => void;
 }) {
-  const visibleSuggestions = search.trim() ? suggestions : [];
+  const hasSearch = Boolean(search.trim());
+  const visibleSuggestions = hasSearch
+    ? searchResults.slice(0, isPhoneLayout ? PHONE_RESULT_LIMIT : PILOTAGE_RESULT_LIMIT)
+    : [];
   const [tabletLookupMode, setTabletLookupMode] = useState<'qr' | 'search'>('qr');
   const [highlightedSuggestionIndex, setHighlightedSuggestionIndex] = useState(0);
   const canCreateBox = userCanCreateBoxes(profile);
 
   function selectFirstSuggestion() {
     const selectedSuggestion = visibleSuggestions[highlightedSuggestionIndex] ?? visibleSuggestions[0];
-    if (selectedSuggestion) {
-      onSelectBox(selectedSuggestion.id);
-      onSearch(selectedSuggestion.global_code);
-    }
+    if (selectedSuggestion) onSelectBox(selectedSuggestion.id);
   }
 
   function handleSearchChange(value: string) {
@@ -1822,6 +1887,11 @@ function PilotageView({
   }
 
   function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      handleSearchChange('');
+      return;
+    }
     if (!visibleSuggestions.length) return;
 
     if (event.key === 'ArrowDown') {
@@ -1830,18 +1900,17 @@ function PilotageView({
     } else if (event.key === 'ArrowUp') {
       event.preventDefault();
       setHighlightedSuggestionIndex((current) => (current - 1 + visibleSuggestions.length) % visibleSuggestions.length);
-    } else if (event.key === 'Escape') {
-      event.preventDefault();
-      handleSearchChange('');
     }
   }
 
+  const resultIdPrefix = isPhoneLayout ? 'box-suggestion' : 'box-search-result';
+  const resultListId = isPhoneLayout ? 'box-suggestions' : 'box-search-results';
   const searchFieldProps = {
     activeDescendant: visibleSuggestions[highlightedSuggestionIndex]
-      ? `box-suggestion-${visibleSuggestions[highlightedSuggestionIndex].id}`
+      ? `${resultIdPrefix}-${visibleSuggestions[highlightedSuggestionIndex].id}`
       : undefined,
-    controls: 'box-suggestions',
-    expanded: visibleSuggestions.length > 0,
+    controls: isPhoneLayout || hasSearch ? resultListId : undefined,
+    expanded: hasSearch && (!isPhoneLayout || visibleSuggestions.length > 0),
     labels: {
       label: t('searchOrScan'),
       placeholder: t('searchPlaceholder'),
@@ -1859,106 +1928,116 @@ function PilotageView({
   return (
     <section className="pilotage-flow">
       <div className="lookup-panel">
-        <div className="desktop-search-panel">
-          <SearchField {...searchFieldProps} />
-        </div>
-
-        <div className="tablet-search-panel">
-          <SearchField
-            {...searchFieldProps}
-            labels={{
-              label: t('searchTab'),
-              placeholder: t('searchPlaceholder'),
-            }}
-          />
-        </div>
-
-        {!isTabletLayout ? (
-          <section className={`phone-lookup-panel is-${tabletLookupMode}-mode`}>
-            <div className="tablet-lookup-tabs" role="tablist" aria-label={t('searchOrScan')}>
-              <button
-                className={tabletLookupMode === 'qr' ? 'is-active' : ''}
-                type="button"
-                role="tab"
-                aria-selected={tabletLookupMode === 'qr'}
-                onClick={() => setTabletLookupMode('qr')}
-              >
-                {t('qrCode')}
-              </button>
-              <button
-                className={tabletLookupMode === 'search' ? 'is-active' : ''}
-                type="button"
-                role="tab"
-                aria-selected={tabletLookupMode === 'search'}
-                onClick={() => setTabletLookupMode('search')}
-              >
-                {t('searchTab')}
-              </button>
-            </div>
-
-            {tabletLookupMode === 'qr' ? (
-              <TabletQrScanner
-                boxes={boxes}
-                labels={{
-                  found: t('qrScannerFound'),
-                  loading: t('qrScannerLoading'),
-                  permission: t('qrScannerPermission'),
-                  secureContext: t('qrScannerSecureContext'),
-                  start: t('qrScannerStart'),
-                  stop: t('qrScannerStop'),
-                  unsupported: t('qrScannerUnsupported'),
-                }}
+        {!isPhoneLayout ? (
+          <div className="pilotage-search-surface">
+            <SearchField
+              {...searchFieldProps}
+              labels={{
+                label: t('searchOrScan'),
+                placeholder: t('pilotageSearchPlaceholder'),
+              }}
+              clearLabel={t('searchClear')}
+              variant="control-deck"
+            />
+            {hasSearch ? (
+              <SuggestionList
+                boxes={visibleSuggestions}
+                listId={resultListId}
+                resultIdPrefix={resultIdPrefix}
+                selectedBoxId={visibleSuggestions[highlightedSuggestionIndex]?.id ?? null}
+                totalCount={searchResults.length}
+                heading={t('searchResults')}
+                isPhoneLayout={false}
+                onClear={() => handleSearchChange('')}
                 onSelectBox={onSelectBox}
+                t={t}
               />
-            ) : (
-              <div className="tablet-manual-search">
-                <SearchField {...searchFieldProps} />
+            ) : null}
+          </div>
+        ) : (
+          <>
+            <section className={`phone-lookup-panel is-${tabletLookupMode}-mode`}>
+              <div className="tablet-lookup-tabs" role="tablist" aria-label={t('searchOrScan')}>
+                <button
+                  className={tabletLookupMode === 'qr' ? 'is-active' : ''}
+                  type="button"
+                  role="tab"
+                  aria-selected={tabletLookupMode === 'qr'}
+                  onClick={() => setTabletLookupMode('qr')}
+                >
+                  {t('qrCode')}
+                </button>
+                <button
+                  className={tabletLookupMode === 'search' ? 'is-active' : ''}
+                  type="button"
+                  role="tab"
+                  aria-selected={tabletLookupMode === 'search'}
+                  onClick={() => setTabletLookupMode('search')}
+                >
+                  {t('searchTab')}
+                </button>
               </div>
-            )}
-          </section>
+
+              {tabletLookupMode === 'qr' ? (
+                <TabletQrScanner
+                  boxes={boxes}
+                  labels={{
+                    found: t('qrScannerFound'),
+                    loading: t('qrScannerLoading'),
+                    permission: t('qrScannerPermission'),
+                    secureContext: t('qrScannerSecureContext'),
+                    start: t('qrScannerStart'),
+                    stop: t('qrScannerStop'),
+                    unsupported: t('qrScannerUnsupported'),
+                  }}
+                  onSelectBox={onSelectBox}
+                />
+              ) : (
+                <div className="tablet-manual-search">
+                  <SearchField {...searchFieldProps} />
+                </div>
+              )}
+            </section>
+
+            <div className="mobile-suggestion-slot">
+              {tabletLookupMode === 'search' && visibleSuggestions.length > 0 ? (
+                <SuggestionList
+                  boxes={visibleSuggestions}
+                  listId={resultListId}
+                  resultIdPrefix={resultIdPrefix}
+                  selectedBoxId={visibleSuggestions[highlightedSuggestionIndex]?.id ?? null}
+                  totalCount={visibleSuggestions.length}
+                  heading={t('suggestions')}
+                  isPhoneLayout
+                  onSelectBox={onSelectBox}
+                  t={t}
+                />
+              ) : null}
+            </div>
+          </>
+        )}
+
+        {(!hasSearch || isPhoneLayout) ? (
+          <RecentAccessList boxes={recentBoxes} isPhoneLayout={isPhoneLayout} onSelectBox={onSelectBox} t={t} />
         ) : null}
-
-        <div className="mobile-suggestion-slot">
-          {(isTabletLayout || tabletLookupMode === 'search') && visibleSuggestions.length > 0 ? (
-            <SuggestionList
-              boxes={visibleSuggestions}
-              selectedBoxId={visibleSuggestions[highlightedSuggestionIndex]?.id ?? null}
-              onSelectBox={onSelectBox}
-              t={t}
-            />
-          ) : null}
-        </div>
-
-        <div className="desktop-suggestion-slot">
-          {!isLoading && visibleSuggestions.length > 0 ? (
-            <SuggestionList
-              boxes={visibleSuggestions}
-              selectedBoxId={visibleSuggestions[highlightedSuggestionIndex]?.id ?? null}
-              onSelectBox={onSelectBox}
-              t={t}
-            />
-          ) : null}
-        </div>
-
-        <RecentAccessList boxes={recentBoxes} onSelectBox={onSelectBox} t={t} />
 
         {canCreateBox ? (
           <CreateBoxPanel
             boxes={boxes}
             exportOptions={exportOptions}
+            isOpen={isPhoneLayout ? undefined : isCreateBoxOpen}
             isOptionsLoading={isOptionsLoading}
+            presentation={isPhoneLayout ? 'inline' : 'modal'}
             profile={profile}
             t={t}
             onCreateBox={onCreateBox}
+            onOpenChange={isPhoneLayout ? undefined : onCreateBoxOpenChange}
             onRequestOptions={onRequestOptions}
             confirmAction={confirmAction}
             onSelectBox={onSelectBox}
-            onSearch={onSearch}
           />
         ) : null}
       </div>
-
-      <JellyfishPattern />
     </section>
   );
 }
@@ -1966,27 +2045,36 @@ function PilotageView({
 function CreateBoxPanel({
   boxes,
   exportOptions,
+  isOpen: controlledIsOpen,
   isOptionsLoading,
+  presentation = 'inline',
   profile,
   confirmAction,
   onCreateBox,
+  onOpenChange,
   onRequestOptions,
-  onSearch,
   onSelectBox,
   t,
 }: {
   boxes: BoxItem[];
   exportOptions: ExportOptions | null;
+  isOpen?: boolean;
   isOptionsLoading: boolean;
+  presentation?: 'inline' | 'modal';
   profile: UserProfile | null;
   confirmAction: ConfirmAction;
   onCreateBox: (payload: BoxCreatePayload) => Promise<BoxDetail>;
+  onOpenChange?: (isOpen: boolean) => void;
   onRequestOptions: () => void;
-  onSearch: (value: string) => void;
   onSelectBox: (id: number) => void;
   t: TFunction;
 }) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isInlineOpen, setIsInlineOpen] = useState(false);
+  const isOpen = presentation === 'modal' ? Boolean(controlledIsOpen) : isInlineOpen;
+  const dialogRef = useRef<HTMLElement | null>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+  const isQuickStrainOpenRef = useRef(false);
+  const isConfirmationOpenRef = useRef(false);
   const activeOrganization = profile?.active_organization ?? null;
   const organizationId = activeOrganization?.id ?? null;
   const [strainId, setStrainId] = useState<number | null>(null);
@@ -1999,8 +2087,12 @@ function CreateBoxPanel({
   const [createdStrains, setCreatedStrains] = useState<QuickCreatedStrain[]>([]);
   const [isQuickStrainOpen, setIsQuickStrainOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  function setOpen(nextIsOpen: boolean) {
+    if (presentation === 'modal') onOpenChange?.(nextIsOpen);
+    else setIsInlineOpen(nextIsOpen);
+  }
 
   const strains = useMemo(() => {
     const options = exportOptions?.strains ?? [];
@@ -2034,33 +2126,94 @@ function CreateBoxPanel({
     setZoneId(null);
   }, [availableZones, zoneId]);
 
+  useEffect(() => {
+    isQuickStrainOpenRef.current = isQuickStrainOpen;
+  }, [isQuickStrainOpen]);
+
+  useEffect(() => {
+    if (presentation === 'modal' && isOpen && !exportOptions) onRequestOptions();
+  }, [exportOptions, isOpen, onRequestOptions, presentation]);
+
+  useLayoutEffect(() => {
+    if (presentation !== 'modal' || !isOpen) return;
+    returnFocusRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    dialogRef.current?.querySelector<HTMLButtonElement>('.modal-close-button')?.focus();
+  }, [isOpen, presentation]);
+
+  useEffect(() => {
+    if (presentation !== 'modal' || !isOpen) return;
+
+    function handleKeyDown(event: globalThis.KeyboardEvent) {
+      if (isQuickStrainOpenRef.current || isConfirmationOpenRef.current) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setOpen(false);
+        return;
+      }
+      if (event.key !== 'Tab') return;
+
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR));
+      if (!focusable.length) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || !dialog.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onOpenChange, presentation]);
+
+  useEffect(() => {
+    if (presentation !== 'modal' || !isOpen) return;
+    const returnFocus = returnFocusRef.current;
+    return () => {
+      if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+    };
+  }, [isOpen, presentation]);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isSaving || !canSubmit || organizationId == null || strainId == null || zoneId == null) return;
 
     if (!boxCodeMatchesBoxNumber(globalCode, boxNumber)) {
-      setMessage(null);
       setError(t('createBoxNumberMismatch'));
       return;
     }
 
-    const confirmed = await confirmAction({
-      title: t('confirmCreateBoxTitle'),
-      message: t('confirmCreateBoxMessage'),
-      confirmLabel: t('confirmCreateBoxAction'),
-      cancelLabel: t('confirmCancel'),
-      details: [
-        { label: t('confirmDetailBox'), value: globalCode.trim() },
-        { label: t('confirmDetailSpecies'), value: selectedStrain?.species_name },
-        { label: t('confirmDetailStrain'), value: selectedStrain?.code },
-        { label: t('confirmDetailOrganization'), value: activeOrganization?.name },
-        { label: t('confirmDetailLocation'), value: selectedZone?.name ?? t('createBoxNoZone') },
-      ],
-    });
+    let confirmed = false;
+    isConfirmationOpenRef.current = true;
+    try {
+      confirmed = await confirmAction({
+        title: t('confirmCreateBoxTitle'),
+        message: t('confirmCreateBoxMessage'),
+        confirmLabel: t('confirmCreateBoxAction'),
+        cancelLabel: t('confirmCancel'),
+        details: [
+          { label: t('confirmDetailBox'), value: globalCode.trim() },
+          { label: t('confirmDetailSpecies'), value: selectedStrain?.species_name },
+          { label: t('confirmDetailStrain'), value: selectedStrain?.code },
+          { label: t('confirmDetailOrganization'), value: activeOrganization?.name },
+          { label: t('confirmDetailLocation'), value: selectedZone?.name ?? t('createBoxNoZone') },
+        ],
+      });
+    } finally {
+      isConfirmationOpenRef.current = false;
+    }
     if (!confirmed) return;
 
     setIsSaving(true);
-    setMessage(null);
     setError(null);
 
     try {
@@ -2074,12 +2227,15 @@ function CreateBoxPanel({
         volume_liters: null,
         notes: notes.trim(),
       });
-      setMessage(t('createBoxSaved'));
       setGlobalCode('');
       setBoxNumber('');
       setNotes('');
-      onSearch(created.global_code);
       onSelectBox(created.id);
+      if (presentation === 'modal') {
+        window.requestAnimationFrame(() => {
+          document.querySelector<HTMLElement>('[data-box-page-focus-target]')?.focus({ preventScroll: true });
+        });
+      }
     } catch (requestError) {
       if (requestError instanceof ApiError && requestError.status === 403) {
         setError(t('createBoxForbidden'));
@@ -2091,21 +2247,23 @@ function CreateBoxPanel({
     }
   }
 
-  return (
-    <section className="create-box-panel">
-      <button
-        className="create-box-toggle"
-        type="button"
-        onClick={() => {
-          if (!isOpen && !exportOptions) onRequestOptions();
-          setIsOpen((current) => !current);
-        }}
-      >
-        <span aria-hidden="true">
-          <PolypbaseIcon name={isOpen ? 'close' : 'plus'} size={18} />
-        </span>
-        <strong>{isOpen ? t('createBoxClose') : t('createBoxOpen')}</strong>
-      </button>
+  const panel = (
+    <section className={presentation === 'modal' ? 'create-box-panel is-modal' : 'create-box-panel'}>
+      {presentation === 'inline' ? (
+        <button
+          className="create-box-toggle"
+          type="button"
+          onClick={() => {
+            if (!isOpen && !exportOptions) onRequestOptions();
+            setOpen(!isOpen);
+          }}
+        >
+          <span aria-hidden="true">
+            <PolypbaseIcon name={isOpen ? 'close' : 'plus'} size={18} />
+          </span>
+          <strong>{isOpen ? t('createBoxClose') : t('createBoxOpen')}</strong>
+        </button>
+      ) : null}
 
       {isOpen ? (
         <form className="create-box-form" onSubmit={handleSubmit}>
@@ -2193,7 +2351,6 @@ function CreateBoxPanel({
           <button type="submit" disabled={isSaving || !canSubmit}>
             {isSaving ? t('saving') : t('createBoxSubmit')}
           </button>
-          {message ? <p className="inline-success">{message}</p> : null}
           {error ? <p className="inline-error">{error}</p> : null}
         </form>
       ) : null}
@@ -2214,14 +2371,44 @@ function CreateBoxPanel({
       ) : null}
     </section>
   );
+
+  if (presentation === 'modal') {
+    if (!isOpen) return null;
+    return (
+      <ModalPortal>
+        <div className="modal-backdrop create-box-backdrop" role="presentation" onMouseDown={() => setOpen(false)}>
+          <section
+            ref={dialogRef}
+            className="create-box-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-box-modal-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header className="modal-heading create-box-modal-heading">
+              <h2 id="create-box-modal-title">{t('createBoxTitle')}</h2>
+              <button className="modal-close-button" type="button" aria-label={t('close')} onClick={() => setOpen(false)}>
+                <PolypbaseIcon name="close" size={18} />
+              </button>
+            </header>
+            <div className="create-box-modal-content">{panel}</div>
+          </section>
+        </div>
+      </ModalPortal>
+    );
+  }
+
+  return panel;
 }
 
 function RecentAccessList({
   boxes,
+  isPhoneLayout,
   onSelectBox,
   t,
 }: {
   boxes: BoxItem[];
+  isPhoneLayout: boolean;
   onSelectBox: (id: number) => void;
   t: TFunction;
 }) {
@@ -2256,6 +2443,11 @@ function RecentAccessList({
             <span className="recent-box-meta">
               <span>{box.thermal_zone?.name ?? t('noZone')}</span>
             </span>
+            {!isPhoneLayout ? (
+              <span className="recent-box-chevron" aria-hidden="true">
+                <PolypbaseIcon name="chevron-right" size={16} />
+              </span>
+            ) : null}
           </button>
         ))}
       </div>
@@ -2265,107 +2457,120 @@ function RecentAccessList({
 
 function SuggestionList({
   boxes,
+  listId,
+  resultIdPrefix,
   selectedBoxId,
+  totalCount,
+  heading,
+  isPhoneLayout,
+  onClear,
   onSelectBox,
   t,
 }: {
   boxes: BoxItem[];
+  listId: string;
+  resultIdPrefix: string;
   selectedBoxId: number | null;
+  totalCount: number;
+  heading: string;
+  isPhoneLayout: boolean;
+  onClear?: () => void;
   onSelectBox: (id: number) => void;
   t: TFunction;
 }) {
   return (
-    <section className="suggestion-panel" aria-label="Suggestions de boîtes">
+    <section className="suggestion-panel" aria-label={heading}>
       <div className="section-title">
-        <h2>{t('suggestions')}</h2>
-        <span>{boxes.length}</span>
+        <h2>{heading}</h2>
+        <span aria-live="polite">{totalCount}</span>
       </div>
 
-      <div className="suggestion-list" id="box-suggestions" role="listbox">
-        {boxes.map((box) => (
-          <button
-            key={box.id}
-            id={`box-suggestion-${box.id}`}
-            className={selectedBoxId === box.id ? 'suggestion-row is-selected' : 'suggestion-row'}
-            type="button"
-            role="option"
-            aria-selected={selectedBoxId === box.id}
-            onClick={() => onSelectBox(box.id)}
-          >
-            <span className="suggestion-identity">
-              <strong>{box.global_code}</strong>
-              <small>{box.species.scientific_name}</small>
-            </span>
-            <span className="suggestion-reading">
-              {box.latest_measurement ? (
+      {boxes.length > 0 ? (
+        <div className="suggestion-list" id={listId} role="listbox">
+          {boxes.map((box) => (
+            <button
+              key={box.id}
+              id={`${resultIdPrefix}-${box.id}`}
+              className={selectedBoxId === box.id ? 'suggestion-row is-selected' : 'suggestion-row'}
+              type="button"
+              role="option"
+              aria-selected={selectedBoxId === box.id}
+              onClick={() => onSelectBox(box.id)}
+            >
+              {isPhoneLayout ? (
                 <>
-                  <strong>
-                    {box.latest_measurement.polyp_count} {t('polyps').toLocaleLowerCase()},{' '}
-                    {box.latest_measurement.ephyrae_count} {t('ephyrae').toLocaleLowerCase()}
-                  </strong>
-                  <small>{formatDisplayDate(box.latest_measurement.measured_on)}</small>
+                  <span className="suggestion-identity">
+                    <strong>{box.global_code}</strong>
+                    <small>{box.species.scientific_name}</small>
+                  </span>
+                  <span className="suggestion-reading">
+                    {box.latest_measurement ? (
+                      <>
+                        <strong>
+                          {box.latest_measurement.polyp_count} {t('polyps').toLocaleLowerCase()},{' '}
+                          {box.latest_measurement.ephyrae_count} {t('ephyrae').toLocaleLowerCase()}
+                        </strong>
+                        <small>{formatDisplayDate(box.latest_measurement.measured_on)}</small>
+                      </>
+                    ) : (
+                      <small>{t('noMeasurementHistory')}</small>
+                    )}
+                  </span>
+                  <span className="suggestion-location">
+                    <strong>{box.thermal_zone?.name ?? t('noZone')}</strong>
+                    {box.active_alert_count > 0 ? (
+                      <small className="suggestion-alert-count">
+                        {box.active_alert_count} {t('activeAlerts')}
+                      </small>
+                    ) : null}
+                  </span>
                 </>
               ) : (
-                <small>{t('noMeasurementHistory')}</small>
+                <>
+                  <span className="suggestion-identity">
+                    <strong>{box.global_code}</strong>
+                  </span>
+                  <span className="suggestion-context">
+                    <strong>{box.species.scientific_name}</strong>
+                  </span>
+                  <span className="suggestion-reading">
+                    {box.latest_measurement ? (
+                      <>
+                        <strong>
+                          {box.latest_measurement.polyp_count} {t('polyps').toLocaleLowerCase()},{' '}
+                          {box.latest_measurement.ephyrae_count} {t('ephyrae').toLocaleLowerCase()}
+                        </strong>
+                        <small>{formatDisplayDate(box.latest_measurement.measured_on)}</small>
+                      </>
+                    ) : (
+                      <small>{t('noMeasurementHistory')}</small>
+                    )}
+                  </span>
+                  <span className="suggestion-location">
+                    <strong>{box.thermal_zone?.name ?? t('noZone')}</strong>
+                    {box.active_alert_count > 0 ? (
+                      <small className="suggestion-alert-count">
+                        {box.active_alert_count} {t('activeAlerts')}
+                      </small>
+                    ) : null}
+                  </span>
+                </>
               )}
-            </span>
-            <span className="suggestion-location">
-              <strong>{box.thermal_zone?.name ?? t('noZone')}</strong>
-              {box.active_alert_count > 0 ? (
-                <small className="suggestion-alert-count">
-                  {box.active_alert_count} {t('activeAlerts')}
-                </small>
-              ) : null}
-            </span>
-            <span className="suggestion-chevron" aria-hidden="true">›</span>
-          </button>
-        ))}
-      </div>
+              <span className="suggestion-chevron" aria-hidden="true">
+                <PolypbaseIcon name="chevron-right" size={17} />
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="search-empty-state" id={listId} role="status">
+          <p>{t('searchNoResults')}</p>
+          {onClear ? (
+            <button type="button" onClick={onClear}>{t('searchClear')}</button>
+          ) : null}
+        </div>
+      )}
     </section>
-  );
-}
-
-const jellyfishPatternItems = [
-  { left: '4%', top: '8%', width: 24, opacity: 0.07, rotation: -8 },
-  { left: '23%', top: '2%', width: 34, opacity: 0.08, rotation: 4 },
-  { left: '48%', top: '9%', width: 27, opacity: 0.06, rotation: -2 },
-  { left: '76%', top: '4%', width: 38, opacity: 0.08, rotation: 7 },
-  { left: '11%', top: '24%', width: 42, opacity: 0.09, rotation: 3 },
-  { left: '36%', top: '21%', width: 28, opacity: 0.06, rotation: -7 },
-  { left: '61%', top: '27%', width: 34, opacity: 0.075, rotation: 5 },
-  { left: '86%', top: '22%', width: 25, opacity: 0.055, rotation: -4 },
-  { left: '2%', top: '47%', width: 31, opacity: 0.06, rotation: 6 },
-  { left: '22%', top: '43%', width: 25, opacity: 0.055, rotation: -5 },
-  { left: '45%', top: '49%', width: 48, opacity: 0.095, rotation: 2 },
-  { left: '70%', top: '44%', width: 31, opacity: 0.065, rotation: -8 },
-  { left: '92%', top: '50%', width: 39, opacity: 0.075, rotation: 6 },
-  { left: '9%', top: '70%', width: 29, opacity: 0.055, rotation: -2 },
-  { left: '31%', top: '66%', width: 37, opacity: 0.08, rotation: 8 },
-  { left: '58%', top: '73%', width: 26, opacity: 0.055, rotation: -6 },
-  { left: '81%', top: '69%', width: 44, opacity: 0.09, rotation: 3 },
-  { left: '15%', top: '88%', width: 41, opacity: 0.075, rotation: 5 },
-  { left: '52%', top: '91%', width: 30, opacity: 0.055, rotation: -4 },
-  { left: '74%', top: '88%', width: 28, opacity: 0.055, rotation: 7 },
-];
-
-function JellyfishPattern() {
-  return (
-    <div className="jellyfish-pattern" aria-hidden="true">
-      {jellyfishPatternItems.map((item, index) => (
-        <img
-          key={index}
-          src="/jellyfish.svg"
-          alt=""
-          style={{
-            left: item.left,
-            top: item.top,
-            width: `${item.width}px`,
-            opacity: item.opacity,
-            transform: `rotate(${item.rotation}deg)`,
-          }}
-        />
-      ))}
-    </div>
   );
 }
 
@@ -2439,9 +2644,7 @@ function BoxPage({
   const [isChangingBoxStatus, setIsChangingBoxStatus] = useState(false);
   const [lifecycleAction, setLifecycleAction] = useState<BoxLifecycleAction | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
-  const [moveMessage, setMoveMessage] = useState<string | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isSubcultureOpen, setIsSubcultureOpen] = useState(false);
   const [isSavingSubculture, setIsSavingSubculture] = useState(false);
   const [isQrLabelOpen, setIsQrLabelOpen] = useState(false);
@@ -2449,7 +2652,6 @@ function BoxPage({
   const [resolvingAlertId, setResolvingAlertId] = useState<number | null>(null);
   const [alertResolveError, setAlertResolveError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [editingMeasurementId, setEditingMeasurementId] = useState<number | null>(null);
   const [isMeasurementEditorOpen, setIsMeasurementEditorOpen] = useState(false);
   // Set while the form holds values brought over from the history, so the save
@@ -2457,7 +2659,6 @@ function BoxPage({
   // existing measurement, not adding one.
   const [isCorrectingFromHistory, setIsCorrectingFromHistory] = useState(false);
   const [subcultureError, setSubcultureError] = useState<string | null>(null);
-  const [subcultureMessage, setSubcultureMessage] = useState<string | null>(null);
   const [activeInsightTab, setActiveInsightTab] = useState<BoxInsightTab>('measurements');
   const [measurementReferenceDate, setMeasurementReferenceDate] = useState(getTodayDateValue);
   const measurements = box ? getMeasurementHistory(box) : [];
@@ -2480,6 +2681,15 @@ function BoxPage({
     || (isMeasurementEditorOpen && Boolean(editingMeasurement?.can_edit));
   const isMeasurementFormLocked = editingMeasurementId != null
     && !editingMeasurement?.can_edit;
+  // The draft is compared with the persisted measurement through the same
+  // normalization the save payload applies, so an untouched form cannot be
+  // saved again. This is frontend protection only: the server still decides
+  // whether the measurement may be edited at all.
+  const persistedMeasurementPayload = editingMeasurement
+    ? buildMeasurementPayload(getMeasurementFormValues(editingMeasurement))
+    : null;
+  const isMeasurementDraftUnchanged = persistedMeasurementPayload != null
+    && isMeasurementPayloadUnchanged(persistedMeasurementPayload, buildMeasurementPayload(form));
   const showWeeklyMeasurementSummary = Boolean(weeklyMeasurement)
     && (!isMeasurementEditorOpen || !editingMeasurement?.can_edit);
   const isMeasurementEditorExpanded = Boolean(weeklyMeasurement)
@@ -2519,19 +2729,15 @@ function BoxPage({
     setIsChangingBoxStatus(false);
     setLifecycleAction(null);
     setMoveError(null);
-    setMoveMessage(null);
     setStatusError(null);
-    setStatusMessage(null);
     setIsSubcultureOpen(false);
     setIsQrLabelOpen(false);
     setIsChecksOpen(false);
     setSaveError(null);
-    setSaveMessage(null);
     setEditingMeasurementId(null);
     setIsMeasurementEditorOpen(false);
     setMeasurementReferenceDate(getTodayDateValue());
     setSubcultureError(null);
-    setSubcultureMessage(null);
     setActiveInsightTab('measurements');
     setIsCorrectingFromHistory(false);
   }, [box?.id]);
@@ -2717,31 +2923,23 @@ function BoxPage({
       return false;
     }
 
+    if (editingMeasurementId != null && isMeasurementDraftUnchanged) return false;
+
     if (!form.polypCount.trim() || !form.ephyraeCount.trim()) {
-      setSaveMessage(null);
       setSaveError(t('measurementCountsRequired'));
       return false;
     }
 
     setIsSaving(true);
     setSaveError(null);
-    setSaveMessage(null);
 
-    const payload: MeasurementPayload = {
-      measured_on: form.measuredOn,
-      polyp_count: parsePositiveInteger(form.polypCount),
-      ephyrae_count: parsePositiveInteger(form.ephyraeCount),
-      salinity_psu: form.salinity.trim() || null,
-      notes: form.notes.trim(),
-    };
+    const payload = buildMeasurementPayload(form);
 
     try {
       if (editingMeasurementId != null) {
         await onUpdateMeasurement(box.id, editingMeasurementId, payload);
-        setSaveMessage(t('measurementUpdated'));
       } else {
         await onCreateMeasurement(box.id, payload);
-        setSaveMessage(t('measurementSaved'));
       }
       setEditingMeasurementId(null);
       setIsCorrectingFromHistory(false);
@@ -2769,7 +2967,6 @@ function BoxPage({
     setEditingMeasurementId(weeklyMeasurement.id);
     setIsCorrectingFromHistory(false);
     setSaveError(null);
-    setSaveMessage(null);
     setIsMeasurementEditorOpen(true);
   }
 
@@ -2780,7 +2977,6 @@ function BoxPage({
     setEditingMeasurementId(null);
     setIsCorrectingFromHistory(false);
     setSaveError(null);
-    setSaveMessage(null);
     setIsMeasurementEditorOpen(false);
   }
 
@@ -2802,12 +2998,10 @@ function BoxPage({
 
     setIsSavingSubculture(true);
     setSubcultureError(null);
-    setSubcultureMessage(null);
 
     try {
       await onCreateSubculture(box.id, payload);
       setIsSubcultureOpen(false);
-      setSubcultureMessage(t('subcultureSaved'));
     } catch (requestError) {
       setSubcultureError(getSubcultureSaveError(requestError, t));
     } finally {
@@ -2833,12 +3027,10 @@ function BoxPage({
 
     setIsSavingMove(true);
     setMoveError(null);
-    setMoveMessage(null);
 
     try {
       await onMoveBox(box.id, payload);
       setIsMoveOpen(false);
-      setMoveMessage(t('moveSaved'));
     } catch (requestError) {
       setMoveError(getMoveSaveError(requestError, t));
     } finally {
@@ -2850,15 +3042,12 @@ function BoxPage({
     if (!box || isChangingBoxStatus) return;
     setIsChangingBoxStatus(true);
     setStatusError(null);
-    setStatusMessage(null);
 
     try {
       if (submission.action === 'reactivate') {
         await onReactivateBox(box.id, submission.payload);
-        setStatusMessage(t('boxActivated'));
       } else if (submission.action === 'deactivate') {
         await onDeactivateBox(box.id, submission.payload);
-        setStatusMessage(t('boxArchived'));
       }
       setLifecycleAction(null);
     } catch (requestError) {
@@ -2928,7 +3117,7 @@ function BoxPage({
           <div>
             <p className="box-page-label">{t('boxSheet')}</p>
             <div className="box-code-line">
-              <h2>{box.global_code}</h2>
+              <h2 data-box-page-focus-target tabIndex={-1}>{box.global_code}</h2>
             </div>
             <p className="box-species-name">{box.species.scientific_name}</p>
           </div>
@@ -3009,7 +3198,6 @@ function BoxPage({
               disabled={isChangingBoxStatus}
               onClick={() => {
                 setStatusError(null);
-                setStatusMessage(null);
                 setLifecycleAction(isBoxActive ? 'deactivate' : 'reactivate');
               }}
             >
@@ -3024,15 +3212,6 @@ function BoxPage({
         </div>
       </header>
 
-      {subcultureMessage ? (
-        <p className="inline-success box-action-feedback">{subcultureMessage}</p>
-      ) : null}
-      {moveMessage ? (
-        <p className="inline-success box-action-feedback">{moveMessage}</p>
-      ) : null}
-      {statusMessage ? (
-        <p className="inline-success box-action-feedback">{statusMessage}</p>
-      ) : null}
       {statusError ? (
         <p className="inline-error box-action-feedback">{statusError}</p>
       ) : null}
@@ -3040,8 +3219,7 @@ function BoxPage({
       <div className={`box-page-grid${!isBoxActive ? ' is-inactive' : ''}${weeklyMeasurement ? ' has-measurement-module' : ''}`}>
         {(showWeeklyMeasurementSummary || (!weeklyMeasurement && isBoxActive)) ? (
         <section
-          className={`last-reading-card${showWeeklyMeasurementSummary ? ' measurement-summary measurement-module' : ''}${showWeeklyMeasurementSummary && weeklyMeasurement?.can_edit ? ' has-edit-capability' : ''}${showWeeklyMeasurementSummary && saveMessage ? ' is-fresh' : ''}`}
-          aria-live={showWeeklyMeasurementSummary && saveMessage ? 'polite' : undefined}
+          className={`last-reading-card${showWeeklyMeasurementSummary ? ' measurement-summary measurement-module' : ''}${showWeeklyMeasurementSummary && weeklyMeasurement?.can_edit ? ' has-edit-capability' : ''}`}
         >
           <div>
             <h2>{t('lastMeasurement')}</h2>
@@ -3079,9 +3257,6 @@ function BoxPage({
                     ? t('weeklyMeasurementWindowExpired')
                     : t('weeklyMeasurementReadOnly')}
                 </p>
-              ) : null}
-              {showWeeklyMeasurementSummary && saveMessage ? (
-                <p className="inline-success measurement-summary-feedback" role="status">{saveMessage}</p>
               ) : null}
             </div>
             {showWeeklyMeasurementSummary ? (
@@ -3277,15 +3452,13 @@ function BoxPage({
               <div className="measurement-actions-row">
                 <MeasurementSaveButton
                   isDesktop={isDesktopApp}
-                  isDisabled={isMeasurementFormLocked}
+                  isDisabled={isMeasurementFormLocked || isMeasurementDraftUnchanged}
                   isSaving={isSaving}
-                  isSuccess={Boolean(saveMessage)}
                   labels={{
                     hold: editingMeasurementId != null ? t('holdToUpdate') : t('holdToSave'),
                     save: editingMeasurementId != null
                       ? t('saveMeasurementEdit')
                       : t('saveMeasurement'),
-                    saved: saveMessage || t('measurementSaved'),
                     saving: t('saving'),
                   }}
                   onSave={saveMeasurement}
@@ -3688,15 +3861,12 @@ function getProfileLabels(t: TFunction) {
     profileEmail: t('profileEmail'),
     profileLanguage: t('profileLanguage'),
     profileAdminAction: t('profileAdminAction'),
-    profileAdminTitle: t('profileAdminTitle'),
-    profileAdminText: t('profileAdminText'),
     profileMemberships: t('profileMemberships'),
     profileNoEmail: t('profileNoEmail'),
     profileNoMembership: t('profileNoMembership'),
     profileAllOrganizationsAccess: t('profileAllOrganizationsAccess'),
     profilePreferences: t('profilePreferences'),
     profileActiveOrganization: t('profileActiveOrganization'),
-    profileActiveOrganizationHelp: t('profileActiveOrganizationHelp'),
     profileDefaultOrganization: t('profileDefaultOrganization'),
     profileFullAccess: t('profileFullAccess'),
     roleResponsable: t('roleResponsable'),
@@ -3721,7 +3891,6 @@ function getLabelsViewLabels(t: TFunction) {
     qrLabelSearchTitle: t('qrLabelSearchTitle'),
     qrLabelSelectionEmpty: t('qrLabelSelectionEmpty'),
     qrLabelSelectionFilter: t('qrLabelSelectionFilter'),
-    qrLabelSelectionHelp: t('qrLabelSelectionHelp'),
     qrLabelSelectionSearch: t('qrLabelSelectionSearch'),
     qrLabelSelectionTitle: t('qrLabelSelectionTitle'),
     qrLabelSearchPlaceholder: t('adminPrintLabelsSearchPlaceholder'),
@@ -3849,6 +4018,24 @@ function getBoxDisplayDate(
   }
 
   return { labelKey: 'createdOn', date: createdOn };
+}
+
+// Builds the payload sent to the API. Kept in one place so the dirty-state
+// check compares exactly what a save would send.
+function buildMeasurementPayload(form: {
+  measuredOn: string;
+  polypCount: string;
+  ephyraeCount: string;
+  salinity: string;
+  notes: string;
+}): MeasurementPayload {
+  return {
+    measured_on: form.measuredOn,
+    polyp_count: parsePositiveInteger(form.polypCount),
+    ephyrae_count: parsePositiveInteger(form.ephyraeCount),
+    salinity_psu: form.salinity.trim() || null,
+    notes: form.notes.trim(),
+  };
 }
 
 function parsePositiveInteger(value: string) {

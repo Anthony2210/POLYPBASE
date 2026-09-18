@@ -295,10 +295,4 @@
   .profile-organization-options {
     grid-template-columns: minmax(0, 1fr);
   }
-
-
-  .profile-link-arrow {
-    color: var(--color-primary);
-    font-size: 1.6rem;
-  }
 }

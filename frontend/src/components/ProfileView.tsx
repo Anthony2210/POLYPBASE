@@ -14,8 +14,6 @@ type ProfileLabels = {
   logoutError: string;
   profileEmail: string;
   profileLanguage: string;
-  profileAdminTitle: string;
-  profileAdminText: string;
   profileAdminAction: string;
   profileMemberships: string;
   profileNoEmail: string;
@@ -23,7 +21,6 @@ type ProfileLabels = {
   profileAllOrganizationsAccess: string;
   profilePreferences: string;
   profileActiveOrganization: string;
-  profileActiveOrganizationHelp: string;
   profileDefaultOrganization: string;
   profileFullAccess: string;
   roleResponsable: string;
@@ -115,28 +112,25 @@ export default function ProfileView({
           </div>
         </div>
         <div className="profile-identity-actions">
-          <button
-            className="profile-sign-out"
-            type="button"
-            disabled={isLoggingOut}
-            onClick={handleLogout}
-          >
-            <span className="button-icon-label">
-              {!isLoggingOut ? <PolypbaseIcon name="logout" size={17} /> : null}
-              {isLoggingOut ? labels.saving : labels.logoutAction}
-            </span>
-          </button>
-          {logoutError ? <p className="inline-error">{logoutError}</p> : null}
+          {canOpenAdmin ? (
+            <button
+              className="secondary-button button-icon-label profile-admin-action"
+              type="button"
+              onClick={onOpenAdmin}
+            >
+              <PolypbaseIcon name="settings" size={17} />
+              {labels.profileAdminAction}
+            </button>
+          ) : null}
         </div>
       </header>
 
 
-      {organizations.length > 0 ? (
+      {organizations.length > 1 ? (
         <section className="profile-block profile-organization-context">
           <div className="section-title">
             <div>
               <h2>{labels.profileActiveOrganization}</h2>
-              <p>{labels.profileActiveOrganizationHelp}</p>
             </div>
           </div>
           <div className="profile-organization-options">
@@ -169,31 +163,6 @@ export default function ProfileView({
         </section>
       ) : null}
 
-      {canOpenAdmin ? (
-        <section className="profile-block profile-admin-entry">
-          <div className="section-title">
-            <div>
-              <h2>{labels.profileAdminTitle}</h2>
-              <p>{labels.profileAdminText}</p>
-            </div>
-          </div>
-          <button className="profile-admin-button" type="button" onClick={onOpenAdmin}>
-            <span>{labels.profileAdminAction}</span>
-            <span className="profile-link-arrow" aria-hidden="true">
-              <PolypbaseIcon name="chevron-right" size={18} />
-            </span>
-          </button>
-        </section>
-      ) : null}
-
-      <ProfileActionsSection
-        activeOrganizationId={activeOrganizationId}
-        key={activeOrganizationId ?? 'none'}
-        language={language}
-        onOpenBox={onOpenBox}
-        t={t}
-      />
-
       <section className="profile-block">
         <div className="section-title">
           <h2>{labels.profilePreferences}</h2>
@@ -213,6 +182,29 @@ export default function ProfileView({
 
         {saveError ? <p className="inline-error">{saveError}</p> : null}
       </section>
+
+      <ProfileActionsSection
+        activeOrganizationId={activeOrganizationId}
+        key={activeOrganizationId ?? 'none'}
+        language={language}
+        onOpenBox={onOpenBox}
+        t={t}
+      />
+
+      <div className="profile-logout-row">
+        <button
+          className="profile-sign-out"
+          type="button"
+          disabled={isLoggingOut}
+          onClick={handleLogout}
+        >
+          <span className="button-icon-label">
+            {!isLoggingOut ? <PolypbaseIcon name="logout" size={17} /> : null}
+            {isLoggingOut ? labels.saving : labels.logoutAction}
+          </span>
+        </button>
+        {logoutError ? <p className="inline-error">{logoutError}</p> : null}
+      </div>
     </section>
   );
 }

@@ -27,7 +27,6 @@ type LabelsViewLabels = {
   qrLabelSearchTitle: string;
   qrLabelSelectionEmpty: string;
   qrLabelSelectionFilter: string;
-  qrLabelSelectionHelp: string;
   qrLabelSelectionSearch: string;
   qrLabelSelectionTitle: string;
   qrLabelSearchPlaceholder: string;
@@ -243,7 +242,6 @@ export default function LabelsView({
                   <h2>{labels.qrLabelSelectionTitle}</h2>
                   <span>{selectedLabels.length} / {eligibleLabelBoxes.length}</span>
                 </div>
-                <p>{labels.qrLabelSelectionHelp}</p>
               </div>
               <div className="admin-label-actions">
                 <button
@@ -363,7 +361,6 @@ export default function LabelsView({
                     {!selectedLabels.length ? (
                       <div className="label-preview-empty">
                         <strong>{labels.qrLabelSelectionEmpty}</strong>
-                        <span>{labels.qrLabelSelectionHelp}</span>
                       </div>
                     ) : null}
                     <div className="label-sheet-preview" style={sheetPreviewStyle}>

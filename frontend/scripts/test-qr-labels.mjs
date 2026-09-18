@@ -299,3 +299,17 @@ test('the Labels desktop workspace uses the shared page frame without stretching
     assert.doesNotMatch(rule, /(?:^|[;\s])height\s*:/, 'box cards must not receive a fixed or stretching height');
   }
 });
+
+test('the Labels page no longer renders the removed selection instructions', () => {
+  const labelsView = readFileSync(new URL('../src/components/LabelsView.tsx', import.meta.url), 'utf8');
+  const fr = readFileSync(new URL('../src/i18n/fr.ts', import.meta.url), 'utf8');
+  const en = readFileSync(new URL('../src/i18n/en.ts', import.meta.url), 'utf8');
+
+  assert.doesNotMatch(labelsView, /qrLabelSelectionHelp/);
+  assert.doesNotMatch(fr, /Sélectionnez les boîtes, vérifiez la planche, puis imprimez/);
+  assert.doesNotMatch(en, /Select boxes, check the sheet, then print/);
+
+  // The empty preview keeps its own message and the heading keeps its title.
+  assert.match(labelsView, /<strong>\{labels\.qrLabelSelectionEmpty\}<\/strong>/);
+  assert.match(labelsView, /<h2>\{labels\.qrLabelSelectionTitle\}<\/h2>/);
+});

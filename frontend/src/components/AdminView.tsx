@@ -886,7 +886,6 @@ function ZoneCreateForm({
   const [salinity, setSalinity] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
 
   if (!adminOrganizations.length) {
     return <p className="muted compact-text">{t('adminZoneNoOrganization')}</p>;
@@ -898,7 +897,6 @@ function ZoneCreateForm({
 
     setIsSaving(true);
     setError(null);
-    setMessage(null);
 
     try {
       await onCreateZone({
@@ -913,7 +911,6 @@ function ZoneCreateForm({
       setTargetTemperature('');
       setCapacity('');
       setSalinity('');
-      setMessage(t('adminZoneCreated'));
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
@@ -987,7 +984,6 @@ function ZoneCreateForm({
       <button type="submit" disabled={isSaving || !name.trim()}>
         {isSaving ? t('saving') : t('adminCreateZone')}
       </button>
-      {message ? <p className="inline-success">{message}</p> : null}
       {error ? <p className="inline-error">{error}</p> : null}
     </form>
   );
@@ -1016,7 +1012,6 @@ function ProbeCreateForm({
   const [probeType, setProbeType] = useState('lorawan');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
 
   if (!zoneChoices.length) {
     return <p className="muted compact-text">{t('adminProbeNoZone')}</p>;
@@ -1028,7 +1023,6 @@ function ProbeCreateForm({
 
     setIsSaving(true);
     setError(null);
-    setMessage(null);
 
     try {
       await onCreateProbe({
@@ -1038,7 +1032,6 @@ function ProbeCreateForm({
         location: '',
       });
       setCode('');
-      setMessage(t('adminProbeCreated'));
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
@@ -1080,7 +1073,6 @@ function ProbeCreateForm({
       <button type="submit" disabled={isSaving || !code.trim()}>
         {isSaving ? t('saving') : t('adminAddProbe')}
       </button>
-      {message ? <p className="inline-success">{message}</p> : null}
       {error ? <p className="inline-error">{error}</p> : null}
     </form>
   );
@@ -1167,7 +1159,6 @@ function ZoneCapacityManager({
   );
   const [drafts, setDrafts] = useState<Record<number, ZoneDraft>>(() => buildZoneDrafts(editableZones));
   const [busyZoneId, setBusyZoneId] = useState<number | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [zoneSearch, setZoneSearch] = useState('');
 
@@ -1201,7 +1192,6 @@ function ZoneCapacityManager({
     const capacityValue = draft.capacity.trim();
     const salinityValue = draft.salinity.trim();
     setBusyZoneId(zone.id);
-    setMessage(null);
     setError(null);
 
     try {
@@ -1214,7 +1204,6 @@ function ZoneCapacityManager({
         // An emptied field clears the value rather than keeping the old one.
         salinity_psu: salinityValue || null,
       });
-      setMessage(t('adminZoneUpdated'));
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
@@ -1324,7 +1313,6 @@ function ZoneCapacityManager({
       ) : (
         <p className="empty-state environment-empty-state">{t('adminEnvironmentNoZoneResults')}</p>
       )}
-      {message ? <p className="inline-success">{message}</p> : null}
       {error ? <p className="inline-error">{error}</p> : null}
     </div>
   );
@@ -1350,7 +1338,6 @@ function OrganizationCreateForm({
   const [postalAddress, setPostalAddress] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
   const existingCities = useMemo(() => organizations.map((organization) => organization.city).filter(Boolean), [organizations]);
   const cityOptions = useMemo(() => getCityOptions(country, existingCities), [country, existingCities]);
 
@@ -1360,7 +1347,6 @@ function OrganizationCreateForm({
 
     setIsSaving(true);
     setError(null);
-    setMessage(null);
 
     const selectedCountry = getCountryOption(country);
     if (country.trim() && !selectedCountry) {
@@ -1398,7 +1384,6 @@ function OrganizationCreateForm({
       setContactEmail('');
       setContactPhone('');
       setPostalAddress('');
-      setMessage(t('adminOrganizationCreated'));
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
@@ -1455,7 +1440,6 @@ function OrganizationCreateForm({
       <button type="submit" disabled={isSaving || !name.trim()}>
         {isSaving ? t('saving') : t('adminAddOrganization')}
       </button>
-      {message ? <p className="inline-success">{message}</p> : null}
       {error ? <p className="inline-error">{error}</p> : null}
     </form>
   );
@@ -1542,7 +1526,6 @@ function OrganizationManagementList({
   const [contactEmail, setContactEmail] = useState('');
   const [notes, setNotes] = useState('');
   const [isSaving, setIsSaving] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { confirmAction, confirmActionModal } = useConfirmAction();
   const existingCities = useMemo(() => organizations.map((organization) => organization.city).filter(Boolean), [organizations]);
@@ -1577,7 +1560,6 @@ function OrganizationManagementList({
     setCountry(organization.country ?? '');
     setContactEmail(organization.contact_email ?? '');
     setNotes(organization.notes ?? '');
-    setMessage(null);
     setError(null);
   }
 
@@ -1597,7 +1579,6 @@ function OrganizationManagementList({
 
     setIsSaving(true);
     setError(null);
-    setMessage(null);
 
     const selectedCountry = getCountryOption(country);
     if (country.trim() && !selectedCountry) {
@@ -1620,7 +1601,6 @@ function OrganizationManagementList({
         notes: notes.trim(),
       });
       cancelEdit();
-      setMessage(t('adminOrganizationUpdated'));
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
@@ -1645,12 +1625,10 @@ function OrganizationManagementList({
 
     setIsSaving(true);
     setError(null);
-    setMessage(null);
 
     try {
       await onDeleteOrganization(organization.id);
       if (editingId === organization.id) cancelEdit();
-      setMessage(t('adminOrganizationDeleted'));
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
@@ -1812,7 +1790,6 @@ function OrganizationManagementList({
         <p className="empty-state organization-empty-state">{t('adminOrganizationNoResults')}</p>
       )}
 
-      {message ? <p className="inline-success">{message}</p> : null}
       {error ? <p className="inline-error">{error}</p> : null}
       {confirmActionModal}
     </div>
@@ -1848,7 +1825,6 @@ function TransferCreateForm({
   const [notes, setNotes] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
   const [preparedTransfer, setPreparedTransfer] = useState<PreparedTransfer | null>(null);
   const normalizedBoxQuery = boxQuery.trim().toLocaleLowerCase();
   const visibleTransferableBoxes = normalizedBoxQuery
@@ -1897,7 +1873,6 @@ function TransferCreateForm({
 
     setIsSaving(true);
     setError(null);
-    setMessage(null);
     setPreparedTransfer(null);
 
     try {
@@ -1920,7 +1895,6 @@ function TransferCreateForm({
       setNotes('');
       setPolypCount('');
       setTargetOrgId(null);
-      setMessage(t('adminTransferCreated'));
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
@@ -2032,7 +2006,6 @@ function TransferCreateForm({
       <button type="submit" disabled={isSaving || targetOrgId == null || !polypCount}>
         {isSaving ? t('saving') : t('adminPrepareTransfer')}
       </button>
-      {message ? <p className="inline-success">{message}</p> : null}
       {error ? <p className="inline-error">{error}</p> : null}
       {preparedTransfer ? (
         <section className="transfer-package" aria-label={t('adminTransferPackageTitle')}>
@@ -2109,7 +2082,6 @@ function TransferImportForm({ profile, zones, boxes, t }: {
   const [zoneId, setZoneId] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
   const { confirmAction, confirmActionModal } = useConfirmAction();
   const suggestedCode = sourceData ? suggestTransferBoxCode(boxes, sourceData.strain_code) : '';
   const codeExists = boxes.some(
@@ -2123,7 +2095,6 @@ function TransferImportForm({ profile, zones, boxes, t }: {
 
   async function handleFile(event: ChangeEvent<HTMLInputElement>) {
     setError(null);
-    setMessage(null);
     setImportedBox(null);
     const file = event.target.files?.[0];
     if (!file) {
@@ -2171,7 +2142,6 @@ function TransferImportForm({ profile, zones, boxes, t }: {
         thermal_zone: zoneId,
         global_code: globalCode.trim(),
       });
-      setMessage(t('adminTransferImportSuccess'));
       setImportedBox(box);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -2246,7 +2216,6 @@ function TransferImportForm({ profile, zones, boxes, t }: {
       <button type="submit" disabled={!sourceData || zoneId == null || !globalCode.trim() || codeExists || isSaving}>
         {isSaving ? t('saving') : t('adminTransferImportAction')}
       </button>
-      {message ? <p className="inline-success">{message}</p> : null}
       {importedBox ? (
         <a className="admin-transfer-open-box" href={`/boxes/${encodeURIComponent(importedBox.global_code)}`}>
           {t('adminTransferImportOpenBox')}: {importedBox.global_code}
