@@ -17,12 +17,14 @@ type MeasurementSaveButtonLabels = {
 
 export default function MeasurementSaveButton({
   isDesktop,
+  isDisabled = false,
   isSaving,
   isSuccess,
   labels,
   onSave,
 }: {
   isDesktop: boolean;
+  isDisabled?: boolean;
   isSaving: boolean;
   isSuccess: boolean;
   labels: MeasurementSaveButtonLabels;
@@ -79,7 +81,7 @@ export default function MeasurementSaveButton({
   }
 
   function startHold(event: ReactPointerEvent<HTMLButtonElement>) {
-    if (isSaving) return;
+    if (isDisabled || isSaving) return;
 
     event.currentTarget.setPointerCapture?.(event.pointerId);
     holdStartRef.current = performance.now();
@@ -90,7 +92,7 @@ export default function MeasurementSaveButton({
 
   if (isDesktop) {
     return (
-      <button className={isSuccess ? 'measurement-save-button is-success' : 'measurement-save-button'} type="submit" disabled={isSaving}>
+      <button className={isSuccess ? 'measurement-save-button is-success' : 'measurement-save-button'} type="submit" disabled={isDisabled || isSaving}>
         <span>{isSaving ? labels.saving : isSuccess ? labels.saved : labels.save}</span>
       </button>
     );
@@ -108,7 +110,7 @@ export default function MeasurementSaveButton({
       ref={buttonRef}
       className={buttonClass}
       type="button"
-      disabled={isSaving}
+      disabled={isDisabled || isSaving}
       title={labels.hold}
       aria-label={labels.hold}
       style={{
@@ -124,6 +126,7 @@ export default function MeasurementSaveButton({
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
+          if (isDisabled || isSaving) return;
           if (event.currentTarget.form && !event.currentTarget.form.reportValidity()) {
             return;
           }

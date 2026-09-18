@@ -28,11 +28,13 @@ export default function AuditLinkedActionsPopover({
   entry,
   language,
   onEditMeasurement,
+  onOpenBox,
   t,
 }: {
   entry: AdminAuditLogEntry;
   language: Language;
   onEditMeasurement: (measurement: EditableMeasurement) => void;
+  onOpenBox: (boxId: number, code: string) => void;
   t: Translator;
 }) {
   const [isLinkedOpen, setIsLinkedOpen] = useState(false);
@@ -102,7 +104,13 @@ export default function AuditLinkedActionsPopover({
               <X aria-hidden="true" size={17} />
             </button>
           </header>
-          <LinkedAuditContent entryId={entry.id} attempt={attempt} language={language} t={t} />
+          <LinkedAuditContent
+            entryId={entry.id}
+            attempt={attempt}
+            language={language}
+            onOpenBox={onOpenBox}
+            t={t}
+          />
         </div>,
         document.body,
       ) : null}
@@ -114,11 +122,13 @@ function LinkedAuditContent({
   attempt,
   entryId,
   language,
+  onOpenBox,
   t,
 }: {
   attempt: number;
   entryId: number;
   language: Language;
+  onOpenBox: (boxId: number, code: string) => void;
   t: Translator;
 }) {
   const [entries, setEntries] = useState<AdminAuditLogEntry[] | null>(null);
@@ -171,6 +181,7 @@ function LinkedAuditContent({
               className="audit-linked-action-summary"
               entry={linkedEntry}
               language={language}
+              onOpenBox={onOpenBox}
               t={t}
             />
             <AuditInlineBusinessSummary details={linkedEntry.business_details} t={t} />

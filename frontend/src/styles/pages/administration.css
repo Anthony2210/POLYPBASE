@@ -2457,121 +2457,16 @@ button.account-overview-card:focus-visible {
 
 .box-inventory-feedback { margin: 0; }
 
-.box-inventory-selection-toolbar {
+.box-inventory-selection-controls {
   display: flex;
-  flex-wrap: wrap;
-  padding: var(--space-2) 0;
-  align-items: center;
-  gap: var(--space-3);
-  border-bottom: 1px solid var(--color-line);
-}
-
-.box-inventory-selection-toolbar.is-sticky {
-  position: sticky;
-  top: var(--space-2);
-  z-index: 20;
-  padding: var(--space-2) var(--space-3);
-  background: color-mix(in srgb, var(--color-surface) 96%, transparent);
-  border: 1px solid var(--color-line-strong);
-  border-left: 3px solid var(--color-primary);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-soft);
-}
-
-.box-inventory-select-filtered {
-  display: inline-flex;
   min-height: 40px;
-  padding: 0 var(--space-3);
+  padding: var(--space-1) 0;
   align-items: center;
   gap: var(--space-2);
-  color: var(--color-primary-hover);
-  background: var(--color-surface-info);
-  border: 1px solid var(--color-primary);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
+  border-bottom: 1px solid var(--color-line-soft);
 }
 
-.box-inventory-select-filtered > span {
-  display: grid;
-  gap: 1px;
-  text-align: left;
-  font-size: .72rem;
-  font-weight: 780;
-}
-
-.box-inventory-select-filtered small {
-  color: var(--color-muted);
-  font-size: .62rem;
-  font-weight: 650;
-}
-
-.box-inventory-select-filtered:disabled {
-  opacity: .55;
-  cursor: wait;
-}
-
-.box-inventory-selection-summary {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--color-primary-hover);
-  margin-left: auto;
-  font-size: .7rem;
-  font-weight: 760;
-}
-
-.box-inventory-selection-summary span {
-  display: flex;
-  align-items: baseline;
-  gap: 5px;
-  white-space: nowrap;
-}
-
-.box-inventory-selection-summary strong {
-  font-size: .88rem;
-}
-
-.box-inventory-selection-summary button {
-  display: grid;
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  place-items: center;
-  color: var(--color-muted);
-  background: transparent;
-  border: 0;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-
-.box-inventory-selected-boxes {
-  display: flex;
-  max-height: 72px;
-  margin: 0;
-  padding: 0;
-  flex-wrap: wrap;
-  flex-basis: 100%;
-  gap: 5px;
-  overflow-y: auto;
-  list-style: none;
-}
-
-.box-inventory-selected-boxes li {
-  padding: 4px 7px;
-  color: var(--color-ink-soft);
-  font-size: .66rem;
-  font-weight: 750;
-  background: var(--color-surface);
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-xs);
-}
-
-.box-inventory-batch-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
+.box-inventory-selection-mode,
 .box-inventory-batch-actions button {
   display: inline-flex;
   min-height: 36px;
@@ -2580,9 +2475,43 @@ button.account-overview-card:focus-visible {
   justify-content: center;
   gap: var(--space-2);
   font-size: .7rem;
-  font-weight: 780;
+  font-weight: 760;
   border-radius: var(--radius-sm);
   cursor: pointer;
+}
+
+.box-inventory-selection-mode {
+  color: var(--color-primary-hover);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line-strong);
+}
+
+.box-inventory-selection-mode[aria-pressed='true'] {
+  color: var(--color-primary-hover);
+  background: var(--color-primary-faint);
+  border-color: var(--color-primary);
+}
+
+.box-inventory-selection-count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  color: var(--color-ink-soft);
+  font-size: .7rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.box-inventory-selection-count strong {
+  color: var(--color-primary-hover);
+  font-size: .88rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.box-inventory-batch-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .box-inventory-batch-actions .is-active-action {
@@ -2597,45 +2526,25 @@ button.account-overview-card:focus-visible {
   border: 1px solid var(--color-line-strong);
 }
 
-.box-inventory-batch-actions button:disabled {
+.box-inventory-clear-selection {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  place-items: center;
   color: var(--color-muted);
-  background: var(--color-surface-subtle);
-  border: 1px solid var(--color-line);
-  opacity: .65;
-  cursor: not-allowed;
-}
-
-.box-inventory-page-selection {
-  display: inline-flex;
-  width: fit-content;
-  min-height: 36px;
-  padding: 0 var(--space-2);
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--color-ink-soft);
   background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
   cursor: pointer;
 }
 
-.box-inventory-page-selection input,
 .box-inventory-selection-cell input {
   width: 20px;
   height: 20px;
   margin: 0;
   accent-color: var(--color-primary);
   cursor: pointer;
-}
-
-.box-inventory-page-selection span {
-  display: grid;
-  gap: 2px;
-  font-size: .72rem;
-  font-weight: 760;
-}
-
-.box-inventory-page-selection small {
-  color: var(--color-muted);
-  font-size: .64rem;
 }
 
 .box-inventory-last-location {

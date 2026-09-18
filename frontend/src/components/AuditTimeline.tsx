@@ -13,6 +13,7 @@ import {
   getAuditInitialPolypsLabel,
   getAuditMetadataKeyLabel,
   getAuditValueChange,
+  hasAuditSubcultureSummary,
   isAuditNoteField,
   orderAuditFieldEntries,
 } from '../utils/auditPresentation';
@@ -39,9 +40,23 @@ export function AuditPrimarySummary({
   t: Translator;
 }) {
   const boxSummary = boxReference ? getAuditBoxSummaryParts(entry, t) : null;
+  const subcultureDetails = entry.business_details?.type === 'subculture'
+    && hasAuditSubcultureSummary(entry.business_details)
+    ? entry.business_details
+    : null;
   return (
     <p className={className}>
-      {boxSummary && boxReference ? (
+      {subcultureDetails ? (
+        renderSubcultureSummary({
+          boxReference,
+          childCodes: subcultureDetails.child_global_codes ?? [],
+          context: entry.context,
+          language,
+          onOpenBox,
+          parentCode: subcultureDetails.parent_global_code ?? '',
+          t,
+        })
+      ) : boxSummary && boxReference ? (
         <>
           {boxSummary[0]}
           {onOpenBox ? (
@@ -58,6 +73,93 @@ export function AuditPrimarySummary({
         </>
       ) : getAuditBusinessSummary(entry, t)}
     </p>
+  );
+}
+
+function renderSubcultureSummary({
+  boxReference,
+  childCodes,
+  context,
+  language,
+  onOpenBox,
+  parentCode,
+  t,
+}: {
+  boxReference: AuditBoxReference | null | undefined;
+  childCodes: string[];
+  context: AuditContext | null | undefined;
+  language: Language;
+  onOpenBox?: (boxId: number, code: string) => void;
+  parentCode: string;
+  t: Translator;
+}) {
+  const template = t(
+    childCodes.length === 1
+      ? 'auditSummarySubcultureOneChild'
+      : 'auditSummarySubcultureManyChildren',
+  );
+  const childrenByCode = new Map(
+    (context?.subculture?.children ?? []).map((child) => [child.global_code, child]),
+  );
+  const segments = template.split(/(\{children\}|\{parent\})/g);
+
+  return segments.map((segment, segmentIndex) => {
+    if (segment === '{children}') {
+      return childCodes.map((code, childIndex) => {
+        const reference = childrenByCode.get(code)?.box_reference;
+        return (
+          <span className="audit-box-reference-group" key={code}>
+            {childIndex ? <span aria-hidden="true">, </span> : null}
+            <AuditBoxReferenceLink
+              code={code}
+              language={language}
+              onOpenBox={onOpenBox}
+              reference={reference}
+              t={t}
+            />
+          </span>
+        );
+      });
+    }
+    if (segment === '{parent}') {
+      return (
+        <AuditBoxReferenceLink
+          code={parentCode}
+          key="parent"
+          language={language}
+          onOpenBox={onOpenBox}
+          reference={boxReference?.global_code === parentCode ? boxReference : undefined}
+          t={t}
+        />
+      );
+    }
+    return <span key={`text-${segmentIndex}`}>{segment}</span>;
+  });
+}
+
+function AuditBoxReferenceLink({
+  code,
+  language,
+  onOpenBox,
+  reference,
+  t,
+}: {
+  code: string;
+  language: Language;
+  onOpenBox?: (boxId: number, code: string) => void;
+  reference: AuditBoxReference | null | undefined;
+  t: Translator;
+}) {
+  if (!reference || !onOpenBox) return <span>{code}</span>;
+  return (
+    <BoxTrackingPreview
+      boxId={reference.id}
+      code={reference.global_code}
+      speciesName={reference.species_scientific_name}
+      language={language}
+      onOpenBox={onOpenBox}
+      t={t}
+    />
   );
 }
 
@@ -188,13 +290,14 @@ export function AuditContextSummary({
   if (!context) return null;
 
   if (context.subculture) {
+    if (hidePrimaryResource) return null;
     const parentCode = (context.subculture.parent_global_code ?? '').trim();
     const children = context.subculture.children ?? [];
     // Never invent a relation when neither the parent nor any child is known.
     if (!parentCode && !children.length) return null;
     return (
       <div className="audit-relation" data-relation="subculture">
-        {hidePrimaryResource || !parentCode ? null : (
+        {!parentCode ? null : (
           <p>{fillTemplate(t('auditRelationSubcultureFrom'), { code: parentCode })}</p>
         )}
         {children.length ? (

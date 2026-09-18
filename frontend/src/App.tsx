@@ -2462,19 +2462,22 @@ function BoxPage({
   const canWriteLabData = box
     ? userCanWriteLabData(profile, box.organization.id)
     : false;
+  const canCreateMeasurement = box && 'can_create_measurement' in box
+    ? box.can_create_measurement
+    : false;
   const isBoxActive = box?.status === 'active';
   const weeklyMeasurement = findMeasurementForWeek(measurements, measurementReferenceDate);
   const measurementEditorMode = getMeasurementEditorMode({
     measurement: weeklyMeasurement,
-    canWriteLabData,
-    boxIsActive: isBoxActive,
+    canCreateMeasurement,
   });
   const editingMeasurement = editingMeasurementId == null
     ? null
     : measurements.find((measurement) => measurement.id === editingMeasurementId) ?? null;
-  const canShowMeasurementForm = measurementEditorMode === 'create'
-    || measurementEditorMode === 'edit'
+  const canShowMeasurementForm = measurementEditorMode !== 'read_only'
     || Boolean(editingMeasurement?.can_edit);
+  const isMeasurementFormLocked = measurementEditorMode === 'locked'
+    && !editingMeasurement?.can_edit;
 
   useEffect(() => {
     const refreshDate = () => setMeasurementReferenceDate(getTodayDateValue());
@@ -2518,6 +2521,7 @@ function BoxPage({
     setSaveError(null);
     setSaveMessage(null);
     setEditingMeasurementId(null);
+    setMeasurementReferenceDate(getTodayDateValue());
     setSubcultureError(null);
     setSubcultureMessage(null);
     setActiveInsightTab('measurements');
@@ -2526,7 +2530,10 @@ function BoxPage({
 
   useEffect(() => {
     if (isCorrectingFromHistory) return;
-    if (measurementEditorMode === 'edit' && weeklyMeasurement) {
+    if (
+      weeklyMeasurement
+      && (measurementEditorMode === 'edit' || measurementEditorMode === 'locked')
+    ) {
       setForm(getMeasurementFormValues(weeklyMeasurement));
       setEditingMeasurementId(weeklyMeasurement.id);
       return;
@@ -2563,6 +2570,7 @@ function BoxPage({
     onMeasurementPrefillConsumed();
     if (!target?.can_edit) return;
 
+    setMeasurementReferenceDate(target.measured_on);
     setForm(getMeasurementFormValues(target));
     setEditingMeasurementId(target.id);
     setIsCorrectingFromHistory(true);
@@ -2664,6 +2672,16 @@ function BoxPage({
 
   async function saveMeasurement(): Promise<boolean> {
     if (!box || isSaving) return false;
+
+    const targetMeasurement = editingMeasurementId == null
+      ? null
+      : measurements.find((measurement) => measurement.id === editingMeasurementId) ?? null;
+    if (
+      (targetMeasurement && !targetMeasurement.can_edit)
+      || (!targetMeasurement && measurementEditorMode !== 'create')
+    ) {
+      return false;
+    }
 
     if (!form.polypCount.trim() || !form.ephyraeCount.trim()) {
       setSaveMessage(null);
@@ -2974,18 +2992,32 @@ function BoxPage({
         ) : null}
 
         {canShowMeasurementForm ? (
-          <section className="box-section measurement-form-section">
+          <section className={`box-section measurement-form-section${isMeasurementFormLocked ? ' is-locked' : ''}`}>
             <form className="fake-form" onSubmit={handleSubmit}>
+              <fieldset
+                className="measurement-editor-fields"
+                disabled={isMeasurementFormLocked}
+                aria-describedby={isMeasurementFormLocked ? `measurement-lock-${box.id}` : undefined}
+              >
               <div className="section-title">
-                <h2>
-                  {t(
-                    editingMeasurementId != null
-                      ? isCorrectingFromHistory
-                        ? 'correctMeasurement'
-                        : 'modifyWeeklyMeasurement'
-                      : 'newMeasurement',
-                  )}
-                </h2>
+                <div>
+                  <h2>
+                    {t(
+                      editingMeasurementId != null
+                        ? isCorrectingFromHistory
+                          ? 'correctMeasurement'
+                          : 'modifyWeeklyMeasurement'
+                        : 'newMeasurement',
+                    )}
+                  </h2>
+                  {isMeasurementFormLocked && weeklyMeasurement ? (
+                    <p className="measurement-lock-note" id={`measurement-lock-${box.id}`}>
+                      {weeklyMeasurement.edit_restriction === 'edit_window_expired'
+                        ? t('weeklyMeasurementWindowExpired')
+                        : t('weeklyMeasurementReadOnly')}
+                    </p>
+                  ) : null}
+                </div>
                 <span>{formatDisplayDate(form.measuredOn)}</span>
               </div>
 
@@ -3132,6 +3164,7 @@ function BoxPage({
               <div className="measurement-actions-row">
                 <MeasurementSaveButton
                   isDesktop={isDesktopApp}
+                  isDisabled={isMeasurementFormLocked}
                   isSaving={isSaving}
                   isSuccess={Boolean(saveMessage)}
                   labels={{
@@ -3146,43 +3179,8 @@ function BoxPage({
                 />
 
               </div>
+              </fieldset>
             </form>
-          </section>
-        ) : null}
-
-        {canWriteLabData && weeklyMeasurement && !canShowMeasurementForm ? (
-          <section className="box-section measurement-form-section measurement-weekly-state">
-            <div className="section-title">
-              <div>
-                <h2>{t('weeklyMeasurementRecorded')}</h2>
-                <p>
-                  {weeklyMeasurement.edit_restriction === 'edit_window_expired'
-                    ? t('weeklyMeasurementWindowExpired')
-                    : t('weeklyMeasurementReadOnly')}
-                </p>
-              </div>
-              <span>{formatDisplayDate(weeklyMeasurement.measured_on)}</span>
-            </div>
-            <div className="measurement-entry-grid">
-              <Metric
-                label={t('polyps')}
-                value={formatMeasurementCount(weeklyMeasurement.polyp_count)}
-              />
-              <Metric
-                label={t('ephyraeFull')}
-                value={formatMeasurementCount(weeklyMeasurement.ephyrae_count)}
-              />
-              <Metric
-                label={t('salinityFull')}
-                value={formatSalinity(weeklyMeasurement.salinity_psu)}
-              />
-            </div>
-            {weeklyMeasurement.notes ? (
-              <div className="last-reading-comment">
-                <small>{t('observation')}</small>
-                <p>{weeklyMeasurement.notes}</p>
-              </div>
-            ) : null}
           </section>
         ) : null}
 

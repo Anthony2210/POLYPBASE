@@ -219,7 +219,7 @@ test('rich inline summaries preserve box wording, changes, notes, and zero', () 
 
   assert.equal(JSON.stringify(audit.getAuditBoxSummaryParts({ action: 'entry', description: '', business_details: recorded }, tFr)), JSON.stringify(['Relevé ', ' effectué']));
   assert.equal(JSON.stringify(audit.getAuditBoxSummaryParts({ action: 'update', description: '', business_details: corrected }, tFr)), JSON.stringify(['Relevé ', ' corrigé']));
-  assert.equal(JSON.stringify(audit.getAuditBoxSummaryParts({ action: 'update', description: '', business_details: movement }, tFr)), JSON.stringify(['', ' déplacée']));
+  assert.equal(JSON.stringify(audit.getAuditBoxSummaryParts({ action: 'update', description: '', business_details: movement }, tFr)), JSON.stringify(['', ' déplacée vers Cabinet 10 C']));
 
   const recordedItems = audit.getAuditInlineBusinessItems(recorded, tFr);
   assert.equal(recordedItems[0].value, '0');
@@ -233,9 +233,21 @@ test('rich inline summaries preserve box wording, changes, notes, and zero', () 
   ]));
   assert.equal(audit.getAuditBusinessNote(recorded), 'Stable');
   assert.equal(audit.getAuditBusinessNote(corrected), 'À surveiller');
-  assert.equal(JSON.stringify(audit.getAuditInlineBusinessItems(movement, tFr)), JSON.stringify([{
-    key: 'movement', label: 'Emplacement', before: 'Cabinet 15 C', after: 'Cabinet 10 C', showLabel: false,
-  }]));
+  assert.equal(JSON.stringify(audit.getAuditInlineBusinessItems(movement, tFr)), JSON.stringify([]));
+});
+
+test('every UPDATE measurement event stays a correction even without a change payload', () => {
+  const correction = {
+    action: 'update',
+    description: 'Biological measurement for 2026-09-16',
+    business_details: { type: 'measurement', values: { polypes: 7 } },
+  };
+
+  assert.equal(
+    JSON.stringify(audit.getAuditBoxSummaryParts(correction, tFr)),
+    JSON.stringify(['Relevé ', ' corrigé']),
+  );
+  assert.equal(audit.getAuditDescriptionLabel(correction, tFr), 'Relevé biologique corrigé');
 });
 
 test('subculture summaries name all children and the parent in FR and EN', () => {
@@ -306,7 +318,7 @@ test('a subculture without parent or children invents no relation', () => {
 
   const timelineSource = readSource('../src/components/AuditTimeline.tsx');
   assert.match(timelineSource, /if \(!parentCode && !children\.length\) return null;/);
-  assert.match(timelineSource, /hidePrimaryResource \|\| !parentCode \? null/);
+  assert.match(timelineSource, /if \(hidePrimaryResource\) return null;/);
 });
 
 test('initial polyp wording distinguishes zero, one, plural, and missing values', () => {
@@ -639,14 +651,20 @@ test('real normalized notes render without empty filler text', () => {
   assert.match(adminSource, /<AuditBusinessNote details=\{entry\.business_details\} \/>/);
 });
 
-test('a first location assignment keeps its destination without inventing an origin', () => {
+test('a first location assignment is presented in the direct summary', () => {
   const items = audit.getAuditInlineBusinessItems(
     { type: 'box_movement', to_zone: 'Nursery B' },
     tFr,
   );
-  assert.equal(JSON.stringify(items), JSON.stringify([{
-    key: 'movement', label: 'Emplacement', value: 'Nursery B',
-  }]));
+  assert.equal(JSON.stringify(items), JSON.stringify([]));
+  assert.equal(
+    JSON.stringify(audit.getAuditBoxSummaryParts({
+      action: 'update',
+      description: '',
+      business_details: { type: 'box_movement', to_zone: 'Nursery B' },
+    }, tFr)),
+    JSON.stringify(['', ' déplacée vers Nursery B']),
+  );
 });
 
 test('salinity rendering preserves zero, hides null, and never duplicates PSU', () => {
@@ -1440,6 +1458,8 @@ test('Profile and Admin share inline summaries without duplicating resolved box 
   assert.match(timelineSource, /export function AuditPrimarySummary/);
   assert.match(timelineSource, /getAuditBoxSummaryParts\(entry, t\)/);
   assert.match(timelineSource, /<BoxTrackingPreview/);
+  assert.match(timelineSource, /\?\.box_reference/);
+  assert.match(timelineSource, /if \(hidePrimaryResource\) return null;/);
   assert.match(timelineSource, /export function AuditInlineBusinessSummary/);
   for (const source of [profileSource, adminSource]) {
     assert.match(source, /<AuditPrimarySummary/);

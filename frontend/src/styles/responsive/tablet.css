@@ -217,31 +217,9 @@
     min-height: 0;
   }
 
-  .box-inventory-page-selection {
-    min-height: 48px;
-  }
-
-  .box-inventory-selection-toolbar.is-sticky {
-    top: 72px;
-  }
-
-  .box-inventory-select-filtered {
-    min-height: 48px;
-  }
-
   .box-inventory-actions button,
   .box-inventory-cell a {
     min-height: 44px;
   }
 
-  .box-inventory-page-selection input,
-  .box-inventory-selection-cell input {
-    width: 24px;
-    height: 24px;
-  }
-
-  .box-inventory-batch-actions button {
-    min-height: 48px;
-    padding-inline: var(--space-4);
-  }
 }

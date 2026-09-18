@@ -52,12 +52,10 @@ Les lignes actives ou inactives ne sont pas éligibles à ce flux. Le backend re
 
 ## Sélection et actions groupées
 
-Seules les boîtes `pending_review` sont sélectionnables. Les modes actuels sont sélection ligne par ligne, page visible ou ensemble explicitement filtré.
+Seules les boîtes `pending_review` sont sélectionnables. Un mode compact affiche les cases directement dans les lignes du tableau et les actions groupées seulement lorsqu'une sélection existe.
 
 - La sélection peut traverser la pagination et son compteur reste visible.
 - Tout changement de filtre la vide avec un retour utilisateur clair.
-- « Tout sélectionner » signifie l'ensemble répondant aux filtres explicites, recalculé côté serveur; il ne repose pas sur les seules lignes déjà chargées.
-- Le serveur refuse une sélection filtrée supérieure à 500 boîtes et ne tronque jamais silencieusement.
 - Au moment de l'action, le backend revalide organisation, existence, statut et éligibilité de chaque identifiant.
 
 Les qualifications groupées vont uniquement de `pending_review` vers `active` ou `inactive`. Elles réutilisent les services de cycle de vie. Chaque boîte est atomique : un échec laisse cette boîte inchangée mais n'annule pas les réussites des autres. Le rapport identifie réussites et échecs avec leur cause, puis la liste, les filtres et compteurs sont rafraîchis depuis le serveur.

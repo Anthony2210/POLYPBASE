@@ -320,7 +320,7 @@ def resolve_audit_subculture_children(logs, *, organization_id):
         for box in Box.objects.filter(
             id__in=all_child_ids,
             organization_id=organization_id,
-        ).only("id", "global_code")
+        ).select_related("strain__species")
     }
     return {
         log_id: [boxes_by_id.get(child_id) if child_id is not None else None for child_id in child_ids]
@@ -650,28 +650,36 @@ def _normalized_subculture_children(metadata, *, resolved_children=None):
     counts = metadata.get("initial_polyp_counts")
 
     if resolved_children is None:
-        indexed_current_codes = list(enumerate(stored_codes))
+        indexed_children = [
+            (index, code, None)
+            for index, code in enumerate(stored_codes)
+        ]
     else:
-        indexed_current_codes = [
-            (index, box.global_code if box is not None else stored_codes[index])
+        indexed_children = [
+            (
+                index,
+                box.global_code if box is not None else stored_codes[index],
+                box,
+            )
             for index, box in enumerate(resolved_children)
             if box is not None or index < len(stored_codes)
         ]
 
     children = []
-    for index, current_code in indexed_current_codes:
+    for index, current_code, box in indexed_children:
         stored_code = stored_codes[index] if index < len(stored_codes) else current_code
         count = None
         if isinstance(counts, dict):
             candidate = counts.get(current_code, counts.get(stored_code))
             if _is_safe_number(candidate):
                 count = candidate
-        children.append(
-            {
-                "global_code": current_code,
-                "initial_polyp_count": count,
-            }
-        )
+        child = {
+            "global_code": current_code,
+            "initial_polyp_count": count,
+        }
+        if box is not None:
+            child["box_reference"] = serialize_box_reference(box)
+        children.append(child)
     return children
 
 

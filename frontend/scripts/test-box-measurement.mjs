@@ -63,37 +63,31 @@ test('finds the weekly measurement and treats zero-zero as recorded', () => {
 // measurement. No role hint and no clock takes part, which is why this helper
 // has no time parameter at all.
 test('server capability controls the create, edit and locked states', () => {
-  // No measurement this week: a laboratory writer creates one.
+  // No measurement this week: the server explicitly allows creation.
   assert.equal(exports.getMeasurementEditorMode({
-    measurement: null, canWriteLabData: true, boxIsActive: true,
+    measurement: null, canCreateMeasurement: true,
   }), 'create');
 
   // Existing measurement the server still allows to be corrected.
   assert.equal(exports.getMeasurementEditorMode({
-    measurement: measurement(), canWriteLabData: true, boxIsActive: true,
+    measurement: measurement(), canCreateMeasurement: false,
   }), 'edit');
 
   // Existing measurement with the correction window closed by the server.
   assert.equal(exports.getMeasurementEditorMode({
     measurement: measurement({ can_edit: false, edit_restriction: 'edit_window_expired' }),
-    canWriteLabData: true,
-    boxIsActive: true,
+    canCreateMeasurement: true,
   }), 'locked');
 
-  // A reader never edits, even when the measurement is still editable.
+  // The client never overrides an existing measurement's server capability.
   assert.equal(exports.getMeasurementEditorMode({
-    measurement: measurement(), canWriteLabData: false, boxIsActive: true,
-  }), 'locked');
-
-  // No measurement, no active box: nothing to enter.
-  assert.equal(exports.getMeasurementEditorMode({
-    measurement: null, canWriteLabData: true, boxIsActive: false,
-  }), 'read_only');
-
-  // An inactive box still allows the correction the server permits.
-  assert.equal(exports.getMeasurementEditorMode({
-    measurement: measurement(), canWriteLabData: true, boxIsActive: false,
+    measurement: measurement(), canCreateMeasurement: false,
   }), 'edit');
+
+  // No measurement and no server creation capability: nothing to enter.
+  assert.equal(exports.getMeasurementEditorMode({
+    measurement: null, canCreateMeasurement: false,
+  }), 'read_only');
 });
 
 test('recognizes only stable weekly and deadline error contracts', () => {
@@ -107,6 +101,33 @@ test('recognizes only stable weekly and deadline error contracts', () => {
     status: 403, data: { code: 'edit_window_expired' },
   }), true);
   assert.equal(exports.isMeasurementEditWindowExpired({ status: 403, data: {} }), false);
+});
+
+test('measurement workflow uses PATCH for weekly corrections and locks server-denied forms', () => {
+  const appSource = readSource('../src/App.tsx');
+  const buttonSource = readSource('../src/components/MeasurementSaveButton.tsx');
+
+  assert.match(
+    appSource,
+    /if \(editingMeasurementId != null\) \{\s*await onUpdateMeasurement\(box\.id, editingMeasurementId, payload\);/s,
+  );
+  assert.match(appSource, /disabled=\{isMeasurementFormLocked\}/);
+  assert.match(appSource, /isDisabled=\{isMeasurementFormLocked\}/);
+  assert.match(appSource, /measurementEditorMode !== 'create'/);
+  assert.match(appSource, /setMeasurementReferenceDate\(target\.measured_on\);/);
+  assert.match(buttonSource, /disabled=\{isDisabled \|\| isSaving\}/);
+});
+
+test('weekly conflicts refresh server state before the error is shown', () => {
+  const appSource = readSource('../src/App.tsx');
+  const createStart = appSource.indexOf('async function createMeasurement(');
+  const createSource = appSource.slice(
+    createStart,
+    appSource.indexOf('\n  async function createBox(', createStart),
+  );
+
+  assert.match(createSource, /isMeasurementWeekConflict\(requestError\)/);
+  assert.match(createSource, /await refreshBoxAfterMeasurement\(boxId\);/);
 });
 
 function readSource(relativePath) {

@@ -525,10 +525,34 @@ class BusinessAuditApiTests(TestCase):
             self.assertEqual(
                 entry["context"]["subculture"]["children"],
                 [
-                    {"global_code": "1-ATL.002", "initial_polyp_count": 0},
+                    {
+                        "global_code": "1-ATL.002",
+                        "initial_polyp_count": 0,
+                        "box_reference": {
+                            "id": children[0].id,
+                            "global_code": "1-ATL.002",
+                            "species_scientific_name": "Aurelia aurita",
+                        },
+                    },
                     {"global_code": "ATL-AAU-1.003", "initial_polyp_count": 1},
-                    {"global_code": "1-ATL.004", "initial_polyp_count": 2},
-                    {"global_code": "1-ATL.005", "initial_polyp_count": None},
+                    {
+                        "global_code": "1-ATL.004",
+                        "initial_polyp_count": 2,
+                        "box_reference": {
+                            "id": children[2].id,
+                            "global_code": "1-ATL.004",
+                            "species_scientific_name": "Aurelia aurita",
+                        },
+                    },
+                    {
+                        "global_code": "1-ATL.005",
+                        "initial_polyp_count": None,
+                        "box_reference": {
+                            "id": children[3].id,
+                            "global_code": "1-ATL.005",
+                            "species_scientific_name": "Aurelia aurita",
+                        },
+                    },
                 ],
             )
 

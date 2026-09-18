@@ -1307,7 +1307,7 @@ class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
 
     def post(self, request, box_id):
         box = self._get_box(request, box_id)
-        role = self._validate_create(request, box)
+        self._validate_create_permission(request, box)
 
         serializer = BiologicalMeasurementCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -1317,13 +1317,13 @@ class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
 
         with transaction.atomic():
             box = self._get_box(request, box_id, for_update=True)
-            role = self._validate_create(request, box)
+            self._validate_create_permission(request, box)
             existing_measurement = (
                 BiologicalMeasurement.objects.select_for_update()
                 .filter(box=box, week_start=week_start)
                 .first()
             )
-            if existing_measurement and existing_measurement.measured_on != measured_on:
+            if existing_measurement:
                 return Response(
                     {
                         "detail": "A biological measurement already exists for this box and ISO week.",
@@ -1333,69 +1333,34 @@ class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
                     },
                     status=status.HTTP_409_CONFLICT,
                 )
-            if existing_measurement:
-                editability = get_measurement_editability(
-                    user=request.user,
-                    measurement=existing_measurement,
-                    role=role,
-                )
-                if not editability["can_edit"]:
-                    raise MeasurementPermissionDenied(
-                        "This biological measurement can no longer be corrected by this account.",
-                        error_code=editability["edit_restriction"],
-                    )
-
-            before_values = (
-                _measurement_audit_values(existing_measurement)
-                if existing_measurement
-                else None
+            self._validate_box_accepts_measurement(box)
+            measurement = BiologicalMeasurement.objects.create(
+                box=box,
+                measured_on=measured_on,
+                user=request.user,
+                **data,
             )
-
-            if existing_measurement:
-                for field, value in data.items():
-                    setattr(existing_measurement, field, value)
-                existing_measurement.user = request.user
-                existing_measurement.save()
-                measurement = existing_measurement
-                created = False
-            else:
-                measurement = BiologicalMeasurement.objects.create(
-                    box=box,
-                    measured_on=measured_on,
-                    user=request.user,
-                    **data,
-                )
-                created = True
             _sync_polyp_drop_alert(box=box, measurement=measurement, user=request.user)
             after_values = _measurement_audit_values(measurement)
             metadata = {
                 "measurement_id": measurement.id,
                 "valeurs": after_values,
             }
-            if before_values is not None:
-                metadata.update(
-                    {
-                        "before": before_values,
-                        "after": after_values,
-                        "modifications": _changed_values(before_values, after_values),
-                    }
-                )
 
             _record_measurement_audit(
                 box=box,
                 measurement=measurement,
                 user=request.user,
-                action=AuditLog.Action.ENTRY if created else AuditLog.Action.UPDATE,
+                action=AuditLog.Action.ENTRY,
                 metadata=metadata,
             )
 
-        response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
         return Response(
             BiologicalMeasurementSerializer(
                 measurement,
                 context={"request": request},
             ).data,
-            status=response_status,
+            status=status.HTTP_201_CREATED,
         )
 
     def _get_box(self, request, box_id, *, for_update=False):
@@ -1414,7 +1379,7 @@ class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
         )
 
     @staticmethod
-    def _validate_create(request, box):
+    def _validate_create_permission(request, box):
         role = get_active_measurement_role(user=request.user, organization=box.organization)
         if role not in {
             OrganizationMembership.Role.ADMIN,
@@ -1424,9 +1389,11 @@ class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
                 "This account cannot create biological measurements.",
                 error_code="measurement_write_forbidden",
             )
+
+    @staticmethod
+    def _validate_box_accepts_measurement(box):
         if box.status == Box.Status.INACTIVE:
             raise DRFValidationError("An inactive box cannot receive a new measurement.")
-        return role
 
 
 class BoxMeasurementDetailAPIView(generics.GenericAPIView):

@@ -232,6 +232,34 @@
 
 .measurement-form-section .fake-form { display: grid; gap: var(--space-4); }
 
+.measurement-editor-fields {
+  display: contents;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.measurement-form-section.is-locked {
+  background: var(--color-surface-subtle);
+}
+
+.measurement-form-section.is-locked :is(input, textarea, button) {
+  cursor: not-allowed;
+}
+
+.measurement-form-section.is-locked :is(input, textarea, .count-stepper, .quick-counts) {
+  opacity: .7;
+}
+
+.measurement-lock-note {
+  max-width: 62ch;
+  margin: var(--space-1) 0 0;
+  color: var(--color-muted);
+  font-size: .75rem;
+  line-height: 1.45;
+}
+
 /* The current week already has its measurement and this account cannot change
    it: the form slot shows the recorded values as a locked summary instead, so
    the week never looks open for a second entry. */

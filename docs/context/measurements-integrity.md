@@ -10,13 +10,14 @@ Un relevé `0/0` existe donc réellement et reste distinct de « aucun relevé �
 
 `BiologicalMeasurement` associe une boîte et une date à des nombres de polypes, d'éphyrules et de strobiles, une salinité facultative, un état de culture, un indicateur d'attention, des notes et un auteur.
 
-La base garantit au plus une ligne par `(box, measured_on)`. Le POST suit le comportement métier actuel :
+La base garantit au plus une ligne par boîte et semaine ISO. Le POST interactif suit le comportement métier suivant :
 
 1. ouvrir une transaction et verrouiller la boîte;
-2. créer le relevé et répondre `201`, ou corriger la ligne de la même date et répondre `200`;
-3. synchroniser les alertes et écrire l'audit dans la même transaction.
+2. créer le relevé et répondre `201` si la semaine est libre;
+3. répondre `409 measurement_week_conflict` sans mutation si un relevé existe déjà dans la semaine, y compris à la même date;
+4. synchroniser les alertes et écrire l'audit dans la même transaction.
 
-Deux créations concurrentes sont ainsi sérialisées selon la même règle que deux opérations séquentielles : une seule ligne finale, la seconde opération corrigeant la première. La contrainte DB reste la défense finale contre les doublons. Une correction explicite d'un relevé existant passe aussi par le PATCH prévu.
+Deux créations concurrentes sont ainsi sérialisées selon la même règle que deux opérations séquentielles : une seule ligne finale et un conflit pour la seconde. La contrainte DB reste la défense finale contre les doublons. Toute correction d'un relevé existant passe exclusivement par le PATCH prévu.
 
 Une boîte inactive refuse un nouveau relevé. Un relevé historique déjà présent peut être corrigé par un utilisateur autorisé. Vérifier le statut sous verrou au moment de l'écriture, pas seulement dans l'interface.
 

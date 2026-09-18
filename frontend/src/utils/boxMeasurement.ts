@@ -22,14 +22,13 @@ export function findMeasurementForWeek(
 
 export function getMeasurementEditorMode(input: {
   measurement: BiologicalMeasurement | null;
-  canWriteLabData: boolean;
-  boxIsActive: boolean;
+  canCreateMeasurement: boolean;
 }): MeasurementEditorMode {
-  const { measurement, canWriteLabData, boxIsActive } = input;
+  const { measurement, canCreateMeasurement } = input;
   if (measurement) {
-    return canWriteLabData && measurement.can_edit ? 'edit' : 'locked';
+    return measurement.can_edit ? 'edit' : 'locked';
   }
-  if (canWriteLabData && boxIsActive) return 'create';
+  if (canCreateMeasurement) return 'create';
   return 'read_only';
 }
 

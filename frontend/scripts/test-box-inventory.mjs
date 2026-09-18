@@ -93,3 +93,24 @@ test('zero-zero is a real measurement and missing remains distinct', () => {
   assert.equal(exports.isZeroZeroMeasurement({ polyp_count: 0, ephyrae_count: 1 }), false);
   assert.equal(exports.isZeroZeroMeasurement(null), false);
 });
+
+test('inventory selection is an explicit row-checkbox mode with compact actions', () => {
+  const component = readFileSync(
+    new URL('../src/components/BoxInventoryAdminSection.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(component, /const \[isSelectionMode, setIsSelectionMode\] = useState\(false\);/);
+  assert.match(component, /aria-pressed=\{isSelectionMode\}/);
+  assert.match(component, /isSelectionMode \? \(\s*<div className="box-inventory-cell box-inventory-selection-cell"/s);
+  assert.match(component, /box\.status === 'pending_review' \? \(/);
+  assert.match(component, /onChange=\{\(event\) => toggleBoxSelection\(box, event\.target\.checked\)\}/);
+  assert.match(component, /selectedBoxes\.size === 1 \? 'boxInventoryBatchSelectedOne'/);
+  assert.match(component, /boxInventoryBatchMakeActive/);
+  assert.match(component, /boxInventoryBatchMakeInactive/);
+  assert.doesNotMatch(component, /selectAllFilteredResults/);
+  assert.doesNotMatch(component, /togglePageSelection/);
+  assert.doesNotMatch(component, /box-inventory-selected-boxes/);
+  assert.doesNotMatch(component, /boxInventorySelectVisiblePage/);
+  assert.doesNotMatch(component, /boxInventorySelectAllFiltered/);
+});

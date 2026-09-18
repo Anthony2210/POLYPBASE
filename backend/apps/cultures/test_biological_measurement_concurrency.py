@@ -155,10 +155,11 @@ class BiologicalMeasurementConcurrencyTests(TransactionTestCase):
 
         return first_response, second_response
 
-    def _assert_serialized_result(self, first_response, second_response, expected_values):
+    def _assert_create_then_conflict(self, first_response, second_response, expected_values):
         self.assertEqual(first_response.status_code, 201)
-        self.assertEqual(second_response.status_code, 200)
-        self.assertEqual(first_response.data["id"], second_response.data["id"])
+        self.assertEqual(second_response.status_code, 409)
+        self.assertEqual(second_response.data["code"], "measurement_week_conflict")
+        self.assertEqual(first_response.data["id"], second_response.data["measurement_id"])
         self.assertEqual(
             BiologicalMeasurement.objects.filter(
                 box=self.box,
@@ -172,7 +173,7 @@ class BiologicalMeasurementConcurrencyTests(TransactionTestCase):
         )
         self.assertEqual(measurement.polyp_count, expected_values[0])
         self.assertEqual(measurement.ephyrae_count, expected_values[1])
-        self.assertEqual(measurement.user, self.second_user)
+        self.assertEqual(measurement.user, self.first_user)
 
         audits = list(
             AuditLog.objects.filter(
@@ -180,30 +181,20 @@ class BiologicalMeasurementConcurrencyTests(TransactionTestCase):
                 metadata__measurement_id=measurement.id,
             ).order_by("created_at", "id")
         )
-        self.assertEqual(len(audits), 2)
-        creation, correction = audits
+        self.assertEqual(len(audits), 1)
+        creation = audits[0]
         self.assertEqual(creation.action, AuditLog.Action.ENTRY)
         self.assertEqual(creation.user, self.first_user)
-        self.assertEqual(correction.action, AuditLog.Action.UPDATE)
-        self.assertEqual(correction.user, self.second_user)
-        self.assertEqual(
-            correction.metadata["before"]["polypes"],
-            creation.metadata["valeurs"]["polypes"],
-        )
-        self.assertEqual(
-            correction.metadata["before"]["ephyrules"],
-            creation.metadata["valeurs"]["ephyrules"],
-        )
-        self.assertEqual(correction.metadata["after"]["polypes"], expected_values[0])
-        self.assertEqual(correction.metadata["after"]["ephyrules"], expected_values[1])
+        self.assertEqual(creation.metadata["valeurs"]["polypes"], expected_values[0])
+        self.assertEqual(creation.metadata["valeurs"]["ephyrules"], expected_values[1])
 
-    def test_concurrent_first_entries_are_serialized_as_create_then_update(self):
+    def test_concurrent_first_entries_are_serialized_as_create_then_conflict(self):
         first_response, second_response = self._run_ordered_concurrent_posts(
             first_values=(10, 2),
             second_values=(20, 4),
         )
 
-        self._assert_serialized_result(first_response, second_response, (20, 4))
+        self._assert_create_then_conflict(first_response, second_response, (10, 2))
 
     def test_concurrent_different_dates_in_one_week_create_one_row(self):
         first_response, second_response = self._run_ordered_concurrent_posts(
@@ -225,10 +216,10 @@ class BiologicalMeasurementConcurrencyTests(TransactionTestCase):
             1,
         )
 
-    def test_concurrent_update_preserves_zero_as_the_second_value(self):
+    def test_concurrent_same_date_conflict_does_not_apply_second_zero_values(self):
         first_response, second_response = self._run_ordered_concurrent_posts(
             first_values=(20, 4),
             second_values=(0, 0),
         )
 
-        self._assert_serialized_result(first_response, second_response, (0, 0))
+        self._assert_create_then_conflict(first_response, second_response, (20, 4))

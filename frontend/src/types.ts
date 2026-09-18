@@ -232,6 +232,7 @@ export type BoxDetail = BoxItem & {
   active_alerts: BoxAlert[];
   scan_url: string;
   qr_image_url: string;
+  can_create_measurement: boolean;
 };
 
 export type BoxLocation = {
@@ -530,7 +531,11 @@ export type AuditContext = {
   measurement?: { id: number };
   subculture?: {
     parent_global_code: string;
-    children: Array<{ global_code: string; initial_polyp_count: number | null }>;
+    children: Array<{
+      global_code: string;
+      initial_polyp_count: number | null;
+      box_reference?: AuditBoxReference;
+    }>;
   };
   transfer?: {
     source_organization: string | null;

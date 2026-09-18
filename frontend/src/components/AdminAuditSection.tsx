@@ -395,6 +395,7 @@ function AdminAuditRow({
             entry={entry}
             language={language}
             onEditMeasurement={onEditMeasurement}
+            onOpenBox={onOpenBox}
             t={t}
           />
           {hasDetails ? (

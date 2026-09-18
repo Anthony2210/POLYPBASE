@@ -1,4 +1,4 @@
-import type { AuditBusinessDetails, AuditChanges, AuditFamily, AuditValue, AuditValues } from '../types';
+import type { AuditBusinessDetails, AuditChanges, AuditContext, AuditFamily, AuditValue, AuditValues } from '../types';
 import { getDocumentLocale } from './dateFormat';
 
 type Translate = (key: string) => string;
@@ -42,6 +42,7 @@ export type AuditEntryLike = {
   object_id?: string;
   metadata?: Record<string, unknown>;
   business_details?: AuditBusinessDetails | null;
+  context?: AuditContext | null;
 };
 
 export type AuditResourceLike = {
@@ -307,11 +308,21 @@ export function getAuditBoxSummaryParts(entry: AuditEntryLike, t: Translate): [s
   let key: string | null = null;
 
   if (details?.type === 'measurement') {
-    key = details.changes && Object.keys(details.changes).length
+    key = entry.action === 'update' || (details.changes && Object.keys(details.changes).length)
       ? 'auditInlineMeasurementCorrected'
       : 'auditInlineMeasurementRecorded';
   } else if (details?.type === 'box_movement') {
-    key = 'auditInlineBoxMoved';
+    if (!details.to_zone) {
+      key = 'auditInlineBoxMoved';
+    } else {
+      const template = fillTemplate(t('auditInlineBoxMovedTo'), {
+        location: details.to_zone,
+      });
+      const placeholderIndex = template.indexOf('{box}');
+      return placeholderIndex < 0
+        ? null
+        : [template.slice(0, placeholderIndex), template.slice(placeholderIndex + '{box}'.length)];
+    }
   } else if (details?.type === 'box_status') {
     if (details.transition?.to === 'inactive') key = 'auditInlineBoxDeactivated';
     else if (details.transition?.from === 'inactive' && details.transition.to === 'active') key = 'auditInlineBoxReactivated';
@@ -360,22 +371,6 @@ export function getAuditInlineBusinessItems(
       if (source[key] === null || source[key] === undefined || source[key] === '') return [];
       return [{ key, label, value: formatAuditMeasurementValue(key, source[key], t) }];
     });
-  }
-
-  if (details.type === 'box_movement' && details.to_zone) {
-    return [details.from_zone
-      ? {
-          key: 'movement',
-          label: getAuditMetadataKeyLabel('emplacement', t),
-          before: details.from_zone,
-          after: details.to_zone,
-          showLabel: false,
-        }
-      : {
-          key: 'movement',
-          label: getAuditMetadataKeyLabel('emplacement', t),
-          value: details.to_zone,
-        }];
   }
 
   if (details.type === 'transfer_out') {

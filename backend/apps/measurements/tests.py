@@ -144,7 +144,21 @@ class MeasurementEditingApiTests(TestCase):
         self.assertEqual(response.json()["polyp_count"], 0)
         self.assertEqual(response.json()["ephyrae_count"], 0)
 
-    def test_post_for_existing_date_updates_one_measurement_including_to_zero(self):
+    def test_box_detail_exposes_server_measurement_creation_capability(self):
+        detail_url = reverse("api_box_detail", args=[self.box.id])
+
+        self.client.login(username="tech", password="secret")
+        self.assertTrue(self.client.get(detail_url).json()["can_create_measurement"])
+
+        self.client.login(username="viewer", password="secret")
+        self.assertFalse(self.client.get(detail_url).json()["can_create_measurement"])
+
+        self.box.status = Box.Status.INACTIVE
+        self.box.save(update_fields=["status"])
+        self.client.login(username="admin", password="secret")
+        self.assertFalse(self.client.get(detail_url).json()["can_create_measurement"])
+
+    def test_post_for_existing_date_returns_conflict_without_mutation_or_audit(self):
         self.client.login(username="tech", password="secret")
         url = reverse("api_box_measurements", args=[self.box.id])
 
@@ -157,7 +171,7 @@ class MeasurementEditingApiTests(TestCase):
             },
             content_type="application/json",
         )
-        updated_response = self.client.post(
+        conflict_response = self.client.post(
             url,
             data={
                 "measured_on": self.today.isoformat(),
@@ -168,8 +182,12 @@ class MeasurementEditingApiTests(TestCase):
         )
 
         self.assertEqual(created_response.status_code, 201)
-        self.assertEqual(updated_response.status_code, 200)
-        self.assertEqual(created_response.json()["id"], updated_response.json()["id"])
+        self.assertEqual(conflict_response.status_code, 409)
+        self.assertEqual(conflict_response.json()["code"], "measurement_week_conflict")
+        self.assertEqual(
+            created_response.json()["id"],
+            conflict_response.json()["measurement_id"],
+        )
         self.assertEqual(
             BiologicalMeasurement.objects.filter(
                 box=self.box,
@@ -178,26 +196,17 @@ class MeasurementEditingApiTests(TestCase):
             1,
         )
         measurement = BiologicalMeasurement.objects.get(box=self.box, measured_on=self.today)
-        self.assertEqual(measurement.polyp_count, 0)
-        self.assertEqual(measurement.ephyrae_count, 0)
+        self.assertEqual(measurement.polyp_count, 12)
+        self.assertEqual(measurement.ephyrae_count, 3)
         audits = list(
             AuditLog.objects.filter(
                 object_type="box",
                 metadata__measurement_id=measurement.id,
             ).order_by("created_at", "id")
         )
-        self.assertEqual(len(audits), 2)
+        self.assertEqual(len(audits), 1)
         self.assertEqual(audits[0].action, AuditLog.Action.ENTRY)
         self.assertEqual(audits[0].metadata["valeurs"]["polypes"], 12)
-        correction = audits[1]
-        self.assertEqual(correction.action, AuditLog.Action.UPDATE)
-        self.assertEqual(correction.metadata["before"]["polypes"], 12)
-        self.assertEqual(correction.metadata["after"]["polypes"], 0)
-        self.assertEqual(correction.metadata["after"]["ephyrules"], 0)
-        self.assertEqual(correction.metadata["valeurs"]["polypes"], 0)
-        self.assertEqual(correction.metadata["valeurs"]["ephyrules"], 0)
-        self.assertEqual(correction.metadata["modifications"]["polypes"]["avant"], 12)
-        self.assertEqual(correction.metadata["modifications"]["polypes"]["apres"], 0)
 
     def test_measurement_and_alert_roll_back_when_audit_fails(self):
         BiologicalMeasurement.objects.create(
@@ -486,6 +495,7 @@ class MeasurementEditingApiTests(TestCase):
         self.assertEqual(response.json()["code"], "measurement_week_conflict")
         self.assertEqual(response.json()["week_start"], "2026-09-14")
         self.assertEqual(BiologicalMeasurement.objects.filter(box=self.box).count(), 1)
+        self.assertFalse(AuditLog.objects.filter(object_id=self.box.global_code).exists())
 
     def test_next_week_and_separate_boxes_are_independent(self):
         self.client.login(username="tech", password="secret")
@@ -570,6 +580,56 @@ class MeasurementEditingApiTests(TestCase):
         measurement.refresh_from_db()
         self.assertEqual(measurement.polyp_count, 11)
         self.assertEqual(measurement.created_at, created_at)
+        audits = AuditLog.objects.filter(metadata__measurement_id=measurement.id)
+        self.assertEqual(audits.count(), 1)
+        self.assertEqual(audits.get().action, AuditLog.Action.UPDATE)
+
+    def test_repeated_technician_patches_preserve_identity_deadline_and_append_updates(self):
+        measurement = BiologicalMeasurement.objects.create(
+            box=self.box,
+            measured_on=self.today,
+            polyp_count=10,
+            ephyrae_count=2,
+        )
+        created_at = datetime(2026, 9, 16, 8, 0, tzinfo=datetime_timezone.utc)
+        BiologicalMeasurement.objects.filter(pk=measurement.pk).update(created_at=created_at)
+        measurement.refresh_from_db()
+        self.client.login(username="tech", password="secret")
+
+        with patch(
+            "apps.measurements.services.timezone.now",
+            return_value=created_at + timedelta(hours=23),
+        ):
+            first = self.patch_measurement(
+                self.box,
+                measurement,
+                {"polyp_count": 0, "ephyrae_count": 0},
+            )
+            second = self.patch_measurement(
+                self.box,
+                measurement,
+                {"polyp_count": 7},
+            )
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(first.json()["id"], measurement.id)
+        self.assertEqual(second.json()["id"], measurement.id)
+        measurement.refresh_from_db()
+        self.assertEqual(measurement.created_at, created_at)
+        self.assertEqual(measurement.polyp_count, 7)
+        self.assertEqual(measurement.ephyrae_count, 0)
+        events = list(
+            AuditLog.objects.filter(metadata__measurement_id=measurement.id).order_by("id")
+        )
+        self.assertEqual(
+            [event.action for event in events],
+            [AuditLog.Action.UPDATE, AuditLog.Action.UPDATE],
+        )
+        self.assertEqual(events[0].metadata["after"]["polypes"], 0)
+        self.assertEqual(events[0].metadata["after"]["ephyrules"], 0)
+        self.assertEqual(events[1].metadata["before"]["polypes"], 0)
+        self.assertEqual(events[1].metadata["after"]["polypes"], 7)
 
     def test_old_historical_measurement_is_locked_for_technician(self):
         measurement = BiologicalMeasurement.objects.create(

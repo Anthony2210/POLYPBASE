@@ -23,7 +23,7 @@ from apps.cultures.models import (
     ThermalZone,
 )
 from apps.measurements.models import BiologicalMeasurement, Probe
-from apps.measurements.services import get_measurement_editability
+from apps.measurements.services import get_active_measurement_role, get_measurement_editability
 from apps.organizations.models import Organization
 from apps.organizations.serializers import OrganizationSummarySerializer
 from apps.taxonomy.models import Species, Strain
@@ -339,6 +339,7 @@ class BoxDetailSerializer(BoxListSerializer):
     biological_measurements = BiologicalMeasurementSerializer(many=True, read_only=True)
     scan_url = serializers.SerializerMethodField()
     qr_image_url = serializers.SerializerMethodField()
+    can_create_measurement = serializers.SerializerMethodField()
 
     class Meta(BoxListSerializer.Meta):
         fields = BoxListSerializer.Meta.fields + [
@@ -357,7 +358,21 @@ class BoxDetailSerializer(BoxListSerializer):
             "biological_measurements",
             "scan_url",
             "qr_image_url",
+            "can_create_measurement",
         ]
+
+    def get_can_create_measurement(self, obj):
+        request = self.context.get("request")
+        if request is None or obj.status == Box.Status.INACTIVE:
+            return False
+        role = get_active_measurement_role(
+            user=request.user,
+            organization=obj.organization,
+        )
+        return role in {
+            OrganizationMembership.Role.ADMIN,
+            OrganizationMembership.Role.LAB_TECHNICIAN,
+        }
 
     def get_scan_url(self, obj):
         return qr.box_scan_url(obj)
