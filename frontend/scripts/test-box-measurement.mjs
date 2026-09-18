@@ -113,9 +113,135 @@ test('measurement workflow uses PATCH for weekly corrections and locks server-de
   );
   assert.match(appSource, /disabled=\{isMeasurementFormLocked\}/);
   assert.match(appSource, /isDisabled=\{isMeasurementFormLocked\}/);
-  assert.match(appSource, /measurementEditorMode !== 'create'/);
+  assert.match(
+    appSource,
+    /const canShowMeasurementForm = measurementEditorMode === 'create'\s*\|\| \(isMeasurementEditorOpen && Boolean\(editingMeasurement\?\.can_edit\)\);/s,
+  );
   assert.match(appSource, /setMeasurementReferenceDate\(target\.measured_on\);/);
   assert.match(buttonSource, /disabled=\{isDisabled \|\| isSaving\}/);
+});
+
+test('weekly measurement defaults to one compact server-authorized summary', () => {
+  const appSource = readSource('../src/App.tsx');
+
+  assert.match(appSource, /const \[isMeasurementEditorOpen, setIsMeasurementEditorOpen\] = useState\(false\);/);
+  assert.match(
+    appSource,
+    /const showWeeklyMeasurementSummary = Boolean\(weeklyMeasurement\)\s*&& \(!isMeasurementEditorOpen \|\| !editingMeasurement\?\.can_edit\);/s,
+  );
+  assert.match(appSource, /showWeeklyMeasurementSummary \? ' measurement-summary measurement-module' : ''/);
+  assert.match(appSource, /weeklyMeasurement\.polyp_count/);
+  assert.match(appSource, /weeklyMeasurement\.ephyrae_count/);
+  assert.match(appSource, /formatMeasurementCount\(/);
+
+  const summaryStart = appSource.indexOf('<div className="last-reading-comment-header">');
+  const summarySource = appSource.slice(summaryStart, appSource.indexOf('\n        </section>', summaryStart));
+  assert.notEqual(summaryStart, -1);
+  assert.match(summarySource, /showWeeklyMeasurementSummary && weeklyMeasurement\?\.can_edit \? \(/);
+  assert.match(summarySource, /className="icon-button measurement-summary-edit-button"/);
+  assert.match(summarySource, /aria-label=\{t\('modifyWeeklyMeasurement'\)\}/);
+  assert.match(summarySource, /title=\{t\('modifyWeeklyMeasurement'\)\}/);
+  assert.match(summarySource, /<Pencil aria-hidden="true" size=\{18\} \/>/);
+  assert.match(summarySource, /onClick=\{openWeeklyMeasurementEditor\}/);
+  assert.match(summarySource, /weeklyMeasurement\.edit_restriction === 'edit_window_expired'/);
+  assert.doesNotMatch(summarySource, /className="measurement-edit-button"/);
+  assert.doesNotMatch(summarySource, /Date\.now|profile|userHas/);
+});
+
+test('opening, saving and cancelling an edit preserve the PATCH-only flow', () => {
+  const appSource = readSource('../src/App.tsx');
+  const openStart = appSource.indexOf('function openWeeklyMeasurementEditor()');
+  const openSource = appSource.slice(openStart, appSource.indexOf('\n  function cancelMeasurementEdit()', openStart));
+  const cancelStart = appSource.indexOf('function cancelMeasurementEdit()');
+  const cancelSource = appSource.slice(cancelStart, appSource.indexOf('\n  async function handleSubculture(', cancelStart));
+  const saveStart = appSource.indexOf('async function saveMeasurement()');
+  const saveSource = appSource.slice(saveStart, appSource.indexOf('\n\n  function handleSubmit(', saveStart));
+
+  assert.match(openSource, /if \(!weeklyMeasurement\?\.can_edit\) return;/);
+  assert.match(openSource, /setForm\(getMeasurementFormValues\(weeklyMeasurement\)\);/);
+  assert.match(openSource, /setEditingMeasurementId\(weeklyMeasurement\.id\);/);
+  assert.match(openSource, /setIsMeasurementEditorOpen\(true\);/);
+
+  assert.match(saveSource, /if \(editingMeasurementId != null\) \{\s*await onUpdateMeasurement\(box\.id, editingMeasurementId, payload\);/s);
+  assert.match(saveSource, /else \{\s*await onCreateMeasurement\(box\.id, payload\);/s);
+  assert.match(saveSource, /setIsMeasurementEditorOpen\(false\);/);
+
+  assert.match(cancelSource, /setForm\(getMeasurementFormValues\(editingMeasurement\)\);/);
+  assert.match(cancelSource, /setEditingMeasurementId\(null\);/);
+  assert.match(cancelSource, /setIsMeasurementEditorOpen\(false\);/);
+  assert.doesNotMatch(cancelSource, /onCreateMeasurement|onUpdateMeasurement|api(?:Post|Patch)/);
+  assert.match(appSource, /editingMeasurementId != null \? \(\s*<button[\s\S]*onClick=\{cancelMeasurementEdit\}/);
+});
+
+test('measurement UI state resets between boxes and follows refreshed capabilities', () => {
+  const appSource = readSource('../src/App.tsx');
+  const resetStart = appSource.indexOf('setForm(getInitialMeasurementForm(defaultSalinity));');
+  const resetEnd = appSource.indexOf('}, [box?.id]);', resetStart);
+  const resetSource = appSource.slice(resetStart, resetEnd + '}, [box?.id]);'.length);
+
+  assert.notEqual(resetStart, -1);
+  assert.match(resetSource, /setEditingMeasurementId\(null\);/);
+  assert.match(resetSource, /setIsMeasurementEditorOpen\(false\);/);
+  assert.match(resetSource, /}, \[box\?\.id\]\);/);
+  assert.match(appSource, /if \(editingMeasurement\?\.can_edit\) return;/);
+  assert.match(appSource, /setIsMeasurementEditorOpen\(false\);/);
+});
+
+test('normal back action is non-desktop and keeps deterministic localized navigation', () => {
+  const appSource = readSource('../src/App.tsx');
+  const frSource = readSource('../src/i18n/fr.ts');
+  const enSource = readSource('../src/i18n/en.ts');
+  const backControls = appSource.match(/className="icon-button box-back-action"[\s\S]*?onClick=\{onBack\}[\s\S]*?<ArrowLeft aria-hidden="true" size=\{20\} \/>/g) ?? [];
+
+  assert.equal(backControls.length, 2, 'one not-found escape and one normal-page control are defined');
+  assert.match(
+    appSource,
+    /\{!isDesktopApp \? \(\s*<button\s*className="icon-button box-back-action"[\s\S]*?onClick=\{onBack\}/,
+  );
+  for (const control of backControls) {
+    assert.match(control, /aria-label=\{t\('backToPilotage'\)\}/);
+    assert.match(control, /title=\{t\('backToPilotage'\)\}/);
+  }
+  assert.doesNotMatch(appSource, /history\.back\(|window\.history\.back\(/);
+  assert.match(frSource, /backToPilotage: 'Retour au suivi'/);
+  assert.match(enSource, /backToPilotage: 'Back to tracking'/);
+});
+
+test('measurement summary and editor are mutually exclusive states of one anchored module', () => {
+  const appSource = readSource('../src/App.tsx');
+  const css = readSource('../src/styles/pages/box-detail.css');
+
+  assert.match(
+    appSource,
+    /const isMeasurementEditorExpanded = Boolean\(weeklyMeasurement\)\s*&& isMeasurementEditorOpen\s*&& Boolean\(editingMeasurement\?\.can_edit\);/s,
+  );
+  assert.match(appSource, /weeklyMeasurement \? ' has-measurement-module' : ''/);
+  assert.match(appSource, /showWeeklyMeasurementSummary \? ' measurement-summary measurement-module' : ''/);
+  assert.match(appSource, /isMeasurementEditorExpanded \? ' measurement-module is-expanded' : ''/);
+  assert.doesNotMatch(appSource, /renderCompactMeasurementSummary|keepWeeklySummaryWhileEditing/);
+  assert.doesNotMatch(appSource, /className="measurement-summary-editing"|t\('measurementEditing'\)/);
+  assert.match(appSource, /<div className="last-reading-comment-header">/);
+  assert.doesNotMatch(appSource, /measurement-summary-action/);
+  assert.match(
+    css,
+    /grid-template-columns: minmax\(150px, \.75fr\) repeat\(2, minmax\(110px, \.45fr\)\) minmax\(220px, 1\.8fr\);/,
+  );
+  assert.match(css, /\.measurement-summary-edit-button \{[^}]*position: absolute;[^}]*width: 44px;[^}]*height: 44px;/s);
+  assert.match(
+    css,
+    /\.box-page-grid\.has-measurement-module \{\s*grid-template: "last" auto "insights" auto \/ minmax\(0, 1fr\);\s*\}/s,
+  );
+  assert.match(css, /\.measurement-module\.is-expanded \.fake-form \{\s*animation: measurement-editor-open 240ms ease-out;/s);
+});
+
+test('summary transition is restrained and reduced motion remains global', () => {
+  const css = readSource('../src/styles/pages/box-detail.css');
+  const baseCss = readSource('../src/styles/base.css');
+
+  assert.match(css, /\.last-reading-card\.is-fresh \{ animation: reading-saved 280ms ease-out; \}/);
+  assert.match(css, /from \{ opacity: 0; transform: translateY\(6px\); \}/);
+  assert.match(baseCss, /@media \(prefers-reduced-motion: reduce\)/);
+  assert.match(baseCss, /animation-duration: 0\.01ms !important;/);
 });
 
 test('weekly conflicts refresh server state before the error is shown', () => {

@@ -3,8 +3,12 @@
   gap: var(--space-4);
 }
 
-.box-page > .text-button {
+.box-page > .box-back-action {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
   justify-self: start;
+  color: var(--color-primary-hover);
 }
 
 .entity-header--box {
@@ -176,8 +180,15 @@
   grid-template: "form" auto "insights" auto / minmax(0, 1fr);
 }
 
+.box-page-grid.has-measurement-module {
+  grid-template: "last" auto "insights" auto / minmax(0, 1fr);
+}
+
+.measurement-module { grid-area: last; }
+
 .last-reading-card {
   --metric-background: rgb(255 255 255 / 72%);
+  position: relative;
   display: grid;
   min-width: 0;
   padding: var(--space-5);
@@ -205,6 +216,46 @@
 }
 
 .last-reading-card .metric strong { font-size: 1.25rem; }
+
+:is(.last-reading-card.measurement-summary, .box-page.is-read-only .last-reading-card.measurement-summary) {
+  grid-template-columns: minmax(150px, .75fr) repeat(2, minmax(110px, .45fr)) minmax(220px, 1.8fr);
+  align-items: center;
+}
+
+.last-reading-card.measurement-summary .last-reading-comment {
+  padding: 0 0 0 var(--space-3);
+  border-top: 0;
+  border-left: 1px solid var(--color-line);
+}
+
+.last-reading-comment-header {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.measurement-summary.has-edit-capability .last-reading-comment {
+  padding-right: calc(44px + var(--space-2));
+}
+
+.measurement-summary-edit-button {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-4);
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  color: var(--color-primary-hover);
+}
+
+.last-reading-comment-header .measurement-lock-note,
+.measurement-summary-feedback {
+  margin: 0;
+}
+
+.measurement-summary-feedback { text-align: right; }
 
 .last-reading-comment {
   min-width: 0;
@@ -436,6 +487,11 @@
 
 .measurement-save-button.is-success > span:last-child::before { content: "\2713\00a0"; }
 
+.measurement-cancel-button {
+  width: 100%;
+  min-height: 44px;
+}
+
 .measurement-edit-actions {
   display: flex;
   min-height: 42px;
@@ -462,10 +518,21 @@
   cursor: pointer;
 }
 
-.last-reading-card.is-fresh { animation: reading-saved 500ms ease; }
+.last-reading-card.is-fresh { animation: reading-saved 280ms ease-out; }
 
 @keyframes reading-saved {
-  50% { border-color: var(--color-success); background: var(--color-success-soft); }
+  from { opacity: 0; transform: translateY(6px); }
+  55% { border-color: var(--color-success); background: var(--color-success-soft); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.measurement-module.is-expanded .fake-form {
+  animation: measurement-editor-open 240ms ease-out;
+}
+
+@keyframes measurement-editor-open {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .box-checks-modal {
@@ -546,6 +613,7 @@
   .box-zone-summary { padding-inline: var(--space-3); }
   .box-action-stack { min-width: 0; }
   .box-page-grid { grid-template: "last" auto "form" auto "insights" auto / minmax(0, 1fr); }
+  .box-page-grid.has-measurement-module { grid-template: "last" auto "insights" auto / minmax(0, 1fr); }
   .last-reading-card { grid-template-columns: minmax(130px, .7fr) repeat(2, minmax(100px, .45fr)) minmax(180px, 1fr); align-items: center; }
   .last-reading-comment { padding: 0 0 0 var(--space-3); border-top: 0; border-left: 1px solid var(--color-line); }
   .measurement-date-field { display: none; }
@@ -572,8 +640,10 @@
   .box-action-stack :is(.move-trigger, .subculture-trigger) { display: none; }
   .box-page-grid { grid-template: "last" auto "form" auto "insights" auto / minmax(0, 1fr); gap: var(--space-3); }
   .last-reading-card { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: var(--space-4); }
+  :is(.last-reading-card.measurement-summary, .box-page.is-read-only .last-reading-card.measurement-summary) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .last-reading-card > :first-child, .last-reading-comment { grid-column: 1 / -1; }
-  .last-reading-comment, .box-page.is-read-only .last-reading-comment { padding: var(--space-3) 0 0; border-top: 1px solid var(--color-line); border-left: 0; }
+  .measurement-summary.has-edit-capability > :first-child { padding-right: calc(44px + var(--space-2)); }
+  .last-reading-comment, .box-page.is-read-only .last-reading-comment, .last-reading-card.measurement-summary .last-reading-comment { padding: var(--space-3) 0 0; border-top: 1px solid var(--color-line); border-left: 0; }
   .measurement-form-section, .box-insights-section { padding: var(--space-4); }
   .measurement-entry-grid { grid-template-columns: minmax(0, 1fr); }
   .measurement-date-field { display: none; }

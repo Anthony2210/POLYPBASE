@@ -1,3 +1,4 @@
+import { ArrowLeft, Pencil } from 'lucide-react';
 import {
   lazy,
   Suspense,
@@ -2450,6 +2451,7 @@ function BoxPage({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [editingMeasurementId, setEditingMeasurementId] = useState<number | null>(null);
+  const [isMeasurementEditorOpen, setIsMeasurementEditorOpen] = useState(false);
   // Set while the form holds values brought over from the history, so the save
   // button can say "correct" rather than "record": the technician is fixing an
   // existing measurement, not adding one.
@@ -2474,10 +2476,15 @@ function BoxPage({
   const editingMeasurement = editingMeasurementId == null
     ? null
     : measurements.find((measurement) => measurement.id === editingMeasurementId) ?? null;
-  const canShowMeasurementForm = measurementEditorMode !== 'read_only'
-    || Boolean(editingMeasurement?.can_edit);
-  const isMeasurementFormLocked = measurementEditorMode === 'locked'
+  const canShowMeasurementForm = measurementEditorMode === 'create'
+    || (isMeasurementEditorOpen && Boolean(editingMeasurement?.can_edit));
+  const isMeasurementFormLocked = editingMeasurementId != null
     && !editingMeasurement?.can_edit;
+  const showWeeklyMeasurementSummary = Boolean(weeklyMeasurement)
+    && (!isMeasurementEditorOpen || !editingMeasurement?.can_edit);
+  const isMeasurementEditorExpanded = Boolean(weeklyMeasurement)
+    && isMeasurementEditorOpen
+    && Boolean(editingMeasurement?.can_edit);
 
   useEffect(() => {
     const refreshDate = () => setMeasurementReferenceDate(getTodayDateValue());
@@ -2521,6 +2528,7 @@ function BoxPage({
     setSaveError(null);
     setSaveMessage(null);
     setEditingMeasurementId(null);
+    setIsMeasurementEditorOpen(false);
     setMeasurementReferenceDate(getTodayDateValue());
     setSubcultureError(null);
     setSubcultureMessage(null);
@@ -2530,27 +2538,45 @@ function BoxPage({
 
   useEffect(() => {
     if (isCorrectingFromHistory) return;
-    if (
-      weeklyMeasurement
-      && (measurementEditorMode === 'edit' || measurementEditorMode === 'locked')
-    ) {
+
+    if (!isMeasurementEditorOpen) {
+      setEditingMeasurementId(null);
+      if (measurementEditorMode === 'create') {
+        setForm(getInitialMeasurementForm(defaultSalinity, measurementReferenceDate));
+      }
+      return;
+    }
+
+    if (weeklyMeasurement?.can_edit) {
       setForm(getMeasurementFormValues(weeklyMeasurement));
       setEditingMeasurementId(weeklyMeasurement.id);
       return;
     }
+
     setEditingMeasurementId(null);
-    if (measurementEditorMode === 'create') {
-      setForm(getInitialMeasurementForm(defaultSalinity, measurementReferenceDate));
-    }
+    setIsMeasurementEditorOpen(false);
   }, [
     box?.id,
     defaultSalinity,
     isCorrectingFromHistory,
+    isMeasurementEditorOpen,
     measurementEditorMode,
     measurementReferenceDate,
     weeklyMeasurement?.id,
     weeklyMeasurement?.can_edit,
   ]);
+
+  useEffect(() => {
+    if (!isMeasurementEditorOpen || editingMeasurementId == null) return;
+    if (editingMeasurement?.can_edit) return;
+
+    if (editingMeasurement) {
+      setForm(getMeasurementFormValues(editingMeasurement));
+    }
+    setEditingMeasurementId(null);
+    setIsCorrectingFromHistory(false);
+    setIsMeasurementEditorOpen(false);
+  }, [editingMeasurement?.id, editingMeasurement?.can_edit, editingMeasurementId, isMeasurementEditorOpen]);
 
   // The history sends the user here to correct a measurement: fill the form
   // with what was recorded. Declared after the reset above so it runs last and
@@ -2574,6 +2600,7 @@ function BoxPage({
     setForm(getMeasurementFormValues(target));
     setEditingMeasurementId(target.id);
     setIsCorrectingFromHistory(true);
+    setIsMeasurementEditorOpen(true);
   }, [measurementPrefill, box, measurements]);
 
   // The zones can finish loading after the sheet is open, and the box can be
@@ -2625,8 +2652,14 @@ function BoxPage({
   if (!box) {
     return (
       <section className="box-page empty-box-state">
-        <button className="text-button" type="button" onClick={onBack}>
-          {t('backToPilotage')}
+        <button
+          className="icon-button box-back-action"
+          type="button"
+          aria-label={t('backToPilotage')}
+          title={t('backToPilotage')}
+          onClick={onBack}
+        >
+          <ArrowLeft aria-hidden="true" size={20} />
         </button>
         <h2>{t('boxNotFound')}</h2>
         <p>{t('boxNotFoundText')}</p>
@@ -2635,6 +2668,7 @@ function BoxPage({
   }
 
   const lastComment = getLatestComment(measurements, box);
+  const summaryComment = weeklyMeasurement?.notes?.trim() || lastComment;
   const sortedMeasurements = [...measurements].sort(
     (first, second) =>
       new Date(second.measured_on).getTime() - new Date(first.measured_on).getTime(),
@@ -2704,14 +2738,14 @@ function BoxPage({
     try {
       if (editingMeasurementId != null) {
         await onUpdateMeasurement(box.id, editingMeasurementId, payload);
-        // The correction is done: let the weekly state drive the form again.
-        setIsCorrectingFromHistory(false);
         setSaveMessage(t('measurementUpdated'));
       } else {
-        const created = await onCreateMeasurement(box.id, payload);
-        setEditingMeasurementId(created.id);
+        await onCreateMeasurement(box.id, payload);
         setSaveMessage(t('measurementSaved'));
       }
+      setEditingMeasurementId(null);
+      setIsCorrectingFromHistory(false);
+      setIsMeasurementEditorOpen(false);
       triggerHaptic([12, 28, 12]);
       return true;
     } catch (requestError) {
@@ -2727,6 +2761,27 @@ function BoxPage({
     event.preventDefault();
     if (!isDesktopApp) return;
     void saveMeasurement();
+  }
+
+  function openWeeklyMeasurementEditor() {
+    if (!weeklyMeasurement?.can_edit) return;
+    setForm(getMeasurementFormValues(weeklyMeasurement));
+    setEditingMeasurementId(weeklyMeasurement.id);
+    setIsCorrectingFromHistory(false);
+    setSaveError(null);
+    setSaveMessage(null);
+    setIsMeasurementEditorOpen(true);
+  }
+
+  function cancelMeasurementEdit() {
+    if (editingMeasurement) {
+      setForm(getMeasurementFormValues(editingMeasurement));
+    }
+    setEditingMeasurementId(null);
+    setIsCorrectingFromHistory(false);
+    setSaveError(null);
+    setSaveMessage(null);
+    setIsMeasurementEditorOpen(false);
   }
 
   async function handleSubculture(payload: SubculturePayload) {
@@ -2856,9 +2911,17 @@ function BoxPage({
 
   return (
     <section className={canWriteLabData ? 'box-page' : 'box-page is-read-only'}>
-      <button className="text-button" type="button" onClick={onBack}>
-        {t('backToPilotage')}
-      </button>
+      {!isDesktopApp ? (
+        <button
+          className="icon-button box-back-action"
+          type="button"
+          aria-label={t('backToPilotage')}
+          title={t('backToPilotage')}
+          onClick={onBack}
+        >
+          <ArrowLeft aria-hidden="true" size={20} />
+        </button>
+      ) : null}
 
       <header className={`entity-header entity-header--box box-sheet-hero is-status-${statusPresentation.tone}`}>
         <div className="entity-header__identity box-sheet-identity">
@@ -2974,25 +3037,75 @@ function BoxPage({
         <p className="inline-error box-action-feedback">{statusError}</p>
       ) : null}
 
-      <div className={`box-page-grid${!isBoxActive ? ' is-inactive' : ''}`}>
-        {isBoxActive ? (
-        <section className={saveMessage ? 'last-reading-card is-fresh' : 'last-reading-card'}>
+      <div className={`box-page-grid${!isBoxActive ? ' is-inactive' : ''}${weeklyMeasurement ? ' has-measurement-module' : ''}`}>
+        {(showWeeklyMeasurementSummary || (!weeklyMeasurement && isBoxActive)) ? (
+        <section
+          className={`last-reading-card${showWeeklyMeasurementSummary ? ' measurement-summary measurement-module' : ''}${showWeeklyMeasurementSummary && weeklyMeasurement?.can_edit ? ' has-edit-capability' : ''}${showWeeklyMeasurementSummary && saveMessage ? ' is-fresh' : ''}`}
+          aria-live={showWeeklyMeasurementSummary && saveMessage ? 'polite' : undefined}
+        >
           <div>
             <h2>{t('lastMeasurement')}</h2>
-            <span>{box.latest_measurement ? formatDisplayDate(box.latest_measurement.measured_on) : t('noDate')}</span>
+            <span>
+              {weeklyMeasurement && showWeeklyMeasurementSummary
+                ? formatDisplayDate(weeklyMeasurement.measured_on)
+                : box.latest_measurement
+                  ? formatDisplayDate(box.latest_measurement.measured_on)
+                  : t('noDate')}
+            </span>
           </div>
-          <Metric label={t('polyps')} value={String(box.latest_measurement?.polyp_count ?? '-')} />
-          <Metric label={t('ephyraeFull')} value={String(box.latest_measurement?.ephyrae_count ?? '-')} />
+          <Metric
+            label={t('polyps')}
+            value={formatMeasurementCount(
+              weeklyMeasurement && showWeeklyMeasurementSummary
+                ? weeklyMeasurement.polyp_count
+                : box.latest_measurement?.polyp_count,
+            )}
+          />
+          <Metric
+            label={t('ephyraeFull')}
+            value={formatMeasurementCount(
+              weeklyMeasurement && showWeeklyMeasurementSummary
+                ? weeklyMeasurement.ephyrae_count
+                : box.latest_measurement?.ephyrae_count,
+            )}
+          />
 
           <div className="last-reading-comment">
-            <small>{t('lastComment')}</small>
-            <p>{lastComment || t('noComment')}</p>
+            <div className="last-reading-comment-header">
+              <small>{t('lastComment')}</small>
+              {showWeeklyMeasurementSummary && weeklyMeasurement && !weeklyMeasurement.can_edit ? (
+                <p className="measurement-lock-note">
+                  {weeklyMeasurement.edit_restriction === 'edit_window_expired'
+                    ? t('weeklyMeasurementWindowExpired')
+                    : t('weeklyMeasurementReadOnly')}
+                </p>
+              ) : null}
+              {showWeeklyMeasurementSummary && saveMessage ? (
+                <p className="inline-success measurement-summary-feedback" role="status">{saveMessage}</p>
+              ) : null}
+            </div>
+            {showWeeklyMeasurementSummary ? (
+              summaryComment ? <p>{summaryComment}</p> : null
+            ) : (
+              <p>{lastComment || t('noComment')}</p>
+            )}
           </div>
+          {showWeeklyMeasurementSummary && weeklyMeasurement?.can_edit ? (
+            <button
+              className="icon-button measurement-summary-edit-button"
+              type="button"
+              aria-label={t('modifyWeeklyMeasurement')}
+              title={t('modifyWeeklyMeasurement')}
+              onClick={openWeeklyMeasurementEditor}
+            >
+              <Pencil aria-hidden="true" size={18} />
+            </button>
+          ) : null}
         </section>
         ) : null}
 
         {canShowMeasurementForm ? (
-          <section className={`box-section measurement-form-section${isMeasurementFormLocked ? ' is-locked' : ''}`}>
+          <section className={`box-section measurement-form-section${isMeasurementEditorExpanded ? ' measurement-module is-expanded' : ''}${isMeasurementFormLocked ? ' is-locked' : ''}`}>
             <form className="fake-form" onSubmit={handleSubmit}>
               <fieldset
                 className="measurement-editor-fields"
@@ -3177,7 +3290,16 @@ function BoxPage({
                   }}
                   onSave={saveMeasurement}
                 />
-
+                {editingMeasurementId != null ? (
+                  <button
+                    className="secondary-button measurement-cancel-button"
+                    type="button"
+                    disabled={isSaving}
+                    onClick={cancelMeasurementEdit}
+                  >
+                    {t('cancelEdit')}
+                  </button>
+                ) : null}
               </div>
               </fieldset>
             </form>

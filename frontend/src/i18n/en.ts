@@ -770,9 +770,9 @@ export const en: Record<TranslationKey, string> = {
   weeklyMeasurementWindowExpired: 'The 24-hour edit window has expired.',
   editLastMeasurement: 'Edit latest reading',
   editLastMeasurementHelp: 'Load the latest reading into the form for adjustment.',
-  cancelEdit: 'Cancel edit',
+  cancelEdit: 'Cancel',
   holdToUpdate: 'Hold to update',
-  measurementEditing: 'Latest reading loaded for editing',
+
   saveMeasurementEdit: 'Save changes',
   moveAction: 'Move',
   moveForbidden: 'This account cannot move boxes.',

@@ -768,9 +768,9 @@ export const fr = {
   weeklyMeasurementWindowExpired: 'Le délai de modification de 24 heures est dépassé.',
   editLastMeasurement: 'Modifier le dernier relevé',
   editLastMeasurementHelp: 'Reprendre le dernier relevé dans le formulaire pour ajustement.',
-  cancelEdit: 'Annuler la modification',
+  cancelEdit: 'Annuler',
   holdToUpdate: 'Maintenir pour modifier',
-  measurementEditing: 'Dernier relevé chargé pour modification',
+
   saveMeasurementEdit: 'Enregistrer les modifications',
   moveAction: 'Transférer',
   moveForbidden: 'Ce compte ne peut pas transférer de boîte.',
