@@ -8,6 +8,13 @@ export function formatDisplayDate(value: string) {
   }).format(new Date(normalizedValue));
 }
 
+export function formatDisplayDateTime(value: string) {
+  return new Intl.DateTimeFormat(getDocumentLocale(), {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(value));
+}
+
 export type RelativeDateTimeLabels = {
   todayAt: string;
   yesterdayAt: string;

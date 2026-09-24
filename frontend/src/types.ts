@@ -84,6 +84,7 @@ export type BoxItem = {
   strain: Strain;
   thermal_zone: ThermalZoneSummary | null;
   entered_on: string | null;
+  current_location_started_at: string | null;
   latest_measurement: BiologicalMeasurement | null;
   latest_salinity_psu: string | null;
   active_alert_count: number;
@@ -360,6 +361,43 @@ export type Probe = {
   is_active: boolean;
 };
 
+export type ThermalZoneMovementDirection = 'arrival' | 'departure';
+
+export type ThermalZoneMovementEvent = {
+  location_id: number;
+  event_type: ThermalZoneMovementDirection;
+  occurred_at: string;
+  box_id: number;
+  box_code: string;
+  box_status: string;
+  related_zone_id: number | null;
+  related_zone_name: string | null;
+};
+
+export type ThermalZoneMovementWeek = {
+  week_start: string;
+  iso_year: number;
+  iso_week: number;
+  entry_count: number;
+  exit_count: number;
+};
+
+export type ThermalZoneMovementSummary = {
+  recent_arrivals: ThermalZoneMovementEvent[];
+  recent_departures: ThermalZoneMovementEvent[];
+  weeks: ThermalZoneMovementWeek[];
+};
+
+export type ZoneSalinityMeasurement = {
+  id: number;
+  measured_on: string;
+  salinity_psu: number | string;
+  notes: string;
+  created_at: string;
+  can_edit: boolean;
+  editable_until: string;
+};
+
 export type ThermalZone = {
   id: number;
   name: string;
@@ -367,7 +405,7 @@ export type ThermalZone = {
   organization: Organization;
   target_temperature_c: string | null;
   capacity: number | null;
-  /** Reference salinity of the zone, maintained by hand (see ThermalZone model). */
+  /** Legacy configured salinity; recurring readings are exposed by latest_salinity. */
   salinity_psu: string | null;
   is_active: boolean;
   box_count: number;
@@ -378,10 +416,7 @@ export type ThermalZone = {
     max_temperature_c: number | string | null;
     measurement_count: number;
   } | null;
-  latest_salinity: {
-    measured_on: string;
-    salinity_psu: number;
-  } | null;
+  latest_salinity: ZoneSalinityMeasurement | null;
   probes: Probe[];
 };
 

@@ -38,6 +38,10 @@ from apps.cultures.api_views import (
     ProbeCreateAPIView,
     ThermalZoneDetailAPIView,
     ThermalZoneListCreateAPIView,
+    ThermalZoneManualSalinityAPIView,
+    ThermalZoneSalinityHistoryAPIView,
+    ThermalZoneMovementHistoryAPIView,
+    ThermalZoneMovementHistorySummaryAPIView,
     ThermalZoneManualTemperatureAPIView,
 )
 from apps.exports.views import (
@@ -150,9 +154,34 @@ urlpatterns = [
     path("thermal-zones/", ThermalZoneListCreateAPIView.as_view(), name="api_thermal_zone_list"),
     path("thermal-zones/<int:pk>/", ThermalZoneDetailAPIView.as_view(), name="api_thermal_zone_detail"),
     path(
+        "thermal-zones/<int:pk>/history/",
+        ThermalZoneMovementHistoryAPIView.as_view(),
+        name="api_thermal_zone_history",
+    ),
+    path(
+        "thermal-zones/<int:pk>/history/summary/",
+        ThermalZoneMovementHistorySummaryAPIView.as_view(),
+        name="api_thermal_zone_history_summary",
+    ),
+    path(
         "thermal-zones/<int:pk>/temperature/",
         ThermalZoneManualTemperatureAPIView.as_view(),
         name="api_thermal_zone_manual_temperature",
+    ),
+    path(
+        "thermal-zones/<int:pk>/salinity/",
+        ThermalZoneManualSalinityAPIView.as_view(),
+        name="api_thermal_zone_manual_salinity",
+    ),
+    path(
+        "thermal-zones/<int:pk>/salinity/history/",
+        ThermalZoneSalinityHistoryAPIView.as_view(),
+        name="api_thermal_zone_salinity_history",
+    ),
+    path(
+        "thermal-zones/<int:pk>/salinity/<int:measurement_id>/",
+        ThermalZoneManualSalinityAPIView.as_view(),
+        name="api_thermal_zone_salinity_detail",
     ),
     path("probes/", ProbeCreateAPIView.as_view(), name="api_probe_create"),
     path("box-transfers/", BoxTransferCreateAPIView.as_view(), name="api_box_transfer_create"),

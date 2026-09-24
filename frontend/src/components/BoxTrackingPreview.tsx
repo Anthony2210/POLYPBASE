@@ -26,12 +26,13 @@ const TrackingChart = lazy(async () => {
 export default function BoxTrackingPreview({ boxId, code, speciesName, language, onOpenBox, t }: {
   boxId: number;
   code: string;
-  speciesName: string;
+  speciesName?: string;
   language: Language;
   onOpenBox: (boxId: number, code: string) => void;
   t: Translator;
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [loadedSpeciesName, setLoadedSpeciesName] = useState<string | null>(null);
   const openTimer = useRef<number>();
   const closeTimer = useRef<number>();
   const pointerInside = useRef(false);
@@ -119,19 +120,29 @@ export default function BoxTrackingPreview({ boxId, code, speciesName, language,
           }}
         >
           <header className="box-tracking-preview-heading">
-            <div><strong id={`${id}-title`}>{code}</strong><span>{speciesName}</span></div>
+            <div>
+              <strong id={`${id}-title`}>{code}</strong>
+              {speciesName || loadedSpeciesName ? <span>{speciesName || loadedSpeciesName}</span> : null}
+            </div>
             <button type="button" aria-label={t('close')} onClick={() => close(true)}><X size={17} aria-hidden="true" /></button>
           </header>
-          <BoxTrackingPreviewContent key={boxId} boxId={boxId} language={language} t={t} />
+          <BoxTrackingPreviewContent
+            key={boxId}
+            boxId={boxId}
+            language={language}
+            onSpeciesLoaded={setLoadedSpeciesName}
+            t={t}
+          />
         </div>, document.body,
       ) : null}
     </>
   );
 }
 
-function BoxTrackingPreviewContent({ boxId, language, t }: {
+function BoxTrackingPreviewContent({ boxId, language, onSpeciesLoaded, t }: {
   boxId: number;
   language: Language;
+  onSpeciesLoaded: (speciesName: string) => void;
   t: Translator;
 }) {
   const [detail, setDetail] = useState<BoxDetail | null>(null);
@@ -142,10 +153,14 @@ function BoxTrackingPreviewContent({ boxId, language, t }: {
     const controller = new AbortController();
     setError(null);
     void apiGet<BoxDetail>(`/api/boxes/${boxId}/`, { signal: controller.signal })
-      .then((result) => { if (!controller.signal.aborted) setDetail(result); })
+      .then((result) => {
+        if (controller.signal.aborted) return;
+        setDetail(result);
+        onSpeciesLoaded(result.species.scientific_name);
+      })
       .catch((requestError) => { if (!controller.signal.aborted) setError(getErrorMessage(requestError)); });
     return () => controller.abort();
-  }, [attempt, boxId]);
+  }, [attempt, boxId, onSpeciesLoaded]);
 
   const loading = <div className="box-tracking-preview-state" role="status" aria-label={t('loading')}><SkeletonRows count={3} /></div>;
   if (error) return <div className="box-tracking-preview-state" role="alert"><p>{error}</p><button type="button" onClick={() => setAttempt((current) => current + 1)}>{t('lineageRetry')}</button></div>;

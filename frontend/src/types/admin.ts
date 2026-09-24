@@ -19,6 +19,17 @@ export type ManualTemperaturePayload = {
   temperature_c: string;
 };
 
+export type ManualSalinityPayload = {
+  measured_on: string;
+  salinity_psu: string;
+  notes?: string;
+};
+
+export type ManualSalinityUpdatePayload = {
+  salinity_psu: string;
+  notes?: string;
+};
+
 export type OrganizationPayload = {
   name: string;
   city: string;

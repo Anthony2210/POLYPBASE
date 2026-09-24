@@ -10,6 +10,7 @@ from django.db import DatabaseError
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from apps.accounts.models import OrganizationMembership, UserPreference
 from apps.audit.models import Alert, AuditLog
@@ -109,6 +110,29 @@ class PolypbaseApiTests(TestCase):
         payload = response.json()
         self.assertEqual(payload["count"], 1)
         self.assertEqual(payload["results"][0]["global_code"], "AAU-1.001-ATL")
+        self.assertIsNone(payload["results"][0]["current_location_started_at"])
+
+    def test_drf_box_list_exposes_the_canonical_current_location_start(self):
+        previous_start = timezone.now() - timedelta(days=10)
+        current_start = timezone.now() - timedelta(days=3)
+        BoxLocation.objects.create(
+            box=self.box,
+            thermal_zone=self.second_zone,
+            starts_at=previous_start,
+            ends_at=current_start,
+        )
+        BoxLocation.objects.create(
+            box=self.box,
+            thermal_zone=self.zone,
+            starts_at=current_start,
+        )
+        self.client.login(username="tech", password="secret")
+
+        response = self.client.get(reverse("api_box_list"))
+
+        self.assertEqual(response.status_code, 200)
+        value = response.json()["results"][0]["current_location_started_at"]
+        self.assertEqual(parse_datetime(value), current_start)
 
     def test_drf_box_list_allows_read_only_users_to_consult_their_organization(self):
         user_model = get_user_model()

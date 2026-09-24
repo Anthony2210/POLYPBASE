@@ -166,9 +166,9 @@
   gap: var(--space-4);
 }
 
-.measurement-form-section { grid-area: form; }
-.last-reading-card { grid-area: last; }
-.box-insights-section { grid-area: insights; }
+.box-page-grid > .measurement-form-section { grid-area: form; }
+.box-page-grid > .last-reading-card { grid-area: last; }
+.box-page-grid > .box-insights-section { grid-area: insights; }
 
 .box-page.is-read-only .box-page-grid {
   grid-template: "last" auto "insights" auto / minmax(0, 1fr);
@@ -182,7 +182,7 @@
   grid-template: "last" auto "insights" auto / minmax(0, 1fr);
 }
 
-.measurement-module { grid-area: last; }
+.box-page-grid > .measurement-module { grid-area: last; }
 
 .last-reading-card {
   --metric-background: rgb(255 255 255 / 72%);

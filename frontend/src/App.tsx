@@ -90,10 +90,13 @@ import type {
   SubcultureResult,
   ThermalZone,
   UserProfile,
+  ZoneSalinityMeasurement,
 } from './types';
 import type {
   BoxTransferPayload,
   BoxTransferResult,
+  ManualSalinityPayload,
+  ManualSalinityUpdatePayload,
   ManualTemperaturePayload,
   OrganizationPayload,
   ProbePayload,
@@ -144,6 +147,7 @@ const ZoneDetailPage = lazy(() =>
 const ZoneBoxesPage = lazy(() =>
   import('./components/ZonesView').then((module) => ({ default: module.ZoneBoxesPage })),
 );
+const ZoneMovementHistoryPage = lazy(() => import('./components/ZoneMovementHistory'));
 const ZonesView = lazy(() =>
   import('./components/ZonesView').then((module) => ({ default: module.ZonesView })),
 );
@@ -222,6 +226,8 @@ type RouteState = {
   boxId: number | null;
   zoneId?: number | null;
   zoneBoxes?: boolean;
+  zoneHistory?: boolean;
+  zoneHistoryDirection?: 'arrival' | 'departure';
   adminSection?: AdminSectionKey;
 };
 
@@ -314,7 +320,8 @@ export default function App() {
     activeTab === 'exports' || exportOptionsRequested
   ) && data.exportOptions === null;
   const isOverviewLoading = activeTab === 'overview' && data.overview === null;
-  const workspacePageKey = `${activeTab}-${route.boxCode ?? route.boxId ?? 'list'}-${route.zoneId ?? 'list'}-${route.zoneBoxes ? 'boxes' : 'detail'}-${route.adminSection ?? 'default'}`;
+  const zonePageKey = route.zoneHistory ? 'history' : route.zoneBoxes ? 'boxes' : 'detail';
+  const workspacePageKey = `${activeTab}-${route.boxCode ?? route.boxId ?? 'list'}-${route.zoneId ?? 'list'}-${zonePageKey}-${route.adminSection ?? 'default'}`;
   const brandOrganizationName = getBrandOrganizationName(data.profile, t);
   const selectableOrganizations = useMemo(() => getSelectableOrganizations(data.profile), [data.profile]);
   const activeOrganization = useMemo(
@@ -683,6 +690,13 @@ export default function App() {
     navigateTo(
       { tab: 'zones', boxCode: null, boxId: null, zoneId, zoneBoxes: true },
       `/zones/${zoneId}/boxes`,
+    );
+  }
+
+  function openZoneHistory(zoneId: number, direction: 'arrival' | 'departure' = 'arrival') {
+    navigateTo(
+      { tab: 'zones', boxCode: null, boxId: null, zoneId, zoneHistory: true, zoneHistoryDirection: direction },
+      `/zones/${zoneId}/history?direction=${direction}`,
     );
   }
 
@@ -1083,6 +1097,43 @@ export default function App() {
     return zone;
   }
 
+  async function refreshZoneSalinityCapability(zoneId: number) {
+    const readings = await apiGet<ZoneSalinityMeasurement[]>(
+      `/api/thermal-zones/${zoneId}/salinity/history/`,
+    );
+    setData((current) => ({
+      ...current,
+      zones: current.zones.map((zone) => zone.id === zoneId
+        ? { ...zone, latest_salinity: readings[0] ?? null }
+        : zone),
+    }));
+  }
+
+  async function recordManualSalinity(zoneId: number, payload: ManualSalinityPayload) {
+    const zone = await apiPost<ThermalZone>(`/api/thermal-zones/${zoneId}/salinity/`, payload);
+    setData((current) => ({
+      ...current,
+      zones: upsertThermalZones(current.zones, [zone]),
+    }));
+    return zone;
+  }
+
+  async function updateManualSalinity(
+    zoneId: number,
+    measurementId: number,
+    payload: ManualSalinityUpdatePayload,
+  ) {
+    const zone = await apiPatch<ThermalZone>(
+      `/api/thermal-zones/${zoneId}/salinity/${measurementId}/`,
+      payload,
+    );
+    setData((current) => ({
+      ...current,
+      zones: upsertThermalZones(current.zones, [zone]),
+    }));
+    return zone;
+  }
+
   async function createProbe(payload: ProbePayload) {
     await apiPost<Probe>('/api/probes/', payload);
     // Probes are nested inside the zone payload, so refresh the zones list.
@@ -1398,7 +1449,18 @@ export default function App() {
 
             {activeTab === 'zones' && (
               route.zoneId != null ? (
-                route.zoneBoxes ? (
+                route.zoneHistory ? (
+                  <ZoneMovementHistoryPage
+                    direction={route.zoneHistoryDirection ?? 'arrival'}
+                    isLoading={isLoading}
+                    language={language}
+                    zone={selectedZone}
+                    onBack={() => openZone(route.zoneId as number)}
+                    onChangeDirection={(direction) => openZoneHistory(route.zoneId as number, direction)}
+                    onOpenBox={openBox}
+                    t={t}
+                  />
+                ) : route.zoneBoxes ? (
                   <ZoneBoxesPage
                     boxes={data.boxes}
                     isLoading={isLoading}
@@ -1412,15 +1474,20 @@ export default function App() {
                   <ZoneDetailPage
                     boxes={data.boxes}
                     isLoading={isLoading}
+                    language={language}
                     zone={selectedZone}
                     canRecordManualTemperature={userCanWriteLabData(
                       data.profile,
                       selectedZone?.organization.id ?? -1,
                     )}
                     onBack={closeZonePage}
-                    onOpenBoxes={openZoneBoxes}
-                    onRecordManualTemperature={recordManualTemperature}
                     onOpenBox={openBox}
+                    onOpenBoxes={openZoneBoxes}
+                    onOpenHistory={openZoneHistory}
+                    onRecordManualSalinity={recordManualSalinity}
+                    onRefreshZoneSalinityCapability={refreshZoneSalinityCapability}
+                    onRecordManualTemperature={recordManualTemperature}
+                    onUpdateManualSalinity={updateManualSalinity}
                     t={t}
                   />
                 )
@@ -4353,6 +4420,20 @@ function getCurrentRoute(): RouteState {
 
   if (path === '/labels') {
     return { tab: 'labels', boxCode: null, boxId: null };
+  }
+
+  const zoneHistoryMatch = path.match(/^\/zones\/(\d+)\/history\/?$/);
+  if (zoneHistoryMatch) {
+    const requestedDirection = new URLSearchParams(window.location.search).get('direction');
+    const zoneHistoryDirection = requestedDirection === 'departure' ? 'departure' : 'arrival';
+    return {
+      tab: 'zones',
+      boxCode: null,
+      boxId: null,
+      zoneId: Number(zoneHistoryMatch[1]),
+      zoneHistory: true,
+      zoneHistoryDirection,
+    };
   }
 
   const zoneBoxesMatch = path.match(/^\/zones\/(\d+)\/boxes\/?$/);

@@ -1,13 +1,14 @@
 import re
 from calendar import monthrange
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import DatabaseError, connection, transaction
 from django.db.models import (
     Case,
+    CharField,
     Count,
     DateField,
     F,
@@ -17,9 +18,10 @@ from django.db.models import (
     Q,
     Subquery,
     Sum,
+    Value,
     When,
 )
-from django.db.models.functions import Coalesce, ExtractYear
+from django.db.models.functions import Coalesce, ExtractYear, TruncWeek
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, status
@@ -77,12 +79,18 @@ from .serializers import (
     BoxMoveCreateSerializer,
     BoxQualifySerializer,
     BoxTransferCreateSerializer,
+    ManualSalinityCreateSerializer,
+    ManualSalinityUpdateSerializer,
     ManualTemperatureCreateSerializer,
     ProbeCreateSerializer,
+    SalinityMeasurementSerializer,
     SubcultureCreateSerializer,
     SubcultureEventSerializer,
     ThermalZoneCreateSerializer,
+    ThermalZoneMovementEventSerializer,
+    ThermalZoneMovementHistoryQuerySerializer,
     ThermalZoneSerializer,
+    salinity_editable_until,
 )
 from .services import (
     StaleBoxLocationError,
@@ -257,6 +265,14 @@ def _thermal_zone_audit_values(zone):
     }
 
 
+def _salinity_measurement_audit_values(measurement):
+    return {
+        "date": _json_value(measurement.measured_on),
+        "salinite_psu": _json_value(measurement.salinity_psu),
+        "note": measurement.notes,
+    }
+
+
 def box_queryset_for_user(user, organization_ids=None):
     """Return boxes the user can access, with data needed by serializers."""
     organization_ids = organization_ids or get_authorized_organization_ids(user)
@@ -359,6 +375,17 @@ def box_list_queryset_for_user(user, organization_ids=None):
         .order_by("-measured_on", "-created_at")
         .values("salinity_psu")[:1]
     )
+    current_location_started_at = Subquery(
+        BoxLocation.objects.filter(
+            box_id=OuterRef("pk"),
+            thermal_zone_id=OuterRef("thermal_zone_id"),
+            thermal_zone__organization_id__in=organization_ids,
+            ends_at__isnull=True,
+            end_date_unknown=False,
+        )
+        .order_by("-starts_at", "-id")
+        .values("starts_at")[:1]
+    )
 
     return (
         Box.objects.select_related(
@@ -372,6 +399,7 @@ def box_list_queryset_for_user(user, organization_ids=None):
         .annotate(
             active_alert_count_annotation=active_alert_count,
             latest_salinity_annotation=latest_salinity,
+            current_location_started_at_annotation=current_location_started_at,
         )
         .prefetch_related(
             Prefetch("biological_measurements", queryset=latest_measurements)
@@ -1565,6 +1593,174 @@ class BoxLineageGraphAPIView(APIView):
         )
 
 
+class ThermalZoneHistoryPagination(LimitOffsetPagination):
+    default_limit = 24
+    max_limit = 96
+
+
+def _thermal_zone_for_history(request, zone_id):
+    return get_object_or_404(
+        ThermalZone.objects.select_related("organization"),
+        pk=zone_id,
+        organization_id__in=get_active_organization_ids(request),
+    )
+
+
+def _thermal_zone_event_querysets(zone):
+    locations = BoxLocation.objects.filter(
+        thermal_zone=zone,
+        box__organization_id=zone.organization_id,
+    )
+    arrival_movement = BoxMovement.objects.filter(
+        Q(from_thermal_zone__isnull=True)
+        | Q(from_thermal_zone__organization_id=zone.organization_id),
+        box_id=OuterRef("box_id"),
+        box__organization_id=zone.organization_id,
+        to_thermal_zone=zone,
+        moved_at=OuterRef("starts_at"),
+    ).order_by("-id")
+    departure_movement = BoxMovement.objects.filter(
+        box_id=OuterRef("box_id"),
+        box__organization_id=zone.organization_id,
+        from_thermal_zone=zone,
+        to_thermal_zone__organization_id=zone.organization_id,
+        moved_at=OuterRef("ends_at"),
+    ).order_by("-id")
+
+    shared_values = (
+        "id",
+        "event_type",
+        "occurred_at",
+        "box_id",
+        "box_code",
+        "box_status",
+        "related_zone_id",
+        "related_zone_name",
+    )
+    arrivals = locations.order_by().annotate(
+        event_type=Value("arrival", output_field=CharField()),
+        occurred_at=F("starts_at"),
+        box_code=F("box__global_code"),
+        box_status=F("box__status"),
+        related_zone_id=Subquery(arrival_movement.values("from_thermal_zone_id")[:1]),
+        related_zone_name=Subquery(arrival_movement.values("from_thermal_zone__name")[:1]),
+    ).values(*shared_values)
+    departures = locations.filter(ends_at__isnull=False).order_by().annotate(
+        event_type=Value("departure", output_field=CharField()),
+        occurred_at=F("ends_at"),
+        box_code=F("box__global_code"),
+        box_status=F("box__status"),
+        related_zone_id=Subquery(departure_movement.values("to_thermal_zone_id")[:1]),
+        related_zone_name=Subquery(departure_movement.values("to_thermal_zone__name")[:1]),
+    ).values(*shared_values)
+    return arrivals, departures
+
+
+class ThermalZoneMovementHistoryAPIView(generics.ListAPIView):
+    serializer_class = ThermalZoneMovementEventSerializer
+    pagination_class = ThermalZoneHistoryPagination
+
+    def get_queryset(self):
+        zone = _thermal_zone_for_history(self.request, self.kwargs["pk"])
+        query_serializer = ThermalZoneMovementHistoryQuerySerializer(
+            data=self.request.query_params
+        )
+        query_serializer.is_valid(raise_exception=True)
+        direction = query_serializer.validated_data.get("direction")
+
+        arrivals, departures = _thermal_zone_event_querysets(zone)
+        if direction == "arrival":
+            return arrivals.order_by("-occurred_at", "-id")
+        if direction == "departure":
+            return departures.order_by("-occurred_at", "-id")
+        return arrivals.union(departures, all=True).order_by(
+            "-occurred_at",
+            "-id",
+            "event_type",
+        )
+
+
+class ThermalZoneMovementHistorySummaryAPIView(APIView):
+    recent_limit = 3
+    week_count = 8
+
+    def get(self, request, pk):
+        zone = _thermal_zone_for_history(request, pk)
+        arrivals, departures = _thermal_zone_event_querysets(zone)
+        recent_arrivals = arrivals.order_by("-occurred_at", "-id")[: self.recent_limit]
+        recent_departures = departures.order_by("-occurred_at", "-id")[: self.recent_limit]
+
+        current_timezone = timezone.get_current_timezone()
+        current_date = timezone.localdate()
+        current_week_start = current_date - timedelta(days=current_date.weekday())
+        window_start_date = current_week_start - timedelta(weeks=self.week_count - 1)
+        window_end_date = current_week_start + timedelta(weeks=1)
+        window_start = timezone.make_aware(
+            datetime.combine(window_start_date, time.min),
+            current_timezone,
+        )
+        window_end = timezone.make_aware(
+            datetime.combine(window_end_date, time.min),
+            current_timezone,
+        )
+        scoped_locations = BoxLocation.objects.filter(
+            thermal_zone=zone,
+            box__organization_id=zone.organization_id,
+        )
+        arrival_counts = scoped_locations.filter(
+            starts_at__gte=window_start,
+            starts_at__lt=window_end,
+        ).annotate(
+            week=TruncWeek("starts_at", tzinfo=current_timezone),
+        ).values("week").annotate(
+            count=Count("id"),
+        ).order_by("week")
+        departure_counts = scoped_locations.filter(
+            ends_at__gte=window_start,
+            ends_at__lt=window_end,
+        ).annotate(
+            week=TruncWeek("ends_at", tzinfo=current_timezone),
+        ).values("week").annotate(
+            count=Count("id"),
+        ).order_by("week")
+
+        entries_by_week = {
+            timezone.localtime(item["week"], current_timezone).date(): item["count"]
+            for item in arrival_counts
+        }
+        exits_by_week = {
+            timezone.localtime(item["week"], current_timezone).date(): item["count"]
+            for item in departure_counts
+        }
+        weeks = []
+        for index in range(self.week_count):
+            week_start = window_start_date + timedelta(weeks=index)
+            iso_year, iso_week, _iso_weekday = week_start.isocalendar()
+            weeks.append(
+                {
+                    "week_start": week_start.isoformat(),
+                    "iso_year": iso_year,
+                    "iso_week": iso_week,
+                    "entry_count": entries_by_week.get(week_start, 0),
+                    "exit_count": exits_by_week.get(week_start, 0),
+                }
+            )
+
+        return Response(
+            {
+                "recent_arrivals": ThermalZoneMovementEventSerializer(
+                    recent_arrivals,
+                    many=True,
+                ).data,
+                "recent_departures": ThermalZoneMovementEventSerializer(
+                    recent_departures,
+                    many=True,
+                ).data,
+                "weeks": weeks,
+            }
+        )
+
+
 class ThermalZoneListCreateAPIView(generics.ListCreateAPIView):
     def get_serializer_class(self):
         if self.request.method == "POST":
@@ -1713,7 +1909,144 @@ class ThermalZoneManualTemperatureAPIView(APIView):
         refreshed_zone = thermal_zone_summary_queryset(
             ThermalZone.objects.filter(pk=zone.pk)
         ).get()
-        return Response(ThermalZoneSerializer(refreshed_zone).data, status=status.HTTP_201_CREATED)
+        return Response(
+            ThermalZoneSerializer(refreshed_zone, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class ThermalZoneSalinityHistoryAPIView(APIView):
+    def get(self, request, pk):
+        zone = get_object_or_404(
+            ThermalZone.objects,
+            pk=pk,
+            organization_id__in=get_active_organization_ids(request),
+        )
+        measurements = (
+            SalinityMeasurement.objects.filter(thermal_zone=zone)
+            .select_related("thermal_zone__organization")
+            .order_by("-measured_on", "-id")
+        )
+        return Response(
+            SalinityMeasurementSerializer(
+                measurements, many=True, context={"request": request}
+            ).data
+        )
+
+
+class ThermalZoneManualSalinityAPIView(APIView):
+    @transaction.atomic
+    def post(self, request, pk):
+        zone = get_object_or_404(
+            ThermalZone.objects.select_for_update().select_related("organization"),
+            pk=pk,
+            organization_id__in=get_active_organization_ids(request),
+        )
+        if not user_can_write_lab_data(request.user, zone.organization):
+            raise PermissionDenied("Ce compte ne peut pas saisir de salinité pour cet emplacement.")
+
+        serializer = ManualSalinityCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        measured_on = serializer.validated_data["measured_on"]
+        if SalinityMeasurement.objects.filter(
+            thermal_zone=zone,
+            measured_on=measured_on,
+        ).exists():
+            raise DRFValidationError(
+                {"measured_on": "Une mesure de salinité existe déjà pour cette date."}
+            )
+
+        measurement = SalinityMeasurement.objects.create(
+            thermal_zone=zone,
+            measured_on=measured_on,
+            salinity_psu=serializer.validated_data["salinity_psu"],
+            notes=serializer.validated_data["notes"],
+            user=request.user,
+        )
+        AuditLog.objects.create(
+            organization=zone.organization,
+            user=request.user,
+            action=AuditLog.Action.CREATION,
+            object_type="salinity_measurement",
+            object_id=str(measurement.pk),
+            description=f"Manual salinity recorded: {zone.name}",
+            metadata={
+                "thermal_zone_id": zone.id,
+                "valeurs": {
+                    "date": measured_on.isoformat(),
+                    "salinite_psu": _json_value(measurement.salinity_psu),
+                    "note": measurement.notes,
+                },
+            },
+        )
+
+        refreshed_zone = thermal_zone_summary_queryset(
+            ThermalZone.objects.filter(pk=zone.pk)
+        ).get()
+        return Response(
+            ThermalZoneSerializer(refreshed_zone, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @transaction.atomic
+    def patch(self, request, pk, measurement_id):
+        zone = get_object_or_404(
+            ThermalZone.objects.select_for_update().select_related("organization"),
+            pk=pk,
+            organization_id__in=get_active_organization_ids(request),
+        )
+        if not user_can_write_lab_data(request.user, zone.organization):
+            raise PermissionDenied("Ce compte ne peut pas modifier la salinité de cet emplacement.")
+
+        measurement = get_object_or_404(
+            SalinityMeasurement.objects.select_for_update(),
+            pk=measurement_id,
+            thermal_zone=zone,
+        )
+        if timezone.now() >= salinity_editable_until(measurement):
+            raise PermissionDenied({
+                "detail": "La période de correction de 24 heures est terminée.",
+                "code": "salinity_edit_window_expired",
+            })
+
+        serializer = ManualSalinityUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        before_values = _salinity_measurement_audit_values(measurement)
+        measurement.salinity_psu = serializer.validated_data["salinity_psu"]
+        update_fields = ["salinity_psu"]
+        if "notes" in serializer.validated_data:
+            measurement.notes = serializer.validated_data["notes"]
+            update_fields.append("notes")
+        after_values = _salinity_measurement_audit_values(measurement)
+        if before_values == after_values:
+            refreshed_zone = thermal_zone_summary_queryset(
+                ThermalZone.objects.filter(pk=zone.pk)
+            ).get()
+            return Response(ThermalZoneSerializer(refreshed_zone, context={"request": request}).data)
+        measurement.save(update_fields=update_fields)
+
+        AuditLog.objects.create(
+            organization=zone.organization,
+            user=request.user,
+            action=AuditLog.Action.UPDATE,
+            object_type="salinity_measurement",
+            object_id=str(measurement.pk),
+            description=f"Manual salinity updated: {zone.name}",
+            metadata={
+                "thermal_zone_id": zone.id,
+                "measurement_id": measurement.id,
+                "before": before_values,
+                "after": after_values,
+                "valeurs": after_values,
+                "modifications": _changed_values(before_values, after_values),
+            },
+        )
+
+        refreshed_zone = thermal_zone_summary_queryset(
+            ThermalZone.objects.filter(pk=zone.pk)
+        ).get()
+        return Response(ThermalZoneSerializer(refreshed_zone, context={"request": request}).data)
 
 
 class ProbeCreateAPIView(generics.CreateAPIView):

@@ -14,7 +14,7 @@ from django.urls import reverse
 
 from apps.accounts.models import OrganizationMembership
 from apps.audit.models import AuditLog
-from apps.measurements.models import BiologicalMeasurement, DailyTemperature, Probe
+from apps.measurements.models import BiologicalMeasurement, DailyTemperature, Probe, SalinityMeasurement
 from apps.organizations.models import Organization
 from apps.taxonomy.models import Species, Strain
 
@@ -75,6 +75,13 @@ class AdminResourceCreationApiTests(TestCase):
 
     def post(self, url_name, payload, args=None):
         return self.client.post(
+            reverse(url_name, args=args),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+    def patch_request(self, url_name, payload, args=None):
+        return self.client.patch(
             reverse(url_name, args=args),
             data=json.dumps(payload),
             content_type="application/json",
@@ -283,6 +290,301 @@ class AdminResourceCreationApiTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertFalse(DailyTemperature.objects.filter(thermal_zone=self.zone).exists())
+
+    def test_lab_technician_records_zero_zone_salinity_with_audit(self):
+        self.client.login(username="tech", password="secret")
+
+        response = self.post(
+            "api_thermal_zone_manual_salinity",
+            {"measured_on": "2026-07-17", "salinity_psu": "0.00"},
+            args=[self.zone.id],
+        )
+
+        self.assertEqual(response.status_code, 201)
+        measurement = SalinityMeasurement.objects.get(thermal_zone=self.zone)
+        self.assertEqual(measurement.salinity_psu, Decimal("0.00"))
+        self.assertEqual(measurement.user, self.technician)
+        self.assertEqual(
+            Decimal(str(response.json()["latest_salinity"]["salinity_psu"])),
+            Decimal("0.00"),
+        )
+        log = AuditLog.objects.get(
+            action=AuditLog.Action.CREATION,
+            object_type="salinity_measurement",
+            object_id=str(measurement.pk),
+        )
+        self.assertEqual(log.organization, self.organization)
+        self.assertEqual(log.metadata["valeurs"]["salinite_psu"], "0.00")
+
+    def test_manual_zone_salinity_rejects_duplicate_date(self):
+        SalinityMeasurement.objects.create(
+            thermal_zone=self.zone,
+            measured_on="2026-07-17",
+            salinity_psu="34.80",
+            user=self.technician,
+        )
+        self.client.login(username="tech", password="secret")
+
+        response = self.post(
+            "api_thermal_zone_manual_salinity",
+            {"measured_on": "2026-07-17", "salinity_psu": "35.00"},
+            args=[self.zone.id],
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("measured_on", response.json())
+        self.assertEqual(SalinityMeasurement.objects.filter(thermal_zone=self.zone).count(), 1)
+
+    def test_manual_zone_salinity_isolated_to_active_organization(self):
+        self.client.login(username="tech", password="secret")
+
+        response = self.post(
+            "api_thermal_zone_manual_salinity",
+            {"measured_on": "2026-07-17", "salinity_psu": "35.00"},
+            args=[self.other_zone.id],
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(SalinityMeasurement.objects.filter(thermal_zone=self.other_zone).exists())
+
+    def test_viewer_cannot_record_manual_zone_salinity(self):
+        viewer = get_user_model().objects.create_user(
+            username="salinity_viewer",
+            email="salinity_viewer@example.org",
+            password="secret",
+        )
+        OrganizationMembership.objects.create(
+            user=viewer,
+            organization=self.organization,
+            role=OrganizationMembership.Role.VIEWER,
+        )
+        self.client.login(username="salinity_viewer", password="secret")
+
+        response = self.post(
+            "api_thermal_zone_manual_salinity",
+            {"measured_on": "2026-07-17", "salinity_psu": "35.00"},
+            args=[self.zone.id],
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(SalinityMeasurement.objects.filter(thermal_zone=self.zone).exists())
+
+    @patch("apps.cultures.api_views.AuditLog.objects.create")
+    def test_manual_zone_salinity_rolls_back_when_audit_fails(self, create_audit):
+        create_audit.side_effect = RuntimeError("Audit unavailable")
+        self.client.login(username="tech", password="secret")
+
+        with self.assertRaises(RuntimeError):
+            self.post(
+                "api_thermal_zone_manual_salinity",
+                {"measured_on": "2026-07-17", "salinity_psu": "35.00"},
+                args=[self.zone.id],
+            )
+
+        self.assertFalse(SalinityMeasurement.objects.filter(thermal_zone=self.zone).exists())
+
+    def test_lab_technician_updates_zone_salinity_to_zero_with_notes(self):
+        measurement = SalinityMeasurement.objects.create(
+            thermal_zone=self.zone,
+            measured_on="2026-07-17",
+            salinity_psu="34.80",
+            notes="Initial reading",
+            user=self.admin,
+        )
+        self.client.login(username="tech", password="secret")
+
+        response = self.patch_request(
+            "api_thermal_zone_salinity_detail",
+            {"salinity_psu": "0.00", "notes": "Corrected reading"},
+            args=[self.zone.id, measurement.id],
+        )
+
+        self.assertEqual(response.status_code, 200)
+        measurement.refresh_from_db()
+        self.assertEqual(measurement.salinity_psu, Decimal("0.00"))
+        self.assertEqual(measurement.notes, "Corrected reading")
+        self.assertEqual(measurement.user, self.admin)
+        self.assertEqual(
+            set(response.json()["latest_salinity"]),
+            {"id", "measured_on", "salinity_psu", "notes", "created_at", "can_edit", "editable_until"},
+        )
+        self.assertEqual(response.json()["latest_salinity"]["id"], measurement.id)
+        self.assertEqual(response.json()["latest_salinity"]["measured_on"], "2026-07-17")
+        self.assertEqual(
+            Decimal(response.json()["latest_salinity"]["salinity_psu"]),
+            Decimal("0.00"),
+        )
+        self.assertEqual(response.json()["latest_salinity"]["notes"], "Corrected reading")
+        self.assertEqual(SalinityMeasurement.objects.filter(pk=measurement.pk).count(), 1)
+
+    def test_zone_salinity_update_rejects_measured_on_change(self):
+        measurement = SalinityMeasurement.objects.create(
+            thermal_zone=self.zone,
+            measured_on="2026-07-17",
+            salinity_psu="34.80",
+            notes="Initial reading",
+            user=self.technician,
+        )
+        self.client.login(username="tech", password="secret")
+
+        response = self.patch_request(
+            "api_thermal_zone_salinity_detail",
+            {
+                "measured_on": "2026-07-18",
+                "salinity_psu": "35.10",
+                "notes": "Changed date",
+            },
+            args=[self.zone.id, measurement.id],
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("measured_on", response.json())
+        measurement.refresh_from_db()
+        self.assertEqual(measurement.measured_on.isoformat(), "2026-07-17")
+        self.assertEqual(measurement.salinity_psu, Decimal("34.80"))
+        self.assertEqual(measurement.notes, "Initial reading")
+        self.assertFalse(
+            AuditLog.objects.filter(
+                action=AuditLog.Action.UPDATE,
+                object_type="salinity_measurement",
+                object_id=str(measurement.id),
+            ).exists()
+        )
+
+    def test_zone_salinity_update_isolated_to_active_organization(self):
+        measurement = SalinityMeasurement.objects.create(
+            thermal_zone=self.other_zone,
+            measured_on="2026-07-17",
+            salinity_psu="34.80",
+        )
+        self.client.login(username="tech", password="secret")
+
+        response = self.patch_request(
+            "api_thermal_zone_salinity_detail",
+            {"salinity_psu": "35.10"},
+            args=[self.other_zone.id, measurement.id],
+        )
+
+        self.assertEqual(response.status_code, 404)
+        measurement.refresh_from_db()
+        self.assertEqual(measurement.salinity_psu, Decimal("34.80"))
+
+    def test_viewer_cannot_update_zone_salinity(self):
+        viewer = get_user_model().objects.create_user(
+            username="salinity_update_viewer",
+            email="salinity_update_viewer@example.org",
+            password="secret",
+        )
+        OrganizationMembership.objects.create(
+            user=viewer,
+            organization=self.organization,
+            role=OrganizationMembership.Role.VIEWER,
+        )
+        measurement = SalinityMeasurement.objects.create(
+            thermal_zone=self.zone,
+            measured_on="2026-07-17",
+            salinity_psu="34.80",
+        )
+        self.client.login(username="salinity_update_viewer", password="secret")
+
+        response = self.patch_request(
+            "api_thermal_zone_salinity_detail",
+            {"salinity_psu": "35.10"},
+            args=[self.zone.id, measurement.id],
+        )
+
+        self.assertEqual(response.status_code, 403)
+        measurement.refresh_from_db()
+        self.assertEqual(measurement.salinity_psu, Decimal("34.80"))
+
+    def test_zone_salinity_update_rejects_measurement_from_another_zone(self):
+        other_local_zone = ThermalZone.objects.create(
+            organization=self.organization,
+            name="Cabinet-12",
+            zone_type=ThermalZone.ZoneType.CABINET,
+        )
+        measurement = SalinityMeasurement.objects.create(
+            thermal_zone=other_local_zone,
+            measured_on="2026-07-17",
+            salinity_psu="34.80",
+        )
+        self.client.login(username="tech", password="secret")
+
+        response = self.patch_request(
+            "api_thermal_zone_salinity_detail",
+            {"salinity_psu": "35.10"},
+            args=[self.zone.id, measurement.id],
+        )
+
+        self.assertEqual(response.status_code, 404)
+        measurement.refresh_from_db()
+        self.assertEqual(measurement.salinity_psu, Decimal("34.80"))
+
+    def test_zone_salinity_update_records_before_and_after_audit_values(self):
+        measurement = SalinityMeasurement.objects.create(
+            thermal_zone=self.zone,
+            measured_on="2026-07-17",
+            salinity_psu="34.80",
+            notes="Initial reading",
+            user=self.admin,
+        )
+        self.client.login(username="tech", password="secret")
+
+        response = self.patch_request(
+            "api_thermal_zone_salinity_detail",
+            {"salinity_psu": "35.10", "notes": "Verified reading"},
+            args=[self.zone.id, measurement.id],
+        )
+
+        self.assertEqual(response.status_code, 200)
+        log = AuditLog.objects.get(
+            action=AuditLog.Action.UPDATE,
+            object_type="salinity_measurement",
+            object_id=str(measurement.id),
+        )
+        self.assertEqual(log.organization, self.organization)
+        self.assertEqual(log.user, self.technician)
+        self.assertEqual(log.metadata["thermal_zone_id"], self.zone.id)
+        self.assertEqual(log.metadata["measurement_id"], measurement.id)
+        self.assertEqual(
+            log.metadata["before"],
+            {"date": "2026-07-17", "salinite_psu": "34.80", "note": "Initial reading"},
+        )
+        self.assertEqual(
+            log.metadata["after"],
+            {"date": "2026-07-17", "salinite_psu": "35.10", "note": "Verified reading"},
+        )
+        self.assertEqual(log.metadata["valeurs"], log.metadata["after"])
+        self.assertEqual(
+            log.metadata["modifications"],
+            {
+                "salinite_psu": {"avant": "34.80", "apres": "35.10"},
+                "note": {"avant": "Initial reading", "apres": "Verified reading"},
+            },
+        )
+
+    @patch("apps.cultures.api_views.AuditLog.objects.create")
+    def test_zone_salinity_update_rolls_back_when_audit_fails(self, create_audit):
+        measurement = SalinityMeasurement.objects.create(
+            thermal_zone=self.zone,
+            measured_on="2026-07-17",
+            salinity_psu="34.80",
+            notes="Initial reading",
+        )
+        create_audit.side_effect = RuntimeError("Audit unavailable")
+        self.client.login(username="tech", password="secret")
+
+        with self.assertRaises(RuntimeError):
+            self.patch_request(
+                "api_thermal_zone_salinity_detail",
+                {"salinity_psu": "0.00", "notes": "Should roll back"},
+                args=[self.zone.id, measurement.id],
+            )
+
+        measurement.refresh_from_db()
+        self.assertEqual(measurement.salinity_psu, Decimal("34.80"))
+        self.assertEqual(measurement.notes, "Initial reading")
+        self.assertEqual(SalinityMeasurement.objects.filter(pk=measurement.pk).count(), 1)
 
     def test_admin_cannot_create_a_zone_in_another_organization(self):
         self.client.login(username="org_admin", password="secret")

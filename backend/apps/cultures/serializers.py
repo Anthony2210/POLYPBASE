@@ -22,7 +22,7 @@ from apps.cultures.models import (
     SubcultureEvent,
     ThermalZone,
 )
-from apps.measurements.models import BiologicalMeasurement, Probe
+from apps.measurements.models import BiologicalMeasurement, Probe, SalinityMeasurement
 from apps.measurements.services import get_active_measurement_role, get_measurement_editability
 from apps.organizations.models import Organization
 from apps.organizations.serializers import OrganizationSummarySerializer
@@ -195,6 +195,7 @@ class BoxListSerializer(serializers.ModelSerializer):
     latest_measurement = serializers.SerializerMethodField()
     latest_salinity_psu = serializers.SerializerMethodField()
     active_alert_count = serializers.SerializerMethodField()
+    current_location_started_at = serializers.SerializerMethodField()
 
     class Meta:
         model = Box
@@ -212,10 +213,30 @@ class BoxListSerializer(serializers.ModelSerializer):
             "latest_measurement",
             "latest_salinity_psu",
             "active_alert_count",
+            "current_location_started_at",
         ]
 
     def get_species(self, obj):
         return SpeciesSummarySerializer(obj.strain.species).data
+
+    def get_current_location_started_at(self, obj):
+        if hasattr(obj, "current_location_started_at_annotation"):
+            return obj.current_location_started_at_annotation
+
+        locations = _prefetched_list(obj, "locations")
+        if locations is None:
+            return None
+        location = next(
+            (
+                item
+                for item in locations
+                if item.thermal_zone_id == obj.thermal_zone_id
+                and item.ends_at is None
+                and not item.end_date_unknown
+            ),
+            None,
+        )
+        return location.starts_at if location else None
 
     def get_latest_measurement(self, obj):
         measurement = _first_prefetched(obj, "biological_measurements")
@@ -798,6 +819,38 @@ class SubcultureEventSerializer(serializers.ModelSerializer):
         return BoxListSerializer(child_boxes, many=True).data
 
 
+def salinity_editable_until(measurement):
+    return measurement.created_at + timedelta(hours=24)
+
+
+class SalinityMeasurementSerializer(serializers.ModelSerializer):
+    can_edit = serializers.SerializerMethodField()
+    editable_until = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SalinityMeasurement
+        fields = ["id", "measured_on", "salinity_psu", "notes", "created_at", "can_edit", "editable_until"]
+
+    def get_editable_until(self, obj):
+        return salinity_editable_until(obj)
+
+    def get_can_edit(self, obj):
+        request = self.context.get("request")
+        if request is None or timezone.now() >= salinity_editable_until(obj):
+            return False
+        if "salinity_active_organization" not in self.context:
+            self.context["salinity_active_organization"] = get_active_organization_from_request(request)
+        active_organization = self.context["salinity_active_organization"]
+        if active_organization is None or active_organization.pk != obj.thermal_zone.organization_id:
+            return False
+        permissions = self.context.setdefault("salinity_write_permissions", {})
+        if obj.thermal_zone.organization_id not in permissions:
+            permissions[obj.thermal_zone.organization_id] = user_can_write_lab_data(
+                request.user, obj.thermal_zone.organization
+            )
+        return permissions[obj.thermal_zone.organization_id]
+
+
 class ThermalZoneSerializer(serializers.ModelSerializer):
     organization = OrganizationSummarySerializer(read_only=True)
     box_count = serializers.IntegerField(read_only=True)
@@ -842,10 +895,10 @@ class ThermalZoneSerializer(serializers.ModelSerializer):
             salinity = obj.salinity_measurements.order_by("-measured_on").first()
         if not salinity:
             return None
-        return {
-            "measured_on": salinity.measured_on,
-            "salinity_psu": salinity.salinity_psu,
-        }
+        data = SalinityMeasurementSerializer(salinity, context=self.context).data
+        # Preserve the numeric latest-salinity contract; history renders decimals as strings.
+        data["salinity_psu"] = salinity.salinity_psu
+        return data
 
     def get_probes(self, obj):
         return [
@@ -917,9 +970,53 @@ class ThermalZoneCreateSerializer(serializers.ModelSerializer):
         return attrs
 
 
+class ThermalZoneMovementHistoryQuerySerializer(serializers.Serializer):
+    direction = serializers.ChoiceField(
+        choices=["arrival", "departure"],
+        required=False,
+    )
+
+
+class ThermalZoneMovementEventSerializer(serializers.Serializer):
+    location_id = serializers.IntegerField(source="id")
+    event_type = serializers.ChoiceField(choices=["arrival", "departure"])
+    occurred_at = serializers.DateTimeField()
+    box_id = serializers.IntegerField()
+    box_code = serializers.CharField()
+    box_status = serializers.CharField()
+    related_zone_id = serializers.IntegerField(allow_null=True)
+    related_zone_name = serializers.CharField(allow_null=True)
+
+
 class ManualTemperatureCreateSerializer(serializers.Serializer):
     measured_on = serializers.DateField()
     temperature_c = serializers.DecimalField(max_digits=5, decimal_places=2)
+
+
+class ManualSalinityCreateSerializer(serializers.Serializer):
+    measured_on = serializers.DateField()
+    salinity_psu = serializers.DecimalField(max_digits=5, decimal_places=2)
+    notes = serializers.CharField(allow_blank=True, required=False, default="")
+
+
+class ManualSalinityUpdateSerializer(serializers.Serializer):
+    salinity_psu = serializers.DecimalField(max_digits=5, decimal_places=2)
+    notes = serializers.CharField(allow_blank=True, required=False)
+
+    def validate(self, attrs):
+        initial_data = getattr(self, "initial_data", {})
+        if not isinstance(initial_data, dict):
+            return attrs
+        if "measured_on" in initial_data:
+            raise serializers.ValidationError(
+                {"measured_on": "La date d'une mesure de salinité ne peut pas être modifiée."}
+            )
+        unexpected_fields = set(initial_data) - {"salinity_psu", "notes"}
+        if unexpected_fields:
+            raise serializers.ValidationError(
+                {field: "Ce champ ne peut pas être modifié." for field in unexpected_fields}
+            )
+        return attrs
 
 
 class ProbeCreateSerializer(serializers.ModelSerializer):
