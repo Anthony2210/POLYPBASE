@@ -8,6 +8,8 @@ Il n'y a pas React Router. Le chemin navigateur est traduit en état de route et
 
 `frontend/src/api/client.ts` gère les requêtes communes, l'en-tête d'organisation et les jetons CSRF. Ne pas disperser une seconde implémentation de ces mécanismes dans un composant.
 
+Pour tout travail important de design/refonte UI, consulter [`frontend-style.md`](frontend-style.md) avant d'introduire un nouveau motif visuel ou d'interaction : il recense les références et règles de réutilisation POLYPBASE; les composants, styles et tests actuels restent l'autorité d'implémentation.
+
 ## Supports
 
 - **Desktop** : administration, graphiques, exports et analyse dense.
