@@ -1,3 +1,5 @@
+import uuid
+
 from django.db import models
 
 
@@ -86,8 +88,22 @@ class Origin(models.Model):
         return f"{self.get_source_type_display()} - {self.origin_institution_name or 'unknown origin'}"
 
 
+class GlobalStrainIdentity(models.Model):
+    global_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+
+    def __str__(self):
+        return str(self.global_id)
+
+
 class Strain(models.Model):
     species = models.ForeignKey(Species, on_delete=models.PROTECT, related_name="strains")
+    global_identity = models.ForeignKey(
+        GlobalStrainIdentity,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="strains",
+    )
     code = models.CharField(max_length=80)
     number = models.PositiveIntegerField(null=True, blank=True)
     origin_code = models.CharField(max_length=12, blank=True)
