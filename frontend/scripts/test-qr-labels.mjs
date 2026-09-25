@@ -49,6 +49,7 @@ const representativeLabels = [
   { globalCode: 'AHI-LAB-1.004', speciesName: 'Cassiopea andromeda' },
   { globalCode: 'CCO-2.001-PAC', speciesName: 'Chrysaora colorata' },
   { globalCode: 'PARTNER-AAU-1.001', speciesName: 'Aurelia aurita' },
+  { globalCode: 'CCO-PAC.1.001', speciesName: 'Chrysaora quinquecirrha' },
 ];
 
 function printDocument() {
@@ -111,15 +112,21 @@ test('the QR stays square at 25 mm and keeps its vector rendering', () => {
   assert.doesNotMatch(rule, /image-rendering: pixelated/);
 });
 
-test('the species name is larger, italic and limited to two wrapped lines', () => {
+test('print gives both label elements larger bold text with the required styles', () => {
   const html = printDocument();
-  const codeSize = Number(cssRule(html, '.label-code').match(/font-size: ([\d.]+)pt/)[1]);
+  const codeRule = cssRule(html, '.label-code');
   const speciesRule = cssRule(html, '.label-species');
+  const codeSize = Number(codeRule.match(/font-size: ([\d.]+)pt/)[1]);
   const speciesSize = Number(speciesRule.match(/font-size: ([\d.]+)pt/)[1]);
 
   assert.equal(codeSize, settings.textFontPt);
-  assert.ok(speciesSize > codeSize);
+  assert.equal(speciesSize, settings.textFontPt);
+  assert.ok(codeSize > 7);
+  assert.ok(speciesSize > 7.25);
+  assert.match(codeRule, /font-style: normal/);
+  assert.match(codeRule, /font-weight: 900/);
   assert.match(speciesRule, /font-style: italic/);
+  assert.match(speciesRule, /font-weight: 900/);
   assert.match(speciesRule, /-webkit-line-clamp: 2/);
 });
 
@@ -167,25 +174,27 @@ test('the QR and rotated text block fit the physical label without clipping', ()
   assert.ok(fourLineFallbackHeight <= exports.QR_LABEL_TEXT_ZONE_MM, 'two wrapped lines per value must fit the text band');
 });
 
-test('7 pt fits representative codes and species without squeezing', () => {
-  const fontMm = exports.pointsToMillimetres(settings.textFontPt);
-  const longestCode = Math.max(...representativeLabels.map((item) => item.globalCode.length));
-  const longestSpecies = Math.max(...representativeLabels.map((item) => item.speciesName.length));
-
-  assert.equal(settings.textFontPt, 7);
-  assert.ok(longestCode * fontMm * 0.62 <= exports.QR_LABEL_TEXT_LINE_LENGTH_MM);
-  assert.ok(longestSpecies * fontMm * 0.55 <= exports.QR_LABEL_TEXT_LINE_LENGTH_MM);
-  assert.ok(longestCode * exports.pointsToMillimetres(7.5) * 0.62 > exports.QR_LABEL_TEXT_LINE_LENGTH_MM);
+test('7.5 pt SVG text stays complete, bold, and within two lines per value', () => {
+  assert.equal(settings.textFontPt, 7.5);
 
   for (const item of representativeLabels) {
     const svg = svgFor(item);
-    assert.doesNotMatch(
-      svg,
-      /textLength/,
-      `${item.globalCode} / ${item.speciesName} had to be squeezed`,
-    );
-    assert.match(svg, new RegExp(`>${item.globalCode}<`));
-    assert.match(svg, new RegExp(`>${item.speciesName}<`));
+    const codeLines = [...svg.matchAll(/<text class="label-code"[^>]*>(.*?)<\/text>/g)]
+      .map((match) => match[1]);
+    const speciesLines = [...svg.matchAll(/<text class="label-species"[^>]*>(.*?)<\/text>/g)]
+      .map((match) => match[1]);
+
+    assert.ok(codeLines.length <= 2, `${item.globalCode} must use at most two lines`);
+    assert.ok(speciesLines.length <= 2, `${item.speciesName} must use at most two lines`);
+    if (item.globalCode === 'CCO-PAC.1.001') {
+      assert.equal(codeLines.length, 1, 'the normal box code should fit one line');
+      assert.equal(speciesLines.length, 2, 'the longer species should use two complete lines');
+    }
+    assert.equal(codeLines.join('').replace(/&amp;/g, '&'), item.globalCode);
+    assert.equal(speciesLines.join(' ').replace(/\s+/g, ' ').trim(), item.speciesName);
+    assert.match(svg, /class="label-code"[^>]*font-weight="900"[^>]*font-style="normal"/);
+    assert.match(svg, /class="label-species"[^>]*font-weight="900"[^>]*font-style="italic"/);
+    assert.doesNotMatch(svg, /textLength/);
   }
 });
 
@@ -213,7 +222,8 @@ test('the modal preview keeps the canonical landscape geometry', () => {
   assert.equal(modal['--label-preview-qr-size'], '62.5cqw');
   assert.equal(modal['--label-preview-text-zone-width'], '30.5cqw');
   assert.equal(modal['--label-preview-text-line-length'], '69.25cqw');
-  assert.equal(modal['--label-preview-font-size'], '6.1736cqw');
+  assert.equal(modal['--label-preview-font-size'], '6.6146cqw');
+  assert.equal(modal['--label-preview-species-font-size'], '6.6146cqw');
 });
 
 test('QR payload and scan routing semantics are unchanged', () => {
@@ -235,6 +245,9 @@ test('the shared preview component renders a rotated text block beside the QR', 
   assert.doesNotMatch(rule, /flex-direction: column/);
   assert.match(rule, /aspect-ratio: var\(--label-preview-ratio\)/);
   assert.match(css, /\.qr-label--label \.qr-label__image \{[^}]*transform: rotate\(-90deg\)/s);
+  assert.match(css, /\.qr-label--label \.qr-label__metadata strong \{[^}]*font-style: normal/s);
+  assert.match(css, /\.qr-label--label \.qr-label__metadata small \{[^}]*font-style: italic/s);
+  assert.match(css, /\.qr-label--label \.qr-label__metadata :where\(strong, small\) \{[^}]*font-weight: 900/s);
   assert.match(textRule, /rotate\(-90deg\)/);
   assert.match(textRule, /width: var\(--label-preview-text-line-length\)/);
   assert.match(textRule, /height: var\(--label-preview-text-zone-width\)/);
@@ -253,6 +266,9 @@ test('the legacy Ctrl+P print path uses the canonical geometry', () => {
     new RegExp(`\\.qr-label-print-sheet \\.qr-label__image \\{[^}]*width: ${settings.qrSizeMm}mm`),
   );
   assert.match(css, new RegExp(`font-size: ${settings.textFontPt}pt`));
+  assert.match(css, /\.qr-label-print-sheet \.qr-label__metadata strong \{[^}]*font-style: normal/s);
+  assert.match(css, /\.qr-label-print-sheet \.qr-label__metadata small \{[^}]*font-style: italic/s);
+  assert.match(css, /\.qr-label-print-sheet \.qr-label__metadata :where\(strong, small\) \{[^}]*font-weight: 900/s);
   assert.match(css, /\.qr-label-print-sheet \.qr-label__text \{[^}]*rotate\(-90deg\)/s);
   assert.match(css, new RegExp(`width: ${exports.QR_LABEL_TEXT_LINE_LENGTH_MM}mm`));
   assert.match(css, new RegExp(`height: ${exports.QR_LABEL_TEXT_ZONE_MM}mm`));

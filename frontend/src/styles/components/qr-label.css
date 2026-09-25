@@ -114,20 +114,26 @@
 
 .qr-label--label .qr-label__metadata :where(strong, small) {
   overflow: visible;
+  color: #000;
   font-size: max(4px, var(--label-preview-font-size));
+  font-weight: 900;
   line-height: 1.05;
   overflow-wrap: break-word;
   text-overflow: clip;
   white-space: normal;
 }
 
+.qr-label--label .qr-label__metadata strong {
+  font-style: normal;
+}
+
 .qr-label--label .qr-label__metadata small {
   display: -webkit-box;
   overflow: hidden;
-  color: #333;
   font-size: max(4px, var(--label-preview-species-font-size));
   font-style: italic;
   line-height: 1.1;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }

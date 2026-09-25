@@ -47,11 +47,10 @@ export const QR_LABEL_TEXT_LINE_LENGTH_MM = Math.round((
   - 2 * QR_LABEL_BORDER_MM
   - 2 * QR_LABEL_PADDING_MM
 ) * 1000) / 1000;
-// At 7 pt, the longest representative code (PARTNER-AAU-1.001) and species
-// (Cassiopea andromeda) fit the 27.7 mm line without compression. At 7.5 pt,
-// the bold code no longer fits under the conservative Arial width estimate.
-export const QR_LABEL_TEXT_FONT_PT = 7;
-export const QR_LABEL_SPECIES_FONT_PT = 7.25;
+// 7.5 pt is the largest half-point size that fits two wrapped code lines and
+// two wrapped species lines inside the 12.2 mm text band at the current leading.
+export const QR_LABEL_TEXT_FONT_PT = 7.5;
+export const QR_LABEL_SPECIES_FONT_PT = 7.5;
 
 export const DEFAULT_QR_LABEL_PRINT_SETTINGS: QrLabelPrintSettings = {
   labelWidthMm: QR_LABEL_WIDTH_MM,
@@ -173,8 +172,8 @@ export function buildQrPrintDocument(labels: QrLabelItem[], settings: QrLabelPri
   .label-qr img { display: block; width: ${settings.qrSizeMm}mm; height: ${settings.qrSizeMm}mm; object-fit: contain; transform: rotate(-90deg); transform-origin: center; }
   .label-main { position: relative; flex: 1 1 auto; align-self: stretch; min-width: 0; margin-left: ${QR_LABEL_QR_TEXT_GAP_MM}mm; overflow: hidden; }
   .label-text { position: absolute; top: 50%; left: 50%; display: grid; align-content: center; width: ${QR_LABEL_TEXT_LINE_LENGTH_MM}mm; height: ${QR_LABEL_TEXT_ZONE_MM}mm; gap: ${QR_LABEL_TEXT_GAP_MM}mm; text-align: center; transform: translate(-50%, -50%) rotate(-90deg); transform-origin: center; }
-  .label-code { display: block; width: 100%; font-size: ${settings.textFontPt}pt; font-style: italic; font-weight: 900; line-height: 1.05; overflow-wrap: break-word; }
-  .label-species { display: ${settings.showSpecies ? '-webkit-box' : 'none'}; width: 100%; color: #333; font-size: ${settings.textFontPt * QR_LABEL_SPECIES_FONT_PT / QR_LABEL_TEXT_FONT_PT}pt; font-style: italic; line-height: 1.1; overflow-wrap: break-word; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  .label-code { display: block; width: 100%; font-size: ${settings.textFontPt}pt; font-style: normal; font-weight: 900; line-height: 1.05; overflow-wrap: break-word; }
+  .label-species { display: ${settings.showSpecies ? '-webkit-box' : 'none'}; width: 100%; color: #000; font-size: ${settings.textFontPt * QR_LABEL_SPECIES_FONT_PT / QR_LABEL_TEXT_FONT_PT}pt; font-style: italic; font-weight: 900; line-height: 1.1; overflow-wrap: break-word; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 </style>
 </head>
 <body>
@@ -271,9 +270,7 @@ function clampNumber(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
-// Rough Arial advance width per character, used only to wrap the downloaded SVG
-// text. The browser print document stays the authoritative artifact.
-const QR_LABEL_SVG_CHAR_WIDTH_RATIO = 0.55;
+// Conservative Arial advance width per character for wrapping and SVG fit checks.
 const QR_LABEL_SVG_BOLD_CHAR_WIDTH_RATIO = 0.62;
 
 // The downloaded SVG mirrors the printed label: 40 x 30 mm landscape, QR at the
@@ -303,7 +300,7 @@ export function buildQrLabelSvg(label: QrLabelItem, qrImageUrl: string) {
     label.speciesName,
     QR_LABEL_TEXT_LINE_LENGTH_MM,
     speciesFontSize,
-    QR_LABEL_SVG_CHAR_WIDTH_RATIO,
+    QR_LABEL_SVG_BOLD_CHAR_WIDTH_RATIO,
     2,
   );
 
@@ -313,10 +310,10 @@ export function buildQrLabelSvg(label: QrLabelItem, qrImageUrl: string) {
   const textTop = -textBlockHeight / 2;
 
   const codeMarkup = codeLines.map((line, index) => (
-    `<text x="0" y="${roundMm(textTop + codeLineHeight * (index + 0.8))}" text-anchor="middle" font-family="Arial, sans-serif" font-size="${roundMm(fontSize)}" font-weight="900" font-style="italic" fill="#111"${svgTextFitAttributes(line, fontSize, QR_LABEL_TEXT_LINE_LENGTH_MM, QR_LABEL_SVG_BOLD_CHAR_WIDTH_RATIO)}>${escapeXml(line)}</text>`
+    `<text class="label-code" x="0" y="${roundMm(textTop + codeLineHeight * (index + 0.8))}" text-anchor="middle" font-family="Arial, sans-serif" font-size="${roundMm(fontSize)}" font-weight="900" font-style="normal" fill="#000"${svgTextFitAttributes(line, fontSize, QR_LABEL_TEXT_LINE_LENGTH_MM, QR_LABEL_SVG_BOLD_CHAR_WIDTH_RATIO)}>${escapeXml(line)}</text>`
   )).join('\n    ');
   const speciesMarkup = speciesLines.map((line, index) => (
-    `<text x="0" y="${roundMm(textTop + codeBlockHeight + QR_LABEL_TEXT_GAP_MM + speciesLineHeight * (index + 0.8))}" text-anchor="middle" font-family="Arial, sans-serif" font-size="${roundMm(speciesFontSize)}" font-style="italic" fill="#333"${svgTextFitAttributes(line, speciesFontSize, QR_LABEL_TEXT_LINE_LENGTH_MM, QR_LABEL_SVG_CHAR_WIDTH_RATIO)}>${escapeXml(line)}</text>`
+    `<text class="label-species" x="0" y="${roundMm(textTop + codeBlockHeight + QR_LABEL_TEXT_GAP_MM + speciesLineHeight * (index + 0.8))}" text-anchor="middle" font-family="Arial, sans-serif" font-size="${roundMm(speciesFontSize)}" font-weight="900" font-style="italic" fill="#000"${svgTextFitAttributes(line, speciesFontSize, QR_LABEL_TEXT_LINE_LENGTH_MM, QR_LABEL_SVG_BOLD_CHAR_WIDTH_RATIO)}>${escapeXml(line)}</text>`
   )).join('\n    ');
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}mm" height="${height}mm" viewBox="0 0 ${width} ${height}">

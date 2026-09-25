@@ -83,14 +83,18 @@
   }
 
   .qr-label-print-sheet .qr-label__metadata :where(strong, small) {
-    font-size: 7pt;
+    color: #000;
+    font-size: 7.5pt;
+    font-weight: 900;
   }
 
   .qr-label-print-sheet .qr-label__metadata strong {
+    font-style: normal;
     line-height: 1.05;
   }
 
   .qr-label-print-sheet .qr-label__metadata small {
+    font-style: italic;
     line-height: 1.1;
   }
 }
