@@ -192,7 +192,6 @@ function renderLoaderContent(variant: PageLoaderVariant) {
     case 'labels':
       return (
         <>
-          <div className="loader-label-tabs"><Blocks count={2} /></div>
           <div className="loader-label-workspace">
             <Panel className="loader-label-selection">
               <div className="loader-label-heading">
@@ -207,15 +206,6 @@ function renderLoaderContent(variant: PageLoaderVariant) {
               <div className="loader-label-grid"><Blocks count={8} /></div>
               <Block className="loader-label-group-heading" />
               <div className="loader-label-grid"><Blocks count={4} /></div>
-            </Panel>
-            <Panel className="loader-sheet-preview">
-              <div className="loader-label-preview-heading">
-                <Block className="is-heading" />
-                <Block className="is-button" />
-              </div>
-              <div className="loader-label-preview-summary"><Blocks count={2} /></div>
-              <div className="loader-sheet"><Blocks count={12} /></div>
-              <Block className="is-button" />
             </Panel>
           </div>
         </>

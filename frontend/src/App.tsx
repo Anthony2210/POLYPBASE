@@ -3951,17 +3951,11 @@ function getLabelsViewLabels(t: TFunction) {
     qrLabelAddToSelection: t('qrLabelAddToSelection'),
     qrLabelClearSelection: t('qrLabelClearSelection'),
     qrLabelNoEligibleBoxes: t('qrLabelNoEligibleBoxes'),
-    qrLabelPage: t('qrLabelPage'),
-    qrLabelPerPage: t('qrLabelPerPage'),
-    qrLabelPreview: t('qrLabelPreview'),
+
     qrLabelPrintSelection: t('qrLabelPrintSelection'),
     qrLabelSearchTitle: t('qrLabelSearchTitle'),
-    qrLabelSelectionEmpty: t('qrLabelSelectionEmpty'),
-    qrLabelSelectionFilter: t('qrLabelSelectionFilter'),
-    qrLabelSelectionSearch: t('qrLabelSelectionSearch'),
     qrLabelSelectionTitle: t('qrLabelSelectionTitle'),
     qrLabelSearchPlaceholder: t('adminPrintLabelsSearchPlaceholder'),
-    qrLabelSettingsTitle: t('qrLabelSettingsTitle'),
     zoneLabel: t('zoneLabel'),
   };
 }

@@ -855,24 +855,22 @@ export const fr = {
   qrLabelNoEligibleBoxes: 'Aucune boîte active avec un relevé cette année.',
   qrLabelOptimize: 'Optimiser la feuille',
   qrLabelOrientation: 'Orientation',
-  qrLabelPage: 'Page',
-  qrLabelPerPage: 'par feuille',
+
   qrLabelPortrait: 'Portrait',
-  qrLabelPreview: 'Rendu de la feuille',
+
   qrLabelPrintSelection: 'Imprimer la sélection',
   qrLabelQrSize: 'Taille QR',
   qrLabelSearchTitle: 'Rechercher une boîte',
   qrLabelSelectionAll: 'Toutes les boîtes',
   qrLabelSelectionCount: 'étiquette(s) sélectionnée(s)',
-  qrLabelSelectionEmpty: 'Aucune étiquette sélectionnée.',
-  qrLabelSelectionFilter: 'Sélection',
+
   qrLabelSelectionOnlySelected: 'Déjà sélectionnées',
   qrLabelSelectionOnlyToAdd: 'À ajouter',
   qrLabelSelectionSearch: 'Ajouter une boîte',
   qrLabelSelectedFilter: 'Sélectionnées',
   qrLabelSelectedTitle: 'Sélection prête',
   qrLabelSelectionTitle: 'Sélection d’étiquettes',
-  qrLabelSettingsTitle: 'Mise en page',
+
   qrLabelTitle: 'Étiquette QR code',
   qrLabelViewSelection: 'Voir la sélection',
   qrLabelShowSpecies: 'Afficher l’espèce',

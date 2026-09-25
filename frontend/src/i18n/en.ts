@@ -857,24 +857,22 @@ export const en: Record<TranslationKey, string> = {
   qrLabelNoEligibleBoxes: 'No active box with a reading this year.',
   qrLabelOptimize: 'Optimize sheet',
   qrLabelOrientation: 'Orientation',
-  qrLabelPage: 'Page',
-  qrLabelPerPage: 'per sheet',
+
   qrLabelPortrait: 'Portrait',
-  qrLabelPreview: 'Sheet preview',
+
   qrLabelPrintSelection: 'Print selection',
   qrLabelQrSize: 'QR size',
   qrLabelSearchTitle: 'Search a box',
   qrLabelSelectionAll: 'All boxes',
   qrLabelSelectionCount: 'selected label(s)',
-  qrLabelSelectionEmpty: 'No label selected.',
-  qrLabelSelectionFilter: 'Selection',
+
   qrLabelSelectionOnlySelected: 'Already selected',
   qrLabelSelectionOnlyToAdd: 'To add',
   qrLabelSelectionSearch: 'Add a box',
   qrLabelSelectedFilter: 'Selected',
   qrLabelSelectedTitle: 'Ready selection',
   qrLabelSelectionTitle: 'Label selection',
-  qrLabelSettingsTitle: 'Layout',
+
   qrLabelTitle: 'QR code label',
   qrLabelViewSelection: 'View selection',
   qrLabelShowSpecies: 'Show species',

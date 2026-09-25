@@ -107,21 +107,23 @@ test('the QR stays square at 25 mm and keeps its vector rendering', () => {
   assert.equal(width, height);
   assert.equal(Number(width), settings.qrSizeMm);
   assert.match(rule, /object-fit: contain/);
+  assert.match(rule, /transform: rotate\(-90deg\)/);
   assert.doesNotMatch(rule, /image-rendering: pixelated/);
 });
 
-test('the box code and the species line share one font size', () => {
-  assert.equal(settings.textFontPt, exports.QR_LABEL_TEXT_FONT_PT);
-
+test('the species name is larger, italic and limited to two wrapped lines', () => {
   const html = printDocument();
-  const codeSize = cssRule(html, '.label-code').match(/font-size: ([\d.]+)pt/)[1];
-  const speciesSize = cssRule(html, '.label-species').match(/font-size: ([\d.]+)pt/)[1];
+  const codeSize = Number(cssRule(html, '.label-code').match(/font-size: ([\d.]+)pt/)[1]);
+  const speciesRule = cssRule(html, '.label-species');
+  const speciesSize = Number(speciesRule.match(/font-size: ([\d.]+)pt/)[1]);
 
-  assert.equal(codeSize, speciesSize);
-  assert.equal(Number(codeSize), settings.textFontPt);
+  assert.equal(codeSize, settings.textFontPt);
+  assert.ok(speciesSize > codeSize);
+  assert.match(speciesRule, /font-style: italic/);
+  assert.match(speciesRule, /-webkit-line-clamp: 2/);
 });
 
-test('print text wraps as a fallback without truncation or line clamping', () => {
+test('print text wraps without ellipsis or horizontal truncation', () => {
   const html = printDocument();
   const codeRule = cssRule(html, '.label-code');
   const speciesRule = cssRule(html, '.label-species');
@@ -129,21 +131,23 @@ test('print text wraps as a fallback without truncation or line clamping', () =>
   assert.match(codeRule, /overflow-wrap: break-word/);
   assert.match(speciesRule, /overflow-wrap: break-word/);
   assert.doesNotMatch(`${codeRule}${speciesRule}`, /text-overflow: ellipsis/);
-  assert.doesNotMatch(`${codeRule}${speciesRule}`, /line-clamp/);
   assert.doesNotMatch(`${codeRule}${speciesRule}`, /white-space: nowrap/);
 });
 
-test('the sheet grid stays inside the A4 printable area', () => {
-  const rows = exports.getQrLabelSheetRows(settings);
-  const columns = settings.columns;
-
-  assert.equal(columns, exports.getQrLabelSheetColumns(settings.labelWidthMm, settings.gapMm));
-
-  const usedWidth = columns * settings.labelWidthMm + (columns - 1) * settings.gapMm;
-  const usedHeight = rows * settings.labelHeightMm + (rows - 1) * settings.gapMm;
-
-  assert.ok(usedWidth <= exports.QR_LABEL_PRINTABLE_WIDTH_MM, `${usedWidth}mm exceeds the printable width`);
-  assert.ok(usedHeight <= exports.QR_LABEL_PRINTABLE_HEIGHT_MM, `${usedHeight}mm exceeds the printable height`);
+test('each selected label gets one exact-size print page with no trailing blank page', () => {
+  for (const count of [1, 2, 5]) {
+    const html = exports.buildQrPrintDocument(
+      Array.from({ length: count }, (_, index) => ({ ...label, id: index + 1 })),
+      settings,
+    );
+    const pages = html.match(/<main class="label-slot">/g) ?? [];
+    assert.equal(pages.length, count, `${count} labels must produce ${count} pages`);
+    assert.equal((html.match(/<section class="label">/g) ?? []).length, count);
+    assert.match(html, /@page \{ size: 40mm 30mm; margin: 0; \}/);
+    assert.match(html, /break-after: page; page-break-after: always/);
+    assert.match(html, /\.label-slot:last-child \{ break-after: auto; page-break-after: auto; \}/);
+    assert.doesNotMatch(html, /size: A4|class="sheet"/);
+  }
 });
 
 test('the QR and rotated text block fit the physical label without clipping', () => {
@@ -190,7 +194,7 @@ test('the downloaded SVG mirrors the rotated landscape label design', () => {
 
   assert.match(svg, /width="40mm" height="30mm"/);
   assert.match(svg, /viewBox="0 0 40 30"/);
-  assert.match(svg, /width="25" height="25"/);
+  assert.match(svg, /width="25" height="25" transform="rotate\(-90 [\d.]+ [\d.]+\)"/);
   assert.match(svg, /<g class="label-text" transform="translate\(([\d.]+) 15\) rotate\(-90\)">/);
 
   const imageX = Number(svg.match(/<image [^>]*x="([\d.]+)"/)[1]);
@@ -202,22 +206,14 @@ test('the downloaded SVG mirrors the rotated landscape label design', () => {
   assert.ok(15 - exports.QR_LABEL_TEXT_LINE_LENGTH_MM / 2 >= exports.QR_LABEL_BORDER_MM + settings.paddingMm - 0.001);
 });
 
-test('both previews share the canonical landscape geometry', () => {
-  const sheet = exports.getQrLabelSheetCssVariables(settings);
+test('the modal preview keeps the canonical landscape geometry', () => {
   const modal = exports.getQrLabelPreviewCssVariables(settings);
 
-  assert.equal(sheet['--label-preview-ratio'], '40 / 30');
   assert.equal(modal['--label-preview-ratio'], '40 / 30');
-  assert.equal(sheet['--label-preview-qr-size'], '11.9048cqi');
   assert.equal(modal['--label-preview-qr-size'], '62.5cqw');
-  assert.equal(sheet['--label-preview-text-zone-width'], '5.8095cqi');
   assert.equal(modal['--label-preview-text-zone-width'], '30.5cqw');
-  assert.equal(sheet['--label-preview-text-line-length'], '13.1905cqi');
   assert.equal(modal['--label-preview-text-line-length'], '69.25cqw');
-  assert.equal(sheet['--label-preview-font-size'], '1.1759cqi');
   assert.equal(modal['--label-preview-font-size'], '6.1736cqw');
-  assert.equal(sheet['--label-sheet-columns'], String(settings.columns));
-  assert.equal(exports.getQrLabelSheetWidthPercent(settings.labelWidthMm), 19.0476);
 });
 
 test('QR payload and scan routing semantics are unchanged', () => {
@@ -238,6 +234,7 @@ test('the shared preview component renders a rotated text block beside the QR', 
   assert.match(rule, /flex-direction: row/);
   assert.doesNotMatch(rule, /flex-direction: column/);
   assert.match(rule, /aspect-ratio: var\(--label-preview-ratio\)/);
+  assert.match(css, /\.qr-label--label \.qr-label__image \{[^}]*transform: rotate\(-90deg\)/s);
   assert.match(textRule, /rotate\(-90deg\)/);
   assert.match(textRule, /width: var\(--label-preview-text-line-length\)/);
   assert.match(textRule, /height: var\(--label-preview-text-zone-width\)/);
@@ -261,15 +258,13 @@ test('the legacy Ctrl+P print path uses the canonical geometry', () => {
   assert.match(css, new RegExp(`height: ${exports.QR_LABEL_TEXT_ZONE_MM}mm`));
 });
 
-test('the Labels page preview and the modal share the physical label variant', () => {
+test('the obsolete page preview is absent while selection and print remain available', () => {
   const labelsView = readFileSync(new URL('../src/components/LabelsView.tsx', import.meta.url), 'utf8');
-  const modal = readFileSync(new URL('../src/components/QrLabelModal.tsx', import.meta.url), 'utf8');
-  const component = readFileSync(new URL('../src/components/QrLabel.tsx', import.meta.url), 'utf8');
 
-  assert.match(labelsView, /<QrLabel item=\{label\} variant="label" \/>/);
-  assert.match(modal, /variant="label"/);
-  assert.match(component, /className="qr-label__text"/);
-  assert.doesNotMatch(labelsView, /label-preview-zone-marker/);
+  assert.match(labelsView, /profile-label-selector/);
+  assert.match(labelsView, /onClearQrLabelSelection/);
+  assert.match(labelsView, /printQrLabels\(selectedLabels, printSettings\)/);
+  assert.doesNotMatch(labelsView, /label-sheet-preview|label-pages-preview|label-workspace-tabs|QrLabel item=/);
 });
 
 test('the Labels desktop workspace uses the shared page frame without stretching sparse box groups', () => {
@@ -300,16 +295,10 @@ test('the Labels desktop workspace uses the shared page frame without stretching
   }
 });
 
-test('the Labels page no longer renders the removed selection instructions', () => {
+test('the Labels page has no sheet preview and keeps its selection heading', () => {
   const labelsView = readFileSync(new URL('../src/components/LabelsView.tsx', import.meta.url), 'utf8');
-  const fr = readFileSync(new URL('../src/i18n/fr.ts', import.meta.url), 'utf8');
-  const en = readFileSync(new URL('../src/i18n/en.ts', import.meta.url), 'utf8');
 
-  assert.doesNotMatch(labelsView, /qrLabelSelectionHelp/);
-  assert.doesNotMatch(fr, /Sélectionnez les boîtes, vérifiez la planche, puis imprimez/);
-  assert.doesNotMatch(en, /Select boxes, check the sheet, then print/);
-
-  // The empty preview keeps its own message and the heading keeps its title.
-  assert.match(labelsView, /<strong>\{labels\.qrLabelSelectionEmpty\}<\/strong>/);
+  assert.doesNotMatch(labelsView, /label-sheet-preview|label-pages-preview|label-workspace-tabs|label-preview/);
   assert.match(labelsView, /<h2>\{labels\.qrLabelSelectionTitle\}<\/h2>/);
+  assert.match(labelsView, /qrLabelPrintSelection/);
 });

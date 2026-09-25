@@ -746,12 +746,9 @@
   background: transparent;
 }
 
-.label-page-stack {
-  align-items: stretch;
-}
-
-.label-workspace-tabs {
-  display: none;
+.labels-page .label-selection-card {
+  height: auto;
+  min-height: 0;
 }
 
 .labels-page .label-step-card {
@@ -994,186 +991,6 @@
   text-align: center;
 }
 
-.label-pages-preview {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 10px;
-  align-items: start;
-}
-
-.label-print-page-preview,
-.label-preview-card {
-  display: grid;
-  gap: var(--space-2);
-  min-width: 0;
-}
-
-.label-print-page-heading strong {
-  color: var(--color-ink);
-  font-style: italic;
-}
-
-.label-panel-heading h3 {
-  margin: 0;
-  font-size: 0.88rem;
-  font-style: italic;
-}
-
-.label-preview-pagination {
-  display: grid;
-  grid-template-columns: 28px auto 28px;
-  align-items: center;
-  gap: 6px;
-}
-
-.label-preview-pagination button {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  place-items: center;
-  padding: 0;
-  border: 1px solid var(--color-line);
-  border-radius: 50%;
-  background: var(--color-surface);
-  color: var(--color-primary-hover);
-  cursor: pointer;
-}
-
-.label-preview-pagination button:hover:not(:disabled) {
-  border-color: var(--color-primary);
-  background: var(--color-primary-faint);
-}
-
-.label-preview-pagination button:disabled {
-  color: var(--color-line-strong);
-  background: var(--color-surface-subtle);
-  cursor: default;
-}
-
-.label-preview-pagination button span {
-  font-size: 1.15rem;
-  line-height: 1;
-}
-
-.label-preview-pagination > span {
-  color: var(--color-ink-soft);
-  font-size: 0.68rem;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.label-preview-summary {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  border: 1px solid var(--color-line-soft);
-  background: var(--color-surface-subtle);
-}
-
-.label-preview-summary > div {
-  display: grid;
-  min-width: 0;
-  gap: 1px;
-  padding: 6px 9px;
-}
-
-.label-preview-summary > div + div {
-  border-left: 1px solid var(--color-line-soft);
-}
-
-.label-preview-summary span {
-  overflow: hidden;
-  color: var(--color-muted);
-  font-size: 0.62rem;
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.label-preview-summary strong {
-  font-size: 0.84rem;
-}
-
-.label-preview-stage {
-  position: relative;
-  display: grid;
-  justify-items: center;
-  min-height: 0;
-  padding: 10px;
-  overflow: auto;
-  border: 1px dashed var(--color-line-strong);
-  background: var(--color-surface-subtle);
-}
-
-.label-preview-stage.is-empty .label-sheet-preview {
-  opacity: 0.38;
-}
-
-.label-preview-empty {
-  position: absolute;
-  z-index: 2;
-  top: 50%;
-  left: 50%;
-  display: grid;
-  width: min(240px, calc(100% - 40px));
-  gap: 5px;
-  padding: 14px;
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-sm);
-  background: rgb(255 255 255 / 94%);
-  text-align: center;
-  transform: translate(-50%, -50%);
-}
-
-.label-preview-empty strong {
-  font-size: 0.78rem;
-}
-
-.label-preview-empty span {
-  color: var(--color-muted);
-  font-size: 0.68rem;
-  line-height: 1.4;
-}
-
-.label-sheet-preview {
-  container-type: inline-size;
-  width: min(100%, 520px);
-  aspect-ratio: 210 / 297;
-  overflow: hidden;
-  border: 1px solid var(--color-line-strong);
-  background: white;
-}
-
-/* The grid reuses the canonical print geometry: every track, gap and margin is
-   the physical millimetre value expressed as a percentage of the A4 width. */
-.label-sheet-grid {
-  display: grid;
-  height: 100%;
-  grid-template-columns: repeat(var(--label-sheet-columns), var(--label-sheet-column-width));
-  grid-auto-rows: auto;
-  align-content: start;
-  justify-content: center;
-  gap: var(--label-sheet-gap);
-  padding: var(--label-sheet-padding);
-}
-
-.label-preview-slot {
-  display: grid;
-  min-width: 0;
-  min-height: 0;
-  aspect-ratio: var(--label-preview-ratio);
-}
-
-.label-preview-slot > .qr-label {
-  height: 100%;
-}
-
-.label-preview-tile.is-empty {
-  min-height: 100%;
-  border: 1px dashed #d5dce0;
-  border-radius: var(--radius-xs);
-  border-style: dashed;
-}
-
 .label-print-toolbar {
   justify-content: flex-end;
   padding-top: 10px;
@@ -1263,42 +1080,6 @@
 }
 
 @media (max-width: 1119px) {
-  .label-workspace-tabs {
-    position: sticky;
-    z-index: 8;
-    top: var(--space-2);
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    padding: 3px;
-    border: 1px solid var(--color-line);
-    border-radius: var(--radius-sm);
-    background: var(--color-surface-subtle);
-  }
-
-  .label-workspace-tabs button {
-    display: flex;
-    min-height: 42px;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding-inline: var(--space-3);
-    border: 0;
-    border-radius: var(--radius-xs);
-    background: transparent;
-    color: var(--color-muted);
-    font-weight: 750;
-    cursor: pointer;
-  }
-
-  .label-workspace-tabs button.is-active {
-    background: var(--color-primary);
-    color: #fff;
-  }
-
-  .label-page-stack {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .labels-page .profile-label-toolbar {
     position: sticky;
     z-index: 6;
@@ -1321,18 +1102,7 @@
     top: 145px;
   }
 
-  .label-step-card.is-tablet-hidden {
-    display: none;
-  }
 
-  .label-layout-card {
-    width: min(780px, 100%);
-    margin-inline: auto;
-  }
-
-  .label-layout-card .label-sheet-preview {
-    width: min(100%, 520px);
-  }
 }
 
 @media (min-width: 760px) and (max-width: 1023px),
@@ -1341,19 +1111,15 @@
     scroll-margin-top: 78px;
   }
 
-  .label-workspace-tabs {
-    top: 78px;
-    border-radius: var(--radius-xs) var(--radius-xs) 0 0;
-  }
 
   .labels-page .label-selection-copy {
     display: none;
   }
 
   .labels-page .label-selection-card {
-    grid-template-columns: minmax(0, 1fr) auto;
-    column-gap: 8px;
-    row-gap: 12px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    row-gap: var(--space-3);
   }
 
   .labels-page .label-tablet-zone-filters,
@@ -1362,12 +1128,8 @@
   }
 
   .labels-page .label-selection-heading {
-    grid-row: 2;
-    grid-column: 2;
-    min-height: 42px;
-    justify-content: flex-end;
-    padding: 0;
-    border-bottom: 0;
+    grid-row: auto;
+    grid-column: 1;
   }
 
   .labels-page .admin-label-actions {
@@ -1379,13 +1141,9 @@
   }
 
   .labels-page .profile-label-toolbar {
-    position: static;
-    z-index: auto;
-    grid-row: 2;
+    grid-row: auto;
     grid-column: 1;
     grid-template-columns: minmax(0, 1fr);
-    padding-block: 0;
-    border-bottom: 0;
   }
 
   .labels-page .profile-label-search > span {
@@ -1483,19 +1241,6 @@
 }
 
 @media (min-width: 1120px) {
-  .label-page-stack {
-    grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr);
-  }
-
-  .label-selection-card,
-  .label-layout-card {
-    height: min(820px, calc(100dvh - 150px));
-    min-height: 560px;
-  }
-
-  .label-selection-card {
-    grid-template-rows: auto auto minmax(0, 1fr);
-  }
 
   .label-selection-card .profile-label-selector {
     max-height: none;
@@ -1512,28 +1257,7 @@
     min-height: 0;
   }
 
-  .label-pages-preview {
-    min-height: 0;
-    height: 100%;
-    padding-right: 4px;
-  }
 
-  .label-print-page-preview {
-    min-height: 0;
-    height: 100%;
-  }
-
-  .label-preview-stage {
-    height: 100%;
-  }
-
-  .label-layout-card .label-preview-stage {
-    padding: 8px;
-  }
-
-  .label-layout-card .label-sheet-preview {
-    width: min(100%, 520px);
-  }
 }
 
 @media (max-width: 759px) {
@@ -1541,7 +1265,7 @@
     padding: var(--space-4);
   }
 
-  :where(.export-period, .export-filter-options, .label-pages-preview, .label-zone-group-list) {
+  :where(.export-period, .export-filter-options, .label-zone-group-list) {
     grid-template-columns: 1fr;
   }
 
@@ -1605,9 +1329,6 @@
     max-height: 340px;
   }
 
-  .label-sheet-preview {
-    width: 100%;
-  }
 
   .qr-label-print-frame {
     width: min(100%, 260px);

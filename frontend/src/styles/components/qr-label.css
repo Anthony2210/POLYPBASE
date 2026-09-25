@@ -88,6 +88,8 @@
   flex: 0 0 auto;
   /* The QR is a vector SVG: keep it crisp instead of pixelated. */
   image-rendering: auto;
+  transform: rotate(-90deg);
+  transform-origin: center;
 }
 
 .qr-label--label .qr-label__metadata {
@@ -120,8 +122,14 @@
 }
 
 .qr-label--label .qr-label__metadata small {
+  display: -webkit-box;
+  overflow: hidden;
   color: #333;
+  font-size: max(4px, var(--label-preview-species-font-size));
+  font-style: italic;
   line-height: 1.1;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 @media (min-width: 760px) and (max-width: 1180px) {
