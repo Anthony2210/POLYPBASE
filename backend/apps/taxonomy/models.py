@@ -32,6 +32,71 @@ class Species(models.Model):
         return self.scientific_name
 
 
+class OrganizationSpeciesCode(models.Model):
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="species_code_assignments",
+    )
+    species = models.ForeignKey(
+        Species,
+        on_delete=models.PROTECT,
+        related_name="local_code_assignments",
+    )
+    code = models.CharField(max_length=3)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "species"],
+                name="unique_species_code_per_organization_species",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "code"],
+                name="unique_species_code_per_organization_code",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.organization} - {self.species}: {self.code}"
+
+
+class BiologicalProvenance(models.Model):
+    name = models.CharField(max_length=150, blank=True)
+
+    def __str__(self):
+        return self.name or str(self.pk)
+
+
+class OrganizationProvenanceCode(models.Model):
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="provenance_code_assignments",
+    )
+    biological_provenance = models.ForeignKey(
+        BiologicalProvenance,
+        on_delete=models.PROTECT,
+        related_name="local_code_assignments",
+    )
+    code = models.CharField(max_length=3)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "biological_provenance"],
+                name="unique_provenance_code_per_organization_source",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "code"],
+                name="unique_provenance_code_per_organization_code",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.organization} - {self.biological_provenance}: {self.code}"
+
+
 class SpeciesTranslation(models.Model):
     """Localized display name and description for a species."""
 
