@@ -1550,8 +1550,11 @@ export default function App() {
                 boxes={data.boxes}
                 isLoading={isLoading}
                 labels={getLabelsViewLabels(t)}
+                language={language}
                 profile={data.profile}
                 qrLabelSelection={qrLabelSelection}
+                t={t}
+                onOpenBox={openBox}
                 onAddQrLabel={addQrLabelToSelection}
                 onClearQrLabelSelection={clearQrLabelSelection}
                 onRemoveQrLabel={removeQrLabelFromSelection}
@@ -3979,14 +3982,22 @@ function getLabelsViewLabels(t: TFunction) {
   return {
     allZones: t('zoneFilterAll'),
     noZone: t('noZone'),
-    qrLabelAddToSelection: t('qrLabelAddToSelection'),
+    qrLabelAddResults: (count: number) => t('qrLabelAddResults').replace('{count}', String(count)),
+    qrLabelAddResultsCompact: (count: number) => t('qrLabelAddResultsCompact').replace('{count}', String(count)),
     qrLabelClearSelection: t('qrLabelClearSelection'),
     qrLabelNoEligibleBoxes: t('qrLabelNoEligibleBoxes'),
-
-    qrLabelPrintSelection: t('qrLabelPrintSelection'),
+    qrLabelNoMatches: t('qrLabelNoMatches'),
+    qrLabelPrintCount: (count: number) => t('qrLabelPrintCount').replace('{count}', String(count)),
     qrLabelSearchTitle: t('qrLabelSearchTitle'),
-    qrLabelSelectionTitle: t('qrLabelSelectionTitle'),
+    qrLabelSelectedSingular: t('qrLabelSelectedSingular'),
+    qrLabelSelectedPlural: t('qrLabelSelectedPlural'),
+    pageTitle: t('labelsTitle'),
     qrLabelSearchPlaceholder: t('adminPrintLabelsSearchPlaceholder'),
+    qrLabelSpeciesCount: (count: number) => t('qrLabelSpeciesCount').replace('{count}', String(count)),
+    qrLabelSpeciesSelected: (count: number) => t('qrLabelSpeciesSelected').replace('{count}', String(count)),
+    qrLabelSelectSpecies: (count: number, species: string) => t('qrLabelSelectSpecies').replace('{count}', String(count)).replace('{species}', species),
+    qrLabelDeselectSpecies: (count: number, species: string) => t('qrLabelDeselectSpecies').replace('{count}', String(count)).replace('{species}', species),
+    selectBox: t('boxInventoryBatchSelectBox'),
     zoneLabel: t('zoneLabel'),
   };
 }

@@ -222,4 +222,8 @@
     min-height: 44px;
   }
 
+  .labels-page .label-box-copy a {
+    min-height: 22px;
+  }
+
 }

@@ -329,7 +329,7 @@ test('all actual page roots reject independent outer-frame ownership', () => {
     'every configured page root must have a JSX source assertion',
   );
   for (const [className, source] of PAGE_ROOT_SOURCE_BY_CLASS) {
-    assert.match(source, new RegExp(`className=(?:\\{[^}]*\\}|["'][^"']*)\\b${className}\\b`), `${className} must be a real JSX root`);
+    assert.match(source, new RegExp(`className=(?:\\{[^}]*\\b${className}\\b[^}]*\\}|["'][^"']*\\b${className}\\b)`), `${className} must be a real JSX root`);
   }
 
   const matchedRootClasses = new Set();

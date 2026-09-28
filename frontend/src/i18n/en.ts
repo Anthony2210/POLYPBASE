@@ -842,10 +842,24 @@ export const en: Record<TranslationKey, string> = {
   prototype: 'prototype',
   qrCode: 'QR code',
   qrLabelAddToSelection: 'Add to selection',
+  qrLabelAddResults: 'Add {count} results',
+  qrLabelAddResultsCompact: 'Add {count}',
+
+  qrLabelPrintCount: 'Print {count}',
+
+  qrLabelNoMatches: 'No boxes match the search and selected zone.',
+
+  qrLabelSelectedSingular: 'label selected',
+  qrLabelSelectedPlural: 'labels selected',
+
+  qrLabelSpeciesCount: '{count} boxes',
+  qrLabelSpeciesSelected: '{count} selected',
+  qrLabelSelectSpecies: 'Select {count} results for {species}',
+  qrLabelDeselectSpecies: 'Remove {count} results for {species}',
   qrLabelAllFilter: 'All',
   qrLabelAlreadySelected: 'Already selected',
   qrLabelAvailableCount: 'printable',
-  qrLabelClearSelection: 'Clear',
+  qrLabelClearSelection: 'Clear list',
   qrLabelColumns: 'Columns',
   qrLabelDownload: 'Download',
   qrLabelEligibleRule: 'Active with a reading in',
@@ -871,7 +885,7 @@ export const en: Record<TranslationKey, string> = {
   qrLabelSelectionSearch: 'Add a box',
   qrLabelSelectedFilter: 'Selected',
   qrLabelSelectedTitle: 'Ready selection',
-  qrLabelSelectionTitle: 'Label selection',
+
 
   qrLabelTitle: 'QR code label',
   qrLabelViewSelection: 'View selection',

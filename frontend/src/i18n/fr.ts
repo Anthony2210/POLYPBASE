@@ -840,10 +840,24 @@ export const fr = {
   prototype: 'prototype',
   qrCode: 'QR code',
   qrLabelAddToSelection: 'Ajouter à la sélection',
+  qrLabelAddResults: 'Ajouter les {count} résultats',
+  qrLabelAddResultsCompact: 'Ajouter {count}',
+
+  qrLabelPrintCount: 'Imprimer {count}',
+
+  qrLabelNoMatches: 'Aucune boîte ne correspond à la recherche et à la zone choisies.',
+
+  qrLabelSelectedSingular: 'étiquette sélectionnée',
+  qrLabelSelectedPlural: 'étiquettes sélectionnées',
+
+  qrLabelSpeciesCount: '{count} boîtes',
+  qrLabelSpeciesSelected: '{count} sélectionnées',
+  qrLabelSelectSpecies: 'Sélectionner les {count} résultats de {species}',
+  qrLabelDeselectSpecies: 'Retirer les {count} résultats de {species}',
   qrLabelAllFilter: 'Toutes',
   qrLabelAlreadySelected: 'Déjà dans la sélection',
   qrLabelAvailableCount: 'imprimables',
-  qrLabelClearSelection: 'Vider',
+  qrLabelClearSelection: 'Vider la liste',
   qrLabelColumns: 'Colonnes',
   qrLabelDownload: 'Télécharger',
   qrLabelEligibleRule: 'Actives avec un relevé en',
@@ -869,7 +883,7 @@ export const fr = {
   qrLabelSelectionSearch: 'Ajouter une boîte',
   qrLabelSelectedFilter: 'Sélectionnées',
   qrLabelSelectedTitle: 'Sélection prête',
-  qrLabelSelectionTitle: 'Sélection d’étiquettes',
+
 
   qrLabelTitle: 'Étiquette QR code',
   qrLabelViewSelection: 'Voir la sélection',
