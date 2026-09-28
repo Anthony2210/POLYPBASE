@@ -5,7 +5,7 @@ Last updated: 2026-09-28
 ## Repository
 
 - Canonical repository: `C:\Users\antoc\POLYPBASE`.
-- `main` and `origin/main` are synchronized at `ca94726` (`feat: add strain organization ownership foundation`), per current Git status and log.
+- `main` and `origin/main` are synchronized at `cf8f2fc` (`feat: scope strains by institution`), per current Git status and log.
 - Working tree was clean before this document update.
 - The sanitized history migration is complete. Do not transplant commits from the old history into this ancestry without separate review.
 
@@ -17,8 +17,10 @@ Integrated milestones after the previously documented `4856076` weekly-measureme
 - `d99b117` - improved weekly measurement summary/editor UX.
 - `b8e5647` - redesigned Pilotage / Suivi labo and refined frontend UX, including Profile, search/box lookup and route safety. This also moves the previously queued Pilotage redesign to DONE.
 - `0d7985a` - delivered the Emplacement refinement described below.
-- `5fec1f6` - added the global strain identity schema foundation.
-- `ca94726` - added the strain organization ownership schema foundation.
+- `5fec1f6` - added the global strain identity foundation.
+- `ca94726` - added the strain organization ownership foundation.
+- `a85dd47` - made Species and Strain API mutations, translations, and AuditLog writes atomic.
+- `cf8f2fc` - scoped Strain reads and writes by institution and enforced ownership in operational references.
 
 Other meaningful earlier integrated changes not reflected in the old milestone list:
 
@@ -48,17 +50,20 @@ The established action history redesign/follow-up (`84c4730`, `045c608`) and wee
 - Zone boxes group Species > Strain, use canonical current-location start and latest biological measurement, preserve zero, and use the rich `BoxTrackingPreview` in Inventory.
 - Limitation: date-only biological measurements cannot be reliably attributed to a location stay when a box moved on that same day. Do not infer P/E variation by stay in this ambiguous case.
 
-### Taxonomy / Strain identity foundations
+### Taxonomy / Strain identity and institution scoping
 
-- `GlobalStrainIdentity` provides an opaque UUID global identifier. `Strain.global_identity` is a nullable many-to-one relation; legacy Strains were not backfilled. There is no runtime or API exposure yet.
-- `Strain.organization` is nullable and uses a PROTECT relation to Organization. No organization was inferred or backfilled. The existing `(species, code)` uniqueness remains in force; APIs, imports, QuickStrainCreator and Box behavior remain unchanged. This field is **not yet security enforcement**.
-- Historical local strain structure strongly supports `AAA-BBB-X`, with `X` scoped to Species + Provenance in the current product direction. A normalized historical sample contained 194 parseable Strains and 555 Boxes, with no genuine local-key or Box-number collisions detected. It covered one institution only and cannot establish cross-institution biological identity.
+- `GlobalStrainIdentity` is a shared biological identity foundation with an opaque UUID. `Strain.global_identity` is nullable; legacy Strains were not backfilled. Global identity is not an authorization boundary and does not expose another institution's Strains or Boxes.
+- `Strain.organization` is nullable. New interactive Strains are assigned server-side to the authoritative active institution. Owned Strains are institution-scoped in operational references and writes; Strain PATCH is limited to the owning institution, and Box creation validates the submitted Strain PK server-side.
+- Historical `Strain.organization=NULL` rows remain unresolved/shared: no automatic ownership or Global ID inference. They are read-only through institution APIs. An institution may reuse one operationally only if it already has at least one Box referencing it; historical/inactive Boxes count. Existing Boxes remain readable through `Box.organization`, and subculture from an authorized legacy Box continues. Transfer v1 does not infer biological identity from a NULL code match.
+- Historical imports respect target institution ownership and reject unsafe ownership collisions; transfer v1 respects destination ownership and rejects foreign/NULL ambiguous collisions. Demo seeding is ownership-guarded. The future versioned import protocol is not implemented.
+- The existing global `(species, code)` uniqueness remains unchanged. Two institutions therefore cannot yet independently create the same local representation; this is a current limitation, not the final target architecture.
+- Product direction for local codes remains `AAA-BBB-X.YYY`: AAA is institution-local Species code, BBB institution-local provenance/origin code, X is the strain number scoped to Species + Provenance within the institution, and YYY is the box number within the local strain. Existing historical Box identifiers should remain stable. GlobalStrainIdentity remains separate from local operational codes; allocation and migration rules are unresolved.
 
 ### Other current behavior
 
 - Institution Responsable authority, Profile/action-history workflows and the labels/subculture fixes listed above are integrated. No specific institution is part of reusable product rules.
 - Probe integration/combined monitoring and divergence alerts remain future product direction, not current connected behavior.
-- Cross-institution identity behavior, lineage and the remaining contractual roadmap are future work; the global ID currently exists only as a schema foundation.
+- The global identity foundation exists, but a transfer protocol carrying GlobalStrainIdentity, DNA/provenance enrichment, and WoRMS integration remain future work.
 
 ## POLYPBASE-ANALYSES
 
@@ -88,8 +93,8 @@ The established action history redesign/follow-up (`84c4730`, `045c608`) and wee
 
 ## Next operational work
 
-1. **Phase 2B:** activate institution scoping for new/current Strain runtime paths: institution-aware creation, queryset/read scoping, PK resolution scoping, QuickStrainCreator, Box Strain selection, and backend permission/isolation tests. Complete this before considering any relaxation of `(species, code)` uniqueness; that constraint is **not ready to change**.
-2. Later phases: local Species/provenance coding and `AAA-BBB-X` allocation; migration/review of legacy unresolved Strains; transfers carrying Global Strain ID; provenance/DNA; WoRMS integration. None is implemented by the two schema foundations.
+1. **Next architectural stage:** design the institution-local coding model and safe transition away from global `(species, code)` uniqueness. Before implementation, resolve institution-local Species code representation; provenance/origin representation and local BBB code; X allocation scope and concurrency; interaction with GlobalStrainIdentity; legacy NULL/localization transition; prerequisites for changing uniqueness; historical Box-code preservation; and impacts on imports, transfers, and selectors. Do not invent unresolved allocation or migration rules.
+2. Later: a versioned import protocol with validation, normalization, preflight, ambiguity resolution, transactional apply, audit/report, and idempotence; a transfer protocol carrying GlobalStrainIdentity; DNA/provenance enrichment; and WoRMS integration. None is implemented.
 3. Continue the documented read-only analysis of remaining `Pennaria disticha` attribution cases in `POLYPBASE-ANALYSES`; do not infer biology or authorization rules.
 4. Keep probe connectivity, exports and longer-term roadmap items as separate future decisions/work. Inspect secondary worktrees before any cleanup.
 5. Verify production separately only when explicitly requested and through the deployment workflow.
