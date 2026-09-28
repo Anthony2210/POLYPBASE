@@ -97,6 +97,13 @@ class GlobalStrainIdentity(models.Model):
 
 class Strain(models.Model):
     species = models.ForeignKey(Species, on_delete=models.PROTECT, related_name="strains")
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="strains",
+    )
     global_identity = models.ForeignKey(
         GlobalStrainIdentity,
         on_delete=models.PROTECT,
