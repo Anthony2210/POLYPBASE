@@ -194,6 +194,19 @@ class Strain(models.Model):
         return f"{self.species} - {self.code}"
 
 
+class LocalStrainIdentity(models.Model):
+    strain = models.OneToOneField(
+        Strain,
+        on_delete=models.PROTECT,
+        related_name="local_identity",
+    )
+    species_code_assignment = models.ForeignKey(
+        OrganizationSpeciesCode,
+        on_delete=models.PROTECT,
+        related_name="local_strain_identities",
+    )
+
+
 class StrainTranslation(models.Model):
     """Localized display name and description for a strain."""
 
