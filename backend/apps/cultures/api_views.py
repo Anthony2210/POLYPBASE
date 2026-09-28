@@ -25,7 +25,7 @@ from django.db.models.functions import Coalesce, ExtractYear, TruncWeek
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, status
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import APIException, PermissionDenied
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import AllowAny
@@ -2108,6 +2108,12 @@ class BoxTransferCreateAPIView(generics.CreateAPIView):
         )
 
 
+class StrainOwnershipConflict(APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Ce code de souche appartient déjà à une autre structure ou n'a pas de propriétaire."
+    default_code = "strain_ownership_conflict"
+
+
 class BoxTransferImportAPIView(APIView):
     """Validate one Polypbase transfer CSV row and create a destination box."""
 
@@ -2164,9 +2170,16 @@ class BoxTransferImportAPIView(APIView):
                 "genus_species_code": str(source.get("species_code", "")).strip(),
             },
         )
+        # Serialize imports for this species even when the strain does not exist yet.
+        Species.objects.select_for_update().get(pk=species.pk)
+        strain_code = str(source["strain_code"]).strip()
+        strains = Strain.objects.filter(species=species, code=strain_code)
+        if strains.exclude(organization=organization).exists():
+            raise StrainOwnershipConflict()
         strain, _ = Strain.objects.get_or_create(
             species=species,
-            code=str(source["strain_code"]).strip(),
+            code=strain_code,
+            organization=organization,
             defaults={"origin_code": str(source.get("strain_origin_code", "")).strip()},
         )
         suggested_global_code, suggested_box_number = _next_unique_box_identity(strain)

@@ -172,7 +172,7 @@ class TaxonomyReferenceApiTests(TestCase):
             language_code="fr",
             name="Aurélie bleue",
         )
-        strain = Strain.objects.create(species=species, code="ACO-JP-1")
+        strain = Strain.objects.create(species=species, code="ACO-JP-1", organization=self.organization)
         StrainTranslation.objects.create(
             strain=strain,
             language_code="fr",
@@ -313,7 +313,7 @@ class TaxonomyReferenceApiTests(TestCase):
     def test_strain_update_rolls_back_model_and_translations_when_audit_fails(self, create_audit):
         species = Species.objects.create(scientific_name="Aurelia aurita")
         replacement_species = Species.objects.create(scientific_name="Aurelia coerulea")
-        organization = Organization.objects.create(name="Strain institution")
+        organization = self.organization
         identity = GlobalStrainIdentity.objects.create()
         strain = Strain.objects.create(
             species=species,

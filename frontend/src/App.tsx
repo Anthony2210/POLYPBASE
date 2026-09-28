@@ -101,6 +101,7 @@ import type {
   OrganizationPayload,
   ProbePayload,
   ThermalZonePayload,
+  TaxonomyReferences,
 } from './types/admin';
 import { getAccountMemberRoleLabel } from './utils/accountMembers';
 import { upsertBoxes } from './utils/boxCollection';
@@ -321,7 +322,7 @@ export default function App() {
   ) && data.exportOptions === null;
   const isOverviewLoading = activeTab === 'overview' && data.overview === null;
   const zonePageKey = route.zoneHistory ? 'history' : route.zoneBoxes ? 'boxes' : 'detail';
-  const workspacePageKey = `${activeTab}-${route.boxCode ?? route.boxId ?? 'list'}-${route.zoneId ?? 'list'}-${zonePageKey}-${route.adminSection ?? 'default'}`;
+  const workspacePageKey = `${activeOrganizationId ?? 'none'}-${activeTab}-${route.boxCode ?? route.boxId ?? 'list'}-${route.zoneId ?? 'list'}-${zonePageKey}-${route.adminSection ?? 'default'}`;
   const brandOrganizationName = getBrandOrganizationName(data.profile, t);
   const selectableOrganizations = useMemo(() => getSelectableOrganizations(data.profile), [data.profile]);
   const activeOrganization = useMemo(
@@ -379,6 +380,7 @@ export default function App() {
 
     setIsOrganizationMenuOpen(false);
     setNeedsOrganizationChoice(false);
+    setIsCreateBoxOpen(false);
     setActiveOrganizationId(organizationId);
     setIsLoading(true);
     setError(null);
@@ -2090,6 +2092,7 @@ function PilotageView({
 
         {canCreateBox ? (
           <CreateBoxPanel
+            key={profile?.active_organization?.id ?? 'none'}
             boxes={boxes}
             exportOptions={exportOptions}
             isOpen={isPhoneLayout ? undefined : isCreateBoxOpen}
@@ -2152,6 +2155,9 @@ function CreateBoxPanel({
   const [notes, setNotes] = useState('');
   const [strainSearch, setStrainSearch] = useState('');
   const [createdStrains, setCreatedStrains] = useState<QuickCreatedStrain[]>([]);
+  const [references, setReferences] = useState<TaxonomyReferences | null>(null);
+  const [isReferencesLoading, setIsReferencesLoading] = useState(false);
+  const [referencesError, setReferencesError] = useState<string | null>(null);
   const [isQuickStrainOpen, setIsQuickStrainOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2161,11 +2167,34 @@ function CreateBoxPanel({
     else setIsInlineOpen(nextIsOpen);
   }
 
+  useEffect(() => {
+    if (!isOpen || organizationId == null) return;
+    let isCurrent = true;
+    setIsReferencesLoading(true);
+    setReferencesError(null);
+    apiGet<TaxonomyReferences>('/api/taxonomy/references/')
+      .then((result) => {
+        if (isCurrent) setReferences(result);
+      })
+      .catch((requestError) => {
+        if (isCurrent) setReferencesError(getErrorMessage(requestError, t('taxonomyLoadError')));
+      })
+      .finally(() => {
+        if (isCurrent) setIsReferencesLoading(false);
+      });
+    return () => { isCurrent = false; };
+  }, [isOpen, organizationId, t]);
+
   const strains = useMemo(() => {
-    const options = exportOptions?.strains ?? [];
+    const options = (references?.strains ?? []).map((strain) => ({
+      id: strain.id,
+      code: strain.code,
+      species_id: strain.species,
+      species_name: strain.species_scientific_name,
+    }));
     return [...options, ...createdStrains.filter((created) =>
       !options.some((option) => option.id === created.id))];
-  }, [createdStrains, exportOptions?.strains]);
+  }, [createdStrains, references?.strains]);
   const normalizedStrainSearch = strainSearch.trim().toLocaleLowerCase('fr-FR');
   const filteredStrains = strains.filter((strain) => {
     if (!normalizedStrainSearch || strain.id === strainId) return true;
@@ -2174,11 +2203,12 @@ function CreateBoxPanel({
   const selectedStrain = strains.find((strain) => strain.id === strainId) ?? null;
   const availableZones = (exportOptions?.zones ?? []).filter((zone) => zone.organization_id === organizationId);
   const selectedZone = availableZones.find((zone) => zone.id === zoneId) ?? null;
-  const canSubmit = organizationId != null && strainId != null && zoneId != null && globalCode.trim() && boxNumber.trim();
+  const canSubmit = organizationId != null && references != null && !isReferencesLoading && !referencesError &&
+    selectedStrain != null && zoneId != null && globalCode.trim() && boxNumber.trim();
 
   useEffect(() => {
-    if (!strains.length || strainId != null) return;
-    setStrainId(strains[0].id);
+    if (strainId != null && strains.some((strain) => strain.id === strainId)) return;
+    setStrainId(strains[0]?.id ?? null);
   }, [strainId, strains]);
 
   useEffect(() => {
@@ -2338,8 +2368,9 @@ function CreateBoxPanel({
             <h2>{t('createBoxTitle')}</h2>
           </div>
 
-          {isOptionsLoading ? <p className="muted compact-text">{t('loading')}</p> : null}
-          {!isOptionsLoading && !strains.length ? <p className="muted compact-text">{t('createBoxNoOptions')}</p> : null}
+          {isOptionsLoading || isReferencesLoading ? <p className="muted compact-text">{t('loading')}</p> : null}
+          {referencesError ? <p className="inline-error">{referencesError}</p> : null}
+          {!isReferencesLoading && !referencesError && references && !strains.length ? <p className="muted compact-text">{t('createBoxNoOptions')}</p> : null}
 
           <div className="create-box-strain-field">
             <div className="create-box-field-heading">
@@ -2422,7 +2453,7 @@ function CreateBoxPanel({
         </form>
       ) : null}
 
-      {isQuickStrainOpen ? (
+      {isQuickStrainOpen && userHasAdminRole(profile) ? (
         <QuickStrainCreator
           t={t}
           onClose={() => setIsQuickStrainOpen(false)}
@@ -4287,7 +4318,7 @@ function userCanCreateBoxes(profile: UserProfile | null) {
 
 function buildNextBoxCode(
   boxes: BoxItem[],
-  strain: ExportOptions['strains'][number],
+  strain: QuickCreatedStrain,
   organizationId: number,
 ) {
   const matchingBoxes = boxes

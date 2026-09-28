@@ -94,7 +94,7 @@ class StrainOrganizationTests(TestCase):
         self.assertNotIn("organization", serializer.validated_data)
         self.assertIsNone(serializer.save().organization_id)
 
-    def test_existing_api_creation_remains_unassigned_and_does_not_expose_ownership(self):
+    def test_api_creation_assigns_active_organization_without_exposing_ownership(self):
         user = get_user_model().objects.create_user(username="strain_admin", email="strain_admin@example.org", password="secret")
         OrganizationMembership.objects.create(
             user=user, organization=self.first_organization,
@@ -113,7 +113,7 @@ class StrainOrganizationTests(TestCase):
         )
         self.assertEqual(response.status_code, 201)
         self.assertNotIn("organization", response.json())
-        self.assertIsNone(Strain.objects.get(pk=response.json()["id"]).organization_id)
+        self.assertEqual(Strain.objects.get(pk=response.json()["id"]).organization_id, self.first_organization.pk)
         listing = self.client.get(reverse("api_taxonomy_references"))
         self.assertEqual(listing.status_code, 200)
         self.assertNotIn("organization", listing.json()["strains"][0])

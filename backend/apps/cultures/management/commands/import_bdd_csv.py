@@ -79,10 +79,18 @@ class Command(BaseCommand):
         try:
             with transaction.atomic():
                 organization = self._get_organization(options["organization"])
+                # Keep legacy strain eligibility even if reset deletes its boxes.
+                legacy_strain_ids = set(
+                    Box.objects.filter(organization=organization).values_list(
+                        "strain_id", flat=True
+                    )
+                )
                 if options["reset_boxes"]:
                     self._reset_boxes(organization)
                 species = self._import_species(csv_dir)
-                strains = self._import_strains(csv_dir, species)
+                strains = self._import_strains(
+                    csv_dir, species, organization, legacy_strain_ids
+                )
                 zones = self._import_zones(csv_dir, organization)
                 boxes = self._import_boxes(csv_dir, organization, strains)
                 self._import_locations(csv_dir, boxes, zones)
@@ -189,22 +197,51 @@ class Command(BaseCommand):
             self.counts["species_total"] += 1
         return mapping
 
-    def _import_strains(self, csv_dir, species):
+    def _import_strains(self, csv_dir, species, organization, legacy_strain_ids):
         mapping = {}
         for row in self._read(csv_dir, "souche.csv"):
             related_species = species.get(row["id_espece"])
             if related_species is None:
                 self.counts["strains_skipped"] += 1
                 continue
-            number = self._as_int(row.get("numero_souche_local")) or None
-            strain, created = Strain.objects.update_or_create(
-                species=related_species,
-                code=row["code_souche"].strip(),
-                defaults={
-                    "number": number,
-                    "origin_code": (row.get("code_provenance") or "").strip()[:12],
-                },
-            )
+            code = row["code_souche"].strip()
+            imported_values = {
+                "number": self._as_int(row.get("numero_souche_local")) or None,
+                "origin_code": (row.get("code_provenance") or "").strip()[:12],
+            }
+            strain = Strain.objects.select_for_update().filter(
+                species=related_species, code=code
+            ).first()
+            created = strain is None
+            if created:
+                strain = Strain.objects.create(
+                    species=related_species,
+                    code=code,
+                    organization=organization,
+                    **imported_values,
+                )
+            elif strain.organization_id == organization.id:
+                for field, value in imported_values.items():
+                    setattr(strain, field, value)
+                strain.save(update_fields=list(imported_values))
+            elif strain.organization_id is not None:
+                raise CommandError(
+                    f"Strain {related_species.scientific_name} / {code} "
+                    "already belongs to another organization."
+                )
+            elif strain.pk not in legacy_strain_ids:
+                raise CommandError(
+                    f"Legacy strain {related_species.scientific_name} / {code} "
+                    "has no preexisting box in the target organization."
+                )
+            elif any(
+                getattr(strain, field) != value
+                for field, value in imported_values.items()
+            ):
+                raise CommandError(
+                    f"Legacy strain {related_species.scientific_name} / {code} "
+                    "conflicts with imported fields."
+                )
             mapping[row["id_souche"]] = strain
             self.counts["strains_created"] += int(created)
             self.counts["strains_total"] += 1

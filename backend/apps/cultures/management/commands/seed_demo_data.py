@@ -2,7 +2,8 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 from django.utils import timezone
 
 from apps.accounts.models import OrganizationMembership, UserPreference
@@ -36,13 +37,14 @@ DEMO_PASSWORD = "polypbase-demo"
 class Command(BaseCommand):
     help = "Create a small, idempotent demo dataset for local development."
 
+    @transaction.atomic
     def handle(self, *args, **options):
         admin_user, lab_user, viewer_user = self._create_users()
         paris, partner = self._create_organizations()
         self._create_memberships(paris, partner, admin_user, lab_user, viewer_user)
         self._create_sharing(paris, partner)
         species = self._create_taxonomy()
-        strains = self._create_strains(species)
+        strains = self._create_strains(species, paris, partner)
         zones = self._create_thermal_zones(paris, partner)
         probes = self._create_probes(paris, partner, zones)
         boxes = self._create_boxes(paris, partner, strains, zones)
@@ -239,7 +241,7 @@ class Command(BaseCommand):
             "cassiopea": cassiopea,
         }
 
-    def _create_strains(self, species):
+    def _create_strains(self, species, paris, partner):
         field_origin, _created = Origin.objects.get_or_create(
             source_type=Origin.SourceType.FIELD_COLLECTION,
             origin_institution_name="Atlantic coast",
@@ -271,15 +273,20 @@ class Command(BaseCommand):
         )
 
         strain_specs = {
-            "aurelia_atl": (species["aurelia"], "1-ATL", 1, "ATL", field_origin),
-            "aurelia_med": (species["aurelia"], "3-MED", 3, "MED", donation_origin),
-            "chrysaora_pac": (species["chrysaora"], "2-PAC", 2, "PAC", donation_origin),
-            "cassiopea_lab": (species["cassiopea"], "1-LAB", 1, "LAB", reproduction_origin),
+            "aurelia_atl": (paris, species["aurelia"], "1-ATL", 1, "ATL", field_origin),
+            "aurelia_med": (partner, species["aurelia"], "3-MED", 3, "MED", donation_origin),
+            "chrysaora_pac": (paris, species["chrysaora"], "2-PAC", 2, "PAC", donation_origin),
+            "cassiopea_lab": (paris, species["cassiopea"], "1-LAB", 1, "LAB", reproduction_origin),
         }
 
         strains = {}
-        for key, (strain_species, code, number, origin_code, origin) in strain_specs.items():
+        for key, (organization, strain_species, code, number, origin_code, origin) in strain_specs.items():
+            if Strain.objects.filter(species=strain_species, code=code).exclude(
+                organization=organization
+            ).exists():
+                raise CommandError(f"Demo strain {strain_species} / {code} conflicts with another owner.")
             strain, _created = Strain.objects.update_or_create(
+                organization=organization,
                 species=strain_species,
                 code=code,
                 defaults={
@@ -356,10 +363,12 @@ class Command(BaseCommand):
 
         boxes = {}
         for key, organization, global_code, number, strain, zone, status in box_specs:
+            if Box.objects.filter(global_code=global_code).exclude(organization=organization).exists():
+                raise CommandError(f"Demo box {global_code} conflicts with another owner.")
             box, _created = Box.objects.update_or_create(
+                organization=organization,
                 global_code=global_code,
                 defaults={
-                    "organization": organization,
                     "local_code": global_code.split("-")[-2],
                     "box_number": number,
                     "strain": strain,

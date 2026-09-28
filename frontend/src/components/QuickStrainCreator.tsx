@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 
 import { apiGet, apiPost } from '../api/client';
 import type { Translator } from '../i18n';
@@ -32,6 +32,7 @@ export default function QuickStrainCreator({
   onClose: () => void;
   onCreated: (strain: QuickCreatedStrain) => void;
 }) {
+  const isMounted = useRef(true);
   const [references, setReferences] = useState<TaxonomyReferences | null>(null);
   const [mode, setMode] = useState<QuickReferenceMode>('strain');
   const [speciesId, setSpeciesId] = useState<number | null>(null);
@@ -45,6 +46,11 @@ export default function QuickStrainCreator({
   const [notes, setNotes] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => { isMounted.current = false; };
+  }, []);
 
   useEffect(() => {
     let isCurrent = true;
@@ -86,6 +92,7 @@ export default function QuickStrainCreator({
 
     try {
       const created = await apiPost<StrainReference>('/api/taxonomy/strains/', payload);
+      if (!isMounted.current) return;
       onCreated({
         id: created.id,
         code: created.code,
@@ -93,9 +100,9 @@ export default function QuickStrainCreator({
         species_name: created.species_scientific_name,
       });
     } catch (requestError) {
-      setError(getErrorMessage(requestError, t('taxonomySaveError')));
+      if (isMounted.current) setError(getErrorMessage(requestError, t('taxonomySaveError')));
     } finally {
-      setIsSaving(false);
+      if (isMounted.current) setIsSaving(false);
     }
   }
 
@@ -118,6 +125,7 @@ export default function QuickStrainCreator({
 
     try {
       const created = await apiPost<SpeciesReference>('/api/taxonomy/species/', payload);
+      if (!isMounted.current) return;
       setReferences((current) => current ? {
         ...current,
         species: [...current.species, created].sort((first, second) =>
@@ -127,9 +135,9 @@ export default function QuickStrainCreator({
       setMode('strain');
       setNotes('');
     } catch (requestError) {
-      setError(getErrorMessage(requestError, t('taxonomySaveError')));
+      if (isMounted.current) setError(getErrorMessage(requestError, t('taxonomySaveError')));
     } finally {
-      setIsSaving(false);
+      if (isMounted.current) setIsSaving(false);
     }
   }
 

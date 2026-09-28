@@ -63,6 +63,7 @@ class BoxLifecycleTests(TestCase):
         self.strain = Strain.objects.create(
             species=self.species,
             code="ALC-LAB-1",
+            organization=self.organization,
             number=1,
             origin_code="LAB",
         )

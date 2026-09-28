@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from apps.audit.models import AuditLog
 from apps.measurements.models import BiologicalMeasurement
+from apps.taxonomy.scoping import eligible_strains
 
 from .models import Box, BoxLineage, BoxLocation, BoxMovement, SubcultureEvent, ThermalZone
 
@@ -291,6 +292,10 @@ def reactivate_box(*, box, thermal_zone, user, notes=""):
 @transaction.atomic
 def create_subculture(*, parent_box, user, event_date, reason, notes, children):
     """Create one subculture event and all its child boxes atomically."""
+    parent_box = _locked_box(parent_box)
+    if not eligible_strains(parent_box.organization).filter(pk=parent_box.strain_id).exists():
+        raise ValidationError("The parent box strain is not eligible for its organization.")
+
     event = SubcultureEvent.objects.create(
         parent_box=parent_box,
         event_date=event_date,

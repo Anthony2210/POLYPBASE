@@ -44,6 +44,16 @@ class OriginAdmin(admin.ModelAdmin):
 
 @admin.register(Strain)
 class StrainAdmin(admin.ModelAdmin):
+    # Institution ownership is not inferred from Django staff membership.
+    def has_add_permission(self, request):
+        return request.user.is_superuser and super().has_add_permission(request)
+
+    def has_change_permission(self, request, obj=None):
+        return request.user.is_superuser and super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        return request.user.is_superuser and super().has_delete_permission(request, obj)
+
     list_display = ("code", "number", "origin_code", "species", "origin")
     list_filter = ("species",)
     search_fields = ("code", "origin_code", "species__scientific_name")

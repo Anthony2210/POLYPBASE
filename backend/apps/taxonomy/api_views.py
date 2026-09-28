@@ -1,5 +1,5 @@
 from django.db import transaction
-from django.db.models import Count, Prefetch
+from django.db.models import Count, Prefetch, Q
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
@@ -10,10 +10,13 @@ from rest_framework.views import APIView
 from apps.accounts.permissions import (
     get_active_admin_organization_ids,
     get_active_organization_from_request,
+    get_authorized_organizations,
+    user_can_write_lab_data,
 )
 from apps.audit.models import AuditLog
 
 from .models import Species, SpeciesTranslation, Strain, StrainTranslation
+from .scoping import eligible_strains
 from .serializers import (
     SpeciesReferenceSerializer,
     SpeciesReferenceWriteSerializer,
@@ -29,9 +32,24 @@ def _require_active_admin(request):
     return get_active_organization_from_request(request)
 
 
-def _species_queryset():
+def _require_strain_creation_organization(request):
+    if (
+        not request.headers.get("X-Organization-Id")
+        and get_authorized_organizations(request.user).filter(is_active=True).count() != 1
+    ):
+        raise PermissionDenied("Explicit organization context is required to create a strain.")
+    return _require_active_admin(request)
+
+
+def _species_queryset(organization):
     return (
-        Species.objects.annotate(strain_count=Count("strains"))
+        Species.objects.annotate(
+            strain_count=Count(
+                "strains",
+                filter=Q(strains__pk__in=eligible_strains(organization).values("pk")),
+                distinct=True,
+            )
+        )
         .prefetch_related(
             Prefetch(
                 "translations",
@@ -42,9 +60,9 @@ def _species_queryset():
     )
 
 
-def _strain_queryset():
+def _strain_queryset(organization):
     return (
-        Strain.objects.select_related("species")
+        eligible_strains(organization).select_related("species")
         .prefetch_related(
             Prefetch(
                 "translations",
@@ -70,16 +88,18 @@ class TaxonomyReferenceListAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        _require_active_admin(request)
+        organization = get_active_organization_from_request(request)
+        if organization is None or not user_can_write_lab_data(request.user, organization):
+            raise PermissionDenied("Laboratory access is required.")
         return Response(
             {
                 "languages": available_content_languages(),
                 "species": SpeciesReferenceSerializer(
-                    _species_queryset(),
+                    _species_queryset(organization),
                     many=True,
                 ).data,
                 "strains": StrainReferenceSerializer(
-                    _strain_queryset(),
+                    _strain_queryset(organization),
                     many=True,
                 ).data,
             }
@@ -91,7 +111,7 @@ class SpeciesReferenceListCreateAPIView(APIView):
 
     @transaction.atomic
     def post(self, request):
-        _require_active_admin(request)
+        organization = _require_active_admin(request)
         serializer = SpeciesReferenceWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         species = serializer.save()
@@ -102,7 +122,7 @@ class SpeciesReferenceListCreateAPIView(APIView):
             instance=species,
             description=f"Species created: {species.scientific_name}",
         )
-        species = _species_queryset().get(pk=species.pk)
+        species = _species_queryset(organization).get(pk=species.pk)
         return Response(
             SpeciesReferenceSerializer(species).data,
             status=status.HTTP_201_CREATED,
@@ -114,8 +134,8 @@ class SpeciesReferenceDetailAPIView(APIView):
 
     @transaction.atomic
     def patch(self, request, pk):
-        _require_active_admin(request)
-        species = get_object_or_404(_species_queryset(), pk=pk)
+        organization = _require_active_admin(request)
+        species = get_object_or_404(_species_queryset(organization), pk=pk)
         serializer = SpeciesReferenceWriteSerializer(
             species,
             data=request.data,
@@ -130,7 +150,7 @@ class SpeciesReferenceDetailAPIView(APIView):
             instance=species,
             description=f"Species updated: {species.scientific_name}",
         )
-        species = _species_queryset().get(pk=species.pk)
+        species = _species_queryset(organization).get(pk=species.pk)
         return Response(SpeciesReferenceSerializer(species).data)
 
 
@@ -139,10 +159,10 @@ class StrainReferenceListCreateAPIView(APIView):
 
     @transaction.atomic
     def post(self, request):
-        _require_active_admin(request)
+        organization = _require_strain_creation_organization(request)
         serializer = StrainReferenceWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        strain = serializer.save()
+        strain = serializer.save(organization=organization)
         _write_audit_log(
             request,
             action=AuditLog.Action.CREATION,
@@ -150,7 +170,7 @@ class StrainReferenceListCreateAPIView(APIView):
             instance=strain,
             description=f"Strain created: {strain.code}",
         )
-        strain = _strain_queryset().get(pk=strain.pk)
+        strain = _strain_queryset(organization).get(pk=strain.pk)
         return Response(
             StrainReferenceSerializer(strain).data,
             status=status.HTTP_201_CREATED,
@@ -162,8 +182,10 @@ class StrainReferenceDetailAPIView(APIView):
 
     @transaction.atomic
     def patch(self, request, pk):
-        _require_active_admin(request)
-        strain = get_object_or_404(_strain_queryset(), pk=pk)
+        organization = _require_active_admin(request)
+        strain = get_object_or_404(
+            _strain_queryset(organization).filter(organization=organization), pk=pk
+        )
         serializer = StrainReferenceWriteSerializer(
             strain,
             data=request.data,
@@ -178,5 +200,5 @@ class StrainReferenceDetailAPIView(APIView):
             instance=strain,
             description=f"Strain updated: {strain.code}",
         )
-        strain = _strain_queryset().get(pk=strain.pk)
+        strain = _strain_queryset(organization).get(pk=strain.pk)
         return Response(StrainReferenceSerializer(strain).data)

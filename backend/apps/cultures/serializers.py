@@ -27,6 +27,7 @@ from apps.measurements.services import get_active_measurement_role, get_measurem
 from apps.organizations.models import Organization
 from apps.organizations.serializers import OrganizationSummarySerializer
 from apps.taxonomy.models import Species, Strain
+from apps.taxonomy.scoping import eligible_strains
 
 # The historical import stamped existing boxes with its execution date rather
 # than their original creation date. The inventory uses their first measurement.
@@ -505,7 +506,7 @@ class BiologicalMeasurementCreateSerializer(serializers.ModelSerializer):
 
 
 class BoxCreateSerializer(serializers.Serializer):
-    strain = serializers.PrimaryKeyRelatedField(queryset=Strain.objects.select_related("species"))
+    strain = serializers.PrimaryKeyRelatedField(queryset=Strain.objects.none())
     thermal_zone = serializers.PrimaryKeyRelatedField(
         queryset=ThermalZone.objects.filter(is_active=True),
     )
@@ -515,6 +516,16 @@ class BoxCreateSerializer(serializers.Serializer):
     entered_on = serializers.DateField(default=timezone.localdate)
     volume_liters = serializers.DecimalField(max_digits=5, decimal_places=2, required=False, allow_null=True)
     notes = serializers.CharField(required=False, allow_blank=True, default="")
+
+    def get_fields(self):
+        fields = super().get_fields()
+        request = self.context.get("request")
+        organization = get_active_organization_from_request(request) if request else None
+        fields["strain"].queryset = (
+            eligible_strains(organization).select_related("species")
+            if organization is not None else Strain.objects.none()
+        )
+        return fields
 
     def validate(self, attrs):
         request = self.context["request"]
@@ -773,6 +784,14 @@ class SubcultureCreateSerializer(serializers.Serializer):
     reason = serializers.CharField(max_length=180, required=False, allow_blank=True, default="")
     notes = serializers.CharField(required=False, allow_blank=True, default="")
     children = SubcultureChildCreateSerializer(many=True, min_length=1, max_length=20)
+
+    def validate(self, attrs):
+        parent_box = self.context["parent_box"]
+        if not eligible_strains(parent_box.organization).filter(pk=parent_box.strain_id).exists():
+            raise serializers.ValidationError(
+                "The parent box strain is not eligible for its organization."
+            )
+        return attrs
 
     def validate_children(self, children):
         global_codes = [child["global_code"] for child in children]
