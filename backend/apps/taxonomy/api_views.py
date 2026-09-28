@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.db.models import Count, Prefetch
 from django.shortcuts import get_object_or_404
 from rest_framework import status
@@ -88,6 +89,7 @@ class TaxonomyReferenceListAPIView(APIView):
 class SpeciesReferenceListCreateAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @transaction.atomic
     def post(self, request):
         _require_active_admin(request)
         serializer = SpeciesReferenceWriteSerializer(data=request.data)
@@ -110,6 +112,7 @@ class SpeciesReferenceListCreateAPIView(APIView):
 class SpeciesReferenceDetailAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @transaction.atomic
     def patch(self, request, pk):
         _require_active_admin(request)
         species = get_object_or_404(_species_queryset(), pk=pk)
@@ -134,6 +137,7 @@ class SpeciesReferenceDetailAPIView(APIView):
 class StrainReferenceListCreateAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @transaction.atomic
     def post(self, request):
         _require_active_admin(request)
         serializer = StrainReferenceWriteSerializer(data=request.data)
@@ -156,6 +160,7 @@ class StrainReferenceListCreateAPIView(APIView):
 class StrainReferenceDetailAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @transaction.atomic
     def patch(self, request, pk):
         _require_active_admin(request)
         strain = get_object_or_404(_strain_queryset(), pk=pk)
