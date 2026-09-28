@@ -21,6 +21,7 @@ Integrated milestones after the previously documented `4856076` weekly-measureme
 - `ca94726` - added the strain organization ownership foundation.
 - `a85dd47` - made Species and Strain API mutations, translations, and AuditLog writes atomic.
 - `cf8f2fc` - scoped Strain reads and writes by institution and enforced ownership in operational references.
+- `cc4c980` - added the institution-local code schema foundation; it is not yet connected to Strain runtime behavior.
 
 Other meaningful earlier integrated changes not reflected in the old milestone list:
 
@@ -52,12 +53,15 @@ The established action history redesign/follow-up (`84c4730`, `045c608`) and wee
 
 ### Taxonomy / Strain identity and institution scoping
 
-- `GlobalStrainIdentity` is a shared biological identity foundation with an opaque UUID. `Strain.global_identity` is nullable; legacy Strains were not backfilled. Global identity is not an authorization boundary and does not expose another institution's Strains or Boxes.
-- `Strain.organization` is nullable. New interactive Strains are assigned server-side to the authoritative active institution. Owned Strains are institution-scoped in operational references and writes; Strain PATCH is limited to the owning institution, and Box creation validates the submitted Strain PK server-side.
-- Historical `Strain.organization=NULL` rows remain unresolved/shared: no automatic ownership or Global ID inference. They are read-only through institution APIs. An institution may reuse one operationally only if it already has at least one Box referencing it; historical/inactive Boxes count. Existing Boxes remain readable through `Box.organization`, and subculture from an authorized legacy Box continues. Transfer v1 does not infer biological identity from a NULL code match.
-- Historical imports respect target institution ownership and reject unsafe ownership collisions; transfer v1 respects destination ownership and rejects foreign/NULL ambiguous collisions. Demo seeding is ownership-guarded. The future versioned import protocol is not implemented.
-- The existing global `(species, code)` uniqueness remains unchanged. Two institutions therefore cannot yet independently create the same local representation; this is a current limitation, not the final target architecture.
-- Product direction for local codes remains `AAA-BBB-X.YYY`: AAA is institution-local Species code, BBB institution-local provenance/origin code, X is the strain number scoped to Species + Provenance within the institution, and YYY is the box number within the local strain. Existing historical Box identifiers should remain stable. GlobalStrainIdentity remains separate from local operational codes; allocation and migration rules are unresolved.
+- `GlobalStrainIdentity` is a shared opaque biological identity. `Strain.global_identity` is nullable; legacy Strains were not backfilled. It is independent of local operational codes, is not an authorization boundary, and must never be inferred from local-code equality.
+- New operational Strains are institution-owned. Runtime references, writes, and Box association are institution-scoped. Approved compatibility for legacy `Strain.organization=NULL` remains active; no automatic ownership or Global ID inference is made.
+- Species/Strain mutations, translations, and `AuditLog` writes are atomic.
+- `OrganizationSpeciesCode` provides an Organization + shared Species + AAA assignment, unique per Organization/Species; AAA is local to the Organization.
+- `BiologicalProvenance` is a shared curated biological-source concept, distinct from provider, acquisition event, and transfer history. Unknown provenance means no relation. Historical BBB strings do not identify provenance automatically.
+- `OrganizationProvenanceCode` provides an Organization + BiologicalProvenance + BBB assignment, unique per Organization/provenance; BBB is local to the Organization.
+- These local-code models are schema foundations only, not connected to Strain runtime behavior. No Strain FK to AAA, BBB, or provenance is active. No legacy data was backfilled, no `Origin` row was converted to `BiologicalProvenance`, and no AAA/BBB assignment was inferred from historical fields.
+- Unchanged legacy fields: `Species.genus_species_code`, `Strain.code`, `Strain.number`, `Strain.origin`, `Strain.origin_code`, `Box.origin`, `Box.global_code`, and `Box.box_number`. Existing global `(species, code)` uniqueness remains active; institutions cannot yet independently use a duplicate representation.
+- Product decisions: AAA and BBB are institution-local and may be modified in future; already-issued identifiers must remain preservable as stable snapshots. Normal new Strains will automatically receive X; controlled imports/migrations may preserve explicit historical X. X scope is Organization + Species + provenance, including a distinct scope for unresolved provenance. Acquisition/provider/transfer data remains separate from curated biological provenance.
 
 ### Other current behavior
 
@@ -76,8 +80,8 @@ The established action history redesign/follow-up (`84c4730`, `045c608`) and wee
 
 ## Branches and worktrees
 
-- Canonical worktree: `main` at `ca94726`, synchronized with `origin/main`; clean before this document update.
-- `git worktree list --porcelain` currently registers 13 secondary POLYPBASE worktrees, including the global-strain-identity and strain-organization foundation worktrees. Their individual status and integration/cleanup readiness were not checked here; inspect before any cleanup. No worktree was removed or changed.
+- Canonical worktree: `main` at `cc4c980` (`origin/main`), clean before this document update.
+- `git worktree list --porcelain` registers 16 secondary POLYPBASE worktrees, including `local-code-schema-foundation` and the global-strain-identity and strain-organization foundation worktrees. Their individual status and cleanup readiness were not checked; inspect before any cleanup. No worktree was removed or changed.
 
 ## History retention and private material
 
@@ -93,8 +97,8 @@ The established action history redesign/follow-up (`84c4730`, `045c608`) and wee
 
 ## Next operational work
 
-1. **Next architectural stage:** design the institution-local coding model and safe transition away from global `(species, code)` uniqueness. Before implementation, resolve institution-local Species code representation; provenance/origin representation and local BBB code; X allocation scope and concurrency; interaction with GlobalStrainIdentity; legacy NULL/localization transition; prerequisites for changing uniqueness; historical Box-code preservation; and impacts on imports, transfers, and selectors. Do not invent unresolved allocation or migration rules.
-2. Later: a versioned import protocol with validation, normalization, preflight, ambiguity resolution, transactional apply, audit/report, and idempotence; a transfer protocol carrying GlobalStrainIdentity; DNA/provenance enrichment; and WoRMS integration. None is implemented.
+1. **Next architectural stage:** design how institution-owned Strain safely connects to `OrganizationSpeciesCode`, nullable `BiologicalProvenance`, nullable `OrganizationProvenanceCode`, future X, and a stable issued local-code snapshot. Determine integrity constraints that prevent cross-organization AAA/BBB assignments, Species/AAA mismatches, and provenance/BBB mismatches. Do not begin X allocation until this relationship/integrity model is settled.
+2. Later: implement a safe X allocator and scoped uniqueness; local Strain writer; legacy diagnostics/reconciliation; consumer migration; eventual replacement of global `(species, code)` uniqueness; versioned import protocol; and Global-ID-aware transfer protocol. DNA/provenance enrichment and WoRMS integration remain future work.
 3. Continue the documented read-only analysis of remaining `Pennaria disticha` attribution cases in `POLYPBASE-ANALYSES`; do not infer biology or authorization rules.
 4. Keep probe connectivity, exports and longer-term roadmap items as separate future decisions/work. Inspect secondary worktrees before any cleanup.
 5. Verify production separately only when explicitly requested and through the deployment workflow.
