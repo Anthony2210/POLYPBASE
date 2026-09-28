@@ -1,8 +1,8 @@
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Prefetch, Q
 from django.shortcuts import get_object_or_404
 from rest_framework import status
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -15,9 +15,11 @@ from apps.accounts.permissions import (
 )
 from apps.audit.models import AuditLog
 
-from .models import Species, SpeciesTranslation, Strain, StrainTranslation
+from .models import OrganizationSpeciesCode, Species, SpeciesTranslation, Strain, StrainTranslation
 from .scoping import eligible_strains
 from .serializers import (
+    SpeciesCodeSerializer,
+    SpeciesCodeWriteSerializer,
     SpeciesReferenceSerializer,
     SpeciesReferenceWriteSerializer,
     StrainReferenceSerializer,
@@ -104,6 +106,106 @@ class TaxonomyReferenceListAPIView(APIView):
                 ).data,
             }
         )
+
+
+def _species_code_queryset(organization):
+    return OrganizationSpeciesCode.objects.filter(organization=organization).select_related("species")
+
+
+def _check_species_code_conflicts(organization, *, species=None, code=None, exclude_pk=None):
+    assignments = _species_code_queryset(organization)
+    if exclude_pk is not None:
+        assignments = assignments.exclude(pk=exclude_pk)
+    if species is not None and assignments.filter(species=species).exists():
+        raise ValidationError({"species": "This species already has a code in this organization."})
+    if code is not None and assignments.filter(code=code).exists():
+        raise ValidationError({"code": "This code is already used in this organization."})
+
+
+def _raise_species_code_conflict(error):
+    constraint = getattr(getattr(error.__cause__, "diag", None), "constraint_name", None)
+    # SQLite test databases report unique columns rather than constraint names.
+    if constraint is None:
+        constraint = str(error)
+    if constraint in (
+        "unique_species_code_per_organization_species",
+        "UNIQUE constraint failed: taxonomy_organizationspeciescode.organization_id, taxonomy_organizationspeciescode.species_id",
+    ):
+        raise ValidationError({"species": "This species already has a code in this organization."}) from error
+    if constraint in (
+        "unique_species_code_per_organization_code",
+        "UNIQUE constraint failed: taxonomy_organizationspeciescode.organization_id, taxonomy_organizationspeciescode.code",
+    ):
+        raise ValidationError({"code": "This code is already used in this organization."}) from error
+    raise error
+
+
+class SpeciesCodeListCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        organization = get_active_organization_from_request(request)
+        if organization is None or not user_can_write_lab_data(request.user, organization):
+            raise PermissionDenied("Laboratory access is required.")
+        assignments = _species_code_queryset(organization).order_by("pk")
+        return Response(SpeciesCodeSerializer(assignments, many=True).data)
+
+    @transaction.atomic
+    def post(self, request):
+        organization = _require_active_admin(request)
+        serializer = SpeciesCodeWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        species = serializer.validated_data["species"]
+        code = serializer.validated_data["code"]
+        _check_species_code_conflicts(organization, species=species, code=code)
+        try:
+            with transaction.atomic():
+                assignment = serializer.save(organization=organization)
+        except IntegrityError as error:
+            _raise_species_code_conflict(error)
+        _write_audit_log(
+            request,
+            action=AuditLog.Action.CREATION,
+            object_type="organization_species_code",
+            instance=assignment,
+            description=f"Species code created for species {species.pk}",
+        )
+        return Response(SpeciesCodeSerializer(assignment).data, status=status.HTTP_201_CREATED)
+
+
+class SpeciesCodeDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        organization = get_active_organization_from_request(request)
+        if organization is None or not user_can_write_lab_data(request.user, organization):
+            raise PermissionDenied("Laboratory access is required.")
+        assignment = get_object_or_404(_species_code_queryset(organization), pk=pk)
+        return Response(SpeciesCodeSerializer(assignment).data)
+
+    @transaction.atomic
+    def patch(self, request, pk):
+        organization = _require_active_admin(request)
+        assignment = get_object_or_404(_species_code_queryset(organization), pk=pk)
+        serializer = SpeciesCodeWriteSerializer(assignment, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        if "code" not in serializer.validated_data:
+            raise ValidationError({"code": "This field is required."})
+        code = serializer.validated_data["code"]
+        _check_species_code_conflicts(organization, code=code, exclude_pk=assignment.pk)
+        try:
+            with transaction.atomic():
+                assignment = serializer.save()
+        except IntegrityError as error:
+            _raise_species_code_conflict(error)
+        _write_audit_log(
+            request,
+            action=AuditLog.Action.UPDATE,
+            object_type="organization_species_code",
+            instance=assignment,
+            description=f"Species code updated for species {assignment.species_id}",
+        )
+        return Response(SpeciesCodeSerializer(assignment).data)
 
 
 class SpeciesReferenceListCreateAPIView(APIView):

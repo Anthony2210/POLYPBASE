@@ -56,6 +56,8 @@ from apps.organizations.api_views import (
     OrganizationDetailAPIView,
 )
 from apps.taxonomy.api_views import (
+    SpeciesCodeDetailAPIView,
+    SpeciesCodeListCreateAPIView,
     SpeciesReferenceDetailAPIView,
     SpeciesReferenceListCreateAPIView,
     StrainReferenceDetailAPIView,
@@ -190,6 +192,12 @@ urlpatterns = [
     path("organizations/", OrganizationCreateAPIView.as_view(), name="api_organization_create"),
     path("organizations/<int:pk>/", OrganizationDetailAPIView.as_view(), name="api_organization_detail"),
     path("taxonomy/references/", TaxonomyReferenceListAPIView.as_view(), name="api_taxonomy_references"),
+    path("taxonomy/species-codes/", SpeciesCodeListCreateAPIView.as_view(), name="api_taxonomy_species_codes"),
+    path(
+        "taxonomy/species-codes/<int:pk>/",
+        SpeciesCodeDetailAPIView.as_view(),
+        name="api_taxonomy_species_codes_detail",
+    ),
     path("taxonomy/species/", SpeciesReferenceListCreateAPIView.as_view(), name="api_taxonomy_species"),
     path(
         "taxonomy/species/<int:pk>/",

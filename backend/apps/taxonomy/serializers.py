@@ -2,7 +2,7 @@ from django.conf import settings
 from django.db import transaction
 from rest_framework import serializers
 
-from .models import Species, SpeciesTranslation, Strain, StrainTranslation
+from .models import OrganizationSpeciesCode, Species, SpeciesTranslation, Strain, StrainTranslation
 
 
 def available_content_languages():
@@ -105,6 +105,31 @@ class SpeciesReferenceSerializer(serializers.ModelSerializer):
 
     def get_translations(self, obj):
         return _serialize_translations(obj.translations.all())
+
+
+class SpeciesCodeSerializer(serializers.ModelSerializer):
+    species_scientific_name = serializers.CharField(source="species.scientific_name", read_only=True)
+
+    class Meta:
+        model = OrganizationSpeciesCode
+        fields = ["id", "species", "species_scientific_name", "code"]
+
+
+class SpeciesCodeWriteSerializer(serializers.ModelSerializer):
+    code = serializers.CharField(max_length=3, trim_whitespace=False)
+
+    class Meta:
+        model = OrganizationSpeciesCode
+        fields = ["species", "code"]
+
+    def to_internal_value(self, data):
+        allowed = {"code"} if self.instance is not None else {"species", "code"}
+        if not isinstance(data, dict):
+            raise serializers.ValidationError("Expected an object.")
+        unexpected = set(data) - allowed
+        if unexpected:
+            raise serializers.ValidationError({field: "This field is not allowed." for field in unexpected})
+        return super().to_internal_value(data)
 
 
 class StrainReferenceSerializer(serializers.ModelSerializer):
