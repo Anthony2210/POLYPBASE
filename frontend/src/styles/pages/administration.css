@@ -585,6 +585,21 @@ button.account-overview-card {
   font-weight: 700;
 }
 
+.taxonomy-local-code {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-line);
+}
+
+.taxonomy-local-code__value {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
 .reference-language-coverage {
   justify-content: flex-start;
   margin-top: var(--space-3);

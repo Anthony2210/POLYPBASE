@@ -2942,7 +2942,13 @@ export default function AdminView({
             />
           ) : null}
 
-          {displayedSection === 'references' ? <TaxonomyAdminSection t={t} /> : null}
+          {displayedSection === 'references' && activeOrganizationId != null ? (
+            <TaxonomyAdminSection
+              key={activeOrganizationId}
+              organizationName={profile?.organizations.find((organization) => organization.id === activeOrganizationId)?.name ?? ''}
+              t={t}
+            />
+          ) : null}
 
           {displayedSection === 'environment' ? (
             <EnvironmentAdminSection

@@ -1,6 +1,6 @@
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 
-import { apiGet, apiPatch, apiPost } from '../api/client';
+import { ApiError, apiGet, apiPatch, apiPost } from '../api/client';
 import type { Translator } from '../i18n';
 import type {
   LocalizedReferenceValues,
@@ -23,10 +23,12 @@ type FormState =
   | { kind: 'strains'; item?: StrainReference }
   | null;
 
+type SpeciesCodeAssignment = { id: number; species: number; species_scientific_name: string; code: string };
+
 const EMPTY_TRANSLATION = { name: '', description: '' };
 const REFERENCE_PAGE_SIZE = 24;
 
-export default function TaxonomyAdminSection({ t }: { t: Translator }) {
+export default function TaxonomyAdminSection({ organizationName, t }: { organizationName: string; t: Translator }) {
   const [data, setData] = useState<TaxonomyReferences | null>(null);
   const [activeTab, setActiveTab] = useState<ReferenceTab>('species');
   const [formState, setFormState] = useState<FormState>(null);
@@ -34,6 +36,10 @@ export default function TaxonomyAdminSection({ t }: { t: Translator }) {
   const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [assignments, setAssignments] = useState<SpeciesCodeAssignment[] | null>(null);
+  const [codeLoadError, setCodeLoadError] = useState(false);
+  const [codeForm, setCodeForm] = useState<SpeciesReference | null>(null);
+  const [codeReload, setCodeReload] = useState(0);
 
   useEffect(() => {
     let isCurrent = true;
@@ -54,6 +60,20 @@ export default function TaxonomyAdminSection({ t }: { t: Translator }) {
       isCurrent = false;
     };
   }, [t]);
+
+  useEffect(() => {
+    let isCurrent = true;
+    setAssignments(null);
+    setCodeLoadError(false);
+    apiGet<SpeciesCodeAssignment[]>('/api/taxonomy/species-codes/')
+      .then((result) => {
+        if (isCurrent) setAssignments(result);
+      })
+      .catch(() => {
+        if (isCurrent) setCodeLoadError(true);
+      });
+    return () => { isCurrent = false; };
+  }, [codeReload]);
 
   const normalizedSearch = search.trim().toLocaleLowerCase();
   const filteredSpecies = useMemo(
@@ -217,6 +237,27 @@ export default function TaxonomyAdminSection({ t }: { t: Translator }) {
         </AdminActionPanel>
       ) : null}
 
+      {codeForm ? (
+        <AdminActionPanel
+          title={t(assignments?.some((item) => item.species === codeForm.id) ? 'taxonomyEditLocalCode' : 'taxonomyCreateLocalCode')}
+          closeLabel={t('close')}
+          onClose={() => setCodeForm(null)}
+        >
+          <SpeciesCodeForm
+            key={codeForm.id}
+            species={codeForm}
+            assignment={assignments?.find((item) => item.species === codeForm.id)}
+            organizationName={organizationName}
+            t={t}
+            onCancel={() => setCodeForm(null)}
+            onSaved={(saved) => {
+              setAssignments((current) => [...(current ?? []).filter((item) => item.id !== saved.id), saved]);
+              setCodeForm(null);
+            }}
+          />
+        </AdminActionPanel>
+      ) : null}
+
       {activeTab === 'species' ? (
         <ReferenceGrid emptyText={t('taxonomyEmptySpecies')}>
           {visibleSpecies.map((species) => (
@@ -224,7 +265,13 @@ export default function TaxonomyAdminSection({ t }: { t: Translator }) {
               key={species.id}
               species={species}
               languages={data.languages}
+              assignment={assignments?.find((item) => item.species === species.id)}
+              isCodeLoading={assignments === null && !codeLoadError}
+              codeLoadError={codeLoadError}
+              organizationName={organizationName}
               t={t}
+              onRetryCodes={() => setCodeReload((current) => current + 1)}
+              onEditCode={() => setCodeForm(species)}
               onEdit={() => setFormState({ kind: 'species', item: species })}
             />
           ))}
@@ -340,6 +387,7 @@ function SpeciesForm({
             <label>
               <span>{t('taxonomySpeciesCode')}</span>
               <input value={speciesCode} onChange={(event) => setSpeciesCode(event.target.value.toUpperCase())} />
+              <small>{t('taxonomySpeciesCodeHelp')}</small>
             </label>
             <label>
               <span>{t('taxonomyAphiaId')}</span>
@@ -371,6 +419,77 @@ function SpeciesForm({
         t={t}
         onCancel={onCancel}
       />
+    </form>
+  );
+}
+
+function speciesCodeError(error: unknown, t: Translator): string {
+  if (error instanceof ApiError && error.status === 400 && error.data && typeof error.data === 'object') {
+    const fields = error.data as Record<string, unknown>;
+    const speciesMessage = fields.species;
+    const codeMessage = fields.code;
+    if (Array.isArray(speciesMessage) && speciesMessage.some((message) => typeof message === 'string' && message.includes('already has a code'))) {
+      return t('taxonomyLocalSpeciesConflict');
+    }
+    if (Array.isArray(codeMessage) && codeMessage.some((message) => typeof message === 'string' && message.includes('already used'))) {
+      return t('taxonomyLocalCodeConflict');
+    }
+    if (codeMessage) return t('taxonomyLocalCodeInvalid');
+  }
+  return t('taxonomyLocalCodeSaveError');
+}
+
+function SpeciesCodeForm({ species, assignment, organizationName, t, onCancel, onSaved }: {
+  species: SpeciesReference;
+  assignment?: SpeciesCodeAssignment;
+  organizationName: string;
+  t: Translator;
+  onCancel: () => void;
+  onSaved: (saved: SpeciesCodeAssignment) => void;
+}) {
+  const [code, setCode] = useState(assignment?.code ?? '');
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const errorId = `species-code-error-${species.id}`;
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isSaving) return;
+    setIsSaving(true);
+    setError(null);
+    try {
+      const saved = assignment
+        ? await apiPatch<SpeciesCodeAssignment>(`/api/taxonomy/species-codes/${assignment.id}/`, { code: code.trim() })
+        : await apiPost<SpeciesCodeAssignment>('/api/taxonomy/species-codes/', { species: species.id, code: code.trim() });
+      onSaved(saved);
+    } catch (requestError) {
+      setError(speciesCodeError(requestError, t));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <form className="taxonomy-form" onSubmit={submit}>
+      <p>{species.scientific_name} · {organizationName || t('taxonomyCurrentInstitution')}</p>
+      <label>
+        <span>{t('taxonomyLocalCode')}</span>
+        <input
+          required
+          maxLength={3}
+          value={code}
+          aria-invalid={Boolean(error)}
+          aria-describedby={error ? errorId : undefined}
+          onChange={(event) => { setCode(event.target.value.toUpperCase()); setError(null); }}
+        />
+      </label>
+      <footer className="taxonomy-form-actions">
+        {error ? <p className="inline-error" id={errorId} role="alert">{error}</p> : null}
+        <button className="secondary-button" type="button" disabled={isSaving} onClick={onCancel}>{t('confirmCancel')}</button>
+        <button className="primary-button" type="submit" disabled={isSaving}>
+          {t(isSaving ? 'taxonomySaving' : 'taxonomySave')}
+        </button>
+      </footer>
     </form>
   );
 }
@@ -606,13 +725,25 @@ function ReferenceGrid({ children, emptyText }: { children: ReactNode; emptyText
 function SpeciesCard({
   species,
   languages,
+  assignment,
+  isCodeLoading,
+  codeLoadError,
+  organizationName,
   t,
+  onRetryCodes,
+  onEditCode,
   onEdit,
 }: {
   key?: string | number;
   species: SpeciesReference;
   languages: ReferenceLanguage[];
+  assignment?: SpeciesCodeAssignment;
+  isCodeLoading: boolean;
+  codeLoadError: boolean;
+  organizationName: string;
   t: Translator;
+  onRetryCodes: () => void;
+  onEditCode: () => void;
   onEdit: () => void;
 }) {
   const localizedName = preferredName(species.translations, languages) || species.scientific_name;
@@ -624,7 +755,6 @@ function SpeciesCard({
           <p>{localizedName}</p>
         </div>
         <div className="taxonomy-card-actions">
-          {species.genus_species_code ? <span className="reference-code">{species.genus_species_code}</span> : null}
           <button className="taxonomy-edit-button" type="button" onClick={onEdit}>
             <PolypbaseIcon name="edit" size={15} />
             {t('taxonomyEdit')}
@@ -632,10 +762,32 @@ function SpeciesCard({
         </div>
       </header>
       <dl>
+        <div><dt>{t('taxonomySpeciesCode')}</dt><dd>{species.genus_species_code || '—'}</dd></div>
         <div><dt>{t('taxonomyStrains')}</dt><dd>{species.strain_count}</dd></div>
         <div><dt>{t('taxonomyAphiaId')}</dt><dd>{species.worms_aphia_id ?? '—'}</dd></div>
       </dl>
       <LanguageCoverage languages={languages} translations={species.translations} t={t} />
+      <div className="taxonomy-local-code">
+        <div>
+          <strong>{t('taxonomyLocalCode')}</strong>
+          <p>{organizationName || t('taxonomyCurrentInstitution')}</p>
+        </div>
+        {isCodeLoading ? <p role="status">{t('taxonomyLocalCodeLoading')}</p> : null}
+        {codeLoadError ? (
+          <div>
+            <p className="inline-error">{t('taxonomyLocalCodeLoadError')}</p>
+            <button className="secondary-button" type="button" onClick={onRetryCodes}>{t('taxonomyRetry')}</button>
+          </div>
+        ) : null}
+        {!isCodeLoading && !codeLoadError ? (
+          <div className="taxonomy-local-code__value">
+            {assignment ? <span className="reference-code">{assignment.code}</span> : <p>{t('taxonomyNoLocalCode')}</p>}
+            <button className="secondary-button" type="button" onClick={onEditCode}>
+              {t(assignment ? 'taxonomyEditLocalCode' : 'taxonomyCreateLocalCode')}
+            </button>
+          </div>
+        ) : null}
+      </div>
     </article>
   );
 }
