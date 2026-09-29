@@ -1076,6 +1076,8 @@ export const en: Record<TranslationKey, string> = {
   taxonomyLocalSpeciesConflict: 'This species already has an AAA in this institution. Reload the list.',
   taxonomyLocalCodeConflict: 'This AAA is already used in this institution.',
   taxonomyLocalCodeInvalid: 'Check the entered AAA code.',
+  taxonomyStrainMissingAAA: 'This species does not yet have an AAA code for this institution. Assign one in Shared reference data before creating the strain.',
+  taxonomyGoToSharedReferences: 'Open Shared reference data',
   taxonomyRetry: 'Retry',
   taxonomyAphiaId: 'WoRMS Aphia identifier',
   taxonomyDescribed: 'Described species',

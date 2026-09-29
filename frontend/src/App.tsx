@@ -1418,6 +1418,7 @@ export default function App() {
 
             {activeTab === 'pilotage' && !isBoxRoute && (
               <PilotageView
+                activeOrganizationId={activeOrganizationId}
                 boxes={data.boxes}
                 exportOptions={data.exportOptions}
                 isLoading={isLoading}
@@ -1429,6 +1430,10 @@ export default function App() {
                 searchResults={filteredBoxes}
                 recentBoxes={recentBoxes}
                 onCreateBox={createBox}
+                onManageSpeciesCodes={isDesktopApp ? () => {
+                  setIsCreateBoxOpen(false);
+                  openAdminSection('references');
+                } : undefined}
                 onCreateBoxOpenChange={setIsCreateBoxOpen}
                 onRequestOptions={() => setExportOptionsRequested(true)}
                 confirmAction={confirmAction}
@@ -1904,6 +1909,7 @@ function OrganizationChoiceScreen({
 }
 
 function PilotageView({
+  activeOrganizationId,
   boxes,
   exportOptions,
   isLoading,
@@ -1916,12 +1922,14 @@ function PilotageView({
   searchResults,
   onCreateBox,
   onCreateBoxOpenChange,
+  onManageSpeciesCodes,
   onRequestOptions,
   confirmAction,
   t,
   onSearch,
   onSelectBox,
 }: {
+  activeOrganizationId: number | null;
   boxes: BoxItem[];
   exportOptions: ExportOptions | null;
   isLoading: boolean;
@@ -1934,6 +1942,7 @@ function PilotageView({
   searchResults: BoxItem[];
   onCreateBox: (payload: BoxCreatePayload) => Promise<BoxDetail>;
   onCreateBoxOpenChange: (isOpen: boolean) => void;
+  onManageSpeciesCodes?: () => void;
   onRequestOptions: () => void;
   confirmAction: ConfirmAction;
   t: TFunction;
@@ -2095,7 +2104,7 @@ function PilotageView({
 
         {canCreateBox ? (
           <CreateBoxPanel
-            key={profile?.active_organization?.id ?? 'none'}
+            key={activeOrganizationId ?? 'none'}
             boxes={boxes}
             exportOptions={exportOptions}
             isOpen={isPhoneLayout ? undefined : isCreateBoxOpen}
@@ -2104,6 +2113,7 @@ function PilotageView({
             profile={profile}
             t={t}
             onCreateBox={onCreateBox}
+            onManageSpeciesCodes={onManageSpeciesCodes}
             onOpenChange={isPhoneLayout ? undefined : onCreateBoxOpenChange}
             onRequestOptions={onRequestOptions}
             confirmAction={confirmAction}
@@ -2124,6 +2134,7 @@ function CreateBoxPanel({
   profile,
   confirmAction,
   onCreateBox,
+  onManageSpeciesCodes,
   onOpenChange,
   onRequestOptions,
   onSelectBox,
@@ -2137,6 +2148,7 @@ function CreateBoxPanel({
   profile: UserProfile | null;
   confirmAction: ConfirmAction;
   onCreateBox: (payload: BoxCreatePayload) => Promise<BoxDetail>;
+  onManageSpeciesCodes?: () => void;
   onOpenChange?: (isOpen: boolean) => void;
   onRequestOptions: () => void;
   onSelectBox: (id: number) => void;
@@ -2460,6 +2472,7 @@ function CreateBoxPanel({
         <QuickStrainCreator
           t={t}
           onClose={() => setIsQuickStrainOpen(false)}
+          onManageCodes={onManageSpeciesCodes}
           onCreated={(strain) => {
             setCreatedStrains((current) => [...current.filter((item) => item.id !== strain.id), strain]);
             setStrainId(strain.id);

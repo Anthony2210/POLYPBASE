@@ -10,6 +10,7 @@ import type {
   TaxonomyReferences,
 } from '../types/admin';
 import { getErrorMessage } from '../utils/errors';
+import { hasSpeciesCode, isMissingStrainSpeciesCode, type SpeciesCodeAssignment } from '../utils/strainSpeciesCode';
 import AdminActionPanel from './AdminActionPanel';
 import PolypbaseIcon from './PolypbaseIcon';
 import PageLoader from './PageLoader';
@@ -27,13 +28,18 @@ export default function QuickStrainCreator({
   t,
   onClose,
   onCreated,
+  onManageCodes,
 }: {
   t: Translator;
   onClose: () => void;
   onCreated: (strain: QuickCreatedStrain) => void;
+  onManageCodes?: () => void;
 }) {
   const isMounted = useRef(true);
   const [references, setReferences] = useState<TaxonomyReferences | null>(null);
+  const [assignments, setAssignments] = useState<SpeciesCodeAssignment[] | null>(null);
+  const [codeLoadError, setCodeLoadError] = useState(false);
+  const [codeReload, setCodeReload] = useState(0);
   const [mode, setMode] = useState<QuickReferenceMode>('strain');
   const [speciesId, setSpeciesId] = useState<number | null>(null);
   const [strainCode, setStrainCode] = useState('');
@@ -46,6 +52,7 @@ export default function QuickStrainCreator({
   const [notes, setNotes] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [missingAAAError, setMissingAAAError] = useState(false);
 
   useEffect(() => {
     isMounted.current = true;
@@ -68,6 +75,17 @@ export default function QuickStrainCreator({
     };
   }, [t]);
 
+  useEffect(() => {
+    let isCurrent = true;
+    setAssignments(null);
+    setCodeLoadError(false);
+    apiGet<SpeciesCodeAssignment[]>('/api/taxonomy/species-codes/')
+      .then((result) => { if (isCurrent) setAssignments(result); })
+      .catch(() => { if (isCurrent) setCodeLoadError(true); });
+    return () => { isCurrent = false; };
+  }, [codeReload]);
+
+  const speciesHasCode = speciesId == null ? null : hasSpeciesCode(assignments, speciesId);
   const defaultLanguage = useMemo(
     () => references?.languages.find((language) => language.required)?.code ?? 'fr',
     [references?.languages],
@@ -75,9 +93,10 @@ export default function QuickStrainCreator({
 
   async function createStrain(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isSaving || speciesId == null) return;
+    if (isSaving || speciesId == null || speciesHasCode === false) return;
     setIsSaving(true);
     setError(null);
+    setMissingAAAError(false);
 
     const payload: StrainReferencePayload = {
       species: speciesId,
@@ -100,7 +119,11 @@ export default function QuickStrainCreator({
         species_name: created.species_scientific_name,
       });
     } catch (requestError) {
-      if (isMounted.current) setError(getErrorMessage(requestError, t('taxonomySaveError')));
+      if (isMounted.current) {
+        const missing = isMissingStrainSpeciesCode(requestError);
+        setMissingAAAError(missing);
+        setError(missing ? t('taxonomyStrainMissingAAA') : getErrorMessage(requestError, t('taxonomySaveError')));
+      }
     } finally {
       if (isMounted.current) setIsSaving(false);
     }
@@ -111,6 +134,7 @@ export default function QuickStrainCreator({
     if (isSaving) return;
     setIsSaving(true);
     setError(null);
+    setMissingAAAError(false);
 
     const payload: SpeciesReferencePayload = {
       scientific_name: scientificName.trim(),
@@ -144,7 +168,7 @@ export default function QuickStrainCreator({
   return (
     <AdminActionPanel title={t('quickStrainTitle')} closeLabel={t('close')} onClose={onClose}>
       {!references && !error ? <PageLoader variant="admin" label={t('loading')} /> : null}
-      {error ? <p className="inline-error">{error}</p> : null}
+      {error && !missingAAAError ? <p className="inline-error" role="alert">{error}</p> : null}
 
       {references ? (
         <>
@@ -157,6 +181,7 @@ export default function QuickStrainCreator({
               onClick={() => {
                 setMode('strain');
                 setError(null);
+                setMissingAAAError(false);
               }}
             >
               {t('taxonomyStrains')}
@@ -169,6 +194,7 @@ export default function QuickStrainCreator({
               onClick={() => {
                 setMode('species');
                 setError(null);
+                setMissingAAAError(false);
               }}
             >
               {t('taxonomySpecies')}
@@ -179,13 +205,30 @@ export default function QuickStrainCreator({
             <form className="quick-reference-form" onSubmit={createStrain}>
               <label>
                 <span>{t('taxonomySpeciesSelect')}</span>
-                <select required value={speciesId ?? ''} onChange={(event) => setSpeciesId(Number(event.target.value))}>
+                <select required value={speciesId ?? ''} onChange={(event) => {
+                  setSpeciesId(Number(event.target.value));
+                  setError(null);
+                  setMissingAAAError(false);
+                }}>
                   {references.species.map((species) => (
                     <option key={species.id} value={species.id}>{species.scientific_name}</option>
                   ))}
                 </select>
               </label>
-              <button className="quick-reference-inline-action" type="button" onClick={() => setMode('species')}>
+              {assignments === null && !codeLoadError ? <p role="status">{t('taxonomyLocalCodeLoading')}</p> : null}
+              {codeLoadError ? (
+                <p className="inline-error" role="alert">
+                  {t('taxonomyLocalCodeLoadError')}{' '}
+                  <button type="button" onClick={() => setCodeReload((current) => current + 1)}>{t('taxonomyRetry')}</button>
+                </p>
+              ) : null}
+              {(speciesHasCode === false || missingAAAError) ? (
+                <p className="inline-error" role="alert">
+                  {t('taxonomyStrainMissingAAA')}{' '}
+                  {onManageCodes ? <button type="button" onClick={onManageCodes}>{t('taxonomyGoToSharedReferences')}</button> : null}
+                </p>
+              ) : null}
+              <button className="quick-reference-inline-action" type="button" onClick={() => { setMode('species'); setMissingAAAError(false); }}>
                 <PolypbaseIcon name="plus" size={17} />
                 {t('quickStrainNewSpecies')}
               </button>
@@ -211,7 +254,7 @@ export default function QuickStrainCreator({
                 <span>{t('taxonomyNotes')}</span>
                 <textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} />
               </label>
-              <button className="primary-button quick-reference-submit" disabled={isSaving || speciesId == null} type="submit">
+              <button className="primary-button quick-reference-submit" disabled={isSaving || speciesId == null || speciesHasCode === false} type="submit">
                 <PolypbaseIcon name="check" size={18} />
                 {isSaving ? t('taxonomyCreating') : t('quickStrainCreateAndUse')}
               </button>

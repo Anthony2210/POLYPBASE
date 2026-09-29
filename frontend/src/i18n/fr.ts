@@ -1076,6 +1076,8 @@ export const fr = {
   taxonomyLocalSpeciesConflict: 'Cette espèce possède déjà un AAA dans cette institution. Rechargez la liste.',
   taxonomyLocalCodeConflict: 'Cet AAA est déjà utilisé dans cette institution.',
   taxonomyLocalCodeInvalid: 'Vérifiez le code AAA saisi.',
+  taxonomyStrainMissingAAA: 'Cette espèce n’a pas encore de code AAA pour cette institution. Attribuez-en un dans le Référentiel partagé avant de créer la souche.',
+  taxonomyGoToSharedReferences: 'Ouvrir le Référentiel partagé',
   taxonomyRetry: 'Réessayer',
   taxonomyAphiaId: 'Identifiant WoRMS Aphia',
   taxonomyDescribed: 'Espèce décrite',

@@ -13,6 +13,7 @@ import type {
   TaxonomyReferences,
 } from '../types/admin';
 import { getErrorMessage } from '../utils/errors';
+import { hasSpeciesCode, isMissingStrainSpeciesCode, type SpeciesCodeAssignment } from '../utils/strainSpeciesCode';
 import AdminActionPanel from './AdminActionPanel';
 import PolypbaseIcon from './PolypbaseIcon';
 import PageLoader from './PageLoader';
@@ -23,7 +24,6 @@ type FormState =
   | { kind: 'strains'; item?: StrainReference }
   | null;
 
-type SpeciesCodeAssignment = { id: number; species: number; species_scientific_name: string; code: string };
 
 const EMPTY_TRANSLATION = { name: '', description: '' };
 const REFERENCE_PAGE_SIZE = 24;
@@ -229,6 +229,16 @@ export default function TaxonomyAdminSection({ organizationName, t }: { organiza
               initialStrain={formState.item}
               languages={data.languages}
               species={data.species}
+              assignments={assignments}
+              codeLoadError={codeLoadError}
+              onRetryCodes={() => setCodeReload((current) => current + 1)}
+              onManageCodes={(speciesId) => {
+                const selected = data.species.find((item) => item.id === speciesId);
+                setFormState(null);
+                setActiveTab('species');
+                setSearch(selected?.scientific_name ?? '');
+                if (selected) setCodeForm(selected);
+              }}
               t={t}
               onCancel={() => setFormState(null)}
               onSaved={saveStrain}
@@ -498,6 +508,10 @@ function StrainForm({
   initialStrain,
   languages,
   species,
+  assignments,
+  codeLoadError,
+  onRetryCodes,
+  onManageCodes,
   t,
   onCancel,
   onSaved,
@@ -506,6 +520,10 @@ function StrainForm({
   initialStrain?: StrainReference;
   languages: ReferenceLanguage[];
   species: SpeciesReference[];
+  assignments: SpeciesCodeAssignment[] | null;
+  codeLoadError: boolean;
+  onRetryCodes: () => void;
+  onManageCodes: (speciesId: number) => void;
   t: Translator;
   onCancel: () => void;
   onSaved: (strain: StrainReference, previousSpeciesId?: number) => void;
@@ -520,12 +538,15 @@ function StrainForm({
   const [activeLanguage, setActiveLanguage] = useState(languages[0]?.code ?? 'fr');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [missingAAAError, setMissingAAAError] = useState(false);
+  const speciesHasCode = initialStrain ? null : hasSpeciesCode(assignments, speciesId);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isSaving || !speciesId) return;
+    if (isSaving || !speciesId || speciesHasCode === false) return;
     setIsSaving(true);
     setError(null);
+    setMissingAAAError(false);
     const payload: StrainReferencePayload = {
       species: speciesId,
       code: code.trim(),
@@ -540,7 +561,9 @@ function StrainForm({
         : await apiPost<StrainReference>('/api/taxonomy/strains/', payload);
       onSaved(savedStrain, initialStrain?.species);
     } catch (requestError) {
-      setError(getErrorMessage(requestError, t('taxonomySaveError')));
+      const missing = !initialStrain && isMissingStrainSpeciesCode(requestError);
+      setMissingAAAError(missing);
+      setError(missing ? t('taxonomyStrainMissingAAA') : getErrorMessage(requestError, t('taxonomySaveError')));
     } finally {
       setIsSaving(false);
     }
@@ -558,10 +581,27 @@ function StrainForm({
           <legend>{t('taxonomyUniversalData')}</legend>
           <label>
             <span>{t('taxonomySpeciesSelect')}</span>
-            <select required value={speciesId} onChange={(event) => setSpeciesId(Number(event.target.value))}>
+            <select required value={speciesId} onChange={(event) => {
+              setSpeciesId(Number(event.target.value));
+              setError(null);
+              setMissingAAAError(false);
+            }}>
               {species.map((item) => <option key={item.id} value={item.id}>{item.scientific_name}</option>)}
             </select>
           </label>
+          {!initialStrain && assignments === null && !codeLoadError ? <p role="status">{t('taxonomyLocalCodeLoading')}</p> : null}
+          {!initialStrain && codeLoadError ? (
+            <p className="inline-error" role="alert">
+              {t('taxonomyLocalCodeLoadError')}{' '}
+              <button type="button" onClick={onRetryCodes}>{t('taxonomyRetry')}</button>
+            </p>
+          ) : null}
+          {!initialStrain && (speciesHasCode === false || missingAAAError) ? (
+            <p className="inline-error" role="alert">
+              {t('taxonomyStrainMissingAAA')}{' '}
+              <button type="button" onClick={() => onManageCodes(speciesId)}>{t('taxonomyCreateLocalCode')}</button>
+            </p>
+          ) : null}
           <label>
             <span>{t('taxonomyStrainCode')}</span>
             <input required value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} />
@@ -591,9 +631,10 @@ function StrainForm({
         />
       </div>
       <FormActions
-        error={error}
+        error={missingAAAError ? null : error}
         isEditing={Boolean(initialStrain)}
         isSaving={isSaving}
+        isDisabled={speciesHasCode === false}
         t={t}
         onCancel={onCancel}
       />
@@ -694,12 +735,14 @@ function FormActions({
   error,
   isEditing,
   isSaving,
+  isDisabled = false,
   t,
   onCancel,
 }: {
   error: string | null;
   isEditing: boolean;
   isSaving: boolean;
+  isDisabled?: boolean;
   t: Translator;
   onCancel: () => void;
 }) {
@@ -707,7 +750,7 @@ function FormActions({
     <footer className="taxonomy-form-actions">
       {error ? <p className="inline-error">{error}</p> : <span />}
       <button className="secondary-button" type="button" onClick={onCancel}>{t('confirmCancel')}</button>
-      <button className="primary-button" disabled={isSaving} type="submit">
+      <button className="primary-button" disabled={isSaving || isDisabled} type="submit">
         {isSaving
           ? t(isEditing ? 'taxonomySaving' : 'taxonomyCreating')
           : t(isEditing ? 'taxonomySave' : 'taxonomyCreate')}
