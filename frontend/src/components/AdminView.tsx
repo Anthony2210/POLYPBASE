@@ -83,7 +83,6 @@ const ADMIN_FLOW_ITEMS = [
 export type AdminSectionKey = (typeof ADMIN_FLOW_ITEMS)[number]['key'];
 
 const DISABLED_ADMIN_SECTIONS: ReadonlySet<AdminSectionKey> = new Set([
-  'references',
   'environment',
   'transfers',
   'organizations',

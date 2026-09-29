@@ -16,6 +16,8 @@ function loadTypeScript(relativePath) {
 }
 
 const authRouting = loadTypeScript('../src/utils/authRouting.ts');
+const adminViewSource = readFileSync(new URL('../src/components/AdminView.tsx', import.meta.url), 'utf8');
+const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 
 test('recognizes login and complete password-reset paths as public authentication routes', () => {
   assert.equal(authRouting.isPublicAuthPath('/login'), true);
@@ -41,6 +43,20 @@ test('offers sign-in for an expired session after bootstrap', () => {
   assert.equal(authRouting.requiresSignInRecovery(401, null), true);
   assert.equal(authRouting.requiresSignInRecovery(403, 401), true);
   assert.equal(authRouting.requiresSignInRecovery(403, 403), true);
+});
+
+test('shared references navigation is selectable and renders the existing taxonomy section', () => {
+  assert.match(adminViewSource, /\{ key: 'references', panelId: 'admin-taxonomy', label: 'adminTabReferences', scope: 'shared' \}/);
+  assert.doesNotMatch(adminViewSource.match(/const DISABLED_ADMIN_SECTIONS[\s\S]*?\n\]\);/)?.[0] ?? '', /'references'/);
+  assert.match(adminViewSource, /displayedSection === 'references' && activeOrganizationId != null[\s\S]*?<TaxonomyAdminSection/);
+  assert.match(appSource, /references: '\/administration\/reference-data'/);
+  assert.match(adminViewSource, /className=\{activeSection === item\.key \? 'admin-flow-step is-active' : 'admin-flow-step'\}/);
+});
+
+test('Administration permissions and desktop-only guard remain in place', () => {
+  assert.match(adminViewSource, /if \(!profile \|\| !userHasAdminRole\(profile\)\) return null/);
+  assert.match(appSource, /activeTab === 'admin' && !isDesktopApp/);
+  assert.match(appSource, /activeTab === 'admin' && isDesktopApp/);
 });
 
 test('does not present genuine forbidden or generic failures as session expiry', () => {
