@@ -17,6 +17,7 @@ from apps.audit.models import AuditLog
 
 from .models import OrganizationSpeciesCode, Species, SpeciesTranslation, Strain, StrainTranslation
 from .scoping import eligible_strains
+from .services import create_local_strain_identity
 from .serializers import (
     SpeciesCodeSerializer,
     SpeciesCodeWriteSerializer,
@@ -264,7 +265,18 @@ class StrainReferenceListCreateAPIView(APIView):
         organization = _require_strain_creation_organization(request)
         serializer = StrainReferenceWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        species = serializer.validated_data["species"]
+        assignment = _species_code_queryset(organization).filter(species=species).first()
+        if assignment is None:
+            raise ValidationError({
+                "species": "Assign an AAA code to this species in the active institution in Administration before creating a strain."
+            })
         strain = serializer.save(organization=organization)
+        create_local_strain_identity(
+            strain=strain,
+            organization=organization,
+            species_code_assignment=assignment,
+        )
         _write_audit_log(
             request,
             action=AuditLog.Action.CREATION,

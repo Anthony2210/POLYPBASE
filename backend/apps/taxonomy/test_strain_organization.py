@@ -11,7 +11,7 @@ from apps.accounts.models import OrganizationMembership
 from apps.cultures.models import Box
 from apps.organizations.models import Organization
 
-from .models import GlobalStrainIdentity, Species, Strain
+from .models import GlobalStrainIdentity, LocalStrainIdentity, OrganizationSpeciesCode, Species, Strain
 from .serializers import StrainReferenceSerializer, StrainReferenceWriteSerializer
 
 
@@ -95,6 +95,9 @@ class StrainOrganizationTests(TestCase):
         self.assertIsNone(serializer.save().organization_id)
 
     def test_api_creation_assigns_active_organization_without_exposing_ownership(self):
+        assignment = OrganizationSpeciesCode.objects.create(
+            organization=self.first_organization, species=self.species, code="AAA"
+        )
         user = get_user_model().objects.create_user(username="strain_admin", email="strain_admin@example.org", password="secret")
         OrganizationMembership.objects.create(
             user=user, organization=self.first_organization,
@@ -113,7 +116,9 @@ class StrainOrganizationTests(TestCase):
         )
         self.assertEqual(response.status_code, 201)
         self.assertNotIn("organization", response.json())
-        self.assertEqual(Strain.objects.get(pk=response.json()["id"]).organization_id, self.first_organization.pk)
+        strain = Strain.objects.get(pk=response.json()["id"])
+        self.assertEqual(strain.organization_id, self.first_organization.pk)
+        self.assertEqual(LocalStrainIdentity.objects.get(strain=strain).species_code_assignment, assignment)
         listing = self.client.get(reverse("api_taxonomy_references"))
         self.assertEqual(listing.status_code, 200)
         self.assertNotIn("organization", listing.json()["strains"][0])

@@ -1,4 +1,5 @@
 import json
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -8,7 +9,8 @@ from apps.accounts.models import OrganizationMembership
 from apps.audit.models import AuditLog
 from apps.cultures.models import Box
 from apps.organizations.models import Organization
-from apps.taxonomy.models import GlobalStrainIdentity, Species, Strain
+from apps.taxonomy.models import (GlobalStrainIdentity, LocalStrainIdentity,
+                                  OrganizationSpeciesCode, Species, Strain, StrainTranslation)
 
 
 class StrainScopingApiTests(TestCase):
@@ -26,7 +28,13 @@ class StrainScopingApiTests(TestCase):
             (self.tech, self.a, OrganizationMembership.Role.LAB_TECHNICIAN),
         ):
             OrganizationMembership.objects.create(user=user, organization=organization, role=role)
-        self.species = Species.objects.create(scientific_name="Shared species")
+        self.species = Species.objects.create(scientific_name="Shared species", genus_species_code="OLD")
+        self.a_code = OrganizationSpeciesCode.objects.create(
+            organization=self.a, species=self.species, code="AAA"
+        )
+        self.b_code = OrganizationSpeciesCode.objects.create(
+            organization=self.b, species=self.species, code="BBB"
+        )
         self.identity = GlobalStrainIdentity.objects.create()
         self.a_strain = Strain.objects.create(species=self.species, code="A-1", organization=self.a, global_identity=self.identity)
         self.b_strain = Strain.objects.create(species=self.species, code="B-1", organization=self.b, global_identity=self.identity)
@@ -48,15 +56,22 @@ class StrainScopingApiTests(TestCase):
 
     def test_create_uses_active_organization_not_submitted_ownership(self):
         self.client.force_login(self.admin)
-        response = self.create(self.a, "NEW-A", organization=self.b.pk, global_identity=self.identity.pk)
+        response = self.create(
+            self.a, "NEW-A", organization=self.b.pk, global_identity=self.identity.pk,
+            species_code_assignment=self.b_code.pk, local_identity=self.b_code.pk,
+        )
         self.assertEqual(response.status_code, 201)
         strain = Strain.objects.get(code="NEW-A")
         self.assertEqual(strain.organization, self.a)
         self.assertIsNone(strain.global_identity_id)
+        self.assertEqual(strain.local_identity.species_code_assignment, self.a_code)
+        self.assertEqual(LocalStrainIdentity.objects.filter(strain=strain).count(), 1)
+        self.assertEqual(AuditLog.objects.get(object_type="strain", object_id=str(strain.pk)).organization, self.a)
         self.assertNotIn("organization", response.json())
         self.assertNotIn("global_identity", response.json())
         self.assertEqual(self.create(self.b, "NEW-B").status_code, 201)
         self.assertEqual(Strain.objects.get(code="NEW-B").organization, self.b)
+        self.assertEqual(Strain.objects.get(code="NEW-B").local_identity.species_code_assignment, self.b_code)
         response = self.client.post(reverse("api_taxonomy_strains"), data=json.dumps({
             "species": self.species.pk, "code": "NO-CONTEXT",
             "translations": {"fr": {"name": "Souche"}},
@@ -65,12 +80,56 @@ class StrainScopingApiTests(TestCase):
         self.assertFalse(Strain.objects.filter(code="NO-CONTEXT").exists())
         self.client.force_login(self.tech)
         self.assertEqual(self.create(self.a, "TECH-NEW").status_code, 403)
+        self.assertFalse(Strain.objects.filter(code="TECH-NEW").exists())
+
+    def test_missing_active_aaa_rejects_without_falling_back_or_leaking_foreign_code(self):
+        self.client.force_login(self.admin)
+        species = Species.objects.create(
+            scientific_name="Unassigned species", genus_species_code="LEG"
+        )
+        foreign = OrganizationSpeciesCode.objects.create(
+            organization=self.b, species=species, code="XYZ"
+        )
+        before = (Strain.objects.count(), LocalStrainIdentity.objects.count(),
+                  StrainTranslation.objects.count(), AuditLog.objects.count())
+        response = self.create(self.a, "NO-AAA", species=species.pk,
+                               organization=self.b.pk, species_code_assignment=foreign.pk)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("species", response.json())
+        self.assertIn("AAA", str(response.json()["species"]))
+        self.assertIn("Administration", str(response.json()["species"]))
+        self.assertNotIn("XYZ", json.dumps(response.json()))
+        self.assertNotIn(str(foreign.pk), json.dumps(response.json()))
+        self.assertEqual(
+            (Strain.objects.count(), LocalStrainIdentity.objects.count(),
+             StrainTranslation.objects.count(), AuditLog.objects.count()), before
+        )
+        # Even without any assignment anywhere, the legacy shared species code is not AAA.
+        foreign.delete()
+        response = self.create(self.a, "NO-AAA", species=species.pk)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Strain.objects.count(), before[0])
+        self.assertEqual(LocalStrainIdentity.objects.count(), before[1])
+
+    @patch("apps.taxonomy.api_views.create_local_strain_identity", side_effect=RuntimeError("Identity unavailable"))
+    def test_identity_failure_rolls_back_strain_and_translations(self, create_identity):
+        self.client.force_login(self.admin)
+        before = (Strain.objects.count(), StrainTranslation.objects.count(),
+                  LocalStrainIdentity.objects.count(), AuditLog.objects.count())
+        with self.assertRaises(RuntimeError):
+            self.create(self.a, "FAILED-IDENTITY")
+        create_identity.assert_called_once()
+        self.assertEqual(
+            (Strain.objects.count(), StrainTranslation.objects.count(),
+             LocalStrainIdentity.objects.count(), AuditLog.objects.count()), before
+        )
 
     def test_references_are_scoped_and_species_count_does_not_leak(self):
         self.client.force_login(self.admin)
         response = self.client.get(reverse("api_taxonomy_references"), **self.headers(self.a))
         self.assertEqual(response.status_code, 200)
         self.assertEqual({row["id"] for row in response.json()["strains"]}, {self.a_strain.pk, self.legacy.pk})
+        self.assertFalse(LocalStrainIdentity.objects.filter(strain=self.legacy).exists())
         self.assertEqual(response.json()["species"][0]["strain_count"], 2)
         response = self.client.get(reverse("api_taxonomy_references"), **self.headers(self.b))
         self.assertEqual({row["id"] for row in response.json()["strains"]}, {self.b_strain.pk, self.legacy.pk, self.b_only.pk})
