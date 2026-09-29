@@ -205,6 +205,13 @@ class LocalStrainIdentity(models.Model):
         on_delete=models.PROTECT,
         related_name="local_strain_identities",
     )
+    provenance_code_assignment = models.ForeignKey(
+        OrganizationProvenanceCode,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="local_strain_identities",
+    )
 
 
 class StrainTranslation(models.Model):
