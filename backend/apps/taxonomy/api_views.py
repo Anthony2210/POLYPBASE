@@ -15,10 +15,22 @@ from apps.accounts.permissions import (
 )
 from apps.audit.models import AuditLog
 
-from .models import OrganizationSpeciesCode, Species, SpeciesTranslation, Strain, StrainTranslation
+from .models import (
+    BiologicalProvenance,
+    OrganizationProvenanceCode,
+    OrganizationSpeciesCode,
+    Species,
+    SpeciesTranslation,
+    Strain,
+    StrainTranslation,
+)
 from .scoping import eligible_strains
 from .services import create_local_strain_identity
 from .serializers import (
+    BiologicalProvenanceSerializer,
+    BiologicalProvenanceWriteSerializer,
+    ProvenanceCodeSerializer,
+    ProvenanceCodeWriteSerializer,
     SpeciesCodeSerializer,
     SpeciesCodeWriteSerializer,
     SpeciesReferenceSerializer,
@@ -139,6 +151,106 @@ def _raise_species_code_conflict(error):
     ):
         raise ValidationError({"code": "This code is already used in this organization."}) from error
     raise error
+
+
+class BiologicalProvenanceListCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        organization = get_active_organization_from_request(request)
+        if organization is None or not user_can_write_lab_data(request.user, organization):
+            raise PermissionDenied("Laboratory access is required.")
+        return Response(BiologicalProvenanceSerializer(
+            BiologicalProvenance.objects.order_by("pk"), many=True
+        ).data)
+
+    @transaction.atomic
+    def post(self, request):
+        _require_active_admin(request)
+        serializer = BiologicalProvenanceWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        provenance = serializer.save()
+        _write_audit_log(
+            request,
+            action=AuditLog.Action.CREATION,
+            object_type="biological_provenance",
+            instance=provenance,
+            description=f"Biological provenance created: {provenance.name}",
+        )
+        return Response(
+            BiologicalProvenanceSerializer(provenance).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+def _provenance_code_queryset(organization):
+    return OrganizationProvenanceCode.objects.filter(
+        organization=organization
+    ).select_related("biological_provenance")
+
+
+def _check_provenance_code_conflicts(organization, *, provenance, code):
+    assignments = _provenance_code_queryset(organization)
+    if assignments.filter(biological_provenance=provenance).exists():
+        raise ValidationError({
+            "biological_provenance": "This provenance already has a code in this organization."
+        })
+    if assignments.filter(code=code).exists():
+        raise ValidationError({"code": "This code is already used in this organization."})
+
+
+def _raise_provenance_code_conflict(error):
+    constraint = getattr(getattr(error.__cause__, "diag", None), "constraint_name", None)
+    # SQLite test databases report unique columns rather than constraint names.
+    if constraint is None:
+        constraint = str(error)
+    if constraint in (
+        "unique_provenance_code_per_organization_source",
+        "UNIQUE constraint failed: taxonomy_organizationprovenancecode.organization_id, taxonomy_organizationprovenancecode.biological_provenance_id",
+    ):
+        raise ValidationError({
+            "biological_provenance": "This provenance already has a code in this organization."
+        }) from error
+    if constraint in (
+        "unique_provenance_code_per_organization_code",
+        "UNIQUE constraint failed: taxonomy_organizationprovenancecode.organization_id, taxonomy_organizationprovenancecode.code",
+    ):
+        raise ValidationError({"code": "This code is already used in this organization."}) from error
+    raise error
+
+
+class ProvenanceCodeListCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        organization = get_active_organization_from_request(request)
+        if organization is None or not user_can_write_lab_data(request.user, organization):
+            raise PermissionDenied("Laboratory access is required.")
+        return Response(ProvenanceCodeSerializer(
+            _provenance_code_queryset(organization).order_by("pk"), many=True
+        ).data)
+
+    @transaction.atomic
+    def post(self, request):
+        organization = _require_active_admin(request)
+        serializer = ProvenanceCodeWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        provenance = serializer.validated_data["biological_provenance"]
+        code = serializer.validated_data["code"]
+        _check_provenance_code_conflicts(organization, provenance=provenance, code=code)
+        try:
+            with transaction.atomic():
+                assignment = serializer.save(organization=organization)
+        except IntegrityError as error:
+            _raise_provenance_code_conflict(error)
+        _write_audit_log(
+            request,
+            action=AuditLog.Action.CREATION,
+            object_type="organization_provenance_code",
+            instance=assignment,
+            description=f"Provenance code created for provenance {provenance.pk}",
+        )
+        return Response(ProvenanceCodeSerializer(assignment).data, status=status.HTTP_201_CREATED)
 
 
 class SpeciesCodeListCreateAPIView(APIView):
