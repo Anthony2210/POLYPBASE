@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import type { OverviewBox, OverviewMeasurementPoint } from '../types';
-import { buildChartWindow } from '../utils/chartWindow';
+import { buildChartWindow, getLatestChartWindowOffset, parseChartDate, toChartDateString } from '../utils/chartWindow';
 import BiologicalTrendChart from './BiologicalTrendChart';
 import ChartWindowControls from './ChartWindowControls';
 import PageLoader from './PageLoader';
@@ -396,7 +396,6 @@ function OverviewMiniChart({
   language: Language;
   t: TFunction;
 }) {
-  const [windowOffset, setWindowOffset] = useState(0);
   const orderedMeasurements = useMemo(
     () => [...box.measurements].sort((left, right) => left.date.localeCompare(right.date)),
     [box.measurements],
@@ -408,30 +407,36 @@ function OverviewMiniChart({
     ],
     [box.locations, orderedMeasurements],
   );
-  const chartWindow = useMemo(
-    () => buildChartWindow(sourceDates, windowOffset, 3),
-    [sourceDates, windowOffset],
-  );
-
-  useEffect(() => {
-    if (windowOffset !== chartWindow.offset) setWindowOffset(chartWindow.offset);
-  }, [chartWindow.offset, windowOffset]);
-
-  useEffect(() => setWindowOffset(0), [box.id]);
+  const defaultWindow = useMemo(() => buildChartWindow(
+    sourceDates,
+    getLatestChartWindowOffset(sourceDates.filter((date): date is string => Boolean(date)), orderedMeasurements.map((point) => point.date), 3),
+    3,
+  ), [sourceDates, orderedMeasurements]);
+  const extentEnd = useMemo(() => buildChartWindow(sourceDates, 0, 3).endDate, [sourceDates]);
+  const earliestDate = useMemo(() => sourceDates
+    .filter((date): date is string => Boolean(date) && !Number.isNaN(parseChartDate(date).getTime()))
+    .map((date) => date.slice(0, 10))
+    .sort()[0], [sourceDates]);
+  let extentStart = earliestDate ?? defaultWindow.startDate;
+  if (extentStart >= extentEnd) {
+    const previousDay = parseChartDate(extentEnd);
+    previousDay.setDate(previousDay.getDate() - 1);
+    extentStart = toChartDateString(previousDay);
+  }
+  const [selectedWindow, setSelectedWindow] = useState({
+    boxId: box.id,
+    startDate: defaultWindow.startDate,
+    endDate: defaultWindow.endDate,
+  });
+  const currentWindow = selectedWindow.boxId === box.id ? selectedWindow : defaultWindow;
+  const endDate = currentWindow.endDate <= extentStart
+    ? extentEnd
+    : currentWindow.endDate > extentEnd ? extentEnd : currentWindow.endDate;
+  const startDate = currentWindow.startDate < extentStart
+    ? extentStart
+    : currentWindow.startDate >= endDate ? extentStart : currentWindow.startDate;
 
   const latestDate = orderedMeasurements[orderedMeasurements.length - 1]?.date;
-  const canMoveOverviewWindow = (months: number) => {
-    const targetOffset = Math.max(
-      0,
-      Math.min(chartWindow.maxOffset, chartWindow.offset + months),
-    );
-    if (targetOffset === chartWindow.offset) return false;
-
-    const targetWindow = buildChartWindow(sourceDates, targetOffset, 3);
-    return orderedMeasurements.some((measurement) => (
-      measurement.date >= targetWindow.startDate && measurement.date <= targetWindow.endDate
-    ));
-  };
 
   if (!latestDate) {
     return (
@@ -442,49 +447,29 @@ function OverviewMiniChart({
     );
   }
 
-  const locations = (box.locations?.length
-    ? box.locations.map((location) => ({
-      id: location.id,
-      name: location.thermal_zone.name,
-      startsAt: location.starts_at,
-      endsAt: location.ends_at,
-      endDateUnknown: location.end_date_unknown,
-    }))
-    : box.thermal_zone
-      ? [{
-        id: `current-${box.thermal_zone.id}`,
-        name: box.thermal_zone.name,
-        startsAt: chartWindow.startDate,
-        endsAt: chartWindow.endDate,
-      }]
-      : []
-  );
+  const locations = (box.locations ?? []).map((location) => ({
+    id: location.id,
+    name: location.thermal_zone.name,
+    startsAt: location.starts_at,
+    endsAt: location.ends_at,
+    endDateUnknown: location.end_date_unknown,
+  }));
 
   return (
     <div className="overview-mini-chart">
       <ChartWindowControls
-        canMove={canMoveOverviewWindow}
         compact
-        endDate={chartWindow.endDate}
-        hasNewerWindow={chartWindow.hasNewerWindow}
-        hasOlderWindow={chartWindow.hasOlderWindow}
+        endDate={endDate}
+        extentEnd={extentEnd}
+        extentStart={extentStart}
         language={language}
-        longStep={3}
-        onMove={(months) => {
-          if (!canMoveOverviewWindow(months)) return;
-          setWindowOffset(Math.max(
-            0,
-            Math.min(chartWindow.maxOffset, chartWindow.offset + months),
-          ));
-        }}
-        startDate={chartWindow.startDate}
-        windowMonths={3}
+        onChange={(nextStart, nextEnd) => setSelectedWindow({ boxId: box.id, startDate: nextStart, endDate: nextEnd })}
+        startDate={startDate}
       />
       <BiologicalTrendChart
         compact
-        detailDisplay="inline"
-        startDate={chartWindow.startDate}
-        endDate={chartWindow.endDate}
+        startDate={startDate}
+        endDate={endDate}
         measurements={orderedMeasurements.map((point) => ({
           id: point.date,
           date: point.date,
@@ -496,6 +481,7 @@ function OverviewMiniChart({
         selectionScope={box.id}
         labels={{
           chartTitle: t('overviewChartTitle'),
+          closeDetail: t('close'),
           empty: t('overviewNoHistory'),
           ephyrae: t('ephyraeFull'),
           location: language === 'fr' ? 'Emplacement' : 'Location',

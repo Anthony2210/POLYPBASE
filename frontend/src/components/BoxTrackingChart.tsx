@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { useMemo, useState } from 'react';
 
 import type { BiologicalMeasurement, BoxLocation, BoxLineage, BoxMovement } from '../types';
 import type { Language } from '../i18n';
-import { buildChartWindow, getLatestChartWindowOffset } from '../utils/chartWindow';
+import { buildChartWindow, getLatestChartWindowOffset, parseChartDate, toChartDateString } from '../utils/chartWindow';
 import BiologicalTrendChart, { type TrendEvent, type TrendLocation, type TrendMeasurement } from './BiologicalTrendChart';
 import ChartWindowControls from './ChartWindowControls';
 
@@ -55,6 +55,7 @@ export default function BoxTrackingChart({
     ].join('-'),
     [events.length, locations.length, measurements],
   );
+  const boxKey = `${measurements[0]?.id ?? ''}:${locations[0]?.id ?? ''}:${events[0]?.id ?? ''}`;
   const chartSourceDates = useMemo(
     () => getSharedChartSourceDates(measurements, locations, events),
     [events, locations, measurements],
@@ -67,86 +68,38 @@ export default function BoxTrackingChart({
     ),
     [chartSourceDates, initialWindowOffset, measurements],
   );
-  const [windowOffset, setWindowOffset] = useState(defaultWindowOffset);
-  const [isDragging, setIsDragging] = useState(false);
-  const dragOrigin = useRef<number | null>(null);
-  const didDrag = useRef(false);
-  const preparedData = useMemo(
-    () => prepareSharedChartData(measurements, locations, events, windowOffset),
-    [events, locations, measurements, windowOffset],
+  const defaultWindow = useMemo(
+    () => buildChartWindow(chartSourceDates, defaultWindowOffset, 6),
+    [chartSourceDates, defaultWindowOffset],
   );
-
-  useEffect(() => setWindowOffset(defaultWindowOffset), [defaultWindowOffset, timelineKey]);
-
-  useEffect(() => {
-    if (windowOffset > preparedData.maxWindowOffset) {
-      setWindowOffset(preparedData.maxWindowOffset);
-    }
-  }, [preparedData.maxWindowOffset, windowOffset]);
-
-  function canMoveWindow(months: number) {
-    const targetOffset = Math.min(
-      preparedData.maxWindowOffset,
-      Math.max(0, windowOffset + months),
-    );
-    if (targetOffset === windowOffset) return false;
-
-    const targetWindow = buildChartWindow(chartSourceDates, targetOffset, 6);
-    return hasTimelineDataInWindow(
-      measurements,
-      locations,
-      events,
-      targetWindow.startDate,
-      targetWindow.endDate,
-    );
+  const latestWindow = useMemo(() => buildChartWindow(chartSourceDates, 0, 6), [chartSourceDates]);
+  const earliestDate = useMemo(() => chartSourceDates
+    .filter((date) => !Number.isNaN(parseChartDate(date).getTime()))
+    .map((date) => date.slice(0, 10))
+    .sort()[0], [chartSourceDates]);
+  let extentStart = earliestDate ?? defaultWindow.startDate;
+  const extentEnd = latestWindow.endDate;
+  if (extentStart >= extentEnd) {
+    const previousDay = parseChartDate(extentEnd);
+    previousDay.setDate(previousDay.getDate() - 1);
+    extentStart = toChartDateString(previousDay);
   }
-
-  function moveWindow(months: number) {
-    if (!canMoveWindow(months)) return;
-    setWindowOffset(Math.min(
-      preparedData.maxWindowOffset,
-      Math.max(0, windowOffset + months),
-    ));
-  }
-
-  function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    if (event.pointerType === 'mouse' && event.button !== 0) return;
-    dragOrigin.current = event.clientX;
-    didDrag.current = false;
-    setIsDragging(false);
-  }
-
-  function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
-    if (dragOrigin.current == null) return;
-    if (Math.abs(event.clientX - dragOrigin.current) >= 10) {
-      didDrag.current = true;
-      setIsDragging(true);
-      if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.setPointerCapture(event.pointerId);
-      }
-    }
-  }
-
-  function handlePointerEnd(event: ReactPointerEvent<HTMLDivElement>) {
-    if (dragOrigin.current == null) return;
-    const distance = event.clientX - dragOrigin.current;
-    dragOrigin.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    if (Math.abs(distance) >= 60) {
-      event.preventDefault();
-      moveWindow(distance < 0 ? 1 : -1);
-    }
-    setIsDragging(false);
-  }
-
-  function handleClickCapture(event: ReactMouseEvent<HTMLDivElement>) {
-    if (!didDrag.current) return;
-    event.preventDefault();
-    event.stopPropagation();
-    didDrag.current = false;
-  }
+  const [selectedWindow, setSelectedWindow] = useState({
+    boxKey,
+    startDate: defaultWindow.startDate,
+    endDate: defaultWindow.endDate,
+  });
+  const currentWindow = selectedWindow.boxKey === boxKey ? selectedWindow : defaultWindow;
+  const endDate = currentWindow.endDate <= extentStart
+    ? extentEnd
+    : currentWindow.endDate > extentEnd ? extentEnd : currentWindow.endDate;
+  const startDate = currentWindow.startDate < extentStart
+    ? extentStart
+    : currentWindow.startDate >= endDate ? extentStart : currentWindow.startDate;
+  const preparedData = useMemo(
+    () => prepareSharedChartData(measurements, locations, events, startDate, endDate),
+    [events, locations, measurements, startDate, endDate],
+  );
 
   return (
     <div className="measurement-chart">
@@ -157,30 +110,19 @@ export default function BoxTrackingChart({
             {labels.historyButton}
           </button>
         ) : undefined}
-        endDate={preparedData.endDate}
-        hasNewerWindow={preparedData.hasNewerWindow}
-        hasOlderWindow={preparedData.hasOlderWindow}
-        canMove={canMoveWindow}
+        endDate={endDate}
+        extentEnd={extentEnd}
+        extentStart={extentStart}
         language={language}
-        longStep={6}
-        onMove={moveWindow}
-        startDate={preparedData.startDate}
+        onChange={(nextStart, nextEnd) => setSelectedWindow({ boxKey, startDate: nextStart, endDate: nextEnd })}
+        startDate={startDate}
         title={compact ? undefined : labels.chartTitle}
-        windowMonths={6}
       />
 
-      <div
-        className={`chart-window-viewport${isDragging ? ' is-dragging' : ''}`}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerEnd}
-        onPointerCancel={handlePointerEnd}
-        onClickCapture={handleClickCapture}
-      >
+      <div className="chart-window-viewport">
         <div className="chart-window-content">
           <BiologicalTrendChart
             compact={compact}
-            detailDisplay="inline"
             startDate={preparedData.startDate}
             endDate={preparedData.endDate}
             measurements={preparedData.measurements}
@@ -211,41 +153,13 @@ export default function BoxTrackingChart({
   );
 }
 
-function hasTimelineDataInWindow(
-  measurements: BiologicalMeasurement[],
-  locations: BoxLocation[],
-  events: LifecycleEvent[],
-  startDate: string,
-  endDate: string,
-) {
-  if (measurements.some((measurement) => (
-    measurement.measured_on >= startDate && measurement.measured_on <= endDate
-  ))) return true;
-  if (events.some((event) => event.date >= startDate && event.date <= endDate)) return true;
-  return locations.some((location) => (
-    location.starts_at.slice(0, 10) <= endDate
-    && (
-      location.end_date_unknown
-        ? location.starts_at.slice(0, 10) >= startDate
-        : !location.ends_at || location.ends_at.slice(0, 10) >= startDate
-    )
-  ));
-}
-
 function prepareSharedChartData(
   measurements: BiologicalMeasurement[],
   locations: BoxLocation[],
   events: LifecycleEvent[],
-  requestedWindowOffset: number,
+  startText: string,
+  endText: string,
 ) {
-  const chartWindow = buildChartWindow(
-    getSharedChartSourceDates(measurements, locations, events),
-    requestedWindowOffset,
-    6,
-  );
-  const startText = chartWindow.startDate;
-  const endText = chartWindow.endDate;
-
   const sharedMeasurements: TrendMeasurement[] = measurements
     .map((measurement) => ({
       id: measurement.id,
@@ -279,9 +193,6 @@ function prepareSharedChartData(
     measurements: sharedMeasurements,
     locations: sharedLocations,
     events: sharedEvents,
-    hasNewerWindow: chartWindow.hasNewerWindow,
-    hasOlderWindow: chartWindow.hasOlderWindow,
-    maxWindowOffset: chartWindow.maxOffset,
   };
 }
 

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 
 import { apiDownload, apiGet } from '../api/client';
 import type { BoxDetail, ExportOptions } from '../types';
+import { translations } from '../i18n';
 import {
   addChartMonths,
   buildChartWindow,
@@ -719,7 +720,7 @@ export default function ExportsView({
             </section>
             {visiblePreviewMeasurementCount > 0 ? (
               <BiologicalTrendChart
-                detailDisplay="inline"
+
                 startDate={previewWindow.startDate}
                 endDate={previewWindow.endDate}
                 measurements={visiblePreviewMeasurements.map((measurement) => ({
@@ -745,9 +746,10 @@ export default function ExportsView({
                   detail: movement.to_thermal_zone.name,
                   kind: 'movement' as const,
                 }))}
-                selectionScope={`${selectedPreviewDetail.id}-${previewWindow.startDate}-${previewWindow.endDate}`}
+                selectionScope={selectedPreviewDetail.id}
                 labels={{
                   chartTitle: labels.previewTitle,
+                  closeDetail: translations[language].close,
                   empty: labels.previewEmpty,
                   enteredBy: language === 'fr' ? 'Saisi par' : 'Entered by',
                   ephyrae: language === 'fr' ? 'Éphyrules' : 'Ephyrae',

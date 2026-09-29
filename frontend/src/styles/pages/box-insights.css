@@ -38,16 +38,7 @@
 
 .measurement-chart { position: relative; display: grid; min-width: 0; gap: var(--space-2); }
 
-.chart-window-viewport {
-  min-width: 0;
-  cursor: grab;
-  touch-action: pan-y;
-}
-
-.chart-window-viewport.is-dragging {
-  cursor: grabbing;
-  user-select: none;
-}
+.chart-window-viewport { min-width: 0; }
 
 .chart-series-controls {
   display: inline-flex;

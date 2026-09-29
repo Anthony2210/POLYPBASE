@@ -1,4 +1,5 @@
 .bio-trend {
+  position: relative;
   display: grid;
   min-width: 0;
   gap: var(--space-2);
@@ -49,16 +50,17 @@
   gap: var(--space-3);
 }
 
-.bio-trend-legend span {
+.bio-trend-legend :is(button, span) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   color: var(--color-muted);
   font-size: .76rem;
   font-weight: 750;
+  font-family: inherit;
 }
 
-.bio-trend-legend span::before {
+.bio-trend-legend :is(button, span)::before {
   width: 18px;
   height: 3px;
   content: '';
@@ -69,16 +71,18 @@
 .bio-trend-legend .is-polyps { --series-color: var(--color-primary); }
 .bio-trend-legend .is-ephyrae { --series-color: var(--color-ephyrae); }
 
-.bio-trend-legend .is-missing::before {
-  height: 5px;
-  background: repeating-linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--color-muted) 58%, transparent) 0 5px,
-    transparent 5px 8px
-  );
-  border: 0;
-  border-radius: 1px;
+.bio-trend-legend button {
+  padding: 5px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
 }
+
+.bio-trend-legend button:is(:hover, :focus-visible) { border-color: var(--color-line); }
+.bio-trend-legend button.is-hidden { text-decoration: line-through; opacity: .55; }
+.bio-trend-legend button.is-hidden::before { background: var(--color-muted); }
+.bio-trend-legend button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 
 .bio-trend.has-inline-detail .bio-trend-heading { min-height: 72px; }
 
@@ -218,27 +222,26 @@
   aspect-ratio: 640 / 238;
 }
 
-.bio-trend-location-band rect {
-  fill: color-mix(in srgb, var(--zone-band-color) 56%, var(--color-surface));
-  stroke: none;
-}
-
-.bio-trend-location-band line:not(.bio-trend-location-band-baseline) {
-  stroke: var(--zone-border-color);
-  stroke-width: .8;
-  opacity: .42;
-}
-
+.bio-trend-location-band { cursor: pointer; }
+.bio-trend-location-band:focus-visible { outline: 2px solid var(--color-primary); }
 .bio-trend-location-band-baseline {
-  stroke: var(--zone-border-color);
-  stroke-width: 1.1;
-  opacity: .68;
+  stroke: var(--color-muted);
+  stroke-width: 2;
 }
-
+.bio-trend-location-change {
+  stroke: var(--color-muted);
+  stroke-width: 1;
+}
+.bio-trend-location-hit {
+  stroke: transparent;
+  stroke-width: 18;
+  pointer-events: stroke;
+}
 .bio-trend-location-band text {
-  fill: var(--zone-text-color);
+  fill: var(--color-ink-soft);
   font-size: .68rem;
-  font-weight: 800;
+  font-weight: 650;
+  pointer-events: none;
 }
 
 :where(.bio-trend-axis, .bio-trend-grid) {
@@ -322,10 +325,6 @@
   cursor: pointer;
 }
 
-.bio-trend-missing-wash {
-  fill: color-mix(in srgb, var(--color-muted) 5%, transparent);
-  pointer-events: none;
-}
 
 .bio-trend-event { cursor: pointer; }
 .bio-trend-event:focus { outline: none; }
@@ -388,31 +387,73 @@
   position: absolute;
   z-index: 3;
   display: grid;
+  box-sizing: border-box;
   width: max-content;
-  min-width: 150px;
-  max-width: min(240px, calc(100% - 24px));
+  min-width: min(180px, 100%);
+  max-width: min(260px, calc(100% - 16px));
   padding: var(--space-2) var(--space-3);
-  gap: 3px;
+  gap: var(--space-2);
+  overflow: hidden auto;
+  visibility: hidden;
   color: var(--color-ink);
   font-size: .78rem;
+  font-variant-numeric: tabular-nums;
   background: var(--color-surface);
-  border: 2px solid var(--color-ink);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-float);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-xs);
   pointer-events: none;
 }
 
-.bio-trend-tooltip.is-above {
-  transform: translate(-50%, -100%);
+.bio-trend-tooltip.is-pinned { pointer-events: auto; }
+
+.bio-trend-tooltip-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
 }
 
-.bio-trend-tooltip.is-below {
-  transform: translate(-50%, 12px);
+.bio-trend-tooltip-heading > strong { color: var(--color-ink); font-size: .82rem; }
+.bio-trend-tooltip-heading button {
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0;
+  color: var(--color-ink);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
 }
 
-.bio-trend-tooltip > strong { color: var(--color-primary-hover); }
-.bio-trend-tooltip span { color: var(--color-muted); font-weight: 650; }
-.bio-trend-tooltip span strong { color: var(--color-ink); }
+.bio-trend-tooltip-heading button:focus-visible { outline: 2px solid var(--color-primary); }
+
+.bio-trend-tooltip-values {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.bio-trend-tooltip-values:has(> :nth-child(3)) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.bio-trend-tooltip-values > span { display: grid; min-width: 0; gap: 2px; }
+.bio-trend-tooltip-values strong { color: var(--color-ink); font-size: 1rem; }
+.bio-trend-tooltip-values small { overflow-wrap: anywhere; }
+
+.bio-trend-tooltip > .bio-trend-tooltip-context {
+  display: grid;
+  grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr);
+  gap: var(--space-2);
+  border-top: 1px solid var(--color-line-soft);
+  padding-top: var(--space-2);
+}
+
+.bio-trend-tooltip > .bio-trend-tooltip-note {
+  display: grid;
+  gap: 3px;
+  border-top: 1px solid var(--color-line-soft);
+  padding-top: var(--space-2);
+}
+
+.bio-trend-tooltip span strong { color: var(--color-ink); font-weight: 700; overflow-wrap: anywhere; }
 
 .bio-trend-legend .is-overflow::before {
   width: 0;
@@ -473,12 +514,12 @@
   gap: 10px;
 }
 
-.bio-trend.is-compact .bio-trend-legend span {
+.bio-trend.is-compact .bio-trend-legend :is(button, span) {
   gap: 5px;
   font-size: .66rem;
 }
 
-.bio-trend.is-compact .bio-trend-legend span::before {
+.bio-trend.is-compact .bio-trend-legend :is(button, span)::before {
   width: 15px;
 }
 
@@ -500,8 +541,8 @@
     font-size: .8rem;
   }
 
-  .bio-trend.is-compact .bio-trend-legend span { font-size: .68rem; }
-  .bio-trend.is-compact .bio-trend-legend span::before { width: 16px; }
+  .bio-trend.is-compact .bio-trend-legend :is(button, span) { font-size: .68rem; }
+  .bio-trend.is-compact .bio-trend-legend :is(button, span)::before { width: 16px; }
 }
 
 @media (max-width: 759px), (max-width: 900px) and (orientation: portrait) {
@@ -535,7 +576,7 @@
   .bio-trend.is-compact .bio-trend-detail-values > .is-location { grid-column: 1 / -1; }
   .bio-trend-canvas { overflow-x: auto; }
   .bio-trend:not(.is-compact) svg { width: 640px; min-width: 640px; }
-  .bio-trend-tooltip { max-width: min(220px, calc(100% - 20px)); }
+
 }
 
 @media (prefers-reduced-motion: reduce) {

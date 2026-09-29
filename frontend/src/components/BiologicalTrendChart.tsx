@@ -1,8 +1,9 @@
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
-  type CSSProperties,
   type KeyboardEvent,
   type MouseEvent,
 } from 'react';
@@ -11,11 +12,19 @@ import { line } from 'd3-shape';
 
 import { formatDisplayDate } from '../utils/dateFormat';
 import {
+  chartBiologicalValues,
+  dismissPinnedChartDetail,
+  placeChartDetail,
+  resolveChartDetail,
+  selectedVisibleReading,
+  splitMeasurementsOnGaps,
+  toggleChartSeries,
+} from '../utils/chartBiology';
+import {
   findChartLocationAtDate,
   resolveChartLocationPeriods,
   type ChartLocation,
 } from '../utils/chartLocations';
-import { getZoneColor } from '../utils/zoneColor';
 
 export type TrendMeasurement = {
   id: number | string;
@@ -57,7 +66,7 @@ type ActiveDetail = {
   date?: string;
   id: string;
   left: number;
-  placement: 'above' | 'below';
+
   top: number;
   title: string;
   lines: DetailLine[];
@@ -88,7 +97,6 @@ const BIOLOGICAL_COUNT_AXIS_MAX = 1000;
 
 export default function BiologicalTrendChart({
   compact = false,
-  detailDisplay = 'floating',
   endDate,
   events = [],
   labels,
@@ -98,7 +106,6 @@ export default function BiologicalTrendChart({
   startDate,
 }: {
   compact?: boolean;
-  detailDisplay?: 'floating' | 'inline';
   endDate: string;
   events?: TrendEvent[];
   labels: TrendLabels;
@@ -107,27 +114,49 @@ export default function BiologicalTrendChart({
   selectionScope?: number | string;
   startDate: string;
 }) {
-  const [activeDetail, setActiveDetail] = useState<ActiveDetail | null>(null);
+  const [pinnedDetail, setPinnedDetail] = useState<ActiveDetail | null>(null);
+  const [hoveredDetail, setHoveredDetail] = useState<ActiveDetail | null>(null);
+  const [focusedDetail, setFocusedDetail] = useState<ActiveDetail | null>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const [visibleSeries, setVisibleSeries] = useState({ polyps: true, ephyrae: true });
   const geometry = useMemo(
     () => buildGeometry(measurements, locations, events, startDate, endDate, compact),
     [compact, endDate, events, locations, measurements, startDate],
   );
 
   useEffect(() => {
-    if (detailDisplay === 'floating') {
-      setActiveDetail(null);
-    }
-  }, [detailDisplay, endDate, startDate]);
-
-  useEffect(() => {
-    setActiveDetail(null);
+    setPinnedDetail(null);
+    setHoveredDetail(null);
+    setFocusedDetail(null);
+    setVisibleSeries({ polyps: true, ephyrae: true });
   }, [selectionScope]);
 
+  useEffect(() => {
+    setPinnedDetail((current) => current?.id.startsWith('measurement-')
+      && measurements.some((measurement) => (
+        `measurement-${measurement.id}` === current.id
+        && measurement.date >= startDate && measurement.date <= endDate
+      )) ? current : null);
+    setHoveredDetail(null);
+    setFocusedDetail(null);
+  }, [startDate, endDate]);
+
   function toggleDetail(detail: ActiveDetail) {
-    setActiveDetail((current) => current?.id === detail.id ? null : detail);
+    setPinnedDetail((current) => current?.id === detail.id ? null : detail);
+  }
+
+  function dismissPinnedDetail(event: KeyboardEvent<SVGGElement>) {
+    const result = dismissPinnedChartDetail(event.key, pinnedDetail);
+    if (!result.handled) return false;
+    event.preventDefault();
+    setPinnedDetail(result.pinned);
+    return true;
   }
 
   function handleDetailKey(event: KeyboardEvent<SVGGElement>, detail: ActiveDetail) {
+    if (dismissPinnedDetail(event)) return;
     if (event.key !== 'Enter' && event.key !== ' ') return;
     event.preventDefault();
     toggleDetail(detail);
@@ -140,7 +169,7 @@ export default function BiologicalTrendChart({
 
   function selectMeasurement(event: MouseEvent<SVGGElement>, detail: ActiveDetail) {
     event.stopPropagation();
-    setActiveDetail(detail);
+    setPinnedDetail(detail);
   }
 
   const {
@@ -152,7 +181,6 @@ export default function BiologicalTrendChart({
     locationBands,
     maxCount,
     measurementSegments,
-    missingRanges,
     padding,
     plotHeight,
     plotTop,
@@ -164,48 +192,30 @@ export default function BiologicalTrendChart({
     yCount,
     zoneBandHeight,
   } = geometry;
-  const latestMeasurement = useMemo(() => {
-    const sortedMeasurements = [...measurements].sort((left, right) => left.date.localeCompare(right.date));
-    return sortedMeasurements[sortedMeasurements.length - 1] ?? null;
-  }, [measurements]);
-  const latestDetail: ActiveDetail | null = latestMeasurement
-    ? {
-        id: `measurement-${latestMeasurement.id}`,
-        date: latestMeasurement.date,
-        left: 0,
-        placement: 'above',
-        top: 0,
-        title: formatDisplayDate(latestMeasurement.date),
-        lines: buildMeasurementDetailLines(latestMeasurement, labels, locations),
-      }
-    : null;
-  const inlineDetail = activeDetail?.id.startsWith('measurement-')
-    ? activeDetail
-    : latestDetail;
   const plottedReadingDetails = plottedMeasurements.map((measurement) => {
     const x = xPosition(measurement.date);
-    const topY = Math.min(yCount(measurement.polypCount), yCount(measurement.ephyraeCount));
+    const topY = Math.min(
+      visibleSeries.polyps ? yCount(measurement.polypCount) : Infinity,
+      visibleSeries.ephyrae ? yCount(measurement.ephyraeCount) : Infinity,
+    );
     const locationName = findChartLocationAtDate(locations, measurement.date);
     const detail: ActiveDetail = {
       id: `measurement-${measurement.id}`,
       date: measurement.date,
       left: (x / width) * 100,
-      placement: topY < plotTop + 82 ? 'below' : 'above',
-      top: Math.max(plotTop + 10, topY - 8),
+      top: topY,
       title: formatDisplayDate(measurement.date),
       lines: buildMeasurementDetailLines(measurement, labels, locations, locationName),
     };
     return { detail, measurement, x };
   });
-  const selectedDetailId = detailDisplay === 'inline' ? inlineDetail?.id : activeDetail?.id;
-  const selectedReading = plottedReadingDetails.find(({ detail }) => detail.id === selectedDetailId) ?? null;
-  const inlineReadoutLines = inlineDetail?.lines.filter((item) => item.kind !== 'location') ?? [];
-  const inlineReadoutColumnCount = Math.max(
-    1,
-    inlineReadoutLines.filter((item) => item.kind !== 'note').length,
-  );
+  const selectedDetail = selectedVisibleReading(plottedReadingDetails.map(({ detail }) => detail), pinnedDetail?.id ?? null);
+  const selectedReading = plottedReadingDetails.find(({ detail }) => detail.id === selectedDetail?.id) ?? null;
+  const pinnedVisibleDetail = pinnedDetail?.id.startsWith('measurement-') ? selectedDetail : pinnedDetail;
+  const visibleDetail = resolveChartDetail(pinnedVisibleDetail, focusedDetail, hoveredDetail);
   const hasOverflow = plottedMeasurements.some((measurement) => (
-    measurement.polypCount > maxCount || measurement.ephyraeCount > maxCount
+    (visibleSeries.polyps && measurement.polypCount > maxCount)
+    || (visibleSeries.ephyrae && measurement.ephyraeCount > maxCount)
   ));
   function handleMeasurementKey(
     event: KeyboardEvent<SVGGElement>,
@@ -214,9 +224,10 @@ export default function BiologicalTrendChart({
   ) {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
-      setActiveDetail(detail);
+      setPinnedDetail(detail);
       return;
     }
+    if (dismissPinnedDetail(event)) return;
 
     const targetIndex = event.key === 'ArrowLeft'
       ? measurementIndex - 1
@@ -238,82 +249,84 @@ export default function BiologicalTrendChart({
       ?.focus();
   }
 
-  return (
-    <div className={`${compact ? 'bio-trend is-compact' : 'bio-trend'}${detailDisplay === 'inline' ? ' has-inline-detail' : ''}`}>
-      {detailDisplay === 'inline' && inlineDetail ? (
-        <div className="bio-trend-heading">
-          <section className="bio-trend-readout" aria-live="polite">
-            <header className="bio-trend-readout-header">
-              <span>{labels.selectedReading ?? labels.chartTitle}</span>
-              <time dateTime={inlineDetail.date}>{inlineDetail.title}</time>
-            </header>
-            <dl
-              className="bio-trend-detail-values"
-              style={{ '--detail-columns': inlineReadoutColumnCount } as CSSProperties}
-            >
-              {inlineReadoutLines.map((item) => (
-                <div key={`${item.kind}-${item.label}`} className={`is-${item.kind}`}>
-                  <dt>{item.label}</dt>
-                  <dd>{item.value}</dd>
-                </div>
-              ))}
-            </dl>
-          </section>
-        </div>
-      ) : null}
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    const svg = svgRef.current;
+    const panel = tooltipRef.current;
+    if (!visibleDetail || !canvas || !svg || !panel) return;
 
-      <div className="bio-trend-canvas">
+    function positionDetail() {
+      if (!canvas || !svg || !panel || !visibleDetail) return;
+      const matrix = svg.getScreenCTM();
+      const offsetParent = panel.offsetParent;
+      if (!matrix || !offsetParent) return;
+      const bounds = canvas.getBoundingClientRect();
+      const point = new DOMPoint(visibleDetail.left / 100 * width, visibleDetail.top).matrixTransform(matrix);
+      const anchor = { x: point.x - bounds.left, y: point.y - bounds.top };
+      if (anchor.x < 0 || anchor.x > bounds.width || anchor.y < 0 || anchor.y > bounds.height) {
+        panel.style.visibility = 'hidden';
+        return;
+      }
+      panel.style.maxWidth = `${Math.max(0, bounds.width - 16)}px`;
+      const naturalHeight = Math.max(panel.scrollHeight + panel.offsetHeight - panel.clientHeight, panel.offsetHeight);
+      const position = placeChartDetail(anchor, bounds, { width: panel.offsetWidth, height: naturalHeight });
+      panel.style.maxHeight = `${position.maxHeight}px`;
+      const parentBounds = offsetParent.getBoundingClientRect();
+      panel.style.left = `${bounds.left - parentBounds.left + position.left}px`;
+      panel.style.top = `${bounds.top - parentBounds.top + position.top}px`;
+      panel.style.visibility = 'visible';
+    }
+
+    positionDetail();
+    const observer = new ResizeObserver(positionDetail);
+    observer.observe(canvas);
+    observer.observe(svg);
+    observer.observe(panel);
+    canvas.addEventListener('scroll', positionDetail, { passive: true });
+    return () => {
+      observer.disconnect();
+      canvas.removeEventListener('scroll', positionDetail);
+    };
+  });
+
+  return (
+    <div className={compact ? 'bio-trend is-compact' : 'bio-trend'}>
+      <div ref={canvasRef} className="bio-trend-canvas">
         <svg
+          ref={svgRef}
           className="bio-trend-svg"
           viewBox={`0 0 ${width} ${countHeight}`}
-          role="img"
+          role="group"
           aria-label={labels.chartTitle}
-          onClick={() => {
-            if (detailDisplay === 'floating') {
-              setActiveDetail(null);
-            }
-          }}
+          onClick={() => setPinnedDetail(null)}
         >
           {locationBands.map((band) => {
-            const zoneColor = getZoneColor(band.name);
-            return (
-              <g
-                key={band.id}
-                className="bio-trend-location-band"
-                style={{
-                  '--zone-band-color': zoneColor.background,
-                  '--zone-border-color': zoneColor.border,
-                  '--zone-text-color': zoneColor.text,
-                } as CSSProperties}
-              >
-                <rect
-                  x={band.x1}
-                  y={padding.top}
-                  width={band.width}
-                  height={zoneBandHeight}
-                  rx={compact ? 2 : 3}
-                />
-                <line
-                  className="bio-trend-location-band-baseline"
-                  x1={band.x1}
-                  x2={band.x1 + band.width}
-                  y1={padding.top + zoneBandHeight}
-                  y2={padding.top + zoneBandHeight}
-                />
-                {band.width >= (compact ? 72 : 92) ? (
-                  <text
-                    x={band.x1 + 8}
-                    y={padding.top + zoneBandHeight / 2}
-                    dominantBaseline="middle"
-                  >
-                    {band.name}
-                  </text>
-                ) : null}
-                {band.x1 > padding.left + 1 ? (
-                  <line x1={band.x1} x2={band.x1} y1={padding.top} y2={padding.top + zoneBandHeight} />
-                ) : null}
-              </g>
-            );
+            const detail: ActiveDetail = {
+              id: `location-${band.id}`,
+              left: ((band.x1 + band.width / 2) / width) * 100,
+              top: padding.top + zoneBandHeight,
+              title: band.name,
+              lines: [{ kind: 'location', label: labels.location, value: `${formatDisplayDate(band.startDate)} - ${formatDisplayDate(band.endDate)}` }],
+            };
+            return <g key={band.id} className="bio-trend-location-band" role="button" tabIndex={0}
+              aria-label={`${band.name}, ${formatDisplayDate(band.startDate)} - ${formatDisplayDate(band.endDate)}`}
+              onFocus={() => setFocusedDetail(detail)}
+              onBlur={() => setFocusedDetail(null)}
+              onMouseEnter={() => setHoveredDetail(detail)}
+              onMouseLeave={() => setHoveredDetail(null)}
+              onClick={(event) => stopAndToggle(event, detail)}
+              onKeyDown={(event) => handleDetailKey(event, detail)}
+            >
+              <title>{band.name}: {formatDisplayDate(band.startDate)} - {formatDisplayDate(band.endDate)}</title>
+              <line className="bio-trend-location-band-baseline" x1={band.x1} x2={band.x1 + band.width} y1={padding.top + zoneBandHeight} y2={padding.top + zoneBandHeight} />
+              <line className="bio-trend-location-hit" x1={band.x1 - (band.width < 20 ? 10 : 0)} x2={band.x1 + band.width + (band.width < 20 ? 10 : 0)} y1={padding.top + zoneBandHeight} y2={padding.top + zoneBandHeight} />
+              {band.width >= (compact ? 72 : 92) ? (
+                <text x={band.x1 + 4} y={padding.top + 9}>{band.name}</text>
+              ) : null}
+              {band.x1 > padding.left + 1 ? (
+                <line className="bio-trend-location-change" x1={band.x1} x2={band.x1} y1={padding.top + 2} y2={padding.top + zoneBandHeight + 3} />
+              ) : null}
+            </g>;
           })}
 
           {timeTicks.map((tick) => (
@@ -341,19 +354,6 @@ export default function BiologicalTrendChart({
           <line className="bio-trend-axis" x1={padding.left} y1={countHeight - padding.bottom} x2={width - padding.right} y2={countHeight - padding.bottom} />
           <line className="bio-trend-axis" x1={padding.left} y1={plotTop} x2={padding.left} y2={countHeight - padding.bottom} />
 
-          {missingRanges.map((range) => (
-            <g key={`${range.start}-${range.end}`} className="bio-trend-missing-range">
-              <rect
-                className="bio-trend-missing-wash"
-                x={range.x1}
-                y={plotTop}
-                width={range.width}
-                height={plotHeight}
-              />
-              <title>{`${labels.missingReading}: ${formatDisplayDate(range.start)} - ${formatDisplayDate(range.end)}`}</title>
-            </g>
-          ))}
-
           {selectedReading ? (
             <line
               className="bio-trend-selection-guide"
@@ -364,10 +364,10 @@ export default function BiologicalTrendChart({
             />
           ) : null}
 
-          {measurementSegments.map((segment, index) => (
+          {visibleSeries.polyps && measurementSegments.map((segment, index) => (
             <path key={`polyps-${index}`} className="bio-trend-line is-polyps" d={countLine((point) => point.polypCount)(segment) ?? ''} />
           ))}
-          {measurementSegments.map((segment, index) => (
+          {visibleSeries.ephyrae && measurementSegments.map((segment, index) => (
             <path key={`ephyrae-${index}`} className="bio-trend-line is-ephyrae" d={countLine((point) => point.ephyraeCount)(segment) ?? ''} />
           ))}
 
@@ -376,7 +376,6 @@ export default function BiologicalTrendChart({
             const detail = {
               id: `event-${event.id}`,
               left: (x / width) * 100,
-              placement: 'below' as const,
               top: plotTop + 6,
               title: `${eventTitle} - ${formatDisplayDate(event.date)}`,
               lines: event.detail
@@ -393,6 +392,10 @@ export default function BiologicalTrendChart({
                 transform={`translate(${x} ${padding.top})`}
                 onClick={(clickEvent) => stopAndToggle(clickEvent, detail)}
                 onKeyDown={(keyEvent) => handleDetailKey(keyEvent, detail)}
+                onMouseEnter={() => setHoveredDetail(detail)}
+                onMouseLeave={() => setHoveredDetail(null)}
+                onFocus={() => setFocusedDetail(detail)}
+                onBlur={() => setFocusedDetail(null)}
               >
                 <line
                   className="bio-trend-event-hit-area"
@@ -428,25 +431,29 @@ export default function BiologicalTrendChart({
             return (
               <g
                 key={measurement.id}
-                className={`bio-trend-measurement${selectedDetailId === detail.id ? ' is-selected' : ''}`}
+                className={`bio-trend-measurement${selectedReading?.detail.id === detail.id ? ' is-selected' : ''}`}
                 data-measurement-index={measurementIndex}
                 role="button"
                 tabIndex={0}
-                aria-pressed={selectedDetailId === detail.id}
+                aria-pressed={selectedReading?.detail.id === detail.id}
                 aria-label={`${formatDisplayDate(measurement.date)}, ${detail.lines.map((item) => `${item.label}: ${item.value}`).join(', ')}`}
                 onClick={(clickEvent) => selectMeasurement(clickEvent, detail)}
+                onMouseEnter={() => setHoveredDetail(detail)}
+                onMouseLeave={() => setHoveredDetail(null)}
+                onFocus={() => setFocusedDetail(detail)}
+                onBlur={() => setFocusedDetail(null)}
                 onKeyDown={(keyEvent) => handleMeasurementKey(keyEvent, detail, measurementIndex)}
               >
                 <title>{`${formatDisplayDate(measurement.date)} - ${labels.polyps}: ${measurement.polypCount}, ${labels.ephyrae}: ${measurement.ephyraeCount}`}</title>
-                <circle className="bio-trend-dot is-polyps" cx={x} cy={yCount(measurement.polypCount)} r={measurement.polypCount === 0 ? 3 : 2.35} />
-                <circle className="bio-trend-dot is-ephyrae" cx={x} cy={yCount(measurement.ephyraeCount)} r={measurement.ephyraeCount === 0 ? 3 : 2.35} />
-                {measurement.polypCount > maxCount ? (
+                {visibleSeries.polyps ? <circle className="bio-trend-dot is-polyps" cx={x} cy={yCount(measurement.polypCount)} r={measurement.polypCount === 0 ? 3 : 2.35} /> : null}
+                {visibleSeries.ephyrae ? <circle className="bio-trend-dot is-ephyrae" cx={x} cy={yCount(measurement.ephyraeCount)} r={measurement.ephyraeCount === 0 ? 3 : 2.35} /> : null}
+                {visibleSeries.polyps && measurement.polypCount > maxCount ? (
                   <path
                     className="bio-trend-overflow is-polyps"
                     d={`M${x - 4} ${plotTop + 8} L${x} ${plotTop + 1} L${x + 4} ${plotTop + 8} Z`}
                   />
                 ) : null}
-                {measurement.ephyraeCount > maxCount ? (
+                {visibleSeries.ephyrae && measurement.ephyraeCount > maxCount ? (
                   <path
                     className="bio-trend-overflow is-ephyrae"
                     d={`M${x - 4} ${plotTop + 14} L${x} ${plotTop + 7} L${x + 4} ${plotTop + 14} Z`}
@@ -475,26 +482,55 @@ export default function BiologicalTrendChart({
           ))}
         </svg>
 
-        {detailDisplay === 'floating' && activeDetail ? (
-          <div
-            className={`bio-trend-tooltip is-${activeDetail.placement}`}
-            style={{ left: `${Math.min(86, Math.max(14, activeDetail.left))}%`, top: activeDetail.top }}
-          >
-            <strong>{activeDetail.title}</strong>
-            {activeDetail.lines.map((item) => (
-              <span key={item.label}>
-                <small>{item.label}</small>
-                <strong>{item.value}</strong>
-              </span>
-            ))}
-          </div>
-        ) : null}
       </div>
 
-      <div className="bio-trend-legend bio-trend-legend--footer" aria-label={labels.chartTitle}>
-        <span className="is-polyps">{labels.polyps}</span>
-        <span className="is-ephyrae">{labels.ephyrae}</span>
-        {missingRanges.length ? <span className="is-missing">{labels.missingReading}</span> : null}
+      {visibleDetail ? (
+        <div ref={tooltipRef} className={`bio-trend-tooltip${pinnedVisibleDetail?.id === visibleDetail.id ? ' is-pinned' : ''}`} role="group" aria-label={visibleDetail.title}>
+          <div className="bio-trend-tooltip-heading">
+            <strong>{visibleDetail.title}</strong>
+            {pinnedVisibleDetail?.id === visibleDetail.id ? (
+              <button type="button" aria-label={labels.closeDetail} onClick={() => {
+                setPinnedDetail(null);
+                const index = selectedReading ? plottedReadingDetails.indexOf(selectedReading) : -1;
+                if (index >= 0) {
+                  svgRef.current?.querySelector<SVGGElement>(`[data-measurement-index="${index}"]`)?.focus();
+                }
+              }}>×</button>
+            ) : null}
+          </div>
+          {visibleDetail.id.startsWith('measurement-') ? (
+            <>
+              <div className="bio-trend-tooltip-values">
+                {visibleDetail.lines.filter((item) => item.kind === 'polyps' || item.kind === 'ephyrae' || item.kind === 'salinity').map((item) => (
+                  <span key={item.kind}>
+                    <small>{item.label}</small><strong>{item.value}</strong>
+                  </span>
+                ))}
+              </div>
+              {visibleDetail.lines.filter((item) => item.kind === 'location' || item.kind === 'user').map((item) => (
+                <span className="bio-trend-tooltip-context" key={item.kind}>
+                  <small>{item.label}</small><strong>{item.value}</strong>
+                </span>
+              ))}
+              {visibleDetail.lines.filter((item) => item.kind === 'note').map((item) => (
+                <span className="bio-trend-tooltip-note" key={item.kind}>
+                  <small>{item.label}</small><strong>{item.value}</strong>
+                </span>
+              ))}
+            </>
+          ) : visibleDetail.lines.map((item) => (
+            <span className="bio-trend-tooltip-context" key={item.kind}>
+              <small>{item.label}</small><strong>{item.value}</strong>
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="bio-trend-legend bio-trend-legend--footer" role="group" aria-label={labels.chartTitle}>
+        <button type="button" className={`is-polyps${visibleSeries.polyps ? '' : ' is-hidden'}`} aria-pressed={visibleSeries.polyps}
+          onClick={() => setVisibleSeries((current) => toggleChartSeries(current, 'polyps'))}>{labels.polyps}</button>
+        <button type="button" className={`is-ephyrae${visibleSeries.ephyrae ? '' : ' is-hidden'}`} aria-pressed={visibleSeries.ephyrae}
+          onClick={() => setVisibleSeries((current) => toggleChartSeries(current, 'ephyrae'))}>{labels.ephyrae}</button>
         {hasOverflow ? <span className="is-overflow">&gt; {maxCount}</span> : null}
       </div>
     </div>
@@ -508,39 +544,14 @@ function buildMeasurementDetailLines(
   knownLocationName?: string,
 ): DetailLine[] {
   const locationName = knownLocationName ?? findChartLocationAtDate(locations, measurement.date);
-  const lines: DetailLine[] = [
-    {
-      kind: 'polyps',
-      label: labels.polyps,
-      value: String(measurement.polypCount),
-    },
-    {
-      kind: 'ephyrae',
-      label: labels.ephyrae,
-      value: String(measurement.ephyraeCount),
-    },
-  ];
+  const lines: DetailLine[] = chartBiologicalValues(measurement, labels);
 
-  if (labels.salinity) {
-    lines.push({
-      kind: 'salinity',
-      label: labels.salinity,
-      value: measurement.salinity == null ? '—' : formatDecimal(measurement.salinity),
-    });
+  if (locationName) {
+    lines.push({ kind: 'location', label: labels.location, value: locationName });
   }
 
-  lines.push({
-    kind: 'location',
-    label: labels.location,
-    value: locationName ?? '—',
-  });
-
-  if (labels.enteredBy) {
-    lines.push({
-      kind: 'user',
-      label: labels.enteredBy,
-      value: measurement.enteredBy?.trim() || '—',
-    });
+  if (labels.enteredBy && measurement.enteredBy?.trim()) {
+    lines.push({ kind: 'user', label: labels.enteredBy, value: measurement.enteredBy.trim() });
   }
 
   if (labels.observation && measurement.note?.trim()) {
@@ -593,8 +604,8 @@ function buildGeometry(
     latestMeasurementDate,
     xPosition,
   );
-  const zoneBandHeight = locationBands.length ? (compact ? 18 : 22) : 0;
-  const zoneBandGap = locationBands.length ? (compact ? 4 : 6) : 0;
+  const zoneBandHeight = locationBands.length ? (compact ? 20 : 22) : 0;
+  const zoneBandGap = locationBands.length ? 4 : 0;
   const plotTop = padding.top + zoneBandHeight + zoneBandGap;
   const plotHeight = countHeight - padding.bottom - plotTop;
   const chartAreaHeight = countHeight - padding.bottom - padding.top;
@@ -637,11 +648,6 @@ function buildGeometry(
     locationBands,
     maxCount,
     measurementSegments: splitMeasurementsOnGaps(plottedMeasurements),
-    missingRanges: buildMissingRanges(plottedMeasurements, startText, endText).map((range) => ({
-      ...range,
-      x1: xPosition(range.start),
-      width: Math.max(3, xPosition(range.end) - xPosition(range.start)),
-    })),
     padding,
     plotHeight,
     plotTop,
@@ -719,7 +725,7 @@ function buildLocationBands(
 function buildZoneTransitions(locationBands: LocationBand[]) {
   return locationBands.flatMap((band, index) => {
     const previousBand = locationBands[index - 1];
-    if (!previousBand || previousBand.name === band.name) return [];
+    if (!previousBand || previousBand.name === band.name || daysBetween(previousBand.endDate, band.startDate) > 1) return [];
 
     return [{
       date: band.startDate,
@@ -758,60 +764,7 @@ function resolveEventX(
   return closestBoundary && closestBoundary.distance <= 18 ? closestBoundary.x : eventX;
 }
 
-function splitMeasurementsOnGaps(measurements: TrendMeasurement[]) {
-  const segments: TrendMeasurement[][] = [];
-  let current: TrendMeasurement[] = [];
-  measurements.forEach((measurement, index) => {
-    const previous = measurements[index - 1];
-    if (previous && daysBetween(previous.date, measurement.date) > 10) {
-      if (current.length) segments.push(current);
-      current = [];
-    }
-    current.push(measurement);
-  });
-  if (current.length) segments.push(current);
-  return segments;
-}
 
-function buildMissingRanges(
-  measurements: TrendMeasurement[],
-  startDate: string,
-  endDate: string,
-) {
-  const expectedIntervalDays = 7;
-  const missingThresholdDays = 10;
-
-  if (!measurements.length) return [{ start: startDate, end: endDate }];
-
-  const ranges: Array<{ start: string; end: string }> = [];
-  const firstMeasurement = measurements[0];
-  const lastMeasurement = measurements[measurements.length - 1];
-
-  if (daysBetween(startDate, firstMeasurement.date) > missingThresholdDays) {
-    ranges.push({
-      start: startDate,
-      end: toDateString(addDays(normalizeDate(firstMeasurement.date), -1)),
-    });
-  }
-
-  measurements.forEach((measurement, index) => {
-    const previous = measurements[index - 1];
-    if (!previous || daysBetween(previous.date, measurement.date) <= missingThresholdDays) return;
-    ranges.push({
-      start: toDateString(addDays(normalizeDate(previous.date), expectedIntervalDays + 1)),
-      end: toDateString(addDays(normalizeDate(measurement.date), -1)),
-    });
-  });
-
-  if (daysBetween(lastMeasurement.date, endDate) > missingThresholdDays) {
-    ranges.push({
-      start: toDateString(addDays(normalizeDate(lastMeasurement.date), expectedIntervalDays + 1)),
-      end: endDate,
-    });
-  }
-
-  return ranges;
-}
 
 function normalizeDate(value: string) {
   return new Date(`${value.slice(0, 10)}T00:00:00`);
@@ -831,10 +784,4 @@ function toDateString(date: Date) {
 
 function daysBetween(first: string, second: string) {
   return Math.round((normalizeDate(second).getTime() - normalizeDate(first).getTime()) / 86_400_000);
-}
-
-function formatDecimal(value: string | number) {
-  const numeric = typeof value === 'number' ? value : Number.parseFloat(value);
-  if (!Number.isFinite(numeric)) return String(value);
-  return Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(1);
 }

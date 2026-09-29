@@ -67,6 +67,20 @@ test('an inactive location with an unknown end remains visible through its last 
     'Armoire 10 C',
   );
 });
+test('location periods keep repeated stays, short visits and historical gaps distinct', () => {
+  const locations = [
+    { id: 1, name: 'Zone 5', startsAt: '2026-01-01T10:00:00Z', endsAt: '2026-01-09T10:00:00Z' },
+    { id: 2, name: 'Zone 15', startsAt: '2026-01-12T10:00:00Z', endsAt: '2026-01-12T20:00:00Z' },
+    { id: 3, name: 'Zone 5', startsAt: '2026-01-14T10:00:00Z', endsAt: '2026-01-20T10:00:00Z' },
+  ];
+  const periods = locationExports.resolveChartLocationPeriods(locations, '2026-02-01', '');
+  assert.equal(periods.length, 3);
+  assert.equal(periods[1].startDate, '2026-01-12');
+  assert.equal(periods[1].endDate, '2026-01-12');
+  assert.equal(locationExports.findChartLocationAtDate(locations, '2026-01-11'), undefined);
+  assert.equal(locationExports.findChartLocationAtDate(locations, '2026-01-16'), 'Zone 5');
+});
+
 test('an unknown location end is not extended when no reading supports it', () => {
   const periods = locationExports.resolveChartLocationPeriods([{
     id: 1,
