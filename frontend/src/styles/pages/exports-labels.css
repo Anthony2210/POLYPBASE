@@ -630,22 +630,6 @@
   padding: var(--space-1) var(--space-5) var(--space-4);
 }
 
-.export-trend-panel .bio-trend-location-band text {
-  font-size: 0.72rem;
-}
-
-.export-trend-panel :where(.bio-trend-label, .bio-trend-y-label) {
-  font-size: 0.68rem;
-}
-
-.export-trend-panel .bio-trend-time-tick text {
-  font-size: 0.62rem;
-}
-
-.export-trend-panel .bio-trend-legend span {
-  font-size: 0.72rem;
-}
-
 .export-trend-empty {
   display: grid;
   gap: var(--space-1);

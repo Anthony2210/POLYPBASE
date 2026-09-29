@@ -317,7 +317,6 @@ export default function BiologicalTrendChart({
               onClick={(event) => stopAndToggle(event, detail)}
               onKeyDown={(event) => handleDetailKey(event, detail)}
             >
-              <title>{band.name}: {formatDisplayDate(band.startDate)} - {formatDisplayDate(band.endDate)}</title>
               <line className="bio-trend-location-band-baseline" x1={band.x1} x2={band.x1 + band.width} y1={padding.top + zoneBandHeight} y2={padding.top + zoneBandHeight} />
               <line className="bio-trend-location-hit" x1={band.x1 - (band.width < 20 ? 10 : 0)} x2={band.x1 + band.width + (band.width < 20 ? 10 : 0)} y1={padding.top + zoneBandHeight} y2={padding.top + zoneBandHeight} />
               {band.width >= (compact ? 72 : 92) ? (
@@ -444,9 +443,8 @@ export default function BiologicalTrendChart({
                 onBlur={() => setFocusedDetail(null)}
                 onKeyDown={(keyEvent) => handleMeasurementKey(keyEvent, detail, measurementIndex)}
               >
-                <title>{`${formatDisplayDate(measurement.date)} - ${labels.polyps}: ${measurement.polypCount}, ${labels.ephyrae}: ${measurement.ephyraeCount}`}</title>
-                {visibleSeries.polyps ? <circle className="bio-trend-dot is-polyps" cx={x} cy={yCount(measurement.polypCount)} r={measurement.polypCount === 0 ? 3 : 2.35} /> : null}
-                {visibleSeries.ephyrae ? <circle className="bio-trend-dot is-ephyrae" cx={x} cy={yCount(measurement.ephyraeCount)} r={measurement.ephyraeCount === 0 ? 3 : 2.35} /> : null}
+                {visibleSeries.polyps ? <circle className={`bio-trend-dot is-polyps${visibleSeries.ephyrae && measurement.polypCount === measurement.ephyraeCount ? ' is-overlapping' : ''}`} cx={x} cy={yCount(measurement.polypCount)} r={measurement.polypCount === 0 ? 2.8 : 2.15} /> : null}
+                {visibleSeries.ephyrae ? <circle className={`bio-trend-dot is-ephyrae${measurement.ephyraeCount === 0 ? ' is-zero' : ''}${visibleSeries.polyps && measurement.polypCount === measurement.ephyraeCount ? ' is-overlapping' : ''}`} cx={x} cy={yCount(measurement.ephyraeCount)} r={measurement.ephyraeCount === 0 ? 2.8 : 2.15} /> : null}
                 {visibleSeries.polyps && measurement.polypCount > maxCount ? (
                   <path
                     className="bio-trend-overflow is-polyps"
@@ -502,16 +500,20 @@ export default function BiologicalTrendChart({
             <>
               <div className="bio-trend-tooltip-values">
                 {visibleDetail.lines.filter((item) => item.kind === 'polyps' || item.kind === 'ephyrae' || item.kind === 'salinity').map((item) => (
-                  <span key={item.kind}>
+                  <span key={item.kind} className={`is-${item.kind}`}>
                     <small>{item.label}</small><strong>{item.value}</strong>
                   </span>
                 ))}
               </div>
-              {visibleDetail.lines.filter((item) => item.kind === 'location' || item.kind === 'user').map((item) => (
-                <span className="bio-trend-tooltip-context" key={item.kind}>
-                  <small>{item.label}</small><strong>{item.value}</strong>
-                </span>
-              ))}
+              {visibleDetail.lines.some((item) => item.kind === 'location' || item.kind === 'user') ? (
+                <div className="bio-trend-tooltip-metadata">
+                  {visibleDetail.lines.filter((item) => item.kind === 'location' || item.kind === 'user').map((item) => (
+                    <span className="bio-trend-tooltip-context" key={item.kind}>
+                      <small>{item.label}</small><strong>{item.value}</strong>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
               {visibleDetail.lines.filter((item) => item.kind === 'note').map((item) => (
                 <span className="bio-trend-tooltip-note" key={item.kind}>
                   <small>{item.label}</small><strong>{item.value}</strong>

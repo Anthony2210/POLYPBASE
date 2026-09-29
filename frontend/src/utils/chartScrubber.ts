@@ -35,6 +35,10 @@ export function buildScrubberRange(
   return { extentStart: first, extentEnd: last, start, end };
 }
 
+export function isFullChartHistory(range: ScrubberRange): boolean {
+  return range.start === range.extentStart && range.end === range.extentEnd;
+}
+
 export function moveScrubberRange(range: ScrubberRange, days: number): ScrubberRange {
   const duration = range.end - range.start;
   const start = clamp(range.start + Math.round(days), range.extentStart, range.extentEnd - duration);

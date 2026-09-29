@@ -182,7 +182,7 @@
   border-top: 1px solid var(--color-line);
 }
 
-.box-tracking-preview { width: 660px; padding: var(--space-3); }
+.box-tracking-preview { width: 720px; padding: var(--space-3); }
 
 .box-tracking-preview-heading {
   display: flex;
@@ -230,10 +230,16 @@
 .box-tracking-preview-facts dt { color: var(--color-muted); font-size: .62rem; font-weight: 700; }
 .box-tracking-preview-facts dd { margin: 0; color: var(--color-ink-soft); font-size: .7rem; font-weight: 700; }
 
-.box-tracking-preview .measurement-chart { gap: var(--space-2); }
-.box-tracking-preview .chart-window-header { padding-block: var(--space-2); }
-.box-tracking-preview .chart-window-viewport { min-height: 0; }
+.box-tracking-preview .measurement-chart { min-width: 0; gap: var(--space-2); }
+.box-tracking-preview .chart-window-header {
+  width: 100%;
+  margin-inline: 0;
+  padding: var(--space-2) 10px;
+}
+.box-tracking-preview .chart-window-viewport,
+.box-tracking-preview .chart-window-content { min-width: 0; min-height: 0; }
 .box-tracking-preview .bio-trend { border: 0; }
+.box-tracking-preview .bio-trend.is-compact svg { min-width: 0; max-width: 100%; }
 
 .box-tracking-preview-state {
   display: grid;

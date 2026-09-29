@@ -694,6 +694,7 @@ export const en: Record<TranslationKey, string> = {
   chartMissingReading: 'Period without reading',
   chartTitle: 'Measurement trend',
   chartDisplayedPeriod: 'Displayed period',
+  chartFullHistory: 'Full history',
   chartTotalPeriod: 'Total period',
   chartStartPeriod: 'Start of displayed period',
   chartEndPeriod: 'End of displayed period',

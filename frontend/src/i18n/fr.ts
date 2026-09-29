@@ -692,6 +692,7 @@ export const fr = {
   chartMissingReading: 'Période sans relevé',
   chartTitle: 'Évolution des relevés',
   chartDisplayedPeriod: 'Période affichée',
+  chartFullHistory: 'Tout l’historique',
   chartTotalPeriod: 'Période totale',
   chartStartPeriod: 'Début de la période affichée',
   chartEndPeriod: 'Fin de la période affichée',

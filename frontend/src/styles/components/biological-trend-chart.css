@@ -3,6 +3,11 @@
   display: grid;
   min-width: 0;
   gap: var(--space-2);
+  --chart-axis-size: .64rem;
+  --chart-date-size: .60rem;
+  --chart-location-size: .62rem;
+  --chart-legend-size: .7rem;
+  --chart-line-width: 1.8;
 }
 
 .chart-periods {
@@ -47,22 +52,22 @@
 .bio-trend-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-3);
+  gap: 6px;
 }
 
 .bio-trend-legend :is(button, span) {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   color: var(--color-muted);
-  font-size: .76rem;
-  font-weight: 750;
+  font-size: var(--chart-legend-size);
+  font-weight: 625;
   font-family: inherit;
 }
 
 .bio-trend-legend :is(button, span)::before {
-  width: 18px;
-  height: 3px;
+  width: 15px;
+  height: 2px;
   content: '';
   background: var(--series-color);
   border-radius: var(--radius-pill);
@@ -72,7 +77,8 @@
 .bio-trend-legend .is-ephyrae { --series-color: var(--color-ephyrae); }
 
 .bio-trend-legend button {
-  padding: 5px 8px;
+  min-height: 30px;
+  padding: 5px 6px;
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
@@ -225,11 +231,11 @@
 .bio-trend-location-band { cursor: pointer; }
 .bio-trend-location-band:focus-visible { outline: 2px solid var(--color-primary); }
 .bio-trend-location-band-baseline {
-  stroke: var(--color-muted);
-  stroke-width: 2;
+  stroke: var(--color-line);
+  stroke-width: 1.5;
 }
 .bio-trend-location-change {
-  stroke: var(--color-muted);
+  stroke: var(--color-line);
   stroke-width: 1;
 }
 .bio-trend-location-hit {
@@ -238,9 +244,9 @@
   pointer-events: stroke;
 }
 .bio-trend-location-band text {
-  fill: var(--color-ink-soft);
-  font-size: .68rem;
-  font-weight: 650;
+  fill: var(--color-muted);
+  font-size: var(--chart-location-size);
+  font-weight: 600;
   pointer-events: none;
 }
 
@@ -249,21 +255,24 @@
   stroke-width: 1;
 }
 
-.bio-trend-grid { stroke-dasharray: 4 6; }
+.bio-trend-grid {
+  stroke: color-mix(in srgb, var(--color-line) 60%, transparent);
+  stroke-dasharray: 4 6;
+}
 
 .bio-trend-time-tick {
   pointer-events: none;
 }
 
 .bio-trend-time-tick line {
-  stroke: color-mix(in srgb, var(--color-line) 64%, transparent);
+  stroke: color-mix(in srgb, var(--color-line) 34%, transparent);
   stroke-width: .7;
 }
 
 .bio-trend-time-tick text {
   fill: var(--color-muted);
   font-family: inherit;
-  font-size: .54rem;
+  font-size: var(--chart-date-size);
   font-variant-numeric: tabular-nums;
   font-weight: 650;
 }
@@ -271,7 +280,7 @@
 .bio-trend-line {
   fill: none;
   stroke: var(--series-color);
-  stroke-width: 2.2;
+  stroke-width: var(--chart-line-width);
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -285,22 +294,33 @@
 .bio-trend-dot {
   fill: var(--color-surface);
   stroke: var(--series-color);
-  stroke-width: 1.8;
-  transition: r var(--transition-fast), stroke-width var(--transition-fast), filter var(--transition-fast);
+  stroke-width: 1.35;
+  transition: r var(--transition-fast), stroke-width var(--transition-fast);
 }
+
+/* Concentric outlines reveal both series at the same measured coordinate. */
+.bio-trend-dot.is-overlapping { r: 4.2; }
+.bio-trend-dot.is-overlapping.is-ephyrae { r: 2.15; }
+.bio-trend-dot.is-overlapping.is-zero { r: 2.8; }
+.bio-trend-dot.is-overlapping.is-zero.is-polyps { r: 4.7; }
 
 .bio-trend-measurement:focus { outline: none; }
 .bio-trend-measurement:is(:hover, :focus) .bio-trend-dot {
-  filter: drop-shadow(0 2px 4px rgb(16 25 35 / 24%));
+  r: 3.2;
+  stroke-width: 1.85;
 }
+.bio-trend-measurement:is(:hover, :focus) .bio-trend-dot.is-overlapping { r: 4.8; }
+.bio-trend-measurement:is(:hover, :focus) .bio-trend-dot.is-overlapping.is-ephyrae { r: 2.8; }
 
 .bio-trend-measurement.is-selected .bio-trend-dot {
-  stroke-width: 2.4;
-  filter: drop-shadow(0 1px 3px rgb(16 25 35 / 22%));
+  r: 3.8;
+  stroke-width: 2.15;
 }
+.bio-trend-measurement.is-selected .bio-trend-dot.is-overlapping { r: 5.2; }
+.bio-trend-measurement.is-selected .bio-trend-dot.is-overlapping.is-ephyrae { r: 3.2; }
 
 .bio-trend-measurement:focus-visible .bio-trend-dot {
-  stroke-width: 2.8;
+  stroke-width: 2.6;
 }
 
 .bio-trend-overflow {
@@ -369,7 +389,7 @@
 :where(.bio-trend-label, .bio-trend-y-label, .bio-trend-empty) {
   fill: var(--color-muted);
   font-family: inherit;
-  font-size: .64rem;
+  font-size: var(--chart-axis-size);
   font-weight: 650;
 }
 
@@ -388,11 +408,10 @@
   z-index: 3;
   display: grid;
   box-sizing: border-box;
-  width: max-content;
-  min-width: min(180px, 100%);
-  max-width: min(260px, calc(100% - 16px));
-  padding: var(--space-2) var(--space-3);
-  gap: var(--space-2);
+  width: min(320px, calc(100% - 16px));
+  min-width: 0;
+  padding: var(--space-3);
+  gap: var(--space-3);
   overflow: hidden auto;
   visibility: hidden;
   color: var(--color-ink);
@@ -413,11 +432,12 @@
   gap: var(--space-2);
 }
 
-.bio-trend-tooltip-heading > strong { color: var(--color-ink); font-size: .82rem; }
+.bio-trend-tooltip-heading > strong { min-width: 0; color: var(--color-ink); font-size: .88rem; overflow-wrap: anywhere; }
 .bio-trend-tooltip-heading button {
   min-width: 30px;
   min-height: 30px;
   padding: 0;
+  flex: 0 0 auto;
   color: var(--color-ink);
   background: transparent;
   border: 0;
@@ -430,30 +450,47 @@
 .bio-trend-tooltip-values {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-2);
+  column-gap: var(--space-4);
+  row-gap: var(--space-3);
 }
 
-.bio-trend-tooltip-values:has(> :nth-child(3)) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.bio-trend-tooltip-values > span { display: grid; min-width: 0; gap: 2px; }
-.bio-trend-tooltip-values strong { color: var(--color-ink); font-size: 1rem; }
+.bio-trend-tooltip-values > span { display: grid; min-width: 0; align-content: start; gap: 3px; }
+.bio-trend-tooltip-values > .is-salinity { grid-column: 1 / -1; }
 .bio-trend-tooltip-values small { overflow-wrap: anywhere; }
+.bio-trend-tooltip-values .is-polyps :is(small, strong) { color: var(--color-primary); }
+.bio-trend-tooltip-values .is-ephyrae :is(small, strong) { color: var(--color-ephyrae); }
+.bio-trend-tooltip-values strong { font-size: 1.2rem; font-weight: 750; line-height: 1.15; }
+.bio-trend-tooltip-values .is-salinity strong { color: var(--color-ink); font-size: .9rem; }
 
-.bio-trend-tooltip > .bio-trend-tooltip-context {
+.bio-trend-tooltip-metadata:not(:empty) {
   display: grid;
-  grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr);
-  gap: var(--space-2);
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+  padding-top: var(--space-3);
   border-top: 1px solid var(--color-line-soft);
-  padding-top: var(--space-2);
 }
 
+.bio-trend-tooltip-context,
+.bio-trend-tooltip-note {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 4px;
+}
+
+.bio-trend-tooltip > .bio-trend-tooltip-context,
 .bio-trend-tooltip > .bio-trend-tooltip-note {
-  display: grid;
-  gap: 3px;
+  padding-top: var(--space-3);
   border-top: 1px solid var(--color-line-soft);
-  padding-top: var(--space-2);
 }
 
-.bio-trend-tooltip span strong { color: var(--color-ink); font-weight: 700; overflow-wrap: anywhere; }
+.bio-trend-tooltip :is(.bio-trend-tooltip-context, .bio-trend-tooltip-note) strong {
+  min-width: 0;
+  color: var(--color-ink);
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
 
 .bio-trend-legend .is-overflow::before {
   width: 0;
@@ -469,6 +506,11 @@
   min-height: 270px;
   align-self: end;
   gap: 2px;
+  --chart-axis-size: .60rem;
+  --chart-date-size: .58rem;
+  --chart-location-size: .59rem;
+  --chart-legend-size: .66rem;
+  --chart-line-width: 1.7;
 }
 
 .bio-trend.is-compact .bio-trend-heading { min-height: auto; }
@@ -492,35 +534,16 @@
 .bio-trend.is-compact .bio-trend-detail-values dd { font-size: .82rem; }
 .bio-trend.is-compact .bio-trend-detail-values :is(.is-polyps, .is-ephyrae) dd { font-size: 1.05rem; }
 
-.bio-trend.is-compact .bio-trend-location-band text,
-.bio-trend.is-compact .bio-trend-label,
-.bio-trend.is-compact .bio-trend-y-label {
-  font-size: .62rem;
-}
-
-.bio-trend.is-compact .bio-trend-line {
-  stroke-width: 2.2;
-}
-
-.bio-trend.is-compact .bio-trend-dot {
-  stroke-width: 1.9;
-}
-
-.bio-trend.is-compact .bio-trend-location-band text {
-  font-weight: 850;
-}
-
 .bio-trend.is-compact .bio-trend-legend {
   gap: 10px;
 }
 
 .bio-trend.is-compact .bio-trend-legend :is(button, span) {
   gap: 5px;
-  font-size: .66rem;
 }
 
 .bio-trend.is-compact .bio-trend-legend :is(button, span)::before {
-  width: 15px;
+  width: 14px;
 }
 
 .bio-trend.is-compact .bio-trend-grid {
@@ -531,18 +554,6 @@
   background: transparent;
   border: 0;
   border-radius: 0;
-}
-
-@media (min-width: 760px) and (max-width: 1180px) {
-  .bio-trend.is-compact .bio-trend-location-band text,
-  .bio-trend.is-compact .bio-trend-label,
-  .bio-trend.is-compact .bio-trend-y-label,
-  .bio-trend.is-compact .bio-trend-time-tick text {
-    font-size: .8rem;
-  }
-
-  .bio-trend.is-compact .bio-trend-legend :is(button, span) { font-size: .68rem; }
-  .bio-trend.is-compact .bio-trend-legend :is(button, span)::before { width: 16px; }
 }
 
 @media (max-width: 759px), (max-width: 900px) and (orientation: portrait) {

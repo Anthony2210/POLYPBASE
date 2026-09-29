@@ -3,6 +3,7 @@ import {
   Suspense,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 
@@ -108,6 +109,15 @@ export default function BoxInsights({
     () => buildLifecycleEvents(lineage, movements, labels),
     [lineage, movements, labels],
   );
+  const insightPanelRef = useRef<HTMLDivElement>(null);
+  const [reservedPanelHeight, setReservedPanelHeight] = useState(0);
+  const insightPanelStyle = reservedPanelHeight ? { minHeight: reservedPanelHeight } : undefined;
+
+  function selectTab(tab: BoxInsightTab) {
+    const currentHeight = insightPanelRef.current?.getBoundingClientRect().height ?? 0;
+    setReservedPanelHeight((height) => Math.max(height, Math.ceil(currentHeight)));
+    onSelectTab(tab);
+  }
 
   return (
     <div className="box-insights">
@@ -119,7 +129,7 @@ export default function BoxInsights({
             role="tab"
             type="button"
             aria-selected={activeTab === tab.id}
-            onClick={() => onSelectTab(tab.id)}
+            onClick={() => selectTab(tab.id)}
           >
             {tab.label}
           </button>
@@ -127,7 +137,7 @@ export default function BoxInsights({
       </div>
 
       {activeTab === 'measurements' ? (
-        <div className="insight-panel">
+        <div ref={insightPanelRef} className="insight-panel" style={insightPanelStyle}>
           <BoxTrackingChart
             events={lifecycleEvents}
             labels={labels}
@@ -140,7 +150,7 @@ export default function BoxInsights({
       ) : null}
 
       {activeTab === 'movements' ? (
-        <div className="insight-panel">
+        <div ref={insightPanelRef} className="insight-panel" style={insightPanelStyle}>
           <div className="insight-heading">
             <h2>{labels.movementHistoryTitle}</h2>
           </div>
@@ -149,7 +159,7 @@ export default function BoxInsights({
       ) : null}
 
       {activeTab === 'lineage' ? (
-        <div className="insight-panel">
+        <div ref={insightPanelRef} className="insight-panel" style={insightPanelStyle}>
           <div className="insight-heading">
             <h2>{labels.lineageTab}</h2>
           </div>

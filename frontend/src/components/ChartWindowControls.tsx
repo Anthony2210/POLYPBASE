@@ -4,6 +4,7 @@ import { translations, type Language } from '../i18n';
 import {
   buildScrubberRange,
   chartDayString,
+  isFullChartHistory,
   moveScrubberRange,
   resizeScrubberRange,
   type ScrubberRange,
@@ -120,14 +121,23 @@ export default function ChartWindowControls({
 
   return (
     <header className={`chart-window-header${compact ? ' is-compact' : ''}`}>
-      {title ? <h2>{title}</h2> : null}
+      {compact ? (title ? <h2>{title}</h2> : null) : title || action ? (
+        <div className="chart-window-heading">
+          {title ? <h2>{title}</h2> : null}
+          {action ? <div className="chart-window-action">{action}</div> : null}
+        </div>
+      ) : null}
       <div className="chart-window-navigation">
         <div className="chart-window-range">
           <small>{text.chartDisplayedPeriod}</small>
           <div className="chart-window-dates">
-            <time dateTime={chartDayString(range.start)}>{formatDay(range.start)}</time>
-            <span>{text.chartPeriodTo}</span>
-            <time dateTime={chartDayString(range.end)}>{formatDay(range.end)}</time>
+            {isFullChartHistory(range) ? text.chartFullHistory : (
+              <>
+                <time dateTime={chartDayString(range.start)}>{formatDay(range.start)}</time>
+                <span>{text.chartPeriodTo}</span>
+                <time dateTime={chartDayString(range.end)}>{formatDay(range.end)}</time>
+              </>
+            )}
           </div>
         </div>
         <div className="chart-scrubber" role="group" aria-label={text.chartDisplayedPeriod}>
@@ -164,15 +174,13 @@ export default function ChartWindowControls({
               />
             ))}
           </div>
-          <div className="chart-scrubber-extent">
-            <span>{text.chartTotalPeriod}</span>
+          <div className="chart-scrubber-extent" role="group" aria-label={text.chartTotalPeriod}>
             <time dateTime={chartDayString(range.extentStart)}>{formatDay(range.extentStart)}</time>
-            <span>{text.chartPeriodTo}</span>
             <time dateTime={chartDayString(range.extentEnd)}>{formatDay(range.extentEnd)}</time>
           </div>
         </div>
       </div>
-      {action ? <div className="chart-window-action">{action}</div> : null}
+      {compact && action ? <div className="chart-window-action">{action}</div> : null}
     </header>
   );
 }

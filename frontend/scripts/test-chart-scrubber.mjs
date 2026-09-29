@@ -16,7 +16,7 @@ function load(path, require) {
 
 const chartWindow = load('../src/utils/chartWindow.ts');
 const scrubber = load('../src/utils/chartScrubber.ts', () => chartWindow);
-const { buildScrubberRange, chartDay, chartDayString, moveScrubberRange, resizeScrubberRange } = scrubber;
+const { buildScrubberRange, chartDay, chartDayString, isFullChartHistory, moveScrubberRange, resizeScrubberRange } = scrubber;
 const dates = (range) => [chartDayString(range.start), chartDayString(range.end)];
 
 test('calendar days remain whole across DST and leap days', () => {
@@ -43,6 +43,14 @@ test('range clamps dates and provides a one-day geometry fallback', () => {
   assert.equal(range.extentEnd - range.extentStart, 1);
   assert.deepEqual(dates(buildScrubberRange('2024-01-01', '2024-01-10', '2023-12-01', '2025-01-01')),
     ['2024-01-01', '2024-01-10']);
+});
+
+test('full history matches both normalized extent endpoints exactly', () => {
+  assert.equal(isFullChartHistory(buildScrubberRange('2026-04-15', '2026-09-29', '2026-04-15', '2026-09-29')), true);
+  assert.equal(isFullChartHistory(buildScrubberRange('2026-04-15', '2026-09-29', '2026-04-16', '2026-09-29')), false);
+  assert.equal(isFullChartHistory(buildScrubberRange('2026-04-15', '2026-09-29', '2026-04-15', '2026-09-28')), false);
+  assert.equal(isFullChartHistory(buildScrubberRange('2026-04-15', '2026-09-29', '2026-04-14', '2026-09-30')), true);
+  assert.equal(isFullChartHistory(buildScrubberRange('2026-04-15', '2026-04-15', '2026-04-15', '2026-04-15')), true);
 });
 
 test('move snaps whole days, preserves duration, and stops at both boundaries', () => {

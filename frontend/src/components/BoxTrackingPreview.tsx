@@ -106,6 +106,7 @@ export default function BoxTrackingPreview({ boxId, code, speciesName, language,
           role="dialog"
           aria-labelledby={`${id}-title`}
           style={position}
+          onClick={(event) => event.stopPropagation()}
           onPointerEnter={() => { pointerInside.current = true; clearTimers(); }}
           onPointerLeave={() => { pointerInside.current = false; scheduleClose(); }}
           onFocusCapture={clearTimers}
