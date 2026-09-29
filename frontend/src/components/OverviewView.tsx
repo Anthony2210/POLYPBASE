@@ -442,7 +442,7 @@ function OverviewMiniChart({
     return (
       <div className="overview-chart overview-chart-empty">
         <strong>{t('overviewChartTitle')}</strong>
-        <span>{t('overviewNoHistory')}</span>
+        <span>{t('overviewNoHistoryEver')}</span>
       </div>
     );
   }

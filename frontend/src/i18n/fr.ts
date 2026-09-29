@@ -797,6 +797,7 @@ export const fr = {
   overviewShowChart: 'Voir tendance',
   overviewHideChart: 'Masquer tendance',
   overviewNoHistory: 'Aucun relevé sur cette période.',
+  overviewNoHistoryEver: 'Aucun historique de relevés.',
   overviewEmpty: 'Aucune boîte vivante à afficher.',
   overviewFilters: 'Filtres',
   overviewRefineList: 'Rechercher et filtrer',

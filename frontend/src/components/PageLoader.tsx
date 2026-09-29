@@ -86,8 +86,16 @@ function renderLoaderContent(variant: PageLoaderVariant) {
             {Array.from({ length: 4 }, (_, index) => (
               <div className="loader-panel loader-overview-card" key={index}>
                 <Block className="is-heading" />
-                <Block className="is-metric" />
-                <Block className="is-chart" />
+                <Block className="is-text" />
+                {index === 3 ? (
+                  <Block className="is-text" />
+                ) : (
+                  <>
+                    <Block className="is-tabs" />
+                    <Block className="is-chart" />
+                    <Block className="is-metric" />
+                  </>
+                )}
               </div>
             ))}
           </div>

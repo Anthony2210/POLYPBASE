@@ -799,6 +799,7 @@ export const en: Record<TranslationKey, string> = {
   overviewShowChart: 'Show trend',
   overviewHideChart: 'Hide trend',
   overviewNoHistory: 'No reading in this period.',
+  overviewNoHistoryEver: 'No reading history yet.',
   overviewEmpty: 'No living box to display.',
   overviewFilters: 'Filters',
   overviewRefineList: 'Search and filter',

@@ -371,23 +371,23 @@
 .overview-list {
   display: grid;
   gap: var(--space-3);
+  container-type: inline-size;
 }
 
 .overview-box-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(410px, 1fr));
-  align-items: stretch;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
   gap: 10px;
 }
 
 .overview-box-summary {
   position: relative;
   display: grid;
-  min-height: 0;
+  min-width: 0;
   padding: 0 14px 12px;
-  grid-template-rows: auto 1fr;
+  align-content: start;
   gap: 0;
-  overflow: hidden;
   border-left: 5px solid var(--status-color);
   border-radius: 6px;
 }
@@ -395,8 +395,12 @@
 .overview-mini-chart {
   display: grid;
   min-width: 0;
-  align-self: end;
   gap: 0;
+}
+
+.overview-mini-chart .bio-trend.is-compact {
+  min-height: 0;
+  align-self: start;
 }
 
 .overview-mini-chart > .chart-periods {
@@ -474,7 +478,6 @@
 
 .overview-box-summary > header {
   display: grid;
-  min-height: 60px;
   margin-inline: -14px;
   padding: 7px 0;
   grid-template-columns: minmax(92px, 1fr) minmax(150px, 1.35fr) minmax(92px, 1fr);
@@ -511,6 +514,7 @@
   color: var(--color-muted);
   font-size: .76rem;
   line-height: 1.15;
+  overflow-wrap: anywhere;
 }
 
 .overview-zone-context {
@@ -546,8 +550,10 @@
 
 .overview-zone-button {
   min-height: 28px;
+  max-width: 100%;
   padding: 0 8px;
   justify-self: end;
+  overflow-wrap: anywhere;
   color: var(--color-ink-soft);
   font-size: .78rem;
   font-weight: 800;
@@ -680,9 +686,9 @@
 }
 
 .overview-chart-empty {
-  min-height: 190px;
-  padding: var(--space-4);
-  align-content: center;
+  display: grid;
+  padding: var(--space-3);
+  gap: var(--space-1);
   background: var(--color-surface-subtle);
   border: 1px dashed var(--color-line);
   border-radius: var(--radius-sm);
@@ -690,18 +696,17 @@
 
 .overview-chart-empty span { color: var(--color-muted); }
 
+@container (max-width: 829px) {
+  .overview-box-list { grid-template-columns: minmax(0, 1fr); }
+}
+
 @media (max-width: 1180px) {
   .overview-filter-fields {
     grid-template-columns: minmax(230px, 1.15fr) minmax(170px, .7fr) minmax(280px, 1fr);
   }
-  .overview-box-list { grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); }
 }
 
 @media (min-width: 760px) and (max-width: 1180px) {
-  .overview-box-summary > header {
-    min-height: 60px;
-  }
-
   .overview-reading-age {
     min-width: 76px;
   }
@@ -731,8 +736,7 @@
   .overview-summary-actions span { gap: 6px; font-size: 0.72rem; }
   .overview-summary-actions span::after { width: 22px; }
   .overview-summary-actions strong { font-size: 1.35rem; }
-  .overview-zone-progress-list[data-layout], .overview-box-list { grid-template-columns: minmax(0, 1fr); }
-  .overview-box-summary { min-height: 0; }
+  .overview-zone-progress-list[data-layout] { grid-template-columns: minmax(0, 1fr); }
   .overview-chart > header { align-items: flex-start; flex-direction: column; }
   .overview-chart-legend { justify-content: flex-start; }
 }
