@@ -13,7 +13,6 @@ import {
   formatAuditTime,
   getAccountDisplayLabel,
   getAuditBoxSummaryParts,
-  getAuditEditedMark,
   getAuditFamilyLabel,
   getAuditTargetLabel,
   groupAuditEntriesByDay,
@@ -336,7 +335,7 @@ function AdminAuditRow({
 }) {
   const hasInlineBoxSummary = Boolean(entry.box_reference && getAuditBoxSummaryParts(entry, t));
   const hasSubcultureSummary = hasAuditSubcultureSummary(entry.business_details);
-  const targetLabel = getAuditTargetLabel(entry);
+  const targetLabel = getAuditTargetLabel(entry, t);
 
   return (
     <article className="admin-audit-entry" data-family={entry.family}>
@@ -354,7 +353,6 @@ function AdminAuditRow({
             onOpenBox={onOpenBox}
             t={t}
           />
-          <AuditInlineBusinessSummary details={entry.business_details} t={t} />
           {hasInlineBoxSummary || hasSubcultureSummary ? null : entry.box_reference ? (
             <div className="admin-audit-target">
               <BoxTrackingPreview
@@ -369,15 +367,13 @@ function AdminAuditRow({
           ) : targetLabel ? (
             <div className="admin-audit-target"><span>{targetLabel}</span></div>
           ) : null}
+          <AuditInlineBusinessSummary description={entry.description} details={entry.business_details} t={t} />
           <AuditContextSummary
             context={entry.context}
             hidePrimaryResource={hasInlineBoxSummary || hasSubcultureSummary}
             t={t}
           />
           <AuditBusinessNote details={entry.business_details} />
-          {entry.edited_at ? (
-            <p className="admin-audit-provenance">{getAuditEditedMark(entry, t)}</p>
-          ) : null}
         </div>
         <div className="admin-audit-row-actions">
           <AuditLinkedActionsPopover

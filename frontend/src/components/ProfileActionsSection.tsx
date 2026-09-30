@@ -6,6 +6,7 @@ import type { PersonalAction, PersonalActionsResponse } from '../types';
 import {
   formatAuditTime,
   getAuditBoxSummaryParts,
+  getAuditTargetLabel,
   getPersonalResourceLabel,
   groupAuditEntriesByDay,
   hasAuditSubcultureSummary,
@@ -180,7 +181,9 @@ function ProfileActionRow({
 }) {
   const hasInlineBoxSummary = Boolean(entry.box_reference && getAuditBoxSummaryParts(entry, t));
   const hasSubcultureSummary = hasAuditSubcultureSummary(entry.business_details);
-  const targetLabel = getPersonalResourceLabel(entry.resource);
+  const targetLabel = entry.resource.type === 'account'
+    ? getAuditTargetLabel({ ...entry, object_type: 'account' }, t) || getPersonalResourceLabel(entry.resource)
+    : getPersonalResourceLabel(entry.resource);
 
   return (
     <article className="profile-action-entry" data-family={entry.family}>
@@ -197,7 +200,6 @@ function ProfileActionRow({
             onOpenBox={onOpenBox}
             t={t}
           />
-          <AuditInlineBusinessSummary details={entry.business_details} t={t} />
           {hasInlineBoxSummary || hasSubcultureSummary ? null : entry.box_reference ? (
             <div className="profile-action-target">
               <BoxTrackingPreview
@@ -212,6 +214,7 @@ function ProfileActionRow({
           ) : targetLabel ? (
             <div className="profile-action-target"><span>{targetLabel}</span></div>
           ) : null}
+          <AuditInlineBusinessSummary description={entry.description} details={entry.business_details} t={t} />
           <AuditContextSummary
             context={entry.context}
             hidePrimaryResource={hasInlineBoxSummary || hasSubcultureSummary}

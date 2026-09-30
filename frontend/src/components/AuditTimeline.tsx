@@ -157,13 +157,15 @@ function AuditBoxReferenceLink({
 }
 
 export function AuditInlineBusinessSummary({
+  description,
   details,
   t,
 }: {
+  description?: string;
   details: AuditBusinessDetails | null | undefined;
   t: Translator;
 }) {
-  const items = getAuditInlineBusinessItems(details, t);
+  const items = getAuditInlineBusinessItems(details, t, description);
   if (!items.length) return null;
   return (
     <p className="audit-inline-business-summary">

@@ -184,7 +184,7 @@ function LinkedAuditContent({
               onOpenBox={onOpenBox}
               t={t}
             />
-            <AuditInlineBusinessSummary details={linkedEntry.business_details} t={t} />
+            <AuditInlineBusinessSummary description={linkedEntry.description} details={linkedEntry.business_details} t={t} />
             <AuditBusinessNote details={linkedEntry.business_details} />
           </li>
         );

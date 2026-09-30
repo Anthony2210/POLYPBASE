@@ -736,7 +736,7 @@ test('salinity summaries and immutable values are readable in both timelines', (
     assert.doesNotMatch(source, /<AuditDisclosureButton\b|<AuditBusinessDetail\b|aria-expanded|expandedEntryId|isExpanded/);
   }
   assert.match(timelineSource, /getAuditBusinessSummary\(entry, t\)/);
-  assert.match(timelineSource, /getAuditInlineBusinessItems\(details, t\)/);
+  assert.match(timelineSource, /getAuditInlineBusinessItems\(details, t, description\)/);
   assert.doesNotMatch(timelineSource, /<AuditDisclosureButton\b|<AuditBusinessDetail\b|aria-expanded/);
   assert.match(adminSource, /<AuditLinkedActionsPopover\b/);
 });
@@ -746,11 +746,71 @@ test('account changes and export counts remain visible without expansion', () =>
     type: 'account',
     values: { nom: 'Alice', role: 'admin', acces_actif: true },
     changes: { acces_actif: { before: false, after: true } },
-  }, tFr);
-  assert.equal(account.some(({ key, before, after }) => key === 'acces_actif' && before === 'Non' && after === 'Oui'), true);
-  assert.equal(account.some(({ key, value }) => key === 'role' && value === 'Administrateur'), true);
+  }, tFr, 'Member access updated');
+  assert.equal(account.length, 0); // The single activation has its own semantic title.
   assert.equal(account.some(({ key }) => key === 'nom'), false);
   assert.equal(audit.getAuditInlineBusinessItems({ type: 'export', box_count: 0 }, tFr)[0].value, '0');
+});
+
+test('account creation uses the recorded email and role, not defaults or a mutable resource', () => {
+  const entry = { action: 'creation', description: 'Member access created', object_type: 'account',
+    object_id: 'internal_123', business_details: { type: 'account',
+      values: { nom: 'Sophie LÈBRE', email: 'sophie@example.org', role: 'admin', acces_actif: true, is_responsable: false } } };
+  assert.equal(audit.getAuditBusinessSummary(entry, tFr), 'Accès utilisateur créé');
+  assert.equal(audit.getAuditTargetLabel(entry, tFr), 'Sophie LÈBRE <sophie@example.org> rôle : Administrateur');
+  assert.equal(audit.getAuditTargetLabel(entry, tEn), 'Sophie LÈBRE <sophie@example.org> role: Administrator');
+  assert.equal(audit.getAuditInlineBusinessItems(entry.business_details, tFr).length, 0);
+  assert.equal(audit.getAuditTargetLabel({ ...entry, business_details: { type: 'account', values: { nom: 'Sophie LÈBRE' } } }, tFr), 'Sophie LÈBRE');
+});
+
+test('account transitions have factual titles without redundant fields', () => {
+  const cases = [
+    ['Institution Responsable granted by platform', 'is_responsable', false, true, 'Statut Responsable accordé par la plateforme'],
+    ['Institution Responsable revoked by platform', 'is_responsable', true, false, 'Statut Responsable retiré par la plateforme'],
+    ['Member access updated', 'acces_actif', true, false, 'Compte utilisateur désactivé'],
+    ['Member access updated', 'acces_actif', false, true, 'Compte utilisateur réactivé'],
+    ['Member access updated', 'role', 'viewer', 'lab_technician', 'Rôle utilisateur modifié en Technicien'],
+  ];
+  for (const [description, key, before, after, title] of cases) {
+    const entry = { action: 'update', description, business_details: { type: 'account',
+      values: { nom: 'Ayoub AKKOUH', role: 'lab_technician', acces_actif: true, is_responsable: false },
+      changes: { [key]: { before, after } } } };
+    assert.equal(audit.getAuditBusinessSummary(entry, tFr), title);
+    assert.equal(audit.getAuditInlineBusinessItems(entry.business_details, tFr, description).length, 0);
+    assert.equal(audit.getAuditBusinessSummary(entry, tEn).includes('Member access updated'), false);
+  }
+});
+
+test('multi-field account changes remain compact and do not invent a role hierarchy', () => {
+  const entry = { action: 'update', description: 'Member access updated', business_details: { type: 'account',
+    values: { nom: 'Ayoub AKKOUH', role: 'lab_technician', acces_actif: false },
+    changes: { role: { before: 'viewer', after: 'lab_technician' }, acces_actif: { before: true, after: false } } } };
+  assert.equal(audit.getAuditBusinessSummary(entry, tFr), 'Accès utilisateur modifié');
+  assert.deepEqual(Array.from(audit.getAuditInlineBusinessItems(entry.business_details, tFr, entry.description),
+    ({ label, before, after, value }) => [label, before, after, value]),
+  [['Rôle', 'Lecteur', 'Technicien', undefined], ['Compte', undefined, undefined, 'désactivé']]);
+  assert.equal(audit.getAuditInlineBusinessItems(entry.business_details, tFr, entry.description).some(({ label }) => label.includes('Avant:')), false);
+});
+
+test('unknown Responsable provenance stays generic and shows the actual change', () => {
+  const entry = { action: 'update', description: 'Member access updated', business_details: {
+    type: 'account', changes: { is_responsable: { before: false, after: true } },
+  } };
+  assert.equal(audit.getAuditBusinessSummary(entry, tFr), 'Accès utilisateur modifié');
+  assert.equal(audit.getAuditInlineBusinessItems(entry.business_details, tFr, entry.description)[0].after, 'Oui');
+});
+
+test('correction retains scientific zero without duplicating action provenance', () => {
+  const entry = { action: 'update', description: 'Biological measurement edited for 2026-09-15',
+    business_details: { type: 'measurement', values: { polypes: 0, ephyrules: 0, salinite_psu: '33.00' } } };
+  assert.equal(audit.getAuditBusinessSummary(entry, tFr), 'Relevé biologique corrigé');
+  assert.deepEqual(Array.from(audit.getAuditInlineBusinessItems(entry.business_details, tFr), ({ value }) => value), ['0', '0', '33.00']);
+  const adminSource = readSource('../src/components/AdminAuditSection.tsx');
+  const profileSource = readSource('../src/components/ProfileActionsSection.tsx');
+  for (const source of [adminSource, profileSource]) {
+    assert.doesNotMatch(source, /getAuditEditedMark|auditEditedMark|Corrigé le/);
+    assert.match(source, /<AuditInlineBusinessSummary/);
+  }
 });
 
 test('movement summaries render the real transition inline without duplicate details', () => {
@@ -1512,7 +1572,7 @@ test('Profile and Admin share inline summaries without duplicating resolved box 
   assert.match(timelineSource, /export function AuditInlineBusinessSummary/);
   for (const source of [profileSource, adminSource]) {
     assert.match(source, /<AuditPrimarySummary/);
-    assert.match(source, /<AuditInlineBusinessSummary details=\{entry\.business_details\}/);
+    assert.match(source, /<AuditInlineBusinessSummary description=\{entry\.description\} details=\{entry\.business_details\}/);
     assert.match(source, /hasInlineBoxSummary \|\| hasSubcultureSummary \? null/);
     assert.match(source, /hidePrimaryResource=\{hasInlineBoxSummary \|\| hasSubcultureSummary\}/);
     // Masking the parent is conditional on the rich child+parent summary.
@@ -1539,7 +1599,7 @@ test('row context keeps only useful subculture and transfer relations', () => {
   assert.equal(timelineSource.includes('context.movement'), false);
   assert.equal(timelineSource.includes('context.measurement'), false);
   assert.equal(timelineSource.includes('auditRelationMeasurementCorrection'), false);
-  assert.equal(timelineSource.includes('description'), false);
+  assert.equal(timelineSource.slice(timelineSource.indexOf('export function AuditContextSummary')).includes('description'), false);
   assert.equal(timelineSource.includes('deactivated'), false);
   assert.equal(timelineSource.includes('reactivated'), false);
 });
@@ -1562,7 +1622,7 @@ test('inline facts use normalized business data and never expose raw metadata', 
     assert.equal(/metadata(?:\?\.|\.)box_id/.test(source), false);
   }
   for (const source of sources.slice(0, 2)) {
-    assert.match(source, /<AuditInlineBusinessSummary details=\{entry\.business_details\}/);
+    assert.match(source, /<AuditInlineBusinessSummary description=\{entry\.description\} details=\{entry\.business_details\}/);
     assert.doesNotMatch(source, /<AuditDisclosureButton\b|<AuditBusinessDetail\b|aria-expanded|isExpanded/);
   }
   assert.doesNotMatch(sources[2], /<AuditDisclosureButton\b|<AuditBusinessDetail\b|chevron-down/);
@@ -1600,7 +1660,7 @@ test('linked measurement popup is lazy, anchored, retryable, and chronological',
   assert.match(source, /if \(!controller\.signal\.aborted\) setEntries\(response\.results\)/);
   assert.match(source, /setRetry\(\(current\) => current \+ 1\)/);
   assert.match(source, /<time dateTime=\{linkedEntry\.effective_at\}>/);
-  assert.match(source, /<AuditInlineBusinessSummary details=\{linkedEntry\.business_details\}/);
+  assert.match(source, /<AuditInlineBusinessSummary description=\{linkedEntry\.description\} details=\{linkedEntry\.business_details\}/);
   assert.match(source, /<AuditBusinessNote details=\{linkedEntry\.business_details\}/);
   assert.match(source, /linkedAnchorRef\.current\?\.focus\(\{ preventScroll: true \}\)/);
   assert.match(hookSource, /event\.key !== 'Escape'/);

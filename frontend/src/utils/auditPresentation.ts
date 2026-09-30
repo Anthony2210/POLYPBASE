@@ -353,6 +353,7 @@ export function getAuditBoxSummaryParts(entry: AuditEntryLike, t: Translate): [s
 export function getAuditInlineBusinessItems(
   details: AuditBusinessDetails | null | undefined,
   t: Translate,
+  description?: string,
 ): AuditInlineBusinessItem[] {
   if (!details) return [];
 
@@ -375,7 +376,35 @@ export function getAuditInlineBusinessItems(
     });
   }
 
-  if (['environment', 'account', 'box', 'reference', 'export', 'box_inventory_initialization'].includes(details.type)) {
+  if (details.type === 'account') {
+    const changes = details.changes ?? {};
+    const keys = Object.keys(changes);
+    if (!keys.length) {
+      return [];
+    }
+    if (keys.length === 1) {
+      const change = getAuditValueChange(changes[keys[0]]);
+      if (change && isSemanticAccountChange(keys[0], change)
+        && ((keys[0] !== 'is_responsable' && description === 'Member access updated')
+          || (description === 'Institution Responsable granted by platform' && change.after === true)
+          || (description === 'Institution Responsable revoked by platform' && change.after === false)
+          || (description === 'Institution Responsable relinquished' && change.after === false))) return [];
+    }
+    return orderAuditFieldEntries(Object.entries(changes)).map(([key, value]) => {
+      const change = getAuditValueChange(value);
+      if (key === 'acces_actif' && change && typeof change.after === 'boolean') {
+        return { key, label: t('auditAccountStatus'), value: t(change.after ? 'auditAccountActive' : 'auditAccountDisabled') };
+      }
+      return {
+        key,
+        label: getAuditMetadataKeyLabel(key, t),
+        before: formatAuditMetadataValue(change?.before, t),
+        after: formatAuditMetadataValue(change?.after, t),
+      };
+    });
+  }
+
+  if (['environment', 'box', 'reference', 'export', 'box_inventory_initialization'].includes(details.type)) {
     const content = getAuditBusinessDetailContent(details);
     const valueKeys: Record<string, string[]> = {
       environment: ['date', 'temperature_c', 'salinite_psu', 'temperature_consigne', 'capacite', 'active'],
@@ -426,6 +455,8 @@ export function getAuditInlineBusinessItems(
 export function getAuditBusinessSummary(entry: AuditEntryLike, t: Translate): string {
   const description = (entry.description || '').trim();
   const details = entry.business_details;
+  const accountTitle = getAccountActionTitle(entry, t);
+  if (accountTitle) return accountTitle;
   if (details?.type === 'box_movement' && details.to_zone) {
     return fillTemplate(t('auditSummaryBoxMovedTo'), { location: details.to_zone });
   }
@@ -439,6 +470,29 @@ export function getAuditBusinessSummary(entry: AuditEntryLike, t: Translate): st
   const summaryRule = BUSINESS_SUMMARY_PREFIX_KEYS.find(([prefix]) => description.startsWith(prefix));
   if (summaryRule) return t(summaryRule[1]);
   return getAuditDescriptionLabel(entry, t);
+}
+
+function isSemanticAccountChange(key: string, change: AuditValueChange): boolean {
+  if (key === 'role') return typeof change.before === 'string' && typeof change.after === 'string'
+    && change.before !== change.after && ['admin', 'lab_technician', 'viewer'].includes(change.after);
+  if (key === 'acces_actif' || key === 'is_responsable') {
+    return typeof change.before === 'boolean' && typeof change.after === 'boolean' && change.before !== change.after;
+  }
+  return false;
+}
+
+function getAccountActionTitle(entry: AuditEntryLike, t: Translate): string {
+  if (entry.description !== 'Member access updated' || entry.business_details?.type !== 'account') return '';
+  const changes = entry.business_details.changes ?? {};
+  const keys = Object.keys(changes);
+  if (keys.length !== 1) return '';
+  const change = getAuditValueChange(changes[keys[0]]);
+  if (!change || !isSemanticAccountChange(keys[0], change)) return '';
+  if (keys[0] === 'role') {
+    return fillTemplate(t('auditAccountRoleChanged'), { role: getAuditValueLabel(String(change.after), t) });
+  }
+  if (keys[0] === 'acces_actif') return t(change.after ? 'auditAccountReactivated' : 'auditAccountDeactivated');
+  return '';
 }
 
 export function getAuditDescriptionLabel(entry: AuditEntryLike, t: Translate): string {
@@ -745,25 +799,6 @@ export function isAuditNoteField(key: string): boolean {
   return key === 'note' || key === 'notes';
 }
 
-export function getAuditEditedMark(
-  entry: { edited_at: string | null; edited_by_display?: string | null; created_at: string },
-  t: Translate,
-): string {
-  if (!entry.edited_at) return '';
-
-  const author = getAccountDisplayLabel(entry.edited_by_display);
-  if (author) {
-    return fillTemplate(t('auditEditedMark'), {
-      date: formatAuditDateTime(entry.edited_at),
-      name: author,
-      created: formatAuditDateTime(entry.created_at),
-    });
-  }
-  return fillTemplate(t('auditEditedMarkAnonymous'), {
-    date: formatAuditDateTime(entry.edited_at),
-    created: formatAuditDateTime(entry.created_at),
-  });
-}
 
 /**
  * Object types whose stored object id is business-readable text written by the
@@ -798,13 +833,20 @@ function getReadableTargetLabel(objectType: string | undefined, value: string | 
  * trusted audit values, because the raw object id is an opaque internal
  * username that must never reach the interface.
  */
-export function getAuditTargetLabel(entry: AuditEntryLike): string {
+export function getAuditTargetLabel(entry: AuditEntryLike, t?: Translate): string {
   if (entry.object_type === 'account') {
     const details = entry.business_details;
     const values = details?.type === 'account' ? details.values : undefined;
     const name = typeof values?.nom === 'string' ? values.nom : '';
     const email = typeof values?.email === 'string' ? values.email : '';
-    return getAccountDisplayLabel(name) || getAccountDisplayLabel(email);
+    const label = getAccountDisplayLabel(name) || getAccountDisplayLabel(email);
+    if (entry.description !== 'Member access created' || !t) return label;
+    const emailLabel = getAccountDisplayLabel(email);
+    const role = values?.role;
+    return [label, emailLabel && emailLabel !== label ? `<${emailLabel}>` : '',
+      typeof role === 'string' && ['admin', 'lab_technician', 'viewer'].includes(role)
+        ? fillTemplate(t('auditAccountRoleTarget'), { role: getAuditValueLabel(role, t) }) : '',
+    ].filter(Boolean).join(' ');
   }
   return getReadableTargetLabel(entry.object_type, entry.object_id);
 }
