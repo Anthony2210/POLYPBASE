@@ -14,17 +14,14 @@ import { getErrorMessage } from '../utils/errors';
 import {
   applyPersonalActionsOutcome,
   EMPTY_PERSONAL_ACTIONS_STATE,
-  hasPersonalActionDetails,
   type PersonalActionsState,
 } from '../utils/personalActions';
 import {
-  AuditBusinessDetail,
   AuditBusinessNote,
   AuditContextSummary,
   AuditDayHeading,
   AuditInlineBusinessSummary,
   AuditPrimarySummary,
-  AuditDisclosureButton,
 } from './AuditTimeline';
 import BoxTrackingPreview from './BoxTrackingPreview';
 import SkeletonRows from './SkeletonRows';
@@ -43,14 +40,12 @@ export default function ProfileActionsSection({
   t: Translator;
 }) {
   const [state, setState] = useState<PersonalActionsState>(EMPTY_PERSONAL_ACTIONS_STATE);
-  const [expandedEntryId, setExpandedEntryId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(activeOrganizationId != null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   useEffect(() => {
     if (activeOrganizationId == null) {
       setState(EMPTY_PERSONAL_ACTIONS_STATE);
-      setExpandedEntryId(null);
       setIsLoading(false);
       return;
     }
@@ -59,7 +54,6 @@ export default function ProfileActionsSection({
 
     async function loadActions() {
       setState(EMPTY_PERSONAL_ACTIONS_STATE);
-      setExpandedEntryId(null);
       setIsLoading(true);
 
       try {
@@ -134,11 +128,9 @@ export default function ProfileActionsSection({
                 {group.entries.map((entry) => (
                   <ProfileActionRow
                     entry={entry}
-                    isExpanded={expandedEntryId === entry.id}
                     key={entry.id}
                     language={language}
                     onOpenBox={onOpenBox}
-                    onToggle={() => setExpandedEntryId(expandedEntryId === entry.id ? null : entry.id)}
                     t={t}
                   />
                 ))}
@@ -177,27 +169,21 @@ export default function ProfileActionsSection({
 
 function ProfileActionRow({
   entry,
-  isExpanded,
   language,
   onOpenBox,
-  onToggle,
   t,
 }: {
   entry: PersonalAction;
-  isExpanded: boolean;
   language: Language;
   onOpenBox: (boxId: number, code: string) => void;
-  onToggle: () => void;
   t: Translator;
 }) {
-  const hasDetails = hasPersonalActionDetails(entry.business_details);
   const hasInlineBoxSummary = Boolean(entry.box_reference && getAuditBoxSummaryParts(entry, t));
   const hasSubcultureSummary = hasAuditSubcultureSummary(entry.business_details);
   const targetLabel = getPersonalResourceLabel(entry.resource);
-  const detailsId = `profile-action-details-${entry.id}`;
 
   return (
-    <article className={isExpanded ? 'profile-action-entry is-expanded' : 'profile-action-entry'} data-family={entry.family}>
+    <article className="profile-action-entry" data-family={entry.family}>
       <div className="profile-action-row">
         <time className="profile-action-time" dateTime={entry.created_at}>
           {formatAuditTime(entry.created_at)}
@@ -233,18 +219,7 @@ function ProfileActionRow({
           />
           <AuditBusinessNote details={entry.business_details} />
         </div>
-        {hasDetails ? (
-          <AuditDisclosureButton
-            controls={detailsId}
-            isExpanded={isExpanded}
-            onToggle={onToggle}
-            t={t}
-          />
-        ) : null}
       </div>
-      {hasDetails && isExpanded ? (
-        <AuditBusinessDetail details={entry.business_details} id={detailsId} t={t} />
-      ) : null}
     </article>
   );
 }

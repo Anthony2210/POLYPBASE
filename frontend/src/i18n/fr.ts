@@ -97,6 +97,8 @@ export const fr = {
   auditDescriptionBoxMoved: 'Boîte déplacée vers {zone}',
   auditDescriptionSubcultureCreated: 'Repiquage créé depuis {code}',
   auditDescriptionManualTemperature: 'Température manuelle enregistrée : {zone}',
+  auditDescriptionManualSalinityRecorded: 'Salinité manuelle enregistrée : {zone}',
+  auditDescriptionManualSalinityUpdated: 'Salinité manuelle corrigée : {zone}',
   auditDescriptionZoneCreated: 'Emplacement créé : {zone}',
   auditDescriptionZoneUpdated: 'Emplacement modifié : {zone}',
   auditDescriptionProbeCreated: 'Sonde ajoutée : {code}',

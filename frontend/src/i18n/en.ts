@@ -99,6 +99,8 @@ export const en: Record<TranslationKey, string> = {
   auditDescriptionBoxMoved: 'Box moved to {zone}',
   auditDescriptionSubcultureCreated: 'Subculture created from {code}',
   auditDescriptionManualTemperature: 'Manual temperature recorded: {zone}',
+  auditDescriptionManualSalinityRecorded: 'Manual salinity recorded: {zone}',
+  auditDescriptionManualSalinityUpdated: 'Manual salinity updated: {zone}',
   auditDescriptionZoneCreated: 'Location created: {zone}',
   auditDescriptionZoneUpdated: 'Location updated: {zone}',
   auditDescriptionProbeCreated: 'Probe added: {code}',

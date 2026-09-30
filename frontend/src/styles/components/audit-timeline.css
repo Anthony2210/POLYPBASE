@@ -8,36 +8,6 @@
   text-transform: capitalize;
 }
 
-.audit-disclosure-button {
-  display: grid;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  flex: 0 0 auto;
-  place-items: center;
-  color: var(--color-muted);
-  background: transparent;
-  border: 0;
-  border-radius: var(--radius-xs);
-  cursor: pointer;
-}
-
-.audit-disclosure-button:is(:hover, :focus-visible, [aria-expanded='true']) {
-  color: var(--color-primary-hover);
-  background: var(--color-primary-faint);
-}
-
-.audit-disclosure-button:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
-}
-
-.audit-disclosure-button svg {
-  transition: transform var(--transition-fast);
-}
-
-.audit-disclosure-button[aria-expanded='true'] svg { transform: rotate(180deg); }
-
 :is(.profile-action-summary, .admin-audit-summary, .profile-action-target, .admin-audit-target) .box-tracking-preview-link {
   color: var(--color-primary-hover);
   font-style: italic;
@@ -54,63 +24,6 @@
   outline: 2px solid var(--color-primary);
   outline-offset: 3px;
   border-radius: 2px;
-}
-
-.audit-detail-region {
-  min-width: 0;
-  padding-inline-start: var(--space-3);
-  border-inline-start: 2px solid var(--color-line);
-}
-
-.audit-detail-list,
-.audit-change-list {
-  display: grid;
-  gap: var(--space-2) var(--space-5);
-  margin: 0;
-}
-
-.audit-detail-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.audit-change-list { margin-bottom: var(--space-3); }
-
-.audit-detail-item,
-.audit-change-row {
-  min-width: 0;
-}
-
-.audit-detail-item.is-note { grid-column: 1 / -1; }
-
-.audit-detail-list :is(dt, dd),
-.audit-change-list :is(dt, dd) {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-.audit-detail-list dt,
-.audit-change-list dt {
-  color: var(--color-muted);
-  font-size: .7rem;
-  line-height: 1.4;
-}
-
-.audit-detail-list dd,
-.audit-change-list dd {
-  color: var(--color-ink-soft);
-  font-size: .82rem;
-  line-height: 1.45;
-}
-
-.audit-change-row {
-  display: grid;
-  grid-template-columns: minmax(110px, .4fr) minmax(0, 1fr);
-  align-items: baseline;
-  gap: var(--space-3);
-}
-
-.audit-change-row dd {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--space-2);
 }
 
 .audit-change-arrow { color: var(--color-muted); }

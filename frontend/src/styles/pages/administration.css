@@ -1194,13 +1194,6 @@ button.account-overview-card {
   gap: var(--space-1);
 }
 
-
-.admin-audit-details {
-  display: grid;
-  gap: var(--space-2);
-  margin: 0 var(--space-2) var(--space-3) calc(216px + var(--space-5));
-}
-
 .admin-audit-provenance {
   margin: 0;
   color: var(--color-muted);
@@ -1242,8 +1235,6 @@ button.account-overview-card {
   .account-visible-count { display: none; }
   .environment-zone-grid { grid-template-columns: 1fr; }
   .admin-audit-row { grid-template-columns: 52px minmax(100px, 130px) minmax(0, 1fr) auto; }
-  .admin-audit-details { margin-inline-start: calc(182px + var(--space-5)); }
-
 }
 
 /* Research workspace: keep directories visible and open occasional actions in a side panel. */

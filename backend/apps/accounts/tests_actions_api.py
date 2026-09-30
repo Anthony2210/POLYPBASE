@@ -143,6 +143,57 @@ class ActionApiTests(TestCase):
             HTTP_X_ORGANIZATION_ID=str(organization.id),
         )
 
+    def test_salinity_actions_expose_historical_values_in_both_timelines(self):
+        recorded = AuditLog.objects.create(
+            organization=self.organization,
+            user=self.alice,
+            action=AuditLog.Action.CREATION,
+            object_type="salinity_measurement",
+            object_id="42",
+            description="Manual salinity recorded: Cabinet-15",
+            metadata={"valeurs": {"date": "2026-09-15", "salinite_psu": "0.00", "note": "Initial"}},
+        )
+        corrected = AuditLog.objects.create(
+            organization=self.organization,
+            user=self.alice,
+            action=AuditLog.Action.UPDATE,
+            object_type="salinity_measurement",
+            object_id="42",
+            description="Manual salinity updated: Cabinet-15",
+            metadata={
+                "valeurs": {"date": "2026-09-15", "salinite_psu": "35.00"},
+                "modifications": {"salinite_psu": {"avant": "0.00", "apres": "35.00"}},
+            },
+        )
+        AuditLog.objects.create(
+            organization=self.other_organization,
+            user=self.alice,
+            action=AuditLog.Action.CREATION,
+            object_type="salinity_measurement",
+            object_id="43",
+            description="Manual salinity recorded: Partner zone",
+            metadata={"valeurs": {"salinite_psu": "99.00"}},
+        )
+
+        for response in (
+            self._personal_actions(self.alice, self.organization),
+            self._admin_actions(self.organization),
+        ):
+            self.assertEqual(response.status_code, 200)
+            rows = response.json()["results"]
+            self.assertEqual([row["id"] for row in rows], [corrected.id, recorded.id])
+            self.assertEqual([row["family"] for row in rows], ["environment", "environment"])
+            self.assertEqual(
+                rows[0]["business_details"]["changes"]["salinite_psu"],
+                {"before": "0.00", "after": "35.00"},
+            )
+            self.assertEqual(rows[1]["business_details"]["values"]["salinite_psu"], "0.00")
+            self.assertEqual(rows[1]["business_details"]["values"]["date"], "2026-09-15")
+            self.assertEqual(rows[1]["business_details"]["values"]["note"], "Initial")
+            if "resource" in rows[0]:
+                self.assertIsNone(rows[0]["resource"]["identifier"])
+                self.assertIsNone(rows[0]["resource"]["label"])
+
     def test_personal_actions_returns_only_the_actor_in_the_active_organization(self):
         own_action = self._create_action(user=self.alice, description="Alice in Paris")
         self._create_action(user=self.bob, description="Bob in Paris")

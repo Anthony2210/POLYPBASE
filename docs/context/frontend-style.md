@@ -178,9 +178,16 @@ business meaning with audit storage details.
   `frontend/src/components/AuditTimeline.tsx` and
   `frontend/src/styles/components/audit-timeline.css`. This is a business
   activity narrative: readable event summary, relevant values/changes inline,
-  useful context, and disclosure for details that are not already shown.
+  useful context directly in the row, without action-row disclosures.
   Actor information belongs when it helps explain operational responsibility;
-  whether it is useful depends on audience and event.
+  whether it is useful depends on audience and event. Already validated
+  action-history presentations are references for future actions with
+  equivalent presentation needs: reuse summary hierarchy, entity/target display,
+  inline factual values, before → after changes, secondary metadata, actor/time
+  placement, and contextual `•••` actions when semantically appropriate. This
+  does not make every action canonical: a shared layout does not transfer
+  scientific meaning, permissions, lifecycle transitions, editing capabilities,
+  authorization rules, or domain-specific fields to another action.
 - Emplacement movement history: `frontend/src/components/ZoneMovementHistory.tsx`
   and `frontend/src/styles/pages/zones.css`. This is a directional operational
   flow with separate arrivals/departures, time, related place when relevant,

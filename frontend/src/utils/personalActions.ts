@@ -1,5 +1,4 @@
-import type { AuditBusinessDetails, PersonalAction, PersonalActionsResponse } from '../types';
-import { getAuditBusinessDetailContent, hasAuditBusinessDetails } from './auditPresentation';
+import type { PersonalAction, PersonalActionsResponse } from '../types';
 
 /**
  * Append one page of personal actions, ignoring rows already displayed. The
@@ -69,13 +68,4 @@ export function applyPersonalActionsOutcome(
       // same page instead of restarting the list.
       return { ...state, loadMoreError: outcome.message };
   }
-}
-
-export function getPersonalActionDetails(details: AuditBusinessDetails | null | undefined) {
-  return getAuditBusinessDetailContent(details);
-}
-
-/** Details are only offered when normalized business information adds value. */
-export function hasPersonalActionDetails(details: AuditBusinessDetails | null | undefined): boolean {
-  return hasAuditBusinessDetails(details);
 }

@@ -54,13 +54,13 @@ _VALID_DATE_REGEX = (
 _MEASUREMENT_DESCRIPTION_REGEX = (
     rf"\A{_MEASUREMENT_DESCRIPTION_PREFIX}{_VALID_DATE_REGEX}\Z"
 )
-_ENVIRONMENT_OBJECT_TYPES = {"thermal_zone", "probe", "alert"}
+_ENVIRONMENT_OBJECT_TYPES = {"thermal_zone", "probe", "alert", "salinity_measurement"}
 _REFERENCE_OBJECT_TYPES = {"species", "strain", "organization"}
 _BOX_OBJECT_TYPES = {"box", "box_inventory_initialization"}
 
 # Object types whose stored object id is a database primary key rather than a
-# business-readable label, so it must never reach a user-facing payload.
-_PRIMARY_KEY_RESOURCE_OBJECT_TYPES = {"alert", "species", "strain"}
+# business-readable label, so it must never reach a user-facing resource label.
+_PRIMARY_KEY_RESOURCE_OBJECT_TYPES = {"alert", "species", "strain", "salinity_measurement"}
 
 # Pre-migration box statuses that no longer exist in the canonical lifecycle.
 # They are inactive-like and must be presented as the canonical inactive value.
@@ -581,6 +581,8 @@ def serialize_business_details(log, *, measurement=None, subculture_children=Non
         "accounts": _ACCOUNT_FIELDS,
         "references": _REFERENCE_FIELDS,
     }.get(family, set())
+    if log.object_type == "salinity_measurement":
+        field_allowlist = field_allowlist | {"note"}
     values = _allowlisted_values(metadata.get("valeurs"), field_allowlist)
     changes = _allowlisted_changes(metadata.get("modifications"), field_allowlist)
     if family == "boxes":

@@ -23,17 +23,14 @@ import {
   applyAdminAuditOutcome,
   buildAdminAuditQuery,
   createAdminAuditState,
-  hasAdminAuditBusinessDetails,
   type AdminAuditState,
 } from '../utils/adminAudit';
 
 import { getErrorMessage } from '../utils/errors';
 import {
-  AuditBusinessDetail,
   AuditBusinessNote,
   AuditContextSummary,
   AuditDayHeading,
-  AuditDisclosureButton,
   AuditInlineBusinessSummary,
   AuditPrimarySummary,
 } from './AuditTimeline';
@@ -111,7 +108,6 @@ export default function AdminAuditSection({
   const [familyOptions, setFamilyOptions] = useState<AdminAuditFamilyOption[] | null>(null);
   const [familyFilter, setFamilyFilter] = useState<AuditFamily | ''>('');
   const [dateFilter, setDateFilter] = useState('');
-  const [expandedEntryId, setExpandedEntryId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const requestGeneration = useRef(0);
@@ -119,7 +115,6 @@ export default function AdminAuditSection({
   function invalidateAuditRequests() {
     requestGeneration.current += 1;
     setIsLoadingMore(false);
-    setExpandedEntryId(null);
   }
 
   useEffect(() => {
@@ -127,7 +122,6 @@ export default function AdminAuditSection({
     const generation = requestGeneration.current + 1;
     requestGeneration.current = generation;
     setState(createAdminAuditState(activeOrganizationId));
-    setExpandedEntryId(null);
     setIsLoading(true);
     setIsLoadingMore(false);
 
@@ -269,12 +263,10 @@ export default function AdminAuditSection({
                   {group.entries.map((entry) => (
                     <AdminAuditRow
                       entry={entry}
-                      isExpanded={expandedEntryId === entry.id}
                       key={entry.id}
                       language={language}
                       onEditMeasurement={onEditMeasurement}
                       onOpenBox={onOpenBox}
-                      onToggle={() => setExpandedEntryId(expandedEntryId === entry.id ? null : entry.id)}
                       t={t}
                     />
                   ))}
@@ -331,29 +323,23 @@ function FamilyFilterButton({
 
 function AdminAuditRow({
   entry,
-  isExpanded,
   language,
   onEditMeasurement,
   onOpenBox,
-  onToggle,
   t,
 }: {
   entry: AdminAuditLogEntry;
-  isExpanded: boolean;
   language: Language;
   onEditMeasurement: (measurement: EditableMeasurement) => void;
   onOpenBox: (boxId: number, code: string) => void;
-  onToggle: () => void;
   t: Translator;
 }) {
-  const hasDetails = hasAdminAuditBusinessDetails(entry);
   const hasInlineBoxSummary = Boolean(entry.box_reference && getAuditBoxSummaryParts(entry, t));
   const hasSubcultureSummary = hasAuditSubcultureSummary(entry.business_details);
   const targetLabel = getAuditTargetLabel(entry);
-  const detailsId = `admin-audit-details-${entry.id}`;
 
   return (
-    <article className={isExpanded ? 'admin-audit-entry is-expanded' : 'admin-audit-entry'} data-family={entry.family}>
+    <article className="admin-audit-entry" data-family={entry.family}>
       <div className="admin-audit-row">
         <time className="admin-audit-time" dateTime={entry.effective_at}>
           {formatAuditTime(entry.effective_at)}
@@ -389,6 +375,9 @@ function AdminAuditRow({
             t={t}
           />
           <AuditBusinessNote details={entry.business_details} />
+          {entry.edited_at ? (
+            <p className="admin-audit-provenance">{getAuditEditedMark(entry, t)}</p>
+          ) : null}
         </div>
         <div className="admin-audit-row-actions">
           <AuditLinkedActionsPopover
@@ -398,27 +387,8 @@ function AdminAuditRow({
             onOpenBox={onOpenBox}
             t={t}
           />
-          {hasDetails ? (
-            <AuditDisclosureButton
-              controls={detailsId}
-              isExpanded={isExpanded}
-              onToggle={onToggle}
-              t={t}
-            />
-          ) : null}
         </div>
       </div>
-
-      {hasDetails && isExpanded ? (
-        <div className="admin-audit-details" id={detailsId}>
-          <AuditBusinessDetail details={entry.business_details} id={`${detailsId}-business`} t={t} />
-          {entry.edited_at ? (
-            <p className="admin-audit-provenance">
-              {getAuditEditedMark(entry, t)}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
     </article>
   );
 }

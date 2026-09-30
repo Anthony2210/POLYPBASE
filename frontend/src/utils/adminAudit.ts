@@ -1,6 +1,3 @@
-import type { AuditBusinessDetails } from '../types';
-import { getAuditBusinessDetailContent, hasAuditBusinessDetails } from './auditPresentation';
-
 export type AdminAuditPage<T> = {
   results: T[];
   has_more?: boolean;
@@ -73,20 +70,6 @@ export function applyAdminAuditOutcome<T extends { id: number }>(
     case 'load-more-error':
       return { ...state, loadMoreError: outcome.message };
   }
-}
-
-export type AdminAuditDetailEntry = {
-  business_details?: AuditBusinessDetails | null;
-  edited_at?: string | null;
-  editable_measurement?: unknown;
-};
-
-export function getAdminAuditBusinessDetails(entry: AdminAuditDetailEntry) {
-  return getAuditBusinessDetailContent(entry.business_details);
-}
-
-export function hasAdminAuditBusinessDetails(entry: AdminAuditDetailEntry): boolean {
-  return Boolean(hasAuditBusinessDetails(entry.business_details) || entry.edited_at);
 }
 
 export function buildAdminAuditQuery({

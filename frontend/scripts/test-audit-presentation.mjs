@@ -366,6 +366,8 @@ test('known business events never fall through to raw English in FR', () => {
     'Box moved to Cabinet-15',
     'Subculture created from ATL-AAU-1.001',
     'Manual temperature recorded: Cabinet-15',
+    'Manual salinity recorded: Cabinet-15',
+    'Manual salinity updated: Cabinet-15',
     'Thermal zone created: Cabinet-15',
     'Thermal zone updated: Cabinet-15',
     'Probe created: SONDE-15-01',
@@ -586,7 +588,7 @@ test('action and object type labels are translated', () => {
 });
 
 test('corrected measurement changes render inline without a duplicate disclosure', () => {
-  const details = personalActions.getPersonalActionDetails({
+  const details = audit.getAuditBusinessDetailContent({
     type: 'measurement',
     values: {
       date: '2026-09-15',
@@ -600,12 +602,12 @@ test('corrected measurement changes render inline without a duplicate disclosure
 
   assert.equal(details.values, null);
   assert.equal(details.changes, null);
-  assert.equal(personalActions.hasPersonalActionDetails({ type: 'unknown' }), false);
-  assert.equal(personalActions.hasPersonalActionDetails(undefined), false);
-  assert.equal(personalActions.hasPersonalActionDetails({ type: 'measurement', values: {} }), false);
-  assert.equal(personalActions.hasPersonalActionDetails({ type: 'measurement', values: { polypes: 0 } }), false);
+  assert.equal(audit.hasAuditBusinessDetails({ type: 'unknown' }), false);
+  assert.equal(audit.hasAuditBusinessDetails(undefined), false);
+  assert.equal(audit.hasAuditBusinessDetails({ type: 'measurement', values: {} }), false);
+  assert.equal(audit.hasAuditBusinessDetails({ type: 'measurement', values: { polypes: 0 } }), false);
   assert.equal(
-    personalActions.hasPersonalActionDetails({
+    audit.hasAuditBusinessDetails({
       type: 'measurement',
       changes: { polypes: { before: 4, after: 0 } },
     }),
@@ -693,6 +695,62 @@ test('salinity rendering preserves zero, hides null, and never duplicates PSU', 
   assert.equal(correction[0].before, '-');
   assert.equal(correction[0].after, '0');
   assert.equal(JSON.stringify([...normal, ...zero, ...correction]).includes('- PSU'), false);
+});
+
+test('salinity summaries and immutable values are readable in both timelines', () => {
+  for (const [t, recorded, updated] of [
+    [tFr, 'Salinité manuelle enregistrée : Zone 15.0°C', 'Salinité manuelle corrigée : Zone 15.0°C'],
+    [tEn, 'Manual salinity recorded: Zone 15.0°C', 'Manual salinity updated: Zone 15.0°C'],
+  ]) {
+    for (const [action, description, expected] of [
+      ['creation', 'Manual salinity recorded: Zone 15.0°C', recorded],
+      ['update', 'Manual salinity updated: Zone 15.0°C', updated],
+    ]) {
+      assert.equal(audit.getAuditBusinessSummary({ action, description }, t), expected);
+    }
+  }
+  const recorded = audit.getAuditInlineBusinessItems({
+    type: 'environment', values: { date: '2026-09-15', salinite_psu: '0.00', note: 'Stable' },
+  }, tFr);
+  const updated = audit.getAuditInlineBusinessItems({
+    type: 'environment',
+    values: { date: '2026-09-15', salinite_psu: '35.00' },
+    changes: { salinite_psu: { before: '0.00', after: '35.00' } },
+  }, tFr);
+  assert.equal(recorded.find(({ key }) => key === 'date')?.value, '15/09/2026');
+  assert.equal(recorded.find(({ key }) => key === 'salinite_psu')?.value, '0.00');
+  assert.equal(updated.find(({ key }) => key === 'salinite_psu')?.before, '0.00');
+  assert.equal(updated.find(({ key }) => key === 'salinite_psu')?.after, '35.00');
+  assert.equal(updated.find(({ key }) => key === 'date')?.value, '15/09/2026');
+  assert.equal(updated.filter(({ key }) => key === 'salinite_psu').length, 1);
+  assert.equal(audit.getAuditInlineBusinessItems({
+    type: 'environment', values: { salinite_psu: 0 },
+  }, tFr)[0].value, '0');
+
+  const adminSource = readSource('../src/components/AdminAuditSection.tsx');
+  const profileSource = readSource('../src/components/ProfileActionsSection.tsx');
+  const timelineSource = readSource('../src/components/AuditTimeline.tsx');
+  for (const source of [adminSource, profileSource]) {
+    assert.match(source, /<AuditPrimarySummary\b/);
+    assert.match(source, /<AuditInlineBusinessSummary\b/);
+    assert.doesNotMatch(source, /<AuditDisclosureButton\b|<AuditBusinessDetail\b|aria-expanded|expandedEntryId|isExpanded/);
+  }
+  assert.match(timelineSource, /getAuditBusinessSummary\(entry, t\)/);
+  assert.match(timelineSource, /getAuditInlineBusinessItems\(details, t\)/);
+  assert.doesNotMatch(timelineSource, /<AuditDisclosureButton\b|<AuditBusinessDetail\b|aria-expanded/);
+  assert.match(adminSource, /<AuditLinkedActionsPopover\b/);
+});
+
+test('account changes and export counts remain visible without expansion', () => {
+  const account = audit.getAuditInlineBusinessItems({
+    type: 'account',
+    values: { nom: 'Alice', role: 'admin', acces_actif: true },
+    changes: { acces_actif: { before: false, after: true } },
+  }, tFr);
+  assert.equal(account.some(({ key, before, after }) => key === 'acces_actif' && before === 'Non' && after === 'Oui'), true);
+  assert.equal(account.some(({ key, value }) => key === 'role' && value === 'Administrateur'), true);
+  assert.equal(account.some(({ key }) => key === 'nom'), false);
+  assert.equal(audit.getAuditInlineBusinessItems({ type: 'export', box_count: 0 }, tFr)[0].value, '0');
 });
 
 test('movement summaries render the real transition inline without duplicate details', () => {
@@ -1012,7 +1070,8 @@ test('administration family and date reloads invalidate pagination state', () =>
 
   assert.match(invalidationSource, /requestGeneration\.current \+= 1/);
   assert.match(invalidationSource, /setIsLoadingMore\(false\)/);
-  assert.match(invalidationSource, /setExpandedEntryId\(null\)/);
+  assert.match(sectionSource, /setState\(createAdminAuditState\(activeOrganizationId\)\)/);
+  assert.match(sectionSource, /offset: 0/);
   // One declaration plus the family and date filter call sites.
   assert.equal((sectionSource.match(/invalidateAuditRequests\(\)/g) ?? []).length, 3);
   assert.match(sectionSource, /\[activeOrganizationId, dateFilter, familyFilter\]/);
@@ -1164,11 +1223,6 @@ test('normalized business detail forms are rendered without raw metadata fallbac
       JSON.stringify({ values: null, changes: null }),
     );
   }
-
-  assert.equal(adminAudit.hasAdminAuditBusinessDetails({ business_details: { type: 'unknown' }, edited_at: null }), false);
-  assert.equal(adminAudit.hasAdminAuditBusinessDetails({ business_details: { type: 'measurement', values: { polypes: 0 } }, edited_at: null }), false);
-  assert.equal(adminAudit.hasAdminAuditBusinessDetails({ business_details: { type: 'measurement', values: { date: '2026-09-15', polypes: 0 } }, edited_at: null }), false);
-  assert.equal(adminAudit.hasAdminAuditBusinessDetails({ business_details: { type: 'unknown' }, edited_at: '2026-09-15T12:00:00Z' }), true);
 });
 
 test('organization switches clear administration rows and ignore late responses', () => {
@@ -1412,7 +1466,6 @@ test('administration audit is extracted and remounts for each organization', () 
   );
   assert.match(sectionSource, /setState\(createAdminAuditState\(activeOrganizationId\)\)/);
   assert.match(sectionSource, /requestGeneration\.current = generation/);
-  assert.match(sectionSource, /setExpandedEntryId\(null\)/);
   assert.match(sectionSource, /setIsLoadingMore\(false\)/);
 });
 
@@ -1422,9 +1475,7 @@ test('timeline changes expose accessible before and after labels', () => {
   assert.match(timelineSource, /<span className="sr-only">\{t\('auditPrevious'\)\}: <\/span>/);
   assert.match(timelineSource, /<span className="sr-only">\{t\('auditNew'\)\}: <\/span>/);
   assert.match(timelineSource, /className="audit-change-arrow" aria-hidden="true"/);
-  assert.match(timelineSource, /aria-controls=\{controls\}/);
-  assert.match(timelineSource, /aria-expanded=\{isExpanded\}/);
-  assert.match(timelineSource, /aria-label=\{isExpanded \? t\('profileActionsHideDetails'\) : t\('profileActionsDetails'\)\}/);
+  assert.doesNotMatch(timelineSource, /aria-controls=\{controls\}|aria-expanded=\{isExpanded\}/);
 });
 
 test('Profile and Admin use typed box references with a plain safe fallback', () => {
@@ -1444,9 +1495,7 @@ test('Profile and Admin use typed box references with a plain safe fallback', ()
     assert.doesNotMatch(source, /\|\| '-'\}<\/span>\}/);
     assert.equal(/metadata(?:\?\.|\.)box_id/.test(source), false);
 
-    const rowSource = source.slice(source.indexOf('function ' + (source === profileSource ? 'ProfileActionRow' : 'AdminAuditRow')));
-    assert.equal(rowSource.indexOf('<BoxTrackingPreview') < rowSource.indexOf('<AuditDisclosureButton'), true);
-    assert.doesNotMatch(rowSource, /<AuditDisclosureButton[\s\S]*?<BoxTrackingPreview/);
+    assert.doesNotMatch(source, /<AuditDisclosureButton\b|<AuditBusinessDetail\b|isExpanded|expandedEntryId/);
   }
 });
 
@@ -1471,7 +1520,7 @@ test('Profile and Admin share inline summaries without duplicating resolved box 
   }
 });
 
-test('disclosures remain only for normalized details not already rendered inline', () => {
+test('normalized details do not duplicate measurement values already inline', () => {
   assert.equal(audit.hasAuditBusinessDetails({ type: 'measurement', changes: { polypes: { before: 0, after: 5 } } }), false);
   assert.equal(audit.hasAuditBusinessDetails({ type: 'measurement', values: { date: '2026-09-15', polypes: 0 } }), false);
   assert.equal(audit.hasAuditBusinessDetails({ type: 'box_movement', from_zone: 'A', to_zone: 'B' }), false);
@@ -1482,7 +1531,7 @@ test('disclosures remain only for normalized details not already rendered inline
   assert.equal(audit.hasAuditBusinessDetails({ type: 'account', changes: { role: { before: 'viewer', after: 'admin' } } }), true);
 });
 
-test('collapsed context keeps only useful subculture and transfer relations', () => {
+test('row context keeps only useful subculture and transfer relations', () => {
   const timelineSource = readSource('../src/components/AuditTimeline.tsx');
 
   assert.match(timelineSource, /if \(context\.subculture\)/);
@@ -1495,7 +1544,7 @@ test('collapsed context keeps only useful subculture and transfer relations', ()
   assert.equal(timelineSource.includes('reactivated'), false);
 });
 
-test('details use normalized business data and never expose raw metadata', () => {
+test('inline facts use normalized business data and never expose raw metadata', () => {
   const sources = [
     readSource('../src/components/ProfileActionsSection.tsx'),
     readSource('../src/components/AdminAuditSection.tsx'),
@@ -1512,9 +1561,11 @@ test('details use normalized business data and never expose raw metadata', () =>
     assert.equal(source.includes('AuditTechnicalDetails'), false);
     assert.equal(/metadata(?:\?\.|\.)box_id/.test(source), false);
   }
-  assert.match(sources[0], /hasPersonalActionDetails\(entry\.business_details\)/);
-  assert.match(sources[0], /<AuditBusinessDetail details=\{entry\.business_details\}/);
-  assert.match(sources[1], /<AuditBusinessDetail details=\{entry\.business_details\}/);
+  for (const source of sources.slice(0, 2)) {
+    assert.match(source, /<AuditInlineBusinessSummary details=\{entry\.business_details\}/);
+    assert.doesNotMatch(source, /<AuditDisclosureButton\b|<AuditBusinessDetail\b|aria-expanded|isExpanded/);
+  }
+  assert.doesNotMatch(sources[2], /<AuditDisclosureButton\b|<AuditBusinessDetail\b|chevron-down/);
   assert.doesNotMatch(presentationSource, /entry\.metadata\?\.valeurs/);
 });
 
@@ -1584,7 +1635,7 @@ test('audit presentation avoids technical UI, rigid rails, and final family icon
   );
   assert.match(familyFilterCss, /display: flex;/);
   assert.match(familyFilterCss, /flex-wrap: wrap;/);
-  assert.match(timelineCss, /\.audit-detail-region/);
+  assert.doesNotMatch(timelineCss, /\.audit-detail-region|\.audit-disclosure-button/);
   for (const family of audit.AUDIT_FAMILIES) {
     assert.equal(audit.AUDIT_FAMILY_PRESENTATION[family].icon, null);
   }

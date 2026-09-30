@@ -4,21 +4,14 @@ import type { Language, Translator } from '../i18n';
 import type { AuditBoxReference, AuditBusinessDetails, AuditContext } from '../types';
 import {
   fillTemplate,
-  formatAuditMetadataValue,
   getAuditBoxSummaryParts,
-  getAuditBusinessDetailContent,
   getAuditBusinessNote,
   getAuditBusinessSummary,
   getAuditInlineBusinessItems,
   getAuditInitialPolypsLabel,
-  getAuditMetadataKeyLabel,
-  getAuditValueChange,
   hasAuditSubcultureSummary,
-  isAuditNoteField,
-  orderAuditFieldEntries,
 } from '../utils/auditPresentation';
 import BoxTrackingPreview from './BoxTrackingPreview';
-import PolypbaseIcon from './PolypbaseIcon';
 
 export function AuditDayHeading({ children }: { children: ReactNode }) {
   return <h3 className="audit-day-heading">{children}</h3>;
@@ -194,80 +187,6 @@ export function AuditInlineBusinessSummary({
   );
 }
 
-export function AuditDisclosureButton({
-  controls,
-  isExpanded,
-  onToggle,
-  t,
-}: {
-  controls: string;
-  isExpanded: boolean;
-  onToggle: () => void;
-  t: Translator;
-}) {
-  return (
-    <button
-      className="audit-disclosure-button"
-      type="button"
-      aria-controls={controls}
-      aria-expanded={isExpanded}
-      aria-label={isExpanded ? t('profileActionsHideDetails') : t('profileActionsDetails')}
-      onClick={onToggle}
-    >
-      <PolypbaseIcon name="chevron-down" size={17} aria-hidden="true" />
-    </button>
-  );
-}
-
-export function AuditBusinessDetail({
-  details,
-  id,
-  t,
-}: {
-  details: AuditBusinessDetails | null | undefined;
-  id: string;
-  t: Translator;
-}) {
-  const content = getAuditBusinessDetailContent(details);
-  const valueEntries = content.values ? orderAuditFieldEntries(Object.entries(content.values)) : [];
-  const changeEntries = content.changes ? orderAuditFieldEntries(Object.entries(content.changes)) : [];
-  if (!valueEntries.length && !changeEntries.length) return null;
-
-  return (
-    <div className="audit-detail-region" id={id}>
-      {changeEntries.length ? (
-        <dl className="audit-change-list">
-          {changeEntries.map(([key, value]) => {
-            const change = getAuditValueChange(value);
-            if (!change) return null;
-            return (
-              <div className="audit-change-row" key={key}>
-                <dt>{getAuditMetadataKeyLabel(key, t)}</dt>
-                <dd>
-                  <span className="sr-only">{t('auditPrevious')}: </span>
-                  <span>{formatAuditMetadataValue(change.before, t)}</span>
-                  <span className="audit-change-arrow" aria-hidden="true">→</span>
-                  <span className="sr-only">{t('auditNew')}: </span>
-                  <span>{formatAuditMetadataValue(change.after, t)}</span>
-                </dd>
-              </div>
-            );
-          })}
-        </dl>
-      ) : null}
-      {valueEntries.length ? (
-        <dl className="audit-detail-list">
-          {valueEntries.map(([key, value]) => (
-            <div className={isAuditNoteField(key) ? 'audit-detail-item is-note' : 'audit-detail-item'} key={key}>
-              <dt>{getAuditMetadataKeyLabel(key, t)}</dt>
-              <dd>{formatAuditMetadataValue(value, t)}</dd>
-            </div>
-          ))}
-        </dl>
-      ) : null}
-    </div>
-  );
-}
 
 export function AuditBusinessNote({
   details,

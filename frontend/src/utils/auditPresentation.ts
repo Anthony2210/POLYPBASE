@@ -246,6 +246,8 @@ const DESCRIPTION_RULES: Array<{
   { prefix: 'Box moved to ', render: (rest, t) => fillTemplate(t('auditDescriptionBoxMoved'), { zone: rest }) },
   { prefix: 'Subculture created from ', render: (rest, t) => fillTemplate(t('auditDescriptionSubcultureCreated'), { code: rest }) },
   { prefix: 'Manual temperature recorded: ', render: (rest, t) => fillTemplate(t('auditDescriptionManualTemperature'), { zone: rest }) },
+  { prefix: 'Manual salinity recorded: ', render: (rest, t) => fillTemplate(t('auditDescriptionManualSalinityRecorded'), { zone: rest }) },
+  { prefix: 'Manual salinity updated: ', render: (rest, t) => fillTemplate(t('auditDescriptionManualSalinityUpdated'), { zone: rest }) },
   { prefix: 'Thermal zone created: ', render: (rest, t) => fillTemplate(t('auditDescriptionZoneCreated'), { zone: rest }) },
   { prefix: 'Thermal zone updated: ', render: (rest, t) => fillTemplate(t('auditDescriptionZoneUpdated'), { zone: rest }) },
   { prefix: 'Probe created: ', render: (rest, t) => fillTemplate(t('auditDescriptionProbeCreated'), { code: rest }) },
@@ -370,6 +372,32 @@ export function getAuditInlineBusinessItems(
       }
       if (source[key] === null || source[key] === undefined || source[key] === '') return [];
       return [{ key, label, value: formatAuditMeasurementValue(key, source[key], t) }];
+    });
+  }
+
+  if (['environment', 'account', 'box', 'reference', 'export', 'box_inventory_initialization'].includes(details.type)) {
+    const content = getAuditBusinessDetailContent(details);
+    const valueKeys: Record<string, string[]> = {
+      environment: ['date', 'temperature_c', 'salinite_psu', 'temperature_consigne', 'capacite', 'active'],
+      account: ['role', 'acces_actif', 'is_responsable', 'responsable'],
+      box: ['statut', 'emplacement', 'volume_litres'],
+      reference: [],
+      export: ['box_count', 'measurement_count', 'week_count'],
+      box_inventory_initialization: ['box_count', 'statut'],
+    };
+    const entries = [
+      ...Object.entries(content.changes ?? {}).filter(([key]) => !isAuditNoteField(key)),
+      ...Object.entries(content.values ?? {}).filter(([key]) => valueKeys[details.type].includes(key)),
+    ];
+    return orderAuditFieldEntries(entries).flatMap<AuditInlineBusinessItem>(([key, value]) => {
+      const label = getAuditMetadataKeyLabel(key, t);
+      const change = getAuditValueChange(value);
+      const format = (raw: unknown) => key === 'salinite_psu'
+        ? formatAuditMeasurementValue(key, raw, t)
+        : formatAuditMetadataValue(raw, t);
+      if (change) return [{ key, label, before: format(change.before), after: format(change.after) }];
+      if (value === null || value === undefined || value === '') return [];
+      return [{ key, label, value: format(value) }];
     });
   }
 
