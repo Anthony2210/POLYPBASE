@@ -47,15 +47,29 @@
 .audit-inline-separator { margin-inline-end: var(--space-1); color: var(--color-line-strong); }
 .audit-inline-label { color: var(--color-muted); }
 .audit-inline-value { color: var(--color-ink); font-weight: 600; }
+.audit-inline-value-old { color: var(--color-danger-hover); }
+.audit-inline-value-new { color: var(--color-success); }
 .audit-inline-unit { color: var(--color-muted); }
 
+.audit-previous-location {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: .74rem;
+  line-height: 1.4;
+}
+
 .audit-business-note {
+  display: -webkit-box;
+  min-width: 0;
   max-width: 68ch;
   margin: var(--space-1) 0 0;
+  overflow: hidden;
   color: var(--color-ink-soft);
   font-size: .75rem;
   line-height: 1.45;
   overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .audit-relation {

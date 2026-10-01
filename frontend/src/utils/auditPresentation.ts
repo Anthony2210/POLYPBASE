@@ -61,6 +61,7 @@ export type AuditInlineBusinessItem = {
   after?: string;
   unit?: string;
   showLabel?: boolean;
+  isDelta?: boolean;
 };
 
 export type AuditValueChange = {
@@ -222,7 +223,6 @@ const BUSINESS_SUMMARY_PREFIX_KEYS: Array<[string, string]> = [
   ['Box reactivated: ', 'auditSummaryBoxReactivated'],
   ['Box moved to ', 'auditSummaryBoxMoved'],
   ['Subculture created from ', 'auditSummarySubcultureCreated'],
-  ['Manual temperature recorded: ', 'auditSummaryTemperatureRecorded'],
   ['Thermal zone created: ', 'auditSummaryLocationCreated'],
   ['Thermal zone updated: ', 'auditSummaryLocationUpdated'],
   ['Probe created: ', 'auditSummaryProbeCreated'],
@@ -245,9 +245,6 @@ const DESCRIPTION_RULES: Array<{
   { prefix: 'Box reactivated: ', render: (rest, t) => fillTemplate(t('auditDescriptionBoxReactivated'), { code: rest }) },
   { prefix: 'Box moved to ', render: (rest, t) => fillTemplate(t('auditDescriptionBoxMoved'), { zone: rest }) },
   { prefix: 'Subculture created from ', render: (rest, t) => fillTemplate(t('auditDescriptionSubcultureCreated'), { code: rest }) },
-  { prefix: 'Manual temperature recorded: ', render: (rest, t) => fillTemplate(t('auditDescriptionManualTemperature'), { zone: rest }) },
-  { prefix: 'Manual salinity recorded: ', render: (rest, t) => fillTemplate(t('auditDescriptionManualSalinityRecorded'), { zone: rest }) },
-  { prefix: 'Manual salinity updated: ', render: (rest, t) => fillTemplate(t('auditDescriptionManualSalinityUpdated'), { zone: rest }) },
   { prefix: 'Thermal zone created: ', render: (rest, t) => fillTemplate(t('auditDescriptionZoneCreated'), { zone: rest }) },
   { prefix: 'Thermal zone updated: ', render: (rest, t) => fillTemplate(t('auditDescriptionZoneUpdated'), { zone: rest }) },
   { prefix: 'Probe created: ', render: (rest, t) => fillTemplate(t('auditDescriptionProbeCreated'), { code: rest }) },
@@ -304,6 +301,11 @@ export function hasAuditSubcultureSummary(details: AuditBusinessDetails | null |
     && (details.child_global_codes?.length ?? 0) > 0;
 }
 
+export function getAuditPreviousZone(details: AuditBusinessDetails | null | undefined): string {
+  if (details?.type !== 'box_movement' || typeof details.from_zone !== 'string') return '';
+  return details.from_zone.trim();
+}
+
 export function getAuditBoxSummaryParts(entry: AuditEntryLike, t: Translate): [string, string] | null {
   const details = entry.business_details;
   const description = (entry.description || '').trim();
@@ -357,6 +359,8 @@ export function getAuditInlineBusinessItems(
 ): AuditInlineBusinessItem[] {
   if (!details) return [];
 
+  if (details.type === 'box_movement') return [];
+
   if (details.type === 'measurement') {
     const source = details.changes ?? details.values ?? {};
     return ['polypes', 'ephyrules', 'salinite_psu'].flatMap<AuditInlineBusinessItem>((key) => {
@@ -369,6 +373,7 @@ export function getAuditInlineBusinessItems(
           label,
           before: formatAuditMeasurementValue(key, change.before, t),
           after: formatAuditMeasurementValue(key, change.after, t),
+          isDelta: isAuditValueTransition(change),
         }];
       }
       if (source[key] === null || source[key] === undefined || source[key] === '') return [];
@@ -393,13 +398,20 @@ export function getAuditInlineBusinessItems(
     return orderAuditFieldEntries(Object.entries(changes)).map(([key, value]) => {
       const change = getAuditValueChange(value);
       if (key === 'acces_actif' && change && typeof change.after === 'boolean') {
-        return { key, label: t('auditAccountStatus'), value: t(change.after ? 'auditAccountActive' : 'auditAccountDisabled') };
+        return {
+          key,
+          label: t('auditAccountStatus'),
+          before: formatAuditMetadataValue(change.before, t),
+          after: formatAuditMetadataValue(change.after, t),
+          isDelta: isAuditValueTransition(change),
+        };
       }
       return {
         key,
         label: getAuditMetadataKeyLabel(key, t),
         before: formatAuditMetadataValue(change?.before, t),
         after: formatAuditMetadataValue(change?.after, t),
+        isDelta: change ? isAuditValueTransition(change) : false,
       };
     });
   }
@@ -414,19 +426,26 @@ export function getAuditInlineBusinessItems(
       export: ['box_count', 'measurement_count', 'week_count'],
       box_inventory_initialization: ['box_count', 'statut'],
     };
+    const isManualReading = details.type === 'environment' && isManualEnvironmentDescription(description);
     const entries = [
       ...Object.entries(content.changes ?? {}).filter(([key]) => !isAuditNoteField(key)),
-      ...Object.entries(content.values ?? {}).filter(([key]) => valueKeys[details.type].includes(key)),
+      ...Object.entries(content.values ?? {}).filter(([key]) => valueKeys[details.type].includes(key) && !(isManualReading && key === 'date')),
     ];
     return orderAuditFieldEntries(entries).flatMap<AuditInlineBusinessItem>(([key, value]) => {
       const label = getAuditMetadataKeyLabel(key, t);
       const change = getAuditValueChange(value);
+      const isManualValue = isManualReading && (key === 'salinite_psu' || key === 'temperature_c');
+      const unit = isManualValue ? (key === 'salinite_psu' ? 'PSU' : '°C') : undefined;
       const format = (raw: unknown) => key === 'salinite_psu'
         ? formatAuditMeasurementValue(key, raw, t)
         : formatAuditMetadataValue(raw, t);
-      if (change) return [{ key, label, before: format(change.before), after: format(change.after) }];
+      if (change) return [{
+        key, label, before: format(change.before), after: format(change.after), unit,
+        showLabel: isManualValue ? false : undefined,
+        isDelta: isAuditValueTransition(change),
+      }];
       if (value === null || value === undefined || value === '') return [];
-      return [{ key, label, value: format(value) }];
+      return [{ key, label, value: format(value), unit, showLabel: isManualValue ? false : undefined }];
     });
   }
 
@@ -457,6 +476,7 @@ export function getAuditBusinessSummary(entry: AuditEntryLike, t: Translate): st
   const details = entry.business_details;
   const accountTitle = getAccountActionTitle(entry, t);
   if (accountTitle) return accountTitle;
+  if (isManualEnvironmentDescription(description)) return getAuditDescriptionLabel(entry, t);
   if (details?.type === 'box_movement' && details.to_zone) {
     return fillTemplate(t('auditSummaryBoxMovedTo'), { location: details.to_zone });
   }
@@ -495,6 +515,38 @@ function getAccountActionTitle(entry: AuditEntryLike, t: Translate): string {
   return '';
 }
 
+const MANUAL_ENVIRONMENT_DESCRIPTION_KEYS: Record<string, [string, string]> = {
+  'Manual temperature recorded': ['auditDescriptionManualTemperature', 'auditSummaryTemperatureRecorded'],
+  'Manual salinity recorded': ['auditDescriptionManualSalinityRecorded', 'auditSummarySalinityRecorded'],
+  'Manual salinity updated': ['auditDescriptionManualSalinityUpdated', 'auditSummarySalinityUpdated'],
+};
+
+function getManualEnvironmentDescription(description: string | undefined): { keys: [string, string]; zone: string } | null {
+  const match = /^(Manual temperature recorded|Manual salinity recorded|Manual salinity updated)(?::[ \t]*(.*))?$/.exec(
+    (description ?? '').trim(),
+  );
+  return match ? { keys: MANUAL_ENVIRONMENT_DESCRIPTION_KEYS[match[1]], zone: (match[2] ?? '').trim() } : null;
+}
+
+export function hasAuditManualEnvironmentTarget(entry: AuditEntryLike): boolean {
+  return Boolean(getManualEnvironmentDescription(entry.description)?.zone);
+}
+
+function isManualEnvironmentDescription(description: string | undefined): boolean {
+  return getManualEnvironmentDescription(description) !== null;
+}
+
+function isAuditValueTransition(change: AuditValueChange): boolean {
+  const { before, after } = change;
+  if (before === null || before === undefined || before === ''
+    || after === null || after === undefined || after === '') return false;
+  if (Array.isArray(before) || Array.isArray(after)) {
+    return Array.isArray(before) && Array.isArray(after) && JSON.stringify(before) !== JSON.stringify(after);
+  }
+  if (typeof before === 'object' || typeof after === 'object') return false;
+  return !Object.is(before, after);
+}
+
 export function getAuditDescriptionLabel(entry: AuditEntryLike, t: Translate): string {
   const description = (entry.description || '').trim();
 
@@ -508,6 +560,11 @@ export function getAuditDescriptionLabel(entry: AuditEntryLike, t: Translate): s
         : 'auditDescriptionMeasurementCorrected',
     );
   }
+
+  const manual = getManualEnvironmentDescription(description);
+  if (manual) return manual.zone
+    ? fillTemplate(t(manual.keys[0]), { zone: manual.zone })
+    : t(manual.keys[1]);
 
   const rule = DESCRIPTION_RULES.find((candidate) => description.startsWith(candidate.prefix));
   if (rule) return rule.render(description.slice(rule.prefix.length), t);

@@ -3,6 +3,9 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 
+import { createElement } from 'react';
+import * as jsxRuntime from 'react/jsx-runtime';
+import { renderToStaticMarkup } from 'react-dom/server';
 import ts from 'typescript';
 
 function loadModule(relativePath) {
@@ -18,7 +21,7 @@ function loadModule(relativePath) {
 function loadModuleWithRequire(relativePath, requireMap) {
   const source = readFileSync(new URL(relativePath, import.meta.url), 'utf8');
   const { outputText } = ts.transpileModule(source, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
   });
   const exports = {};
   const require = (specifier) => {
@@ -39,6 +42,23 @@ const personalActions = loadModuleWithRequire('../src/utils/personalActions.ts',
 const adminAudit = loadModuleWithRequire('../src/utils/adminAudit.ts', {
   './auditPresentation': audit,
 });
+const timeline = loadModuleWithRequire('../src/components/AuditTimeline.tsx', {
+  'react/jsx-runtime': jsxRuntime,
+  '../utils/auditPresentation': audit,
+  './BoxTrackingPreview': { default: () => null },
+});
+
+function renderBusinessRow(entry, t = tFr, boxReference = null) {
+  return renderToStaticMarkup(createElement('div', null,
+    createElement(timeline.AuditPrimarySummary, {
+      entry, boxReference, className: 'audit-summary', language: 'fr', t,
+    }),
+    createElement(timeline.AuditInlineBusinessSummary, {
+      description: entry.description, details: entry.business_details, t,
+    }),
+    createElement(timeline.AuditBusinessNote, { details: entry.business_details, t }),
+  ));
+}
 
 function readSource(relativePath) {
   return readFileSync(new URL(relativePath, import.meta.url), 'utf8');
@@ -648,9 +668,11 @@ test('real normalized notes render without empty filler text', () => {
   const timelineSource = readSource('../src/components/AuditTimeline.tsx');
   const profileSource = readSource('../src/components/ProfileActionsSection.tsx');
   const adminSource = readSource('../src/components/AdminAuditSection.tsx');
-  assert.match(timelineSource, /return note \? <p className="audit-business-note">\{note\}<\/p> : null;/);
-  assert.match(profileSource, /<AuditBusinessNote details=\{entry\.business_details\} \/>/);
-  assert.match(adminSource, /<AuditBusinessNote details=\{entry\.business_details\} \/>/);
+  assert.match(timelineSource, /className="audit-business-note" aria-label=\{`\$\{label\} \$\{preview\}`\}/);
+  assert.doesNotMatch(timelineSource, /title=\{note\}/);
+  assert.match(timelineSource, /\{label\} \{note\}/);
+  assert.match(profileSource, /<AuditBusinessNote details=\{entry\.business_details\} t=\{t\} \/>/);
+  assert.match(adminSource, /<AuditBusinessNote details=\{entry\.business_details\} t=\{t\} \/>/);
 });
 
 test('a first location assignment is presented in the direct summary', () => {
@@ -697,10 +719,71 @@ test('salinity rendering preserves zero, hides null, and never duplicates PSU', 
   assert.equal(JSON.stringify([...normal, ...zero, ...correction]).includes('- PSU'), false);
 });
 
+test('movement history shows only a stored previous zone below its title', () => {
+  const movement = {
+    action: 'update',
+    description: 'Box moved to Zone 5.0°C',
+    business_details: { type: 'box_movement', from_zone: 'Zone 15.0°C', to_zone: 'Zone 5.0°C' },
+  };
+  const boxReference = { id: 1, global_code: 'CMA-JAP-1.001', species_scientific_name: 'Aurelia' };
+  const html = renderBusinessRow(movement, tFr, boxReference);
+  const text = html.replace(/<[^>]*>/g, '');
+  assert.match(text, /CMA-JAP-1\.001 déplacée vers Zone 5\.0°C/);
+  assert.match(text, /Anciennement : Zone 15\.0°C/);
+  assert.equal(audit.getAuditInlineBusinessItems(movement.business_details, tFr).length, 0);
+  assert.equal((html.match(/Zone 15\.0°C/g) ?? []).length, 1);
+  assert.match(renderBusinessRow(movement, tEn, boxReference).replace(/<[^>]*>/g, ''), /CMA-JAP-1\.001 moved to Zone 5\.0°C/);
+
+  const initial = { ...movement, business_details: { type: 'box_movement', to_zone: 'Zone 5.0°C' } };
+  assert.match(renderBusinessRow(initial, tFr, boxReference).replace(/<[^>]*>/g, ''), /CMA-JAP-1\.001 déplacée vers Zone 5\.0°C/);
+  assert.doesNotMatch(renderBusinessRow(initial), /Anciennement/);
+
+  const legacy = { ...movement, business_details: { type: 'box_movement', to_zone: 'Zone 5.0°C' } };
+  assert.match(renderBusinessRow(legacy, tFr, boxReference).replace(/<[^>]*>/g, ''), /CMA-JAP-1\.001 déplacée vers Zone 5\.0°C/);
+  assert.doesNotMatch(renderBusinessRow(legacy), /Anciennement|Previously/);
+
+  const producer = readSource('../../backend/apps/audit/services.py');
+  assert.match(producer, /from_zone=_safe_string\(metadata\.get\("from_thermal_zone_name"\), allow_empty=True\)/);
+});
+
+test('long notes stay complete in markup while the shared timeline preview is clamped', () => {
+  const notes = [
+    'a'.repeat(5000),
+    'This is a longer note with ordinary prose, several clauses, and enough text to continue past three lines in the action history. '.repeat(12),
+  ];
+  for (const note of notes) {
+    const entry = {
+      action: 'entry',
+      description: 'Biological measurement recorded',
+      business_details: { type: 'measurement', values: { polypes: 0, note } },
+    };
+    const html = renderBusinessRow(entry);
+    assert.ok(html.includes(`Note : ${note.trim()}`));
+    assert.ok(html.includes('Note :'));
+    assert.match(html, /class="audit-business-note" aria-label="Note : [^"]+"/);
+    assert.ok(html.includes(note.trim()));
+    assert.doesNotMatch(html, /title=/);
+    assert.equal(audit.getAuditBusinessNote(entry.business_details), note.trim());
+    assert.equal((html.match(/a/g) ?? []).length >= note.match(/a/g).length, true);
+  }
+
+  const noteCss = readSource('../src/styles/components/audit-timeline.css');
+  const popoverCss = readSource('../src/styles/components/popovers.css');
+  const adminCss = readSource('../src/styles/pages/administration.css');
+  const profileCss = readSource('../src/styles/pages/profile.css');
+  assert.match(noteCss, /\.audit-business-note\s*\{[^}]*min-width:\s*0;[^}]*overflow:\s*hidden;[^}]*overflow-wrap:\s*anywhere;[^}]*-webkit-box-orient:\s*vertical;[^}]*-webkit-line-clamp:\s*3;/s);
+  const timelineSource = readSource('../src/components/AuditTimeline.tsx');
+  assert.match(timelineSource, /className="audit-business-note" aria-label=\{`\$\{label\} \$\{preview\}`\}/);
+  assert.doesNotMatch(timelineSource, /title=\{note\}/);
+  assert.match(popoverCss, /\.audit-linked-actions-list li\s*\{[^}]*min-width:\s*0;/s);
+  assert.match(adminCss, /\.admin-audit-main\s*\{[^}]*min-width:\s*0;/s);
+  assert.match(profileCss, /\.profile-action-main\s*\{[^}]*min-width:\s*0;/s);
+});
+
 test('salinity summaries and immutable values are readable in both timelines', () => {
   for (const [t, recorded, updated] of [
-    [tFr, 'Salinité manuelle enregistrée : Zone 15.0°C', 'Salinité manuelle corrigée : Zone 15.0°C'],
-    [tEn, 'Manual salinity recorded: Zone 15.0°C', 'Manual salinity updated: Zone 15.0°C'],
+    [tFr, 'Salinité manuelle de Zone 15.0°C enregistrée', 'Salinité manuelle de Zone 15.0°C corrigée'],
+    [tEn, 'Manual salinity for Zone 15.0°C recorded', 'Manual salinity for Zone 15.0°C corrected'],
   ]) {
     for (const [action, description, expected] of [
       ['creation', 'Manual salinity recorded: Zone 15.0°C', recorded],
@@ -739,6 +822,150 @@ test('salinity summaries and immutable values are readable in both timelines', (
   assert.match(timelineSource, /getAuditInlineBusinessItems\(details, t, description\)/);
   assert.doesNotMatch(timelineSource, /<AuditDisclosureButton\b|<AuditBusinessDetail\b|aria-expanded/);
   assert.match(adminSource, /<AuditLinkedActionsPopover\b/);
+});
+
+test('manual environment rows keep the target in the title and use compact values', () => {
+  for (const [t, title] of [
+    [tFr, 'Température manuelle de Zone 15.0°C enregistrée'],
+    [tEn, 'Manual temperature for Zone 15.0°C recorded'],
+  ]) {
+    const entry = { action: 'update', object_type: 'thermal_zone', object_id: 'Zone 15.0°C',
+      description: 'Manual temperature recorded: Zone 15.0°C',
+      business_details: { type: 'environment', values: { date: '2026-09-15', temperature_c: '15.00' } } };
+    assert.equal(audit.getAuditBusinessSummary(entry, t), title);
+    assert.equal(audit.hasAuditManualEnvironmentTarget(entry), true);
+    const items = audit.getAuditInlineBusinessItems(entry.business_details, t, entry.description);
+    assert.equal(JSON.stringify(Array.from(items, ({ value, unit, showLabel }) => [value, unit, showLabel])),
+      JSON.stringify([['15.00', '°C', false]]));
+  }
+  const recorded = { type: 'environment', values: { date: '2026-09-15', salinite_psu: '33.00', note: 'test' } };
+  const corrected = { type: 'environment', values: { date: '2026-09-15', salinite_psu: '33.90', note: 'test' },
+    changes: { salinite_psu: { before: '33.00', after: '33.90' } } };
+  assert.equal(JSON.stringify(Array.from(audit.getAuditInlineBusinessItems(recorded, tFr,
+    'Manual salinity recorded: Zone 15.0°C'), ({ value, unit, showLabel }) => [value, unit, showLabel])),
+  JSON.stringify([['33.00', 'PSU', false]]));
+  assert.equal(JSON.stringify(Array.from(audit.getAuditInlineBusinessItems(corrected, tFr,
+    'Manual salinity updated: Zone 15.0°C'), ({ before, after, unit, showLabel }) => [before, after, unit, showLabel])),
+  JSON.stringify([['33.00', '33.90', 'PSU', false]]));
+  assert.equal(audit.getAuditBusinessNote(corrected), 'test');
+  assert.equal(audit.hasAuditManualEnvironmentTarget({ description: 'Manual salinity recorded: ' }), false);
+});
+
+test('manual environment descriptions without a zone stay translated in FR and EN', () => {
+  const cases = [
+    ['Manual salinity recorded', 'Salinité manuelle enregistrée', 'Manual salinity recorded'],
+    ['Manual salinity updated', 'Salinité manuelle corrigée', 'Manual salinity corrected'],
+    ['Manual temperature recorded', 'Température manuelle enregistrée', 'Manual temperature recorded'],
+  ];
+  for (const [description, frTitle, enTitle] of cases) {
+    for (const suffix of ['', ':', ': ', ':    ']) {
+      const entry = { action: 'update', description: `${description}${suffix}`, object_type: 'thermal_zone', object_id: '' };
+      assert.equal(audit.getAuditBusinessSummary(entry, tFr), frTitle);
+      assert.equal(audit.getAuditBusinessSummary(entry, tEn), enTitle);
+      assert.equal(audit.getAuditDescriptionLabel(entry, tFr), frTitle);
+      assert.equal(audit.getAuditDescriptionLabel(entry, tEn), enTitle);
+      assert.equal(audit.hasAuditManualEnvironmentTarget(entry), false);
+      assert.doesNotMatch(frTitle, /\bde\s*(?:enregistrée|corrigée)|:|Manual /);
+      const html = renderBusinessRow({ ...entry, business_details: null });
+      assert.match(html, new RegExp(frTitle));
+      assert.doesNotMatch(html, /Manual |de\s*(?:enregistrée|corrigée)|audit-target/);
+    }
+  }
+});
+
+test('complete deltas retain zero and use shared accessible old/new markup', () => {
+  for (const details of [
+    { type: 'environment', changes: { salinite_psu: { before: 0, after: '33.90' } } },
+    { type: 'account', changes: { role: { before: 'viewer', after: 'admin' },
+      acces_actif: { before: false, after: true }, is_responsable: { before: false, after: true } } },
+  ]) {
+    const items = audit.getAuditInlineBusinessItems(details, tFr, 'Member access updated');
+    assert.ok(items.every(({ before, after }) => before !== undefined && after !== undefined));
+    if (details.type === 'environment') {
+      assert.equal(items[0].before, '0');
+      assert.equal(items[0].after, '33.90');
+    } else {
+      assert.equal(JSON.stringify(Array.from(items, ({ key, before, after }) => [key, before, after])),
+        JSON.stringify([['role', 'Lecteur', 'Administrateur'], ['acces_actif', 'Non', 'Oui'],
+          ['is_responsable', 'Non', 'Oui']]));
+    }
+  }
+  const source = readSource('../src/components/AuditTimeline.tsx');
+  const css = readSource('../src/styles/components/audit-timeline.css');
+  assert.match(source, /audit-inline-value-old/);
+  assert.match(source, /audit-inline-value-new/);
+  assert.match(source, /audit-change-arrow" aria-hidden="true">→/);
+  assert.match(source, /t\('auditPrevious'\)/);
+  assert.match(source, /t\('auditNew'\)/);
+  assert.match(source, /!item.isDelta/);
+  assert.match(source, /<span className="audit-inline-value">\{item.value\}<\/span>/);
+  assert.match(source, /className="audit-business-note" aria-label=\{`\$\{label\} \$\{preview\}`\}/);
+  assert.doesNotMatch(source, /title=\{note\}/);
+  assert.match(source, /\{label\} \{note\}/);
+  assert.match(css, /\.audit-inline-value-old \{ color: var\(--color-danger-hover\)/);
+  assert.match(css, /\.audit-inline-value-new \{ color: var\(--color-success\)/);
+  assert.equal(tFr('auditBusinessNoteLabel'), 'Note :');
+  assert.equal(tEn('auditBusinessNoteLabel'), 'Note:');
+});
+
+test('rendered manual readings and corrections keep units, delta order, and notes separate', () => {
+  const recorded = renderBusinessRow({ action: 'creation', description: 'Manual salinity recorded: Zone 15.0°C',
+    business_details: { type: 'environment', values: { salinite_psu: '33.00', note: 'test' } } });
+  assert.match(recorded, /Salinité manuelle de Zone 15.0°C enregistrée/);
+  assert.match(recorded, /class="audit-inline-value">33.00<\/span><span class="audit-inline-unit">PSU<\/span>/);
+  assert.doesNotMatch(recorded, /audit-inline-value-(?:old|new)|audit-change-arrow/);
+  assert.match(recorded, /<p class="audit-business-note" aria-label="Note : test">Note : test<\/p>/);
+    assert.doesNotMatch(recorded, /title=/);
+
+  const corrected = renderBusinessRow({ action: 'update', description: 'Manual salinity updated: Zone 15.0°C',
+    business_details: { type: 'environment', changes: { salinite_psu: { before: '33.00', after: '33.90' } },
+      values: { salinite_psu: '33.90', note: 'test' } } });
+  assert.match(corrected, /Salinité manuelle de Zone 15.0°C corrigée/);
+  assert.match(corrected, /class="sr-only">Avant: <\/span><span class="audit-inline-value audit-inline-value-old">33.00<\/span><span class="audit-change-arrow" aria-hidden="true">→<\/span><span class="sr-only">Après: <\/span><span class="audit-inline-value audit-inline-value-new">33.90<\/span><span class="audit-inline-unit">PSU<\/span>/);
+  assert.match(corrected, /<\/p><p class="audit-business-note" aria-label="Note : test">Note : test<\/p>/);
+    assert.doesNotMatch(corrected, /title=/);
+  assert.equal((corrected.match(/33.90/g) ?? []).length, 1);
+
+  const temperature = renderBusinessRow({ action: 'update', description: 'Manual temperature recorded: Zone 15.0°C',
+    business_details: { type: 'environment', values: { temperature_c: '15.00' } } });
+  assert.match(temperature, /Température manuelle de Zone 15.0°C enregistrée/);
+  assert.match(temperature, /class="audit-inline-value">15.00<\/span><span class="audit-inline-unit">°C<\/span>/);
+  assert.doesNotMatch(temperature, /audit-inline-value-(?:old|new)|audit-change-arrow/);
+});
+
+test('rendered before/after pairs color both sides even when either value is zero', () => {
+  for (const [before, after] of [[0, 33], [33, 0]]) {
+    const html = renderBusinessRow({ action: 'update', description: 'Manual salinity updated: Zone 15.0°C',
+      business_details: { type: 'environment', changes: { salinite_psu: { before, after } } } });
+    assert.match(html, new RegExp(`audit-inline-value-old">${before}<\\/span>.*audit-change-arrow.*→.*audit-inline-value-new">${after}<\\/span>`));
+  }
+  const html = renderBusinessRow({ action: 'update', description: 'Member access updated',
+    business_details: { type: 'account', changes: { role: { before: 'viewer', after: 'admin' },
+      acces_actif: { before: false, after: true }, is_responsable: { before: false, after: true } } } });
+  assert.equal((html.match(/audit-inline-value-old/g) ?? []).length, 3);
+  assert.equal((html.match(/audit-inline-value-new/g) ?? []).length, 3);
+  assert.equal((html.match(/class="audit-change-arrow"/g) ?? []).length, 3);
+  assert.match(html, /Lecteur.*Administrateur/);
+  assert.match(html, /Non.*Oui/);
+});
+
+test('identical before and after values remain readable but neutral', () => {
+  for (const [before, after] of [['33.00', '33.00'], [0, 0], [false, false]]) {
+    const details = typeof before === 'boolean'
+      ? { type: 'account', changes: { is_responsable: { before, after } } }
+      : { type: 'environment', changes: { salinite_psu: { before, after } } };
+    const description = typeof before === 'boolean' ? 'Member access updated' : 'Manual salinity updated: Zone 15.0°C';
+    const item = audit.getAuditInlineBusinessItems(details, tFr, description)[0];
+    assert.equal(item.isDelta, false);
+    const html = renderBusinessRow({ action: 'update', description, business_details: details });
+    assert.equal((html.match(/class="audit-inline-value"/g) ?? []).length, 2);
+    assert.match(html, /class="sr-only">Avant: <\/span><span class="audit-inline-value">[^<]+<\/span><span class="audit-change-arrow" aria-hidden="true">→<\/span><span class="sr-only">Après: <\/span><span class="audit-inline-value">[^<]+<\/span>/);
+    assert.doesNotMatch(html, /audit-inline-value-(?:old|new)/);
+  }
+  const distinctUnderlyingValues = { type: 'account', changes: { is_responsable: { before: false, after: 'Non' } } };
+  assert.equal(audit.getAuditInlineBusinessItems(distinctUnderlyingValues, tFr, 'Member access updated')[0].isDelta, true);
+  const missing = { type: 'environment', changes: { salinite_psu: { before: null, after: '' } } };
+  assert.equal(audit.getAuditInlineBusinessItems(missing, tFr)[0].isDelta, false);
 });
 
 test('account changes and export counts remain visible without expansion', () => {
@@ -788,7 +1015,7 @@ test('multi-field account changes remain compact and do not invent a role hierar
   assert.equal(audit.getAuditBusinessSummary(entry, tFr), 'Accès utilisateur modifié');
   assert.deepEqual(Array.from(audit.getAuditInlineBusinessItems(entry.business_details, tFr, entry.description),
     ({ label, before, after, value }) => [label, before, after, value]),
-  [['Rôle', 'Lecteur', 'Technicien', undefined], ['Compte', undefined, undefined, 'désactivé']]);
+  [['Rôle', 'Lecteur', 'Technicien', undefined], ['Compte', 'Oui', 'Non', undefined]]);
   assert.equal(audit.getAuditInlineBusinessItems(entry.business_details, tFr, entry.description).some(({ label }) => label.includes('Avant:')), false);
 });
 

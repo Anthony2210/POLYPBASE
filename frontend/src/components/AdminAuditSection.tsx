@@ -15,6 +15,7 @@ import {
   getAuditBoxSummaryParts,
   getAuditFamilyLabel,
   getAuditTargetLabel,
+  hasAuditManualEnvironmentTarget,
   groupAuditEntriesByDay,
   hasAuditSubcultureSummary,
 } from '../utils/auditPresentation';
@@ -364,7 +365,7 @@ function AdminAuditRow({
                 t={t}
               />
             </div>
-          ) : targetLabel ? (
+          ) : targetLabel && !hasAuditManualEnvironmentTarget(entry) ? (
             <div className="admin-audit-target"><span>{targetLabel}</span></div>
           ) : null}
           <AuditInlineBusinessSummary description={entry.description} details={entry.business_details} t={t} />
@@ -373,7 +374,7 @@ function AdminAuditRow({
             hidePrimaryResource={hasInlineBoxSummary || hasSubcultureSummary}
             t={t}
           />
-          <AuditBusinessNote details={entry.business_details} />
+          <AuditBusinessNote details={entry.business_details} t={t} />
         </div>
         <div className="admin-audit-row-actions">
           <AuditLinkedActionsPopover

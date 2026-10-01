@@ -105,6 +105,7 @@
 
 .audit-linked-actions-list li {
   display: grid;
+  min-width: 0;
   gap: 2px;
   padding-block: var(--space-3);
 }

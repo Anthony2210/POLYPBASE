@@ -185,7 +185,7 @@ function LinkedAuditContent({
               t={t}
             />
             <AuditInlineBusinessSummary description={linkedEntry.description} details={linkedEntry.business_details} t={t} />
-            <AuditBusinessNote details={linkedEntry.business_details} />
+            <AuditBusinessNote details={linkedEntry.business_details} t={t} />
           </li>
         );
       })}

@@ -9,6 +9,7 @@ import {
   getAuditBusinessSummary,
   getAuditInlineBusinessItems,
   getAuditInitialPolypsLabel,
+  getAuditPreviousZone,
   hasAuditSubcultureSummary,
 } from '../utils/auditPresentation';
 import BoxTrackingPreview from './BoxTrackingPreview';
@@ -33,11 +34,13 @@ export function AuditPrimarySummary({
   t: Translator;
 }) {
   const boxSummary = boxReference ? getAuditBoxSummaryParts(entry, t) : null;
+  const previousZone = getAuditPreviousZone(entry.business_details);
   const subcultureDetails = entry.business_details?.type === 'subculture'
     && hasAuditSubcultureSummary(entry.business_details)
     ? entry.business_details
     : null;
   return (
+    <>
     <p className={className}>
       {subcultureDetails ? (
         renderSubcultureSummary({
@@ -66,6 +69,10 @@ export function AuditPrimarySummary({
         </>
       ) : getAuditBusinessSummary(entry, t)}
     </p>
+    {previousZone ? (
+      <p className="audit-previous-location">{fillTemplate(t('auditPreviousLocation'), { location: previousZone })}</p>
+    ) : null}
+    </>
   );
 }
 
@@ -176,10 +183,12 @@ export function AuditInlineBusinessSummary({
           {item.before !== undefined && item.after !== undefined ? (
             <>
               <span className="sr-only">{t('auditPrevious')}: </span>
-              <span className="audit-inline-value">{item.before}</span>
+              <span className={!item.isDelta
+                ? 'audit-inline-value' : 'audit-inline-value audit-inline-value-old'}>{item.before}</span>
               <span className="audit-change-arrow" aria-hidden="true">→</span>
               <span className="sr-only">{t('auditNew')}: </span>
-              <span className="audit-inline-value">{item.after}</span>
+              <span className={!item.isDelta
+                ? 'audit-inline-value' : 'audit-inline-value audit-inline-value-new'}>{item.after}</span>
             </>
           ) : <span className="audit-inline-value">{item.value}</span>}
           {item.unit ? <span className="audit-inline-unit">{item.unit}</span> : null}
@@ -192,11 +201,20 @@ export function AuditInlineBusinessSummary({
 
 export function AuditBusinessNote({
   details,
+  t,
 }: {
   details: AuditBusinessDetails | null | undefined;
+  t: Translator;
 }) {
   const note = getAuditBusinessNote(details);
-  return note ? <p className="audit-business-note">{note}</p> : null;
+  if (!note) return null;
+  const preview = note.length > 160 ? `${note.slice(0, 157).trimEnd()}…` : note;
+  const label = t('auditBusinessNoteLabel');
+  return (
+    <p className="audit-business-note" aria-label={`${label} ${preview}`}>
+      {label} {note}
+    </p>
+  );
 }
 
 export function AuditContextSummary({
