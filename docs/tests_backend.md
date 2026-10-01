@@ -28,6 +28,49 @@ d'administration (armoires, sondes, structures, transferts) et la salinité.
 
 ---
 
+## Contrat courant : Alertes abandonnées
+
+Les Alertes ne sont plus une fonctionnalité active. Les tests qui attendaient
+leur génération sur une baisse de polypes ou un écart de température, leur
+synchronisation ou leur résolution automatique/manuelle décrivent un ancien
+comportement, pas un contrat à préserver. Les nombres et listes ci-dessous ne
+constituent pas une attestation de validation de cette décision.
+
+Le contrat de non-régression couvre :
+
+- des mesures et agrégats factuels, sans avertissement opérationnel ou biologique
+  inféré, en conservant la distinction entre `0`, `null` et absence de relevé;
+- aucune création, mise à jour ou résolution d'`Alert` lors des créations et
+  corrections de relevés, des saisies de température ou des autres mutations
+  métier;
+- aucun parcours API actif de résolution d'alerte ni exposition d'alertes actives
+  dans les réponses de fiches boîtes ou d'emplacements;
+- les permissions, le cloisonnement par organisation, les contraintes et la
+  concurrence, sans dépendance à une synchronisation d'alertes;
+- le rollback de la mesure ou de l'agrégat si l'écriture `AuditLog` échoue;
+- la préservation d'Actions, des entrées `AuditLog` historiques et de leur
+  présentation sûre, y compris celles concernant les anciennes alertes;
+- la conservation dormante du modèle, de la table, des données et des migrations
+  `Alert`, sans suppression ni réécriture liée à l'abandon produit.
+
+Les tests de présentation d'une ancienne action liée à une alerte utilisent une
+entrée d'audit historique, sans dépendre d'un endpoint de résolution actif.
+
+| Fichier | Test | Vérifie que… |
+|---|---|---|
+| `apps/cultures/tests.py` | `test_polyp_drop_zero_and_recovery_leave_historical_alerts_unchanged` | les comptages restent factuels et audités, sans création ni modification des anciennes alertes. |
+| `apps/cultures/tests.py` | `test_alerts_are_not_exposed_in_dashboard_or_box_payloads` | le dashboard et les réponses de boîtes n'exposent plus d'alertes actives ni de compteurs d'alertes. |
+| `apps/cultures/tests.py` | `test_alert_resolution_route_and_admin_are_removed` | la route de résolution et l'administration Django d'`Alert` sont retirées, tandis qu'`AuditLog` et les données historiques sont préservés. |
+| `apps/cultures/tests.py` | `test_manual_temperature_deviation_zero_and_recovery_do_not_sync_alerts` | les températures, y compris zéro, alimentent les agrégats et l'audit sans modifier les anciennes alertes. |
+| `apps/cultures/tests.py` | `test_demo_seed_preserves_dormant_alerts` | le chargement répété des données de démonstration laisse le stockage dormant inchangé. |
+| `apps/measurements/tests.py` | `test_measurement_corrections_to_zero_and_recovery_do_not_sync_alerts` | les corrections de comptages ne synchronisent pas d'alertes. |
+| `apps/measurements/tests.py` | `test_measurement_rolls_back_when_audit_fails` / `test_measurement_update_rolls_back_when_audit_fails` | la création ou la correction du relevé est annulée si l'audit échoue. |
+| `apps/accounts/tests_actions_api.py` | `test_personal_alert_actions_expose_no_database_identifier` | une ancienne entrée d'audit d'alerte reste lisible dans Actions sans exposer son identifiant technique. |
+
+Ces descriptions ne constituent pas un résultat d'exécution des tests. Voir
+[`context/measurements-integrity.md`](context/measurements-integrity.md) et
+[`context/product-architecture.md`](context/product-architecture.md).
+
 ## 1. Cultures — `apps/cultures/tests.py` (46 tests)
 
 ### Accès & périmètre (scoping)

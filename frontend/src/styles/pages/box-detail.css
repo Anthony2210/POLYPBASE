@@ -114,50 +114,6 @@
   width: 100%;
 }
 
-.box-alert-trigger {
-  position: relative;
-  display: grid;
-  width: 42px;
-  height: 42px;
-  padding: 0;
-  place-items: center;
-  color: var(--color-danger-hover);
-  background: var(--color-surface);
-  border: 1px solid #efcbc3;
-  border-radius: 50%;
-  cursor: pointer;
-}
-
-.entity-header--box .entity-header__alert {
-  position: relative;
-  top: auto;
-  right: auto;
-}
-
-.box-alert-trigger.is-empty {
-  color: var(--color-muted);
-  border-color: var(--color-line);
-}
-
-.box-alert-trigger strong {
-  position: absolute;
-  top: -5px;
-  right: -5px;
-  display: grid;
-  min-width: 19px;
-  height: 19px;
-  padding-inline: 4px;
-  place-items: center;
-  color: #fff;
-  font-size: .65rem;
-  line-height: 1;
-  background: var(--color-danger);
-  border: 2px solid var(--color-surface);
-  border-radius: var(--radius-pill);
-}
-
-.box-alert-trigger.is-empty strong { background: var(--color-muted); }
-
 .box-page-grid {
   display: grid;
   grid-template:
@@ -506,7 +462,6 @@
   cursor: pointer;
 }
 
-
 .measurement-module.is-expanded .fake-form {
   animation: measurement-editor-open 240ms ease-out;
 }
@@ -515,72 +470,6 @@
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: translateY(0); }
 }
-
-.box-checks-modal {
-  width: min(620px, 100%);
-  max-height: min(720px, calc(100dvh - 32px));
-}
-
-.box-checks-heading {
-  display: flex;
-  padding: var(--space-5);
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  border-bottom: 1px solid var(--color-line);
-}
-
-.box-checks-heading h2 { margin: 0; font-size: 1.25rem; font-style: italic; }
-.box-checks-heading p { margin: var(--space-1) 0 0; color: var(--color-muted); }
-
-.box-checks-list {
-  display: grid;
-  max-height: calc(100dvh - 120px);
-  padding: var(--space-4);
-  gap: var(--space-3);
-  overflow: auto;
-}
-
-.box-check-item {
-  --alert-color: var(--color-warning);
-  --alert-soft: var(--color-warning-soft);
-  display: grid;
-  padding: var(--space-4);
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: var(--space-4);
-  background: var(--alert-soft);
-  border-left: 3px solid var(--alert-color);
-  border-radius: var(--radius-sm);
-}
-
-.box-check-item.is-high { --alert-color: var(--color-danger); --alert-soft: var(--color-danger-soft); }
-.box-check-item > div:last-child { grid-column: 2; }
-.box-check-item :is(small, p) { margin: 0; color: var(--color-muted); }
-.box-check-item strong { display: block; margin-block: var(--space-1); }
-
-.check-severity {
-  align-self: start;
-  padding: var(--space-1) var(--space-2);
-  color: var(--alert-color);
-  font-size: .72rem;
-  font-weight: 800;
-  background: rgb(255 255 255 / 65%);
-  border-radius: var(--radius-pill);
-}
-
-.box-check-item button {
-  min-height: 38px;
-  padding-inline: var(--space-3);
-  color: var(--alert-color);
-  font-weight: 700;
-  background: var(--color-surface);
-  border: 1px solid currentColor;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-
-.box-check-empty { padding: var(--space-8); text-align: center; }
-.box-check-empty p { margin: var(--space-2) 0 0; color: var(--color-muted); }
 
 @media (min-width: 760px) and (max-width: 1023px),
   (min-width: 760px) and (max-width: 1180px) and (pointer: coarse) {
@@ -635,6 +524,4 @@
   .notes-field textarea { min-height: 80px; }
   .measurement-save-button { min-height: 58px; border-radius: var(--radius-md); }
   .measurement-edit-actions { align-items: stretch; flex-direction: column; }
-  .box-check-item { grid-template-columns: minmax(0, 1fr); }
-  .box-check-item > div:last-child { grid-column: auto; }
 }

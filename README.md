@@ -151,10 +151,24 @@ Target apps:
 - `cultures`: boxes, thermal zones, QR tags, subculture events, lineage, and transfers.
 - `measurements`: biological measurements, observations, temperature, salinity, and probes.
 - `exports`: Excel imports, import rows, and CSV/XLSX export records.
-- `audit`: alerts and action history.
+- `audit`: action history (`AuditLog`); historical `Alert` storage retained dormant.
 
 Code identifiers and comments should use simple English. French is kept for
 user-facing text and project documentation.
+
+## Product decision: Alerts abandoned
+
+Alerts are no longer an active feature: automatic generation/synchronization,
+alert displays, and resolution workflows are outside the active product
+contract. Measurements remain factual, with no inferred operational or
+biological warnings from counts, trends, missing values, or target deviations.
+Input validation and permissions remain in force.
+
+Actions and `AuditLog` are preserved, including historical alert-related entries.
+The `Alert` model, table, existing data, and migrations remain dormant pending a
+separately authorized, non-destructive decision. This product decision does not
+authorize data deletion or migration rewrites. See
+[`docs/context/product-architecture.md`](docs/context/product-architecture.md).
 
 ## Backend API
 
@@ -169,7 +183,6 @@ stable endpoints are:
 - `GET /api/boxes/<id>/measurements/`: biological measurement history for one box.
 - `POST /api/boxes/<id>/measurements/`: create or update the measurement for one date.
 - `POST /api/boxes/<id>/subcultures/`: create a subculture event and one or more child boxes.
-- `POST /api/alerts/<id>/resolve/`: manually resolve an accessible active alert.
 - `GET /api/thermal-zones/`: thermal zones with probes and latest readings.
 - `POST /api/box-transfers/`: prepare an inter-organization box transfer.
 - `POST /api/box-transfer-imports/`: import a Polypbase transfer CSV into a destination organization.

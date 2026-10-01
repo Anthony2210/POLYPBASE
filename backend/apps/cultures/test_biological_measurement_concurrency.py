@@ -116,19 +116,20 @@ class BiologicalMeasurementConcurrencyTests(TransactionTestCase):
         first_inside_transaction = threading.Event()
         second_box_lock_attempted = threading.Event()
         release_first = threading.Event()
-        original_sync = cultures_api._sync_polyp_drop_alert
+        original_audit = cultures_api._record_measurement_audit
 
-        def blocking_sync(*, box, measurement, user):
-            original_sync(box=box, measurement=measurement, user=user)
+        def blocking_audit(*, user, **kwargs):
+            result = original_audit(user=user, **kwargs)
             if user.pk == self.first_user.pk:
                 first_inside_transaction.set()
                 if not release_first.wait(timeout=10):
                     raise TimeoutError("Timed out while coordinating concurrent measurements.")
+            return result
 
         with patch.object(
             cultures_api,
-            "_sync_polyp_drop_alert",
-            blocking_sync,
+            "_record_measurement_audit",
+            blocking_audit,
         ), ThreadPoolExecutor(max_workers=2) as executor:
             first_future = executor.submit(
                 self._post_measurement,

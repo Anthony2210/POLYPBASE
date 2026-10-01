@@ -23,24 +23,10 @@ type TFunction = (key: string) => string;
 
 type ZoneOverviewEntry = {
   zone: ThermalZone;
-  zoneBoxes: BoxItem[];
   livingBoxes: number;
-  missingMeasurements: number;
   targetTemperature: number | null;
   measuredTemperature: number | null;
   referenceTemperature: number | null;
-  temperatureNeedsAttention: boolean;
-  salinityNeedsAttention: boolean;
-  needsAttention: boolean;
-};
-
-type ZoneAlertItem = {
-  id: string;
-  level: 'low' | 'medium' | 'high';
-  title: string;
-  message: string;
-  zone: ThermalZone;
-  box?: BoxItem;
 };
 
 export function ZonesView({
@@ -56,10 +42,7 @@ export function ZonesView({
   onOpenZone: (id: number) => void;
   t: TFunction;
 }) {
-  const [zoneAlertModal, setZoneAlertModal] = useState<ZoneOverviewEntry | null>(null);
   const zoneEntries = zones.map((zone) => buildZoneOverviewEntry(zone, boxes));
-  const zoneAlertModalItems = zoneAlertModal ? getZoneAlertItems(zoneAlertModal, t) : [];
-  const zoneAlertModalTitle = zoneAlertModal?.zone.name ?? '';
   const sortedEntries = [...zoneEntries].sort((first, second) => {
     const firstTemperature = first.referenceTemperature ?? Number.POSITIVE_INFINITY;
     const secondTemperature = second.referenceTemperature ?? Number.POSITIVE_INFINITY;
@@ -74,7 +57,6 @@ export function ZonesView({
         <div className="zone-overview">
           <div className="zone-overview-grid">
             {sortedEntries.map((entry) => {
-              const zoneAlertCount = getZoneAlertItems(entry, t).length;
               const thermalStatus = getZoneThermalStatus(entry);
               const occupancyPercentage = getZoneOccupancyPercentage(
                 entry.livingBoxes,
@@ -128,7 +110,7 @@ export function ZonesView({
                     <span className="zone-card-facts">
                       <span className="zone-card-fact">
                         <small>{t('zoneSalinity')}</small>
-                        <strong className={entry.salinityNeedsAttention ? 'is-missing' : ''}>
+                        <strong>
                           {formatSalinity(entry.zone.latest_salinity?.salinity_psu)}
                         </strong>
                       </span>
@@ -149,30 +131,10 @@ export function ZonesView({
                       </span>
                     </span>
                   </button>
-
-                  <button
-                    className={entry.needsAttention ? 'zone-card-alert' : 'zone-card-alert is-empty'}
-                    type="button"
-                    aria-label={`${t('zoneOverviewAttentionTitle')} ${entry.zone.name}`}
-                    title={`${t('zoneOverviewAttentionTitle')} ${entry.zone.name}`}
-                    onClick={() => setZoneAlertModal(entry)}
-                  >
-                      <BellIcon />
-                    <strong>{zoneAlertCount}</strong>
-                  </button>
                 </article>
               );
             })}
           </div>
-          {zoneAlertModal ? (
-            <ZoneAlertsModal
-              items={zoneAlertModalItems}
-              title={zoneAlertModalTitle}
-              onClose={() => setZoneAlertModal(null)}
-              onOpenZone={onOpenZone}
-              t={t}
-            />
-          ) : null}
         </div>
       )}
     </section>
@@ -420,21 +382,6 @@ function getAdminOrganizations(profile: UserProfile | null): Array<{ id: number;
   }
 
   return Array.from(organizationMap.values()).sort((first, second) => first.name.localeCompare(second.name));
-}
-
-function BellIcon() {
-  return (
-    <svg className="bell-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path
-        d="M18 9.8c0-3.3-2.1-5.8-5.1-6.3V2h-1.8v1.5C8.1 4 6 6.5 6 9.8v3.9l-1.5 2.4v1.1h15v-1.1L18 13.7V9.8Z"
-        fill="none"
-        stroke="currentColor"
-        strokeLinejoin="round"
-        strokeWidth="1.7"
-      />
-      <path d="M9.8 18.8a2.3 2.3 0 0 0 4.4 0" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
-    </svg>
-  );
 }
 
 export function ZoneDetailPage({
@@ -971,25 +918,13 @@ function buildZoneOverviewEntry(zone: ThermalZone, boxes: BoxItem[]): ZoneOvervi
   const activeBoxes = zoneBoxes.filter((box) => box.status === 'active');
   const targetTemperature = parseTemperatureNumber(zone.target_temperature_c);
   const measuredTemperature = parseTemperatureNumber(zone.latest_temperature?.average_temperature_c);
-  const missingMeasurements = activeBoxes.filter((box) => !box.latest_measurement).length;
-  const temperatureNeedsAttention = targetTemperature === null || measuredTemperature === null;
-  const salinityNeedsAttention = zone.latest_salinity == null;
 
   return {
     zone,
-    zoneBoxes,
     livingBoxes: activeBoxes.length,
-    missingMeasurements,
     targetTemperature,
     measuredTemperature,
     referenceTemperature: targetTemperature ?? measuredTemperature,
-    temperatureNeedsAttention,
-    salinityNeedsAttention,
-    needsAttention:
-      temperatureNeedsAttention
-      || salinityNeedsAttention
-      || zone.probes.length === 0
-      || missingMeasurements > 0,
   };
 }
 
@@ -1002,53 +937,6 @@ function getZoneOccupancyPercentage(boxCount: number, capacity: number | null | 
   return Math.min(100, Math.max(0, (boxCount / capacity) * 100));
 }
 
-function getZoneAlertItems(entry: ZoneOverviewEntry, t: TFunction): ZoneAlertItem[] {
-  const alerts: ZoneAlertItem[] = [];
-
-  if (entry.temperatureNeedsAttention) {
-    alerts.push({
-      id: `${entry.zone.id}-temperature`,
-      level: 'high',
-      title: t('temperatureControl'),
-      message: t('temperatureMissing'),
-      zone: entry.zone,
-    });
-  }
-
-  if (entry.salinityNeedsAttention) {
-    alerts.push({
-      id: `${entry.zone.id}-salinity`,
-      level: 'medium',
-      title: t('zoneSalinity'),
-      message: t('zoneSalinityMissing'),
-      zone: entry.zone,
-    });
-  }
-
-  if (!entry.zone.probes.length) {
-    alerts.push({
-      id: `${entry.zone.id}-probe`,
-      level: 'medium',
-      title: t('zoneProbesTitle'),
-      message: t('zoneOverviewNoProbe'),
-      zone: entry.zone,
-    });
-  }
-
-  if (entry.missingMeasurements) {
-    alerts.push({
-      id: `${entry.zone.id}-measurements`,
-      level: 'low',
-      title: t('latestReadingDate'),
-      message: `${entry.missingMeasurements} ${t('zoneOverviewMissingMeasurements')}`,
-      zone: entry.zone,
-    });
-  }
-
-  return alerts;
-}
-
-
 // The API serialises the zone salinity as a string ("35.00"); show it with the
 // same single decimal as everywhere else rather than the raw stored scale.
 function formatZoneSalinity(salinity: string | number | null | undefined) {
@@ -1060,93 +948,6 @@ function formatZoneSalinity(salinity: string | number | null | undefined) {
 function formatZoneOccupancy(boxCount: number, capacity: number | null | undefined) {
   return capacity == null ? String(boxCount) : `${boxCount} / ${capacity}`;
 }
-
-function ZoneAlertsModal({
-  items,
-  onClose,
-  onOpenBox,
-  onOpenZone,
-  t,
-  title,
-}: {
-  items: ZoneAlertItem[];
-  onClose: () => void;
-  onOpenBox?: (id: number) => void;
-  onOpenZone: (id: number) => void;
-  t: TFunction;
-  title: string;
-}) {
-  return (
-    <ModalPortal>
-      <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <section
-        className="box-checks-modal zone-alerts-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="zone-alerts-title"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <header className="box-checks-heading zone-alerts-heading">
-          <div>
-            <h2 id="zone-alerts-title">{t('zoneOverviewAttentionTitle')}</h2>
-            <p>{title}</p>
-          </div>
-          <button type="button" aria-label={t('close')} onClick={onClose}>
-            <PolypbaseIcon name="close" size={19} />
-          </button>
-        </header>
-
-        <div className="box-checks-list zone-alerts-list">
-          {items.map((item) => (
-            <article className={`box-check-item zone-alert-item is-${item.level}`} key={item.id}>
-              <span className="check-severity">{getZoneAlertLevelLabel(item.level, t)}</span>
-              <div>
-                <small>{item.zone.name}</small>
-                <strong>{item.title}</strong>
-                <p>{item.message}</p>
-              </div>
-              <div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onClose();
-                    if (item.box && onOpenBox) {
-                      onOpenBox(item.box.id);
-                    } else {
-                      onOpenZone(item.zone.id);
-                    }
-                  }}
-                >
-                  {t('openBox')}
-                </button>
-              </div>
-            </article>
-          ))}
-
-          {!items.length ? (
-            <article className="box-check-empty">
-              <span className="check-empty-icon">
-                <BellIcon />
-              </span>
-              <div>
-                <strong>{t('boxChecksEmptyTitle')}</strong>
-                <p>{t('boxChecksEmptyText')}</p>
-              </div>
-            </article>
-          ) : null}
-        </div>
-        </section>
-      </div>
-    </ModalPortal>
-  );
-}
-
-function getZoneAlertLevelLabel(level: ZoneAlertItem['level'], t: TFunction) {
-  if (level === 'high') return t('checkImportanceHigh');
-  if (level === 'medium') return t('checkImportanceMedium');
-  return t('checkImportanceInfo');
-}
-
 
 function TemperatureControlPanel({
   zone,

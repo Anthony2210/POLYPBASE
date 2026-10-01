@@ -7,7 +7,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.accounts.models import OrganizationMembership, UserPreference
-from apps.audit.models import Alert, AuditLog
+from apps.audit.models import AuditLog
 from apps.cultures.models import (
     Box,
     BoxLineage,
@@ -53,7 +53,7 @@ class Command(BaseCommand):
         self._create_locations(boxes, zones)
         self._create_measurements(boxes, lab_user)
         self._create_environment_data(zones, probes, lab_user)
-        self._create_observations_and_alerts(paris, boxes, lab_user)
+        self._create_observations(boxes, lab_user)
         self._create_lineage(boxes, lab_user)
         self._create_transfer(boxes, paris, partner, admin_user)
         self._create_import_export_records(paris, lab_user)
@@ -510,7 +510,7 @@ class Command(BaseCommand):
                     },
                 )
 
-    def _create_observations_and_alerts(self, paris, boxes, lab_user):
+    def _create_observations(self, boxes, lab_user):
         Observation.objects.update_or_create(
             box=boxes["aau_001"],
             observed_on=date(2026, 4, 27),
@@ -527,32 +527,6 @@ class Command(BaseCommand):
             defaults={
                 "notes": "Polyp density is low. Check next week.",
                 "user": lab_user,
-            },
-        )
-        Alert.objects.update_or_create(
-            organization=paris,
-            box=boxes["cco_001"],
-            thermal_zone=None,
-            alert_type=Alert.AlertType.BIOLOGICAL,
-            message="Polyp count is decreasing",
-            defaults={
-                "level": Alert.Level.WARNING,
-                "resolved_at": None,
-                "created_by": lab_user,
-                "resolved_by": None,
-            },
-        )
-        Alert.objects.update_or_create(
-            organization=paris,
-            box=None,
-            thermal_zone=boxes["aau_003"].thermal_zone,
-            alert_type=Alert.AlertType.TEMPERATURE,
-            message="Temperature should be checked",
-            defaults={
-                "level": Alert.Level.INFO,
-                "resolved_at": None,
-                "created_by": lab_user,
-                "resolved_by": None,
             },
         )
 

@@ -26,7 +26,7 @@ Les fichiers les plus importants pour comprendre l'application sont :
 | Détection support | `frontend/src/hooks/useIsDesktopApp.ts` | Sépare les usages bureau des usages laboratoire. |
 | Routes API | `backend/config/api_urls.py` | Liste les endpoints utilisés par React. |
 | Modèles métier | `backend/apps/*/models.py` | Structure les données Django. |
-| API boîtes et emplacements | `backend/apps/cultures/api_views.py` | Gère boîtes, relevés, repiquages, déplacements, emplacements, sondes, alertes et transferts. |
+| API boîtes et emplacements | `backend/apps/cultures/api_views.py` | Gère boîtes, relevés, repiquages, déplacements, emplacements, sondes et transferts. |
 | Services métier | `backend/apps/cultures/services.py` | Contient les opérations complexes exécutées en transaction. |
 | API comptes | `backend/apps/accounts/api_views.py` | Gère connexion, profil, langue, membres, rôles et historique global. |
 | Exports | `backend/apps/exports/views.py`, `backend/apps/exports/services.py` | Prépare les options, les aperçus et les exports CSV. |
@@ -39,7 +39,7 @@ L'application React possède plusieurs onglets principaux :
 | --- | --- |
 | Suivi | Rechercher ou scanner une boîte, créer une boîte, accéder aux fiches boîtes. |
 | Vue d'ensemble | Repérer les boîtes à relever et suivre les tendances récentes. |
-| Emplacements | Consulter les emplacements thermiques, leurs boîtes, leur température, leur capacité et leurs alertes. |
+| Emplacements | Consulter les emplacements thermiques, leurs boîtes, leur température et leur capacité. |
 | Exports | Préparer et télécharger des exports de relevés. Disponible sur bureau. |
 | Étiquettes | Sélectionner des boîtes et imprimer les étiquettes QR code. |
 | Profil | Gérer son compte, la langue, l'institution active et, pour les administrateurs, accéder aux outils d'administration. |
@@ -189,7 +189,6 @@ Elle regroupe :
 - son état ;
 - son emplacement actuel ;
 - son QR code ;
-- les alertes ;
 - le dernier relevé ;
 - le formulaire de nouveau relevé ;
 - les graphiques ;
@@ -211,8 +210,7 @@ Les boutons d'action dépendent du rôle :
 - transférer ou déplacer ;
 - repiquer ;
 - désactiver le suivi ;
-- réactiver le suivi ;
-- consulter les alertes.
+- réactiver le suivi.
 
 ### Dernier relevé
 
@@ -429,10 +427,9 @@ Chaque carte affiche :
 - la température relevée si disponible ;
 - la température cible ;
 - la salinité ;
-- la capacité ;
-- les alertes.
+- la capacité.
 
-Les alertes utilisent le même principe visuel que la fiche boîte : une cloche avec un nombre. L'utilisateur peut cliquer sur les notifications pour voir les points à vérifier.
+Les valeurs affichées restent factuelles, sans cloche ou compteur d'alertes ni parcours de consultation d'alertes.
 
 Les boutons d'ajout d'emplacement et d'ajout de sonde sont visibles pour les administrateurs.
 
@@ -448,43 +445,21 @@ La fiche d'un emplacement contient :
 - les sondes associées ;
 - l'activité récente.
 
-Le graphique de contrôle thermique compare la température relevée à la température cible. Il affiche aussi les informations nécessaires pour comprendre si la température est dans la plage attendue. Le système est prévu pour accepter plus tard des valeurs venant d'une sonde connectée en continu.
+Le graphique de contrôle thermique présente la température relevée et la température cible comme des informations distinctes. Les écarts et les agrégats restent factuels, sans avertissement opérationnel ou biologique inféré; la consigne n'est pas un seuil d'alerte. Le système est prévu pour accepter plus tard des valeurs venant d'une sonde connectée en continu.
 
 La saisie manuelle de température reste disponible pour les cas où l'API de sonde n'est pas encore branchée ou pour saisir une mesure ponctuelle.
 
 La capacité compte les boîtes actives dans l'emplacement. Les boîtes désactivées restent dans l'historique de localisation, mais elles ne doivent pas fausser la capacité actuelle.
 
-## 13. Alertes
+## 13. Alertes abandonnées
 
-Les alertes existent pour éviter que des situations importantes passent inaperçues.
+Les Alertes ne sont plus une fonctionnalité active. La génération, la synchronisation et la résolution automatique ou manuelle d'alertes ne font plus partie du contrat produit. Aucun parcours de consultation ou de résolution d'alerte n'est actif sur les fiches boîtes ou les emplacements; `/api/alerts/<id>/resolve/` n'est plus un endpoint du contrat API actif.
 
-Fichiers principaux :
+Les comptages, températures, tendances, agrégats et écarts à une consigne restent factuels. Ils ne produisent pas d'avertissement opérationnel ou biologique inféré, notamment en cas de baisse de polypes, d'écart de température ou de donnée absente. `0` reste une mesure réelle, distincte d'une donnée absente. Les validations de saisie et les permissions restent applicables.
 
-- `backend/apps/audit/models.py`
-- `backend/apps/cultures/api_views.py`
-- `frontend/src/App.tsx`
-- `frontend/src/components/ZonesView.tsx`
+`AuditLog` et Actions sont préservés, y compris les anciennes entrées liées aux alertes. Le modèle `Alert` dans `backend/apps/audit/models.py`, sa table, ses données et ses migrations sont conservés dormants. Leur devenir nécessite une décision distincte explicitement autorisée et non destructive; l'abandon produit n'autorise aucune suppression de données ni réécriture de migrations.
 
-Modèle principal :
-
-- `Alert`
-
-Types d'alertes visibles :
-
-- baisse de polypes ;
-- température trop éloignée de la consigne ;
-- salinité manquante ;
-- relevés manquants ou zones à vérifier.
-
-Les alertes apparaissent avec une cloche et un compteur. Les modales d'alerte doivent rester sobres et lisibles. Elles indiquent le problème et l'action attendue.
-
-Certaines alertes se résolvent automatiquement quand une nouvelle donnée montre que le problème n'existe plus. Les alertes de température peuvent aussi être résolues par un utilisateur autorisé. Les alertes biologiques liées à la baisse de polypes sont recalculées lors des relevés.
-
-Endpoint de résolution :
-
-```http
-POST /api/alerts/<id>/resolve/
-```
+Voir [`context/product-architecture.md`](context/product-architecture.md), [`context/measurements-integrity.md`](context/measurements-integrity.md) et [`tests_backend.md`](tests_backend.md) pour les contrats courants.
 
 ## 14. Exports
 
@@ -695,8 +670,9 @@ Les actions enregistrées incluent notamment :
 - création ou modification d'emplacement ;
 - ajout de sonde ;
 - création ou modification de compte ;
-- préparation de transfert ;
-- résolution d'alerte.
+- préparation de transfert.
+
+Les anciennes entrées de résolution d'alerte restent conservées comme traces historiques, sans parcours de résolution actif.
 
 ## 18. Journalisation et audit
 
@@ -870,10 +846,10 @@ Fichier :
 
 Modèles :
 
-- `Alert`
-- `AuditLog`
+- `Alert` : stockage historique dormant, sans fonctionnalité active ;
+- `AuditLog` : journal des actions, toujours actif.
 
-Cette app stocke les alertes et l'historique des actions.
+Cette app conserve l'historique des actions et les données des anciennes alertes. L'abandon des Alertes ne supprime ni leur stockage ni la traçabilité.
 
 ### Exports
 
@@ -917,7 +893,6 @@ Les endpoints sont regroupés dans `backend/config/api_urls.py`.
 | `/api/probes/` | Ajout d'une sonde. |
 | `/api/box-transfers/` | Préparer un transfert sortant. |
 | `/api/box-transfer-imports/` | Importer un transfert entrant. |
-| `/api/alerts/<id>/resolve/` | Résoudre une alerte. |
 | `/api/organizations/` | Créer une institution. |
 | `/api/organizations/<id>/` | Modifier ou supprimer une institution. |
 | `/api/exports/options/` | Options de filtres pour les exports. |
@@ -1002,7 +977,6 @@ Les tests avec la caméra doivent être faits en HTTPS. En local simple, Safari 
 | Modifier le profil | `frontend/src/components/ProfileView.tsx`, `backend/apps/accounts/api_views.py` |
 | Modifier l'administration | `frontend/src/components/AdminView.tsx` |
 | Modifier les droits | `backend/apps/accounts/permissions.py`, `backend/apps/accounts/models.py` |
-| Modifier les alertes | `backend/apps/audit/models.py`, `backend/apps/cultures/api_views.py` |
 | Modifier l'audit | `backend/apps/audit/models.py`, `backend/apps/accounts/api_views.py`, `backend/apps/cultures/api_views.py` |
 | Modifier les styles bureau/tablette | `frontend/src/styles/app.css` |
 | Modifier les styles téléphone | `frontend/src/styles/phone.css` |
@@ -1083,7 +1057,6 @@ Les règles exactes de conservation des comptes, de RGPD et d'hébergement doive
 - repiquer une boîte ;
 - déplacer une boîte ;
 - désactiver ou réactiver une boîte ;
-- gérer les alertes ;
 - consulter les emplacements thermiques ;
 - saisir une température manuelle ;
 - ajouter des emplacements et des sondes ;

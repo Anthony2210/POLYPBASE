@@ -6,7 +6,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-from apps.audit.models import Alert, AuditLog
+from apps.audit.models import AuditLog
 from apps.cultures.models import Box, ThermalZone
 from apps.organizations.models import Organization
 from apps.taxonomy.models import Species, Strain
@@ -646,17 +646,14 @@ class ActionApiTests(TestCase):
         self.assertIsNone(entry["resource"]["label"])
 
     def test_personal_alert_actions_expose_no_database_identifier(self):
-        alert = Alert.objects.create(
+        AuditLog.objects.create(
             organization=self.organization,
-            box=self.box,
-            alert_type=Alert.AlertType.TEMPERATURE,
-            message="Temperature hors plage",
-        )
-        self.client.logout()
-        self.client.login(username=self.alice.username, password="secret")
-        self.client.post(
-            reverse("api_alert_resolve", args=[alert.id]),
-            HTTP_X_ORGANIZATION_ID=str(self.organization.id),
+            user=self.alice,
+            action=AuditLog.Action.UPDATE,
+            object_type="alert",
+            object_id="987654",
+            description="Alert resolved: Temperature hors plage",
+            metadata={"alert_id": 987654, "alert_type": "temperature"},
         )
 
         response = self._personal_actions(self.alice, self.organization)
@@ -670,7 +667,7 @@ class ActionApiTests(TestCase):
         # The personal payload is intentionally narrower than the admin one.
         self.assertIsNone(entry["resource"]["identifier"])
         self.assertIsNone(entry["resource"]["label"])
-        self.assertNotIn(str(alert.id), str(entry["resource"]))
+        self.assertNotIn("987654", str(entry["resource"]))
         # The useful alert information stays available in the safe summary.
         self.assertIn("Temperature hors plage", entry["description"])
 

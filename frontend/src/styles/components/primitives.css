@@ -298,11 +298,6 @@
   border-radius: var(--radius-md);
 }
 
-.bell-icon {
-  width: 20px;
-  height: 20px;
-}
-
 .sr-only {
   position: absolute !important;
   width: 1px !important;

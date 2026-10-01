@@ -238,19 +238,11 @@
     font-size: 1.7rem;
   }
 
-
   .entity-header {
-    --entity-columns: minmax(0, 1fr) 42px;
-    --entity-areas: "identity alert" "summary summary" "actions actions";
+    --entity-columns: minmax(0, 1fr);
+    --entity-areas: "identity" "summary" "actions";
     padding: var(--space-4);
     gap: var(--space-3);
-  }
-
-  .entity-header__alert {
-    position: relative;
-    top: auto;
-    right: auto;
-    grid-area: alert;
   }
 
   .entity-header h2 {

@@ -343,11 +343,10 @@ test('a pressed stepper is the only control marked active', () => {
   const css = readSource('../src/styles/pages/box-detail.css');
 
   const buttonStart = appSource.indexOf('function StepperButton({');
-  const buttonSource = appSource.slice(
-    buttonStart,
-    appSource.indexOf('\nfunction BoxChecksModal({', buttonStart),
-  );
+  const buttonEnd = appSource.indexOf('\nfunction InfoPill(', buttonStart);
   assert.notEqual(buttonStart, -1);
+  assert.ok(buttonEnd > buttonStart);
+  const buttonSource = appSource.slice(buttonStart, buttonEnd);
 
   // The pressed state lives on the button instance and drives its own class.
   assert.match(buttonSource, /const \[isPressed, setIsPressed\] = useState\(false\);/);

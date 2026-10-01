@@ -2,21 +2,21 @@
 
 Ce guide accompagne la livraison. Il n'est pas affiché dans l'application.
 
-## Relevés et alertes
+## Relevés factuels
 
 Une boîte accepte un relevé par date. Une deuxième saisie à la même date met à
 jour le relevé existant.
 
-- Une baisse du nombre de polypes par rapport au relevé précédent crée une
-  alerte biologique persistante.
-- Une température manuelle distante d'au moins 1 °C de la consigne crée une
-  alerte de température pour l'emplacement.
-- Le bandeau rouge de la fiche signale les alertes actives. Le bouton « Voir le
-  détail » ouvre leur contenu.
-- Une alerte est automatiquement résolue au retour à la normale.
-- Un administrateur ou un technicien peut aussi choisir « Marquer comme
-  résolue » après vérification. La confirmation, l'utilisateur et la date sont
-  conservés dans l'historique.
+Les Alertes sont abandonnées et ne sont plus une fonctionnalité active. Les
+comptages, températures, tendances et écarts à une consigne sont présentés
+comme des faits, sans avertissement opérationnel ou biologique inféré. Une
+baisse de polypes ou un écart de température ne génère pas d'alerte; il n'y a
+plus de parcours de consultation ou de résolution d'alertes.
+
+Une valeur `0` reste une mesure réelle, distincte d'une donnée absente.
+L'historique Actions et les traces `AuditLog` restent actifs et sont préservés,
+y compris les anciennes actions liées aux alertes. Seul le stockage historique
+`Alert` reste dormant; l'abandon de la fonctionnalité ne supprime pas les données.
 
 ## Désactiver une boîte
 
@@ -55,13 +55,14 @@ la boîte source n'est jamais réutilisé. La boîte source reste inchangée.
 
 - **Administrateur** : comptes, structures, emplacements, transferts, imports,
   désactivation et réactivation des boîtes.
-- **Technicien** : consultation et saisie des données de laboratoire, résolution
-  des alertes et opérations autorisées sur les boîtes de sa structure.
-- **Lecteur** : consultation uniquement ; aucune modification ni résolution
-  manuelle d'alerte.
+- **Technicien** : consultation et saisie des données de laboratoire et
+  opérations autorisées sur les boîtes de sa structure.
+- **Lecteur** : consultation uniquement ; aucune modification.
 
 ## Vérification après une mise à jour
 
-Après application des migrations et redémarrage, vérifier un relevé, une
-alerte, un export CSV, un transfert puis son import. Effectuer aussi un contrôle
-sur tablette avant la mise en production.
+Après application des migrations et redémarrage, vérifier un relevé, son
+historique Actions, un export CSV, un transfert puis son import. Vérifier
+l'absence de parcours d'alertes et d'avertissements inférés des mesures sur les
+fiches boîtes et les emplacements. Effectuer aussi un contrôle sur tablette
+avant la mise en production.

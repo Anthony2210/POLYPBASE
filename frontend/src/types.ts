@@ -65,14 +65,6 @@ export type BoxTemperaturePoint = {
   zone_name: string;
 };
 
-export type BoxAlert = {
-  id: number;
-  alert_type: string;
-  level: string;
-  message: string;
-  created_at: string;
-};
-
 export type BoxItem = {
   id: number;
   global_code: string;
@@ -87,7 +79,6 @@ export type BoxItem = {
   current_location_started_at: string | null;
   latest_measurement: BiologicalMeasurement | null;
   latest_salinity_psu: string | null;
-  active_alert_count: number;
 };
 
 export type BoxInventoryItem = {
@@ -230,7 +221,6 @@ export type BoxDetail = BoxItem & {
   movements: BoxMovement[];
   biological_measurements: BiologicalMeasurement[];
   temperature_history: BoxTemperaturePoint[];
-  active_alerts: BoxAlert[];
   scan_url: string;
   qr_image_url: string;
   can_create_measurement: boolean;
@@ -426,7 +416,6 @@ export type Dashboard = {
     active_boxes: number;
     species_count: number;
     thermal_zones: number;
-    active_alerts: number;
     measured_polyps: number;
     measured_ephyrae: number;
   };

@@ -21,6 +21,24 @@ from apps.measurements.models import BiologicalMeasurement, DailyTemperature, Pr
 from .models import Box, BoxLineage, BoxLocation, BoxTransfer, BoxTransferImport, IdentificationTag, SubcultureEvent, ThermalZone
 
 
+class DormantAlertSeedTests(TestCase):
+    def test_demo_seed_preserves_dormant_alerts(self):
+        organization = Organization.objects.create(name="Historical institution")
+        Alert.objects.create(
+            organization=organization,
+            alert_type=Alert.AlertType.OTHER,
+            message="Historical evidence",
+        )
+        before = list(Alert.objects.order_by("pk").values())
+        call_command("seed_demo_data", stdout=StringIO())
+        call_command("seed_demo_data", stdout=StringIO())
+        self.assertEqual(list(Alert.objects.order_by("pk").values()), before)
+
+    def test_demo_seed_does_not_create_alerts(self):
+        call_command("seed_demo_data", stdout=StringIO())
+        self.assertFalse(Alert.objects.exists())
+
+
 class PolypbaseApiTests(TestCase):
     def setUp(self):
         user_model = get_user_model()
@@ -777,149 +795,108 @@ class PolypbaseApiTests(TestCase):
             1,
         )
 
-    def test_measurement_drop_creates_one_persistent_biological_alert(self):
+    def _historical_alerts(self):
+        for alert_type, relations in (
+            (Alert.AlertType.BIOLOGICAL, {"box": self.box}),
+            (Alert.AlertType.TEMPERATURE, {"thermal_zone": self.zone}),
+        ):
+            for resolved_at in (None, timezone.now()):
+                Alert.objects.create(
+                    organization=self.organization,
+                    alert_type=alert_type,
+                    message="Historical evidence",
+                    created_by=self.user,
+                    resolved_at=resolved_at,
+                    resolved_by=self.user if resolved_at else None,
+                    **relations,
+                )
+        return list(Alert.objects.order_by("pk").values())
+
+    def test_polyp_drop_zero_and_recovery_leave_historical_alerts_unchanged(self):
         BiologicalMeasurement.objects.create(
-            box=self.box,
-            measured_on=date(2026, 5, 1),
-            polyp_count=80,
+            box=self.box, measured_on=date(2026, 5, 1), polyp_count=80,
         )
         self.client.login(username="tech", password="secret")
+        for history in (False, True):
+            before = self._historical_alerts() if history else []
+            first_date = date(2026, 6, 8) if history else date(2026, 5, 8)
+            for week, count in enumerate((65, 0, 82)):
+                measured_on = (first_date + timedelta(weeks=week)).isoformat()
+                response = self.client.post(
+                    reverse("api_box_measurements", args=[self.box.id]),
+                    data=json.dumps({
+                        "measured_on": measured_on,
+                        "polyp_count": count,
+                        "ephyrae_count": 0,
+                    }),
+                    content_type="application/json",
+                )
+                self.assertEqual(response.status_code, 201)
+                measurement = BiologicalMeasurement.objects.get(pk=response.json()["id"])
+                self.assertEqual(measurement.polyp_count, count)
+                self.assertEqual(measurement.ephyrae_count, 0)
+                audit = AuditLog.objects.get(metadata__measurement_id=measurement.pk)
+                self.assertEqual(audit.action, AuditLog.Action.ENTRY)
+                self.assertEqual(audit.metadata["valeurs"]["polypes"], count)
+                self.assertEqual(list(Alert.objects.order_by("pk").values()), before)
 
-        response = self.client.post(
-            reverse("api_box_measurements", args=[self.box.id]),
-            data=json.dumps({
-                "measured_on": "2026-05-08",
-                "polyp_count": 65,
-                "ephyrae_count": 0,
-            }),
-            content_type="application/json",
-        )
-
-        self.assertEqual(response.status_code, 201)
-        alert = Alert.objects.get(
-            box=self.box,
-            alert_type=Alert.AlertType.BIOLOGICAL,
-            resolved_at__isnull=True,
-        )
-        self.assertIn("80 → 65", alert.message)
-        self.assertEqual(alert.created_by, self.user)
-
-    def test_measurement_recovery_resolves_the_polyp_alert(self):
-        BiologicalMeasurement.objects.create(
-            box=self.box,
-            measured_on=date(2026, 5, 1),
-            polyp_count=80,
-        )
-        alert = Alert.objects.create(
-            organization=self.organization,
-            box=self.box,
-            alert_type=Alert.AlertType.BIOLOGICAL,
-            message="Baisse de polypes",
-        )
+    def test_alerts_are_not_exposed_in_dashboard_or_box_payloads(self):
+        before = self._historical_alerts()
         self.client.login(username="tech", password="secret")
+        dashboard = self.client.get(reverse("api_dashboard"))
+        self.assertEqual(dashboard.status_code, 200)
+        self.assertNotIn("alerts", dashboard.json())
+        self.assertNotIn("active_alerts", dashboard.json()["stats"])
+        listing = self.client.get(reverse("api_box_list"))
+        self.assertEqual(listing.status_code, 200)
+        for box in listing.json()["results"]:
+            self.assertNotIn("active_alert_count", box)
+            self.assertNotIn("active_alerts", box)
+        detail = self.client.get(reverse("api_box_detail", args=[self.box.id]))
+        self.assertEqual(detail.status_code, 200)
+        self.assertNotIn("active_alert_count", detail.json())
+        self.assertNotIn("active_alerts", detail.json())
+        self.assertEqual(list(Alert.objects.order_by("pk").values()), before)
 
-        response = self.client.post(
-            reverse("api_box_measurements", args=[self.box.id]),
-            data=json.dumps({
-                "measured_on": "2026-05-08",
-                "polyp_count": 82,
-                "ephyrae_count": 0,
-            }),
-            content_type="application/json",
-        )
+    def test_alert_resolution_route_and_admin_are_removed(self):
+        from django.contrib import admin
+        from django.urls import NoReverseMatch, Resolver404, resolve
 
-        self.assertEqual(response.status_code, 201)
-        alert.refresh_from_db()
-        self.assertIsNotNone(alert.resolved_at)
-        self.assertEqual(alert.resolved_by, self.user)
+        before = self._historical_alerts()
+        with self.assertRaises(NoReverseMatch):
+            reverse("api_alert_resolve", args=[before[0]["id"]])
+        with self.assertRaises(Resolver404):
+            resolve(f"/alerts/{before[0]['id']}/resolve/", urlconf="config.api_urls")
+        self.assertNotIn(Alert, admin.site._registry)
+        self.assertIn(AuditLog, admin.site._registry)
+        self.assertEqual(list(Alert.objects.order_by("pk").values()), before)
 
-    def test_technician_can_resolve_an_alert_manually(self):
-        alert = Alert.objects.create(
-            organization=self.organization,
-            box=self.box,
-            alert_type=Alert.AlertType.TEMPERATURE,
-            message="Vérification nécessaire",
-        )
-        self.client.login(username="tech", password="secret")
-
-        response = self.client.post(reverse("api_alert_resolve", args=[alert.id]))
-
-        self.assertEqual(response.status_code, 200)
-        alert.refresh_from_db()
-        self.assertIsNotNone(alert.resolved_at)
-        self.assertEqual(alert.resolved_by, self.user)
-        self.assertTrue(
-            AuditLog.objects.filter(
-                action=AuditLog.Action.UPDATE,
-                object_type="alert",
-                object_id=str(alert.id),
-            ).exists()
-        )
-
-    def test_biological_alert_cannot_be_resolved_manually(self):
-        alert = Alert.objects.create(
-            organization=self.organization,
-            box=self.box,
-            alert_type=Alert.AlertType.BIOLOGICAL,
-            message="Baisse de polypes",
-        )
-        self.client.login(username="tech", password="secret")
-
-        response = self.client.post(reverse("api_alert_resolve", args=[alert.id]))
-
-        self.assertEqual(response.status_code, 403)
-        alert.refresh_from_db()
-        self.assertIsNone(alert.resolved_at)
-
-    def test_viewer_cannot_resolve_an_alert(self):
-        viewer = get_user_model().objects.create_user(username="alert_viewer", email="alert_viewer@example.org",password="secret")
-        OrganizationMembership.objects.create(
-            user=viewer,
-            organization=self.organization,
-            role=OrganizationMembership.Role.VIEWER,
-        )
-        alert = Alert.objects.create(
-            organization=self.organization,
-            box=self.box,
-            alert_type=Alert.AlertType.BIOLOGICAL,
-            message="Vérification nécessaire",
-        )
-        self.client.login(username="alert_viewer", password="secret")
-
-        response = self.client.post(reverse("api_alert_resolve", args=[alert.id]))
-
-        self.assertEqual(response.status_code, 403)
-        alert.refresh_from_db()
-        self.assertIsNone(alert.resolved_at)
-
-    def test_manual_temperature_outside_one_degree_creates_and_then_resolves_alert(self):
+    def test_manual_temperature_deviation_zero_and_recovery_do_not_sync_alerts(self):
         self.client.login(username="tech", password="secret")
         url = reverse("api_thermal_zone_manual_temperature", args=[self.zone.id])
-
-        alert_response = self.client.post(
-            url,
-            data=json.dumps({"measured_on": "2026-05-05", "temperature_c": "14.0"}),
-            content_type="application/json",
+        for history in (False, True):
+            before = self._historical_alerts() if history else []
+            measured_on = "2026-05-06" if history else "2026-05-05"
+            for temperature in ("14.00", "0.00", "15.00"):
+                response = self.client.post(
+                    url,
+                    data=json.dumps({
+                        "measured_on": measured_on,
+                        "temperature_c": temperature,
+                    }),
+                    content_type="application/json",
+                )
+                self.assertEqual(response.status_code, 201)
+                self.assertEqual(list(Alert.objects.order_by("pk").values()), before)
+            aggregate = DailyTemperature.objects.get(thermal_zone=self.zone, date=measured_on)
+            self.assertEqual(aggregate.measurement_count, 3)
+            self.assertEqual(aggregate.min_temperature_c, Decimal("0.00"))
+            self.assertEqual(aggregate.max_temperature_c, Decimal("15.00"))
+            self.assertEqual(aggregate.average_temperature_c, Decimal("9.67"))
+        self.assertEqual(
+            AuditLog.objects.filter(description__startswith="Manual temperature recorded:").count(),
+            6,
         )
-
-        self.assertEqual(alert_response.status_code, 201)
-        alert = Alert.objects.get(
-            thermal_zone=self.zone,
-            alert_type=Alert.AlertType.TEMPERATURE,
-            resolved_at__isnull=True,
-        )
-        self.assertIn("14.00 °C", alert.message)
-
-        recovery_response = self.client.post(
-            url,
-            data=json.dumps({"measured_on": "2026-05-06", "temperature_c": "14.5"}),
-            content_type="application/json",
-        )
-
-        self.assertEqual(recovery_response.status_code, 201)
-        alert.refresh_from_db()
-        self.assertIsNotNone(alert.resolved_at)
-        self.assertEqual(alert.resolved_by, self.user)
 
     def test_manual_temperatures_update_the_daily_aggregate_exactly(self):
         measured_on = date(2026, 5, 7)
@@ -966,6 +943,7 @@ class PolypbaseApiTests(TestCase):
             max_temperature_c=Decimal("10.00"),
             measurement_count=1,
         )
+        before = self._historical_alerts()
         self.client.login(username="tech", password="secret")
 
         with patch(
@@ -988,12 +966,7 @@ class PolypbaseApiTests(TestCase):
         self.assertEqual(aggregate.average_temperature_c, Decimal("10.00"))
         self.assertEqual(aggregate.min_temperature_c, Decimal("10.00"))
         self.assertEqual(aggregate.max_temperature_c, Decimal("10.00"))
-        self.assertFalse(
-            Alert.objects.filter(
-                thermal_zone=self.zone,
-                alert_type=Alert.AlertType.TEMPERATURE,
-            ).exists()
-        )
+        self.assertEqual(list(Alert.objects.order_by("pk").values()), before)
         self.assertFalse(
             AuditLog.objects.filter(
                 object_type="thermal_zone",

@@ -207,7 +207,14 @@ erDiagram
 
 ---
 
-## 3. Domaine GESTION — structures, comptes, alertes, imports/exports
+## 3. Domaine GESTION — structures, comptes, audit, imports/exports
+
+`Alert` figure dans ce schéma comme stockage historique dormant, pas comme
+fonctionnalité active. Les Alertes sont abandonnées; `AuditLog` et Actions
+restent actifs. Le modèle `Alert`, sa table, ses données et ses migrations sont
+conservés dans l'attente d'une décision distincte, explicitement autorisée et
+non destructive. Les relations et champs de résolution ci-dessous décrivent
+le stockage conservé, pas des parcours de génération ou de résolution actifs.
 
 Apps `organizations`, `accounts`, `audit`, `exports`.
 
@@ -311,7 +318,8 @@ erDiagram
 
 - **`Box`** (métier) appartient à une **`Organization`** (gestion) et vit dans une
   **`ThermalZone`** (environnement).
-- **`Alert`** (gestion) peut cibler une **`Box`** ou une **`ThermalZone`**.
+- **`Alert`** (gestion, stockage historique dormant) peut référencer une
+  **`Box`** ou une **`ThermalZone`**, sans fonctionnalité d'alertes active.
 - **`Origin`** (métier) référence une **`PartnerInstitution`** (gestion).
 - La plupart des tables portent un lien vers **`User`** (gestion) pour la traçabilité.
 

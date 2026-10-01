@@ -11,7 +11,7 @@ from apps.accounts.permissions import (
     get_active_organization_from_request,
     user_can_write_lab_data,
 )
-from apps.audit.models import Alert, AuditLog
+from apps.audit.models import AuditLog
 from apps.cultures import qr
 from apps.cultures.models import (
     Box,
@@ -113,12 +113,6 @@ class BoxMovementSerializer(serializers.ModelSerializer):
         return obj.user.get_username() if obj.user else None
 
 
-class AlertSummarySerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Alert
-        fields = ["id", "alert_type", "level", "message", "created_at"]
-
-
 class BiologicalMeasurementSerializer(serializers.ModelSerializer):
     user = serializers.SerializerMethodField()
     can_edit = serializers.SerializerMethodField()
@@ -195,7 +189,6 @@ class BoxListSerializer(serializers.ModelSerializer):
     thermal_zone = ThermalZoneSummarySerializer(read_only=True)
     latest_measurement = serializers.SerializerMethodField()
     latest_salinity_psu = serializers.SerializerMethodField()
-    active_alert_count = serializers.SerializerMethodField()
     current_location_started_at = serializers.SerializerMethodField()
 
     class Meta:
@@ -213,7 +206,6 @@ class BoxListSerializer(serializers.ModelSerializer):
             "entered_on",
             "latest_measurement",
             "latest_salinity_psu",
-            "active_alert_count",
             "current_location_started_at",
         ]
 
@@ -270,16 +262,6 @@ class BoxListSerializer(serializers.ModelSerializer):
             .first()
         )
         return _render_salinity(latest.salinity_psu) if latest else None
-
-    def get_active_alert_count(self, obj):
-        # The light list queryset annotates the count to avoid loading alerts.
-        annotated = getattr(obj, "active_alert_count_annotation", None)
-        if annotated is not None:
-            return annotated
-        alerts = _prefetched_list(obj, "alerts")
-        if alerts is not None:
-            return sum(1 for alert in alerts if alert.is_active)
-        return obj.alerts.filter(resolved_at__isnull=True).count()
 
 
 class BoxInventorySerializer(serializers.ModelSerializer):
@@ -353,7 +335,6 @@ class BoxInventorySerializer(serializers.ModelSerializer):
 
 class BoxDetailSerializer(BoxListSerializer):
     tags = IdentificationTagSerializer(many=True, read_only=True)
-    active_alerts = serializers.SerializerMethodField()
     temperature_history = serializers.SerializerMethodField()
     lineage = serializers.SerializerMethodField()
     locations = BoxLocationSerializer(many=True, read_only=True)
@@ -372,7 +353,6 @@ class BoxDetailSerializer(BoxListSerializer):
             "deactivated_on",
             "notes",
             "tags",
-            "active_alerts",
             "temperature_history",
             "lineage",
             "locations",
@@ -401,14 +381,6 @@ class BoxDetailSerializer(BoxListSerializer):
 
     def get_qr_image_url(self, obj):
         return qr.box_qr_image_url(obj)
-
-    def get_active_alerts(self, obj):
-        alerts = _prefetched_list(obj, "alerts")
-        if alerts is None:
-            alerts = obj.alerts.filter(resolved_at__isnull=True)
-        else:
-            alerts = [alert for alert in alerts if alert.is_active]
-        return AlertSummarySerializer(alerts, many=True).data
 
     def get_temperature_history(self, obj):
         """Return daily temperatures for the zones occupied by this box."""

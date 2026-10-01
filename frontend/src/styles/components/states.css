@@ -4,17 +4,6 @@
   font-size: .78rem;
 }
 
-.alert-resolve-button {
-  min-height: 36px;
-  padding: 0 var(--space-3);
-  color: var(--color-primary-hover);
-  font-weight: 750;
-  background: var(--color-surface);
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-
 :where(.chart-empty, .lineage-graph-status) {
   display: grid;
   min-height: 160px;
@@ -237,7 +226,6 @@
 .loader-label-group-heading { width: 110px; height: 18px; }
 .loader-label-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
 .loader-label-grid > .loader-block { height: 50px; border-radius: var(--radius-xs); }
-
 
 .loader-admin-tabs { width: 100%; height: 48px; border-radius: var(--radius-pill); }
 .page-loader-admin .loader-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }

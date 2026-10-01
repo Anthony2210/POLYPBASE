@@ -98,6 +98,44 @@ class MeasurementEditingApiTests(TestCase):
             content_type="application/json",
         )
 
+    def _historical_alerts(self):
+        for resolved_at in (None, datetime(2026, 9, 1, tzinfo=datetime_timezone.utc)):
+            Alert.objects.create(
+                organization=self.organization,
+                box=self.box,
+                alert_type=Alert.AlertType.BIOLOGICAL,
+                message="Historical polyp drop",
+                created_by=self.technician,
+                resolved_at=resolved_at,
+                resolved_by=self.admin if resolved_at else None,
+            )
+        return list(Alert.objects.order_by("pk").values())
+
+    def test_measurement_corrections_to_zero_and_recovery_do_not_sync_alerts(self):
+        BiologicalMeasurement.objects.create(
+            box=self.box, measured_on=self.today - timedelta(days=7), polyp_count=80,
+        )
+        measurement = BiologicalMeasurement.objects.create(
+            box=self.box, measured_on=self.today, polyp_count=60, ephyrae_count=2,
+        )
+        self.client.login(username="admin", password="secret")
+        for history in (False, True):
+            before = self._historical_alerts() if history else []
+            for count in (40, 0, 82):
+                response = self.patch_measurement(
+                    self.box, measurement, {"polyp_count": count, "ephyrae_count": 0},
+                )
+                self.assertEqual(response.status_code, 200)
+                measurement.refresh_from_db()
+                self.assertEqual(measurement.polyp_count, count)
+                self.assertEqual(measurement.ephyrae_count, 0)
+                audit = AuditLog.objects.filter(
+                    metadata__measurement_id=measurement.pk,
+                ).latest("pk")
+                self.assertEqual(audit.action, AuditLog.Action.UPDATE)
+                self.assertEqual(audit.metadata["after"]["polypes"], count)
+                self.assertEqual(list(Alert.objects.order_by("pk").values()), before)
+
     # -- creating with a salinity -----------------------------------------
 
     def test_measurement_can_be_created_with_a_salinity(self):
@@ -208,13 +246,14 @@ class MeasurementEditingApiTests(TestCase):
         self.assertEqual(audits[0].action, AuditLog.Action.ENTRY)
         self.assertEqual(audits[0].metadata["valeurs"]["polypes"], 12)
 
-    def test_measurement_and_alert_roll_back_when_audit_fails(self):
+    def test_measurement_rolls_back_when_audit_fails(self):
         BiologicalMeasurement.objects.create(
             box=self.box,
             measured_on=self.today - timedelta(days=7),
             polyp_count=80,
             ephyrae_count=2,
         )
+        before = self._historical_alerts()
         self.client.login(username="tech", password="secret")
 
         with patch(
@@ -237,12 +276,7 @@ class MeasurementEditingApiTests(TestCase):
                 measured_on=self.today,
             ).exists()
         )
-        self.assertFalse(
-            Alert.objects.filter(
-                box=self.box,
-                alert_type=Alert.AlertType.BIOLOGICAL,
-            ).exists()
-        )
+        self.assertEqual(list(Alert.objects.order_by("pk").values()), before)
         self.assertFalse(AuditLog.objects.filter(object_id=self.box.global_code).exists())
 
     def test_database_rejects_a_second_measurement_for_the_same_box_and_date(self):
@@ -315,7 +349,7 @@ class MeasurementEditingApiTests(TestCase):
         self.assertEqual(measurement.ephyrae_count, 2)
         self.assertEqual(measurement.user, self.technician)
 
-    def test_measurement_update_and_alert_roll_back_when_audit_fails(self):
+    def test_measurement_update_rolls_back_when_audit_fails(self):
         BiologicalMeasurement.objects.create(
             box=self.box,
             measured_on=self.today - timedelta(days=7),
@@ -326,6 +360,7 @@ class MeasurementEditingApiTests(TestCase):
             measured_on=self.today,
             polyp_count=15,
         )
+        before = self._historical_alerts()
         self.client.login(username="tech", password="secret")
 
         with patch(
@@ -336,12 +371,7 @@ class MeasurementEditingApiTests(TestCase):
 
         measurement.refresh_from_db()
         self.assertEqual(measurement.polyp_count, 15)
-        self.assertFalse(
-            Alert.objects.filter(
-                box=self.box,
-                alert_type=Alert.AlertType.BIOLOGICAL,
-            ).exists()
-        )
+        self.assertEqual(list(Alert.objects.order_by("pk").values()), before)
         self.assertFalse(AuditLog.objects.filter(object_id=self.box.global_code).exists())
 
     def test_read_only_user_cannot_update_a_measurement(self):

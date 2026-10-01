@@ -66,7 +66,6 @@ import { useIsTabletLayout } from './hooks/useIsTabletLayout';
 import type {
   BiologicalMeasurement,
   BoxActivatePayload,
-  BoxAlert,
   BoxCreatePayload,
   BoxDeactivatePayload,
   BoxDetail,
@@ -1063,15 +1062,6 @@ export default function App() {
     return result;
   }
 
-  async function resolveAlert(boxId: number, alertId: number) {
-    await apiPost<{ id: number; resolved: boolean }>(`/api/alerts/${alertId}/resolve/`, {});
-    const detail = await apiGet<BoxDetail>(`/api/boxes/${boxId}/`);
-    setData((current) => ({
-      ...mergeBoxDetail(current, detail),
-      dashboard: null,
-    }));
-  }
-
   async function loadLineageGraph(boxId: number) {
     return apiGet<LineageGraph>(`/api/boxes/${boxId}/lineage/`);
   }
@@ -1402,7 +1392,6 @@ export default function App() {
                 onMoveBox={moveBox}
                 onDeactivateBox={deactivateBox}
                 onReactivateBox={reactivateBox}
-                onResolveAlert={resolveAlert}
                 onLoadLineageGraph={loadLineageGraph}
                 measurementPrefill={measurementPrefill}
                 onMeasurementPrefillConsumed={() => setMeasurementPrefill(null)}
@@ -2541,17 +2530,11 @@ function RecentAccessList({
         {boxes.map((box) => (
           <button
             key={box.id}
-            className={box.active_alert_count > 0 ? 'has-alerts' : ''}
             type="button"
             onClick={() => onSelectBox(box.id)}
           >
             <span className="recent-box-heading">
               <strong>{box.global_code}</strong>
-              {box.active_alert_count > 0 ? (
-                <span className="recent-alert-count" aria-label={`${box.active_alert_count} ${t('activeAlerts')}`}>
-                  {box.active_alert_count}
-                </span>
-              ) : null}
             </span>
             <small>{box.species.scientific_name}</small>
             <span className="recent-box-meta">
@@ -2632,11 +2615,6 @@ function SuggestionList({
                   </span>
                   <span className="suggestion-location">
                     <strong>{box.thermal_zone?.name ?? t('noZone')}</strong>
-                    {box.active_alert_count > 0 ? (
-                      <small className="suggestion-alert-count">
-                        {box.active_alert_count} {t('activeAlerts')}
-                      </small>
-                    ) : null}
                   </span>
                 </>
               ) : (
@@ -2662,11 +2640,6 @@ function SuggestionList({
                   </span>
                   <span className="suggestion-location">
                     <strong>{box.thermal_zone?.name ?? t('noZone')}</strong>
-                    {box.active_alert_count > 0 ? (
-                      <small className="suggestion-alert-count">
-                        {box.active_alert_count} {t('activeAlerts')}
-                      </small>
-                    ) : null}
                   </span>
                 </>
               )}
@@ -2703,7 +2676,6 @@ function BoxPage({
   onMoveBox,
   onDeactivateBox,
   onReactivateBox,
-  onResolveAlert,
   onLoadLineageGraph,
   measurementPrefill,
   onMeasurementPrefillConsumed,
@@ -2733,7 +2705,6 @@ function BoxPage({
   onMoveBox: (boxId: number, payload: BoxMovePayload) => Promise<void>;
   onDeactivateBox: (boxId: number, payload: BoxDeactivatePayload) => Promise<void>;
   onReactivateBox: (boxId: number, payload: BoxActivatePayload) => Promise<void>;
-  onResolveAlert: (boxId: number, alertId: number) => Promise<void>;
   onLoadLineageGraph: (boxId: number) => Promise<LineageGraph>;
   measurementPrefill: HistoryMeasurementPrefill | null;
   onMeasurementPrefillConsumed: () => void;
@@ -2762,9 +2733,6 @@ function BoxPage({
   const [isSubcultureOpen, setIsSubcultureOpen] = useState(false);
   const [isSavingSubculture, setIsSavingSubculture] = useState(false);
   const [isQrLabelOpen, setIsQrLabelOpen] = useState(false);
-  const [isChecksOpen, setIsChecksOpen] = useState(false);
-  const [resolvingAlertId, setResolvingAlertId] = useState<number | null>(null);
-  const [alertResolveError, setAlertResolveError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [editingMeasurementId, setEditingMeasurementId] = useState<number | null>(null);
   const [isMeasurementEditorOpen, setIsMeasurementEditorOpen] = useState(false);
@@ -2846,7 +2814,6 @@ function BoxPage({
     setStatusError(null);
     setIsSubcultureOpen(false);
     setIsQrLabelOpen(false);
-    setIsChecksOpen(false);
     setSaveError(null);
     setEditingMeasurementId(null);
     setIsMeasurementEditorOpen(false);
@@ -2989,31 +2956,6 @@ function BoxPage({
 
   const lastComment = getLatestComment(measurements, box);
   const summaryComment = weeklyMeasurement?.notes?.trim() || lastComment;
-  const sortedMeasurements = [...measurements].sort(
-    (first, second) =>
-      new Date(second.measured_on).getTime() - new Date(first.measured_on).getTime(),
-  );
-
-  const latestMeasurement = sortedMeasurements[0];
-  const previousMeasurement = sortedMeasurements[1];
-
-  const polypDropDetected =
-    latestMeasurement &&
-    previousMeasurement &&
-    latestMeasurement.polyp_count < previousMeasurement.polyp_count;
-
-  const polypDropCount = polypDropDetected
-    ? previousMeasurement.polyp_count - latestMeasurement.polyp_count
-    : 0;
-
-  const activeAlerts = 'active_alerts' in box ? box.active_alerts : [];
-  const hasPolypDropAlert = activeAlerts.some((alert) => {
-    const message = alert.message.toLocaleLowerCase('fr-FR');
-    return alert.alert_type === 'biological' && message.includes('polype');
-  });
-  const showLocalPolypDrop = Boolean(polypDropDetected) && !hasPolypDropAlert;
-  const checkCount = activeAlerts.length + Number(showLocalPolypDrop);
-
   const qr = 'qr_image_url' in box
     ? { imageUrl: getBoxQrImageUrl(box), scanUrl: getBoxScanUrl(box) }
     : null;
@@ -3175,27 +3117,6 @@ function BoxPage({
     }
   }
 
-  async function handleResolveAlert(alert: BoxAlert) {
-    if (!box || resolvingAlertId !== null) return;
-    const confirmed = await confirmAction({
-      title: t('alertResolveConfirmTitle'),
-      message: t('alertResolveConfirmMessage'),
-      confirmLabel: t('alertResolveAction'),
-      cancelLabel: t('confirmCancel'),
-      details: [{ label: t('boxChecksButton'), value: alert.message }],
-    });
-    if (!confirmed) return;
-    setResolvingAlertId(alert.id);
-    setAlertResolveError(null);
-    try {
-      await onResolveAlert(box.id, alert.id);
-    } catch (requestError) {
-      setAlertResolveError(getErrorMessage(requestError) || t('alertResolveError'));
-    } finally {
-      setResolvingAlertId(null);
-    }
-  }
-
   async function handleLoadLineageGraph() {
     if (!box) return;
 
@@ -3260,17 +3181,6 @@ function BoxPage({
               />
             </button>
           ) : null}
-
-          <button
-            className={checkCount > 0 ? 'entity-header__alert box-alert-trigger' : 'entity-header__alert box-alert-trigger is-empty'}
-            type="button"
-            aria-label={`${t('boxChecksButton')} (${checkCount})`}
-            title={`${t('boxChecksButton')} (${checkCount})`}
-            onClick={() => setIsChecksOpen(true)}
-          >
-            <BellIcon />
-            <strong>{checkCount}</strong>
-          </button>
         </div>
 
         <div className="entity-header__summary box-zone-summary">
@@ -3646,20 +3556,6 @@ function BoxPage({
           />
         ) : null}
 
-        {isChecksOpen ? (
-          <BoxChecksModal
-            activeAlerts={activeAlerts}
-            polypDropCount={polypDropCount}
-            polypDropDetected={showLocalPolypDrop}
-            canResolve={canWriteLabData}
-            resolvingAlertId={resolvingAlertId}
-            resolveError={alertResolveError}
-            t={t}
-            onClose={() => setIsChecksOpen(false)}
-            onResolve={handleResolveAlert}
-          />
-        ) : null}
-
         {lifecycleAction && (lifecycleAction === 'deactivate' || lifecycleAction === 'reactivate') ? (
           <BoxLifecycleModal
             action={lifecycleAction}
@@ -3702,25 +3598,6 @@ function BoxPage({
         ) : null}
       </div>
     </section>
-  );
-}
-
-function BellIcon() {
-  return (
-    <svg className="bell-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path
-        d="M12 21a2.6 2.6 0 0 0 2.45-1.75h-4.9A2.6 2.6 0 0 0 12 21Z"
-        fill="currentColor"
-      />
-      <path
-        d="M18 10.15c0-3.05-1.66-5.18-4.22-5.88A1.84 1.84 0 0 0 12 3a1.84 1.84 0 0 0-1.78 1.27C7.66 4.97 6 7.1 6 10.15v2.45c0 1.1-.43 2.14-1.2 2.92l-.52.52a.9.9 0 0 0 .64 1.54h14.16a.9.9 0 0 0 .64-1.54l-.52-.52A4.13 4.13 0 0 1 18 12.6v-2.45Z"
-        fill="none"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.8"
-      />
-    </svg>
   );
 }
 
@@ -3792,108 +3669,6 @@ function StepperButton({
   );
 }
 
-function BoxChecksModal({
-  activeAlerts,
-  polypDropCount,
-  polypDropDetected,
-  canResolve,
-  resolvingAlertId,
-  resolveError,
-  t,
-  onClose,
-  onResolve,
-}: {
-  activeAlerts: BoxAlert[];
-  polypDropCount: number;
-  polypDropDetected: boolean;
-  canResolve: boolean;
-  resolvingAlertId: number | null;
-  resolveError: string | null;
-  t: TFunction;
-  onClose: () => void;
-  onResolve: (alert: BoxAlert) => Promise<void>;
-}) {
-  const hasAlerts = activeAlerts.length > 0 || polypDropDetected;
-
-  return (
-    <ModalPortal>
-      <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <section
-        className="box-checks-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="box-checks-title"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <header className="box-checks-heading">
-          <div>
-            <h2 id="box-checks-title">{t('boxChecksTitle')}</h2>
-          </div>
-          <button type="button" aria-label={t('close')} onClick={onClose}>
-            <PolypbaseIcon name="close" size={19} />
-          </button>
-        </header>
-
-        <div className="box-checks-list">
-          {activeAlerts.map((alert) => (
-            <article className={`box-check-item is-${getAlertTone(alert.level)}`} key={alert.id}>
-              <span className="check-severity">
-                {getAlertLevelLabel(alert.level, t)}
-              </span>
-              <div>
-                <small>{formatDisplayDate(alert.created_at)}</small>
-                <strong>{getAlertTypeLabel(alert.alert_type, t)}</strong>
-                <p>{alert.message}</p>
-                {canResolve && alert.alert_type !== 'biological' ? (
-                  <button
-                    className="alert-resolve-button"
-                    type="button"
-                    disabled={resolvingAlertId !== null}
-                    onClick={() => void onResolve(alert)}
-                  >
-                    {resolvingAlertId === alert.id ? t('saving') : t('alertResolveAction')}
-                  </button>
-                ) : null}
-              </div>
-            </article>
-          ))}
-
-          {resolveError ? <p className="inline-error">{resolveError}</p> : null}
-
-          {polypDropDetected ? (
-            <article className="box-check-item is-medium">
-              <span className="check-severity">{t('checkImportanceMedium')}</span>
-              <div>
-                <small>{t('detectedSignal')}</small>
-                <strong>{t('polypDropAdviceTitle')}</strong>
-                <p>{polypDropCount} {t('polypDropAdviceText')}</p>
-              </div>
-              <div>
-                <small>{t('suggestedAction')}</small>
-                <p>{t('polypDropAdviceAction')}</p>
-              </div>
-            </article>
-          ) : null}
-
-          {!hasAlerts ? (
-            <article className="box-check-empty">
-              <span className="check-empty-icon">
-                <BellIcon />
-              </span>
-              <div>
-                <strong>{t('boxChecksEmptyTitle')}</strong>
-                <p>{t('boxChecksEmptyText')}</p>
-              </div>
-            </article>
-          ) : null}
-
-        </div>
-        </section>
-      </div>
-    </ModalPortal>
-  );
-}
-
 function InfoPill({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
   return (
     <span className={strong ? 'info-pill is-strong' : 'info-pill'}>
@@ -3946,25 +3721,6 @@ function getBoxInsightsLabels(t: TFunction) {
     temperatureNoData: t('temperatureNoData'),
     threeMonths: t('threeMonths'),
   };
-}
-
-function getAlertTone(level: string) {
-  if (level === 'critical') return 'high';
-  if (level === 'warning') return 'medium';
-  return 'low';
-}
-
-function getAlertLevelLabel(level: string, t: TFunction) {
-  if (level === 'critical') return t('checkImportanceHigh');
-  if (level === 'warning') return t('checkImportanceMedium');
-  return t('checkImportanceInfo');
-}
-
-function getAlertTypeLabel(alertType: string, t: TFunction) {
-  if (alertType === 'temperature') return t('temperature');
-  if (alertType === 'salinity') return t('salinityFull');
-  if (alertType === 'subculture') return t('subcultureEvent');
-  return t('detectedSignal');
 }
 
 function getProfileLabels(t: TFunction) {

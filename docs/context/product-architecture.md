@@ -2,7 +2,7 @@
 
 ## Finalité et utilisateurs
 
-Polypbase suit des cultures de méduses et d'autres organismes : boîtes, référentiels biologiques, relevés, emplacements thermiques, températures, lignées, alertes, transferts et exports. Le produit vient du contexte de l'Aquarium de Paris, mais ses comptes et ses données métier sont structurés pour plusieurs institutions.
+Polypbase suit des cultures de méduses et d'autres organismes : boîtes, référentiels biologiques, relevés, emplacements thermiques, températures, lignées, transferts et exports. Le produit vient du contexte de l'Aquarium de Paris, mais ses comptes et ses données métier sont structurés pour plusieurs institutions.
 
 Les principaux utilisateurs sont les techniciens et soigneurs de laboratoire, les administrateurs d'une institution et les personnes en consultation scientifique. Au laboratoire, tablette paysage et téléphone servent surtout à rechercher ou scanner une boîte, consulter sa fiche et saisir des données. Au bureau, le desktop porte les vues denses, graphiques, exports et l'administration. Les règles d'interface détaillées sont dans [`frontend-ux.md`](frontend-ux.md).
 
@@ -26,9 +26,15 @@ Le frontend n'utilise pas React Router. `frontend/src/App.tsx` traduit l'URL en 
 - `cultures` : boîtes, zones, emplacements, mouvements, repiquages, lignées et transferts.
 - `measurements` : relevés biologiques, observations, sondes, températures et salinité.
 - `exports` : sélection, aperçu, génération de CSV et traces d'import/export.
-- `audit` : alertes et journal d'actions.
+- `audit` : journal d'actions (`AuditLog`); modèle et stockage historiques `Alert` conservés dormants.
 
 Ce découpage situe le code; il ne remplace pas les frontières métier documentées dans les autres contextes.
+
+## Décision produit : abandon des alertes
+
+Les Alertes ne sont plus une fonctionnalité active : aucun parcours de consultation ou de résolution, ni génération ou synchronisation automatique d'alertes, ne fait partie du contrat produit. Les mesures restent factuelles; une variation de comptage, un écart à une consigne ou une donnée absente ne doit pas produire d'avertissement opérationnel ou biologique inféré.
+
+`AuditLog` et la fonctionnalité Actions restent actifs et doivent préserver la traçabilité, y compris les entrées historiques liées aux anciennes alertes. Le modèle `Alert`, sa table, ses données et ses migrations sont conservés dormants. Leur devenir exige une décision distincte, explicitement autorisée et non destructive; l'abandon produit n'autorise aucune suppression de données ni réécriture de migrations.
 
 ## Vocabulaire minimal
 

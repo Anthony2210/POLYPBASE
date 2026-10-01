@@ -189,10 +189,6 @@
 
 .recent-strip button:first-child { border-inline-start: 0; }
 
-.recent-strip button.has-alerts {
-  box-shadow: inset 3px 0 var(--color-danger);
-}
-
 .recent-box-heading,
 .recent-box-meta {
   display: flex;
@@ -206,19 +202,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.recent-alert-count {
-  display: grid;
-  flex: 0 0 auto;
-  width: 18px;
-  height: 18px;
-  place-items: center;
-  color: #fff;
-  background: var(--color-danger);
-  border-radius: 50%;
-  font-size: .7rem;
-  font-weight: 800;
 }
 
 .recent-strip button > small {
@@ -304,7 +287,6 @@
   border-color: var(--color-primary);
 }
 
-
 .suggestion-row {
   display: grid;
   grid-template-columns: minmax(210px, 1.25fr) minmax(210px, 1fr) minmax(130px, .7fr) 20px;
@@ -340,7 +322,6 @@
 
 .suggestion-location { text-align: right; }
 .suggestion-location strong { color: var(--color-primary-hover); }
-.suggestion-location .suggestion-alert-count { color: var(--color-danger); font-weight: 700; }
 .suggestion-chevron { display: grid; place-items: center; color: var(--color-primary); }
 
 @media (min-width: 901px), (min-width: 760px) and (orientation: landscape) {
@@ -461,8 +442,6 @@
     background: var(--color-primary-faint);
     border-color: var(--color-primary);
   }
-
-  .recent-strip button.has-alerts { box-shadow: none; }
 
   .recent-box-heading,
   .recent-strip button > small,

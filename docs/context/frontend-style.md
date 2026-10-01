@@ -42,9 +42,13 @@ equal columns or same-sized cards when business importance differs.
 
 ### Facts before interpretation
 
-Show observations as observations. Do not derive warnings, success states, or
-threshold meanings from values or colors unless an explicit product rule does
-so.
+Show observations as observations. Alerts have been abandoned and are no
+longer an active feature: do not reuse alert bells, counters, banners, detail
+modals, or resolution actions. Measurements must remain factual; do not infer
+operational or biological warnings, success states, or threshold meanings from
+counts, trends, missing values, targets, or colors. Input validation and network
+errors remain distinct from scientific interpretation. Preserve Actions and
+`AuditLog`, including historical entries related to former alerts.
 
 ### Progressive interaction
 
@@ -265,7 +269,7 @@ These are semantic invariants, not stylistic preferences:
 - Scientific `0` is a real measurement. Zero, null/missing, and unknown are
   distinct; never use truthiness to collapse them.
 - A target/consigne is distinct from an observed value. Label each honestly.
-  Min/Max are not automatically alert thresholds.
+  Min/Max are factual aggregates, not alert thresholds.
 - Color must not invent business meaning. Red/green do not automatically mean
   bad/good, and a status badge must come from an explicit product rule.
 - Labels and units describe what the value actually represents. Keep date and
@@ -379,8 +383,8 @@ Avoid these unless product evidence gives a specific reason:
   with the data. The existing entity header/overview use selective surface
   treatments; they are not a mandate to decorate every section.
 - Microcopy everywhere, duplicated labels, or duplicated CTAs.
-- Invented status badges, red/green data semantics, or alerts inferred from
-  values without an explicit product rule.
+- Invented status badges, red/green data semantics, or operational/biological
+  warnings inferred from values; reintroducing the abandoned Alerts feature.
 - Hover translation/lift on every operational row or hover-only actions.
 - Replacing `BoxTrackingPreview` with a lightweight one-off preview.
 - Building a one-off component when an established POLYPBASE component or

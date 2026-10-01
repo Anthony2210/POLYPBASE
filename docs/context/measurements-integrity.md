@@ -15,7 +15,7 @@ La base garantit au plus une ligne par boîte et semaine ISO. Le POST interactif
 1. ouvrir une transaction et verrouiller la boîte;
 2. créer le relevé et répondre `201` si la semaine est libre;
 3. répondre `409 measurement_week_conflict` sans mutation si un relevé existe déjà dans la semaine, y compris à la même date;
-4. synchroniser les alertes et écrire l'audit dans la même transaction.
+4. écrire l'audit dans la même transaction, sans génération ni synchronisation d'alertes.
 
 Deux créations concurrentes sont ainsi sérialisées selon la même règle que deux opérations séquentielles : une seule ligne finale et un conflit pour la seconde. La contrainte DB reste la défense finale contre les doublons. Toute correction d'un relevé existant passe exclusivement par le PATCH prévu.
 
@@ -29,9 +29,15 @@ La commande `check_biological_measurement_duplicates` effectue un diagnostic en 
 
 La saisie manuelle ajoute une valeur à l'agrégat journalier; elle ne crée pas de ligne individuelle par saisie. L'API verrouille la `ThermalZone`, point de synchronisation existant même avant le premier agrégat, puis la ligne `DailyTemperature` lorsqu'elle existe. Deux premières saisies concurrentes et deux mises à jour concurrentes sont donc sérialisées.
 
-Moyenne, minimum, maximum et compteur doivent représenter toutes les saisies acceptées. L'agrégat, les éventuels changements d'alerte et l'audit appartiennent à la même transaction; une erreur d'audit rollbacke l'opération. Ne pas modifier les règles de précision ou transformer les saisies en historique individuel sans décision métier.
+Moyenne, minimum, maximum et compteur doivent représenter toutes les saisies acceptées. L'agrégat et l'audit appartiennent à la même transaction; une erreur d'audit rollbacke l'opération. Ne pas modifier les règles de précision ou transformer les saisies en historique individuel sans décision métier.
 
 Les modèles acceptent plusieurs types de sondes. Leur présence ne prouve pas qu'une ingestion automatique connectée fonctionne; vérifier les routes et services. Les documents de [`../sondes/`](../sondes/) décrivent des explorations et plans possibles, pas nécessairement le produit actif.
+
+## Présentation factuelle et abandon des alertes
+
+Les Alertes ne sont plus actives. Les comptages, températures, agrégats et écarts à une consigne restent des faits mesurés ou calculés, sans avertissement opérationnel ou biologique inféré. Une baisse de polypes, une valeur zéro, une salinité absente ou un écart de température ne déclenche pas d'alerte. Une consigne n'est pas un seuil d'alerte.
+
+L'abandon des alertes ne retire ni les validations de saisie, ni les permissions, ni l'audit des mesures. `AuditLog` et Actions restent préservés. Le stockage historique `Alert` reste dormant, avec ses migrations et données, dans l'attente d'une décision distincte explicitement autorisée et non destructive; voir [`product-architecture.md`](product-architecture.md).
 
 ## Observations et notes
 
@@ -48,7 +54,7 @@ Pour toute écriture de mesure, inspecter ensemble :
 - validations scientifiques;
 - unicités et contraintes DB;
 - objets verrouillés et ordre des verrous;
-- alertes ou effets secondaires;
+- effets secondaires autorisés, sans génération ni synchronisation d'alertes;
 - `AuditLog` et réponse API;
 - rollback en cas d'échec.
 
@@ -62,7 +68,9 @@ Une contrainte protège l'état final mais ne fournit pas à elle seule une rép
 - opérations concurrentes sur PostgreSQL;
 - refus des objets d'une autre institution;
 - statut de boîte autorisant ou refusant l'écriture;
-- rollback si alerte ou audit indispensable échoue;
+- rollback si l'écriture de l'audit échoue;
+- absence de génération, synchronisation ou résolution d'alertes lors des créations et corrections de relevés et des saisies de température;
+- préservation des données historiques `Alert` et des entrées `AuditLog`, sans les traiter comme des alertes actives;
 - exactitude moyenne/min/max/count des températures.
 
 ## Points d'entrée

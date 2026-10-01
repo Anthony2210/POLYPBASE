@@ -40,7 +40,7 @@ from apps.accounts.permissions import (
     get_authorized_organizations,
     user_can_write_lab_data,
 )
-from apps.audit.models import Alert, AuditLog
+from apps.audit.models import AuditLog
 from apps.measurements.models import (
     BiologicalMeasurement,
     DailyTemperature,
@@ -64,7 +64,6 @@ from .models import (
 from .serializers import (
     BOX_INVENTORY_BATCH_MAX_ITEMS,
     HISTORICAL_BOX_IMPORT_DATE,
-    AlertSummarySerializer,
     AuditLogAccessSerializer,
     BiologicalMeasurementCreateSerializer,
     BiologicalMeasurementSerializer,
@@ -103,8 +102,6 @@ from .services import (
     reactivate_box,
 )
 
-TEMPERATURE_ALERT_THRESHOLD_C = Decimal("1.0")
-
 
 def _next_unique_box_identity(strain):
     """Generate the next globally unique ``<strain>.<number>`` identity."""
@@ -124,92 +121,6 @@ def _next_unique_box_identity(strain):
         if not Box.objects.filter(global_code=global_code).exists():
             return global_code, box_number
         next_number += 1
-
-
-def _resolve_alerts(queryset, *, user):
-    queryset.filter(resolved_at__isnull=True).update(
-        resolved_at=timezone.now(),
-        resolved_by=user,
-    )
-
-
-def _sync_polyp_drop_alert(*, box, measurement, user):
-    """Keep one persistent alert in sync with the latest polyp trend."""
-    previous = (
-        BiologicalMeasurement.objects.filter(
-            box=box,
-            measured_on__lt=measurement.measured_on,
-        )
-        .order_by("-measured_on", "-created_at")
-        .first()
-    )
-    active_alerts = Alert.objects.filter(
-        organization=box.organization,
-        box=box,
-        alert_type=Alert.AlertType.BIOLOGICAL,
-        resolved_at__isnull=True,
-    )
-
-    if previous is None or measurement.polyp_count >= previous.polyp_count:
-        _resolve_alerts(active_alerts, user=user)
-        return
-
-    decrease = previous.polyp_count - measurement.polyp_count
-    message = (
-        f"Baisse de {decrease} polype{'s' if decrease > 1 else ''} "
-        f"({previous.polyp_count} → {measurement.polyp_count})"
-    )
-    alert = active_alerts.order_by("-created_at").first()
-    if alert:
-        alert.message = message
-        alert.level = Alert.Level.WARNING
-        alert.save(update_fields=["message", "level"])
-    else:
-        Alert.objects.create(
-            organization=box.organization,
-            box=box,
-            alert_type=Alert.AlertType.BIOLOGICAL,
-            level=Alert.Level.WARNING,
-            message=message,
-            created_by=user,
-        )
-
-
-def _sync_temperature_alert(*, zone, temperature_c, user):
-    """Create or resolve the zone alert using the configured ±1 °C rule."""
-    active_alerts = Alert.objects.filter(
-        organization=zone.organization,
-        thermal_zone=zone,
-        alert_type=Alert.AlertType.TEMPERATURE,
-        resolved_at__isnull=True,
-    )
-    if zone.target_temperature_c is None:
-        _resolve_alerts(active_alerts, user=user)
-        return
-
-    deviation = abs(temperature_c - zone.target_temperature_c)
-    if deviation < TEMPERATURE_ALERT_THRESHOLD_C:
-        _resolve_alerts(active_alerts, user=user)
-        return
-
-    message = (
-        f"Température à vérifier : {temperature_c} °C mesuré, "
-        f"consigne {zone.target_temperature_c} °C"
-    )
-    alert = active_alerts.order_by("-created_at").first()
-    if alert:
-        alert.message = message
-        alert.level = Alert.Level.WARNING
-        alert.save(update_fields=["message", "level"])
-    else:
-        Alert.objects.create(
-            organization=zone.organization,
-            thermal_zone=zone,
-            alert_type=Alert.AlertType.TEMPERATURE,
-            level=Alert.Level.WARNING,
-            message=message,
-            created_by=user,
-        )
 
 
 def _json_value(value):
@@ -289,10 +200,6 @@ def box_queryset_for_user(user, organization_ids=None):
             queryset=BiologicalMeasurement.objects.select_related("user").order_by("-measured_on", "-created_at"),
         ),
         Prefetch(
-            "alerts",
-            queryset=Alert.objects.order_by("-created_at"),
-        ),
-        Prefetch(
             "parent_lineages",
             queryset=BoxLineage.objects.filter(
                 parent_box__organization_id__in=organization_ids,
@@ -339,12 +246,9 @@ def box_queryset_for_user(user, organization_ids=None):
 def box_list_queryset_for_user(user, organization_ids=None):
     """Lightweight queryset for the box list.
 
-    The list serializer only needs the latest measurement and the active alert
-    count, so we avoid the heavy detail prefetches (full history, lineages,
-    movements, locations, tags). Instead we prefetch only the latest
-    measurement per box and annotate the active alert count via subqueries.
-    Both subqueries are portable (correlated with LIMIT), so they run on
-    PostgreSQL and SQLite alike.
+    The list serializer only needs the latest measurement, so avoid the heavy
+    detail prefetches (full history, lineages, movements, locations, tags).
+    The correlated subquery runs on PostgreSQL and SQLite alike.
     """
     organization_ids = organization_ids or get_authorized_organization_ids(user)
 
@@ -357,17 +261,6 @@ def box_list_queryset_for_user(user, organization_ids=None):
         BiologicalMeasurement.objects.filter(id__in=latest_measurement_id)
         .select_related("user")
         .order_by("-measured_on", "-created_at")
-    )
-
-    active_alert_count = Coalesce(
-        Subquery(
-            Alert.objects.filter(box_id=OuterRef("pk"), resolved_at__isnull=True)
-            .order_by()
-            .values("box_id")
-            .annotate(count=Count("*"))
-            .values("count")
-        ),
-        0,
     )
 
     latest_salinity = Subquery(
@@ -397,7 +290,6 @@ def box_list_queryset_for_user(user, organization_ids=None):
             "thermal_zone",
         )
         .annotate(
-            active_alert_count_annotation=active_alert_count,
             latest_salinity_annotation=latest_salinity,
             current_location_started_at_annotation=current_location_started_at,
         )
@@ -560,10 +452,6 @@ class DashboardAPIView(APIView):
 
         boxes = Box.objects.filter(organization_id__in=organization_ids)
         measurements = BiologicalMeasurement.objects.filter(box__organization_id__in=organization_ids)
-        alerts = Alert.objects.filter(
-            organization_id__in=organization_ids,
-            resolved_at__isnull=True,
-        ).select_related("box", "thermal_zone")
         access_candidates = AuditLog.objects.filter(
             organization_id__in=organization_ids,
             user=request.user,
@@ -594,7 +482,6 @@ class DashboardAPIView(APIView):
                     "active_boxes": boxes.filter(status=Box.Status.ACTIVE).count(),
                     "species_count": boxes.values("strain__species").distinct().count(),
                     "thermal_zones": ThermalZone.objects.filter(organization_id__in=organization_ids).count(),
-                    "active_alerts": alerts.count(),
                     "measured_polyps": measurement_totals["polyps"] or 0,
                     "measured_ephyrae": measurement_totals["ephyrae"] or 0,
                     "measured_strobilae": measurement_totals["strobilae"] or 0,
@@ -605,16 +492,8 @@ class DashboardAPIView(APIView):
                     context={"request": request},
                 ).data,
                 "recent_accesses": AuditLogAccessSerializer(recent_accesses, many=True).data,
-                "alerts": self._alert_payload(alerts[:12]),
             }
         )
-
-    def _alert_payload(self, alerts):
-        data = AlertSummarySerializer(alerts, many=True).data
-        for item, alert in zip(data, alerts):
-            item["box"] = alert.box.global_code if alert.box else None
-            item["thermal_zone"] = alert.thermal_zone.name if alert.thermal_zone else None
-        return data
 
 
 class OverviewActiveBoxesAPIView(APIView):
@@ -1368,7 +1247,6 @@ class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
                 user=request.user,
                 **data,
             )
-            _sync_polyp_drop_alert(box=box, measurement=measurement, user=request.user)
             after_values = _measurement_audit_values(measurement)
             metadata = {
                 "measurement_id": measurement.id,
@@ -1485,7 +1363,6 @@ class BoxMeasurementDetailAPIView(generics.GenericAPIView):
 
             before_values = _measurement_audit_values(measurement)
             measurement = serializer.save(user=request.user)
-            _sync_polyp_drop_alert(box=box, measurement=measurement, user=request.user)
             after_values = _measurement_audit_values(measurement)
 
             _record_measurement_audit(
@@ -1889,7 +1766,6 @@ class ThermalZoneManualTemperatureAPIView(APIView):
                     "measurement_count",
                 ]
             )
-        _sync_temperature_alert(zone=zone, temperature_c=temperature_c, user=request.user)
         AuditLog.objects.create(
             organization=zone.organization,
             user=request.user,
@@ -2259,32 +2135,3 @@ class BoxTransferImportAPIView(APIView):
             ).data,
             status=201,
         )
-
-
-class AlertResolveAPIView(APIView):
-    def post(self, request, pk):
-        alert = get_object_or_404(
-            Alert.objects.select_related("organization"),
-            pk=pk,
-            organization_id__in=get_active_organization_ids(request),
-        )
-        if not user_can_write_lab_data(request.user, alert.organization):
-            raise PermissionDenied("Ce compte ne peut pas résoudre cette alerte.")
-        if alert.alert_type == Alert.AlertType.BIOLOGICAL:
-            raise PermissionDenied(
-                "Cette alerte de polypes se résout automatiquement au prochain relevé."
-            )
-        if alert.resolved_at is None:
-            alert.resolved_at = timezone.now()
-            alert.resolved_by = request.user
-            alert.save(update_fields=["resolved_at", "resolved_by"])
-            AuditLog.objects.create(
-                organization=alert.organization,
-                user=request.user,
-                action=AuditLog.Action.UPDATE,
-                object_type="alert",
-                object_id=str(alert.id),
-                description=f"Alert resolved: {alert.message}",
-                metadata={"alert_id": alert.id, "alert_type": alert.alert_type},
-            )
-        return Response({"id": alert.id, "resolved": True})

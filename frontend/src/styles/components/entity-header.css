@@ -55,13 +55,6 @@
   grid-area: actions;
 }
 
-.entity-header__alert {
-  position: absolute;
-  z-index: 4;
-  top: var(--space-3);
-  right: var(--space-3);
-}
-
 .entity-header .box-page-label {
   margin-bottom: var(--space-1);
   color: var(--color-muted);

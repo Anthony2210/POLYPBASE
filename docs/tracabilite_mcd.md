@@ -85,11 +85,17 @@ extensions techniques**.
 | `cultures.BoxTransfer` | Transfert d'une boîte entre structures | À ajouter (MCD gestion) si le besoin est confirmé |
 | `cultures.BoxMovement` | Déplacement ponctuel de boîte (complète RANGE) | Documenter avec RANGE |
 | `measurements.Observation` | Observations qualitatives (porte type_observation) | Documenter avec SAISIR_RELEVE |
-| `measurements.ThermalAnomaly` | Anomalies de température | Extension technique (alerting) |
-| `audit.Alert` | Alertes biologiques/température/salinité | Extension technique (alerting) |
+| `measurements.ThermalAnomaly` | Modèle d'anomalies de température | Présence technique, pas une fonctionnalité d'alertes active ni une règle d'avertissement inféré |
+| `audit.Alert` | Stockage historique des anciennes alertes | Dormant : modèle, table, données et migrations conservés; décision distincte explicitement autorisée et non destructive requise pour leur devenir |
 | `organizations.PartnerInstitution` | Institutions de provenance | Lié à AVOIR_PROVENANCE |
 | `organizations.SharingAgreement` | Accords de partage inter-structures | À ajouter (MCD gestion) si confirmé |
 | `accounts.UserPreference` | Langue d'interface | Extension technique (UI) |
+
+L'abandon produit des Alertes ne concerne pas `AuditLog` ni Actions : la
+traçabilité et les entrées historiques sont préservées. Les éléments liés aux
+anciennes alertes ne sont pas des fonctionnalités à réintroduire ou à promouvoir
+dans le MCD actif. Les mesures restent factuelles, sans avertissement
+opérationnel ou biologique inféré.
 
 ## 5. Conclusion
 

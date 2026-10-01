@@ -41,7 +41,6 @@ def _box_queryset_for_user(user):
             "biological_measurements",
             queryset=BiologicalMeasurement.objects.select_related("user").order_by("-measured_on", "-created_at"),
         ),
-        "alerts",
         "tags",
     ).filter(organization_id__in=get_authorized_organization_ids(user))
 
