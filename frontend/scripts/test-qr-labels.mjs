@@ -53,6 +53,7 @@ const representativeLabels = [
   { globalCode: 'CCO-2.001-PAC', speciesName: 'Chrysaora colorata' },
   { globalCode: 'PARTNER-AAU-1.001', speciesName: 'Aurelia aurita' },
   { globalCode: 'CCO-PAC.1.001', speciesName: 'Chrysaora quinquecirrha' },
+  { globalCode: 'CCO-PAC.1.002', speciesName: 'Chrysaora chesapeakei "pink striped"' },
 ];
 
 function printDocument() {
@@ -139,9 +140,9 @@ function labelSelectionHelpers(...names) {
   return context.exports.result;
 }
 
-test('canonical label is a 40 x 30 mm landscape label with a 25 mm QR', () => {
-  assert.equal(settings.labelWidthMm, 40);
-  assert.equal(settings.labelHeightMm, 30);
+test('canonical label is a 41 x 28 mm landscape label with a 25 mm QR', () => {
+  assert.equal(settings.labelWidthMm, 41);
+  assert.equal(settings.labelHeightMm, 28);
   assert.equal(settings.qrSizeMm, 25);
   assert.ok(settings.labelWidthMm > settings.labelHeightMm, 'the label must read as landscape');
 });
@@ -155,6 +156,7 @@ test('the print document lays the QR and rotated text band side by side', () => 
   assert.match(labelRule, /flex-direction: row/);
   assert.doesNotMatch(labelRule, /flex-direction: column/);
   assert.match(labelRule, /align-items: center/);
+  assert.doesNotMatch(labelRule, /border:|border-radius:/);
   assert.ok(markup.indexOf('label-qr') < markup.indexOf('label-main'), 'the QR must come first');
 });
 
@@ -193,14 +195,14 @@ test('print gives both label elements larger bold text with the required styles'
   const speciesSize = Number(speciesRule.match(/font-size: ([\d.]+)pt/)[1]);
 
   assert.equal(codeSize, settings.textFontPt);
-  assert.equal(speciesSize, settings.textFontPt);
+  assert.equal(speciesSize, exports.QR_LABEL_SPECIES_FONT_PT);
   assert.ok(codeSize > 7);
-  assert.ok(speciesSize > 7.25);
+  assert.ok(speciesSize >= 7);
   assert.match(codeRule, /font-style: normal/);
   assert.match(codeRule, /font-weight: 900/);
   assert.match(speciesRule, /font-style: italic/);
   assert.match(speciesRule, /font-weight: 900/);
-  assert.match(speciesRule, /-webkit-line-clamp: 2/);
+  assert.match(speciesRule, /-webkit-line-clamp: 3/);
 });
 
 test('print text wraps without ellipsis or horizontal truncation', () => {
@@ -212,6 +214,10 @@ test('print text wraps without ellipsis or horizontal truncation', () => {
   assert.match(speciesRule, /overflow-wrap: break-word/);
   assert.doesNotMatch(`${codeRule}${speciesRule}`, /text-overflow: ellipsis/);
   assert.doesNotMatch(`${codeRule}${speciesRule}`, /white-space: nowrap/);
+  assert.match(
+    exports.buildQrPrintDocument([{ ...label, speciesName: 'Chrysaora chesapeakei "pink striped"' }], settings),
+    /Chrysaora chesapeakei "pink striped"/,
+  );
 });
 
 test('each selected label gets one exact-size print page with no trailing blank page', () => {
@@ -223,7 +229,7 @@ test('each selected label gets one exact-size print page with no trailing blank 
     const pages = html.match(/<main class="label-slot">/g) ?? [];
     assert.equal(pages.length, count, `${count} labels must produce ${count} pages`);
     assert.equal((html.match(/<section class="label">/g) ?? []).length, count);
-    assert.match(html, /@page \{ size: 40mm 30mm; margin: 0; \}/);
+    assert.match(html, /@page \{ size: 41mm 28mm; margin: 0; \}/);
     assert.match(html, /break-after: page; page-break-after: always/);
     assert.match(html, /\.label-slot:last-child \{ break-after: auto; page-break-after: auto; \}/);
     assert.doesNotMatch(html, /size: A4|class="sheet"/);
@@ -231,12 +237,13 @@ test('each selected label gets one exact-size print page with no trailing blank 
 });
 
 test('the QR and rotated text block fit the physical label without clipping', () => {
-  const contentWidth = settings.labelWidthMm - 2 * exports.QR_LABEL_BORDER_MM - 2 * settings.paddingMm;
-  const contentHeight = settings.labelHeightMm - 2 * exports.QR_LABEL_BORDER_MM - 2 * settings.paddingMm;
-  const fontMm = exports.pointsToMillimetres(settings.textFontPt);
-  const fourLineFallbackHeight = 2 * fontMm * 1.05
+  const contentWidth = settings.labelWidthMm - 2 * settings.paddingMm;
+  const contentHeight = settings.labelHeightMm - 2 * settings.paddingMm;
+  const codeFontMm = exports.pointsToMillimetres(settings.textFontPt);
+  const speciesFontMm = exports.pointsToMillimetres(exports.QR_LABEL_SPECIES_FONT_PT);
+  const fiveLineHeight = 2 * codeFontMm * 1.05
     + exports.QR_LABEL_TEXT_GAP_MM
-    + 2 * fontMm * 1.1;
+    + 3 * speciesFontMm * 1.1;
 
   assert.equal(exports.QR_LABEL_TEXT_LINE_LENGTH_MM, contentHeight);
   assert.ok(settings.qrSizeMm <= contentHeight, 'the QR must fit the label height');
@@ -244,10 +251,10 @@ test('the QR and rotated text block fit the physical label without clipping', ()
     settings.qrSizeMm + exports.QR_LABEL_QR_TEXT_GAP_MM + exports.QR_LABEL_TEXT_ZONE_MM <= contentWidth + 0.001,
     'the QR and text band must fit the label width',
   );
-  assert.ok(fourLineFallbackHeight <= exports.QR_LABEL_TEXT_ZONE_MM, 'two wrapped lines per value must fit the text band');
+  assert.ok(fiveLineHeight <= exports.QR_LABEL_TEXT_ZONE_MM, 'two code and three species lines must fit the text band');
 });
 
-test('7.5 pt SVG text stays complete, bold, and within two lines per value', () => {
+test('SVG text stays complete, bold, and allows three species lines', () => {
   assert.equal(settings.textFontPt, 7.5);
 
   for (const item of representativeLabels) {
@@ -258,13 +265,16 @@ test('7.5 pt SVG text stays complete, bold, and within two lines per value', () 
       .map((match) => match[1]);
 
     assert.ok(codeLines.length <= 2, `${item.globalCode} must use at most two lines`);
-    assert.ok(speciesLines.length <= 2, `${item.speciesName} must use at most two lines`);
+    assert.ok(speciesLines.length <= 3, `${item.speciesName} must use at most three lines`);
     if (item.globalCode === 'CCO-PAC.1.001') {
       assert.equal(codeLines.length, 1, 'the normal box code should fit one line');
       assert.equal(speciesLines.length, 2, 'the longer species should use two complete lines');
     }
+    if (item.speciesName.includes('pink striped')) {
+      assert.equal(speciesLines.length, 3, 'the printed example needs three complete species lines');
+    }
     assert.equal(codeLines.join('').replace(/&amp;/g, '&'), item.globalCode);
-    assert.equal(speciesLines.join(' ').replace(/\s+/g, ' ').trim(), item.speciesName);
+    assert.equal(speciesLines.join(' ').replace(/&quot;/g, '"').replace(/\s+/g, ' ').trim(), item.speciesName);
     assert.match(svg, /class="label-code"[^>]*font-weight="900"[^>]*font-style="normal"/);
     assert.match(svg, /class="label-species"[^>]*font-weight="900"[^>]*font-style="italic"/);
     assert.doesNotMatch(svg, /textLength/);
@@ -274,29 +284,30 @@ test('7.5 pt SVG text stays complete, bold, and within two lines per value', () 
 test('the downloaded SVG mirrors the rotated landscape label design', () => {
   const svg = svgFor({});
 
-  assert.match(svg, /width="40mm" height="30mm"/);
-  assert.match(svg, /viewBox="0 0 40 30"/);
+  assert.match(svg, /width="41mm" height="28mm"/);
+  assert.match(svg, /viewBox="0 0 41 28"/);
+  assert.doesNotMatch(svg, /<rect\b|stroke="#[0-9a-f]+"/);
   assert.match(svg, /width="25" height="25" transform="rotate\(-90 [\d.]+ [\d.]+\)"/);
-  assert.match(svg, /<g class="label-text" transform="translate\(([\d.]+) 15\) rotate\(-90\)">/);
+  assert.match(svg, /<g class="label-text" transform="translate\(([\d.]+) 14\) rotate\(-90\)">/);
 
   const imageX = Number(svg.match(/<image [^>]*x="([\d.]+)"/)[1]);
   const textCenterX = Number(svg.match(/class="label-text" transform="translate\(([\d.]+)/)[1]);
-  assert.ok(imageX < 40 / 2, 'the QR must sit at the left extremity');
-  assert.ok(textCenterX > imageX + 25, 'the rotated text must be centred after the QR');
-  assert.ok(textCenterX + exports.QR_LABEL_TEXT_ZONE_MM / 2 <= 40 - exports.QR_LABEL_BORDER_MM - settings.paddingMm + 0.001);
-  assert.ok(15 + exports.QR_LABEL_TEXT_LINE_LENGTH_MM / 2 <= 30 - exports.QR_LABEL_BORDER_MM - settings.paddingMm + 0.001);
-  assert.ok(15 - exports.QR_LABEL_TEXT_LINE_LENGTH_MM / 2 >= exports.QR_LABEL_BORDER_MM + settings.paddingMm - 0.001);
+  assert.ok(imageX < settings.labelWidthMm / 2, 'the QR must sit at the left extremity');
+  assert.ok(textCenterX > imageX + settings.qrSizeMm, 'the rotated text must be centred after the QR');
+  assert.ok(textCenterX + exports.QR_LABEL_TEXT_ZONE_MM / 2 <= settings.labelWidthMm - settings.paddingMm + 0.001);
+  assert.ok(settings.labelHeightMm / 2 + exports.QR_LABEL_TEXT_LINE_LENGTH_MM / 2 <= settings.labelHeightMm - settings.paddingMm + 0.001);
+  assert.ok(settings.labelHeightMm / 2 - exports.QR_LABEL_TEXT_LINE_LENGTH_MM / 2 >= settings.paddingMm - 0.001);
 });
 
 test('the modal preview keeps the canonical landscape geometry', () => {
   const modal = exports.getQrLabelPreviewCssVariables(settings);
 
-  assert.equal(modal['--label-preview-ratio'], '40 / 30');
-  assert.equal(modal['--label-preview-qr-size'], '62.5cqw');
-  assert.equal(modal['--label-preview-text-zone-width'], '30.5cqw');
-  assert.equal(modal['--label-preview-text-line-length'], '69.25cqw');
-  assert.equal(modal['--label-preview-font-size'], '6.6146cqw');
-  assert.equal(modal['--label-preview-species-font-size'], '6.6146cqw');
+  assert.equal(modal['--label-preview-ratio'], '41 / 28');
+  assert.equal(modal['--label-preview-qr-size'], '60.9756cqw');
+  assert.equal(modal['--label-preview-text-zone-width'], '34.878cqw');
+  assert.equal(modal['--label-preview-text-line-length'], '65.122cqw');
+  assert.equal(modal['--label-preview-font-size'], '6.4533cqw');
+  assert.equal(modal['--label-preview-species-font-size'], '6.023cqw');
 });
 
 test('QR payload and scan routing semantics are unchanged', () => {
@@ -317,6 +328,8 @@ test('the shared preview component renders a rotated text block beside the QR', 
   assert.match(rule, /flex-direction: row/);
   assert.doesNotMatch(rule, /flex-direction: column/);
   assert.match(rule, /aspect-ratio: var\(--label-preview-ratio\)/);
+  assert.match(rule, /border: 0/);
+  assert.match(rule, /border-radius: 0/);
   assert.match(css, /\.qr-label--label \.qr-label__image \{[^}]*transform: rotate\(-90deg\)/s);
   assert.match(css, /\.qr-label--label \.qr-label__metadata strong \{[^}]*font-style: normal/s);
   assert.match(css, /\.qr-label--label \.qr-label__metadata small \{[^}]*font-style: italic/s);
@@ -324,6 +337,7 @@ test('the shared preview component renders a rotated text block beside the QR', 
   assert.match(textRule, /rotate\(-90deg\)/);
   assert.match(textRule, /width: var\(--label-preview-text-line-length\)/);
   assert.match(textRule, /height: var\(--label-preview-text-zone-width\)/);
+  assert.match(css, /\.qr-label--label \.qr-label__metadata small \{[^}]*-webkit-line-clamp: 3/s);
 });
 
 test('the legacy Ctrl+P print path uses the canonical geometry', () => {
@@ -334,11 +348,14 @@ test('the legacy Ctrl+P print path uses the canonical geometry', () => {
   assert.match(rule, new RegExp(`height: ${settings.labelHeightMm}mm`));
   assert.match(rule, new RegExp(`padding: ${settings.paddingMm}mm`));
   assert.match(rule, new RegExp(`gap: ${exports.QR_LABEL_QR_TEXT_GAP_MM}mm`));
+  assert.match(rule, /border: 0/);
+  assert.match(rule, /border-radius: 0/);
   assert.match(
     css,
     new RegExp(`\\.qr-label-print-sheet \\.qr-label__image \\{[^}]*width: ${settings.qrSizeMm}mm`),
   );
   assert.match(css, new RegExp(`font-size: ${settings.textFontPt}pt`));
+  assert.match(css, new RegExp(`font-size: ${exports.QR_LABEL_SPECIES_FONT_PT}pt`));
   assert.match(css, /\.qr-label-print-sheet \.qr-label__metadata strong \{[^}]*font-style: normal/s);
   assert.match(css, /\.qr-label-print-sheet \.qr-label__metadata small \{[^}]*font-style: italic/s);
   assert.match(css, /\.qr-label-print-sheet \.qr-label__metadata :where\(strong, small\) \{[^}]*font-weight: 900/s);
@@ -531,7 +548,8 @@ test('compact selection bar provides only count, clear, and print actions', () =
   assert.match(labelsViewSource, /selectedLabels\.length > 0 \? \(\s*<div className="label-selection-dock">\s*<div className="label-selection-bar"/);
   assert.match(labelsViewSource, /<div className="label-selection-summary" role="status">[\s\S]*?<strong>[\s\S]*?qrLabelSelectedSingular[\s\S]*?qrLabelSelectedPlural[\s\S]*?<\/strong>[\s\S]*?<\/div>\s*<div className="label-selection-actions">/);
   assert.match(labelsViewSource, /aria-label=\{labels\.qrLabelClearSelection\}/);
-  assert.match(labelsViewSource, /onClearQrLabelSelection\(\);\s*searchRef\.current\?\.focus\(\)/);
+  assert.match(labelsViewSource, /onClick=\{onClearQrLabelSelection\}/);
+  assert.doesNotMatch(labelsViewSource, /searchRef|\.focus\(\)|window\.scrollTo|scrollTo\(/);
   assert.match(labelsViewSource, /onClick=\{\(\) => printQrLabels\(selectedLabels, printSettings\)\}/);
   assert.match(labelsViewSource, /isExpanded \? <ChevronDown size=\{18\} \/> : <ChevronRight size=\{18\} \/>/);
   assert.doesNotMatch(labelsViewSource, /qrLabelSelectionContext|qrLabelViewSelection|isReviewOpen|reviewGroups|label-review-modal/);

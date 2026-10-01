@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { ChevronDown, ChevronRight, Printer } from 'lucide-react';
 
@@ -71,7 +71,6 @@ export default function LabelsView({
   const [labelSearch, setLabelSearch] = useState('');
   const [zoneFilter, setZoneFilter] = useState('all');
   const [expandedSpecies, setExpandedSpecies] = useState<Set<number>>(() => new Set());
-  const searchRef = useRef<HTMLInputElement>(null);
   const printSettings = DEFAULT_QR_LABEL_PRINT_SETTINGS;
   const labelCutoffDate = useMemo(() => getRecentLabelCutoffDate(), []);
   const canManageQrLabels = profile ? userCanManageQrLabels(profile) : false;
@@ -134,7 +133,6 @@ export default function LabelsView({
             <label className="admin-label-search profile-label-search">
               <span>{labels.qrLabelSearchTitle}</span>
               <input
-                ref={searchRef}
                 type="search"
                 value={labelSearch}
                 placeholder={labels.qrLabelSearchPlaceholder}
@@ -177,10 +175,7 @@ export default function LabelsView({
                     className="label-selection-clear"
                     type="button"
                     aria-label={labels.qrLabelClearSelection}
-                    onClick={() => {
-                      onClearQrLabelSelection();
-                      searchRef.current?.focus();
-                    }}
+                    onClick={onClearQrLabelSelection}
                   >
                     {labels.qrLabelClearSelection}
                   </button>

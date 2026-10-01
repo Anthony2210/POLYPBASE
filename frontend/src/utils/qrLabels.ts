@@ -22,35 +22,31 @@ export type QrLabelPrintSettings = {
 };
 
 
-// Physical label requested by Aquarium de Paris: 40 mm wide x 30 mm high.
+// Physical printer stock: 41 mm wide x 28 mm high.
 // The QR sits at the left extremity and the code/species block is rotated 90
 // degrees in the right band. These values are shared by print, modal and SVG.
-export const QR_LABEL_WIDTH_MM = 40;
-export const QR_LABEL_HEIGHT_MM = 30;
+export const QR_LABEL_WIDTH_MM = 41;
+export const QR_LABEL_HEIGHT_MM = 28;
 export const QR_LABEL_QR_SIZE_MM = 25;
-export const QR_LABEL_PADDING_MM = 0.8;
+export const QR_LABEL_PADDING_MM = 0.65;
 
-export const QR_LABEL_BORDER_MM = 0.35;
-export const QR_LABEL_QR_TEXT_GAP_MM = 0.5;
-export const QR_LABEL_TEXT_GAP_MM = 0.4;
+export const QR_LABEL_QR_TEXT_GAP_MM = 0.4;
+export const QR_LABEL_TEXT_GAP_MM = 0.3;
 // The rotated block is laid out at full inner-label length before rotation. Its
 // height becomes the visible width of the narrow band beside the QR.
 export const QR_LABEL_TEXT_ZONE_MM = Math.round((
   QR_LABEL_WIDTH_MM
-  - 2 * QR_LABEL_BORDER_MM
   - 2 * QR_LABEL_PADDING_MM
   - QR_LABEL_QR_SIZE_MM
   - QR_LABEL_QR_TEXT_GAP_MM
 ) * 1000) / 1000;
 export const QR_LABEL_TEXT_LINE_LENGTH_MM = Math.round((
   QR_LABEL_HEIGHT_MM
-  - 2 * QR_LABEL_BORDER_MM
   - 2 * QR_LABEL_PADDING_MM
 ) * 1000) / 1000;
-// 7.5 pt is the largest half-point size that fits two wrapped code lines and
-// two wrapped species lines inside the 12.2 mm text band at the current leading.
+// Two code lines and three species lines fit the 14.3 mm text band.
 export const QR_LABEL_TEXT_FONT_PT = 7.5;
-export const QR_LABEL_SPECIES_FONT_PT = 7.5;
+export const QR_LABEL_SPECIES_FONT_PT = 7;
 
 export const DEFAULT_QR_LABEL_PRINT_SETTINGS: QrLabelPrintSettings = {
   labelWidthMm: QR_LABEL_WIDTH_MM,
@@ -167,13 +163,13 @@ export function buildQrPrintDocument(labels: QrLabelItem[], settings: QrLabelPri
   html, body { width: ${settings.labelWidthMm}mm; margin: 0; color: #000; font-family: ${fontFamily}; }
   .label-slot { display: block; width: ${settings.labelWidthMm}mm; height: ${settings.labelHeightMm}mm; overflow: hidden; break-after: page; page-break-after: always; break-inside: avoid; page-break-inside: avoid; }
   .label-slot:last-child { break-after: auto; page-break-after: auto; }
-  .label { display: flex; flex-direction: row; align-items: center; width: 100%; height: 100%; overflow: hidden; padding: ${settings.paddingMm}mm; border: ${QR_LABEL_BORDER_MM}mm solid #000; border-radius: 1.5mm; }
+  .label { display: flex; flex-direction: row; align-items: center; width: 100%; height: 100%; overflow: hidden; padding: ${settings.paddingMm}mm; }
   .label-qr { flex: 0 0 auto; display: grid; justify-items: center; }
   .label-qr img { display: block; width: ${settings.qrSizeMm}mm; height: ${settings.qrSizeMm}mm; object-fit: contain; transform: rotate(-90deg); transform-origin: center; }
   .label-main { position: relative; flex: 1 1 auto; align-self: stretch; min-width: 0; margin-left: ${QR_LABEL_QR_TEXT_GAP_MM}mm; overflow: hidden; }
   .label-text { position: absolute; top: 50%; left: 50%; display: grid; align-content: center; width: ${QR_LABEL_TEXT_LINE_LENGTH_MM}mm; height: ${QR_LABEL_TEXT_ZONE_MM}mm; gap: ${QR_LABEL_TEXT_GAP_MM}mm; text-align: center; transform: translate(-50%, -50%) rotate(-90deg); transform-origin: center; }
   .label-code { display: block; width: 100%; font-size: ${settings.textFontPt}pt; font-style: normal; font-weight: 900; line-height: 1.05; overflow-wrap: break-word; }
-  .label-species { display: ${settings.showSpecies ? '-webkit-box' : 'none'}; width: 100%; color: #000; font-size: ${settings.textFontPt * QR_LABEL_SPECIES_FONT_PT / QR_LABEL_TEXT_FONT_PT}pt; font-style: italic; font-weight: 900; line-height: 1.1; overflow-wrap: break-word; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  .label-species { display: ${settings.showSpecies ? '-webkit-box' : 'none'}; width: 100%; color: #000; font-size: ${settings.textFontPt * QR_LABEL_SPECIES_FONT_PT / QR_LABEL_TEXT_FONT_PT}pt; font-style: italic; font-weight: 900; line-height: 1.1; overflow-wrap: break-word; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
 </style>
 </head>
 <body>
@@ -273,12 +269,12 @@ function clampNumber(value: number, min: number, max: number) {
 // Conservative Arial advance width per character for wrapping and SVG fit checks.
 const QR_LABEL_SVG_BOLD_CHAR_WIDTH_RATIO = 0.62;
 
-// The downloaded SVG mirrors the printed label: 40 x 30 mm landscape, QR at the
+// The downloaded SVG mirrors the printed label: 41 x 28 mm landscape, QR at the
 // left extremity, with the text block rotated counter-clockwise in the right band.
 export function buildQrLabelSvg(label: QrLabelItem, qrImageUrl: string) {
   const width = QR_LABEL_WIDTH_MM;
   const height = QR_LABEL_HEIGHT_MM;
-  const inset = QR_LABEL_BORDER_MM + QR_LABEL_PADDING_MM;
+  const inset = QR_LABEL_PADDING_MM;
   const fontSize = pointsToMillimetres(QR_LABEL_TEXT_FONT_PT);
   const codeLineHeight = fontSize * 1.05;
   const speciesFontSize = pointsToMillimetres(QR_LABEL_SPECIES_FONT_PT);
@@ -301,7 +297,7 @@ export function buildQrLabelSvg(label: QrLabelItem, qrImageUrl: string) {
     QR_LABEL_TEXT_LINE_LENGTH_MM,
     speciesFontSize,
     QR_LABEL_SVG_BOLD_CHAR_WIDTH_RATIO,
-    2,
+    3,
   );
 
   const codeBlockHeight = codeLines.length * codeLineHeight;
@@ -317,7 +313,7 @@ export function buildQrLabelSvg(label: QrLabelItem, qrImageUrl: string) {
   )).join('\n    ');
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}mm" height="${height}mm" viewBox="0 0 ${width} ${height}">
-  <rect x="${roundMm(QR_LABEL_BORDER_MM / 2)}" y="${roundMm(QR_LABEL_BORDER_MM / 2)}" width="${roundMm(width - QR_LABEL_BORDER_MM)}" height="${roundMm(height - QR_LABEL_BORDER_MM)}" rx="1.5" fill="#fff" stroke="#000" stroke-width="${QR_LABEL_BORDER_MM}"/>
+
   <image href="${escapeXml(qrImageUrl)}" x="${roundMm(qrX)}" y="${roundMm(qrY)}" width="${QR_LABEL_QR_SIZE_MM}" height="${QR_LABEL_QR_SIZE_MM}" transform="rotate(-90 ${roundMm(qrX + QR_LABEL_QR_SIZE_MM / 2)} ${roundMm(qrY + QR_LABEL_QR_SIZE_MM / 2)})"/>
   <g class="label-text" transform="translate(${roundMm(textCenterX)} ${roundMm(height / 2)}) rotate(-90)">
     ${codeMarkup}

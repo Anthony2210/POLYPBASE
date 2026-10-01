@@ -67,7 +67,7 @@
 
 .qr-label--image-only { gap: 0; }
 
-/* Physical label: 40 x 30 mm landscape, with a 25 x 25 mm QR at the left
+/* Physical label: 41 x 28 mm landscape, with a 25 x 25 mm QR at the left
    extremity. The text block is rotated counter-clockwise so it reads upward in
    the remaining band. Geometry comes from the shared preview CSS variables. */
 .qr-label--label {
@@ -81,7 +81,8 @@
   width: 100%;
   aspect-ratio: var(--label-preview-ratio);
   overflow: hidden;
-  border-radius: var(--radius-xs);
+  border: 0;
+  border-radius: 0;
 }
 
 .qr-label--label .qr-label__image {
@@ -133,9 +134,9 @@
   font-size: max(4px, var(--label-preview-species-font-size));
   font-style: italic;
   line-height: 1.1;
-  line-clamp: 2;
+  line-clamp: 3;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
 }
 
 @media (min-width: 760px) and (max-width: 1180px) {
