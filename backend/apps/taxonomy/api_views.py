@@ -1,6 +1,7 @@
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Prefetch, Q
 from django.shortcuts import get_object_or_404
+from django.utils.translation import gettext_lazy as _
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -17,6 +18,7 @@ from apps.audit.models import AuditLog
 
 from .models import (
     BiologicalProvenance,
+    LocalStrainIdentity,
     OrganizationProvenanceCode,
     OrganizationSpeciesCode,
     Species,
@@ -409,8 +411,9 @@ class StrainReferenceDetailAPIView(APIView):
     @transaction.atomic
     def patch(self, request, pk):
         organization = _require_active_admin(request)
+        # Share the identity service's Strain-first lock through mutation and audit.
         strain = get_object_or_404(
-            _strain_queryset(organization).filter(organization=organization), pk=pk
+            Strain.objects.select_for_update().filter(organization=organization), pk=pk
         )
         serializer = StrainReferenceWriteSerializer(
             strain,
@@ -418,6 +421,15 @@ class StrainReferenceDetailAPIView(APIView):
             partial=True,
         )
         serializer.is_valid(raise_exception=True)
+        species = serializer.validated_data.get("species")
+        if (
+            species is not None
+            and species.pk != strain.species_id
+            and LocalStrainIdentity.objects.filter(strain_id=strain.pk).exists()
+        ):
+            raise ValidationError({
+                "species": _("The species of a strain with a local identity cannot be changed through this endpoint.")
+            })
         strain = serializer.save()
         _write_audit_log(
             request,

@@ -11,6 +11,10 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
+#: apps/taxonomy/api_views.py
+msgid "The species of a strain with a local identity cannot be changed through this endpoint."
+msgstr "The species of a strain with a local identity cannot be changed through this endpoint."
+
 msgid "POLYPBASE - Mon profil"
 msgstr "POLYPBASE - My profile"
 

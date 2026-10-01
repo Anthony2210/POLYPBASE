@@ -5,7 +5,8 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
-from apps.accounts.models import OrganizationMembership
+
+from apps.accounts.models import OrganizationMembership, UserPreference
 from apps.audit.models import AuditLog
 from apps.cultures.models import Box
 from apps.organizations.models import Organization
@@ -157,6 +158,172 @@ class StrainScopingApiTests(TestCase):
         self.assertEqual(AuditLog.objects.count(), 1)
         response = self.client.patch(url(self.a_strain.pk), data=payload, content_type="application/json", **self.headers(self.b))
         self.assertEqual(response.status_code, 404)
+
+    def patch_strain(self, strain, payload, organization=None):
+        return self.client.patch(
+            reverse("api_taxonomy_strains_detail", args=[strain.pk]),
+            data=json.dumps(payload), content_type="application/json",
+            **self.headers(organization or self.a),
+        )
+
+    def identify_strain(self):
+        return LocalStrainIdentity.objects.create(
+            strain=self.a_strain, species_code_assignment=self.a_code,
+        )
+
+    def assert_identity_unchanged(self, identity):
+        identity.refresh_from_db()
+        self.assertEqual(identity.strain_id, self.a_strain.pk)
+        self.assertEqual(identity.species_code_assignment_id, self.a_code.pk)
+        self.assertIsNone(identity.provenance_code_assignment_id)
+        self.assertEqual(identity.species_code_assignment.species_id, self.species.pk)
+        self.assertEqual(LocalStrainIdentity.objects.filter(strain=self.a_strain).count(), 1)
+
+    def test_identified_species_change_is_rejected_with_or_without_target_aaa(self):
+        self.client.force_login(self.admin)
+        identity = self.identify_strain()
+        target = Species.objects.create(scientific_name="Target species")
+        StrainTranslation.objects.create(
+            strain=self.a_strain, language_code="fr", name="Original strain",
+        )
+        box = Box.objects.create(
+            organization=self.a, strain=self.a_strain,
+            global_code="A-1.001", box_number="001",
+        )
+        before_audit = AuditLog.objects.count()
+        for has_target_aaa in (False, True):
+            with self.subTest(has_target_aaa=has_target_aaa):
+                if has_target_aaa:
+                    OrganizationSpeciesCode.objects.create(
+                        organization=self.a, species=target, code="CCC",
+                    )
+                response = self.patch_strain(self.a_strain, {
+                    "species": target.pk, "notes": "Rejected notes",
+                    "translations": {"fr": {"name": "Rejected translation"}},
+                })
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("species", response.json())
+                self.a_strain.refresh_from_db()
+                self.assertEqual(self.a_strain.species_id, self.species.pk)
+                self.assertEqual(self.a_strain.notes, "")
+                self.assertEqual(self.a_strain.code, "A-1")
+                self.assertEqual(self.a_strain.global_identity_id, self.identity.pk)
+                self.assertEqual(self.a_strain.translations.get().name, "Original strain")
+                self.assert_identity_unchanged(identity)
+                self.assertEqual(AuditLog.objects.count(), before_audit)
+                box.refresh_from_db()
+                self.assertEqual((box.global_code, box.box_number), ("A-1.001", "001"))
+
+    def test_identified_same_species_payload_preserves_patch_semantics(self):
+        self.client.force_login(self.admin)
+        identity = self.identify_strain()
+        for payload in (
+            {"species": self.species.pk},
+            {"species": self.species.pk, "notes": "Updated"},
+        ):
+            with self.subTest(payload=payload):
+                before = AuditLog.objects.count()
+                response = self.patch_strain(self.a_strain, payload)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json()["species"], self.species.pk)
+                self.assertEqual(AuditLog.objects.count(), before + 1)
+                self.assert_identity_unchanged(identity)
+        self.a_strain.refresh_from_db()
+        self.assertEqual(self.a_strain.notes, "Updated")
+
+    def test_identified_non_species_fields_remain_editable_and_audited(self):
+        self.client.force_login(self.admin)
+        identity = self.identify_strain()
+        response = self.patch_strain(self.a_strain, {
+            "notes": "Updated", "number": 0,
+            "translations": {"fr": {"name": "Updated strain"}},
+        })
+        self.assertEqual(response.status_code, 200)
+        self.a_strain.refresh_from_db()
+        self.assertEqual(self.a_strain.species_id, self.species.pk)
+        self.assertEqual(self.a_strain.notes, "Updated")
+        self.assertEqual(self.a_strain.number, 0)
+        self.assertEqual(self.a_strain.translations.get().name, "Updated strain")
+        self.assert_identity_unchanged(identity)
+        audit = AuditLog.objects.get()
+        self.assertEqual(audit.action, AuditLog.Action.UPDATE)
+        self.assertEqual(audit.object_type, "strain")
+        self.assertEqual(audit.object_id, str(self.a_strain.pk))
+        self.assertEqual(audit.organization, self.a)
+        self.assertEqual(audit.user, self.admin)
+
+    def test_identityless_owned_species_change_does_not_require_aaa(self):
+        self.client.force_login(self.admin)
+        target = Species.objects.create(scientific_name="Identityless target")
+        response = self.patch_strain(self.a_strain, {"species": target.pk})
+        self.assertEqual(response.status_code, 200)
+        self.a_strain.refresh_from_db()
+        self.assertEqual(self.a_strain.species_id, target.pk)
+        self.assertFalse(LocalStrainIdentity.objects.filter(strain=self.a_strain).exists())
+        self.assertFalse(OrganizationSpeciesCode.objects.filter(species=target).exists())
+        self.assertEqual(AuditLog.objects.get().action, AuditLog.Action.UPDATE)
+
+    def test_identified_patch_permissions_remain_scoped(self):
+        identity = self.identify_strain()
+        target = Species.objects.create(scientific_name="Permission target")
+        viewer = get_user_model().objects.create_user(
+                    username="strain_viewer", email="strain_viewer@example.org",
+                )
+        OrganizationMembership.objects.create(
+            user=viewer, organization=self.a, role=OrganizationMembership.Role.VIEWER,
+        )
+        for user, organization, expected_status in (
+            (self.admin, self.b, 404),
+            (self.b_admin, self.a, 403),
+            (self.tech, self.a, 403),
+            (viewer, self.a, 403),
+        ):
+            with self.subTest(user=user.username, organization=organization.pk):
+                self.client.force_login(user)
+                response = self.patch_strain(
+                    self.a_strain, {"species": target.pk}, organization,
+                )
+                self.assertEqual(response.status_code, expected_status)
+        self.a_strain.refresh_from_db()
+        self.assertEqual(self.a_strain.species_id, self.species.pk)
+        self.assert_identity_unchanged(identity)
+        self.assertFalse(AuditLog.objects.exists())
+
+    @patch("apps.taxonomy.api_views.AuditLog.objects.create", side_effect=RuntimeError("Audit unavailable"))
+    def test_identified_permitted_patch_rolls_back_when_audit_fails(self, create_audit):
+        self.client.force_login(self.admin)
+        identity = self.identify_strain()
+        StrainTranslation.objects.create(
+            strain=self.a_strain, language_code="fr", name="Original strain",
+        )
+        with self.assertRaises(RuntimeError):
+            self.patch_strain(self.a_strain, {
+                "species": self.species.pk, "notes": "Rejected notes",
+                "translations": {"fr": {"name": "Rejected translation"}},
+            })
+        self.a_strain.refresh_from_db()
+        self.assertEqual(self.a_strain.species_id, self.species.pk)
+        self.assertEqual(self.a_strain.notes, "")
+        self.assertEqual(self.a_strain.translations.get().name, "Original strain")
+        self.assert_identity_unchanged(identity)
+        self.assertFalse(AuditLog.objects.exists())
+        create_audit.assert_called_once()
+
+    def test_identified_species_rejection_is_localized(self):
+        self.client.force_login(self.admin)
+        self.identify_strain()
+        target = Species.objects.create(scientific_name="Localized target")
+        for language, expected in (
+            ("fr", "L'espèce d'une souche possédant une identité locale"),
+            ("en", "The species of a strain with a local identity"),
+        ):
+            with self.subTest(language=language):
+                UserPreference.objects.update_or_create(
+                    user=self.admin, defaults={"interface_language": language},
+                )
+                response = self.patch_strain(self.a_strain, {"species": target.pk})
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(expected, response.json()["species"])
 
     def test_global_code_uniqueness_still_rejects_other_organization(self):
         self.client.force_login(self.admin)
