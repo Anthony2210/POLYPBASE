@@ -267,6 +267,7 @@ export default function App() {
   const [isOrganizationMenuOpen, setIsOrganizationMenuOpen] = useState(false);
   const lastRecordedBoxIdRef = useRef<number | null>(null);
   const navigationGenerationRef = useRef(0);
+  const organizationRequestGenerationRef = useRef(0);
   const openBoxRequestGenerationRef = useRef(0);
   const [data, setData] = useState<AppData>({
     boxes: [],
@@ -377,6 +378,9 @@ export default function App() {
       return;
     }
 
+    const requestGeneration = ++organizationRequestGenerationRef.current;
+    openBoxRequestGenerationRef.current += 1;
+    setIsBoxLoading(false);
     setIsOrganizationMenuOpen(false);
     setNeedsOrganizationChoice(false);
     setIsCreateBoxOpen(false);
@@ -385,6 +389,18 @@ export default function App() {
     setError(null);
     setSearch('');
     setRecentBoxIds([]);
+    setQrLabelSelection([]);
+    setMeasurementPrefill(null);
+    setExportOptionsRequested(false);
+    setData({
+      boxes: [],
+      boxDetails: {},
+      zones: [],
+      dashboard: null,
+      overview: null,
+      exportOptions: null,
+      profile: setProfileActiveOrganization(data.profile, organizationId),
+    });
 
     if (isBoxRoute || isZoneRoute) {
       navigateTo({ tab: activeTab, boxCode: null, boxId: null, zoneId: null }, activeTab === 'zones' ? '/zones' : '/');
@@ -392,12 +408,15 @@ export default function App() {
 
     try {
       const nextData = await fetchScopedData(data.profile, organizationId);
+      if (requestGeneration !== organizationRequestGenerationRef.current) return;
       setData(nextData);
       setRecentBoxIds(buildRecentBoxIds(nextData.boxes, nextData.dashboard));
     } catch (requestError) {
-      setError(await getApplicationError(requestError));
+      if (requestGeneration !== organizationRequestGenerationRef.current) return;
+      const applicationError = await getApplicationError(requestError);
+      if (requestGeneration === organizationRequestGenerationRef.current) setError(applicationError);
     } finally {
-      setIsLoading(false);
+      if (requestGeneration === organizationRequestGenerationRef.current) setIsLoading(false);
     }
   }
 
@@ -426,6 +445,8 @@ export default function App() {
     }
 
     let isActive = true;
+    const requestGeneration = ++organizationRequestGenerationRef.current;
+    const isCurrentRequest = () => isActive && requestGeneration === organizationRequestGenerationRef.current;
 
     async function loadData() {
       let profileLoaded = false;
@@ -437,7 +458,7 @@ export default function App() {
         const profile = await apiGet<UserProfile>('/api/profile/', { skipOrganizationContext: true });
         profileLoaded = true;
 
-        if (!isActive) return;
+        if (!isCurrentRequest()) return;
 
         setStoredInterfaceLanguage(profile.interface_language);
 
@@ -481,12 +502,12 @@ export default function App() {
         setNeedsOrganizationChoice(false);
 
         const nextData = await fetchScopedData(profile, resolvedOrganizationId);
-        if (!isActive) return;
+        if (!isCurrentRequest()) return;
 
         setData(nextData);
         setRecentBoxIds(buildRecentBoxIds(nextData.boxes, nextData.dashboard));
       } catch (requestError) {
-        if (!isActive) return;
+        if (!isCurrentRequest()) return;
 
         const status = requestError instanceof ApiError ? requestError.status : null;
         if (shouldRedirectToLogin(profileLoaded, status)) {
@@ -500,10 +521,10 @@ export default function App() {
         }
 
         const applicationError = await getApplicationError(requestError);
-        if (!isActive) return;
+        if (!isCurrentRequest()) return;
         setError(applicationError);
       } finally {
-        if (isActive) {
+        if (isCurrentRequest()) {
           setIsLoading(false);
         }
       }
@@ -520,16 +541,18 @@ export default function App() {
     if (isLoginRoute || needsOrganizationChoice || activeOrganizationId == null || activeTab !== 'overview' || data.overview !== null) return;
 
     let isActive = true;
+    const requestGeneration = organizationRequestGenerationRef.current;
+    const isCurrentRequest = () => isActive && requestGeneration === organizationRequestGenerationRef.current;
 
     async function loadOverview() {
       try {
         const overview = await apiGet<OverviewResponse>('/api/overview/active-boxes/?months=6');
-        if (!isActive) return;
+        if (!isCurrentRequest()) return;
         setData((current) => ({ ...current, overview: overview.results }));
       } catch (requestError) {
-        if (!isActive) return;
+        if (!isCurrentRequest()) return;
         const applicationError = await getApplicationError(requestError);
-        if (!isActive) return;
+        if (!isCurrentRequest()) return;
         setError(applicationError);
       }
     }
@@ -571,20 +594,22 @@ export default function App() {
 
   useEffect(() => {
     let isActive = true;
+    const requestGeneration = organizationRequestGenerationRef.current;
+    const isCurrentRequest = () => isActive && requestGeneration === organizationRequestGenerationRef.current;
 
     async function loadBoxDetail(boxId: number) {
       try {
         setIsBoxLoading(true);
         const detail = await apiGet<BoxDetail>(`/api/boxes/${boxId}/`);
-        if (!isActive) return;
+        if (!isCurrentRequest()) return;
         setData((current) => mergeBoxDetail(current, detail));
       } catch (requestError) {
-        if (!isActive) return;
+        if (!isCurrentRequest()) return;
         const applicationError = await getApplicationError(requestError);
-        if (!isActive) return;
+        if (!isCurrentRequest()) return;
         setError(applicationError);
       } finally {
-        if (isActive) setIsBoxLoading(false);
+        if (isCurrentRequest()) setIsBoxLoading(false);
       }
     }
 
@@ -595,7 +620,7 @@ export default function App() {
     return () => {
       isActive = false;
     };
-  }, [selectedBoxId, Boolean(selectedBoxDetail)]);
+  }, [activeOrganizationId, selectedBoxId, Boolean(selectedBoxDetail)]);
 
   useEffect(() => {
     if (selectedBoxId == null) {
@@ -779,17 +804,19 @@ export default function App() {
     ) return;
 
     let isActive = true;
+    const requestGeneration = organizationRequestGenerationRef.current;
+    const isCurrentRequest = () => isActive && requestGeneration === organizationRequestGenerationRef.current;
 
     async function loadExportOptions() {
       try {
         const exportOptions = await apiGet<ExportOptions>('/api/exports/options/');
-        if (!isActive) return;
+        if (!isCurrentRequest()) return;
         setData((current) => ({ ...current, exportOptions }));
         setExportOptionsRequested(false);
       } catch (requestError) {
-        if (!isActive) return;
+        if (!isCurrentRequest()) return;
         const applicationError = await getApplicationError(requestError);
-        if (!isActive) return;
+        if (!isCurrentRequest()) return;
         setError(applicationError);
         setExportOptionsRequested(false);
       }

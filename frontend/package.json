@@ -8,7 +8,7 @@
     "dev:lan": "vite --host 0.0.0.0",
     "check:css": "node scripts/check-css.mjs",
     "typecheck": "tsc --noEmit",
-    "test:auth": "node --test scripts/test-auth-routing.mjs",
+    "test:auth": "node --test scripts/test-auth-routing.mjs scripts/test-organization-request-generation.mjs",
     "test:api": "node --test scripts/test-api-errors.mjs scripts/test-strain-species-code.mjs",
     "test:charts": "node --test scripts/test-chart-window.mjs scripts/test-chart-scrubber.mjs scripts/test-chart-biology.mjs scripts/test-temperature-scale.mjs scripts/test-overview-contrast.mjs",
     "test:zones": "node --test scripts/test-zone-detail.mjs scripts/test-zone-history.mjs scripts/test-zone-history-state.mjs scripts/test-zone-boxes.mjs",
