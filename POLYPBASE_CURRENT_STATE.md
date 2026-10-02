@@ -2,10 +2,10 @@
 
 ## Snapshot
 
-- Refreshed **2026-10-01**, from local code, migrations, tests, Git history and read-only worktree inspection.
+- Refreshed **2026-10-02**, from supplied canonical local Git state and milestone validation evidence.
 - Canonical repository: `C:\Users\antoc\POLYPBASE`.
-- Current `main`: **`673db92cfb552f35d2e52e298496b7f45bf493a0`** (`fix: refine action history presentation`). Local `origin/main` and `origin/HEAD` point to the same commit; **0 ahead / 0 behind**. No fetch was performed: this describes cached remote references, not a fresh GitHub check.
-- Canonical worktree and index were clean before this refresh. Only this document is being changed; secondary worktree changes are preserved.
+- Current `main`: **`2292a61`** (`feat: refine measurement history modal`). Its parent is **`5f773ff`** (`refactor: remove active alerts feature`). Local `origin/main` remains at **`1ea84e5`**; **2 ahead / 0 behind**. No fetch or push has been performed; `origin/main` is an unrefreshed local ref, not a fresh GitHub check.
+- Only this document has a local change outside commits; secondary worktree changes are preserved.
 - Sanitized history is the current ancestry. Do not transplant old-history commits without separate review.
 
 ## Integrated product state
@@ -18,6 +18,12 @@
 - Manual temperature/salinity actions identify the zone and use °C/PSU. Before/after coloring applies to populated changes; notes have a localized prefix and three-line visual clamping. Box context/previews and lineage/transfer information remain available.
 - Evidence: `backend/apps/accounts/api_views.py`, `backend/apps/audit/services.py`, `backend/apps/accounts/tests_actions_api.py`, `backend/apps/accounts/tests_audit_measurement.py`, `frontend/src/components/AuditTimeline.tsx`, `frontend/src/utils/auditPresentation.ts`, `frontend/scripts/test-audit-presentation.mjs`.
 - Older dirty action-history worktrees still exist. Their edits are not automatically pending product requirements and must not be merged wholesale over this later presentation.
+
+### Alerts
+
+- Alerts are no longer an active product feature. The integrated removal leaves no normal runtime producer, active Alert API workflow or frontend Alert UI; polyp decline is no longer turned into a frontend “À surveiller” interpretation.
+- Measurements remain factual data, including scientific zero. Historical Alert persistence (model/table, migrations and stored rows) is dormant and retained for preservation only; historical AuditLog/Actions entries involving old Alert events remain displayable.
+- Removing the dormant Alert schema or stored data requires a separate, explicit destructive-migration decision. No destructive Alert migration was created.
 
 ### Charts
 
@@ -49,6 +55,12 @@
 - Zone boxes group Species > Strain and use canonical current-location start/latest biological reading. Inventory retains rich Box tracking previews.
 - Same-day movement plus date-only biological readings cannot reliably establish variation for a particular stay. Do not infer attribution.
 - `0d7985a` remains the integrated Emplacement milestone; later Actions presentation does not replace these scientific rules. Evidence: `docs/context/measurements-integrity.md`, `docs/context/boxes-lifecycle-locations.md`, `backend/apps/cultures/test_zone_salinity_lifecycle.py` and corresponding API/services.
+
+### Measurement history
+
+- `2292a61` refines the box-sheet “Voir relevés” modal with a compact summary and a responsive, dense history presentation while retaining progressive loading. The API contract and scientific data are unchanged; scientific zero, `0/0`, PSU `0` and absent values remain distinct.
+- The accessible dialog interaction was improved. No backend, permission, lifecycle or measurement-rule change was made.
+- Independent review: **READY FOR COMMIT**, no genuine findings. Targeted measurement/chart/date tests, typecheck, CSS check and build passed; after integration on `main`, a production frontend build was observed successful in **10.44 s**.
 
 ### Taxonomy / Strain / AAA
 
@@ -152,8 +164,10 @@ All counts below are **branch commits ahead / behind current local main**, exclu
 ## Production / QA status
 
 - **Production is NOT REVALIDATED.** No production or Neon access occurred. Local main/push state does not prove deployment or applied migrations. No locally inspected record proves the current deployed commit; verify only under a separately authorized deployment task using the existing workflow.
-- This refresh is documentation-only: no tests, builds, migrations, extraction or browser/printer QA were run. Final validation is document diff inspection, `git diff --check -- POLYPBASE_CURRENT_STATE.md` and canonical status.
-- Current source contains targeted Actions, chart, label, AAA/BBB, scoping, audit rollback and service-concurrency tests. Test presence is not a passing execution record; no recent passing-run record for these later milestones was found in the inspected local evidence. CI outcomes were not retrieved.
+- No deployment occurred; local integration does not prove production state. This documentation-only refresh runs no application tests or builds.
+- Alerts-removal milestone validation before its review: targeted backend **140 passed, 6 skipped**; isolated backend **514 passed, 18 skipped**; Django system check and migration dry-run/check passed; targeted frontend scripts **232 passed**; typecheck, CSS check, production frontend build and `git diff --check` passed. Independent review was **READY FOR COMMIT** with no material findings; focused frontend **113 passed**, backend **108 passed** and additional backend **51 passed**, with frontend typecheck passed. No browser QA or PostgreSQL concurrency QA was performed in review; this does not supersede the successful writer migration check.
+- Measurement-history modal, independent review before integration: **READY FOR COMMIT**, no genuine findings; `npm run test:measurements` (**28/28**), `npm run test:charts` (**28/28**), `npm run test:dates` (**4/4**), typecheck, CSS check and build passed. After integration on `main`, a production frontend build was observed successful in **10.44 s**. No other suites are claimed as rerun on `main` after integration.
+- No production validation or browser QA is claimed for the modal; no production or Neon access occurred.
 - The prior snapshot records **historical Emplacement delivery** validation for `0d7985a`: 408 backend tests (15 skipped, no failures), targeted frontend suites, TypeScript/CSS/build/migration checks and accepted manual QA. This was not rerun and does not validate later main commits.
 - Companion `ANALYSIS_REFACTOR_LOG.md` records 74 passing tests and clean diff check at an earlier committed analysis milestone. The supplied Species/AAA integration record confirms **89 tests passed with `uv run pytest -q` on canonical companion main after fast-forward integration at `346512d`**, now pushed. Earlier focused validation recorded **15 targeted tests passed**, historical `--check-only` extraction and CLA assertions passed, the historical baseline unchanged, and unchanged SHA-256 hashes for all four private review CSVs; no outputs were regenerated. The targeted run is not claimed to have been repeated after integration. These validations were not rerun during this documentation patch; **independent technical re-review is GREEN with no remaining technical findings**. Tooling is committed/integrated/pushed, but stakeholder decisions remain pending and the manifest is not import-ready. No database import, production or Neon access occurred.
 - Locking/concurrency conclusions require disposable isolated PostgreSQL QA. SQLite alone does not establish PostgreSQL behavior. Never substitute Neon or production.
