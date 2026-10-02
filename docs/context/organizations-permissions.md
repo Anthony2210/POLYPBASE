@@ -26,7 +26,7 @@ Ce champ prépare les références institutionnelles portables de Transfer v2. C
 
 Une restauration de la même base préserve ces UUID. Une institution initialisée indépendamment reçoit son propre UUID, même si son nom correspond à celui d'une autre institution. Aucun workflow spécial de clone/restauration ni rapprochement automatique n'est implémenté.
 
-Phase 2B est DONE et intégrée à `main` au commit `20adf0a`. Le service interne `create_source_package` exige un acteur authentifié/actif et l'autorité Admin de l'Organization source explicitement sélectionnée, via `user_can_administer_organization` (break-glass superuser existant conservé). Il recharge l'institution et filtre les Boxes côté serveur. Il refuse toute souche source sans `GlobalStrainIdentity`; il ne crée, ne déduit et n'attache pas cette identité. Les UUID institution/transfert/item n'accordent aucun droit; le parser structurel ne vérifie ni autorisation ni authenticité. Le service reste interne : aucun endpoint v2 n'est exposé. La Phase 3 (résolution destination de `GlobalStrainIdentity`, représentation locale canonique et diagnostic de namespace) est la prochaine phase technique.
+Le service interne `create_source_package` exige un acteur authentifié/actif et l'autorité Admin de l'Organization source explicitement sélectionnée, via `user_can_administer_organization` (break-glass superuser existant conservé). Il recharge l'institution et filtre les Boxes côté serveur. Il refuse toute souche source sans `GlobalStrainIdentity`; il ne crée, ne déduit et n'attache pas cette identité. Les UUID institution/transfert/item n'accordent aucun droit; le parser structurel ne vérifie ni autorisation ni authenticité. Le service reste interne : aucun endpoint v2 n'est exposé. Le resolver destination reste en lecture seule. Pour une Strain avec institution et identité globale non nulles, la base impose au plus une représentation par `(organization, global_identity)`, sans Species dans la clé; les cas legacy à institution ou identité globale NULL restent admis. Le diagnostic de readiness reste disponible. L'allocateur X interne utilise un compteur persistant par Organization + Species + BiologicalProvenance (NULL explicite admis), sans matérialisation destination ni acceptation automatique.
 
 ## Organisation active
 
@@ -43,6 +43,10 @@ Ce mécanisme n'est que le point de départ. Chaque endpoint doit encore limiter
 - exports et actions groupées.
 
 Masquer un bouton ou filtrer une liste dans React ne protège pas l'API. Django reste la source de vérité pour les permissions.
+
+La résolution d'un lien QR et les ressources SVG QR protégées exigent le contexte explicite de l'Organization active. Être membre d'une autre institution ne suffit pas à élargir la recherche de Box lorsqu'elle n'est pas le contexte actif. `/bac/<id>/` est un relais protégé par login, sans recherche de Box ni audit SCAN; l'API effectue la résolution autorisée et conserve son audit SCAN, sans audit de succès pour une résolution étrangère refusée. Le frontend transmet le contexte aux ressources QR et invalide les réponses scan/ressource obsolètes lors d'un changement d'institution; les sémantiques du scan caméra restent inchangées.
+
+Le garde de génération des requêtes empêche une ancienne réponse Organization d'écraser un contexte sélectionné plus récent. L'échec du chargement du contexte de remplacement ne laisse pas les anciennes données institutionnelles présentées comme courantes.
 
 ## Relations et référentiels
 
@@ -62,7 +66,9 @@ Une action sensible doit vérifier, dans cet ordre logique :
 4. validité métier de l'action;
 5. audit dans la bonne institution lorsque la trace fait partie de l'opération.
 
-Pour une écriture composée, déterminer si la donnée et son `AuditLog` doivent partager une transaction. Ne pas généraliser une convention depuis une autre vue sans inspecter le service concerné.
+La création d'une Organization et son audit requis partagent une transaction; sa mise à jour et l'audit requis aussi. Un échec d'audit annule la mutation correspondante. Une mise à jour sans changement conserve le comportement existant : aucun audit UPDATE. Cette garantie ne change pas la suppression et ne s'étend pas implicitement à toutes les écritures d'audit de l'application.
+
+Pour les autres écritures composées, déterminer si la donnée et son `AuditLog` doivent partager une transaction. Ne pas généraliser une convention depuis une autre vue sans inspecter le service concerné.
 
 ## Tests attendus
 
