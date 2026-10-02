@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.db.models.deletion import ProtectedError, RestrictedError
 from rest_framework import generics, status
 from rest_framework.exceptions import PermissionDenied
@@ -34,6 +35,7 @@ class OrganizationCreateAPIView(generics.CreateAPIView):
 
     serializer_class = OrganizationCreateSerializer
 
+    @transaction.atomic
     def perform_create(self, serializer):
         if not self.request.user.is_superuser:
             raise PermissionDenied("Ce compte ne peut pas creer une structure.")
@@ -64,6 +66,7 @@ class OrganizationDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
         if not request.user.is_superuser:
             raise PermissionDenied("Ce compte ne peut pas modifier une structure.")
 
+    @transaction.atomic
     def perform_update(self, serializer):
         organization = self.get_object()
         before_values = _organization_audit_values(organization)

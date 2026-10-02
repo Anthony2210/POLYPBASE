@@ -839,6 +839,37 @@ class AdminResourceCreationApiTests(TestCase):
             object_id="Aquarium de Nausicaa",
         )
         self.assertEqual(log.user, self.superuser)
+        organization = Organization.objects.get(pk=response.data["id"])
+        self.assertEqual(log.organization, organization)
+        self.assertEqual(log.description, "Organization created")
+        self.assertEqual(log.metadata, {
+            "organization_id": organization.id,
+            "valeurs": {
+                "nom": "Aquarium de Nausicaa",
+                "ville": "Boulogne",
+                "pays": "France",
+                "email_contact": "",
+                "notes": "",
+            },
+        })
+
+    @patch("apps.organizations.api_views.AuditLog.objects.create")
+    def test_organization_create_rolls_back_when_audit_fails(self, create_audit):
+        create_audit.side_effect = RuntimeError("Audit unavailable")
+        self.client.login(username="root", password="secret")
+        before_organizations = Organization.objects.count()
+        before_audits = AuditLog.objects.count()
+
+        with self.assertRaisesRegex(RuntimeError, "Audit unavailable"):
+            self.post(
+                "api_organization_create",
+                {"name": "Rollback organization", "city": "Boulogne"},
+            )
+
+        create_audit.assert_called_once()
+        self.assertFalse(Organization.objects.filter(name="Rollback organization").exists())
+        self.assertEqual(Organization.objects.count(), before_organizations)
+        self.assertEqual(AuditLog.objects.count(), before_audits)
 
     def test_organization_admin_cannot_create_an_organization(self):
         self.client.login(username="org_admin", password="secret")
@@ -876,6 +907,61 @@ class AdminResourceCreationApiTests(TestCase):
         )
         self.assertEqual(log.user, self.superuser)
         self.assertEqual(log.metadata["modifications"]["ville"]["apres"], "La Rochelle")
+        self.assertEqual(log.organization, self.other_organization)
+        self.assertEqual(log.description, "Organization updated")
+        self.assertEqual(log.metadata, {
+            "organization_id": self.other_organization.id,
+            "valeurs": {
+                "nom": "Aquarium de La Rochelle",
+                "ville": "La Rochelle",
+                "pays": "",
+                "email_contact": "",
+                "notes": "",
+            },
+            "modifications": {
+                "nom": {"avant": "Aquarium de Tokyo", "apres": "Aquarium de La Rochelle"},
+                "ville": {"avant": "", "apres": "La Rochelle"},
+            },
+        })
+
+    @patch("apps.organizations.api_views.AuditLog.objects.create")
+    def test_organization_update_rolls_back_when_audit_fails(self, create_audit):
+        create_audit.side_effect = RuntimeError("Audit unavailable")
+        self.client.login(username="root", password="secret")
+        organization = self.other_organization
+        previous_values = {
+            field: getattr(organization, field)
+            for field in (
+                "name", "slug", "city", "country", "contact_email", "is_active",
+                "notes", "portable_id",
+            )
+        }
+        before_audits = AuditLog.objects.count()
+        url = reverse("api_organization_detail", args=[organization.pk])
+
+        for method in (self.client.patch, self.client.put):
+            with self.subTest(method=method.__name__):
+                create_audit.reset_mock()
+                with self.assertRaisesRegex(RuntimeError, "Audit unavailable"):
+                    method(
+                        url,
+                        {
+                            "name": "Rollback rename",
+                            "city": "La Rochelle",
+                            "country": "France",
+                            "contact_email": "contact@example.test",
+                            "notes": "Changed notes",
+                        },
+                        content_type="application/json",
+                    )
+
+                create_audit.assert_called_once()
+                organization.refresh_from_db()
+                self.assertEqual(
+                    {field: getattr(organization, field) for field in previous_values},
+                    previous_values,
+                )
+                self.assertEqual(AuditLog.objects.count(), before_audits)
 
     def test_organization_admin_cannot_update_an_organization(self):
         self.client.login(username="org_admin", password="secret")
