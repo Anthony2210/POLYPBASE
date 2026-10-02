@@ -7,6 +7,7 @@ import type {
   ThermalZone,
 } from '../types';
 import { suggestChildIdentity } from '../utils/subculture';
+import useMutationDialog from '../hooks/useMutationDialog';
 import ModalPortal from './ModalPortal';
 import PolypbaseIcon from './PolypbaseIcon';
 
@@ -77,6 +78,7 @@ export default function SubcultureModal({
   onSubmit,
 }: Props) {
   const text = labels[language];
+  const { dialogRef, initialFocusRef, isBusy, close, submit } = useMutationDialog<HTMLInputElement>(isSaving, onClose);
   const availableZones = useMemo(
     () => zones.filter((zone) => zone.organization.id === box.organization.id && zone.is_active),
     [box.organization.id, zones],
@@ -108,9 +110,9 @@ export default function SubcultureModal({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isSaving || children.length === 0) return;
+    if (isBusy || children.length === 0) return;
 
-    await onSubmit({
+    await submit(() => onSubmit({
       event_date: eventDate,
       reason: reason.trim(),
       notes: '',
@@ -123,13 +125,16 @@ export default function SubcultureModal({
         initial_polyp_count: child.initial_polyp_count,
         notes: child.notes.trim(),
       })),
-    });
+    }));
   }
 
   return (
     <ModalPortal>
-      <div className="modal-backdrop" role="presentation" onClick={onClose}>
+      <div className="modal-backdrop" role="presentation" onClick={close}>
       <section
+        ref={dialogRef}
+        tabIndex={-1}
+        aria-busy={isBusy}
         className="subculture-modal"
         role="dialog"
         aria-modal="true"
@@ -141,7 +146,7 @@ export default function SubcultureModal({
             <p>{text.parent}: {box.global_code}</p>
             <h2 id="subculture-title">{text.title}</h2>
           </div>
-          <button type="button" aria-label={text.cancel} title={text.cancel} onClick={onClose}>
+          <button type="button" aria-label={text.cancel} title={text.cancel} disabled={isBusy} onClick={close}>
             <PolypbaseIcon name="close" size={19} />
           </button>
         </header>
@@ -152,7 +157,9 @@ export default function SubcultureModal({
               {text.date}
               <input
                 required
+                ref={initialFocusRef}
                 type="date"
+                disabled={isBusy}
                 value={eventDate}
                 onChange={(event) => setEventDate(event.target.value)}
               />
@@ -161,6 +168,7 @@ export default function SubcultureModal({
               {text.reason}
               <input
                 maxLength={180}
+                disabled={isBusy}
                 placeholder={text.reasonPlaceholder}
                 value={reason}
                 onChange={(event) => setReason(event.target.value)}
@@ -170,7 +178,7 @@ export default function SubcultureModal({
 
           <div className="subculture-children-heading">
             <h3>{text.children}</h3>
-            <button type="button" onClick={addChild}>
+            <button type="button" disabled={isBusy} onClick={addChild}>
               <span aria-hidden="true">+</span>
               {text.addChild}
             </button>
@@ -186,6 +194,7 @@ export default function SubcultureModal({
                       type="button"
                       aria-label={text.removeChild}
                       title={text.removeChild}
+                      disabled={isBusy}
                       onClick={() => removeChild(child.key)}
                     >
                       <PolypbaseIcon name="close" size={17} />
@@ -195,11 +204,12 @@ export default function SubcultureModal({
 
                 <label className="subculture-global-code">
                   {text.globalCode}
-                  <input required readOnly value={child.global_code} />
+                  <input required readOnly disabled={isBusy} value={child.global_code} />
                 </label>
                 <label>
                   {text.zone}
                   <select
+                    disabled={isBusy}
                     required
                     value={child.thermal_zone_id || ''}
                     onChange={(event) => updateChild(child.key, {
@@ -218,6 +228,7 @@ export default function SubcultureModal({
                     min="0"
                     step="1"
                     type="number"
+                    disabled={isBusy}
                     value={child.initial_polyp_count ?? ''}
                     onChange={(event) => updateChild(child.key, {
                       initial_polyp_count: event.target.value === '' ? null : Number(event.target.value),
@@ -228,6 +239,7 @@ export default function SubcultureModal({
                   {text.childNotes}
                   <input
                     placeholder={text.childNotesPlaceholder}
+                    disabled={isBusy}
                     value={child.notes}
                     onChange={(event) => updateChild(child.key, { notes: event.target.value })}
                   />
@@ -236,11 +248,11 @@ export default function SubcultureModal({
             ))}
           </div>
 
-          {error ? <p className="inline-error subculture-error">{error}</p> : null}
+          {error ? <p className="inline-error subculture-error" role="alert">{error}</p> : null}
 
           <footer className="subculture-actions">
-            <button type="button" onClick={onClose}>{text.cancel}</button>
-            <button className="is-primary" type="submit" disabled={isSaving || !availableZones.length}>
+            <button type="button" disabled={isBusy} onClick={close}>{text.cancel}</button>
+            <button className="is-primary" type="submit" disabled={isBusy || !availableZones.length}>
               {isSaving ? text.saving : text.save}
             </button>
           </footer>

@@ -63,9 +63,11 @@
 }
 
 .overview-summary-actions button.is-active {
-  color: #fff;
-  background: var(--status-color);
-  border-color: var(--status-color);
+  color: var(--color-ink);
+  background: var(--status-soft);
+  border-color: var(--color-ink);
+  outline: 1px solid var(--color-ink);
+  outline-offset: -2px;
 }
 
 .overview-summary-actions :is(span, strong) {
@@ -91,7 +93,7 @@
 }
 
 .overview-summary-actions button.is-active span::after {
-  background: rgb(255 255 255 / 72%);
+  background: var(--color-ink);
 }
 
 .overview-summary-actions strong {
@@ -102,7 +104,7 @@
 }
 
 .overview-summary-actions button.is-active strong {
-  color: #fff;
+  color: var(--color-ink);
 }
 
 .overview-zone-progress,
@@ -192,9 +194,11 @@
 }
 
 .overview-zone-progress-card.is-active {
-  color: #fff;
-  background: var(--status-color);
-  border-color: var(--status-color);
+  color: var(--color-ink);
+  background: var(--status-soft);
+  border-color: var(--color-ink);
+  outline: 1px solid var(--color-ink);
+  outline-offset: -2px;
 }
 
 .overview-zone-progress-copy {
@@ -262,15 +266,20 @@
 }
 
 .overview-zone-progress-card.is-active b {
-  background: #fff;
+  background: var(--status-color);
 }
 
 .overview-zone-progress-card.is-active :is(strong, small, em, span) {
-  color: #fff;
+  color: var(--color-ink);
 }
 
 .overview-zone-progress-card.is-active i {
-  background: rgb(255 255 255 / 28%);
+  background: color-mix(in srgb, var(--status-color) 14%, var(--color-surface));
+}
+
+:is(.overview-summary-actions button, .overview-zone-progress-card).is-active:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 .overview-filters {

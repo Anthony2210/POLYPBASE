@@ -1,6 +1,7 @@
 import { type FormEvent, useMemo, useState } from 'react';
 
 import type { BoxDetail, BoxItem, BoxLocation, BoxMovePayload, ThermalZone } from '../types';
+import useMutationDialog from '../hooks/useMutationDialog';
 import ModalPortal from './ModalPortal';
 
 type Language = 'fr' | 'en';
@@ -62,6 +63,7 @@ export default function MoveBoxModal({
   onSubmit,
 }: Props) {
   const text = labels[language];
+  const { dialogRef, initialFocusRef, isBusy, close, submit } = useMutationDialog<HTMLSelectElement>(isSaving, onClose);
   const availableZones = useMemo(
     () => zones.filter(
       (zone) => (
@@ -80,20 +82,23 @@ export default function MoveBoxModal({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isSaving || !selectedZoneId) return;
+    if (isBusy || !selectedZoneId) return;
 
-    await onSubmit({
+    await submit(() => onSubmit({
       expected_thermal_zone_id: box.thermal_zone?.id ?? null,
       thermal_zone_id: Number(selectedZoneId),
       moved_at: new Date(movedAt).toISOString(),
       notes: notes.trim(),
-    });
+    }));
   }
 
   return (
     <ModalPortal>
-      <div className="modal-backdrop" role="presentation" onClick={onClose}>
+      <div className="modal-backdrop" role="presentation" onClick={close}>
       <section
+        ref={dialogRef}
+        tabIndex={-1}
+        aria-busy={isBusy}
         className="move-modal"
         role="dialog"
         aria-modal="true"
@@ -105,7 +110,7 @@ export default function MoveBoxModal({
             <p>{text.box}: {box.global_code}</p>
             <h2 id="move-title">{text.title}</h2>
           </div>
-          <button type="button" aria-label={text.cancel} title={text.cancel} onClick={onClose}>
+          <button type="button" aria-label={text.cancel} title={text.cancel} disabled={isBusy} onClick={close}>
             x
           </button>
         </header>
@@ -121,6 +126,8 @@ export default function MoveBoxModal({
             <label>
               {text.newZone}
               <select
+                ref={initialFocusRef}
+                disabled={isBusy}
                 required
                 value={selectedZoneId}
                 onChange={(event) => setTargetZoneId(event.target.value)}
@@ -138,6 +145,7 @@ export default function MoveBoxModal({
               <input
                 required
                 type="datetime-local"
+                disabled={isBusy}
                 value={movedAt}
                 onChange={(event) => setMovedAt(event.target.value)}
               />
@@ -148,6 +156,7 @@ export default function MoveBoxModal({
             {text.notes}
             <textarea
               rows={3}
+              disabled={isBusy}
               placeholder={text.notesPlaceholder}
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
@@ -176,11 +185,11 @@ export default function MoveBoxModal({
             ))}
           </section>
 
-          {error ? <p className="inline-error subculture-error">{error}</p> : null}
+          {error ? <p className="inline-error subculture-error" role="alert">{error}</p> : null}
 
           <footer className="subculture-actions">
-            <button type="button" onClick={onClose}>{text.cancel}</button>
-            <button className="is-primary" type="submit" disabled={isSaving || !availableZones.length}>
+            <button type="button" disabled={isBusy} onClick={close}>{text.cancel}</button>
+            <button className="is-primary" type="submit" disabled={isBusy || !availableZones.length}>
               {isSaving ? text.saving : text.save}
             </button>
           </footer>

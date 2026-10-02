@@ -8,6 +8,9 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import * as jsxRuntime from 'react/jsx-runtime';
 import ts from 'typescript';
 
+import './test-qr-preparation.mjs';
+import './test-admin-transfer-qr.mjs';
+
 const source = readFileSync(new URL('../src/utils/qrLabels.ts', import.meta.url), 'utf8');
 const { outputText } = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
@@ -550,7 +553,9 @@ test('compact selection bar provides only count, clear, and print actions', () =
   assert.match(labelsViewSource, /aria-label=\{labels\.qrLabelClearSelection\}/);
   assert.match(labelsViewSource, /onClick=\{onClearQrLabelSelection\}/);
   assert.doesNotMatch(labelsViewSource, /searchRef|\.focus\(\)|window\.scrollTo|scrollTo\(/);
-  assert.match(labelsViewSource, /onClick=\{\(\) => printQrLabels\(selectedLabels, printSettings\)\}/);
+  assert.match(labelsViewSource, /const result = await printQrLabels\(selectedLabels, printSettings\)/);
+  assert.match(labelsViewSource, /onClick=\{\(\) => void handlePrint\(\)\}/);
+  assert.match(labelsViewSource, /disabled=\{isPreparing\}/);
   assert.match(labelsViewSource, /isExpanded \? <ChevronDown size=\{18\} \/> : <ChevronRight size=\{18\} \/>/);
   assert.doesNotMatch(labelsViewSource, /qrLabelSelectionContext|qrLabelViewSelection|isReviewOpen|reviewGroups|label-review-modal/);
   assert.equal((labelsViewSource.match(/labels\.qrLabelPrintCount\(selectedLabels.length\)/g) ?? []).length, 1);

@@ -58,9 +58,9 @@ test('weekly movement chart is factual, discrete, distinctly styled, and accessi
   assert.match(historySource, /className="sr-only"/);
   assert.match(stylesSource, /\.zone-movement-flow-entry\s*\{[^}]*var\(--color-success\)/s);
   assert.match(stylesSource, /\.zone-movement-flow-exit\s*\{[^}]*var\(--color-danger\)/s);
-  assert.match(stylesSource, /\.zone-movement-flow-legend \.is-exit::before\s*\{[^}]*background: var\(--color-danger\)/s);
-  assert.match(stylesSource, /\.zone-movement-flow-exit\s*\{\s*fill: var\(--color-danger\);\s*\}/);
-  assert.doesNotMatch(stylesSource, /\.zone-movement-flow-exit\s*\{[^}]*stroke:|\.zone-movement-flow-(?:entry|exit)\s*\{[^}]*opacity:/s);
+  assert.match(stylesSource, /\.zone-movement-flow-legend \.is-exit::before\s*\{[^}]*background: transparent;[^}]*border-color: var\(--color-danger\)/s);
+  assert.match(stylesSource, /\.zone-movement-flow-exit\s*\{\s*fill: none;[^}]*stroke: var\(--color-danger\);[^}]*stroke-width: 1\.5;[^}]*vector-effect: non-scaling-stroke;/s);
+  assert.doesNotMatch(stylesSource, /\.zone-movement-flow-(?:entry|exit)\s*\{[^}]*opacity:/s);
   assert.match(historySource, /groupWidth \* index \+ groupWidth \/ 2/);
   assert.match(historySource, /className="zone-movement-week-slot" key=\{week\.week_start\}/);
   assert.match(historySource, /hasBoth \? center \+ 2 : center - barWidth \/ 2/);
@@ -73,6 +73,30 @@ test('weekly movement chart is factual, discrete, distinctly styled, and accessi
   assert.match(stylesSource, /\.zone-movement-flow-legend \{[^}]*font-size: \.78rem;[^}]*font-weight: 700/s);
   assert.match(stylesSource, /\.zone-movement-flow-grid line \{[^}]*stroke-dasharray: 4 6/s);
   assert.doesNotMatch(stylesSource, /\.zone-movement-flow-chart \{[^}]*border:/s);
+});
+
+test('history and summary hide stale contexts before effects and clear data on failures', () => {
+  assert.equal((historySource.match(/state\.requestKey === requestKey/g) ?? []).length, 2);
+  assert.equal((historySource.match(/getStoredActiveOrganizationId\(\)/g) ?? []).length, 3);
+  assert.match(historySource, /setState\(\{ requestKey, response: null, error: requestError, isLoading: false \}\)/);
+  assert.match(historySource, /setState\(\{ requestKey, summary: null, error: requestError, isLoading: false \}\)/);
+  assert.doesNotMatch(historySource, /\.\.\.current\b|isLoading && !summary|isLoading && !response/);
+});
+
+test('loading and errors stay local with translated text and native retry controls', () => {
+  assert.equal((historySource.match(/role="status"/g) ?? []).length, 4);
+  assert.doesNotMatch(historySource, /role="alert"/);
+  assert.match(historySource, /getErrorMessage\(error, t\('auditValueUnavailable'\)\)/);
+  assert.match(historySource, /getErrorMessage\(history\.error, t\('auditValueUnavailable'\)\)/);
+  assert.equal((historySource.match(/t\('zoneMovementRetry'\)/g) ?? []).length, 2);
+  assert.equal((historySource.match(/t\('loading'\)/g) ?? []).length, 2);
+});
+
+test('pagination resets with context while recorded zero weeks remain chart data', () => {
+  assert.match(historySource, /pagination\.contextKey === contextKey \? pagination\.offset : 0/);
+  assert.match(historySource, /pagination\.contextKey !== contextKey\) setPagination\(\{ contextKey, offset: 0 \}\)/);
+  assert.match(historySource, /summary\.weeks\.length > 0/);
+  assert.match(historySource, /week\.exit_count > 0 \? \(/);
 });
 
 test('complete history filters the existing endpoint and preserves pagination', () => {

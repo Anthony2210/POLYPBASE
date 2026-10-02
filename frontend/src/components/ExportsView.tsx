@@ -48,6 +48,19 @@ type ExportEligibility = {
   measurement_count: number;
 };
 
+type EligibilityRequestState = {
+  key: string;
+  options: ExportOptions;
+  data: ExportEligibility | null;
+  error: string | null;
+};
+
+type DownloadFeedback = {
+  query: string;
+  message?: string;
+  error?: string;
+};
+
 const PREVIEW_PICKER_PAGE_SIZE = 16;
 
 const emptyFilters: ExportFilters = {
@@ -198,13 +211,12 @@ export default function ExportsView({
   const [isDownloading, setIsDownloading] = useState(false);
   const [selectedPreviewBoxId, setSelectedPreviewBoxId] = useState<number | null>(null);
   const [trendCache, setTrendCache] = useState<Record<string, BoxTrendPreview>>({});
-  const [eligibleBoxIds, setEligibleBoxIds] = useState<Set<number> | null>(null);
-  const [latestMeasurementDates, setLatestMeasurementDates] = useState<Record<string, string>>({});
-  const [isEligibilityLoading, setIsEligibilityLoading] = useState(false);
+  const [eligibilityRequest, setEligibilityRequest] = useState<EligibilityRequestState | null>(null);
+  const [eligibilityRetryVersion, setEligibilityRetryVersion] = useState(0);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [previewRetryVersion, setPreviewRetryVersion] = useState(0);
+  const [downloadFeedback, setDownloadFeedback] = useState<DownloadFeedback | null>(null);
   const previewPanelElementRef = useRef<HTMLDivElement | null>(null);
   const previewMinimumHeightRef = useRef<number | null>(null);
   const previewScrollPositionRef = useRef<number | null>(null);
@@ -213,37 +225,41 @@ export default function ExportsView({
     filters.dateFrom && filters.dateTo && filters.dateFrom > filters.dateTo,
   );
 
+  const eligibilityQuery = buildEligibilityQuery(filters);
+  const eligibilityKey = JSON.stringify([eligibilityQuery, eligibilityRetryVersion]);
+  const isCurrentEligibility = eligibilityRequest?.key === eligibilityKey
+    && eligibilityRequest.options === options && !invalidPeriod && !isLoading;
+  const eligibility = isCurrentEligibility ? eligibilityRequest.data : null;
+  const eligibilityError = isCurrentEligibility ? eligibilityRequest.error : null;
+  const isEligibilityLoading = Boolean(options && !invalidPeriod && !eligibility && !eligibilityError);
+  const latestMeasurementDates = eligibility?.latest_measurement_on_by_box ?? {};
+  const downloadQuery = buildExportQuery(filters);
+  const message = downloadFeedback?.query === downloadQuery ? downloadFeedback.message : null;
+  const error = downloadFeedback?.query === downloadQuery ? downloadFeedback.error : null;
+
   useEffect(() => {
-    if (!options) return;
-    if (invalidPeriod) {
-      setEligibleBoxIds(new Set());
-      setLatestMeasurementDates({});
-      setIsEligibilityLoading(false);
-      return;
-    }
+    if (!options || invalidPeriod || isLoading) return;
 
     const controller = new AbortController();
-    setIsEligibilityLoading(true);
+    setEligibilityRequest({ key: eligibilityKey, options, data: null, error: null });
     const timeoutId = window.setTimeout(async () => {
       try {
-        const query = buildEligibilityQuery(filters);
-        const eligibility = await apiGet<ExportEligibility>(
-          `/api/exports/eligible-boxes/${query ? `?${query}` : ''}`,
+        const nextEligibility = await apiGet<ExportEligibility>(
+          `/api/exports/eligible-boxes/${eligibilityQuery ? `?${eligibilityQuery}` : ''}`,
           { signal: controller.signal },
         );
-        setEligibleBoxIds(new Set(eligibility.box_ids));
-        setLatestMeasurementDates(eligibility.latest_measurement_on_by_box);
+        if (controller.signal.aborted) return;
+        setEligibilityRequest({ key: eligibilityKey, options, data: nextEligibility, error: null });
       } catch (eligibilityLoadError) {
-        if (isAbortError(eligibilityLoadError)) return;
-        setEligibleBoxIds((current) => current ?? new Set());
-        setLatestMeasurementDates({});
-        setError(
-          eligibilityLoadError instanceof Error
+        if (controller.signal.aborted || isAbortError(eligibilityLoadError)) return;
+        setEligibilityRequest({
+          key: eligibilityKey,
+          options,
+          data: null,
+          error: eligibilityLoadError instanceof Error
             ? eligibilityLoadError.message
             : labels.eligibilityError,
-        );
-      } finally {
-        if (!controller.signal.aborted) setIsEligibilityLoading(false);
+        });
       }
     }, 120);
 
@@ -252,18 +268,18 @@ export default function ExportsView({
       controller.abort();
     };
   }, [
-    filters.dateFrom,
-    filters.dateTo,
-    filters.includeOtherZones,
-    filters.zones,
+    eligibilityKey,
+    eligibilityQuery,
     invalidPeriod,
+    isLoading,
     labels.eligibilityError,
     options,
   ]);
 
   const exportState = useMemo(() => {
-    if (!options || eligibleBoxIds === null) return null;
+    if (!options || !eligibility) return null;
 
+    const eligibleBoxIds = new Set(eligibility.box_ids);
     const eligibleOptions = {
       ...options,
       boxes: options.boxes.filter((box) => eligibleBoxIds.has(box.id)),
@@ -299,7 +315,14 @@ export default function ExportsView({
         ),
       },
     };
-  }, [eligibleBoxIds, filters, options]);
+  }, [eligibility, filters, options]);
+  // Keep selected filter labels and zone controls, not unverified eligible choices.
+  const filterGroups = exportState?.groups ?? {
+    species: options ? buildSpeciesOptions(options, new Set(filters.species)) : [],
+    strains: options ? buildStrainOptions(options, new Set(filters.strains)) : [],
+    zones: options ? buildZoneOptions(options, new Set(options.zones.map((zone) => zone.id))) : [],
+    boxes: options ? buildBoxOptions(options, new Set(filters.boxes)) : [],
+  };
   const hasFilters = (Object.keys(emptyFilters) as Array<keyof ExportFilters>).some((key) => {
     const value = filters[key];
     return Array.isArray(value) ? value.length > 0 : Boolean(value);
@@ -352,7 +375,8 @@ export default function ExportsView({
 
     async function loadSelectedBox() {
       if (
-        selectedPreviewBoxId === null
+        selectedPreviewOption === null
+        || selectedPreviewBoxId === null
         || selectedPreviewCacheKey === null
         || trendCache[selectedPreviewCacheKey]
         || invalidPeriod
@@ -377,6 +401,7 @@ export default function ExportsView({
           `/api/exports/boxes/${selectedPreviewBoxId}/trend/?${query}`,
           { signal: controller.signal },
         );
+        if (controller.signal.aborted) return;
         setTrendCache((current) => {
           const next = { ...current, [selectedPreviewCacheKey]: detail };
           const keys = Object.keys(next);
@@ -384,7 +409,7 @@ export default function ExportsView({
           return next;
         });
       } catch (previewLoadError) {
-        if (isAbortError(previewLoadError)) return;
+        if (controller.signal.aborted || isAbortError(previewLoadError)) return;
         setPreviewError(
           previewLoadError instanceof Error ? previewLoadError.message : labels.previewError,
         );
@@ -405,6 +430,8 @@ export default function ExportsView({
     previewWindow.startDate,
     selectedPreviewBoxId,
     selectedPreviewCacheKey,
+    selectedPreviewOption,
+    previewRetryVersion,
     trendCache,
   ]);
 
@@ -462,12 +489,11 @@ export default function ExportsView({
   }
 
   function clearFeedback() {
-    setMessage(null);
-    setError(null);
+    setDownloadFeedback(null);
   }
 
   async function handleDownload() {
-    if (!exportState?.matchingBoxes.length || invalidPeriod) return;
+    if (!exportState?.matchingBoxes.length || invalidPeriod || isEligibilityLoading || isDownloading) return;
 
     setIsDownloading(true);
     clearFeedback();
@@ -477,20 +503,23 @@ export default function ExportsView({
       const fileName = await apiDownload(
         `/api/exports/measurements.csv${query ? `?${query}` : ''}`,
       );
-      setMessage(`${labels.success} : ${fileName}`);
+      setDownloadFeedback({ query: downloadQuery, message: `${labels.success} : ${fileName}` });
     } catch (downloadError) {
-      setError(downloadError instanceof Error ? downloadError.message : labels.error);
+      setDownloadFeedback({
+        query: downloadQuery,
+        error: downloadError instanceof Error ? downloadError.message : labels.error,
+      });
     } finally {
       setIsDownloading(false);
     }
   }
 
-  if (isLoading || !exportState) {
+  if (isLoading || !options) {
     return <PageLoader variant="exports" label={labels.previewLoading} />;
   }
 
   function selectPreviewBox(boxId: number) {
-    if (boxId === selectedPreviewBoxId) return;
+    if (!exportState || !previewBoxOptions.some((box) => box.id === boxId) || boxId === selectedPreviewBoxId) return;
     const currentPanelHeight = previewPanelElementRef.current?.getBoundingClientRect().height;
     if (currentPanelHeight) {
       previewMinimumHeightRef.current = Math.max(
@@ -577,7 +606,8 @@ export default function ExportsView({
         <div className="export-filter-list">
           <FilterDisclosure
             title={labels.species}
-            options={exportState.groups.species}
+            options={filterGroups.species}
+            disabled={!exportState}
             selectedIds={filters.species}
             labels={labels}
             searchable
@@ -588,7 +618,8 @@ export default function ExportsView({
           />
           <FilterDisclosure
             title={labels.strains}
-            options={exportState.groups.strains}
+            options={filterGroups.strains}
+            disabled={!exportState}
             selectedIds={filters.strains}
             labels={labels}
             searchable
@@ -599,7 +630,7 @@ export default function ExportsView({
           />
           <FilterDisclosure
             title={labels.zones}
-            options={exportState.groups.zones}
+            options={filterGroups.zones}
             selectedIds={filters.zones}
             labels={labels}
             onToggle={(id) => toggleFilter('zones', id)}
@@ -626,7 +657,8 @@ export default function ExportsView({
           />
           <FilterDisclosure
             title={labels.boxes}
-            options={exportState.groups.boxes}
+            options={filterGroups.boxes}
+            disabled={!exportState}
             selectedIds={filters.boxes}
             labels={labels}
             searchable
@@ -642,12 +674,25 @@ export default function ExportsView({
             <h2>{labels.selectedMeasurementsTitle}</h2>
             <p>{labels.boxPreviewHelp}</p>
           </div>
-          <span aria-live="polite">
-            {isEligibilityLoading ? '...' : previewBoxOptions.length} {labels.boxesFound}
-          </span>
+          {exportState ? (
+            <span aria-live="polite">{previewBoxOptions.length} {labels.boxesFound}</span>
+          ) : null}
         </header>
 
-        <div className="export-preview-selector">
+        {isEligibilityLoading ? (
+          <div className="export-chart-state" role="status" aria-busy="true">
+            {translations[language].loading}
+          </div>
+        ) : null}
+        {eligibilityError ? (
+          <div className="export-chart-state is-error" role="alert">
+            <p>{eligibilityError}</p>
+            <button type="button" onClick={() => setEligibilityRetryVersion((current) => current + 1)}>
+              {translations[language].reloadAction}
+            </button>
+          </div>
+        ) : null}
+        {exportState ? <div className="export-preview-selector">
           <button
             type="button"
             title={labels.previousBox}
@@ -681,9 +726,9 @@ export default function ExportsView({
           >
             <PolypbaseIcon name="chevron-right" size={18} />
           </button>
-        </div>
+        </div> : null}
 
-        {isPreviewLoading ? (
+        {exportState && isPreviewLoading ? (
           <div
             ref={previewPanelElementRef}
             className="export-chart-state"
@@ -693,9 +738,25 @@ export default function ExportsView({
             {labels.previewLoading}
           </div>
         ) : null}
-        {previewError ? <div className="export-chart-state is-error">{previewError}</div> : null}
-        {!selectedPreviewOption && !isPreviewLoading ? (
-          <div className="export-chart-state is-empty">{labels.boxPreviewHelp}</div>
+        {exportState && selectedPreviewOption && previewError ? (
+          <div className="export-chart-state is-error" role="alert">
+            <p>{previewError}</p>
+            <button
+              type="button"
+              onClick={() => {
+                setPreviewError(null);
+                setIsPreviewLoading(true);
+                setPreviewRetryVersion((current) => current + 1);
+              }}
+            >
+              {translations[language].reloadAction}
+            </button>
+          </div>
+        ) : null}
+        {exportState && !selectedPreviewOption && !isPreviewLoading ? (
+          <div className="export-chart-state is-empty">
+            {previewBoxOptions.length ? labels.boxPreviewHelp : labels.noBoxes}
+          </div>
         ) : null}
         {selectedPreviewOption && selectedPreviewDetail && !previewError ? (
           <div
@@ -777,13 +838,13 @@ export default function ExportsView({
 
       <section className="export-review">
         <div>
-          {exportState.matchingBoxes.length ? (
+          {exportState?.matchingBoxes.length ? (
             <p className="export-review-count">
               <strong>{exportState.matchingBoxes.length}</strong> {labels.boxesFound}
               <strong>{exportState.speciesCount}</strong> {labels.speciesFound}
             </p>
           ) : (
-            <p className="export-no-result">{labels.noBoxes}</p>
+            exportState ? <p className="export-no-result">{labels.noBoxes}</p> : null
           )}
           <p className="export-format">
             <strong>{labels.format}</strong>
@@ -797,7 +858,7 @@ export default function ExportsView({
             isDownloading
             || isEligibilityLoading
             || invalidPeriod
-            || !exportState.matchingBoxes.length
+            || !exportState?.matchingBoxes.length
           }
           onClick={handleDownload}
         >
@@ -1044,6 +1105,7 @@ function FilterDisclosure({
   selectedIds,
   labels,
   searchable = false,
+  disabled = false,
   searchLabel,
   searchPlaceholder,
   extraContent,
@@ -1055,6 +1117,7 @@ function FilterDisclosure({
   selectedIds: number[];
   labels: (typeof copy)[Language];
   searchable?: boolean;
+  disabled?: boolean;
   searchLabel?: string;
   searchPlaceholder?: string;
   extraContent?: ReactNode;
@@ -1089,9 +1152,7 @@ function FilterDisclosure({
       </summary>
       {isOpen ? <div className="export-filter-content">
         <div className="export-filter-actions">
-          <span>
-            {matchingOptions.length} {labels.optionCount}
-          </span>
+          {!disabled ? <span>{matchingOptions.length} {labels.optionCount}</span> : null}
           {selectedIds.length ? (
             <button type="button" onClick={onClear}>
               {labels.clear}
@@ -1110,12 +1171,13 @@ function FilterDisclosure({
           </label>
         ) : null}
         <div className="export-filter-options">
-          {!visibleOptions.length ? <span className="muted">{labels.empty}</span> : null}
+          {!disabled && !visibleOptions.length ? <span className="muted">{labels.empty}</span> : null}
           {visibleOptions.map((option) => (
             <label key={option.id}>
               <input
                 type="checkbox"
                 checked={selectedIds.includes(option.id)}
+                disabled={disabled}
                 onChange={() => onToggle(option.id)}
               />
               <span>

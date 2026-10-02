@@ -1083,7 +1083,7 @@
 }
 
 .zone-movement-flow-legend .is-exit::before {
-  background: var(--color-danger);
+  background: transparent;
   border-color: var(--color-danger);
 }
 
@@ -1114,7 +1114,10 @@
 }
 
 .zone-movement-flow-exit {
-  fill: var(--color-danger);
+  fill: none;
+  stroke: var(--color-danger);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
 }
 
 .zone-recent-movement-columns {

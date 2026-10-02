@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 
 import { ChevronDown, ChevronRight, Printer } from 'lucide-react';
 
@@ -7,14 +7,17 @@ import type { BoxItem, UserProfile } from '../types';
 import {
   DEFAULT_QR_LABEL_PRINT_SETTINGS,
   buildQrLabelItem,
+  getQrLabelPreparationMessage,
   printQrLabels,
   type QrLabelItem,
+  type QrLabelPreparationLabels,
+  type QrLabelPreparationResult,
 } from '../utils/qrLabels';
 import BoxTrackingPreview from './BoxTrackingPreview';
 
 import PageLoader from './PageLoader';
 
-type LabelsViewLabels = {
+type LabelsViewLabels = QrLabelPreparationLabels & {
   allZones: string;
 
   noZone: string;
@@ -68,6 +71,9 @@ export default function LabelsView({
   qrLabelSelection: QrLabelItem[];
   t: Translator;
 }) {
+  const [isPreparing, setIsPreparing] = useState(false);
+  const preparingRef = useRef(false);
+  const [printFailure, setPrintFailure] = useState<Extract<QrLabelPreparationResult, { status: 'failed' }> | null>(null);
   const [labelSearch, setLabelSearch] = useState('');
   const [zoneFilter, setZoneFilter] = useState('all');
   const [expandedSpecies, setExpandedSpecies] = useState<Set<number>>(() => new Set());
@@ -118,6 +124,17 @@ export default function LabelsView({
 
   if (isLoading) return <PageLoader variant="labels" label={labels.pageTitle} />;
   if (!profile || !canManageQrLabels) return null;
+
+  async function handlePrint() {
+    if (preparingRef.current || !selectedLabels.length) return;
+    preparingRef.current = true;
+    setIsPreparing(true);
+    setPrintFailure(null);
+    const result = await printQrLabels(selectedLabels, printSettings);
+    setPrintFailure(result.status === 'failed' ? result : null);
+    preparingRef.current = false;
+    setIsPreparing(false);
+  }
 
   function toggleQrLabel(box: BoxItem) {
     if (selectedLabelIds.has(box.id)) onRemoveQrLabel(box.id);
@@ -182,13 +199,23 @@ export default function LabelsView({
                   <button
                     className="primary-button label-selection-print"
                     type="button"
-                    onClick={() => printQrLabels(selectedLabels, printSettings)}
+                    disabled={isPreparing}
+                    onClick={() => void handlePrint()}
                   >
                     <Printer size={17} aria-hidden="true" />
                     {labels.qrLabelPrintCount(selectedLabels.length)}
                   </button>
                 </div>
               </div>
+            </div>
+          ) : null}
+          <div role="status">{isPreparing ? labels.qrLabelPreparing : ''}</div>
+          {printFailure ? (
+            <div>
+              <p className="inline-error" role="alert">{getQrLabelPreparationMessage(printFailure.reason, labels)}</p>
+              <button className="secondary-button" type="button" disabled={isPreparing || !selectedLabels.length} onClick={() => void handlePrint()}>
+                {labels.qrLabelRetry}
+              </button>
             </div>
           ) : null}
 

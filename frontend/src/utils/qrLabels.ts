@@ -88,64 +88,208 @@ export function getBoxScanUrl(box: BoxDetail) {
   return new URL(`/bac/${box.id}/`, window.location.origin).href;
 }
 
-export function printQrLabels(labels: QrLabelItem[], settings?: Partial<QrLabelPrintSettings>) {
-  if (!labels.length) return;
+export type QrLabelPreparationFailure =
+  | 'popup-blocked'
+  | 'qr-retrieval'
+  | 'fallback-resource'
+  | 'image-preparation'
+  | 'preparation';
 
-  const printWindow = window.open('', '_blank', 'width=980,height=720');
-  if (!printWindow) return;
+export type QrLabelPreparationResult =
+  | { status: 'prepared' | 'cancelled' | 'empty' }
+  | { status: 'failed'; reason: QrLabelPreparationFailure };
 
-  void prepareQrPrint(labels, printWindow, normalizeQrLabelPrintSettings(settings));
+export type QrLabelPreparationLabels = {
+  qrLabelPreparing: string;
+  qrLabelPopupBlocked: string;
+  qrLabelQrUnavailable: string;
+  qrLabelResourceUnavailable: string;
+  qrLabelImagePreparationFailed: string;
+  qrLabelPreparationFailed: string;
+  qrLabelRetry: string;
+};
+
+export function getQrLabelPreparationMessage(reason: QrLabelPreparationFailure, labels: QrLabelPreparationLabels) {
+  switch (reason) {
+    case 'popup-blocked': return labels.qrLabelPopupBlocked;
+    case 'qr-retrieval': return labels.qrLabelQrUnavailable;
+    case 'fallback-resource': return labels.qrLabelResourceUnavailable;
+    case 'image-preparation': return labels.qrLabelImagePreparationFailed;
+    case 'preparation': return labels.qrLabelPreparationFailed;
+  }
 }
 
-export async function downloadQrLabel(label: QrLabelItem) {
-  const qrDataUrl = await getQrDataUrl(label.qrImageUrl);
-  const svg = buildQrLabelSvg(label, qrDataUrl);
-  downloadTextFile(svg, `${label.globalCode}_etiquette.svg`, 'image/svg+xml;charset=utf-8');
+const QR_PREPARATION_TIMEOUT_MS = 15000;
+
+class QrPreparationError extends Error {
+  constructor(readonly reason: QrLabelPreparationFailure) {
+    super(reason);
+  }
+}
+
+function failedPreparation(error: unknown): QrLabelPreparationResult {
+  return { status: 'failed', reason: error instanceof QrPreparationError ? error.reason : 'preparation' };
+}
+
+// Open synchronously in the click handler, before awaiting any resources.
+// A prepared result only means handoff to the browser, never printer success.
+export async function printQrLabels(
+  labels: QrLabelItem[], settings?: Partial<QrLabelPrintSettings>,
+): Promise<QrLabelPreparationResult> {
+  if (!labels.length) return { status: 'empty' };
+  let printWindow: Window | null = null;
+  try {
+    printWindow = window.open('', '_blank', 'width=980,height=720');
+    if (!printWindow) return { status: 'failed', reason: 'popup-blocked' };
+    return await prepareQrPrint(labels, printWindow, normalizeQrLabelPrintSettings(settings));
+  } catch (error) {
+    // Closing the preparation window is a user cancellation, even if a resource
+    // errors before the close monitor runs. Check before closing failed popups.
+    if (printWindow?.closed) return { status: 'cancelled' };
+    // Do not leave an empty or partial label document available for printing.
+    try { printWindow?.close(); } catch { /* The window may already be inaccessible. */ }
+    return failedPreparation(error);
+  }
+}
+
+export async function downloadQrLabel(label: QrLabelItem): Promise<QrLabelPreparationResult> {
+  const controller = new AbortController();
+  try {
+    // Downloads must remain self-contained; a remote URL is not a usable fallback.
+    const qrDataUrl = await getQrDataUrl(label.qrImageUrl, false, controller.signal);
+    await prepareQrImage(qrDataUrl, 'image-preparation', controller.signal);
+    const svg = buildQrLabelSvg(label, qrDataUrl);
+    downloadTextFile(svg, `${label.globalCode}_etiquette.svg`, 'image/svg+xml;charset=utf-8');
+    return { status: 'prepared' };
+  } catch (error) {
+    return failedPreparation(error);
+  } finally {
+    controller.abort(new QrPreparationError('preparation'));
+  }
 }
 
 async function prepareQrPrint(
-  labels: QrLabelItem[],
-  printWindow: Window,
-  settings: QrLabelPrintSettings,
-) {
-  const printableLabels = await Promise.all(
-    labels.map(async (label) => ({
+  labels: QrLabelItem[], printWindow: Window, settings: QrLabelPrintSettings,
+): Promise<QrLabelPreparationResult> {
+  const controller = new AbortController();
+  const { signal } = controller;
+  let closeTimer: number | undefined;
+  let onAbort: () => void = () => {};
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(signal.reason);
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+  // Window.closed is reliable even when closing the popup emits no unload event.
+  function watchPopup() {
+    if (signal.aborted) return;
+    if (printWindow.closed) controller.abort(new QrPreparationError('preparation'));
+    else closeTimer = window.setTimeout(watchPopup, 100);
+  }
+  watchPopup();
+
+  async function prepareResources(): Promise<QrLabelPreparationResult> {
+    signal.throwIfAborted();
+    const printableLabels = await Promise.all(labels.map(async (label) => ({
       ...label,
-      // Embed each QR image so the print document does not depend on a session request.
-      qrImageUrl: await getQrDataUrl(label.qrImageUrl),
-    })),
-  );
+      qrImageUrl: await getQrDataUrl(label.qrImageUrl, true, signal),
+    })));
+    signal.throwIfAborted();
+    if (printWindow.closed) return { status: 'cancelled' };
 
-  if (printWindow.closed) return;
+    printWindow.document.write(buildQrPrintDocument(printableLabels, settings));
+    printWindow.document.close();
+    const images = Array.from(printWindow.document.images);
+    if (images.length !== labels.length) throw new QrPreparationError('image-preparation');
+    await Promise.all(images.map((image) => waitForQrImage(image, 'image-preparation', signal)));
 
-  printWindow.document.write(buildQrPrintDocument(printableLabels, settings));
-  printWindow.document.close();
-
-  await Promise.all(
-    Array.from(printWindow.document.images).map((image) => {
-      if (image.complete) return Promise.resolve();
-      return new Promise<void>((resolve) => {
-        image.addEventListener('load', () => resolve(), { once: true });
-        image.addEventListener('error', () => resolve(), { once: true });
-      });
-    }),
-  );
-
-  if (!printWindow.closed) {
+    signal.throwIfAborted();
+    if (printWindow.closed) return { status: 'cancelled' };
     printWindow.focus();
+    if (printWindow.closed) return { status: 'cancelled' };
     printWindow.print();
+    return { status: 'prepared' };
+  }
+
+  try {
+    // Settle promptly on close even if a transport does not honor its abort signal.
+    return await Promise.race([prepareResources(), aborted]);
+  } finally {
+    window.clearTimeout(closeTimer);
+    signal.removeEventListener('abort', onAbort);
+    // Dispose siblings before the caller receives failure/cancellation and can retry.
+    controller.abort(new QrPreparationError('preparation'));
   }
 }
 
-async function getQrDataUrl(qrImageUrl: string) {
+async function getQrDataUrl(qrImageUrl: string, allowFallback: boolean, signal: AbortSignal) {
+  signal.throwIfAborted();
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(new QrPreparationError('qr-retrieval')), QR_PREPARATION_TIMEOUT_MS);
+  const onAbort = () => {
+    window.clearTimeout(timeout);
+    controller.abort(signal.reason);
+  };
+  signal.addEventListener('abort', onAbort, { once: true });
+  let svgText: string;
   try {
-    const response = await fetch(qrImageUrl, { credentials: 'include' });
-    if (!response.ok) throw new Error('QR unavailable');
-    const svgText = await response.text();
-    return `data:image/svg+xml;base64,${window.btoa(unescape(encodeURIComponent(svgText)))}`;
-  } catch {
-    return new URL(qrImageUrl, window.location.origin).href;
+    const response = await fetch(qrImageUrl, { credentials: 'include', signal: controller.signal });
+    if (!response.ok) throw new QrPreparationError('qr-retrieval');
+    svgText = await response.text();
+    signal.throwIfAborted();
+  } catch (error) {
+    signal.throwIfAborted();
+    if (controller.signal.aborted || !allowFallback || error instanceof QrPreparationError) {
+      throw new QrPreparationError('qr-retrieval');
+    }
+    // A network/CORS fallback is usable only after the browser loads the resource.
+    let fallbackUrl: string;
+    try { fallbackUrl = new URL(qrImageUrl, window.location.origin).href; }
+    catch { throw new QrPreparationError('fallback-resource'); }
+    await prepareQrImage(fallbackUrl, 'fallback-resource', signal);
+    return fallbackUrl;
+  } finally {
+    window.clearTimeout(timeout);
+    signal.removeEventListener('abort', onAbort);
   }
+  return `data:image/svg+xml;base64,${window.btoa(unescape(encodeURIComponent(svgText)))}`;
+}
+
+function prepareQrImage(source: string, reason: QrLabelPreparationFailure, signal: AbortSignal) {
+  const image = new Image();
+  // Register listeners before assigning src, including for cached resources.
+  const ready = waitForQrImage(image, reason, signal);
+  image.src = source;
+  return ready;
+}
+
+function waitForQrImage(image: HTMLImageElement, reason: QrLabelPreparationFailure, signal: AbortSignal) {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  if (image.complete && image.src) {
+    return image.naturalWidth > 0 ? Promise.resolve() : Promise.reject(new QrPreparationError(reason));
+  }
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const finish = (loaded: boolean, error?: unknown) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      image.removeEventListener('load', onLoad);
+      image.removeEventListener('error', onError);
+      signal.removeEventListener('abort', onAbort);
+      if (loaded && image.naturalWidth > 0) resolve();
+      else reject(error ?? new QrPreparationError(reason));
+    };
+    const onLoad = () => finish(true);
+    const onError = () => finish(false);
+    const onAbort = () => {
+      finish(false, signal.reason);
+      image.removeAttribute('src');
+    };
+    const timeout = window.setTimeout(onError, QR_PREPARATION_TIMEOUT_MS);
+    image.addEventListener('load', onLoad, { once: true });
+    image.addEventListener('error', onError, { once: true });
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 export function buildQrPrintDocument(labels: QrLabelItem[], settings: QrLabelPrintSettings) {
@@ -375,10 +519,13 @@ function downloadTextFile(content: string, fileName: string, type: string) {
   const link = document.createElement('a');
   link.href = objectUrl;
   link.download = fileName;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(objectUrl);
+  try {
+    document.body.appendChild(link);
+    link.click();
+  } finally {
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 function escapeHtml(value: string) {

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowDownToLine, ArrowUpFromLine } from 'lucide-react';
 
-import { apiGet } from '../api/client';
+import { apiGet, getStoredActiveOrganizationId } from '../api/client';
 import type { Language, Translator } from '../i18n';
 import type {
   PaginatedResponse,
@@ -25,14 +25,16 @@ const FLOW_CHART_TOP = 14;
 const FLOW_CHART_BASELINE = 94;
 
 type MovementHistoryState = {
+  requestKey: string;
   response: PaginatedResponse<ThermalZoneMovementEvent> | null;
-  error: string | null;
+  error: unknown;
   isLoading: boolean;
 };
 
 type MovementSummaryState = {
+  requestKey: string;
   summary: ThermalZoneMovementSummary | null;
-  error: string | null;
+  error: unknown;
   isLoading: boolean;
 };
 
@@ -43,7 +45,9 @@ function useZoneMovementHistory(
   offset: number,
 ) {
   const [attempt, setAttempt] = useState(0);
+  const requestKey = `${getStoredActiveOrganizationId()}:${zoneId}:${direction}:${limit}:${offset}:${attempt}`;
   const [state, setState] = useState<MovementHistoryState>({
+    requestKey,
     response: null,
     error: null,
     isLoading: true,
@@ -52,43 +56,45 @@ function useZoneMovementHistory(
   useEffect(() => {
     let isCurrent = true;
     if (zoneId === null) {
-      setState({ response: null, error: null, isLoading: false });
+      setState({ requestKey, response: null, error: null, isLoading: false });
       return () => {
         isCurrent = false;
       };
     }
-    setState((current) => ({ ...current, error: null, isLoading: true }));
+    setState({ requestKey, response: null, error: null, isLoading: true });
 
     void apiGet<PaginatedResponse<ThermalZoneMovementEvent>>(
       `/api/thermal-zones/${zoneId}/history/?direction=${direction}&limit=${limit}&offset=${offset}`,
     )
       .then((response) => {
-        if (isCurrent) setState({ response, error: null, isLoading: false });
+        if (isCurrent) setState({ requestKey, response, error: null, isLoading: false });
       })
       .catch((requestError) => {
         if (isCurrent) {
-          setState((current) => ({
-            ...current,
-            error: getErrorMessage(requestError),
-            isLoading: false,
-          }));
+          setState({ requestKey, response: null, error: requestError, isLoading: false });
         }
       });
 
     return () => {
       isCurrent = false;
     };
-  }, [attempt, direction, limit, offset, zoneId]);
+  }, [direction, limit, offset, requestKey, zoneId]);
 
+  // Hide the previous context before effects run, not just after the next request starts.
+  const currentState = state.requestKey === requestKey
+    ? state
+    : { response: null, error: null, isLoading: zoneId !== null };
   return {
-    ...state,
+    ...currentState,
     retry: () => setAttempt((current) => current + 1),
   };
 }
 
 function useZoneMovementSummary(zoneId: number) {
   const [attempt, setAttempt] = useState(0);
+  const requestKey = `${getStoredActiveOrganizationId()}:${zoneId}:${attempt}`;
   const [state, setState] = useState<MovementSummaryState>({
+    requestKey,
     summary: null,
     error: null,
     isLoading: true,
@@ -96,28 +102,27 @@ function useZoneMovementSummary(zoneId: number) {
 
   useEffect(() => {
     let isCurrent = true;
-    setState((current) => ({ ...current, error: null, isLoading: true }));
+    setState({ requestKey, summary: null, error: null, isLoading: true });
     void apiGet<ThermalZoneMovementSummary>(`/api/thermal-zones/${zoneId}/history/summary/`)
       .then((summary) => {
-        if (isCurrent) setState({ summary, error: null, isLoading: false });
+        if (isCurrent) setState({ requestKey, summary, error: null, isLoading: false });
       })
       .catch((requestError) => {
         if (isCurrent) {
-          setState((current) => ({
-            ...current,
-            error: getErrorMessage(requestError),
-            isLoading: false,
-          }));
+          setState({ requestKey, summary: null, error: requestError, isLoading: false });
         }
       });
 
     return () => {
       isCurrent = false;
     };
-  }, [attempt, zoneId]);
+  }, [requestKey, zoneId]);
 
+  const currentState = state.requestKey === requestKey
+    ? state
+    : { summary: null, error: null, isLoading: true };
   return {
-    ...state,
+    ...currentState,
     retry: () => setAttempt((current) => current + 1),
   };
 }
@@ -230,13 +235,15 @@ function WeeklyMovementChart({ summary, t }: { summary: ThermalZoneMovementSumma
                 width={barWidth}
                 height={FLOW_CHART_BASELINE - entryY}
               />
-              <rect
-                className="zone-movement-flow-exit"
-                x={hasBoth ? center + 2 : center - barWidth / 2}
-                y={exitY}
-                width={barWidth}
-                height={FLOW_CHART_BASELINE - exitY}
-              />
+              {week.exit_count > 0 ? (
+                <rect
+                  className="zone-movement-flow-exit"
+                  x={hasBoth ? center + 2 : center - barWidth / 2}
+                  y={exitY}
+                  width={barWidth}
+                  height={FLOW_CHART_BASELINE - exitY}
+                />
+              ) : null}
               <text className="zone-movement-flow-week" x={center} y={FLOW_CHART_BASELINE + 19}>
                 {t('zoneMovementWeekShort').replace('{week}', String(week.iso_week))}
               </text>
@@ -315,16 +322,21 @@ export function ZoneRecentMovements({
   return (
     <section className="zone-page-section zone-recent-movements" aria-busy={isLoading}>
       <h2>{t('zoneRecentMovementsTitle')}</h2>
-      {isLoading && !summary ? (
+      <p className="sr-only" role="status">{isLoading ? t('loading') : ''}</p>
+      {isLoading ? (
         <SkeletonRows count={3} />
-      ) : error && !summary ? (
-        <div className="zone-movement-state" role="alert">
-          <p>{error}</p>
+      ) : error ? (
+        <div className="zone-movement-state" role="status">
+          <p>{getErrorMessage(error, t('auditValueUnavailable'))}</p>
           <button className="secondary-button" type="button" onClick={retry}>{t('zoneMovementRetry')}</button>
         </div>
       ) : summary ? (
         <>
-          <WeeklyMovementChart summary={summary} t={t} />
+          {summary.weeks.length > 0 ? (
+            <WeeklyMovementChart summary={summary} t={t} />
+          ) : (
+            <p className="muted compact-text">{t('zoneMovementEmpty')}</p>
+          )}
           <div className="zone-recent-movement-columns">
             <RecentMovementColumn
               direction="arrival"
@@ -368,10 +380,12 @@ export default function ZoneMovementHistoryPage({
   t: Translator;
   zone: ThermalZone | null;
 }) {
-  const [offset, setOffset] = useState(0);
+  const contextKey = `${getStoredActiveOrganizationId()}:${zone?.id ?? null}:${direction}`;
+  const [pagination, setPagination] = useState({ contextKey, offset: 0 });
+  const offset = pagination.contextKey === contextKey ? pagination.offset : 0;
+  if (pagination.contextKey !== contextKey) setPagination({ contextKey, offset: 0 });
+  const setOffset = (nextOffset: number) => setPagination({ contextKey, offset: nextOffset });
   const history = useZoneMovementHistory(zone?.id ?? null, direction, HISTORY_PAGE_SIZE, offset);
-
-  useEffect(() => setOffset(0), [direction]);
 
   if (isLoading) return <PageLoader variant="zone" label={t('zoneMovementHistoryTitle')} />;
 
@@ -421,11 +435,12 @@ export default function ZoneMovementHistoryPage({
           ))}
         </div>
 
-        {history.isLoading && !response ? (
+        <p className="sr-only" role="status">{history.isLoading ? t('loading') : ''}</p>
+        {history.isLoading ? (
           <SkeletonRows count={8} />
-        ) : history.error && !response ? (
-          <div className="zone-movement-state" role="alert">
-            <p>{history.error}</p>
+        ) : history.error ? (
+          <div className="zone-movement-state" role="status">
+            <p>{getErrorMessage(history.error, t('auditValueUnavailable'))}</p>
             <button className="secondary-button" type="button" onClick={history.retry}>{t('zoneMovementRetry')}</button>
           </div>
         ) : response?.results.length ? (

@@ -53,7 +53,12 @@ import {
   type MemberFeedbackTone,
   type MemberMutationKind,
 } from '../utils/memberFeedback';
-import { buildQrLabelItem, printQrLabels } from '../utils/qrLabels';
+import {
+  buildQrLabelItem,
+  getQrLabelPreparationMessage,
+  printQrLabels,
+  type QrLabelPreparationResult,
+} from '../utils/qrLabels';
 import { decrementDecimalValue, incrementDecimalValue } from '../utils/stepValue';
 import { getZoneOccupancyLevel } from '../utils/zoneOccupancy';
 import AdminActionPanel from './AdminActionPanel';
@@ -1826,6 +1831,10 @@ function TransferCreateForm({
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preparedTransfer, setPreparedTransfer] = useState<PreparedTransfer | null>(null);
+  const preparedTransferRef = useRef<PreparedTransfer | null>(null);
+  const [isPreparing, setIsPreparing] = useState(false);
+  const preparingRef = useRef(false);
+  const [printFailure, setPrintFailure] = useState<Extract<QrLabelPreparationResult, { status: 'failed' }> | null>(null);
   const normalizedBoxQuery = boxQuery.trim().toLocaleLowerCase();
   const visibleTransferableBoxes = normalizedBoxQuery
     ? transferableBoxes.filter((box) => [
@@ -1867,13 +1876,32 @@ function TransferCreateForm({
     return <p className="muted compact-text">{t('adminTransferNoBox')}</p>;
   }
 
+  async function handlePrint() {
+    if (preparingRef.current || !preparedTransfer || preparedTransferRef.current !== preparedTransfer) return;
+    const printTransfer = preparedTransfer;
+    preparingRef.current = true;
+    setIsPreparing(true);
+    setPrintFailure(null);
+    try {
+      const result = await printQrLabels([buildQrLabelItem(printTransfer.box)]);
+      if (preparedTransferRef.current === printTransfer) {
+        setPrintFailure(result.status === 'failed' ? result : null);
+      }
+    } finally {
+      preparingRef.current = false;
+      setIsPreparing(false);
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isSaving || boxId == null || targetOrgId == null || !polypCount) return;
 
     setIsSaving(true);
     setError(null);
+    preparedTransferRef.current = null;
     setPreparedTransfer(null);
+    setPrintFailure(null);
 
     try {
       const transfer = await onCreateTransfer({
@@ -1885,12 +1913,14 @@ function TransferCreateForm({
       const box = transferableBoxes.find((item) => item.id === boxId);
       const targetOrganization = organizations.find((organization) => organization.id === targetOrgId);
       if (box && targetOrganization) {
-        setPreparedTransfer({
+        const nextPreparedTransfer = {
           transfer,
           box,
           targetOrganization,
           exportData: buildTransferExportData(transfer, box, targetOrganization),
-        });
+        };
+        preparedTransferRef.current = nextPreparedTransfer;
+        setPreparedTransfer(nextPreparedTransfer);
       }
       setNotes('');
       setPolypCount('');
@@ -2024,11 +2054,31 @@ function TransferCreateForm({
             </button>
             <button
               type="button"
-              onClick={() => printQrLabels([buildQrLabelItem(preparedTransfer.box)])}
+              disabled={isPreparing}
+              onClick={() => void handlePrint()}
             >
               {t('adminTransferPrintLabel')}
             </button>
           </div>
+          <div role="status">{isPreparing ? t('qrLabelPreparing') : ''}</div>
+          {printFailure ? (
+            <div>
+              <p className="inline-error" role="alert">
+                {getQrLabelPreparationMessage(printFailure.reason, {
+                  qrLabelPreparing: t('qrLabelPreparing'),
+                  qrLabelPopupBlocked: t('qrLabelPopupBlocked'),
+                  qrLabelQrUnavailable: t('qrLabelQrUnavailable'),
+                  qrLabelResourceUnavailable: t('qrLabelResourceUnavailable'),
+                  qrLabelImagePreparationFailed: t('qrLabelImagePreparationFailed'),
+                  qrLabelPreparationFailed: t('qrLabelPreparationFailed'),
+                  qrLabelRetry: t('qrLabelRetry'),
+                })}
+              </p>
+              <button type="button" disabled={isPreparing} onClick={() => void handlePrint()}>
+                {t('qrLabelRetry')}
+              </button>
+            </div>
+          ) : null}
         </section>
       ) : null}
     </form>

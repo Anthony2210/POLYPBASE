@@ -52,13 +52,21 @@ const INVENTORY_PAGE_SIZE = 24;
 // Keep the inventory shortcuts available for a future reactivation.
 const SHOW_INVENTORY_SUMMARY = false;
 
+type InventoryRequestState = {
+  key: string;
+  response: BoxInventoryResponse | null;
+  error: string | null;
+};
+
 type InventoryLifecycleState = {
+  requestKey: string;
   action: BoxLifecycleAction;
   box: BoxInventoryItem;
   initialTargetStatus?: 'active' | 'inactive';
 };
 
 type InventoryBatchState = {
+  requestKey: string;
   action: BoxInventoryBatchAction;
   boxes: BoxInventorySelectionItem[];
 };
@@ -86,10 +94,11 @@ export default function BoxInventoryAdminSection({
   t: Translator;
   zones: ThermalZone[];
 }) {
-  const [response, setResponse] = useState<BoxInventoryResponse | null>(null);
+  const [requestState, setRequestState] = useState<InventoryRequestState | null>(null);
   const [statusFilter, setStatusFilter] = useState('');
   const [locationFilter, setLocationFilter] = useState('');
   const [creationYearFilter, setCreationYearFilter] = useState('');
+  const [creationYears, setCreationYears] = useState<number[]>([]);
   const [measurementFilter, setMeasurementFilter] = useState<InventoryMeasurementFilter>('');
   const [ageMonths, setAgeMonths] = useState('6');
   const [initialReferenceDate] = useState(getLocalDateInputValue);
@@ -99,8 +108,6 @@ export default function BoxInventoryAdminSection({
   const deferredSearch = useDeferredValue(search.trim());
   const [offset, setOffset] = useState(0);
   const [refreshVersion, setRefreshVersion] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [lifecycleState, setLifecycleState] = useState<InventoryLifecycleState | null>(null);
   const [lifecycleError, setLifecycleError] = useState<string | null>(null);
@@ -120,24 +127,29 @@ export default function BoxInventoryAdminSection({
     )),
     [zones],
   );
+  const query = buildBoxInventoryQuery({
+    ageMonths,
+    creationYear: creationYearFilter,
+    location: locationFilter,
+    measurementFilter: activeMeasurementFilter,
+    referenceDate,
+    search: deferredSearch,
+    status: statusFilter,
+  }, { limit: INVENTORY_PAGE_SIZE, offset });
+  const requestKey = JSON.stringify([query, refreshVersion]);
+  // Deferred search must not make the previous scope actionable in the urgent render.
+  const isCurrentRequest = requestState?.key === requestKey && search.trim() === deferredSearch;
+  const response = isCurrentRequest ? requestState.response : null;
+  const loadError = isCurrentRequest ? requestState.error : null;
+  const isLoading = !response && !loadError;
+  const canActOnInventory = response !== null;
   const pendingBoxesOnPage = useMemo(
     () => response?.results.filter((box) => box.status === 'pending_review') ?? [],
     [response],
   );
   useEffect(() => {
     let isCurrent = true;
-    const query = buildBoxInventoryQuery({
-      ageMonths,
-      creationYear: creationYearFilter,
-      location: locationFilter,
-      measurementFilter: activeMeasurementFilter,
-      referenceDate,
-      search: deferredSearch,
-      status: statusFilter,
-    }, { limit: INVENTORY_PAGE_SIZE, offset });
-
-    setIsLoading(true);
-    setLoadError(null);
+    setRequestState({ key: requestKey, response: null, error: null });
     void apiGet<BoxInventoryResponse>(`/api/admin/box-inventory/?${query}`)
       .then(async (nextResponse) => {
         if (!isCurrent) return;
@@ -148,21 +160,28 @@ export default function BoxInventoryAdminSection({
         }
         const counters = await getBoxInventoryCounters(nextResponse);
         if (!isCurrent) return;
-        setResponse({ ...nextResponse, summary: { ...nextResponse.summary, ...counters } });
+        setCreationYears(nextResponse.filter_options.creation_years);
+        setRequestState({
+          key: requestKey,
+          response: { ...nextResponse, summary: { ...nextResponse.summary, ...counters } },
+          error: null,
+        });
       })
       .catch((requestError) => {
-        if (isCurrent) setLoadError(getErrorMessage(requestError));
-      })
-      .finally(() => {
-        if (isCurrent) setIsLoading(false);
+        if (isCurrent) {
+          setRequestState({ key: requestKey, response: null, error: getErrorMessage(requestError) });
+        }
       });
 
     return () => {
       isCurrent = false;
     };
-  }, [activeMeasurementFilter, ageMonths, creationYearFilter, deferredSearch, locationFilter, offset, referenceDate, refreshVersion, statusFilter]);
+  }, [offset, query, requestKey]);
 
   function clearSelectionAfterFilterChange() {
+    setLifecycleState(null);
+    setBatchState(null);
+    setBatchResult(null);
     if (selectedBoxes.size > 0) {
       setSelectedBoxes(new Map());
       setMessage(t('boxInventorySelectionClearedByFilters'));
@@ -212,13 +231,14 @@ export default function BoxInventoryAdminSection({
     box: BoxInventoryItem,
     initialTargetStatus?: 'active' | 'inactive',
   ) {
+    if (!canActOnInventory) return;
     setLifecycleError(null);
     setMessage(null);
-    setLifecycleState({ action, box, initialTargetStatus });
+    setLifecycleState({ requestKey, action, box, initialTargetStatus });
   }
 
   function toggleBoxSelection(box: BoxInventoryItem, checked: boolean) {
-    if (box.status !== 'pending_review') return;
+    if (!canActOnInventory || box.status !== 'pending_review') return;
     setSelectedBoxes((current) => {
       const next = new Map(current);
       if (checked) next.set(box.id, toSelectionItem(box));
@@ -229,15 +249,16 @@ export default function BoxInventoryAdminSection({
   }
 
   function openBatchAction(action: BoxInventoryBatchAction) {
+    if (!canActOnInventory) return;
     const boxes = Array.from(selectedBoxes.values());
     if (!boxes.length) return;
     setBatchError(null);
     setBatchResult(null);
-    setBatchState({ action, boxes });
+    setBatchState({ requestKey, action, boxes });
   }
 
   async function handleBatchConfirm() {
-    if (!batchState || isBatchSaving || batchResult) return;
+    if (!canActOnInventory || !batchState || batchState.requestKey !== requestKey || isBatchSaving || batchResult) return;
     setIsBatchSaving(true);
     setBatchError(null);
 
@@ -261,7 +282,7 @@ export default function BoxInventoryAdminSection({
   }
 
   async function handleLifecycleSubmit(submission: BoxLifecycleSubmission) {
-    if (!lifecycleState || isSaving) return;
+    if (!canActOnInventory || !lifecycleState || lifecycleState.requestKey !== requestKey || isSaving) return;
     setIsSaving(true);
     setLifecycleError(null);
 
@@ -309,7 +330,7 @@ export default function BoxInventoryAdminSection({
         <div>
           <h2>{t('boxInventoryTitle')}</h2>
         </div>
-        <strong>{totalCount} {t('boxInventoryBoxes')}</strong>
+        {response ? <strong>{totalCount} {t('boxInventoryBoxes')}</strong> : null}
       </header>
 
       {SHOW_INVENTORY_SUMMARY ? (
@@ -380,7 +401,7 @@ export default function BoxInventoryAdminSection({
           <span>{t('boxInventoryCreationYear')}</span>
           <select value={creationYearFilter} onChange={(event) => updateCreationYearFilter(event.target.value)}>
             <option value="">{t('boxInventoryAllYears')}</option>
-            {(response?.filter_options.creation_years ?? []).map((year) => (
+            {creationYears.map((year) => (
               <option key={year} value={year}>{year}</option>
             ))}
           </select>
@@ -474,7 +495,14 @@ export default function BoxInventoryAdminSection({
       ) : null}
 
       {message ? <p className="inline-success box-inventory-feedback">{message}</p> : null}
-      {loadError ? <p className="inline-error box-inventory-feedback">{loadError}</p> : null}
+      {loadError ? (
+        <div className="box-inventory-feedback" role="alert">
+          <p className="inline-error">{loadError}</p>
+          <button type="button" onClick={() => setRefreshVersion((current) => current + 1)}>
+            {t('reloadAction')}
+          </button>
+        </div>
+      ) : null}
       {pendingBoxesOnPage.length > 0 || selectedBoxes.size > 0 || isSelectionMode ? (
         <div className="box-inventory-selection-controls" role="group" aria-label={t('boxInventoryBatchSelectionTitle')}>
           <button
@@ -501,11 +529,11 @@ export default function BoxInventoryAdminSection({
               {selectedBoxes.size > 0 ? (
                 <>
                   <div className="box-inventory-batch-actions">
-                    <button type="button" className="is-active-action" onClick={() => openBatchAction('active')}>
+                    <button type="button" className="is-active-action" disabled={!canActOnInventory} onClick={() => openBatchAction('active')}>
                       <CheckCircle2 aria-hidden="true" size={17} />
                       {t('boxInventoryBatchMakeActive')}
                     </button>
-                    <button type="button" className="is-inactive-action" onClick={() => openBatchAction('inactive')}>
+                    <button type="button" className="is-inactive-action" disabled={!canActOnInventory} onClick={() => openBatchAction('inactive')}>
                       <CircleOff aria-hidden="true" size={17} />
                       {t('boxInventoryBatchMakeInactive')}
                     </button>
@@ -536,7 +564,7 @@ export default function BoxInventoryAdminSection({
           <span />
         </div>
 
-        {isLoading && !response ? (
+        {isLoading ? (
           <div className="box-inventory-loading"><SkeletonRows count={8} /></div>
         ) : response?.results.length ? (
           response.results.map((box) => {
@@ -644,7 +672,7 @@ export default function BoxInventoryAdminSection({
               </article>
             );
           })
-        ) : !isLoading ? (
+        ) : response ? (
           <div className="box-inventory-empty">
             <strong>{t('boxInventoryEmptyTitle')}</strong>
             <p>{t('boxInventoryEmptyText')}</p>
@@ -679,7 +707,7 @@ export default function BoxInventoryAdminSection({
         </nav>
       ) : null}
 
-      {lifecycleState ? (
+      {lifecycleState && lifecycleState.requestKey === requestKey && canActOnInventory ? (
         <BoxLifecycleModal
           action={lifecycleState.action}
           box={lifecycleState.box}
@@ -695,7 +723,7 @@ export default function BoxInventoryAdminSection({
         />
       ) : null}
 
-      {batchState ? (
+      {batchState && (batchResult || (batchState.requestKey === requestKey && canActOnInventory)) ? (
         <BoxInventoryBatchModal
           action={batchState.action}
           error={batchError}
