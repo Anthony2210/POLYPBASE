@@ -26,7 +26,7 @@ Ce champ prépare les références institutionnelles portables de Transfer v2. C
 
 Une restauration de la même base préserve ces UUID. Une institution initialisée indépendamment reçoit son propre UUID, même si son nom correspond à celui d'une autre institution. Aucun workflow spécial de clone/restauration ni rapprochement automatique n'est implémenté.
 
-Décision pour la future Phase 2B, sans implémentation ici : la création d'une enveloppe v2 devra refuser toute souche source sans `GlobalStrainIdentity`; le transfert ne créera, ne déduira et n'attachera pas cette identité.
+Phase 2B implémentée uniquement dans le worktree `feat/transfer-v2-protocol`, non intégrée à main : le service interne `create_source_package` exige un acteur authentifié/actif et l'autorité Admin de l'Organization source explicitement sélectionnée, via `user_can_administer_organization` (break-glass superuser existant conservé). Il recharge l'institution et filtre les Boxes côté serveur. Il refuse toute souche source sans `GlobalStrainIdentity`; il ne crée, ne déduit et n'attache pas cette identité. Les UUID institution/transfert/item ne donnent aucun droit; le parser structurel ne vérifie ni autorisation ni authenticité. Aucun endpoint v2 n'est exposé.
 
 ## Organisation active
 

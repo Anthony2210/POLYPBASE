@@ -1,3 +1,5 @@
+import uuid
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -290,6 +292,57 @@ class BoxTransfer(models.Model):
 
     def __str__(self):
         return f"{self.box} from {self.from_organization} to {self.to_organization}"
+
+
+class TransferEnvelope(models.Model):
+    """Source-owned v2 package. Portable content uses only frozen snapshots."""
+
+    transfer_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    source_organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.PROTECT,
+        related_name="transfer_envelopes", editable=False,
+    )
+    source_institution_id = models.UUIDField(editable=False)
+    source_institution_name = models.CharField(max_length=150, editable=False)
+    destination_institution_id = models.UUIDField(null=True, blank=True, editable=False)
+    destination_institution_name = models.CharField(
+        max_length=150, blank=True, default="", editable=False,
+    )
+    protocol_major = models.PositiveIntegerField(default=2, editable=False)
+    protocol_minor = models.PositiveIntegerField(default=0, editable=False)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="transfer_envelopes", editable=False,
+    )
+
+
+class TransferItem(models.Model):
+    """One source selection; portable identity is (transfer_id, item_id)."""
+
+    envelope = models.ForeignKey(
+        TransferEnvelope, on_delete=models.PROTECT, related_name="items", editable=False,
+    )
+    item_id = models.UUIDField(default=uuid.uuid4, editable=False)
+    source_box = models.ForeignKey(
+        Box, on_delete=models.PROTECT, related_name="transfer_items", editable=False,
+    )
+    source_box_code = models.CharField(max_length=100, editable=False)
+    source_strain_code = models.CharField(max_length=80, editable=False)
+    species_scientific_name = models.CharField(max_length=150, editable=False)
+    global_strain_id = models.UUIDField(editable=False)
+    declared_polyp_quantity = models.PositiveIntegerField(editable=False)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["envelope", "item_id"], name="unique_transfer_item_per_envelope",
+            ),
+            models.CheckConstraint(
+                condition=Q(declared_polyp_quantity__gte=0),
+                name="transfer_item_quantity_nonnegative",
+            ),
+        ]
 
 
 class BoxTransferImport(models.Model):

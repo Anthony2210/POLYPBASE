@@ -73,12 +73,77 @@ ni désactivée par l'import.
 L'import reçoit l'unique ligne CSV dans `source_data`, ainsi que les
 identifiants locaux de l'organisation et de la zone et le code proposé.
 
-## FUTURE — direction Transfer v2 (non implémentée)
+## Transfer v2 — Phase 2B source, dans ce worktree uniquement
 
-V1 demeure le chemin de compatibilité historique. V2 devrait utiliser une
-enveloppe versionnée construite par le serveur, des identifiants stables de
-transfert et d'item, `GlobalStrainIdentity` explicite et des métadonnées
-ancestrales portables. Aucun schéma JSON exact n'est décidé ici.
+Implémenté sur `feat/transfer-v2-protocol`, **non intégré à main**. V1 demeure
+le chemin de compatibilité historique disponible, sans modification. V2 utilise
+des tables `TransferEnvelope` / `TransferItem` distinctes, sans réinterpréter
+`BoxTransfer` ou `BoxTransferImport`.
+
+### Contrat sémantique indépendant du transport
+
+Le module `backend/apps/cultures/transfer_v2_protocol.py` valide des mappings
+avec DRF, sans lookup ni mutation en base. Il ne prouve ni authenticité, ni
+confiance, ni autorisation. Ce n'est pas un adaptateur JSON/CSV ou une API.
+
+Champs d'enveloppe exclusivement :
+
+- `protocol`: `polypbase.transfer`;
+- `protocol_major`: `2`, `protocol_minor`: `0`;
+- `transfer_id`: UUID opaque stable généré côté serveur;
+- `created_at`: timestamp sérialisé en ISO 8601 UTC;
+- `source_institution_id`: snapshot de `Organization.portable_id`;
+- `source_institution_name`: snapshot descriptif;
+- `destination_institution_id`: UUID optionnel, défaut `null`;
+- `destination_institution_name`: affichage optionnel, défaut chaîne vide;
+- `items`: collection non vide.
+
+Champs d'item exclusivement : `item_id` (UUID opaque stable),
+`source_box_code`, `source_strain_code`, `species_scientific_name`,
+`global_strain_id` (UUID biologique obligatoire) et `declared_polyp_quantity`.
+L'identité portable d'item est `(transfer_id, item_id)`; l'unicité SQL est
+`(envelope, item_id)`. La même Box peut figurer dans plusieurs packages.
+
+Le parser refuse le protocole v1, tout major/minor autre que `2.0`, les champs
+inconnus à chaque niveau, champs requis absents, UUID malformés, collections
+vides et identités d'item dupliquées. Les UUID valides sont normalisés à la
+sérialisation. Versions et quantités doivent être des entiers, sans coercition
+booléen/chaîne/flottant. La quantité déclarée est requise, de `0` à `2147483647`
+(limite structurelle du champ ORM); **zéro reste une vraie valeur**, sans
+préjuger de son acceptation opérationnelle. Aucune quantité n'est inférée des
+relevés et aucun stock n'est décrémenté.
+
+### Construction source interne et snapshots
+
+`create_source_package(actor=..., source_organization=..., selections=...)`
+accepte une collection de mappings `source_box_id` / `declared_polyp_quantity`,
+et les snapshots destination optionnels. Il recharge le contexte source,
+réutilise l'autorité Admin existante et filtre les Boxes dans cette institution.
+Il valide chaque sélection avant persistance. Chaque Strain source doit déjà
+avoir une `GlobalStrainIdentity`; aucune identité n'est créée, inférée ou attachée.
+L'erreur précise l'item concerné. Aucun critère actif-only n'est ajouté aux Boxes,
+cette décision produit restant ouverte.
+
+Le serveur génère les UUID, fige nom institution/codes/noms scientifiques/UUID
+biologique/quantité dans des colonnes, puis écrit parent, tous les items et
+`AuditLog` obligatoire dans une transaction. Un échec d'item ou d'audit annule
+tout. Audit et auteur restent locaux; aucune attribution privée n'est portable.
+Les relations source sont protégées contre suppression. La sérialisation lit
+ces colonnes, jamais les noms/codes actuels des modèles source. Aucun payload
+JSON dupliqué ni service de modification; `editable=False` exclut les champs
+des formulaires ordinaires, sans prétendre empêcher un writer ORM/SQL technique.
+Ces writers doivent préserver les snapshots établis.
+
+Les PK locaux, utilisateurs, memberships, contacts, emplacements, mesures,
+notes, état de cycle de vie, QR, audit, instructions AAA/BBB/X et lignées sont
+exclus. Une destination `null` n'autorise personne à accepter le package.
+Aucune mutation de Box/Strain/emplacement/relevé ni finalisation de v1.
+
+### Toujours non implémenté
+
+Aucun endpoint/UI/adaptateur fichier v2, inbox, receipt, preflight/acceptation,
+résolution de Strain destination, allocation X, identité portable de Box ou
+lignée portable. Ces phases restent ultérieures.
 
 Le même cœur backend d'acceptation pourrait servir le transfert direct entre
 Organisations de la même instance; le transport fichier resterait un adaptateur

@@ -43,6 +43,12 @@ Le modèle `DataExport` prévoit plusieurs formats. Une valeur de choix dans un 
 
 Transfer v1 dispose maintenant d'une frontière de service backend dédiée. Préparation + audit obligatoire et import atomique, ainsi que les cas de rejeu, sont couverts par des tests ciblés. Les conclusions de concurrence réelle exigent PostgreSQL isolé; SQLite seul ne valide pas les verrous. Consulter [`../transferts_csv.md`](../transferts_csv.md) pour les détails, sans recopier le contrat ici. Un transfert n'accorde aucun accès durable aux données de l'institution source.
 
+### Transfer v2 — fondation source dans ce worktree uniquement
+
+Phase 2B est implémentée dans `feat/transfer-v2-protocol`, **non intégrée à main** : `TransferEnvelope` / `TransferItem`, service source interne `backend/apps/cultures/transfer_v2.py` et contrat strict `transfer_v2_protocol.py`. Les snapshots sont construits par le backend et sérialisés indépendamment du transport; le parsing distant n'effectue aucune recherche ni écriture en base et n'établit aucune confiance ou permission. Création du package et audit obligatoire partagent une transaction.
+
+Le contrat exact est décrit dans [`../transferts_csv.md`](../transferts_csv.md). Il n'existe toujours aucun endpoint/UI/adaptateur fichier v2, aucune acceptation/résolution de Strain destination, lignée portable ou allocation X. Aucun effet de stock ou de cycle de vie source. V1 reste séparé et disponible.
+
 ## Tests à cibler
 
 - vraie valeur zéro contre cellule absente ou invalide;
