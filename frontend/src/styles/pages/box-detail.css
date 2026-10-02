@@ -1,4 +1,5 @@
 .box-page {
+  container: box-detail / inline-size;
   display: grid;
   gap: var(--space-4);
 }

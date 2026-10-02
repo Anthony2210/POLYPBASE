@@ -283,12 +283,14 @@
 }
 
 .overview-filters {
+  container: overview-filters / inline-size;
   display: block;
   overflow: hidden;
 }
 
 .overview-filters-header {
   display: flex;
+  flex-wrap: wrap;
   min-height: 42px;
   padding: 8px var(--space-3);
   align-items: center;
@@ -302,6 +304,7 @@
   display: flex;
   min-width: 0;
   align-items: baseline;
+  flex-wrap: wrap;
   gap: var(--space-3);
 }
 
@@ -363,6 +366,8 @@
 }
 
 .overview-sort-buttons button {
+  min-width: 0;
+  overflow-wrap: anywhere;
   color: var(--color-muted);
   font-size: 0.76rem;
   font-weight: 800;
@@ -391,6 +396,7 @@
 }
 
 .overview-box-summary {
+  container: overview-result / inline-size;
   position: relative;
   display: grid;
   min-width: 0;
@@ -709,10 +715,24 @@
   .overview-box-list { grid-template-columns: minmax(0, 1fr); }
 }
 
-@media (max-width: 1180px) {
-  .overview-filter-fields {
-    grid-template-columns: minmax(230px, 1.15fr) minmax(170px, .7fr) minmax(280px, 1fr);
+/* Three filter tracks need 778px including padding and gaps. */
+@container overview-filters (width < 778px) {
+  .overview-filter-fields { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* The 354px header includes 28px of negative-margin bleed beyond the
+   result's content box. Adapt the inner header before its tracks stop fitting. */
+@container overview-result (width < 326px) {
+  .overview-box-summary > header {
+    grid-template-columns: auto minmax(0, 1fr);
   }
+
+  .overview-zone-context {
+    grid-column: 1 / -1;
+    padding-inline: var(--space-3);
+  }
+
+  .overview-box-identity { padding-inline: var(--space-3); }
 }
 
 @media (min-width: 760px) and (max-width: 1180px) {
@@ -734,7 +754,6 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .overview-zone-progress-list[data-layout='1'] { grid-template-columns: minmax(0, 1fr); }
-  .overview-filter-fields { grid-template-columns: 1fr; }
   .overview-show-more { width: 100%; }
 }
 

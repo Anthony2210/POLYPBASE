@@ -1373,7 +1373,7 @@
 
   .zone-sheet-hero {
     --entity-columns: minmax(0, 1fr);
-    --entity-areas: "identity" "actions";
+    --entity-areas: "identity";
   }
 
   .zone-sheet-hero .box-page-label {

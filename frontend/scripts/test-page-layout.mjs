@@ -457,3 +457,96 @@ test('Profile orders sections and places the full-width logout last', () => {
   assert.match(profileCssSource, /\.profile-logout-row \.profile-sign-out \{ width: 100%; \}/);
   assert.match(profileViewSource, /className="profile-sign-out"[\s\S]*?onClick=\{handleLogout\}/);
 });
+
+function containerBlock(source, name, minWideWidth) {
+  const marker = `@container ${name} (width < ${minWideWidth}px)`;
+  const start = source.indexOf(marker);
+  assert.notEqual(start, -1, `missing ${marker}`);
+  const opening = source.indexOf('{', start);
+  let depth = 1;
+  for (let index = opening + 1; index < source.length; index += 1) {
+    if (source[index] === '{') depth += 1;
+    if (source[index] === '}') depth -= 1;
+    if (depth === 0) return source.slice(opening + 1, index);
+  }
+  assert.fail(`unclosed ${marker}`);
+}
+
+const boxDetailCss = readSource('src/styles/pages/box-detail.css');
+const overviewCss = readSource('src/styles/pages/overview.css');
+const tabletCss = readSource('src/styles/responsive/tablet.css');
+const phoneCss = readSource('src/styles/responsive/phone.css');
+
+test('Box header adapts to available page width in the responsive layer', () => {
+  assert.match(cssRule(boxDetailCss, '.box-page'), /container:\s*box-detail\s*\/\s*inline-size/);
+  // 878px of tracks + 60px gaps + 48px padding + 5px borders = 991px.
+  const compact = containerBlock(tabletCss, 'box-detail', 991);
+  const header = cssRule(compact, '.entity-header--box');
+  assert.match(header, /--entity-columns:\s*minmax\(0,\s*1fr\)\s+92px/);
+  assert.match(header, /--entity-areas:\s*"identity tools"\s*"summary summary"\s*"actions actions"/);
+  assert.match(cssRule(compact, '.box-action-stack'), /repeat\(auto-fit,\s*minmax\(min\(100%,\s*156px\),\s*1fr\)\)/);
+  assert.doesNotMatch(compact, /display:\s*none|overflow:\s*hidden/);
+  assert.match(cssRule(phoneCss, '.entity-header--box'), /--entity-columns:\s*minmax\(0,\s*1fr\)\s+48px/);
+  const imports = readSource('src/styles/index.css');
+  assert.ok(imports.indexOf("'./responsive/tablet.css'") < imports.indexOf("'./responsive/phone.css'"));
+  assert.match(imports, /responsive\/tablet\.css'\s+layer\(responsive\)/);
+});
+
+test('compact Box header wraps identity and facts instead of clipping them', () => {
+  const compact = containerBlock(tabletCss, 'box-detail', 991);
+  assert.match(cssRule(compact, '.box-code-line h2'), /white-space:\s*normal/);
+  assert.match(cssRule(compact, '.box-code-line h2'), /overflow:\s*visible/);
+  assert.match(cssRule(compact, '.box-species-name'), /overflow-wrap:\s*anywhere/);
+  assert.match(cssRule(compact, '.box-zone-summary .info-pill'), /overflow-wrap:\s*anywhere/);
+  assert.match(cssRule(compact, '.box-zone-summary'), /border-inline:\s*0/);
+  assert.match(cssRule(compact, '.box-action-stack > button'), /overflow-wrap:\s*anywhere/);
+  assert.match(readSource('src/styles/components/buttons.css'), /\.profile-sign-out\s*\{\s*min-height:\s*44px/);
+});
+
+test('Overview filters stack before their tracks exceed the container', () => {
+  assert.match(cssRule(overviewCss, '.overview-filters'), /container:\s*overview-filters\s*\/\s*inline-size/);
+  // 730px of tracks + 24px gaps + 24px padding = 778px.
+  const compact = containerBlock(overviewCss, 'overview-filters', 778);
+  assert.match(cssRule(compact, '.overview-filter-fields'), /grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  const trackRules = cssRules(overviewCss).filter(({ selector }) => selector === '.overview-filter-fields');
+  assert.equal(trackRules.length, 2, 'no viewport override may restore overflowing filter tracks');
+  assert.match(cssRule(overviewCss, '.overview-filters-header'), /flex-wrap:\s*wrap/);
+  assert.match(cssRule(overviewCss, '.overview-filters-header > div'), /flex-wrap:\s*wrap/);
+  assert.match(cssRule(overviewCss, '.overview-sort-buttons button'), /overflow-wrap:\s*anywhere/);
+  assert.equal((overviewViewSource.match(/className="overview-sort-buttons"/g) ?? []).length, 1);
+});
+
+test('narrow Overview result headers keep identity and location controls in flow', () => {
+  const resultRule = cssRules(overviewCss).find(({ selector }) => selector === '.overview-box-summary');
+  assert.ok(resultRule);
+  assert.match(resultRule.declarations, /container:\s*overview-result\s*\/\s*inline-size/);
+  // Header tracks need 354px; its negative margins add 28px to the content box.
+  const compact = containerBlock(overviewCss, 'overview-result', 326);
+  assert.match(cssRule(compact, '.overview-box-summary > header'), /grid-template-columns:\s*auto\s+minmax\(0,\s*1fr\)/);
+  assert.match(cssRule(compact, '.overview-zone-context'), /grid-column:\s*1\s*\/\s*-1/);
+  assert.match(cssRule(compact, '.overview-zone-context'), /padding-inline:\s*var\(--space-3\)/);
+  assert.doesNotMatch(compact, /display:\s*none|overflow:\s*hidden|position:\s*absolute/);
+  assert.match(cssRule(overviewCss, '.overview-zone-button'), /overflow-wrap:\s*anywhere/);
+  assert.match(cssRule(overviewCss, '.overview-box-identity strong'), /overflow-wrap:\s*anywhere/);
+  assert.match(overviewViewSource, /className="overview-box-identity"[\s\S]*?onClick=\{\(\) => onSelectBox\(entry\.box\.id\)\}/);
+  assert.match(overviewViewSource, /className="overview-zone-button"[\s\S]*?onClick=\{\(\) => onOpenZone/);
+});
+
+test('all Zone hero variants reserve only the identity track at every CSS layer', () => {
+  for (const source of [zonesSource, tabletCss, phoneCss]) {
+    const rules = cssRules(source).filter(({ selector }) => /\.(?:zone-sheet-hero|zone-directory-hero)$/.test(selector));
+    assert.ok(rules.length > 0);
+    for (const { selector, declarations } of rules) {
+      assert.match(declarations, /--entity-columns:\s*minmax\(0,\s*1fr\)/, selector);
+      assert.match(declarations, /--entity-areas:\s*"identity"\s*;/, selector);
+    }
+  }
+  for (const source of [zonesViewSource, readSource('src/components/ZoneMovementHistory.tsx')]) {
+    const heroes = [...source.matchAll(/<header className="entity-header entity-header--zone[^"\n]*">([\s\S]*?)<\/header>/g)];
+    assert.ok(heroes.length > 0);
+    for (const [, hero] of heroes) {
+      assert.match(hero, /entity-header__identity/);
+      assert.doesNotMatch(hero, /entity-header__(?:summary|actions)|zone-hero-summary|zone-hero-actions/);
+    }
+  }
+});

@@ -152,12 +152,8 @@
   }
 
   .zone-sheet-hero {
-    --entity-columns: minmax(210px, 0.65fr) minmax(0, 1.35fr) auto;
-  }
-
-  .zone-directory-hero {
-    --entity-columns: minmax(210px, 0.65fr) minmax(0, 1.35fr);
-    --entity-areas: "identity summary";
+    --entity-columns: minmax(0, 1fr);
+    --entity-areas: "identity";
   }
 
   .zone-hero-summary {
@@ -226,4 +222,36 @@
     min-height: 22px;
   }
 
+}
+
+/* The desktop header needs 991px including tracks, gaps, padding and borders.
+   Query the page width so navigation and zoom cannot leave actions clipped. */
+@container box-detail (width < 991px) {
+  .entity-header--box {
+    --entity-columns: minmax(0, 1fr) 92px;
+    --entity-areas: "identity tools" "summary summary" "actions actions";
+    align-items: start;
+    gap: var(--space-3);
+  }
+
+  .box-sheet-identity { min-height: 0; }
+  .box-code-line h2 { overflow: visible; white-space: normal; }
+  .box-species-name { overflow-wrap: anywhere; }
+  .box-header-tools { align-self: start; }
+
+  .box-zone-summary {
+    min-height: 0;
+    padding: var(--space-3) 0 0;
+    border-inline: 0;
+    border-top: 1px solid var(--color-line);
+  }
+
+  .box-zone-summary .info-pill { overflow-wrap: anywhere; }
+
+  .box-action-stack {
+    min-width: 0;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 156px), 1fr));
+  }
+
+  .box-action-stack > button { overflow-wrap: anywhere; }
 }
