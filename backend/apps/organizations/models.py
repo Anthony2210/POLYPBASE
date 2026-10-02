@@ -1,7 +1,10 @@
+import uuid
+
 from django.db import models
 
 
 class Organization(models.Model):
+    portable_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     name = models.CharField(max_length=150, unique=True)
     slug = models.SlugField(max_length=120, unique=True, null=True, blank=True)
     city = models.CharField(max_length=120, blank=True)

@@ -18,6 +18,16 @@ Le superutilisateur Django est un mécanisme technique, pas un rôle produit à 
 
 Les comptes utilisent les sessions Django. Les parcours de connexion, invitation et récupération de mot de passe vivent dans `backend/apps/accounts/`; la configuration du transport e-mail vient de l'environnement. Une invitation ou un lien de réinitialisation constitue un secret d'accès pendant sa validité et ne doit jamais apparaître dans les logs ou la documentation.
 
+## Identité portable technique
+
+`Organization.portable_id` est un UUID opaque, unique, non nul et non éditable dans les workflows ordinaires. Les nouvelles institutions reçoivent automatiquement un `uuid.uuid4()`; la migration `0002_organization_portable_id` attribue un UUID aléatoire indépendant à chaque institution existante sans modifier ses PK ni ses relations. Le nom, le slug et les codes ne servent jamais à calculer ou rapprocher cette identité.
+
+Ce champ prépare les références institutionnelles portables de Transfer v2. Ce n'est ni une permission, ni une identité biologique (`GlobalStrainIdentity`), ni un identifiant de routage public. Les serializers actuels ne l'exposent pas et n'acceptent pas son écriture; les formulaires/admin l'excluent via `editable=False`. Cela ne constitue pas une protection contre une écriture ORM/SQL technique explicite, qui doit préserver l'identité établie.
+
+Une restauration de la même base préserve ces UUID. Une institution initialisée indépendamment reçoit son propre UUID, même si son nom correspond à celui d'une autre institution. Aucun workflow spécial de clone/restauration ni rapprochement automatique n'est implémenté.
+
+Décision pour la future Phase 2B, sans implémentation ici : la création d'une enveloppe v2 devra refuser toute souche source sans `GlobalStrainIdentity`; le transfert ne créera, ne déduira et n'attachera pas cette identité.
+
 ## Organisation active
 
 Le frontend conserve l'identifiant de l'organisation choisie et l'envoie dans l'en-tête `X-Organization-Id`. Le backend résout ce contexte dans `backend/apps/accounts/permissions.py` et ne l'accepte que si l'utilisateur peut réellement accéder à l'institution demandée.
