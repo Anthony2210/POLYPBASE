@@ -2,9 +2,12 @@ import {
   lazy,
   Suspense,
   useEffect,
+  useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type RefObject,
 } from 'react';
 
 import type {
@@ -34,7 +37,8 @@ type BoxInsightsLabels = {
   events: string;
   historyButton: string;
   historyAllYears: string;
-  historyCountLabel: string;
+  historyVisibleCount: (visible: number, total: number) => string;
+  historyYearFilter: string;
   historyEnteredBy: string;
   historyHideComment: string;
   historyObservation: string;
@@ -237,6 +241,10 @@ export function MeasurementHistoryModal({
   measurements: BiologicalMeasurement[];
   onClose: () => void;
 }) {
+  const dialogRef = useRef<HTMLElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
   const [selectedYear, setSelectedYear] = useState('all');
   const [visibleCount, setVisibleCount] = useState(24);
   const [expandedNotes, setExpandedNotes] = useState<Set<number>>(() => new Set());
@@ -263,18 +271,58 @@ export function MeasurementHistoryModal({
   const visibleMeasurements = filteredMeasurements.slice(0, visibleCount);
   const remainingCount = Math.max(0, filteredMeasurements.length - visibleMeasurements.length);
 
-  useEffect(() => {
-    setVisibleCount(24);
-  }, [selectedYear]);
+  useLayoutEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const backdrop = dialogRef.current?.parentElement;
+    const background = Array.from(document.body.children)
+      .filter((element): element is HTMLElement => element instanceof HTMLElement && element !== backdrop);
+    const previousInert = background.map((element) => element.inert);
+    background.forEach((element) => { element.inert = true; });
+    titleRef.current?.focus({ preventScroll: true });
+
+    return () => {
+      background.forEach((element, index) => { element.inert = previousInert[index]; });
+      if (opener?.isConnected) opener.focus({ preventScroll: true });
+    };
+  }, []);
 
   useEffect(() => {
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === 'Escape') onClose();
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
+        'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+      )).filter((element) => element.getClientRects().length > 0);
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (!first || !last) {
+        event.preventDefault();
+        titleRef.current?.focus();
+      } else if (event.shiftKey && (active === first || active === titleRef.current || !dialog.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+        event.preventDefault();
+        first.focus();
+      }
     }
 
-    window.addEventListener('keydown', closeOnEscape);
-    return () => window.removeEventListener('keydown', closeOnEscape);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
+
+  function selectYear(year: string) {
+    setSelectedYear(year);
+    setVisibleCount(24);
+    if (listRef.current) listRef.current.scrollTop = 0;
+  }
 
   function toggleNote(measurementId: number) {
     setExpandedNotes((current) => {
@@ -289,37 +337,38 @@ export function MeasurementHistoryModal({
     <ModalPortal>
       <div className="modal-backdrop" role="presentation" onClick={onClose}>
       <section
+        ref={dialogRef}
         className="history-modal measurement-history-modal"
         role="dialog"
         aria-modal="true"
-        aria-label={labels.measurementHistory}
+        aria-labelledby={titleId}
         onClick={(event) => event.stopPropagation()}
       >
         <header className="measurement-history-heading">
           <div>
             <span className="measurement-history-box-code">{boxCode}</span>
-            <h2>{labels.measurementHistory}</h2>
-            <p>{labels.historyCountLabel} : <strong>{filteredMeasurements.length}</strong></p>
+            <h2 id={titleId} ref={titleRef} tabIndex={-1}>{labels.measurementHistory}</h2>
           </div>
-          <button className="measurement-history-close" type="button" aria-label={labels.close} onClick={onClose}>
+          <button className="icon-button" type="button" aria-label={labels.close} onClick={onClose}>
             <PolypbaseIcon name="close" size={19} />
           </button>
         </header>
 
         <div className="measurement-history-toolbar">
           <label>
-            <span>{labels.historyYear}</span>
-            <select value={selectedYear} onChange={(event) => setSelectedYear(event.target.value)}>
+            <span>{labels.historyYearFilter}</span>
+            <select value={selectedYear} onChange={(event) => selectYear(event.target.value)}>
               <option value="all">{labels.historyAllYears}</option>
               {availableYears.map((year) => <option key={year} value={year}>{year}</option>)}
             </select>
           </label>
-          <span aria-live="polite">
-            {visibleMeasurements.length} / {filteredMeasurements.length}
+          <span role="status">
+            {labels.historyVisibleCount(visibleMeasurements.length, filteredMeasurements.length)}
           </span>
         </div>
 
         <MeasurementHistoryList
+          listRef={listRef}
           expandedNotes={expandedNotes}
           labels={labels}
           measurements={visibleMeasurements}
@@ -328,7 +377,16 @@ export function MeasurementHistoryModal({
 
         {remainingCount > 0 ? (
           <footer className="measurement-history-footer">
-            <button type="button" onClick={() => setVisibleCount((current) => current + 24)}>
+            <button
+              className="secondary-button compact-button"
+              type="button"
+              onClick={(event) => {
+                // The last batch removes this control; keep focus inside the reading area.
+                if (remainingCount <= 24) listRef.current?.focus({ preventScroll: true });
+                else event.currentTarget.focus({ preventScroll: true });
+                setVisibleCount((current) => current + 24);
+              }}
+            >
               {labels.historyShowMore} ({Math.min(24, remainingCount)})
             </button>
           </footer>
@@ -340,18 +398,20 @@ export function MeasurementHistoryModal({
 }
 
 function MeasurementHistoryList({
+  listRef,
   expandedNotes,
   labels,
   measurements,
   onToggleNote,
 }: {
+  listRef: RefObject<HTMLDivElement>;
   expandedNotes: Set<number>;
   labels: BoxInsightsLabels;
   measurements: BiologicalMeasurement[];
   onToggleNote: (measurementId: number) => void;
 }) {
   return (
-    <div className="measurement-history-table" role="table" aria-label={labels.measurementHistory}>
+    <div ref={listRef} className="measurement-history-table" role="table" tabIndex={0} aria-label={labels.measurementHistory}>
       <div className="measurement-history-columns" role="row">
         <span role="columnheader">{labels.historyYear}</span>
         <span role="columnheader">{labels.polyps}</span>
@@ -373,32 +433,32 @@ function MeasurementHistoryList({
         return (
           <article key={measurement.id} className="measurement-history-entry" role="row">
             <div className="measurement-history-date" role="cell">
-              <small>{labels.historyYear}</small>
+              <small aria-hidden="true">{labels.historyYear}</small>
               <time dateTime={measurement.measured_on}>{formatDisplayDate(measurement.measured_on)}</time>
             </div>
             <div className="measurement-history-value" role="cell">
-              <small>{labels.polyps}</small>
+              <small aria-hidden="true">{labels.polyps}</small>
               <strong>{measurement.polyp_count}</strong>
             </div>
             <div className="measurement-history-value" role="cell">
-              <small>{labels.ephyraeFull}</small>
+              <small aria-hidden="true">{labels.ephyraeFull}</small>
               <strong>{measurement.ephyrae_count}</strong>
             </div>
             <div className="measurement-history-value" role="cell">
-              <small>PSU</small>
+              <small aria-hidden="true">PSU</small>
               <strong className={measurement.salinity_psu === null ? 'is-missing' : ''}>
                 {measurement.salinity_psu === null ? '—' : formatDecimal(measurement.salinity_psu)}
               </strong>
             </div>
             <div className="measurement-history-user" role="cell">
-              <small>{labels.historyEnteredBy}</small>
+              <small aria-hidden="true">{labels.historyEnteredBy}</small>
               <span>{measurement.user ?? '—'}</span>
             </div>
             <div className="measurement-history-note" role="cell">
-              <small>{labels.historyObservation}</small>
-              <p className={isExpanded ? 'is-expanded' : ''}>{note || '—'}</p>
+              <small aria-hidden="true">{labels.historyObservation}</small>
+              <p className={isLongNote && !isExpanded ? 'is-collapsed' : ''}>{note || '—'}</p>
               {isLongNote ? (
-                <button type="button" onClick={() => onToggleNote(measurement.id)}>
+                <button type="button" aria-expanded={isExpanded} onClick={() => onToggleNote(measurement.id)}>
                   {isExpanded ? labels.historyHideComment : labels.historyReadComment}
                 </button>
               ) : null}

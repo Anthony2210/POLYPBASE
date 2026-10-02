@@ -679,6 +679,8 @@ export const en: Record<TranslationKey, string> = {
   historyButton: 'View records',
   historyAllYears: 'All years',
   historyCountLabel: 'Measurements',
+  historyVisibleCount: '{visible} of {total} records shown',
+  historyYearFilter: 'Year',
   historyEnteredBy: 'Entered by',
   historyHideComment: 'Show less',
   historyObservation: 'Observation',

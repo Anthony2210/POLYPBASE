@@ -3688,7 +3688,9 @@ function getBoxInsightsLabels(t: TFunction) {
     events: t('events'),
     historyButton: t('historyButton'),
     historyAllYears: t('historyAllYears'),
-    historyCountLabel: t('historyCountLabel'),
+    historyVisibleCount: (visible: number, total: number) => t('historyVisibleCount')
+      .replace('{visible}', String(visible)).replace('{total}', String(total)),
+    historyYearFilter: t('historyYearFilter'),
     historyEnteredBy: t('historyEnteredBy'),
     historyHideComment: t('historyHideComment'),
     historyObservation: t('historyObservation'),

@@ -17,7 +17,7 @@
     "test:labels": "node --test scripts/test-qr-labels.mjs",
     "test:dates": "node --test scripts/test-date-format.mjs",
     "test:members": "node --test scripts/test-account-members.mjs",
-    "test:measurements": "node --test scripts/test-box-measurement.mjs",
+    "test:measurements": "node --test scripts/test-box-measurement.mjs scripts/test-measurement-history.mjs",
     "test:alerts": "node --test scripts/test-alert-removal.mjs",
     "test:audit": "node --test scripts/test-audit-presentation.mjs",
     "test:confirm": "node --test scripts/test-confirm-action.mjs",

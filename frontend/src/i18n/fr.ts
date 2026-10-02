@@ -677,6 +677,8 @@ export const fr = {
   historyButton: 'Voir relevés',
   historyAllYears: 'Toutes les années',
   historyCountLabel: 'Nombre de relevés',
+  historyVisibleCount: '{visible} sur {total} relevés affichés',
+  historyYearFilter: 'Année',
   historyEnteredBy: 'Saisi par',
   historyHideComment: 'Réduire',
   historyObservation: 'Observation',
