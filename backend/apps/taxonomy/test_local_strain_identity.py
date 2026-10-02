@@ -142,11 +142,19 @@ class LocalStrainIdentityMigrationTests(TransactionTestCase):
     def test_populated_upgrade_does_not_infer_local_identity(self):
         before = ("taxonomy", "0005_biologicalprovenance_organizationprovenancecode_and_more")
         after = ("taxonomy", "0006_localstrainidentity")
-        cultures = ("cultures", "0007_box_inventory_lifecycle")
+        executor = MigrationExecutor(connection)
+        latest = executor.loader.graph.leaf_nodes()
+        # Keep the physical schema aligned with the historical cross-app models.
+        other_targets = [node for node in latest if node[0] not in {"taxonomy", "organizations"}]
+        organizations = ("organizations", "0001_initial")
+        before_targets = other_targets + [before, organizations]
+        after_targets = other_targets + [after, organizations]
         try:
+            # A preceding migration test may have left another historical state.
+            executor.migrate(latest)
             executor = MigrationExecutor(connection)
-            executor.migrate([before, cultures])
-            old_apps = executor.loader.project_state([before, cultures]).apps
+            executor.migrate(before_targets)
+            old_apps = executor.loader.project_state(before_targets).apps
             OldOrganization = old_apps.get_model("organizations", "Organization")
             OldSpecies = old_apps.get_model("taxonomy", "Species")
             OldAssignment = old_apps.get_model("taxonomy", "OrganizationSpeciesCode")
@@ -173,8 +181,8 @@ class LocalStrainIdentityMigrationTests(TransactionTestCase):
             )
 
             executor = MigrationExecutor(connection)
-            executor.migrate([after, cultures])
-            new_apps = executor.loader.project_state([after, cultures]).apps
+            executor.migrate(after_targets)
+            new_apps = executor.loader.project_state(after_targets).apps
             self.assertEqual(new_apps.get_model("taxonomy", "LocalStrainIdentity").objects.count(), 0)
             self.assertEqual(
                 new_apps.get_model("taxonomy", "OrganizationSpeciesCode").objects.get(pk=assignment.pk).code,
@@ -197,20 +205,26 @@ class LocalStrainIdentityMigrationTests(TransactionTestCase):
                 (origin.pk, "HIS-OLD-1.001", "001"),
             )
         finally:
-            MigrationExecutor(connection).migrate([
-                ("taxonomy", "0007_localstrainidentity_provenance_code_assignment"), cultures
-            ])
+            MigrationExecutor(connection).migrate(latest)
 
 
 class LocalStrainProvenanceMigrationTests(TransactionTestCase):
     def test_populated_upgrade_leaves_existing_identities_unknown(self):
         before = ("taxonomy", "0006_localstrainidentity")
         after = ("taxonomy", "0007_localstrainidentity_provenance_code_assignment")
-        cultures = ("cultures", "0007_box_inventory_lifecycle")
+        executor = MigrationExecutor(connection)
+        latest = executor.loader.graph.leaf_nodes()
+        # Keep the physical schema aligned with the historical cross-app models.
+        other_targets = [node for node in latest if node[0] not in {"taxonomy", "organizations"}]
+        organizations = ("organizations", "0001_initial")
+        before_targets = other_targets + [before, organizations]
+        after_targets = other_targets + [after, organizations]
         try:
+            # A preceding migration test may have left another historical state.
+            executor.migrate(latest)
             executor = MigrationExecutor(connection)
-            executor.migrate([before, cultures])
-            old_apps = executor.loader.project_state([before, cultures]).apps
+            executor.migrate(before_targets)
+            old_apps = executor.loader.project_state(before_targets).apps
             OldOrganization = old_apps.get_model("organizations", "Organization")
             OldSpecies = old_apps.get_model("taxonomy", "Species")
             OldStrain = old_apps.get_model("taxonomy", "Strain")
@@ -243,8 +257,8 @@ class LocalStrainProvenanceMigrationTests(TransactionTestCase):
             )
 
             executor = MigrationExecutor(connection)
-            executor.migrate([after, cultures])
-            new_apps = executor.loader.project_state([after, cultures]).apps
+            executor.migrate(after_targets)
+            new_apps = executor.loader.project_state(after_targets).apps
             NewLocal = new_apps.get_model("taxonomy", "LocalStrainIdentity")
             NewStrain = new_apps.get_model("taxonomy", "Strain")
             upgraded = NewLocal.objects.get(pk=local.pk)
@@ -263,4 +277,4 @@ class LocalStrainProvenanceMigrationTests(TransactionTestCase):
             self.assertEqual((upgraded_box.global_code, upgraded_box.box_number, upgraded_box.origin_id),
                              ("OLD-1.001", "001", origin.pk))
         finally:
-            MigrationExecutor(connection).migrate([after, cultures])
+            MigrationExecutor(connection).migrate(latest)

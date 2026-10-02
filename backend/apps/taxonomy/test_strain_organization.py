@@ -128,10 +128,19 @@ class StrainOrganizationMigrationTests(TransactionTestCase):
     def test_populated_strain_is_not_assigned_an_organization(self):
         before = ("taxonomy", "0003_globalstrainidentity_strain_global_identity")
         after = ("taxonomy", "0004_strain_organization")
+        executor = MigrationExecutor(connection)
+        latest = executor.loader.graph.leaf_nodes()
+        # Keep the physical schema aligned with the historical cross-app models.
+        other_targets = [node for node in latest if node[0] not in {"taxonomy", "organizations"}]
+        organizations = ("organizations", "0001_initial")
+        before_targets = other_targets + [before, organizations]
+        after_targets = other_targets + [after, organizations]
         try:
+            # A preceding migration test may have left another historical state.
+            executor.migrate(latest)
             executor = MigrationExecutor(connection)
-            executor.migrate([before])
-            old_apps = executor.loader.project_state([before]).apps
+            executor.migrate(before_targets)
+            old_apps = executor.loader.project_state(before_targets).apps
             OldOrganization = old_apps.get_model("organizations", "Organization")
             OldSpecies = old_apps.get_model("taxonomy", "Species")
             OldStrain = old_apps.get_model("taxonomy", "Strain")
@@ -145,8 +154,8 @@ class StrainOrganizationMigrationTests(TransactionTestCase):
             )
 
             executor = MigrationExecutor(connection)
-            executor.migrate([after])
-            new_apps = executor.loader.project_state([after]).apps
+            executor.migrate(after_targets)
+            new_apps = executor.loader.project_state(after_targets).apps
             NewStrain = new_apps.get_model("taxonomy", "Strain")
             NewIdentity = new_apps.get_model("taxonomy", "GlobalStrainIdentity")
             NewOrganization = new_apps.get_model("organizations", "Organization")
@@ -158,4 +167,4 @@ class StrainOrganizationMigrationTests(TransactionTestCase):
             self.assertEqual(NewIdentity.objects.count(), 1)
             self.assertEqual(list(NewOrganization.objects.values_list("pk", flat=True)), [organization.pk])
         finally:
-            MigrationExecutor(connection).migrate([after])
+            MigrationExecutor(connection).migrate(latest)

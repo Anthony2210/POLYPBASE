@@ -133,11 +133,19 @@ class LocalCodeSchemaMigrationTests(TransactionTestCase):
     def test_populated_upgrade_does_not_infer_local_codes_or_provenance(self):
         before = ("taxonomy", "0004_strain_organization")
         after = ("taxonomy", "0005_biologicalprovenance_organizationprovenancecode_and_more")
-        cultures = ("cultures", "0007_box_inventory_lifecycle")
+        executor = MigrationExecutor(connection)
+        latest = executor.loader.graph.leaf_nodes()
+        # Keep the physical schema aligned with the historical cross-app models.
+        other_targets = [node for node in latest if node[0] not in {"taxonomy", "organizations"}]
+        organizations = ("organizations", "0001_initial")
+        before_targets = other_targets + [before, organizations]
+        after_targets = other_targets + [after, organizations]
         try:
+            # A preceding migration test may have left another historical state.
+            executor.migrate(latest)
             executor = MigrationExecutor(connection)
-            executor.migrate([before, cultures])
-            old_apps = executor.loader.project_state([before, cultures]).apps
+            executor.migrate(before_targets)
+            old_apps = executor.loader.project_state(before_targets).apps
             OldOrganization = old_apps.get_model("organizations", "Organization")
             OldSpecies = old_apps.get_model("taxonomy", "Species")
             OldOrigin = old_apps.get_model("taxonomy", "Origin")
@@ -159,8 +167,8 @@ class LocalCodeSchemaMigrationTests(TransactionTestCase):
             )
 
             executor = MigrationExecutor(connection)
-            executor.migrate([after, cultures])
-            new_apps = executor.loader.project_state([after, cultures]).apps
+            executor.migrate(after_targets)
+            new_apps = executor.loader.project_state(after_targets).apps
             NewStrain = new_apps.get_model("taxonomy", "Strain")
             self.assertEqual(new_apps.get_model("taxonomy", "OrganizationSpeciesCode").objects.count(), 0)
             self.assertEqual(new_apps.get_model("taxonomy", "BiologicalProvenance").objects.count(), 0)
@@ -185,4 +193,4 @@ class LocalCodeSchemaMigrationTests(TransactionTestCase):
                 (organization.pk, strain.pk, origin.pk, "HIS-OLD-1.001", "001"),
             )
         finally:
-            MigrationExecutor(connection).migrate([after, cultures])
+            MigrationExecutor(connection).migrate(latest)
