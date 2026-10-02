@@ -26,6 +26,16 @@ d'administration (armoires, sondes, structures, transferts) et la salinité.
 | Référentiel taxonomique | `apps/taxonomy/tests.py` | 5 |
 | **Total** | | **139** |
 
+### Modules ciblés ajoutés depuis cet inventaire historique
+
+Ces modules spécialisés ne sont pas inclus dans le tableau de comptage ci-dessus :
+
+| Domaine | Fichier | Portée |
+|---|---|---|
+| Propriété des Strain et import transfer v1 | `apps/cultures/test_transfer_strain_ownership.py` | propriété destination, conflits, atomicité, replay et périmètre d'organisation. |
+| Concurrence transfer v1 | `apps/cultures/test_transfer_v1_concurrency.py` | rejeu concurrent et contrainte d'unicité; conclusions de verrouillage uniquement sur PostgreSQL. |
+| Identité Species/local Strain | `apps/taxonomy/test_strain_species_concurrency.py` | cohérence PATCH/LocalStrainIdentity et contention réelle des verrous PostgreSQL. |
+
 ---
 
 ## Contrat courant : Alertes abandonnées

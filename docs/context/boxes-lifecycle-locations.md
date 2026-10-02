@@ -48,6 +48,12 @@ Si l'état a changé entre l'affichage et la confirmation, l'API répond `409` a
 
 Les opérations de repiquage et les transitions de cycle de vie utilisent des services transactionnels. Lors d'une évolution, inspecter la création de la boîte enfant, son emplacement initial, la relation de lignée et l'audit comme une seule opération métier potentielle. Ne pas déduire une parenté d'une ressemblance de codes.
 
+### Transfert inter-institutions
+
+**V1 actuel :** l'import crée une nouvelle Box locale à destination; il ne déplace ni ne réaffecte la Box source et ne crée aucune relation `BoxLineage` de transfert.
+
+**Direction future, non implémentée :** parentage/repiquage et arêtes de transfert sont des sémantiques distinctes. Une Strain identique n'implique pas une lignée; aucune parenté ne doit être inférée d'une ressemblance de codes. Les métadonnées de lignée inter-institutions ne doivent jamais donner accès aux fiches opérationnelles étrangères de Box.
+
 ## Règles de modification
 
 - Valider organisation, permission, statut et zone côté serveur.

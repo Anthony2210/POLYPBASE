@@ -41,7 +41,7 @@ Le modèle `DataExport` prévoit plusieurs formats. Une valeur de choix dans un 
 
 ## Transferts inter-institutions
 
-Le CSV de transfert de boîtes possède son propre contrat, ses validations de sécurité et sa traçabilité. Consulter [`../transferts_csv.md`](../transferts_csv.md) au lieu de recopier ce format ici. Un transfert n'accorde aucun accès durable aux données de l'institution source.
+Transfer v1 dispose maintenant d'une frontière de service backend dédiée. Préparation + audit obligatoire et import atomique, ainsi que les cas de rejeu, sont couverts par des tests ciblés. Les conclusions de concurrence réelle exigent PostgreSQL isolé; SQLite seul ne valide pas les verrous. Consulter [`../transferts_csv.md`](../transferts_csv.md) pour les détails, sans recopier le contrat ici. Un transfert n'accorde aucun accès durable aux données de l'institution source.
 
 ## Tests à cibler
 

@@ -4,9 +4,7 @@
 
 - Refreshed **2026-10-02**, from supplied canonical local Git state and milestone validation evidence.
 - Canonical repository: `C:\Users\antoc\POLYPBASE`.
-- Current `main`: **`96c5593`** (`fix: improve frontend consistency and QR handling`), fast-forward integrated from previous main **`f186912`**. Local `origin/main` remains at **`f186912`**; **1 ahead / 0 behind**, verified from local refs. No fetch was performed for this refresh; no push occurred after integration, and `96c5593` is not claimed as pushed. Local refs do not establish GitHub or production state.
-- Only this document has a local change outside commits; secondary worktree changes are preserved.
-- Sanitized history is the current ancestry. Do not transplant old-history commits without separate review.
+- Current `main` and `origin/main`: **`6e92674`** (`refactor: harden transfer v1 backend boundary`), verified clean and aligned immediately after push. `HEAD` is this commit. No production state is implied.
 
 ## Integrated product state
 
@@ -84,8 +82,26 @@
 - AAA management UI was implemented (`f8e8077`) inside `TaxonomyAdminSection`, but its Administration section is now disabled. **API delivery does not mean an active management screen.**
 - **Not implemented:** X allocator/sequence, scoped X uniqueness, generated AAA–BBB–X identifier or dedicated immutable issued-code snapshot. Normal API still accepts existing manual code/number/origin-code fields. Global `(species, code)` Strain uniqueness remains.
 - Existing Species/Strain/Box legacy identifier fields are retained. AAA/BBB changes do not recompute issued identifiers; there is no automatic ownership, Global ID or local-identity reconciliation.
-- Enforcement is not yet universal: historical/transfer import writers can create owned Strains without the normal POST's AAA/local-identity flow. Static inspection also found that Strain species PATCH does not revalidate its existing local identity; creation-service validation alone does not guarantee later cross-table consistency. Resolve through a separate reviewed change, not this document refresh.
-- Evidence: `backend/apps/taxonomy/models.py`, `scoping.py`, `services.py`, `api_views.py`, `serializers.py`, migrations `0003`–`0007`, `test_species_codes_api.py`, `test_local_strain_service.py`, and `frontend/src/utils/strainSpeciesCode.ts`.
+- Enforcement is not yet universal: historical/transfer import writers can create owned Strains without the normal POST's AAA/local-identity flow. The integrated Species PATCH integrity milestone below protects existing local identities.
+- **Integrated `1ea84e5` Species/local-identity integrity milestone:** a Strain with `LocalStrainIdentity` cannot change Species through generic PATCH; a no-op same-Species PATCH remains allowed and other fields remain editable. An identity-less owned Strain retains legacy behavior. AAA assigned to another Species cannot bypass consistency validation. Strain-first locking is coherent with local identity creation, and mutation plus audit are atomic. No dedicated Species correction workflow is implemented.
+- PostgreSQL QA: `apps.taxonomy.test_strain_species_concurrency` ran **2 tests: 2 passed, 0 skipped**. Real PostgreSQL lock contention was observed; QA required no code correction.
+- Evidence: `backend/apps/taxonomy/models.py`, `scoping.py`, `services.py`, `api_views.py`, `serializers.py`, migrations `0003`–`0007`, `test_species_codes_api.py`, `test_local_strain_service.py`, `test_strain_species_concurrency.py`, and `frontend/src/utils/strainSpeciesCode.ts`.
+
+### Transfers inter-institutions
+
+- **Phase 1 integrated at `6e92674`** (`refactor: harden transfer v1 backend boundary`): `backend/apps/cultures/transfer_v1.py` is the focused business boundary. Preparation and its mandatory source audit are atomic; destination import is atomic. The legacy replay identity is unchanged. Sequential replay retains HTTP 400; replay is checked again after the Species lock, and a late replay-constraint loss is translated only after rollback. Unrelated `IntegrityError`s are not converted to duplicate responses. Request-layer scoping continues to enforce active-organization isolation and Admin checks. Foreign-owned and `organization=NULL` Strain collisions remain conflicts. No model or migration changed.
+- Validation evidence: targeted main tests after cherry-pick **18/18 passed** under isolated SQLite settings; Django system check passed; independent review **GREEN**, no findings. Isolated PostgreSQL QA ran `test_transfer_v1_concurrency.py`: **2 executed, 2 passed, 0 skipped**, with both real concurrent scenarios verified and no deadlock, timeout or transaction anomaly. That PostgreSQL QA was run on the reviewed implementation before integration; the cherry-pick applied cleanly without code conflict. The PostgreSQL tests were not rerun on main after cherry-pick.
+- **Current v1 limits:** resolution by Species + `strain_code`; transfer-created Strains do not require AAA/`LocalStrainIdentity`; no `GlobalStrainIdentity`, portable Box identity or portable lineage graph. The frontend CSV path remains legacy and the parser consumes one data row. Global `(species, code)` Strain uniqueness and globally unique `Box.global_code` remain. The Transfers section is disabled in Administration. V1 is not the Transfer v2 architecture.
+
+#### FUTURE / NOT IMPLEMENTED — Transfer v2 direction
+
+The approved target is a versioned contract with portable transfer/item/institution identities, explicit `GlobalStrainIdentity`, and known ancestry metadata. Same-instance institutions should eventually use direct Organization-to-Organization transfer; versioned files remain an adapter for separate installations, offline exchange and external/legacy systems. Repiquage preserves `GlobalStrainIdentity`; transfer preserves it too. A coherent destination-local Strain for an incoming identity should be reused; a genuinely new one eventually receives a locally allocated X via a server-side concurrency-safe allocator. No `MAX(X)+1` implementation is specified.
+
+Multiple disconnected Box-lineage families may exist for the same biological/local Strain. Matching identity, Species or codes never imply Box parentage. Known ancestry should travel with a Box and continue locally, with no live cross-institution synchronization; later onward/return transfers may carry enriched known ancestry, without granting access to foreign operational/scientific records. Future acceptance remains all-or-nothing: preflight may report issues without mutation; acceptance commits entirely or rolls back entirely. Mutation/hybridization rules are out of scope.
+
+Dependency-aware roadmap: **1 DONE** v1 backend boundary hardening; **2** versioned v2 contract and portable transfer/item/institution identities; **3** diagnose then establish canonical local `GlobalStrainIdentity` representation and safely address code namespaces/legacy assumptions; **4** concurrency-safe local X allocator; **5** portable lineage nodes/edges distinguishing transfer from repiquage and excluding live sync; **6** backend preflight plus atomic/idempotent multi-item acceptance; **7** direct same-instance Organization-to-Organization workflow; **8** versioned file adapter for cross-instance/offline/external exchange; **9** user-facing inbox/contextual resolution after backend contracts stabilize. Later phases depend on stable identity and contract decisions; none beyond Phase 1 is implemented.
+
+Unresolved product decisions: whether source Boxes must be active-only at the backend; the exact source Box/quantity/status effect of transfer; and the trust/authenticity model for cross-instance packages.
 
 ### BiologicalProvenance / BBB
 
@@ -121,23 +137,30 @@
 
 ## Active / paused worktrees
 
-All counts below are **branch commits ahead / behind current local main**, excluding uncommitted edits. POLYPBASE secondary paths use the prefix `C:\Users\antoc\worktrees\POLYPBASE\` and suffix `\POLYPBASE` around each directory name below. No worktree was modified or removed.
+Verified read-only during this **2026-10-02** refresh: **19 registered POLYPBASE worktrees total at that point, including canonical main and 18 secondary worktrees**. Canonical main is at `6e92674`, with five tracked documentation changes from this uncommitted refresh. The table is the complete registered secondary-worktree inventory at the time of this refresh, not a permanent invariant; branches/HEADs come from `git worktree list --porcelain`, cleanliness from Git status, and counts from `main...HEAD` (**ahead / behind** main `6e92674`, excluding uncommitted edits). Secondary paths use the prefix `C:\Users\antoc\worktrees\POLYPBASE\` and suffix `\POLYPBASE` around each directory name. No secondary worktree was modified or removed, and no dirty secondary worktree file contents were inspected.
 
-| Directory / branch | HEAD | Cleanliness | Ahead / behind | Meaning for continuation |
-|---|---|---|---|---|
-| `action-history-cleanup-targeted` / `fix/action-history-cleanup-targeted` | `8ad925b` | 11 modified tracked files | 0 / 27 | Older uncommitted backend/presentation experiment; committed HEAD is integrated. Review remaining edits against latest Actions; do not assume all are still needed. |
-| `action-history-colored-deltas` / `fix/action-history-colored-deltas` | `c8fd4b0` | Clean | 1 / 2 | Patch-equivalent to main `673db92`; delivery integrated under a different hash. |
-| `action-history-no-disclosures-fr` / `fix/action-history-no-disclosures-fr` | `cc2d466` | Clean | 0 / 3 | Ancestor of main; integrated milestone. |
-| `action-history-unified-presentation` / `fix/action-history-unified-presentation` | `3d9f96e` | Clean | 0 / 2 | Ancestor of main; integrated milestone. |
-| `action-journal-cleanup` / `fix/action-journal-cleanup` | `b8e5647` | 17 modified tracked files | 0 / 31 | Older uncommitted action/taxonomy experiment; committed HEAD integrated, dirty edits require selective review. |
-| `label-printer-41x28-tuning` / `fix/label-printer-41x28-tuning` | `cfeaca1` | Clean | 1 / 3 | Patch-equivalent to main `f999bd9`; printer delivery integrated. |
-| `organization-audit-atomicity` / `fix/organization-audit-atomicity` | `1d8b5f2` | Clean | 1 / 28 | Unique unintegrated commit adding atomic organization create/update audit and tests. Those decorators are absent from current main. Separate review/integration decision needed. |
-| `provenance-bbb-admin-ui` / `feat/provenance-bbb-admin-ui` | `6ee81d4` | 6 tracked modifications + 2 untracked files | 0 / 6 | Backend API HEAD integrated; frontend provenance/BBB experiment uncommitted and deferred. |
-| `reference-admin-redesign` / `feat/reference-admin-redesign` | `284c033` | 9 tracked modifications + 3 untracked files | 0 / 4 | Rejected large catalog experiment, paused. References still disabled; also contains uncommitted organization-switch race protection, which needs independent review if pursued. |
-| `strain-legacy-diagnostic` / `feat/strain-legacy-diagnostic` | `9126ad1` | Clean | 1 / 27 | Unique unintegrated read-only `check_strain_legacy` command/tests; not available in current main. Do not run it against production from this snapshot. |
-| `strain-provenance-foundation` / `feat/strain-provenance-foundation` | `14c0f3b` | Clean | 2 / 11 | Provenance foundation patch-equivalent to `54e115d`; guidance equivalent to `519e601` except contemporaneous chart test-script context. No new product delivery established by the divergent hashes. |
+| Directory / branch | HEAD | Cleanliness | Ahead / behind |
+|---|---|---|---|
+| `action-history-cleanup-targeted` / `fix/action-history-cleanup-targeted` | `8ad925b` | 11 modified tracked files | 0 / 35 |
+| `action-history-colored-deltas` / `fix/action-history-colored-deltas` | `c8fd4b0` | Clean | 1 / 10 |
+| `action-history-no-disclosures-fr` / `fix/action-history-no-disclosures-fr` | `cc2d466` | Clean | 0 / 11 |
+| `action-history-unified-presentation` / `fix/action-history-unified-presentation` | `3d9f96e` | Clean | 0 / 10 |
+| `action-journal-cleanup` / `fix/action-journal-cleanup` | `b8e5647` | 17 modified tracked files | 0 / 39 |
+| `dialog-focus-accessibility` / `fix/dialog-focus-accessibility` | `6e92674` | Clean | 0 / 0 |
+| `frontend-consistency-fixes` / `fix/frontend-consistency-fixes` | `96c5593` | Clean | 0 / 2 |
+| `label-printer-41x28-tuning` / `fix/label-printer-41x28-tuning` | `cfeaca1` | Clean | 1 / 11 |
+| `measurement-history-modal-ui` / `feat/measurement-history-modal-ui` | `ed2ae93` | Clean | 1 / 6 |
+| `organization-audit-atomicity` / `fix/organization-audit-atomicity` | `1d8b5f2` | Clean | 1 / 36 |
+| `provenance-bbb-admin-ui` / `feat/provenance-bbb-admin-ui` | `6ee81d4` | 6 tracked modifications + 2 untracked entries | 0 / 14 |
+| `qr-active-org-isolation` / `fix/qr-active-org-isolation` | `6693268` | Clean | 1 / 7 |
+| `reference-admin-redesign` / `feat/reference-admin-redesign` | `284c033` | 9 tracked modifications + 3 untracked entries | 0 / 12 |
+| `remove-alerts` / `refactor/remove-alerts` | `5f773ff` | Clean | 0 / 5 |
+| `strain-legacy-diagnostic` / `feat/strain-legacy-diagnostic` | `9126ad1` | Clean | 1 / 35 |
+| `strain-provenance-foundation` / `feat/strain-provenance-foundation` | `14c0f3b` | Clean | 2 / 19 |
+| `strain-species-identity-integrity` / `fix/strain-species-identity-integrity` | `1ea84e5` | Clean | 0 / 6 |
+| `transfer-v1-boundary` / `refactor/transfer-v1-boundary` | `e692caa` | Clean | 1 / 3 |
 
-- The previously documented 16 secondary worktrees are no longer the registered state: **11** are registered now. No dedicated chart, global-identity, ownership or local-code-schema worktree is currently registered.
+- Dirty historical action experiments and paused reference/provenance UI still require selective review against current main, not bulk integration. Commit counts do not establish patch equivalence or pending product work; integration milestones above remain the product-state reference.
 - Companion Species/AAA branch `analysis/species-aaa-review-manifest` now points to **`346512d`**, the same commit as companion main; its four committed review/tooling files are integrated, not pending integration. Preserve the worktree; no cleanup is requested.
 - Other companion analysis worktrees, as observed at the earlier pre-integration `24da481` snapshot (not re-audited here): `diag/strain-diagnostic-normalization` was clean at that companion main; older `docs/analysis-refactor-log` and four `refactor/*` worktrees are clean ancestors (6–10 commits behind), not evidence of pending integration. The clean detached `lilac-dune` worktree is two commits behind. `local-import-20260922` is not currently registered; absence from registration says nothing about private retention or other filesystem copies.
 - Preserve dirty worktrees. Patch-equivalent/ancestor status establishes integration of committed work, **not permission to delete local worktrees**.
@@ -158,18 +181,17 @@ All counts below are **branch commits ahead / behind current local main**, exclu
 1. **Étienne / Anaïs:** Anthony sent the validation email on **2026-10-01**. Several Species/AAA mappings, collisions, naming questions and color/form/“hybrid” qualifier decisions listed above await their feedback; the blocked state is broader than D11/D12. The manifest remains **not import-ready** until those decisions are explicitly resolved and approved.
 2. **Technical tooling is delivered:** committed at `346512d`, fast-forward integrated into companion main, pushed, independently reviewed GREEN with no remaining technical findings, and **89 tests passed on canonical main after integration**. Earlier focused validation also recorded 15 targeted tests, historical check-only baseline and private CSV hashes unchanged. **Product/manifest work remains blocked:** stakeholder responses and explicit decisions are still required; no final approved manifest or POLYPBASE importer exists. Do not begin importer work from unresolved mappings. Committed review tooling/documents are not an approved import contract; private CSV decision fields remain unresolved.
 3. Missing-AAA recovery is incomplete because References is disabled. Design a small contextual assignment/maintenance workflow; do not resurrect the rejected catalog or introduce provenance/BBB as a prerequisite.
-4. Separately review local identity integrity after Strain species PATCH and all import writers before claiming universal AAA consistency or implementing X/snapshot semantics.
+4. Review all import writers before claiming universal AAA consistency or implementing X/snapshot semantics; the Species/local-identity PATCH integrity gap is resolved, but transfer imports still do not require AAA/local identity.
 5. Decide separately whether to integrate the organization-audit atomicity and read-only legacy-diagnostic commits. Dirty action experiments and paused reference/provenance UI require selective triage, not bulk merge.
 6. Static inspection flagged two other follow-ups, not fixed here: Overview absence/full-history wording for bounded data; QR box routes authorize membership-wide institutions rather than requiring the selected active institution. Reproduce and review before changing behavior.
-7. Probe connectivity/combined monitoring, DNA enrichment, Global-ID-aware transfer protocol and application WoRMS integration remain separate future work; models/Aphia IDs do not prove connected features.
+7. Transfer v2 Phase 2 (versioned contract and portable transfer/item/institution identities) is the next Transfer/Strain technical phase; Global-ID resolution, X allocation and portable lineage remain later dependency-ordered work. Probe connectivity/combined monitoring, DNA enrichment and application WoRMS integration remain separate future work; models/Aphia IDs do not prove connected features.
 
 ## Next operational steps
 
-1. Anthony reviews this snapshot and the pending stakeholder decision list. Preserve all secondary worktrees and private review artifacts.
-2. Wait for Étienne/Anaïs responses to the 2026-10-01 email → record explicit mapping/naming/qualifier decisions → produce and review an approved manifest. The technical tooling is already committed/integrated/pushed; no import-ready manifest exists yet.
-3. Define a versioned dry-run importer contract only after approvals: institution binding, conflict handling, audit/transaction behavior and identifier preservation. No database import yet, especially not production.
-4. Address the missing-AAA recovery UX with a scoped product decision; keep provenance/BBB deferred. Review integrity gaps independently before further identity runtime work.
-5. Run targeted isolated QA for any separately authorized implementation, then broader checks as needed. Review final diffs; Anthony handles integration/deployment unless delegated.
+1. **Species/AAA stakeholder track:** continue waiting for Étienne/Anaïs responses to the 2026-10-01 email, then record explicit mapping/naming/qualifier decisions and review an approved manifest. No import-ready manifest exists. No importer or database import before explicit approvals; a dry-run importer contract is a later step on this track.
+2. **Transfer/Strain technical track, in parallel:** Species/LocalStrainIdentity generic PATCH protection and PostgreSQL concurrency QA are delivered; Transfer v1 boundary hardening is integrated at `6e92674`, with independent review and pre-integration PostgreSQL concurrency QA GREEN. Next is **Transfer v2 Phase 2: versioned protocol/contract and portable transfer/item/institution identities**. Do not jump to Global-ID resolution, X allocation or portable lineage implementation; follow the later dependencies documented above. This contract phase is not blocked on the historical Species/AAA manifest approvals.
+3. **Missing-AAA contextual UX:** remains a separate future product workflow requiring a scoped decision. Do not restore the rejected References catalog; keep provenance/BBB deferred.
+4. Preserve secondary worktrees and private review artifacts. Any separately authorized implementation receives targeted isolated QA, then broader checks as needed. Review final diffs; Anthony handles integration/deployment unless delegated.
 
 ## Production / QA status
 

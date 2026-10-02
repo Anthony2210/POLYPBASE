@@ -1,12 +1,17 @@
 # Spécification des transferts CSV Polypbase
 
-## Objectif
+## Transfert v1 actuel — compatibilité historique
 
-Le CSV transporte les informations nécessaires pour recréer une culture dans
-une autre installation Polypbase. Il contient une ligne par transfert, encodée
-en UTF-8 avec marque BOM pour rester lisible dans Excel.
+La version courante est `polypbase.box_transfer.v1`. Le CSV est généré côté
+frontend et le parcours actuel lit une seule ligne de données. Préparation et
+import sont deux opérations distinctes : la préparation crée un `BoxTransfer`
+(planifié) et son audit obligatoire dans une transaction; elle ne déplace pas
+la boîte source. L'import crée une nouvelle culture/boîte locale à destination
+et n'affecte pas la boîte source.
 
-La version courante est `polypbase.box_transfer.v1`.
+Le fichier actuel est encodé en UTF-8 avec marque BOM. Les intitulés et champs
+v1 décrits ci-dessous restent inchangés; cette documentation ne redéfinit pas
+le payload historique.
 
 ## Colonnes obligatoires
 
@@ -22,37 +27,60 @@ La version courante est `polypbase.box_transfer.v1`.
 
 Les autres colonnes apportent le destinataire prévu, le préparateur, le nom
 commun, l'origine, les parents connus, les consignes, l'état sanitaire, les
-notes et le lien QR de la boîte source.
+notes et le lien QR de la boîte source. Le payload historique inclut des champs
+opérationnels qui ne conviennent pas comme futur contrat minimal de partage de
+lignée; cela ne change ni leur présence ni leur traitement en v1.
 
 Quand l'interface est française, le fichier utilise les intitulés français.
 L'import reconnaît aussi les noms techniques anglais des anciens fichiers.
 
-## Création de la boîte destinataire
+## Résolution et création destination
 
-L'utilisateur choisit la structure et l'emplacement locaux. Polypbase propose
-ensuite `<code_souche>.<numéro suivant>`, avec un numéro sur au moins trois
-chiffres. Le code est modifiable, mais :
+L'utilisateur choisit l'organisation et la zone locales. La Strain est résolue
+par `Species` + code source `strain_code`; une nouvelle Strain est créée au
+nom de l'organisation destination si aucune collision de propriété n'existe.
+Une Strain étrangère ou sans organisation avec le même couple est un conflit.
+L'import v1 ne requiert pas AAA/`LocalStrainIdentity` et ne transporte pas
+`GlobalStrainIdentity`. La boîte créée reçoit un nouveau code local/global selon
+les contraintes actuelles (`Box.global_code` reste globalement unique).
 
-- il doit commencer par le code de la souche et finir par un numéro ;
-- il doit être unique dans la base ;
-- en cas de conflit, le serveur refuse l'import et renvoie la prochaine
-  suggestion disponible.
-
-Le nouvel identifiant numérique est toujours généré par la base destinataire.
+L'import crée l'emplacement initial, le relevé initial, l'enregistrement
+`BoxTransferImport` et l'audit de destination dans une transaction atomique.
+Une erreur annule l'ensemble. La préparation et son audit source sont également
+atomiques depuis `6e92674`. La boîte source n'est ni déplacée, ni réaffectée,
+ni désactivée par l'import.
 
 ## Sécurité et traçabilité
 
-- Le format et toutes les colonnes obligatoires sont contrôlés avant création.
-- Un transfert est unique par version, structure source et identifiant source.
-- Un second import du même transfert est refusé.
-- La boîte source et son organisation ne sont jamais modifiées.
-- Le contenu source est conservé dans `BoxTransferImport.source_data`.
-- L'importateur, la date, la boîte créée et l'action d'audit sont enregistrés.
+- Le format et les champs obligatoires sont vérifiés avant création; Django
+  applique le contrôle d'organisation active et les permissions Admin.
+- La replay identity historique est version + nom d'organisation source +
+  `transfer_id`. Un rejeu séquentiel conserve la réponse HTTP 400 existante.
+  Le rejeu est revérifié après le verrouillage Species; une perte tardive sur
+  contrainte est traduite après rollback. Les autres `IntegrityError`s restent
+  des erreurs distinctes.
+- Les collisions de Strain étrangère ou `organization=NULL` restent des conflits.
+- La boîte source et son organisation ne sont pas modifiées par l'import.
+- Le payload est conservé dans `BoxTransferImport.source_data`; l'importateur,
+  la date, la boîte créée et l'audit de destination sont enregistrés.
+- V1 n'embarque ni identité biologique globale ni graphe de lignée portable.
 
 ## API
 
 - Préparation : `POST /api/box-transfers/`
 - Import : `POST /api/box-transfer-imports/`
 
-L'import reçoit la ligne CSV normalisée dans `source_data`, ainsi que les
-identifiants locaux de la structure et de l'emplacement et le code proposé.
+L'import reçoit l'unique ligne CSV dans `source_data`, ainsi que les
+identifiants locaux de l'organisation et de la zone et le code proposé.
+
+## FUTURE — direction Transfer v2 (non implémentée)
+
+V1 demeure le chemin de compatibilité historique. V2 devrait utiliser une
+enveloppe versionnée construite par le serveur, des identifiants stables de
+transfert et d'item, `GlobalStrainIdentity` explicite et des métadonnées
+ancestrales portables. Aucun schéma JSON exact n'est décidé ici.
+
+Le même cœur backend d'acceptation pourrait servir le transfert direct entre
+Organisations de la même instance; le transport fichier resterait un adaptateur
+pour installations distinctes, échanges hors ligne et systèmes externes.
+Cela ne décrit pas une capacité actuelle.
