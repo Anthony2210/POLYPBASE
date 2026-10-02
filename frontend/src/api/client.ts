@@ -5,6 +5,66 @@ type RequestOptions = RequestInit & {
 
 const ACTIVE_ORGANIZATION_STORAGE_KEY = 'polypbase.activeOrganizationId';
 const inFlightGetRequests = new Map<string, Promise<unknown>>();
+let organizationResourceController: AbortController | null = null;
+
+export class ApiResourceCancelledError extends Error {
+  constructor() {
+    super('Organization resource context changed.');
+    this.name = 'ApiResourceCancelledError';
+  }
+}
+
+export function getOrganizationResourceSignal(): AbortSignal {
+  organizationResourceController ??= new AbortController();
+  return organizationResourceController.signal;
+}
+
+// Resource lifetimes are separate from App's request generations.
+export async function apiGetResource(
+  path: string,
+  options: { signal?: AbortSignal; contextSignal?: AbortSignal } = {},
+): Promise<string> {
+  const contextSignal = options.contextSignal ?? getOrganizationResourceSignal();
+  const controller = new AbortController();
+  const signals = [contextSignal, options.signal].filter((signal): signal is AbortSignal => Boolean(signal));
+  const abort = () => {
+    const source = signals.find((signal) => signal.aborted);
+    if (source) controller.abort(source.reason);
+  };
+  signals.forEach((signal) => signal.addEventListener('abort', abort, { once: true }));
+  abort();
+  const { signal } = controller;
+  let onAbort: () => void = () => {};
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(signal.reason);
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+
+  async function retrieve() {
+    signal.throwIfAborted();
+    const headers = buildRequestHeaders();
+    if (!headers.has('X-Organization-Id')) {
+      throw new ApiError(400, 'An active organization is required.');
+    }
+    const url = new URL(path, window.location.origin);
+    if (url.origin !== window.location.origin) {
+      throw new ApiError(400, 'Organization resources must use the app origin.');
+    }
+    const response = await fetch(path, { credentials: 'include', cache: 'no-store', headers, signal });
+    signal.throwIfAborted();
+    const text = await response.text();
+    signal.throwIfAborted();
+    if (!response.ok) throw new ApiError(response.status, 'Resource retrieval failed.', text);
+    return text;
+  }
+
+  try {
+    return await Promise.race([retrieve(), aborted]);
+  } finally {
+    signals.forEach((source) => source.removeEventListener('abort', abort));
+    signal.removeEventListener('abort', onAbort);
+  }
+}
 
 export class ApiError extends Error {
   status: number;
@@ -25,12 +85,17 @@ export function getStoredActiveOrganizationId(): number | null {
 }
 
 export function setActiveOrganizationContext(organizationId: number | null) {
+  const previousOrganizationId = getStoredActiveOrganizationId();
   if (organizationId == null) {
     window.localStorage.removeItem(ACTIVE_ORGANIZATION_STORAGE_KEY);
-    return;
+  } else {
+    window.localStorage.setItem(ACTIVE_ORGANIZATION_STORAGE_KEY, String(organizationId));
   }
-
-  window.localStorage.setItem(ACTIVE_ORGANIZATION_STORAGE_KEY, String(organizationId));
+  if (previousOrganizationId !== organizationId && organizationResourceController) {
+    const previousController = organizationResourceController;
+    organizationResourceController = new AbortController();
+    previousController.abort(new ApiResourceCancelledError());
+  }
 }
 
 export async function apiGet<T>(path: string, options: RequestOptions = {}): Promise<T> {

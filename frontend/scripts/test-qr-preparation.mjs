@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { resourceClient } from './resource-test-harness.mjs';
 
 const origin = 'https://polypbase.test';
 const label = { id: 17, globalCode: 'ATL-AAU-1.001', speciesName: 'Aurelia aurita', zoneName: 'Zone 15', qrImageUrl: '/boites/17/qr.svg' };
@@ -41,7 +42,10 @@ function preparationHarness(options = {}) {
   url.createObjectURL = (blob) => { calls.push(['blob', blob]); return 'blob:test'; };
   url.revokeObjectURL = () => calls.push(['revoke']);
   const exports = {};
+  const fetch = options.fetch ?? (async (_url, config) => { calls.push(['fetch', config]); return { ok: true, text: async () => '<svg xmlns="http://www.w3.org/2000/svg" width="25" height="25"/>' }; });
+  const client = resourceClient({ fetch });
   vm.runInNewContext(compiled, {
+    require: () => client,
     exports, URL: url, Blob, AbortController, unescape, encodeURIComponent,
     window: {
       location: { origin }, btoa: (text) => Buffer.from(text, 'binary').toString('base64'),
@@ -69,7 +73,7 @@ function preparationHarness(options = {}) {
     const pending = [...timers.entries()].filter(([id]) => timerDelays.get(id) === delay);
     pending.forEach(([, callback]) => callback());
   };
-  return { api: exports, calls, popup, images, timers, timerDelays, resources, runTimers };
+  return { api: exports, client, calls, popup, images, timers, timerDelays, resources, runTimers };
 }
 
 function expectStatus(result, status, reason) {
@@ -84,6 +88,62 @@ test('empty selection and blocked popup return explicit outcomes without fetchin
   assert.equal(h.calls.length, 0);
   expectStatus(await h.api.printQrLabels([label]), 'failed', 'popup-blocked');
   assert.deepEqual(h.calls.map(([name]) => name), ['open']);
+});
+
+test('protected SVG retrieval sends active organization and never uses image fallback', async () => {
+  const h = preparationHarness();
+  expectStatus(await h.api.downloadQrLabel(label), 'prepared');
+  assert.equal(h.calls.find(([name]) => name === 'fetch')[1].headers.get('X-Organization-Id'), '1');
+  for (const qrImageUrl of [label.qrImageUrl, '/boites/%31%37/qr.svg', '/boites/17/qr.svg?public_base_url=https%3A%2F%2Fpolypbase.test']) {
+    const failed = preparationHarness({ fetch: async () => { throw new Error('network'); } });
+    expectStatus(await failed.api.printQrLabels([{ ...label, qrImageUrl }]), 'failed', 'qr-retrieval');
+    assert.equal(failed.resources.length, 0);
+  }
+});
+
+for (const action of ['print', 'download']) {
+  test(`${action} context invalidation settles despite ignored abort and A-B-A`, async () => {
+    let resolveFetch, requestSignal;
+    const h = preparationHarness({ fetch: (_url, { signal }) => {
+      requestSignal = signal;
+      return new Promise((resolve) => { resolveFetch = resolve; });
+    } });
+    const pending = action === 'print' ? h.api.printQrLabels([label]) : h.api.downloadQrLabel(label);
+    await tick();
+    h.client.setActiveOrganizationContext(2);
+    h.client.setActiveOrganizationContext(1);
+    expectStatus(await pending, 'cancelled');
+    assert.equal(requestSignal.aborted, true);
+    assert.equal(h.timers.size, 0);
+    if (action === 'print') assert.equal(h.popup.closed, true);
+    resolveFetch({ ok: true, text: async () => '<svg/>' });
+    await tick();
+    assert.equal(h.calls.some(([name]) => ['write', 'print', 'download'].includes(name)), false);
+    assert.equal(h.resources.length, 0);
+  });
+
+  test(`${action} invalidation disposes pending images without failure`, async () => {
+    const image = resourceImage({ complete: false });
+    const h = preparationHarness({ images: [image], resourcePending: true });
+    const pending = action === 'print' ? h.api.printQrLabels([label]) : h.api.downloadQrLabel(label);
+    await tick();
+    const pendingImage = action === 'print' ? image : h.resources[0];
+    assert.equal(pendingImage.listeners.size, 2);
+    h.client.setActiveOrganizationContext(null);
+    expectStatus(await pending, 'cancelled');
+    assert.equal(pendingImage.listeners.size, 0);
+    assert.equal(pendingImage.src, '');
+    assert.equal(h.timers.size, 0);
+    assert.equal(h.calls.some(([name]) => ['print', 'download'].includes(name)), false);
+  });
+}
+
+test('ignored transport abort still settles the QR retrieval timeout', async () => {
+  const h = preparationHarness({ fetch: () => new Promise(() => {}) });
+  const pending = h.api.downloadQrLabel(label);
+  h.runTimers(15000);
+  expectStatus(await pending, 'failed', 'qr-retrieval');
+  assert.equal(h.timers.size, 0);
 });
 
 test('popup opens synchronously and print waits for every image', async () => {
@@ -114,10 +174,10 @@ test('HTTP retrieval failure closes partial popup and never invokes print', asyn
 test('network fallback must load successfully before it can be printed', async () => {
   const fetch = async () => { throw new Error('network'); };
   const good = preparationHarness({ fetch });
-  expectStatus(await good.api.printQrLabels([label]), 'prepared');
-  assert.match(good.calls.find(([name]) => name === 'write')[1], /https:\/\/polypbase\.test\/boites\/17\/qr.svg/);
+  expectStatus(await good.api.printQrLabels([{ ...label, qrImageUrl: '/resource.svg' }]), 'prepared');
+  assert.match(good.calls.find(([name]) => name === 'write')[1], /https:\/\/polypbase\.test\/resource.svg/);
   const bad = preparationHarness({ fetch, resourceValid: false });
-  expectStatus(await bad.api.printQrLabels([label]), 'failed', 'fallback-resource');
+  expectStatus(await bad.api.printQrLabels([{ ...label, qrImageUrl: '/resource.svg' }]), 'failed', 'fallback-resource');
   assert.equal(bad.popup.closed, true);
   assert.equal(bad.calls.some(([name]) => name === 'print'), false);
 });
@@ -245,12 +305,13 @@ test('failed retrieval aborts a sibling fetch without invoking fallback', async 
 
 test('failed fallback image aborts sibling fetch and clears its resource listeners', async () => {
   let siblingSignal;
+  const fallbackLabel = { ...label, qrImageUrl: '/resource.svg' };
   const h = preparationHarness({ resourcePending: true, fetch: (url, { signal }) => {
-    if (url === label.qrImageUrl) return Promise.reject(new Error('network'));
+    if (url === fallbackLabel.qrImageUrl) return Promise.reject(new Error('network'));
     siblingSignal = signal;
     return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
   } });
-  const pending = h.api.printQrLabels([label, { ...label, id: 18, qrImageUrl: '/boites/18/qr.svg' }]);
+  const pending = h.api.printQrLabels([fallbackLabel, { ...label, id: 18, qrImageUrl: '/boites/18/qr.svg' }]);
   await tick();
   assert.equal(h.resources.length, 1);
   h.resources[0].emit('error');
@@ -270,7 +331,7 @@ test('failed retrieval disposes a pending sibling fallback image', async () => {
     if (url === label.qrImageUrl) return new Promise((resolve) => { failFirst = resolve; });
     return Promise.reject(new Error('network'));
   } });
-  const pending = h.api.printQrLabels([label, { ...label, id: 18, qrImageUrl: '/boites/18/qr.svg' }]);
+  const pending = h.api.printQrLabels([label, { ...label, id: 18, qrImageUrl: '/resource.svg' }]);
   await tick();
   assert.equal(h.resources[0].listeners.size, 2);
   failFirst({ ok: false });

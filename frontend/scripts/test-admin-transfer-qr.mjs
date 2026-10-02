@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { resourceClient } from './resource-test-harness.mjs';
 
 function compile(path, suffix = '') {
   return ts.transpileModule(readFileSync(new URL(path, import.meta.url), 'utf8') + suffix, {
@@ -17,7 +18,7 @@ function load(code, globals = {}) {
 }
 
 const componentCode = compile('../src/components/AdminView.tsx', '\nexport { TransferCreateForm };');
-const qr = load(compile('../src/utils/qrLabels.ts'), { URL, window: { location: { origin: 'https://polypbase.test' } } });
+const qr = load(compile('../src/utils/qrLabels.ts'), { require: () => resourceClient(), URL, window: { location: { origin: 'https://polypbase.test' } } });
 const locales = {
   fr: load(compile('../src/i18n/fr.ts')).fr,
   en: load(compile('../src/i18n/en.ts')).en,

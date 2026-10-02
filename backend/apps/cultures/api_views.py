@@ -27,7 +27,7 @@ from rest_framework import generics, status
 from rest_framework.exceptions import APIException, PermissionDenied
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.pagination import LimitOffsetPagination
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -37,6 +37,7 @@ from apps.accounts.permissions import (
     get_active_organization_ids,
     get_authorized_organization_ids,
     get_authorized_organizations,
+    get_required_active_organization_from_request,
     user_can_write_lab_data,
 )
 from apps.audit.models import AuditLog
@@ -1061,6 +1062,26 @@ class BoxDetailAPIView(generics.RetrieveAPIView):
             self.request.user,
             organization_ids=get_active_organization_ids(self.request),
         )
+
+
+class BoxScanAPIView(APIView):
+    """Resolve and record a printed QR link in its active organization."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, box_id):
+        organization = get_required_active_organization_from_request(request)
+        box = get_object_or_404(Box.objects.filter(organization=organization), id=box_id)
+        AuditLog.objects.create(
+            organization=box.organization,
+            user=request.user,
+            action=AuditLog.Action.SCAN,
+            object_type="box",
+            object_id=box.global_code,
+            description=f"QR scan of {box.global_code}",
+            metadata={"box_id": box.id, "source": "qr_link"},
+        )
+        return Response({"global_code": box.global_code}, status=status.HTTP_201_CREATED)
 
 
 class BoxAccessAPIView(APIView):

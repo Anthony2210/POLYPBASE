@@ -1,3 +1,4 @@
+import { ApiError, ApiResourceCancelledError, apiGetResource, getOrganizationResourceSignal } from '../api/client';
 import type { BoxDetail, BoxItem } from '../types';
 
 export type QrLabelItem = {
@@ -128,6 +129,7 @@ class QrPreparationError extends Error {
 }
 
 function failedPreparation(error: unknown): QrLabelPreparationResult {
+  if (error instanceof ApiResourceCancelledError) return { status: 'cancelled' };
   return { status: 'failed', reason: error instanceof QrPreparationError ? error.reason : 'preparation' };
 }
 
@@ -154,16 +156,21 @@ export async function printQrLabels(
 
 export async function downloadQrLabel(label: QrLabelItem): Promise<QrLabelPreparationResult> {
   const controller = new AbortController();
+  const contextSignal = getOrganizationResourceSignal();
+  const onContextAbort = () => controller.abort(contextSignal.reason);
+  contextSignal.addEventListener('abort', onContextAbort, { once: true });
   try {
     // Downloads must remain self-contained; a remote URL is not a usable fallback.
-    const qrDataUrl = await getQrDataUrl(label.qrImageUrl, false, controller.signal);
+    const qrDataUrl = await getQrDataUrl(label.qrImageUrl, false, controller.signal, contextSignal);
     await prepareQrImage(qrDataUrl, 'image-preparation', controller.signal);
+    controller.signal.throwIfAborted();
     const svg = buildQrLabelSvg(label, qrDataUrl);
     downloadTextFile(svg, `${label.globalCode}_etiquette.svg`, 'image/svg+xml;charset=utf-8');
     return { status: 'prepared' };
   } catch (error) {
     return failedPreparation(error);
   } finally {
+    contextSignal.removeEventListener('abort', onContextAbort);
     controller.abort(new QrPreparationError('preparation'));
   }
 }
@@ -173,6 +180,9 @@ async function prepareQrPrint(
 ): Promise<QrLabelPreparationResult> {
   const controller = new AbortController();
   const { signal } = controller;
+  const contextSignal = getOrganizationResourceSignal();
+  const onContextAbort = () => controller.abort(contextSignal.reason);
+  contextSignal.addEventListener('abort', onContextAbort, { once: true });
   let closeTimer: number | undefined;
   let onAbort: () => void = () => {};
   const aborted = new Promise<never>((_resolve, reject) => {
@@ -191,7 +201,7 @@ async function prepareQrPrint(
     signal.throwIfAborted();
     const printableLabels = await Promise.all(labels.map(async (label) => ({
       ...label,
-      qrImageUrl: await getQrDataUrl(label.qrImageUrl, true, signal),
+      qrImageUrl: await getQrDataUrl(label.qrImageUrl, true, signal, contextSignal),
     })));
     signal.throwIfAborted();
     if (printWindow.closed) return { status: 'cancelled' };
@@ -206,6 +216,7 @@ async function prepareQrPrint(
     if (printWindow.closed) return { status: 'cancelled' };
     printWindow.focus();
     if (printWindow.closed) return { status: 'cancelled' };
+    signal.throwIfAborted();
     printWindow.print();
     return { status: 'prepared' };
   }
@@ -215,13 +226,14 @@ async function prepareQrPrint(
     return await Promise.race([prepareResources(), aborted]);
   } finally {
     window.clearTimeout(closeTimer);
+    contextSignal.removeEventListener('abort', onContextAbort);
     signal.removeEventListener('abort', onAbort);
     // Dispose siblings before the caller receives failure/cancellation and can retry.
     controller.abort(new QrPreparationError('preparation'));
   }
 }
 
-async function getQrDataUrl(qrImageUrl: string, allowFallback: boolean, signal: AbortSignal) {
+async function getQrDataUrl(qrImageUrl: string, allowFallback: boolean, signal: AbortSignal, contextSignal: AbortSignal) {
   signal.throwIfAborted();
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(new QrPreparationError('qr-retrieval')), QR_PREPARATION_TIMEOUT_MS);
@@ -232,13 +244,15 @@ async function getQrDataUrl(qrImageUrl: string, allowFallback: boolean, signal: 
   signal.addEventListener('abort', onAbort, { once: true });
   let svgText: string;
   try {
-    const response = await fetch(qrImageUrl, { credentials: 'include', signal: controller.signal });
-    if (!response.ok) throw new QrPreparationError('qr-retrieval');
-    svgText = await response.text();
+    svgText = await apiGetResource(qrImageUrl, { signal: controller.signal, contextSignal });
     signal.throwIfAborted();
   } catch (error) {
     signal.throwIfAborted();
-    if (controller.signal.aborted || !allowFallback || error instanceof QrPreparationError) {
+    let resourcePath: string;
+    try { resourcePath = decodeURIComponent(new URL(qrImageUrl, window.location.origin).pathname); }
+    catch { throw new QrPreparationError('fallback-resource'); }
+    const protectedResource = /^\/boites\/\d+\/qr\.svg\/?$/.test(resourcePath);
+    if (controller.signal.aborted || !allowFallback || protectedResource || error instanceof ApiError || error instanceof QrPreparationError) {
       throw new QrPreparationError('qr-retrieval');
     }
     // A network/CORS fallback is usable only after the browser loads the resource.

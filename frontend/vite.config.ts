@@ -12,8 +12,8 @@ export default defineConfig({
       '/api': 'http://127.0.0.1:8000',
       '/accounts': 'http://127.0.0.1:8000',
       '/boites': 'http://127.0.0.1:8000',
-      // QR scan target: Django records the scan, then redirects to /boxes/<code>,
-      // which this dev server serves as the React app.
+      // Stable QR entry: Django hands the ID to React, which resolves it
+      // through the scan API with the active organization header.
       '/bac': 'http://127.0.0.1:8000',
     },
   },

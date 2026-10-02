@@ -5,6 +5,8 @@ import vm from 'node:vm';
 
 import ts from 'typescript';
 
+import './test-scan-handoff.mjs';
+
 function loadTypeScript(relativePath) {
   const source = readFileSync(new URL(relativePath, import.meta.url), 'utf8');
   const { outputText } = ts.transpileModule(source, {

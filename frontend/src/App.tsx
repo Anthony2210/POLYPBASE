@@ -224,6 +224,7 @@ type RouteState = {
   tab: TabId;
   boxCode: string | null;
   boxId: number | null;
+  scanBoxId?: number;
   zoneId?: number | null;
   zoneBoxes?: boolean;
   zoneHistory?: boolean;
@@ -438,6 +439,11 @@ export default function App() {
   }, [isTabletLayout]);
 
   useEffect(() => {
+    setIsPhoneQrOpen(false);
+    setIsTabletScannerOpen(false);
+  }, [activeOrganizationId]);
+
+  useEffect(() => {
     if (isPublicAuthPath(window.location.pathname)) {
       setError(null);
       setIsLoading(false);
@@ -536,6 +542,51 @@ export default function App() {
       isActive = false;
     };
   }, [isLoginRoute, passwordReset]);
+
+  const isScanReady = !isLoginRoute && !passwordReset && !isLoading && !needsOrganizationChoice
+    && activeOrganizationId != null && data.profile != null && error == null;
+
+  useEffect(() => {
+    if (!isScanReady || route.scanBoxId == null) return;
+
+    let isActive = true;
+    const organizationGeneration = organizationRequestGenerationRef.current;
+    const requestGeneration = ++openBoxRequestGenerationRef.current;
+    const navigationGeneration = navigationGenerationRef.current;
+    const isCurrentRequest = () => isActive
+      && organizationGeneration === organizationRequestGenerationRef.current
+      && isRouteRequestCurrent(
+        requestGeneration,
+        openBoxRequestGenerationRef.current,
+        navigationGeneration,
+        navigationGenerationRef.current,
+      );
+
+    async function handoffScan() {
+      setIsBoxLoading(true);
+      try {
+        const result = await apiPost<{ global_code: string }>(`/api/boxes/${route.scanBoxId}/scan/`, {});
+        if (!isCurrentRequest()) return;
+        replaceRoute(
+          { tab: 'pilotage', boxCode: result.global_code, boxId: null },
+          `/boxes/${encodeURIComponent(result.global_code)}`,
+        );
+      } catch (requestError) {
+        if (!isCurrentRequest()) return;
+        const applicationError = await getApplicationError(requestError);
+        if (!isCurrentRequest()) return;
+        setError(applicationError);
+      } finally {
+        if (organizationGeneration === organizationRequestGenerationRef.current
+          && requestGeneration === openBoxRequestGenerationRef.current) setIsBoxLoading(false);
+      }
+    }
+
+    void handoffScan();
+    return () => {
+      isActive = false;
+    };
+  }, [activeOrganizationId, isScanReady, route.scanBoxId]);
 
   useEffect(() => {
     if (isLoginRoute || needsOrganizationChoice || activeOrganizationId == null || activeTab !== 'overview' || data.overview !== null) return;
@@ -4244,10 +4295,14 @@ async function getApplicationError(error: unknown): Promise<ApplicationError> {
 function getCurrentRoute(): RouteState {
   const path = window.location.pathname;
 
-  // Stable QR scan target: /bac/<id> opens the box sheet directly.
+  // Keep the QR handoff pending until the authenticated organization is ready.
   const scanMatch = path.match(/^\/bac\/(\d+)\/?$/);
-  if (scanMatch) {
-    return { tab: 'pilotage', boxCode: null, boxId: Number(scanMatch[1]) };
+  const scanBoxValue = scanMatch?.[1] ?? (path === '/' ? new URLSearchParams(window.location.search).get('scan_box') : null);
+  if (scanBoxValue && /^\d+$/.test(scanBoxValue)) {
+    const scanBoxId = Number(scanBoxValue);
+    if (Number.isSafeInteger(scanBoxId) && scanBoxId > 0) {
+      return { tab: 'pilotage', boxCode: null, boxId: null, scanBoxId };
+    }
   }
 
   if (path.startsWith('/boxes/')) {

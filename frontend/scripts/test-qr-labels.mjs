@@ -7,7 +7,9 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import * as jsxRuntime from 'react/jsx-runtime';
 import ts from 'typescript';
+import { resourceClient } from './resource-test-harness.mjs';
 
+import './test-qr-resources.mjs';
 import './test-qr-preparation.mjs';
 import './test-admin-transfer-qr.mjs';
 
@@ -20,6 +22,7 @@ const origin = 'https://polypbase.test';
 const exports = {};
 vm.runInNewContext(outputText, {
   exports,
+  require: () => resourceClient(),
   window: {
     location: { origin },
     btoa: (value) => Buffer.from(value, 'binary').toString('base64'),

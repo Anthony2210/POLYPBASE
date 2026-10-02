@@ -1,48 +1,18 @@
-"""Server-rendered views kept alongside the React app.
+"""Server routes for stable QR entry links, protected SVGs and the legal page."""
 
-Only three remain, and each has a reason to exist outside the SPA:
-
-* ``scan_box`` — the stable ``/bac/<id>/`` target printed on QR labels. It is a
-  server route so that a scan is recorded even before the app boots, then it
-  hands over to the React box sheet.
-* ``box_qr`` — renders the QR code itself as an SVG.
-* ``privacy_policy`` — a standalone legal page.
-
-The old HTML pages (box list, box detail, measurement form) were removed: they
-duplicated the React app, and a scanned QR code used to land on them.
-"""
-
-from urllib.parse import quote
-
-from django.contrib.auth.decorators import login_required
-from django.db.models import Prefetch
-from django.http import HttpResponse
-from django.shortcuts import get_object_or_404, redirect, render
 from urllib.parse import urlparse
 
-from apps.accounts.permissions import get_authorized_organization_ids
-from apps.audit.models import AuditLog
-from apps.measurements.models import BiologicalMeasurement
+from django.contrib.auth.decorators import login_required
+from django.http import Http404, HttpResponse
+from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.cache import never_cache
+from django.views.decorators.vary import vary_on_headers
+from rest_framework.exceptions import PermissionDenied
+
+from apps.accounts.permissions import get_required_active_organization_from_request
 
 from . import qr
 from .models import Box
-
-
-def _box_queryset_for_user(user):
-    return Box.objects.select_related(
-        "organization",
-        "strain",
-        "strain__species",
-        "strain__origin",
-        "origin",
-        "thermal_zone",
-    ).prefetch_related(
-        Prefetch(
-            "biological_measurements",
-            queryset=BiologicalMeasurement.objects.select_related("user").order_by("-measured_on", "-created_at"),
-        ),
-        "tags",
-    ).filter(organization_id__in=get_authorized_organization_ids(user))
 
 
 def _qr_scan_url(request, box):
@@ -65,36 +35,24 @@ def _qr_scan_url(request, box):
     return qr.box_scan_url(box)
 
 
-def box_app_url(box):
-    """URL of the box sheet in the React app."""
-    return f"/boxes/{quote(box.global_code, safe='')}"
-
-
+@never_cache
 @login_required
 def scan_box(request, box_id):
-    """Stable target encoded in a box QR code.
-
-    Scanning ``/bac/<id>/`` lands here, records the scan, then redirects to the
-    box sheet **in the React app**. Keeping the QR target decoupled from the app
-    route means printed labels keep working even if that route changes.
-    """
-    box = get_object_or_404(_box_queryset_for_user(request.user), id=box_id)
-    AuditLog.objects.create(
-        organization=box.organization,
-        user=request.user,
-        action=AuditLog.Action.SCAN,
-        object_type="box",
-        object_id=box.global_code,
-        description=f"QR scan of {box.global_code}",
-        metadata={"box_id": box.id, "source": "qr_link"},
-    )
-    return redirect(box_app_url(box))
+    """Hand off the numeric ID; React supplies context to the authorized scan API."""
+    return redirect(f"/?scan_box={box_id}")
 
 
+@never_cache
+@vary_on_headers("X-Organization-Id", "Cookie")
 @login_required
 def box_qr(request, box_id):
-    """Return the box QR code as an inline SVG image."""
-    box = get_object_or_404(_box_queryset_for_user(request.user), id=box_id)
+    """Return a QR SVG only in the explicitly selected organization."""
+    try:
+        organization = get_required_active_organization_from_request(request)
+    except PermissionDenied as error:
+        # Plain Django views cannot render DRF permission exceptions.
+        raise Http404("Box not found.") from error
+    box = get_object_or_404(Box.objects.filter(organization=organization), id=box_id)
     svg = qr.render_qr_svg(_qr_scan_url(request, box))
     response = HttpResponse(svg, content_type="image/svg+xml")
     response["Content-Disposition"] = f'inline; filename="bac-{box.id}.svg"'

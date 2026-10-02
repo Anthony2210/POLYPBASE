@@ -1578,25 +1578,24 @@ class PolypbaseApiTests(TestCase):
         self.assertTrue(payload["scan_url"].endswith(f"/bac/{self.box.id}/"))
         self.assertTrue(payload["qr_image_url"].endswith(f"/boites/{self.box.id}/qr.svg"))
 
-    def test_scan_redirects_to_the_react_box_sheet_and_logs_scan(self):
+    def test_scan_hands_off_to_react_before_resolution(self):
         """A scanned QR code must open the React app, never a server-rendered page."""
         self.client.login(username="tech", password="secret")
 
         response = self.client.get(reverse("scan_boite", args=[self.box.id]))
 
         self.assertEqual(response.status_code, 302)
-        # The React app serves /boxes/<global_code>; Django has no such route,
-        # so fetch_redirect_response must stay off.
+        # The SPA supplies the organization header before resolving the ID.
         self.assertRedirects(
             response,
-            f"/boxes/{self.box.global_code}",
+            f"/?scan_box={self.box.id}",
             fetch_redirect_response=False,
         )
         self.assertEqual(
             AuditLog.objects.filter(
                 action=AuditLog.Action.SCAN, object_id=self.box.global_code
             ).count(),
-            1,
+            0,
         )
 
     def test_scan_requires_login_and_sends_to_the_react_login(self):
@@ -1611,7 +1610,10 @@ class PolypbaseApiTests(TestCase):
         other_box = Box.objects.get(global_code="AAU-1.001-TKY")
         self.client.login(username="tech", password="secret")
 
-        response = self.client.get(reverse("scan_boite", args=[other_box.id]))
+        response = self.client.post(
+            reverse("api_box_scan", args=[other_box.id]),
+            HTTP_X_ORGANIZATION_ID=str(self.organization.id),
+        )
 
         self.assertEqual(response.status_code, 404)
         self.assertFalse(AuditLog.objects.filter(action=AuditLog.Action.SCAN).exists())
@@ -1623,6 +1625,7 @@ class PolypbaseApiTests(TestCase):
         response = self.client.get(
             reverse("qr_boite", args=[self.box.id]),
             {"public_base_url": "https://polypbase-demo.trycloudflare.com"},
+            HTTP_X_ORGANIZATION_ID=str(self.organization.id),
         )
 
         self.assertEqual(response.status_code, 200)
@@ -1636,6 +1639,98 @@ class PolypbaseApiTests(TestCase):
         other_box = Box.objects.get(global_code="AAU-1.001-TKY")
         self.client.login(username="tech", password="secret")
 
-        response = self.client.get(reverse("qr_boite", args=[other_box.id]))
+        response = self.client.get(
+            reverse("qr_boite", args=[other_box.id]),
+            HTTP_X_ORGANIZATION_ID=str(self.organization.id),
+        )
 
         self.assertEqual(response.status_code, 404)
+
+    def test_qr_resolution_uses_active_context_not_all_memberships(self):
+        OrganizationMembership.objects.create(
+            user=self.user,
+            organization=self.other_organization,
+            role=OrganizationMembership.Role.VIEWER,
+        )
+        other_box = Box.objects.get(global_code="AAU-1.001-TKY")
+        self.client.force_login(self.user)
+        for organization, allowed, refused in (
+            (self.organization, self.box, other_box),
+            (self.other_organization, other_box, self.box),
+        ):
+            with self.subTest(organization=organization.id):
+                headers = {"HTTP_X_ORGANIZATION_ID": str(organization.id)}
+                scan_count = AuditLog.objects.filter(action=AuditLog.Action.SCAN).count()
+                response = self.client.post(reverse("api_box_scan", args=[refused.id]), **headers)
+                self.assertEqual(response.status_code, 404)
+                self.assertNotIn(refused.global_code, response.content.decode())
+                self.assertEqual(
+                    AuditLog.objects.filter(action=AuditLog.Action.SCAN).count(), scan_count,
+                )
+                svg = self.client.get(reverse("qr_boite", args=[refused.id]), **headers)
+                self.assertEqual(svg.status_code, 404)
+                self.assertNotIn(refused.global_code, svg.content.decode())
+
+                response = self.client.post(reverse("api_box_scan", args=[allowed.id]), **headers)
+                self.assertEqual(response.status_code, 201)
+                self.assertEqual(response.json(), {"global_code": allowed.global_code})
+                audit = AuditLog.objects.get(action=AuditLog.Action.SCAN, object_id=allowed.global_code)
+                self.assertEqual(audit.organization_id, organization.id)
+                self.assertEqual(audit.user_id, self.user.id)
+                self.assertEqual(audit.metadata, {"box_id": allowed.id, "source": "qr_link"})
+                self.assertEqual(audit.description, f"QR scan of {allowed.global_code}")
+                svg = self.client.get(reverse("qr_boite", args=[allowed.id]), **headers)
+                self.assertEqual(svg.status_code, 200)
+                self.assertEqual(svg["Content-Type"], "image/svg+xml")
+                self.assertIn(b"svg", svg.content)
+                self.assertIn("no-store", svg["Cache-Control"])
+                self.assertIn("private", svg["Cache-Control"])
+                self.assertIn("X-Organization-Id", svg["Vary"])
+
+    def test_qr_requires_explicit_valid_context_without_fallback(self):
+        membership = OrganizationMembership.objects.create(
+            user=self.user, organization=self.other_organization,
+            role=OrganizationMembership.Role.VIEWER, is_active=False,
+        )
+        self.client.force_login(self.user)
+        for context in (None, "invalid", str(membership.organization_id), "999999"):
+            with self.subTest(context=context):
+                headers = {} if context is None else {"HTTP_X_ORGANIZATION_ID": context}
+                scan = self.client.post(reverse("api_box_scan", args=[self.box.id]), **headers)
+                self.assertEqual(scan.status_code, 403)
+                svg = self.client.get(reverse("qr_boite", args=[self.box.id]), **headers)
+                self.assertEqual(svg.status_code, 404)
+                self.assertNotIn(self.box.global_code, scan.content.decode())
+                self.assertNotIn(self.box.global_code, svg.content.decode())
+        self.assertFalse(AuditLog.objects.filter(action=AuditLog.Action.SCAN).exists())
+
+    def test_qr_handoff_discloses_no_box_and_never_audits(self):
+        self.client.force_login(self.user)
+        other_box = Box.objects.get(global_code="AAU-1.001-TKY")
+        for box_id in (other_box.id, 999999):
+            with self.subTest(box_id=box_id), patch("apps.cultures.views.Box.objects") as boxes:
+                response = self.client.get(reverse("scan_boite", args=[box_id]))
+                self.assertEqual(response.status_code, 302)
+                self.assertEqual(response["Location"], f"/?scan_box={box_id}")
+                boxes.filter.assert_not_called()
+                boxes.get.assert_not_called()
+                self.assertNotIn(other_box.global_code, response.content.decode())
+        self.assertFalse(AuditLog.objects.filter(action=AuditLog.Action.SCAN).exists())
+
+    def test_qr_superuser_still_requires_active_context(self):
+        self.user.is_superuser = True
+        self.user.save(update_fields=["is_superuser"])
+        self.client.force_login(self.user)
+        other_box = Box.objects.get(global_code="AAU-1.001-TKY")
+        for name, method in (("api_box_scan", self.client.post), ("qr_boite", self.client.get)):
+            self.assertEqual(method(reverse(name, args=[other_box.id]),
+                HTTP_X_ORGANIZATION_ID=str(self.organization.id)).status_code, 404)
+            response = method(reverse(name, args=[other_box.id]),
+                HTTP_X_ORGANIZATION_ID=str(self.other_organization.id))
+            self.assertIn(response.status_code, (200, 201))
+
+    def test_scan_api_requires_authentication(self):
+        response = self.client.post(reverse("api_box_scan", args=[self.box.id]),
+            HTTP_X_ORGANIZATION_ID=str(self.organization.id))
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(AuditLog.objects.filter(action=AuditLog.Action.SCAN).exists())

@@ -28,6 +28,7 @@ from apps.cultures.api_views import (
     BoxMeasurementListCreateAPIView,
     BoxMoveAPIView,
     BoxQualifyAPIView,
+    BoxScanAPIView,
     BoxSubcultureCreateAPIView,
     BoxTransferCreateAPIView,
     BoxTransferImportAPIView,
@@ -104,6 +105,7 @@ urlpatterns = [
     ),
     path("boxes/", BoxListAPIView.as_view(), name="api_box_list"),
     path("boxes/<int:pk>/", BoxDetailAPIView.as_view(), name="api_box_detail"),
+    path("boxes/<int:box_id>/scan/", BoxScanAPIView.as_view(), name="api_box_scan"),
     path(
         "boxes/<int:box_id>/access/",
         BoxAccessAPIView.as_view(),
