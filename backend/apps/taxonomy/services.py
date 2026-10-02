@@ -2,13 +2,75 @@
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import Max
+
+from apps.organizations.models import Organization
 
 from .models import (
+    BiologicalProvenance,
     LocalStrainIdentity,
+    LocalStrainNumberCounter,
     OrganizationProvenanceCode,
     OrganizationSpeciesCode,
+    Species,
     Strain,
 )
+
+
+@transaction.atomic
+def allocate_next_local_strain_number(*, organization, species, biological_provenance):
+    """Reserve one X in an explicit, caller-authorized local namespace.
+
+    PostgreSQL unique indexes arbitrate first-use races. get_or_create uses a
+    savepoint to recover a competing insert, then SELECT FOR UPDATE holds the
+    namespace row until the enclosing transaction ends. Other scopes do not
+    share this lock. Use the normal READ COMMITTED isolation level.
+
+    This creates only counter state, not a strain or any identity/assignment.
+    An outer rollback undoes the allocation; committed allocations can leave
+    gaps. This is not a durable reservation outside the database transaction.
+    Callers remain responsible for authorization and must use this primitive
+    for coordinated allocation. Concurrent manual number/identity writers do
+    not take this lock and are not protected by this service.
+    """
+    for value, model, label in (
+        (organization, Organization, "organization"),
+        (species, Species, "species"),
+        (biological_provenance, BiologicalProvenance, "biological_provenance"),
+    ):
+        if label == "biological_provenance" and value is None:
+            continue
+        if (not isinstance(value, model) or value.pk is None
+                or value._state.adding or not model.objects.filter(pk=value.pk).exists()):
+            raise ValidationError(f"An existing {label} is required.", code="invalid_scope")
+
+    counter, _ = LocalStrainNumberCounter.objects.select_for_update().get_or_create(
+        organization=organization, species=species,
+        biological_provenance=biological_provenance,
+    )
+    # Require an actual local identity and consistent explicit relationships.
+    # A missing identity must not be mistaken for explicit NULL provenance.
+    strains = Strain.objects.filter(
+        organization=organization, species=species,
+        local_identity__species_code_assignment__organization=organization,
+        local_identity__species_code_assignment__species=species,
+        number__isnull=False,
+    )
+    if biological_provenance is None:
+        strains = strains.filter(local_identity__provenance_code_assignment__isnull=True)
+    else:
+        strains = strains.filter(
+            local_identity__provenance_code_assignment__organization=organization,
+            local_identity__provenance_code_assignment__biological_provenance=biological_provenance,
+        )
+    maximum = strains.aggregate(maximum=Max("number"))["maximum"]
+    # Refresh the floor even after initialization for sequential explicit imports.
+    floor = max(counter.last_number, maximum if maximum is not None else 0)
+    if floor >= 2147483647:
+        raise ValidationError("The local strain number range is exhausted.", code="number_exhausted")
+    counter.last_number = floor + 1
+    counter.save(update_fields=["last_number"])
+    return counter.last_number
 
 
 @transaction.atomic

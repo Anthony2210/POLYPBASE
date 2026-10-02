@@ -202,6 +202,38 @@ class Strain(models.Model):
         return f"{self.species} - {self.code}"
 
 
+class LocalStrainNumberCounter(models.Model):
+    """Internal transaction-scoped allocation state; not a biological identity."""
+
+    organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.PROTECT,
+        related_name="local_strain_number_counters",
+    )
+    species = models.ForeignKey(
+        Species, on_delete=models.PROTECT,
+        related_name="local_strain_number_counters",
+    )
+    biological_provenance = models.ForeignKey(
+        BiologicalProvenance, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="local_strain_number_counters",
+    )
+    last_number = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "species", "biological_provenance"],
+                condition=models.Q(biological_provenance__isnull=False),
+                name="unique_local_x_scope",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "species"],
+                condition=models.Q(biological_provenance__isnull=True),
+                name="unique_local_x_null_scope",
+            ),
+        ]
+
+
 class LocalStrainIdentity(models.Model):
     strain = models.OneToOneField(
         Strain,
