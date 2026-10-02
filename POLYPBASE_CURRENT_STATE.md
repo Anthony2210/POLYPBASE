@@ -4,7 +4,7 @@
 
 - Refreshed **2026-10-02**, from supplied canonical local Git state and milestone validation evidence.
 - Canonical repository: `C:\Users\antoc\POLYPBASE`.
-- Current `main`: **`2292a61`** (`feat: refine measurement history modal`). Its parent is **`5f773ff`** (`refactor: remove active alerts feature`). Local `origin/main` remains at **`1ea84e5`**; **2 ahead / 0 behind**. No fetch or push has been performed; `origin/main` is an unrefreshed local ref, not a fresh GitHub check.
+- Current `main`: **`96c5593`** (`fix: improve frontend consistency and QR handling`), fast-forward integrated from previous main **`f186912`**. Local `origin/main` remains at **`f186912`**; **1 ahead / 0 behind**, verified from local refs. No fetch was performed for this refresh; no push occurred after integration, and `96c5593` is not claimed as pushed. Local refs do not establish GitHub or production state.
 - Only this document has a local change outside commits; secondary worktree changes are preserved.
 - Sanitized history is the current ancestry. Do not transplant old-history commits without separate review.
 
@@ -61,6 +61,16 @@
 - `2292a61` refines the box-sheet “Voir relevés” modal with a compact summary and a responsive, dense history presentation while retaining progressive loading. The API contract and scientific data are unchanged; scientific zero, `0/0`, PSU `0` and absent values remain distinct.
 - The accessible dialog interaction was improved. No backend, permission, lifecycle or measurement-rule change was made.
 - Independent review: **READY FOR COMMIT**, no genuine findings. Targeted measurement/chart/date tests, typecheck, CSS check and build passed; after integration on `main`, a production frontend build was observed successful in **10.44 s**.
+
+### Frontend consistency
+
+- **`96c5593`** is the integrated frontend-only consistency milestone; no redesign occurred.
+- Request-state consistency: Zone movement history no longer presents previous direction/zone/organization results as current after context changes or failures. Inventory hides previous-filter rows and actions when a replacement request fails. Export eligibility is tied to the current request context; stale eligibility cannot validate current counts, selection or download state. Django remains authoritative for Inventory operations and actual export generation.
+- MoveBox and Subculture specifically now have coherent initial focus, Tab containment, Escape/focus restoration and safe dismissal. Closure and duplicate submission are blocked while mutation submission is pending; nested confirmations retain their own keyboard ownership. This is not a claim about every application dialog.
+- Affected Overview selected controls meet normal-text WCAG AA contrast using existing visual tokens and a non-color selection cue. Movement Entry/Exit bars and legend now differ by fill/outline as well as existing color semantics; exact counts, zero values and accessible text remain preserved.
+- QR preparation returns explicit `prepared` / `cancelled` / `failed` outcomes, retaining empty-input behavior. User closure of the preparation popup is cancellation, not technical failure. Failed attempts clean sibling pending resources before returning; retries are isolated from earlier attempts. Labels, the Box QR modal and the Administration transfer-label caller handle technical failures explicitly; transfer QR feedback stays separate from transfer backend errors. `prepared` means browser workflow handoff, never physical printer success.
+- QR geometry remains 41 × 28 mm with the existing 25 mm vector QR where defined; Box identifier/species content, `/bac/<id>/` target and Labels selection behavior are unchanged. Transfer business/backend semantics are unchanged.
+- No temperature behavior changed: scientific zero and observed/target distinction remain factual. Alerts remain inactive; this milestone does not change dormant persistence, measurement-history design, Actions, Administration desktop-only, or Strain/taxonomy/provenance decisions.
 
 ### Taxonomy / Strain / AAA
 
@@ -165,6 +175,9 @@ All counts below are **branch commits ahead / behind current local main**, exclu
 
 - **Production is NOT REVALIDATED.** No production or Neon access occurred. Local main/push state does not prove deployment or applied migrations. No locally inspected record proves the current deployed commit; verify only under a separately authorized deployment task using the existing workflow.
 - No deployment occurred; local integration does not prove production state. This documentation-only refresh runs no application tests or builds.
+- Frontend consistency independent initial review: non-QR portions accepted; QR preparation had **2 Medium + 1 Low** findings. After correction, focused independent QR re-review marked **all three RESOLVED**, found no new findings and concluded **READY FOR COMMIT**.
+- Supplied post-integration validation on canonical `main` **`96c5593`**: `npm run test:inventory` **24 passed**; `npm run test:confirm` **25 passed**; `npm run test:labels` **69 passed**; `npm run test:zones` **50 passed**; `npm run typecheck`, `npm run check:css` and `npm run build` passed (**2209 modules transformed**). These commands were not rerun during this documentation refresh.
+- No real-browser, screen-reader or physical-printer QA was performed for this milestone. Backend tests were not rerun because the change is frontend-only. No production, Neon or shared-database access occurred.
 - Alerts-removal milestone validation before its review: targeted backend **140 passed, 6 skipped**; isolated backend **514 passed, 18 skipped**; Django system check and migration dry-run/check passed; targeted frontend scripts **232 passed**; typecheck, CSS check, production frontend build and `git diff --check` passed. Independent review was **READY FOR COMMIT** with no material findings; focused frontend **113 passed**, backend **108 passed** and additional backend **51 passed**, with frontend typecheck passed. No browser QA or PostgreSQL concurrency QA was performed in review; this does not supersede the successful writer migration check.
 - Measurement-history modal, independent review before integration: **READY FOR COMMIT**, no genuine findings; `npm run test:measurements` (**28/28**), `npm run test:charts` (**28/28**), `npm run test:dates` (**4/4**), typecheck, CSS check and build passed. After integration on `main`, a production frontend build was observed successful in **10.44 s**. No other suites are claimed as rerun on `main` after integration.
 - No production validation or browser QA is claimed for the modal; no production or Neon access occurred.
