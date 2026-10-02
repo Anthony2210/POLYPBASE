@@ -184,7 +184,10 @@ class DestinationStrainResolverTests(TestCase):
 
     def test_only_foreign_strains_return_no_operational_details(self):
         self.strain(organization=self.foreign, code="FOREIGN-SECRET", species=self.other_species)
-        self.strain(organization=self.foreign, code="FOREIGN-SECOND")
+        self.strain(
+            organization=self.foreign, code="FOREIGN-SECOND",
+            global_identity=GlobalStrainIdentity.objects.create(),
+        )
         result = self.resolve()
         self.assertEqual(asdict(result), {
             "status": Status.NEW_LOCAL_REPRESENTATION_REQUIRED,
@@ -225,10 +228,23 @@ class DestinationStrainResolverTests(TestCase):
             with self.subTest(first_matches=first_matches):
                 Strain.objects.all().delete()
                 first = self.strain(code="ZZZ", species=self.species if first_matches else self.other_species)
-                second = self.strain(code="AAA", species=self.other_species if first_matches else self.species)
+                second = self.strain(
+                    code="AAA", species=self.other_species if first_matches else self.species,
+                    global_identity=GlobalStrainIdentity.objects.create(),
+                )
                 matching = first if first_matches else second
                 self.local_identity(matching)
-                result = self.resolve()
+                real_values = QuerySet.values
+
+                def historical_candidates(queryset, *fields, **expressions):
+                    if queryset.model is Strain and "local_identity__pk" in fields:
+                        # Observe a pre-constraint candidate set without disabling the DB invariant.
+                        return real_values(Strain.objects.filter(pk__in=[first.pk, second.pk]),
+                                           *fields, **expressions)
+                    return real_values(queryset, *fields, **expressions)
+
+                with patch.object(QuerySet, "values", autospec=True, side_effect=historical_candidates):
+                    result = self.resolve()
                 self.assertEqual(result.status, Status.CONFLICT_MULTIPLE_LOCAL_REPRESENTATIONS)
                 self.assertEqual(result.identity_state, IdentityState.KNOWN)
                 LocalStrainIdentity.objects.all().delete()

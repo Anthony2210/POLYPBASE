@@ -1,4 +1,5 @@
 import json
+from contextlib import contextmanager
 from dataclasses import is_dataclass
 from datetime import date
 from io import StringIO
@@ -93,6 +94,21 @@ class GlobalStrainDiagnosticTests(TestCase):
             )
         return strain
 
+    @contextmanager
+    def canonical_duplicate_observation(self, first, second, *, reverse=False):
+        real_values = Strain.objects.values
+
+        def duplicate_read(*fields, **expressions):
+            rows = list(real_values(*fields, **expressions))
+            for row in rows:
+                if row["id"] == second.pk:
+                    row["global_identity_id"] = first.global_identity_id
+            return rows[::-1] if reverse else rows
+
+        # Current rows stay valid; only the diagnostic's legacy observation is duplicated.
+        with patch.object(Strain.objects, "values", side_effect=duplicate_read):
+            yield
+
     def report(self, readiness=None):
         report = diagnose_global_strain_identity_state()
         self.assertTrue(is_dataclass(report))
@@ -133,7 +149,7 @@ class GlobalStrainDiagnosticTests(TestCase):
             self.assertEqual(item["classification"], classification)
         return item["records"]
 
-    def evidence(self, record, strain, box_count=0, box_organization_count=0):
+    def evidence(self, record, strain, box_count=0, box_organization_count=0, identity=None):
         strain.refresh_from_db()
         local_id = LocalStrainIdentity.objects.filter(strain=strain).values_list(
             "id", flat=True,
@@ -152,6 +168,9 @@ class GlobalStrainDiagnosticTests(TestCase):
             "local_identity_id": local_id, "box_count": box_count,
             "box_organization_count": box_organization_count,
         }
+        if identity is not None:
+            expected["global_identity_id"] = identity.pk
+            expected["global_uuid"] = str(identity.global_id)
         for key, value in expected.items():
             self.assertEqual(record[key], value, key)
 
@@ -180,8 +199,9 @@ class GlobalStrainDiagnosticTests(TestCase):
 
     def test_canonical_owned_duplicates_are_direct_blockers(self):
         first = self.strain("FIRST")
-        second = self.strain("SECOND", identity=first.global_identity)
-        payload = self.report("BLOCKED")
+        second = self.strain("SECOND")
+        with self.canonical_duplicate_observation(first, second):
+            payload = self.report("BLOCKED")
         self.assertFalse(payload["constraint_applicable"])
         records = self.category(payload, "CANONICAL_OWNED_DUPLICATES", 1,
                                 "DIRECT_CONSTRAINT_BLOCKER")
@@ -192,7 +212,7 @@ class GlobalStrainDiagnosticTests(TestCase):
         evidence = {row["strain_id"]: row for row in group["strains"]}
         self.assertEqual(set(evidence), {first.pk, second.pk})
         self.evidence(evidence[first.pk], first)
-        self.evidence(evidence[second.pk], second)
+        self.evidence(evidence[second.pk], second, identity=first.global_identity)
 
     def test_global_identity_with_multiple_species_requires_review(self):
         first = self.strain("FIRST")
@@ -250,10 +270,10 @@ class GlobalStrainDiagnosticTests(TestCase):
         for unowned, excluded_code, eligible_code, readiness in cases:
             with self.subTest(category=excluded_code), self.atomic_fixture():
                 strain = self.strain("FIRST", unowned=unowned, local=False)
-                self.strain("SECOND", identity=strain.global_identity,
-                            species=self.other_species if unowned else self.species)
+                second = self.strain("SECOND", species=self.other_species if unowned else self.species)
                 self.box(strain, "FIRST.001", status=Box.Status.INACTIVE)
-                payload = self.report(readiness)
+                with self.canonical_duplicate_observation(strain, second):
+                    payload = self.report(readiness)
                 self.category(payload, excluded_code, 1)
                 group = self.category(payload, eligible_code, 1)[0]
                 self.assertIn(strain.pk, {row["strain_id"] for row in group["strains"]})
@@ -464,7 +484,7 @@ class GlobalStrainDiagnosticTests(TestCase):
 
     def test_impact_includes_inactive_zero_measurements_and_historical_relations(self):
         strain = self.strain("FIRST")
-        self.strain("DUPLICATE", identity=strain.global_identity)
+        duplicate = self.strain("DUPLICATE")
         active = self.box(strain, "FIRST.001")
         inactive = self.box(strain, "FIRST.002", Box.Status.INACTIVE)
         pending = self.box(strain, "FIRST.003", Box.Status.PENDING_REVIEW,
@@ -497,7 +517,8 @@ class GlobalStrainDiagnosticTests(TestCase):
             box=inactive, from_organization=self.organization,
             to_organization=self.other_organization, polyp_count=0,
         )
-        payload = self.report("BLOCKED")
+        with self.canonical_duplicate_observation(strain, duplicate):
+            payload = self.report("BLOCKED")
         records = self.category(payload, "CONSOLIDATION_IMPACT")
         record = next(row for row in records if row["strain_id"] == strain.pk)
         self.evidence(record, strain, 3, 2)
@@ -515,13 +536,14 @@ class GlobalStrainDiagnosticTests(TestCase):
         self.assertEqual((zero.polyp_count, zero.ephyrae_count, zero.strobila_count), (0, 0, 0))
         inactive.refresh_from_db()
         self.assertEqual(inactive.status, Box.Status.INACTIVE)
-        self.assertEqual(payload, self.report("BLOCKED"))
+        with self.canonical_duplicate_observation(strain, duplicate):
+            self.assertEqual(payload, self.report("BLOCKED"))
 
     def test_scan_is_read_only_and_does_not_acquire_row_locks(self):
         strain = self.strain()
-        self.strain("DUPLICATE", identity=strain.global_identity)
+        duplicate = self.strain("DUPLICATE")
         self.box(strain, "AAA-BBB-1.001")
-        with CaptureQueriesContext(connection) as queries:
+        with self.canonical_duplicate_observation(strain, duplicate), CaptureQueriesContext(connection) as queries:
             payload = diagnose_global_strain_identity_state().to_dict()
         self.assertEqual(payload["scan_status"], "COMPLETE")
         self.assertTrue(queries.captured_queries)
@@ -585,9 +607,11 @@ class GlobalStrainDiagnosticTests(TestCase):
 
     def test_late_failure_discards_partial_findings_and_exits_two(self):
         first = self.strain("FIRST")
-        self.strain("SECOND", identity=first.global_identity)
+        second = self.strain("SECOND")
         stdout = StringIO()
-        with patch("apps.taxonomy.diagnostics._reference_counts", side_effect=DatabaseError("private")):
+        with self.canonical_duplicate_observation(first, second), patch(
+            "apps.taxonomy.diagnostics._reference_counts", side_effect=DatabaseError("private"),
+        ):
             with self.assertRaises(CommandError) as caught:
                 call_command(COMMAND, stdout=stdout)
         self.assertEqual(caught.exception.returncode, 2)
@@ -597,11 +621,12 @@ class GlobalStrainDiagnosticTests(TestCase):
 
     def test_shuffled_reads_preserve_category_group_and_member_order(self):
         first = self.strain("FIRST")
-        self.strain("SECOND", identity=first.global_identity)
+        second = self.strain("SECOND")
         self.strain("FIRST", species=self.other_species)
-        expected = self.report("BLOCKED")
-        real_strains, real_boxes = Strain.objects.values, Box.objects.values
-        with patch.object(Strain.objects, "values", side_effect=lambda *args: list(real_strains(*args))[::-1]), patch.object(
+        with self.canonical_duplicate_observation(first, second):
+            expected = self.report("BLOCKED")
+        real_boxes = Box.objects.values
+        with self.canonical_duplicate_observation(first, second, reverse=True), patch.object(
             Box.objects, "values", side_effect=lambda *args: list(real_boxes(*args))[::-1],
         ):
             self.assertEqual(self.report("BLOCKED"), expected)
@@ -661,12 +686,13 @@ class GlobalStrainDiagnosticTests(TestCase):
 
     def test_command_writes_blocked_json_before_raising_exit_one(self):
         first = self.strain("FIRST")
-        self.strain("SECOND", identity=first.global_identity)
+        second = self.strain("SECOND")
         stdout = StringIO()
-        with self.assertRaises(CommandError) as caught:
-            call_command(COMMAND, stdout=stdout)
-        self.assertEqual(caught.exception.returncode, 1)
-        self.assertEqual(json.loads(stdout.getvalue()), self.report("BLOCKED"))
+        with self.canonical_duplicate_observation(first, second):
+            with self.assertRaises(CommandError) as caught:
+                call_command(COMMAND, stdout=stdout)
+            self.assertEqual(caught.exception.returncode, 1)
+            self.assertEqual(json.loads(stdout.getvalue()), self.report("BLOCKED"))
 
     def test_command_writes_failed_read_json_before_raising_exit_two(self):
         stdout = StringIO()

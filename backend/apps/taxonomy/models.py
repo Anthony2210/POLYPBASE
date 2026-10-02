@@ -187,7 +187,15 @@ class Strain(models.Model):
             models.UniqueConstraint(
                 fields=["species", "code"],
                 name="unique_strain_per_species",
-            )
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "global_identity"],
+                condition=models.Q(
+                    organization__isnull=False,
+                    global_identity__isnull=False,
+                ),
+                name="unique_owned_strain_per_global_identity",
+            ),
         ]
 
     def __str__(self):
