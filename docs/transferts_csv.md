@@ -73,10 +73,12 @@ ni désactivée par l'import.
 L'import reçoit l'unique ligne CSV dans `source_data`, ainsi que les
 identifiants locaux de l'organisation et de la zone et le code proposé.
 
-## Transfer v2 — Phase 2B source, dans ce worktree uniquement
+## Transfer v2 — Phase 2B source — DONE et intégrée
 
-Implémenté sur `feat/transfer-v2-protocol`, **non intégré à main**. V1 demeure
-le chemin de compatibilité historique disponible, sans modification. V2 utilise
+Intégrée à `main` au commit `20adf0a` (`feat: add transfer v2 protocol foundation`).
+La Phase 2B persiste `TransferEnvelope` / `TransferItem` avec des UUID stables,
+le discriminateur `polypbase.transfer` et la version exacte `2.0`. V1 demeure
+le chemin de compatibilité historique disponible, séparé et inchangé. V2 utilise
 des tables `TransferEnvelope` / `TransferItem` distinctes, sans réinterpréter
 `BoxTransfer` ou `BoxTransferImport`.
 
@@ -141,9 +143,12 @@ Aucune mutation de Box/Strain/emplacement/relevé ni finalisation de v1.
 
 ### Toujours non implémenté
 
-Aucun endpoint/UI/adaptateur fichier v2, inbox, receipt, preflight/acceptation,
-résolution de Strain destination, allocation X, identité portable de Box ou
-lignée portable. Ces phases restent ultérieures.
+Aucun endpoint/UI v2, receipt/acceptation destinataire, résolution de Strain
+destination, représentation locale canonique, diagnostic de namespace,
+allocation X, identité portable de Box, lignée portable, inbox de transfert
+direct ni adaptateur fichier. Aucune mutation du cycle de vie ou du stock source.
+La Phase 3 — résolution destination de `GlobalStrainIdentity`, représentation
+locale canonique et diagnostic de namespace — est la prochaine phase technique.
 
 Le même cœur backend d'acceptation pourrait servir le transfert direct entre
 Organisations de la même instance; le transport fichier resterait un adaptateur

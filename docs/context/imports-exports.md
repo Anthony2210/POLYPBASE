@@ -43,11 +43,13 @@ Le modèle `DataExport` prévoit plusieurs formats. Une valeur de choix dans un 
 
 Transfer v1 dispose maintenant d'une frontière de service backend dédiée. Préparation + audit obligatoire et import atomique, ainsi que les cas de rejeu, sont couverts par des tests ciblés. Les conclusions de concurrence réelle exigent PostgreSQL isolé; SQLite seul ne valide pas les verrous. Consulter [`../transferts_csv.md`](../transferts_csv.md) pour les détails, sans recopier le contrat ici. Un transfert n'accorde aucun accès durable aux données de l'institution source.
 
-### Transfer v2 — fondation source dans ce worktree uniquement
+### Transfer v2 — Phase 2B DONE and integrated
 
-Phase 2B est implémentée dans `feat/transfer-v2-protocol`, **non intégrée à main** : `TransferEnvelope` / `TransferItem`, service source interne `backend/apps/cultures/transfer_v2.py` et contrat strict `transfer_v2_protocol.py`. Les snapshots sont construits par le backend et sérialisés indépendamment du transport; le parsing distant n'effectue aucune recherche ni écriture en base et n'établit aucune confiance ou permission. Création du package et audit obligatoire partagent une transaction.
+Phase 2B est intégrée à `main` au commit `20adf0a` (`feat: add transfer v2 protocol foundation`). `TransferEnvelope` / `TransferItem` sont persistés avec des UUID stables, le discriminateur `polypbase.transfer` et la version exacte `2.0`. Le service interne construit des snapshots allowlistés côté backend; le parser strict reste indépendant du transport et n'effectue aucune recherche ni écriture en base. `GlobalStrainIdentity` est obligatoire sur chaque souche source. Package, items et audit obligatoire sont créés dans une transaction. Le périmètre reste un service Python interne.
 
-Le contrat exact est décrit dans [`../transferts_csv.md`](../transferts_csv.md). Il n'existe toujours aucun endpoint/UI/adaptateur fichier v2, aucune acceptation/résolution de Strain destination, lignée portable ou allocation X. Aucun effet de stock ou de cycle de vie source. V1 reste séparé et disponible.
+Validation fournie sur `main` après cherry-pick : suite backend complète **579 au total / 559 réussis / 20 ignorés / aucune erreur ni échec**; contrôle Django, contrôle de dérive des migrations et `git diff --check` réussis.
+
+Le contrat exact est décrit dans [`../transferts_csv.md`](../transferts_csv.md). Il n'existe toujours aucun endpoint/UI v2, receipt/acceptation destinataire, résolution de Strain destination, représentation locale canonique, diagnostic de namespace, identité portable de Box, lignée, allocateur X, inbox de transfert direct, adaptateur fichier ou mutation du cycle de vie/stock source. V1 reste séparé et inchangé. La phase technique suivante est la Phase 3 : résolution destination de `GlobalStrainIdentity`, représentation locale canonique et diagnostic de namespace.
 
 ## Tests à cibler
 
