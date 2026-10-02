@@ -1,8 +1,9 @@
-import { useEffect, useMemo } from 'react';
+import { useMemo } from 'react';
 
 import { AlertTriangle, CheckCircle2, X, XCircle } from 'lucide-react';
 
 import type { Translator } from '../i18n';
+import useMutationDialog from '../hooks/useMutationDialog';
 import type { BoxInventoryBatchResult, BoxInventorySelectionItem } from '../types';
 import ModalPortal from './ModalPortal';
 
@@ -27,6 +28,7 @@ export default function BoxInventoryBatchModal({
   selectedBoxes: BoxInventorySelectionItem[];
   t: Translator;
 }) {
+  const { dialogRef, initialFocusRef, isBusy, close, submit } = useMutationDialog<HTMLButtonElement>(isSaving, onClose);
   const selectedById = useMemo(
     () => new Map(selectedBoxes.map((box) => [box.id, box])),
     [selectedBoxes],
@@ -34,23 +36,17 @@ export default function BoxInventoryBatchModal({
   const withLocationCount = selectedBoxes.filter((box) => box.has_location).length;
   const withoutLocationCount = selectedBoxes.length - withLocationCount;
 
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape' && !isSaving) onClose();
-    }
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isSaving, onClose]);
-
   const title = result
     ? t('boxInventoryBatchResultTitle')
     : t(action === 'active' ? 'boxInventoryBatchActiveTitle' : 'boxInventoryBatchInactiveTitle');
 
   return (
     <ModalPortal>
-      <div className="modal-backdrop box-inventory-batch-backdrop" role="presentation" onMouseDown={isSaving ? undefined : onClose}>
+      <div className="modal-backdrop box-inventory-batch-backdrop" role="presentation" onMouseDown={close}>
         <section
+          ref={dialogRef}
+          tabIndex={-1}
+          aria-busy={isBusy}
           className="box-inventory-batch-modal"
           role="dialog"
           aria-modal="true"
@@ -62,7 +58,7 @@ export default function BoxInventoryBatchModal({
               <span>{t('boxInventoryBatchKicker')}</span>
               <h2 id="box-inventory-batch-title">{title}</h2>
             </div>
-            <button type="button" aria-label={t('close')} title={t('close')} disabled={isSaving} onClick={onClose}>
+            <button ref={initialFocusRef} type="button" aria-label={t('close')} title={t('close')} disabled={isBusy} onClick={close}>
               <X aria-hidden="true" size={19} />
             </button>
           </header>
@@ -117,7 +113,7 @@ export default function BoxInventoryBatchModal({
               ) : null}
 
               <footer className="box-lifecycle-actions">
-                <button className="primary-button" type="button" onClick={onClose}>
+                <button className="primary-button" type="button" disabled={isBusy} onClick={close}>
                   {t('boxInventoryBatchCloseReport')}
                 </button>
               </footer>
@@ -172,10 +168,10 @@ export default function BoxInventoryBatchModal({
               {error ? <p className="inline-error box-lifecycle-error">{error}</p> : null}
 
               <footer className="box-lifecycle-actions">
-                <button className="secondary-button" type="button" disabled={isSaving} onClick={onClose}>
+                <button className="secondary-button" type="button" disabled={isBusy} onClick={close}>
                   {t('confirmCancel')}
                 </button>
-                <button className="primary-button" type="button" disabled={isSaving} onClick={() => void onConfirm()}>
+                <button className="primary-button" type="button" disabled={isBusy} onClick={() => void submit(onConfirm)}>
                   {isSaving ? t('saving') : t('boxInventoryBatchConfirm')}
                 </button>
               </footer>

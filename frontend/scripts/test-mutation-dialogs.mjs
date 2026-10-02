@@ -119,9 +119,10 @@ function environment() {
     modules.set(url.href, exports);
     const require = (name) => {
       if (name === 'react') return hooks;
+      if (name === 'lucide-react') return Object.fromEntries(['AlertTriangle', 'CheckCircle2', 'X', 'XCircle'].map((icon) => [icon, `icon-${icon}`]));
       if (name === 'react/jsx-runtime') {
         const jsx = (type, props, key) => ({ type, props, key });
-        return { jsx, jsxs: jsx };
+        return { jsx, jsxs: jsx, Fragment: 'test-fragment' };
       }
       // Portals are represented in document order; icons have no interactive DOM.
       if (name === './ModalPortal' || name === './PolypbaseIcon') return { default: name };
@@ -512,5 +513,313 @@ for (const spec of cases) {
     assert.equal(env.document.activeElement, env.opener);
     assert.equal(env.listenerCount(), 0);
     assert.ok(regainedBusyFocus, 'Busy dialog must recover focus after its nested confirmation closes');
+  });
+}
+
+const operationalCases = [
+  ...['qualify', 'deactivate', 'reactivate', 'assign'].map((action) => ({ name: 'BoxLifecycleModal', action })),
+  ...['active', 'inactive'].map((action) => ({ name: 'BoxInventoryBatchModal', action })),
+];
+function operationalFixture(spec, overrides = {}) {
+  const env = environment();
+  let closed = 0;
+  const box = { id: 17, global_code: '1-ATL.001', status: 'pending_review', species: { scientific_name: 'Test species' }, thermal_zone: null };
+  const props = {
+    action: spec.action, box, zones: [{ id: 3, name: 'Zone 3', is_active: true }],
+    selectedBoxes: [{ id: box.id, global_code: box.global_code, species_name: 'Test species', has_location: false }],
+    result: null, error: null, isSaving: false, t: (key) => key,
+    onClose() { closed++; }, onSubmit: async () => {}, onConfirm: async () => {}, ...overrides,
+  };
+  const modal = env.instance(env.load(`../src/components/${spec.name}.tsx`).default, props);
+  const start = () => spec.name === 'BoxLifecycleModal'
+    ? modal.form.props.onSubmit(submitEvent())
+    : modal.controls.find((node) => text(node) === 'boxInventoryBatchConfirm').props.onClick();
+  if (spec.action === 'deactivate') change(modal.fields.find((node) => node.type === 'textarea'), '  Keep this reason  ');
+  if (spec.action === 'reactivate' || spec.action === 'assign') change(modal.fields.find((node) => node.type === 'select'), '3');
+  modal.flush();
+  return { env, modal, start, get closed() { return closed; } };
+}
+function operationalCloseButtons(modal) {
+  return modal.controls.filter((node) => node.props['aria-label'] === 'close' || ['confirmCancel', 'boxInventoryBatchCloseReport'].includes(text(node)));
+}
+function assertOperationalContainment(h) {
+  const { env, modal } = h;
+  const controls = modal.dialog.querySelectorAll(focusableSelector);
+  if (controls.length) {
+    controls.at(-1).focus();
+    assert.equal(env.key('Tab').defaultPrevented, true);
+    assert.equal(env.document.activeElement, controls[0]);
+    assert.equal(env.key('Tab', true).defaultPrevented, true);
+    assert.equal(env.document.activeElement, controls.at(-1));
+    for (let step = 0; step < controls.length * 2; step++) {
+      env.key('Tab');
+      assert.ok(modal.dialog.contains(env.document.activeElement), 'Background must never enter the modal tab cycle');
+    }
+  } else {
+    for (const reverse of [false, true]) {
+      assert.equal(env.key('Tab', reverse).defaultPrevented, true);
+      assert.equal(env.document.activeElement, modal.dialog);
+    }
+  }
+  for (const reverse of [false, true]) {
+    env.opener.focus();
+    assert.equal(env.key('Tab', reverse).defaultPrevented, true);
+    assert.ok(modal.dialog.contains(env.document.activeElement));
+  }
+}
+async function settleOperational() {
+  for (let tick = 0; tick < 12; tick++) await Promise.resolve();
+}
+for (const spec of operationalCases) {
+  const label = `${spec.name} (${spec.action})`;
+  test(`${label}: labelled initial focus, Tab confinement, idle Escape and connected opener restoration`, () => {
+    const h = operationalFixture(spec);
+    const { env, modal } = h;
+    const title = modal.nodes.find((node) => node.props.id === modal.dialog.props['aria-labelledby']);
+    assert.ok(title && text(title));
+    assert.equal(modal.dialog.props['aria-modal'], 'true');
+    assert.equal(env.document.activeElement, operationalCloseButtons(modal)[0]);
+    assertOperationalContainment(h);
+    assert.equal(env.key('Escape').defaultPrevented, true);
+    assert.equal(h.closed, 1);
+    modal.unmount();
+    assert.equal(env.document.activeElement, env.opener);
+    assert.equal(env.listenerCount(), 0);
+  });
+
+  test(`${label}: idle close/backdrop dismiss and inside mousedown does not dismiss`, () => {
+    const h = operationalFixture(spec);
+    let stopped = false;
+    h.modal.dialog.props.onMouseDown({ stopPropagation() { stopped = true; } });
+    assert.ok(stopped);
+    assert.equal(h.closed, 0);
+    h.modal.backdrop.props.onMouseDown();
+    operationalCloseButtons(h.modal).forEach((node) => node.props.onClick());
+    assert.equal(h.closed, 3);
+    h.modal.unmount();
+  });
+
+  test(`${label}: detached opener is not focused and removed modal never keeps focus`, () => {
+    const { env, modal } = operationalFixture(spec);
+    env.opener.isConnected = false;
+    const calls = env.opener.focusCalls;
+    modal.unmount();
+    assert.equal(env.opener.focusCalls, calls);
+    assert.equal(env.document.activeElement, env.document.body);
+    assert.equal(env.listenerCount(), 0);
+  });
+
+  test(`${label}: externally saving blocks Escape, backdrop and close controls`, () => {
+    const h = operationalFixture(spec, { isSaving: true });
+    assert.equal(h.modal.dialog.props['aria-busy'], true);
+    assert.equal(h.env.document.activeElement, h.modal.dialog);
+    assert.ok(operationalCloseButtons(h.modal).every((node) => node.disabled));
+    if (spec.name === 'BoxLifecycleModal') assert.ok(h.modal.controls.every((node) => node.disabled), 'Saving locks all lifecycle draft controls');
+    h.modal.backdrop.props.onMouseDown();
+    operationalCloseButtons(h.modal).forEach((node) => node.props.onClick());
+    assert.equal(h.env.key('Escape').defaultPrevented, true);
+    assert.equal(h.closed, 0);
+    assertOperationalContainment(h);
+    h.modal.setProps({ isSaving: false });
+    assert.ok(h.modal.dialog.contains(h.env.document.activeElement), 'Focus stays inside when saving ends');
+    assert.ok(operationalCloseButtons(h.modal).every((node) => !node.disabled));
+    h.env.key('Escape');
+    assert.equal(h.closed, 1);
+    h.modal.unmount();
+  });
+
+  test(`${label}: pending mutation blocks stale dismissal/duplicates; failure retains usable draft and permits retry`, async () => {
+    const attempts = [], payloads = [];
+    let h;
+    const operation = async (payload) => {
+      payloads.push(payload == null ? null : plain(payload));
+      const attempt = deferred();
+      attempts.push(attempt);
+      try { await attempt.promise; }
+      catch (error) { h.modal.setProps({ error: error.message }); }
+    };
+    h = operationalFixture(spec, { onSubmit: operation, onConfirm: operation });
+    const before = draftValues(h.modal);
+    const staleClose = operationalCloseButtons(h.modal).map((node) => node.props.onClick);
+    const staleBackdrop = h.modal.backdrop.props.onMouseDown;
+    const start = h.start;
+    const pending = start();
+    start();
+    staleClose.forEach((close) => close());
+    staleBackdrop();
+    h.env.key('Escape');
+    assert.equal(h.closed, 0);
+    assert.equal(attempts.length, 1);
+    h.modal.flush();
+    assert.equal(h.modal.dialog.props['aria-busy'], true);
+    assert.equal(h.env.document.activeElement, h.modal.dialog);
+    assertOperationalContainment(h);
+    attempts[0].reject(new Error('Test mutation failed'));
+    await pending;
+    await settleOperational();
+    h.modal.flush();
+    assert.equal(h.modal.dialog.props['aria-busy'], false);
+    assert.deepEqual(draftValues(h.modal), before);
+    assert.ok(h.modal.nodes.some((node) => text(node) === 'Test mutation failed'));
+    assert.equal(h.env.document.activeElement, operationalCloseButtons(h.modal)[0]);
+    assertOperationalContainment(h);
+    const retry = h.start();
+    assert.equal(attempts.length, 2);
+    assert.deepEqual(payloads[1], payloads[0]);
+    attempts[1].resolve();
+    await retry;
+    await settleOperational();
+    h.modal.flush();
+    assert.equal(h.closed, 0);
+    h.env.key('Escape');
+    assert.equal(h.closed, 1);
+    h.modal.unmount();
+    assert.equal(h.env.document.activeElement, h.env.opener);
+  });
+
+  test(`${label}: successful mutation unmount restores connected focus before promise settlement`, async () => {
+    const attempt = deferred();
+    let h;
+    const operation = async () => { await attempt.promise; h.modal.unmount(); };
+    h = operationalFixture(spec, { onSubmit: operation, onConfirm: operation });
+    const pending = h.start();
+    h.modal.flush();
+    attempt.resolve();
+    await pending;
+    await settleOperational();
+    assert.equal(h.env.document.activeElement, h.env.opener);
+    assert.equal(h.env.document.activeElement.isConnected, true);
+    assert.equal(h.env.listenerCount(), 0);
+  });
+}
+
+test('BoxInventoryBatchModal: success report retains focus, traps Tab and restores opener when closed', async () => {
+  const h = operationalFixture({ name: 'BoxInventoryBatchModal', action: 'active' });
+  const attempt = deferred();
+  h.modal.setProps({ onConfirm: () => attempt.promise });
+  h.start();
+  h.modal.flush();
+  h.modal.setProps({
+    result: { success_count: 1, failure_count: 0, active_with_location_count: 0, active_without_location_count: 1, successes: [{ box_id: 17, global_code: '1-ATL.001' }], failures: [] },
+    isSaving: true,
+  });
+  assert.ok(operationalCloseButtons(h.modal).every((node) => node.disabled));
+  operationalCloseButtons(h.modal).forEach((node) => node.props.onClick());
+  h.modal.backdrop.props.onMouseDown();
+  h.env.key('Escape');
+  assert.equal(h.closed, 0);
+  assertOperationalContainment(h);
+  attempt.resolve();
+  await settleOperational();
+  h.modal.setProps({ isSaving: false });
+  assert.equal(h.env.document.activeElement, operationalCloseButtons(h.modal)[0]);
+  assertOperationalContainment(h);
+  operationalCloseButtons(h.modal).at(-1).props.onClick();
+  assert.equal(h.closed, 1);
+  h.modal.unmount();
+  assert.equal(h.env.document.activeElement, h.env.opener);
+});
+
+// Model native user interaction: disabled controls do not dispatch changes/clicks.
+// Direct handler calls elsewhere intentionally test stale dismissal guards instead.
+function interactLifecycle(node, value) {
+  if (node.disabled) return false;
+  if (node.props.onChange) node.props.onChange({ target: { value, checked: value } });
+  else node.props.onClick();
+  return true;
+}
+function lifecycleDraftControls(modal) {
+  return [...modal.fields, ...modal.controls.filter((node) => text(node) === 'boxLifecycleReuseLastLocation')];
+}
+function lifecycleDraft(modal) {
+  return modal.fields.map((node) => ({ type: node.props.type ?? node.type, value: node.props.value, checked: node.props.checked }));
+}
+function editLifecycle(h, type, value) {
+  const node = h.modal.fields.find((field) => (field.props.type ?? field.type) === type);
+  assert.ok(node, `Missing lifecycle ${type}`);
+  assert.equal(interactLifecycle(node, value), true, `${type} must be editable`);
+  h.modal.flush();
+}
+const lifecycleDraftCases = [
+  { action: 'qualify', variant: 'active', setup(h) { editLifecycle(h, 'select', '3'); }, edit(h) { editLifecycle(h, 'select', '4'); }, payload: { target_status: 'active', thermal_zone_id: 3 }, editedPayload: { target_status: 'active', thermal_zone_id: 4 } },
+  { action: 'qualify', variant: 'inactive reason', setup(h) { editLifecycle(h, 'textarea', '  Draft A reason  '); }, edit(h) { editLifecycle(h, 'checkbox', true); }, payload: { target_status: 'inactive', reason: 'Draft A reason', reason_missing_from_history: false }, editedPayload: { target_status: 'inactive', reason: '', reason_missing_from_history: true } },
+  { action: 'qualify', variant: 'inactive historical reason', setup(h) { editLifecycle(h, 'checkbox', true); }, edit(h) { editLifecycle(h, 'checkbox', false); editLifecycle(h, 'textarea', 'Draft B reason'); }, payload: { target_status: 'inactive', reason: '', reason_missing_from_history: true }, editedPayload: { target_status: 'inactive', reason: 'Draft B reason', reason_missing_from_history: false } },
+  { action: 'qualify', variant: 'status change', setup(h) { editLifecycle(h, 'select', '3'); }, edit(h) { assert.equal(interactLifecycle(h.modal.fields.find((node) => node.props.value === 'inactive'), true), true); h.modal.flush(); editLifecycle(h, 'textarea', 'Draft B reason'); }, payload: { target_status: 'active', thermal_zone_id: 3 }, editedPayload: { target_status: 'inactive', reason: 'Draft B reason', reason_missing_from_history: false } },
+  { action: 'deactivate', variant: 'reason', setup(h) { editLifecycle(h, 'textarea', '  Draft A reason  '); }, edit(h) { editLifecycle(h, 'textarea', 'Draft B reason'); }, payload: { reason: 'Draft A reason' }, editedPayload: { reason: 'Draft B reason' } },
+  ...['reactivate', 'assign'].map((action) => ({ action, variant: 'zone and notes', setup(h) { editLifecycle(h, 'textarea', '  Draft A notes  '); }, edit(h) { editLifecycle(h, 'select', '4'); editLifecycle(h, 'textarea', 'Draft B notes'); }, payload: { thermal_zone_id: 3, notes: 'Draft A notes' }, editedPayload: { thermal_zone_id: 4, notes: 'Draft B notes' } })),
+  { action: 'reactivate', variant: 'reuse last zone', setup(h) { editLifecycle(h, 'textarea', '  Draft A notes  '); }, edit(h) { assert.equal(interactLifecycle(lifecycleDraftControls(h.modal).find((node) => text(node) === 'boxLifecycleReuseLastLocation')), true); h.modal.flush(); }, payload: { thermal_zone_id: 3, notes: 'Draft A notes' }, editedPayload: { thermal_zone_id: 4, notes: 'Draft A notes' } },
+];
+for (const spec of lifecycleDraftCases) {
+  test(`BoxLifecycleModal (${spec.action}, ${spec.variant}): freezes A in flight, retries A after failure, allows deliberate B and restores success focus`, async () => {
+    const attempts = [], payloads = [];
+    let h;
+    const operation = async (submission) => {
+      payloads.push(plain(submission));
+      const attempt = deferred();
+      attempts.push(attempt);
+      try {
+        await attempt.promise;
+        h.modal.unmount();
+      } catch (error) {
+        h.modal.setProps({ isSaving: false, error: error.message });
+      }
+    };
+    h = operationalFixture({ name: 'BoxLifecycleModal', action: spec.action }, {
+      initialTargetStatus: spec.variant.startsWith('inactive') ? 'inactive' : 'active',
+      zones: [3, 4].map((id) => ({ id, name: `Zone ${id}`, is_active: true })),
+      box: { id: 17, global_code: '1-ATL.001', status: 'pending_review', species: { scientific_name: 'Test species' }, thermal_zone: null, last_location: { thermal_zone: { id: 4, name: 'Zone 4' }, starts_at: '2026-01-01' } },
+      onSubmit: operation,
+    });
+    spec.setup(h);
+    const draftA = lifecycleDraft(h.modal);
+    const disabledBefore = lifecycleDraftControls(h.modal).map((node) => node.disabled);
+    const focusedField = h.modal.fields.find((node) => !node.disabled);
+    focusedField.focus();
+    assert.equal(h.env.document.activeElement, focusedField);
+    const pending = h.start();
+    assert.deepEqual(payloads[0], { action: spec.action, payload: spec.payload });
+    h.modal.flush();
+    assert.equal(h.modal.dialog.props['aria-busy'], true, 'Hook locks draft before parent isSaving changes');
+    assert.equal(h.env.document.activeElement, h.modal.dialog, 'Disabling the focused field transfers focus to the dialog');
+    assert.ok(h.modal.controls.every((node) => node.disabled));
+    for (const node of lifecycleDraftControls(h.modal)) {
+      assert.equal(interactLifecycle(node, node.type === 'select' ? '4' : node.props.type === 'checkbox' || node.props.type === 'radio' ? !node.props.checked : 'Draft B'), false);
+    }
+    h.modal.flush();
+    assert.deepEqual(lifecycleDraft(h.modal), draftA);
+    assert.deepEqual(payloads[0], { action: spec.action, payload: spec.payload });
+    await h.start();
+    assert.equal(attempts.length, 1);
+    h.modal.setProps({ isSaving: true });
+    assert.ok(h.modal.controls.every((node) => node.disabled));
+    h.modal.backdrop.props.onMouseDown();
+    operationalCloseButtons(h.modal).forEach((node) => node.props.onClick());
+    h.env.key('Escape');
+    assert.equal(h.closed, 0);
+    assertOperationalContainment(h);
+    attempts[0].reject(new Error('Request A failed'));
+    await pending;
+    h.modal.flush();
+    assert.deepEqual(lifecycleDraft(h.modal), draftA);
+    assert.deepEqual(lifecycleDraftControls(h.modal).map((node) => node.disabled), disabledBefore);
+    assert.ok(h.modal.nodes.some((node) => text(node) === 'Request A failed'));
+    assert.equal(h.env.document.activeElement, operationalCloseButtons(h.modal)[0]);
+    const retry = h.start();
+    assert.deepEqual(payloads[1], payloads[0]);
+    h.modal.flush();
+    attempts[1].reject(new Error('Retry A failed'));
+    await retry;
+    h.modal.flush();
+    assert.deepEqual(lifecycleDraft(h.modal), draftA);
+    spec.edit(h);
+    assert.notDeepEqual(lifecycleDraft(h.modal), draftA);
+    const editedSubmission = h.start();
+    assert.deepEqual(payloads[2], { action: spec.action, payload: spec.editedPayload });
+    h.modal.flush();
+    attempts[2].resolve();
+    await editedSubmission;
+    assert.equal(h.env.document.activeElement, h.env.opener);
+    assert.equal(h.env.document.activeElement.isConnected, true);
+    assert.equal(h.env.listenerCount(), 0);
   });
 }

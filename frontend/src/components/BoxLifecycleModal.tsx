@@ -1,8 +1,9 @@
-import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { type FormEvent, useMemo, useState } from 'react';
 
 import { AlertTriangle, X } from 'lucide-react';
 
 import type { Translator } from '../i18n';
+import useMutationDialog from '../hooks/useMutationDialog';
 import type {
   BoxActivatePayload,
   BoxDeactivatePayload,
@@ -51,6 +52,7 @@ export default function BoxLifecycleModal({
   t: Translator;
   zones: ThermalZone[];
 }) {
+  const { dialogRef, initialFocusRef, isBusy, close, submit } = useMutationDialog<HTMLButtonElement>(isSaving, onClose);
   const [targetStatus, setTargetStatus] = useState<'active' | 'inactive'>(initialTargetStatus);
   const [zoneId, setZoneId] = useState<number | null>(null);
   const [reason, setReason] = useState('');
@@ -78,24 +80,18 @@ export default function BoxLifecycleModal({
   const showsZoneChoice = needsRequiredZone || (qualifyingAsActive && box.thermal_zone == null);
   const showsReason = action === 'deactivate' || (isQualification && targetStatus === 'inactive');
   const activeWithoutLocation = qualifyingAsActive && box.thermal_zone == null && zoneId == null;
-  const canSubmit = !isSaving
+  const canSubmit = !isBusy
     && (!needsRequiredZone || zoneId != null)
     && (action !== 'deactivate' || Boolean(reason.trim()))
     && (!isQualification || targetStatus === 'active' || Boolean(reason.trim()) || reasonMissing);
 
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape' && !isSaving) onClose();
-    }
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isSaving, onClose]);
-
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canSubmit) return;
+    await submit(submitLifecycle);
+  }
 
+  async function submitLifecycle() {
     if (action === 'qualify') {
       await onSubmit({
         action,
@@ -143,8 +139,11 @@ export default function BoxLifecycleModal({
 
   return (
     <ModalPortal>
-      <div className="modal-backdrop box-lifecycle-backdrop" role="presentation" onMouseDown={isSaving ? undefined : onClose}>
+      <div className="modal-backdrop box-lifecycle-backdrop" role="presentation" onMouseDown={close}>
         <section
+          ref={dialogRef}
+          tabIndex={-1}
+          aria-busy={isBusy}
           className="box-lifecycle-modal"
           role="dialog"
           aria-modal="true"
@@ -156,7 +155,7 @@ export default function BoxLifecycleModal({
               <span>{t('boxLifecycleKicker')}</span>
               <h2 id="box-lifecycle-title">{t(titleKey)}</h2>
             </div>
-            <button type="button" aria-label={t('close')} title={t('close')} disabled={isSaving} onClick={onClose}>
+            <button ref={initialFocusRef} type="button" aria-label={t('close')} title={t('close')} disabled={isBusy} onClick={close}>
               <X aria-hidden="true" size={19} />
             </button>
           </header>
@@ -178,6 +177,7 @@ export default function BoxLifecycleModal({
                     type="radio"
                     name="target-status"
                     value="active"
+                    disabled={isBusy}
                     checked={targetStatus === 'active'}
                     onChange={() => {
                       setTargetStatus('active');
@@ -192,6 +192,7 @@ export default function BoxLifecycleModal({
                     type="radio"
                     name="target-status"
                     value="inactive"
+                    disabled={isBusy}
                     checked={targetStatus === 'inactive'}
                     onChange={() => {
                       setTargetStatus('inactive');
@@ -212,7 +213,7 @@ export default function BoxLifecycleModal({
                       <strong>{lastLocation.thermal_zone.name}</strong>
                     </span>
                     {reusableLastZone ? (
-                      <button type="button" onClick={() => setZoneId(reusableLastZone.id)}>
+                      <button type="button" disabled={isBusy} onClick={() => setZoneId(reusableLastZone.id)}>
                         {t('boxLifecycleReuseLastLocation')}
                       </button>
                     ) : (
@@ -226,6 +227,7 @@ export default function BoxLifecycleModal({
                   </span>
                   <select
                     value={zoneId ?? ''}
+                    disabled={isBusy}
                     required={needsRequiredZone}
                     onChange={(event) => setZoneId(event.target.value ? Number(event.target.value) : null)}
                   >
@@ -253,7 +255,7 @@ export default function BoxLifecycleModal({
                 <textarea
                   rows={3}
                   required={action === 'deactivate' || !reasonMissing}
-                  disabled={reasonMissing}
+                  disabled={isBusy || reasonMissing}
                   value={reason}
                   placeholder={t('boxLifecycleReasonPlaceholder')}
                   onChange={(event) => setReason(event.target.value)}
@@ -265,6 +267,7 @@ export default function BoxLifecycleModal({
               <label className="box-lifecycle-history-check">
                 <input
                   type="checkbox"
+                  disabled={isBusy}
                   checked={reasonMissing}
                   onChange={(event) => {
                     setReasonMissing(event.target.checked);
@@ -283,6 +286,7 @@ export default function BoxLifecycleModal({
                 <span>{t('boxLifecycleNotes')}</span>
                 <textarea
                   rows={2}
+                  disabled={isBusy}
                   value={notes}
                   placeholder={t('boxLifecycleNotesPlaceholder')}
                   onChange={(event) => setNotes(event.target.value)}
@@ -293,7 +297,7 @@ export default function BoxLifecycleModal({
             {error ? <p className="inline-error box-lifecycle-error">{error}</p> : null}
 
             <footer className="box-lifecycle-actions">
-              <button className="secondary-button" type="button" disabled={isSaving} onClick={onClose}>
+              <button className="secondary-button" type="button" disabled={isBusy} onClick={close}>
                 {t('confirmCancel')}
               </button>
               <button
