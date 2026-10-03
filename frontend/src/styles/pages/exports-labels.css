@@ -723,18 +723,25 @@
 .label-empty-state { margin: 0; padding: var(--space-5); color: var(--color-muted); text-align: center; }
 
 /* Single-label modal */
-.qr-label-modal {
-  display: grid;
-  gap: var(--space-4);
-  width: min(760px, 96vw);
-  padding: var(--space-5);
-  border-radius: var(--radius-md);
-  background: white;
-  box-shadow: var(--shadow-float);
+.qr-label-modal-species {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: .86rem;
+  font-style: italic;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.qr-label-modal-status:empty {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
 }
 
 /* Container for the single-label preview: `cqw` inside the label resolves
-   against this frame, so the preview keeps the physical 40:30 proportions. */
+   against this frame, so the preview keeps the physical 41:28 proportions. */
 .qr-label-print-frame {
   container-type: inline-size;
   justify-self: center;
@@ -743,21 +750,21 @@
 
 .qr-label-selection-panel {
   display: grid;
-  grid-template-columns: minmax(120px, 0.55fr) minmax(0, 1fr);
-  gap: var(--space-3);
-  align-items: center;
-  padding: var(--space-3);
-  border: 1px solid var(--color-line);
-  background: var(--color-surface-info);
+  min-width: 0;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-line);
 }
 
 .qr-label-selection-panel > div:first-child {
-  display: grid;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
 }
 
 .qr-label-selection-panel > div:first-child strong {
   color: var(--color-primary-hover);
-  font-size: 1.4rem;
+  font-size: .9rem;
 }
 
 .qr-label-selection-panel > div:first-child span {
@@ -775,12 +782,13 @@
 
 :where(.qr-label-selection-actions, .qr-label-modal-actions) :where(button, a) {
   display: inline-grid;
-  min-height: 40px;
+  min-width: 44px;
+  min-height: 44px;
   place-items: center;
   padding-inline: var(--space-3);
   border: 1px solid var(--color-line);
   border-radius: var(--radius-sm);
-  background: white;
+  background: var(--color-surface);
   color: var(--color-primary);
   font-weight: 750;
   text-decoration: none;
@@ -847,6 +855,25 @@
 
   .qr-label-selection-panel {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Screen presentation only: keep the inner frame's physical landscape geometry. */
+@media screen {
+  .qr-label-modal-preview {
+    position: relative;
+    justify-self: center;
+    width: min(100%, 160px);
+    aspect-ratio: 28 / 41;
+  }
+
+  .qr-label-modal-preview > .qr-label-print-frame {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: calc(100% * 41 / 28);
+    transform: translate(-50%, -50%) rotate(90deg);
+    transform-origin: center;
   }
 }
 
@@ -1101,6 +1128,10 @@
   text-align: right;
 }
 
+.labels-page .label-species-selected-compact {
+  display: none;
+}
+
 .labels-page .label-species-meta small {
   color: var(--color-primary-hover);
   font-size: 0.69rem;
@@ -1269,12 +1300,13 @@
 
   .labels-page .label-selection-bar {
     width: 100%;
-    max-width: 100%;
+    max-width: 360px;
     min-height: 0;
     align-items: stretch;
     flex-direction: column;
     gap: var(--space-1);
-    padding: var(--space-2) var(--space-3);
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-md);
   }
 
   .labels-page .label-selection-summary {
@@ -1284,8 +1316,12 @@
   }
 
 
+  .labels-page .label-selection-summary strong {
+    font-size: .78rem;
+  }
+
   .labels-page .label-selection-summary strong b {
-    font-size: 1rem;
+    font-size: .94rem;
   }
 
   .labels-page .label-selection-clear {
@@ -1301,8 +1337,52 @@
   .labels-page .label-selection-actions button {
     min-width: 0;
     min-height: var(--touch-target);
-    padding: var(--space-2);
+    padding: var(--space-1);
+    font-size: .72rem;
     white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  /* The ink surface is smaller than the unchanged interactive target. */
+  .labels-page .label-selection-actions .label-selection-print {
+    position: relative;
+    isolation: isolate;
+    gap: var(--space-1);
+    background: transparent;
+    border-color: transparent;
+    font-size: .72rem;
+  }
+
+  .labels-page .label-selection-print::before {
+    position: absolute;
+    z-index: -1;
+    inset: var(--space-1) var(--space-2);
+    content: '';
+    background: var(--color-primary);
+    border-radius: var(--radius-sm);
+    pointer-events: none;
+  }
+
+  .labels-page .label-selection-print:hover:not(:disabled)::before {
+    background: var(--color-primary-hover);
+  }
+
+  .labels-page .label-selection-print svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  .labels-page .label-species-meta.has-selection .label-species-total,
+  .labels-page .label-species-selected-full {
+    display: none;
+  }
+
+  .labels-page .label-species-selected-compact {
+    display: inline;
+    white-space: nowrap;
+  }
+
+  .labels-page .label-species-heading-copy strong {
     overflow-wrap: anywhere;
   }
 

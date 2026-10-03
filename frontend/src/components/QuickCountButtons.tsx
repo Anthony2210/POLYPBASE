@@ -5,9 +5,11 @@ import { triggerHaptic } from '../utils/haptics';
 export default function QuickCountButtons({
   onAdd,
   values,
+  getAccessibleLabel,
 }: {
   onAdd: (value: number) => void;
   values: number[];
+  getAccessibleLabel?: (value: number) => string;
 }) {
   const [lastPressed, setLastPressed] = useState<number | null>(null);
   const resetTimerRef = useRef<number | null>(null);
@@ -35,6 +37,7 @@ export default function QuickCountButtons({
           key={value}
           className={lastPressed === value ? 'is-pressed' : ''}
           type="button"
+          aria-label={getAccessibleLabel?.(value)}
           onClick={() => handleAdd(value)}
         >
           +{value}

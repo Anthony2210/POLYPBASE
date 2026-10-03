@@ -44,7 +44,7 @@ const labels = {
     childNotes: 'Note',
     childNotesPlaceholder: 'Optionnel',
     cancel: 'Annuler',
-    save: 'Créer le repiquage',
+    save: 'Repiquer',
     saving: 'Création...',
   },
   en: {
@@ -62,7 +62,7 @@ const labels = {
     childNotes: 'Note',
     childNotesPlaceholder: 'Optional',
     cancel: 'Cancel',
-    save: 'Create subculture',
+    save: 'Subculture',
     saving: 'Creating...',
   },
 };
@@ -130,133 +130,139 @@ export default function SubcultureModal({
 
   return (
     <ModalPortal>
-      <div className="modal-backdrop" role="presentation" onClick={close}>
-      <section
-        ref={dialogRef}
-        tabIndex={-1}
-        aria-busy={isBusy}
-        className="subculture-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="subculture-title"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <header className="subculture-heading">
-          <div>
-            <p>{text.parent}: {box.global_code}</p>
-            <h2 id="subculture-title">{text.title}</h2>
-          </div>
-          <button type="button" aria-label={text.cancel} title={text.cancel} disabled={isBusy} onClick={close}>
-            <PolypbaseIcon name="close" size={19} />
-          </button>
-        </header>
-
-        <form className="subculture-form" onSubmit={handleSubmit}>
-          <div className="subculture-event-fields">
-            <label>
-              {text.date}
-              <input
-                required
-                ref={initialFocusRef}
-                type="date"
-                disabled={isBusy}
-                value={eventDate}
-                onChange={(event) => setEventDate(event.target.value)}
-              />
-            </label>
-            <label>
-              {text.reason}
-              <input
-                maxLength={180}
-                disabled={isBusy}
-                placeholder={text.reasonPlaceholder}
-                value={reason}
-                onChange={(event) => setReason(event.target.value)}
-              />
-            </label>
-          </div>
-
-          <div className="subculture-children-heading">
-            <h3>{text.children}</h3>
-            <button type="button" disabled={isBusy} onClick={addChild}>
-              <span aria-hidden="true">+</span>
-              {text.addChild}
+      <div className="modal-backdrop box-dialog-backdrop" role="presentation" onClick={close}>
+        <section
+          ref={dialogRef}
+          tabIndex={-1}
+          aria-busy={isBusy}
+          className="subculture-modal box-dialog box-dialog--subculture"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="subculture-title"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <header className="subculture-heading box-dialog-heading">
+            <div>
+              <h2 id="subculture-title">{text.title}</h2>
+            </div>
+            <button className="icon-button box-dialog-close" type="button" aria-label={text.cancel} title={text.cancel} disabled={isBusy} onClick={close}>
+              <PolypbaseIcon name="close" size={19} aria-hidden="true" />
             </button>
-          </div>
+          </header>
 
-          <div className="subculture-children">
-            {children.map((child, index) => (
-              <section className="subculture-child" key={child.key}>
-                <div className="subculture-child-title">
-                  <strong>{index + 1}</strong>
-                  {children.length > 1 ? (
-                    <button
-                      type="button"
-                      aria-label={text.removeChild}
-                      title={text.removeChild}
-                      disabled={isBusy}
-                      onClick={() => removeChild(child.key)}
-                    >
-                      <PolypbaseIcon name="close" size={17} />
-                    </button>
-                  ) : null}
-                </div>
+          <form className="subculture-form box-dialog-form" onSubmit={handleSubmit}>
+            <div className="box-dialog-body">
+              <div className="box-dialog-context">
+                <p>{text.parent}: <strong>{box.global_code}</strong></p>
+                {box.species?.scientific_name ? <small>{box.species.scientific_name}</small> : null}
+              </div>
 
-                <label className="subculture-global-code">
-                  {text.globalCode}
-                  <input required readOnly disabled={isBusy} value={child.global_code} />
-                </label>
+              <div className="subculture-event-fields">
                 <label>
-                  {text.zone}
-                  <select
-                    disabled={isBusy}
+                  {text.date}
+                  <input
                     required
-                    value={child.thermal_zone_id || ''}
-                    onChange={(event) => updateChild(child.key, {
-                      thermal_zone_id: Number(event.target.value),
-                    })}
-                  >
-                    <option value="" disabled>-</option>
-                    {availableZones.map((zone) => (
-                      <option key={zone.id} value={zone.id}>{zone.name}</option>
-                    ))}
-                  </select>
+                    ref={initialFocusRef}
+                    type="date"
+                    disabled={isBusy}
+                    value={eventDate}
+                    onChange={(event) => setEventDate(event.target.value)}
+                  />
                 </label>
                 <label>
-                  {text.initialPolyps}
+                  {text.reason}
                   <input
-                    min="0"
-                    step="1"
-                    type="number"
+                    maxLength={180}
                     disabled={isBusy}
-                    value={child.initial_polyp_count ?? ''}
-                    onChange={(event) => updateChild(child.key, {
-                      initial_polyp_count: event.target.value === '' ? null : Number(event.target.value),
-                    })}
+                    placeholder={text.reasonPlaceholder}
+                    value={reason}
+                    onChange={(event) => setReason(event.target.value)}
                   />
                 </label>
-                <label className="subculture-child-notes">
-                  {text.childNotes}
-                  <input
-                    placeholder={text.childNotesPlaceholder}
-                    disabled={isBusy}
-                    value={child.notes}
-                    onChange={(event) => updateChild(child.key, { notes: event.target.value })}
-                  />
-                </label>
-              </section>
-            ))}
-          </div>
+              </div>
 
-          {error ? <p className="inline-error subculture-error" role="alert">{error}</p> : null}
+              <div className="subculture-children-heading">
+                <h3>{text.children}</h3>
+                <button type="button" disabled={isBusy} onClick={addChild}>
+                  <span aria-hidden="true">+</span>
+                  {text.addChild}
+                </button>
+              </div>
 
-          <footer className="subculture-actions">
-            <button type="button" disabled={isBusy} onClick={close}>{text.cancel}</button>
-            <button className="is-primary" type="submit" disabled={isBusy || !availableZones.length}>
-              {isSaving ? text.saving : text.save}
-            </button>
-          </footer>
-        </form>
+              <div className="subculture-children">
+                {children.map((child, index) => (
+                  <section className="subculture-child" key={child.key}>
+                    <div className="subculture-child-title">
+                      <strong>{index + 1}</strong>
+                      {children.length > 1 ? (
+                        <button
+                          type="button"
+                          aria-label={text.removeChild}
+                          title={text.removeChild}
+                          disabled={isBusy}
+                          onClick={() => removeChild(child.key)}
+                        >
+                          <PolypbaseIcon name="close" size={17} />
+                        </button>
+                      ) : null}
+                    </div>
+
+                    <label className="subculture-global-code">
+                      {text.globalCode}
+                      <input required readOnly disabled={isBusy} value={child.global_code} />
+                    </label>
+                    <label>
+                      {text.zone}
+                      <select
+                        disabled={isBusy}
+                        required
+                        value={child.thermal_zone_id || ''}
+                        onChange={(event) => updateChild(child.key, {
+                          thermal_zone_id: Number(event.target.value),
+                        })}
+                      >
+                        <option value="" disabled>-</option>
+                        {availableZones.map((zone) => (
+                          <option key={zone.id} value={zone.id}>{zone.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      {text.initialPolyps}
+                      <input
+                        min="0"
+                        step="1"
+                        type="number"
+                        disabled={isBusy}
+                        value={child.initial_polyp_count ?? ''}
+                        onChange={(event) => updateChild(child.key, {
+                          initial_polyp_count: event.target.value === '' ? null : Number(event.target.value),
+                        })}
+                      />
+                    </label>
+                    <label className="subculture-child-notes">
+                      {text.childNotes}
+                      <input
+                        placeholder={text.childNotesPlaceholder}
+                        disabled={isBusy}
+                        value={child.notes}
+                        onChange={(event) => updateChild(child.key, { notes: event.target.value })}
+                      />
+                    </label>
+                  </section>
+                ))}
+              </div>
+
+              {error ? <p className="inline-error subculture-error" role="alert">{error}</p> : null}
+            </div>
+
+            <footer className="subculture-actions box-dialog-actions">
+              <button type="button" disabled={isBusy} onClick={close}>{text.cancel}</button>
+              <button className="is-primary" type="submit" disabled={isBusy || !availableZones.length}>
+                {isSaving ? text.saving : text.save}
+              </button>
+            </footer>
+          </form>
         </section>
       </div>
     </ModalPortal>

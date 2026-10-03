@@ -232,24 +232,16 @@ test('measurement UI state resets between boxes and follows refreshed capabiliti
   assert.match(appSource, /setIsMeasurementEditorOpen\(false\);/);
 });
 
-test('normal back action is non-desktop and keeps deterministic localized navigation', () => {
+test('Box uses shared localized back controls with a non-desktop normal-page escape', () => {
   const appSource = readSource('../src/App.tsx');
-  const frSource = readSource('../src/i18n/fr.ts');
-  const enSource = readSource('../src/i18n/en.ts');
-  const backControls = appSource.match(/className="icon-button box-back-action"[\s\S]*?onClick=\{onBack\}[\s\S]*?<ArrowLeft aria-hidden="true" size=\{20\} \/>/g) ?? [];
-
+  const backControls = appSource.match(/<DetailBackButton label=\{t\('back'\)\} onBack=\{onBack\} \/>/g) ?? [];
   assert.equal(backControls.length, 2, 'one not-found escape and one normal-page control are defined');
-  assert.match(
-    appSource,
-    /\{!isDesktopApp \? \(\s*<button\s*className="icon-button box-back-action"[\s\S]*?onClick=\{onBack\}/,
-  );
-  for (const control of backControls) {
-    assert.match(control, /aria-label=\{t\('backToPilotage'\)\}/);
-    assert.match(control, /title=\{t\('backToPilotage'\)\}/);
-  }
-  assert.doesNotMatch(appSource, /history\.back\(|window\.history\.back\(/);
-  assert.match(frSource, /backToPilotage: 'Retour au suivi'/);
-  assert.match(enSource, /backToPilotage: 'Back to tracking'/);
+  assert.match(appSource, /\{!isDesktopApp \? <DetailBackButton label=\{t\('back'\)\} onBack=\{onBack\} \/> : null\}/);
+  const controlSource = readSource('../src/components/DetailBackButton.tsx');
+  assert.match(controlSource, /aria-label=\{label\}/);
+  assert.match(controlSource, /title=\{label\}/);
+  assert.match(readSource('../src/i18n/fr.ts'), /back: 'Retour'/);
+  assert.match(readSource('../src/i18n/en.ts'), /back: 'Back'/);
 });
 
 test('measurement summary and editor are mutually exclusive states of one anchored module', () => {

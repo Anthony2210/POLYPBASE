@@ -957,6 +957,7 @@
 
 .zone-page .last-reading-card.measurement-summary.zone-salinity-section {
   --metric-background: var(--color-primary-faint);
+  padding: var(--space-3) var(--space-4);
   grid-template-columns: minmax(150px, 210px) minmax(150px, 190px) minmax(0, 1fr);
   align-items: center;
   background: var(--color-surface-subtle);
@@ -965,14 +966,6 @@
 
 .zone-page .last-reading-card.measurement-summary.zone-salinity-section.has-edit-capability {
   grid-template-columns: minmax(150px, 210px) minmax(150px, 190px) minmax(0, 1fr) max-content;
-}
-
-.zone-page .last-reading-card.measurement-summary.zone-salinity-section:not(.has-comment).has-edit-capability {
-  grid-template-columns: minmax(150px, 210px) minmax(150px, 190px) max-content;
-}
-
-.zone-page .last-reading-card.measurement-summary.zone-salinity-section:not(.has-comment):not(.has-edit-capability) {
-  grid-template-columns: minmax(150px, 210px) minmax(150px, 190px);
 }
 
 .zone-salinity-section .metric {
@@ -996,6 +989,7 @@
 .zone-salinity-summary-actions {
   display: flex;
   align-items: center;
+  align-self: start;
   justify-self: end;
   gap: var(--space-2);
 }
@@ -1178,7 +1172,8 @@
   padding: var(--space-1) 0;
 }
 
-.zone-movement-direction-icon { color: var(--color-primary-hover); }
+.zone-movement-row.is-arrival > .zone-movement-direction-icon { color: var(--color-success); }
+.zone-movement-row.is-departure > .zone-movement-direction-icon { color: var(--color-danger); }
 
 .zone-movement-identity {
   min-height: 42px;
@@ -1439,6 +1434,7 @@
   .zone-page .last-reading-card.measurement-summary.zone-salinity-section.has-edit-capability,
   .zone-page .last-reading-card.measurement-summary.zone-salinity-section:not(.has-comment).has-edit-capability,
   .zone-page .last-reading-card.measurement-summary.zone-salinity-section:not(.has-comment):not(.has-edit-capability) {
+    padding-inline: var(--space-3);
     grid-template-columns: minmax(0, 1fr) max-content;
   }
 

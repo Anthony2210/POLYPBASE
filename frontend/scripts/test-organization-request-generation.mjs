@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
-import { appHarness, ast as appAst, functionNode, deferred as operationDeferred, tick as operationTick } from './app-operation-test-harness.mjs';
+import { appHarness, ast as appAst, functionNode, deferred as operationDeferred, tick as operationTick,
+  createHistoryFixture, installAppRouting } from './app-operation-test-harness.mjs';
 
 for (const gap of ['before confirmation', 'after mutation success']) {
   test(`create-box caller cannot navigate after organization replacement ${gap}`, async () => {
@@ -144,6 +145,7 @@ function deferred() {
   return { promise, resolve, reject };
 }
 function harness() {
+  const browser = createHistoryFixture();
   const organizations = [1, 2, 3].map((id) => ({ id, name: `Organization ${id}` }));
   const state = {
     data: {
@@ -175,13 +177,14 @@ function harness() {
     organizationRequestGenerationRef: { current: 0 },
     openBoxRequestGenerationRef: { current: 0 },
     navigationGenerationRef: { current: 0 },
-    window: { location: { origin: 'https://polypbase.test', pathname: '/', search: '' }, history: { replaceState() {} } },
+    window: { location: browser.location, history: browser.history },
     setIsOrganizationMenuOpen() {}, setNeedsOrganizationChoice() {}, setIsCreateBoxOpen() {},
     setStoredInterfaceLanguage() {}, setIsLoginRoute() {},
     setSearch(value) { state.search = value; },
     setQrLabelSelection(value) { state.qrLabels = value; },
     setMeasurementPrefill(value) { state.measurementPrefill = value; },
-    navigateTo(route) { routes.push(route); },
+    setRoute(route) { routes.push(route); },
+    setIsTabletScannerOpen() {}, setPasswordReset() {},
     setIsBoxLoading(value) { state.boxLoading = value; },
     setActiveOrganizationId(value) { state.organizationId = value; },
     setActiveOrganizationContext(value) { state.contextId = value; },
@@ -215,8 +218,7 @@ function harness() {
     });
     return vm.runInContext(outputText, context);
   }
-  const routeSafety = readFileSync(new URL('../src/utils/routeSafety.ts', import.meta.url), 'utf8');
-  evaluate(routeSafety.replace('export function', 'function'));
+  installAppRouting(context, evaluate);
   for (const name of ['getOperationRequests', 'fetchAllPages', 'getOrganizationById', 'setProfileActiveOrganization', 'fetchScopedData', 'chooseOrganization', 'openBox']) {
     evaluate(findFunction(name).getText(ast));
   }
@@ -233,7 +235,7 @@ function harness() {
     context.activeOrganizationId = state.organizationId;
     context.exportOptionsRequested = state.exportOptionsRequested;
   }
-  return { state, requests, errors, routes, context, beginEffect, render, choose: context.chooseOrganization, openBox: context.openBox };
+  return { state, requests, errors, routes, context, browser, beginEffect, render, choose: context.chooseOrganization, openBox: context.openBox };
 }
 async function tick() {
   for (let index = 0; index < 12; index += 1) await Promise.resolve();

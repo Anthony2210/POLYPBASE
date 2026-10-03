@@ -493,7 +493,7 @@
 
 .tablet-scanner-modal-heading {
   display: flex;
-  min-height: 84px;
+  min-height: 0;
   padding: var(--space-4) var(--space-5);
   align-items: center;
   justify-content: space-between;
@@ -501,22 +501,12 @@
   border-bottom: 1px solid var(--color-line);
 }
 
-.tablet-scanner-modal-heading :is(h2, p) {
-  margin: 0;
-}
-
 .tablet-scanner-modal-heading h2 {
+  margin: 0;
   font-size: 1.25rem;
   font-style: italic;
 }
 
-.tablet-scanner-modal-heading p {
-  max-width: 520px;
-  margin-top: var(--space-1);
-  color: var(--color-muted);
-  font-size: .82rem;
-  line-height: 1.4;
-}
 
 .tablet-scanner-close {
   width: 52px;

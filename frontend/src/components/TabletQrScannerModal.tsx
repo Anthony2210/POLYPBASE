@@ -10,7 +10,6 @@ const FOCUSABLE_SELECTOR =
 
 type TabletQrScannerModalLabels = TabletQrScannerLabels & {
   close: string;
-  description: string;
   title: string;
 };
 
@@ -78,14 +77,10 @@ export default function TabletQrScannerModal({
           role="dialog"
           aria-modal="true"
           aria-labelledby="tablet-scanner-title"
-          aria-describedby="tablet-scanner-description"
           onMouseDown={(event) => event.stopPropagation()}
         >
           <header className="tablet-scanner-modal-heading">
-            <div>
-              <h2 id="tablet-scanner-title">{labels.title}</h2>
-              <p id="tablet-scanner-description">{labels.description}</p>
-            </div>
+            <h2 id="tablet-scanner-title">{labels.title}</h2>
             <button
               ref={closeButtonRef}
               className="icon-button tablet-scanner-close"

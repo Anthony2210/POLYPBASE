@@ -8,6 +8,7 @@ export interface RowActionMenuItem<TAction extends string> {
   action: TAction;
   label: string;
   danger?: boolean;
+  disabled?: boolean;
 }
 
 export interface RowActionMenuProps<TAction extends string> {
@@ -33,7 +34,7 @@ export function RowActionMenu<TAction extends string>({
   const { anchorRef, panelRef, position, id } = useAnchoredPopover<HTMLButtonElement>(isOpen, close, 'end');
 
   useLayoutEffect(() => {
-    if (isOpen && position.visibility === 'visible') panelRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+    if (isOpen && position.visibility === 'visible') panelRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus();
   }, [isOpen, panelRef, position.visibility]);
 
   return (
@@ -71,9 +72,9 @@ export function RowActionMenu<TAction extends string>({
             if (!event.currentTarget.contains(target) && !anchorRef.current?.contains(target)) close();
           }}
           onKeyDown={(event) => {
-            const items = Array.from(panelRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
+            const items = Array.from(panelRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') ?? []);
             const index = items.indexOf(document.activeElement as HTMLButtonElement);
-            const next = event.key === 'ArrowDown' ? (index + 1) % items.length
+            const next = items.length === 0 ? null : event.key === 'ArrowDown' ? (index + 1) % items.length
               : event.key === 'ArrowUp' ? (index + items.length - 1) % items.length
                 : event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : null;
             if (next != null) {
@@ -84,7 +85,8 @@ export function RowActionMenu<TAction extends string>({
           }}
         >
           {actions.map((item) => (
-            <button className={item.danger ? 'is-danger' : undefined} key={item.action} type="button" role="menuitem" onClick={() => {
+            <button className={item.danger ? 'is-danger' : undefined} key={item.action} type="button" role="menuitem" disabled={item.disabled} onClick={() => {
+              if (item.disabled) return;
               // Keep focus on the trigger so a dialog opened by the action has a
               // stable, still-connected control to restore focus to.
               close(true);

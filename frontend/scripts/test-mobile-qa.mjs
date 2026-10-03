@@ -156,8 +156,11 @@ test('phone scan uses a reserved larger button track and shared navigation clear
   assert.match(phoneCss, /grid-template-columns: repeat\(2, minmax\(0, 1fr\)\) var\(--phone-qr-size\) repeat\(2, minmax\(0, 1fr\)\)/);
   assert.match(phoneCss, /\.phone-nav-qr\s*\{[^}]*width: var\(--phone-qr-size\);[^}]*height: var\(--phone-qr-size\)/);
   assert.match(phoneCss, /padding: var\(--space-4\) 10px var\(--phone-nav-clearance\)/);
+  const navCap = Number(phoneCss.match(/width: min\(100%, (\d+)px\)/)[1]);
+  const scan = Number(phoneCss.match(/--phone-qr-size: (\d+)px/)[1]);
+  const gap = Number(phoneCss.match(/gap: 0 (\d+)px/)[1]);
   for (const width of [320, 360, 390, 430]) {
-    const nav = Math.min(width - 16, 400), scan = 76, gap = 2;
+    const nav = Math.min(width - 16, navCap);
     const slot = (nav - scan - gap * 4) / 4;
     assert.ok(slot >= 48);
     const centers = (slot + scan) / 2 + gap;

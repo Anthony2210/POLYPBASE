@@ -3,6 +3,7 @@ import type { TranslationKey } from './fr';
 export const en: Record<TranslationKey, string> = {
   account: 'Account',
   loading: 'Loading...',
+  back: 'Back',
   backToPilotage: 'Back to tracking',
   boxNotFound: 'Box not found',
   boxNotFoundText: 'This box does not exist in the loaded data.',
@@ -676,7 +677,7 @@ export const en: Record<TranslationKey, string> = {
   manageErrorResponsableProtected: 'The institution manager status cannot be changed from this interface.',
   manageErrorActiveResponsableRequired: 'You are no longer an institution manager.',
   manageErrorLastActiveResponsable: 'The last active institution manager cannot relinquish the status.',
-  historyButton: 'View records',
+  historyButton: 'View details',
   historyAllYears: 'All years',
   historyCountLabel: 'Measurements',
   historyVisibleCount: '{visible} of {total} records shown',
@@ -869,6 +870,7 @@ export const en: Record<TranslationKey, string> = {
 
   qrLabelSpeciesCount: '{count} boxes',
   qrLabelSpeciesSelected: '{count} selected',
+  qrLabelSpeciesSelectedCompact: '{count} sel.',
   qrLabelSelectSpecies: 'Select {count} results for {species}',
   qrLabelDeselectSpecies: 'Remove {count} results for {species}',
   qrLabelAllFilter: 'All',
@@ -888,7 +890,6 @@ export const en: Record<TranslationKey, string> = {
   qrLabelExcludedCount: 'hidden',
   qrLabelFont: 'Font',
   qrLabelHeight: 'Height (mm)',
-  qrLabelHelp: 'Label ready to print and attach to the box.',
   qrLabelLandscape: 'Landscape',
   qrLabelNoEligibleBoxes: 'No active box with a reading this year.',
   qrLabelOptimize: 'Optimize sheet',
@@ -924,7 +925,7 @@ export const en: Record<TranslationKey, string> = {
   qrScannerSecureContext: 'Camera scanning requires an HTTPS address.',
   qrScannerStart: 'Scan',
   qrScannerStop: 'Stop',
-  qrScannerText: 'Scan a box QR code to open its sheet directly.',
+
   qrScannerTitle: 'QR code scan',
   qrScannerUnsupported: 'Scanner unavailable in this browser.',
   recentAccess: 'Recent access',

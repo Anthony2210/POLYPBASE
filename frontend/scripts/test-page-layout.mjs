@@ -385,7 +385,7 @@ test('all screen shell rules reject viewport-width workarounds', () => {
 test('the Administration desktop-only redirect and render guards remain in place', () => {
   assert.match(
     appSource,
-    /if \(activeTab === 'admin' && !isDesktopApp\) \{\s*replaceRoute\(\{ tab: 'pilotage', boxCode: null, boxId: null \}, '\/'\);\s*return;\s*\}/,
+    /if \(activeTab === 'admin' && !isDesktopApp\) \{\s*replaceRoute\(\{ tab: 'pilotage', boxCode: null, boxId: null \}, '\/', true\);\s*return;\s*\}/,
   );
   assert.match(appSource, /if \(activeTab === 'admin' && !isDesktopApp\) return null;/);
   assert.match(appSource, /\{activeTab === 'admin' && isDesktopApp && \(/);
@@ -518,7 +518,14 @@ test('Box header adapts to available page width in the responsive layer', () => 
   assert.match(header, /--entity-areas:\s*"identity tools"\s*"summary summary"\s*"actions actions"/);
   assert.match(cssRule(compact, '.box-action-stack'), /repeat\(auto-fit,\s*minmax\(min\(100%,\s*156px\),\s*1fr\)\)/);
   assert.doesNotMatch(compact, /display:\s*none|overflow:\s*hidden/);
-  assert.match(cssRule(phoneCss, '.entity-header--box'), /--entity-columns:\s*minmax\(0,\s*1fr\)\s+48px/);
+  const phoneHeader = cssRule(phoneCss, '.entity-header--box.is-phone');
+  assert.match(phoneHeader, /--entity-columns:\s*minmax\(0,\s*1fr\)\s+48px/);
+  assert.match(phoneHeader, /--entity-areas:\s*"identity tools"\s*"summary summary"/);
+  assert.doesNotMatch(phoneHeader, /"actions actions"/);
+  assert.match(cssRule(phoneCss, '.is-phone .box-header-tools'), /justify-self:\s*end/);
+  const phoneMenu = cssRule(phoneCss, '.is-phone .box-header-tools .row-action-menu-trigger');
+  assert.match(phoneMenu, /width:\s*48px/);
+  assert.match(phoneMenu, /height:\s*48px/);
   const imports = readSource('src/styles/index.css');
   assert.ok(imports.indexOf("'./responsive/tablet.css'") < imports.indexOf("'./responsive/phone.css'"));
   assert.match(imports, /responsive\/tablet\.css'\s+layer\(responsive\)/);

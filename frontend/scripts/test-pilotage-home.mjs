@@ -4,6 +4,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 import ts from 'typescript';
+import { appHarness, ast, functionNode, tick } from './app-operation-test-harness.mjs';
 
 const readSource = (relativePath) => readFileSync(new URL(relativePath, import.meta.url), 'utf8');
 const appSource = readSource('../src/App.tsx');
@@ -62,10 +63,39 @@ test('returning to idle Pilotage clears search without box-code injection', () =
 test('late box fallback responses are guarded against route changes', () => {
   assert.match(appSource, /if \(box\) \{\s*setIsBoxLoading\(false\)/);
   assert.match(appSource, /const navigationGeneration = navigationGenerationRef\.current/);
-  assert.match(appSource, /navigationGenerationRef\.current \+= 1;\s*window\.history\.pushState/);
-  assert.match(appSource, /navigationGenerationRef\.current \+= 1;\s*setIsTabletScannerOpen\(false\)/);
+  const navigateSource = functionNode('navigateTo').getText(ast);
+  assert.match(navigateSource, /getInAppHistory\(\)\.push/);
+  assert.match(navigateSource, /if \(result === 'pending'\) return;\s*navigationGenerationRef\.current \+= 1;/);
+  const syncSource = functionNode('syncRoute').getText(ast);
+  assert.match(syncSource, /getInAppHistory\(\)\.sync/);
+  assert.match(syncSource, /navigationGenerationRef\.current \+= 1;/);
+  assert.match(syncSource, /setIsTabletScannerOpen\(false\)/);
   assert.ok((appSource.match(/isRouteRequestCurrent\(/g) ?? []).length >= 3);
 });
+
+for (const traversal of ['push', 'popstate']) {
+  test(`real routing invalidates a late box fallback after ${traversal}`, async () => {
+    const h = appHarness();
+    h.context.data = h.state.data;
+    h.context.setIsBoxLoading = () => {};
+    h.evaluate(functionNode('openBox').getText(ast));
+    h.context.openBox(42, 'BOX-42');
+    const generation = h.context.navigationGenerationRef.current;
+    if (traversal === 'push') {
+      h.context.navigateTo({ tab: 'zones', boxCode: null, boxId: null }, '/zones');
+    } else {
+      h.browser.travel(-1, h.context.syncRoute);
+    }
+    assert.ok(h.context.navigationGenerationRef.current > generation);
+    const route = h.state.route;
+    const data = h.state.data;
+    h.requests[0].resolve({ id: 42, global_code: 'BOX-42' });
+    await tick();
+    assert.equal(h.state.route, route);
+    assert.equal(h.state.data, data);
+    assert.equal(h.browser.path, traversal === 'push' ? '/zones' : '/');
+  });
+}
 
 test('desktop and tablet use one in-flow semantic result surface', () => {
   assert.equal((appSource.match(/'box-search-results'/g) ?? []).length, 1);

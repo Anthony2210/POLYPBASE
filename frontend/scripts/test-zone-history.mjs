@@ -130,8 +130,9 @@ test('movement columns remain neutral with directional icons while the chart use
   assert.match(historySource, /ArrowDownToLine/);
   assert.match(historySource, /ArrowUpFromLine/);
   assert.doesNotMatch(stylesSource, /\.zone-recent-movement-column\.is-(?:arrival|departure) h3/);
-  assert.doesNotMatch(stylesSource, /\.zone-movement-row\.is-(?:arrival|departure) \.zone-movement-direction-icon/);
-  assert.match(stylesSource, /\.zone-movement-direction-icon \{ color: var\(--color-primary-hover\); \}/);
+  assert.match(stylesSource, /\.zone-movement-row\.is-arrival > \.zone-movement-direction-icon \{ color: var\(--color-success\); \}/);
+  assert.match(stylesSource, /\.zone-movement-row\.is-departure > \.zone-movement-direction-icon \{ color: var\(--color-danger\); \}/);
+  assert.doesNotMatch(stylesSource, /\.zone-movement-row\.is-(?:arrival|departure)\s*\{[^}]*\b(?:color|background):/);
   assert.match(stylesSource, /\.zone-recent-movements \.zone-movement-row \{[^}]*min-height: 50px;[^}]*padding: var\(--space-1\) 0/s);
   assert.match(stylesSource, /\.zone-movement-history-action \{[^}]*min-height: var\(--control-height\)/s);
 });

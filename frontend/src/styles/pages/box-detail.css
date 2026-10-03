@@ -309,8 +309,7 @@
 .measurement-entry-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  /* Top-aligned so the three numeric rows line up even though only the count
-     fields carry quick-action buttons under their stepper. */
+  /* Keep numeric rows and their quick actions aligned across all three fields. */
   align-items: start;
   gap: var(--space-3);
 }
@@ -523,7 +522,7 @@
   .box-code-line h2 { overflow: visible; white-space: normal; }
   .box-small-facts { margin-top: var(--space-3); }
   .box-header-tools { align-self: start; gap: 0; }
-  .box-hero-qr { display: none; }
+
   .box-zone-summary { padding: var(--space-3) 0 0; grid-template-columns: 1fr; border: 0; border-top: 1px solid var(--color-line); }
   .box-zone-summary .info-pill:not(.is-strong) { display: none; }
   .box-action-stack { min-width: 0; padding: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); }

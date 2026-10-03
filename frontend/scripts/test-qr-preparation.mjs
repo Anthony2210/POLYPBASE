@@ -460,7 +460,7 @@ test('modal is labeled, focuses close, contains forward/reverse Tab and restores
   const dialogNode = h.nodes().find((node) => node.props?.role === 'dialog');
   assert.equal(dialogNode.props['aria-modal'], 'true');
   assert.ok(h.nodes().some((node) => node.type === 'h2' && node.props.id === dialogNode.props['aria-labelledby']));
-  assert.ok(h.nodes().some((node) => node.props?.id === dialogNode.props['aria-describedby']));
+  assert.equal(dialogNode.props['aria-describedby'], undefined);
   assert.equal(h.document.activeElement, button(h, 'Close') ?? h.nodes().find((node) => node.props?.['aria-label'] === 'Close'));
   const first = h.document.activeElement, last = button(h, 'Print');
   assert.equal(h.key('Tab', true), true); assert.equal(h.document.activeElement, last);
@@ -489,7 +489,9 @@ test('modal loading prevents duplicate actions, dismissal and navigation; retry 
     assert.equal(h.document.activeElement, h.dialog);
     assert.ok(h.nodes().filter((node) => node.type === 'button').every((node) => node.props.disabled));
     assert.ok(h.nodes().some((node) => node.props?.role === 'status' && node.props.children === feedback.qrLabelPreparing));
-    h.key('Escape'); h.nodes().find((node) => node.props?.className === 'modal-backdrop qr-print-backdrop').props.onClick();
+    const backdrop = h.nodes().find((node) => node.props?.className?.split(/\s+/).includes('box-dialog-backdrop'));
+    assert.ok(backdrop, 'The shared QR backdrop must retain its guarded dismissal handler');
+    h.key('Escape'); backdrop.props.onClick();
     assert.equal(closed, 0); assert.equal(h.key('Tab'), true);
     resolve({ status: 'failed', reason: 'image-preparation' }); await tick(); h.render(props);
     assert.ok(h.nodes().some((node) => node.props?.role === 'alert' && node.props.children === feedback.qrLabelImagePreparationFailed));
@@ -551,6 +553,7 @@ test('Labels popup cancellation unlocks print and keeps selection without failur
     labels: { ...feedback, noZone: 'No zone', qrLabelPrintCount: () => 'Print', qrLabelAddResults: () => 'Add results', qrLabelAddResultsCompact: () => 'Add', qrLabelSpeciesCount: () => '1 box', qrLabelSpeciesSelected: () => '1 selected', qrLabelDeselectSpecies: () => 'Deselect', qrLabelSelectSpecies: () => 'Select' },
     onAddQrLabel() { assert.fail('selection changed'); }, onRemoveQrLabel() { assert.fail('selection changed'); }, onClearQrLabelSelection() { assert.fail('selection cleared'); },
   };
+  props.labels.qrLabelSpeciesSelectedCompact = () => '1 sel.';
   h.render(props);
   button(h, 'Print').props.onClick();
   await tick(); h.render(props);
@@ -586,6 +589,7 @@ test('Labels failure and retry preserve selection, search and zone state', async
     labels: { ...feedback, noZone: 'No zone', qrLabelPrintCount: () => 'Print', qrLabelAddResults: () => 'Add results', qrLabelAddResultsCompact: () => 'Add', qrLabelSpeciesCount: () => '1 box', qrLabelSpeciesSelected: () => '1 selected', qrLabelDeselectSpecies: () => 'Deselect', qrLabelSelectSpecies: () => 'Select' },
     onAddQrLabel() { assert.fail('selection changed'); }, onRemoveQrLabel() { assert.fail('selection changed'); }, onClearQrLabelSelection() { assert.fail('selection cleared'); },
   };
+  props.labels.qrLabelSpeciesSelectedCompact = () => '1 sel.';
   h.render(props);
   h.nodes().find((node) => node.props?.type === 'search').props.onChange({ target: { value: 'ATL' } });
   h.nodes().find((node) => node.type === 'select').props.onChange({ target: { value: 'zone-2' } });

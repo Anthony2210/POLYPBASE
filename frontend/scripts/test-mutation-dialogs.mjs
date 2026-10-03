@@ -207,12 +207,12 @@ function environment() {
 }
 
 const cases = [
-  { name: 'MoveBoxModal', titles: { en: 'Move box', fr: 'Transférer la boîte' }, initialType: 'select', saves: { en: 'Save movement', fr: 'Enregistrer le transfert' }, saving: { en: 'Saving...', fr: 'Enregistrement...' } },
-  { name: 'SubcultureModal', titles: { en: 'Create a subculture', fr: 'Repiquer la boîte' }, initialType: 'input', saves: { en: 'Create subculture', fr: 'Créer le repiquage' }, saving: { en: 'Creating...', fr: 'Création...' } },
+  { name: 'MoveBoxModal', titles: { en: 'Move box', fr: 'Déplacer la boîte' }, initialType: 'select', saves: { en: 'Move', fr: 'Déplacer' }, saving: { en: 'Saving...', fr: 'Enregistrement...' } },
+  { name: 'SubcultureModal', titles: { en: 'Create a subculture', fr: 'Repiquer la boîte' }, initialType: 'input', saves: { en: 'Subculture', fr: 'Repiquer' }, saving: { en: 'Creating...', fr: 'Création...' } },
 ];
 function fixture(spec, overrides = {}, env = environment()) {
   let closed = 0;
-  const box = { id: 17, global_code: '1-ATL.001', strain: { code: '1-ATL' }, organization: { id: 1, name: 'Test institution' }, thermal_zone: { id: 2, name: 'Current zone' } };
+  const box = { id: 17, global_code: '1-ATL.001', species: { scientific_name: 'Aurelia aurita' }, strain: { code: '1-ATL' }, organization: { id: 1, name: 'Test institution' }, thermal_zone: { id: 2, name: 'Current zone' } };
   const props = {
     box, existingBoxes: [box], zones: [2, 3, 4].map((id) => ({ id, name: `Zone ${id}`, organization: box.organization, is_active: true })),
     language: 'en', isSaving: false, error: null, onClose() { closed++; }, onSubmit: async () => {}, ...overrides,
@@ -220,6 +220,8 @@ function fixture(spec, overrides = {}, env = environment()) {
   const modal = env.instance(env.load(`../src/components/${spec.name}.tsx`).default, props);
   return { env, modal, get closed() { return closed; } };
 }
+function hasClass(node, name) { return node.props.className?.split(/\s+/).includes(name) ?? false; }
+function byClass(modal, name) { return modal.nodes.find((node) => hasClass(node, name)); }
 function submitButton(modal) { return modal.controls.find((node) => node.props.type === 'submit'); }
 function closeButtons(modal) {
   return modal.controls.filter((node) => node.type === 'button' && (node.props['aria-label'] === 'Cancel' || text(node) === 'Cancel' || node.props['aria-label'] === 'Annuler' || text(node) === 'Annuler'));
@@ -267,6 +269,74 @@ function assertBusy(h, checkInitialFocus = true) {
 
 for (const spec of cases) {
   for (const language of ['en', 'fr']) {
+    test(`${spec.name}: ${language} shared layout keeps labelled fields/errors in one body and actions outside it`, () => {
+      const { env, modal } = fixture(spec, { language, error: 'Test validation error' });
+      const isMove = spec.name === 'MoveBoxModal';
+      const body = byClass(modal, 'box-dialog-body');
+      const footer = byClass(modal, 'box-dialog-actions');
+      const heading = byClass(modal, 'box-dialog-heading');
+      const context = byClass(modal, 'box-dialog-context');
+      const close = byClass(modal, 'box-dialog-close');
+      const title = modal.nodes.find((node) => node.props.id === modal.dialog.props['aria-labelledby']);
+      assert.equal(modal.dialog.props.className, isMove ? 'move-modal box-dialog box-dialog--move' : 'subculture-modal box-dialog box-dialog--subculture');
+      assert.equal(modal.backdrop.props.className, 'modal-backdrop box-dialog-backdrop');
+      assert.equal(heading.props.className, 'subculture-heading box-dialog-heading');
+      assert.equal(modal.form.props.className, isMove ? 'move-form box-dialog-form' : 'subculture-form box-dialog-form');
+      assert.equal(footer.props.className, 'subculture-actions box-dialog-actions');
+      assert.equal(modal.nodes.filter((node) => hasClass(node, 'box-dialog-body')).length, 1);
+      assert.deepEqual(modal.form.children, [body, footer], 'Body and footer are direct form siblings for parent-owned scrolling');
+      assert.deepEqual(modal.dialog.children, [heading, modal.form]);
+      assert.equal(body.type, 'div');
+      assert.equal(footer.type, 'footer');
+      assert.equal(title.type, 'h2');
+      assert.equal(text(title), spec.titles[language]);
+      assert.ok(heading.contains(title));
+      assert.equal(close.parent, heading);
+      assert.equal(close.props.className, 'icon-button box-dialog-close');
+      assert.equal(close.props.type, 'button');
+      assert.equal(close.props['aria-label'], language === 'fr' ? 'Annuler' : 'Cancel');
+      assert.equal(close.props.title, close.props['aria-label']);
+      assert.equal(close.disabled, false);
+      assert.equal(close.children.length, 1);
+      const icon = close.children[0];
+      assert.equal(icon.type, './PolypbaseIcon');
+      assert.equal(icon.props.name, 'close');
+      assert.equal(icon.props.size, 19);
+      assert.equal(icon.props['aria-hidden'], 'true');
+      assert.equal(text(close), '', 'Close is an accessible icon, not a literal x');
+      assert.ok(modal.fields.every((field) => body.contains(field)));
+      assert.ok(modal.fields.every((field) => field.parent.type === 'label' && text(field.parent).trim()));
+      assert.ok(body.contains(modal.nodes.find((node) => node.props.role === 'alert')));
+      assert.ok(!body.contains(footer));
+      assert.equal(footer.children.length, 2);
+      assert.ok(footer.contains(submitButton(modal)));
+      assert.equal(text(submitButton(modal)), spec.saves[language]);
+      assert.equal(submitButton(modal).props.type, 'submit');
+      const initial = modal.fields.find((field) => field.props.ref);
+      assert.equal(env.document.activeElement, initial);
+      assert.equal(initial.props.required, true);
+      assert.equal(initial.type, spec.initialType);
+      assert.ok(text(context).includes('1-ATL.001'));
+      if (isMove) {
+        const flow = byClass(modal, 'box-dialog-location-flow');
+        const current = byClass(modal, 'current-zone-card');
+        assert.equal(current.parent, flow);
+        assert.equal(initial.parent.parent, flow);
+        assert.deepEqual(flow.children, [current, initial.parent]);
+        assert.ok(body.contains(flow));
+        assert.ok(body.contains(byClass(modal, 'location-history')));
+        assert.ok(heading.contains(context));
+      } else {
+        assert.ok(body.contains(context));
+        assert.ok(text(context).includes('Aurelia aurita'));
+        assert.equal(heading.contains(context), false, 'Source identity stays distinct from the action title');
+        assert.ok(body.contains(byClass(modal, 'subculture-event-fields')));
+        assert.ok(body.contains(byClass(modal, 'subculture-children-heading')));
+        assert.ok(body.contains(byClass(modal, 'subculture-children')));
+      }
+      modal.unmount();
+    });
+
     test(`${spec.name}: ${language} label, initial focus, forward/reverse Tab, idle Escape and opener restore`, () => {
       const h = fixture(spec, { language }), { env, modal } = h;
       assert.equal(modal.dialog.props['aria-modal'], 'true');
@@ -513,6 +583,111 @@ for (const spec of cases) {
     assert.equal(env.document.activeElement, env.opener);
     assert.equal(env.listenerCount(), 0);
     assert.ok(regainedBusyFocus, 'Busy dialog must recover focus after its nested confirmation closes');
+  });
+}
+
+for (const currentZone of [{ id: 2, name: 'Current zone' }, null]) {
+  test(`MoveBoxModal: location flow preserves exact payload with ${currentZone ? 'known' : 'null'} current zone and historical display`, async () => {
+    const organization = { id: 1, name: 'Test institution' };
+    const locations = Array.from({ length: 7 }, (_, index) => ({
+      id: index + 1, thermal_zone: { id: 10 + index, name: `History zone ${index + 1}` },
+      starts_at: '2026-09-20T12:00:00Z', ends_at: index === 1 ? null : '2026-09-21T12:00:00Z',
+      end_date_unknown: index === 0, notes: index === 0 ? 'Historical note' : '',
+    }));
+    const payloads = [];
+    const h = fixture(cases[0], {
+      box: { id: 17, global_code: '1-ATL.001', organization, thermal_zone: currentZone, locations },
+      zones: [
+        { id: 2, name: 'Current zone', organization, is_active: true },
+        { id: 3, name: 'Destination', organization, is_active: true },
+        { id: 4, name: 'Inactive', organization, is_active: false },
+        { id: 5, name: 'Other institution', organization: { id: 9 }, is_active: true },
+      ],
+      onSubmit: async (payload) => { payloads.push(plain(payload)); },
+    });
+    const destination = h.modal.fields.find((field) => field.type === 'select');
+    assert.deepEqual(destination.children.map((option) => option.props.value), currentZone ? [3] : [2, 3]);
+    assert.ok(text(byClass(h.modal, 'current-zone-card')).includes(currentZone ? 'Current zone' : 'No zone'));
+    assert.equal(h.modal.nodes.filter((node) => hasClass(node, 'location-row')).length, 6);
+    const history = text(byClass(h.modal, 'location-history'));
+    assert.ok(history.includes('end date unknown'));
+    assert.ok(history.includes('current'));
+    assert.ok(history.includes('Historical note'));
+    assert.equal(history.includes('History zone 7'), false);
+    change(destination, '3');
+    change(h.modal.fields.find((field) => field.props.type === 'datetime-local'), '2026-09-21T12:34');
+    change(h.modal.fields.find((field) => field.type === 'textarea'), '  Movement note  ');
+    h.modal.flush();
+    const event = submitEvent();
+    await h.modal.form.props.onSubmit(event);
+    assert.equal(event.defaultPrevented, true);
+    assert.deepEqual(payloads, [{
+      expected_thermal_zone_id: currentZone?.id ?? null, thermal_zone_id: 3,
+      moved_at: new Date('2026-09-21T12:34').toISOString(), notes: 'Movement note',
+    }]);
+    h.modal.flush();
+    h.modal.unmount();
+  });
+}
+
+test('SubcultureModal: grouped children preserve generated identities, zero versus empty, trimming and payload after removal', async () => {
+  const payloads = [];
+  const h = fixture(cases[1], { onSubmit: async (payload) => { payloads.push(plain(payload)); } });
+  addSecondChild(cases[1], h.modal);
+  h.modal.controls.find((node) => text(node).includes('Add a box')).props.onClick();
+  h.modal.flush();
+  const counts = h.modal.fields.filter((field) => field.props.type === 'number');
+  assert.equal(counts.length, 3);
+  for (const count of counts) {
+    assert.equal(count.props.min, '0');
+    assert.equal(count.props.step, '1');
+    assert.equal(count.props.value, '');
+  }
+  for (const code of h.modal.fields.filter((field) => field.props.readOnly)) {
+    assert.equal(code.props.required, true);
+    assert.equal(code.props.readOnly, true);
+  }
+  change(h.modal.fields.find((field) => field.props.type === 'date'), '2026-09-21');
+  change(h.modal.fields.find((field) => field.props.maxLength === 180), '  Dense culture  ');
+  change(counts[0], '0');
+  change(counts[1], '9');
+  h.modal.flush();
+  change(h.modal.fields.filter((field) => field.props.type === 'number')[1], '');
+  change(h.modal.fields.filter((field) => field.props.type === 'number')[2], '12');
+  change(h.modal.fields.find((field) => field.props.placeholder === 'Optional'), '  Child note  ');
+  h.modal.flush();
+  assert.deepEqual(h.modal.fields.filter((field) => field.props.type === 'number').map((field) => field.props.value), [0, '', 12]);
+  const children = [0, null, 12].map((count, index) => ({
+    global_code: `1-ATL.00${index + 2}`, local_code: '', box_number: `00${index + 2}`,
+    thermal_zone_id: 2, copy_origin: true, initial_polyp_count: count, notes: index === 0 ? 'Child note' : '',
+  }));
+  await h.modal.form.props.onSubmit(submitEvent());
+  h.modal.flush();
+  assert.deepEqual(payloads[0], { event_date: '2026-09-21', reason: 'Dense culture', notes: '', children });
+  h.modal.controls.filter((node) => node.props['aria-label'] === 'Remove this box')[2].props.onClick();
+  h.modal.flush();
+  assert.equal(h.modal.nodes.filter((node) => hasClass(node, 'subculture-child')).length, 2);
+  assert.equal(byClass(h.modal, 'box-dialog-body').contains(byClass(h.modal, 'box-dialog-actions')), false);
+  await h.modal.form.props.onSubmit(submitEvent());
+  h.modal.flush();
+  assert.deepEqual(payloads[1], { ...payloads[0], children: children.slice(0, 2) });
+  h.modal.unmount();
+});
+
+for (const spec of cases) {
+  test(`${spec.name}: no allowed zones keeps primary disabled, fields labelled and cancel reachable outside body`, () => {
+    const h = fixture(spec, { zones: [] });
+    const primary = submitButton(h.modal);
+    const body = byClass(h.modal, 'box-dialog-body');
+    const footer = byClass(h.modal, 'box-dialog-actions');
+    assert.equal(primary.disabled, true);
+    assert.equal(closeButtons(h.modal).length, 2);
+    assert.ok(closeButtons(h.modal).every((button) => !button.disabled));
+    assert.ok(footer.contains(closeButtons(h.modal)[1]));
+    assert.equal(body.contains(footer), false);
+    assert.ok(h.modal.fields.every((field) => field.parent.type === 'label' && text(field.parent).trim()));
+    if (spec.name === 'MoveBoxModal') assert.ok(text(byClass(h.modal, 'location-history')).includes('No location history for this box.'));
+    h.modal.unmount();
   });
 }
 

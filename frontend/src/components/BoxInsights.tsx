@@ -17,7 +17,7 @@ import type {
   BoxMovement,
   LineageGraph,
 } from '../types';
-import { formatDisplayDate } from '../utils/dateFormat';
+import { formatDisplayDate, formatDisplayDateTime } from '../utils/dateFormat';
 import PolypbaseIcon from './PolypbaseIcon';
 import BoxTrackingChart, { buildLifecycleEvents } from './BoxTrackingChart';
 import ModalPortal from './ModalPortal';
@@ -118,8 +118,11 @@ export default function BoxInsights({
   const insightPanelStyle = reservedPanelHeight ? { minHeight: reservedPanelHeight } : undefined;
 
   function selectTab(tab: BoxInsightTab) {
-    const currentHeight = insightPanelRef.current?.getBoundingClientRect().height ?? 0;
-    setReservedPanelHeight((height) => Math.max(height, Math.ceil(currentHeight)));
+    // All tabs share the analytical height, but long histories must not inflate the charts.
+    if (activeTab !== 'movements') {
+      const currentHeight = insightPanelRef.current?.getBoundingClientRect().height ?? 0;
+      setReservedPanelHeight((height) => Math.max(height, Math.ceil(currentHeight)));
+    }
     onSelectTab(tab);
   }
 
@@ -154,7 +157,7 @@ export default function BoxInsights({
       ) : null}
 
       {activeTab === 'movements' ? (
-        <div ref={insightPanelRef} className="insight-panel" style={insightPanelStyle}>
+        <div className="insight-panel insight-panel--movements" style={insightPanelStyle}>
           <div className="insight-heading">
             <h2>{labels.movementHistoryTitle}</h2>
           </div>
@@ -211,22 +214,35 @@ function MovementTimeline({
   }
 
   return (
-    <div className="movement-timeline">
+    <ol className="movement-timeline" role="list">
       {sortedMovements.map((movement) => (
-        <article key={movement.id}>
-          <time>{formatDisplayDate(movement.moved_at)}</time>
-          <div>
-            <strong>
-              {movement.from_thermal_zone
-                ? `${movement.from_thermal_zone.name} -> ${movement.to_thermal_zone.name}`
-                : `${labels.movedTo} ${movement.to_thermal_zone.name}`}
+        <li key={movement.id}>
+          <time dateTime={movement.moved_at}>{formatDisplayDateTime(movement.moved_at)}</time>
+          <div className="movement-detail">
+            <span className="movement-event">{labels.movementEvent}</span>
+            <strong className="movement-locations">
+              {movement.from_thermal_zone ? (
+                <>
+                  <span>{movement.from_thermal_zone.name}</span>
+                  {' '}
+                  <span className="movement-arrow">→</span>
+                  {' '}
+                  <span>{movement.to_thermal_zone.name}</span>
+                </>
+              ) : (
+                <>
+                  <span className="movement-destination-label">{labels.movedTo}</span>
+                  {' '}
+                  <span>{movement.to_thermal_zone.name}</span>
+                </>
+              )}
             </strong>
             {movement.user ? <small>{movement.user}</small> : null}
             {movement.notes ? <p>{movement.notes}</p> : null}
           </div>
-        </article>
+        </li>
       ))}
-    </div>
+    </ol>
   );
 }
 

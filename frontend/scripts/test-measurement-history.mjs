@@ -237,6 +237,7 @@ function createHistory(measurements, overrides = {}) {
     rows: () => find((node) => node.type === 'article' && node.props.role === 'row'),
     status: () => text(find((node) => node.props.role === 'status')[0]),
     more: () => find((node) => node.type === 'button' && text(node).startsWith(labels.historyShowMore)),
+    bindList(element) { find((node) => node.props.role === 'table')[0].ref.current = element; },
   };
 }
 
@@ -419,6 +420,54 @@ test('only notes longer than 140 characters toggle and expansion is independent 
   history.render();
   assert.deepEqual(buttons().map((node) => node.props['aria-expanded']), [false, true]);
   assert.equal(text(notes()[0]), firstNote);
+});
+
+test('preserves raw usernames without fabricating readable person identity', () => {
+  const authors = ['internal_unchanged', 'raw.USERNAME', 'technician@example.org'];
+  const history = createHistory(authors.map((user, index) => measurement({ id: index + 1, user })));
+  assert.deepEqual(rowAuthors(history), authors);
+});
+
+test('later batches and year changes preserve recorded zero versus absent PSU and count progress', () => {
+  const history = createHistory([
+    ...measurementsForYear(2026, 53).map((row, index) => ({
+      ...row, polyp_count: 0, ephyrae_count: 0, salinity_psu: index % 2 ? null : '0',
+    })),
+    measurement({ id: 100, measured_on: '2025-01-01', polyp_count: 0, ephyrae_count: 0, salinity_psu: null }),
+  ]);
+  history.changeYear('2026');
+  assert.equal(history.status(), '24 of 53 measurements');
+  history.showMore();
+  assert.equal(history.status(), '48 of 53 measurements');
+  history.showMore();
+  assert.equal(history.status(), '53 of 53 measurements');
+  for (const row of history.rows()) {
+    const values = cells(row).slice(1, 4).map(cellValue);
+    assert.deepEqual(values.slice(0, 2), ['0', '0']);
+    assert.ok(['0', '—'].includes(values[2]));
+  }
+  assert.equal(history.rows().filter(row => cellValue(cells(row)[3]) === '0').length, 27);
+  assert.equal(history.rows().filter(row => cellValue(cells(row)[3]) === '—').length, 26);
+  history.changeYear('2025');
+  assert.equal(history.status(), '1 of 1 measurements');
+  assert.deepEqual(cells(history.rows()[0]).slice(1, 4).map(cellValue), ['0', '0', '—']);
+  history.changeYear('all');
+  assert.equal(history.status(), '24 of 54 measurements');
+});
+
+test('year selection resets list scroll and final batch moves focus into the retained reading area', () => {
+  const history = createHistory(measurementsForYear(2026, 53));
+  const focusCalls = [];
+  const list = { scrollTop: 200, focus(options) { focusCalls.push(options); } };
+  history.bindList(list);
+  history.changeYear('2026');
+  assert.equal(list.scrollTop, 0);
+  assert.equal(history.showMore(), true, 'intermediate batch retains button focus');
+  assert.equal(focusCalls.length, 0);
+  history.showMore();
+  assert.equal(history.more().length, 0);
+  assert.equal(focusCalls.length, 1);
+  assert.equal(focusCalls[0].preventScroll, true);
 });
 
 test('links the modal title, exposes table semantics and wires close and backdrop actions', () => {

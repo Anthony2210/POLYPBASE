@@ -37,6 +37,7 @@ type LabelsViewLabels = QrLabelPreparationLabels & {
   qrLabelSearchPlaceholder: string;
   qrLabelSpeciesCount: (count: number) => string;
   qrLabelSpeciesSelected: (count: number) => string;
+  qrLabelSpeciesSelectedCompact: (count: number) => string;
   qrLabelSelectSpecies: (count: number, species: string) => string;
   qrLabelDeselectSpecies: (count: number, species: string) => string;
 
@@ -244,9 +245,16 @@ export default function LabelsView({
                       <span className="label-species-heading-copy">
                         <strong>{group.name}</strong>
                       </span>
-                      <span className="label-species-meta">
-                        <span>{labels.qrLabelSpeciesCount(group.boxes.length)}</span>
-                        {selectedCount ? <small>{labels.qrLabelSpeciesSelected(selectedCount)}</small> : null}
+                      <span className={`label-species-meta${selectedCount > 0 ? ' has-selection' : ''}`}>
+                        <span className="label-species-total">{labels.qrLabelSpeciesCount(group.boxes.length)}</span>
+                        {selectedCount > 0 ? (
+                          <small>
+                            <span className="label-species-selected-full">{labels.qrLabelSpeciesSelected(selectedCount)}</span>
+                            <span className="label-species-selected-compact" aria-label={labels.qrLabelSpeciesSelected(selectedCount)}>
+                              {labels.qrLabelSpeciesSelectedCompact(selectedCount)}
+                            </span>
+                          </small>
+                        ) : null}
                       </span>
                     </button>
                     <label className="label-species-toggle">

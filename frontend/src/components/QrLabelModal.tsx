@@ -21,7 +21,6 @@ type QrLabelModalLabels = QrLabelPreparationLabels & {
   alreadySelected: string;
   close: string;
   download: string;
-  help: string;
   print: string;
   qrCode: string;
   selectionCount: string;
@@ -60,7 +59,6 @@ export default function QrLabelModal({
     result: Extract<QrLabelPreparationResult, { status: 'failed' }>;
   } | null>(null);
   const titleId = useId();
-  const helpId = useId();
   const isPreparing = pendingAction !== null;
 
   useLayoutEffect(() => {
@@ -124,35 +122,40 @@ export default function QrLabelModal({
 
   return (
     <ModalPortal>
-      <div className="modal-backdrop qr-print-backdrop" role="presentation" onClick={() => { if (!preparingRef.current) onClose(); }}>
+      <div className="modal-backdrop qr-print-backdrop box-dialog-backdrop" role="presentation" onClick={() => { if (!preparingRef.current) onClose(); }}>
       <section
         ref={dialogRef}
         tabIndex={-1}
-        className="qr-label-modal"
+        className="qr-label-modal box-dialog box-dialog--qr"
         role="dialog"
         aria-modal="true"
+        aria-busy={isPreparing}
         aria-labelledby={titleId}
-        aria-describedby={helpId}
         onClick={(event) => event.stopPropagation()}
       >
-        <header className="modal-heading qr-label-modal-heading">
+        <header className="modal-heading qr-label-modal-heading box-dialog-heading">
           <div>
+            <p className="box-dialog-context">{box.global_code}</p>
             <h2 id={titleId}>{labels.title}</h2>
-            <span id={helpId}>{labels.help}</span>
           </div>
-          <button ref={closeRef} type="button" aria-label={labels.close} disabled={isPreparing} onClick={onClose}>
-            <PolypbaseIcon name="close" size={19} />
+          <button ref={closeRef} className="icon-button box-dialog-close" type="button" aria-label={labels.close} title={labels.close} disabled={isPreparing} onClick={onClose}>
+            <PolypbaseIcon name="close" size={19} aria-hidden="true" />
           </button>
         </header>
 
-        <div className="qr-label-print-frame" style={frameStyle}>
-          <QrLabel
-            altLabel={labels.qrCode}
-            className="qr-label-print-sheet"
-            item={label}
-            variant="label"
-          />
+        <div className="box-dialog-body">
+        <div className="qr-label-modal-preview">
+          <div className="qr-label-print-frame" style={frameStyle}>
+            <QrLabel
+              altLabel={labels.qrCode}
+              className="qr-label-print-sheet"
+              item={label}
+              variant="label"
+            />
+          </div>
         </div>
+
+        <p className="qr-label-modal-species">{box.species.scientific_name}</p>
 
         <section className="qr-label-selection-panel">
           <div>
@@ -168,13 +171,13 @@ export default function QrLabelModal({
             >
               {isSelected ? labels.alreadySelected : labels.addToSelection}
             </button>
-            <button type="button" disabled={!selectedLabels.length || isPreparing} onClick={onViewSelection}>
+            <button className="is-secondary" type="button" disabled={!selectedLabels.length || isPreparing} onClick={onViewSelection}>
               {labels.viewSelection}
             </button>
           </div>
         </section>
 
-        <div role="status">{isPreparing ? labels.qrLabelPreparing : ''}</div>
+        <div className="qr-label-modal-status" role="status">{isPreparing ? labels.qrLabelPreparing : ''}</div>
         {failure ? (
           <div>
             <p className="inline-error" role="alert">{getQrLabelPreparationMessage(failure.result.reason, labels)}</p>
@@ -184,16 +187,18 @@ export default function QrLabelModal({
           </div>
         ) : null}
 
-        <footer className="qr-label-modal-actions">
+        </div>
+
+        <footer className="qr-label-modal-actions box-dialog-actions">
           <button type="button" className="is-secondary" disabled={isPreparing} onClick={() => void handlePreparation('download')}>
             <span className="button-icon-label">
-              <PolypbaseIcon name="download" size={17} />
+              <PolypbaseIcon name="download" size={17} aria-hidden="true" />
               {labels.download}
             </span>
           </button>
           <button type="button" disabled={isPreparing} onClick={() => void handlePreparation('print')}>
             <span className="button-icon-label">
-              <PolypbaseIcon name="print" size={17} />
+              <PolypbaseIcon name="print" size={17} aria-hidden="true" />
               {labels.print}
             </span>
           </button>

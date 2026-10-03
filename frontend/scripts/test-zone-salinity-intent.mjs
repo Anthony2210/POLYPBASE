@@ -30,11 +30,14 @@ function createView(latestSalinity, canRecordManualSalinity = true, operations =
   const imports = {
     react: hooks,
     'react/jsx-runtime': jsxRuntime,
+    'lucide-react': { ArrowLeft: () => null },
+    '../hooks/useIsDesktopApp': { useIsDesktopApp: () => false },
     '../api/client': { ApiError, ApiResourceCancelledError },
     '../utils/dateFormat': { formatDisplayDate: (date) => date },
     '../utils/errors': { getErrorMessage: (error) => { presentedErrors.push(error); return error.message; } },
     '../utils/temperatureScale': {},
     './BoxTrackingPreview': { default: () => null },
+    './DetailBackButton': { default: () => null },
     './ModalPortal': { default: () => null },
     './PageLoader': { default: () => null },
     './PolypbaseIcon': { default: () => null },
@@ -98,6 +101,31 @@ function createView(latestSalinity, canRecordManualSalinity = true, operations =
 }
 
 const yesterday = { id: 19, measured_on: '2026-10-02', salinity_psu: '0.00', notes: 'Existing note', can_edit: true };
+
+for (const latest of [yesterday, { ...yesterday, notes: '' }, null]) {
+  test(`salinity banner renders its own comment or translated empty state (${latest?.notes || 'empty'})`, () => {
+    const view = createView(latest);
+    const comment = view.find(node => node.props?.className === 'last-reading-comment')[0];
+    assert.ok(comment);
+    assert.equal(comment.props.children[0].props.children, 'lastComment');
+    assert.equal(comment.props.children[1].props.children, latest?.notes || 'noComment');
+    assert.equal(view.find(node => node.type === 'span' && node.props.children === (latest?.measured_on || 'zoneSalinityNoReading')).length, 1);
+    assert.equal(view.find(node => node.props?.label === 'zoneSalinity')[0].props.value, latest ? '0.0 PSU' : '-');
+    assert.equal(view.find(node => node.props?.['aria-label'] === 'zoneSalinityCreateAction').length, 1);
+    assert.equal(view.find(node => node.props?.['aria-label'] === 'zoneSalinityEditAction').length, latest ? 1 : 0);
+  });
+}
+
+test('salinity banner always reserves flexible comment space and top-right action space', () => {
+  const css = readFileSync(new URL('../src/styles/pages/zones.css', import.meta.url), 'utf8');
+  assert.match(css, /\.zone-page \.last-reading-card\.measurement-summary\.zone-salinity-section\.has-edit-capability \{\s*grid-template-columns: minmax\(150px, 210px\) minmax\(150px, 190px\) minmax\(0, 1fr\) max-content/);
+  assert.match(css, /\.zone-salinity-summary-actions \{[^}]*align-self: start;[^}]*justify-self: end;/);
+  assert.match(css, /--metric-background: var\(--color-primary-faint\);\s*padding: var\(--space-3\) var\(--space-4\);/);
+  const view = createView(yesterday);
+  const actions = view.find(node => node.props?.className === 'zone-salinity-summary-actions')[0];
+  assert.equal(actions.props.children.at(-1).props['aria-label'], 'zoneSalinityCreateAction');
+  assert.doesNotMatch(css, /:not\(\.has-comment\)[^{]*\{\s*grid-template-columns: minmax\(150px, 210px\)/);
+});
 
 for (const measuredOn of ['2026-10-02', '2026-10-03']) {
   test(`new reading defaults to today independently of correctable latest ${measuredOn}`, async () => {

@@ -101,16 +101,16 @@
     height: var(--tablet-rail-target);
     padding: 0;
     place-items: center;
-    color: #fff;
-    background: var(--color-primary);
-    border: 1px solid var(--color-primary);
+    color: var(--color-primary-hover);
+    background: var(--color-surface);
+    border: 1px solid var(--color-line-strong);
     border-radius: var(--radius-md);
     cursor: pointer;
   }
 
   .app-shell.is-tablet-rail .tablet-qr-action:active {
-    background: var(--color-primary-hover);
-    border-color: var(--color-primary-hover);
+    background: var(--color-primary-faint);
+    border-color: var(--color-primary);
   }
 
   .app-shell.is-tablet-rail .tabbar {
@@ -293,4 +293,83 @@
   }
 
   .box-action-stack > button { overflow-wrap: anywhere; }
+}
+
+/* Keep the narrow-page fallback, but use the tablet's horizontal space for facts. */
+@media not all and (min-width: 1024px) and (hover: hover) and (pointer: fine) {
+  .entity-header--box.is-tablet {
+    --entity-columns: minmax(0, 1fr) max-content;
+    --entity-areas: "identity tools" "summary summary";
+  }
+
+  .is-tablet .box-code-line h2 { overflow-wrap: anywhere; white-space: normal; }
+  .is-tablet .box-species-name { overflow-wrap: anywhere; }
+
+  .is-tablet .box-header-tools {
+    display: flex;
+    align-self: start;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .is-tablet .box-hero-qr { width: 64px; min-width: 64px; flex: 0 0 auto; }
+  .is-tablet .box-hero-qr .qr-label {
+    --qr-label-image-size: 54px;
+    --qr-label-padding: 4px;
+    width: 64px;
+    min-height: 64px;
+    background: #fff;
+  }
+  .is-tablet .box-hero-qr:hover .qr-label { background: #fff; }
+  .is-tablet .box-hero-qr .qr-label__image { width: 54px; height: 54px; }
+
+  .box-tablet-actions { display: flex; gap: var(--space-2); }
+  .is-tablet .box-compact-action {
+    width: 64px;
+    min-width: 64px;
+    height: 64px;
+    min-height: 64px;
+    padding: 0;
+    color: var(--color-primary-hover);
+    border-radius: var(--radius-md);
+  }
+
+  .is-tablet .box-subculture-glyph { transform: rotate(90deg); }
+
+  @container box-detail (width < 680px) {
+    .entity-header--box.is-tablet {
+      --entity-columns: minmax(0, 1fr);
+      --entity-areas: "identity" "tools" "summary";
+    }
+    .is-tablet .box-header-tools { justify-self: end; }
+  }
+
+  @media (min-width: 760px) and (orientation: landscape), (min-width: 901px) {
+    @container box-detail (width >= 680px) {
+      .entity-header--box.is-tablet {
+        --entity-columns: minmax(0, 1fr) max-content;
+        --entity-areas: "identity tools" "summary summary";
+        padding: var(--space-4);
+        align-items: center;
+        gap: var(--space-4);
+      }
+
+      .is-tablet .box-sheet-identity { min-height: 0; }
+      .is-tablet .box-code-line h2 { overflow: visible; white-space: normal; }
+      .is-tablet .box-species-name { overflow-wrap: anywhere; }
+      .is-tablet .box-header-tools { align-self: start; }
+
+      .is-tablet .box-zone-summary {
+        min-height: 0;
+        padding: var(--space-3) 0 0;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        align-items: start;
+        border-inline: 0;
+        border-top: 1px solid var(--color-line);
+      }
+
+      .is-tablet .box-summary-metadata.is-compact { display: contents; }
+      .is-tablet .box-zone-summary .info-pill { overflow-wrap: anywhere; }
+    }
+  }
 }

@@ -13,6 +13,7 @@ import type {
 import { formatDisplayDateTime } from '../utils/dateFormat';
 import { getErrorMessage } from '../utils/errors';
 import BoxTrackingPreview from './BoxTrackingPreview';
+import DetailBackButton from './DetailBackButton';
 import PageLoader from './PageLoader';
 import SkeletonRows from './SkeletonRows';
 
@@ -392,9 +393,7 @@ export default function ZoneMovementHistoryPage({
   if (!zone) {
     return (
       <section className="zone-page">
-        <button className="text-button zone-back-button" type="button" onClick={onBack}>
-          {t('zoneMovementHistoryBack')}
-        </button>
+        <DetailBackButton label={t('back')} onBack={onBack} desktopClassName="zone-back-button" />
         <p className="muted compact-text">{t('noZone')}</p>
       </section>
     );
@@ -408,9 +407,7 @@ export default function ZoneMovementHistoryPage({
 
   return (
     <section className="zone-page zone-movement-history-page">
-      <button className="text-button zone-back-button" type="button" onClick={onBack}>
-        {t('zoneMovementHistoryBack')}
-      </button>
+      <DetailBackButton label={t('back')} onBack={onBack} desktopClassName="zone-back-button" />
 
       <header className="entity-header entity-header--zone zone-sheet-hero zone-history-hero">
         <div className="entity-header__identity zone-sheet-title">

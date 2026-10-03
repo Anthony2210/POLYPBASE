@@ -101,6 +101,11 @@ function createView(kind = 'history', overrides = {}) {
     },
     useMemo: (factory) => factory(),
   };
+  const detailBackButton = loadModule('../src/components/DetailBackButton.tsx', {
+    'react/jsx-runtime': jsxRuntime,
+    'lucide-react': { ArrowLeft: () => null },
+    '../hooks/useIsDesktopApp': { useIsDesktopApp: () => true },
+  });
   const components = loadModule('../src/components/ZoneMovementHistory.tsx', {
     react: hooks,
     'react/jsx-runtime': jsxRuntime,
@@ -109,6 +114,7 @@ function createView(kind = 'history', overrides = {}) {
     '../utils/errors': errors,
     '../utils/dateFormat': dateFormat,
     './BoxTrackingPreview': { default: ({ code }) => React.createElement('span', null, code) },
+    './DetailBackButton': detailBackButton,
     './PageLoader': { default: ({ label }) => React.createElement('p', null, label) },
     './SkeletonRows': loadModule('../src/components/SkeletonRows.tsx', { 'react/jsx-runtime': jsxRuntime }),
   });

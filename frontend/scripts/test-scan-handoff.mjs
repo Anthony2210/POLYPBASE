@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { createHistoryFixture, installAppRouting } from './app-operation-test-harness.mjs';
 
 // Execute App's real route parser and effect with controlled request lifetimes.
 const source = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
@@ -37,27 +38,29 @@ async function tick() {
   for (let index = 0; index < 12; index += 1) await Promise.resolve();
 }
 function harness(path = '/?scan_box=42') {
+  const browser = createHistoryFixture(path);
   const organizations = [1, 2].map((id) => ({ id, name: `Organization ${id}` }));
   const requests = [];
   const recoveries = [];
   const navigations = [];
   const state = { error: null, boxLoading: false, labels: [{ id: 17 }], phoneScanner: true, tabletScanner: true };
-  const location = { origin: 'https://polypbase.test', pathname: '', search: '' };
-  function setLocation(value) {
-    const url = new URL(value, 'https://polypbase.test');
-    location.pathname = url.pathname;
-    location.search = url.search;
-  }
-  setLocation(path);
+
   const context = {
     URLSearchParams,
     URL,
     ApiResourceCancelledError: class ApiResourceCancelledError extends Error {},
-    window: { location, history: {
-      replaceState(_state, _title, value) { setLocation(value); navigations.push({ mode: 'replace', path: value }); },
-      pushState(_state, _title, value) { setLocation(value); navigations.push({ mode: 'push', path: value }); },
+    window: { location: browser.location, history: {
+      get state() { return browser.history.state; },
+      replaceState(state, title, value) {
+        browser.history.replaceState(state, title, value);
+        navigations.push({ mode: 'replace', path: value });
+      },
+      pushState(state, title, value) {
+        browser.history.pushState(state, title, value);
+        navigations.push({ mode: 'push', path: value });
+      },
+      back() { browser.history.back(); },
     } },
-    ADMIN_SECTION_PATHS: {},
     data: { boxes: [], profile: { organizations, memberships: organizations.map((organization) => ({ organization })) } },
     activeOrganizationId: 1,
     activeTab: 'pilotage',
@@ -76,6 +79,7 @@ function harness(path = '/?scan_box=42') {
     setError(value) { state.error = value; context.error = value; },
     setIsBoxLoading(value) { state.boxLoading = value; },
     setIsLoginRoute(value) { context.isLoginRoute = value; },
+    setPasswordReset(value) { context.passwordReset = value; },
     setIsLoading(value) { context.isLoading = value; },
     setActiveOrganizationId(value) { context.activeOrganizationId = value; },
     setNeedsOrganizationChoice(value) { context.needsOrganizationChoice = value; },
@@ -111,8 +115,10 @@ function harness(path = '/?scan_box=42') {
     });
     return vm.runInContext(outputText, context);
   }
-  evaluate(readFileSync(new URL('../src/utils/routeSafety.ts', import.meta.url), 'utf8').replace('export function', 'function'));
-  for (const name of ['getCurrentRoute', 'replaceRoute', 'navigateTo', 'handleAuthenticated', 'openBox', 'openScannedBox',
+  installAppRouting(context, evaluate, context.activeOrganizationId);
+  // Initial history ownership is metadata setup, not a scan navigation.
+  navigations.length = 0;
+  for (const name of ['handleAuthenticated', 'openBox', 'openScannedBox',
     'getSelectableOrganizations', 'getOrganizationById', 'resolveActiveOrganizationId', 'setProfileActiveOrganization',
     'getOperationRequests', 'fetchAllPages', 'fetchScopedData', 'chooseOrganization']) {
     evaluate(functionNode(name).getText(ast));
@@ -128,7 +134,7 @@ function harness(path = '/?scan_box=42') {
     lastDependencies = dependencies;
     cleanup = evaluate(`(${scanEffect.arguments[0].getText(ast)})()`) ?? undefined;
   }
-  return { context, state, requests, recoveries, navigations, render, setLocation, evaluate,
+  return { context, state, requests, recoveries, navigations, render, browser, evaluate,
     unmount() { cleanup?.(); },
     closeScanners() { evaluate(`(${scannerEffect.arguments[0].getText(ast)})()`); },
   };
@@ -278,6 +284,8 @@ test('organization change retains the handoff but isolates old completion and lo
   assert.equal(h.state.phoneScanner, false);
   assert.equal(h.state.tabletScanner, false);
   assert.equal(h.context.route.scanBoxId, 42);
+  assert.deepEqual(h.navigations, [{ mode: 'replace', path: '/?scan_box=42' }],
+    'Organization replacement resets history ownership without consuming the handoff');
   h.render();
   assert.equal(h.requests.filter((request) => request.method === 'POST').length, 1);
   for (const request of h.requests.filter((request) => request.method === 'GET')) {
@@ -290,7 +298,8 @@ test('organization change retains the handoff but isolates old completion and lo
   h.requests[0].resolve({ global_code: 'OLD-42' });
   await tick();
   assert.equal(h.state.boxLoading, true);
-  assert.equal(h.navigations.length, 0);
+  assert.deepEqual(h.navigations, [{ mode: 'replace', path: '/?scan_box=42' }],
+    'Old scan completion must not navigate after the organization history reset');
   h.requests.at(-1).resolve({ global_code: 'CURRENT-42' });
   await tick();
   assert.equal(h.context.route.boxCode, 'CURRENT-42');

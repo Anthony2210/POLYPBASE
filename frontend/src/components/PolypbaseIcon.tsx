@@ -162,6 +162,14 @@ const iconPaths = {
 
 export type PolypbaseIconName = keyof typeof iconPaths;
 
+const genericIconNames = new Set<PolypbaseIconName>([
+  'chevron-left', 'chevron-right', 'chevron-up', 'chevron-down',
+  'chevrons-left', 'chevrons-right', 'close', 'plus', 'minus',
+  'search', 'reset-filter', 'check', 'info', 'download', 'print',
+  'edit', 'archive', 'restore', 'logout', 'overview', 'export-data',
+  'settings', 'user',
+]);
+
 type PolypbaseIconProps = Omit<SVGProps<SVGSVGElement>, 'children'> & {
   name: PolypbaseIconName;
   size?: number;
@@ -175,7 +183,8 @@ export default function PolypbaseIcon({
   strokeWidth = 2,
   ...props
 }: PolypbaseIconProps) {
-  const classes = ['polypbase-icon', className].filter(Boolean).join(' ');
+  const iconClass = genericIconNames.has(name) ? 'polypbase-icon--ui' : '';
+  const classes = ['polypbase-icon', iconClass, className].filter(Boolean).join(' ');
 
   return (
     <svg

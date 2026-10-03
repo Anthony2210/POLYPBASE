@@ -120,6 +120,7 @@ function renderLabelsSelection(selected) {
     qrLabelSelectedSingular: 'étiquette sélectionnée', qrLabelSelectedPlural: 'étiquettes sélectionnées',
     qrLabelSelectionCountText: (count) => `${count} étiquette${count === 1 ? '' : 's'}`, qrLabelSearchPlaceholder: 'Rechercher',
     qrLabelSpeciesCount: (count) => `${count} boîtes`, qrLabelSpeciesSelected: (count) => `${count} sélectionnées`,
+        qrLabelSpeciesSelectedCompact: (count) => `${count} sélec.`,
     qrLabelSelectSpecies: (count, species) => `Sélectionner les ${count} résultats de ${species}`,
     qrLabelDeselectSpecies: (count, species) => `Retirer les ${count} résultats de ${species}`,
     qrLabelViewSelection: 'Voir la sélection', selectBox: 'Sélectionner la boîte', zoneLabel: 'Emplacement',
@@ -428,7 +429,7 @@ test('the Labels workspace keeps the shared frame and lays out species accordion
   assert.match(css, /\.labels-page\.has-selection\s*\{[^}]*padding-bottom:\s*calc\(88px/s);
   assert.match(css, /\.app-shell\.is-tablet-rail \.labels-page \.label-selection-dock\s*\{[^}]*left:\s*var\(--tablet-rail-width\)/s);
   assert.match(css, /@media \(max-width: 759px\), \(max-width: 900px\) and \(orientation: portrait\)[\s\S]*?\.labels-page \.label-selection-dock\s*\{[^}]*bottom:\s*calc\(var\(--phone-nav-clearance,/);
-  assert.match(css, /@media \(max-width: 759px\), \(max-width: 900px\) and \(orientation: portrait\)[\s\S]*?\.labels-page \.label-selection-bar\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*100%/);
+  assert.match(css, /@media \(max-width: 759px\), \(max-width: 900px\) and \(orientation: portrait\)[\s\S]*?\.labels-page \.label-selection-bar\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*360px/);
   assert.match(css, /@media \(max-width: 759px\), \(max-width: 900px\) and \(orientation: portrait\)[\s\S]*?\.labels-page\.has-selection\s*\{[^}]*--label-selection-clearance:\s*calc\(150px \+ var\(--phone-nav-clearance,[^}]*padding-bottom:\s*var\(--label-selection-clearance\)/);
   assert.match(labelsViewSource, /isExpanded \? <ChevronDown size=\{18\} \/> : <ChevronRight size=\{18\} \/>/);
   assert.doesNotMatch(css, /\.label-species-chevron\s*\{[^}]*transition\s*:/s);

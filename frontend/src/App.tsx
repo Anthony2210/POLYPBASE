@@ -1,4 +1,4 @@
-import { ArrowLeft, Pencil } from 'lucide-react';
+import { ArrowLeft, CirclePause, CirclePlay, GitFork, Pencil, Route } from 'lucide-react';
 import {
   lazy,
   Suspense,
@@ -46,6 +46,8 @@ type HistoryMeasurementPrefill = EditableMeasurement;
 import type { BoxInsightTab } from './components/BoxInsights';
 import { useConfirmAction, type ConfirmActionOptions } from './components/ConfirmActionModal';
 import ApplicationErrorNotice from './components/ApplicationErrorNotice';
+import DetailBackButton from './components/DetailBackButton';
+import { RowActionMenu, type RowActionMenuItem } from './components/RowActionMenu';
 import LoginPage from './components/LoginPage';
 import PasswordResetPage from './components/PasswordResetPage';
 import MeasurementSaveButton from './components/MeasurementSaveButton';
@@ -127,6 +129,7 @@ import {
 } from './utils/authRouting';
 import { formatBiologicalSalinity, stepBiologicalSalinity } from './utils/biologicalSalinity';
 import { triggerHaptic } from './utils/haptics';
+import { createInAppHistory } from './utils/inAppHistory';
 import { PHONE_NAVIGATION_ITEMS, type PhoneDestination } from './utils/phoneNavigation';
 import { buildQrLabelItem, getBoxQrImageUrl, getBoxScanUrl, type QrLabelItem } from './utils/qrLabels';
 import { isRouteRequestCurrent } from './utils/routeSafety';
@@ -268,6 +271,8 @@ export default function App() {
   const [isOrganizationMenuOpen, setIsOrganizationMenuOpen] = useState(false);
   const lastRecordedBoxIdRef = useRef<number | null>(null);
   const navigationGenerationRef = useRef(0);
+  const inAppHistoryRef = useRef<ReturnType<typeof createInAppHistory> | null>(null);
+  const navigationOrganizationRef = useRef(activeOrganizationId);
   const organizationRequestGenerationRef = useRef(0);
   const openBoxRequestGenerationRef = useRef(0);
   const [data, setData] = useState<AppData>({
@@ -326,6 +331,12 @@ export default function App() {
     if (activeTab !== 'pilotage' || isBoxRoute || isPhoneLayout) setIsCreateBoxOpen(false);
   }, [activeTab, isBoxRoute, isPhoneLayout]);
   const canUseAdmin = hasAdminRole;
+  const navigationPolicyRef = useRef({ isDesktopApp, canUseAdmin });
+  navigationPolicyRef.current = { isDesktopApp, canUseAdmin };
+
+  useLayoutEffect(() => {
+    getInAppHistory();
+  }, []);
   const isExportOptionsLoading = (
     activeTab === 'exports' || exportOptionsRequested
   ) && data.exportOptions === null;
@@ -455,6 +466,10 @@ export default function App() {
     setIsOrganizationMenuOpen(false);
     setNeedsOrganizationChoice(false);
     setIsCreateBoxOpen(false);
+    const organizationPath = isBoxRoute || isZoneRoute
+      ? (activeTab === 'zones' ? '/zones' : '/')
+      : getCurrentAppPath();
+    resetNavigation(organizationPath, organizationId);
     setActiveOrganizationId(organizationId);
     setIsLoading(true);
     setError(null);
@@ -474,7 +489,7 @@ export default function App() {
     });
 
     if (isBoxRoute || isZoneRoute) {
-      navigateTo({ tab: activeTab, boxCode: null, boxId: null, zoneId: null }, activeTab === 'zones' ? '/zones' : '/');
+      setRoute(getCurrentRoute());
     }
 
     try {
@@ -493,7 +508,13 @@ export default function App() {
 
   useEffect(() => {
     function syncRoute() {
-      navigationGenerationRef.current += 1;
+      const path = getCurrentAppPath();
+      if (isPublicAuthPath(window.location.pathname)) {
+        resetNavigation(path, null);
+      } else {
+        getInAppHistory().sync({ path, organization: navigationOrganizationRef.current });
+        navigationGenerationRef.current += 1;
+      }
       setIsTabletScannerOpen(false);
       setRoute(getCurrentRoute());
       setIsLoginRoute(window.location.pathname === '/login');
@@ -544,7 +565,7 @@ export default function App() {
 
         if (organizations.length > 1 && resolvedOrganizationId == null) {
           setActiveOrganizationContext(null);
-          setActiveOrganizationId(null);
+          updateNavigationOrganization(null);
           setNeedsOrganizationChoice(true);
           setData({
             boxes: [],
@@ -560,6 +581,7 @@ export default function App() {
         }
 
         if (resolvedOrganizationId == null) {
+          updateNavigationOrganization(null);
           setData({
             boxes: [],
             boxDetails: {},
@@ -574,7 +596,7 @@ export default function App() {
           return;
         }
 
-        setActiveOrganizationId(resolvedOrganizationId);
+        updateNavigationOrganization(resolvedOrganizationId);
         setNeedsOrganizationChoice(false);
 
         const nextData = await fetchScopedData(profile, resolvedOrganizationId);
@@ -589,8 +611,7 @@ export default function App() {
         if (shouldRedirectToLogin(profileLoaded, status)) {
           const requestedPath = `${window.location.pathname}${window.location.search}`;
           const loginPath = `/login?next=${encodeURIComponent(requestedPath)}`;
-          navigationGenerationRef.current += 1;
-          window.history.replaceState(null, '', loginPath);
+          resetNavigation(loginPath, null);
           setIsLoginRoute(true);
           setError(null);
           return;
@@ -855,7 +876,9 @@ export default function App() {
   }
 
   function openZoneHistory(zoneId: number, direction: 'arrival' | 'departure' = 'arrival') {
-    navigateTo(
+    const currentRoute = getCurrentRoute();
+    const navigate = currentRoute.zoneHistory && currentRoute.zoneId === zoneId ? replaceRoute : navigateTo;
+    navigate(
       { tab: 'zones', boxCode: null, boxId: null, zoneId, zoneHistory: true, zoneHistoryDirection: direction },
       `/zones/${zoneId}/history?direction=${direction}`,
     );
@@ -915,7 +938,7 @@ export default function App() {
 
   useLayoutEffect(() => {
     if (activeTab === 'admin' && !isDesktopApp) {
-      replaceRoute({ tab: 'pilotage', boxCode: null, boxId: null }, '/');
+      replaceRoute({ tab: 'pilotage', boxCode: null, boxId: null }, '/', true);
       return;
     }
     if (isLoading || !data.profile) return;
@@ -924,7 +947,7 @@ export default function App() {
       || (activeTab === 'admin' && canUseAdmin && isDesktopApp)
     ) return;
 
-    navigateTo({ tab: 'pilotage', boxCode: null, boxId: null }, '/');
+    replaceRoute({ tab: 'pilotage', boxCode: null, boxId: null }, '/', true);
   }, [activeTab, availableTabs, canUseAdmin, data.profile, isDesktopApp, isLoading]);
 
   useEffect(() => {
@@ -964,24 +987,78 @@ export default function App() {
     };
   }, [activeOrganizationId, activeTab, data.exportOptions, exportOptionsRequested, isLoginRoute, needsOrganizationChoice]);
 
+  function getInAppHistory() {
+    if (!inAppHistoryRef.current) {
+      inAppHistoryRef.current = createInAppHistory(
+        window.history,
+        { path: getCurrentAppPath(), organization: navigationOrganizationRef.current },
+        (path) => {
+          const { isDesktopApp, canUseAdmin } = navigationPolicyRef.current;
+          return isRecognizedAppPath(path, isDesktopApp, canUseAdmin);
+        },
+      );
+    }
+    return inAppHistoryRef.current;
+  }
+
+  function resetNavigation(path: string, organization = navigationOrganizationRef.current) {
+    getInAppHistory().reset({ path, organization });
+    navigationOrganizationRef.current = organization;
+    navigationGenerationRef.current += 1;
+  }
+
+  function updateNavigationOrganization(organization: number | null) {
+    if (navigationOrganizationRef.current !== organization) {
+      resetNavigation(getCurrentAppPath(), organization);
+    }
+    setActiveOrganizationId(organization);
+  }
+
+  function goBack(fallbackPath: string) {
+    const result = getInAppHistory().back(
+      { path: getCurrentAppPath(), organization: navigationOrganizationRef.current },
+      fallbackPath,
+    );
+    if (result === 'pending') return;
+    // Invalidate async box enrichment immediately, not only when popstate arrives.
+    navigationGenerationRef.current += 1;
+    if (result === 'fallback') setRoute(getCurrentRoute());
+  }
+
   function closeBoxPage() {
     setSearch('');
-    navigateTo({ tab: 'pilotage', boxCode: null, boxId: null }, '/');
+    goBack('/');
   }
 
   function closeZonePage() {
-    navigateTo({ tab: 'zones', boxCode: null, boxId: null, zoneId: null }, '/zones');
+    goBack('/zones');
+  }
+
+  function closeZoneSubview(zoneId: number) {
+    goBack(`/zones/${zoneId}`);
   }
 
   function navigateTo(nextRoute: RouteState, path: string) {
+    const { isDesktopApp, canUseAdmin } = navigationPolicyRef.current;
+    if (!isRecognizedAppPath(path, isDesktopApp, canUseAdmin)) {
+      replaceRoute({ tab: 'pilotage', boxCode: null, boxId: null }, '/', true);
+      return;
+    }
+    const result = getInAppHistory().push({ path, organization: navigationOrganizationRef.current });
+    if (result === 'pending') return;
     navigationGenerationRef.current += 1;
-    window.history.pushState(null, '', path);
+    // A same-path noop can still enrich boxId after the fallback-code request.
     setRoute(nextRoute);
   }
 
-  function replaceRoute(nextRoute: RouteState, path: string) {
-    navigationGenerationRef.current += 1;
-    window.history.replaceState(null, '', path);
+  function replaceRoute(nextRoute: RouteState, path: string, invalidate = false) {
+    if (invalidate) {
+      resetNavigation(path);
+    } else {
+      const result = getInAppHistory().replace({ path, organization: navigationOrganizationRef.current });
+      if (result === 'pending') return;
+      navigationGenerationRef.current += 1;
+    }
     setRoute(nextRoute);
   }
 
@@ -1040,8 +1117,7 @@ export default function App() {
     setActiveOrganizationId(null);
     setNeedsOrganizationChoice(false);
     setIsOrganizationMenuOpen(false);
-    navigationGenerationRef.current += 1;
-    window.history.replaceState(null, '', '/login');
+    resetNavigation('/login', null);
     setRoute(getCurrentRoute());
     setError(null);
     setIsLoginRoute(true);
@@ -1484,12 +1560,11 @@ export default function App() {
 
   function handleAuthenticated() {
     const nextPath = new URLSearchParams(window.location.search).get('next');
-    const destination = nextPath?.startsWith('/') && !nextPath.startsWith('//')
-      ? nextPath
-      : '/';
+    // Access is checked by the existing guards after profile bootstrap. Recognize
+    // the destination now without treating an unknown parser fallback as home.
+    const destination = nextPath && isRecognizedAppPath(nextPath, true, true) ? nextPath : '/';
 
-    navigationGenerationRef.current += 1;
-    window.history.replaceState(null, '', destination);
+    resetNavigation(destination, null);
     setRoute(getCurrentRoute());
     setError(null);
     setIsLoginRoute(false);
@@ -1502,8 +1577,7 @@ export default function App() {
         token={passwordReset.token}
         t={t}
         onDone={() => {
-          navigationGenerationRef.current += 1;
-          window.history.replaceState(null, '', '/login');
+          resetNavigation('/login', null);
           setPasswordReset(null);
           setIsLoginRoute(true);
         }}
@@ -1788,7 +1862,7 @@ export default function App() {
                     isLoading={isLoading}
                     language={language}
                     zone={selectedZone}
-                    onBack={() => openZone(route.zoneId as number)}
+                    onBack={() => closeZoneSubview(route.zoneId as number)}
                     onChangeDirection={(direction) => openZoneHistory(route.zoneId as number, direction)}
                     onOpenBox={openBox}
                     t={t}
@@ -1799,7 +1873,7 @@ export default function App() {
                     isLoading={isLoading}
                     language={language}
                     zone={selectedZone}
-                    onBack={() => openZone(route.zoneId as number)}
+                    onBack={() => closeZoneSubview(route.zoneId as number)}
                     onOpenBox={openBox}
                     t={t}
                   />
@@ -1918,7 +1992,7 @@ export default function App() {
           boxes={data.boxes}
           labels={{
             close: t('close'),
-            description: t('qrScannerText'),
+
             found: t('qrScannerFound'),
             loading: t('qrScannerLoading'),
             permission: t('qrScannerPermission'),
@@ -1975,7 +2049,7 @@ function PhoneBottomNavigation({
               onClick={onOpenQr}
             >
               <span className="phone-nav-icon" aria-hidden="true">
-                <PolypbaseIcon name={item.icon} size={36} />
+                <PolypbaseIcon name={item.icon} size={28} />
               </span>
             </button>
           );
@@ -3083,6 +3157,8 @@ function BoxPage({
   const [form, setForm] = useState(() => getInitialMeasurementForm(defaultSalinity));
   const [isSaving, setIsSaving] = useState(false);
   const isDesktopApp = useIsDesktopApp();
+  const isPhoneLayout = useIsPhoneLayout();
+  const isTabletLayout = !isDesktopApp && !isPhoneLayout;
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [lineageGraph, setLineageGraph] = useState<LineageGraph | null>(null);
   const [isLineageGraphLoading, setIsLineageGraphLoading] = useState(false);
@@ -3286,15 +3362,7 @@ function BoxPage({
   if (!box) {
     return (
       <section className="box-page empty-box-state">
-        <button
-          className="icon-button box-back-action"
-          type="button"
-          aria-label={t('backToPilotage')}
-          title={t('backToPilotage')}
-          onClick={onBack}
-        >
-          <ArrowLeft aria-hidden="true" size={20} />
-        </button>
+        <DetailBackButton label={t('back')} onBack={onBack} />
         <h2>{t('boxNotFound')}</h2>
         <p>{t('boxNotFoundText')}</p>
       </section>
@@ -3312,6 +3380,30 @@ function BoxPage({
   const statusPresentation = getBoxStatusPresentation(box.status, language);
   const canChangeBoxStatus = userCanArchiveBox(profile, box.organization.id);
   const canShowStatusButton = canChangeBoxStatus && ['active', 'inactive'].includes(box.status);
+  type BoxAction = 'qr' | 'move' | 'subculture' | 'tracking';
+  const boxActions: RowActionMenuItem<BoxAction>[] = [
+    ...(qr && canWriteLabData ? [{ action: 'qr' as const, label: t('qrLabelTitle') }] : []),
+    ...(canWriteLabData ? [
+      { action: 'move' as const, label: t('moveAction') },
+      { action: 'subculture' as const, label: t('subcultureAction') },
+    ] : []),
+    ...(canShowStatusButton ? [{
+      action: 'tracking' as const,
+      label: isChangingBoxStatus ? t('saving') : t(isBoxActive ? 'boxArchiveAction' : 'boxActivateAction'),
+      disabled: isChangingBoxStatus,
+    }] : []),
+  ];
+  function dispatchBoxAction(action: BoxAction) {
+    const item = boxActions.find((candidate) => candidate.action === action);
+    if (!item || item.disabled) return;
+    if (action === 'qr') setIsQrLabelOpen(true);
+    else if (action === 'move') setIsMoveOpen(true);
+    else if (action === 'subculture') setIsSubcultureOpen(true);
+    else {
+      setStatusError(null);
+      setLifecycleAction(isBoxActive ? 'deactivate' : 'reactivate');
+    }
+  }
 
   async function saveMeasurement(): Promise<boolean> {
     if (!box || isSaving) return false;
@@ -3503,19 +3595,9 @@ function BoxPage({
 
   return (
     <section className={canWriteLabData ? 'box-page' : 'box-page is-read-only'}>
-      {!isDesktopApp ? (
-        <button
-          className="icon-button box-back-action"
-          type="button"
-          aria-label={t('backToPilotage')}
-          title={t('backToPilotage')}
-          onClick={onBack}
-        >
-          <ArrowLeft aria-hidden="true" size={20} />
-        </button>
-      ) : null}
+      {!isDesktopApp ? <DetailBackButton label={t('back')} onBack={onBack} /> : null}
 
-      <header className={`entity-header entity-header--box box-sheet-hero is-status-${statusPresentation.tone}`}>
+      <header className={`entity-header entity-header--box box-sheet-hero is-status-${statusPresentation.tone}${isTabletLayout ? ' is-tablet' : isPhoneLayout ? ' is-phone' : ''}`}>
         <div className="entity-header__identity box-sheet-identity">
           <div>
             <p className="box-page-label">{t('boxSheet')}</p>
@@ -3536,12 +3618,13 @@ function BoxPage({
         </div>
 
         <div className="box-header-tools">
-          {qr && canWriteLabData ? (
+          {!isPhoneLayout && qr && canWriteLabData ? (
             <button
               className="box-hero-qr"
               type="button"
+              aria-label={`${t('qrLabelTitle')} ${box.global_code}`}
               title={qr.scanUrl}
-              onClick={() => setIsQrLabelOpen(true)}
+              onClick={() => dispatchBoxAction('qr')}
             >
               <QrLabel
                 altLabel={t('qrCode')}
@@ -3550,6 +3633,30 @@ function BoxPage({
                 variant="trigger"
               />
             </button>
+          ) : null}
+          {isTabletLayout ? (
+            <div className="box-tablet-actions">
+              {boxActions.filter((item) => item.action !== 'qr').map((item) => (
+                <button
+                  key={item.action}
+                  className="icon-button box-compact-action"
+                  type="button"
+                  aria-label={item.label}
+                  title={item.label}
+                  disabled={item.disabled}
+                  onClick={() => dispatchBoxAction(item.action)}
+                >
+                  {item.action === 'move' ? (
+                    <Route aria-hidden="true" size={36} />
+                  ) : item.action === 'subculture' ? <GitFork className="box-subculture-glyph" aria-hidden="true" size={36} />
+                      : isBoxActive ? <CirclePause aria-hidden="true" size={36} />
+                        : <CirclePlay aria-hidden="true" size={36} />}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {isPhoneLayout && boxActions.length > 0 ? (
+            <RowActionMenu actions={boxActions} onAction={dispatchBoxAction} ariaLabel={`${t('boxInventoryActions')} ${box.global_code}`} />
           ) : null}
         </div>
 
@@ -3581,37 +3688,30 @@ function BoxPage({
           <InfoPill label={t('temperatureShort')} value={formatTemperature(currentZone?.latest_temperature?.average_temperature_c)} />
         </div>
 
-        <div className="entity-header__actions box-action-stack">
-          {canWriteLabData ? (
-            <>
-              <button className="move-trigger" type="button" onClick={() => setIsMoveOpen(true)}>
-                {t('moveAction')}
+        {isDesktopApp ? (
+          <div className="entity-header__actions box-action-stack">
+            {boxActions.filter((item) => item.action !== 'qr').map((item) => (
+              <button
+                key={item.action}
+                className={item.action === 'tracking'
+                  ? isBoxActive ? 'archive-box-trigger' : 'activate-box-trigger'
+                  : `${item.action}-trigger`}
+                type="button"
+                disabled={item.disabled}
+                onClick={() => dispatchBoxAction(item.action)}
+              >
+                {item.action === 'tracking' ? (
+                  <span className="button-icon-label">
+                    {!isChangingBoxStatus ? (
+                      <PolypbaseIcon name={isBoxActive ? 'archive' : 'restore'} size={17} />
+                    ) : null}
+                    {item.label}
+                  </span>
+                ) : item.label}
               </button>
-              <button className="subculture-trigger" type="button" onClick={() => setIsSubcultureOpen(true)}>
-                {t('subcultureAction')}
-              </button>
-            </>
-          ) : null}
-
-          {canShowStatusButton ? (
-            <button
-              className={isBoxActive ? 'archive-box-trigger' : 'activate-box-trigger'}
-              type="button"
-              disabled={isChangingBoxStatus}
-              onClick={() => {
-                setStatusError(null);
-                setLifecycleAction(isBoxActive ? 'deactivate' : 'reactivate');
-              }}
-            >
-              <span className="button-icon-label">
-                {!isChangingBoxStatus ? (
-                  <PolypbaseIcon name={isBoxActive ? 'archive' : 'restore'} size={17} />
-                ) : null}
-                {isChangingBoxStatus ? t('saving') : t(isBoxActive ? 'boxArchiveAction' : 'boxActivateAction')}
-              </span>
-            </button>
-          ) : null}
-        </div>
+            ))}
+          </div>
+        ) : null}
       </header>
 
       {statusError ? (
@@ -3838,6 +3938,14 @@ function BoxPage({
                       <PolypbaseIcon name="plus" size={18} />
                     </StepperButton>
                   </div>
+                  <QuickCountButtons
+                    values={[1, 5]}
+                    getAccessibleLabel={(value) => `${t('salinityFull')} +${value.toLocaleString(language)} PSU`}
+                    onAdd={(value) => setForm((current) => ({
+                      ...current,
+                      salinity: stepBiologicalSalinity(current.salinity, value),
+                    }))}
+                  />
                 </div>
               </div>
 
@@ -3959,7 +4067,6 @@ function BoxPage({
               alreadySelected: t('qrLabelAlreadySelected'),
               close: t('close'),
               download: t('qrLabelDownload'),
-              help: t('qrLabelHelp'),
               qrLabelPreparing: t('qrLabelPreparing'),
               qrLabelPopupBlocked: t('qrLabelPopupBlocked'),
               qrLabelQrUnavailable: t('qrLabelQrUnavailable'),
@@ -4162,6 +4269,7 @@ function getLabelsViewLabels(t: TFunction) {
     qrLabelSearchPlaceholder: t('adminPrintLabelsSearchPlaceholder'),
     qrLabelSpeciesCount: (count: number) => t('qrLabelSpeciesCount').replace('{count}', String(count)),
     qrLabelSpeciesSelected: (count: number) => t('qrLabelSpeciesSelected').replace('{count}', String(count)),
+    qrLabelSpeciesSelectedCompact: (count: number) => t('qrLabelSpeciesSelectedCompact').replace('{count}', String(count)),
     qrLabelSelectSpecies: (count: number, species: string) => t('qrLabelSelectSpecies').replace('{count}', String(count)).replace('{species}', species),
     qrLabelDeselectSpecies: (count: number, species: string) => t('qrLabelDeselectSpecies').replace('{count}', String(count)).replace('{species}', species),
     selectBox: t('boxInventoryBatchSelectBox'),
@@ -4618,6 +4726,41 @@ async function getApplicationError(error: unknown): Promise<ApplicationError> {
     message: getErrorMessage(error),
     requiresAuthentication: requiresSignInRecovery(status, profileStatus),
   };
+}
+
+function getCurrentAppPath(): string {
+  return `${window.location.pathname}${window.location.search}${window.location.hash}`;
+}
+
+function isRecognizedAppPath(path: string, isDesktopApp: boolean, canUseAdmin: boolean): boolean {
+  // Keep this positive list aligned with getCurrentRoute, never its default home.
+  if (!path.startsWith('/') || path.startsWith('//') || /[\\\s\u0000-\u001f\u007f]/.test(path)) return false;
+  try {
+    const url = new URL(path, 'https://in-app.invalid');
+    if (`${url.pathname}${url.search}${url.hash}` !== path) return false;
+    const pathname = url.pathname;
+    const decoded = decodeURIComponent(pathname);
+    // Match the encoded segment, not a decoded Box code containing slashes.
+    const isBoxPath = /^\/boxes\/[^/]+\/?$/.test(pathname);
+    if (/[\\\u0000-\u001f\u007f]/.test(decoded)
+      || /(?:^|\/)\.{1,2}(?:\/|$)/.test(decoded)
+      || (/%2f/i.test(pathname) && !isBoxPath)) return false;
+    if (['/', '/zones', '/overview', '/labels', '/profile'].includes(pathname)) return true;
+    if (pathname === '/exports') return isDesktopApp;
+    if (isBoxPath) return true;
+    const idMatch = pathname.match(/^\/(?:bac\/(\d+)|zones\/(\d+)(?:\/(?:boxes|history))?)\/?$/);
+    if (idMatch) {
+      const id = Number(idMatch[1] ?? idMatch[2]);
+      return Number.isSafeInteger(id) && id > 0;
+    }
+    if (!isDesktopApp || !canUseAdmin) return false;
+    return pathname === '/administration' || pathname === '/administration/'
+      || Object.values(ADMIN_SECTION_PATHS).some((sectionPath) => (
+        pathname === sectionPath || pathname === `${sectionPath}/`
+      ));
+  } catch {
+    return false;
+  }
 }
 
 function getCurrentRoute(): RouteState {

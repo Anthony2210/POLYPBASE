@@ -12,6 +12,7 @@ import { formatDisplayDate } from '../utils/dateFormat';
 import { getErrorMessage } from '../utils/errors';
 import { buildTemperatureScale } from '../utils/temperatureScale';
 import BoxTrackingPreview from './BoxTrackingPreview';
+import DetailBackButton from './DetailBackButton';
 import ModalPortal from './ModalPortal';
 import PageLoader from './PageLoader';
 import PolypbaseIcon from './PolypbaseIcon';
@@ -421,6 +422,10 @@ export function ZoneDetailPage({
   ) => Promise<ThermalZone>;
   t: TFunction;
 }) {
+  const backAction = (
+    <DetailBackButton label={t('back')} onBack={onBack} desktopClassName="zone-back-button" />
+  );
+
   if (isLoading) {
     return <PageLoader variant="zone" label={t('zoneSheet')} />;
   }
@@ -428,7 +433,7 @@ export function ZoneDetailPage({
   if (!zone) {
     return (
       <section className="zone-page">
-        <button className="text-button" type="button" onClick={onBack}>{t('backToZones')}</button>
+        {backAction}
         <p className="muted compact-text">{t('noZone')}</p>
       </section>
     );
@@ -439,9 +444,7 @@ export function ZoneDetailPage({
 
   return (
     <section className="zone-page">
-      <button className="text-button zone-back-button" type="button" onClick={onBack}>
-        {t('backToZones')}
-      </button>
+      {backAction}
 
       <header className="entity-header entity-header--zone zone-sheet-hero">
         <div className="entity-header__identity zone-sheet-title">
@@ -651,23 +654,12 @@ function ZoneFunctionalSections({
             </span>
           </div>
           <Metric label={t('zoneSalinity')} value={formatZoneSalinity(zone.latest_salinity?.salinity_psu)} />
-          {zone.latest_salinity?.notes ? (
-            <div className="last-reading-comment">
-              <small>{t('lastComment')}</small>
-              <p>{zone.latest_salinity.notes}</p>
-            </div>
-          ) : null}
+          <div className="last-reading-comment">
+            <small>{t('lastComment')}</small>
+            <p>{zone.latest_salinity?.notes || t('noComment')}</p>
+          </div>
           {canRecordManualSalinity ? (
             <div className="zone-salinity-summary-actions">
-              <button
-                className="icon-button measurement-summary-edit-button"
-                type="button"
-                aria-label={t('zoneSalinityCreateAction')}
-                title={t('zoneSalinityCreateAction')}
-                onClick={() => openSalinityEditor('create')}
-              >
-                <PolypbaseIcon name="plus" size={18} />
-              </button>
               {zone.latest_salinity?.can_edit ? (
                 <button
                   className="icon-button measurement-summary-edit-button"
@@ -679,6 +671,15 @@ function ZoneFunctionalSections({
                   <PolypbaseIcon name="edit" size={18} />
                 </button>
               ) : null}
+              <button
+                className="icon-button measurement-summary-edit-button"
+                type="button"
+                aria-label={t('zoneSalinityCreateAction')}
+                title={t('zoneSalinityCreateAction')}
+                onClick={() => openSalinityEditor('create')}
+              >
+                <PolypbaseIcon name="plus" size={18} />
+              </button>
             </div>
           ) : null}
         </section>
@@ -779,9 +780,7 @@ export function ZoneBoxesPage({
   if (!zone) {
     return (
       <section className="zone-page">
-        <button className="text-button" type="button" onClick={onBack}>
-          {t('backToZones')}
-        </button>
+        <DetailBackButton label={t('back')} onBack={onBack} desktopClassName="zone-back-button" />
         <p className="muted compact-text">{t('noZone')}</p>
       </section>
     );
@@ -789,9 +788,7 @@ export function ZoneBoxesPage({
 
   return (
     <section className="zone-page zone-box-directory-page">
-      <button className="text-button zone-back-button" type="button" onClick={onBack}>
-        {t('zoneBoxesDirectoryBack')}
-      </button>
+      <DetailBackButton label={t('back')} onBack={onBack} desktopClassName="zone-back-button" />
 
       <header className="entity-header entity-header--zone zone-sheet-hero zone-directory-hero">
         <div className="entity-header__identity zone-sheet-title">
