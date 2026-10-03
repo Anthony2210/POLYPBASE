@@ -99,7 +99,10 @@ test('manual temperature editor is progressive and supports cancel', () => {
   assert.match(temperaturePanel, /<TemperatureEntryModal/);
   assert.match(temperaturePanel, /<ModalPortal>/);
   assert.match(temperaturePanel, /role="dialog"/);
-  assert.match(temperaturePanel, /dateRef\.current\?\.focus\(\)/);
+  assert.match(temperaturePanel, /dialogRef\.current\?\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(temperaturePanel, /className="zone-temperature-modal"\s+tabIndex=\{-1\}/);
+  assert.match(temperaturePanel, /type="date"\s+value=\{date\}/);
+  assert.doesNotMatch(temperaturePanel, /dateRef|autoFocus|\.select\(/);
   assert.match(temperaturePanel, /temperatureActionRef\.current\?\.focus\(\)/);
   assert.match(temperaturePanel, /restoreTemperatureFocus\.current = true/);
   assert.match(temperaturePanel, /event\.key === 'Escape'/);

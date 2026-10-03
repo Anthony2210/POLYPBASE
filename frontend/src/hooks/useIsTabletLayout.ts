@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-const TABLET_LAYOUT_QUERY = '(min-width: 760px) and (max-width: 1023px), (min-width: 760px) and (max-width: 1180px) and (pointer: coarse)';
+export const TABLET_LAYOUT_QUERY = '(min-width: 760px) and (max-width: 1023px), (min-width: 760px) and (max-width: 1180px) and (pointer: coarse)';
 const PHONE_LAYOUT_QUERY = '(max-width: 759px), (max-width: 900px) and (orientation: portrait)';
 
 function getIsTabletLayout() {

@@ -65,6 +65,7 @@ import TabletQrScannerModal from './components/TabletQrScannerModal';
 import { useIsDesktopApp } from './hooks/useIsDesktopApp';
 import { useIsPhoneLayout } from './hooks/useIsPhoneLayout';
 import { useIsTabletLayout } from './hooks/useIsTabletLayout';
+import { useRecentBoxLimit } from './hooks/useRecentBoxLimit';
 import type {
   BiologicalMeasurement,
   BoxActivatePayload,
@@ -299,6 +300,7 @@ export default function App() {
   const isDesktopApp = useIsDesktopApp();
   const isPhoneLayout = useIsPhoneLayout();
   const isTabletLayout = useIsTabletLayout();
+  const recentBoxLimit = useRecentBoxLimit();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => getStoredSidebarCollapsed());
   const [isTabletScannerOpen, setIsTabletScannerOpen] = useState(false);
 
@@ -759,7 +761,7 @@ export default function App() {
     setRecentBoxIds((currentIds) => [
       selectedBoxId,
       ...currentIds.filter((currentId) => currentId !== selectedBoxId),
-    ].slice(0, 5));
+    ].slice(0, 6));
 
     if (lastRecordedBoxIdRef.current === selectedBoxId) return;
     lastRecordedBoxIdRef.current = selectedBoxId;
@@ -777,8 +779,8 @@ export default function App() {
     return recentBoxIds
       .map((boxId) => data.boxes.find((box) => box.id === boxId))
       .filter((box): box is BoxItem => Boolean(box))
-      .slice(0, 5);
-  }, [data.boxes, recentBoxIds]);
+      .slice(0, recentBoxLimit);
+  }, [data.boxes, recentBoxIds, recentBoxLimit]);
 
   /**
    * Open a box sheet from the history with its measurement form pre-filled.
@@ -2293,6 +2295,12 @@ function PilotageView({
     onSearch(value);
   }
 
+  function highlightSuggestion(index: number) {
+    setHighlightedSuggestionIndex(index);
+    const prefix = isPhoneLayout ? 'box-suggestion' : 'box-search-result';
+    document.getElementById(`${prefix}-${visibleSuggestions[index].id}`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+
   function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === 'Escape') {
       event.preventDefault();
@@ -2303,10 +2311,10 @@ function PilotageView({
 
     if (event.key === 'ArrowDown') {
       event.preventDefault();
-      setHighlightedSuggestionIndex((current) => (current + 1) % visibleSuggestions.length);
+      highlightSuggestion((highlightedSuggestionIndex + 1) % visibleSuggestions.length);
     } else if (event.key === 'ArrowUp') {
       event.preventDefault();
-      setHighlightedSuggestionIndex((current) => (current - 1 + visibleSuggestions.length) % visibleSuggestions.length);
+      highlightSuggestion((highlightedSuggestionIndex - 1 + visibleSuggestions.length) % visibleSuggestions.length);
     }
   }
 
@@ -2317,7 +2325,7 @@ function PilotageView({
       ? `${resultIdPrefix}-${visibleSuggestions[highlightedSuggestionIndex].id}`
       : undefined,
     controls: isPhoneLayout || hasSearch ? resultListId : undefined,
-    expanded: hasSearch && (!isPhoneLayout || visibleSuggestions.length > 0),
+    expanded: hasSearch,
     labels: {
       label: t('searchOrScan'),
       placeholder: t('searchPlaceholder'),
@@ -2407,7 +2415,7 @@ function PilotageView({
             </section>
 
             <div className="mobile-suggestion-slot">
-              {tabletLookupMode === 'search' && visibleSuggestions.length > 0 ? (
+              {tabletLookupMode === 'search' && hasSearch ? (
                 <SuggestionList
                   boxes={visibleSuggestions}
                   listId={resultListId}
@@ -2416,6 +2424,7 @@ function PilotageView({
                   totalCount={visibleSuggestions.length}
                   heading={t('suggestions')}
                   isPhoneLayout
+                  onClear={() => handleSearchChange('')}
                   onSelectBox={onSelectBox}
                   t={t}
                 />
@@ -4418,7 +4427,7 @@ function buildRecentBoxIds(boxes: BoxItem[], dashboard: Dashboard) {
     .map((access) => boxes.find((box) => box.global_code === access.object_id)?.id)
     .filter((boxId): boxId is number => Boolean(boxId));
 
-  return uniqueNumbers(idsFromAccesses).slice(0, 5);
+  return uniqueNumbers(idsFromAccesses).slice(0, 6);
 }
 
 function uniqueNumbers(values: number[]) {

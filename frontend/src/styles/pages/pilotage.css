@@ -946,6 +946,16 @@
   }
 }
 
+@media (min-width: 760px) and (max-width: 1023px), (min-width: 760px) and (max-width: 1180px) and (pointer: coarse) {
+  .recent-strip {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-2);
+  }
+
+  .recent-strip button { min-width: 0; }
+}
+
 @keyframes scanner-sweep {
   0%, 100% { transform: translateY(0); opacity: .25; }
   50% { transform: translateY(185px); opacity: 1; }

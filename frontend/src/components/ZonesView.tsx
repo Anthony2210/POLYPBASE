@@ -1184,12 +1184,11 @@ function TemperatureEntryModal({
   t: TFunction;
 }) {
   const dialogRef = useRef<HTMLElement>(null);
-  const dateRef = useRef<HTMLInputElement>(null);
   const savingRef = useRef(isSaving);
   savingRef.current = isSaving;
 
   useLayoutEffect(() => {
-    dateRef.current?.focus();
+    dialogRef.current?.focus({ preventScroll: true });
   }, []);
 
   useEffect(() => {
@@ -1223,6 +1222,7 @@ function TemperatureEntryModal({
         <section
           ref={dialogRef}
           className="zone-temperature-modal"
+          tabIndex={-1}
           role="dialog"
           aria-modal="true"
           aria-labelledby="zone-temperature-modal-title"
@@ -1238,7 +1238,6 @@ function TemperatureEntryModal({
           <label>
             <span className="measurement-field-label">{t('manualTemperatureDate')}</span>
             <input
-              ref={dateRef}
               type="date"
               value={date}
               onChange={(event) => onDateChange(event.target.value)}
