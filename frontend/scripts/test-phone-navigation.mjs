@@ -40,6 +40,15 @@ const boxes = [
   },
 ];
 
+test('Move and Subculture are not hidden by phone or portrait tablet CSS', () => {
+  const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+  for (const path of ['pages/box-detail.css', 'responsive/phone.css', 'responsive/tablet.css']) {
+    const css = readFileSync(new URL(`../src/styles/${path}`, import.meta.url), 'utf8');
+    assert.doesNotMatch(css, /[^{}]*(?:move-trigger|subculture-trigger)[^{}]*\{[^}]*display:\s*none/, path);
+  }
+  assert.match(app, /\{canWriteLabData \? \([\s\S]*?className="move-trigger"[\s\S]*?setIsMoveOpen\(true\)[\s\S]*?className="subculture-trigger"[\s\S]*?setIsSubcultureOpen\(true\)/);
+});
+
 test('phone navigation keeps four destinations around a non-route QR action', () => {
   assert.equal(
     PHONE_NAVIGATION_ITEMS.map((item) => item.kind === 'destination' ? item.tab : item.action).join(','),

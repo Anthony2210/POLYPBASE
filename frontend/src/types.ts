@@ -191,6 +191,9 @@ export type OverviewTemperaturePoint = {
 
 export type OverviewBox = {
   id: number;
+  earliest_biological_measurement_on: string | null;
+  history_start_date: string;
+  history_end_date: string;
   global_code: string;
   species_name: string;
   strain_code: string;
@@ -206,6 +209,8 @@ export type OverviewBox = {
 
 export type OverviewResponse = {
   months: number;
+  history_start_date: string;
+  history_end_date: string;
   results: OverviewBox[];
 };
 

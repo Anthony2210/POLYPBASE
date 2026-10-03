@@ -3,6 +3,126 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { appHarness, ast as appAst, functionNode, deferred as operationDeferred, tick as operationTick } from './app-operation-test-harness.mjs';
+
+for (const gap of ['before confirmation', 'after mutation success']) {
+  test(`create-box caller cannot navigate after organization replacement ${gap}`, async () => {
+    const h = appHarness();
+    let submit;
+    function visit(node) {
+      if (ts.isFunctionDeclaration(node) && node.name?.text === 'handleSubmit') submit = node;
+      ts.forEachChild(node, visit);
+    }
+    visit(functionNode('CreateBoxPanel'));
+    assert.ok(submit);
+    h.evaluate(submit.getText(appAst));
+    const confirmation = operationDeferred();
+    const mutation = operationDeferred();
+    const navigations = [], errors = [], mutations = [];
+    Object.assign(h.context, {
+      isSaving: false, canSubmit: true, organizationId: 1, strainId: 2, zoneId: 3,
+      globalCode: 'BOX-1', boxNumber: '1', enteredOn: '2026-09-16', notes: '',
+      selectedStrain: null, selectedZone: null, activeOrganization: { name: 'Organization A' },
+      presentation: 'inline', isConfirmationOpenRef: { current: false }, operationLifetimeRef: { current: true },
+      isOperationCurrent: () => h.context.organizationRequestGenerationRef.current === 0,
+      boxCodeMatchesBoxNumber: () => true, t: key => key, confirmAction: () => confirmation.promise,
+      setIsSaving() {}, setError(value) { errors.push(value); }, setGlobalCode() {}, setBoxNumber() {}, setNotes() {},
+      onCreateBox(payload) { mutations.push(payload); return mutation.promise; },
+      onSelectBox(id) { navigations.push(id); },
+    });
+    const pending = h.context.handleSubmit({ preventDefault() {} });
+    if (gap === 'before confirmation') {
+      h.switchOrganization();
+      confirmation.resolve(true);
+    } else {
+      confirmation.resolve(true);
+      await operationTick();
+      mutation.resolve({ id: 7 });
+      h.switchOrganization();
+    }
+    await pending;
+    assert.deepEqual(navigations, []);
+    assert.deepEqual(errors.filter(Boolean), []);
+    assert.equal(mutations.length, gap === 'before confirmation' ? 0 : 1);
+  });
+}
+
+const operationCases = [
+  ['createMeasurement', [7, {}]], ['updateMeasurement', [7, 8, {}]], ['createBox', [{}]],
+  ['createSubculture', [7, {}]], ['moveBox', [7, {}]], ['deactivateBox', [7, {}]],
+  ['reactivateBox', [7, {}]], ['qualifyBox', [7, {}]], ['assignBoxInitialLocation', [7, {}]],
+  ['qualifyBoxesBatch', [{}]], ['createThermalZone', [{}]], ['updateThermalZone', [7, {}]],
+  ['recordManualTemperature', [7, {}]], ['recordManualSalinity', [7, {}]],
+  ['updateManualSalinity', [7, 8, {}]], ['createProbe', [{}]], ['createOrganization', [{}]],
+  ['updateOrganization', [7, {}]], ['deleteOrganization', [7]], ['createBoxTransfer', [{}]],
+  ['refreshBoxAfterMeasurement', [7]], ['refreshZoneSalinityCapability', [7]], ['loadLineageGraph', [7]],
+];
+for (const [name, args] of operationCases) {
+  test(`${name}: generation is checked again at the outer await continuation`, async () => {
+    const h = appHarness();
+    const previous = h.state.data;
+    const pending = h.context[name](...args);
+    const rejected = assert.rejects(pending, h.context.ApiResourceCancelledError);
+    h.requests[0].resolve({ id: 7 });
+    await Promise.resolve();
+    h.switchOrganization();
+    await rejected;
+    assert.equal(h.state.data, previous);
+    assert.equal(h.requests.length, 1);
+  });
+  for (const outcome of ['success', 'failure']) {
+    test(`${name}: stale ${outcome} cancels without state writes, refresh, or caller navigation`, async () => {
+      const h = appHarness();
+      const previous = h.state.data;
+      let navigated = false;
+      const pending = h.context[name](...args).then(() => { navigated = true; });
+      const rejected = assert.rejects(pending, error => error instanceof h.context.ApiResourceCancelledError && error.status == null);
+      h.switchOrganization();
+      if (outcome === 'success') h.requests[0].resolve({ id: 7 });
+      else h.requests[0].reject({ status: 403 });
+      await rejected;
+      assert.equal(h.requests.length, 1);
+      assert.equal(h.state.data, previous);
+      assert.equal(navigated, false);
+      assert.equal(h.state.recovery, null);
+    });
+  }
+}
+for (const [name, args] of [['createThermalZone', [{}]], ['updateThermalZone', [7, {}]], ['createProbe', [{}]],
+  ['assignBoxInitialLocation', [7, {}]], ['createOrganization', [{}]], ['updateOrganization', [7, {}]], ['deleteOrganization', [7]]]) {
+  test(`${name}: replacement during follow-up refresh prevents writes and any later request`, async () => {
+    const h = appHarness();
+    const pending = h.context[name](...args);
+    const rejected = assert.rejects(pending, h.context.ApiResourceCancelledError);
+    h.requests[0].resolve({ id: 7 });
+    for (let index = 0; index < 12; index += 1) await Promise.resolve();
+    assert.equal(h.requests.length, 2);
+    h.switchOrganization();
+    const replacement = { boxes: [], boxDetails: {}, zones: [] };
+    h.state.data = replacement;
+    h.requests[1].resolve({ results: [{ id: 7 }] });
+    await rejected;
+    assert.equal(h.state.data, replacement);
+    assert.equal(h.requests.length, 2);
+  });
+}
+
+test('queued mutation state update is rechecked when React applies it', async () => {
+  const h = appHarness();
+  h.queueUpdates();
+  const pending = h.context.createBox({});
+  h.requests[0].resolve({ id: 7 });
+  await pending;
+  h.switchOrganization();
+  const replacement = { boxes: [{ id: 9 }], boxDetails: {} };
+  assert.equal(h.queuedUpdates[0](replacement), replacement);
+});
+test('callbacks belonging to a replaced organization cannot start mutations', async () => {
+  const h = appHarness();
+  h.switchOrganization();
+  await assert.rejects(h.context.createBox({}), h.context.ApiResourceCancelledError);
+  assert.equal(h.requests.length, 0);
+});
 
 // Run the actual App request functions with controlled promises, without a DOM.
 const source = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
@@ -41,6 +161,9 @@ function harness() {
   const errors = [];
   const routes = [];
   const context = {
+    URL,
+    __API_PROXY_ORIGIN__: null,
+    ApiResourceCancelledError: class ApiResourceCancelledError extends Error {},
     data: state.data,
     activeOrganizationId: 1,
     needsOrganizationChoice: false,
@@ -52,7 +175,7 @@ function harness() {
     organizationRequestGenerationRef: { current: 0 },
     openBoxRequestGenerationRef: { current: 0 },
     navigationGenerationRef: { current: 0 },
-    window: { location: { pathname: '/', search: '' }, history: { replaceState() {} } },
+    window: { location: { origin: 'https://polypbase.test', pathname: '/', search: '' }, history: { replaceState() {} } },
     setIsOrganizationMenuOpen() {}, setNeedsOrganizationChoice() {}, setIsCreateBoxOpen() {},
     setStoredInterfaceLanguage() {}, setIsLoginRoute() {},
     setSearch(value) { state.search = value; },
@@ -94,7 +217,7 @@ function harness() {
   }
   const routeSafety = readFileSync(new URL('../src/utils/routeSafety.ts', import.meta.url), 'utf8');
   evaluate(routeSafety.replace('export function', 'function'));
-  for (const name of ['getOrganizationById', 'setProfileActiveOrganization', 'fetchScopedData', 'chooseOrganization', 'openBox']) {
+  for (const name of ['getOperationRequests', 'fetchAllPages', 'getOrganizationById', 'setProfileActiveOrganization', 'fetchScopedData', 'chooseOrganization', 'openBox']) {
     evaluate(findFunction(name).getText(ast));
   }
   function beginEffect(name) {

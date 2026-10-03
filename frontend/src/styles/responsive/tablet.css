@@ -1,6 +1,45 @@
 /* Tablet: touch-first landscape layout. */
 @media (min-width: 760px) and (max-width: 1023px),
   (min-width: 760px) and (max-width: 1180px) and (pointer: coarse) {
+  /* Four summary tracks need 626px plus padding and correction space. */
+  @container box-detail (width < 760px) {
+    .box-page-grid > .last-reading-card.measurement-summary {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .box-page-grid > .last-reading-card.measurement-summary > :first-child,
+    .box-page-grid > .last-reading-card.measurement-summary .last-reading-comment {
+      grid-column: 1 / -1;
+    }
+
+    .box-page-grid > .last-reading-card.measurement-summary .metric {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .box-page-grid > .last-reading-card.measurement-summary .last-reading-comment {
+      padding: var(--space-3) 0 0;
+      border-top: 1px solid var(--color-line);
+      border-inline: 0;
+    }
+
+    .box-page-grid > .last-reading-card.measurement-summary.has-edit-capability > :first-child {
+      padding-inline-end: calc(44px + var(--space-2));
+    }
+
+    .box-page-grid > .last-reading-card.measurement-summary .last-reading-comment-header {
+      flex-wrap: wrap;
+    }
+
+    .box-page-grid > .last-reading-card.measurement-summary .last-reading-comment p {
+      display: block;
+      overflow: visible;
+      -webkit-line-clamp: unset;
+    }
+  }
+}
+@media (min-width: 760px) and (max-width: 1023px),
+  (min-width: 760px) and (max-width: 1180px) and (pointer: coarse) {
   :root {
     --control-height: 48px;
   }

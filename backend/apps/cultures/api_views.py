@@ -12,6 +12,7 @@ from django.db.models import (
     DateField,
     F,
     IntegerField,
+    Min,
     OuterRef,
     Prefetch,
     Q,
@@ -73,6 +74,7 @@ from .serializers import (
     BoxInitialLocationSerializer,
     BoxInventorySerializer,
     BoxListSerializer,
+    BoxLocationSerializer,
     BoxMoveCreateSerializer,
     BoxQualifySerializer,
     BoxTransferCreateSerializer,
@@ -485,12 +487,12 @@ class OverviewActiveBoxesAPIView(APIView):
 
     def get(self, request):
         months = self._get_months(request)
-        history_start_date = timezone.localdate() - timedelta(days=months * 31)
+        reference_date = timezone.localdate()
+        history_start_date = _subtract_calendar_months(reference_date, months)
         organization_ids = get_active_organization_ids(request)
+        # Complete succession is needed to resolve unknown ends without extending chart bands.
         location_history = (
             BoxLocation.objects.filter(
-                Q(ends_at__isnull=True, end_date_unknown=False)
-                | Q(ends_at__date__gte=history_start_date),
                 thermal_zone__organization_id__in=organization_ids,
             )
             .select_related("thermal_zone")
@@ -513,6 +515,14 @@ class OverviewActiveBoxesAPIView(APIView):
             )
             .values_list("box_id", flat=True)
             .distinct()
+        )
+
+        earliest_measurement_by_box = dict(
+            BiologicalMeasurement.objects.filter(box_id__in=box_ids)
+            .order_by()
+            .values("box_id")
+            .annotate(earliest_measured_on=Min("measured_on"))
+            .values_list("box_id", "earliest_measured_on")
         )
 
         measurements_by_box = defaultdict(list)
@@ -552,12 +562,15 @@ class OverviewActiveBoxesAPIView(APIView):
         return Response(
             {
                 "months": months,
+                "history_start_date": history_start_date.isoformat(),
+                "history_end_date": reference_date.isoformat(),
                 "results": [
                     self._box_payload(
                         box,
                         measurements_by_box[box.id],
                         temperatures_by_zone[box.thermal_zone_id] if box.thermal_zone_id else [],
                         box.id in app_tracked_box_ids,
+                        earliest_measurement_by_box.get(box.id),
                     )
                     for box in boxes
                 ],
@@ -566,18 +579,21 @@ class OverviewActiveBoxesAPIView(APIView):
 
     def _get_months(self, request):
         try:
-            months = int(request.query_params.get("months", 6))
+            months = int(request.query_params.get("months", 3))
         except (TypeError, ValueError):
-            months = 6
+            months = 3
         return max(1, min(months, 12))
 
-    def _box_payload(self, box, measurements, temperatures, tracked_in_app):
+    def _box_payload(self, box, measurements, temperatures, tracked_in_app, earliest_measurement_on):
         return {
             "id": box.id,
             "global_code": box.global_code,
             "species_name": box.strain.species.scientific_name,
             "strain_code": box.strain.code,
             "tracked_in_app": tracked_in_app,
+            "earliest_biological_measurement_on": (
+                earliest_measurement_on.isoformat() if earliest_measurement_on is not None else None
+            ),
             "thermal_zone": (
                 {
                     "id": box.thermal_zone.id,
@@ -588,17 +604,13 @@ class OverviewActiveBoxesAPIView(APIView):
             ),
             "locations": [
                 {
-                    "id": location.id,
+                    **location,
                     "thermal_zone": {
-                        "id": location.thermal_zone.id,
-                        "name": location.thermal_zone.name,
+                        "id": location["thermal_zone"]["id"],
+                        "name": location["thermal_zone"]["name"],
                     },
-                    "starts_at": location.starts_at.isoformat(),
-                    "ends_at": location.ends_at.isoformat() if location.ends_at else None,
-                    "end_date_unknown": location.end_date_unknown,
-                    "notes": location.notes,
                 }
-                for location in box.overview_locations
+                for location in BoxLocationSerializer(box.overview_locations, many=True).data
             ],
             "measurements": measurements,
             "temperatures": temperatures,

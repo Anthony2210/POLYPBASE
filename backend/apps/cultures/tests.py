@@ -168,7 +168,8 @@ class PolypbaseApiTests(TestCase):
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], self.box.id)
 
-    def test_overview_includes_every_active_box_in_the_selected_organization(self):
+    @patch("apps.cultures.api_views.timezone.localdate", return_value=date(2026, 10, 1))
+    def test_overview_includes_every_active_box_in_the_selected_organization(self, _localdate):
         self.client.login(username="tech", password="secret")
         app_tracked_box = Box.objects.create(
             organization=self.organization,

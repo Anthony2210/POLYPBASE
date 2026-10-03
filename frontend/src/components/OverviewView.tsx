@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
-import type { OverviewBox, OverviewMeasurementPoint } from '../types';
-import { buildChartWindow, getLatestChartWindowOffset, parseChartDate, toChartDateString } from '../utils/chartWindow';
+import type { BoxDetail, OverviewBox, OverviewMeasurementPoint } from '../types';
+import { createOverviewHistory, overviewDefaultRange, type OverviewHistoryState } from '../utils/overviewHistory';
 import BiologicalTrendChart from './BiologicalTrendChart';
 import ChartWindowControls from './ChartWindowControls';
 import PageLoader from './PageLoader';
@@ -31,6 +31,7 @@ type OverviewZoneSummary = {
 };
 
 export default function OverviewView({
+  loadHistory,
   boxes,
   isLoading,
   language,
@@ -38,6 +39,7 @@ export default function OverviewView({
   onOpenZone,
   t,
 }: {
+  loadHistory: (boxId: number) => Promise<BoxDetail>;
   boxes: OverviewBox[] | null;
   isLoading: boolean;
   language: Language;
@@ -304,7 +306,7 @@ export default function OverviewView({
                   </div>
                 </header>
 
-                <OverviewMiniChart box={entry.box} language={language} t={t} />
+                <OverviewMiniChart box={entry.box} loadHistory={loadHistory} language={language} t={t} />
               </article>
             ))}
           </div>
@@ -389,56 +391,38 @@ function getDaysSinceDate(date: string) {
 
 function OverviewMiniChart({
   box,
+  loadHistory,
   language,
   t,
 }: {
   box: OverviewBox;
+  loadHistory: (boxId: number) => Promise<BoxDetail>;
   language: Language;
   t: TFunction;
 }) {
-  const orderedMeasurements = useMemo(
-    () => [...box.measurements].sort((left, right) => left.date.localeCompare(right.date)),
-    [box.measurements],
-  );
-  const sourceDates = useMemo(
-    () => [
-      ...orderedMeasurements.map((measurement) => measurement.date),
-      ...(box.locations ?? []).flatMap((location) => [location.starts_at, location.ends_at]),
-    ],
-    [box.locations, orderedMeasurements],
-  );
-  const defaultWindow = useMemo(() => buildChartWindow(
-    sourceDates,
-    getLatestChartWindowOffset(sourceDates.filter((date): date is string => Boolean(date)), orderedMeasurements.map((point) => point.date), 3),
-    3,
-  ), [sourceDates, orderedMeasurements]);
-  const extentEnd = useMemo(() => buildChartWindow(sourceDates, 0, 3).endDate, [sourceDates]);
-  const earliestDate = useMemo(() => sourceDates
-    .filter((date): date is string => Boolean(date) && !Number.isNaN(parseChartDate(date).getTime()))
-    .map((date) => date.slice(0, 10))
-    .sort()[0], [sourceDates]);
-  let extentStart = earliestDate ?? defaultWindow.startDate;
-  if (extentStart >= extentEnd) {
-    const previousDay = parseChartDate(extentEnd);
-    previousDay.setDate(previousDay.getDate() - 1);
-    extentStart = toChartDateString(previousDay);
-  }
-  const [selectedWindow, setSelectedWindow] = useState({
-    boxId: box.id,
-    startDate: defaultWindow.startDate,
-    endDate: defaultWindow.endDate,
-  });
-  const currentWindow = selectedWindow.boxId === box.id ? selectedWindow : defaultWindow;
-  const endDate = currentWindow.endDate <= extentStart
-    ? extentEnd
-    : currentWindow.endDate > extentEnd ? extentEnd : currentWindow.endDate;
-  const startDate = currentWindow.startDate < extentStart
-    ? extentStart
-    : currentWindow.startDate >= endDate ? extentStart : currentWindow.startDate;
+  const defaultWindow = useMemo(() => overviewDefaultRange(new Date(`${box.history_end_date}T00:00:00`)), [box]);
+  const initialState = useMemo<OverviewHistoryState>(() => ({
+    range: defaultWindow, measurements: box.measurements, locations: box.locations ?? [],
+    complete: false, loading: false, failedRange: null,
+  }), [box, defaultWindow]);
+  const [history, setHistory] = useState(initialState);
+  const controller = useRef<ReturnType<typeof createOverviewHistory> | null>(null);
+  useEffect(() => {
+    setHistory(initialState);
+    const current = createOverviewHistory(initialState, box.history_start_date,
+      () => loadHistory(box.id), setHistory);
+    controller.current = current;
+    return () => { current.dispose(); controller.current = null; };
+  }, [box, initialState, loadHistory]);
+  const orderedMeasurements = useMemo(() => [...history.measurements]
+    .sort((left, right) => left.date.localeCompare(right.date)), [history.measurements]);
+  const extentEnd = defaultWindow.endDate;
+  const earliestDate = box.earliest_biological_measurement_on;
+  const extentStart = earliestDate && earliestDate < defaultWindow.startDate
+    ? earliestDate : defaultWindow.startDate;
+  const { startDate, endDate } = history.range;
 
-  const latestDate = orderedMeasurements[orderedMeasurements.length - 1]?.date;
-
-  if (!latestDate) {
+  if (!earliestDate && !orderedMeasurements.length) {
     return (
       <div className="overview-chart overview-chart-empty">
         <strong>{t('overviewChartTitle')}</strong>
@@ -447,7 +431,7 @@ function OverviewMiniChart({
     );
   }
 
-  const locations = (box.locations ?? []).map((location) => ({
+  const locations = history.locations.map((location) => ({
     id: location.id,
     name: location.thermal_zone.name,
     startsAt: location.starts_at,
@@ -459,13 +443,24 @@ function OverviewMiniChart({
     <div className="overview-mini-chart">
       <ChartWindowControls
         compact
+        notifyUnchanged
         endDate={endDate}
         extentEnd={extentEnd}
         extentStart={extentStart}
         language={language}
-        onChange={(nextStart, nextEnd) => setSelectedWindow({ boxId: box.id, startDate: nextStart, endDate: nextEnd })}
+        onChange={(nextStart, nextEnd) => { void controller.current?.select({ startDate: nextStart, endDate: nextEnd }); }}
         startDate={startDate}
       />
+      {history.loading ? <p className="sr-only" role="status">{t('overviewHistoryLoading')}</p> : null}
+      {history.failedRange ? (
+        <div role="alert">
+          <p>{t('overviewHistoryFailed')}</p>
+          <button type="button" className="secondary-button compact-button"
+            onClick={() => { if (history.failedRange) void controller.current?.select(history.failedRange); }}>
+            {t('overviewHistoryRetry')}
+          </button>
+        </div>
+      ) : null}
       <BiologicalTrendChart
         compact
         startDate={startDate}

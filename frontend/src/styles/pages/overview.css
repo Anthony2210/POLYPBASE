@@ -720,9 +720,15 @@
   .overview-filter-fields { grid-template-columns: minmax(0, 1fr); }
 }
 
-/* The 354px header includes 28px of negative-margin bleed beyond the
-   result's content box. Adapt the inner header before its tracks stop fitting. */
+/* Replace desktop track minima before they exceed the card's available width. */
 @container overview-result (width < 326px) {
+  .overview-box-summary > header {
+    grid-template-columns: auto minmax(0, 1fr) fit-content(35%);
+  }
+}
+
+/* Below 288px of header width (including its 28px bleed), reserve a second row. */
+@container overview-result (width < 260px) {
   .overview-box-summary > header {
     grid-template-columns: auto minmax(0, 1fr);
   }

@@ -162,7 +162,8 @@ test('recent movements replace any generic or biological activity section', () =
 test('salinity reuses the compact reading summary and progressive editor for create and update', () => {
   assert.match(detailSource, /last-reading-card measurement-summary zone-functional-section zone-salinity-section/);
   assert.match(detailSource, /measurement-summary-edit-button/);
-  assert.match(detailSource, /name=\{zone\.latest_salinity\?\.can_edit \? 'edit' : 'plus'\}/);
+  assert.match(detailSource, /name="plus"/);
+  assert.match(detailSource, /name="edit"/);
   assert.match(detailSource, /isEditingSalinity/);
   assert.match(detailSource, /zoneSalinityCreateTitle/);
   assert.match(detailSource, /zoneSalinityEditTitle/);
@@ -187,12 +188,13 @@ test('salinity reuses the compact reading summary and progressive editor for cre
 });
 
 test('salinity uses server capability for correction versus a new reading', () => {
-  assert.match(detailSource, /const latestSalinity = zone\.latest_salinity\?\.can_edit \? zone\.latest_salinity : null/);
-  assert.match(detailSource, /zone\.latest_salinity\?\.can_edit \? 'edit' : 'plus'/);
-
+  assert.match(detailSource, /mode === 'correct' && zone\.latest_salinity\?\.can_edit/);
+  assert.match(detailSource, /if \(mode === 'correct' && !latestSalinity\) return/);
   assert.match(detailSource, /setEditingSalinityId\(latestSalinity\?\.id \?\? null\)/);
-  assert.match(detailSource, /aria-label=\{t\(zone\.latest_salinity\?\.can_edit \? 'zoneSalinityEditAction' : 'zoneSalinityCreateAction'\)\}/);
-  assert.match(detailSource, /name=\{zone\.latest_salinity\?\.can_edit \? 'edit' : 'plus'\}/);
+  assert.match(detailSource, /aria-label=\{t\('zoneSalinityCreateAction'\)\}/);
+  assert.match(detailSource, /aria-label=\{t\('zoneSalinityEditAction'\)\}/);
+  assert.match(detailSource, /openSalinityEditor\('create'\)/);
+  assert.match(detailSource, /openSalinityEditor\('correct'\)/);
   assert.match(detailSource, /if \(editingSalinityId !== null\) \{[\s\S]*onUpdateManualSalinity[\s\S]*\} else \{[\s\S]*onRecordManualSalinity/);
   assert.doesNotMatch(detailSource, /new Date\(zone\.latest_salinity|Date\.now\(\).*can_edit/);
   assert.match(appSource, /apiPost<ThermalZone>\(`\/api\/thermal-zones\/\$\{zoneId\}\/salinity\/`/);

@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -117,13 +118,38 @@ export default function BiologicalTrendChart({
   const [pinnedDetail, setPinnedDetail] = useState<ActiveDetail | null>(null);
   const [hoveredDetail, setHoveredDetail] = useState<ActiveDetail | null>(null);
   const [focusedDetail, setFocusedDetail] = useState<ActiveDetail | null>(null);
+  const chartId = useId();
   const canvasRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const [visibleSeries, setVisibleSeries] = useState({ polyps: true, ephyrae: true });
+  const [canvasSize, setCanvasSize] = useState({ width: 0, responsive: false });
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const media = window.matchMedia('(max-width: 1023px), (max-width: 1180px) and (pointer: coarse)');
+    function updateSize(width: number) {
+      setCanvasSize((current) => current.width === width && current.responsive === media.matches
+        ? current : { width, responsive: media.matches });
+    }
+    function measure() {
+      if (!canvas) return;
+      const style = getComputedStyle(canvas);
+      updateSize(canvas.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight));
+    }
+    measure();
+    const observer = new ResizeObserver(([entry]) => updateSize(entry.contentRect.width));
+    observer.observe(canvas);
+    media.addEventListener('change', measure);
+    return () => {
+      observer.disconnect();
+      media.removeEventListener('change', measure);
+    };
+  }, []);
+  const layout = resolveChartLayout(compact, canvasSize.width, canvasSize.responsive);
   const geometry = useMemo(
-    () => buildGeometry(measurements, locations, events, startDate, endDate, compact),
-    [compact, endDate, events, locations, measurements, startDate],
+    () => buildGeometry(measurements, locations, events, startDate, endDate, compact, layout),
+    [compact, endDate, events, locations, measurements, startDate, layout.width, layout.responsive],
   );
 
   useEffect(() => {
@@ -290,7 +316,7 @@ export default function BiologicalTrendChart({
   });
 
   return (
-    <div className={compact ? 'bio-trend is-compact' : 'bio-trend'}>
+    <div className={`bio-trend${compact ? ' is-compact' : ''}${layout.responsive ? ' is-responsive' : ''}`}>
       <div ref={canvasRef} className="bio-trend-canvas">
         <svg
           ref={svgRef}
@@ -300,7 +326,7 @@ export default function BiologicalTrendChart({
           aria-label={labels.chartTitle}
           onClick={() => setPinnedDetail(null)}
         >
-          {locationBands.map((band) => {
+          {locationBands.map((band, bandIndex) => {
             const detail: ActiveDetail = {
               id: `location-${band.id}`,
               left: ((band.x1 + band.width / 2) / width) * 100,
@@ -320,7 +346,14 @@ export default function BiologicalTrendChart({
               <line className="bio-trend-location-band-baseline" x1={band.x1} x2={band.x1 + band.width} y1={padding.top + zoneBandHeight} y2={padding.top + zoneBandHeight} />
               <line className="bio-trend-location-hit" x1={band.x1 - (band.width < 20 ? 10 : 0)} x2={band.x1 + band.width + (band.width < 20 ? 10 : 0)} y1={padding.top + zoneBandHeight} y2={padding.top + zoneBandHeight} />
               {band.width >= (compact ? 72 : 92) ? (
-                <text x={band.x1 + 4} y={padding.top + 9}>{band.name}</text>
+                layout.responsive ? (
+                  <>
+                    <clipPath id={`${chartId}-location-${bandIndex}`}>
+                      <rect x={band.x1 + 4} y={padding.top} width={band.width - 8} height={zoneBandHeight} />
+                    </clipPath>
+                    <text x={band.x1 + 4} y={padding.top + 12} clipPath={`url(#${chartId}-location-${bandIndex})`}>{band.name}</text>
+                  </>
+                ) : <text x={band.x1 + 4} y={padding.top + 9}>{band.name}</text>
               ) : null}
               {band.x1 > padding.left + 1 ? (
                 <line className="bio-trend-location-change" x1={band.x1} x2={band.x1} y1={padding.top + 2} y2={padding.top + zoneBandHeight + 3} />
@@ -443,8 +476,10 @@ export default function BiologicalTrendChart({
                 onBlur={() => setFocusedDetail(null)}
                 onKeyDown={(keyEvent) => handleMeasurementKey(keyEvent, detail, measurementIndex)}
               >
-                {visibleSeries.polyps ? <circle className={`bio-trend-dot is-polyps${visibleSeries.ephyrae && measurement.polypCount === measurement.ephyraeCount ? ' is-overlapping' : ''}`} cx={x} cy={yCount(measurement.polypCount)} r={measurement.polypCount === 0 ? 2.8 : 2.15} /> : null}
-                {visibleSeries.ephyrae ? <circle className={`bio-trend-dot is-ephyrae${measurement.ephyraeCount === 0 ? ' is-zero' : ''}${visibleSeries.polyps && measurement.polypCount === measurement.ephyraeCount ? ' is-overlapping' : ''}`} cx={x} cy={yCount(measurement.ephyraeCount)} r={measurement.ephyraeCount === 0 ? 2.8 : 2.15} /> : null}
+                {visibleSeries.polyps ? <circle className={`bio-trend-dot is-polyps${visibleSeries.ephyrae && measurement.polypCount === measurement.ephyraeCount ? ' is-overlapping' : ''}`} cx={x} cy={yCount(measurement.polypCount)} r={measurement.polypCount === 0 ? layout.zeroRadius : layout.pointRadius} /> : null}
+                {visibleSeries.ephyrae && layout.responsive ? (
+                  <path className="bio-trend-dot is-ephyrae" d={buildDiamondPath(x, yCount(measurement.ephyraeCount), measurement.ephyraeCount === 0 ? layout.zeroRadius : layout.pointRadius)} />
+                ) : visibleSeries.ephyrae ? <circle className={`bio-trend-dot is-ephyrae${measurement.ephyraeCount === 0 ? ' is-zero' : ''}${visibleSeries.polyps && measurement.polypCount === measurement.ephyraeCount ? ' is-overlapping' : ''}`} cx={x} cy={yCount(measurement.ephyraeCount)} r={measurement.ephyraeCount === 0 ? 2.8 : 2.15} /> : null}
                 {visibleSeries.polyps && measurement.polypCount > maxCount ? (
                   <path
                     className="bio-trend-overflow is-polyps"
@@ -457,7 +492,7 @@ export default function BiologicalTrendChart({
                     d={`M${x - 4} ${plotTop + 14} L${x} ${plotTop + 7} L${x + 4} ${plotTop + 14} Z`}
                   />
                 ) : null}
-                <rect className="bio-trend-hit-area" x={x - 13} y={plotTop} width={26} height={plotHeight} />
+                <rect className="bio-trend-hit-area" x={geometry.hitAreas[measurementIndex].left} y={plotTop} width={geometry.hitAreas[measurementIndex].width} height={plotHeight} />
               </g>
             );
           })}
@@ -567,19 +602,44 @@ function buildMeasurementDetailLines(
   return lines;
 }
 
-function buildGeometry(
+export function resolveChartLayout(compact: boolean, availableWidth = 0, responsive = false) {
+  return {
+    responsive,
+    width: responsive && availableWidth > 0 ? availableWidth : compact ? 640 : 860,
+    countHeight: compact ? 238 : 260,
+    pointRadius: responsive ? 3 : 2.15,
+    zeroRadius: responsive ? 3.4 : 2.8,
+  };
+}
+
+export function buildDiamondPath(x: number, y: number, radius: number) {
+  return `M${x} ${y - radius} L${x + radius} ${y} L${x} ${y + radius} L${x - radius} ${y} Z`;
+}
+
+export function buildMeasurementHitAreas(positions: number[], left: number, right: number, responsive: boolean) {
+  return positions.map((x, index) => {
+    if (!responsive) return { left: x - 13, width: 26 };
+    // Partition dense readings at their midpoints rather than letting later
+    // hit rectangles cover earlier readings. Keyboard access also keeps ties reachable.
+    const start = Math.max(left, x - 22, index > 0 ? (positions[index - 1] + x) / 2 : left);
+    const end = Math.min(right, x + 22, index + 1 < positions.length ? (x + positions[index + 1]) / 2 : right);
+    return { left: start, width: Math.max(0, end - start) };
+  });
+}
+
+export function buildGeometry(
   measurements: TrendMeasurement[],
   locations: TrendLocation[],
   events: TrendEvent[],
   startDate: string,
   endDate: string,
   compact: boolean,
+  layout = resolveChartLayout(compact),
 ) {
-  // The overview still needs enough drawing space to remain readable inside a
-  // two-column card layout. CSS scales this wider canvas without crushing text.
-  const width = compact ? 640 : 860;
-  const countHeight = compact ? 238 : 260;
-  const padding = compact
+  const { width, countHeight } = layout;
+  const padding = layout.responsive
+    ? { top: 8, right: 12, bottom: 34, left: 44 }
+    : compact
     ? { top: 6, right: 22, bottom: 34, left: 44 }
     : { top: 8, right: 26, bottom: 34, left: 44 };
   const start = normalizeDate(startDate);
@@ -620,7 +680,7 @@ function buildGeometry(
     .x((point) => xPosition(point.date))
     .y((point) => yCount(selector(point)));
 
-  const timeTicks = buildTimeTicks(start, end, xPosition, padding, width, compact);
+  const timeTicks = buildTimeTicks(start, end, xPosition, padding, width, compact, layout.responsive);
   const explicitEventPoints = plottedEvents.map((event) => ({
     event,
     x: resolveEventX(event, locationBands, xPosition),
@@ -648,6 +708,7 @@ function buildGeometry(
     eventPoints: [...explicitEventPoints, ...generatedTransferPoints]
       .sort((left, right) => left.x - right.x),
     locationBands,
+    hitAreas: buildMeasurementHitAreas(plottedMeasurements.map((point) => xPosition(point.date)), padding.left, width - padding.right, layout.responsive),
     maxCount,
     measurementSegments: splitMeasurementsOnGaps(plottedMeasurements),
     padding,
@@ -670,6 +731,7 @@ function buildTimeTicks(
   padding: { left: number; right: number },
   width: number,
   compact: boolean,
+  responsive = false,
 ): TimeTick[] {
   const candidates: Date[] = [];
   const cursor = new Date(start.getFullYear(), start.getMonth() + 1, 1);
@@ -678,9 +740,11 @@ function buildTimeTicks(
     cursor.setMonth(cursor.getMonth() + 1);
   }
 
-  const maxTicks = compact ? 3 : 6;
+  const edgeClearance = responsive ? 116 : compact ? 104 : 92;
+  const maxTicks = responsive
+    ? Math.max(1, Math.floor((width - padding.left - padding.right - 2 * edgeClearance) / 88))
+    : compact ? 3 : 6;
   const step = Math.max(1, Math.ceil(candidates.length / maxTicks));
-  const edgeClearance = compact ? 104 : 92;
   return candidates
     .filter((_, index) => index % step === 0)
     .map((date) => {

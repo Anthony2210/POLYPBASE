@@ -7,6 +7,87 @@ import React from 'react';
 import * as jsxRuntime from 'react/jsx-runtime';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ts from 'typescript';
+import { appHarness, ast as appAst, deferred, tick } from './app-operation-test-harness.mjs';
+
+function lineageHarness() {
+  const h = appHarness();
+  const request = deferred();
+  const calls = [];
+  const state = { graph: null, loading: false, error: null };
+  Object.assign(h.context, {
+    box: { id: 7 }, activeInsightTab: 'lineage', lineageGraph: null, lineageGraphError: null,
+    isOperationCurrent: () => h.context.organizationRequestGenerationRef.current === 0,
+    lineageRequestGenerationRef: { current: 0 }, lineageRequestPendingRef: { current: false },
+    setLineageGraph(value) { state.graph = value; h.context.lineageGraph = value; },
+    setIsLineageGraphLoading(value) { state.loading = value; },
+    setLineageGraphError(value) { state.error = value; h.context.lineageGraphError = value; },
+    getErrorMessage: error => error.message,
+    onLoadLineageGraph(id) { calls.push(id); return request.promise; },
+  });
+  let effect, lifetime;
+  function visit(node) {
+    if (ts.isCallExpression(node) && node.expression.getText(appAst) === 'useEffect') {
+      const code = node.arguments[0].getText(appAst);
+      if (code.includes('void handleLoadLineageGraph()')) effect = node.arguments[0];
+      if (code.includes('lineageRequestGenerationRef.current += 1')) lifetime = node.arguments[0];
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(appAst);
+  assert.ok(effect);
+  assert.ok(lifetime);
+  const cleanup = h.evaluate(`(${lifetime.getText(appAst)})()`);
+  return { h, request, calls, state, cleanup, render() { return h.evaluate(`(${effect.getText(appAst)})()`); } };
+}
+test('lineage load survives leaving and returning to the tab without a stuck loader or duplicate read', async () => {
+  const l = lineageHarness();
+  l.render();
+  assert.equal(l.state.loading, true);
+  l.h.context.activeInsightTab = 'movements';
+  assert.equal(l.render(), undefined, 'tab leave does not dispose the box-owned request');
+  l.h.context.activeInsightTab = 'lineage';
+  l.render();
+  assert.equal(l.calls.length, 1);
+  const graph = { nodes: [{ id: 7 }], edges: [] };
+  l.request.resolve(graph);
+  await tick();
+  assert.equal(l.state.graph, graph);
+  assert.equal(l.state.loading, false);
+  l.render();
+  assert.equal(l.calls.length, 1);
+});
+for (const replacement of ['box', 'organization']) {
+  test(`lineage ignores completion after ${replacement} lifetime ends`, async () => {
+    const l = lineageHarness();
+    l.render();
+    l.cleanup();
+    const replacementGraph = { nodes: [{ id: 9 }] };
+    l.state.graph = replacementGraph;
+    l.state.loading = false;
+    l.request.resolve({ nodes: [{ id: 7 }] });
+    await tick();
+    assert.equal(l.state.graph, replacementGraph);
+    assert.equal(l.state.loading, false);
+    assert.equal(l.state.error, null);
+  });
+}
+test('lineage failure ends loading and an explicit retry owns a new request', async () => {
+  const l = lineageHarness();
+  l.render();
+  l.request.reject(new Error('lineage offline'));
+  await tick();
+  assert.equal(l.state.loading, false);
+  assert.equal(l.state.error, 'lineage offline');
+  l.render();
+  assert.equal(l.calls.length, 1, 'no infinite automatic retries');
+  const retry = deferred();
+  l.h.context.onLoadLineageGraph = () => retry.promise;
+  const pending = l.h.context.handleLoadLineageGraph();
+  retry.resolve({ nodes: [] });
+  await pending;
+  assert.equal(l.state.loading, false);
+  assert.equal(l.state.error, null);
+});
 
 function loadModule(path, imports = {}) {
   const source = readFileSync(new URL(path, import.meta.url), 'utf8');

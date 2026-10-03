@@ -1,6 +1,6 @@
 import { type CSSProperties, type FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { BoxItem, ThermalZone, UserProfile } from '../types';
-import { ApiError } from '../api/client';
+import { ApiError, ApiResourceCancelledError } from '../api/client';
 import type {
   ManualSalinityPayload,
   ManualSalinityUpdatePayload,
@@ -212,6 +212,7 @@ function ZoneManagementModal({
       }
       onClose();
     } catch (requestError) {
+      if (requestError instanceof ApiResourceCancelledError) return;
       setFormError(getErrorMessage(requestError));
     } finally {
       setIsSaving(false);
@@ -234,6 +235,7 @@ function ZoneManagementModal({
       });
       onClose();
     } catch (requestError) {
+      if (requestError instanceof ApiResourceCancelledError) return;
       setFormError(getErrorMessage(requestError));
     } finally {
       setIsSaving(false);
@@ -525,8 +527,9 @@ function ZoneFunctionalSections({
         ? 100
         : 0;
 
-  function openSalinityEditor() {
-    const latestSalinity = zone.latest_salinity?.can_edit ? zone.latest_salinity : null;
+  function openSalinityEditor(mode: 'create' | 'correct') {
+    const latestSalinity = mode === 'correct' && zone.latest_salinity?.can_edit ? zone.latest_salinity : null;
+    if (mode === 'correct' && !latestSalinity) return;
     setEditingSalinityId(latestSalinity?.id ?? null);
     setSalinityDate(latestSalinity?.measured_on ?? getTodayInputValue());
     setSalinityValue(latestSalinity == null ? '' : String(latestSalinity.salinity_psu));
@@ -561,6 +564,7 @@ function ZoneFunctionalSections({
       }
       setIsEditingSalinity(false);
     } catch (requestError) {
+      if (requestError instanceof ApiResourceCancelledError) return;
       if (requestError instanceof ApiError && requestError.data && typeof requestError.data === 'object'
         && 'code' in requestError.data && requestError.data.code === 'salinity_edit_window_expired') {
         try {
@@ -568,6 +572,7 @@ function ZoneFunctionalSections({
           setIsEditingSalinity(false);
           setSalinityError(t('zoneSalinityEditExpired'));
         } catch (refreshError) {
+          if (refreshError instanceof ApiResourceCancelledError) return;
           setSalinityError(getErrorMessage(refreshError));
         }
       } else {
@@ -653,15 +658,28 @@ function ZoneFunctionalSections({
             </div>
           ) : null}
           {canRecordManualSalinity ? (
-            <button
-              className="icon-button measurement-summary-edit-button"
-              type="button"
-              aria-label={t(zone.latest_salinity?.can_edit ? 'zoneSalinityEditAction' : 'zoneSalinityCreateAction')}
-              title={t(zone.latest_salinity?.can_edit ? 'zoneSalinityEditAction' : 'zoneSalinityCreateAction')}
-              onClick={openSalinityEditor}
-            >
-              <PolypbaseIcon name={zone.latest_salinity?.can_edit ? 'edit' : 'plus'} size={18} />
-            </button>
+            <div className="zone-salinity-summary-actions">
+              <button
+                className="icon-button measurement-summary-edit-button"
+                type="button"
+                aria-label={t('zoneSalinityCreateAction')}
+                title={t('zoneSalinityCreateAction')}
+                onClick={() => openSalinityEditor('create')}
+              >
+                <PolypbaseIcon name="plus" size={18} />
+              </button>
+              {zone.latest_salinity?.can_edit ? (
+                <button
+                  className="icon-button measurement-summary-edit-button"
+                  type="button"
+                  aria-label={t('zoneSalinityEditAction')}
+                  title={t('zoneSalinityEditAction')}
+                  onClick={() => openSalinityEditor('correct')}
+                >
+                  <PolypbaseIcon name="edit" size={18} />
+                </button>
+              ) : null}
+            </div>
           ) : null}
         </section>
       )}
@@ -1021,6 +1039,7 @@ function TemperatureControlPanel({
       setManualTemperature('');
       setIsEditingTemperature(false);
     } catch (requestError) {
+      if (requestError instanceof ApiResourceCancelledError) return;
       setTemperatureError(getErrorMessage(requestError));
     } finally {
       setIsSavingTemperature(false);

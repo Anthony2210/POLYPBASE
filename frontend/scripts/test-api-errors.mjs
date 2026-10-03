@@ -4,6 +4,86 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 import ts from 'typescript';
+import { appHarness, tick } from './app-operation-test-harness.mjs';
+
+for (const method of ['createMeasurement', 'updateMeasurement']) {
+  test(`${method}: committed measurement survives refresh failure and recovery only reads`, async () => {
+    const h = appHarness();
+    const detail = { id: 7, biological_measurements: [], latest_measurement: null };
+    h.state.data.boxes = [detail];
+    h.state.data.boxDetails[7] = detail;
+    const measurement = { id: 8, measured_on: '2026-09-16', polyp_count: 0, ephyrae_count: 0, salinity_psu: '32.15' };
+    const pending = method === 'createMeasurement' ? h.context[method](7, {}) : h.context[method](7, 8, {});
+    h.requests[0].resolve(measurement);
+    await tick();
+    assert.equal(h.state.data.boxDetails[7].biological_measurements[0], measurement);
+    h.requests[1].reject(new Error('refresh offline'));
+    assert.equal(await pending, measurement);
+    assert.ok(h.state.recovery);
+    const recovery = h.state.recovery();
+    assert.equal(h.requests[2].method, 'apiGet');
+    h.requests[2].resolve({ ...detail, biological_measurements: [measurement] });
+    await recovery;
+    assert.equal(h.state.recovery, null);
+    assert.equal(h.requests.filter(request => request.method !== 'apiGet').length, 1);
+  });
+}
+for (const method of ['createMeasurement', 'updateMeasurement']) {
+  test(`${method}: a failed conflict refresh preserves the original mutation error`, async () => {
+    const h = appHarness();
+    const original = { status: 409, data: { code: 'measurement_week_conflict' } };
+    const pending = method === 'createMeasurement' ? h.context[method](7, {}) : h.context[method](7, 8, {});
+    const rejected = assert.rejects(pending, candidate => candidate === original);
+    h.requests[0].reject(original);
+    await tick();
+    h.requests[1].reject(new Error('refresh offline'));
+    await rejected;
+    assert.equal(h.state.recovery, null, 'a rejected mutation is not presented as saved');
+  });
+}
+test('refresh-only recovery cannot issue a request after its organization is replaced', async () => {
+  const h = appHarness();
+  const pending = h.context.createSubculture(7, {});
+  h.requests[0].resolve({ children: [{ id: 9 }] });
+  await tick();
+  h.requests[1].reject(new Error('refresh offline'));
+  await pending;
+  h.switchOrganization();
+  await assert.rejects(h.state.recovery(), h.context.ApiResourceCancelledError);
+  assert.equal(h.requests.length, 2);
+});
+test('movement applies authoritative location before a failed zones refresh', async () => {
+  const h = appHarness();
+  const detail = { id: 7, thermal_zone: { id: 12 } };
+  const pending = h.context.moveBox(7, {});
+  h.requests[0].resolve(detail);
+  await tick();
+  assert.equal(h.state.data.boxDetails[7], detail);
+  h.requests[1].reject(new Error('zones offline'));
+  assert.equal(await pending, detail);
+  const recovery = h.state.recovery();
+  h.requests[2].resolve({ results: [{ id: 12 }], next: null });
+  await recovery;
+  assert.equal(h.requests.filter(request => request.method === 'apiPost').length, 1);
+});
+for (const method of ['createMeasurement', 'moveBox', 'createSubculture']) {
+  test(`${method}: organization change during refresh does not recover or report old success`, async () => {
+    const h = appHarness();
+    const detail = { id: 7, biological_measurements: [] };
+    h.state.data.boxDetails[7] = detail;
+    const pending = h.context[method](7, {});
+    const rejected = assert.rejects(pending, h.context.ApiResourceCancelledError);
+    h.requests[0].resolve(method === 'createSubculture' ? { children: [{ id: 9 }] } : { id: 8, measured_on: '2026-09-16' });
+    await tick();
+    h.switchOrganization();
+    const replacement = { boxes: [], boxDetails: {}, zones: [] };
+    h.state.data = replacement;
+    h.requests[1].reject(new Error('refresh failed'));
+    await rejected;
+    assert.equal(h.state.data, replacement);
+    assert.equal(h.state.recovery, null);
+  });
+}
 
 function loadTypeScript(relativePath, globals = {}) {
   const source = readFileSync(new URL(relativePath, import.meta.url), 'utf8');

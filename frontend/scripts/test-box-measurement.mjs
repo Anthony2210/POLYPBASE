@@ -4,6 +4,51 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 import ts from 'typescript';
+import { appHarness } from './app-operation-test-harness.mjs';
+
+for (const [input, expected] of [['0', 0], [' 0 ', 0], ['1e3', 1000], ['12.0', 12], ['2147483647', 2147483647],
+  ['', null], [' ', null], ['1.5', null], ['-1', null], ['12abc', null], ['Infinity', null], ['NaN', null],
+  ['1e309', null], ['2147483648', null], ['9007199254740993', null], ['0x10', null],
+  ['1.0000000000000000001', null], ['1e-999', null], ['2147483647.0000000001', null],
+  ['1000e-3', 1], ['0e999999999999999999', 0]]) {
+  test(`count parsing consumes the complete backend-compatible value: ${JSON.stringify(input)}`, () => {
+    assert.equal(appHarness().context.parsePositiveInteger(input), expected);
+  });
+}
+test('invalid counts never reach the biological mutation, while zero and exponent integers do', async () => {
+  const h = appHarness();
+  const saved = [];
+  const errors = [];
+  Object.assign(h.context, {
+    box: { id: 7 }, isSaving: false, editingMeasurementId: null, measurements: [], measurementEditorMode: 'create',
+    isMeasurementDraftUnchanged: false, operationLifetimeRef: { current: true },
+    isOperationCurrent: () => h.context.organizationRequestGenerationRef.current === 0,
+    form: { measuredOn: '2026-09-16', polypCount: '1.5', ephyraeCount: '0', salinity: '32.15', notes: '' },
+    setSaveError(value) { errors.push(value); }, t: key => key, setIsSaving() {}, setEditingMeasurementId() {},
+    setIsCorrectingFromHistory() {}, setIsMeasurementEditorOpen() {}, triggerHaptic() {},
+    onCreateMeasurement: async (_id, payload) => { saved.push(payload); },
+  });
+  assert.equal(await h.context.saveMeasurement(), false);
+  assert.equal(saved.length, 0);
+  assert.equal(errors.at(-1), 'measurementCountsInvalid');
+  h.context.form.polypCount = '1e3';
+  assert.equal(await h.context.saveMeasurement(), true);
+  assert.equal(saved[0].polyp_count, 1000);
+  assert.equal(saved[0].ephyrae_count, 0);
+  assert.equal(saved[0].salinity_psu, '32.15');
+});
+test('count buttons preserve invalid input and clamp within the database integer range', () => {
+  const { context } = appHarness();
+  assert.equal(context.incrementCountValue('1.5', 1), '1.5');
+  assert.equal(context.decrementCountValue('invalid'), 'invalid');
+  assert.equal(context.incrementCountValue('', 1), '1');
+  assert.equal(context.incrementCountValue('2147483647', 1), '2147483647');
+  assert.equal(context.decrementCountValue('0'), '0');
+});
+test('biological salinity input permits the backend two-decimal precision independently of its coarse buttons', () => {
+  const app = readSource('../src/App.tsx');
+  assert.match(app, /inputMode="decimal"\s+step="0\.01"\s+placeholder=\{String\(SALINITY_STEP\)\}/);
+});
 
 const source = readFileSync(new URL('../src/utils/boxMeasurement.ts', import.meta.url), 'utf8');
 const { outputText } = ts.transpileModule(source, {
@@ -285,7 +330,7 @@ test('an unchanged weekly measurement cannot be saved again', () => {
   );
   assert.match(
     appSource,
-    /const isMeasurementDraftUnchanged = persistedMeasurementPayload != null\s*&& isMeasurementPayloadUnchanged\(persistedMeasurementPayload, buildMeasurementPayload\(form\)\);/s,
+    /const isMeasurementDraftUnchanged = persistedMeasurementPayload != null && draftMeasurementPayload != null\s*&& isMeasurementPayloadUnchanged\(persistedMeasurementPayload, draftMeasurementPayload\);/s,
   );
   assert.match(appSource, /if \(editingMeasurementId != null && isMeasurementDraftUnchanged\) return false;/);
   assert.match(appSource, /const payload = buildMeasurementPayload\(form\);/);

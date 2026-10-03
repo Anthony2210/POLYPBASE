@@ -585,10 +585,39 @@
   .bio-trend.is-compact .bio-trend-readout { grid-template-columns: minmax(0, 1fr); }
   .bio-trend.is-compact .bio-trend-detail-values { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bio-trend.is-compact .bio-trend-detail-values > .is-location { grid-column: 1 / -1; }
-  .bio-trend-canvas { overflow-x: auto; }
-  .bio-trend:not(.is-compact) svg { width: 640px; min-width: 640px; }
+  .bio-trend-canvas { overflow-x: hidden; }
 
 }
+
+/* The responsive viewBox uses the canvas content width, not the viewport or
+   the desktop drawing width, so labels and markers stay at readable sizes. */
+.bio-trend.is-responsive {
+  --chart-axis-size: .75rem;
+  --chart-date-size: .75rem;
+  --chart-location-size: .75rem;
+  --chart-legend-size: .8125rem;
+}
+
+.bio-trend.is-responsive .bio-trend-svg {
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  aspect-ratio: auto;
+}
+
+.bio-trend.is-responsive .bio-trend-legend { gap: 6px; }
+.bio-trend.is-responsive .bio-trend-legend button { min-height: 44px; }
+.bio-trend.is-responsive .bio-trend-legend .is-polyps::before,
+.bio-trend.is-responsive .bio-trend-legend .is-ephyrae::before {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+}
+.bio-trend.is-responsive .bio-trend-legend .is-polyps::before { border-radius: 50%; }
+.bio-trend.is-responsive .bio-trend-legend .is-ephyrae::before { border-radius: 0; transform: rotate(45deg); }
+.bio-trend.is-responsive .bio-trend-dot.is-overlapping.is-polyps { r: 4.8; }
+.bio-trend.is-responsive .bio-trend-measurement:is(:hover, :focus, .is-selected) .bio-trend-dot.is-overlapping.is-polyps { r: 5.2; }
 
 @media (prefers-reduced-motion: reduce) {
   .bio-trend-dot { transition: none; }

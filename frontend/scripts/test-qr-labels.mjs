@@ -427,9 +427,9 @@ test('the Labels workspace keeps the shared frame and lays out species accordion
   assert.match(css, /\.labels-page \.label-selection-bar\s*\{[^}]*width:\s*max-content;[^}]*max-width:\s*min\(100%,\s*560px\);[^}]*min-height:\s*64px;[^}]*border-radius:\s*calc\(var\(--radius-md\) \* 2\)/s);
   assert.match(css, /\.labels-page\.has-selection\s*\{[^}]*padding-bottom:\s*calc\(88px/s);
   assert.match(css, /\.app-shell\.is-tablet-rail \.labels-page \.label-selection-dock\s*\{[^}]*left:\s*var\(--tablet-rail-width\)/s);
-  assert.match(css, /@media \(max-width: 759px\), \(max-width: 900px\) and \(orientation: portrait\)[\s\S]*?\.labels-page \.label-selection-dock\s*\{[^}]*bottom:\s*calc\(58px \+ env\(safe-area-inset-bottom\) \+ var\(--space-3\)\)/);
-  assert.match(css, /@media \(max-width: 759px\), \(max-width: 900px\) and \(orientation: portrait\)[\s\S]*?\.labels-page \.label-selection-bar\s*\{[^}]*width:\s*max-content;[^}]*max-width:\s*100%/);
-  assert.match(css, /@media \(max-width: 759px\), \(max-width: 900px\) and \(orientation: portrait\)[\s\S]*?\.labels-page\.has-selection\s*\{[^}]*padding-bottom:\s*calc\(190px \+ env\(safe-area-inset-bottom\)\)/);
+  assert.match(css, /@media \(max-width: 759px\), \(max-width: 900px\) and \(orientation: portrait\)[\s\S]*?\.labels-page \.label-selection-dock\s*\{[^}]*bottom:\s*calc\(var\(--phone-nav-clearance,/);
+  assert.match(css, /@media \(max-width: 759px\), \(max-width: 900px\) and \(orientation: portrait\)[\s\S]*?\.labels-page \.label-selection-bar\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*100%/);
+  assert.match(css, /@media \(max-width: 759px\), \(max-width: 900px\) and \(orientation: portrait\)[\s\S]*?\.labels-page\.has-selection\s*\{[^}]*--label-selection-clearance:\s*calc\(150px \+ var\(--phone-nav-clearance,[^}]*padding-bottom:\s*var\(--label-selection-clearance\)/);
   assert.match(labelsViewSource, /isExpanded \? <ChevronDown size=\{18\} \/> : <ChevronRight size=\{18\} \/>/);
   assert.doesNotMatch(css, /\.label-species-chevron\s*\{[^}]*transition\s*:/s);
   assert.doesNotMatch(css, /\.label-species-chevron\s*\{[^}]*border\s*:/s);

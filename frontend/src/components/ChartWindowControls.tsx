@@ -24,6 +24,7 @@ export default function ChartWindowControls({
   startDate,
   endDate,
   onChange,
+  notifyUnchanged = false,
 }: {
   action?: ReactNode;
   compact?: boolean;
@@ -34,6 +35,7 @@ export default function ChartWindowControls({
   startDate: string;
   endDate: string;
   onChange: (startDate: string, endDate: string) => void;
+  notifyUnchanged?: boolean;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<Drag | null>(null);
@@ -49,7 +51,8 @@ export default function ChartWindowControls({
   const windowRight = `${(range.extentEnd - range.end) / duration * 100}%`;
 
   function emit(next: ScrubberRange) {
-    if (next.start !== range.start || next.end !== range.end) {
+    // A deferred chart range can still have an outstanding selection to cancel.
+    if (notifyUnchanged || next.start !== range.start || next.end !== range.end) {
       onChange(chartDayString(next.start), chartDayString(next.end));
     }
   }

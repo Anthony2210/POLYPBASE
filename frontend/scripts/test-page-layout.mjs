@@ -477,6 +477,38 @@ const overviewCss = readSource('src/styles/pages/overview.css');
 const tabletCss = readSource('src/styles/responsive/tablet.css');
 const phoneCss = readSource('src/styles/responsive/phone.css');
 
+test('phone readonly last reading overrides fixed desktop tracks without clipping values or notes', () => {
+  assert.match(cssRule(phoneCss, '.box-page.is-read-only .last-reading-card'), /grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(cssRule(phoneCss, '.box-page.is-read-only .last-reading-card .metric'), /min-width:\s*0/);
+  assert.match(cssRule(phoneCss, '.box-page.is-read-only .last-reading-card .metric'), /overflow-wrap:\s*anywhere/);
+  assert.match(cssRule(phoneCss, '.box-page.is-read-only .last-reading-comment p'), /overflow:\s*visible/);
+  assert.match(cssRule(phoneCss, '.box-page.is-read-only .last-reading-comment p'), /-webkit-line-clamp:\s*unset/);
+  assert.match(cssRule(phoneCss, '.box-page.is-read-only .last-reading-comment-header'), /flex-wrap:\s*wrap/);
+});
+
+test('smaller tablet weekly summary uses available width and overrides readonly desktop specificity', () => {
+  const compact = containerBlock(tabletCss, 'box-detail', 760);
+  const selector = '.box-page-grid > .last-reading-card.measurement-summary';
+  assert.match(cssRule(compact, selector), /grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(cssRule(compact, `${selector} .metric`), /overflow-wrap:\s*anywhere/);
+  const commentDeclarations = cssRules(compact)
+    .filter((rule) => splitTopLevel(rule.selector).includes(`${selector} .last-reading-comment`))
+    .map((rule) => rule.declarations).join('\n');
+  assert.match(commentDeclarations, /grid-column:\s*1\s*\/\s*-1/);
+  assert.match(commentDeclarations, /border-inline:\s*0/);
+  assert.match(cssRule(compact, `${selector} .last-reading-comment p`), /-webkit-line-clamp:\s*unset/);
+  assert.match(cssRule(compact, `${selector}.has-edit-capability > :first-child`), /padding-inline-end:\s*calc\(44px/);
+  assert.match(tabletCss.slice(0, tabletCss.indexOf('@container box-detail (width < 760px)')), /max-width:\s*1023px[\s\S]*pointer:\s*coarse/);
+  assert.doesNotMatch(compact, /display:\s*none|overflow:\s*hidden/);
+});
+
+test('salinity summary reserves intrinsic space for separate create and correction actions', () => {
+  assert.match(cssRule(zonesSource, '.zone-salinity-summary-actions'), /display:\s*flex/);
+  assert.match(cssRule(zonesSource, '.zone-salinity-summary-actions'), /gap:\s*var\(--space-2\)/);
+  assert.match(cssRule(zonesSource, '.zone-page .last-reading-card.measurement-summary.zone-salinity-section.has-edit-capability'), /max-content/);
+  assert.match(zonesSource, /\.zone-salinity-summary-actions\s*\{\s*grid-column:\s*2;\s*grid-row:\s*1;/);
+});
+
 test('Box header adapts to available page width in the responsive layer', () => {
   assert.match(cssRule(boxDetailCss, '.box-page'), /container:\s*box-detail\s*\/\s*inline-size/);
   // 878px of tracks + 60px gaps + 48px padding + 5px borders = 991px.
@@ -520,12 +552,22 @@ test('narrow Overview result headers keep identity and location controls in flow
   const resultRule = cssRules(overviewCss).find(({ selector }) => selector === '.overview-box-summary');
   assert.ok(resultRule);
   assert.match(resultRule.declarations, /container:\s*overview-result\s*\/\s*inline-size/);
-  // Header tracks need 354px; its negative margins add 28px to the content box.
+  // Compact cards keep all three areas on one row without desktop track minima.
   const compact = containerBlock(overviewCss, 'overview-result', 326);
-  assert.match(cssRule(compact, '.overview-box-summary > header'), /grid-template-columns:\s*auto\s+minmax\(0,\s*1fr\)/);
-  assert.match(cssRule(compact, '.overview-zone-context'), /grid-column:\s*1\s*\/\s*-1/);
-  assert.match(cssRule(compact, '.overview-zone-context'), /padding-inline:\s*var\(--space-3\)/);
-  assert.doesNotMatch(compact, /display:\s*none|overflow:\s*hidden|position:\s*absolute/);
+  assert.match(cssRule(compact, '.overview-box-summary > header'), /grid-template-columns:\s*auto\s+minmax\(0,\s*1fr\)\s+fit-content\(35%\)/);
+  assert.doesNotMatch(compact, /grid-column|padding-inline|display:\s*none|overflow:\s*hidden|position:\s*absolute/);
+  assert.match(cssRule(overviewCss, '.overview-box-identity'), /min-width:\s*0/);
+  assert.match(cssRule(overviewCss, '.overview-box-identity span, .overview-zone-label'), /overflow-wrap:\s*anywhere/);
+  assert.match(cssRule(overviewCss, '.overview-zone-button'), /max-width:\s*100%/);
+  assert.match(cssRule(overviewCss, '.overview-reading-age strong'), /white-space:\s*nowrap/);
+  // Only genuinely narrow content boxes use a full-width zone row.
+  const narrow = containerBlock(overviewCss, 'overview-result', 260);
+  assert.match(cssRule(narrow, '.overview-box-summary > header'), /grid-template-columns:\s*auto\s+minmax\(0,\s*1fr\)/);
+  assert.match(cssRule(narrow, '.overview-zone-context'), /grid-column:\s*1\s*\/\s*-1/);
+  assert.match(cssRule(narrow, '.overview-zone-context'), /padding-inline:\s*var\(--space-3\)/);
+  assert.ok(overviewCss.indexOf('@container overview-result (width < 260px)') > overviewCss.indexOf('@container overview-result (width < 326px)'));
+  assert.doesNotMatch(narrow, /display:\s*none|overflow:\s*hidden|position:\s*absolute/);
+  assert.match(cssRule(overviewCss, '.overview-box-summary > header'), /grid-template-columns:\s*minmax\(92px,\s*1fr\)\s+minmax\(150px,\s*1\.35fr\)\s+minmax\(92px,\s*1fr\)/);
   assert.match(cssRule(overviewCss, '.overview-zone-button'), /overflow-wrap:\s*anywhere/);
   assert.match(cssRule(overviewCss, '.overview-box-identity strong'), /overflow-wrap:\s*anywhere/);
   assert.match(overviewViewSource, /className="overview-box-identity"[\s\S]*?onClick=\{\(\) => onSelectBox\(entry\.box\.id\)\}/);

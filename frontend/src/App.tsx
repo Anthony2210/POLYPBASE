@@ -6,6 +6,7 @@ import {
   type KeyboardEvent,
   type PointerEvent,
   type ReactNode,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -15,6 +16,7 @@ import {
 
 import {
   ApiError,
+  ApiResourceCancelledError,
   apiDelete,
   apiGet,
   apiPatch,
@@ -122,12 +124,7 @@ import {
   requiresSignInRecovery,
   shouldRedirectToLogin,
 } from './utils/authRouting';
-import {
-  decrementDecimalValue,
-  formatDecimalValue,
-  incrementDecimalValue,
-  parsePositiveDecimal,
-} from './utils/stepValue';
+import { formatBiologicalSalinity, stepBiologicalSalinity } from './utils/biologicalSalinity';
 import { triggerHaptic } from './utils/haptics';
 import { PHONE_NAVIGATION_ITEMS, type PhoneDestination } from './utils/phoneNavigation';
 import { buildQrLabelItem, getBoxQrImageUrl, getBoxScanUrl, type QrLabelItem } from './utils/qrLabels';
@@ -152,20 +149,22 @@ const ZonesView = lazy(() =>
   import('./components/ZonesView').then((module) => ({ default: module.ZonesView })),
 );
 
-// Boxes are filtered client-side, so the whole collection must be loaded.
-// Kept well above the current box count to leave room for growth.
-const BOX_LIST_LIMIT = 1000;
+// Vite provides its exact development proxy origin; production accepts only the app origin.
+declare const __API_PROXY_ORIGIN__: string | null;
+
+// Boxes are filtered client-side; exhaust pages rather than assuming a total limit.
+const BOX_LIST_LIMIT = 100;
 const PILOTAGE_RESULT_LIMIT = 15;
 const PHONE_RESULT_LIMIT = 5;
 const DIALOG_FOCUSABLE_SELECTOR =
   'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
 
-// Salinity (PSU) is read off a refractometer and lands on round values, so the
-// +/- buttons move by 5 rather than by decimals. The field starts on the control
+// Biological controls step by a tenth while preserving the field's hundredths.
+// The field starts on the control
 // salinity of the box's zone -- the environment it is known to sit in -- and the
 // technician overrides it when the refractometer disagrees. It stays empty while
 // the zone has no salinity set, rather than storing a value nobody measured.
-const SALINITY_STEP = 5;
+const SALINITY_STEP = 0.1;
 
 type TabId = 'pilotage' | 'overview' | 'zones' | 'exports' | 'labels' | 'admin' | 'profile';
 
@@ -283,6 +282,13 @@ export default function App() {
   const [isBoxLoading, setIsBoxLoading] = useState(false);
   const [exportOptionsRequested, setExportOptionsRequested] = useState(false);
   const [error, setError] = useState<ApplicationError | null>(null);
+  const [refreshRecovery, setRefreshRecovery] = useState<(() => Promise<void>) | null>(null);
+  const [isRecoveringRefresh, setIsRecoveringRefresh] = useState(false);
+
+  useEffect(() => {
+    setRefreshRecovery(null);
+    setIsRecoveringRefresh(false);
+  }, [activeOrganizationId]);
 
   const activeTab = route.tab;
   const isBoxRoute = route.boxCode != null || route.boxId != null;
@@ -335,19 +341,81 @@ export default function App() {
     return desktopTabs;
   }, [isDesktopApp]);
 
+  const operationGeneration = organizationRequestGenerationRef.current;
+
+  function getOperationRequests(generation = organizationRequestGenerationRef.current) {
+    const assertCurrent = () => {
+      if (generation !== organizationRequestGenerationRef.current) {
+        throw new ApiResourceCancelledError();
+      }
+    };
+    async function run<T>(request: () => Promise<T>): Promise<T> {
+      assertCurrent();
+      try {
+        const result = await request();
+        assertCurrent();
+        return result;
+      } catch (requestError) {
+        assertCurrent();
+        throw requestError;
+      }
+    }
+    return {
+      apiGet: <T,>(path: string) => run(() => apiGet<T>(path)),
+      apiPost: <T,>(path: string, payload: unknown) => run(() => apiPost<T>(path, payload)),
+      apiPatch: <T,>(path: string, payload: unknown) => run(() => apiPatch<T>(path, payload)),
+      apiDelete: <T,>(path: string) => run(() => apiDelete<T>(path)),
+      assertCurrent,
+      setData: (update: (current: AppData) => AppData) => setData((current) => (
+        generation === organizationRequestGenerationRef.current ? update(current) : current
+      )),
+    };
+  }
+
+  async function fetchAllPages<T extends { id: number }>(path: string): Promise<T[]> {
+    const { apiGet } = getOperationRequests();
+    const results: T[] = [];
+    const seenIds = new Set<number>();
+    const visited = new Set<string>();
+    const collectionPath = new URL(path, window.location.origin).pathname;
+    let next: string | null = path;
+    while (next) {
+      const url = new URL(next, window.location.origin);
+      const requestPath = `${url.pathname}${url.search}`;
+      const isTrustedOrigin = url.origin === window.location.origin
+        || (__API_PROXY_ORIGIN__ !== null && url.origin === __API_PROXY_ORIGIN__);
+      if (!isTrustedOrigin || !['http:', 'https:'].includes(url.protocol)
+        || url.username || url.password || url.hash || !url.pathname.startsWith('/api/')
+        || url.pathname !== collectionPath || visited.has(requestPath)) {
+        throw new Error('Invalid pagination link.');
+      }
+      // Normalize DRF proxy-origin links to same-origin requests and cycle keys.
+      visited.add(requestPath);
+      const page: PaginatedResponse<T> = await apiGet<PaginatedResponse<T>>(requestPath);
+      for (const item of page.results) {
+        if (!Number.isSafeInteger(item.id)) throw new Error('Invalid pagination item ID.');
+        if (seenIds.has(item.id)) continue;
+        seenIds.add(item.id);
+        results.push(item);
+      }
+      next = page.next;
+    }
+    return results;
+  }
+
   async function fetchScopedData(profile: UserProfile, organizationId: number) {
     setActiveOrganizationContext(organizationId);
     const scopedProfile = setProfileActiveOrganization(profile, organizationId);
     const [boxes, zones, dashboard] = await Promise.all([
-      apiGet<PaginatedResponse<BoxItem>>(`/api/boxes/?limit=${BOX_LIST_LIMIT}`),
-      apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80'),
+      fetchAllPages<BoxItem>(`/api/boxes/?limit=${BOX_LIST_LIMIT}`),
+      fetchAllPages<ThermalZone>('/api/thermal-zones/?limit=80'),
       apiGet<Dashboard>('/api/dashboard/'),
     ]);
 
     return {
-      boxes: boxes.results,
+      boxes,
       boxDetails: {},
-      zones: zones.results,
+      zones,
       dashboard,
       overview: null,
       exportOptions: null,
@@ -568,7 +636,7 @@ export default function App() {
         const result = await apiPost<{ global_code: string }>(`/api/boxes/${route.scanBoxId}/scan/`, {});
         if (!isCurrentRequest()) return;
         replaceRoute(
-          { tab: 'pilotage', boxCode: result.global_code, boxId: null },
+          { tab: 'pilotage', boxCode: result.global_code, boxId: route.scanBoxId },
           `/boxes/${encodeURIComponent(result.global_code)}`,
         );
       } catch (requestError) {
@@ -588,6 +656,13 @@ export default function App() {
     };
   }, [activeOrganizationId, isScanReady, route.scanBoxId]);
 
+  const loadOverviewHistory = useCallback(async (boxId: number) => {
+    const { apiGet, assertCurrent } = getOperationRequests(operationGeneration);
+    const detail = await apiGet<BoxDetail>(`/api/boxes/${boxId}/`);
+    assertCurrent();
+    return detail;
+  }, [activeOrganizationId, operationGeneration]);
+
   useEffect(() => {
     if (isLoginRoute || needsOrganizationChoice || activeOrganizationId == null || activeTab !== 'overview' || data.overview !== null) return;
 
@@ -597,9 +672,11 @@ export default function App() {
 
     async function loadOverview() {
       try {
-        const overview = await apiGet<OverviewResponse>('/api/overview/active-boxes/?months=6');
+        const overview = await apiGet<OverviewResponse>('/api/overview/active-boxes/?months=3');
         if (!isCurrentRequest()) return;
-        setData((current) => ({ ...current, overview: overview.results }));
+        setData((current) => ({ ...current, overview: overview.results.map((box) => ({
+                  ...box, history_start_date: overview.history_start_date, history_end_date: overview.history_end_date,
+                })) }));
       } catch (requestError) {
         if (!isCurrentRequest()) return;
         const applicationError = await getApplicationError(requestError);
@@ -688,8 +765,9 @@ export default function App() {
     lastRecordedBoxIdRef.current = selectedBoxId;
 
     // Access tracking must never prevent someone from opening a box.
+    const generation = organizationRequestGenerationRef.current;
     void apiPost<void>(`/api/boxes/${selectedBoxId}/access/`, {}).catch(() => {
-      if (lastRecordedBoxIdRef.current === selectedBoxId) {
+      if (generation === organizationRequestGenerationRef.current && lastRecordedBoxIdRef.current === selectedBoxId) {
         lastRecordedBoxIdRef.current = null;
       }
     });
@@ -714,6 +792,7 @@ export default function App() {
   }
 
   function openBox(boxId: number, fallbackCode?: string) {
+    const organizationGeneration = organizationRequestGenerationRef.current;
     const requestGeneration = ++openBoxRequestGenerationRef.current;
     const box = data.boxes.find((item) => item.id === boxId);
     if (box) {
@@ -723,13 +802,14 @@ export default function App() {
     }
 
     if (fallbackCode) {
-      navigateTo({ tab: 'pilotage', boxCode: fallbackCode, boxId: null }, `/boxes/${encodeURIComponent(fallbackCode)}`);
+      navigateTo({ tab: 'pilotage', boxCode: fallbackCode, boxId }, `/boxes/${encodeURIComponent(fallbackCode)}`);
     }
 
     const navigationGeneration = navigationGenerationRef.current;
     setIsBoxLoading(true);
     void apiGet<BoxDetail>(`/api/boxes/${boxId}/`)
       .then((detail) => {
+        if (organizationGeneration !== organizationRequestGenerationRef.current) return;
         if (!isRouteRequestCurrent(
           requestGeneration,
           openBoxRequestGenerationRef.current,
@@ -737,9 +817,10 @@ export default function App() {
           navigationGenerationRef.current,
         )) return;
         setData((current) => mergeBoxDetail(current, detail));
-        navigateTo({ tab: 'pilotage', boxCode: detail.global_code, boxId: null }, `/boxes/${encodeURIComponent(detail.global_code)}`);
+        navigateTo({ tab: 'pilotage', boxCode: detail.global_code, boxId }, `/boxes/${encodeURIComponent(detail.global_code)}`);
       })
       .catch(async (requestError) => {
+        if (organizationGeneration !== organizationRequestGenerationRef.current) return;
         if (!isRouteRequestCurrent(
           requestGeneration,
           openBoxRequestGenerationRef.current,
@@ -747,7 +828,7 @@ export default function App() {
           navigationGenerationRef.current,
         )) return;
         const applicationError = await getApplicationError(requestError);
-        if (isRouteRequestCurrent(
+        if (organizationGeneration === organizationRequestGenerationRef.current && isRouteRequestCurrent(
           requestGeneration,
           openBoxRequestGenerationRef.current,
           navigationGeneration,
@@ -755,7 +836,8 @@ export default function App() {
         )) setError(applicationError);
       })
       .finally(() => {
-        if (requestGeneration === openBoxRequestGenerationRef.current) setIsBoxLoading(false);
+        if (organizationGeneration === organizationRequestGenerationRef.current
+          && requestGeneration === openBoxRequestGenerationRef.current) setIsBoxLoading(false);
       });
   }
 
@@ -902,6 +984,7 @@ export default function App() {
   }
 
   async function updateLanguage(language: string) {
+    const { apiPatch, setData, assertCurrent } = getOperationRequests(operationGeneration);
     const previousLanguage = getLanguage(data.profile);
     const nextLanguage = setStoredInterfaceLanguage(language);
 
@@ -916,6 +999,7 @@ export default function App() {
       const profile = await apiPatch<UserProfile>('/api/profile/', {
         interface_language: nextLanguage,
       });
+      assertCurrent();
 
       setStoredInterfaceLanguage(profile.interface_language);
       setData((current) => ({
@@ -923,6 +1007,7 @@ export default function App() {
         profile,
       }));
     } catch (requestError) {
+      if (requestError instanceof ApiResourceCancelledError) throw requestError;
       setStoredInterfaceLanguage(previousLanguage);
       setData((current) => ({
         ...current,
@@ -936,6 +1021,9 @@ export default function App() {
 
   async function logoutCurrentUser() {
     await apiPost<void>('/api/auth/logout/', {});
+    organizationRequestGenerationRef.current += 1;
+    openBoxRequestGenerationRef.current += 1;
+    setRefreshRecovery(null);
 
     setData({
       boxes: [],
@@ -957,30 +1045,97 @@ export default function App() {
     setIsLoginRoute(true);
   }
 
+  async function refreshAfterMutation(refresh: () => Promise<unknown>, assertCurrent: () => void) {
+    const generation = organizationRequestGenerationRef.current;
+    assertCurrent();
+    try {
+      await refresh();
+      assertCurrent();
+    } catch (requestError) {
+      assertCurrent();
+      setRefreshRecovery((current) => {
+        if (generation !== organizationRequestGenerationRef.current) return current;
+        const recovery = async () => {
+          assertCurrent();
+          await refresh();
+          assertCurrent();
+          setRefreshRecovery((pending) => pending === recovery ? null : pending);
+        };
+        return recovery;
+      });
+    }
+  }
+
+  async function recoverMutationRefresh() {
+    if (!refreshRecovery || isRecoveringRefresh) return;
+    const generation = organizationRequestGenerationRef.current;
+    setIsRecoveringRefresh(true);
+    try {
+      await refreshRecovery();
+    } catch {
+      // Keep the read-only recovery available; never repeat the mutation.
+    } finally {
+      if (generation === organizationRequestGenerationRef.current) setIsRecoveringRefresh(false);
+    }
+  }
+
+  function applyMeasurementResult(boxId: number, measurement: BiologicalMeasurement) {
+    const { setData } = getOperationRequests(operationGeneration);
+    setData((current) => {
+      const detail = current.boxDetails[boxId];
+      if (!detail) return current;
+      const measurements = [measurement, ...detail.biological_measurements.filter((item) => item.id !== measurement.id)]
+        .sort((left, right) => right.measured_on.localeCompare(left.measured_on));
+      return {
+        ...mergeBoxDetail(current, {
+          ...detail,
+          biological_measurements: measurements,
+          latest_measurement: measurements[0] ?? null,
+          latest_salinity_psu: measurements.find((item) => item.salinity_psu != null)?.salinity_psu ?? null,
+        }),
+        overview: null,
+      };
+    });
+  }
+
   async function refreshBoxAfterMeasurement(boxId: number) {
+    const { apiGet, setData, assertCurrent } = getOperationRequests(operationGeneration);
     const detail = await apiGet<BoxDetail>(`/api/boxes/${boxId}/`);
+    assertCurrent();
     setData((current) => ({
       ...mergeBoxDetail(current, detail),
       overview: null,
     }));
+    assertCurrent();
     return detail;
   }
 
   async function createMeasurement(boxId: number, payload: MeasurementPayload) {
+    const { apiPost, assertCurrent } = getOperationRequests(operationGeneration);
     try {
       const created = await apiPost<BiologicalMeasurement>(`/api/boxes/${boxId}/measurements/`, payload);
-      await refreshBoxAfterMeasurement(boxId);
+      assertCurrent();
+      applyMeasurementResult(boxId, created);
+      await refreshAfterMutation(() => refreshBoxAfterMeasurement(boxId), assertCurrent);
+      assertCurrent();
       return created;
     } catch (requestError) {
       if (isMeasurementWeekConflict(requestError) || isMeasurementEditWindowExpired(requestError)) {
-        await refreshBoxAfterMeasurement(boxId);
+        try {
+          await refreshBoxAfterMeasurement(boxId);
+          assertCurrent();
+        } catch {
+          assertCurrent();
+        }
       }
       throw requestError;
     }
   }
 
   async function createBox(payload: BoxCreatePayload) {
+    const { apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
     const detail = await apiPost<BoxDetail>('/api/boxes/', payload);
+    assertCurrent();
 
     setData((current) => ({
       ...mergeBoxDetail(current, detail),
@@ -988,48 +1143,72 @@ export default function App() {
       overview: null,
       exportOptions: null,
     }));
+    assertCurrent();
     return detail;
   }
 
   async function updateMeasurement(boxId: number, measurementId: number, payload: MeasurementPayload) {
+    const { apiPatch, assertCurrent } = getOperationRequests(operationGeneration);
     try {
       const updated = await apiPatch<BiologicalMeasurement>(
         `/api/boxes/${boxId}/measurements/${measurementId}/`,
         payload,
       );
-      await refreshBoxAfterMeasurement(boxId);
+      assertCurrent();
+      applyMeasurementResult(boxId, updated);
+      await refreshAfterMutation(() => refreshBoxAfterMeasurement(boxId), assertCurrent);
+      assertCurrent();
       return updated;
     } catch (requestError) {
       if (isMeasurementWeekConflict(requestError) || isMeasurementEditWindowExpired(requestError)) {
-        await refreshBoxAfterMeasurement(boxId);
+        try {
+          await refreshBoxAfterMeasurement(boxId);
+          assertCurrent();
+        } catch {
+          assertCurrent();
+        }
       }
       throw requestError;
     }
   }
 
   async function createSubculture(boxId: number, payload: SubculturePayload) {
+    const { apiGet, apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
     const result = await apiPost<SubcultureResult>(`/api/boxes/${boxId}/subcultures/`, payload);
-    const detail = await apiGet<BoxDetail>(`/api/boxes/${boxId}/`);
-
+    assertCurrent();
     setData((current) => ({
-      ...mergeBoxDetail(current, detail),
-      boxes: upsertBoxes(current.boxes, [detail, ...result.children]),
+      ...current,
+      boxes: upsertBoxes(current.boxes, result.children),
       overview: null,
       exportOptions: null,
     }));
+    await refreshAfterMutation(async () => {
+      const detail = await apiGet<BoxDetail>(`/api/boxes/${boxId}/`);
+      assertCurrent();
+      setData((current) => mergeBoxDetail(current, detail));
+    }, assertCurrent);
+    assertCurrent();
+    return result;
   }
 
   async function moveBox(boxId: number, payload: BoxMovePayload) {
+    const { apiGet, apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
     try {
       const detail = await apiPost<BoxDetail>(`/api/boxes/${boxId}/move/`, payload);
-      const zones = await apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80');
-
+      assertCurrent();
       setData((current) => ({
         ...mergeBoxDetail(current, detail),
-        zones: zones.results,
         overview: null,
         exportOptions: null,
       }));
+      await refreshAfterMutation(async () => {
+        assertCurrent();
+        const zones = await fetchAllPages<ThermalZone>('/api/thermal-zones/?limit=80');
+        assertCurrent();
+        setData((current) => ({ ...current, zones }));
+      }, assertCurrent);
+      assertCurrent();
+      return detail;
     } catch (requestError) {
       if (isBoxLocationChangedError(requestError)) {
         try {
@@ -1037,6 +1216,7 @@ export default function App() {
             apiGet<BoxDetail>(`/api/boxes/${boxId}/`),
             apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80'),
           ]);
+          assertCurrent();
           setData((current) => ({
             ...mergeBoxDetail(current, detail),
             zones: zones.results,
@@ -1044,6 +1224,7 @@ export default function App() {
             exportOptions: null,
           }));
         } catch {
+          assertCurrent();
           // Keep the original conflict visible if the targeted refresh also fails.
         }
       }
@@ -1052,7 +1233,9 @@ export default function App() {
   }
 
   async function deactivateBox(boxId: number, payload: BoxDeactivatePayload) {
+    const { apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
     const detail = await apiPost<BoxDetail>(`/api/boxes/${boxId}/deactivate/`, payload);
+    assertCurrent();
 
     setData((current) => ({
       ...mergeBoxDetail(current, detail),
@@ -1060,10 +1243,13 @@ export default function App() {
       overview: null,
       exportOptions: null,
     }));
+    assertCurrent();
   }
 
   async function reactivateBox(boxId: number, payload: BoxActivatePayload) {
+    const { apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
     const detail = await apiPost<BoxDetail>(`/api/boxes/${boxId}/activate/`, payload);
+    assertCurrent();
 
     setData((current) => ({
       ...mergeBoxDetail(current, detail),
@@ -1071,10 +1257,13 @@ export default function App() {
       overview: null,
       exportOptions: null,
     }));
+    assertCurrent();
   }
 
   async function qualifyBox(boxId: number, payload: BoxQualifyPayload) {
+    const { apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
     const detail = await apiPost<BoxDetail>(`/api/boxes/${boxId}/qualify/`, payload);
+    assertCurrent();
 
     setData((current) => ({
       ...mergeBoxDetail(current, detail),
@@ -1082,29 +1271,37 @@ export default function App() {
       overview: null,
       exportOptions: null,
     }));
+    assertCurrent();
   }
 
   async function assignBoxInitialLocation(boxId: number, payload: BoxInitialLocationPayload) {
+    const { apiGet, apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
     const detail = await apiPost<BoxDetail>(
       `/api/admin/box-inventory/${boxId}/assign-location/`,
       payload,
     );
-    const zones = await apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80');
-
+    assertCurrent();
     setData((current) => ({
       ...mergeBoxDetail(current, detail),
       boxes: upsertBoxes(current.boxes, [detail]),
-      zones: zones.results,
       overview: null,
       exportOptions: null,
     }));
+    await refreshAfterMutation(async () => {
+      const zones = await apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80');
+      assertCurrent();
+      setData((current) => ({ ...current, zones: zones.results }));
+    }, assertCurrent);
+    assertCurrent();
   }
 
   async function qualifyBoxesBatch(payload: BoxInventoryBatchQualifyPayload) {
+    const { apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
     const result = await apiPost<BoxInventoryBatchResult>(
       '/api/admin/box-inventory/batch-qualify/',
       payload,
     );
+    assertCurrent();
     const successfulStatuses = new Map(
       result.successes.map((item) => [item.box_id, item.status]),
     );
@@ -1137,54 +1334,75 @@ export default function App() {
         exportOptions: null,
       };
     });
+    assertCurrent();
     return result;
   }
 
   async function loadLineageGraph(boxId: number) {
-    return apiGet<LineageGraph>(`/api/boxes/${boxId}/lineage/`);
+    const { apiGet, assertCurrent } = getOperationRequests(operationGeneration);
+    const graph = await apiGet<LineageGraph>(`/api/boxes/${boxId}/lineage/`);
+    assertCurrent();
+    return graph;
   }
 
   async function createThermalZone(payload: ThermalZonePayload) {
+    const { apiGet, apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
     await apiPost<ThermalZone>('/api/thermal-zones/', payload);
+    assertCurrent();
     const zones = await apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80');
+    assertCurrent();
     setData((current) => ({ ...current, zones: zones.results }));
+    assertCurrent();
   }
 
   async function updateThermalZone(zoneId: number, payload: ThermalZonePayload) {
+    const { apiGet, apiPatch, setData, assertCurrent } = getOperationRequests(operationGeneration);
     await apiPatch<ThermalZone>(`/api/thermal-zones/${zoneId}/`, payload);
+    assertCurrent();
     const zones = await apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80');
+    assertCurrent();
     setData((current) => ({ ...current, zones: zones.results }));
+    assertCurrent();
   }
 
   async function recordManualTemperature(zoneId: number, payload: ManualTemperaturePayload) {
+    const { apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
     const zone = await apiPost<ThermalZone>(`/api/thermal-zones/${zoneId}/temperature/`, payload);
+    assertCurrent();
     setData((current) => ({
       ...current,
       zones: upsertThermalZones(current.zones, [zone]),
       overview: null,
       exportOptions: null,
     }));
+    assertCurrent();
     return zone;
   }
 
   async function refreshZoneSalinityCapability(zoneId: number) {
+    const { apiGet, setData, assertCurrent } = getOperationRequests(operationGeneration);
     const readings = await apiGet<ZoneSalinityMeasurement[]>(
       `/api/thermal-zones/${zoneId}/salinity/history/`,
     );
+    assertCurrent();
     setData((current) => ({
       ...current,
       zones: current.zones.map((zone) => zone.id === zoneId
         ? { ...zone, latest_salinity: readings[0] ?? null }
         : zone),
     }));
+    assertCurrent();
   }
 
   async function recordManualSalinity(zoneId: number, payload: ManualSalinityPayload) {
+    const { apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
     const zone = await apiPost<ThermalZone>(`/api/thermal-zones/${zoneId}/salinity/`, payload);
+    assertCurrent();
     setData((current) => ({
       ...current,
       zones: upsertThermalZones(current.zones, [zone]),
     }));
+    assertCurrent();
     return zone;
   }
 
@@ -1193,48 +1411,73 @@ export default function App() {
     measurementId: number,
     payload: ManualSalinityUpdatePayload,
   ) {
+    const { apiPatch, setData, assertCurrent } = getOperationRequests(operationGeneration);
     const zone = await apiPatch<ThermalZone>(
       `/api/thermal-zones/${zoneId}/salinity/${measurementId}/`,
       payload,
     );
+    assertCurrent();
     setData((current) => ({
       ...current,
       zones: upsertThermalZones(current.zones, [zone]),
     }));
+    assertCurrent();
     return zone;
   }
 
   async function createProbe(payload: ProbePayload) {
+    const { apiGet, apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
     await apiPost<Probe>('/api/probes/', payload);
+    assertCurrent();
     // Probes are nested inside the zone payload, so refresh the zones list.
     const zones = await apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80');
+    assertCurrent();
     setData((current) => ({ ...current, zones: zones.results }));
+    assertCurrent();
   }
 
   async function createOrganization(payload: OrganizationPayload) {
+    const { apiGet, apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
     await apiPost<Organization>('/api/organizations/', payload);
+    assertCurrent();
     // Refresh linked lists so the new organization is usable immediately.
     const exportOptions = await apiGet<ExportOptions>('/api/exports/options/');
+    assertCurrent();
     const profile = await apiGet<UserProfile>('/api/profile/');
+    assertCurrent();
     setData((current) => ({ ...current, exportOptions, profile }));
+    assertCurrent();
   }
 
   async function updateOrganization(organizationId: number, payload: OrganizationPayload) {
+    const { apiGet, apiPatch, setData, assertCurrent } = getOperationRequests(operationGeneration);
     await apiPatch<Organization>(`/api/organizations/${organizationId}/`, payload);
+    assertCurrent();
     const exportOptions = await apiGet<ExportOptions>('/api/exports/options/');
+    assertCurrent();
     const profile = await apiGet<UserProfile>('/api/profile/');
+    assertCurrent();
     setData((current) => ({ ...current, exportOptions, profile }));
+    assertCurrent();
   }
 
   async function deleteOrganization(organizationId: number) {
+    const { apiGet, apiDelete, setData, assertCurrent } = getOperationRequests(operationGeneration);
     await apiDelete<void>(`/api/organizations/${organizationId}/`);
+    assertCurrent();
     const exportOptions = await apiGet<ExportOptions>('/api/exports/options/');
+    assertCurrent();
     const profile = await apiGet<UserProfile>('/api/profile/');
+    assertCurrent();
     setData((current) => ({ ...current, exportOptions, profile }));
+    assertCurrent();
   }
 
   async function createBoxTransfer(payload: BoxTransferPayload) {
-    return apiPost<BoxTransferResult>('/api/box-transfers/', payload);
+    const { apiPost, assertCurrent } = getOperationRequests(operationGeneration);
+    const result = await apiPost<BoxTransferResult>('/api/box-transfers/', payload);
+    assertCurrent();
+    return result;
   }
 
   function handleAuthenticated() {
@@ -1429,6 +1672,15 @@ export default function App() {
           </header>
         ) : null}
 
+        {refreshRecovery ? (
+          <section className="login-notice" role="status">
+            <p>{t('mutationRefreshFailed')}</p>
+            <button className="secondary-button" type="button" disabled={isRecoveringRefresh} onClick={() => void recoverMutationRefresh()}>
+              {t('reloadAction')}
+            </button>
+          </section>
+        ) : null}
+
         {error ? (
           <div className="workspace-page">
             <ApplicationErrorNotice
@@ -1456,6 +1708,7 @@ export default function App() {
             >
             {activeTab === 'pilotage' && isBoxRoute && (
               <BoxPage
+                key={`${activeOrganizationId}:${selectedBoxId}`}
                 box={selectedBoxDetail ?? selectedBox}
                 boxes={data.boxes}
                 zones={data.zones}
@@ -1464,6 +1717,7 @@ export default function App() {
                 qrLabelSelection={qrLabelSelection}
                 isLoading={isLoading || isBoxLoading}
                 onCreateMeasurement={createMeasurement}
+                isOperationCurrent={() => operationGeneration === organizationRequestGenerationRef.current}
                 onUpdateMeasurement={updateMeasurement}
                 onRefreshMeasurementState={refreshBoxAfterMeasurement}
                 onCreateSubculture={createSubculture}
@@ -1497,6 +1751,7 @@ export default function App() {
                 searchResults={filteredBoxes}
                 recentBoxes={recentBoxes}
                 onCreateBox={createBox}
+                isOperationCurrent={() => operationGeneration === organizationRequestGenerationRef.current}
                 onManageSpeciesCodes={isDesktopApp ? () => {
                   setIsCreateBoxOpen(false);
                   openAdminSection('references');
@@ -1512,6 +1767,8 @@ export default function App() {
 
             {activeTab === 'overview' && (
               <OverviewView
+                key={activeOrganizationId}
+                loadHistory={loadOverviewHistory}
                 boxes={data.overview}
                 isLoading={isLoading || isOverviewLoading}
                 language={language}
@@ -1716,7 +1973,7 @@ function PhoneBottomNavigation({
               onClick={onOpenQr}
             >
               <span className="phone-nav-icon" aria-hidden="true">
-                <PolypbaseIcon name={item.icon} size={30} />
+                <PolypbaseIcon name={item.icon} size={36} />
               </span>
             </button>
           );
@@ -1988,6 +2245,7 @@ function PilotageView({
   search,
   searchResults,
   onCreateBox,
+  isOperationCurrent,
   onCreateBoxOpenChange,
   onManageSpeciesCodes,
   onRequestOptions,
@@ -2008,6 +2266,7 @@ function PilotageView({
   search: string;
   searchResults: BoxItem[];
   onCreateBox: (payload: BoxCreatePayload) => Promise<BoxDetail>;
+  isOperationCurrent: () => boolean;
   onCreateBoxOpenChange: (isOpen: boolean) => void;
   onManageSpeciesCodes?: () => void;
   onRequestOptions: () => void;
@@ -2180,6 +2439,7 @@ function PilotageView({
             profile={profile}
             t={t}
             onCreateBox={onCreateBox}
+            isOperationCurrent={isOperationCurrent}
             onManageSpeciesCodes={onManageSpeciesCodes}
             onOpenChange={isPhoneLayout ? undefined : onCreateBoxOpenChange}
             onRequestOptions={onRequestOptions}
@@ -2201,6 +2461,7 @@ function CreateBoxPanel({
   profile,
   confirmAction,
   onCreateBox,
+  isOperationCurrent,
   onManageSpeciesCodes,
   onOpenChange,
   onRequestOptions,
@@ -2215,6 +2476,7 @@ function CreateBoxPanel({
   profile: UserProfile | null;
   confirmAction: ConfirmAction;
   onCreateBox: (payload: BoxCreatePayload) => Promise<BoxDetail>;
+  isOperationCurrent: () => boolean;
   onManageSpeciesCodes?: () => void;
   onOpenChange?: (isOpen: boolean) => void;
   onRequestOptions: () => void;
@@ -2226,6 +2488,11 @@ function CreateBoxPanel({
   const dialogRef = useRef<HTMLElement | null>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
   const isQuickStrainOpenRef = useRef(false);
+  const operationLifetimeRef = useRef(true);
+  useLayoutEffect(() => {
+    operationLifetimeRef.current = true;
+    return () => { operationLifetimeRef.current = false; };
+  }, []);
   const isConfirmationOpenRef = useRef(false);
   const activeOrganization = profile?.active_organization ?? null;
   const organizationId = activeOrganization?.id ?? null;
@@ -2390,7 +2657,7 @@ function CreateBoxPanel({
     } finally {
       isConfirmationOpenRef.current = false;
     }
-    if (!confirmed) return;
+    if (!confirmed || !operationLifetimeRef.current || !isOperationCurrent()) return;
 
     setIsSaving(true);
     setError(null);
@@ -2406,6 +2673,7 @@ function CreateBoxPanel({
         volume_liters: null,
         notes: notes.trim(),
       });
+      if (!operationLifetimeRef.current || !isOperationCurrent()) return;
       setGlobalCode('');
       setBoxNumber('');
       setNotes('');
@@ -2416,13 +2684,14 @@ function CreateBoxPanel({
         });
       }
     } catch (requestError) {
+      if (!operationLifetimeRef.current || !isOperationCurrent() || requestError instanceof ApiResourceCancelledError) return;
       if (requestError instanceof ApiError && requestError.status === 403) {
         setError(t('createBoxForbidden'));
       } else {
         setError(getErrorMessage(requestError));
       }
     } finally {
-      setIsSaving(false);
+      if (operationLifetimeRef.current && isOperationCurrent()) setIsSaving(false);
     }
   }
 
@@ -2748,6 +3017,7 @@ function BoxPage({
   qrLabelSelection,
   isLoading,
   onCreateMeasurement,
+  isOperationCurrent,
   onUpdateMeasurement,
   onRefreshMeasurementState,
   onCreateSubculture,
@@ -2773,14 +3043,15 @@ function BoxPage({
   qrLabelSelection: QrLabelItem[];
   isLoading: boolean;
   onCreateMeasurement: (boxId: number, payload: MeasurementPayload) => Promise<BiologicalMeasurement>;
+  isOperationCurrent: () => boolean;
   onUpdateMeasurement: (
     boxId: number,
     measurementId: number,
     payload: MeasurementPayload,
   ) => Promise<BiologicalMeasurement>;
   onRefreshMeasurementState: (boxId: number) => Promise<BoxDetail>;
-  onCreateSubculture: (boxId: number, payload: SubculturePayload) => Promise<void>;
-  onMoveBox: (boxId: number, payload: BoxMovePayload) => Promise<void>;
+  onCreateSubculture: (boxId: number, payload: SubculturePayload) => Promise<SubcultureResult>;
+  onMoveBox: (boxId: number, payload: BoxMovePayload) => Promise<BoxDetail>;
   onDeactivateBox: (boxId: number, payload: BoxDeactivatePayload) => Promise<void>;
   onReactivateBox: (boxId: number, payload: BoxActivatePayload) => Promise<void>;
   onLoadLineageGraph: (boxId: number) => Promise<LineageGraph>;
@@ -2794,6 +3065,11 @@ function BoxPage({
   confirmAction: ConfirmAction;
   t: TFunction;
 }) {
+  const operationLifetimeRef = useRef(true);
+  useLayoutEffect(() => {
+    operationLifetimeRef.current = true;
+    return () => { operationLifetimeRef.current = false; };
+  }, [box?.id]);
   const defaultSalinity = getDefaultMeasurementSalinity(box, zones);
   const [form, setForm] = useState(() => getInitialMeasurementForm(defaultSalinity));
   const [isSaving, setIsSaving] = useState(false);
@@ -2802,6 +3078,12 @@ function BoxPage({
   const [lineageGraph, setLineageGraph] = useState<LineageGraph | null>(null);
   const [isLineageGraphLoading, setIsLineageGraphLoading] = useState(false);
   const [lineageGraphError, setLineageGraphError] = useState<string | null>(null);
+  const lineageRequestGenerationRef = useRef(0);
+  const lineageRequestPendingRef = useRef(false);
+  useEffect(() => () => {
+    lineageRequestGenerationRef.current += 1;
+    lineageRequestPendingRef.current = false;
+  }, [box?.id]);
   const [isMoveOpen, setIsMoveOpen] = useState(false);
   const [isSavingMove, setIsSavingMove] = useState(false);
   const [isChangingBoxStatus, setIsChangingBoxStatus] = useState(false);
@@ -2848,8 +3130,10 @@ function BoxPage({
   const persistedMeasurementPayload = editingMeasurement
     ? buildMeasurementPayload(getMeasurementFormValues(editingMeasurement))
     : null;
-  const isMeasurementDraftUnchanged = persistedMeasurementPayload != null
-    && isMeasurementPayloadUnchanged(persistedMeasurementPayload, buildMeasurementPayload(form));
+  const draftMeasurementPayload = parsePositiveInteger(form.polypCount) != null
+    && parsePositiveInteger(form.ephyraeCount) != null ? buildMeasurementPayload(form) : null;
+  const isMeasurementDraftUnchanged = persistedMeasurementPayload != null && draftMeasurementPayload != null
+    && isMeasurementPayloadUnchanged(persistedMeasurementPayload, draftMeasurementPayload);
   const showWeeklyMeasurementSummary = Boolean(weeklyMeasurement)
     && (!isMeasurementEditorOpen || !editingMeasurement?.can_edit);
   const isMeasurementEditorExpanded = Boolean(weeklyMeasurement)
@@ -2872,7 +3156,9 @@ function BoxPage({
     }
     const delay = Date.parse(weeklyMeasurement.edit_deadline) - Date.now() + 100;
     const timeout = window.setTimeout(
-      () => void onRefreshMeasurementState(box.id),
+      () => void onRefreshMeasurementState(box.id).catch(() => {
+        // A failed capability refresh must not produce an unhandled rejection.
+      }),
       Math.max(0, delay),
     );
     return () => window.clearTimeout(timeout);
@@ -2978,35 +3264,9 @@ function BoxPage({
   }, [defaultSalinity, editingMeasurementId]);
 
   useEffect(() => {
-    if (activeInsightTab !== 'lineage' || !box?.id || lineageGraph || isLineageGraphLoading) {
-      return;
-    }
-
-    let ignoreResult = false;
-    setIsLineageGraphLoading(true);
-    setLineageGraphError(null);
-
-    void onLoadLineageGraph(box.id)
-      .then((graph) => {
-        if (!ignoreResult) {
-          setLineageGraph(graph);
-        }
-      })
-      .catch((requestError) => {
-        if (!ignoreResult) {
-          setLineageGraphError(getErrorMessage(requestError));
-        }
-      })
-      .finally(() => {
-        if (!ignoreResult) {
-          setIsLineageGraphLoading(false);
-        }
-      });
-
-    return () => {
-      ignoreResult = true;
-    };
-  }, [activeInsightTab, box?.id, lineageGraph]);
+    if (activeInsightTab !== 'lineage' || !box?.id || lineageGraph || lineageGraphError) return;
+    void handleLoadLineageGraph();
+  }, [activeInsightTab, box?.id, lineageGraph, lineageGraphError]);
 
   if (isLoading) {
     return (
@@ -3064,6 +3324,11 @@ function BoxPage({
       return false;
     }
 
+    if (parsePositiveInteger(form.polypCount) == null || parsePositiveInteger(form.ephyraeCount) == null) {
+      setSaveError(t('measurementCountsInvalid'));
+      return false;
+    }
+
     setIsSaving(true);
     setSaveError(null);
 
@@ -3075,16 +3340,18 @@ function BoxPage({
       } else {
         await onCreateMeasurement(box.id, payload);
       }
+      if (!operationLifetimeRef.current || !isOperationCurrent()) return false;
       setEditingMeasurementId(null);
       setIsCorrectingFromHistory(false);
       setIsMeasurementEditorOpen(false);
       triggerHaptic([12, 28, 12]);
       return true;
     } catch (requestError) {
+      if (!operationLifetimeRef.current || !isOperationCurrent() || requestError instanceof ApiResourceCancelledError) return false;
       setSaveError(getMeasurementSaveError(requestError, t));
       return false;
     } finally {
-      setIsSaving(false);
+      if (operationLifetimeRef.current && isOperationCurrent()) setIsSaving(false);
     }
   }
 
@@ -3128,18 +3395,20 @@ function BoxPage({
         { label: t('confirmDetailChildren'), value: payload.children.length },
       ],
     });
-    if (!confirmed) return;
+    if (!confirmed || !operationLifetimeRef.current || !isOperationCurrent()) return;
 
     setIsSavingSubculture(true);
     setSubcultureError(null);
 
     try {
       await onCreateSubculture(box.id, payload);
+      if (!operationLifetimeRef.current || !isOperationCurrent()) return;
       setIsSubcultureOpen(false);
     } catch (requestError) {
+      if (!operationLifetimeRef.current || !isOperationCurrent() || requestError instanceof ApiResourceCancelledError) return;
       setSubcultureError(getSubcultureSaveError(requestError, t));
     } finally {
-      setIsSavingSubculture(false);
+      if (operationLifetimeRef.current && isOperationCurrent()) setIsSavingSubculture(false);
     }
   }
 
@@ -3157,18 +3426,20 @@ function BoxPage({
         { label: t('confirmDetailTargetLocation'), value: targetZone?.name ?? '-' },
       ],
     });
-    if (!confirmed) return;
+    if (!confirmed || !operationLifetimeRef.current || !isOperationCurrent()) return;
 
     setIsSavingMove(true);
     setMoveError(null);
 
     try {
       await onMoveBox(box.id, payload);
+      if (!operationLifetimeRef.current || !isOperationCurrent()) return;
       setIsMoveOpen(false);
     } catch (requestError) {
+      if (!operationLifetimeRef.current || !isOperationCurrent() || requestError instanceof ApiResourceCancelledError) return;
       setMoveError(getMoveSaveError(requestError, t));
     } finally {
-      setIsSavingMove(false);
+      if (operationLifetimeRef.current && isOperationCurrent()) setIsSavingMove(false);
     }
   }
 
@@ -3183,31 +3454,41 @@ function BoxPage({
       } else if (submission.action === 'deactivate') {
         await onDeactivateBox(box.id, submission.payload);
       }
+      if (!operationLifetimeRef.current || !isOperationCurrent()) return;
       setLifecycleAction(null);
     } catch (requestError) {
+      if (!operationLifetimeRef.current || !isOperationCurrent() || requestError instanceof ApiResourceCancelledError) return;
       if (requestError instanceof ApiError && requestError.status === 403) {
         setStatusError(t(submission.action === 'reactivate' ? 'boxActivateForbidden' : 'boxArchiveForbidden'));
       } else {
         setStatusError(getErrorMessage(requestError));
       }
     } finally {
-      setIsChangingBoxStatus(false);
+      if (operationLifetimeRef.current && isOperationCurrent()) setIsChangingBoxStatus(false);
     }
   }
 
   async function handleLoadLineageGraph() {
-    if (!box) return;
-
+    if (!box || lineageRequestPendingRef.current) return;
+    const generation = ++lineageRequestGenerationRef.current;
+    const isCurrent = () => generation === lineageRequestGenerationRef.current && isOperationCurrent();
+    lineageRequestPendingRef.current = true;
     setLineageGraph(null);
     setIsLineageGraphLoading(true);
     setLineageGraphError(null);
 
     try {
-      setLineageGraph(await onLoadLineageGraph(box.id));
+      const graph = await onLoadLineageGraph(box.id);
+      if (isCurrent()) setLineageGraph(graph);
     } catch (requestError) {
-      setLineageGraphError(getErrorMessage(requestError));
+      if (isCurrent() && !(requestError instanceof ApiResourceCancelledError)) {
+        setLineageGraphError(getErrorMessage(requestError));
+      }
     } finally {
-      setIsLineageGraphLoading(false);
+      if (isCurrent()) {
+        lineageRequestPendingRef.current = false;
+        setIsLineageGraphLoading(false);
+      }
     }
   }
 
@@ -3235,12 +3516,14 @@ function BoxPage({
             <p className="box-species-name">{box.species.scientific_name}</p>
           </div>
 
-          <div className="box-small-facts">
-            <InfoPill
-              label={t(displayDate.labelKey)}
-              value={displayDate.date ? formatDisplayDate(displayDate.date) : t('noDate')}
-            />
-          </div>
+          {isDesktopApp ? (
+            <div className="box-small-facts">
+              <InfoPill
+                label={t(displayDate.labelKey)}
+                value={displayDate.date ? formatDisplayDate(displayDate.date) : t('noDate')}
+              />
+            </div>
+          ) : null}
         </div>
 
         <div className="box-header-tools">
@@ -3262,6 +3545,13 @@ function BoxPage({
         </div>
 
         <div className="entity-header__summary box-zone-summary">
+          <div className={isDesktopApp ? 'box-summary-metadata' : 'box-summary-metadata is-compact'}>
+            {!isDesktopApp ? (
+              <InfoPill
+                label={t(displayDate.labelKey)}
+                value={displayDate.date ? formatDisplayDate(displayDate.date) : t('noDate')}
+              />
+            ) : null}
           {box.thermal_zone ? (
             <button
               className="info-pill is-strong box-zone-link"
@@ -3274,6 +3564,7 @@ function BoxPage({
           ) : (
             <InfoPill label={t('zones')} value={t('noZone')} strong />
           )}
+          </div>
           <InfoPill label={t('zoneSalinityShort')} value={formatSalinity(currentZone?.salinity_psu)} />
           {/* Salinity recorded for this box (the last measurement's PSU), shown
               right after the zone reference so both are read side by side. */}
@@ -3423,8 +3714,8 @@ function BoxPage({
                   />
                 </label>
 
-                <label className="measurement-count-field measurement-polyp-field">
-                  <span className="measurement-field-label">{t('polyps')}</span>
+                <div className="measurement-count-field measurement-polyp-field">
+                  <label className="measurement-field-label" htmlFor="measurement-polyps">{t('polyps')}</label>
                   <div className="count-stepper">
                     <StepperButton
                       aria-label={`${t('polyps')} -1`}
@@ -3441,6 +3732,7 @@ function BoxPage({
                       inputMode="numeric"
                       placeholder="0"
                       type="number"
+                      id="measurement-polyps"
                       value={form.polypCount}
                       onChange={(event) => setForm((current) => ({ ...current, polypCount: event.target.value }))}
                     />
@@ -3461,10 +3753,10 @@ function BoxPage({
                       polypCount: incrementCountValue(current.polypCount, value),
                     }))}
                   />
-                </label>
+                </div>
 
-                <label className="measurement-count-field measurement-ephyrae-field">
-                  <span className="measurement-field-label">{t('ephyraeFull')}</span>
+                <div className="measurement-count-field measurement-ephyrae-field">
+                  <label className="measurement-field-label" htmlFor="measurement-ephyrae">{t('ephyraeFull')}</label>
                   <div className="count-stepper">
                     <StepperButton
                       aria-label={`${t('ephyraeFull')} -1`}
@@ -3481,6 +3773,7 @@ function BoxPage({
                       inputMode="numeric"
                       placeholder="0"
                       type="number"
+                      id="measurement-ephyrae"
                       value={form.ephyraeCount}
                       onChange={(event) => setForm((current) => ({ ...current, ephyraeCount: event.target.value }))}
                     />
@@ -3501,42 +3794,42 @@ function BoxPage({
                       ephyraeCount: incrementCountValue(current.ephyraeCount, value),
                     }))}
                   />
-                </label>
+                </div>
 
-                <label className="measurement-salinity-field">
-                  <span className="measurement-field-label">{t('salinityFull')}</span>
+                <div className="measurement-salinity-field">
+                  <label className="measurement-field-label" htmlFor="measurement-salinity">{t('salinityFull')}</label>
                   <div className="count-stepper count-stepper-salinity">
                     <StepperButton
-                      aria-label={`${t('salinityFull')} -${SALINITY_STEP}`}
+                      aria-label={`${t('salinityFull')} -${SALINITY_STEP.toLocaleString(language)}`}
                       onStep={() => setForm((current) => ({
                         ...current,
-                        salinity: decrementDecimalValue(current.salinity, SALINITY_STEP),
+                        salinity: stepBiologicalSalinity(current.salinity, -SALINITY_STEP),
                       }))}
                     >
                       <PolypbaseIcon name="minus" size={18} />
                     </StepperButton>
-                    {/* No step attribute: browsers reject off-step values, and
-                        the field must accept whatever the refractometer reads
-                        (32 with a zone control at 30). The buttons step by 5. */}
+
                     <input
                       min="0"
                       inputMode="decimal"
+                      step="0.01"
                       placeholder={String(SALINITY_STEP)}
                       type="number"
+                      id="measurement-salinity"
                       value={form.salinity}
                       onChange={(event) => setForm((current) => ({ ...current, salinity: event.target.value }))}
                     />
                     <StepperButton
-                      aria-label={`${t('salinityFull')} +${SALINITY_STEP}`}
+                      aria-label={`${t('salinityFull')} +${SALINITY_STEP.toLocaleString(language)}`}
                       onStep={() => setForm((current) => ({
                         ...current,
-                        salinity: incrementDecimalValue(current.salinity, SALINITY_STEP),
+                        salinity: stepBiologicalSalinity(current.salinity, SALINITY_STEP),
                       }))}
                     >
                       <PolypbaseIcon name="plus" size={18} />
                     </StepperButton>
                   </div>
-                </label>
+                </div>
               </div>
 
               <label className="notes-field">
@@ -3720,6 +4013,8 @@ function StepperButton({
 
   function startRepeat(event: PointerEvent<HTMLButtonElement>) {
     event.preventDefault();
+    // Preventing native pointer behavior must not leave focus on a previous control.
+    event.currentTarget.focus({ preventScroll: true });
     clearRepeat();
     setIsPressed(true);
     onStep();
@@ -3902,14 +4197,14 @@ function getInitialMeasurementForm(
  * Control salinity of the box: the one maintained on its zone.
  *
  * A new measurement starts from it, since that is the environment the box is
- * known to sit in. Normalised through formatDecimalValue so the API's "30.00"
+ * known to sit in. Normalized without rounding so the API's "30.00"
  * reaches the field as "30" and the +/- buttons keep working from there.
  */
 function getZoneSalinityValue(box: BoxItem | BoxDetail | null, zones: ThermalZone[]) {
   if (!box) return '';
   const salinity = getCurrentThermalZone(box, zones)?.salinity_psu;
   if (salinity === null || salinity === undefined || salinity === '') return '';
-  return formatDecimalValue(parsePositiveDecimal(salinity));
+  return formatBiologicalSalinity(salinity);
 }
 
 /**
@@ -3923,7 +4218,7 @@ function getZoneSalinityValue(box: BoxItem | BoxDetail | null, zones: ThermalZon
 function getDefaultMeasurementSalinity(box: BoxItem | BoxDetail | null, zones: ThermalZone[]) {
   const boxSalinity = box?.latest_salinity_psu;
   if (boxSalinity !== null && boxSalinity !== undefined && boxSalinity !== '') {
-    return formatDecimalValue(parsePositiveDecimal(boxSalinity));
+    return formatBiologicalSalinity(boxSalinity);
   }
   return getZoneSalinityValue(box, zones);
 }
@@ -3995,26 +4290,50 @@ function buildMeasurementPayload(form: {
   salinity: string;
   notes: string;
 }): MeasurementPayload {
+  const polypCount = parsePositiveInteger(form.polypCount);
+  const ephyraeCount = parsePositiveInteger(form.ephyraeCount);
+  if (polypCount == null || ephyraeCount == null) throw new Error('Invalid measurement counts.');
   return {
     measured_on: form.measuredOn,
-    polyp_count: parsePositiveInteger(form.polypCount),
-    ephyrae_count: parsePositiveInteger(form.ephyraeCount),
+    polyp_count: polypCount,
+    ephyrae_count: ephyraeCount,
     salinity_psu: form.salinity.trim() || null,
     notes: form.notes.trim(),
   };
 }
 
 function parsePositiveInteger(value: string) {
-  const parsedValue = Number.parseInt(value, 10);
-  return Number.isFinite(parsedValue) && parsedValue >= 0 ? parsedValue : 0;
+  const match = /^(\d+(?:\.\d*)?|\.\d+)(?:e([+-]?\d+))?$/i.exec(value.trim());
+  if (!match) return null;
+  const [whole, fraction = ''] = match[1].split('.');
+  const digits = `${whole}${fraction}`.replace(/^0+/, '');
+  if (!digits) return 0;
+  const exponent = Number(match[2] ?? '0');
+  if (!Number.isSafeInteger(exponent)) return null;
+  const scale = exponent - fraction.length;
+  // Check decimal digits before conversion so rounding/underflow cannot turn a fraction into an integer or zero.
+  if (digits.length + scale > 10 || digits.length + scale <= 0) return null;
+  let integerText: string;
+  if (scale < 0) {
+    if (!/^0+$/.test(digits.slice(scale))) return null;
+    integerText = digits.slice(0, scale);
+  } else {
+    integerText = digits + '0'.repeat(scale);
+  }
+  const parsedValue = Number(integerText);
+  return parsedValue <= 2147483647 ? parsedValue : null;
 }
 
 function incrementCountValue(currentValue: string, increment: number) {
-  return String(parsePositiveInteger(currentValue) + increment);
+  const parsed = parsePositiveInteger(currentValue);
+  if (parsed == null) return currentValue.trim() ? currentValue : String(increment);
+  return String(Math.min(parsed + increment, 2147483647));
 }
 
 function decrementCountValue(currentValue: string) {
-  return String(Math.max(parsePositiveInteger(currentValue) - 1, 0));
+  const parsed = parsePositiveInteger(currentValue);
+  if (parsed == null) return currentValue;
+  return String(Math.max(parsed - 1, 0));
 }
 
 function getMeasurementSaveError(error: unknown, t: TFunction) {

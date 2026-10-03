@@ -42,7 +42,7 @@ function harness(path = '/?scan_box=42') {
   const recoveries = [];
   const navigations = [];
   const state = { error: null, boxLoading: false, labels: [{ id: 17 }], phoneScanner: true, tabletScanner: true };
-  const location = { pathname: '', search: '' };
+  const location = { origin: 'https://polypbase.test', pathname: '', search: '' };
   function setLocation(value) {
     const url = new URL(value, 'https://polypbase.test');
     location.pathname = url.pathname;
@@ -51,6 +51,8 @@ function harness(path = '/?scan_box=42') {
   setLocation(path);
   const context = {
     URLSearchParams,
+    URL,
+    ApiResourceCancelledError: class ApiResourceCancelledError extends Error {},
     window: { location, history: {
       replaceState(_state, _title, value) { setLocation(value); navigations.push({ mode: 'replace', path: value }); },
       pushState(_state, _title, value) { setLocation(value); navigations.push({ mode: 'push', path: value }); },
@@ -112,7 +114,7 @@ function harness(path = '/?scan_box=42') {
   evaluate(readFileSync(new URL('../src/utils/routeSafety.ts', import.meta.url), 'utf8').replace('export function', 'function'));
   for (const name of ['getCurrentRoute', 'replaceRoute', 'navigateTo', 'handleAuthenticated', 'openBox', 'openScannedBox',
     'getSelectableOrganizations', 'getOrganizationById', 'resolveActiveOrganizationId', 'setProfileActiveOrganization',
-    'fetchScopedData', 'chooseOrganization']) {
+    'getOperationRequests', 'fetchAllPages', 'fetchScopedData', 'chooseOrganization']) {
     evaluate(functionNode(name).getText(ast));
   }
   context.route = context.getCurrentRoute();
@@ -126,11 +128,32 @@ function harness(path = '/?scan_box=42') {
     lastDependencies = dependencies;
     cleanup = evaluate(`(${scanEffect.arguments[0].getText(ast)})()`) ?? undefined;
   }
-  return { context, state, requests, recoveries, navigations, render, setLocation,
+  return { context, state, requests, recoveries, navigations, render, setLocation, evaluate,
     unmount() { cleanup?.(); },
     closeScanners() { evaluate(`(${scannerEffect.arguments[0].getText(ast)})()`); },
   };
 }
+
+test('permanent QR opens the authorized detail directly without a box-list match', async () => {
+  const h = harness('/?scan_box=42');
+  h.render();
+  h.requests[0].resolve({ global_code: 'LATE-PAGE-42' });
+  await tick();
+  assert.equal(h.context.data.boxes.length, 0);
+  h.context.useMemo = callback => callback();
+  const selectedId = findNode(node => ts.isVariableDeclaration(node) && node.name.getText(ast) === 'selectedBoxId');
+  h.context.selectedBoxId = h.evaluate(selectedId.initializer.getText(ast));
+  assert.equal(h.context.selectedBoxId, 42);
+  h.context.selectedBoxDetail = null;
+  const detailEffect = functionNode('loadBoxDetail').parent.parent.parent;
+  h.evaluate(`(${detailEffect.arguments[0].getText(ast)})()`);
+  assert.equal(h.requests[1].url, '/api/boxes/42/');
+  assert.equal(h.requests[1].method, 'GET');
+  const detail = { id: 42, global_code: 'LATE-PAGE-42' };
+  h.requests[1].resolve(detail);
+  await tick();
+  assert.equal(h.context.data.boxDetails[42], detail);
+});
 
 test('parses a pending handoff without exposing a box route or looking up data', () => {
   for (const path of ['/?scan_box=42', '/bac/42', '/bac/42/']) {
@@ -175,6 +198,7 @@ test('login next preserves the scan, which waits for profile and organization re
   request.resolve({ global_code: 'AUR /42' });
   await tick();
   assert.equal(h.context.route.boxCode, 'AUR /42');
+  assert.equal(h.context.route.boxId, 42, 'permanent QR retains the authorized id even without a cached list item');
   assert.equal(h.context.route.scanBoxId, undefined);
   assert.deepEqual(h.navigations.at(-1), { mode: 'replace', path: '/boxes/AUR%20%2F42' });
   assert.equal(h.state.boxLoading, false);

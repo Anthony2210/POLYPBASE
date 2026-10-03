@@ -964,11 +964,11 @@
 }
 
 .zone-page .last-reading-card.measurement-summary.zone-salinity-section.has-edit-capability {
-  grid-template-columns: minmax(150px, 210px) minmax(150px, 190px) minmax(0, 1fr) 44px;
+  grid-template-columns: minmax(150px, 210px) minmax(150px, 190px) minmax(0, 1fr) max-content;
 }
 
 .zone-page .last-reading-card.measurement-summary.zone-salinity-section:not(.has-comment).has-edit-capability {
-  grid-template-columns: minmax(150px, 210px) minmax(150px, 190px) 44px;
+  grid-template-columns: minmax(150px, 210px) minmax(150px, 190px) max-content;
 }
 
 .zone-page .last-reading-card.measurement-summary.zone-salinity-section:not(.has-comment):not(.has-edit-capability) {
@@ -991,6 +991,13 @@
 .zone-salinity-section.has-edit-capability > div:first-child,
 .zone-salinity-section.has-edit-capability .last-reading-comment {
   padding-inline-end: 0;
+}
+
+.zone-salinity-summary-actions {
+  display: flex;
+  align-items: center;
+  justify-self: end;
+  gap: var(--space-2);
 }
 
 .zone-salinity-section .measurement-summary-edit-button {
@@ -1432,7 +1439,7 @@
   .zone-page .last-reading-card.measurement-summary.zone-salinity-section.has-edit-capability,
   .zone-page .last-reading-card.measurement-summary.zone-salinity-section:not(.has-comment).has-edit-capability,
   .zone-page .last-reading-card.measurement-summary.zone-salinity-section:not(.has-comment):not(.has-edit-capability) {
-    grid-template-columns: minmax(0, 1fr) 44px;
+    grid-template-columns: minmax(0, 1fr) max-content;
   }
 
   .zone-salinity-section > div:first-child,
@@ -1441,10 +1448,11 @@
   }
 
   .zone-salinity-section.has-edit-capability > div:first-child {
-    padding-inline-end: calc(44px + var(--space-2));
+    grid-column: 1;
+    padding-inline-end: 0;
   }
 
-  .zone-salinity-section .measurement-summary-edit-button {
+  .zone-salinity-summary-actions {
     grid-column: 2;
     grid-row: 1;
   }

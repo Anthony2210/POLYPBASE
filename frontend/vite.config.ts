@@ -1,7 +1,12 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-export default defineConfig({
+const apiProxyTarget = 'http://127.0.0.1:8000';
+
+export default defineConfig(({ command }) => ({
+  define: {
+    __API_PROXY_ORIGIN__: JSON.stringify(command === 'serve' ? new URL(apiProxyTarget).origin : null),
+  },
   plugins: [react()],
   server: {
     host: '0.0.0.0',
@@ -9,12 +14,12 @@ export default defineConfig({
     strictPort: true,
     allowedHosts: ['.trycloudflare.com'],
     proxy: {
-      '/api': 'http://127.0.0.1:8000',
-      '/accounts': 'http://127.0.0.1:8000',
-      '/boites': 'http://127.0.0.1:8000',
+      '/api': apiProxyTarget,
+      '/accounts': apiProxyTarget,
+      '/boites': apiProxyTarget,
       // Stable QR entry: Django hands the ID to React, which resolves it
       // through the scan API with the active organization header.
-      '/bac': 'http://127.0.0.1:8000',
+      '/bac': apiProxyTarget,
     },
   },
-});
+}));

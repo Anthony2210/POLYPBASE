@@ -1256,18 +1256,19 @@
   }
 
   .labels-page.has-selection {
-    padding-bottom: calc(190px + env(safe-area-inset-bottom));
+    --label-selection-clearance: calc(150px + var(--phone-nav-clearance, calc(100px + env(safe-area-inset-bottom))));
+    padding-bottom: var(--label-selection-clearance);
   }
 
   .labels-page .label-selection-dock {
     right: 0;
-    bottom: calc(58px + env(safe-area-inset-bottom) + var(--space-3));
+    bottom: calc(var(--phone-nav-clearance, calc(100px + env(safe-area-inset-bottom))) + var(--space-3));
     left: 0;
     padding-inline: 10px;
   }
 
   .labels-page .label-selection-bar {
-    width: max-content;
+    width: 100%;
     max-width: 100%;
     min-height: 0;
     align-items: stretch;
@@ -1278,6 +1279,8 @@
 
   .labels-page .label-selection-summary {
     gap: var(--space-2);
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 
 
@@ -1298,12 +1301,18 @@
   .labels-page .label-selection-actions button {
     min-width: 0;
     min-height: var(--touch-target);
-    padding-inline: var(--space-2);
+    padding: var(--space-2);
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .labels-page.has-selection :is(.label-species-group, .label-box-row) {
+    scroll-margin-block-end: var(--label-selection-clearance);
   }
 
   .labels-page .label-species-rows:not([hidden]) {
     grid-template-columns: 1fr;
-    padding-left: var(--space-3);
+    padding-inline-start: var(--space-3);
   }
 
   .labels-page .profile-label-selector .label-box-row {

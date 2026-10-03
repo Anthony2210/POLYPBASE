@@ -461,6 +461,20 @@
   font-style: italic;
 }
 
+@media (max-width: 759px), (max-width: 900px) and (orientation: portrait) {
+  /* A bounded floor also applies when the responsive layer sets a smaller live height. */
+  .qr-search-modal .scanner-preview {
+    min-width: 0;
+    min-height: min(72vw, 36dvh, 320px);
+  }
+
+  .qr-search-modal .scanner-live-label {
+    max-width: calc(100% - 2 * var(--space-2));
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
 .tablet-scanner-backdrop {
   background: rgb(12 32 41 / 76%);
   backdrop-filter: blur(5px);
