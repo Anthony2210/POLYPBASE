@@ -7,12 +7,16 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from apps.accounts.permissions import user_can_administer_organization
 from apps.audit.models import AuditLog
 from apps.organizations.models import Organization
+from apps.taxonomy.scoping import eligible_strains
+
+from .portable_lineage import build_known_ancestry, consistent_lineage_transaction
 
 from .models import Box, TransferEnvelope, TransferItem
 from .transfer_v2_protocol import (
     MAX_QUANTITY,
     PROTOCOL_MAJOR,
     PROTOCOL_MINOR,
+    SUPPORTED_VERSIONS,
     StrictIntegerField,
     StrictSerializer,
     StrictStringField,
@@ -34,9 +38,39 @@ class DestinationSnapshotSerializer(StrictSerializer):
     )
 
 
-@transaction.atomic
 def create_source_package(
     *, actor, source_organization, selections,
+    destination_institution_id=None, destination_institution_name="",
+    protocol_version=(PROTOCOL_MAJOR, PROTOCOL_MINOR),
+):
+    """Default to exact 2.0; lineage is explicitly selected with (2, 1).
+
+    The 2.1 path owns its PostgreSQL transaction so isolation and full retries
+    cannot be weakened by an ambient transaction. No endpoint selects 2.1 yet.
+    """
+    if (
+        not isinstance(protocol_version, tuple) or len(protocol_version) != 2
+        or any(type(part) is not int for part in protocol_version)
+        or protocol_version not in SUPPORTED_VERSIONS
+    ):
+        raise ValidationError({"protocol_version": "Unsupported exact protocol version."})
+    builder = _create_lineage_source_package if protocol_version == (2, 1) else _create_source_package
+    return builder(
+        actor=actor, source_organization=source_organization, selections=selections,
+        destination_institution_id=destination_institution_id,
+        destination_institution_name=destination_institution_name,
+        protocol_version=protocol_version,
+    )
+
+
+@consistent_lineage_transaction
+def _create_lineage_source_package(**kwargs):
+    return _create_source_package(**kwargs)
+
+
+@transaction.atomic
+def _create_source_package(
+    *, actor, source_organization, selections, protocol_version,
     destination_institution_id=None, destination_institution_name="",
 ):
     """Create and audit a package in an explicitly selected source context.
@@ -78,6 +112,10 @@ def create_source_package(
         box = boxes.get(selection["source_box_id"])
         if box is None:
             raise ValidationError({"items": {index: {"source_box_id": "Box is not in the source organization."}}})
+        if protocol_version == (2, 1) and not eligible_strains(source).filter(pk=box.strain_id).exists():
+            raise ValidationError({"items": {index: {
+                "source_box_id": "Source Strain is not eligible in the source organization.",
+            }}})
         if box.strain.global_identity_id is None:
             raise ValidationError({"items": {index: {
                 "global_strain_id": "Source Strain requires GlobalStrainIdentity.",
@@ -95,6 +133,11 @@ def create_source_package(
     # Validate portable values before any write, including historical blank codes.
 
     items = [TransferItem(**snapshot) for snapshot in snapshots]
+    if protocol_version == (2, 1):
+        for item in items:
+            item.lineage_snapshot = build_known_ancestry(
+                organization=source, source_box=item.source_box,
+            )
     portable_items = [
         {key: getattr(item, key) for key in TransferItemSerializer().fields}
         for item in items
@@ -106,8 +149,8 @@ def create_source_package(
         source_organization=source,
         source_institution_id=source.portable_id,
         source_institution_name=source.name,
-        protocol_major=PROTOCOL_MAJOR,
-        protocol_minor=PROTOCOL_MINOR,
+        protocol_major=protocol_version[0],
+        protocol_minor=protocol_version[1],
         created_by=actor,
         **destination_serializer.validated_data,
     )

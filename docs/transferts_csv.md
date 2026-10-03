@@ -106,8 +106,10 @@ Champs d'item exclusivement : `item_id` (UUID opaque stable),
 L'identité portable d'item est `(transfer_id, item_id)`; l'unicité SQL est
 `(envelope, item_id)`. La même Box peut figurer dans plusieurs packages.
 
-Le parser refuse le protocole v1, tout major/minor autre que `2.0`, les champs
-inconnus à chaque niveau, champs requis absents, UUID malformés, collections
+Le contrat `2.0` refuse le protocole v1 et tout major/minor autre que `2.0`.
+Le dispatch prend également en charge le contrat exact `2.1` décrit plus bas.
+Chaque contrat refuse les champs inconnus à chaque niveau, champs requis absents,
+UUID malformés, collections
 vides et identités d'item dupliquées. Les UUID valides sont normalisés à la
 sérialisation. Versions et quantités doivent être des entiers, sans coercition
 booléen/chaîne/flottant. La quantité déclarée est requise, de `0` à `2147483647`
@@ -141,8 +143,9 @@ notes, état de cycle de vie, QR, audit, instructions AAA/BBB/X et lignées sont
 exclus. Une destination `null` n'autorise personne à accepter le package.
 Aucune mutation de Box/Strain/emplacement/relevé ni finalisation de v1.
 
-### Toujours non implémenté
+### Limites à l'intégration de Phase 2B
 
+Cette section décrit l'état de Phase 2B, pas les capacités ajoutées ensuite.
 Aucun endpoint/UI v2, receipt/acceptation destinataire, résolution de Strain
 destination, représentation locale canonique, diagnostic de namespace,
 allocation X, identité portable de Box, lignée portable, inbox de transfert
@@ -154,3 +157,90 @@ Le même cœur backend d'acceptation pourrait servir le transfert direct entre
 Organisations de la même instance; le transport fichier resterait un adaptateur
 pour installations distinctes, échanges hors ligne et systèmes externes.
 Cela ne décrit pas une capacité actuelle.
+
+## Transfer v2 — contrat exact 2.1 : fondation de lignée source
+
+`create_source_package(..., protocol_version=(2, 1))` sélectionne explicitement
+le nouveau contrat interne. Le défaut reste `(2, 0)` et aucun endpoint/UI ne
+sélectionne `2.1`. Les autres versions, chaînes, booléens et coercitions sont
+refusés. `2.0` conserve ses champs et sa sérialisation, refuse `lineage` en entrée
+et accepte les items historiques dont `lineage_snapshot` est `NULL`.
+
+`2.1` conserve les champs d'enveloppe et d'item de `2.0`, avec
+`protocol_minor=1` et un bloc `lineage` obligatoire par item :
+
+```text
+lineage:
+  root_node_id: UUID
+  nodes:
+    - node_id: UUID
+  edges:
+    - edge_id: UUID
+      source_node_id: UUID
+      target_node_id: UUID
+      relationship_type: subculture | sexual_reproduction | historical_import | other | transfer
+      transfer_id: UUID  # required only for transfer
+      item_id: UUID      # required only for transfer
+```
+
+Aucun autre champ n'est accepté, y compris dans chaque nœud et arête. Pour une
+arête non `transfer`, les deux champs de provenance doivent être absents, pas
+`null`. La provenance d'une arête `transfer` désigne un transfert antérieur,
+pas le package actuellement préparé. La préparation ne crée aucune continuation
+destination ni arête de transfert sortant.
+
+Le parser reste sans accès DB et sans autorisation. Il valide les UUID
+normalisés, les identités uniques dans chaque graphe, l'existence de la racine
+et des extrémités, l'absence de boucle/cycle et le chemin dirigé de chaque nœud
+vers la racine. Une même arête répétée dans plusieurs items doit conserver
+exactement extrémités, type et provenance; l'union des graphes ne peut pas être
+cyclique. Plusieurs racines et familles déconnectées sont autorisées.
+Les nœuds sont triés par `node_id`, les arêtes par `edge_id`, sur leurs UUID
+canoniques. Limites techniques par item : 250 nœuds (convention du graphe local)
+et 1 000 arêtes; tout dépassement échoue sans troncature.
+
+La projection appartient à une institution : identités `(organization, node_id)`
+et `(organization, edge_id)`, réutilisables dans plusieurs projections. Les
+bridges locaux sont nullable et one-to-one, créés paresseusement, sans backfill.
+Un UUID n'autorise jamais un lookup opérationnel global. Les écritures internes
+valident l'institution, les extrémités et les associations établies; une
+contradiction échoue sans correction ni réaffectation.
+
+La construction suit seulement les prédécesseurs explicites locaux et déjà
+connus dans cette projection. Elle n'infère rien des codes, Species, Strain ou
+GlobalStrainIdentity, n'inclut ni frères ni descendants inutiles et refuse une
+BoxLineage conduisant à une Box étrangère. Les ancêtres étrangers connus restent
+des nœuds de projection sans Box artificielle. Un graphe limité à sa racine est
+valide : aucune ascendance supplémentaire connue n'est transportée.
+
+Avant de figer les champs scientifiques source, `2.1` applique `eligible_strains`
+à la Strain : propriété source ou éligibilité historique sans propriétaire.
+Le comportement source `2.0` n'est pas modifié. Le snapshot de lignée ne porte
+que les champs ci-dessus : aucun code, nom d'institution, statut, volume, mesure
+(y compris zéro), emplacement, mouvement, date d'événement, note, motif,
+utilisateur, audit, PK, URL ou permission. Les champs source de l'item restent
+séparés; `declared_polyp_quantity` n'est pas une preuve de lignée.
+
+`TransferItem.lineage_snapshot` conserve le graphe JSON validé à la création.
+La sérialisation lit ce snapshot, jamais le graphe courant, et refuse une
+persistance `2.1` sans snapshot valide. Les anciens packages ne sont pas enrichis.
+Les écritures ORM/SQL techniques doivent préserver les snapshots et bridges
+établis; aucun writer public de projection n'est ajouté.
+
+Sur PostgreSQL, le build `2.1` possède une transaction locale `SERIALIZABLE`,
+avec au plus cinq tentatives complètes en cas de conflit de sérialisation,
+deadlock ou course sur une contrainte d'identité/bridge. Une transaction
+PostgreSQL déjà ouverte par l'appelant est refusée : son isolation et son retry
+ne peuvent pas être garantis ici. Toutes les lectures partagent le snapshot DB;
+la configuration globale d'isolation et les writers de lignée restent inchangés.
+Les contraintes SQL arbitrent les identités concurrentes, sans verrou de
+processus. Bridges, enveloppe, items, snapshots et audit obligatoire sont
+atomiques. SQLite valide le fonctionnel, pas cette garantie de concurrence.
+
+Les FK de projection utilisent `PROTECT`, y compris les bridges Box/BoxLineage
+et les extrémités. Désactivation/réactivation restent inchangées; un reset
+historique destructif visant une histoire projetée est refusé et rollbacké,
+jamais rendu possible par suppression de la connaissance portable.
+
+Cette phase n'ajoute ni receipt/import de package, ni acceptation, ni mutation
+de stock/cycle de vie, ni allocation X ou création destination.

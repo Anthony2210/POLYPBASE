@@ -222,6 +222,99 @@ class BoxLineage(models.Model):
         return f"{self.parent_box} -> {self.child_box}"
 
 
+class PortableLineageNode(models.Model):
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="portable_lineage_nodes",
+    )
+    node_id = models.UUIDField(default=uuid.uuid4, editable=False)
+    local_box = models.OneToOneField(
+        Box,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="portable_lineage_node",
+        editable=False,
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "node_id"],
+                name="portable_node_identity_unique",
+            )
+        ]
+
+
+class PortableLineageEdge(models.Model):
+    class RelationshipType(models.TextChoices):
+        SUBCULTURE = "subculture", _("Repiquage")
+        SEXUAL_REPRODUCTION = "sexual_reproduction", _("Reproduction sexuée")
+        HISTORICAL_IMPORT = "historical_import", _("Import historique")
+        OTHER = "other", _("Autre")
+        TRANSFER = "transfer", _("Transfert")
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.PROTECT,
+        related_name="portable_lineage_edges",
+    )
+    edge_id = models.UUIDField(default=uuid.uuid4, editable=False)
+    source_node = models.ForeignKey(
+        PortableLineageNode, on_delete=models.PROTECT, related_name="outgoing_edges",
+    )
+    target_node = models.ForeignKey(
+        PortableLineageNode, on_delete=models.PROTECT, related_name="incoming_edges",
+    )
+    relationship_type = models.CharField(
+        max_length=40,
+        choices=RelationshipType.choices,
+        default=RelationshipType.SUBCULTURE,
+    )
+    local_lineage = models.OneToOneField(
+        BoxLineage,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="portable_lineage_edge",
+    )
+    transfer_id = models.UUIDField(null=True, blank=True)
+    item_id = models.UUIDField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "edge_id"],
+                name="portable_edge_identity_unique",
+            ),
+            models.CheckConstraint(
+                condition=~Q(source_node=models.F("target_node")),
+                name="portable_edge_not_self",
+            ),
+            models.CheckConstraint(
+                condition=Q(relationship_type__in=[
+                    "subculture", "sexual_reproduction", "historical_import", "other", "transfer",
+                ]),
+                name="portable_edge_type_valid",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(relationship_type="transfer", transfer_id__isnull=False, item_id__isnull=False)
+                    | (
+                        ~Q(relationship_type="transfer")
+                        & Q(transfer_id__isnull=True, item_id__isnull=True)
+                    )
+                ),
+                name="portable_edge_provenance_valid",
+            ),
+            models.CheckConstraint(
+                condition=~Q(relationship_type="transfer") | Q(local_lineage__isnull=True),
+                name="portable_transfer_no_local_lineage",
+            ),
+        ]
+
+
 class IdentificationTag(models.Model):
     class TagType(models.TextChoices):
         QR = "qr", "QR code"
@@ -332,6 +425,7 @@ class TransferItem(models.Model):
     species_scientific_name = models.CharField(max_length=150, editable=False)
     global_strain_id = models.UUIDField(editable=False)
     declared_polyp_quantity = models.PositiveIntegerField(editable=False)
+    lineage_snapshot = models.JSONField(null=True, blank=True, editable=False, default=None)
 
     class Meta:
         constraints = [
