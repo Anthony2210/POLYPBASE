@@ -94,7 +94,8 @@ class ZoneSalinityLifecycleTests(TestCase):
         log = AuditLog.objects.get(object_type="salinity_measurement", object_id=str(row.pk))
         self.assertEqual(log.organization, self.organization)
         self.assertEqual(log.metadata["valeurs"]["salinite_psu"], "0.00")
-        duplicate = self.post({"measured_on": "2026-09-20", "salinity_psu": "34.00"})
+        with patch("django.utils.timezone.now", return_value=self.created_at):
+            duplicate = self.post({"measured_on": "2026-09-20", "salinity_psu": "34.00"})
         self.assertEqual(duplicate.status_code, 400)
         self.assertIn("measured_on", duplicate.json())
         self.assertEqual(SalinityMeasurement.objects.filter(thermal_zone=self.zone).count(), 1)
@@ -262,7 +263,7 @@ class ZoneSalinityLifecycleTests(TestCase):
             self.assertFalse(latest["can_edit"])
             self.assertEqual(self.patch_measurement(local, {"salinity_psu": "0.00"}).status_code, 403)
             self.assertEqual(self.post({"measured_on": "2026-09-22", "salinity_psu": "0.00"}).status_code, 403)
-        self.assertEqual(self.history(self.other_zone).status_code, 404)
+            self.assertEqual(self.history(self.other_zone).status_code, 404)
         self.assertEqual(AuditLog.objects.filter(object_type="salinity_measurement").count(), 0)
 
     def test_membership_in_two_organizations_does_not_bypass_active_context(self):
