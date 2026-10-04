@@ -174,6 +174,69 @@ La clé PuTTY est cherchée dans la variable `POLYPBASE_SSH_KEY`, puis dans le
 chemin local historique d’Anthony. Un autre chemin peut être fourni avec
 `-SshKeyPath`. La clé et son contenu ne sont jamais copiés dans le dépôt.
 
+### Approbation explicite d'un plan de migration revu
+
+Sans approbation, l'exécuteur refuse toujours les plans contenant suppression ou
+renommage de champ/modèle, `Raw Python operation` ou `Raw SQL operation`. Aucune
+opération Python ou SQL n'est automatiquement considérée comme sûre.
+
+Une revue humaine peut autoriser **ce plan exact pour ce commit exact** avec le
+paramètre `-ReviewedMigrationApproval`, au format
+`<commit Git complet en hexadécimal minuscule>:<SHA-256 du plan en hexadécimal minuscule>`.
+Ce n'est ni un drapeau permanent ni une variable d'environnement. L'approbation
+couvre toutes les opérations du plan correspondant, y compris les opérations
+destructives : leur revue doit donc être explicite.
+
+L'exécuteur conserve `migrate-plan.txt` dans le dossier de release et affiche
+`MIGRATION_PLAN commit=... sha256=... file=...`, même lorsque le garde refuse le
+plan. L'empreinte porte sur les octets exacts de ce fichier : ne pas reconstruire
+le texte depuis un résumé ni changer ses fins de ligne. Pour un plan capturé par
+un ancien exécuteur, calculer son SHA-256 sur le fichier conservé, sans le modifier.
+Ne jamais utiliser l'empreinte comme substitut à une revue des migrations et de
+leurs préconditions sur les données.
+
+Après intégration, depuis `main` propre et aligné avec `origin/main`, Anthony peut
+utiliser cette commande. Elle demande l'empreinte du fichier déjà revu et la lie
+au commit local qui sera déployé :
+
+```powershell
+.\deploy\deploy_vm.ps1 -ReviewedMigrationApproval ('{0}:{1}' -f (git rev-parse HEAD).Trim(), (Read-Host 'SHA-256 du migrate-plan.txt exact revu'))
+```
+
+Si l'intégration crée un nouveau commit, confirmer que ses migrations et son plan
+correspondent bien à la revue avant d'autoriser ce nouveau commit. Le SHA historique
+`23a9f3edd37da19d2d11d4378009f339e6d14db8` ne doit pas être utilisé comme cible
+d'approbation d'une autre release. Le plan de la VM au moment du rerun est comparé
+à l'empreinte fournie ; toute discordance, même pour un plan non suspect, arrête
+le déploiement avant `migrate --noinput`. Un jeton malformé ou lié à un autre commit
+est refusé avant la sauvegarde. Un plan différent nécessite une nouvelle revue,
+pas un remplacement automatique de l'empreinte.
+
+Un rerun crée et vérifie **une nouvelle sauvegarde** avant toute migration :
+l'approbation ne réutilise pas la sauvegarde de l'essai précédent et ne supprime
+aucune validation. Son acceptation est visible dans stdout et dans le journal
+distant via `MIGRATION_REVIEW_APPROVED commit=... plan_sha256=...`. Les sorties de
+l'exécuteur et les diagnostics de service/journal restent visibles même lorsque
+le résultat PowerShell est envoyé à `Out-Null`.
+
+En état intermédiaire code/schéma, ne pas prendre un échec d'un diagnostic utilisant
+un champ encore non migré pour une preuve d'anomalie des données. Pour la release
+ci-dessus, le diagnostic Phase 3B utilisant `Organization.portable_id` n'est pas
+utilisable avant `organizations.0002`; la migration taxonomy conserve son propre
+précontrôle de doublons sur les modèles historiques. L'approbation du garde ne
+court-circuite pas ce précontrôle.
+
+Tests locaux isolés, sans VM ni base :
+
+```powershell
+python -m unittest discover -s deploy/tests -v
+```
+
+Ils exercent les fonctions et validations Bash réelles sans lancer l'exécuteur,
+et les blocs PowerShell avec un transport factice. Bash est nécessaire ; sous
+Windows, PowerShell 5.1 et PowerShell 7 sont vérifiés s'ils sont disponibles.
+Les interpréteurs absents sont signalés comme tests ignorés.
+
 ## Procédure manuelle de secours
 
 Après un push validé sur `main` :

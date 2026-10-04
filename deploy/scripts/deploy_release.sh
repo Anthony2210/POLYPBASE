@@ -9,6 +9,7 @@ BACKUP_DIR="${POLYPBASE_BACKUP_DIR:-/srv/polypbase/backups}"
 DEPLOY_DIR="${POLYPBASE_DEPLOY_DIR:-/srv/polypbase/deployments}"
 LOCK_FILE="${POLYPBASE_DEPLOY_LOCK:-/srv/polypbase/deploy.lock}"
 TARGET_COMMIT="${1:-}"
+REVIEWED_MIGRATION_APPROVAL="${2:-}"
 EXPECTED_USER="${POLYPBASE_SERVICE_USER:-polypbase}"
 CURRENT_STEP="initialization"
 
@@ -27,8 +28,39 @@ on_error() {
 
 trap 'on_error "$LINENO" "$?"' ERR
 
+check_migration_plan() {
+    local plan_file="$1"
+    local plan_sha256
+    plan_sha256="$(sha256sum "$plan_file" | awk '{print $1}')"
+    [[ "$plan_sha256" =~ ^[0-9a-f]{64}$ ]] || fail "could not hash the migration plan"
+    printf 'MIGRATION_PLAN commit=%s sha256=%s file=%s\n' \
+        "$TARGET_COMMIT" "$plan_sha256" "$plan_file"
+
+    if [[ -n "$REVIEWED_MIGRATION_APPROVAL" ]]; then
+        [[ "$REVIEWED_MIGRATION_APPROVAL" == "$TARGET_COMMIT:$plan_sha256" ]] || \
+            fail "reviewed migration approval does not match the captured plan"
+        printf 'MIGRATION_REVIEW_APPROVED commit=%s plan_sha256=%s\n' \
+            "$TARGET_COMMIT" "$plan_sha256"
+    elif grep -Eiq \
+        'remove field|delete model|rename field|rename model|raw python operation|raw SQL operation' \
+        "$plan_file"; then
+        fail "potentially destructive migrations require manual review; rerun with approval $TARGET_COMMIT:$plan_sha256 only after reviewing this exact plan"
+    else
+        # grep returns 1 for no match; any other failure must stop deployment.
+        local grep_status="$?"
+        [[ "$grep_status" == 1 ]] || fail "could not inspect the migration plan"
+    fi
+}
+
+(( $# <= 2 )) || fail "expected target commit and optional reviewed migration approval"
 [[ "$TARGET_COMMIT" =~ ^[0-9a-f]{40}$ ]] || \
     fail "target commit must be a full 40-character SHA"
+if [[ -n "$REVIEWED_MIGRATION_APPROVAL" ]]; then
+    [[ "$REVIEWED_MIGRATION_APPROVAL" =~ ^[0-9a-f]{40}:[0-9a-f]{64}$ ]] || \
+        fail "reviewed migration approval must be COMMIT_SHA:PLAN_SHA256 in lowercase hex"
+    [[ "${REVIEWED_MIGRATION_APPROVAL%%:*}" == "$TARGET_COMMIT" ]] || \
+        fail "reviewed migration approval does not match the target commit"
+fi
 [[ "$(id -un)" == "$EXPECTED_USER" ]] || \
     fail "run this script as $EXPECTED_USER"
 [[ -d "$APP_DIR/.git" ]] || fail "application repository not found at $APP_DIR"
@@ -36,7 +68,7 @@ trap 'on_error "$LINENO" "$?"' ERR
 [[ -f "$APP_DIR/frontend/package-lock.json" ]] || fail "frontend lock file is missing"
 [[ -x /usr/bin/pg_restore ]] || fail "pg_restore is unavailable"
 
-for command in git uv npm flock tee awk tail grep mv mkdir date df; do
+for command in git uv npm flock tee awk tail grep mv mkdir date df sha256sum; do
     command -v "$command" >/dev/null 2>&1 || fail "required command is unavailable: $command"
 done
 
@@ -117,10 +149,7 @@ PYTHON="$APP_DIR/.venv/bin/python"
 "$PYTHON" backend/manage.py check --deploy
 MIGRATION_PLAN="$("$PYTHON" backend/manage.py migrate --plan)"
 printf '%s\n' "$MIGRATION_PLAN" | tee "$RELEASE_DIR/migrate-plan.txt"
-if printf '%s\n' "$MIGRATION_PLAN" | grep -Eiq \
-    'remove field|delete model|rename field|rename model|raw python operation|raw SQL operation'; then
-    fail "potentially destructive migrations require a manual deployment review"
-fi
+check_migration_plan "$RELEASE_DIR/migrate-plan.txt"
 
 CURRENT_STEP="database migrations"
 "$PYTHON" backend/manage.py migrate --noinput
