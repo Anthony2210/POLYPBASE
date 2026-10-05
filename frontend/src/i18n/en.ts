@@ -755,6 +755,8 @@ export const en: Record<TranslationKey, string> = {
   pageLoading: 'Loading page',
   pageLoadErrorTitle: 'Page unavailable',
   reloadAction: 'Reload',
+  boxCollectionLoadError: 'The box list could not be loaded.',
+  boxCollectionRetry: 'Try again',
   loginRequired: 'Sign-in required',
   logoutAction: 'Sign out',
   logoutError: 'Unable to sign out at the moment.',

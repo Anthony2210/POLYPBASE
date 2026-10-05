@@ -84,6 +84,24 @@ export function installAppRouting(context, evaluate, organization = 1) {
     const exports = evaluate(`(() => { const exports = {}; ${outputText}\nreturn exports; })()`);
     Object.assign(context, exports);
   }
+  // The on-demand Box collection: real helpers and App functions over inert refs/setters.
+  const boxCollectionSource = readFileSync(new URL('../src/utils/boxCollection.ts', import.meta.url), 'utf8');
+  const { outputText: boxCollectionOutput } = ts.transpileModule(boxCollectionSource, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+  });
+  const boxCollectionExports = evaluate(`(() => { const exports = {}; ${boxCollectionOutput}\nreturn exports; })()`);
+  for (const [name, value] of Object.entries(boxCollectionExports)) {
+    if (!(name in context)) context[name] = value;
+  }
+  context.boxCollectionRef ??= { current: context.IDLE_BOX_COLLECTION };
+  context.boxCollectionRequestRef ??= { current: null };
+  context.requestedRecentBoxIdsRef ??= { current: new Set() };
+  context.setBoxCollection ??= (value) => { context.boxCollectionState = value; };
+  context.setResolvedBoxCode ??= (value) => { context.resolvedBoxCodeState = value; };
+  for (const name of ['writeBoxCollection', 'resetBoxCollection', 'requestBoxCollection',
+    'findBoxBySearch', 'findBoxIdByCode']) {
+    evaluate(functionNode(name).getText(ast));
+  }
   const app = functionNode('App');
   const adminPaths = ast.statements.find(node => ts.isVariableStatement(node)
     && node.declarationList.declarations.some(declaration => declaration.name.getText(ast) === 'ADMIN_SECTION_PATHS'));

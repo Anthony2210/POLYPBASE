@@ -480,6 +480,7 @@ export type Dashboard = {
     id: number;
     object_id: string;
     description: string;
+    metadata?: { box_id?: unknown } | null;
     created_at: string;
     user: string | null;
   }>;

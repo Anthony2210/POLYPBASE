@@ -17,11 +17,13 @@ export default function TabletQrScannerModal({
   boxes,
   labels,
   onClose,
+  onResolveBoxCode,
   onSelectBox,
 }: {
   boxes: BoxItem[];
   labels: TabletQrScannerModalLabels;
   onClose: () => void;
+  onResolveBoxCode?: (code: string) => Promise<number | null>;
   onSelectBox: (id: number) => void;
 }) {
   const dialogRef = useRef<HTMLElement | null>(null);
@@ -97,6 +99,7 @@ export default function TabletQrScannerModal({
             autoStart
             boxes={boxes}
             labels={labels}
+            onResolveBoxCode={onResolveBoxCode}
             onSelectBox={onSelectBox}
           />
         </section>

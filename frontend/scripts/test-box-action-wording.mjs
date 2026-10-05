@@ -194,6 +194,7 @@ for (const language of ['fr', 'en']) {
     const appTree = load(`exports.tree = (${scannerCall.getText(ast)});`, { 'react/jsx-runtime': jsxRuntime }, {
       TabletQrScannerModal: Modal, data: { boxes: [box] }, t: translator(language),
       setIsTabletScannerOpen: value => closed.push(value), openScannedBox: id => selected.push(id),
+      findBoxIdByCode: () => Promise.resolve(null),
     }).tree;
     assert.equal(Object.hasOwn(appTree.props.labels, 'description'), false);
     const tree = Modal(appTree.props);
@@ -216,6 +217,7 @@ for (const language of ['fr', 'en']) {
     assert.equal(scannerProps.boxes, appTree.props.boxes);
     assert.equal(scannerProps.labels, appTree.props.labels);
     assert.equal(scannerProps.onSelectBox, appTree.props.onSelectBox);
+    assert.equal(scannerProps.onResolveBoxCode, appTree.props.onResolveBoxCode);
     scannerProps.onSelectBox(7);
     assert.deepEqual(selected, [7]);
   });
@@ -237,8 +239,13 @@ test('removed scanner description has no catalogue key or source consumer and no
   assert.doesNotMatch(css, /\.tablet-scanner-modal-heading (?:p|:is\(h2, p\))/);
 });
 
-test('scanner camera component and QR parser remain identical to HEAD', () => {
-  for (const path of ['src/components/TabletQrScanner.tsx', 'src/utils/qrScanner.ts']) {
-    assert.equal(read(`../${path}`).replace(/\r\n/g, '\n'), head(`frontend/${path}`).replace(/\r\n/g, '\n'), path);
+test('scanner camera engine and QR id parser are unchanged; code lookup is additive', () => {
+  // Scanning by box code without the full list adds a lookup after the id parser.
+  const parser = source => source.replace(/\r\n/g, '\n').match(/export function getBoxIdFromQrValue[\s\S]*$/)[0];
+  assert.equal(parser(read('../src/utils/qrScanner.ts')), parser(head('frontend/src/utils/qrScanner.ts')));
+  const scanner = read('../src/components/TabletQrScanner.tsx');
+  for (const fragment of ['decodeFromConstraints', "facingMode: { ideal: 'environment' }", 'triggerHaptic([10, 34, 12])',
+    'stopQrScanner(scannerControlsRef)', 'getBoxIdFromQrValue(scannedValue, boxesRef.current)']) {
+    assert.ok(scanner.includes(fragment), fragment);
   }
 });

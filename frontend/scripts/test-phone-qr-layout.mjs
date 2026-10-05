@@ -92,8 +92,8 @@ test('scan state retains real camera checks, authorized-box resolution and clean
   assert.match(scanner, /if \(!window\.isSecureContext\)/);
   assert.match(scanner, /navigator\.mediaDevices\?\.getUserMedia/);
   assert.match(scanner, /decodeFromConstraints\(/);
-  assert.match(scanner, /getBoxIdFromQrValue\(result\.getText\(\), boxesRef\.current\)/);
-  assert.match(scanner, /if \(scannedBoxId == null\) return/);
+  assert.match(scanner, /getBoxIdFromQrValue\(scannedValue, boxesRef\.current\)/);
+  assert.match(scanner, /if \(scannedBoxId != null\) \{\s*selectScannedBox\(scannedBoxId\);\s*return;\s*\}/);
   assert.match(scanner, /if \(isCancelled \|\| hasDetectedBox\)\s*\{\s*controls\.stop\(\)/);
   assert.match(scanner, /return \(\) => \{\s*isCancelled = true;\s*stopQrScanner\(scannerControlsRef\)/);
   assert.match(scanner, /setMessage\(permission\);\s*setIsScanning\(false\)/);

@@ -4,6 +4,8 @@
 
 Le frontend est une application React/TypeScript construite avec Vite. `frontend/src/App.tsx` orchestre l'état global, le routage interne et les chargements partagés. Les vues et composants spécialisés vivent dans `frontend/src/components/`, les appels réutilisables dans `frontend/src/api/`, les types communs dans `frontend/src/types.ts` et les styles sont agrégés depuis `frontend/src/styles/index.css`.
 
+Le démarrage charge uniquement le profil, les zones et le tableau de bord. La liste complète des boîtes n'en fait pas partie : `data.boxes` ne contient que les boîtes connues (fiches ouvertes, accès récents) et n'est complète que lorsque `boxCollection.status` vaut `ready`. Les routes qui en ont besoin (zones hors historique, étiquettes, transferts d'Administration, recherche saisie, suggestion de code à la création) la demandent via `requestBoxCollection` dans `App.tsx` et affichent leur propre chargement ou erreur; `needsFullBoxCollection` dans `utils/boxCollection.ts` en tient la liste. Ne jamais afficher des résultats, des effectifs ou des suggestions calculés sur une liste partielle. Une fiche atteinte par URL ou QR se résout par `/api/boxes/?q=` puis `/api/boxes/<id>/`, sans la liste.
+
 Il n'y a pas React Router. Le chemin navigateur est traduit en état de route et manipulé avec l'API History. Avant de modifier la navigation, rechercher les parseurs de chemin, helpers de navigation, gestion de `popstate` et liens internes concernés.
 
 `frontend/src/api/client.ts` gère les requêtes communes, l'en-tête d'organisation et les jetons CSRF. Ne pas disperser une seconde implémentation de ces mécanismes dans un composant.

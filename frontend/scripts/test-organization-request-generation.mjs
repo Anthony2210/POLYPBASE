@@ -193,7 +193,6 @@ function harness() {
     setRecentBoxIds(value) { state.recent = value; },
     setData(value) { state.data = typeof value === 'function' ? value(state.data) : value; },
     setExportOptionsRequested(value) { state.exportOptionsRequested = value; },
-    buildRecentBoxIds(boxes) { return boxes.map((box) => box.id); },
     getSelectableOrganizations(profile) { return profile.organizations; },
     getStoredActiveOrganizationId() { return 1; },
     resolveActiveOrganizationId(_profile, id) { return id; },
@@ -242,9 +241,13 @@ async function tick() {
 }
 function completeSelection(h, organizationId) {
   const requests = h.requests.filter((request) => request.organizationId === organizationId);
-  assert.equal(requests.length, 3);
+  // Zones and dashboard only: the complete Box list is not part of the selection.
+  assert.equal(requests.length, 2);
+  assert.ok(requests.every((request) => !request.url.startsWith('/api/boxes/')));
   for (const request of requests) {
-    request.resolve(request.url === '/api/dashboard/' ? { organizationId } : { results: [{ id: organizationId }] });
+    request.resolve(request.url === '/api/dashboard/'
+      ? { organizationId, recent_accesses: [{ metadata: { box_id: organizationId } }] }
+      : { results: [{ id: organizationId }] });
   }
 }
 
@@ -384,7 +387,7 @@ function startSelection(h, organizationId, marker) {
   const start = h.requests.length;
   const promise = h.choose(organizationId);
   const requests = h.requests.slice(start);
-  assert.equal(requests.length, 3);
+  assert.equal(requests.length, 2);
   assert.ok(requests.every((request) => request.organizationId === organizationId));
   h.render();
   return {
@@ -392,7 +395,7 @@ function startSelection(h, organizationId, marker) {
     complete() {
       for (const request of requests) {
         request.resolve(request.url === '/api/dashboard/'
-          ? { organizationId, marker }
+          ? { organizationId, marker, recent_accesses: [{ metadata: { box_id: marker } }] }
           : { results: [{ id: marker }] });
       }
     },
@@ -435,7 +438,7 @@ for (const language of ['fr', 'en']) {
     h.state.search = 'A box';
     h.render();
     const previousProfile = h.state.data.profile;
-    assert.equal(h.state.data.boxes[0].id, 201);
+    assert.equal(h.state.data.boxes.length, 0, 'bootstrap loads no Box');
     assert.equal(h.state.data.zones[0].id, 201);
     assert.equal(h.state.recent[0], 201);
 
@@ -490,7 +493,7 @@ for (const outcome of ['success', 'failure']) {
         await finalA.promise;
       }
       assert.equal(h.state.data.profile.active_organization.id, 2);
-      assert.equal(h.state.data.boxes[0].id, 202);
+      assert.equal(h.state.data.zones[0].id, 202);
       assert.equal(h.state.data.dashboard.marker, 202);
       assert.deepEqual(Array.from(h.state.recent), [202]);
       assert.equal(h.state.contextId, 2);
@@ -518,7 +521,7 @@ test('rapid A -> B -> A ignores B error recovery already pending before final A'
   assert.equal(h.state.loading, true);
   finalA.complete();
   await finalA.promise;
-  assert.equal(h.state.data.boxes[0].id, 202);
+  assert.equal(h.state.data.zones[0].id, 202);
   assert.equal(h.state.loading, false);
 });
 
@@ -529,7 +532,7 @@ test('reselecting the pending active organization does not restart or invalidate
   const generation = h.context.organizationRequestGenerationRef.current;
   await h.choose(2);
   h.render();
-  assert.equal(h.requests.length, 3);
+  assert.equal(h.requests.length, 2);
   assert.equal(h.context.organizationRequestGenerationRef.current, generation);
   assert.equal(h.state.data, pendingData);
   assert.equal(h.state.loading, true);
@@ -538,10 +541,10 @@ test('reselecting the pending active organization does not restart or invalidate
   h.render();
   const loadedData = h.state.data;
   await h.choose(2);
-  assert.equal(h.requests.length, 3);
+  assert.equal(h.requests.length, 2);
   assert.equal(h.context.organizationRequestGenerationRef.current, generation);
   assert.equal(h.state.data, loadedData);
-  assert.equal(h.state.data.boxes[0].id, 201);
+  assert.equal(h.state.data.zones[0].id, 201);
   assert.equal(h.state.loading, false);
 });
 

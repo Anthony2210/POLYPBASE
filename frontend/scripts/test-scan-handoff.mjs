@@ -90,7 +90,6 @@ function harness(path = '/?scan_box=42') {
     setRecentBoxIds() {}, setMeasurementPrefill() {}, setExportOptionsRequested() {},
     setActiveOrganizationContext(value) { state.organizationContext = value; },
     setData(value) { context.data = typeof value === 'function' ? value(context.data) : value; },
-    buildRecentBoxIds() { return []; },
     mergeBoxDetail(current, detail) { return { ...current, boxDetails: { [detail.id]: detail } }; },
     apiPost(url, payload) {
       const request = { ...deferred(), method: 'POST', url, payload, organizationId: context.activeOrganizationId };
@@ -147,6 +146,7 @@ test('permanent QR opens the authorized detail directly without a box-list match
   await tick();
   assert.equal(h.context.data.boxes.length, 0);
   h.context.useMemo = callback => callback();
+  Object.assign(h.context, { resolvedBoxCode: null, isBoxCodeResolved: false });
   const selectedId = findNode(node => ts.isVariableDeclaration(node) && node.name.getText(ast) === 'selectedBoxId');
   h.context.selectedBoxId = h.evaluate(selectedId.initializer.getText(ast));
   assert.equal(h.context.selectedBoxId, 42);
@@ -289,7 +289,7 @@ test('organization change retains the handoff but isolates old completion and lo
   h.render();
   assert.equal(h.requests.filter((request) => request.method === 'POST').length, 1);
   for (const request of h.requests.filter((request) => request.method === 'GET')) {
-    request.resolve(request.url === '/api/dashboard/' ? {} : { results: [] });
+    request.resolve(request.url === '/api/dashboard/' ? { recent_accesses: [] } : { results: [] });
   }
   await selection;
   h.render();

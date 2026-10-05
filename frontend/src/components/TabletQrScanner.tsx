@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import type { BoxItem } from '../types';
 import { triggerHaptic } from '../utils/haptics';
-import { getBoxIdFromQrValue } from '../utils/qrScanner';
+import { getBoxCodeFromQrValue, getBoxIdFromQrValue } from '../utils/qrScanner';
 
 export type TabletQrScannerLabels = {
   found: string;
@@ -19,11 +19,14 @@ export default function TabletQrScanner({
   autoStart = false,
   boxes,
   labels,
+  onResolveBoxCode,
   onSelectBox,
 }: {
   autoStart?: boolean;
   boxes: BoxItem[];
   labels: TabletQrScannerLabels;
+  // Looks a code up when the scanned box is not among the loaded ones.
+  onResolveBoxCode?: (code: string) => Promise<number | null>;
   onSelectBox: (id: number) => void;
 }) {
   const {
@@ -36,6 +39,7 @@ export default function TabletQrScanner({
   } = labels;
   const boxesRef = useRef(boxes);
   const onSelectBoxRef = useRef(onSelectBox);
+  const onResolveBoxCodeRef = useRef(onResolveBoxCode);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerControlsRef = useRef<IScannerControls | null>(null);
   const [isScanning, setIsScanning] = useState(autoStart);
@@ -44,6 +48,7 @@ export default function TabletQrScanner({
 
   boxesRef.current = boxes;
   onSelectBoxRef.current = onSelectBox;
+  onResolveBoxCodeRef.current = onResolveBoxCode;
 
   useEffect(() => {
     if (!isScanning) {
@@ -74,6 +79,17 @@ export default function TabletQrScanner({
         const { BrowserQRCodeReader } = await import('@zxing/browser');
         const reader = new BrowserQRCodeReader();
         let hasDetectedBox = false;
+        let isResolvingCode = false;
+        const unknownCodes = new Set<string>();
+
+        function selectScannedBox(scannedBoxId: number) {
+          hasDetectedBox = true;
+          triggerHaptic([10, 34, 12]);
+          setMessage(found);
+          setIsScanning(false);
+          onSelectBoxRef.current(scannedBoxId);
+        }
+
         const controls = await reader.decodeFromConstraints(
           {
             video: { facingMode: { ideal: 'environment' } },
@@ -81,16 +97,35 @@ export default function TabletQrScanner({
           },
           video,
           (result) => {
-            if (!result || isCancelled || hasDetectedBox) return;
+            if (!result || isCancelled || hasDetectedBox || isResolvingCode) return;
 
-            const scannedBoxId = getBoxIdFromQrValue(result.getText(), boxesRef.current);
-            if (scannedBoxId == null) return;
+            const scannedValue = result.getText();
+            const scannedBoxId = getBoxIdFromQrValue(scannedValue, boxesRef.current);
+            if (scannedBoxId != null) {
+              selectScannedBox(scannedBoxId);
+              return;
+            }
 
-            hasDetectedBox = true;
-            triggerHaptic([10, 34, 12]);
-            setMessage(found);
-            setIsScanning(false);
-            onSelectBoxRef.current(scannedBoxId);
+            // Not among the loaded boxes: look the code up once per distinct value.
+            const resolveBoxCode = onResolveBoxCodeRef.current;
+            const scannedCode = getBoxCodeFromQrValue(scannedValue);
+            if (!resolveBoxCode || !scannedCode || unknownCodes.has(scannedCode)) return;
+
+            isResolvingCode = true;
+            void resolveBoxCode(scannedCode)
+              .then((resolvedBoxId) => {
+                if (resolvedBoxId == null) {
+                  unknownCodes.add(scannedCode);
+                  return;
+                }
+                if (!isCancelled && !hasDetectedBox) selectScannedBox(resolvedBoxId);
+              })
+              .catch(() => {
+                unknownCodes.add(scannedCode);
+              })
+              .finally(() => {
+                isResolvingCode = false;
+              });
           },
         );
 

@@ -109,7 +109,15 @@ import type {
   TaxonomyReferences,
 } from './types/admin';
 import { getAccountMemberRoleLabel } from './utils/accountMembers';
-import { upsertBoxes } from './utils/boxCollection';
+import {
+  IDLE_BOX_COLLECTION,
+  getRecentBoxIds,
+  mergeLoadedBoxes,
+  needsFullBoxCollection,
+  shouldLoadBoxCollection,
+  upsertBoxes,
+  type BoxCollectionState,
+} from './utils/boxCollection';
 import { filterBoxes } from './utils/boxLookup';
 import {
   findMeasurementForWeek,
@@ -157,7 +165,7 @@ const ZonesView = lazy(() =>
 // Vite provides its exact development proxy origin; production accepts only the app origin.
 declare const __API_PROXY_ORIGIN__: string | null;
 
-// Boxes are filtered client-side; exhaust pages rather than assuming a total limit.
+// The full box list is filtered client-side and loaded on demand; exhaust pages rather than assuming a total limit.
 const BOX_LIST_LIMIT = 100;
 const PILOTAGE_RESULT_LIMIT = 15;
 const PHONE_RESULT_LIMIT = 5;
@@ -287,6 +295,17 @@ export default function App() {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isBoxLoading, setIsBoxLoading] = useState(false);
+  // data.boxes holds the boxes known so far. It is complete only while
+  // boxCollection.status is 'ready'; routes that need every box wait for that.
+  const [boxCollection, setBoxCollection] = useState<BoxCollectionState>(IDLE_BOX_COLLECTION);
+  const boxCollectionRef = useRef<BoxCollectionState>(IDLE_BOX_COLLECTION);
+  const boxCollectionRequestRef = useRef<{ generation: number; promise: Promise<void> } | null>(null);
+  const requestedRecentBoxIdsRef = useRef(new Set<number>());
+  const [resolvedBoxCode, setResolvedBoxCode] = useState<{
+    organizationId: number | null;
+    code: string;
+    boxId: number | null;
+  } | null>(null);
   const [exportOptionsRequested, setExportOptionsRequested] = useState(false);
   const [error, setError] = useState<ApplicationError | null>(null);
   const [refreshRecovery, setRefreshRecovery] = useState<(() => Promise<void>) | null>(null);
@@ -386,7 +405,10 @@ export default function App() {
     };
   }
 
-  async function fetchAllPages<T extends { id: number }>(path: string): Promise<T[]> {
+  async function fetchAllPages<T extends { id: number }>(
+    path: string,
+    stopWhen?: (pageItems: T[]) => boolean,
+  ): Promise<T[]> {
     const { apiGet } = getOperationRequests();
     const results: T[] = [];
     const seenIds = new Set<number>();
@@ -412,7 +434,7 @@ export default function App() {
         seenIds.add(item.id);
         results.push(item);
       }
-      next = page.next;
+      next = stopWhen?.(page.results) ? null : page.next;
     }
     return results;
   }
@@ -420,14 +442,14 @@ export default function App() {
   async function fetchScopedData(profile: UserProfile, organizationId: number) {
     setActiveOrganizationContext(organizationId);
     const scopedProfile = setProfileActiveOrganization(profile, organizationId);
-    const [boxes, zones, dashboard] = await Promise.all([
-      fetchAllPages<BoxItem>(`/api/boxes/?limit=${BOX_LIST_LIMIT}`),
+    // The complete Box list is not part of the bootstrap: see requestBoxCollection.
+    const [zones, dashboard] = await Promise.all([
       fetchAllPages<ThermalZone>('/api/thermal-zones/?limit=80'),
       apiGet<Dashboard>('/api/dashboard/'),
     ]);
 
     return {
-      boxes,
+      boxes: [] as BoxItem[],
       boxDetails: {},
       zones,
       dashboard,
@@ -435,6 +457,75 @@ export default function App() {
       exportOptions: null,
       profile: scopedProfile,
     };
+  }
+
+  function writeBoxCollection(next: BoxCollectionState) {
+    boxCollectionRef.current = next;
+    setBoxCollection(next);
+  }
+
+  // Box data belongs to one organization session: forget it on every replacement.
+  function resetBoxCollection() {
+    boxCollectionRequestRef.current = null;
+    requestedRecentBoxIdsRef.current = new Set();
+    writeBoxCollection(IDLE_BOX_COLLECTION);
+    setResolvedBoxCode(null);
+  }
+
+  /**
+   * Load every box of the active organization, only when a route needs it.
+   * Concurrent callers share one request; a loaded list is refreshed in the
+   * background once it is old. A failure stays local to the routes that need
+   * the list and never replaces the whole application with an error.
+   */
+  function requestBoxCollection(options: { retry?: boolean } = {}): Promise<void> {
+    const generation = organizationRequestGenerationRef.current;
+    const pending = boxCollectionRequestRef.current;
+    if (pending && pending.generation === generation) return pending.promise;
+
+    const current = boxCollectionRef.current;
+    const isRetry = options.retry === true && current.status === 'error';
+    if (!isRetry && !shouldLoadBoxCollection(current, Date.now())) return Promise.resolve();
+
+    const baselineBoxes = data.boxes;
+    const { setData } = getOperationRequests(generation);
+    if (current.status !== 'ready') writeBoxCollection({ status: 'loading', loadedAt: null });
+
+    const request: Promise<void> = fetchAllPages<BoxItem>(`/api/boxes/?limit=${BOX_LIST_LIMIT}`)
+      .then((boxes) => {
+        if (generation !== organizationRequestGenerationRef.current) return;
+        setData((latest) => ({ ...latest, boxes: mergeLoadedBoxes(latest.boxes, boxes, baselineBoxes) }));
+        writeBoxCollection({ status: 'ready', loadedAt: Date.now() });
+      })
+      .catch(() => {
+        if (generation !== organizationRequestGenerationRef.current) return;
+        // A failed background refresh keeps the list that was already loaded.
+        if (boxCollectionRef.current.status === 'loading') writeBoxCollection({ status: 'error', loadedAt: null });
+      })
+      .finally(() => {
+        if (boxCollectionRequestRef.current?.promise === request) boxCollectionRequestRef.current = null;
+      });
+    boxCollectionRequestRef.current = { generation, promise: request };
+    return request;
+  }
+
+  // Resolve one box through the organization-scoped search, without the full list.
+  async function findBoxBySearch(code: string, matches: (box: BoxItem) => boolean): Promise<BoxItem | null> {
+    const query = code.trim();
+    if (!query) return null;
+    const results = await fetchAllPages<BoxItem>(
+      `/api/boxes/?limit=${BOX_LIST_LIMIT}&q=${encodeURIComponent(query)}`,
+      (page) => page.some(matches),
+    );
+    return results.find(matches) ?? null;
+  }
+
+  async function findBoxIdByCode(code: string): Promise<number | null> {
+    const needle = code.trim().toLowerCase();
+    const box = await findBoxBySearch(code, (item) => (
+      item.global_code.toLowerCase() === needle || item.local_code.toLowerCase() === needle
+    ));
+    return box?.id ?? null;
   }
 
   function updateProfileMembershipResponsable(organizationId: number, isResponsable: boolean) {
@@ -463,6 +554,7 @@ export default function App() {
 
     const requestGeneration = ++organizationRequestGenerationRef.current;
     openBoxRequestGenerationRef.current += 1;
+    resetBoxCollection();
     setIsBoxLoading(false);
     setIsOrganizationMenuOpen(false);
     setNeedsOrganizationChoice(false);
@@ -497,7 +589,7 @@ export default function App() {
       const nextData = await fetchScopedData(data.profile, organizationId);
       if (requestGeneration !== organizationRequestGenerationRef.current) return;
       setData(nextData);
-      setRecentBoxIds(buildRecentBoxIds(nextData.boxes, nextData.dashboard));
+      setRecentBoxIds(getRecentBoxIds(nextData.dashboard));
     } catch (requestError) {
       if (requestGeneration !== organizationRequestGenerationRef.current) return;
       const applicationError = await getApplicationError(requestError);
@@ -552,6 +644,7 @@ export default function App() {
       try {
         setIsLoading(true);
         setError(null);
+        resetBoxCollection();
 
         const profile = await apiGet<UserProfile>('/api/profile/', { skipOrganizationContext: true });
         profileLoaded = true;
@@ -604,7 +697,7 @@ export default function App() {
         if (!isCurrentRequest()) return;
 
         setData(nextData);
-        setRecentBoxIds(buildRecentBoxIds(nextData.boxes, nextData.dashboard));
+        setRecentBoxIds(getRecentBoxIds(nextData.dashboard));
       } catch (requestError) {
         if (!isCurrentRequest()) return;
 
@@ -716,33 +809,106 @@ export default function App() {
     };
   }, [activeOrganizationId, activeTab, data.overview, isLoginRoute, needsOrganizationChoice]);
 
+  const isBoxCollectionReady = boxCollection.status === 'ready';
+  const hasSearch = search.trim() !== '';
+  const needsBoxCollection = needsFullBoxCollection({
+    activeTab,
+    isBoxRoute,
+    hasSearch,
+    zoneId: route.zoneId,
+    zoneHistory: route.zoneHistory,
+    adminSection: route.adminSection,
+    isAdminAvailable: canUseAdmin && isDesktopApp,
+  });
+
+  useEffect(() => {
+    if (!needsBoxCollection) {
+      // Leaving the routes that need the list lets the next visit try again.
+      if (boxCollectionRef.current.status === 'error') writeBoxCollection(IDLE_BOX_COLLECTION);
+      return;
+    }
+    if (isLoginRoute || isLoading || needsOrganizationChoice || activeOrganizationId == null || !data.profile) return;
+    void requestBoxCollection();
+  }, [
+    activeOrganizationId,
+    boxCollection.loadedAt,
+    boxCollection.status,
+    data.profile,
+    isLoading,
+    isLoginRoute,
+    needsBoxCollection,
+    needsOrganizationChoice,
+  ]);
+
+  // A partial list must never answer a search as if it were complete.
   const filteredBoxes = useMemo(
-    () => filterBoxes(data.boxes, search),
-    [data.boxes, search],
+    () => (isBoxCollectionReady ? filterBoxes(data.boxes, search) : []),
+    [data.boxes, isBoxCollectionReady, search],
   );
 
   useEffect(() => {
     if (activeTab === 'pilotage' && !isBoxRoute) setSearch('');
   }, [activeTab, isBoxRoute]);
 
+  const isBoxCodeResolved = resolvedBoxCode != null
+    && resolvedBoxCode.organizationId === activeOrganizationId
+    && resolvedBoxCode.code === route.boxCode;
+
+  // A box reached by code (direct URL, QR) is found among the known boxes first,
+  // then through the organization-scoped search; the full list is not needed.
   const selectedBoxId = useMemo(() => {
     if (route.boxId != null) return route.boxId;
     if (route.boxCode) {
-      return data.boxes.find((box) => box.global_code === route.boxCode)?.id ?? null;
+      const knownBox = data.boxes.find((box) => box.global_code === route.boxCode);
+      if (knownBox) return knownBox.id;
+      return isBoxCodeResolved ? resolvedBoxCode?.boxId ?? null : null;
     }
     return null;
-  }, [data.boxes, route.boxCode, route.boxId]);
+  }, [data.boxes, isBoxCodeResolved, resolvedBoxCode, route.boxCode, route.boxId]);
 
   const selectedBox = useMemo(() => {
     if (selectedBoxId == null) return null;
     return data.boxes.find((box) => box.id === selectedBoxId) ?? null;
   }, [data.boxes, selectedBoxId]);
+  const isBoxCodePending = isBoxRoute && route.boxCode != null && route.boxId == null
+    && selectedBoxId == null && !isBoxCodeResolved;
+
+  useEffect(() => {
+    if (!isBoxCodePending || route.boxCode == null) return;
+    if (isLoginRoute || isLoading || needsOrganizationChoice || activeOrganizationId == null) return;
+
+    const code = route.boxCode;
+    const organizationId = activeOrganizationId;
+    let isActive = true;
+    const requestGeneration = organizationRequestGenerationRef.current;
+    const isCurrentRequest = () => isActive && requestGeneration === organizationRequestGenerationRef.current;
+
+    async function resolveBoxCode() {
+      try {
+        const box = await findBoxBySearch(code, (item) => item.global_code === code);
+        if (!isCurrentRequest()) return;
+        setResolvedBoxCode({ organizationId, code, boxId: box?.id ?? null });
+      } catch (requestError) {
+        if (!isCurrentRequest()) return;
+        const applicationError = await getApplicationError(requestError);
+        if (!isCurrentRequest()) return;
+        setError(applicationError);
+      }
+    }
+
+    void resolveBoxCode();
+    return () => {
+      isActive = false;
+    };
+  }, [activeOrganizationId, isBoxCodePending, isLoading, isLoginRoute, needsOrganizationChoice, route.boxCode]);
   const selectedZone = useMemo(() => {
     if (route.zoneId == null) return null;
     return data.zones.find((zone) => zone.id === route.zoneId) ?? null;
   }, [data.zones, route.zoneId]);
 
   const selectedBoxDetail = selectedBoxId != null ? data.boxDetails[selectedBoxId] ?? null : null;
+  // The detail request starts after the first render of a box reached by id or code.
+  const isBoxDetailPending = selectedBoxId != null && !selectedBoxDetail && !selectedBox;
 
   useEffect(() => {
     let isActive = true;
@@ -803,6 +969,44 @@ export default function App() {
       .filter((box): box is BoxItem => Boolean(box))
       .slice(0, recentBoxLimit);
   }, [data.boxes, recentBoxIds, recentBoxLimit]);
+
+  // Recent boxes come from the dashboard's recent accesses. Only the few that
+  // are displayed are fetched, one by one, instead of downloading every box.
+  useEffect(() => {
+    if (activeTab !== 'pilotage' || isBoxRoute || isLoading || needsOrganizationChoice) return;
+    if (activeOrganizationId == null || !data.profile) return;
+
+    const requestedIds = requestedRecentBoxIdsRef.current;
+    const missingIds = recentBoxIds
+      .slice(0, recentBoxLimit)
+      .filter((boxId) => !requestedIds.has(boxId) && !data.boxes.some((box) => box.id === boxId));
+    if (!missingIds.length) return;
+
+    missingIds.forEach((boxId) => requestedIds.add(boxId));
+    const { apiGet, setData } = getOperationRequests();
+    void Promise.allSettled(missingIds.map((boxId) => apiGet<BoxDetail>(`/api/boxes/${boxId}/`)))
+      .then((results) => {
+        const loadedBoxes: BoxDetail[] = [];
+        results.forEach((result, index) => {
+          if (result.status === 'fulfilled') loadedBoxes.push(result.value);
+          else requestedIds.delete(missingIds[index]);
+        });
+        // A failed recent box is only left out; it is retried on a later visit.
+        if (loadedBoxes.length) {
+          setData((current) => ({ ...current, boxes: upsertBoxes(current.boxes, loadedBoxes) }));
+        }
+      });
+  }, [
+    activeOrganizationId,
+    activeTab,
+    data.boxes,
+    data.profile,
+    isBoxRoute,
+    isLoading,
+    needsOrganizationChoice,
+    recentBoxIds,
+    recentBoxLimit,
+  ]);
 
   /**
    * Open a box sheet from the history with its measurement form pre-filled.
@@ -1641,6 +1845,20 @@ export default function App() {
 
   if (activeTab === 'admin' && !isDesktopApp) return null;
 
+  // Routes that need every box wait for the list on their own, so the rest of
+  // the application stays usable while it loads or if it fails.
+  const isBoxCollectionLoading = !isBoxCollectionReady && boxCollection.status !== 'error';
+  const requestBoxCollectionRetry = () => void requestBoxCollection({ retry: true });
+  const boxCollectionError = boxCollection.status === 'error' ? (
+    <section className="login-notice" role="alert">
+      <h2>{t('pageLoadErrorTitle')}</h2>
+      <p>{t('boxCollectionLoadError')}</p>
+      <button className="secondary-button" type="button" onClick={requestBoxCollectionRetry}>
+        {t('boxCollectionRetry')}
+      </button>
+    </section>
+  ) : null;
+
   const brandIdentity = (
     <>
       <span className="brand-mark" aria-hidden="true">
@@ -1824,12 +2042,11 @@ export default function App() {
               <BoxPage
                 key={`${activeOrganizationId}:${selectedBoxId}`}
                 box={selectedBoxDetail ?? selectedBox}
-                boxes={data.boxes}
                 zones={data.zones}
                 profile={data.profile}
                 language={language}
                 qrLabelSelection={qrLabelSelection}
-                isLoading={isLoading || isBoxLoading}
+                isLoading={isLoading || isBoxLoading || isBoxCodePending || isBoxDetailPending}
                 onCreateMeasurement={createMeasurement}
                 isOperationCurrent={() => operationGeneration === organizationRequestGenerationRef.current}
                 onUpdateMeasurement={updateMeasurement}
@@ -1855,6 +2072,10 @@ export default function App() {
               <PilotageView
                 activeOrganizationId={activeOrganizationId}
                 boxes={data.boxes}
+                boxCollectionStatus={boxCollection.status}
+                onRequestBoxCollection={requestBoxCollection}
+                onRetryBoxCollection={requestBoxCollectionRetry}
+                onResolveBoxCode={findBoxIdByCode}
                 exportOptions={data.exportOptions}
                 isLoading={isLoading}
                 isCreateBoxOpen={isCreateBoxOpen}
@@ -1905,10 +2126,12 @@ export default function App() {
                     onOpenBox={openBox}
                     t={t}
                   />
+                ) : boxCollectionError ? (
+                  boxCollectionError
                 ) : route.zoneBoxes ? (
                   <ZoneBoxesPage
                     boxes={data.boxes}
-                    isLoading={isLoading}
+                    isLoading={isLoading || isBoxCollectionLoading}
                     language={language}
                     zone={selectedZone}
                     onBack={() => closeZoneSubview(route.zoneId as number)}
@@ -1918,7 +2141,7 @@ export default function App() {
                 ) : (
                   <ZoneDetailPage
                     boxes={data.boxes}
-                    isLoading={isLoading}
+                    isLoading={isLoading || isBoxCollectionLoading}
                     language={language}
                     zone={selectedZone}
                     canRecordManualTemperature={userCanWriteLabData(
@@ -1936,10 +2159,10 @@ export default function App() {
                     t={t}
                   />
                 )
-              ) : (
+              ) : boxCollectionError ?? (
                 <ZonesView
                   boxes={data.boxes}
-                  isLoading={isLoading}
+                  isLoading={isLoading || isBoxCollectionLoading}
                   zones={data.zones}
                   onOpenZone={openZone}
                   t={t}
@@ -1960,6 +2183,8 @@ export default function App() {
                 activeOrganizationId={activeOrganizationId}
                 activeSection={route.adminSection ?? 'accounts'}
                 boxes={data.boxes}
+                boxCollectionStatus={boxCollection.status}
+                onRetryBoxCollection={requestBoxCollectionRetry}
                 exportOptions={data.exportOptions}
                 isLoading={isLoading}
                 isOptionsLoading={isExportOptionsLoading}
@@ -1988,10 +2213,10 @@ export default function App() {
               />
             )}
 
-            {activeTab === 'labels' && (
+            {activeTab === 'labels' && (boxCollectionError ?? (
               <LabelsView
                 boxes={data.boxes}
-                isLoading={isLoading}
+                isLoading={isLoading || isBoxCollectionLoading}
                 labels={getLabelsViewLabels(t)}
                 language={language}
                 profile={data.profile}
@@ -2002,7 +2227,7 @@ export default function App() {
                 onClearQrLabelSelection={clearQrLabelSelection}
                 onRemoveQrLabel={removeQrLabelFromSelection}
               />
-            )}
+            ))}
 
             {activeTab === 'profile' && (
               <ProfileView
@@ -2028,6 +2253,7 @@ export default function App() {
       {isTabletScannerOpen && isTabletLayout ? (
         <TabletQrScannerModal
           boxes={data.boxes}
+          onResolveBoxCode={findBoxIdByCode}
           labels={{
             close: t('close'),
 
@@ -2048,6 +2274,10 @@ export default function App() {
       {isPhoneLayout && isPhoneQrOpen ? (
         <QrSearchModal
           boxes={data.boxes}
+          boxCollectionStatus={boxCollection.status}
+          onRequestBoxCollection={requestBoxCollection}
+          onRetryBoxCollection={requestBoxCollectionRetry}
+          onResolveBoxCode={findBoxIdByCode}
           t={t}
           onClose={() => setIsPhoneQrOpen(false)}
           onSelectBox={(boxId) => {
@@ -2116,11 +2346,19 @@ function PhoneBottomNavigation({
 
 function QrSearchModal({
   boxes,
+  boxCollectionStatus,
+  onRequestBoxCollection,
+  onRetryBoxCollection,
+  onResolveBoxCode,
   t,
   onClose,
   onSelectBox,
 }: {
   boxes: BoxItem[];
+  boxCollectionStatus: BoxCollectionState['status'];
+  onRequestBoxCollection: () => void;
+  onRetryBoxCollection: () => void;
+  onResolveBoxCode: (code: string) => Promise<number | null>;
   t: TFunction;
   onClose: () => void;
   onSelectBox: (boxId: number) => void;
@@ -2129,10 +2367,17 @@ function QrSearchModal({
   const returnFocusRef = useRef<HTMLElement | null>(null);
   const [query, setQuery] = useState('');
   const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const isBoxCollectionReady = boxCollectionStatus === 'ready';
+  const hasQuery = query.trim() !== '';
   const results = useMemo(
-    () => query.trim() ? filterBoxes(boxes, query).slice(0, 5) : [],
-    [boxes, query],
+    () => (hasQuery && isBoxCollectionReady ? filterBoxes(boxes, query).slice(0, 5) : []),
+    [boxes, hasQuery, isBoxCollectionReady, query],
   );
+
+  // Scanning needs no list; typing a search does.
+  useEffect(() => {
+    if (hasQuery) onRequestBoxCollection();
+  }, [hasQuery, onRequestBoxCollection]);
 
   useEffect(() => {
     returnFocusRef.current = document.activeElement instanceof HTMLElement
@@ -2176,7 +2421,20 @@ function QrSearchModal({
 
   function selectHighlightedResult() {
     const selected = results[highlightedIndex] ?? results[0];
-    if (selected) onSelectBox(selected.id);
+    if (selected) {
+      onSelectBox(selected.id);
+      return;
+    }
+    // While the full list loads, submitting an exact box code still opens that box.
+    if (hasQuery && !isBoxCollectionReady) {
+      void onResolveBoxCode(query)
+        .then((boxId) => {
+          if (boxId != null) onSelectBox(boxId);
+        })
+        .catch(() => {
+          // The search keeps its loading or retry state; nothing else to report.
+        });
+    }
   }
 
   function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -2221,6 +2479,7 @@ function QrSearchModal({
                 stop: t('qrScannerStop'),
                 unsupported: t('qrScannerUnsupported'),
               }}
+              onResolveBoxCode={onResolveBoxCode}
               onSelectBox={onSelectBox}
             />
 
@@ -2263,7 +2522,9 @@ function QrSearchModal({
                     </button>
                   ))}
                 </div>
-              ) : query.trim() ? (
+              ) : hasQuery && !isBoxCollectionReady ? (
+                <BoxSearchStatus status={boxCollectionStatus} onRetry={onRetryBoxCollection} t={t} />
+              ) : hasQuery ? (
                 <p className="qr-search-empty">{t('searchNoResults')}</p>
               ) : null}
             </div>
@@ -2346,9 +2607,40 @@ function OrganizationChoiceScreen({
   );
 }
 
+function BoxSearchStatus({
+  status,
+  onRetry,
+  t,
+}: {
+  status: BoxCollectionState['status'];
+  onRetry: () => void;
+  t: TFunction;
+}) {
+  if (status === 'error') {
+    return (
+      <section className="suggestion-panel" role="alert">
+        <p className="muted compact-text">{t('boxCollectionLoadError')}</p>
+        <button className="secondary-button" type="button" onClick={onRetry}>
+          {t('boxCollectionRetry')}
+        </button>
+      </section>
+    );
+  }
+
+  return (
+    <section className="suggestion-panel" role="status">
+      <p className="muted compact-text">{t('loading')}</p>
+    </section>
+  );
+}
+
 function PilotageView({
   activeOrganizationId,
   boxes,
+  boxCollectionStatus,
+  onRequestBoxCollection,
+  onRetryBoxCollection,
+  onResolveBoxCode,
   exportOptions,
   isLoading,
   isCreateBoxOpen,
@@ -2370,6 +2662,10 @@ function PilotageView({
 }: {
   activeOrganizationId: number | null;
   boxes: BoxItem[];
+  boxCollectionStatus: BoxCollectionState['status'];
+  onRequestBoxCollection: () => void;
+  onRetryBoxCollection: () => void;
+  onResolveBoxCode: (code: string) => Promise<number | null>;
   exportOptions: ExportOptions | null;
   isLoading: boolean;
   isCreateBoxOpen: boolean;
@@ -2390,6 +2686,7 @@ function PilotageView({
   onSelectBox: (id: number) => void;
 }) {
   const hasSearch = Boolean(search.trim());
+  const isBoxCollectionReady = boxCollectionStatus === 'ready';
   const visibleSuggestions = hasSearch
     ? searchResults.slice(0, isPhoneLayout ? PHONE_RESULT_LIMIT : PILOTAGE_RESULT_LIMIT)
     : [];
@@ -2399,7 +2696,20 @@ function PilotageView({
 
   function selectFirstSuggestion() {
     const selectedSuggestion = visibleSuggestions[highlightedSuggestionIndex] ?? visibleSuggestions[0];
-    if (selectedSuggestion) onSelectBox(selectedSuggestion.id);
+    if (selectedSuggestion) {
+      onSelectBox(selectedSuggestion.id);
+      return;
+    }
+    // While the full list loads, submitting an exact box code still opens that box.
+    if (hasSearch && !isBoxCollectionReady) {
+      void onResolveBoxCode(search)
+        .then((boxId) => {
+          if (boxId != null) onSelectBox(boxId);
+        })
+        .catch(() => {
+          // The search keeps its loading or retry state; nothing else to report.
+        });
+    }
   }
 
   function handleSearchChange(value: string) {
@@ -2466,7 +2776,9 @@ function PilotageView({
               clearLabel={t('searchClear')}
               variant="control-deck"
             />
-            {hasSearch ? (
+            {hasSearch && !isBoxCollectionReady ? (
+              <BoxSearchStatus status={boxCollectionStatus} onRetry={onRetryBoxCollection} t={t} />
+            ) : hasSearch ? (
               <SuggestionList
                 boxes={visibleSuggestions}
                 listId={resultListId}
@@ -2517,6 +2829,7 @@ function PilotageView({
                     stop: t('qrScannerStop'),
                     unsupported: t('qrScannerUnsupported'),
                   }}
+                  onResolveBoxCode={onResolveBoxCode}
                   onSelectBox={onSelectBox}
                 />
               ) : (
@@ -2527,7 +2840,9 @@ function PilotageView({
             </section>
 
             <div className="mobile-suggestion-slot">
-              {tabletLookupMode === 'search' && hasSearch ? (
+              {tabletLookupMode === 'search' && hasSearch && !isBoxCollectionReady ? (
+                <BoxSearchStatus status={boxCollectionStatus} onRetry={onRetryBoxCollection} t={t} />
+              ) : tabletLookupMode === 'search' && hasSearch ? (
                 <SuggestionList
                   boxes={visibleSuggestions}
                   listId={resultListId}
@@ -2553,6 +2868,8 @@ function PilotageView({
           <CreateBoxPanel
             key={activeOrganizationId ?? 'none'}
             boxes={boxes}
+            isBoxCollectionReady={isBoxCollectionReady}
+            onRequestBoxCollection={onRequestBoxCollection}
             exportOptions={exportOptions}
             isOpen={isPhoneLayout ? undefined : isCreateBoxOpen}
             isOptionsLoading={isOptionsLoading}
@@ -2575,6 +2892,8 @@ function PilotageView({
 
 function CreateBoxPanel({
   boxes,
+  isBoxCollectionReady,
+  onRequestBoxCollection,
   exportOptions,
   isOpen: controlledIsOpen,
   isOptionsLoading,
@@ -2590,6 +2909,8 @@ function CreateBoxPanel({
   t,
 }: {
   boxes: BoxItem[];
+  isBoxCollectionReady: boolean;
+  onRequestBoxCollection: () => void;
   exportOptions: ExportOptions | null;
   isOpen?: boolean;
   isOptionsLoading: boolean;
@@ -2681,12 +3002,17 @@ function CreateBoxPanel({
     setStrainId(strains[0]?.id ?? null);
   }, [strainId, strains]);
 
+  // The next code is derived from every existing box, so it waits for the full list.
   useEffect(() => {
-    if (organizationId == null || !selectedStrain) return;
+    if (isOpen) onRequestBoxCollection();
+  }, [isOpen, onRequestBoxCollection]);
+
+  useEffect(() => {
+    if (organizationId == null || !selectedStrain || !isBoxCollectionReady) return;
     const suggestion = buildNextBoxCode(boxes, selectedStrain, organizationId);
     setGlobalCode((current) => current.trim() ? current : suggestion.globalCode);
     setBoxNumber((current) => current.trim() ? current : suggestion.boxNumber);
-  }, [boxes, organizationId, selectedStrain]);
+  }, [boxes, isBoxCollectionReady, organizationId, selectedStrain]);
 
   useEffect(() => {
     if (zoneId == null || availableZones.some((zone) => zone.id === zoneId)) return;
@@ -3131,7 +3457,6 @@ function SuggestionList({
 
 function BoxPage({
   box,
-  boxes,
   zones,
   profile,
   language,
@@ -3157,7 +3482,6 @@ function BoxPage({
   t,
 }: {
   box: BoxItem | BoxDetail | null;
-  boxes: BoxItem[];
   zones: ThermalZone[];
   profile: UserProfile | null;
   language: Language;
@@ -4616,18 +4940,6 @@ function formatSalinity(value: string | number | null | undefined) {
   if (value === null || value === undefined || value === '') return '-';
   const numeric = typeof value === 'string' ? Number.parseFloat(value) : value;
   return Number.isNaN(numeric) ? '-' : numeric.toFixed(1);
-}
-
-function buildRecentBoxIds(boxes: BoxItem[], dashboard: Dashboard) {
-  const idsFromAccesses = dashboard.recent_accesses
-    .map((access) => boxes.find((box) => box.global_code === access.object_id)?.id)
-    .filter((boxId): boxId is number => Boolean(boxId));
-
-  return uniqueNumbers(idsFromAccesses).slice(0, 6);
-}
-
-function uniqueNumbers(values: number[]) {
-  return values.filter((value, index) => values.indexOf(value) === index);
 }
 
 function getLanguage(profile: UserProfile | null): Language {

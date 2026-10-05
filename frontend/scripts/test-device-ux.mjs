@@ -89,13 +89,17 @@ test('tablet recent limit includes portrait and updates on media changes', () =>
 });
 
 test('recent bootstrap preserves access ordering, uniqueness and six-item cap', () => {
-  const context = {};
-  evaluate(sourceFunction(app, 'buildRecentBoxIds') + sourceFunction(app, 'uniqueNumbers'), context);
-  const boxes = Array.from({ length: 9 }, (_, id) => ({ id: id + 1, global_code: `B${id + 1}` }));
-  const accesses = ['unknown', 'B4', 'B2', 'B4', 'B9', 'B1', 'B6', 'B3', 'B8'].map(object_id => ({ object_id }));
-  assert.deepEqual(Array.from(context.buildRecentBoxIds(boxes, { recent_accesses: accesses })), [4, 2, 9, 1, 6, 3]);
-  assert.deepEqual(Array.from(context.buildRecentBoxIds(boxes, { recent_accesses: [] })), []);
-  assert.deepEqual(Array.from(context.buildRecentBoxIds(boxes, { recent_accesses: accesses.slice(0, 3) })), [4, 2]);
+  // Recent ids come from the dashboard accesses themselves: no Box list is needed.
+  const exports = {};
+  evaluate(ts.transpileModule(read('../src/utils/boxCollection.ts'), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+  }).outputText, { exports });
+  const { getRecentBoxIds } = exports;
+  const accesses = [{ object_id: 'unknown' }, { metadata: null }, { metadata: { box_id: '4' } }, { metadata: { box_id: 0 } },
+    ...[4, 2, 4, 9, 1, 6, 3, 8].map(box_id => ({ object_id: `B${box_id}`, metadata: { box_id } }))];
+  assert.deepEqual(Array.from(getRecentBoxIds({ recent_accesses: accesses })), [4, 2, 9, 1, 6, 3]);
+  assert.deepEqual(Array.from(getRecentBoxIds({ recent_accesses: [] })), []);
+  assert.deepEqual(Array.from(getRecentBoxIds({ recent_accesses: accesses.slice(0, 7) })), [4, 2]);
   assert.match(app, /currentIds\.filter\(\(currentId\) => currentId !== selectedBoxId\),\s*\]\.slice\(0, 6\)/);
   assert.match(app, /\.slice\(0, recentBoxLimit\);\s*\}, \[data\.boxes, recentBoxIds, recentBoxLimit\]\)/);
 });
@@ -105,10 +109,12 @@ test('portrait search renders empty feedback and clearing; no search renders no 
   for (const search of ['missing', '']) {
     let index = 0;
     const context = { React, useState: init => [index++ === 0 ? 'search' : init, () => {}], userCanCreateBoxes: () => false,
-      PHONE_RESULT_LIMIT: 5, PILOTAGE_RESULT_LIMIT: 15, SearchField: 'SearchField', SuggestionList: 'SuggestionList', RecentAccessList: 'RecentAccessList' };
+      PHONE_RESULT_LIMIT: 5, PILOTAGE_RESULT_LIMIT: 15, SearchField: 'SearchField', SuggestionList: 'SuggestionList', RecentAccessList: 'RecentAccessList',
+      BoxSearchStatus: 'BoxSearchStatus' };
     evaluate(source, context);
     let cleared;
-    const tree = context.PilotageView({ isPhoneLayout: true, search, searchResults: [], recentBoxes: [], t: key => key, onSearch: value => { cleared = value; } });
+    const props = { isPhoneLayout: true, search, searchResults: [], recentBoxes: [], boxCollectionStatus: 'ready', t: key => key, onSearch: value => { cleared = value; } };
+    const tree = context.PilotageView(props);
     const results = nodes(tree).find(el => el.type === 'SuggestionList');
     assert.equal(Boolean(results), Boolean(search));
     if (results) { assert.equal(results.props.boxes.length, 0); results.props.onClear(); assert.equal(cleared, ''); }

@@ -33,7 +33,7 @@ test('route request guard rejects stale request and navigation generations', () 
 test('idle and active search states switch recent content correctly', () => {
   assert.match(appSource, /const hasSearch = Boolean\(search\.trim\(\)\)/);
   assert.match(appSource, /\{\(!hasSearch \|\| isPhoneLayout\) \? \(\s*<RecentAccessList/s);
-  assert.match(appSource, /\{hasSearch \? \(\s*<SuggestionList/s);
+  assert.match(appSource, /\{hasSearch && !isBoxCollectionReady \? \(\s*<BoxSearchStatus[^>]*\/>\s*\) : hasSearch \? \(\s*<SuggestionList/s);
 });
 
 test('zero results render explicit feedback and a clear action', () => {

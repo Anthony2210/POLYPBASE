@@ -42,6 +42,7 @@ import {
   type MemberRoleFilter,
   type MemberRowAction,
 } from '../utils/accountMembers';
+import type { BoxCollectionStatus } from '../utils/boxCollection';
 import { formatDisplayDate, formatRelativeDateTime } from '../utils/dateFormat';
 
 import { getAccountErrorMessage, getErrorMessage } from '../utils/errors';
@@ -2869,6 +2870,8 @@ export default function AdminView({
   activeOrganizationId,
   activeSection,
   boxes,
+  boxCollectionStatus,
+  onRetryBoxCollection,
   exportOptions,
   isLoading,
   isOptionsLoading,
@@ -2898,7 +2901,10 @@ export default function AdminView({
   activeOrganizationId: number | null;
   activeSection: AdminSectionKey;
   onEditMeasurement: (measurement: EditableMeasurement) => void;
+  // Only the transfers section needs every box; the others work without them.
   boxes: BoxItem[];
+  boxCollectionStatus: BoxCollectionStatus;
+  onRetryBoxCollection: () => void;
   exportOptions: ExportOptions | null;
   isLoading: boolean;
   isOptionsLoading: boolean;
@@ -3022,7 +3028,22 @@ export default function AdminView({
             />
           ) : null}
 
-          {displayedSection === 'transfers' && !isOptionsLoading ? (
+          {displayedSection === 'transfers' && !isOptionsLoading && boxCollectionStatus === 'error' ? (
+            <section className="login-notice" role="alert">
+              <h2>{t('pageLoadErrorTitle')}</h2>
+              <p>{t('boxCollectionLoadError')}</p>
+              <button className="secondary-button" type="button" onClick={onRetryBoxCollection}>
+                {t('boxCollectionRetry')}
+              </button>
+            </section>
+          ) : null}
+
+          {displayedSection === 'transfers' && !isOptionsLoading && boxCollectionStatus !== 'error'
+            && boxCollectionStatus !== 'ready' ? (
+            <PageLoader variant="admin" label={t('loading')} />
+          ) : null}
+
+          {displayedSection === 'transfers' && !isOptionsLoading && boxCollectionStatus === 'ready' ? (
             <TransfersAdminSection
               profile={profile}
               boxes={boxes}
