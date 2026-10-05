@@ -1,5 +1,6 @@
 import type { AuditBusinessDetails, AuditChanges, AuditContext, AuditFamily, AuditValue, AuditValues } from '../types';
 import { getDocumentLocale } from './dateFormat';
+import { formatReadableUserIdentity, type ReadableUserIdentity } from './userIdentity';
 
 type Translate = (key: string) => string;
 
@@ -69,8 +70,11 @@ export type AuditEntryLike = {
   action: string;
   action_label?: string;
   description: string;
+  family?: AuditFamily;
+  resource?: { type: string };
   object_type?: string;
   object_id?: string;
+  account_identity?: ReadableUserIdentity | null;
   metadata?: Record<string, unknown>;
   business_details?: AuditBusinessDetails | null;
   context?: AuditContext | null;
@@ -78,6 +82,7 @@ export type AuditEntryLike = {
 
 export type AuditResourceLike = {
   type: string;
+  account_identity?: ReadableUserIdentity | null;
   identifier?: string | null;
   label?: string | null;
 };
@@ -244,6 +249,16 @@ const DESCRIPTION_EXACT_KEYS: Record<string, string> = {
   'Password reset from the login page': 'auditDescriptionPasswordReset',
 };
 
+const ACCOUNT_DESCRIPTIONS = new Set([
+  'Member access created',
+  'Member access restored',
+  'Member access updated',
+  'Institution Responsable granted by platform',
+  'Institution Responsable revoked by platform',
+  'Institution Responsable relinquished',
+  'Password reset from the login page',
+]);
+
 const BUSINESS_SUMMARY_PREFIX_KEYS: Array<[string, string]> = [
   ['Box created manually: ', 'auditSummaryBoxCreated'],
   ['Box opened: ', 'auditSummaryBoxOpened'],
@@ -387,8 +402,18 @@ export function getAuditInlineBusinessItems(
   details: AuditBusinessDetails | null | undefined,
   t: Translate,
   description?: string,
+  entry?: AuditEntryLike,
 ): AuditInlineBusinessItem[] {
   if (!details) return [];
+
+  // Legacy account events can carry generic reference details. Keep their
+  // identity snapshots out of the inline path using the same account allowlist.
+  if (details.type !== 'account' && entry && isAccountAuditEntry(entry)) {
+    return getAuditInlineBusinessItems({
+      type: 'account',
+      changes: 'changes' in details ? details.changes : undefined,
+    }, t);
+  }
 
   if (details.type === 'box_movement') return [];
 
@@ -430,7 +455,7 @@ export function getAuditInlineBusinessItems(
   }
 
   if (details.type === 'account') {
-    const changes = details.changes ?? {};
+    const changes = getSafeAccountFields(details.changes) ?? {};
     const keys = Object.keys(changes);
     if (!keys.length) {
       return [];
@@ -524,6 +549,7 @@ export function getAuditBusinessSummary(entry: AuditEntryLike, t: Translate): st
   const details = entry.business_details;
   const accountTitle = getAccountActionTitle(entry, t);
   if (accountTitle) return accountTitle;
+  if (isAccountAuditEntry(entry)) return getAccountSummaryLabel(entry, t);
   if (isManualEnvironmentDescription(description)) return getAuditDescriptionLabel(entry, t);
   if (details?.type === 'box_movement' && details.to_zone) {
     return fillTemplate(t('auditSummaryBoxMovedTo'), { location: details.to_zone });
@@ -600,7 +626,22 @@ function isAuditValueTransition(change: AuditValueChange): boolean {
   return !Object.is(before, after);
 }
 
+function isAccountAuditEntry(entry: AuditEntryLike): boolean {
+  return entry.family === 'accounts'
+    || entry.object_type === 'account' || entry.object_type === 'user'
+    || entry.resource?.type === 'account' || entry.resource?.type === 'user'
+    || entry.business_details?.type === 'account';
+}
+
+/** Account descriptions can contain legacy usernames; only known labels are displayable. */
+function getAccountSummaryLabel(entry: AuditEntryLike, t: Translate): string {
+  const description = (entry.description || '').trim();
+  if (ACCOUNT_DESCRIPTIONS.has(description)) return t(DESCRIPTION_EXACT_KEYS[description]);
+  return t(ACTION_LABEL_KEYS[entry.action] ?? 'auditObjectAccount');
+}
+
 export function getAuditDescriptionLabel(entry: AuditEntryLike, t: Translate): string {
+  if (isAccountAuditEntry(entry)) return getAccountSummaryLabel(entry, t);
   const description = (entry.description || '').trim();
 
   if (description.startsWith('Biological measurement edited for ')) {
@@ -764,6 +805,13 @@ export type AuditDetailContent = {
   changes: AuditChanges | null;
 };
 
+function getSafeAccountFields<T>(fields: Record<string, T> | undefined): Record<string, T> | undefined {
+  if (!fields) return undefined;
+  return Object.fromEntries(Object.entries(fields).filter(([key]) =>
+    ['role', 'acces_actif', 'is_responsable', 'structure'].includes(key),
+  ));
+}
+
 export function getAuditBusinessDetailContent(details: AuditBusinessDetails | null | undefined): AuditDetailContent {
   if (!details || typeof details !== 'object') return { values: null, changes: null };
 
@@ -773,8 +821,14 @@ export function getAuditBusinessDetailContent(details: AuditBusinessDetails | nu
         values: null,
         changes: compactAuditChanges(withoutAuditInlineMeasurementFields(details.changes)),
       };
+    case 'account': {
+      const changes = compactAuditChanges(getSafeAccountFields(details.changes));
+      return {
+        values: compactAuditRecord(withoutAuditRepeatedFields(getSafeAccountFields(details.values), changes, true)),
+        changes,
+      };
+    }
     case 'box':
-    case 'account':
     case 'reference': {
       const changes = compactAuditChanges('changes' in details ? details.changes : undefined);
       return {
@@ -821,7 +875,7 @@ export function getAuditBusinessDetailContent(details: AuditBusinessDetails | nu
 }
 
 export function getAuditBusinessNote(details: AuditBusinessDetails | null | undefined): string {
-  if (!details) return '';
+  if (!details || details.type === 'account') return '';
   if (details.type === 'measurement') {
     const changedNote = getAuditValueChange(details.changes?.note ?? details.changes?.notes);
     if (changedNote) return typeof changedNote.after === 'string' ? changedNote.after.trim() : '';
@@ -939,19 +993,16 @@ function getReadableTargetLabel(objectType: string | undefined, value: string | 
 }
 
 /**
- * Readable target of an administration entry. Account targets come from the
- * trusted audit values, because the raw object id is an opaque internal
- * username that must never reach the interface.
+ * Account targets use only the server-resolved current structured identity.
+ * Legacy snapshots and raw object ids may contain arbitrary technical usernames.
  */
 export function getAuditTargetLabel(entry: AuditEntryLike, t?: Translate): string {
   if (entry.object_type === 'account') {
     const details = entry.business_details;
     const values = details?.type === 'account' ? details.values : undefined;
-    const name = typeof values?.nom === 'string' ? values.nom : '';
-    const email = typeof values?.email === 'string' ? values.email : '';
-    const label = getAccountDisplayLabel(name) || getAccountDisplayLabel(email);
+    const label = formatReadableUserIdentity(entry.account_identity) || (t ? t('historicalUser') : '');
     if (entry.description !== 'Member access created' || !t) return label;
-    const emailLabel = getAccountDisplayLabel(email);
+    const emailLabel = entry.account_identity?.email.trim() ?? '';
     const role = values?.role;
     return [label, emailLabel && emailLabel !== label ? `<${emailLabel}>` : '',
       typeof role === 'string' && ['admin', 'lab_technician', 'viewer'].includes(role)
@@ -963,24 +1014,8 @@ export function getAuditTargetLabel(entry: AuditEntryLike, t?: Translate): strin
 
 export function getPersonalResourceLabel(resource: AuditResourceLike): string {
   const label = (resource.label ?? resource.identifier ?? '').trim();
-  if (resource.type === 'account') return getAccountDisplayLabel(label);
+  if (resource.type === 'account') return formatReadableUserIdentity(resource.account_identity);
   return getReadableTargetLabel(resource.type, label);
-}
-
-export function getAccountDisplayLabel(value: string | null | undefined): string {
-  const label = (value ?? '').trim();
-  if (!label || label.startsWith('internal_')) return '';
-  return label.includes('@') ? label : formatPersonName(label);
-}
-
-export function formatPersonName(value: string): string {
-  const parts = value.trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return '';
-  if (parts.length === 1) return formatFirstName(parts[0]);
-
-  const lastName = parts[parts.length - 1];
-  const firstNames = parts.slice(0, -1).map(formatFirstName).join(' ');
-  return `${firstNames} ${formatLastName(lastName)}`;
 }
 
 export function getMetadataRecord(value: unknown): Record<string, unknown> | null {
@@ -999,20 +1034,6 @@ function formatTechnicalDate(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
   const [year, month, day] = value.split('-');
   return `${day}/${month}/${year}`;
-}
-
-function formatFirstName(value: string) {
-  return value
-    .trim()
-    .replace(/\s+/g, ' ')
-    .toLocaleLowerCase('fr-FR')
-    .replace(/(^|[\s'-])(\p{L})/gu, (_match, separator: string, letter: string) => {
-      return `${separator}${letter.toLocaleUpperCase('fr-FR')}`;
-    });
-}
-
-function formatLastName(value: string) {
-  return value.trim().replace(/\s+/g, ' ').toLocaleUpperCase('fr-FR');
 }
 
 function splitOnce(value: string, separator: string): [string, string | null] {

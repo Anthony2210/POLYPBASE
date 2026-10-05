@@ -6,6 +6,7 @@ from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
+from apps.accounts.identity import serialize_user_identity
 from apps.accounts.permissions import user_can_write_lab_data
 from apps.audit.models import AuditLog
 from apps.taxonomy.scoping import eligible_strains
@@ -577,6 +578,7 @@ def _serialize_lineage_graph_edge(lineage):
                 "reason": event.reason,
                 "notes": event.notes,
                 "user": event.user.get_username() if event.user else None,
+                "user_identity": serialize_user_identity(event.user),
             }
             if event
             else None

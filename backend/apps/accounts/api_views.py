@@ -44,6 +44,7 @@ from apps.audit.services import (
     parse_audit_pagination,
     readable_account_label,
     related_measurement_action_counts,
+    resolve_audit_accounts,
     resolve_audit_box_references,
     resolve_audit_measurements,
     resolve_audit_subculture_children,
@@ -55,6 +56,7 @@ from apps.audit.services import (
 )
 from apps.organizations.models import Organization
 
+from .identity import serialize_user_identity
 from .models import OrganizationMembership, UserPreference
 from .serializers import (
     UserPreferenceSerializer,
@@ -503,6 +505,8 @@ def _member_data(membership, *, current_user):
         "membership_id": membership.id,
         "user_id": user.id,
         "full_name": full_name,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
         "email": user.email,
         "organization": {
             "id": membership.organization.id,
@@ -1019,7 +1023,7 @@ class PersonalAuditLogListAPIView(APIView):
             actor=request.user,
         )
         logs, has_more = paginate_audit_logs(
-            logs_query.select_related("organization"),
+            logs_query.select_related("organization", "user", "edited_by"),
             limit=limit,
             offset=offset,
         )
@@ -1035,6 +1039,9 @@ class PersonalAuditLogListAPIView(APIView):
             logs,
             organization_id=organization.id,
         )
+        accounts_by_log_id = resolve_audit_accounts(
+            logs, organization_id=organization.id,
+        )
         return Response(
             {
                 "results": [
@@ -1047,6 +1054,7 @@ class PersonalAuditLogListAPIView(APIView):
                             else None
                         ),
                         subculture_children=subculture_children_by_log_id.get(log.id),
+                        account=accounts_by_log_id.get(log.id),
                     )
                     for log in logs
                 ],
@@ -1166,6 +1174,9 @@ class AdminAuditLogListAPIView(APIView):
             organization_id=organization_ids[0],
         )
 
+        accounts_by_log_id = resolve_audit_accounts(
+            logs, organization_id=organization_ids[0],
+        )
         payload = {
             "results": [
                 self._serialize_log(
@@ -1175,6 +1186,7 @@ class AdminAuditLogListAPIView(APIView):
                     boxes_by_code,
                     subculture_children_by_log_id,
                     related_action_count=related_action_counts.get(log.id, 0),
+                    account=accounts_by_log_id.get(log.id),
                 )
                 for log in logs
             ],
@@ -1200,6 +1212,7 @@ class AdminAuditLogListAPIView(APIView):
         subculture_children_by_log_id,
         *,
         related_action_count=0,
+        account=None,
     ):
         measurement = self._resolve_measurement(
             log,
@@ -1215,6 +1228,8 @@ class AdminAuditLogListAPIView(APIView):
             # for compatibility, but it is an opaque internal_<uuid> for accounts
             # created by the application, so it must never be displayed.
             "user_display": readable_account_label(log.user),
+            "user_identity": serialize_user_identity(log.user),
+            "account_identity": serialize_user_identity(account),
             "action": log.action,
             "action_label": log.get_action_display(),
             "family": log.business_family,
@@ -1227,6 +1242,7 @@ class AdminAuditLogListAPIView(APIView):
             "edited_at": log.edited_at,
             "edited_by": log.edited_by.get_username() if log.edited_by else None,
             "edited_by_display": readable_account_label(log.edited_by),
+            "edited_by_identity": serialize_user_identity(log.edited_by),
             "metadata": self._enriched_metadata(log, measurement),
             "business_details": serialize_business_details(
                 log,

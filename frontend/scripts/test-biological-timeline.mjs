@@ -53,6 +53,7 @@ function chartHarness() {
   };
   const chart = load('../src/components/BiologicalTrendChart.tsx', {
     react: hooks, 'react/jsx-runtime': jsxRuntime, 'd3-scale': scales, 'd3-shape': shapes,
+    '../utils/userIdentity': utility('userIdentity'),
     '../utils/dateFormat': utility('dateFormat'), '../utils/chartBiology': utility('chartBiology'), '../utils/chartLocations': utility('chartLocations'),
   });
   return { chart, render(props) { stateIndex = 0; return chart.default(props); } };

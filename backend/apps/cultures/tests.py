@@ -1025,7 +1025,7 @@ class PolypbaseApiTests(TestCase):
         transfer = BoxTransfer.objects.get(box=self.box)
         self.assertEqual(transfer.polyp_count, 75)
         self.assertEqual(transfer.user, self.user)
-        self.assertEqual(response.json()["prepared_by"], "Camille Martin")
+        self.assertEqual(response.json()["prepared_by"], "Camille MARTIN")
 
     def test_transfer_rejects_a_zero_polyp_count(self):
         membership = OrganizationMembership.objects.get(

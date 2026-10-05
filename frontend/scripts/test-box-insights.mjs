@@ -85,6 +85,7 @@ function createInsights(overrides = {}) {
     react: hooks,
     'react/jsx-runtime': jsxRuntime,
     '../utils/dateFormat': dateFormat,
+    '../utils/userIdentity': loadModule('../src/utils/userIdentity.ts'),
     '../i18n': i18n,
     '../utils/biologicalTimeline': biologicalTimeline,
     './PolypbaseIcon': { default: () => null },
@@ -154,8 +155,8 @@ test('empty movement history is compact and contains no invented events', () => 
   assert.equal(h.find(node => node.type === 'time').length, 0);
 });
 
-test('one movement keeps actual locations, timestamp, username and notes', () => {
-  const row = movement({ notes: 'Line one\nLine two <script>not markup</script>' });
+test('one movement keeps actual locations, timestamp, structured author and notes', () => {
+  const row = movement({ user_identity: { first_name: 'Élise', last_name: 'du Pont-Martin', email: '' }, notes: 'Line one\nLine two <script>not markup</script>' });
   const h = createInsights({ movements: [row] });
   assert.equal(h.rows().length, 1);
   const time = h.find(node => node.type === 'time')[0];
@@ -163,12 +164,23 @@ test('one movement keeps actual locations, timestamp, username and notes', () =>
   assert.equal(text(time), dateFormat.formatDisplayDateTime(row.moved_at));
   const locations = h.find(node => node.props.className === 'movement-locations')[0];
   assert.deepEqual(h.find(node => node.type === 'span', locations).map(text), ['Origin', '→', 'Destination']);
-  assert.equal(text(h.find(node => node.type === 'small')[0]), row.user);
+  assert.equal(text(h.find(node => node.type === 'small')[0]), 'Élise DU PONT-MARTIN');
+    assert.doesNotMatch(h.html, /internal_unchanged/);
   assert.equal(text(h.find(node => node.type === 'p')[0]), row.notes);
   assert.match(h.html, /&lt;script&gt;not markup&lt;\/script&gt;/);
   assert.equal(h.find(node => node.props.className === 'movement-event').length, 1);
   assert.equal(h.find(node => node.type === 'ol')[0].props.role, 'list');
 });
+
+for (const language of ['fr', 'en']) {
+  test(`${language}: historical movement authors ignore arbitrary raw usernames`, () => {
+    for (const user of ['internal_opaque', 'legacy.tech', 'raw@example.org']) {
+      const h = createInsights({ language, labels: labelsFor(language), movements: [movement({ user, user_identity: null })] });
+      assert.equal(text(h.find(node => node.type === 'small')[0]), catalogs[language].historicalUser);
+      assert.equal(h.html.includes(user), false);
+    }
+  });
+}
 
 test('multiple movements sort newest first including same-day times without mutating input', () => {
   const input = Object.freeze([
@@ -188,7 +200,8 @@ test('missing origin does not invent a previous place, author or note', () => {
   const locations = h.find(node => node.props.className === 'movement-locations')[0];
   assert.deepEqual(h.find(node => node.type === 'span', locations).map(text), [catalogs.fr.movedTo, 'Destination']);
   assert.equal(h.find(node => node.props.className === 'movement-arrow').length, 0);
-  assert.equal(h.find(node => node.type === 'small' || node.type === 'p').length, 0);
+  assert.equal(text(h.find(node => node.type === 'small')[0]), catalogs.fr.historicalUser);
+    assert.equal(h.find(node => node.type === 'p').length, 0);
 });
 
 test('long locations are rendered in full, with no directional color contract', () => {

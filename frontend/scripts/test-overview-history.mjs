@@ -36,6 +36,7 @@ const trendChart = loadModule('../src/components/BiologicalTrendChart.tsx', {
   },
   'react/jsx-runtime': { jsx: chartJsx, jsxs: chartJsx, Fragment: Symbol('Fragment') },
   'd3-scale': scales, 'd3-shape': shapes,
+  '../utils/userIdentity': loadModule('../src/utils/userIdentity.ts'),
   '../utils/dateFormat': loadModule('../src/utils/dateFormat.ts'),
   '../utils/chartBiology': loadModule('../src/utils/chartBiology.ts'),
   '../utils/chartLocations': loadModule('../src/utils/chartLocations.ts'),

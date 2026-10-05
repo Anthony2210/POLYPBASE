@@ -8,10 +8,10 @@ import type {
   AuditContext,
   AuditFamily,
   EditableMeasurement,
+  ReadableUserIdentity,
 } from '../types';
 import {
   formatAuditTime,
-  getAccountDisplayLabel,
   getAuditBoxSummaryParts,
   getAuditFamilyLabel,
   getAuditTargetLabel,
@@ -27,6 +27,7 @@ import {
 } from '../utils/adminAudit';
 
 import { getErrorMessage } from '../utils/errors';
+import { formatReadableUserIdentity } from '../utils/userIdentity';
 import {
   AuditBusinessNote,
   AuditContextSummary,
@@ -44,6 +45,8 @@ export type AdminAuditLogEntry = {
   organization: string | null;
   user: string | null;
   user_display: string | null;
+  user_identity: ReadableUserIdentity | null;
+  account_identity: ReadableUserIdentity | null;
   action: string;
   action_label: string;
   family: AuditFamily;
@@ -54,6 +57,7 @@ export type AdminAuditLogEntry = {
   edited_at: string | null;
   edited_by: string | null;
   edited_by_display: string | null;
+  edited_by_identity: ReadableUserIdentity | null;
   business_details: AuditBusinessDetails;
   box_reference: AuditBoxReference | null;
   context: AuditContext;
@@ -344,7 +348,7 @@ function AdminAuditRow({
         <time className="admin-audit-time" dateTime={entry.effective_at}>
           {formatAuditTime(entry.effective_at)}
         </time>
-        <strong className="admin-audit-author">{getAccountDisplayLabel(entry.user_display) || '-'}</strong>
+        <strong className="admin-audit-author">{formatReadableUserIdentity(entry.user_identity) || t('historicalUser')}</strong>
         <div className="admin-audit-main">
           <AuditPrimarySummary
             boxReference={entry.box_reference}
@@ -368,7 +372,7 @@ function AdminAuditRow({
           ) : targetLabel && !hasAuditManualEnvironmentTarget(entry) ? (
             <div className="admin-audit-target"><span>{targetLabel}</span></div>
           ) : null}
-          <AuditInlineBusinessSummary description={entry.description} details={entry.business_details} t={t} />
+          <AuditInlineBusinessSummary entry={entry} description={entry.description} details={entry.business_details} t={t} />
           <AuditContextSummary
             context={entry.context}
             hidePrimaryResource={hasInlineBoxSummary || hasSubcultureSummary}

@@ -12,6 +12,7 @@ import { scaleLinear, scaleTime } from 'd3-scale';
 import { line } from 'd3-shape';
 
 import { formatDisplayDate } from '../utils/dateFormat';
+import { formatReadableUserIdentity, type ReadableUserIdentity } from '../utils/userIdentity';
 import {
   chartBiologicalValues,
   dismissPinnedChartDetail,
@@ -35,6 +36,7 @@ export type TrendMeasurement = {
   ephyraeCount: number;
   salinity?: string | number | null;
   enteredBy?: string | null;
+  user_identity?: ReadableUserIdentity | null;
   note?: string | null;
 };
 
@@ -48,6 +50,7 @@ export type TrendPolypState = {
   title: string;
   detailLines?: Array<{ label: string; value: string }>;
   enteredBy?: string | null;
+  user_identity?: ReadableUserIdentity | null;
   note?: string | null;
 };
 
@@ -73,6 +76,7 @@ type TrendLabels = {
   empty: string;
   ephyrae: string;
   enteredBy?: string;
+  historicalUser?: string;
   location: string;
   missingReading: string;
   movement?: string;
@@ -624,8 +628,8 @@ function buildMeasurementDetailLines(
     lines.push({ kind: 'location', label: labels.location, value: locationName });
   }
 
-  if (labels.enteredBy && measurement.enteredBy?.trim()) {
-    lines.push({ kind: 'user', label: labels.enteredBy, value: measurement.enteredBy.trim() });
+  if (labels.enteredBy) {
+    lines.push({ kind: 'user', label: labels.enteredBy, value: formatReadableUserIdentity(measurement.user_identity) || labels.historicalUser || '—' });
   }
 
   if (labels.observation && measurement.note?.trim()) {

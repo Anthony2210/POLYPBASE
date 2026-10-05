@@ -20,7 +20,7 @@ function loadModuleWithRequire(relativePath, requireMap) {
 }
 
 const dateFormat = loadModuleWithRequire('../src/utils/dateFormat.ts', {});
-const audit = loadModuleWithRequire('../src/utils/auditPresentation.ts', { './dateFormat': dateFormat });
+const audit = loadModuleWithRequire('../src/utils/auditPresentation.ts', { './dateFormat': dateFormat, './userIdentity': loadModuleWithRequire('../src/utils/userIdentity.ts', {}) });
 const t = (key) => key;
 
 test('the API type admits null strobilae, distinct from a measured zero', () => {

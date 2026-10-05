@@ -35,6 +35,7 @@ function loadModuleWithRequire(relativePath, requireMap) {
 const dateFormat = loadModule('../src/utils/dateFormat.ts');
 const audit = loadModuleWithRequire('../src/utils/auditPresentation.ts', {
   './dateFormat': dateFormat,
+  './userIdentity': loadModule('../src/utils/userIdentity.ts'),
 });
 const personalActions = loadModuleWithRequire('../src/utils/personalActions.ts', {
   './auditPresentation': audit,
@@ -54,7 +55,7 @@ function renderBusinessRow(entry, t = tFr, boxReference = null) {
       entry, boxReference, className: 'audit-summary', language: 'fr', t,
     }),
     createElement(timeline.AuditInlineBusinessSummary, {
-      description: entry.description, details: entry.business_details, t,
+      entry, description: entry.description, details: entry.business_details, t,
     }),
     createElement(timeline.AuditBusinessNote, { details: entry.business_details, t }),
   ));
@@ -427,13 +428,13 @@ test('the qualified historical box status is translated', () => {
   assert.equal(label, 'Boîte historique qualifiée (Inactive) : ATL-AAU-1.001');
 });
 
-test('readable account labels never expose an internal username', () => {
-  assert.equal(audit.getAccountDisplayLabel('internal_0123456789abcdef'), '');
-  assert.equal(audit.getAccountDisplayLabel('Camille DURAND'), 'Camille DURAND');
-  assert.equal(audit.getAccountDisplayLabel('camille@example.org'), 'camille@example.org');
-  assert.equal(audit.getAccountDisplayLabel(null), '');
-  assert.equal(audit.getAccountDisplayLabel(''), '');
-  assert.equal(audit.getAccountDisplayLabel('  '), '');
+test('legacy account snapshots never expose arbitrary technical usernames', () => {
+  for (const raw of ['internal_0123456789abcdef', 'legacy-tech', 'Camille DURAND', 'camille@example.org']) {
+    const entry = { object_type: 'account', object_id: raw, business_details: { type: 'account', values: { nom: raw, email: raw } } };
+    assert.equal(audit.getAuditTargetLabel(entry), '');
+    assert.equal(audit.getAuditTargetLabel(entry, tFr), fr.historicalUser);
+    assert.equal(audit.getAuditTargetLabel(entry, tEn), en.historicalUser);
+  }
 });
 
 test('administration account targets use normalized business details, never the internal id', () => {
@@ -442,6 +443,7 @@ test('administration account targets use normalized business details, never the 
     description: 'Member access updated',
     object_type: 'account',
     object_id: 'internal_0123456789abcdef',
+    account_identity: { first_name: 'Camille', last_name: 'Durand', email: 'camille@example.org' },
     business_details: {
       type: 'account',
       values: { nom: 'Camille DURAND', email: 'camille@example.org' },
@@ -451,6 +453,7 @@ test('administration account targets use normalized business details, never the 
 
   const emailOnly = {
     ...entry,
+    account_identity: { first_name: '', last_name: '', email: 'camille@example.org' },
     business_details: {
       type: 'account',
       values: { nom: 'internal_0123456789abcdef', email: 'camille@example.org' },
@@ -458,7 +461,7 @@ test('administration account targets use normalized business details, never the 
   };
   assert.equal(audit.getAuditTargetLabel(emailOnly), 'camille@example.org');
 
-  const noValues = { ...entry, business_details: { type: 'account' } };
+  const noValues = { ...entry, account_identity: null, business_details: { type: 'account' } };
   assert.equal(audit.getAuditTargetLabel(noValues), '');
 
   const boxEntry = {
@@ -470,7 +473,7 @@ test('administration account targets use normalized business details, never the 
   assert.equal(audit.getAuditTargetLabel(boxEntry), 'ATL-AAU-1.001');
 
   const adminSource = readSource('../src/components/AdminAuditSection.tsx');
-  assert.match(adminSource, /getAccountDisplayLabel\(entry\.user_display\) \|\| '-'/);
+  assert.match(adminSource, /formatReadableUserIdentity\(entry\.user_identity\) \|\| t\('historicalUser'\)/);
   assert.doesNotMatch(adminSource, /\{entry\.user\}/);
 });
 
@@ -479,7 +482,8 @@ test('personal resource labels never expose an internal identifier', () => {
     audit.getPersonalResourceLabel({
       type: 'account',
       identifier: 'internal_0123456789abcdef',
-      label: 'Camille DURAND',
+      label: 'untrusted-label',
+      account_identity: { first_name: 'Camille', last_name: 'Durand', email: '' },
     }),
     'Camille DURAND',
   );
@@ -819,7 +823,7 @@ test('salinity summaries and immutable values are readable in both timelines', (
     assert.doesNotMatch(source, /<AuditDisclosureButton\b|<AuditBusinessDetail\b|aria-expanded|expandedEntryId|isExpanded/);
   }
   assert.match(timelineSource, /getAuditBusinessSummary\(entry, t\)/);
-  assert.match(timelineSource, /getAuditInlineBusinessItems\(details, t, description\)/);
+  assert.match(timelineSource, /getAuditInlineBusinessItems\(details, t, description, entry\)/);
   assert.doesNotMatch(timelineSource, /<AuditDisclosureButton\b|<AuditBusinessDetail\b|aria-expanded/);
   assert.match(adminSource, /<AuditLinkedActionsPopover\b/);
 });
@@ -979,15 +983,15 @@ test('account changes and export counts remain visible without expansion', () =>
   assert.equal(audit.getAuditInlineBusinessItems({ type: 'export', box_count: 0 }, tFr)[0].value, '0');
 });
 
-test('account creation uses the recorded email and role, not defaults or a mutable resource', () => {
+test('account creation uses current structured identity and the recorded role', () => {
   const entry = { action: 'creation', description: 'Member access created', object_type: 'account',
-    object_id: 'internal_123', business_details: { type: 'account',
+    object_id: 'internal_123', account_identity: { first_name: 'Sophie', last_name: 'Lèbre', email: 'sophie@example.org' }, business_details: { type: 'account',
       values: { nom: 'Sophie LÈBRE', email: 'sophie@example.org', role: 'admin', acces_actif: true, is_responsable: false } } };
   assert.equal(audit.getAuditBusinessSummary(entry, tFr), 'Accès utilisateur créé');
   assert.equal(audit.getAuditTargetLabel(entry, tFr), 'Sophie LÈBRE <sophie@example.org> rôle : Administrateur');
   assert.equal(audit.getAuditTargetLabel(entry, tEn), 'Sophie LÈBRE <sophie@example.org> role: Administrator');
   assert.equal(audit.getAuditInlineBusinessItems(entry.business_details, tFr).length, 0);
-  assert.equal(audit.getAuditTargetLabel({ ...entry, business_details: { type: 'account', values: { nom: 'Sophie LÈBRE' } } }, tFr), 'Sophie LÈBRE');
+  assert.equal(audit.getAuditTargetLabel({ ...entry, business_details: { type: 'account', values: { nom: 'Sophie LÈBRE' } } }, tFr), 'Sophie LÈBRE <sophie@example.org>');
 });
 
 test('account transitions have factual titles without redundant fields', () => {
@@ -1299,7 +1303,7 @@ test('business metadata formatting keeps scalars readable and hides unknown stru
 test('linked action popover displays the authorized actor supplied by the payload', () => {
   const source = readSource('../src/components/AuditLinkedActionsPopover.tsx');
   const popoverCss = readSource('../src/styles/components/popovers.css');
-  assert.match(source, /getAccountDisplayLabel\(linkedEntry\.user_display\)/);
+  assert.match(source, /formatReadableUserIdentity\(linkedEntry\.user_identity\) \|\| t\('historicalUser'\)/);
   assert.match(source, /auditLinkedActionAuthor/);
   assert.equal(tFr('auditLinkedActionAuthor'), 'par {name}');
   assert.equal(tEn('auditLinkedActionAuthor'), 'by {name}');
@@ -1799,7 +1803,7 @@ test('Profile and Admin share inline summaries without duplicating resolved box 
   assert.match(timelineSource, /export function AuditInlineBusinessSummary/);
   for (const source of [profileSource, adminSource]) {
     assert.match(source, /<AuditPrimarySummary/);
-    assert.match(source, /<AuditInlineBusinessSummary description=\{entry\.description\} details=\{entry\.business_details\}/);
+    assert.match(source, /<AuditInlineBusinessSummary entry=\{entry\} description=\{entry\.description\} details=\{entry\.business_details\}/);
     assert.match(source, /hasInlineBoxSummary \|\| hasSubcultureSummary \? null/);
     assert.match(source, /hidePrimaryResource=\{hasInlineBoxSummary \|\| hasSubcultureSummary\}/);
     // Masking the parent is conditional on the rich child+parent summary.
@@ -1927,7 +1931,7 @@ test('inline facts use normalized business data and never expose raw metadata', 
     assert.equal(/metadata(?:\?\.|\.)box_id/.test(source), false);
   }
   for (const source of sources.slice(0, 2)) {
-    assert.match(source, /<AuditInlineBusinessSummary description=\{entry\.description\} details=\{entry\.business_details\}/);
+    assert.match(source, /<AuditInlineBusinessSummary entry=\{entry\} description=\{entry\.description\} details=\{entry\.business_details\}/);
     assert.doesNotMatch(source, /<AuditDisclosureButton\b|<AuditBusinessDetail\b|aria-expanded|isExpanded/);
   }
   assert.doesNotMatch(sources[2], /<AuditDisclosureButton\b|<AuditBusinessDetail\b|chevron-down/);
@@ -1965,7 +1969,7 @@ test('linked measurement popup is lazy, anchored, retryable, and chronological',
   assert.match(source, /if \(!controller\.signal\.aborted\) setEntries\(response\.results\)/);
   assert.match(source, /setRetry\(\(current\) => current \+ 1\)/);
   assert.match(source, /<time dateTime=\{linkedEntry\.effective_at\}>/);
-  assert.match(source, /<AuditInlineBusinessSummary description=\{linkedEntry\.description\} details=\{linkedEntry\.business_details\}/);
+  assert.match(source, /<AuditInlineBusinessSummary entry=\{linkedEntry\} description=\{linkedEntry\.description\} details=\{linkedEntry\.business_details\}/);
   assert.match(source, /<AuditBusinessNote details=\{linkedEntry\.business_details\}/);
   assert.match(source, /linkedAnchorRef\.current\?\.focus\(\{ preventScroll: true \}\)/);
   assert.match(hookSource, /event\.key !== 'Escape'/);

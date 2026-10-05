@@ -17,6 +17,7 @@
     "test:labels": "node --test scripts/test-qr-labels.mjs",
     "test:dates": "node --test scripts/test-date-format.mjs",
     "test:members": "node --test scripts/test-account-members.mjs",
+    "test:identity": "node --test scripts/test-user-identity.mjs scripts/test-measurement-history.mjs scripts/test-box-insights.mjs scripts/test-audit-presentation.mjs scripts/test-biological-timeline.mjs",
     "test:measurements": "node --test scripts/test-box-measurement.mjs scripts/test-measurement-history.mjs",
     "test:alerts": "node --test scripts/test-alert-removal.mjs",
     "test:audit": "node --test scripts/test-audit-presentation.mjs",

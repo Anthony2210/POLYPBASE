@@ -1,3 +1,6 @@
+import type { ReadableUserIdentity } from './utils/userIdentity';
+export type { ReadableUserIdentity } from './utils/userIdentity';
+
 export type PaginatedResponse<T> = {
   count: number;
   next: string | null;
@@ -50,6 +53,7 @@ export type BiologicalMeasurement = {
   needs_attention: boolean;
   notes: string;
   user: string | null;
+  user_identity: ReadableUserIdentity | null;
   created_at: string;
   can_edit: boolean;
   edit_deadline: string | null;
@@ -83,6 +87,7 @@ export type BiologicalTimelineEntry = {
   state_sequence: number | null;
   timestamp: string | null;
   author: { id: number | null; username: string | null };
+  user_identity: ReadableUserIdentity | null;
   polyp_count_before: number | null;
   polyp_count_after: number | null;
   allocated_polyps: number | null;
@@ -292,6 +297,7 @@ export type BoxMovement = {
   moved_at: string;
   notes: string;
   user: string | null;
+  user_identity: ReadableUserIdentity | null;
 };
 
 export type LineageEvent = {
@@ -300,6 +306,7 @@ export type LineageEvent = {
   reason: string;
   notes: string;
   user: string | null;
+  user_identity: ReadableUserIdentity | null;
 };
 
 export type LineageRelation = {
@@ -369,6 +376,7 @@ export type SubcultureResult = {
   reason: string;
   notes: string;
   user: string | null;
+  user_identity: ReadableUserIdentity | null;
   occurred_at: string;
   parent_polyp_count_before: number;
   allocated_polyp_count: number | null;
@@ -517,6 +525,8 @@ export type AccountMember = {
   membership_id: number;
   user_id: number;
   full_name: string;
+  first_name: string;
+  last_name: string;
   email: string;
   organization: {
     id: number;
@@ -646,6 +656,7 @@ export type EditableMeasurement = {
 
 export type PersonalActionResource = {
   type: string;
+  account_identity: ReadableUserIdentity | null;
   /** Readable target resolved by the backend; null when none is available. */
   identifier: string | null;
   /** Readable target resolved by the backend; null when none is available. */
@@ -659,6 +670,8 @@ export type PersonalActionDetails = {
 
 export type PersonalAction = {
   id: number;
+  user_identity: ReadableUserIdentity | null;
+  edited_by_identity: ReadableUserIdentity | null;
   created_at: string;
   action: string;
   action_label: string;

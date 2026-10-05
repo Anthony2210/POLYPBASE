@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import type { Language, Translator } from '../i18n';
 import type { AuditBoxReference, AuditBusinessDetails, AuditContext } from '../types';
 import {
+  type AuditEntryLike,
   fillTemplate,
   getAuditBoxSummaryParts,
   getAuditBusinessNote,
@@ -174,13 +175,15 @@ function AuditBoxReferenceLink({
 export function AuditInlineBusinessSummary({
   description,
   details,
+  entry,
   t,
 }: {
   description?: string;
   details: AuditBusinessDetails | null | undefined;
+  entry?: AuditEntryLike;
   t: Translator;
 }) {
-  const items = getAuditInlineBusinessItems(details, t, description);
+  const items = getAuditInlineBusinessItems(details, t, description, entry);
   if (!items.length) return null;
   return (
     <p className="audit-inline-business-summary">

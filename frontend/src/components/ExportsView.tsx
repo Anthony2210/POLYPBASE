@@ -790,7 +790,7 @@ export default function ExportsView({
                   polypCount: measurement.polyp_count,
                   ephyraeCount: measurement.ephyrae_count,
                   salinity: measurement.salinity_psu,
-                  enteredBy: measurement.user,
+                  user_identity: measurement.user_identity,
                   note: measurement.notes,
                 }))}
                 locations={selectedPreviewDetail.locations.map((location) => ({
@@ -813,6 +813,7 @@ export default function ExportsView({
                   closeDetail: translations[language].close,
                   empty: labels.previewEmpty,
                   enteredBy: language === 'fr' ? 'Saisi par' : 'Entered by',
+                  historicalUser: translations[language].historicalUser,
                   ephyrae: language === 'fr' ? 'Éphyrules' : 'Ephyrae',
                   location: language === 'fr' ? 'Emplacement' : 'Location',
                   missingReading: language === 'fr' ? 'Période sans relevé' : 'Period without measurement',

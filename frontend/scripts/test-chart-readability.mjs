@@ -22,6 +22,7 @@ function compile(source, dependencies = {}) {
 const utility = (name) => compile(readFileSync(new URL(`../src/utils/${name}.ts`, import.meta.url), 'utf8'));
 const chart = compile(chartSource, {
   'react/jsx-runtime': {}, react: {}, 'd3-scale': scales, 'd3-shape': shapes,
+  '../utils/userIdentity': utility('userIdentity'),
   '../utils/dateFormat': utility('dateFormat'),
   '../utils/chartBiology': utility('chartBiology'),
   '../utils/chartLocations': utility('chartLocations'),

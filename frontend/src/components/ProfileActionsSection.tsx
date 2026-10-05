@@ -183,7 +183,7 @@ function ProfileActionRow({
   const hasInlineBoxSummary = Boolean(entry.box_reference && getAuditBoxSummaryParts(entry, t));
   const hasSubcultureSummary = hasAuditSubcultureSummary(entry.business_details);
   const targetLabel = entry.resource.type === 'account'
-    ? getAuditTargetLabel({ ...entry, object_type: 'account' }, t) || getPersonalResourceLabel(entry.resource)
+    ? getAuditTargetLabel({ ...entry, object_type: 'account', account_identity: entry.resource.account_identity }, t)
     : getPersonalResourceLabel(entry.resource);
 
   return (
@@ -215,7 +215,7 @@ function ProfileActionRow({
           ) : targetLabel && !hasAuditManualEnvironmentTarget(entry) ? (
             <div className="profile-action-target"><span>{targetLabel}</span></div>
           ) : null}
-          <AuditInlineBusinessSummary description={entry.description} details={entry.business_details} t={t} />
+          <AuditInlineBusinessSummary entry={entry} description={entry.description} details={entry.business_details} t={t} />
           <AuditContextSummary
             context={entry.context}
             hidePrimaryResource={hasInlineBoxSummary || hasSubcultureSummary}

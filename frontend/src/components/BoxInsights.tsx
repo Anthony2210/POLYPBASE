@@ -18,6 +18,7 @@ import type {
   LineageGraph,
 } from '../types';
 import { createTranslator } from '../i18n';
+import { formatReadableUserIdentity } from '../utils/userIdentity';
 import { getBiologicalTimelineLabels, type BiologicalTimelineEntry } from '../utils/biologicalTimeline';
 import { formatDisplayDate, formatDisplayDateTime } from '../utils/dateFormat';
 import PolypbaseIcon from './PolypbaseIcon';
@@ -166,7 +167,7 @@ export default function BoxInsights({
           <div className="insight-heading">
             <h2>{labels.movementHistoryTitle}</h2>
           </div>
-          <MovementTimeline movements={movements} labels={labels} />
+          <MovementTimeline movements={movements} labels={labels} language={language} />
         </div>
       ) : null}
 
@@ -207,10 +208,13 @@ export default function BoxInsights({
 function MovementTimeline({
   labels,
   movements,
+  language,
 }: {
   labels: BoxInsightsLabels;
   movements: BoxMovement[];
+  language: Language;
 }) {
+  const t = createTranslator(language);
   const sortedMovements = [...movements]
     .sort((left, right) => right.moved_at.localeCompare(left.moved_at));
 
@@ -242,7 +246,7 @@ function MovementTimeline({
                 </>
               )}
             </strong>
-            {movement.user ? <small>{movement.user}</small> : null}
+            <small>{formatReadableUserIdentity(movement.user_identity) || t('historicalUser')}</small>
             {movement.notes ? <p>{movement.notes}</p> : null}
           </div>
         </li>
@@ -542,7 +546,7 @@ function MeasurementHistoryList({
             </div>
             <div className="measurement-history-user" role="cell">
               <small aria-hidden="true">{labels.historyEnteredBy}</small>
-              <span>{measurement ? measurement.user ?? '—' : event?.author?.username ?? '—'}</span>
+              <span>{formatReadableUserIdentity(measurement ? measurement.user_identity : event?.user_identity) || t('historicalUser')}</span>
             </div>
             <div className="measurement-history-note" role="cell">
               <small aria-hidden="true">{labels.historyObservation}</small>

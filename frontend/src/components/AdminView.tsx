@@ -44,6 +44,7 @@ import {
 } from '../utils/accountMembers';
 import type { BoxCollectionStatus } from '../utils/boxCollection';
 import { formatDisplayDate, formatRelativeDateTime } from '../utils/dateFormat';
+import { formatFirstName, formatLastName, formatReadableUserIdentity } from '../utils/userIdentity';
 
 import { getAccountErrorMessage, getErrorMessage } from '../utils/errors';
 import { beginMemberMutation, endMemberMutation } from '../utils/memberMutationLock';
@@ -118,30 +119,8 @@ const emptyMemberForm = {
   email: '',
 };
 
-function formatFirstName(value: string) {
-  return value
-    .trim()
-    .replace(/\s+/g, ' ')
-    .toLocaleLowerCase('fr-FR')
-    .replace(/(^|[\s'-])(\p{L})/gu, (_match, separator: string, letter: string) => {
-      return `${separator}${letter.toLocaleUpperCase('fr-FR')}`;
-    });
-}
-
-function formatLastName(value: string) {
-  return value.trim().replace(/\s+/g, ' ').toLocaleUpperCase('fr-FR');
-}
-
 function getMemberDisplayName(member: AccountMember) {
-  const displayName = member.full_name.trim();
-  if (!displayName) return member.email;
-
-  const parts = displayName.split(/\s+/).filter(Boolean);
-  if (parts.length === 1) return formatFirstName(parts[0]);
-
-  const lastName = parts[parts.length - 1] ?? '';
-  const firstNames = parts.slice(0, -1).map(formatFirstName).join(' ');
-  return `${firstNames} ${formatLastName(lastName)}`;
+  return formatReadableUserIdentity(member);
 }
 
 function getDigitsOnly(value: string) {
@@ -391,7 +370,7 @@ function AccountManagementSection({
       members.sort(
         (a, b) =>
           a.organization.name.localeCompare(b.organization.name) ||
-          a.full_name.localeCompare(b.full_name) ||
+          getMemberDisplayName(a).localeCompare(getMemberDisplayName(b)) ||
           a.email.localeCompare(b.email),
       );
       return { ...current, members };
@@ -771,7 +750,7 @@ function AccountManagementSection({
                     <td>
                       <span className="member-identity">
                         <strong>{memberName}</strong>
-                        {member.full_name.trim() && member.email ? <small>{member.email}</small> : null}
+                        {memberName !== member.email && member.email ? <small>{member.email}</small> : null}
                       </span>
                     </td>
                     <td>

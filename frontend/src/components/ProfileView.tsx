@@ -4,6 +4,7 @@ import type { Language, Translator } from '../i18n';
 import type { UserProfile } from '../types';
 import { getAccountMemberRoleLabel } from '../utils/accountMembers';
 import { getErrorMessage } from '../utils/errors';
+import { formatReadableUserIdentity } from '../utils/userIdentity';
 import PageLoader from './PageLoader';
 import PolypbaseIcon from './PolypbaseIcon';
 import ProfileActionsSection from './ProfileActionsSection';
@@ -210,23 +211,7 @@ export default function ProfileView({
 }
 
 function formatProfileName(profile: UserProfile): string {
-  const firstName = formatFirstName(profile.first_name);
-  const lastName = formatLastName(profile.last_name);
-  return [firstName, lastName].filter(Boolean).join(' ') || profile.email || '—';
-}
-
-function formatFirstName(value: string) {
-  return value
-    .trim()
-    .replace(/\s+/g, ' ')
-    .toLocaleLowerCase('fr-FR')
-    .replace(/(^|[\s'-])(\p{L})/gu, (_match, separator: string, letter: string) => {
-      return `${separator}${letter.toLocaleUpperCase('fr-FR')}`;
-    });
-}
-
-function formatLastName(value: string) {
-  return value.trim().replace(/\s+/g, ' ').toLocaleUpperCase('fr-FR');
+  return formatReadableUserIdentity(profile) || '—';
 }
 
 function getSelectableOrganizations(profile: UserProfile) {

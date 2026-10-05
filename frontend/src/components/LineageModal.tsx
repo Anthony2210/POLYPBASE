@@ -1,4 +1,6 @@
 import { getBoxStatusPresentation } from '../boxStatus';
+import { createTranslator } from '../i18n';
+import { formatReadableUserIdentity } from '../utils/userIdentity';
 import type { BoxLineage, LineageGraph } from '../types';
 import InteractiveLineageGraph from './InteractiveLineageGraph';
 import ModalPortal from './ModalPortal';
@@ -124,6 +126,7 @@ function LineageGroup({
   labels: typeof labels.fr;
   onSelectBox: (boxId: number, globalCode: string) => void;
 }) {
+  const t = createTranslator(language);
   return (
     <section className="lineage-group">
       <header>
@@ -161,7 +164,7 @@ function LineageGroup({
                   ? formatEventDate(relation.event.event_date, language)
                   : text.historicalLink}
               </strong>
-              {relation.event?.user ? <small>{text.by} {relation.event.user}</small> : null}
+              <small>{text.by} {formatReadableUserIdentity(relation.event?.user_identity) || t('historicalUser')}</small>
               <p>{relation.event?.reason || text.noReason}</p>
               {relation.event?.notes ? <p className="lineage-note">{relation.event.notes}</p> : null}
             </div>

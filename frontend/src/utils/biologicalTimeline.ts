@@ -1,4 +1,4 @@
-import type { BiologicalMeasurement } from '../types';
+import type { BiologicalMeasurement, ReadableUserIdentity } from '../types';
 import type { TrendEvent, TrendMeasurement, TrendPolypState } from '../components/BiologicalTrendChart';
 
 // Optional fields keep legacy responses usable while the detail contract rolls out.
@@ -10,6 +10,7 @@ export type BiologicalTimelineEntry = {
   state_sequence?: number | null;
   timestamp?: string | null;
   author?: { username?: string | null };
+  user_identity?: ReadableUserIdentity | null;
   polyp_count_before?: number | null;
   polyp_count_after?: number | null;
   allocated_polyps?: number | null;
@@ -96,7 +97,7 @@ export function prepareBiologicalChartData(
       timelineOrder,
       polypCount: entry.polyp_count_after,
       title: labels.subcultureEvent,
-      enteredBy: entry.author?.username,
+      user_identity: entry.user_identity,
       note: entry.notes,
       detailLines,
     });
@@ -118,7 +119,7 @@ function toTrendMeasurement(measurement: BiologicalMeasurement): TrendMeasuremen
     polypCount: measurement.polyp_count,
     ephyraeCount: measurement.ephyrae_count,
     salinity: measurement.salinity_psu,
-    enteredBy: measurement.user,
+    user_identity: measurement.user_identity,
     note: measurement.notes,
   };
 }

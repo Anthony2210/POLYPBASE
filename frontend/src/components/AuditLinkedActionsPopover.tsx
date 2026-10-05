@@ -9,10 +9,10 @@ import type { EditableMeasurement } from '../types';
 import {
   fillTemplate,
   formatAuditDateTime,
-  getAccountDisplayLabel,
   getAuditTargetLabel,
 } from '../utils/auditPresentation';
 import { getErrorMessage } from '../utils/errors';
+import { formatReadableUserIdentity } from '../utils/userIdentity';
 import type { AdminAuditLogEntry } from './AdminAuditSection';
 import { AuditBusinessNote, AuditInlineBusinessSummary, AuditPrimarySummary } from './AuditTimeline';
 import { RowActionMenu, type RowActionMenuItem } from './RowActionMenu';
@@ -167,7 +167,7 @@ function LinkedAuditContent({
   return (
     <ol className="audit-linked-actions-list">
       {entries.map((linkedEntry) => {
-        const author = getAccountDisplayLabel(linkedEntry.user_display);
+        const author = formatReadableUserIdentity(linkedEntry.user_identity) || t('historicalUser');
         return (
           <li key={linkedEntry.id}>
             <time dateTime={linkedEntry.effective_at}>{formatAuditDateTime(linkedEntry.effective_at)}</time>
@@ -184,7 +184,7 @@ function LinkedAuditContent({
               onOpenBox={onOpenBox}
               t={t}
             />
-            <AuditInlineBusinessSummary description={linkedEntry.description} details={linkedEntry.business_details} t={t} />
+            <AuditInlineBusinessSummary entry={linkedEntry} description={linkedEntry.description} details={linkedEntry.business_details} t={t} />
             <AuditBusinessNote details={linkedEntry.business_details} t={t} />
           </li>
         );

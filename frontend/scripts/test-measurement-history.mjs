@@ -158,6 +158,7 @@ function measurementsForYear(year, count, firstId = 1) {
     id: firstId + index,
     measured_on: new Date(Date.UTC(year, 0, index + 1)).toISOString().slice(0, 10),
     user: `author-${firstId + index}`,
+    user_identity: { first_name: '', last_name: '', email: `author-${firstId + index}@example.org` },
   }));
 }
 
@@ -192,6 +193,7 @@ function createHistory(measurements, overrides = {}) {
     react: hooks,
     'react/jsx-runtime': jsxRuntime,
     '../utils/dateFormat': dateFormat,
+    '../utils/userIdentity': loadModule('../src/utils/userIdentity.ts'),
     '../i18n': i18n,
     '../utils/biologicalTimeline': biologicalTimeline,
     './PolypbaseIcon': { default: () => null },
@@ -270,16 +272,16 @@ function rowAuthors(history) {
 
 test('sorts by date then created_at descending without mutating input', () => {
   const input = Object.freeze([
-    Object.freeze(measurement({ id: 1, measured_on: '2025-12-31', created_at: '2027-01-01T00:00:00Z', user: 'older date' })),
-    Object.freeze(measurement({ id: 2, created_at: '2026-09-16T08:00:00Z', user: 'earlier entry' })),
-    Object.freeze(measurement({ id: 3, created_at: '2026-09-16T12:00:00Z', user: 'later entry' })),
-    Object.freeze(measurement({ id: 4, measured_on: '2026-09-17', created_at: '2026-01-01T00:00:00Z', user: 'newest date' })),
+    Object.freeze(measurement({ id: 1, measured_on: '2025-12-31', created_at: '2027-01-01T00:00:00Z', user: 'older date', user_identity: { first_name: '', last_name: '', email: 'older@example.org' } })),
+    Object.freeze(measurement({ id: 2, created_at: '2026-09-16T08:00:00Z', user: 'earlier entry', user_identity: { first_name: '', last_name: '', email: 'earlier@example.org' } })),
+    Object.freeze(measurement({ id: 3, created_at: '2026-09-16T12:00:00Z', user: 'later entry', user_identity: { first_name: '', last_name: '', email: 'later@example.org' } })),
+    Object.freeze(measurement({ id: 4, measured_on: '2026-09-17', created_at: '2026-01-01T00:00:00Z', user: 'newest date', user_identity: { first_name: '', last_name: '', email: 'newest@example.org' } })),
   ]);
   const before = JSON.stringify(input);
   const history = createHistory(input);
-  assert.deepEqual(rowAuthors(history), ['newest date', 'later entry', 'earlier entry', 'older date']);
+  assert.deepEqual(rowAuthors(history), ['newest@example.org', 'later@example.org', 'earlier@example.org', 'older@example.org']);
   history.changeYear('2026');
-  assert.deepEqual(rowAuthors(history), ['newest date', 'later entry', 'earlier entry']);
+  assert.deepEqual(rowAuthors(history), ['newest@example.org', 'later@example.org', 'earlier@example.org']);
   assert.equal(JSON.stringify(input), before);
 });
 
@@ -374,7 +376,7 @@ test('renders null PSU, null author and empty notes as missing, not zero', () =>
   for (const notes of ['', '  \n\t ', null]) {
     const history = createHistory([measurement({ salinity_psu: null, user: null, notes })]);
     const rowCells = cells(history.rows()[0]);
-    assert.deepEqual(rowCells.slice(3).map(cellValue), ['—', '—', '—']);
+    assert.deepEqual(rowCells.slice(3).map(cellValue), ['—', catalogs.fr.historicalUser, '—']);
     assert.equal(React.Children.toArray(rowCells[3].props.children)[1].props.className, 'is-missing');
     assert.equal(history.find((node) => node.type === 'button' && Object.hasOwn(node.props, 'aria-expanded')).length, 0);
     assert.match(history.html, /class="is-missing">—<\/strong>/);
@@ -430,10 +432,35 @@ test('only notes longer than 140 characters toggle and expansion is independent 
   assert.equal(text(notes()[0]), firstNote);
 });
 
-test('preserves raw usernames without fabricating readable person identity', () => {
+for (const language of ['fr', 'en']) {
+  test(`${language}: measurement and operation history use structured names, email or historical fallback`, () => {
+    const identities = [
+      { first_name: 'ÉLISE-Anne', last_name: 'du Pont-Müller', email: 'fallback@example.org' },
+      { first_name: 'LÉA', last_name: '', email: '' },
+      { first_name: '', last_name: 'de la tour', email: '' },
+      { first_name: '', last_name: '', email: 'person@example.org' },
+      null,
+    ];
+    const expected = ['Élise-Anne DU PONT-MÜLLER', 'Léa', 'DE LA TOUR', 'person@example.org', catalogs[language].historicalUser];
+    for (let index = 0; index < identities.length; index++) {
+      const user_identity = identities[index];
+      const history = createHistory([measurement({ user: 'legacy-measurement', user_identity })], {
+        language,
+        biologicalTimeline: [operation({ user_identity, author: { username: 'legacy-subculture' } })],
+      });
+      assert.deepEqual(rowAuthors(history), [expected[index], expected[index]]);
+      assert.doesNotMatch(history.html, /legacy-measurement|legacy-subculture/);
+    }
+  });
+}
+
+test('raw compatibility usernames never become readable authors in FR or EN', () => {
   const authors = ['internal_unchanged', 'raw.USERNAME', 'technician@example.org'];
-  const history = createHistory(authors.map((user, index) => measurement({ id: index + 1, user })));
-  assert.deepEqual(rowAuthors(history), authors);
+  for (const language of ['fr', 'en']) {
+    const history = createHistory(authors.map((user, index) => measurement({ id: index + 1, user })), { language });
+    assert.deepEqual(rowAuthors(history), authors.map(() => catalogs[language].historicalUser));
+    for (const author of authors) assert.equal(history.html.includes(author), false);
+  }
 });
 
 test('later batches and year changes preserve recorded zero versus absent PSU and count progress', () => {
@@ -564,7 +591,7 @@ test('legacy subculture retains lineage but never fabricates zero counts or occu
   })] });
   const row = history.rows()[0];
   assert.equal(history.rows().length, 1);
-  assert.deepEqual(cells(row).slice(1, 5).map(cellValue), ['—', '—', '—', '—']);
+  assert.deepEqual(cells(row).slice(1, 5).map(cellValue), ['—', '—', '—', catalogs.fr.historicalUser]);
   assert.deepEqual(detailValues(history, row), ['Avant: — → Après: —', '—', 'CHILD-002CHILD-003']);
   assert.equal(history.find(node => node.type === 'time').length, 1);
   assert.doesNotMatch(history.html, />0<|No measurement history/);

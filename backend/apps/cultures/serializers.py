@@ -8,6 +8,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
+from apps.accounts.identity import readable_user_identity_label, serialize_user_identity
 from apps.accounts.models import OrganizationMembership, UserPreference
 from apps.accounts.permissions import (
     get_active_organization_from_request,
@@ -107,17 +108,22 @@ class BoxMovementSerializer(serializers.ModelSerializer):
     from_thermal_zone = ThermalZoneSummarySerializer(read_only=True)
     to_thermal_zone = ThermalZoneSummarySerializer(read_only=True)
     user = serializers.SerializerMethodField()
+    user_identity = serializers.SerializerMethodField()
 
     class Meta:
         model = BoxMovement
-        fields = ["id", "from_thermal_zone", "to_thermal_zone", "moved_at", "notes", "user"]
+        fields = ["id", "from_thermal_zone", "to_thermal_zone", "moved_at", "notes", "user", "user_identity"]
 
     def get_user(self, obj):
         return obj.user.get_username() if obj.user else None
 
+    def get_user_identity(self, obj):
+        return serialize_user_identity(obj.user)
+
 
 class BiologicalMeasurementSerializer(serializers.ModelSerializer):
     user = serializers.SerializerMethodField()
+    user_identity = serializers.SerializerMethodField()
     can_edit = serializers.SerializerMethodField()
     edit_deadline = serializers.SerializerMethodField()
     edit_restriction = serializers.SerializerMethodField()
@@ -135,6 +141,7 @@ class BiologicalMeasurementSerializer(serializers.ModelSerializer):
             "needs_attention",
             "notes",
             "user",
+            "user_identity",
             "created_at",
             "can_edit",
             "edit_deadline",
@@ -143,6 +150,7 @@ class BiologicalMeasurementSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "user",
+            "user_identity",
             "created_at",
             "can_edit",
             "edit_deadline",
@@ -151,6 +159,9 @@ class BiologicalMeasurementSerializer(serializers.ModelSerializer):
 
     def get_user(self, obj):
         return obj.user.get_username() if obj.user else None
+
+    def get_user_identity(self, obj):
+        return serialize_user_identity(obj.user)
 
     def get_can_edit(self, obj):
         return self._editability(obj)["can_edit"]
@@ -797,6 +808,7 @@ class SubcultureCreateSerializer(serializers.Serializer):
 class SubcultureEventSerializer(serializers.ModelSerializer):
     parent_box = serializers.CharField(source="parent_box.global_code", read_only=True)
     user = serializers.SerializerMethodField()
+    user_identity = serializers.SerializerMethodField()
     children = serializers.SerializerMethodField()
 
     class Meta:
@@ -808,6 +820,7 @@ class SubcultureEventSerializer(serializers.ModelSerializer):
             "reason",
             "notes",
             "user",
+            "user_identity",
             "children",
             "occurred_at",
             "parent_polyp_count_before",
@@ -826,6 +839,9 @@ class SubcultureEventSerializer(serializers.ModelSerializer):
 
     def get_user(self, obj):
         return obj.user.get_username() if obj.user else None
+
+    def get_user_identity(self, obj):
+        return serialize_user_identity(obj.user)
 
     def get_children(self, obj):
         child_boxes = self.context.get("child_boxes")
@@ -1138,9 +1154,7 @@ class BoxTransferCreateSerializer(serializers.ModelSerializer):
         return attrs
 
     def get_prepared_by(self, obj):
-        if not obj.user:
-            return None
-        return obj.user.get_full_name().strip() or obj.user.get_username()
+        return readable_user_identity_label(obj.user)
 
     def get_parent_box_codes(self, obj):
         return list(
@@ -1232,6 +1246,7 @@ def _serialize_lineage_relation(lineage, related_box):
                 "reason": event.reason,
                 "notes": event.notes,
                 "user": event.user.get_username() if event.user else None,
+                "user_identity": serialize_user_identity(event.user),
             }
             if event
             else None

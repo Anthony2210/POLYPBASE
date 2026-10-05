@@ -2,6 +2,7 @@ import type { TranslationKey } from './fr';
 
 export const en: Record<TranslationKey, string> = {
   account: 'Account',
+  historicalUser: 'Historical user',
   loading: 'Loading...',
   back: 'Back',
   backToPilotage: 'Back to tracking',

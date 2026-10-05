@@ -1,5 +1,6 @@
 export const fr = {
   account: 'Compte',
+  historicalUser: 'Utilisateur historique',
   loading: 'Chargement...',
   back: 'Retour',
   backToPilotage: 'Retour au suivi',

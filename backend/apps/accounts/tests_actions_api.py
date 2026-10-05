@@ -397,6 +397,8 @@ class ActionApiTests(TestCase):
                 "business_details",
                 "box_reference",
                 "context",
+                "user_identity",
+                "edited_by_identity",
             },
         )
         self.assertEqual(entry["id"], action.id)
@@ -586,6 +588,10 @@ class ActionApiTests(TestCase):
             first_name="Camille",
             last_name="Durand",
         )
+        OrganizationMembership.objects.create(
+            user=named, organization=self.organization,
+            role=OrganizationMembership.Role.VIEWER,
+        )
         named_action = AuditLog.objects.create(
             organization=self.organization,
             user=self.admin,
@@ -601,6 +607,10 @@ class ActionApiTests(TestCase):
         email_only = get_user_model().objects.create_user(
             username="internal_fedcba9876543210",
             email="sans-nom@example.org",
+        )
+        OrganizationMembership.objects.create(
+            user=email_only, organization=self.organization,
+            role=OrganizationMembership.Role.VIEWER,
         )
         email_action = AuditLog.objects.create(
             organization=self.organization,
@@ -627,7 +637,7 @@ class ActionApiTests(TestCase):
         for label in labels.values():
             self.assertFalse((label or "").startswith("internal_"))
 
-    def test_personal_account_action_without_readable_identity_has_no_label(self):
+    def test_personal_account_action_uses_current_identity_not_snapshot(self):
         action = AuditLog.objects.create(
             organization=self.organization,
             user=self.admin,
@@ -643,7 +653,10 @@ class ActionApiTests(TestCase):
         entry = next(
             item for item in response.json()["results"] if item["id"] == action.id
         )
-        self.assertIsNone(entry["resource"]["label"])
+        self.assertEqual(entry["resource"]["label"], self.alice.email)
+        self.assertEqual(entry["resource"]["account_identity"], {
+            "first_name": "", "last_name": "", "email": self.alice.email,
+        })
 
     def test_personal_alert_actions_expose_no_database_identifier(self):
         AuditLog.objects.create(

@@ -59,6 +59,7 @@ function harness(language = 'en') {
   Object.assign(modules, {
     react: hooks,
     'react/jsx-runtime': { jsx, jsxs: jsx },
+    '../utils/userIdentity': load(compile('../src/utils/userIdentity.ts')),
     '../utils/errors': { getErrorMessage: (error) => error.message },
     '../utils/qrLabels': {
       ...qr,

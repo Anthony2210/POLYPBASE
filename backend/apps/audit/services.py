@@ -12,6 +12,9 @@ from django.db.models import (
 from django.db.models.functions import Coalesce
 from django.utils.dateparse import parse_date
 
+from apps.accounts.identity import readable_user_identity_label, serialize_user_identity
+from apps.accounts.models import OrganizationMembership
+
 from .models import AuditLog
 
 
@@ -427,6 +430,41 @@ def resolve_legacy_audit_measurements(logs, *, organization_id):
     }
 
 
+def resolve_audit_accounts(logs, *, organization_id):
+    """Resolve targets by immutable user ID within the selected organization."""
+    account_logs = [
+        log
+        for log in logs
+        if log.object_type == "account" and log.organization_id == organization_id
+    ]
+    if not account_logs:
+        return {}
+    user_ids = set()
+
+    for log in account_logs:
+        user_id = _metadata(log).get("user_id")
+        if type(user_id) is int and user_id > 0:
+            user_ids.add(user_id)
+
+    memberships = OrganizationMembership.objects.filter(
+        user_id__in=user_ids,
+        organization_id=organization_id,
+    ).select_related("user")
+    users_by_id = {membership.user_id: membership.user for membership in memberships}
+
+    accounts_by_log_id = {}
+    for log in account_logs:
+        metadata = _metadata(log)
+        user_id = metadata.get("user_id")
+        if type(user_id) is int and user_id > 0:
+            account = users_by_id.get(user_id)
+        else:
+            # Historical usernames can be reused and cannot identify a target.
+            account = None
+        accounts_by_log_id[log.id] = account
+    return accounts_by_log_id
+
+
 def readable_account_label(user):
     """Return a human-readable account label, never an internal username."""
     if user is None:
@@ -448,6 +486,7 @@ def serialize_personal_audit_log(
     box=None,
     measurement=None,
     subculture_children=None,
+    account=None,
 ):
     """Serialize one action without raw or administration-only metadata."""
     return {
@@ -456,10 +495,13 @@ def serialize_personal_audit_log(
         "action": log.action,
         "action_label": log.get_action_display(),
         "family": classify_audit_log(log),
+        "user_identity": serialize_user_identity(log.user),
+        "edited_by_identity": serialize_user_identity(log.edited_by),
         "resource": {
             "type": log.object_type,
-            "identifier": _personal_resource_identifier(log),
-            "label": _personal_resource_label(log),
+            "identifier": _personal_resource_identifier(log, account=account),
+            "label": _personal_resource_label(log, account=account),
+            "account_identity": serialize_user_identity(account),
         },
         "description": log.description,
         "details": _personal_audit_details(log),
@@ -769,10 +811,10 @@ def _normalized_legacy_status_value(value):
     return value
 
 
-def _personal_resource_identifier(log):
+def _personal_resource_identifier(log, *, account=None):
     """Hide opaque technical identifiers from the personal history."""
     if log.object_type == "account":
-        return _personal_resource_label(log)
+        return _personal_resource_label(log, account=account)
     # Alerts, species and strains store a database primary key in object_id, so
     # the personal payload never exposes it. The readable summary stays.
     if log.object_type in _PRIMARY_KEY_RESOURCE_OBJECT_TYPES:
@@ -780,26 +822,14 @@ def _personal_resource_identifier(log):
     return log.object_id
 
 
-def _personal_resource_label(log):
+def _personal_resource_label(log, *, account=None):
     """Give account resources a readable target instead of an internal username."""
     if log.object_type in _PRIMARY_KEY_RESOURCE_OBJECT_TYPES:
         return None
     if log.object_type != "account":
         return log.object_id
 
-    metadata = _metadata(log)
-    values = metadata.get("valeurs")
-    if not isinstance(values, dict):
-        return None
-
-    name = values.get("nom")
-    if isinstance(name, str) and name.strip() and not name.strip().startswith("internal_"):
-        return name.strip()
-
-    email = values.get("email")
-    if isinstance(email, str) and email.strip():
-        return email.strip()
-    return None
+    return readable_user_identity_label(account)
 
 
 def _personal_audit_details(log):

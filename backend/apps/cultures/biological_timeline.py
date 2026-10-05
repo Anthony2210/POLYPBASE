@@ -1,5 +1,7 @@
 """Typed biological history: operations are not editable measurements."""
 
+from apps.accounts.identity import serialize_user_identity
+
 from .models import SubcultureAllocation
 
 
@@ -25,6 +27,7 @@ def biological_timeline(box, *, context):
         entries.append({
             "kind": "measurement", "id": measurement.pk, "identity": f"measurement:{measurement.pk}",
             "author": _author(measurement.user), "timestamp": measurement.created_at.isoformat(),
+            "user_identity": serialize_user_identity(measurement.user),
             "effective_date": measurement.measured_on.isoformat(),
             "polyp_count_before": None, "polyp_count_after": measurement.polyp_count,
             "allocated_polyps": None, "allocations": [], "children": [],
@@ -42,6 +45,7 @@ def biological_timeline(box, *, context):
         entries.append({
             "kind": "subculture", "id": event.pk, "identity": f"subculture:{event.pk}",
             "author": _author(event.user, event.author_name),
+            "user_identity": serialize_user_identity(event.user),
             "timestamp": event.occurred_at.isoformat() if event.occurred_at else None,
             "effective_date": event.event_date.isoformat(), "state_sequence": event.parent_state_sequence,
             "polyp_count_before": event.parent_polyp_count_before,
@@ -60,6 +64,7 @@ def biological_timeline(box, *, context):
             "kind": "subculture_initialization", "id": allocation.pk,
             "identity": f"subculture_initialization:{allocation.pk}",
             "event_id": event.pk, "author": _author(event.user, event.author_name),
+            "user_identity": serialize_user_identity(event.user),
             "timestamp": event.occurred_at.isoformat(), "effective_date": event.event_date.isoformat(),
             "state_sequence": allocation.child_state_sequence,
             "polyp_count_before": None, "polyp_count_after": allocation.allocated_polyps,
