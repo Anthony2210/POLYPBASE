@@ -239,13 +239,15 @@ class ZoneSalinityLifecycleTests(TestCase):
         newer = self.measurement(measured_on="2026-09-21")
         with patch("django.utils.timezone.now", return_value=self.created_at + timedelta(hours=23)):
             response = self.history()
+            empty_response = self.history(self.local_zone)
         self.assertEqual(response.status_code, 200)
         rows = response.json()
         self.assertEqual([item["id"] for item in rows], [newer.pk, older.pk])
         self.assertEqual(rows[1]["salinity_psu"], "0.00")
         self.assertEqual(set(rows[0]), {"id", "measured_on", "salinity_psu", "notes", "created_at", "editable_until", "can_edit"})
         self.assertTrue(all(item["can_edit"] for item in rows))
-        self.assertEqual(self.history(self.local_zone).json(), [])
+        self.assertEqual(empty_response.status_code, 200)
+        self.assertEqual(empty_response.json(), [])
 
     def test_active_organization_and_role_guard_history_post_patch_and_latest(self):
         local = self.measurement()
