@@ -83,6 +83,7 @@ import type {
   BoxMovePayload,
   BoxQualifyPayload,
   Dashboard,
+  CurrentPolypState,
   ExportOptions,
   LineageGraph,
   Organization,
@@ -1169,6 +1170,7 @@ export default function App() {
           ...detail,
           biological_measurements: measurements,
           latest_measurement: measurements[0] ?? null,
+          current_polyp_state: { polyp_count: null, revision: '', source: null },
           latest_salinity_psu: measurements.find((item) => item.salinity_psu != null)?.salinity_psu ?? null,
         }),
         overview: null,
@@ -1252,14 +1254,50 @@ export default function App() {
 
   async function createSubculture(boxId: number, payload: SubculturePayload) {
     const { apiGet, apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
-    const result = await apiPost<SubcultureResult>(`/api/boxes/${boxId}/subcultures/`, payload);
+    let result: SubcultureResult;
+    try {
+      result = await apiPost<SubcultureResult>(`/api/boxes/${boxId}/subcultures/`, payload);
+    } catch (requestError) {
+      assertCurrent();
+      if (requestError instanceof ApiError && requestError.status === 409
+          && requestError.data && typeof requestError.data === 'object'
+          && 'code' in requestError.data && requestError.data.code === 'subculture_current_state_changed') {
+        if ('current_polyp_state' in requestError.data) {
+          const state = requestError.data.current_polyp_state as CurrentPolypState;
+          setData((current) => {
+            const detail = current.boxDetails[boxId];
+            return detail ? mergeBoxDetail(current, { ...detail, current_polyp_state: state }) : current;
+          });
+        }
+        try {
+          await refreshBoxAfterMeasurement(boxId);
+        } catch {
+          assertCurrent();
+        }
+      }
+      throw requestError;
+    }
     assertCurrent();
-    setData((current) => ({
-      ...current,
-      boxes: upsertBoxes(current.boxes, result.children),
-      overview: null,
-      exportOptions: null,
-    }));
+    setData((current) => {
+      const detail = current.boxDetails[boxId];
+      const updated = detail ? mergeBoxDetail(current, {
+        ...detail,
+        current_polyp_state: {
+          ...(typeof result.allocated_polyp_count === 'number' && typeof result.parent_polyp_count_after === 'number'
+              && result.allocations.length > 0 && result.allocations.every((allocation) => allocation.allocated_polyps !== null)
+            ? { polyp_count: result.parent_polyp_count_after, source: null }
+            : detail.current_polyp_state),
+          // Every committed event invalidates the intent, even without a quantitative transition.
+          revision: '',
+        },
+      }) : current;
+      return {
+        ...updated,
+        boxes: upsertBoxes(updated.boxes, result.children),
+        overview: null,
+        exportOptions: null,
+      };
+    });
     await refreshAfterMutation(async () => {
       const detail = await apiGet<BoxDetail>(`/api/boxes/${boxId}/`);
       assertCurrent();
@@ -3186,6 +3224,7 @@ function BoxPage({
   // existing measurement, not adding one.
   const [isCorrectingFromHistory, setIsCorrectingFromHistory] = useState(false);
   const [subcultureError, setSubcultureError] = useState<string | null>(null);
+  const [subcultureSuccess, setSubcultureSuccess] = useState<SubcultureResult | null>(null);
   const [activeInsightTab, setActiveInsightTab] = useState<BoxInsightTab>('measurements');
   const [measurementReferenceDate, setMeasurementReferenceDate] = useState(getTodayDateValue);
   const measurements = box ? getMeasurementHistory(box) : [];
@@ -3268,6 +3307,7 @@ function BoxPage({
     setIsMeasurementEditorOpen(false);
     setMeasurementReferenceDate(getTodayDateValue());
     setSubcultureError(null);
+    setSubcultureSuccess(null);
     setActiveInsightTab('measurements');
     setIsCorrectingFromHistory(false);
   }, [box?.id]);
@@ -3385,7 +3425,7 @@ function BoxPage({
     ...(qr && canWriteLabData ? [{ action: 'qr' as const, label: t('qrLabelTitle') }] : []),
     ...(canWriteLabData ? [
       { action: 'move' as const, label: t('moveAction') },
-      { action: 'subculture' as const, label: t('subcultureAction') },
+      ...(isBoxActive ? [{ action: 'subculture' as const, label: t('subcultureAction') }] : []),
     ] : []),
     ...(canShowStatusButton ? [{
       action: 'tracking' as const,
@@ -3398,7 +3438,10 @@ function BoxPage({
     if (!item || item.disabled) return;
     if (action === 'qr') setIsQrLabelOpen(true);
     else if (action === 'move') setIsMoveOpen(true);
-    else if (action === 'subculture') setIsSubcultureOpen(true);
+    else if (action === 'subculture') {
+      setSubcultureError(null);
+      setIsSubcultureOpen(true);
+    }
     else {
       setStatusError(null);
       setLifecycleAction(isBoxActive ? 'deactivate' : 'reactivate');
@@ -3501,15 +3544,35 @@ function BoxPage({
     setIsSavingSubculture(true);
     setSubcultureError(null);
 
+    let result: SubcultureResult;
     try {
-      await onCreateSubculture(box.id, payload);
+      result = await onCreateSubculture(box.id, payload);
       if (!operationLifetimeRef.current || !isOperationCurrent()) return;
+      setSubcultureSuccess(result);
       setIsSubcultureOpen(false);
     } catch (requestError) {
       if (!operationLifetimeRef.current || !isOperationCurrent() || requestError instanceof ApiResourceCancelledError) return;
       setSubcultureError(getSubcultureSaveError(requestError, t));
+      return;
     } finally {
       if (operationLifetimeRef.current && isOperationCurrent()) setIsSavingSubculture(false);
+    }
+
+    // Subculture is already committed; the optional lifecycle operation is separate.
+    if (result.parent_polyp_count_after === 0 && result.allocated_polyp_count !== null
+        && result.allocations.length > 0 && result.allocations.every((allocation) => allocation.allocated_polyps !== null)
+        && canChangeBoxStatus) {
+      const deactivate = await confirmAction({
+        title: t('subcultureDeactivateParentTitle'),
+        message: t('subcultureDeactivateParentMessage'),
+        confirmLabel: t('boxArchiveAction'),
+        cancelLabel: t('subcultureKeepParentActive'),
+        details: [{ label: t('confirmDetailParentBox'), value: box.global_code }],
+      });
+      if (deactivate && operationLifetimeRef.current && isOperationCurrent()) {
+        setStatusError(null);
+        setLifecycleAction('deactivate');
+      }
     }
   }
 
@@ -3639,7 +3702,7 @@ function BoxPage({
               {boxActions.filter((item) => item.action !== 'qr').map((item) => (
                 <button
                   key={item.action}
-                  className="icon-button box-compact-action"
+                  className={`icon-button box-compact-action${item.action === 'move' || item.action === 'subculture' ? ' box-compact-action--labeled' : ''}`}
                   type="button"
                   aria-label={item.label}
                   title={item.label}
@@ -3647,8 +3710,16 @@ function BoxPage({
                   onClick={() => dispatchBoxAction(item.action)}
                 >
                   {item.action === 'move' ? (
-                    <Route aria-hidden="true" size={36} />
-                  ) : item.action === 'subculture' ? <GitFork className="box-subculture-glyph" aria-hidden="true" size={36} />
+                    <>
+                      <Route aria-hidden="true" size={20} />
+                      <span>{item.label}</span>
+                    </>
+                  ) : item.action === 'subculture' ? (
+                    <>
+                      <GitFork className="box-subculture-glyph" aria-hidden="true" size={20} />
+                      <span>{item.label}</span>
+                    </>
+                  )
                       : isBoxActive ? <CirclePause aria-hidden="true" size={36} />
                         : <CirclePlay aria-hidden="true" size={36} />}
                 </button>
@@ -3991,6 +4062,17 @@ function BoxPage({
           </section>
         ) : null}
 
+        {subcultureSuccess ? (
+          <p className="subculture-success" role="status">
+            <strong>{t('subcultureCompleted')}</strong>
+            {typeof subcultureSuccess.allocated_polyp_count === 'number' && typeof subcultureSuccess.parent_polyp_count_after === 'number'
+                && subcultureSuccess.allocations.length > 0 && subcultureSuccess.allocations.every((allocation) => allocation.allocated_polyps !== null) ? (
+              <>{' '}{subcultureSuccess.parent_polyp_count_before} → {subcultureSuccess.parent_polyp_count_after} {t('polyps').toLocaleLowerCase()}</>
+            ) : null}
+            {' — '}{subcultureSuccess.children.map((child) => child.global_code).join(', ')}
+          </p>
+        ) : null}
+
         <section className="box-insights-section">
           <BoxInsights
             activeTab={activeInsightTab}
@@ -4002,6 +4084,7 @@ function BoxPage({
             lineage={lineage}
             locations={'locations' in box ? box.locations : []}
             measurements={measurements}
+            biologicalTimeline={'biological_timeline' in box ? box.biological_timeline : undefined}
             movements={getBoxMovements(box)}
             onLoadLineageGraph={handleLoadLineageGraph}
             onOpenHistory={() => setIsHistoryOpen(true)}
@@ -4014,7 +4097,9 @@ function BoxPage({
           <MeasurementHistoryModal
             boxCode={box.global_code}
             labels={getBoxInsightsLabels(t)}
+            language={language}
             measurements={measurements}
+            biologicalTimeline={'biological_timeline' in box ? box.biological_timeline : undefined}
             onClose={() => setIsHistoryOpen(false)}
           />
         ) : null}
@@ -4034,7 +4119,6 @@ function BoxPage({
         {isSubcultureOpen ? (
           <SubcultureModal
             box={box}
-            existingBoxes={boxes}
             zones={zones}
             language={language}
             isSaving={isSavingSubculture}
@@ -4488,7 +4572,11 @@ function getSubcultureSaveError(error: unknown, t: TFunction) {
   if (error instanceof ApiError && error.status === 403) {
     return t('subcultureForbidden');
   }
-
+  if (error instanceof ApiError && error.status === 409 && error.data
+      && typeof error.data === 'object' && 'code' in error.data
+      && error.data.code === 'subculture_current_state_changed') {
+    return t('subcultureStateChanged');
+  }
   return getErrorMessage(error);
 }
 

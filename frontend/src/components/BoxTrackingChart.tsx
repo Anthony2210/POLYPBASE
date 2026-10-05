@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
 
 import type { BiologicalMeasurement, BoxLocation, BoxLineage, BoxMovement } from '../types';
-import type { Language } from '../i18n';
+import { createTranslator, type Language } from '../i18n';
 import { buildChartWindow, getLatestChartWindowOffset, parseChartDate, toChartDateString } from '../utils/chartWindow';
-import BiologicalTrendChart, { type TrendEvent, type TrendLocation, type TrendMeasurement } from './BiologicalTrendChart';
+import BiologicalTrendChart, { type TrendEvent, type TrendLocation, type TrendPolypState } from './BiologicalTrendChart';
+import { getBiologicalTimelineLabels, prepareBiologicalChartData, type BiologicalTimelineEntry } from '../utils/biologicalTimeline';
 import ChartWindowControls from './ChartWindowControls';
 
 export type BoxTrackingChartLabels = {
@@ -16,6 +17,10 @@ export type BoxTrackingChartLabels = {
   missingReading: string;
   polyps: string;
   salinityFull: string;
+  subcultureEvent?: string;
+  allocatedPolyps?: string;
+  parentBox?: string;
+  childBoxes?: string;
 };
 
 type LifecycleEvent = {
@@ -24,11 +29,13 @@ type LifecycleEvent = {
   type: 'movement' | 'subculture';
   title: string;
   detail: string;
+  subcultureEventId?: number;
 };
 
 export default function BoxTrackingChart({
   compact = false,
   initialWindowOffset,
+  biologicalTimeline,
   events,
   labels,
   language,
@@ -38,6 +45,7 @@ export default function BoxTrackingChart({
 }: {
   compact?: boolean;
   initialWindowOffset?: number;
+  biologicalTimeline?: readonly BiologicalTimelineEntry[];
   events: LifecycleEvent[];
   labels: BoxTrackingChartLabels;
   language: Language;
@@ -45,6 +53,21 @@ export default function BoxTrackingChart({
   measurements: BiologicalMeasurement[];
   onOpenHistory?: () => void;
 }) {
+  const timelineLabels = useMemo(() => getBiologicalTimelineLabels(createTranslator(language)), [language]);
+  const biologicalData = useMemo(() => prepareBiologicalChartData(measurements, biologicalTimeline, {
+    polyps: labels.polyps,
+    subcultureEvent: labels.subcultureEvent ?? timelineLabels.subcultureEvent,
+    allocatedPolyps: labels.allocatedPolyps ?? timelineLabels.allocatedPolyps,
+    parentBox: labels.parentBox ?? timelineLabels.parentBox,
+    childBoxes: labels.childBoxes ?? timelineLabels.childBoxes,
+  }), [biologicalTimeline, labels, measurements, timelineLabels]);
+  const chartEvents = useMemo(() => {
+    const timelineEventIds = new Set(biologicalData.events.map((event) => event.subcultureEventId));
+    const legacyEvents: TrendEvent[] = events
+      .filter((event) => event.subcultureEventId == null || !timelineEventIds.has(event.subcultureEventId))
+      .map((event) => ({ ...event, kind: event.type }));
+    return [...legacyEvents, ...biologicalData.events];
+  }, [biologicalData.events, events]);
   const timelineKey = useMemo(
     () => [
       measurements.length,
@@ -52,21 +75,22 @@ export default function BoxTrackingChart({
       measurements[measurements.length - 1]?.measured_on,
       locations.length,
       events.length,
+      biologicalTimeline?.map((entry) => `${entry.kind}:${entry.id}:${entry.polyp_count_after}`).join(','),
     ].join('-'),
-    [events.length, locations.length, measurements],
+    [biologicalTimeline, events.length, locations.length, measurements],
   );
-  const boxKey = `${measurements[0]?.id ?? ''}:${locations[0]?.id ?? ''}:${events[0]?.id ?? ''}`;
+  const boxKey = `${measurements[0]?.id ?? ''}:${locations[0]?.id ?? ''}:${events[0]?.id ?? ''}:${biologicalData.polypStates[0]?.id ?? ''}`;
   const chartSourceDates = useMemo(
-    () => getSharedChartSourceDates(measurements, locations, events),
-    [events, locations, measurements],
+    () => getSharedChartSourceDates(measurements, locations, chartEvents, biologicalData.polypStates),
+    [biologicalData.polypStates, chartEvents, locations, measurements],
   );
   const defaultWindowOffset = useMemo(
     () => initialWindowOffset ?? getLatestChartWindowOffset(
       chartSourceDates,
-      measurements.map((measurement) => measurement.measured_on),
+      [...measurements.map((measurement) => measurement.measured_on), ...biologicalData.polypStates.map((point) => point.date)],
       6,
     ),
-    [chartSourceDates, initialWindowOffset, measurements],
+    [biologicalData.polypStates, chartSourceDates, initialWindowOffset, measurements],
   );
   const defaultWindow = useMemo(
     () => buildChartWindow(chartSourceDates, defaultWindowOffset, 6),
@@ -97,8 +121,8 @@ export default function BoxTrackingChart({
     ? extentStart
     : currentWindow.startDate >= endDate ? extentStart : currentWindow.startDate;
   const preparedData = useMemo(
-    () => prepareSharedChartData(measurements, locations, events, startDate, endDate),
-    [events, locations, measurements, startDate, endDate],
+    () => prepareSharedChartData(biologicalData, locations, chartEvents, startDate, endDate),
+    [biologicalData, chartEvents, locations, startDate, endDate],
   );
 
   return (
@@ -126,6 +150,7 @@ export default function BoxTrackingChart({
             startDate={preparedData.startDate}
             endDate={preparedData.endDate}
             measurements={preparedData.measurements}
+            polypStates={preparedData.polypStates}
             locations={preparedData.locations}
             events={preparedData.events}
             selectionScope={timelineKey}
@@ -145,6 +170,7 @@ export default function BoxTrackingChart({
                 ? 'Sélectionnez un point du graphique pour afficher le relevé.'
                 : 'Select a chart point to display the reading.',
               selectedReading: language === 'fr' ? 'Relevé sélectionné' : 'Selected reading',
+              subculture: labels.subcultureEvent ?? timelineLabels.subcultureEvent,
             }}
           />
         </div>
@@ -154,22 +180,13 @@ export default function BoxTrackingChart({
 }
 
 function prepareSharedChartData(
-  measurements: BiologicalMeasurement[],
+  biologicalData: ReturnType<typeof prepareBiologicalChartData>,
   locations: BoxLocation[],
-  events: LifecycleEvent[],
+  events: TrendEvent[],
   startText: string,
   endText: string,
 ) {
-  const sharedMeasurements: TrendMeasurement[] = measurements
-    .map((measurement) => ({
-      id: measurement.id,
-      date: measurement.measured_on,
-      polypCount: measurement.polyp_count,
-      ephyraeCount: measurement.ephyrae_count,
-      salinity: measurement.salinity_psu,
-      enteredBy: measurement.user,
-      note: measurement.notes,
-    }));
+  const sharedMeasurements = biologicalData.measurements;
   const sharedLocations: TrendLocation[] = locations.map((location) => ({
     id: location.id,
     name: location.thermal_zone.name,
@@ -177,20 +194,13 @@ function prepareSharedChartData(
     endsAt: location.ends_at,
     endDateUnknown: location.end_date_unknown,
   }));
-  const sharedEvents: TrendEvent[] = events
-    .filter((event) => event.date >= startText && event.date <= endText)
-    .map((event) => ({
-      id: event.id,
-      date: event.date,
-      title: event.title,
-      detail: event.detail,
-      kind: event.type,
-    }));
+  const sharedEvents = events.filter((event) => event.date >= startText && event.date <= endText);
 
   return {
     startDate: startText,
     endDate: endText,
     measurements: sharedMeasurements,
+    polypStates: biologicalData.polypStates,
     locations: sharedLocations,
     events: sharedEvents,
   };
@@ -199,7 +209,8 @@ function prepareSharedChartData(
 function getSharedChartSourceDates(
   measurements: BiologicalMeasurement[],
   locations: BoxLocation[],
-  events: LifecycleEvent[],
+  events: TrendEvent[],
+  polypStates: TrendPolypState[] = [],
 ) {
   const measurementDates = measurements.map((measurement) => measurement.measured_on);
   const eventDates = events.map((event) => event.date);
@@ -208,7 +219,7 @@ function getSharedChartSourceDates(
     location.ends_at?.slice(0, 10),
   ]).filter(Boolean) as string[];
 
-  return [...measurementDates, ...eventDates, ...locationDates];
+  return [...measurementDates, ...polypStates.map((point) => point.date), ...eventDates, ...locationDates];
 }
 
 export function buildLifecycleEvents(
@@ -235,6 +246,7 @@ export function buildLifecycleEvents(
     if (!relation.event) return;
     events.set(`subculture-parent-${relation.event.id}`, {
       id: `subculture-parent-${relation.event.id}`,
+      subcultureEventId: relation.event.id,
       date: relation.event.event_date,
       type: 'subculture',
       title: labels.subcultureEvent,
@@ -244,12 +256,15 @@ export function buildLifecycleEvents(
 
   lineage.children.forEach((relation) => {
     if (!relation.event) return;
-    events.set(`subculture-child-${relation.event.id}-${relation.box.id}`, {
-      id: `subculture-child-${relation.event.id}-${relation.box.id}`,
+    const eventKey = `subculture-child-${relation.event.id}`;
+    const previous = events.get(eventKey);
+    events.set(eventKey, {
+      id: eventKey,
+      subcultureEventId: relation.event.id,
       date: relation.event.event_date,
       type: 'subculture',
       title: labels.subcultureEvent,
-      detail: relation.box.global_code,
+      detail: previous ? `${previous.detail}, ${relation.box.global_code}` : relation.box.global_code,
     });
   });
 

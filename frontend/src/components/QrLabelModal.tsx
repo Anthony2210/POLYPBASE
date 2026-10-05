@@ -1,11 +1,9 @@
-import { type CSSProperties, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 
 import type { BoxDetail, BoxItem } from '../types';
 import {
-  DEFAULT_QR_LABEL_PRINT_SETTINGS,
   buildQrLabelItem,
   downloadQrLabel,
-  getQrLabelPreviewCssVariables,
   getQrLabelPreparationMessage,
   printQrLabels,
   type QrLabelItem,
@@ -15,6 +13,7 @@ import {
 import ModalPortal from './ModalPortal';
 import PolypbaseIcon from './PolypbaseIcon';
 import QrLabel from './QrLabel';
+import './box-utility-dialogs.css';
 
 type QrLabelModalLabels = QrLabelPreparationLabels & {
   addToSelection: string;
@@ -117,8 +116,6 @@ export default function QrLabelModal({
 
   const label = buildQrLabelItem(box, qrImageUrl);
   const isSelected = selectedLabels.some((item) => item.id === label.id);
-  // The frame is the query container the label reads its physical geometry from.
-  const frameStyle = getQrLabelPreviewCssVariables(DEFAULT_QR_LABEL_PRINT_SETTINGS) as CSSProperties;
 
   return (
     <ModalPortal>
@@ -135,7 +132,6 @@ export default function QrLabelModal({
       >
         <header className="modal-heading qr-label-modal-heading box-dialog-heading">
           <div>
-            <p className="box-dialog-context">{box.global_code}</p>
             <h2 id={titleId}>{labels.title}</h2>
           </div>
           <button ref={closeRef} className="icon-button box-dialog-close" type="button" aria-label={labels.close} title={labels.close} disabled={isPreparing} onClick={onClose}>
@@ -144,18 +140,23 @@ export default function QrLabelModal({
         </header>
 
         <div className="box-dialog-body">
-        <div className="qr-label-modal-preview">
-          <div className="qr-label-print-frame" style={frameStyle}>
-            <QrLabel
-              altLabel={labels.qrCode}
-              className="qr-label-print-sheet"
-              item={label}
-              variant="label"
-            />
-          </div>
+        <p className="utility-dialog-identity">
+          <strong>{box.global_code}</strong>
+          <small>{box.species.scientific_name}</small>
+        </p>
+        <div className="utility-qr-scan">
+          <QrLabel
+            altLabel={labels.qrCode}
+            item={label}
+            showMetadata={false}
+            variant="preview"
+          />
         </div>
 
-        <p className="qr-label-modal-species">{box.species.scientific_name}</p>
+        {/* Keep the legacy browser-print path separate from the screen QR. */}
+        <div className="utility-qr-physical" aria-hidden="true">
+          <QrLabel altLabel={labels.qrCode} className="qr-label-print-sheet" item={label} variant="label" />
+        </div>
 
         <section className="qr-label-selection-panel">
           <div>
@@ -165,13 +166,13 @@ export default function QrLabelModal({
           <div className="qr-label-selection-actions">
             <button
               type="button"
-              className={isSelected ? 'is-secondary is-selected' : 'is-secondary'}
+              className={isSelected ? 'secondary-button is-secondary is-selected' : 'secondary-button is-secondary'}
               disabled={isSelected || isPreparing}
               onClick={() => onAddToSelection(label)}
             >
               {isSelected ? labels.alreadySelected : labels.addToSelection}
             </button>
-            <button className="is-secondary" type="button" disabled={!selectedLabels.length || isPreparing} onClick={onViewSelection}>
+            <button className="secondary-button is-secondary" type="button" disabled={!selectedLabels.length || isPreparing} onClick={onViewSelection}>
               {labels.viewSelection}
             </button>
           </div>
@@ -179,7 +180,7 @@ export default function QrLabelModal({
 
         <div className="qr-label-modal-status" role="status">{isPreparing ? labels.qrLabelPreparing : ''}</div>
         {failure ? (
-          <div>
+          <div className="utility-qr-error">
             <p className="inline-error" role="alert">{getQrLabelPreparationMessage(failure.result.reason, labels)}</p>
             <button className="secondary-button" type="button" disabled={isPreparing} onClick={() => void handlePreparation(failure.action)}>
               {labels.qrLabelRetry}
@@ -190,13 +191,13 @@ export default function QrLabelModal({
         </div>
 
         <footer className="qr-label-modal-actions box-dialog-actions">
-          <button type="button" className="is-secondary" disabled={isPreparing} onClick={() => void handlePreparation('download')}>
+          <button type="button" className="secondary-button is-secondary" disabled={isPreparing} onClick={() => void handlePreparation('download')}>
             <span className="button-icon-label">
               <PolypbaseIcon name="download" size={17} aria-hidden="true" />
               {labels.download}
             </span>
           </button>
-          <button type="button" disabled={isPreparing} onClick={() => void handlePreparation('print')}>
+          <button type="button" className="secondary-button is-secondary" disabled={isPreparing} onClick={() => void handlePreparation('print')}>
             <span className="button-icon-label">
               <PolypbaseIcon name="print" size={17} aria-hidden="true" />
               {labels.print}

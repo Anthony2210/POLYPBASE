@@ -56,6 +56,47 @@ export type BiologicalMeasurement = {
   edit_restriction: 'edit_window_expired' | 'role_read_only' | null;
 };
 
+export type CurrentPolypState = {
+  polyp_count: number | null;
+  revision: string;
+  source: {
+    kind: 'measurement' | 'subculture' | 'subculture_initialization';
+    id: number;
+    timestamp: string | null;
+    measured_on?: string;
+  } | null;
+};
+
+export type SubcultureAllocation = {
+  id: number;
+  position: number;
+  child_box_id: number;
+  child_global_code: string;
+  allocated_polyps: number | null;
+};
+
+export type BiologicalTimelineEntry = {
+  kind: 'measurement' | 'subculture' | 'subculture_initialization';
+  id: number;
+  identity: string;
+  effective_date: string;
+  state_sequence: number | null;
+  timestamp: string | null;
+  author: { id: number | null; username: string | null };
+  polyp_count_before: number | null;
+  polyp_count_after: number | null;
+  allocated_polyps: number | null;
+  allocations: SubcultureAllocation[];
+  children: Array<{ id: number; global_code: string }>;
+  can_edit: boolean;
+  measurement?: BiologicalMeasurement;
+  parent_state_snapshot?: Record<string, unknown>;
+  parent?: { id: number; global_code: string };
+  event_id?: number;
+  reason?: string;
+  notes?: string;
+};
+
 export type BoxTemperaturePoint = {
   date: string;
   average_temperature_c: number;
@@ -78,6 +119,7 @@ export type BoxItem = {
   entered_on: string | null;
   current_location_started_at: string | null;
   latest_measurement: BiologicalMeasurement | null;
+  current_polyp_state: CurrentPolypState;
   latest_salinity_psu: string | null;
 };
 
@@ -91,6 +133,7 @@ export type BoxInventoryItem = {
   created_on: string;
   inventory_created_on: string;
   latest_measurement: BiologicalMeasurement | null;
+  current_polyp_state: CurrentPolypState;
   last_location: BoxLocation | null;
 };
 
@@ -198,6 +241,7 @@ export type OverviewBox = {
   species_name: string;
   strain_code: string;
   tracked_in_app: boolean;
+  current_polyp_state: CurrentPolypState;
   thermal_zone: {
     id: number;
     name: string;
@@ -225,6 +269,7 @@ export type BoxDetail = BoxItem & {
   locations: BoxLocation[];
   movements: BoxMovement[];
   biological_measurements: BiologicalMeasurement[];
+  biological_timeline: BiologicalTimelineEntry[];
   temperature_history: BoxTemperaturePoint[];
   scan_url: string;
   qr_image_url: string;
@@ -304,17 +349,14 @@ export type LineageGraph = {
 };
 
 export type SubcultureChildPayload = {
-  global_code: string;
-  local_code: string;
-  box_number: string;
   thermal_zone_id: number;
+  allocated_polyps?: number | null;
   copy_origin: boolean;
-  initial_polyp_count: number | null;
   notes: string;
 };
 
 export type SubculturePayload = {
-  event_date: string;
+  expected_current_state_revision: string;
   reason: string;
   notes: string;
   children: SubcultureChildPayload[];
@@ -327,13 +369,19 @@ export type SubcultureResult = {
   reason: string;
   notes: string;
   user: string | null;
+  occurred_at: string;
+  parent_polyp_count_before: number;
+  allocated_polyp_count: number | null;
+  parent_polyp_count_after: number | null;
+  parent_state_snapshot: Record<string, unknown>;
+  allocations: SubcultureAllocation[];
   children: BoxItem[];
 };
 
 export type BoxMovePayload = {
   expected_thermal_zone_id: number | null;
   thermal_zone_id: number;
-  moved_at: string;
+  moved_at?: string;
   notes: string;
 };
 
@@ -404,6 +452,7 @@ export type ThermalZone = {
   salinity_psu: string | null;
   is_active: boolean;
   box_count: number;
+  current_polyp_totals: { polyp_count: number; unknown_box_count: number };
   latest_temperature: {
     date: string;
     average_temperature_c: number | string;
@@ -423,6 +472,8 @@ export type Dashboard = {
     thermal_zones: number;
     measured_polyps: number;
     measured_ephyrae: number;
+    current_polyps: number;
+    current_polyps_unknown_box_count: number;
   };
   latest_entries: BiologicalMeasurement[];
   recent_accesses: Array<{
@@ -528,6 +579,10 @@ export type AuditBusinessDetails =
       parent_global_code?: string;
       child_global_codes?: string[];
       initial_polyp_counts?: Record<string, number>;
+      parent_polyp_count_before?: number | null;
+      allocated_polyp_count?: number | null;
+      parent_polyp_count_after?: number | null;
+      allocations?: Array<{ child_global_code: string; allocated_polyps: number | null; position?: number }>;
     }
   | { type: 'transfer_out'; destination_organization?: string; date?: string; polyp_count?: number; note?: string }
   | { type: 'transfer_import'; source_global_code?: string; source_organization?: string }

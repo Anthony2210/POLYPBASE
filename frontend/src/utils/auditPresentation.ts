@@ -3,6 +3,37 @@ import { getDocumentLocale } from './dateFormat';
 
 type Translate = (key: string) => string;
 
+export type QuantitativeSubcultureDetails = Extract<AuditBusinessDetails, { type: 'subculture' }> & {
+  parent_polyp_count_before?: number | null;
+  allocated_polyp_count?: number | null;
+  parent_polyp_count_after?: number | null;
+  allocations?: Array<{ child_global_code: string; allocated_polyps: number | null; position?: number }>;
+};
+
+export function getAuditSubcultureAllocations(details: AuditBusinessDetails | null | undefined) {
+  if (details?.type !== 'subculture') return [];
+  const allocations = (details as QuantitativeSubcultureDetails).allocations;
+  if (!Array.isArray(allocations)) return [];
+  return allocations.filter((allocation) => allocation && typeof allocation.child_global_code === 'string' && allocation.child_global_code.trim())
+    .map((allocation) => ({
+      code: allocation.child_global_code.trim(),
+      count: typeof allocation.allocated_polyps === 'number' && Number.isFinite(allocation.allocated_polyps) ? allocation.allocated_polyps : null,
+      position: allocation.position ?? 0,
+    }))
+    .sort((left, right) => left.position - right.position);
+}
+
+export function getAuditSubcultureChildCodes(details: AuditBusinessDetails | null | undefined): string[] {
+  if (details?.type !== 'subculture') return [];
+  const allocations = getAuditSubcultureAllocations(details);
+  return allocations.length ? allocations.map((allocation) => allocation.code) : details.child_global_codes ?? [];
+}
+
+export function getAuditAllocatedPolypsLabel(t: Translate) {
+  const label = t('subcultureAllocatedPolyps');
+  return label && label !== 'subcultureAllocatedPolyps' ? label : t('polyps');
+}
+
 export const AUDIT_FAMILIES: readonly AuditFamily[] = [
   'measurements',
   'transfers',
@@ -298,7 +329,7 @@ export function getAuditActionLabel(
 export function hasAuditSubcultureSummary(details: AuditBusinessDetails | null | undefined): boolean {
   return details?.type === 'subculture'
     && Boolean(details.parent_global_code)
-    && (details.child_global_codes?.length ?? 0) > 0;
+    && getAuditSubcultureChildCodes(details).length > 0;
 }
 
 export function getAuditPreviousZone(details: AuditBusinessDetails | null | undefined): string {
@@ -360,6 +391,23 @@ export function getAuditInlineBusinessItems(
   if (!details) return [];
 
   if (details.type === 'box_movement') return [];
+
+  if (details.type === 'subculture') {
+    const quantitative = details as QuantitativeSubcultureDetails;
+    const before = quantitative.parent_polyp_count_before;
+    const after = quantitative.parent_polyp_count_after;
+    const allocated = quantitative.allocated_polyp_count;
+    const items: AuditInlineBusinessItem[] = [];
+    const isCount = (count: unknown): count is number => typeof count === 'number' && Number.isFinite(count);
+    const parentLabel = `${t('confirmDetailParentBox')} / ${t('polyps')}`;
+    if (isCount(before) && isCount(after)) {
+      items.push({ key: 'parent_polyps', label: parentLabel, before: String(before), after: String(after), isDelta: false });
+    } else if (isCount(after)) {
+      items.push({ key: 'parent_polyps', label: parentLabel, value: String(after) });
+    }
+    if (isCount(allocated)) items.push({ key: 'allocated_polyps', label: getAuditAllocatedPolypsLabel(t), value: String(allocated) });
+    return items;
+  }
 
   if (details.type === 'measurement') {
     const source = details.changes ?? details.values ?? {};
@@ -481,7 +529,12 @@ export function getAuditBusinessSummary(entry: AuditEntryLike, t: Translate): st
     return fillTemplate(t('auditSummaryBoxMovedTo'), { location: details.to_zone });
   }
   if (details?.type === 'subculture' && hasAuditSubcultureSummary(details)) {
-    const children = details.child_global_codes ?? [];
+    const allocations = new Map(getAuditSubcultureAllocations(details).map((allocation) => [allocation.code, allocation.count]));
+    const children = getAuditSubcultureChildCodes(details).map((code) => {
+      const count = allocations.get(code);
+      return count != null ? `${code} (${count} ${t('polyps')})`
+              : allocations.has(code) ? `${code} (${t('subcultureUnknown')})` : code;
+    });
     return fillTemplate(
       t(children.length === 1 ? 'auditSummarySubcultureOneChild' : 'auditSummarySubcultureManyChildren'),
       { children: children.join(', '), parent: details.parent_global_code ?? '' },

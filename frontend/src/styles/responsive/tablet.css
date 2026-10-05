@@ -334,6 +334,18 @@
     border-radius: var(--radius-md);
   }
 
+  .is-tablet .box-compact-action--labeled {
+    width: auto;
+    flex: 0 0 auto;
+    grid-auto-flow: row;
+    align-content: center;
+    gap: var(--space-1);
+    padding-inline: var(--space-3);
+    font-size: .82rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
   .is-tablet .box-subculture-glyph { transform: rotate(90deg); }
 
   @container box-detail (width < 680px) {

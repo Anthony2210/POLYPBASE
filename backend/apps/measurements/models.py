@@ -1,7 +1,7 @@
 from datetime import date, datetime, timedelta
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
@@ -34,6 +34,7 @@ class BiologicalMeasurement(models.Model):
     notes = models.TextField(blank=True)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    polyp_state_sequence = models.PositiveBigIntegerField(null=True, editable=False)
 
     class Meta:
         ordering = ["-measured_on", "-created_at"]
@@ -55,11 +56,21 @@ class BiologicalMeasurement(models.Model):
         return measured_on - timedelta(days=measured_on.weekday())
 
     def save(self, *args, **kwargs):
+        from apps.cultures.models import Box
+
         self.week_start = self.week_start_for(self.measured_on)
         update_fields = kwargs.get("update_fields")
         if update_fields is not None and "measured_on" in update_fields:
             kwargs["update_fields"] = set(update_fields) | {"week_start"}
-        super().save(*args, **kwargs)
+        # The interactive POST/PATCH already hold this lock. Keep imports and
+        # admin writes on the same ordering protocol as well.
+        with transaction.atomic(using=kwargs.get("using")):
+            box = Box.objects.select_for_update().get(pk=self.box_id)
+            box.polyp_state_revision += 1
+            if self._state.adding:
+                self.polyp_state_sequence = box.polyp_state_revision
+            box.save(update_fields=["polyp_state_revision"])
+            super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.box} - {self.measured_on}"

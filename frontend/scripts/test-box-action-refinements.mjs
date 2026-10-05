@@ -74,11 +74,19 @@ for (const language of ['fr', 'en']) {
       // QrLabel must resolve its resource in the organization context, not expose
       // the API URL as a direct, unauthenticated image source during render.
       assert.doesNotMatch(markup, /src="\/api\/boxes/);
-      assert.match(markup, /<svg[^>]*width="36"[^>]*height="36"[^>]*class="lucide lucide-route"[^>]*aria-hidden="true"/);
-      assert.match(markup, /<svg[^>]*width="36"[^>]*height="36"[^>]*class="lucide lucide-git-fork box-subculture-glyph"[^>]*aria-hidden="true"/);
+      assert.match(markup, /<svg[^>]*width="20"[^>]*height="20"[^>]*class="lucide lucide-route"[^>]*aria-hidden="true"/);
+      assert.ok(markup.includes(`<span>${catalogues[language].moveAction}</span>`));
+      assert.equal((markup.match(/box-compact-action--labeled/g) ?? []).length, active ? 2 : 1);
+      if (active) {
+        assert.match(markup, /<svg[^>]*width="20"[^>]*height="20"[^>]*class="lucide lucide-git-fork box-subculture-glyph"[^>]*aria-hidden="true"/);
+        assert.ok(markup.includes(`<span>${catalogues[language].subcultureAction}</span>`));
+      } else {
+        assert.doesNotMatch(markup, /lucide-git-fork|box-subculture-glyph/);
+        assert.equal(markup.includes(`aria-label="${catalogues[language].subcultureAction}"`), false);
+      }
       assert.match(markup, new RegExp(`<svg[^>]*width="36"[^>]*height="36"[^>]*class="lucide ${active ? 'lucide-circle-pause' : 'lucide-circle-play'}"[^>]*aria-hidden="true"`));
       assert.doesNotMatch(markup, /lucide-share2|lucide-arrow-right|box-move-glyph|lucide-git-branch|lucide-map-pin-house|row-action-menu-trigger/);
-      for (const key of ['moveAction', 'subcultureAction', active ? 'boxArchiveAction' : 'boxActivateAction']) {
+      for (const key of ['moveAction', ...(active ? ['subcultureAction'] : []), active ? 'boxArchiveAction' : 'boxActivateAction']) {
         assert.ok(markup.includes(`aria-label="${catalogues[language][key]}"`));
       }
       assert.ok(markup.includes('LONG-BOX-CODE-123456789'));
@@ -86,14 +94,51 @@ for (const language of ['fr', 'en']) {
   }
 }
 
-test('React phone render has one contextual trigger and no inline QR or tablet buttons', () => {
-  const { markup, context } = render({ phone: true, busy: true });
-  assert.match(markup, /class="[^"]*is-phone/);
-  assert.equal((markup.match(/row-action-menu-trigger/g) ?? []).length, 1);
-  assert.doesNotMatch(markup, /box-hero-qr|box-tablet-actions|box-action-stack/);
-  assert.deepEqual(Array.from(context.menu.actions, item => item.action), ['qr', 'move', 'subculture', 'tracking']);
-  assert.equal(context.menu.actions.at(-1).disabled, true);
+for (const language of ['fr', 'en']) {
+  test(`tablet compact text and callbacks use existing ${language} actions`, () => {
+    const { context } = render({ language });
+    const nodes = tree => Array.isArray(tree) ? tree.flatMap(nodes)
+      : React.isValidElement(tree) ? [tree, ...nodes(tree.props.children)] : [];
+    const buttons = nodes(context.renderHeader()).filter(node => node.type === 'button'
+      && node.props.className.includes('box-compact-action--labeled'));
+    assert.deepEqual(buttons.map(button => button.props['aria-label']), language === 'fr'
+      ? ['Déplacer', 'Repiquer'] : ['Move', 'Subculture']);
+    const calls = [];
+    context.setIsMoveOpen = value => calls.push(['move', value]);
+    context.setSubcultureError = value => calls.push(['error', value]);
+    context.setIsSubcultureOpen = value => calls.push(['subculture', value]);
+    for (const button of buttons) {
+      assert.equal(button.props.type, 'button');
+      assert.equal(button.props.title, button.props['aria-label']);
+      assert.equal(button.props.disabled, undefined);
+      button.props.onClick();
+    }
+    assert.deepEqual(calls, [['move', true], ['error', null], ['subculture', true]]);
+    const phone = render({ language, phone: true });
+    assert.deepEqual(Array.from(phone.context.menu.actions, item => item.label),
+      ['qrLabelTitle', 'moveAction', 'subcultureAction', 'boxArchiveAction'].map(key => catalogues[language][key]));
+  });
+}
+
+test('tablet tracking remains icon-only, disabled while saving, and outside labeled styling', () => {
+  for (const active of [true, false]) {
+    const { markup } = render({ active, busy: true });
+    assert.match(markup, /class="icon-button box-compact-action"[^>]*disabled=""[^>]*><svg[^>]*width="36"/);
+    assert.equal(markup.includes(`<span>${catalogues.en.saving}</span>`), false);
+  }
 });
+
+for (const active of [true, false]) {
+  test(`React phone render has one contextual trigger and no inline QR or tablet buttons (${active ? 'active' : 'inactive'})`, () => {
+    const { markup, context } = render({ phone: true, busy: true, active });
+    assert.match(markup, /class="[^"]*is-phone/);
+    assert.equal((markup.match(/row-action-menu-trigger/g) ?? []).length, 1);
+    assert.doesNotMatch(markup, /box-hero-qr|box-tablet-actions|box-action-stack/);
+    assert.deepEqual(Array.from(context.menu.actions, item => item.action), active
+      ? ['qr', 'move', 'subculture', 'tracking'] : ['qr', 'move', 'tracking']);
+    assert.equal(context.menu.actions.at(-1).disabled, true);
+  });
+}
 
 test('React desktop render retains labeled actions and pending tracking without compact UI', () => {
   const { markup } = render({ desktop: true, busy: true });
@@ -111,7 +156,7 @@ test('React read-only render exposes no QR or mutation controls when both capabi
   }
 });
 
-test('Box tablet actions match the 64px QR surface, retain the 54px image and rotated fork, and allow identity wrapping', () => {
+test('Box tablet actions retain 64px minimum targets and one row without changing QR or phone geometry', () => {
   const tablet = read('../src/styles/responsive/tablet.css');
   const phone = read('../src/styles/responsive/phone.css');
   const qrCss = read('../src/styles/components/qr-label.css');
@@ -119,6 +164,15 @@ test('Box tablet actions match the 64px QR surface, retain the 54px image and ro
   assert.ok(compact);
   for (const property of ['width', 'min-width', 'height', 'min-height']) assert.match(compact, new RegExp(`${property}: 64px`));
   assert.match(compact, /border-radius: var\(--radius-md\)/);
+  const labeled = tablet.match(/\.is-tablet \.box-compact-action--labeled \{([^}]+)\}/)?.[1];
+  assert.ok(labeled);
+  assert.match(labeled, /width: auto;/);
+  assert.match(labeled, /flex: 0 0 auto;/);
+  assert.match(labeled, /grid-auto-flow: row;/);
+  assert.match(labeled, /padding-inline: var\(--space-3\);/);
+  assert.match(labeled, /white-space: nowrap;/);
+  assert.doesNotMatch(labeled, /(?:min-width|height|min-height):|overflow:|transform:|background:|color:/);
+  assert.match(tablet, /\.box-tablet-actions \{ display: flex; gap: var\(--space-2\); \}/);
   const tabletQrWidth = Number(tablet.match(/\.is-tablet \.box-hero-qr \{ width: (\d+)px/)?.[1]);
   const desktopQrWidth = Number(qrCss.match(/\.qr-label--trigger \{[^}]*width: (\d+)px/)?.[1]);
   assert.equal(tabletQrWidth, 64);

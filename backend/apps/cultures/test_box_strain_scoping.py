@@ -15,6 +15,7 @@ from apps.taxonomy.models import Species, Strain
 
 from .models import Box, BoxLineage, BoxLocation, SubcultureEvent, ThermalZone
 from .services import create_subculture
+from .polyp_state import resolve_current_polyp_state
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)
@@ -99,15 +100,10 @@ class BoxStrainScopingTests(TestCase):
             box_number="001",
             thermal_zone=self.zone,
         )
-        child = {
-            "global_code": "ASC-OTHER-1.002",
-            "box_number": "002",
-            "thermal_zone_id": self.zone.pk,
-            "initial_polyp_count": 0,
-        }
+        child = {"thermal_zone_id": self.zone.pk, "allocated_polyps": 0}
         response = self.client.post(
             reverse("api_box_subcultures", args=[parent.pk]),
-            data={"event_date": "2026-09-01", "children": [child]},
+            data={"expected_current_state_revision": resolve_current_polyp_state(parent)["revision"], "children": [child]},
             content_type="application/json",
             HTTP_X_ORGANIZATION_ID=str(self.organization.pk),
         )
@@ -123,14 +119,13 @@ class BoxStrainScopingTests(TestCase):
             create_subculture(
                 parent_box=parent,
                 user=self.user,
-                event_date=date(2026, 9, 1),
+                organization=self.organization,
+                expected_current_state_revision=resolve_current_polyp_state(parent)["revision"],
                 reason="",
                 notes="",
                 children=[{
-                    "global_code": child["global_code"],
-                    "box_number": child["box_number"],
                     "thermal_zone": self.zone,
-                    "initial_polyp_count": 0,
+                    "allocated_polyps": 0,
                 }],
             )
         self.assertEqual(Box.objects.count(), 1)
@@ -145,15 +140,15 @@ class BoxStrainScopingTests(TestCase):
             box_number="001",
             thermal_zone=self.zone,
         )
+        BiologicalMeasurement.objects.create(box=parent, measured_on=date(2026, 9, 1), polyp_count=0)
+        parent.refresh_from_db()
         response = self.client.post(
             reverse("api_box_subcultures", args=[parent.pk]),
             data={
-                "event_date": "2026-09-01",
+                "expected_current_state_revision": resolve_current_polyp_state(parent)["revision"],
                 "children": [{
-                    "global_code": "ASC-LEG-1.002",
-                    "box_number": "002",
                     "thermal_zone_id": self.zone.pk,
-                    "initial_polyp_count": 0,
+                    "allocated_polyps": 0,
                 }],
             },
             content_type="application/json",
@@ -163,4 +158,5 @@ class BoxStrainScopingTests(TestCase):
         child = Box.objects.get(global_code="ASC-LEG-1.002")
         self.assertEqual(child.organization_id, self.organization.pk)
         self.assertEqual(child.strain_id, self.legacy.pk)
-        self.assertEqual(child.biological_measurements.get().polyp_count, 0)
+        self.assertFalse(child.biological_measurements.exists())
+        self.assertEqual(child.subculture_initialization.allocated_polyps, 0)

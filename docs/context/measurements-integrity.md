@@ -23,6 +23,16 @@ Une boîte inactive refuse un nouveau relevé. Un relevé historique déjà pré
 
 La commande `check_biological_measurement_duplicates` effectue un diagnostic en lecture seule avant l'application d'une contrainte sur une base existante. Elle liste organisation, boîte, date, nombre et identifiants concernés. Elle ne choisit jamais quelle donnée scientifique conserver.
 
+## État courant et repiquage quantitatif
+
+`latest_measurement` reste le dernier relevé ordinaire et conserve ses règles de fraîcheur et de semaine ISO. `current_polyp_state` est une notion distincte : le serveur résout une observation absolue, un résultat absolu de repiquage parent ou l'allocation initiale absolue d'un enfant. Il ne soustrait jamais toutes les allocations historiques d'un dernier relevé.
+
+Un repiquage quantitatif ne crée aucun `BiologicalMeasurement`, ni éphyrule ou strobile fictif. Il peut coexister avec un relevé ordinaire dans la même semaine, pour le parent comme pour les enfants. Les écritures ordinaires et les repiquages partagent le verrou de boîte et une séquence de sources; les révisions opaques invalident les intentions périmées. Corriger un relevé ancien ne réécrit ni l'instantané ni les allocations du repiquage accepté. L'historique typé distingue les relevés éditables des événements de repiquage non éditables.
+
+Un repiquage partiel (au moins une allocation enfant `null` ou omise) conserve l'avant connu mais a un total et un après `null`. Sa révision invalide les intentions sans transition scientifique. Tous les chemins du résolveur, y compris les sous-requêtes de priorité des relevés et les préchargements, ignorent ces événements comme sources parent et les allocations inconnues comme initialisations enfant. L'historique conserve l'événement partiel sans point quantitatif après; un enfant inconnu n'a pas d'entrée d'initialisation inventée. Zéro reste une initialisation connue. Les règles hebdomadaires et de correction restent inchangées.
+
+Voir [`boxes-lifecycle-locations.md`](boxes-lifecycle-locations.md) et le contrat backend pour les détails du repiquage et du résolveur.
+
 ## Températures
 
 `TemperatureMeasurement` stocke une mesure individuelle horodatée provenant d'une `Probe`; l'unicité porte sur sonde et horodatage. `DailyTemperature` stocke l'agrégat journalier d'une zone et est unique par `(thermal_zone, date)`.

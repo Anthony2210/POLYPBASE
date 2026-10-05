@@ -17,6 +17,8 @@ import type {
   BoxMovement,
   LineageGraph,
 } from '../types';
+import { createTranslator } from '../i18n';
+import { getBiologicalTimelineLabels, type BiologicalTimelineEntry } from '../utils/biologicalTimeline';
 import { formatDisplayDate, formatDisplayDateTime } from '../utils/dateFormat';
 import PolypbaseIcon from './PolypbaseIcon';
 import BoxTrackingChart, { buildLifecycleEvents } from './BoxTrackingChart';
@@ -74,6 +76,7 @@ type BoxInsightsLabels = {
 
 export default function BoxInsights({
   activeTab,
+  biologicalTimeline,
   graph,
   graphError,
   isGraphLoading,
@@ -89,6 +92,7 @@ export default function BoxInsights({
   onSelectTab,
 }: {
   activeTab: BoxInsightTab;
+  biologicalTimeline?: readonly BiologicalTimelineEntry[];
   graph: LineageGraph | null;
   graphError: string | null;
   isGraphLoading: boolean;
@@ -146,6 +150,7 @@ export default function BoxInsights({
       {activeTab === 'measurements' ? (
         <div ref={insightPanelRef} className="insight-panel" style={insightPanelStyle}>
           <BoxTrackingChart
+            biologicalTimeline={biologicalTimeline}
             events={lifecycleEvents}
             labels={labels}
             language={language}
@@ -247,13 +252,17 @@ function MovementTimeline({
 }
 
 export function MeasurementHistoryModal({
+  biologicalTimeline,
   boxCode,
   labels,
+  language = 'fr',
   measurements,
   onClose,
 }: {
+  biologicalTimeline?: readonly BiologicalTimelineEntry[];
   boxCode: string;
   labels: BoxInsightsLabels;
+  language?: Language;
   measurements: BiologicalMeasurement[];
   onClose: () => void;
 }) {
@@ -263,29 +272,26 @@ export function MeasurementHistoryModal({
   const titleId = useId();
   const [selectedYear, setSelectedYear] = useState('all');
   const [visibleCount, setVisibleCount] = useState(24);
-  const [expandedNotes, setExpandedNotes] = useState<Set<number>>(() => new Set());
+  const [expandedNotes, setExpandedNotes] = useState<Set<string>>(() => new Set());
 
-  const sortedMeasurements = useMemo(
-    () => [...measurements].sort((left, right) => (
-      right.measured_on.localeCompare(left.measured_on)
-      || right.created_at.localeCompare(left.created_at)
-    )),
-    [measurements],
+  const sortedEntries = useMemo(
+    () => buildHistoryEntries(measurements, biologicalTimeline),
+    [measurements, biologicalTimeline],
   );
   const availableYears = useMemo(
-    () => Array.from(new Set<string>(sortedMeasurements.map((measurement) => measurement.measured_on.slice(0, 4))))
+    () => Array.from(new Set<string>(sortedEntries.map((entry) => entry.effective_date.slice(0, 4))))
       .filter(Boolean)
       .sort((left, right) => right.localeCompare(left)),
-    [sortedMeasurements],
+    [sortedEntries],
   );
-  const filteredMeasurements = useMemo(
+  const filteredEntries = useMemo(
     () => selectedYear === 'all'
-      ? sortedMeasurements
-      : sortedMeasurements.filter((measurement) => measurement.measured_on.startsWith(selectedYear)),
-    [selectedYear, sortedMeasurements],
+      ? sortedEntries
+      : sortedEntries.filter((entry) => entry.effective_date.startsWith(selectedYear)),
+    [selectedYear, sortedEntries],
   );
-  const visibleMeasurements = filteredMeasurements.slice(0, visibleCount);
-  const remainingCount = Math.max(0, filteredMeasurements.length - visibleMeasurements.length);
+  const visibleEntries = filteredEntries.slice(0, visibleCount);
+  const remainingCount = Math.max(0, filteredEntries.length - visibleEntries.length);
 
   useLayoutEffect(() => {
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -340,11 +346,11 @@ export function MeasurementHistoryModal({
     if (listRef.current) listRef.current.scrollTop = 0;
   }
 
-  function toggleNote(measurementId: number) {
+  function toggleNote(identity: string) {
     setExpandedNotes((current) => {
       const next = new Set(current);
-      if (next.has(measurementId)) next.delete(measurementId);
-      else next.add(measurementId);
+      if (next.has(identity)) next.delete(identity);
+      else next.add(identity);
       return next;
     });
   }
@@ -379,7 +385,7 @@ export function MeasurementHistoryModal({
             </select>
           </label>
           <span role="status">
-            {labels.historyVisibleCount(visibleMeasurements.length, filteredMeasurements.length)}
+            {labels.historyVisibleCount(visibleEntries.length, filteredEntries.length)}
           </span>
         </div>
 
@@ -387,7 +393,8 @@ export function MeasurementHistoryModal({
           listRef={listRef}
           expandedNotes={expandedNotes}
           labels={labels}
-          measurements={visibleMeasurements}
+          language={language}
+          entries={visibleEntries}
           onToggleNote={toggleNote}
         />
 
@@ -413,19 +420,75 @@ export function MeasurementHistoryModal({
   );
 }
 
+type HistoryEntry = {
+  identity: string;
+  effective_date: string;
+  timestamp: string | null;
+  state_sequence?: number | null;
+} & (
+  | { kind: 'measurement'; measurement: BiologicalMeasurement }
+  | { kind: 'subculture' | 'subculture_initialization'; event: BiologicalTimelineEntry }
+);
+
+function buildHistoryEntries(measurements: BiologicalMeasurement[], timeline?: readonly BiologicalTimelineEntry[]): HistoryEntry[] {
+  const entries = new Map<string, HistoryEntry>();
+  measurements.forEach((measurement) => {
+    const identity = `measurement:${measurement.id}`;
+    entries.set(identity, {
+      identity,
+      kind: 'measurement',
+      effective_date: measurement.measured_on,
+      timestamp: measurement.created_at,
+      measurement,
+    });
+  });
+  timeline?.forEach((entry) => {
+    const identity = entry.identity ?? `${entry.kind}:${entry.id}`;
+    if (entry.kind === 'measurement') {
+      const existing = entries.get(`measurement:${entry.id}`);
+      const measurement = entry.measurement ?? (existing?.kind === 'measurement' ? existing.measurement : undefined);
+      if (!measurement) return;
+      // Keep the original reading payload; operation snapshots never replace its counts.
+      entries.delete(`measurement:${entry.id}`);
+      entries.set(identity, {
+        identity, kind: entry.kind, measurement,
+        effective_date: measurement.measured_on,
+        timestamp: measurement.created_at,
+        state_sequence: entry.state_sequence,
+      });
+    } else {
+      entries.set(identity, {
+        identity, kind: entry.kind, event: entry,
+        effective_date: entry.effective_date,
+        timestamp: entry.timestamp ?? null,
+        state_sequence: entry.state_sequence,
+      });
+    }
+  });
+  return [...entries.values()].sort((left, right) => (
+    right.effective_date.localeCompare(left.effective_date)
+    || (right.state_sequence ?? 0) - (left.state_sequence ?? 0)
+    || (right.timestamp ?? '').localeCompare(left.timestamp ?? '')
+  ));
+}
+
 function MeasurementHistoryList({
   listRef,
   expandedNotes,
   labels,
-  measurements,
+  language,
+  entries,
   onToggleNote,
 }: {
   listRef: RefObject<HTMLDivElement>;
-  expandedNotes: Set<number>;
+  expandedNotes: Set<string>;
   labels: BoxInsightsLabels;
-  measurements: BiologicalMeasurement[];
-  onToggleNote: (measurementId: number) => void;
+  language: Language;
+  entries: HistoryEntry[];
+  onToggleNote: (identity: string) => void;
 }) {
+  const t = createTranslator(language);
+  const timelineLabels = getBiologicalTimelineLabels(t);
   return (
     <div ref={listRef} className="measurement-history-table" role="table" tabIndex={0} aria-label={labels.measurementHistory}>
       <div className="measurement-history-columns" role="row">
@@ -437,44 +500,83 @@ function MeasurementHistoryList({
         <span role="columnheader">{labels.historyObservation}</span>
       </div>
 
-      {!measurements.length ? (
+      {!entries.length ? (
         <div className="measurement-history-empty">{labels.noMeasurementHistory}</div>
       ) : null}
 
-      {measurements.map((measurement) => {
-        const note = measurement.notes?.trim() ?? '';
+      {entries.map((entry) => {
+        const measurement = entry.kind === 'measurement' ? entry.measurement : null;
+        const event = entry.kind === 'measurement' ? null : entry.event;
+        const note = (measurement?.notes ?? event?.notes)?.trim() ?? '';
         const isLongNote = note.length > 140;
-        const isExpanded = expandedNotes.has(measurement.id);
+        const isExpanded = expandedNotes.has(entry.identity);
+        const typeLabel = measurement ? t('auditObjectMeasurement')
+          : entry.kind === 'subculture_initialization'
+            ? `${timelineLabels.subcultureEvent} — ${t('auditMetaInitialPolypCounts')}`
+            : timelineLabels.subcultureEvent;
+        const allocations = [...(event?.allocations ?? [])].sort((left, right) => left.position - right.position);
 
         return (
-          <article key={measurement.id} className="measurement-history-entry" role="row">
+          <article key={entry.identity} className={`measurement-history-entry${event ? ' measurement-history-entry--operation' : ''}`} role="row" data-entry-kind={entry.kind}>
             <div className="measurement-history-date" role="cell">
               <small aria-hidden="true">{labels.historyYear}</small>
-              <time dateTime={measurement.measured_on}>{formatDisplayDate(measurement.measured_on)}</time>
+              <time dateTime={entry.effective_date}>{formatDisplayDate(entry.effective_date)}</time>
+              <span className="measurement-history-type">{typeLabel}</span>
+              {event && entry.timestamp ? (
+                <time className="measurement-history-timestamp" dateTime={entry.timestamp}>{formatDisplayDateTime(entry.timestamp)}</time>
+              ) : null}
             </div>
             <div className="measurement-history-value" role="cell">
               <small aria-hidden="true">{labels.polyps}</small>
-              <strong>{measurement.polyp_count}</strong>
+              <strong>{measurement ? measurement.polyp_count : event?.polyp_count_after ?? '—'}</strong>
             </div>
             <div className="measurement-history-value" role="cell">
               <small aria-hidden="true">{labels.ephyraeFull}</small>
-              <strong>{measurement.ephyrae_count}</strong>
+              <strong>{measurement ? measurement.ephyrae_count : '—'}</strong>
             </div>
             <div className="measurement-history-value" role="cell">
               <small aria-hidden="true">PSU</small>
-              <strong className={measurement.salinity_psu === null ? 'is-missing' : ''}>
-                {measurement.salinity_psu === null ? '—' : formatDecimal(measurement.salinity_psu)}
+              <strong className={measurement?.salinity_psu == null ? 'is-missing' : ''}>
+                {measurement?.salinity_psu == null ? '—' : formatDecimal(measurement.salinity_psu)}
               </strong>
             </div>
             <div className="measurement-history-user" role="cell">
               <small aria-hidden="true">{labels.historyEnteredBy}</small>
-              <span>{measurement.user ?? '—'}</span>
+              <span>{measurement ? measurement.user ?? '—' : event?.author?.username ?? '—'}</span>
             </div>
             <div className="measurement-history-note" role="cell">
               <small aria-hidden="true">{labels.historyObservation}</small>
+              {event ? (
+                <dl className="measurement-history-operation-details">
+                  {entry.kind === 'subculture' ? (
+                    <div>
+                      <dt>{timelineLabels.parentBox}</dt>
+                      <dd>
+                        {t('auditMetaBefore')}: {event.polyp_count_before ?? '—'}
+                        {' → '}{t('auditMetaAfter')}: {event.polyp_count_after ?? '—'}
+                      </dd>
+                    </div>
+                  ) : event.parent ? (
+                    <div><dt>{timelineLabels.parentBox}</dt><dd>{event.parent.global_code}</dd></div>
+                  ) : null}
+                  <div><dt>{timelineLabels.allocatedPolyps}</dt><dd>{event.allocated_polyps ?? '—'}</dd></div>
+                  {allocations.length || event.children?.length ? (
+                    <div>
+                      <dt>{timelineLabels.childBoxes}</dt>
+                      <dd>
+                        <ul>
+                          {allocations.length ? allocations.map((allocation) => (
+                            <li key={allocation.child_box_id}>{allocation.child_global_code}: {allocation.allocated_polyps ?? t('subcultureUnknown')}</li>
+                          )) : event.children?.map((child) => <li key={child.id}>{child.global_code}</li>)}
+                        </ul>
+                      </dd>
+                    </div>
+                  ) : null}
+                </dl>
+              ) : null}
               <p className={isLongNote && !isExpanded ? 'is-collapsed' : ''}>{note || '—'}</p>
               {isLongNote ? (
-                <button type="button" aria-expanded={isExpanded} onClick={() => onToggleNote(measurement.id)}>
+                <button type="button" aria-expanded={isExpanded} onClick={() => onToggleNote(entry.identity)}>
                   {isExpanded ? labels.historyHideComment : labels.historyReadComment}
                 </button>
               ) : null}

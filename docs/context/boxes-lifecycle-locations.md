@@ -46,7 +46,15 @@ Si l'état a changé entre l'affichage et la confirmation, l'API répond `409` a
 
 `SubcultureEvent` décrit un repiquage depuis une boîte parent. `BoxLineage` conserve la relation parent-enfant, notamment créée par ce flux. L'historique de lignée doit survivre aux changements de statut et d'emplacement.
 
-Les opérations de repiquage et les transitions de cycle de vie utilisent des services transactionnels. Lors d'une évolution, inspecter la création de la boîte enfant, son emplacement initial, la relation de lignée et l'audit comme une seule opération métier potentielle. Ne pas déduire une parenté d'une ressemblance de codes.
+Les nouveaux repiquages sont saisis au moment réel de l'opération, avec horodatage serveur. Chaque allocation enfant est un entier explicite (y compris zéro), `null` ou omise. Si toutes sont connues, l'instantané avant/réparti/après est exact. Sinon, le total réparti et l'après sont `null` : aucun effet quantitatif parent n'est appliqué, et son état autoritaire précédent reste courant. Le parent doit toujours avoir un comptage connu; la somme des allocations connues ne peut pas le dépasser, même en saisie partielle. Les enfants connus reçoivent leur état initial individuel; les inconnus n'ont aucun état initial scientifique inventé. Le service verrouille le parent, vérifie puis incrémente sa révision même en saisie partielle (invalidation d'intention, pas transition), et conserve l'instantané avant, les allocations immuables ordonnées, les boîtes, les emplacements, les lignées et l'audit dans une seule transaction. Un état inconnu n'est jamais zéro. Les anciens événements restent inchangés; aucun historique n'est reconstruit.
+
+Les codes enfants sont imposés par le serveur : `BoxCodeNamespace` réserve les suffixes consécutifs au-dessus du maximum connu du préfixe réel, sans remplir les trous. Les autres écritures ordinaires de codes participent au même verrou via `Box.save()`; ce compteur est distinct de celui des souches.
+
+Le repiquage ne crée aucun relevé biologique artificiel et ne consomme aucun créneau hebdomadaire. Les corrections ultérieures restent autorisées sans recalcul des instantanés. Si le parent atteint zéro, l'interface propose seulement ensuite une désactivation facultative avec les permissions et le service de cycle de vie existants, dans une transaction indépendante.
+
+Le contrat détaillé, les consommateurs inspectés et la stratégie de concurrence sont dans [`../../backend/QUANTITATIVE_SUBCULTURE.md`](../../backend/QUANTITATIVE_SUBCULTURE.md).
+
+Ne pas déduire une parenté d'une ressemblance de codes.
 
 ### Transfert inter-institutions
 

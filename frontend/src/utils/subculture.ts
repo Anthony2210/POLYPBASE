@@ -1,44 +1,20 @@
-import type { BoxItem, SubcultureChildPayload } from '../types';
+export const MAX_SUBCULTURE_CHILDREN = 20;
+export const MAX_ALLOCATED_POLYPS = 2147483647;
 
-type ParentBoxIdentity = Pick<BoxItem, 'global_code' | 'strain'>;
-type ExistingBoxIdentity = Pick<BoxItem, 'global_code'>;
-type ChildIdentity = Pick<SubcultureChildPayload, 'global_code'>;
-
-export function suggestChildIdentity(
-  parentBox: ParentBoxIdentity,
-  existingBoxes: ExistingBoxIdentity[],
-  currentChildren: ChildIdentity[],
-) {
-  const parentNumber = extractBoxNumber(parentBox.global_code);
-  if (!parentNumber) {
-    return { globalCode: '', boxNumber: '' };
-  }
-
-  const prefix = `${parentBox.strain.code}.`;
-  const width = parentNumber.length;
-  const prefixPattern = new RegExp(`^${escapeRegExp(prefix)}(\\d+)$`);
-  const existingCodes = [
-    ...existingBoxes.map((existingBox) => existingBox.global_code),
-    ...currentChildren.map((child) => child.global_code),
-  ];
-  const matchingNumbers = existingCodes
-    .map((code) => code.match(prefixPattern)?.[1] ?? null)
-    .filter((value): value is string => Boolean(value))
-    .map((value) => Number(value))
-    .filter(Number.isFinite);
-  const nextNumber = Math.max(Number(parentNumber), ...matchingNumbers) + 1;
-  const formattedNumber = String(nextNumber).padStart(Math.max(width, 3), '0');
-
-  return {
-    globalCode: `${prefix}${formattedNumber}`,
-    boxNumber: formattedNumber,
-  };
+export function parseAllocatedPolyps(value: string): number | null {
+  if (!/^\d+$/.test(value)) return null;
+  const count = Number(value);
+  return Number.isInteger(count) && count <= MAX_ALLOCATED_POLYPS ? count : null;
 }
 
-function extractBoxNumber(globalCode: string) {
-  return globalCode.match(/^.*\.(\d+).*$/)?.[1] ?? null;
-}
+export function summarizeSubcultureAllocation(available: number | null, values: string[]) {
+  const counts = values.map(parseAllocatedPolyps);
+  const complete = counts.length > 0 && counts.every((count) => count !== null);
+  const knownTotal = counts.reduce<number>((total, count) => total + (count ?? 0), 0);
+  const allocated = complete ? knownTotal : null;
+  const remaining = available !== null && allocated !== null ? available - allocated : null;
+  // A partial draft can already exceed stock, but blanks never become zero allocations.
+  const overAllocated = available !== null && knownTotal > available;
 
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return { available, allocated, remaining, complete, overAllocated };
 }

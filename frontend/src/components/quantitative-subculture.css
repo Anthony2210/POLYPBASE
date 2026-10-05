@@ -1,0 +1,116 @@
+.box-dialog-backdrop.quantitative-subculture-backdrop { overflow: hidden; }
+
+.box-dialog.quantitative-subculture {
+  --box-dialog-width: 620px;
+  --control-height: 44px;
+}
+
+.box-dialog.quantitative-subculture .box-dialog-heading {
+  align-items: center;
+  padding-block: var(--space-3) var(--space-2);
+  border-bottom: 0;
+}
+
+.box-dialog.quantitative-subculture .box-dialog-heading h2 { font-size: 1.2rem; font-style: italic; }
+.quantitative-subculture .box-dialog-close { border-radius: 50%; }
+.quantitative-subculture .quantitative-subculture-parent {
+  display: flex;
+  min-width: 0;
+  padding: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  background: var(--color-surface-info);
+  border-left: 3px solid var(--color-primary);
+  overflow-wrap: anywhere;
+}
+.quantitative-subculture-parent > span { display: grid; min-width: 0; gap: 2px; }
+.quantitative-subculture-parent strong { color: var(--color-primary-hover); font-size: 1rem; font-weight: 750; font-style: italic; }
+.quantitative-subculture-parent small { color: var(--color-muted); font-size: .76rem; font-style: italic; }
+
+.box-dialog.quantitative-subculture .box-dialog-form { min-height: 0; overflow: hidden; }
+.box-dialog.quantitative-subculture .quantitative-subculture-body { gap: var(--space-3); overflow: auto; }
+.quantitative-subculture .quantitative-subculture-summary dl { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-3); margin: 0; font-variant-numeric: tabular-nums; }
+.quantitative-subculture-summary dl > div { display: flex; align-items: baseline; gap: var(--space-1); }
+.quantitative-subculture-summary dt { color: var(--color-ink-soft); font-size: .8rem; }
+.quantitative-subculture-summary dd { margin: 0; font-size: .9rem; font-weight: 650; overflow-wrap: anywhere; }
+
+.quantitative-subculture .quantitative-subculture-children { display: grid; gap: var(--space-2); }
+.quantitative-subculture .quantitative-subculture-rows { display: grid; gap: var(--space-3); }
+.quantitative-subculture .quantitative-subculture-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-areas: "identity identity" "zone count";
+  align-items: start;
+  gap: var(--space-2) var(--space-3);
+}
+.quantitative-subculture .quantitative-subculture-row + .quantitative-subculture-row {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-line-soft);
+}
+.quantitative-subculture .quantitative-subculture-child-heading {
+  display: flex;
+  grid-area: identity;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 44px;
+}
+.quantitative-subculture-child-heading > div { min-width: 0; }
+.quantitative-subculture-child-heading h4 { margin: 0; font-size: .9rem; font-weight: 650; overflow-wrap: anywhere; }
+.quantitative-subculture .quantitative-subculture-child-heading button { width: 44px; min-width: 44px; min-height: 44px; }
+.quantitative-subculture .quantitative-subculture-zone { grid-area: zone; }
+.quantitative-subculture .quantitative-subculture-count { grid-area: count; }
+
+
+.quantitative-subculture label { display: grid; gap: var(--space-1); color: var(--color-ink-soft); font-size: .8rem; font-weight: 650; }
+.quantitative-subculture :is(input, select, textarea) { min-height: 44px; font-size: .9rem; }
+.quantitative-subculture textarea { min-height: 72px; resize: vertical; }
+.quantitative-subculture input[aria-invalid="true"] { border-color: var(--color-danger-hover); }
+.quantitative-subculture .quantitative-subculture-add { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.quantitative-subculture .quantitative-subculture-add-button {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  color: var(--color-primary-hover);
+  font-size: .9rem;
+  font-weight: 650;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line-strong);
+  white-space: normal;
+}
+.quantitative-subculture-add-icon { display: grid; width: 24px; height: 24px; flex: 0 0 auto; place-items: center; font-size: 1.2rem; line-height: 1; }
+.quantitative-subculture .quantitative-subculture-add-button:not(:disabled):hover { background: var(--color-surface-info); border-color: var(--color-primary); }
+.quantitative-subculture .quantitative-subculture-add-button:not(:disabled):active { background: var(--color-surface-subtle); }
+.quantitative-subculture-add small { color: var(--color-ink-soft); }
+.quantitative-subculture .quantitative-subculture-note { margin-top: var(--space-1); }
+.quantitative-subculture .quantitative-subculture-help { margin: 0; color: var(--color-ink-soft); font-size: .86rem; }
+.quantitative-subculture .inline-error { margin: 0; }
+
+.quantitative-subculture .box-dialog-actions { padding-block: var(--space-2); }
+.quantitative-subculture .box-dialog-actions button { flex: 0 1 auto; min-height: 44px; padding-inline: var(--space-3); }
+.quantitative-subculture :is(button, input, select, textarea):focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.quantitative-subculture :is(button, input, select, textarea):disabled { opacity: .55; cursor: not-allowed; }
+
+@media (max-width: 1023px), (pointer: coarse), (max-height: 600px) {
+  .box-dialog.quantitative-subculture { --box-dialog-inset: var(--space-4); }
+  .box-dialog.quantitative-subculture .box-dialog-heading { padding-block: var(--space-2); }
+  .box-dialog.quantitative-subculture .quantitative-subculture-body { padding-block: var(--space-3); }
+}
+
+@media (max-width: 639px) {
+  .box-dialog-backdrop.quantitative-subculture-backdrop { --box-dialog-edge: var(--space-2); }
+  .box-dialog.quantitative-subculture { --box-dialog-inset: var(--space-3); }
+  .quantitative-subculture .quantitative-subculture-row { grid-template-columns: minmax(0, 1fr); grid-template-areas: "identity" "zone" "count"; }
+  .quantitative-subculture :is(input, select, textarea) { font-size: 16px; }
+  .quantitative-subculture .quantitative-subculture-parent { flex-wrap: wrap; }
+  .quantitative-subculture-summary dl > div { flex-wrap: wrap; }
+}
+
+@media (max-height: 600px) {
+  .box-dialog.quantitative-subculture .quantitative-subculture-body { padding-block: var(--space-2); gap: var(--space-2); }
+}

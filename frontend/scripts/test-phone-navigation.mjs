@@ -41,7 +41,7 @@ const boxes = [
   },
 ];
 
-test('Move and Subculture remain available through the phone menu and shared dispatcher', () => {
+test('phone menu and shared dispatcher retain Move and gate Subculture to active boxes', () => {
   for (const path of ['pages/box-detail.css', 'responsive/phone.css', 'responsive/tablet.css']) {
     const css = readFileSync(new URL(`../src/styles/${path}`, import.meta.url), 'utf8');
     assert.doesNotMatch(css, /[^{}]*(?:move-trigger|subculture-trigger|box-header-tools|row-action-menu-trigger)[^{}]*\{[^}]*display:\s*none/, path);
@@ -62,13 +62,14 @@ test('Move and Subculture remain available through the phone menu and shared dis
   visit(boxPage);
   assert.ok(menuExpression, 'Box phone menu must be rendered by the real JSX');
   const actions = body.slice(body.indexOf('type BoxAction'), body.indexOf('async function saveMeasurement'));
-  for (const write of [false, true]) {
+  for (const [write, active] of [[false, true], [false, false], [true, true], [true, false]]) {
     const calls = [];
     const context = {
       React: { createElement: (type, props) => ({ type, props }) }, RowActionMenu: 'menu',
-      isPhoneLayout: true, canWriteLabData: write, canShowStatusButton: false,
+      isPhoneLayout: true, canWriteLabData: write, canShowStatusButton: false, isBoxActive: active,
       qr: null, box: { global_code: 'BOX-17' }, t: key => `translated:${key}`,
       setIsMoveOpen: value => calls.push(['move', value]),
+      setSubcultureError: value => calls.push(['subculture-error', value]),
       setIsSubcultureOpen: value => calls.push(['subculture', value]),
     };
     const code = `${actions}\nglobalThis.menu = (${menuExpression.getText(ast)});`;
@@ -78,11 +79,14 @@ test('Move and Subculture remain available through the phone menu and shared dis
     if (write) {
       assert.equal(context.menu.type, 'menu');
       assert.equal(context.menu.props.ariaLabel, 'translated:boxInventoryActions BOX-17');
-      assert.deepEqual(Array.from(context.menu.props.actions, item => [item.action, item.label]), [
-        ['move', 'translated:moveAction'], ['subculture', 'translated:subcultureAction'],
-      ]);
+      assert.deepEqual(Array.from(context.menu.props.actions, item => [item.action, item.label]), active
+        ? [['move', 'translated:moveAction'], ['subculture', 'translated:subcultureAction']]
+        : [['move', 'translated:moveAction']]);
       for (const item of context.menu.props.actions) context.menu.props.onAction(item.action);
-      assert.deepEqual(calls, [['move', true], ['subculture', true]]);
+      if (!active) context.dispatchBoxAction('subculture');
+      assert.deepEqual(calls, active
+        ? [['move', true], ['subculture-error', null], ['subculture', true]]
+        : [['move', true]]);
     } else {
       assert.equal(context.menu, null, 'No mutation menu for a read-only account');
       context.dispatchBoxAction('move');

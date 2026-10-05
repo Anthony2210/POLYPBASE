@@ -46,6 +46,8 @@ function environment() {
     contains(node) { return node === this || this.children.some((child) => child.contains(node)); }
     matches(selector) {
       if (selector === dialogSelector) return this.props.role === 'dialog' && this.props['aria-modal'] === 'true';
+      const allocation = selector.match(/^\[data-allocation-key="(\d+)"\]$/);
+      if (allocation) return String(this.props['data-allocation-key']) === allocation[1];
       assert.equal(selector, focusableSelector, `Unexpected DOM selector: ${selector}`);
       return (controlTypes.includes(this.type) && !this.disabled)
         || (this.type === 'a' && Boolean(this.props.href))
@@ -118,6 +120,7 @@ function environment() {
     const exports = {};
     modules.set(url.href, exports);
     const require = (name) => {
+      if (name.endsWith('.css')) return {};
       if (name === 'react') return hooks;
       if (name === 'lucide-react') return Object.fromEntries(['AlertTriangle', 'CheckCircle2', 'X', 'XCircle'].map((icon) => [icon, `icon-${icon}`]));
       if (name === 'react/jsx-runtime') {
@@ -126,7 +129,10 @@ function environment() {
       }
       // Portals are represented in document order; icons have no interactive DOM.
       if (name === './ModalPortal' || name === './PolypbaseIcon') return { default: name };
-      if (name.startsWith('../hooks/') || name.startsWith('../utils/')) return load(new URL(`${name}.ts`, url).href);
+      if (name === '../i18n') return load(new URL('../i18n/index.ts', url).href);
+      if (url.pathname.includes('/i18n/') && (name === './fr' || name === './en')) return load(new URL(`${name}.ts`, url).href);
+      if (name === '../hooks/useSubcultureCodePreview') return { default: () => [] };
+            if (name.startsWith('../hooks/') || name.startsWith('../utils/')) return load(new URL(`${name}.ts`, url).href);
       throw new Error(`Unexpected import: ${name}`);
     };
     vm.runInNewContext(compiled.get(url.href), { exports, require, document, window, HTMLElement: Element }, { filename: url.pathname });
@@ -208,17 +214,23 @@ function environment() {
 
 const cases = [
   { name: 'MoveBoxModal', titles: { en: 'Move box', fr: 'Déplacer la boîte' }, initialType: 'select', saves: { en: 'Move', fr: 'Déplacer' }, saving: { en: 'Saving...', fr: 'Enregistrement...' } },
-  { name: 'SubcultureModal', titles: { en: 'Create a subculture', fr: 'Repiquer la boîte' }, initialType: 'input', saves: { en: 'Subculture', fr: 'Repiquer' }, saving: { en: 'Creating...', fr: 'Création...' } },
+  { name: 'SubcultureModal', titles: { en: 'Subculture', fr: 'Repiquer' }, initialType: 'input', saves: { en: 'Subculture', fr: 'Repiquer' }, saving: { en: 'Creating...', fr: 'Création...' } },
 ];
 function fixture(spec, overrides = {}, env = environment()) {
   let closed = 0;
-  const box = { id: 17, global_code: '1-ATL.001', species: { scientific_name: 'Aurelia aurita' }, strain: { code: '1-ATL' }, organization: { id: 1, name: 'Test institution' }, thermal_zone: { id: 2, name: 'Current zone' } };
+  const box = {
+    id: 17, global_code: '1-ATL.001', species: { scientific_name: 'Aurelia aurita' }, strain: { code: '1-ATL' },
+    organization: { id: 1, name: 'Test institution' }, thermal_zone: { id: 2, name: 'Current zone' },
+    current_polyp_state: { polyp_count: 12, revision: 'opaque-current-revision', source: { kind: 'subculture', id: 8, timestamp: '2026-09-21T12:00:00Z' } },
+    latest_measurement: { polyp_count: 999 },
+  };
   const props = {
     box, existingBoxes: [box], zones: [2, 3, 4].map((id) => ({ id, name: `Zone ${id}`, organization: box.organization, is_active: true })),
     language: 'en', isSaving: false, error: null, onClose() { closed++; }, onSubmit: async () => {}, ...overrides,
   };
+  props.box = { ...box, ...overrides.box };
   const modal = env.instance(env.load(`../src/components/${spec.name}.tsx`).default, props);
-  return { env, modal, get closed() { return closed; } };
+  return { env, modal, box: props.box, get closed() { return closed; } };
 }
 function hasClass(node, name) { return node.props.className?.split(/\s+/).includes(name) ?? false; }
 function byClass(modal, name) { return modal.nodes.find((node) => hasClass(node, name)); }
@@ -230,22 +242,20 @@ function change(node, value) { node.props.onChange({ target: { value } }); }
 function submitEvent() { return { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } }; }
 function addSecondChild(spec, modal) {
   if (spec.name === 'SubcultureModal') {
-    modal.controls.find((node) => text(node).includes('Add a box')).props.onClick();
+    byClass(modal, 'quantitative-subculture-add').children.find((node) => node.type === 'button').props.onClick();
     modal.flush();
-    assert.equal(modal.controls.filter((node) => node.props['aria-label'] === 'Remove this box').length, 2);
+    assert.equal(modal.controls.filter((node) => /^Remove box \d+$|^Supprimer la boîte \d+$/.test(node.props['aria-label'] ?? '')).length, 2);
   }
 }
 function editDraft(spec, modal) {
   if (spec.name === 'MoveBoxModal') {
     change(modal.fields.find((node) => node.type === 'select'), '4');
-    change(modal.fields.find((node) => node.props.type === 'datetime-local'), '2026-09-21T12:34');
     change(modal.fields.find((node) => node.type === 'textarea'), '  Keep this movement note  ');
   } else {
     addSecondChild(spec, modal);
-    change(modal.fields.find((node) => node.props.type === 'date'), '2026-09-21');
-    change(modal.fields.find((node) => node.props.maxLength === 180), '  Keep this reason  ');
-    change(modal.fields.find((node) => node.props.type === 'number'), '0');
-    change(modal.fields.find((node) => node.props.placeholder === 'Optional'), '  Keep this child note  ');
+    change(modal.fields.find((node) => node.props.name === 'notes'), '  Keep this global note  ');
+    change(modal.fields.find((node) => node.props.name === 'children.0.allocated_polyps'), '0');
+    change(modal.fields.find((node) => node.props.name === 'children.1.allocated_polyps'), '12');
   }
   modal.flush();
 }
@@ -256,6 +266,14 @@ function assertBusy(h, checkInitialFocus = true) {
   assert.ok(modal.fields.length > 0);
   assert.ok(modal.controls.every((node) => node.disabled), 'Every field, close, add/remove and submit control must be disabled');
   assert.equal(closeButtons(modal).length, 2, 'Both header and footer close buttons are covered');
+  const history = byClass(modal, 'move-location-history');
+  if (history) {
+    const summary = history.children[0];
+    assert.equal(summary.props.tabIndex, -1);
+    assert.equal(summary.props['aria-disabled'], true);
+    const event = submitEvent(); summary.props.onClick(event);
+    assert.equal(event.defaultPrevented, true, 'History cannot be expanded while the move is pending');
+  }
   if (checkInitialFocus) assert.ok(env.document.activeElement === modal.dialog, 'Busy dialog must contain focus');
   for (const reverse of [false, true]) {
     assert.equal(env.key('Tab', reverse).defaultPrevented, true);
@@ -275,14 +293,13 @@ for (const spec of cases) {
       const body = byClass(modal, 'box-dialog-body');
       const footer = byClass(modal, 'box-dialog-actions');
       const heading = byClass(modal, 'box-dialog-heading');
-      const context = byClass(modal, 'box-dialog-context');
+      const context = byClass(modal, isMove ? 'utility-dialog-identity' : 'quantitative-subculture-parent');
       const close = byClass(modal, 'box-dialog-close');
       const title = modal.nodes.find((node) => node.props.id === modal.dialog.props['aria-labelledby']);
-      assert.equal(modal.dialog.props.className, isMove ? 'move-modal box-dialog box-dialog--move' : 'subculture-modal box-dialog box-dialog--subculture');
-      assert.equal(modal.backdrop.props.className, 'modal-backdrop box-dialog-backdrop');
-      assert.equal(heading.props.className, 'subculture-heading box-dialog-heading');
-      assert.equal(modal.form.props.className, isMove ? 'move-form box-dialog-form' : 'subculture-form box-dialog-form');
-      assert.equal(footer.props.className, 'subculture-actions box-dialog-actions');
+      assert.ok(hasClass(modal.dialog, 'box-dialog'));
+      assert.ok(hasClass(modal.dialog, isMove ? 'box-dialog--move' : 'box-dialog--subculture'));
+      assert.ok(hasClass(modal.backdrop, 'modal-backdrop') && hasClass(modal.backdrop, 'box-dialog-backdrop'));
+      assert.ok(hasClass(modal.form, 'box-dialog-form'));
       assert.equal(modal.nodes.filter((node) => hasClass(node, 'box-dialog-body')).length, 1);
       assert.deepEqual(modal.form.children, [body, footer], 'Body and footer are direct form siblings for parent-owned scrolling');
       assert.deepEqual(modal.dialog.children, [heading, modal.form]);
@@ -308,31 +325,43 @@ for (const spec of cases) {
       assert.ok(modal.fields.every((field) => field.parent.type === 'label' && text(field.parent).trim()));
       assert.ok(body.contains(modal.nodes.find((node) => node.props.role === 'alert')));
       assert.ok(!body.contains(footer));
-      assert.equal(footer.children.length, 2);
+      assert.equal(footer.children.filter((node) => node.type === 'button').length, 2);
       assert.ok(footer.contains(submitButton(modal)));
       assert.equal(text(submitButton(modal)), spec.saves[language]);
       assert.equal(submitButton(modal).props.type, 'submit');
       const initial = modal.fields.find((field) => field.props.ref);
       assert.equal(env.document.activeElement, initial);
-      assert.equal(initial.props.required, true);
+      assert.equal(initial.props.required, isMove ? true : undefined);
       assert.equal(initial.type, spec.initialType);
       assert.ok(text(context).includes('1-ATL.001'));
       if (isMove) {
         const flow = byClass(modal, 'box-dialog-location-flow');
-        const current = byClass(modal, 'current-zone-card');
-        assert.equal(current.parent, flow);
+        const current = byClass(modal, 'move-current-zone');
+        assert.equal(current.parent, byClass(modal, 'move-subject-panel'));
+        assert.ok(current.parent.contains(context));
         assert.equal(initial.parent.parent, flow);
-        assert.deepEqual(flow.children, [current, initial.parent]);
+        assert.equal(byClass(modal, 'move-direction'), undefined);
+        assert.deepEqual(flow.children, [initial.parent]);
         assert.ok(body.contains(flow));
-        assert.ok(body.contains(byClass(modal, 'location-history')));
-        assert.ok(heading.contains(context));
-      } else {
+        assert.ok(body.contains(byClass(modal, 'move-location-history')));
+        assert.equal(heading.contains(context), false);
         assert.ok(body.contains(context));
+      } else {
+        assert.equal(heading.contains(context), false);
         assert.ok(text(context).includes('Aurelia aurita'));
-        assert.equal(heading.contains(context), false, 'Source identity stays distinct from the action title');
-        assert.ok(body.contains(byClass(modal, 'subculture-event-fields')));
-        assert.ok(body.contains(byClass(modal, 'subculture-children-heading')));
-        assert.ok(body.contains(byClass(modal, 'subculture-children')));
+        assert.ok(text(context).includes('1-ATL'));
+        assert.equal(body.contains(context), true, 'Parent identity shares the body with the available state');
+        assert.ok(context.contains(byClass(modal, 'quantitative-subculture-summary')));
+        assert.equal(initial.props.type, 'number');
+        assert.equal(initial.props.name, 'children.0.allocated_polyps');
+        assert.equal(initial.props.value, '');
+        assert.equal(submitButton(modal).disabled, false);
+        assert.equal(modal.fields.some((field) => ['date', 'datetime-local'].includes(field.props.type) || field.props.readOnly || /code/.test(field.props.name ?? '')), false);
+        assert.ok(body.contains(byClass(modal, 'quantitative-subculture-summary')));
+        assert.ok(body.contains(byClass(modal, 'quantitative-subculture-rows')));
+        const rows = byClass(modal, 'quantitative-subculture-rows');
+        const add = byClass(modal, 'quantitative-subculture-add');
+        assert.deepEqual(byClass(modal, 'quantitative-subculture-children').children, [rows, add]);
       }
       modal.unmount();
     });
@@ -419,7 +448,7 @@ for (const spec of cases) {
     assert.equal(h.closed, 0);
     h.modal.flush();
     assertBusy(h);
-    assert.equal(text(submitButton(h.modal)), spec.saves.en, 'Confirmation-pending is not an API save');
+    assert.equal(text(submitButton(h.modal)), spec.name === 'SubcultureModal' ? spec.saving.en : spec.saves.en, 'Subculture labels its entire pending intent as creating');
     await h.modal.form.props.onSubmit(submitEvent());
     assert.equal(payloads.length, 1);
     operation.resolve();
@@ -435,7 +464,7 @@ for (const spec of cases) {
     test(`${spec.name}: ${language} externally saving locks fields/close controls and uses actual save label`, async () => {
       let calls = 0;
       const h = fixture(spec, { language, onSubmit: async () => { calls++; } });
-      if (language === 'en') addSecondChild(spec, h.modal);
+      editDraft(spec, h.modal);
       const idleHandler = h.modal.form.props.onSubmit;
       h.modal.setProps({ isSaving: true });
       assertBusy(h);
@@ -478,9 +507,11 @@ for (const spec of cases) {
     assert.deepEqual(payloads[1], payloads[0]);
     if (spec.name === 'SubcultureModal') {
       assert.equal(payloads[1].children.length, 2);
-      assert.equal(payloads[1].children[0].initial_polyp_count, 0);
-      assert.equal(payloads[1].reason, 'Keep this reason');
-      assert.equal(payloads[1].children[0].notes, 'Keep this child note');
+      assert.equal(payloads[1].children[0].allocated_polyps, 0);
+      assert.equal(payloads[1].expected_current_state_revision, 'opaque-current-revision');
+      assert.equal(payloads[1].reason, '');
+      assert.equal(payloads[1].notes, 'Keep this global note');
+      assert.deepEqual(payloads[1].children.map(child => child.notes), ['', '']);
     } else {
       assert.equal(payloads[1].thermal_zone_id, 4);
       assert.equal(payloads[1].notes, 'Keep this movement note');
@@ -527,7 +558,7 @@ for (const spec of cases) {
     assert.equal(env.document.activeElement, first);
     assert.equal(env.listenerCount(), 2);
     assert.ok(h.modal.controls.every((node) => node.disabled));
-    assert.equal(text(submitButton(h.modal)), spec.saves.en);
+    assert.equal(text(submitButton(h.modal)), spec.name === 'SubcultureModal' ? spec.saving.en : spec.saves.en);
     const underlyingFocusCalls = h.modal.dialog.focusCalls;
     assert.equal(env.key('Tab', true).defaultPrevented, true);
     assert.equal(env.document.activeElement, last);
@@ -596,7 +627,7 @@ for (const currentZone of [{ id: 2, name: 'Current zone' }, null]) {
     }));
     const payloads = [];
     const h = fixture(cases[0], {
-      box: { id: 17, global_code: '1-ATL.001', organization, thermal_zone: currentZone, locations },
+      box: { id: 17, global_code: '1-ATL.001', species: { scientific_name: 'Aurelia aurita' }, organization, thermal_zone: currentZone, locations },
       zones: [
         { id: 2, name: 'Current zone', organization, is_active: true },
         { id: 3, name: 'Destination', organization, is_active: true },
@@ -607,15 +638,21 @@ for (const currentZone of [{ id: 2, name: 'Current zone' }, null]) {
     });
     const destination = h.modal.fields.find((field) => field.type === 'select');
     assert.deepEqual(destination.children.map((option) => option.props.value), currentZone ? [3] : [2, 3]);
-    assert.ok(text(byClass(h.modal, 'current-zone-card')).includes(currentZone ? 'Current zone' : 'No zone'));
-    assert.equal(h.modal.nodes.filter((node) => hasClass(node, 'location-row')).length, 6);
-    const history = text(byClass(h.modal, 'location-history'));
+    assert.ok(text(byClass(h.modal, 'move-current-zone')).includes(currentZone ? 'Current zone' : 'No zone'));
+    assert.equal(h.modal.nodes.filter((node) => hasClass(node, 'move-location-row')).length, 7);
+    const historyNode = byClass(h.modal, 'move-location-history');
+    assert.equal(historyNode.type, 'details');
+    assert.equal(historyNode.props.open, undefined, 'History starts collapsed');
+    assert.equal(historyNode.children[0].type, 'summary');
+    assert.equal(text(byClass(h.modal, 'move-history-count')), '7');
+    const history = text(historyNode);
     assert.ok(history.includes('end date unknown'));
-    assert.ok(history.includes('current'));
+    const currentHistoryRows = h.modal.nodes.filter(node => hasClass(node, 'move-location-row') && text(node).includes('History zone 2'));
+    assert.equal(currentHistoryRows.length, 1);
+    assert.equal(text(currentHistoryRows[0]).includes('Departure'), false, 'Current location has no departure');
     assert.ok(history.includes('Historical note'));
-    assert.equal(history.includes('History zone 7'), false);
+    assert.equal(history.includes('History zone 7'), true, 'Collapsed history preserves every location');
     change(destination, '3');
-    change(h.modal.fields.find((field) => field.props.type === 'datetime-local'), '2026-09-21T12:34');
     change(h.modal.fields.find((field) => field.type === 'textarea'), '  Movement note  ');
     h.modal.flush();
     const event = submitEvent();
@@ -623,54 +660,152 @@ for (const currentZone of [{ id: 2, name: 'Current zone' }, null]) {
     assert.equal(event.defaultPrevented, true);
     assert.deepEqual(payloads, [{
       expected_thermal_zone_id: currentZone?.id ?? null, thermal_zone_id: 3,
-      moved_at: new Date('2026-09-21T12:34').toISOString(), notes: 'Movement note',
+      notes: 'Movement note',
     }]);
     h.modal.flush();
     h.modal.unmount();
   });
 }
 
-test('SubcultureModal: grouped children preserve generated identities, zero versus empty, trimming and payload after removal', async () => {
+test('SubcultureModal: expanded children preserve explicit zero versus empty, focus, trimming and payload after removal', async () => {
   const payloads = [];
   const h = fixture(cases[1], { onSubmit: async (payload) => { payloads.push(plain(payload)); } });
   addSecondChild(cases[1], h.modal);
-  h.modal.controls.find((node) => text(node).includes('Add a box')).props.onClick();
+  assert.equal(h.env.document.activeElement.props.name, 'children.1.allocated_polyps');
+  byClass(h.modal, 'quantitative-subculture-add').children[0].props.onClick();
   h.modal.flush();
+  assert.equal(h.env.document.activeElement.props.name, 'children.2.allocated_polyps');
   const counts = h.modal.fields.filter((field) => field.props.type === 'number');
   assert.equal(counts.length, 3);
   for (const count of counts) {
+    assert.equal(count.props.required, undefined);
     assert.equal(count.props.min, '0');
+    assert.equal(count.props.max, 2147483647);
     assert.equal(count.props.step, '1');
     assert.equal(count.props.value, '');
   }
-  for (const code of h.modal.fields.filter((field) => field.props.readOnly)) {
-    assert.equal(code.props.required, true);
-    assert.equal(code.props.readOnly, true);
+  const rows = h.modal.nodes.filter((node) => hasClass(node, 'quantitative-subculture-row'));
+  assert.equal(rows.length, 3);
+  for (const row of rows) {
+    assert.equal(row.type, 'section');
+    assert.equal(row.props.hidden, undefined);
+    assert.ok(row.children.some((node) => node.contains(h.modal.nodes.find((node) => node.props.id === row.props['aria-labelledby']))));
+    assert.equal(h.modal.fields.filter((field) => row.contains(field)).length, 2, 'Every allocation and zone stays expanded');
   }
-  change(h.modal.fields.find((field) => field.props.type === 'date'), '2026-09-21');
-  change(h.modal.fields.find((field) => field.props.maxLength === 180), '  Dense culture  ');
+  assert.equal(h.modal.fields.some((field) => field.props.readOnly || /code/.test(field.props.name ?? '') || field.props.type === 'date'), false);
+  change(h.modal.fields.find((field) => field.props.name === 'notes'), '  Global note  ');
   change(counts[0], '0');
   change(counts[1], '9');
   h.modal.flush();
   change(h.modal.fields.filter((field) => field.props.type === 'number')[1], '');
   change(h.modal.fields.filter((field) => field.props.type === 'number')[2], '12');
-  change(h.modal.fields.find((field) => field.props.placeholder === 'Optional'), '  Child note  ');
+  change(h.modal.fields.find((field) => field.props.name === 'children.2.thermal_zone_id'), '3');
   h.modal.flush();
-  assert.deepEqual(h.modal.fields.filter((field) => field.props.type === 'number').map((field) => field.props.value), [0, '', 12]);
-  const children = [0, null, 12].map((count, index) => ({
-    global_code: `1-ATL.00${index + 2}`, local_code: '', box_number: `00${index + 2}`,
-    thermal_zone_id: 2, copy_origin: true, initial_polyp_count: count, notes: index === 0 ? 'Child note' : '',
+  assert.deepEqual(h.modal.fields.filter((field) => field.props.type === 'number').map((field) => field.props.value), ['0', '', '12']);
+  assert.equal(submitButton(h.modal).disabled, false, 'Blank is an unknown allocation, not zero');
+  assert.deepEqual(h.modal.nodes.filter(node => node.type === 'dd').map(text), ['12 Polyps']);
+  change(h.modal.fields.find((field) => field.props.name === 'children.1.allocated_polyps'), '0');
+  h.modal.flush();
+  assert.equal(submitButton(h.modal).disabled, false);
+  const children = [0, 0, 12].map((count, index) => ({
+    thermal_zone_id: index === 2 ? 3 : 2, copy_origin: true, allocated_polyps: count, notes: '',
   }));
   await h.modal.form.props.onSubmit(submitEvent());
   h.modal.flush();
-  assert.deepEqual(payloads[0], { event_date: '2026-09-21', reason: 'Dense culture', notes: '', children });
-  h.modal.controls.filter((node) => node.props['aria-label'] === 'Remove this box')[2].props.onClick();
+  assert.deepEqual(payloads[0], { expected_current_state_revision: 'opaque-current-revision', reason: '', notes: 'Global note', children });
+  h.modal.controls.find((node) => node.props['aria-label'] === 'Remove box 2').props.onClick();
   h.modal.flush();
-  assert.equal(h.modal.nodes.filter((node) => hasClass(node, 'subculture-child')).length, 2);
+  assert.equal(h.env.document.activeElement.props.name, 'children.1.allocated_polyps');
+  assert.equal(h.env.document.activeElement.props['data-allocation-key'], 3, 'Removing a row focuses the next stable draft');
+  assert.deepEqual(h.modal.fields.filter((field) => field.props.type === 'number').map((field) => field.props.value), ['0', '12']);
   assert.equal(byClass(h.modal, 'box-dialog-body').contains(byClass(h.modal, 'box-dialog-actions')), false);
   await h.modal.form.props.onSubmit(submitEvent());
   h.modal.flush();
-  assert.deepEqual(payloads[1], { ...payloads[0], children: children.slice(0, 2) });
+  assert.deepEqual(payloads[1], { ...payloads[0], children: [children[0], children[2]] });
+  h.modal.controls.find((node) => node.props['aria-label'] === 'Remove box 2').props.onClick();
+  h.modal.flush();
+  assert.equal(h.env.document.activeElement.props['data-allocation-key'], 1, 'Removing the last row focuses the previous allocation');
+  assert.equal(h.modal.controls.some((node) => /^Remove box/.test(node.props['aria-label'] ?? '')), false, 'The final child cannot be removed');
+  h.modal.unmount();
+});
+
+for (const language of ['en', 'fr']) {
+  test(`SubcultureModal: ${language} changed state requires explicit revalidation and preserves the draft through retry`, async () => {
+    const attempts = [], payloads = [];
+    const h = fixture(cases[1], { language, onSubmit(payload) {
+      payloads.push(plain(payload));
+      const attempt = deferred(); attempts.push(attempt); return attempt.promise;
+    } });
+    editDraft(cases[1], h.modal);
+    const before = draftValues(h.modal);
+    const refreshed = { ...h.box, current_polyp_state: { ...h.box.current_polyp_state, polyp_count: 10, revision: 'refreshed-revision' } };
+    h.modal.setProps({ box: refreshed, error: 'Stale server intent' });
+    const catalogue = h.env.load(`../src/i18n/${language}.ts`)[language];
+    assert.equal(text(h.modal.nodes.find((node) => node.props.id === 'subculture-validation')), catalogue.subcultureStateChanged);
+    assert.deepEqual(draftValues(h.modal), before);
+    assert.deepEqual(h.modal.nodes.filter((node) => node.type === 'dd').map(text), [`10 ${catalogue.polyps}`, '12', '-2']);
+    assert.equal(submitButton(h.modal).disabled, true);
+    assert.equal(h.modal.nodes.some((node) => node.props.role === 'alert'), false, 'Changed-state guidance replaces the stale server error');
+    await h.modal.form.props.onSubmit(submitEvent());
+    assert.equal(payloads.length, 0, 'A refresh never automatically rebases or retries the intent');
+    const review = () => h.modal.controls.find((node) => text(node) === catalogue.subcultureReviewState);
+    assert.ok(review());
+    h.modal.setProps({ isSaving: true });
+    assertBusy(h);
+    assert.equal(review().disabled, true, 'Explicit revalidation is also locked during saving');
+    h.modal.setProps({ isSaving: false });
+    assert.deepEqual(draftValues(h.modal), before);
+    review().props.onClick(); h.modal.flush();
+    assert.deepEqual(draftValues(h.modal), before);
+    assert.equal(review(), undefined);
+    assert.equal(submitButton(h.modal).disabled, true, 'Explicit revalidation still checks the refreshed available stock');
+    assert.equal(text(h.modal.nodes.find((node) => node.props.id === 'subculture-validation')), catalogue.subcultureOverAllocated);
+    change(h.modal.fields.find((node) => node.props.name === 'children.1.allocated_polyps'), '10'); h.modal.flush();
+    assert.equal(submitButton(h.modal).disabled, false);
+    const reviewedDraft = draftValues(h.modal);
+    const pending = h.modal.form.props.onSubmit(submitEvent()); h.modal.flush();
+    assertBusy(h);
+    assert.equal(payloads[0].expected_current_state_revision, 'refreshed-revision');
+    assert.deepEqual(payloads[0].children.map((child) => child.allocated_polyps), [0, 10]);
+    const failure = new Error('Retry this reviewed intent');
+    const rejected = assert.rejects(pending, (error) => error === failure);
+    attempts[0].reject(failure); await rejected;
+    h.modal.setProps({ error: failure.message });
+    assert.deepEqual(draftValues(h.modal), reviewedDraft);
+    assert.equal(h.env.document.activeElement.props.name, 'children.0.allocated_polyps');
+    const retry = h.modal.form.props.onSubmit(submitEvent()); h.modal.flush();
+    assert.deepEqual(payloads[1], payloads[0]);
+    attempts[1].resolve(); await retry; h.modal.flush();
+    h.modal.unmount();
+  });
+}
+
+for (const current of [undefined, null, { polyp_count: null, revision: 'unknown-count', source: null }, { polyp_count: 0, revision: '', source: null }]) {
+  test(`SubcultureModal: unavailable current state ${JSON.stringify(current)} cannot fall back to the latest measurement`, async () => {
+    let calls = 0;
+    const h = fixture(cases[1], { box: { current_polyp_state: current }, onSubmit: async () => { calls++; } });
+    change(h.modal.fields.find((node) => node.props.name === 'children.0.allocated_polyps'), '0'); h.modal.flush();
+    assert.equal(submitButton(h.modal).disabled, true);
+    await h.modal.form.props.onSubmit(submitEvent());
+    assert.equal(calls, 0);
+    assert.deepEqual(h.modal.nodes.filter((node) => node.type === 'dd').map(text), current?.polyp_count === 0 ? ['0 Polyps', '0', '0'] : ['Unknown']);
+    h.modal.unmount();
+  });
+}
+
+test('SubcultureModal: known current zero preserves optional blank versus explicit zero', async () => {
+  const payloads = [];
+  const h = fixture(cases[1], {
+    box: { current_polyp_state: { polyp_count: 0, revision: 'known-zero-revision', source: { kind: 'subculture', id: 8, timestamp: '2026-09-21T12:00:00Z' } } },
+    onSubmit: async (payload) => { payloads.push(plain(payload)); },
+  });
+  assert.equal(submitButton(h.modal).disabled, false);
+  assert.deepEqual(h.modal.nodes.filter((node) => node.type === 'dd').map(text), ['0 Polyps']);
+  change(h.modal.fields.find((node) => node.props.name === 'children.0.allocated_polyps'), '0'); h.modal.flush();
+  assert.deepEqual(h.modal.nodes.filter((node) => node.type === 'dd').map(text), ['0 Polyps', '0', '0']);
+  assert.equal(submitButton(h.modal).disabled, false);
+  await h.modal.form.props.onSubmit(submitEvent()); h.modal.flush();
+  assert.deepEqual(payloads[0], { expected_current_state_revision: 'known-zero-revision', reason: '', notes: '', children: [{ thermal_zone_id: 2, allocated_polyps: 0, copy_origin: true, notes: '' }] });
   h.modal.unmount();
 });
 
@@ -686,7 +821,7 @@ for (const spec of cases) {
     assert.ok(footer.contains(closeButtons(h.modal)[1]));
     assert.equal(body.contains(footer), false);
     assert.ok(h.modal.fields.every((field) => field.parent.type === 'label' && text(field.parent).trim()));
-    if (spec.name === 'MoveBoxModal') assert.ok(text(byClass(h.modal, 'location-history')).includes('No location history for this box.'));
+    if (spec.name === 'MoveBoxModal') assert.ok(text(byClass(h.modal, 'move-location-history')).includes('No location history for this box.'));
     h.modal.unmount();
   });
 }

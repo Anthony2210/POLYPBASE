@@ -9,6 +9,7 @@ from .models import (
     BoxTransferImport,
     IdentificationTag,
     SubcultureEvent,
+    SubcultureAllocation,
     ThermalZone,
 )
 
@@ -46,6 +47,15 @@ class BoxLineageInline(admin.TabularInline):
     fk_name = "subculture_event"
     extra = 0
 
+    def has_add_permission(self, request, obj=None):
+        return obj is None or obj.occurred_at is None
+
+    def has_change_permission(self, request, obj=None):
+        return obj is None or obj.occurred_at is None
+
+    def has_delete_permission(self, request, obj=None):
+        return obj is None or obj.occurred_at is None
+
 
 @admin.register(SubcultureEvent)
 class SubcultureEventAdmin(admin.ModelAdmin):
@@ -54,12 +64,41 @@ class SubcultureEventAdmin(admin.ModelAdmin):
     search_fields = ("parent_box__global_code", "reason", "notes")
     inlines = (BoxLineageInline,)
 
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return obj is None or obj.occurred_at is None
+
+    def has_delete_permission(self, request, obj=None):
+        return obj is None or obj.occurred_at is None
+
+
+@admin.register(SubcultureAllocation)
+class SubcultureAllocationAdmin(admin.ModelAdmin):
+    list_display = ("event", "position", "child_box", "allocated_polyps")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
 
 @admin.register(BoxLineage)
 class BoxLineageAdmin(admin.ModelAdmin):
     list_display = ("parent_box", "child_box", "relationship_type", "subculture_event")
     list_filter = ("relationship_type",)
     search_fields = ("parent_box__global_code", "child_box__global_code")
+
+    def has_change_permission(self, request, obj=None):
+        return obj is None or obj.subculture_event is None or obj.subculture_event.occurred_at is None
+
+    def has_delete_permission(self, request, obj=None):
+        return obj is None or obj.subculture_event is None or obj.subculture_event.occurred_at is None
 
 
 @admin.register(IdentificationTag)

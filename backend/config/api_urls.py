@@ -29,6 +29,7 @@ from apps.cultures.api_views import (
     BoxMoveAPIView,
     BoxQualifyAPIView,
     BoxScanAPIView,
+    BoxSubcultureCodePreviewAPIView,
     BoxSubcultureCreateAPIView,
     BoxTransferCreateAPIView,
     BoxTransferImportAPIView,
@@ -140,6 +141,11 @@ urlpatterns = [
         "boxes/<int:box_id>/measurements/<int:pk>/",
         BoxMeasurementDetailAPIView.as_view(),
         name="api_box_measurement_detail",
+    ),
+    path(
+        "boxes/<int:box_id>/subcultures/code-preview/",
+        BoxSubcultureCodePreviewAPIView.as_view(),
+        name="api_box_subculture_code_preview",
     ),
     path(
         "boxes/<int:box_id>/subcultures/",

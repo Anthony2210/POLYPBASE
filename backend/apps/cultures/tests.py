@@ -1171,32 +1171,38 @@ class PolypbaseApiTests(TestCase):
         self.assertEqual(payload["organizations"][0]["name"], "Aquarium de Paris")
         self.assertEqual(payload["memberships"][0]["role"], OrganizationMembership.Role.LAB_TECHNICIAN)
 
+    def _subculture_revision(self):
+        from .polyp_state import resolve_current_polyp_state
+        BiologicalMeasurement.objects.get_or_create(
+            box=self.box, measured_on=timezone.localdate(), defaults={"polyp_count": 100, "user": self.user},
+        )
+        self.box.refresh_from_db()
+        return resolve_current_polyp_state(self.box)["revision"]
+
     def test_drf_subculture_endpoint_creates_multiple_child_boxes(self):
         self.client.login(username="tech", password="secret")
+        Box.objects.create(organization=self.organization, strain=self.strain, global_code="1-ATL.003", box_number="003")
 
         response = self.client.post(
             reverse("api_box_subcultures", args=[self.box.id]),
             data=json.dumps(
                 {
-                    "event_date": "2026-06-15",
+                    "expected_current_state_revision": self._subculture_revision(),
                     "reason": "High polyp density",
                     "notes": "Two child boxes created during the same operation.",
                     "children": [
                         {
-                            "global_code": "1-ATL.004",
                             "local_code": "004",
-                            "box_number": "004",
                             "thermal_zone_id": self.zone.id,
                             "copy_origin": True,
-                            "initial_polyp_count": 50,
+                            "allocated_polyps": 50,
                         },
                         {
-                            "global_code": "1-ATL.005",
                             "local_code": "005",
-                            "box_number": "005",
                             "thermal_zone_id": self.zone.id,
                             "copy_origin": False,
-                            "initial_polyp_count": 25,
+                            "allocated_polyps": 25,
+                            "copy_volume_liters": False,
                             "notes": "Smaller experimental box.",
                         },
                     ],
@@ -1223,21 +1229,17 @@ class PolypbaseApiTests(TestCase):
         self.assertEqual(inherited_child.origin, self.box.origin)
         self.assertIsNone(empty_child.origin)
         self.assertIsNone(empty_child.volume_liters)
-        self.assertEqual(
-            BiologicalMeasurement.objects.get(box=inherited_child, measured_on=date(2026, 6, 15)).polyp_count,
-            50,
-        )
-        self.assertEqual(
-            BiologicalMeasurement.objects.get(box=empty_child, measured_on=date(2026, 6, 15)).polyp_count,
-            25,
-        )
+        self.assertFalse(BiologicalMeasurement.objects.filter(box__in=children).exists())
+        self.assertEqual(inherited_child.subculture_initialization.allocated_polyps, 50)
+        self.assertEqual(empty_child.subculture_initialization.allocated_polyps, 25)
 
         audit_log = AuditLog.objects.get(
             action=AuditLog.Action.SUBCULTURE,
             object_id=self.box.global_code,
         )
         self.assertEqual(len(audit_log.metadata["child_box_ids"]), 2)
-        self.assertEqual(audit_log.metadata["initial_polyp_counts"]["1-ATL.004"], 50)
+        self.assertEqual(audit_log.metadata["allocations"][0]["allocated_polyps"], 50)
+        self.assertEqual(audit_log.metadata["parent_polyp_count_after"], 25)
 
     def test_drf_subculture_endpoint_blocks_read_only_users(self):
         user_model = get_user_model()
@@ -1281,10 +1283,10 @@ class PolypbaseApiTests(TestCase):
             reverse("api_box_subcultures", args=[self.box.id]),
             data=json.dumps(
                 {
+                    "expected_current_state_revision": self._subculture_revision(),
                     "children": [
                         {
-                            "global_code": "1-ATL.004",
-                            "box_number": "004",
+                            "allocated_polyps": 0,
                             "thermal_zone_id": self.zone.id,
                         }
                     ]
@@ -1294,19 +1296,20 @@ class PolypbaseApiTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 201)
-        self.assertTrue(Box.objects.filter(global_code="1-ATL.004").exists())
+        self.assertTrue(Box.objects.filter(global_code="1-ATL.001").exists())
 
     def test_drf_subculture_endpoint_rejects_a_zone_from_another_organization(self):
         self.client.login(username="tech", password="secret")
+        revision = self._subculture_revision()
 
         response = self.client.post(
             reverse("api_box_subcultures", args=[self.box.id]),
             data=json.dumps(
                 {
+                    "expected_current_state_revision": revision,
                     "children": [
                         {
-                            "global_code": "1-ATL.004",
-                            "box_number": "004",
+                            "allocated_polyps": 0,
                             "thermal_zone_id": self.other_zone.id,
                         }
                     ]
@@ -1541,6 +1544,7 @@ class PolypbaseApiTests(TestCase):
 
     def test_subculture_transaction_rolls_back_if_lineage_creation_fails(self):
         self.client.login(username="tech", password="secret")
+        revision = self._subculture_revision()
 
         with patch("apps.cultures.services.BoxLineage.objects.create", side_effect=RuntimeError("failure")):
             with self.assertRaises(RuntimeError):
@@ -1548,10 +1552,10 @@ class PolypbaseApiTests(TestCase):
                     reverse("api_box_subcultures", args=[self.box.id]),
                     data=json.dumps(
                         {
+                            "expected_current_state_revision": revision,
                             "children": [
                                 {
-                                    "global_code": "1-ATL.004",
-                                    "box_number": "004",
+                                    "allocated_polyps": 0,
                                     "thermal_zone_id": self.zone.id,
                                 }
                             ]

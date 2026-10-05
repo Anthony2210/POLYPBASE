@@ -10,6 +10,7 @@ from apps.measurements.models import BiologicalMeasurement
 from apps.taxonomy.models import Species, Strain
 
 from .models import Box, BoxLocation, BoxTransfer, BoxTransferImport
+from .box_codes import allocate_box_codes, locked_namespace
 
 
 class TransferV1ValidationError(Exception):
@@ -45,24 +46,13 @@ def _is_replay_constraint_error(error):
     )
 
 
-def _next_unique_box_identity(strain):
-    """Generate the next globally unique ``<strain>.<number>`` identity."""
-    prefix = f"{strain.code}."
-    pattern = re.compile(rf"^{re.escape(prefix)}(\d+)$")
-    numbers = []
-    for global_code in Box.objects.select_for_update().filter(
-        global_code__startswith=prefix
-    ).values_list("global_code", flat=True):
-        match = pattern.match(global_code)
-        if match:
-            numbers.append(int(match.group(1)))
-    next_number = max(numbers, default=0) + 1
-    while True:
-        box_number = str(next_number).zfill(3)
-        global_code = f"{prefix}{box_number}"
-        if not Box.objects.filter(global_code=global_code).exists():
-            return global_code, box_number
-        next_number += 1
+def _next_unique_box_identity(strain, *, reserve=True):
+    """Use the shared Box allocator, including concurrent namespace first use."""
+    if reserve:
+        return allocate_box_codes(strain.code, 1)[0]
+    row = locked_namespace(strain.code)
+    number = str(row.high_water + 1).zfill(3)
+    return f"{strain.code}.{number}", number
 
 
 @transaction.atomic
@@ -144,8 +134,8 @@ def _import_transfer_v1(*, source, organization, zone, user, global_code):
         organization=organization,
         defaults={"origin_code": str(source.get("strain_origin_code", "")).strip()},
     )
-    suggested_global_code, suggested_box_number = _next_unique_box_identity(strain)
     requested_global_code = str(global_code).strip()
+    suggested_global_code, suggested_box_number = _next_unique_box_identity(strain, reserve=not requested_global_code)
     if requested_global_code:
         code_match = re.fullmatch(rf"{re.escape(strain.code)}\.(\d+)", requested_global_code)
         if not code_match:

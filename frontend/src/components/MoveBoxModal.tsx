@@ -1,9 +1,11 @@
 import { type FormEvent, useMemo, useState } from 'react';
 
 import type { BoxDetail, BoxItem, BoxLocation, BoxMovePayload, ThermalZone } from '../types';
+import { createTranslator } from '../i18n';
 import useMutationDialog from '../hooks/useMutationDialog';
 import ModalPortal from './ModalPortal';
 import PolypbaseIcon from './PolypbaseIcon';
+import './box-utility-dialogs.css';
 
 type Language = 'fr' | 'en';
 
@@ -17,42 +19,6 @@ type Props = {
   onSubmit: (payload: BoxMovePayload) => Promise<void>;
 };
 
-const labels = {
-  fr: {
-    title: 'Déplacer la boîte',
-    box: 'Boîte',
-    currentZone: 'Emplacement actuel',
-    newZone: 'Nouvel emplacement',
-    movedAt: 'Date du déplacement',
-    notes: 'Note',
-    notesPlaceholder: 'Ex. changement de température, rangement, manipulation',
-    history: 'Historique des emplacements',
-    current: 'actuel',
-    unknownEnd: 'date de fin inconnue',
-    noHistory: 'Aucun historique d’emplacement pour cette boîte.',
-    cancel: 'Annuler',
-    save: 'Déplacer',
-    saving: 'Enregistrement...',
-    noZone: 'Sans emplacement',
-  },
-  en: {
-    title: 'Move box',
-    box: 'Box',
-    currentZone: 'Current zone',
-    newZone: 'New zone',
-    movedAt: 'Movement date',
-    notes: 'Note',
-    notesPlaceholder: 'For example, temperature change, storage, handling',
-    history: 'Location history',
-    current: 'current',
-    unknownEnd: 'end date unknown',
-    noHistory: 'No location history for this box.',
-    cancel: 'Cancel',
-    save: 'Move',
-    saving: 'Saving...',
-    noZone: 'No zone',
-  },
-};
 
 export default function MoveBoxModal({
   box,
@@ -63,7 +29,7 @@ export default function MoveBoxModal({
   onClose,
   onSubmit,
 }: Props) {
-  const text = labels[language];
+  const t = createTranslator(language);
   const { dialogRef, initialFocusRef, isBusy, close, submit } = useMutationDialog<HTMLSelectElement>(isSaving, onClose);
   const availableZones = useMemo(
     () => zones.filter(
@@ -76,9 +42,11 @@ export default function MoveBoxModal({
     [box.organization.id, box.thermal_zone?.id, zones],
   );
   const [targetZoneId, setTargetZoneId] = useState('');
-  const [movedAt, setMovedAt] = useState(getCurrentDateTimeValue);
+
   const [notes, setNotes] = useState('');
-  const selectedZoneId = targetZoneId || String(availableZones[0]?.id ?? '');
+  const selectedZoneId = availableZones.some((zone) => String(zone.id) === targetZoneId)
+    ? targetZoneId
+    : String(availableZones[0]?.id ?? '');
   const locations = getBoxLocations(box);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -88,7 +56,7 @@ export default function MoveBoxModal({
     await submit(() => onSubmit({
       expected_thermal_zone_id: box.thermal_zone?.id ?? null,
       thermal_zone_id: Number(selectedZoneId),
-      moved_at: new Date(movedAt).toISOString(),
+
       notes: notes.trim(),
     }));
   }
@@ -108,32 +76,39 @@ export default function MoveBoxModal({
         >
           <header className="subculture-heading box-dialog-heading">
             <div>
-              <p className="box-dialog-context">{text.box}: {box.global_code}</p>
-              <h2 id="move-title">{text.title}</h2>
+              <h2 id="move-title">{t('moveDialogTitle')}</h2>
+
             </div>
-            <button className="icon-button box-dialog-close" type="button" aria-label={text.cancel} title={text.cancel} disabled={isBusy} onClick={close}>
+            <button className="icon-button box-dialog-close" type="button" aria-label={t('cancel')} title={t('cancel')} disabled={isBusy} onClick={close}>
               <PolypbaseIcon name="close" size={19} aria-hidden="true" />
             </button>
           </header>
 
           <form className="move-form box-dialog-form" onSubmit={handleSubmit}>
             <div className="box-dialog-body">
-              <div className="box-dialog-location-flow">
-                <div className="current-zone-card">
-                  <span>{text.currentZone}</span>
-                  <strong>{box.thermal_zone?.name ?? text.noZone}</strong>
-                  <small>{box.organization.name}</small>
+              <div className="move-subject-panel">
+                <p className="utility-dialog-identity">
+                  <strong>{box.global_code}</strong>
+                  <small>{box.species.scientific_name}</small>
+                </p>
+                <div className="move-current-zone">
+                  <span>{t('moveDialogCurrentZone')}</span>
+                  <strong>{box.thermal_zone?.name ?? t('noZone')}</strong>
+
                 </div>
-                <label>
-                  {text.newZone}
+              </div>
+              <div className="box-dialog-location-flow">
+                <label className="move-destination">
+                  {t('moveDialogNewZone')}
                   <select
                     ref={initialFocusRef}
                     disabled={isBusy}
                     required
+                    name="thermal_zone_id"
                     value={selectedZoneId}
                     onChange={(event) => setTargetZoneId(event.target.value)}
                   >
-                    {!availableZones.length ? <option value="">{text.noZone}</option> : null}
+                    {!availableZones.length ? <option value="">{t('noZone')}</option> : null}
                     {availableZones.map((zone) => (
                       <option key={zone.id} value={zone.id}>
                         {zone.name}
@@ -144,58 +119,55 @@ export default function MoveBoxModal({
               </div>
 
               <div className="move-fields">
-                <label>
-                  {text.movedAt}
-                  <input
-                    required
-                    type="datetime-local"
+
+                <label className="move-notes">
+                  {t('moveDialogNote')}
+                  <textarea
+                    name="notes"
+                    rows={2}
                     disabled={isBusy}
-                    value={movedAt}
-                    onChange={(event) => setMovedAt(event.target.value)}
+                    placeholder={t('moveDialogNotePlaceholder')}
+                    value={notes}
+                    onChange={(event) => setNotes(event.target.value)}
                   />
                 </label>
               </div>
 
-              <label className="move-notes">
-                {text.notes}
-                <textarea
-                  rows={3}
-                  disabled={isBusy}
-                  placeholder={text.notesPlaceholder}
-                  value={notes}
-                  onChange={(event) => setNotes(event.target.value)}
-                />
-              </label>
+              {error ? <p className="inline-error subculture-error" role="alert">{error}</p> : null}
 
-              <section className="location-history">
-                <h3>{text.history}</h3>
-                {!locations.length ? <p className="muted compact-text">{text.noHistory}</p> : null}
-                {locations.slice(0, 6).map((location) => (
-                  <article key={location.id} className="location-row">
-                    <div>
-                      <strong>{location.thermal_zone.name}</strong>
-                      <small>
-                        {formatDateTime(location.starts_at, language)}
-                        {' -> '}
-                        {location.end_date_unknown
-                          ? text.unknownEnd
+              <details className="move-location-history">
+                <summary tabIndex={isBusy ? -1 : 0} aria-disabled={isBusy} onClick={(event) => { if (isBusy) event.preventDefault(); }}>
+                  {t('movementHistoryTitle')}
+                  <span className="move-history-count">{locations.length}</span>
+                </summary>
+                {!locations.length ? <p className="muted compact-text">{t('moveDialogNoHistory')}</p> : null}
+                {locations.map((location) => (
+                  <article key={location.id} className="move-location-row">
+                    <strong>{location.thermal_zone.name}</strong>
+                    <dl className="move-location-dates">
+                      <div>
+                        <dt>{t('moveHistoryArrival')}</dt>
+                        <dd><time dateTime={location.starts_at}>{formatDateTime(location.starts_at, language)}</time></dd>
+                      </div>
+                      {location.ends_at || location.end_date_unknown ? <div>
+                        <dt>{t('moveHistoryDeparture')}</dt>
+                        <dd>{location.end_date_unknown
+                          ? t('moveDialogUnknownEnd')
                           : location.ends_at
-                            ? formatDateTime(location.ends_at, language)
-                            : text.current}
-                      </small>
-                    </div>
+                            ? <time dateTime={location.ends_at}>{formatDateTime(location.ends_at, language)}</time>
+                            : t('moveDialogCurrent')}</dd>
+                      </div> : null}
+                    </dl>
                     {location.notes ? <p>{location.notes}</p> : null}
                   </article>
                 ))}
-              </section>
-
-              {error ? <p className="inline-error subculture-error" role="alert">{error}</p> : null}
+              </details>
             </div>
 
             <footer className="subculture-actions box-dialog-actions">
-              <button type="button" disabled={isBusy} onClick={close}>{text.cancel}</button>
-              <button className="is-primary" type="submit" disabled={isBusy || !availableZones.length}>
-                {isSaving ? text.saving : text.save}
+              <button className="secondary-button" type="button" disabled={isBusy} onClick={close}>{t('cancel')}</button>
+              <button className="primary-button" type="submit" disabled={isBusy || !availableZones.length}>
+                {isSaving ? t('saving') : t('moveAction')}
               </button>
             </footer>
           </form>
@@ -212,11 +184,6 @@ function getBoxLocations(box: BoxItem | BoxDetail): BoxLocation[] {
   return [];
 }
 
-function getCurrentDateTimeValue() {
-  const now = new Date();
-  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-  return now.toISOString().slice(0, 16);
-}
 
 function formatDateTime(value: string, language: Language) {
   return new Intl.DateTimeFormat(language === 'fr' ? 'fr-FR' : 'en-GB', {

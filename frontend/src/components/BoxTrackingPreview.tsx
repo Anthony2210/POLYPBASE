@@ -7,15 +7,19 @@ import { useAnchoredPopover } from '../hooks/useAnchoredPopover';
 import type { Language, Translator } from '../i18n';
 import type { BoxDetail } from '../types';
 import { getErrorMessage } from '../utils/errors';
+import { getBiologicalTimelineLabels, type BiologicalTimelineEntry } from '../utils/biologicalTimeline';
 import SkeletonRows from './SkeletonRows';
+
+type TrackingBoxDetail = BoxDetail & { biological_timeline?: readonly BiologicalTimelineEntry[] };
 
 const TrackingChart = lazy(async () => {
   const { default: BoxTrackingChart, buildLifecycleEvents } = await import('./BoxTrackingChart');
-  return { default: function PreviewChart({ detail, language, t }: { detail: BoxDetail; language: Language; t: Translator }) {
+  return { default: function PreviewChart({ detail, language, t }: { detail: TrackingBoxDetail; language: Language; t: Translator }) {
     const events = useMemo(() => buildLifecycleEvents(detail.lineage, detail.movements, {
       movementEvent: t('movementEvent'), subcultureEvent: t('subcultureEvent'),
     }), [detail, t]);
-    return <BoxTrackingChart compact measurements={detail.biological_measurements} locations={detail.locations} events={events} language={language} labels={{
+    return <BoxTrackingChart compact biologicalTimeline={detail.biological_timeline} measurements={detail.biological_measurements} locations={detail.locations} events={events} language={language} labels={{
+      ...getBiologicalTimelineLabels(t),
       chartTitle: t('chartTitle'), chartEmpty: t('chartEmpty'), polyps: t('polyps'),
       ephyraeFull: t('ephyraeFull'), missingReading: t('chartMissingReading'),
       historyEnteredBy: t('historyEnteredBy'), historyObservation: t('historyObservation'), salinityFull: t('salinityFull'),
@@ -146,14 +150,14 @@ function BoxTrackingPreviewContent({ boxId, language, onSpeciesLoaded, t }: {
   onSpeciesLoaded: (speciesName: string) => void;
   t: Translator;
 }) {
-  const [detail, setDetail] = useState<BoxDetail | null>(null);
+  const [detail, setDetail] = useState<TrackingBoxDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
     setError(null);
-    void apiGet<BoxDetail>(`/api/boxes/${boxId}/`, { signal: controller.signal })
+    void apiGet<TrackingBoxDetail>(`/api/boxes/${boxId}/`, { signal: controller.signal })
       .then((result) => {
         if (controller.signal.aborted) return;
         setDetail(result);
@@ -166,7 +170,8 @@ function BoxTrackingPreviewContent({ boxId, language, onSpeciesLoaded, t }: {
   const loading = <div className="box-tracking-preview-state" role="status" aria-label={t('loading')}><SkeletonRows count={3} /></div>;
   if (error) return <div className="box-tracking-preview-state" role="alert"><p>{error}</p><button type="button" onClick={() => setAttempt((current) => current + 1)}>{t('lineageRetry')}</button></div>;
   if (!detail) return loading;
-  const hasTimeline = detail.biological_measurements.length > 0
+  const hasTimeline = (detail.biological_timeline?.length ?? 0) > 0
+    || detail.biological_measurements.length > 0
     || detail.locations.length > 0
     || detail.movements.length > 0
     || detail.lineage.parents.some((relation) => relation.event != null)

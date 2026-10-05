@@ -305,6 +305,33 @@ class BusinessAuditApiTests(TestCase):
 
         self.assertEqual([entry["id"] for entry in response.json()["results"]], [measurement.id])
 
+    def test_partial_subculture_details_preserve_unknown_and_zero(self):
+        codes = ["ATL-AAU-1.002", "ATL-AAU-1.003", "ATL-AAU-1.004"]
+        log = self._log(action=AuditLog.Action.SUBCULTURE, metadata={
+            "occurred_at": "2026-10-05T10:00:00+00:00",
+            "parent_polyp_count_before": 100,
+            "allocated_polyp_count": None,
+            "parent_polyp_count_after": None,
+            "child_global_codes": codes,
+            "allocations": [
+                {"child_global_code": code, "allocated_polyps": count}
+                for code, count in zip(codes, [30, 0, None])
+            ],
+        })
+        response = self._admin()
+        self.assertEqual(response.status_code, 200)
+        entry = next(item for item in response.json()["results"] if item["id"] == log.id)
+        details = entry["business_details"]
+        self.assertEqual(details["parent_polyp_count_before"], 100)
+        self.assertIsNone(details["allocated_polyp_count"])
+        self.assertIsNone(details["parent_polyp_count_after"])
+        self.assertEqual(details["allocations"], [
+            {"child_global_code": code, "allocated_polyps": count}
+            for code, count in zip(codes, [30, 0, None])
+        ])
+        self.assertEqual(details["initial_polyp_counts"], {codes[0]: 30, codes[1]: 0})
+        self.assertIsNone(entry["context"]["subculture"]["children"][2]["initial_polyp_count"])
+
     def test_business_details_normalize_known_metadata_and_preserve_zero(self):
         subculture = self._log(
             action=AuditLog.Action.SUBCULTURE,

@@ -42,6 +42,7 @@ const QrLabelModal = loadModule('components/QrLabelModal.tsx', {
   './QrLabel': { default: QrLabel },
   './ModalPortal': { default: ({ children }) => children },
   './PolypbaseIcon': { default: () => null },
+  './box-utility-dialogs.css': {},
 }).default;
 
 const box = {
@@ -93,15 +94,18 @@ test('real modal accepts callers that no longer supply the retired help prop', (
   assert.doesNotMatch(html, /aria-describedby=|undefined/);
 });
 
-test('real modal wraps the unchanged shared physical label and keeps its metadata and pending image', () => {
+test('real modal shows one identity and a metadata-free upright QR, with physical output isolated', () => {
   const html = renderModal();
-  assert.match(html, /class="qr-label-modal-preview"><div class="qr-label-print-frame"/);
-  assert.match(html, /--label-preview-ratio:41 \/ 28/);
-  assert.match(html, /--label-preview-qr-size:60\.9756cqw/);
-  assert.match(html, /class="qr-label qr-label--label qr-label-print-sheet"/);
-  assert.match(html, /<strong>ATL-AAU-1\.001<\/strong>/);
-  assert.match(html, /<small>Aurelia aurita<\/small>/);
-  assert.match(html, /<img class="qr-label__image" alt="QR code ATL-AAU-1\.001" decoding="async" loading="eager"\/>/);
+  const scan = html.match(/<div class="utility-qr-scan">([\s\S]*?)<\/div>/)?.[1];
+  assert.ok(scan);
+  assert.match(scan, /class="qr-label qr-label--preview qr-label--image-only"/);
+  assert.doesNotMatch(scan, /qr-label__metadata|<strong>|<small>|print-sheet/);
+  assert.match(scan, /<img class="qr-label__image" alt="QR code ATL-AAU-1\.001" decoding="async" loading="lazy"\/>/);
+  const visible = html.replace(/<div class="utility-qr-physical" aria-hidden="true">[\s\S]*?<\/div>/, '');
+  assert.equal((visible.match(/<strong>ATL-AAU-1\.001<\/strong>/g) ?? []).length, 1);
+  assert.equal((visible.match(/<small>Aurelia aurita<\/small>/g) ?? []).length, 1);
+  assert.match(html, /class="utility-qr-physical" aria-hidden="true"><span class="qr-label qr-label--label qr-label-print-sheet"/);
+  assert.doesNotMatch(html, /qr-label-modal-preview|qr-label-print-frame|--label-preview-/);
   assert.match(html, /role="status"/);
 });
 
@@ -147,64 +151,31 @@ function rule(source, selector) {
   return found.body;
 }
 
-const css = read('styles/components/qr-label.css');
-const modalCss = read('styles/pages/exports-labels.css');
-const screen = mediaBlock(modalCss, '@media screen');
-const preview = rule(screen.content, '.qr-label-modal-preview');
-const frame = rule(screen.content, '.qr-label-modal-preview > .qr-label-print-frame');
+const localCss = read('components/box-utility-dialogs.css');
+const screen = mediaBlock(localCss, '@media screen');
 
-test('preview sizing and rotation are screen-only and limited to the new modal wrapper', () => {
-  assert.deepEqual(rules(screen.content).map((entry) => entry.selector), [
-    '.qr-label-modal-preview', '.qr-label-modal-preview > .qr-label-print-frame',
-  ]);
-  assert.doesNotMatch(screen.outside, /\.qr-label-modal-preview/);
-  assert.match(preview, /position: relative;/);
-  assert.match(preview, /justify-self: center;/);
-  assert.match(preview, /width: min\(100%, 160px\);/);
-  assert.match(preview, /aspect-ratio: 28 \/ 41;/);
-  assert.match(frame, /position: absolute;/);
-  assert.match(frame, /top: 50%;/);
-  assert.match(frame, /left: 50%;/);
-  assert.match(frame, /width: calc\(100% \* 41 \/ 28\);/);
-  assert.match(frame, /transform: translate\(-50%, -50%\) rotate\(90deg\);/);
-  assert.match(frame, /transform-origin: center;/);
-  assert.match(rule(modalCss, '.qr-label-print-frame'), /container-type: inline-size;/);
-  const dialogCss = read('styles/components/lab-dialogs.css');
-  assert.match(rule(dialogCss, '.box-dialog'), /width: min\(100%, var\(--box-dialog-width\)\);/);
-  assert.match(rule(dialogCss, '.box-dialog--qr'), /--box-dialog-width: 480px;/);
-  assert.doesNotMatch(modalCss, /\.qr-label-modal\s*\{/);
-  // Keep scoped frame sizing in the same layer as the generic frame: layers outrank specificity.
-  const imports = read('styles/index.css');
-  assert.match(imports, /exports-labels\.css' layer\(pages\)/);
-  assert.doesNotMatch(css, /\.qr-label-modal-preview/);
-  assert.ok(screen.content.includes('.qr-label-modal-preview > .qr-label-print-frame'));
+test('local scan presentation is screen-only, square, unrotated and does not alter physical output', () => {
+  assert.match(read('components/QrLabelModal.tsx'), /import '\.\/box-utility-dialogs\.css'/);
+  assert.match(rule(screen.content, '.utility-qr-scan'), /width: min\(100%, 224px\)/);
+  assert.match(rule(screen.content, '.utility-qr-scan .qr-label'), /--qr-label-image-size: 100%/);
+  assert.match(rule(screen.content, '.utility-qr-scan .qr-label'), /border: 0/);
+  assert.match(rule(screen.content, '.utility-qr-scan .qr-label__image'), /image-rendering: auto/);
+  assert.match(rule(screen.content, '.utility-qr-physical'), /display: none/);
+  assert.doesNotMatch(screen.outside, /utility-qr-/);
+  assert.doesNotMatch(localCss, /rotate\(|label-preview-|qr-label-print-sheet|!important/);
+  assert.match(rule(read('styles/components/qr-label.css'), '.qr-label__image'), /aspect-ratio: 1/);
 });
 
-test('rotated preview fits its reserved footprint, is smaller, and leaves text and QR upright', () => {
-  const cap = Number(preview.match(/width: min\(100%, (\d+)px\)/)[1]);
-  const [portraitWidth, portraitHeight] = preview.match(/aspect-ratio: (\d+) \/ (\d+)/).slice(1).map(Number);
-  const [landscapeWidth, landscapeHeight] = frame.match(/width: calc\(100% \* (\d+) \/ (\d+)\)/).slice(1).map(Number);
-  const outerRotation = Number(frame.match(/rotate\((-?\d+)deg\)/)[1]);
-  for (const selector of ['.qr-label--label .qr-label__image', '.qr-label--label .qr-label__text']) {
-    const innerRotation = Number(rule(css, selector).match(/rotate\((-?\d+)deg\)/)[1]);
-    assert.equal(outerRotation + innerRotation, 0, `${selector} must read upright`);
-  }
-  assert.equal(portraitWidth / portraitHeight, landscapeHeight / landscapeWidth);
-  for (const availableWidth of [100, 160, 260, 340, 680]) {
-    const width = Math.min(availableWidth, cap);
-    const height = width * portraitHeight / portraitWidth;
-    const containerWidth = width * landscapeWidth / landscapeHeight;
-    const labelHeight = containerWidth * settings.labelHeightMm / settings.labelWidthMm;
-    assert.ok(Math.abs(labelHeight - width) < 0.001);
-    assert.ok(Math.abs(containerWidth - height) < 0.001);
-    assert.ok(width <= availableWidth);
-    assert.ok(width * height < 260 * 260 * 28 / 41, 'preview area must be smaller than the old phone and desktop previews');
-    if (availableWidth >= cap) {
-      const variables = qrLabels.getQrLabelPreviewCssVariables(settings);
-      assert.ok(parseFloat(variables['--label-preview-font-size']) * containerWidth / 100 >= 14);
-      assert.ok(parseFloat(variables['--label-preview-species-font-size']) * containerWidth / 100 >= 14);
-    }
-  }
+test('scan size adapts to short landscape screens while actions stay standard and secondary', () => {
+  const tablet = mediaBlock(screen.content, '@media (max-width: 1023px), (pointer: coarse), (max-height: 600px)');
+  assert.match(rule(tablet.content, '.utility-qr-scan'), /width: min\(100%, 176px\)/);
+  const short = mediaBlock(screen.content, '@media (max-height: 600px)');
+  assert.match(rule(short.content, '.utility-qr-scan'), /width: min\(100%, 144px\)/);
+  const html = renderModal();
+  const footer = html.match(/<footer[^>]*>([\s\S]*?)<\/footer>/)[1];
+  assert.equal((footer.match(/class="secondary-button is-secondary"/g) ?? []).length, 2);
+  assert.doesNotMatch(footer, /primary-button|is-primary/);
+  assert.match(rule(screen.content, '.box-dialog--qr .qr-label-selection-panel'), /flex-wrap: wrap/);
 });
 
 test('print document, downloadable SVG, and QR targets retain their canonical geometry and content', () => {

@@ -420,6 +420,7 @@ function componentHarness(file, api) {
   const modules = {
     react: hooks, 'react/jsx-runtime': { jsx, jsxs: jsx },
     '../utils/qrLabels': api, './ModalPortal': () => null, './PolypbaseIcon': () => null, './QrLabel': () => null,
+    './box-utility-dialogs.css': {},
     'lucide-react': { ChevronDown() {}, ChevronRight() {}, Printer() {} }, './BoxTrackingPreview': () => null, './PageLoader': () => null,
   };
   const exports = {};

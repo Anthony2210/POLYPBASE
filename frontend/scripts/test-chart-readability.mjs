@@ -83,7 +83,7 @@ test('desktop sizing and markers stay unchanged; responsive points are modestly 
     assert.equal(mobile.zeroRadius, 3.4);
   }
   assert.equal(chart.buildDiamondPath(20, 30, 3), 'M20 27 L23 30 L20 33 L17 30 Z');
-  assert.match(chartSource, /visibleSeries\.ephyrae && layout\.responsive/);
+  assert.match(chartSource, /visibleSeries\.ephyrae && measurement\.ephyraeCount != null && layout\.responsive/);
   assert.match(chartSource, /<circle className=\{`bio-trend-dot is-polyps/);
 });
 

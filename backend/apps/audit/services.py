@@ -497,8 +497,21 @@ def serialize_business_details(log, *, measurement=None, subculture_children=Non
             metadata,
             resolved_children=subculture_children,
         )
-        return _compact_details(
+        quantitative = {}
+        if _safe_string(metadata.get("occurred_at")):
+            quantitative = {
+                "occurred_at": _safe_string(metadata.get("occurred_at")),
+                "parent_polyp_count_before": _safe_number(metadata.get("parent_polyp_count_before")),
+                "allocated_polyp_count": _safe_number(metadata.get("allocated_polyp_count")),
+                "parent_polyp_count_after": _safe_number(metadata.get("parent_polyp_count_after")),
+                "allocations": [
+                    {"child_global_code": child["global_code"], "allocated_polyps": child["initial_polyp_count"]}
+                    for child in children
+                ],
+            }
+        details = _compact_details(
             "subculture",
+            **quantitative,
             parent_global_code=_safe_string(log.object_id),
             child_global_codes=[child["global_code"] for child in children],
             initial_polyp_counts={
@@ -507,6 +520,9 @@ def serialize_business_details(log, *, measurement=None, subculture_children=Non
                 if child["initial_polyp_count"] is not None
             },
         )
+        # New events explicitly distinguish unknown totals/results from legacy metadata.
+        details.update(quantitative)
+        return details
 
     if family == "transfers" and log.action == AuditLog.Action.TRANSFER:
         return _compact_details(
@@ -650,6 +666,13 @@ def serialize_audit_context(log, *, measurement=None, subculture_children=None):
 def _normalized_subculture_children(metadata, *, resolved_children=None):
     stored_codes = _safe_string_list(metadata.get("child_global_codes"))
     counts = metadata.get("initial_polyp_counts")
+    allocations = metadata.get("allocations")
+    if isinstance(allocations, list):
+        counts = {
+            row["child_global_code"]: row.get("allocated_polyps")
+            for row in allocations
+            if isinstance(row, dict) and _safe_string(row.get("child_global_code"))
+        }
 
     if resolved_children is None:
         indexed_children = [

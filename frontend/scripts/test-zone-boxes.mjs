@@ -18,8 +18,8 @@ test('zone box directory uses the fiche-family identity header without legacy KP
   assert.doesNotMatch(header, /zone-directory-summary|<Metric|zoneSummaryAlive|taxonomySpecies/);
 });
 
-test('zone box rows preserve measurements and both canonical dates including scientific zero', () => {
-  assert.match(pageSource, /measurement\?\.polyp_count \?\? '-'/);
+test('zone box rows use current polyps and preserve measured ephyrae and both canonical dates including scientific zero', () => {
+  assert.match(pageSource, /box\.current_polyp_state\.polyp_count \?\? '-'/);
   assert.match(pageSource, /measurement\?\.ephyrae_count \?\? '-'/);
   assert.match(pageSource, /box\.current_location_started_at/);
   assert.match(pageSource, /zoneCurrentStaySince/);
@@ -56,7 +56,7 @@ test('zone boxes reuse the lazy rich Inventory preview and canonical identity st
   assert.match(previewSource, /onFocus=\{\(\) =>/);
   assert.match(previewSource, /onClick=\{\(event\) =>/);
   assert.match(previewSource, /role="dialog"/);
-  assert.match(previewSource, /apiGet<BoxDetail>\(`\/api\/boxes\/\$\{boxId\}\//);
+  assert.match(previewSource, /apiGet<TrackingBoxDetail>\(`\/api\/boxes\/\$\{boxId\}\//);
   assert.match(previewSource, /lazy\(async \(\) =>/);
 });
 

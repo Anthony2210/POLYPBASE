@@ -94,6 +94,138 @@ test('zero-zero is a real measurement and missing remains distinct', () => {
   assert.equal(exports.isZeroZeroMeasurement(null), false);
 });
 
+// Execute the production row callbacks to compare current-stock and last-reading consumers.
+function boxRowRenderer(componentName) {
+  const component = readFileSync(new URL(`../src/components/${componentName}.tsx`, import.meta.url), 'utf8');
+  const ast = ts.createSourceFile(`${componentName}.tsx`, component, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let callback;
+  function visit(node) {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+      && node.expression.name.text === 'map') {
+      const candidate = node.arguments[0];
+      if (candidate && ts.isArrowFunction(candidate)
+        && candidate.parameters[0]?.name.getText(ast) === 'box'
+        && candidate.body.getText(ast).includes('const measurement = box.latest_measurement;')) {
+        assert.equal(callback, undefined, 'Expected one box row callback');
+        callback = candidate;
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(ast);
+  assert.ok(callback, `Missing production box row in ${componentName}`);
+  const jsx = (type, props, key) => ({ type, props, key });
+  const rowExports = {};
+  const { outputText } = ts.transpileModule(`export const render = ${callback.getText(ast)};`, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
+  });
+  vm.runInNewContext(outputText, {
+    exports: rowExports,
+    require(name) {
+      assert.equal(name, 'react/jsx-runtime');
+      return { jsx, jsxs: jsx, Fragment: Symbol('Fragment') };
+    },
+    ...exports,
+    language: 'en', t: key => key, formatDisplayDate: date => date,
+    getBoxStatusPresentation: status => ({ tone: status, label: status }),
+    isSelectionMode: false, selectedBoxes: new Map(), isLoading: false,
+    activeMeasurementFilter: 'older_than', referenceDate: '2026-08-31', ageMonths: '6',
+    onOpenBox() {}, onOpenZone() {}, openLifecycleAction() {},
+    BoxTrackingPreview() {}, BoxInventoryRowMenu() {}, BoxInventorySuggestion() {},
+  });
+  return rowExports.render;
+}
+
+function rowNodes(node, predicate) {
+  if (Array.isArray(node)) return node.flatMap(child => rowNodes(child, predicate));
+  if (!node || typeof node !== 'object' || !node.props) return [];
+  return [...(predicate(node) ? [node] : []), ...rowNodes(node.props.children, predicate)];
+}
+
+function rowText(node) {
+  if (Array.isArray(node)) return node.map(rowText).join('');
+  if (node == null || typeof node === 'boolean') return '';
+  return typeof node === 'object' ? rowText(node.props?.children) : String(node);
+}
+
+function rowCell(row, className) {
+  const nodes = rowNodes(row, node => node.props.className === className);
+  assert.equal(nodes.length, 1, `Expected one ${className}`);
+  return nodes[0];
+}
+
+const renderZoneRow = boxRowRenderer('ZonesView');
+const renderInventoryRow = boxRowRenderer('BoxInventoryAdminSection');
+const rowBox = {
+  id: 7, global_code: 'ALA-7', status: 'pending_review',
+  species: { scientific_name: 'Aurelia aurita' }, thermal_zone: null,
+  inventory_created_on: '2024-01-01', current_location_started_at: '2026-01-01T12:00:00Z',
+  latest_measurement: { measured_on: '2026-02-27', polyp_count: 120, ephyrae_count: 4 },
+};
+const currentState = (polypCount, kind, revision) => ({
+  polyp_count: polypCount, revision: `box:7:${revision}`,
+  source: kind ? { kind, id: revision, timestamp: '2026-08-31T12:00:00Z' } : null,
+});
+
+function assertRowCounts(box, current, measured, ephyrae) {
+  const zone = renderZoneRow(box);
+  assert.equal(rowText(rowCell(zone, 'is-polyps')), `${current} polyps`);
+  assert.equal(rowText(rowCell(zone, 'is-ephyrae')), `${ephyrae} ephyrae`);
+  const inventory = renderInventoryRow(box);
+  assert.equal(rowText(rowCell(inventory, 'box-inventory-cell box-inventory-counts')),
+    measured === null ? 'boxInventoryNoMeasurement' : `${measured}polyps${ephyrae}ephyraeFull`);
+  return { zone, inventory };
+}
+
+test('zone stock follows current state while inventory counts and dates follow only actual readings', () => {
+  const before = JSON.stringify(rowBox);
+  for (const [count, kind, revision] of [
+    [120, 'measurement', 1], [35, 'subculture', 2], [0, 'subculture', 3], [62, 'measurement', 4],
+  ]) {
+    const measurement = revision === 4
+      ? { measured_on: '2026-08-31', polyp_count: 62, ephyrae_count: 2 }
+      : rowBox.latest_measurement;
+    const box = { ...rowBox, latest_measurement: measurement, current_polyp_state: currentState(count, kind, revision) };
+    const { zone, inventory } = assertRowCounts(box, count, measurement.polyp_count, measurement.ephyrae_count);
+    assert.equal(rowText(rowCell(zone, 'zone-directory-dates')),
+      `zoneCurrentStaySince2026-01-01T12:00:00ZlatestReadingDate${measurement.measured_on}`);
+    assert.equal(rowText(rowCell(inventory, 'box-inventory-cell box-inventory-dates')),
+      `boxInventoryCreatedOn2024-01-01boxInventoryLastMeasurement${measurement.measured_on}`);
+    const suggestions = rowNodes(inventory, node => typeof node.type === 'function'
+      && node.type.name === 'BoxInventorySuggestion');
+    assert.equal(suggestions.length, revision === 4 ? 0 : 1);
+    if (suggestions.length) {
+      assert.equal(suggestions[0].props.ageMonths, 6);
+      assert.equal(suggestions[0].props.zeroZero, false, 'Current zero is not a measured 0/0');
+    }
+  }
+  assert.equal(JSON.stringify(rowBox), before);
+});
+
+test('unknown current stock never falls back to a positive or zero last measurement', () => {
+  assertRowCounts({ ...rowBox, current_polyp_state: currentState(null, null, 1) }, '-', 120, 4);
+  const { inventory } = assertRowCounts({
+    ...rowBox, current_polyp_state: currentState(null, null, 2),
+    latest_measurement: { ...rowBox.latest_measurement, polyp_count: 0, ephyrae_count: 0 },
+  }, '-', 0, 0);
+  const suggestion = rowNodes(inventory, node => node.type?.name === 'BoxInventorySuggestion')[0];
+  assert.equal(suggestion.props.zeroZero, true, 'Measured 0/0 remains a real qualification fact');
+});
+
+test('child initialization supplies only current polyps, never a reading date or ephyrae', () => {
+  for (const count of [18, 0, null]) {
+    const { zone, inventory } = assertRowCounts({
+      ...rowBox, latest_measurement: null,
+      current_polyp_state: currentState(count, count === null ? null : 'subculture_initialization', 1),
+    }, count ?? '-', null, '-');
+    assert.equal(rowText(rowCell(zone, 'zone-directory-dates')),
+      'zoneCurrentStaySince2026-01-01T12:00:00ZlatestReadingDate-');
+    assert.equal(rowText(rowCell(inventory, 'box-inventory-cell box-inventory-dates')),
+      'boxInventoryCreatedOn2024-01-01boxInventoryLastMeasurementboxInventoryNoData');
+    assert.equal(rowNodes(inventory, node => node.type?.name === 'BoxInventorySuggestion').length, 0);
+  }
+});
+
 test('inventory selection is an explicit row-checkbox mode with compact actions', () => {
   const component = readFileSync(
     new URL('../src/components/BoxInventoryAdminSection.tsx', import.meta.url),

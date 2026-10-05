@@ -847,7 +847,7 @@ export function ZoneBoxesPage({
                               onClick={() => onOpenBox(box.id)}
                             >
                               <span className="zone-directory-counts">
-                                <span className="is-polyps"><strong>{measurement?.polyp_count ?? '-'}</strong> {t('polyps')}</span>
+                                <span className="is-polyps"><strong>{box.current_polyp_state.polyp_count ?? '-'}</strong> {t('polyps')}</span>
                                 <span className="is-ephyrae"><strong>{measurement?.ephyrae_count ?? '-'}</strong> {t('ephyrae')}</span>
                               </span>
                               <span className="zone-directory-dates">

@@ -21,6 +21,7 @@ function evaluate(source, imports = {}, globals = {}) {
   vm.runInNewContext(ts.transpileModule(source, { compilerOptions }).outputText, {
     exports,
     require(name) {
+      if (/^\.{1,2}\/.*\.css$/.test(name)) return {};
       assert.ok(Object.hasOwn(imports, name), `Unexpected test dependency: ${name}`);
       return imports[name];
     },
@@ -314,6 +315,7 @@ for (const language of ['fr', 'en']) {
             box, qr, canWriteLabData, isDesktopApp, isPhoneLayout, isTabletLayout: layout === 'tablet', t,
             setIsQrLabelOpen: (value) => opened.push(['qr', value]),
             setIsMoveOpen: (value) => opened.push(['move', value]),
+            setSubcultureError: (value) => opened.push(['subculture-error', value]),
             setIsSubcultureOpen: (value) => opened.push(['subculture', value]),
             buildQrLabelItem(item, imageUrl) {
               built.push([item, imageUrl]);
@@ -337,7 +339,7 @@ for (const language of ['fr', 'en']) {
               assert.deepEqual(opened, qr ? [['qr', true]] : []);
               menu.props.onAction('move');
               menu.props.onAction('subculture');
-              assert.deepEqual(opened.slice(qr ? 1 : 0), [['move', true], ['subculture', true]]);
+              assert.deepEqual(opened.slice(qr ? 1 : 0), [['move', true], ['subculture-error', null], ['subculture', true]]);
             }
           } else if (qr && canWriteLabData) {
             const button = qrButtons[0];
@@ -367,16 +369,20 @@ for (const language of ['fr', 'en']) {
             const moveGlyphs = nodes(buttons[0]).filter(node => node.type === Route);
             const subcultureGlyphs = nodes(buttons[1]).filter(node => node.type === GitFork);
             assert.equal(moveGlyphs.length, 1);
-            assert.match(html, /<svg[^>]*width="36"[^>]*height="36"[^>]*class="lucide lucide-route"[^>]*aria-hidden="true"/);
+            assert.match(html, /<svg[^>]*width="20"[^>]*height="20"[^>]*class="lucide lucide-route"[^>]*aria-hidden="true"/);
             assert.equal(subcultureGlyphs.length, 1);
             for (const glyph of [...moveGlyphs, ...subcultureGlyphs]) {
-              assert.equal(glyph.props.size, 36);
+              assert.equal(glyph.props.size, 20);
               assert.equal(glyph.props['aria-hidden'], 'true');
             }
             assert.equal(subcultureGlyphs[0].props.className, 'box-subculture-glyph');
+            for (const button of buttons) {
+              assert.equal(hasClass(button, 'box-compact-action--labeled'), true);
+              assert.equal(text(nodes(button).find(node => node.type === 'span')), button.props['aria-label']);
+            }
             assert.doesNotMatch(html, /box-move-glyph|lucide-arrow-right|lucide-share2/);
             buttons.forEach(button => button.props.onClick());
-            assert.deepEqual(opened.slice(qr ? 1 : 0), [['move', true], ['subculture', true]]);
+            assert.deepEqual(opened.slice(qr ? 1 : 0), [['move', true], ['subculture-error', null], ['subculture', true]]);
             if (qr) assert.ok(nodes(tree).indexOf(qrButtons[0]) < nodes(tree).indexOf(buttons[0]), 'Actual QR stays left of tablet actions');
           }
           assert.equal(nodes(tree).some(node => node.type === PolypbaseIcon), false, 'No obsolete icon-only QR trigger');

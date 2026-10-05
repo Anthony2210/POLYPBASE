@@ -1,9 +1,11 @@
 import re
+from collections.abc import Mapping
 from datetime import date, timedelta
 from decimal import Decimal
 
 from django.db import transaction
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
 from apps.accounts.models import OrganizationMembership, UserPreference
@@ -28,6 +30,7 @@ from apps.organizations.models import Organization
 from apps.organizations.serializers import OrganizationSummarySerializer
 from apps.taxonomy.models import Species, Strain
 from apps.taxonomy.scoping import eligible_strains
+from .polyp_state import current_state_prefetches, current_polyp_total, resolve_current_polyp_state
 
 # The historical import stamped existing boxes with its execution date rather
 # than their original creation date. The inventory uses their first measurement.
@@ -190,6 +193,7 @@ class BoxListSerializer(serializers.ModelSerializer):
     latest_measurement = serializers.SerializerMethodField()
     latest_salinity_psu = serializers.SerializerMethodField()
     current_location_started_at = serializers.SerializerMethodField()
+    current_polyp_state = serializers.SerializerMethodField()
 
     class Meta:
         model = Box
@@ -207,10 +211,14 @@ class BoxListSerializer(serializers.ModelSerializer):
             "latest_measurement",
             "latest_salinity_psu",
             "current_location_started_at",
+            "current_polyp_state",
         ]
 
     def get_species(self, obj):
         return SpeciesSummarySerializer(obj.strain.species).data
+
+    def get_current_polyp_state(self, obj):
+        return resolve_current_polyp_state(obj)
 
     def get_current_location_started_at(self, obj):
         if hasattr(obj, "current_location_started_at_annotation"):
@@ -232,8 +240,10 @@ class BoxListSerializer(serializers.ModelSerializer):
         return location.starts_at if location else None
 
     def get_latest_measurement(self, obj):
-        measurement = _first_prefetched(obj, "biological_measurements")
-        if measurement is None:
+        measurements = _prefetched_list(obj, "biological_measurements")
+        if measurements is not None:
+            measurement = next(iter(measurements), None)
+        else:
             measurement = obj.biological_measurements.order_by("-measured_on", "-created_at").first()
         return (
             BiologicalMeasurementSerializer(measurement, context=self.context).data
@@ -270,6 +280,10 @@ class BoxInventorySerializer(serializers.ModelSerializer):
     inventory_created_on = serializers.SerializerMethodField()
     latest_measurement = serializers.SerializerMethodField()
     last_location = serializers.SerializerMethodField()
+    current_polyp_state = serializers.SerializerMethodField()
+
+    def get_current_polyp_state(self, obj):
+        return resolve_current_polyp_state(obj)
 
     class Meta:
         model = Box
@@ -284,6 +298,7 @@ class BoxInventorySerializer(serializers.ModelSerializer):
             "inventory_created_on",
             "latest_measurement",
             "last_location",
+            "current_polyp_state",
         ]
 
     def get_species(self, obj):
@@ -343,6 +358,11 @@ class BoxDetailSerializer(BoxListSerializer):
     scan_url = serializers.SerializerMethodField()
     qr_image_url = serializers.SerializerMethodField()
     can_create_measurement = serializers.SerializerMethodField()
+    biological_timeline = serializers.SerializerMethodField()
+
+    def get_biological_timeline(self, obj):
+        from .biological_timeline import biological_timeline
+        return biological_timeline(obj, context=self.context)
 
     class Meta(BoxListSerializer.Meta):
         fields = BoxListSerializer.Meta.fields + [
@@ -361,6 +381,7 @@ class BoxDetailSerializer(BoxListSerializer):
             "scan_url",
             "qr_image_url",
             "can_create_measurement",
+            "biological_timeline",
         ]
 
     def get_can_create_measurement(self, obj):
@@ -713,34 +734,25 @@ class BoxMoveCreateSerializer(serializers.Serializer):
 
 
 class SubcultureChildCreateSerializer(serializers.Serializer):
-    global_code = serializers.CharField(max_length=100)
     local_code = serializers.CharField(max_length=100, required=False, allow_blank=True)
-    box_number = serializers.CharField(max_length=80)
     thermal_zone_id = serializers.PrimaryKeyRelatedField(
         queryset=ThermalZone.objects.filter(is_active=True),
         source="thermal_zone",
     )
     copy_origin = serializers.BooleanField(default=True)
     copy_volume_liters = serializers.BooleanField(default=True, required=False)
-    initial_polyp_count = serializers.IntegerField(min_value=0, required=False, allow_null=True)
+    allocated_polyps = serializers.IntegerField(min_value=0, max_value=2147483647, required=False, allow_null=True, default=None)
     notes = serializers.CharField(required=False, allow_blank=True)
 
-    def validate_global_code(self, value):
-        global_code = value.strip()
-        if Box.objects.filter(global_code=global_code).exists():
-            raise serializers.ValidationError("Une boîte utilise déjà ce code.")
-        parent_box = self.context["parent_box"]
-        _validate_global_code_for_strain(global_code=global_code, strain=parent_box.strain)
-        return global_code
-
-    def validate(self, attrs):
-        code_number = _extract_box_number_from_global_code(attrs["global_code"])
-        if code_number is not None and _normalize_box_number(attrs["box_number"]) != _normalize_box_number(code_number):
-            raise serializers.ValidationError(
-                {"box_number": "Le numéro doit correspondre au numéro présent dans le code boîte."}
-            )
-        attrs["box_number"] = attrs["box_number"].strip()
-        return attrs
+    def to_internal_value(self, data):
+        if not isinstance(data, Mapping):
+            return super().to_internal_value(data)
+        forbidden = {"global_code", "box_number", "initial_polyp_count"} & set(data)
+        if forbidden:
+            raise serializers.ValidationError({key: _("This field is not accepted for quantitative subculture.") for key in forbidden})
+        if data.get("allocated_polyps") is not None and type(data["allocated_polyps"]) is not int:
+            raise serializers.ValidationError({"allocated_polyps": _("A nonnegative integer is required.")})
+        return super().to_internal_value(data)
 
     def validate_thermal_zone_id(self, thermal_zone):
         parent_box = self.context["parent_box"]
@@ -751,8 +763,12 @@ class SubcultureChildCreateSerializer(serializers.Serializer):
         return thermal_zone
 
 
+class SubcultureCodePreviewQuerySerializer(serializers.Serializer):
+    count = serializers.IntegerField(min_value=1, max_value=20)
+
+
 class SubcultureCreateSerializer(serializers.Serializer):
-    event_date = serializers.DateField(default=timezone.localdate)
+    expected_current_state_revision = serializers.CharField(max_length=100)
     reason = serializers.CharField(max_length=180, required=False, allow_blank=True, default="")
     notes = serializers.CharField(required=False, allow_blank=True, default="")
     children = SubcultureChildCreateSerializer(many=True, min_length=1, max_length=20)
@@ -765,13 +781,12 @@ class SubcultureCreateSerializer(serializers.Serializer):
             )
         return attrs
 
-    def validate_children(self, children):
-        global_codes = [child["global_code"] for child in children]
-        if len(global_codes) != len(set(global_codes)):
-            raise serializers.ValidationError(
-                "Each child box must have a different global code."
-            )
-        return children
+    def to_internal_value(self, data):
+        if not isinstance(data, Mapping):
+            return super().to_internal_value(data)
+        if "event_date" in data or "occurred_at" in data:
+            raise serializers.ValidationError({"event_date": _("The server records the actual occurrence time.")})
+        return super().to_internal_value(data)
 
 
 class SubcultureEventSerializer(serializers.ModelSerializer):
@@ -789,7 +804,20 @@ class SubcultureEventSerializer(serializers.ModelSerializer):
             "notes",
             "user",
             "children",
+            "occurred_at",
+            "parent_polyp_count_before",
+            "allocated_polyp_count",
+            "parent_polyp_count_after",
+            "parent_state_snapshot",
+            "allocations",
         ]
+
+    allocations = serializers.SerializerMethodField()
+
+    def get_allocations(self, obj):
+        return list(obj.allocations.filter(child_box__organization_id=obj.parent_box.organization_id).values(
+            "id", "position", "child_box_id", "child_global_code", "allocated_polyps"
+        ))
 
     def get_user(self, obj):
         return obj.user.get_username() if obj.user else None
@@ -797,9 +825,10 @@ class SubcultureEventSerializer(serializers.ModelSerializer):
     def get_children(self, obj):
         child_boxes = self.context.get("child_boxes")
         if child_boxes is None:
+            child_rows = obj.allocations.all() if obj.occurred_at is not None else obj.lineages.all()
             child_boxes = [
                 lineage.child_box
-                for lineage in obj.lineages.select_related(
+                for lineage in child_rows.filter(child_box__organization_id=obj.parent_box.organization_id).select_related(
                     "child_box",
                     "child_box__organization",
                     "child_box__strain",
@@ -848,6 +877,13 @@ class ThermalZoneSerializer(serializers.ModelSerializer):
     latest_temperature = serializers.SerializerMethodField()
     latest_salinity = serializers.SerializerMethodField()
     probes = serializers.SerializerMethodField()
+    current_polyp_totals = serializers.SerializerMethodField()
+
+    def get_current_polyp_totals(self, obj):
+        boxes = getattr(obj, "current_state_boxes", None)
+        if boxes is None:
+            boxes = obj.boxes.filter(organization_id=obj.organization_id, status=Box.Status.ACTIVE).prefetch_related(*current_state_prefetches())
+        return current_polyp_total(boxes)
 
     class Meta:
         model = ThermalZone
@@ -864,6 +900,7 @@ class ThermalZoneSerializer(serializers.ModelSerializer):
             "latest_temperature",
             "latest_salinity",
             "probes",
+            "current_polyp_totals",
         ]
 
     def get_latest_temperature(self, obj):

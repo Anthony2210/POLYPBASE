@@ -29,6 +29,8 @@ const catalogs = {
   fr: loadModule('../src/i18n/fr.ts').fr,
   en: loadModule('../src/i18n/en.ts').en,
 };
+const i18n = loadModule('../src/i18n/index.ts', { './fr': { fr: catalogs.fr }, './en': { en: catalogs.en } });
+const biologicalTimeline = loadModule('../src/utils/biologicalTimeline.ts');
 function text(node) {
   if (node == null || typeof node === 'boolean') return '';
   if (Array.isArray(node)) return node.map(text).join('');
@@ -83,6 +85,8 @@ function createInsights(overrides = {}) {
     react: hooks,
     'react/jsx-runtime': jsxRuntime,
     '../utils/dateFormat': dateFormat,
+    '../i18n': i18n,
+    '../utils/biologicalTimeline': biologicalTimeline,
     './PolypbaseIcon': { default: () => null },
     './BoxTrackingChart': {
       buildLifecycleEvents: () => [],
@@ -211,6 +215,22 @@ test('movement history inherits analytical height without inflating charts on re
   assert.equal(h.panel().props.style.minHeight, 531);
 });
 
+test('typed timeline and unchanged historical readings pass through to the chart', () => {
+  const measurements = Object.freeze([{ id: 7, polyp_count: 50, ephyrae_count: 0 }]);
+  const timeline = Object.freeze([
+    Object.freeze({ kind: 'subculture', id: 7, identity: 'subculture:7', effective_date: '2026-10-04', polyp_count_before: 50, polyp_count_after: 0, allocated_polyps: 50 }),
+    Object.freeze({ kind: 'subculture_initialization', id: 7, identity: 'subculture_initialization:7', effective_date: '2026-10-04', polyp_count_after: 0, allocated_polyps: 0 }),
+  ]);
+  for (const language of ['fr', 'en']) {
+    const h = createInsights({ activeTab: 'measurements', biologicalTimeline: timeline, measurements, language, labels: labelsFor(language) });
+    assert.equal(h.chartProps.biologicalTimeline, timeline);
+    assert.equal(h.chartProps.measurements, measurements);
+    assert.equal(h.chartProps.language, language);
+    assert.equal(measurements[0].polyp_count, 50);
+  }
+  assert.equal(createInsights({ activeTab: 'measurements' }).chartProps.biologicalTimeline, undefined);
+});
+
 test('opening details still delegates the exact existing callback and payload to the chart', () => {
   let opened = 0;
   const measurements = [{ id: 7, polyp_count: 0, ephyrae_count: 0 }];
@@ -258,6 +278,14 @@ test('details action is locally subordinate with a 44px target and no callback r
   assert.match(button, /border-color: transparent/);
   assert.match(button, /font-weight: 700/);
   assert.match(css, /\.box-insights \.chart-window-action \.secondary-button:is\(:hover, :focus-visible\)/);
+});
+
+test('typed operation details wrap within the existing scrollable history styles', () => {
+  assert.match(rule('.measurement-history-date .measurement-history-timestamp'), /white-space: normal/);
+  assert.match(rule('.measurement-history-operation-details dd'), /overflow-wrap: anywhere/);
+  assert.match(rule('.measurement-history-operation-details ul'), /list-style: none/);
+  assert.match(css, /\.measurement-history-operation-details \{ flex-basis: 100%; \}/);
+  assert.match(rule('.measurement-history-entry--operation'), /var\(--color-surface-subtle\)/);
 });
 
 test('modal density preserves scroll ownership, sticky headers, focus and compact scientific columns', () => {

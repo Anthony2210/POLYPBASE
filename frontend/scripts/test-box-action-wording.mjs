@@ -19,6 +19,7 @@ function load(source, imports = {}, globals = {}) {
   }).outputText, {
     exports, ...globals,
     require(name) {
+      if (/^\.{1,2}\/.*\.css$/.test(name)) return {};
       assert.ok(Object.hasOwn(imports, name), `Unexpected presentation dependency: ${name}`);
       return imports[name];
     },
@@ -26,6 +27,7 @@ function load(source, imports = {}, globals = {}) {
   return exports;
 }
 const catalogues = Object.fromEntries(['fr', 'en'].map(language => [language, load(read(`../src/i18n/${language}.ts`))[language]]));
+const i18n = load(read('../src/i18n/index.ts'), Object.fromEntries(['fr', 'en'].map(language => [`./${language}`, { [language]: catalogues[language] }])));
 const translator = language => key => {
   assert.equal(typeof catalogues[language][key], 'string', `Missing ${language} key ${key}`);
   return catalogues[language][key];
@@ -39,7 +41,8 @@ const hooks = {
 };
 const ModalPortal = ({ children }) => children;
 const common = { react: hooks, 'react/jsx-runtime': jsxRuntime, './ModalPortal': { default: ModalPortal } };
-const box = { id: 7, global_code: 'BOX-7', organization: { id: 1, name: 'Local lab' }, thermal_zone: { id: 1, name: 'Current zone' } };
+const box = { id: 7, global_code: 'BOX-7', species: { scientific_name: 'Aurelia aurita' },
+  organization: { id: 1, name: 'Local lab' }, thermal_zone: { id: 1, name: 'Current zone' } };
 const zones = [
   { id: 1, name: 'Current zone', organization: { id: 1 }, is_active: true },
   { id: 2, name: 'Target zone', organization: { id: 1 }, is_active: true },
@@ -62,10 +65,10 @@ for (const language of ['fr', 'en']) {
     assert.equal(getLabels(translator(language)).historyButton, language === 'fr' ? 'Voir détails' : 'View details');
   });
 
-  test(`real MoveBoxModal renders local ${language} title/date/save and retains payload and close callbacks`, async () => {
+  test(`real MoveBoxModal renders local ${language} title/save without date and retains payload and close callbacks`, async () => {
     const submissions = [], closed = [];
     const MoveBoxModal = load(read('../src/components/MoveBoxModal.tsx'), {
-      ...common,
+      ...common, '../i18n': i18n,
       './PolypbaseIcon': { default: load(read('../src/components/PolypbaseIcon.tsx'), { 'react/jsx-runtime': jsxRuntime }).default },
       '../hooks/useMutationDialog': { default: (busy, onClose) => ({
         dialogRef: { current: null }, initialFocusRef: { current: null }, isBusy: busy,
@@ -77,22 +80,24 @@ for (const language of ['fr', 'en']) {
     const tree = MoveBoxModal(props);
     const markup = renderToStaticMarkup(tree);
     const expected = language === 'fr'
-      ? ['Déplacer la boîte', 'Date du déplacement', 'Déplacer']
-      : ['Move box', 'Movement date', 'Move'];
+      ? ['Déplacer la boîte', 'Déplacer']
+      : ['Move box', 'Move'];
     for (const label of expected) assert.ok(markup.includes(label));
     const primary = nodes(tree).find(node => node.type === 'button' && node.props.type === 'submit');
-    assert.equal(primary.props.children, expected[2]);
+    assert.equal(primary.props.children, expected[1]);
+    assert.doesNotMatch(markup, /datetime-local|name="moved_at"|Date du déplacement|Movement date/);
     if (language === 'fr') assert.doesNotMatch(markup, /transf[ée]r/i);
     assert.match(markup, /role="dialog"[^>]*aria-modal="true"[^>]*aria-labelledby="move-title"/);
     assert.ok(markup.includes('BOX-7'));
+    assert.ok(markup.includes('Aurelia aurita'));
     assert.ok(markup.includes('Target zone'));
     assert.equal(markup.includes('Foreign zone'), false);
     await nodes(tree).find(node => node.type === 'form').props.onSubmit({ preventDefault() {} });
     assert.equal(submissions.length, 1);
-    assert.equal(submissions[0].expected_thermal_zone_id, 1);
-    assert.equal(submissions[0].thermal_zone_id, 2);
-    assert.equal(submissions[0].notes, '');
-    assert.ok(Number.isFinite(Date.parse(submissions[0].moved_at)));
+    assert.deepEqual(JSON.parse(JSON.stringify(submissions[0])), {
+      expected_thermal_zone_id: 1, thermal_zone_id: 2, notes: '',
+    });
+    assert.equal(Object.hasOwn(submissions[0], 'moved_at'), false);
     nodes(tree).find(node => node.type === 'button' && node.props['aria-label']).props.onClick();
     assert.deepEqual(closed, [true]);
     const busy = MoveBoxModal({ ...props, isSaving: true });
@@ -112,7 +117,7 @@ for (const language of ['fr', 'en']) {
       onMoveBox: async (id, payload) => calls.push(['move', id, payload]), setIsMoveOpen: value => calls.push(['open', value]),
     };
     const handleMove = load(`${functionNode('handleMove').getText(ast)}\nexports.handleMove = handleMove;`, {}, context).handleMove;
-    const payload = { expected_thermal_zone_id: 1, thermal_zone_id: 2, moved_at: '2026-10-03T09:00:00Z', notes: '' };
+    const payload = { expected_thermal_zone_id: 1, thermal_zone_id: 2, notes: '' };
     await handleMove(payload);
     assert.deepEqual(calls, []);
     const action = confirmations[0];

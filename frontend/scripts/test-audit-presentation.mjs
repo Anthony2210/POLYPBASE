@@ -1831,6 +1831,84 @@ test('row context keeps only useful subculture and transfer relations', () => {
   assert.equal(timelineSource.includes('reactivated'), false);
 });
 
+for (const [language, catalog] of [['fr', fr], ['en', en]]) {
+  test(`${language.toUpperCase()} quantitative subculture shows before/after, allocated total and final codes with zeros`, () => {
+    const t = translator({ ...catalog, subcultureAllocatedPolyps: language === 'fr' ? 'Polypes alloués' : 'Allocated polyps' });
+    const details = {
+      type: 'subculture', parent_global_code: 'SF.001', child_global_codes: ['OLD.002', 'OLD.003'],
+      parent_polyp_count_before: 100, allocated_polyp_count: 100, parent_polyp_count_after: 0,
+      allocations: [
+        { child_box_id: 981723, child_global_code: 'SF.003', allocated_polyps: 100, position: 2 },
+        { child_box_id: 981724, child_global_code: 'SF.002', allocated_polyps: 0, position: 1 },
+      ],
+      subculture_event_id: 981725,
+    };
+    const entry = { action: 'subculture', description: 'Subculture created from SF.001', business_details: details };
+    const summary = audit.getAuditBusinessSummary(entry, t);
+    assert.match(summary, /SF\.002 \(0 /);
+    assert.match(summary, /SF\.003 \(100 /);
+    assert.doesNotMatch(summary, /OLD\.|98172/);
+    const items = audit.getAuditInlineBusinessItems(details, t);
+    assert.equal(items.length, 2);
+    assert.equal(items[0].before, '100');
+    assert.equal(items[0].after, '0');
+    assert.equal(items[0].isDelta, false);
+    assert.equal(items[1].label, t('subcultureAllocatedPolyps'));
+    assert.equal(items[1].value, '100');
+    const markup = renderBusinessRow(entry, t);
+    assert.match(markup, /audit-child-allocation/);
+    assert.match(markup, /\(0 /);
+    assert.match(markup, /audit-change-arrow/);
+    assert.doesNotMatch(markup, /OLD\.|98172|child_box_id|subculture_event_id|undefined|null|audit-inline-value-new/);
+  });
+}
+
+for (const [language, catalog] of [['fr', fr], ['en', en]]) {
+  test(`${language}: partial audit shows known children and unknown allocation without a parent result`, () => {
+    const t = translator(catalog);
+    const details = { type: 'subculture', parent_global_code: 'SF.001',
+      parent_polyp_count_before: 100, allocated_polyp_count: null, parent_polyp_count_after: null,
+      allocations: [
+        { child_global_code: 'SF.002', allocated_polyps: 30, position: 0 },
+        { child_global_code: 'SF.003', allocated_polyps: 0, position: 1 },
+        { child_global_code: 'SF.004', allocated_polyps: null, position: 2 },
+      ],
+    };
+    const summary = audit.getAuditBusinessSummary({ description: '', business_details: details }, t);
+    assert.ok(summary.includes(`SF.002 (30 ${catalog.polyps})`));
+    assert.ok(summary.includes(`SF.003 (0 ${catalog.polyps})`));
+    assert.ok(summary.includes(`SF.004 (${catalog.subcultureUnknown})`));
+    assert.equal(audit.getAuditInlineBusinessItems(details, t).length, 0);
+    assert.equal(summary.includes('null'), false);
+  });
+}
+
+test('quantitative audit preserves allocated zero and never turns absent balance fields into zero', () => {
+  const details = { type: 'subculture', parent_polyp_count_before: 0, parent_polyp_count_after: 0, allocated_polyp_count: 0 };
+  const items = audit.getAuditInlineBusinessItems(details, tFr);
+  assert.equal(items[0].before, '0');
+  assert.equal(items[0].after, '0');
+  assert.equal(items[1].value, '0');
+  assert.equal(audit.getAuditInlineBusinessItems({ type: 'subculture', parent_polyp_count_before: null, parent_polyp_count_after: null, allocated_polyp_count: null }, tFr).length, 0);
+  assert.equal(audit.getAuditInlineBusinessItems({ type: 'subculture' }, tFr).length, 0);
+  assert.equal(audit.getAuditSubcultureAllocations({ type: 'subculture', allocations: [{ child_global_code: '', child_box_id: 99, allocated_polyps: 0 }] }).length, 0);
+  assert.equal(audit.getAuditSubcultureAllocations({ type: 'subculture', allocations: [{ child_global_code: 'SF.002', allocated_polyps: null }] })[0].count, null);
+});
+
+test('subculture allocation summaries degrade safely before the new translation is integrated', () => {
+  const details = { type: 'subculture', allocated_polyp_count: 0 };
+  for (const translator of [tFr, tEn]) {
+    const fallback = (key) => key === 'subcultureAllocatedPolyps' ? key : translator(key);
+    const item = audit.getAuditInlineBusinessItems(details, fallback)[0];
+    assert.equal(item.label, translator('polyps'));
+    assert.equal(item.value, '0');
+    assert.notEqual(item.label, 'subcultureAllocatedPolyps');
+    const translated = audit.getAuditInlineBusinessItems(details, translator)[0];
+    assert.equal(translated.label, translator('subcultureAllocatedPolyps'));
+    assert.equal(translated.value, '0');
+  }
+});
+
 test('inline facts use normalized business data and never expose raw metadata', () => {
   const sources = [
     readSource('../src/components/ProfileActionsSection.tsx'),

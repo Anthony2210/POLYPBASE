@@ -1,17 +1,18 @@
 """Business logic for cultures, boxes, transfers, and subculture events."""
 
-from datetime import datetime, time
-
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 
+from apps.accounts.permissions import user_can_write_lab_data
 from apps.audit.models import AuditLog
-from apps.measurements.models import BiologicalMeasurement
 from apps.taxonomy.scoping import eligible_strains
 
-from .models import Box, BoxLineage, BoxLocation, BoxMovement, SubcultureEvent, ThermalZone
+from .box_codes import allocate_box_codes
+from .polyp_state import resolve_current_polyp_state
+from .models import Box, BoxLineage, BoxLocation, BoxMovement, SubcultureAllocation, SubcultureEvent, ThermalZone
 
 LINEAGE_GRAPH_MAX_NODES = 250
 _EXPECTED_THERMAL_ZONE_UNSET = object()
@@ -289,82 +290,104 @@ def reactivate_box(*, box, thermal_zone, user, notes=""):
     return box
 
 
+class SubcultureStateChanged(ValidationError):
+    def __init__(self, current_state):
+        self.current_state = current_state
+        super().__init__(_("The current polyp state changed. Refresh the parent box."))
+
+
+class SubcultureInvalid(ValidationError):
+    def __init__(self, message, *, error_code):
+        self.error_code = error_code
+        super().__init__(message)
+
+
 @transaction.atomic
-def create_subculture(*, parent_box, user, event_date, reason, notes, children):
-    """Create one subculture event and all its child boxes atomically."""
+def create_subculture(*, parent_box, user, organization, expected_current_state_revision,
+                      children, reason="", notes=""):
+    """Persist ordered allocations; only complete counts transition the parent."""
     parent_box = _locked_box(parent_box)
+    if parent_box.organization_id != organization.pk:
+        raise PermissionDenied(_("The parent box is outside the active organization."))
+    if (user is None or not user.is_authenticated or not user.is_active
+            or not user_can_write_lab_data(user, parent_box.organization)):
+        raise PermissionDenied(_("This account cannot create subculture events."))
+    if parent_box.status != Box.Status.ACTIVE:
+        raise SubcultureInvalid(_("Only an active box can be subcultured."), error_code="subculture_parent_ineligible")
     if not eligible_strains(parent_box.organization).filter(pk=parent_box.strain_id).exists():
-        raise ValidationError("The parent box strain is not eligible for its organization.")
+        raise SubcultureInvalid(_("The parent strain is not eligible for its organization."), error_code="subculture_parent_ineligible")
+    state = resolve_current_polyp_state(parent_box)
+    if expected_current_state_revision != state["revision"]:
+        raise SubcultureStateChanged(state)
+    if state["polyp_count"] is None:
+        raise SubcultureInvalid(_("The parent polyp count is unknown."), error_code="subculture_parent_count_unknown")
+    if not 1 <= len(children) <= 20:
+        raise SubcultureInvalid(_("Provide between one and twenty children."), error_code="subculture_invalid_children")
+    for child in children:
+        value = child.get("allocated_polyps")
+        if value is not None and (type(value) is not int or not 0 <= value <= 2147483647):
+            raise SubcultureInvalid(_("Each child requires a nonnegative integer allocation."), error_code="subculture_invalid_allocation")
+    known_total = sum(child.get("allocated_polyps") for child in children if child.get("allocated_polyps") is not None)
+    complete = all(child.get("allocated_polyps") is not None for child in children)
+    total = known_total if complete else None
+    if known_total > state["polyp_count"]:
+        raise SubcultureInvalid(_("The allocation exceeds the current parent count."), error_code="subculture_allocation_exceeds_parent")
 
+    zone_ids = {child["thermal_zone"].pk for child in children}
+    zones = {zone.pk: zone for zone in ThermalZone.objects.select_for_update().filter(
+        pk__in=zone_ids, organization=organization, is_active=True,
+    ).order_by("pk")}
+    if len(zones) != len(zone_ids):
+        raise SubcultureInvalid(_("Each child requires an active zone in the parent organization."), error_code="subculture_invalid_zone")
+    identities = allocate_box_codes(parent_box.strain.code, len(children))
+    occurred_at = timezone.now()
+    event_date = timezone.localdate(occurred_at)
+    parent_box.polyp_state_revision += 1
+    parent_box.save(update_fields=["polyp_state_revision"])
     event = SubcultureEvent.objects.create(
-        parent_box=parent_box,
-        event_date=event_date,
-        user=user,
-        reason=reason,
-        notes=notes,
-    )
-
-    location_start = timezone.make_aware(
-        datetime.combine(event_date, time.min),
-        timezone.get_current_timezone(),
+        parent_box=parent_box, event_date=event_date, occurred_at=occurred_at,
+        parent_state_sequence=parent_box.polyp_state_revision,
+        parent_polyp_count_before=state["polyp_count"], allocated_polyp_count=total,
+        parent_polyp_count_after=state["polyp_count"] - total if complete else None,
+        parent_state_snapshot=state, author_name=user.get_username(),
+        user=user, reason=reason, notes=notes,
     )
     child_boxes = []
-
-    for child_data in children:
-        thermal_zone = child_data["thermal_zone"]
+    allocations = []
+    for position, (child_data, (code, number)) in enumerate(zip(children, identities, strict=True)):
+        thermal_zone = zones[child_data["thermal_zone"].pk]
         child_box = Box.objects.create(
-            organization=parent_box.organization,
-            global_code=child_data["global_code"],
-            local_code=child_data.get("local_code", ""),
-            box_number=child_data["box_number"],
+            organization=organization, global_code=code,
+            local_code=child_data.get("local_code", ""), box_number=number,
             strain=parent_box.strain,
             origin=parent_box.origin if child_data.get("copy_origin", True) else None,
-            thermal_zone=thermal_zone,
-            entered_on=event_date,
-            notes=child_data.get("notes", ""),
+            volume_liters=parent_box.volume_liters if child_data.get("copy_volume_liters", True) else None,
+            thermal_zone=thermal_zone, entered_on=event_date,
+            notes=child_data.get("notes", ""), polyp_state_revision=1,
         )
-        BoxLineage.objects.create(
-            parent_box=parent_box,
-            child_box=child_box,
-            subculture_event=event,
-            relationship_type=BoxLineage.RelationshipType.SUBCULTURE,
+        allocation = SubcultureAllocation.objects.create(
+            event=event, child_box=child_box, position=position,
+            allocated_polyps=child_data.get("allocated_polyps"), child_global_code=code,
         )
-        BoxLocation.objects.create(
-            box=child_box,
-            thermal_zone=thermal_zone,
-            starts_at=location_start,
-            notes="Initial location after subculture.",
-        )
-        if child_data.get("initial_polyp_count") is not None:
-            BiologicalMeasurement.objects.create(
-                box=child_box,
-                measured_on=event_date,
-                polyp_count=child_data["initial_polyp_count"],
-                ephyrae_count=0,
-                user=user,
-                notes="Nombre de polypes initial après repiquage.",
-            )
+        allocations.append({"id": allocation.pk, "position": position, "child_box_id": child_box.pk,
+                            "child_global_code": code, "allocated_polyps": allocation.allocated_polyps})
+        BoxLineage.objects.create(parent_box=parent_box, child_box=child_box, subculture_event=event,
+                                 relationship_type=BoxLineage.RelationshipType.SUBCULTURE)
+        BoxLocation.objects.create(box=child_box, thermal_zone=thermal_zone, starts_at=occurred_at,
+                                   notes="Initial location after subculture.")
         child_boxes.append(child_box)
-
     AuditLog.objects.create(
-        organization=parent_box.organization,
-        user=user,
-        action=AuditLog.Action.SUBCULTURE,
-        object_type="box",
-        object_id=parent_box.global_code,
+        organization=organization, user=user, action=AuditLog.Action.SUBCULTURE,
+        object_type="box", object_id=parent_box.global_code,
         description=f"Subculture created from {parent_box.global_code}",
         metadata={
-            "subculture_event_id": event.id,
-            "child_box_ids": [box.id for box in child_boxes],
-            "child_global_codes": [box.global_code for box in child_boxes],
-            "initial_polyp_counts": {
-                child_box.global_code: child_data.get("initial_polyp_count")
-                for child_box, child_data in zip(child_boxes, children, strict=True)
-                if child_data.get("initial_polyp_count") is not None
-            },
+            "subculture_event_id": event.pk, "occurred_at": occurred_at.isoformat(),
+            "parent_state_snapshot": state, "parent_polyp_count_before": state["polyp_count"],
+            "allocated_polyp_count": total, "parent_polyp_count_after": event.parent_polyp_count_after,
+            "child_box_ids": [box.pk for box in child_boxes],
+            "child_global_codes": [box.global_code for box in child_boxes], "allocations": allocations,
         },
     )
-
     return event, child_boxes
 
 

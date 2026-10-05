@@ -32,6 +32,7 @@ function render({ desktop = false, phone = false, write = true, status = true, a
     t: key => key, formatSalinity: value => value ?? '-', formatTemperature: value => value ?? '-',
     formatDisplayDate: value => value, buildQrLabelItem: (box, imageUrl) => ({ globalCode: box.global_code, qrImageUrl: imageUrl }),
     setIsQrLabelOpen: value => calls.push(['qr', value]), setIsMoveOpen: value => calls.push(['move', value]),
+    setSubcultureError: value => calls.push(['subculture-error', value]),
     setIsSubcultureOpen: value => calls.push(['subculture', value]), setStatusError: value => calls.push(['error', value]),
     setLifecycleAction: value => calls.push(['tracking', value]),
   };
@@ -41,8 +42,8 @@ function render({ desktop = false, phone = false, write = true, status = true, a
 }
 
 for (const active of [true, false]) {
-  test(`tablet shows real QR left of location, subculture and ${active ? 'pause' : 'play'} tracking icons`, () => {
-    const { elements, calls } = render({ active });
+  test(`tablet shows real QR left of move, ${active ? 'subculture and pause' : 'no subculture and play'} tracking icons`, () => {
+    const { elements, calls, context } = render({ active });
     const tools = elements.find(node => node.props.className === 'box-header-tools');
     assert.equal(tools.children[0].props.className, 'box-hero-qr');
     assert.equal(tools.children[1].props.className, 'box-tablet-actions');
@@ -51,29 +52,54 @@ for (const active of [true, false]) {
     assert.equal(label.props.showMetadata, false);
     assert.equal(elements.some(node => node.type === 'RowActionMenu'), false);
     assert.equal(elements.some(node => node.props.className === 'entity-header__actions box-action-stack'), false);
-    const buttons = elements.filter(node => node.props.className === 'icon-button box-compact-action');
-    assert.deepEqual(buttons.map(node => node.children[0].type), ['Route', 'GitFork', active ? 'CirclePause' : 'CirclePlay']);
-    for (const button of buttons) {
-      assert.equal(button.children[0].props.size, 36);
-      assert.equal(button.children[0].props['aria-hidden'], 'true');
+    const buttons = elements.filter(node => node.type === 'button'
+      && node.props.className?.split(' ').includes('box-compact-action'));
+    const glyphs = buttons.map(button => nodes(button).find(node =>
+      ['Route', 'GitFork', 'CirclePause', 'CirclePlay'].includes(node.type)));
+    assert.deepEqual(glyphs.map(node => node.type), active
+      ? ['Route', 'GitFork', 'CirclePause'] : ['Route', 'CirclePlay']);
+    for (const [index, button] of buttons.entries()) {
+      const labeled = index < buttons.length - 1;
+      assert.equal(button.props.className.split(' ').includes('box-compact-action--labeled'), labeled);
+      assert.equal(glyphs[index].props.size, labeled ? 20 : 36);
+      assert.equal(glyphs[index].props['aria-hidden'], 'true');
+      const labels = nodes(button).filter(node => node.type === 'span');
+      assert.deepEqual(labels.map(node => node.children.join('')), labeled ? [button.props['aria-label']] : []);
     }
-    assert.equal(buttons[1].children[0].props.className, 'box-subculture-glyph');
+    if (active) assert.equal(glyphs[1].props.className, 'box-subculture-glyph');
+    else assert.equal(elements.some(node => node.type === 'GitFork' || node.props['aria-label'] === 'subcultureAction'), false);
     for (const button of buttons) { assert.ok(button.props['aria-label']); button.props.onClick(); }
-    assert.deepEqual(calls, [['move', true], ['subculture', true], ['error', null], ['tracking', active ? 'deactivate' : 'reactivate']]);
+    assert.deepEqual(calls, active
+      ? [['move', true], ['subculture-error', null], ['subculture', true], ['error', null], ['tracking', 'deactivate']]
+      : [['move', true], ['error', null], ['tracking', 'reactivate']]);
+    if (!active) {
+      const callCount = calls.length;
+      context.dispatchBoxAction('subculture');
+      assert.equal(calls.length, callCount, 'Inactive boxes cannot dispatch subculture');
+    }
     tools.children[0].props.onClick();
     assert.deepEqual(calls.at(-1), ['qr', true]);
   });
 }
 
-test('phone has only the contextual menu and dispatches the same operations', () => {
-  const { elements, calls } = render({ phone: true });
-  const menu = elements.find(node => node.type === 'RowActionMenu');
-  assert.deepEqual(Array.from(menu.props.actions, item => item.action), ['qr', 'move', 'subculture', 'tracking']);
-  assert.equal(elements.some(node => ['QrLabel', 'CirclePause', 'CirclePlay', 'Route', 'GitFork'].includes(node.type)), false);
-  assert.equal(elements.some(node => node.props.className === 'entity-header__actions box-action-stack'), false);
-  for (const item of menu.props.actions) menu.props.onAction(item.action);
-  assert.deepEqual(calls, [['qr', true], ['move', true], ['subculture', true], ['error', null], ['tracking', 'deactivate']]);
-});
+for (const active of [true, false]) {
+  test(`phone has only the contextual menu and dispatches the same operations (${active ? 'active' : 'inactive'})`, () => {
+    const { elements, calls } = render({ phone: true, active });
+    const menu = elements.find(node => node.type === 'RowActionMenu');
+    assert.deepEqual(Array.from(menu.props.actions, item => item.action), active
+      ? ['qr', 'move', 'subculture', 'tracking'] : ['qr', 'move', 'tracking']);
+    assert.equal(menu.props.actions.at(-1).label, active ? 'boxArchiveAction' : 'boxActivateAction');
+    assert.equal(elements.some(node => ['QrLabel', 'CirclePause', 'CirclePlay', 'Route', 'GitFork'].includes(node.type)), false);
+    assert.equal(elements.some(node => node.props.className === 'entity-header__actions box-action-stack'), false);
+    for (const item of menu.props.actions) menu.props.onAction(item.action);
+    assert.deepEqual(calls, active
+      ? [['qr', true], ['move', true], ['subculture-error', null], ['subculture', true], ['error', null], ['tracking', 'deactivate']]
+      : [['qr', true], ['move', true], ['error', null], ['tracking', 'reactivate']]);
+    const callCount = calls.length;
+    if (!active) menu.props.onAction('subculture');
+    assert.equal(calls.length, callCount);
+  });
+}
 
 test('busy tracking remains visible but disabled without disabling QR or move', () => {
   for (const phone of [true, false]) {
@@ -108,7 +134,7 @@ test('desktop retains full labeled actions, status disabled state and actual QR'
   assert.equal(buttons.length, 3);
   assert.equal(buttons.at(-1).props.disabled, true);
   buttons[0].props.onClick(); buttons[1].props.onClick();
-  assert.deepEqual(calls, [['move', true], ['subculture', true]]);
+  assert.deepEqual(calls, [['move', true], ['subculture-error', null], ['subculture', true]]);
 });
 
 test('Box preserves capability expressions, shared back control and QR modal resource', () => {

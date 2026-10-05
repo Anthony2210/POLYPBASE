@@ -24,6 +24,8 @@ from django.db.models import (
 from django.db.models.functions import Coalesce, ExtractYear, TruncWeek
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import never_cache
 from rest_framework import generics, status
 from rest_framework.exceptions import APIException, PermissionDenied
 from rest_framework.exceptions import ValidationError as DRFValidationError
@@ -83,6 +85,7 @@ from .serializers import (
     ManualTemperatureCreateSerializer,
     ProbeCreateSerializer,
     SalinityMeasurementSerializer,
+    SubcultureCodePreviewQuerySerializer,
     SubcultureCreateSerializer,
     SubcultureEventSerializer,
     ThermalZoneCreateSerializer,
@@ -91,7 +94,11 @@ from .serializers import (
     ThermalZoneSerializer,
     salinity_editable_until,
 )
+from .box_codes import preview_box_codes
+from .polyp_state import current_state_prefetches, current_polyp_total, resolve_current_polyp_state
 from .services import (
+    SubcultureInvalid,
+    SubcultureStateChanged,
     StaleBoxLocationError,
     assign_unlocated_active_box,
     build_lineage_graph,
@@ -181,6 +188,7 @@ def box_queryset_for_user(user, organization_ids=None):
         "origin",
         "thermal_zone",
     ).prefetch_related(
+        *current_state_prefetches(),
         Prefetch(
             "biological_measurements",
             queryset=BiologicalMeasurement.objects.select_related("user").order_by("-measured_on", "-created_at"),
@@ -280,6 +288,7 @@ def box_list_queryset_for_user(user, organization_ids=None):
             current_location_started_at_annotation=current_location_started_at,
         )
         .prefetch_related(
+            *current_state_prefetches(),
             Prefetch("biological_measurements", queryset=latest_measurements)
         )
         .filter(organization_id__in=organization_ids)
@@ -355,6 +364,7 @@ def box_inventory_queryset_for_user(user, organization_ids=None):
             ),
         )
         .prefetch_related(
+            *current_state_prefetches(),
             Prefetch("biological_measurements", queryset=latest_measurements),
             Prefetch(
                 "locations",
@@ -380,6 +390,9 @@ def thermal_zone_summary_queryset(queryset):
     )
 
     return queryset.select_related("organization").prefetch_related(
+        Prefetch("boxes", queryset=Box.objects.filter(
+            status=Box.Status.ACTIVE, organization_id=F("thermal_zone__organization_id"),
+        ).prefetch_related(*current_state_prefetches()), to_attr="current_state_boxes"),
         Prefetch(
             "daily_temperatures",
             queryset=DailyTemperature.objects.filter(id__in=latest_temperature_id).order_by("-date", "-id"),
@@ -453,6 +466,7 @@ class DashboardAPIView(APIView):
             accessed_box_codes.add(access.object_id)
             if len(recent_accesses) == 8:
                 break
+        current_totals = current_polyp_total(boxes.filter(status=Box.Status.ACTIVE).prefetch_related(*current_state_prefetches()))
         latest_entries = measurements.select_related("user").order_by("-measured_on", "-created_at")[:8]
         measurement_totals = measurements.aggregate(
             polyps=Sum("polyp_count"),
@@ -468,6 +482,8 @@ class DashboardAPIView(APIView):
                     "active_boxes": boxes.filter(status=Box.Status.ACTIVE).count(),
                     "species_count": boxes.values("strain__species").distinct().count(),
                     "thermal_zones": ThermalZone.objects.filter(organization_id__in=organization_ids).count(),
+                    "current_polyps": current_totals["polyp_count"],
+                    "current_polyps_unknown_box_count": current_totals["unknown_box_count"],
                     "measured_polyps": measurement_totals["polyps"] or 0,
                     "measured_ephyrae": measurement_totals["ephyrae"] or 0,
                     "measured_strobilae": measurement_totals["strobilae"] or 0,
@@ -612,6 +628,7 @@ class OverviewActiveBoxesAPIView(APIView):
                 }
                 for location in BoxLocationSerializer(box.overview_locations, many=True).data
             ],
+            "current_polyp_state": resolve_current_polyp_state(box),
             "measurements": measurements,
             "temperatures": temperatures,
         }
@@ -1402,6 +1419,35 @@ class BoxMeasurementDetailAPIView(generics.GenericAPIView):
         )
 
 
+@method_decorator(never_cache, name="dispatch")
+class BoxSubcultureCodePreviewAPIView(generics.GenericAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = SubcultureCodePreviewQuerySerializer
+
+    def get(self, request, box_id):
+        parent_box = get_object_or_404(
+            Box.objects.select_related("organization", "strain").filter(
+                organization_id__in=get_active_organization_ids(request),
+            ),
+            pk=box_id,
+        )
+        if not user_can_write_lab_data(request.user, parent_box.organization):
+            raise PermissionDenied("This user cannot create subculture events.")
+        serializer = self.get_serializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        try:
+            codes = preview_box_codes(parent_box.strain.code, serializer.validated_data["count"])
+        except DjangoValidationError as error:
+            raise DRFValidationError(error.messages) from error
+        return Response({
+            "reserved": False,
+            "children": [
+                {"position": position, "global_code": code, "box_number": number}
+                for position, (code, number) in enumerate(codes)
+            ],
+        })
+
+
 class BoxSubcultureCreateAPIView(generics.GenericAPIView):
     serializer_class = SubcultureCreateSerializer
 
@@ -1418,11 +1464,20 @@ class BoxSubcultureCreateAPIView(generics.GenericAPIView):
             context={"parent_box": parent_box},
         )
         serializer.is_valid(raise_exception=True)
-        event, child_boxes = create_subculture(
-            parent_box=parent_box,
-            user=request.user,
-            **serializer.validated_data,
-        )
+        try:
+            event, child_boxes = create_subculture(
+                parent_box=parent_box,
+                organization=parent_box.organization,
+                user=request.user,
+                **serializer.validated_data,
+            )
+        except SubcultureStateChanged as error:
+            return Response({"code": "subculture_current_state_changed", "detail": error.messages[0],
+                             "current_polyp_state": error.current_state}, status=status.HTTP_409_CONFLICT)
+        except SubcultureInvalid as error:
+            raise DRFValidationError({"code": error.error_code, "detail": error.messages[0]}) from error
+        except DjangoValidationError as error:
+            raise DRFValidationError(error.messages) from error
         response_serializer = SubcultureEventSerializer(
             event,
             context={"child_boxes": child_boxes},

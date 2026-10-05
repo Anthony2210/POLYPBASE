@@ -11,6 +11,52 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
+#: apps/cultures/services.py apps/cultures/serializers.py apps/cultures/box_codes.py
+msgid "The current polyp state changed. Refresh the parent box."
+msgstr "The current polyp state changed. Refresh the parent box."
+
+msgid "The parent box is outside the active organization."
+msgstr "The parent box is outside the active organization."
+
+msgid "This account cannot create subculture events."
+msgstr "This account cannot create subculture events."
+
+msgid "Only an active box can be subcultured."
+msgstr "Only an active box can be subcultured."
+
+msgid "The parent strain is not eligible for its organization."
+msgstr "The parent strain is not eligible for its organization."
+
+msgid "The parent polyp count is unknown."
+msgstr "The parent polyp count is unknown."
+
+msgid "Provide between one and twenty children."
+msgstr "Provide between one and twenty children."
+
+msgid "Each child requires a nonnegative integer allocation."
+msgstr "Each child requires a nonnegative integer allocation."
+
+msgid "The allocation exceeds the current parent count."
+msgstr "The allocation exceeds the current parent count."
+
+msgid "Each child requires an active zone in the parent organization."
+msgstr "Each child requires an active zone in the parent organization."
+
+msgid "This field is not accepted for quantitative subculture."
+msgstr "This field is not accepted for quantitative subculture."
+
+msgid "A nonnegative integer is required."
+msgstr "A nonnegative integer is required."
+
+msgid "The server records the actual occurrence time."
+msgstr "The server records the actual occurrence time."
+
+msgid "A positive number of box codes is required."
+msgstr "A positive number of box codes is required."
+
+msgid "The generated box code is too long."
+msgstr "The generated box code is too long."
+
 #: apps/taxonomy/api_views.py
 msgid "The species of a strain with a local identity cannot be changed through this endpoint."
 msgstr "The species of a strain with a local identity cannot be changed through this endpoint."

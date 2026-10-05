@@ -2,7 +2,7 @@ import uuid
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -74,6 +74,27 @@ class Box(models.Model):
     stop_reason_missing_from_history = models.BooleanField(default=False)
     deactivated_on = models.DateField(null=True, blank=True)
     notes = models.TextField(blank=True)
+    polyp_state_revision = models.PositiveBigIntegerField(default=0, editable=False)
+
+    def save(self, *args, **kwargs):
+        # All ordinary code writers share the allocator lock, including imports
+        # and admin renames. Status/location updates never acquire this lock.
+        from .box_codes import register_box_code
+
+        update_fields = kwargs.get("update_fields")
+        if not self._state.adding and update_fields is None:
+            # Ordinary full saves must not overwrite a newer scientific revision
+            # from an object fetched before a measurement/subculture committed.
+            update_fields = {field.name for field in self._meta.concrete_fields
+                             if not field.primary_key and field.name != "polyp_state_revision"}
+            kwargs["update_fields"] = update_fields
+        if self._state.adding or "global_code" in update_fields:
+            with transaction.atomic(using=kwargs.get("using")):
+                if not self._state.adding:
+                    type(self).objects.select_for_update().only("pk").get(pk=self.pk)
+                register_box_code(self.global_code, namespace=self.strain.code)
+                return super().save(*args, **kwargs)
+        return super().save(*args, **kwargs)
 
     class Meta:
         indexes = [
@@ -157,6 +178,18 @@ class BoxMovement(models.Model):
         return f"{self.box} to {self.to_thermal_zone}"
 
 
+class ProtectedSubcultureQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        if self.filter(occurred_at__isnull=False).exists() and set(kwargs) != {"user"}:
+            raise ValidationError("Quantitative subculture history is immutable.")
+        return super().update(**kwargs)
+
+    def delete(self):
+        if self.filter(occurred_at__isnull=False).exists():
+            raise ValidationError("Quantitative subculture history is protected.")
+        return super().delete()
+
+
 class SubcultureEvent(models.Model):
     parent_box = models.ForeignKey(
         Box,
@@ -167,12 +200,87 @@ class SubcultureEvent(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     reason = models.CharField(max_length=180, blank=True)
     notes = models.TextField(blank=True)
+    # NULL denotes legacy unknown history, never a reconstructed occurrence.
+    occurred_at = models.DateTimeField(null=True, editable=False)
+    parent_state_sequence = models.PositiveBigIntegerField(null=True, editable=False)
+    parent_polyp_count_before = models.PositiveIntegerField(null=True, editable=False)
+    allocated_polyp_count = models.PositiveIntegerField(null=True, editable=False)
+    parent_polyp_count_after = models.PositiveIntegerField(null=True, editable=False)
+    parent_state_snapshot = models.JSONField(null=True, editable=False)
+    author_name = models.CharField(max_length=150, blank=True, editable=False)
+
+    objects = ProtectedSubcultureQuerySet.as_manager()
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk, occurred_at__isnull=False).exists():
+            raise ValidationError("Quantitative subculture history is immutable.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if self.occurred_at is not None:
+            raise ValidationError("Quantitative subculture history is protected.")
+        return super().delete(*args, **kwargs)
 
     class Meta:
         ordering = ["-event_date"]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(occurred_at__isnull=True, parent_state_sequence__isnull=True,
+                      parent_polyp_count_before__isnull=True, allocated_polyp_count__isnull=True,
+                      parent_polyp_count_after__isnull=True, parent_state_snapshot__isnull=True)
+                    | Q(occurred_at__isnull=False, parent_state_sequence__isnull=False,
+                        parent_polyp_count_before__isnull=False, allocated_polyp_count__isnull=False,
+                        parent_polyp_count_after__isnull=False, parent_state_snapshot__isnull=False,
+                        parent_polyp_count_before=models.F("allocated_polyp_count") + models.F("parent_polyp_count_after"))
+                    | Q(occurred_at__isnull=False, parent_state_sequence__isnull=False,
+                        parent_polyp_count_before__isnull=False, allocated_polyp_count__isnull=True,
+                        parent_polyp_count_after__isnull=True, parent_state_snapshot__isnull=False)
+                ),
+                name="subculture_absolute_polyp_balance",
+            ),
+        ]
 
     def __str__(self):
         return f"Subculture from {self.parent_box} on {self.event_date}"
+
+
+class ImmutableAllocationQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("Subculture allocations are immutable.")
+
+    def delete(self):
+        raise ValidationError("Subculture allocations are protected.")
+
+
+class SubcultureAllocation(models.Model):
+    event = models.ForeignKey(SubcultureEvent, on_delete=models.PROTECT, related_name="allocations")
+    child_box = models.OneToOneField(Box, on_delete=models.PROTECT, related_name="subculture_initialization")
+    position = models.PositiveIntegerField()
+    allocated_polyps = models.PositiveIntegerField(null=True)
+    child_state_sequence = models.PositiveBigIntegerField(default=1, editable=False)
+    child_global_code = models.CharField(max_length=100)
+
+    objects = ImmutableAllocationQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["position"]
+        constraints = [
+            models.UniqueConstraint(fields=["event", "position"], name="unique_subculture_allocation_position"),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("Subculture allocations are immutable.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Subculture allocations are protected.")
+
+
+class BoxCodeNamespace(models.Model):
+    namespace = models.CharField(max_length=100, unique=True)
+    high_water = models.PositiveBigIntegerField(default=0)
 
 
 class BoxLineage(models.Model):

@@ -366,7 +366,25 @@
   stroke-width: 2;
 }
 
-.bio-trend-event.is-subculture path { stroke: var(--color-ephyrae); }
+.bio-trend-event.is-subculture path { stroke: var(--color-primary); }
+
+.bio-trend-dot.is-subculture {
+  fill: var(--color-primary);
+  stroke: var(--color-surface);
+  stroke-width: 1.5;
+}
+
+.bio-trend-measurement.is-subculture:is(:hover, :focus, .is-selected) .bio-trend-dot {
+  stroke: var(--color-ink);
+  stroke-width: 2;
+}
+
+.bio-trend-legend .is-subculture::before {
+  width: 8px;
+  height: 8px;
+  background: var(--color-primary);
+  border-radius: 0;
+}
 
 .bio-trend-event.is-movement .bio-trend-event-line {
   stroke: var(--color-danger);

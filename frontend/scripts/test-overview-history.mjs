@@ -447,6 +447,7 @@ function miniChartHarness(box, loadHistory, t = key => key) {
   render();
   return {
     requests, selections, find, render,
+    updateBox(nextBox) { props.box = nextBox; render(); },
     get controls() { return single(ChartWindowControls); },
     get chart() { return single(BiologicalTrendChart); },
     select(range) { single(ChartWindowControls).onChange(range.startDate, range.endDate); render(); },
@@ -516,6 +517,101 @@ test('actual mini-chart JSX uses server calendar range, biological slider extent
     assertComponentRange(view, serverRange);
     assert.equal(view.requests.length, 1);
   } finally { view.unmount(); }
+});
+
+test('current stock transitions do not replace historical counts, ephyrae or salinity', () => {
+  const readings = [
+    { ...componentMeasurements[0], measured_on: '2026-03-04', polyp_count: 0, ephyrae_count: 0, salinity_psu: null },
+    { ...componentMeasurements[1], measured_on: '2026-06-02', polyp_count: 120, ephyrae_count: 4, salinity_psu: '35.00' },
+  ];
+  const box = componentBox(readings);
+  const before = JSON.stringify(box.measurements);
+  const view = miniChartHarness(box);
+  try {
+    for (const [count, kind, revision] of [
+      [120, 'measurement', 1], [35, 'subculture', 2], [0, 'subculture', 3], [null, null, 4],
+    ]) {
+      view.updateBox({ ...box, current_polyp_state: {
+        polyp_count: count, revision: `box:902:${revision}`,
+        source: kind ? { kind, id: revision, timestamp: '2026-06-03T12:00:00Z' } : null,
+      } });
+      assert.deepEqual(plain(view.chart.measurements), chartPoints(readings));
+      assertComponentRange(view, serverRange);
+      assert.equal(view.requests.length, 0);
+    }
+    const laterReading = { ...readings[1], measured_on: '2026-06-03', polyp_count: 62, ephyrae_count: 2, salinity_psu: null };
+    view.updateBox({ ...componentBox([...readings, laterReading]), current_polyp_state: {
+      polyp_count: 62, revision: 'box:902:5',
+      source: { kind: 'measurement', id: 5, timestamp: '2026-06-03T13:00:00Z', measured_on: '2026-06-03' },
+    } });
+    assert.deepEqual(plain(view.chart.measurements), chartPoints([...readings, laterReading]));
+    assert.equal(JSON.stringify(box.measurements), before);
+  } finally { view.unmount(); }
+});
+
+test('child current stock including zero does not invent overview history', () => {
+  const box = { ...componentBox([]), earliest_biological_measurement_on: null };
+  const view = miniChartHarness(box);
+  try {
+    for (const count of [18, 0, null]) {
+      view.updateBox({ ...box, current_polyp_state: {
+        polyp_count: count, revision: 'box:902:1',
+        source: count === null ? null : { kind: 'subculture_initialization', id: 1, timestamp: '2026-06-03T12:00:00Z' },
+      } });
+      assert.equal(view.find(node => node.props.className === 'overview-chart overview-chart-empty').length, 1);
+      assert.equal(view.find(node => node.props.children === 'overviewNoHistoryEver').length, 1);
+      assert.equal(view.requests.length, 0);
+    }
+  } finally { view.unmount(); }
+});
+
+test('overview freshness, weekly counters and sorting remain based on readings, not current stock', () => {
+  const jsx = (type, props, key) => ({ type, props, key });
+  const overview = loadModule('../src/components/OverviewView.tsx', {
+    react: {
+      useMemo: factory => factory(), useState: initial => [initial, () => {}],
+      useRef: initial => ({ current: initial }), useEffect() {},
+    },
+    'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: Symbol('Fragment') },
+    '../utils/overviewHistory': { createOverviewHistory, overviewDefaultRange },
+    './BiologicalTrendChart': { default() {} }, './ChartWindowControls': { default() {} },
+    './PageLoader': { default() {} }, './PolypbaseIcon': { default() {} },
+  }).default;
+  const today = new Date();
+  const date = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, '0'), String(today.getDate()).padStart(2, '0')].join('-');
+  const point = { date, polyp_count: 0, ephyrae_count: 0, salinity_psu: null };
+  const base = { ...componentBox([]), species_name: 'Aurelia aurita', strain_code: 'ALA', thermal_zone: { id: 1, name: 'Zone 1' } };
+  const boxes = [
+    { ...base, id: 1, global_code: 'ALA-1', measurements: [point] },
+    { ...base, id: 2, global_code: 'ALA-2', measurements: [{ ...point, date: '2020-01-01', polyp_count: 120 }] },
+    { ...base, id: 3, global_code: 'ALA-3', measurements: [] },
+  ];
+  let expected;
+  for (const [count, kind] of [[35, 'subculture'], [0, 'subculture'], [null, null], [18, 'subculture_initialization']]) {
+    const tree = overview({
+      boxes: boxes.map(box => ({ ...box, current_polyp_state: {
+        polyp_count: count, revision: `box:${box.id}:1`,
+        source: kind ? { kind, id: 1, timestamp: `${date}T12:00:00Z` } : null,
+      } })),
+      isLoading: false, language: 'en', t: key => key,
+      loadHistory() { assert.fail('Freshness must not load history'); }, onSelectBox() {}, onOpenZone() {},
+    });
+    const articles = jsxNodes(tree, node => node.type === 'article');
+    assert.deepEqual(articles.map(node => Number(node.key)), [3, 2, 1]);
+    assert.ok(articles[0].props.className.endsWith('is-due'));
+    assert.ok(articles[1].props.className.endsWith('is-due'));
+    assert.ok(articles[2].props.className.endsWith('is-ok'), 'A measured zero is still a fresh reading');
+    const counters = jsxNodes(tree, node => node.type === 'button' && node.props['aria-label'])
+      .map(node => node.props['aria-label']);
+    assert.deepEqual(counters, ['overviewRecordedBoxes : 1 boxes', 'weeklyDueSoon : 0 boxes', 'weeklyDueNow : 2 boxes']);
+    const snapshot = plain({
+      order: articles.map(node => [node.key, node.props.className]), counters,
+      ages: jsxNodes(tree, node => node.props.className === 'overview-reading-age').map(node => node.props),
+      zones: jsxNodes(tree, node => node.props.className?.startsWith('overview-zone-progress-card')).map(node => node.props.children),
+    });
+    if (expected) assert.deepEqual(snapshot, expected, 'Current state alone must not change weekly/history UI');
+    else expected = snapshot;
+  }
 });
 
 test('actual mini-chart JSX with only older readings renders controls and empty-period graph, then loads full detail', async () => {

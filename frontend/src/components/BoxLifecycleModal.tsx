@@ -152,7 +152,7 @@ export default function BoxLifecycleModal({
         >
           <header className="box-lifecycle-heading">
             <div>
-              <span>{t('boxLifecycleKicker')}</span>
+
               <h2 id="box-lifecycle-title">{t(titleKey)}</h2>
             </div>
             <button ref={initialFocusRef} type="button" aria-label={t('close')} title={t('close')} disabled={isBusy} onClick={close}>

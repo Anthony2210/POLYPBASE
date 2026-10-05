@@ -4,6 +4,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
 import './test-chart-readability.mjs';
+import './test-biological-timeline.mjs';
 
 const source = readFileSync(new URL('../src/utils/chartBiology.ts', import.meta.url), 'utf8');
 const { outputText } = ts.transpileModule(source, {

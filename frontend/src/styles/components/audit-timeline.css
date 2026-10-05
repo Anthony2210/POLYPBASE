@@ -27,6 +27,7 @@
 }
 
 .audit-change-arrow { color: var(--color-muted); }
+.audit-child-allocation { color: var(--color-ink-soft); font-size: .78rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 
 .audit-inline-business-summary {
   display: flex;

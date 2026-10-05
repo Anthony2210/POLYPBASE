@@ -378,6 +378,13 @@
 .measurement-history-entry small { display: none; }
 .measurement-history-date time, .measurement-history-value strong { font-variant-numeric: tabular-nums; font-weight: 700; }
 .measurement-history-date time { white-space: nowrap; }
+.measurement-history-type { display: block; margin-block-start: var(--space-1); color: var(--color-muted); font-size: .7rem; }
+.measurement-history-date .measurement-history-timestamp { display: block; margin-block-start: var(--space-1); color: var(--color-muted); font-size: .7rem; font-weight: 400; white-space: normal; }
+.measurement-history-entry--operation { background: var(--color-surface-subtle); }
+.measurement-history-operation-details { display: grid; min-width: 0; margin: 0 0 var(--space-2); gap: var(--space-2); }
+.measurement-history-operation-details dt { color: var(--color-muted); font-size: .7rem; }
+.measurement-history-operation-details dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.measurement-history-operation-details ul { display: grid; margin: 0; padding: 0; gap: var(--space-1); list-style: none; }
 .measurement-history-value strong.is-missing, .measurement-history-user span, .measurement-history-note p { color: var(--color-muted); }
 .measurement-history-note { min-width: 0; }
 .measurement-history-note p { margin: 0; overflow-wrap: anywhere; white-space: pre-line; }
@@ -407,8 +414,13 @@
   :where(.measurement-history-user, .measurement-history-note) { display: flex; flex-wrap: wrap; grid-column: 1 / -1; align-items: baseline; gap: var(--space-1) var(--space-2); }
   :where(.measurement-history-user, .measurement-history-note) small { flex: 0 0 auto; }
   .measurement-history-note p { flex: 1; min-width: 0; }
+  .measurement-history-operation-details { flex-basis: 100%; }
   .measurement-history-note button { flex-basis: 100%; text-align: left; }
   .measurement-history-footer button { width: 100%; }
+}
+
+@media (max-width: 639px) {
+  .measurement-history-toolbar select { font-size: 16px; }
 }
 
 @media (pointer: coarse) {

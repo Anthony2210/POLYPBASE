@@ -10,6 +10,8 @@ import {
   getAuditInlineBusinessItems,
   getAuditInitialPolypsLabel,
   getAuditPreviousZone,
+  getAuditSubcultureAllocations,
+  getAuditSubcultureChildCodes,
   hasAuditSubcultureSummary,
 } from '../utils/auditPresentation';
 import BoxTrackingPreview from './BoxTrackingPreview';
@@ -45,7 +47,8 @@ export function AuditPrimarySummary({
       {subcultureDetails ? (
         renderSubcultureSummary({
           boxReference,
-          childCodes: subcultureDetails.child_global_codes ?? [],
+          childCodes: getAuditSubcultureChildCodes(subcultureDetails),
+          allocations: getAuditSubcultureAllocations(subcultureDetails),
           context: entry.context,
           language,
           onOpenBox,
@@ -77,6 +80,7 @@ export function AuditPrimarySummary({
 }
 
 function renderSubcultureSummary({
+  allocations,
   boxReference,
   childCodes,
   context,
@@ -87,6 +91,7 @@ function renderSubcultureSummary({
 }: {
   boxReference: AuditBoxReference | null | undefined;
   childCodes: string[];
+  allocations: ReturnType<typeof getAuditSubcultureAllocations>;
   context: AuditContext | null | undefined;
   language: Language;
   onOpenBox?: (boxId: number, code: string) => void;
@@ -101,12 +106,14 @@ function renderSubcultureSummary({
   const childrenByCode = new Map(
     (context?.subculture?.children ?? []).map((child) => [child.global_code, child]),
   );
+  const allocationsByCode = new Map(allocations.map((allocation) => [allocation.code, allocation.count]));
   const segments = template.split(/(\{children\}|\{parent\})/g);
 
   return segments.map((segment, segmentIndex) => {
     if (segment === '{children}') {
       return childCodes.map((code, childIndex) => {
         const reference = childrenByCode.get(code)?.box_reference;
+        const allocated = allocationsByCode.get(code);
         return (
           <span className="audit-box-reference-group" key={code}>
             {childIndex ? <span aria-hidden="true">, </span> : null}
@@ -117,6 +124,7 @@ function renderSubcultureSummary({
               reference={reference}
               t={t}
             />
+            {allocated != null ? <small className="audit-child-allocation"> ({allocated} {t('polyps')})</small> : null}
           </span>
         );
       });
