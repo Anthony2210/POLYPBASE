@@ -30,6 +30,12 @@ class BiologicalMeasurementForm(forms.ModelForm):
             "notes": _("Commentaire"),
         }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # The column is nullable for historical rows, but entering a reading
+        # through this form still requires an explicit value (0 is a value).
+        self.fields["strobila_count"].required = True
+
 
 class SalinityMeasurementForm(forms.ModelForm):
     class Meta:

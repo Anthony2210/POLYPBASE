@@ -4,6 +4,8 @@
 
 `0` est une mesure scientifique réelle. Une absence de relevé est représentée par l'absence d'une ligne; une valeur facultative absente reste `null`. Aucun serializer, filtre, graphique, import, export ou fallback frontend ne doit remplacer `0` par du vide ni transformer du vide en `0`.
 
+`BiologicalMeasurement.strobila_count` accepte `NULL` : « non mesuré » pour les relevés historiques dont la source ne mesure pas les strobiles (import 2026). `0` reste une mesure réelle et les zéros existants ne sont jamais réécrits. La saisie courante est inchangée (défaut `0`, `null` refusé par l'API et le formulaire). Total du tableau de bord : `null` si des relevés existent sans aucune valeur connue.
+
 Un relevé `0/0` existe donc réellement et reste distinct de « aucun relevé ». Tester explicitement les deux cas, y compris les mises à jour vers zéro et les agrégations.
 
 ## Relevés biologiques

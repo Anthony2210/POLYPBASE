@@ -23,7 +23,9 @@ class BiologicalMeasurement(models.Model):
     week_start = models.DateField(editable=False)
     polyp_count = models.PositiveIntegerField(default=0)
     ephyrae_count = models.PositiveIntegerField(default=0)
-    strobila_count = models.PositiveIntegerField(default=0)
+    # NULL means not measured (historical sources that never report strobilae);
+    # 0 is a measured scientific zero. Live entry keeps defaulting to 0.
+    strobila_count = models.PositiveIntegerField(default=0, null=True, blank=True)
     salinity_psu = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     culture_status = models.CharField(
         max_length=30,

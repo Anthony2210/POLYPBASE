@@ -18,6 +18,26 @@ Ne pas généraliser ce contrat à un autre import sans l'inspecter. Une valeur 
 
 `initialize_box_inventory` est une commande distincte pour qualifier un lot historique : institution obligatoire, simulation par défaut, contrôle du nombre et de l'empreinte attendus, puis marqueur empêchant une réinitialisation implicite. Elle ne constitue pas une règle générale pour les futurs imports.
 
+## Import historique 2026 (manifeste revu)
+
+L'import du classeur `Suivi_2026_actualisé.xlsx` ne relit jamais Excel en production. Le code de `backend/apps/cultures/historical_2026/` sépare : lecteur XLSX en bibliothèque standard (`workbook.py`), décisions explicites (`decisions.py`), génération du manifeste (`source.py`, `manifest.py`) et service d'import (`importer.py`). Le manifeste `manifest_2026.json` est versionné et se régénère de façon déterministe :
+
+```text
+uv run python manage.py build_historical_2026_manifest --workbook <chemin> [--write]
+```
+
+Sans `--write`, la commande vérifie seulement que le manifeste versionné est identique. Le SHA-256 du classeur est contrôlé avant tout traitement et tout autre classeur est refusé. Le manifeste porte une empreinte (`fingerprint`) recalculée à chaque chargement.
+
+Règles confirmées (aucune n'est généralisée) : la colonne E (récapitulatif 2025) est exclue; la colonne de `Semaestomeae` dont l'en-tête est « - » vaut S20; seuls `ASP-EVA1.01` et `CLA-JKA1.10` sont corrigés; pour les lignes `TTH-AVI-1.09` repérées, la ligne « Nb éphyrules » contient les polypes; seul le bloc continu à 15 °C de `CCO-JKA-1.04` est importé, le bloc isolé à 10 °C reste visible comme source exclue; `strobila = NULL`, `user = NULL`, `measured_on` = lundi ISO. Les valeurs cachées sous une cellule fusionnée (hors ancre) sont ignorées comme dans Excel.
+
+`import_historical_2026` classe chaque ligne contre l'état courant de la base : `EXACT_ALREADY_PRESENT`, `CREATE`, `EXPECTED_EXPLICIT_CORRECTION`, `CONFLICT`, `MISSING_BOX`, `IDENTITY_MISMATCH`, `EXCLUDED_SOURCE`. Le défaut est la simulation. `--apply` exige `--expected-fingerprint`, `--expected-plan-hash` (affiché par la simulation revue) et `--actor` (administrateur actif de l'institution). Tout `CONFLICT` ou `IDENTITY_MISMATCH` interrompt l'application sans écriture; une semaine déjà occupée avec les mêmes comptes est satisfaite, avec d'autres comptes elle est un conflit. Aucune boîte n'est réactivée. Les boîtes manquantes sont créées en `pending_review`, sans emplacement ni date inventés, avec Species/Strain opérationnelles issues de l'étiquette source. La seule correction de valeur est `LDR-JAP-1.001` S18 : 80/8 vers 80/0, sous garde de l'ancien état exact et avec audit. `COR-JIS-1.001` devient `ATO-JIS-1.001` par renommage de la même boîte (historique d'audit et étiquette QR suivent, aucun doublon); si les deux codes existent, l'import est refusé.
+
+Catégories supplémentaires : `EXPECTED_TTH_CORRECTION` (la valeur stockée est exactement la lecture littérale inversée des mêmes cellules, à la même date; correction gardée et auditée, idempotente) et `EXPECTED_TEST_DATA_COLLISION` (créneau occupé par une mesure de test revue). Cette dernière bloque `--apply` tant que `cleanup_reviewed_test_data` n'a pas été exécuté; l'import ne supprime jamais de donnée de test. Séquence : simulation du nettoyage, application du nettoyage, nouvelle simulation de l'import (les créneaux deviennent `CREATE`), puis application de l'import.
+
+`cleanup_reviewed_test_data` (simulation par défaut) ne supprime que les neuf mesures, l'îlot de la boîte 2312 (emplacement, lignée, événement) et les entrées d'audit revues, après vérification de leurs champs et de la fermeture des dépendances sous verrou; tout écart bloque. Un reçu d'audit conserve l'instantané des objets retirés.
+
+`deactivate_hs_boxes` est une commande séparée (simulation par défaut, mêmes garde-fous) qui réutilise `deactivate_box` pour la liste validée par Étienne. `CTU-CFC-2.007` reste `PENDING_CONFIRMATION`.
+
 ## Diagnostic avant contrainte
 
 Avant d'appliquer une contrainte d'unicité sur une base contenant de l'historique, exécuter la commande de diagnostic en lecture seule prévue pour le domaine. Pour les relevés biologiques, `check_biological_measurement_duplicates` rapporte organisation, boîte, date, nombre et identifiants.

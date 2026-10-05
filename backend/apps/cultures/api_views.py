@@ -472,6 +472,14 @@ class DashboardAPIView(APIView):
             polyps=Sum("polyp_count"),
             ephyrae=Sum("ephyrae_count"),
             strobilae=Sum("strobila_count"),
+            strobila_known=Count("strobila_count"),
+            measurement_rows=Count("id"),
+        )
+        # NULL strobilae mean "not measured": never report them as a zero total.
+        strobilae_total = (
+            None
+            if measurement_totals["measurement_rows"] and not measurement_totals["strobila_known"]
+            else measurement_totals["strobilae"] or 0
         )
 
         return Response(
@@ -486,7 +494,7 @@ class DashboardAPIView(APIView):
                     "current_polyps_unknown_box_count": current_totals["unknown_box_count"],
                     "measured_polyps": measurement_totals["polyps"] or 0,
                     "measured_ephyrae": measurement_totals["ephyrae"] or 0,
-                    "measured_strobilae": measurement_totals["strobilae"] or 0,
+                    "measured_strobilae": strobilae_total,
                 },
                 "latest_entries": BiologicalMeasurementSerializer(
                     latest_entries,
