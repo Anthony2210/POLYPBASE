@@ -242,19 +242,14 @@ def box_list_queryset_for_user(user, organization_ids=None):
 
     The list serializer only needs the latest measurement, so avoid the heavy
     detail prefetches (full history, lineages, movements, locations, tags).
-    The correlated subquery runs on PostgreSQL and SQLite alike.
+    Sliced prefetches select one measurement per box using a window query on
+    PostgreSQL and SQLite, without a latest-ID lookup for every historical row.
     """
     organization_ids = organization_ids or get_authorized_organization_ids(user)
 
-    latest_measurement_id = Subquery(
-        BiologicalMeasurement.objects.filter(box_id=OuterRef("box_id"))
-        .order_by("-measured_on", "-created_at")
-        .values("id")[:1]
-    )
     latest_measurements = (
-        BiologicalMeasurement.objects.filter(id__in=latest_measurement_id)
-        .select_related("user")
-        .order_by("-measured_on", "-created_at")
+        BiologicalMeasurement.objects.select_related("user")
+        .order_by("-measured_on", "-created_at")[:1]
     )
 
     latest_salinity = Subquery(
@@ -289,7 +284,7 @@ def box_list_queryset_for_user(user, organization_ids=None):
         )
         .prefetch_related(
             *current_state_prefetches(),
-            Prefetch("biological_measurements", queryset=latest_measurements)
+            Prefetch("biological_measurements", queryset=latest_measurements, to_attr="list_latest_measurements")
         )
         .filter(organization_id__in=organization_ids)
     )

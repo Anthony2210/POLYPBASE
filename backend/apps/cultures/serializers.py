@@ -240,7 +240,9 @@ class BoxListSerializer(serializers.ModelSerializer):
         return location.starts_at if location else None
 
     def get_latest_measurement(self, obj):
-        measurements = _prefetched_list(obj, "biological_measurements")
+        measurements = getattr(obj, "list_latest_measurements", None)
+        if measurements is None:
+            measurements = _prefetched_list(obj, "biological_measurements")
         if measurements is not None:
             measurement = next(iter(measurements), None)
         else:
@@ -256,8 +258,8 @@ class BoxListSerializer(serializers.ModelSerializer):
         # the most recent measurement that actually recorded one. This keeps the
         # value visible even when later measurements leave salinity blank.
         annotated = getattr(obj, "latest_salinity_annotation", None)
-        if annotated is not None:
-            return _render_salinity(annotated)
+        if hasattr(obj, "latest_salinity_annotation"):
+            return _render_salinity(annotated) if annotated is not None else None
 
         measurements = _prefetched_list(obj, "biological_measurements")
         if measurements is not None:

@@ -1,6 +1,6 @@
 """Resolve absolute polyp sources without inventing weekly measurements."""
 
-from django.db.models import F, OuterRef, Prefetch, Q, Subquery, Value
+from django.db.models import Case, F, FilteredRelation, OuterRef, Prefetch, Q, Subquery, Value, When
 from django.db.models.functions import Coalesce
 
 from apps.measurements.models import BiologicalMeasurement
@@ -16,20 +16,29 @@ def _measurement_candidates():
         parent_box_id=OuterRef("box_id"), occurred_at__isnull=False,
                 allocated_polyp_count__isnull=False, parent_polyp_count_after__isnull=False,
     ).order_by("-parent_state_sequence", "-pk")
-    initialization = SubcultureAllocation.objects.filter(
-        child_box_id=OuterRef("box_id"), event__occurred_at__isnull=False,
-                allocated_polyps__isnull=False,
-        event__parent_box__organization_id=F("child_box__organization_id"),
+    known_initialization = Q(
+        box__subculture_initialization__event__occurred_at__isnull=False,
+        box__subculture_initialization__allocated_polyps__isnull=False,
+        box__subculture_initialization__event__parent_box__organization_id=F("box__organization_id"),
     )
-    return BiologicalMeasurement.objects.annotate(
+    return BiologicalMeasurement.objects.alias(
+        # Join the selected operation once, instead of independently looking up
+        # its sequence/date in every eligibility expression. Initialization is
+        # one-to-one, so its joins cannot multiply measurement candidates.
+        latest_operation=FilteredRelation(
+            "box__source_subculture_events",
+            condition=Q(box__source_subculture_events__pk=Subquery(events.values("pk")[:1])),
+        ),
+    ).alias(
         state_order=Coalesce("polyp_state_sequence", Value(0)),
         operation_sequence=Coalesce(
-            Subquery(events.values("parent_state_sequence")[:1]),
-            Subquery(initialization.values("child_state_sequence")[:1]), Value(0),
+            "latest_operation__parent_state_sequence",
+            Case(When(known_initialization, then=F("box__subculture_initialization__child_state_sequence"))),
+            Value(0),
         ),
         operation_day=Coalesce(
-            Subquery(events.values("event_date")[:1]),
-            Subquery(initialization.values("event__event_date")[:1]),
+            "latest_operation__event_date",
+            Case(When(known_initialization, then=F("box__subculture_initialization__event__event_date"))),
         ),
     ).filter(
         Q(operation_sequence=0)
@@ -39,23 +48,30 @@ def _measurement_candidates():
 
 def current_state_prefetches():
     measurement = _measurement_candidates()
-    latest_id = measurement.filter(box_id=OuterRef("box_id")).order_by(
-        *MEASUREMENT_STATE_ORDER,
-    ).values("pk")[:1]
+
     events = SubcultureEvent.objects.filter(
             occurred_at__isnull=False, allocated_polyp_count__isnull=False,
             parent_polyp_count_after__isnull=False,
         )
-    event_id = events.filter(parent_box_id=OuterRef("parent_box_id")).order_by(
-        "-parent_state_sequence", "-pk",
-    ).values("pk")[:1]
+
     initialization = SubcultureAllocation.objects.select_related("event", "event__parent_box").filter(
         event__occurred_at__isnull=False, allocated_polyps__isnull=False,
         event__parent_box__organization_id=F("child_box__organization_id"),
     )
     return [
-        Prefetch("biological_measurements", queryset=measurement.filter(pk=Subquery(latest_id)), to_attr="polyp_state_measurements"),
-        Prefetch("source_subculture_events", queryset=events.filter(pk=Subquery(event_id)), to_attr="polyp_state_events"),
+        # Django applies these slices per box with ROW_NUMBER(), after filtering
+        # eligible sources. Avoid re-running a latest-ID subquery for each row
+        # in a box's history (and PostgreSQL JIT on the inflated query cost).
+        Prefetch(
+            "biological_measurements",
+            queryset=measurement.order_by(*MEASUREMENT_STATE_ORDER)[:1],
+            to_attr="polyp_state_measurements",
+        ),
+        Prefetch(
+            "source_subculture_events",
+            queryset=events.order_by("-parent_state_sequence", "-pk")[:1],
+            to_attr="polyp_state_events",
+        ),
         Prefetch("subculture_initialization", queryset=initialization, to_attr="polyp_state_initialization"),
     ]
 
