@@ -8,7 +8,7 @@ organization mismatch or changed field aborts the whole operation.
 
 import hashlib
 import json
-from datetime import date
+from datetime import date, datetime
 
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
@@ -76,6 +76,7 @@ TEST_BOX = {
     "pk": 2312,
     "global_code": "AAU-NBE-1.003",
     "box_number": "003",
+    "strain_id": 97,
     "strain_code": "AAU-NBE-1",
     "parent_code": "AAU-NBE-1.001",
 }
@@ -93,6 +94,153 @@ REVIEWED_AUDIT_IDS = (
 )
 
 _BOX_ALLOWED = {"locations": {5992}, "parent_lineages": {4}}
+
+# Second exact reviewed state: the test Box was deactivated on 2026-10-01,
+# after the 2026-09-30 snapshot. Every value below was observed read-only in
+# production; AuditLog 1417 proves the lifecycle transition. Any other closed
+# or inactive state is blocked.
+DEACTIVATED_AUDIT_PK = 1417
+DEACTIVATED_CHANGED_AT = "2026-10-01T07:05:54.242612+00:00"
+DEACTIVATED_STATE = {
+    "box": {
+        "local_code": "",
+        "status": "inactive",
+        "created_on": "2026-09-19",
+        "entered_on": "2026-09-19",
+        "origin_id": None,
+        "thermal_zone_id": None,
+        "volume_liters": None,
+        "stop_reason": "N'existe pas",
+        "stop_reason_missing_from_history": False,
+        "deactivated_on": "2026-10-01",
+        "notes": "",
+        "polyp_state_revision": 0,
+    },
+    "location": {
+        "thermal_zone_id": 3,
+        "starts_at": "2026-09-18T22:00:00+00:00",
+        "ends_at": DEACTIVATED_CHANGED_AT,
+        "end_date_unknown": False,
+        "notes": "Initial location after subculture.",
+    },
+    "lineage_notes": "",
+    "event": {"user_id": 6, "reason": "", "notes": "", "author_name": ""},
+    "audit": {
+        "action": "update",
+        "object_type": "box",
+        "object_id": "AAU-NBE-1.003",
+        "user_id": 6,
+        "created_at": "2026-10-01T07:05:54.247250+00:00",
+        "description": "Box deactivated: AAU-NBE-1.003",
+        "metadata": {
+            "after": {
+                "status": "inactive",
+                "stop_reason": "N'existe pas",
+                "deactivated_on": "2026-10-01",
+                "thermal_zone_id": None,
+                "stop_reason_missing_from_history": False,
+            },
+            "before": {
+                "status": "active",
+                "stop_reason": "",
+                "deactivated_on": None,
+                "thermal_zone_id": 3,
+                "stop_reason_missing_from_history": False,
+            },
+            "box_id": 2312,
+            "changed_at": DEACTIVATED_CHANGED_AT,
+            "transition": "active->inactive",
+            "closed_location_ids": [5992],
+        },
+    },
+}
+
+
+def _utc_iso(value):
+    return None if value is None else value.astimezone(dt_timezone.utc).isoformat()
+
+
+def _date_iso(value):
+    return None if value is None else value.isoformat()
+
+
+def deactivated_state_mismatches(box, location, lineage, event, organization, *, lock=False):
+    """Return every difference from the exact audited 2026-10-01 deactivated state."""
+    spec = DEACTIVATED_STATE
+    problems = []
+
+    def check(name, expected, actual):
+        if not _same(expected, actual):
+            problems.append(f"{name} expected {expected!r}, found {actual!r}")
+
+    actual_box = {
+        "local_code": box.local_code,
+        "status": box.status,
+        "created_on": _date_iso(box.created_on),
+        "entered_on": _date_iso(box.entered_on),
+        "origin_id": box.origin_id,
+        "thermal_zone_id": box.thermal_zone_id,
+        "volume_liters": None if box.volume_liters is None else str(box.volume_liters),
+        "stop_reason": box.stop_reason,
+        "stop_reason_missing_from_history": box.stop_reason_missing_from_history,
+        "deactivated_on": _date_iso(box.deactivated_on),
+        "notes": box.notes,
+        "polyp_state_revision": box.polyp_state_revision,
+    }
+    for field, expected in spec["box"].items():
+        check(f"box.{field}", expected, actual_box[field])
+    actual_location = {
+        "thermal_zone_id": location.thermal_zone_id,
+        "starts_at": _utc_iso(location.starts_at),
+        "ends_at": _utc_iso(location.ends_at),
+        "end_date_unknown": location.end_date_unknown,
+        "notes": location.notes,
+    }
+    for field, expected in spec["location"].items():
+        check(f"location.{field}", expected, actual_location[field])
+    if location.thermal_zone.organization_id != organization.pk:
+        problems.append("location thermal zone belongs to another organization")
+    if lineage is not None:
+        check("lineage.notes", spec["lineage_notes"], lineage.notes)
+    if event is not None:
+        actual_event = {
+            "user_id": event.user_id,
+            "reason": event.reason,
+            "notes": event.notes,
+            "author_name": event.author_name,
+        }
+        for field, expected in spec["event"].items():
+            check(f"event.{field}", expected, actual_event[field])
+        for field in (
+            "occurred_at", "parent_state_sequence", "parent_polyp_count_before",
+            "allocated_polyp_count", "parent_polyp_count_after", "parent_state_snapshot",
+        ):
+            check(f"event.{field}", None, getattr(event, field))
+
+    audit_qs = AuditLog.objects.filter(pk=DEACTIVATED_AUDIT_PK)
+    if lock:
+        audit_qs = audit_qs.select_for_update()
+    audit = audit_qs.first()
+    if audit is None:
+        problems.append(f"audit {DEACTIVATED_AUDIT_PK} proving the deactivation is missing")
+        return problems
+    expected_audit = spec["audit"]
+    if audit.organization_id != organization.pk:
+        problems.append("audit organization differs")
+    for field in ("action", "object_type", "object_id", "user_id", "description"):
+        check(f"audit.{field}", expected_audit[field], getattr(audit, field))
+    check("audit.created_at", expected_audit["created_at"], _utc_iso(audit.created_at))
+    metadata = audit.metadata if isinstance(audit.metadata, dict) else {}
+    if metadata != expected_audit["metadata"]:
+        problems.append("audit metadata differs from the reviewed deactivation transition")
+    changed_at = metadata.get("changed_at")
+    try:
+        changed_at_value = datetime.fromisoformat(changed_at)
+    except (TypeError, ValueError):
+        changed_at_value = None
+    if changed_at_value is None or changed_at_value.tzinfo is None or changed_at_value != location.ends_at:
+        problems.append("audit changed_at does not equal the location end")
+    return problems
 
 
 def measurement_spec_by_pk():
@@ -222,6 +370,7 @@ def _check_island(plan, organization, lock):
         box.organization_id != organization.pk
         or box.global_code != TEST_BOX["global_code"]
         or box.box_number != TEST_BOX["box_number"]
+        or box.strain_id != TEST_BOX["strain_id"]
         or box.strain.code != TEST_BOX["strain_code"]
     ):
         plan.block("box:2312", "test Box identity or organization differs")
@@ -238,10 +387,15 @@ def _check_island(plan, organization, lock):
         if pks - _BOX_ALLOWED.get(accessor, set()):
             plan.block(f"box:2312/{accessor}", f"unexpected dependent objects {sorted(pks - _BOX_ALLOWED.get(accessor, set()))}")
     plan.objects["closure"] = closure
-    if location is None or location.box_id != box.pk or location.notes != TEST_LOCATION["notes"] or location.ends_at is not None or (
+    if location is None or location.box_id != box.pk or location.notes != TEST_LOCATION["notes"] or (
         timezone.localtime(location.starts_at).date().isoformat() != TEST_LOCATION["start_date"]
     ):
         plan.block("location:5992", "location differs from the reviewed state")
+    elif location.ends_at is not None or location.end_date_unknown:
+        # Only the exact audited deactivated state is accepted for a closed location.
+        problems = deactivated_state_mismatches(box, location, lineage, event, organization, lock=lock)
+        if problems:
+            plan.block("location:5992", "closed location is not the reviewed deactivated state: " + "; ".join(problems))
     if (
         lineage is None
         or lineage.child_box_id != box.pk

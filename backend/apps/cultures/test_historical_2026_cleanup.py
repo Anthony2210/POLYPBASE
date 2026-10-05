@@ -11,7 +11,7 @@ from django.utils import timezone
 
 from apps.audit.models import AuditLog
 from apps.measurements.models import BiologicalMeasurement, DailyTemperature
-from apps.taxonomy.models import Strain
+from apps.taxonomy.models import Species, Strain
 
 from .historical_2026 import importer, reviewed_cleanup as cleanup
 from .models import Box, BoxLineage, BoxLocation, BoxMovement, SubcultureEvent, ThermalZone
@@ -30,7 +30,9 @@ class CleanupBase(ImporterBase):
             self.boxes[code] = self.make_box(code, strain=strain)
         self.parent = self.make_box(
             cleanup.TEST_BOX["parent_code"],
-            strain=Strain.objects.create(species=self.species, organization=self.org, code="AAU-NBE-1"),
+            strain=Strain.objects.create(
+                id=cleanup.TEST_BOX["strain_id"], species=self.species, organization=self.org, code="AAU-NBE-1"
+            ),
         )
         user_model = get_user_model()
         for spec in cleanup.APPROVED_TEST_MEASUREMENTS:
@@ -152,6 +154,140 @@ class CleanupScopeTests(CleanupBase):
         self.assertIsNone(receipt)
         self.assertEqual(self.snapshot(), before)
         self.assertEqual(AuditLog.objects.filter(object_type=cleanup.RECEIPT_OBJECT_TYPE).count(), 1)
+
+
+class CleanupDeactivatedStateTests(CleanupBase):
+    """State B: the exact audited 2026-10-01 deactivation of the test Box."""
+
+    def setUp(self):
+        super().setUp()
+        spec = cleanup.DEACTIVATED_STATE
+        zone = ThermalZone.objects.filter(pk=3).first() or ThermalZone.objects.create(
+            id=3, organization=self.org, name="Reviewed zone 3"
+        )
+        self.zone3 = zone
+        ends_at = datetime.fromisoformat(spec["location"]["ends_at"])
+        Box.objects.filter(pk=2312).update(
+            status="inactive", stop_reason="N'existe pas", deactivated_on=date(2026, 10, 1),
+            thermal_zone=None, entered_on=date(2026, 9, 19), created_on=date(2026, 9, 19),
+        )
+        BoxLocation.objects.filter(pk=5992).update(
+            thermal_zone=zone, ends_at=ends_at,
+            starts_at=datetime.fromisoformat(spec["location"]["starts_at"]),
+        )
+        SubcultureEvent.objects.filter(pk=4).update(user_id=6)
+        self.audit_1417 = AuditLog.objects.create(
+            id=1417, organization=self.org, user_id=6, action="update", object_type="box",
+            object_id="AAU-NBE-1.003", description="Box deactivated: AAU-NBE-1.003",
+            metadata=json_copy(spec["audit"]["metadata"]),
+        )
+        AuditLog.objects.filter(pk=1417).update(
+            created_at=datetime.fromisoformat(spec["audit"]["created_at"])
+        )
+
+    def assert_blocks(self, target="location:5992"):
+        plan = self.cleanup_plan()
+        self.assertTrue(any(b["target"] == target for b in plan.blockers), plan.blockers)
+        before = self.snapshot()
+        with self.assertRaises(cleanup.CleanupBlocked):
+            self.run_cleanup(plan_hash="x")
+        self.assertEqual(self.snapshot(), before)
+
+    def set_audit_metadata(self, **changes):
+        metadata = json_copy(cleanup.DEACTIVATED_STATE["audit"]["metadata"])
+        metadata.update(changes)
+        AuditLog.objects.filter(pk=1417).update(metadata=metadata)
+
+    def test_exact_deactivated_state_is_accepted_and_removed_atomically(self):
+        self.assertEqual(self.cleanup_plan().blockers, [])
+        _, receipt = self.run_cleanup()
+        self.assertFalse(Box.objects.filter(pk=2312).exists())
+        self.assertFalse(BoxLocation.objects.filter(pk=5992).exists())
+        self.assertFalse(AuditLog.objects.filter(pk=1417).exists())
+        self.assertFalse(BiologicalMeasurement.objects.filter(pk__in=range(100163, 100172)).exists())
+        self.assertTrue(ThermalZone.objects.filter(pk=3).exists())
+        self.assertEqual(receipt.object_type, cleanup.RECEIPT_OBJECT_TYPE)
+
+    def test_rerun_after_deactivated_cleanup_is_idempotent(self):
+        self.run_cleanup()
+        before = self.snapshot()
+        _, receipt = self.run_cleanup()
+        self.assertIsNone(receipt)
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(AuditLog.objects.filter(object_type=cleanup.RECEIPT_OBJECT_TYPE).count(), 1)
+
+    def test_wrong_ends_at_blocks(self):
+        BoxLocation.objects.filter(pk=5992).update(ends_at=datetime(2026, 10, 1, 7, 5, 54, 242613, tzinfo=dt_timezone.utc))
+        self.assert_blocks()
+
+    def test_wrong_stop_reason_blocks(self):
+        Box.objects.filter(pk=2312).update(stop_reason="Autre")
+        self.assert_blocks()
+
+    def test_wrong_deactivated_on_blocks(self):
+        Box.objects.filter(pk=2312).update(deactivated_on=date(2026, 10, 2))
+        self.assert_blocks()
+
+    def test_arbitrary_inactive_box_with_closed_location_blocks(self):
+        BoxLocation.objects.filter(pk=5992).update(ends_at=datetime(2026, 10, 3, tzinfo=dt_timezone.utc))
+        AuditLog.objects.filter(pk=1417).delete()
+        self.assert_blocks()
+
+    def test_missing_audit_1417_blocks(self):
+        AuditLog.objects.filter(pk=1417).delete()
+        self.assert_blocks()
+
+    def test_altered_audit_transition_blocks(self):
+        self.set_audit_metadata(transition="inactive->active")
+        self.assert_blocks()
+
+    def test_altered_audit_before_state_blocks(self):
+        metadata = json_copy(cleanup.DEACTIVATED_STATE["audit"]["metadata"])
+        metadata["before"]["status"] = "inactive"
+        AuditLog.objects.filter(pk=1417).update(metadata=metadata)
+        self.assert_blocks()
+
+    def test_changed_closed_location_ids_block(self):
+        for ids in ([5992, 5993], [], [5993]):
+            with self.subTest(ids=ids):
+                self.set_audit_metadata(closed_location_ids=ids)
+                self.assert_blocks()
+
+    def test_changed_at_different_from_location_end_blocks(self):
+        self.set_audit_metadata(changed_at="2026-10-01T07:05:54.242613+00:00")
+        self.assert_blocks()
+
+    def test_wrong_thermal_zone_state_blocks(self):
+        Box.objects.filter(pk=2312).update(thermal_zone=self.zone)
+        self.assert_blocks()
+
+    def test_wrong_audit_organization_blocks(self):
+        AuditLog.objects.filter(pk=1417).update(organization=self.other)
+        self.assert_blocks()
+
+    def test_end_date_unknown_location_blocks(self):
+        BoxLocation.objects.filter(pk=5992).update(ends_at=None, end_date_unknown=True)
+        self.assert_blocks()
+
+    def test_extra_location_still_blocks(self):
+        BoxLocation.objects.create(box=self.test_box, thermal_zone=self.zone3)
+        self.assert_blocks("box:2312/locations")
+
+    def test_extra_movement_still_blocks(self):
+        BoxMovement.objects.create(box=self.test_box, to_thermal_zone=self.zone3)
+        self.assert_blocks("box:2312/movements")
+
+    def test_state_a_remains_accepted_and_closed_state_needs_state_b(self):
+        BoxLocation.objects.filter(pk=5992).update(ends_at=None)
+        Box.objects.filter(pk=2312).update(status="active", stop_reason="", deactivated_on=None, thermal_zone=self.zone3)
+        AuditLog.objects.filter(pk=1417).delete()
+        self.assertEqual(self.cleanup_plan().blockers, [])
+
+
+def json_copy(value):
+    import json
+
+    return json.loads(json.dumps(value))
 
 
 class CleanupMeasurementSnapshotGuardTests(CleanupBase):
@@ -281,6 +417,13 @@ class CleanupFailClosedTests(CleanupBase):
 
     def test_test_box_in_another_organization_blocks(self):
         Box.objects.filter(pk=2312).update(organization=self.other)
+        self.assert_blocked("box:2312")
+
+    def test_test_box_with_another_strain_sharing_the_code_blocks(self):
+        other_species = Species.objects.create(scientific_name="Other species", genus_species_code="OTH")
+        lookalike = Strain.objects.create(species=other_species, organization=self.org, code="AAU-NBE-1")
+        self.assertNotEqual(lookalike.pk, cleanup.TEST_BOX["strain_id"])
+        Box.objects.filter(pk=2312).update(strain=lookalike)
         self.assert_blocked("box:2312")
 
     def test_test_box_with_changed_identity_blocks(self):
