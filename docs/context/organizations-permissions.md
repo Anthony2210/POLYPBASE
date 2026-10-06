@@ -18,6 +18,20 @@ Le superutilisateur Django est un mécanisme technique, pas un rôle produit à 
 
 Les comptes utilisent les sessions Django. Les parcours de connexion, invitation et récupération de mot de passe vivent dans `backend/apps/accounts/`; la configuration du transport e-mail vient de l'environnement. Une invitation ou un lien de réinitialisation constitue un secret d'accès pendant sa validité et ne doit jamais apparaître dans les logs ou la documentation.
 
+## Invitations et affichage de l'équipe
+
+Administration > Équipe sépare **Membres** et **Invitations**. Une invitation non acceptée est un membership dont l'utilisateur a encore un mot de passe inutilisable **et** qui est prouvé comme invitation (`unaccepted_invitation_q`, `invitations.py`) : soit il possède une ligne `AccountInvitation`, soit (héritage) il n'en a pas, l'utilisateur ne s'est jamais connecté et l'audit de création « Member access created » de l'API d'invitation désigne exactement ce membership et cet utilisateur dans cette institution. Un mot de passe inutilisable seul ne prouve pas une invitation : un tel compte sans cette preuve reste dans Membres. Une invitation acceptée (mot de passe choisi par le lien ou par « mot de passe oublié ») passe dans Membres. Une invitation dont le membership ou l'utilisateur est inactif n'apparaît aujourd'hui dans aucune des deux listes (question produit ouverte).
+
+`AccountInvitation` (une ligne par membership, jamais de secret) porte `generation`, `issued_at` et `expires_at`. Le jeton `<id invitation>-<generation>-<digest>` couvre l'invitation, le membership, l'institution, l'utilisateur (hash du mot de passe, dernière connexion), `generation` et `issued_at`; un renvoi incrémente `generation` et rend tout lien précédent invalide. La validité de 24 h suit une seule règle, `invitation_is_expired` (`tokens.py`) : valide jusqu'à `expires_at` inclus. Statut API, `can_resend` et validation du jeton l'utilisent tous.
+
+Une invitation héritée n'a pas d'heure d'envoi enregistrée : elle est exposée `expired`, avec `expires_at` nul, et peut être renvoyée immédiatement. Aucune date n'est inventée; ses anciens liens ne sont plus acceptés. L'identifiant d'invitation exposé est l'id du membership.
+
+Ordre de verrouillage commun : `Organization` → `OrganizationMembership` → `AccountInvitation` → `User`. Création, renvoi, modification de membership et confirmation d'invitation verrouillent d'abord l'institution; la confirmation revalide le jeton contre l'état verrouillé avant d'écrire le mot de passe, donc un lien remplacé pendant l'attente échoue. La confirmation « mot de passe oublié » ne verrouille que `User` et n'exige aucune ligne d'invitation.
+
+`GET /api/accounts/invitations/` et `POST /api/accounts/invitations/<id>/resend/` exigent un Admin de l'institution active; renvoyer une invitation de rôle Admin exige un Responsable, évalué sur le rôle courant verrouillé. Le renvoi refuse une invitation encore valable ou acceptée (409), envoie l'email dans la transaction, écrit un audit `UPDATE` « Member invitation resent » sans lien ni jeton et répond depuis l'état de la mutation. Aucune réponse ni audit n'expose uid, jeton ou lien.
+
+`OrganizationMembership.is_hidden_from_team` (défaut faux) masque un membership des listes Membres et Invitations et donc des compteurs; le renvoi par identifiant reste possible. C'est un classement d'affichage : rôle, permissions et protections du dernier Admin/Responsable ne changent pas. Seule la commande `set_team_membership_visibility` (dry run par défaut, acteur superutilisateur, ids de membership exacts, audit) le modifie; aucun nom, domaine, `is_staff` ou `is_superuser` n'est utilisé comme heuristique.
+
 ## Identité portable technique
 
 `Organization.portable_id` est un UUID opaque, unique, non nul et non éditable dans les workflows ordinaires. Les nouvelles institutions reçoivent automatiquement un `uuid.uuid4()`; la migration `0002_organization_portable_id` attribue un UUID aléatoire indépendant à chaque institution existante sans modifier ses PK ni ses relations. Le nom, le slug et les codes ne servent jamais à calculer ou rapprocher cette identité.

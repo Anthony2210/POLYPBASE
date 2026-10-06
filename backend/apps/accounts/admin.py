@@ -11,16 +11,18 @@ class OrganizationMembershipAdmin(admin.ModelAdmin):
         "role",
         "is_responsable",
         "is_active",
+        "is_hidden_from_team",
         "starts_on",
         "ends_on",
     )
-    list_filter = ("organization", "role", "is_responsable", "is_active")
+    list_filter = ("organization", "role", "is_responsable", "is_active", "is_hidden_from_team")
     readonly_fields = (
         "user",
         "organization",
         "role",
         "is_responsable",
         "is_active",
+        "is_hidden_from_team",
         "starts_on",
         "ends_on",
     )

@@ -2057,6 +2057,100 @@ button.account-overview-card:focus-visible {
   margin-left: auto;
 }
 
+/* Team tabs reuse the transfer mode switch; the count only sits beside the label. */
+.account-tabs {
+  width: fit-content;
+}
+
+.account-tab-count {
+  display: inline-grid;
+  min-width: 20px;
+  height: 20px;
+  margin-left: var(--space-2);
+  padding: 0 6px;
+  place-items: center;
+  color: var(--color-primary-hover);
+  font-size: .68rem;
+  font-weight: 800;
+  background: var(--color-primary-faint);
+  border-radius: var(--radius-xs);
+}
+
+/* Invitations follow the inventory row language: a state strip on the left,
+   and an expired row takes the inactive-box treatment (subtle surface, muted
+   text, muted strip). Only the identity cells are attenuated; the resend
+   action keeps its full contrast. */
+.invitation-table tbody tr.invitation-row td:first-child {
+  box-shadow: inset 2px 0 0 var(--color-primary);
+}
+
+.invitation-table tbody tr.invitation-row.is-expired,
+.invitation-table tbody tr.invitation-row.is-expired:hover {
+  background: var(--color-surface-subtle);
+}
+
+.invitation-table tbody tr.invitation-row.is-expired td:first-child {
+  box-shadow: inset 2px 0 0 var(--color-muted);
+}
+
+.invitation-row.is-expired .member-identity strong,
+.invitation-row.is-expired .member-identity small,
+.invitation-row.is-expired .member-role-value {
+  color: var(--color-muted);
+}
+
+.invitation-table tbody tr.invitation-row.is-updated-positive {
+  background: var(--color-success-soft);
+}
+
+.invitation-table th:first-child { width: 28%; }
+.invitation-table th:nth-child(2) { width: 20%; }
+.invitation-table th:nth-child(3) { width: 17%; }
+.invitation-table th:nth-child(4) { width: 20%; }
+.invitation-table th:last-child { width: 15%; }
+
+.invitation-validity {
+  color: var(--color-ink-soft);
+  font-size: .76rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.invitation-resend {
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  color: var(--color-primary-hover);
+  font-size: .72rem;
+  font-weight: 750;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+
+.invitation-resend:hover {
+  background: var(--color-surface-info);
+  border-color: var(--color-primary);
+}
+
+.invitation-resend:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.invitation-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+/* Busy only: an expired row never makes its action look disabled. */
+.invitation-resend[aria-disabled='true'] {
+  cursor: progress;
+  opacity: .7;
+}
+
 .member-password-flow {
   max-width: none;
   padding: 6px 0 6px var(--space-3);

@@ -4,6 +4,8 @@ from apps.accounts.api_views import (
     AdminAuditLogLinkedAPIView,
     AdminAuditLogListAPIView,
     InstitutionResponsableRelinquishAPIView,
+    OrganizationInvitationListAPIView,
+    OrganizationInvitationResendAPIView,
     OrganizationMemberListCreateAPIView,
     OrganizationMembershipDetailAPIView,
     PersonalAuditLogListAPIView,
@@ -268,6 +270,16 @@ urlpatterns = [
         "accounts/members/<int:pk>/",
         OrganizationMembershipDetailAPIView.as_view(),
         name="api_account_member_detail",
+    ),
+    path(
+        "accounts/invitations/",
+        OrganizationInvitationListAPIView.as_view(),
+        name="api_account_invitations",
+    ),
+    path(
+        "accounts/invitations/<int:pk>/resend/",
+        OrganizationInvitationResendAPIView.as_view(),
+        name="api_account_invitation_resend",
     ),
     path(
         "accounts/responsable/relinquish/",

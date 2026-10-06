@@ -56,8 +56,17 @@ from apps.audit.services import (
 )
 from apps.organizations.models import Organization
 
+from . import invitations
 from .identity import serialize_user_identity
-from .models import OrganizationMembership, UserPreference
+from .invitations import (
+    INVITATION_STATUS_EXPIRED,
+    get_invitation,
+    invitation_status,
+    issue_invitation,
+    pending_invitation_memberships,
+    unaccepted_invitation_q,
+)
+from .models import AccountInvitation, OrganizationMembership, UserPreference
 from .serializers import (
     UserPreferenceSerializer,
     UserProfileSerializer,
@@ -157,6 +166,15 @@ class EmailDeliveryUnavailable(APIException):
     default_code = "email_delivery_unavailable"
 
 
+class InvitationConflict(APIException):
+    """The invitation is not in a state that allows a resend."""
+
+    status_code = status.HTTP_409_CONFLICT
+
+    def __init__(self, detail, *, error_code):
+        super().__init__({"detail": detail, "code": error_code})
+
+
 def _too_many_attempts(retry_seconds):
     response = Response(
         {"detail": "Trop de tentatives. Réessayez plus tard."},
@@ -166,18 +184,19 @@ def _too_many_attempts(retry_seconds):
     return response
 
 
-def _password_setup_link(user, *, invitation):
+def _password_setup_link(user, *, invitation=None):
+    """Build a setup link; `invitation` is the issued AccountInvitation, or None for a reset."""
     uid = urlsafe_base64_encode(force_bytes(user.pk))
-    if invitation:
-        token = f"{INVITATION_TOKEN_PREFIX}{invitation_token_generator.make_token(user)}"
+    if invitation is not None:
+        token = f"{INVITATION_TOKEN_PREFIX}{invitation_token_generator.make_token(invitation)}"
     else:
         token = default_token_generator.make_token(user)
     return f"{settings.PUBLIC_BASE_URL}/reset-password/{uid}/{token}"
 
 
-def _send_password_email(user, *, invitation):
+def _send_password_email(user, *, invitation=None):
     link = _password_setup_link(user, invitation=invitation)
-    if invitation:
+    if invitation is not None:
         subject = "Invitation Polypbase"
         message = (
             "Hello,\n\n"
@@ -326,7 +345,7 @@ class PasswordResetRequestAPIView(APIView):
 
     def _send_reset_link(self, user):
         try:
-            _send_password_email(user, invitation=False)
+            _send_password_email(user)
         except Exception:
             # The public response stays identical to avoid revealing accounts.
             logger.exception("Password-reset email delivery failed")
@@ -349,11 +368,10 @@ class PasswordResetConfirmAPIView(APIView):
         password = str(request.data.get("password", ""))
 
         user = self._get_user(uid)
-        if user is None or not self._check_token(user, token):
-            return Response(
-                {"detail": "Ce lien est invalide ou a expire. Demandez-en un nouveau."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        # Cheap check without locks, only to reject bad links early. The write
+        # below re-validates against locked, current state.
+        if user is None or self._valid_user(user, token, lock=False) is None:
+            return self._invalid_link()
 
         try:
             validate_password(password, user)
@@ -361,6 +379,10 @@ class PasswordResetConfirmAPIView(APIView):
             return Response({"password": list(error.messages)}, status=status.HTTP_400_BAD_REQUEST)
 
         with transaction.atomic():
+            user = self._valid_user(user, token, lock=True)
+            if user is None:
+                # Superseded by a resend, accepted or reset meanwhile.
+                return self._invalid_link()
             user.set_password(password)
             user.save(update_fields=["password"])
 
@@ -376,11 +398,70 @@ class PasswordResetConfirmAPIView(APIView):
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    def _check_token(self, user, token):
-        if token.startswith(INVITATION_TOKEN_PREFIX):
-            invitation_token = token.removeprefix(INVITATION_TOKEN_PREFIX)
-            return invitation_token_generator.check_token(user, invitation_token)
-        return default_token_generator.check_token(user, token)
+    def _invalid_link(self):
+        return Response(
+            {"detail": "Ce lien est invalide ou a expire. Demandez-en un nouveau."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    def _valid_user(self, user, token, *, lock):
+        """Return the user the token may set a password for, or None.
+
+        With `lock`, rows are locked in the shared invitation order
+        (Organization, AccountInvitation, User) before the authoritative check.
+        A password reset only locks the User and never needs an invitation row.
+        """
+        user_model = get_user_model()
+        if not token.startswith(INVITATION_TOKEN_PREFIX):
+            if lock:
+                user = (
+                    user_model.objects.select_for_update()
+                    .filter(pk=user.pk, is_active=True)
+                    .first()
+                )
+            if user is None or not default_token_generator.check_token(user, token):
+                return None
+            return user
+
+        invitation_token = token.removeprefix(INVITATION_TOKEN_PREFIX)
+        invitation_id = invitation_token_generator.parse_invitation_id(invitation_token)
+        if invitation_id is None:
+            return None
+        invitations_of_user = AccountInvitation.objects.filter(
+            pk=invitation_id,
+            membership__user_id=user.pk,
+        )
+        organization_id = invitations_of_user.values_list(
+            "membership__organization_id", flat=True
+        ).first()
+        if organization_id is None:
+            return None
+        if lock:
+            Organization.objects.select_for_update().filter(pk=organization_id).first()
+            invitation = invitations_of_user.select_for_update(of=("self",)).first()
+            if invitation is None:
+                return None
+            user = (
+                user_model.objects.select_for_update()
+                .filter(pk=user.pk, is_active=True)
+                .first()
+            )
+            if user is None:
+                return None
+        else:
+            invitation = invitations_of_user.first()
+            if invitation is None:
+                return None
+        membership = OrganizationMembership.objects.get(pk=invitation.membership_id)
+        membership.user = user
+        invitation.membership = membership
+        if not invitation_token_generator.check_token(
+            invitation,
+            invitation_token,
+            now=invitations.invitation_now(),
+        ):
+            return None
+        return user
 
     def _get_user(self, uid):
         user_model = get_user_model()
@@ -521,6 +602,41 @@ def _member_data(membership, *, current_user):
     }
 
 
+def _invitation_data(membership, *, can_manage_admins, now, invitation=None):
+    """Serialize one pending invitation without any link, uid or token."""
+    user = membership.user
+    if invitation is None:
+        invitation = get_invitation(membership)
+    invitation_state = invitation_status(invitation, now)
+    full_name = " ".join(
+        part for part in [user.first_name, user.last_name] if part
+    ).strip()
+    return {
+        # The membership id is the stable invitation identifier: legacy
+        # invitations have no stored row until their first resend.
+        "id": membership.id,
+        "full_name": full_name,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "email": user.email,
+        "role": membership.role,
+        "role_label": membership.get_role_display(),
+        "status": invitation_state,
+        "expires_at": (
+            invitation.expires_at.isoformat()
+            if invitation is not None and invitation.expires_at is not None
+            else None
+        ),
+        "can_resend": (
+            invitation_state == INVITATION_STATUS_EXPIRED
+            and (
+                membership.role != OrganizationMembership.Role.ADMIN
+                or can_manage_admins
+            )
+        ),
+    }
+
+
 def _member_audit_values(membership):
     """Keep account-management audit entries readable for administrators."""
     user = membership.user
@@ -551,6 +667,169 @@ def _format_last_name(value):
     return " ".join(str(value or "").strip().split()).upper()
 
 
+def _deliver_invitation_email(user, invitation):
+    try:
+        sent_count = _send_password_email(user, invitation=invitation)
+    except Exception as error:
+        raise EmailDeliveryUnavailable() from error
+    if sent_count != 1:
+        raise EmailDeliveryUnavailable()
+
+
+def _lock_invitation_organization(actor, organization, *, role):
+    try:
+        locked_organization = Organization.objects.select_for_update().get(
+            pk=organization.pk,
+            is_active=True,
+        )
+    except Organization.DoesNotExist as error:
+        raise AccountPermissionDenied(
+            "This account cannot manage members for the selected organization.",
+            error_code="membership_admin_required",
+        ) from error
+    if not user_can_administer_organization(actor, locked_organization):
+        raise AccountPermissionDenied(
+            "This account cannot manage members for the selected organization.",
+            error_code="membership_admin_required",
+        )
+    if (
+        role == OrganizationMembership.Role.ADMIN
+        and not user_can_manage_admin_memberships(actor, locked_organization)
+    ):
+        raise AccountPermissionDenied(
+            "Only an institution Responsable can assign the Admin role.",
+            error_code="responsable_required",
+        )
+    return locked_organization
+
+
+def _require_active_admin_organization(request):
+    if not user_is_org_admin(request.user):
+        raise PermissionDenied("This account cannot manage members.")
+    organization_ids = get_active_admin_organization_ids(request)
+    if not organization_ids:
+        raise PermissionDenied(
+            "This account cannot manage members for the selected organization."
+        )
+    return Organization.objects.get(pk=organization_ids[0])
+
+
+@method_decorator(ensure_csrf_cookie, name="dispatch")
+class OrganizationInvitationListAPIView(APIView):
+    """List pending and expired invitations of the active organization."""
+
+    def get(self, request):
+        organization = _require_active_admin_organization(request)
+        now = invitations.invitation_now()
+        can_manage_admins = user_can_manage_admin_memberships(request.user, organization)
+        # Hidden memberships are a display exclusion only: resend and every
+        # permission or safety check still see them.
+        memberships = (
+            pending_invitation_memberships(organization)
+            .filter(is_hidden_from_team=False)
+            .order_by("user__last_name", "user__first_name", "user__email")
+        )
+        return Response(
+            {
+                "invitations": [
+                    _invitation_data(
+                        membership,
+                        can_manage_admins=can_manage_admins,
+                        now=now,
+                    )
+                    for membership in memberships
+                ],
+                "server_time": now.isoformat(),
+            }
+        )
+
+
+@method_decorator(ensure_csrf_cookie, name="dispatch")
+class OrganizationInvitationResendAPIView(APIView):
+    """Reissue an expired invitation and supersede every earlier link."""
+
+    def post(self, request, pk):
+        organization = _require_active_admin_organization(request)
+        if not settings.EMAIL_DELIVERY_ENABLED:
+            raise EmailDeliveryUnavailable()
+
+        with transaction.atomic():
+            # Lock order: Organization, membership, invitation, user. Every check
+            # below reads the locked, current state, never state read earlier.
+            organization = _lock_invitation_organization(
+                request.user,
+                organization,
+                role=None,
+            )
+            membership = (
+                OrganizationMembership.objects.select_for_update()
+                .filter(pk=pk, organization=organization)
+                .first()
+            )
+            if membership is None:
+                raise Http404
+            can_manage_admins = user_can_manage_admin_memberships(request.user, organization)
+            if membership.role == OrganizationMembership.Role.ADMIN and not can_manage_admins:
+                raise AccountPermissionDenied(
+                    "Only an institution Responsable can manage an Admin invitation.",
+                    error_code="responsable_required",
+                )
+            if not pending_invitation_memberships(organization).filter(pk=pk).exists():
+                raise InvitationConflict(
+                    "This invitation is no longer pending.",
+                    error_code="invitation_not_pending",
+                )
+            invitation = (
+                AccountInvitation.objects.select_for_update()
+                .filter(membership=membership)
+                .first()
+            )
+            user = get_user_model().objects.select_for_update().get(pk=membership.user_id)
+            if user.has_usable_password() or not user.is_active:
+                raise InvitationConflict(
+                    "This invitation is no longer pending.",
+                    error_code="invitation_not_pending",
+                )
+            membership.user = user
+            now = invitations.invitation_now()
+            if invitation_status(invitation, now) != INVITATION_STATUS_EXPIRED:
+                raise InvitationConflict(
+                    "This invitation is still valid.",
+                    error_code="invitation_still_valid",
+                )
+
+            invitation = issue_invitation(membership, now=now)
+            AuditLog.objects.create(
+                organization=organization,
+                user=request.user,
+                action=AuditLog.Action.UPDATE,
+                object_type="account",
+                object_id=user.get_username(),
+                description="Member invitation resent",
+                metadata={
+                    "user_id": user.id,
+                    "membership_id": membership.id,
+                    "valeurs": _member_audit_values(membership),
+                },
+            )
+            _deliver_invitation_email(user, invitation)
+            # Built from the committed mutation state: a later acceptance or
+            # deactivation must not turn this successful resend into an error.
+            data = _invitation_data(
+                membership,
+                invitation=invitation,
+                can_manage_admins=can_manage_admins,
+                now=now,
+            )
+
+        return Response(
+            {
+                "invitation": data,
+                "server_time": invitations.invitation_now().isoformat(),
+            }
+        )
+
+
 @method_decorator(ensure_csrf_cookie, name="dispatch")
 class OrganizationMemberListCreateAPIView(APIView):
     """List and create memberships within the organizations the user administers."""
@@ -562,8 +841,14 @@ class OrganizationMemberListCreateAPIView(APIView):
         organization_ids = get_active_admin_organization_ids(request)
         if not organization_ids:
             raise PermissionDenied("This account cannot manage members for the selected organization.")
+        # Hidden memberships and accounts that have not accepted their invitation
+        # yet are product-display exclusions only; permissions still see them.
+        visible_memberships = OrganizationMembership.objects.filter(
+            organization_id__in=organization_ids,
+            is_hidden_from_team=False,
+        )
         memberships = (
-            OrganizationMembership.objects.filter(organization_id__in=organization_ids)
+            visible_memberships.exclude(unaccepted_invitation_q())
             .select_related("organization", "user")
             .order_by("organization__name", "user__last_name", "user__first_name", "user__email")
         )
@@ -639,6 +924,7 @@ class OrganizationMemberListCreateAPIView(APIView):
             )
 
             UserPreference.objects.get_or_create(user=user)
+            invitation = issue_invitation(membership)
             AuditLog.objects.create(
                 organization=organization,
                 user=request.user,
@@ -652,10 +938,21 @@ class OrganizationMemberListCreateAPIView(APIView):
                     "valeurs": _member_audit_values(membership),
                 },
             )
-            self._send_account_invitation(user)
+            _deliver_invitation_email(user, invitation)
+            now = invitations.invitation_now()
 
         return Response(
-            _member_data(membership, current_user=request.user),
+            {
+                **_member_data(membership, current_user=request.user),
+                "invitation": _invitation_data(
+                    membership,
+                    invitation=invitation,
+                    can_manage_admins=user_can_manage_admin_memberships(
+                        request.user, organization
+                    ),
+                    now=now,
+                ),
+            },
             status=status.HTTP_201_CREATED,
         )
 
@@ -674,30 +971,7 @@ class OrganizationMemberListCreateAPIView(APIView):
         return Organization.objects.get(id=organization_id)
 
     def _lock_invitation_organization(self, actor, organization, *, role):
-        try:
-            locked_organization = Organization.objects.select_for_update().get(
-                pk=organization.pk,
-                is_active=True,
-            )
-        except Organization.DoesNotExist as error:
-            raise AccountPermissionDenied(
-                "This account cannot manage members for the selected organization.",
-                error_code="membership_admin_required",
-            ) from error
-        if not user_can_administer_organization(actor, locked_organization):
-            raise AccountPermissionDenied(
-                "This account cannot manage members for the selected organization.",
-                error_code="membership_admin_required",
-            )
-        if (
-            role == OrganizationMembership.Role.ADMIN
-            and not user_can_manage_admin_memberships(actor, locked_organization)
-        ):
-            raise AccountPermissionDenied(
-                "Only an institution Responsable can assign the Admin role.",
-                error_code="responsable_required",
-            )
-        return locked_organization
+        return _lock_invitation_organization(actor, organization, role=role)
 
     def _validate_new_user_identity(self, user_model, email):
         if user_model.objects.filter(email=email).exists():
@@ -735,13 +1009,6 @@ class OrganizationMemberListCreateAPIView(APIView):
             return user
         raise ValidationError({"detail": "Unable to create the account. Please try again."})
 
-    def _send_account_invitation(self, user):
-        try:
-            sent_count = _send_password_email(user, invitation=True)
-        except Exception as error:
-            raise EmailDeliveryUnavailable() from error
-        if sent_count != 1:
-            raise EmailDeliveryUnavailable()
 
 
 @method_decorator(ensure_csrf_cookie, name="dispatch")

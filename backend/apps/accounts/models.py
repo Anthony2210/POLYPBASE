@@ -20,6 +20,9 @@ class OrganizationMembership(models.Model):
     role = models.CharField(max_length=30, choices=Role.choices, default=Role.VIEWER)
     is_responsable = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
+    # Product display only: a hidden membership stays fully real for permissions
+    # and last-Admin/Responsable safety checks. Set by a controlled command.
+    is_hidden_from_team = models.BooleanField(default=False)
     starts_on = models.DateField(default=timezone.localdate)
     ends_on = models.DateField(null=True, blank=True)
 
@@ -47,6 +50,40 @@ class OrganizationMembership(models.Model):
 
     def __str__(self):
         return f"{self.user} - {self.organization} - {self.role}"
+
+
+class AccountInvitation(models.Model):
+    """Real issue state of the password-setup invitation of one membership.
+
+    No secret is stored: the link is derived from this state and the user. A
+    membership with an unusable password and no row (or no issue time) is a
+    legacy invitation whose send time was never recorded, so it counts as expired.
+    """
+
+    membership = models.OneToOneField(
+        OrganizationMembership,
+        on_delete=models.CASCADE,
+        related_name="invitation",
+    )
+    # Bumped by every issue so earlier links stop matching.
+    generation = models.PositiveIntegerField(default=0)
+    issued_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(issued_at__isnull=True, expires_at__isnull=True)
+                    | models.Q(issued_at__isnull=False, expires_at__isnull=False)
+                ),
+                name="account_invitation_issue_times_together",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Invitation for membership {self.membership_id}"
 
 
 class UserPreference(models.Model):

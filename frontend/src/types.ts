@@ -540,6 +540,38 @@ export type AccountMember = {
   is_self: boolean;
 };
 
+export type AccountInvitationStatus = 'pending' | 'expired';
+
+// Safe presentation fields only: the API never returns a link, uid or token.
+// `id` is the membership id. `expires_at` is null for a legacy invitation whose
+// send time was never recorded, which is always expired.
+export type AccountInvitation = {
+  id: number;
+  full_name: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  role: MembershipRole;
+  role_label: string;
+  status: AccountInvitationStatus;
+  expires_at: string | null;
+  can_resend: boolean;
+};
+
+export type AccountInvitations = {
+  invitations: AccountInvitation[];
+  server_time: string;
+};
+
+export type AccountInvitationResendResponse = {
+  invitation: AccountInvitation;
+  server_time: string;
+};
+
+export type AccountMemberCreated = AccountMember & {
+  invitation: AccountInvitation;
+};
+
 export type RoleOption = {
   value: MembershipRole;
   label: string;

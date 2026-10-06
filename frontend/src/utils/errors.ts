@@ -20,6 +20,8 @@ const ACCOUNT_ERROR_KEYS: Record<string, TranslationKey> = {
   responsable_membership_protected: 'manageErrorResponsableProtected',
   active_responsable_required: 'manageErrorActiveResponsableRequired',
   last_active_responsable: 'manageErrorLastActiveResponsable',
+  invitation_not_pending: 'manageErrorInvitationNotPending',
+  invitation_still_valid: 'manageErrorInvitationStillValid',
 };
 
 export function getAccountErrorMessage(

@@ -16,9 +16,17 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 from apps.audit.models import AuditLog
 from apps.organizations.models import Organization
 
+from .invitations import issue_invitation
 from .models import AuthenticationThrottle, OrganizationMembership, UserPreference
 from .api_views import normalize_email, validate_email_identity
 from .tokens import INVITATION_TOKEN_PREFIX, invitation_token_generator
+
+
+def at_invitation_time(moment):
+    """Pin the invitation clock to an aware moment (naive means UTC)."""
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return patch("apps.accounts.invitations.invitation_now", return_value=moment)
 
 
 class AccountPreferenceTests(TestCase):
@@ -635,9 +643,7 @@ class AccountMemberManagementTests(TestCase):
 
     def _create_invitation_at(self, issued_at, email):
         self.client.login(username="admin", password="secret")
-        with patch.object(
-            type(invitation_token_generator), "_now", return_value=issued_at
-        ):
+        with at_invitation_time(issued_at):
             response = self.client.post(
                 self.list_url,
                 data={
@@ -656,9 +662,7 @@ class AccountMemberManagementTests(TestCase):
         return link_match.groups()
 
     def _confirm_invitation_at(self, checked_at, uid, token, password):
-        with patch.object(
-            type(invitation_token_generator), "_now", return_value=checked_at
-        ):
+        with at_invitation_time(checked_at):
             return self.client.post(
                 reverse("api_password_reset_confirm"),
                 data={"uid": uid, "token": token, "password": password},
@@ -1465,13 +1469,8 @@ class PasswordResetTests(TestCase):
         checked_at = issued_at + timedelta(hours=2)
         with override_settings(PASSWORD_RESET_TIMEOUT=3600), patch.object(
             type(default_token_generator), "_now", return_value=checked_at
-        ), patch.object(
-            type(invitation_token_generator), "_now", return_value=checked_at
         ):
             self.assertFalse(default_token_generator.check_token(self.user, reset_token))
-            self.assertFalse(
-                invitation_token_generator.check_token(self.user, reset_token)
-            )
             response = self.confirm_reset(
                 uid,
                 f"{INVITATION_TOKEN_PREFIX}{reset_token}",
@@ -1482,30 +1481,43 @@ class PasswordResetTests(TestCase):
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password("ancien-mot-de-passe"))
 
-    def test_invitation_token_without_marker_cannot_be_used_as_a_reset_token(self):
-        issued_at = datetime(2026, 9, 9, 8, 0)
-        with patch.object(
-            type(invitation_token_generator), "_now", return_value=issued_at
-        ):
-            invitation_token = invitation_token_generator.make_token(self.user)
+    def test_reset_token_cannot_be_used_as_an_invitation_token(self):
+        uid, reset_token = self.make_link_parts()
 
-        marked_token = f"{INVITATION_TOKEN_PREFIX}{invitation_token}"
-        reset_shaped_token = marked_token.removeprefix(INVITATION_TOKEN_PREFIX)
+        response = self.confirm_reset(
+            uid,
+            f"{INVITATION_TOKEN_PREFIX}{reset_token}",
+            "un-mot-de-passe-solide-42",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("ancien-mot-de-passe"))
+
+    def test_invitation_token_without_marker_cannot_be_used_as_a_reset_token(self):
+        membership = OrganizationMembership.objects.create(
+            user=self.user,
+            organization=Organization.objects.create(name="Token org"),
+        )
+        issued_at = datetime(2026, 9, 9, 8, 0, tzinfo=timezone.utc)
+        invitation = issue_invitation(membership, now=issued_at)
+        invitation_token = invitation_token_generator.make_token(invitation)
+
         checked_at = issued_at + timedelta(minutes=30)
         with patch.object(
             type(default_token_generator), "_now", return_value=checked_at
-        ), patch.object(
-            type(invitation_token_generator), "_now", return_value=checked_at
         ):
             self.assertTrue(
-                invitation_token_generator.check_token(self.user, invitation_token)
+                invitation_token_generator.check_token(
+                    invitation, invitation_token, now=checked_at
+                )
             )
             self.assertFalse(
-                default_token_generator.check_token(self.user, reset_shaped_token)
+                default_token_generator.check_token(self.user, invitation_token)
             )
             response = self.confirm_reset(
                 urlsafe_base64_encode(force_bytes(self.user.pk)),
-                reset_shaped_token,
+                invitation_token,
                 "un-mot-de-passe-solide-42",
             )
 

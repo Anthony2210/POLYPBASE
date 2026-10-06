@@ -1,13 +1,17 @@
-﻿import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+﻿import { type ChangeEvent, type FormEvent, type KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
 } from 'lucide-react';
 
-import { ApiError, apiGet, apiPatch, apiPost } from '../api/client';
+import { ApiError, apiGet, apiPatch, apiPost, invalidateInFlightGet } from '../api/client';
 import type {
+  AccountInvitation,
+  AccountInvitationResendResponse,
+  AccountInvitations,
   AccountMember,
+  AccountMemberCreated,
   AccountMembers,
   BoxActivatePayload,
   BoxDeactivatePayload,
@@ -47,6 +51,7 @@ import { formatDisplayDate, formatRelativeDateTime } from '../utils/dateFormat';
 import { formatFirstName, formatLastName, formatReadableUserIdentity } from '../utils/userIdentity';
 
 import { getAccountErrorMessage, getErrorMessage } from '../utils/errors';
+import { createInvitationsStore } from '../utils/accountInvitations';
 import { beginMemberMutation, endMemberMutation } from '../utils/memberMutationLock';
 import {
   getMemberRowClassName,
@@ -63,6 +68,7 @@ import {
 } from '../utils/qrLabels';
 import { decrementDecimalValue, incrementDecimalValue } from '../utils/stepValue';
 import { getZoneOccupancyLevel } from '../utils/zoneOccupancy';
+import AccountInvitationsPanel, { type InvitationsSnapshot } from './AccountInvitationsPanel';
 import AdminActionPanel from './AdminActionPanel';
 import AdminAuditSection from './AdminAuditSection';
 import BoxInventoryAdminSection from './BoxInventoryAdminSection';
@@ -113,13 +119,17 @@ function userHasAdminRole(profile: UserProfile | null) {
 const ZONE_CAPACITY_STEP = 10;
 const ZONE_SALINITY_STEP = 5;
 
+const INVITATIONS_PATH = '/api/accounts/invitations/';
+
 const emptyMemberForm = {
   first_name: '',
   last_name: '',
   email: '',
 };
 
-function getMemberDisplayName(member: AccountMember) {
+function getMemberDisplayName(
+  member: Pick<AccountMember, 'first_name' | 'last_name' | 'email'>,
+) {
   return formatReadableUserIdentity(member);
 }
 
@@ -329,10 +339,44 @@ function AccountManagementSection({
   const [roleFilter, setRoleFilter] = useState<MemberRoleFilter>('all');
   const [isMemberFormOpen, setIsMemberFormOpen] = useState(false);
   const [isInvitationInfoOpen, setIsInvitationInfoOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'members' | 'invitations'>('members');
+  const [invitationSnapshot, setInvitationSnapshot] = useState<InvitationsSnapshot | null>(null);
+  const [invitationsError, setInvitationsError] = useState<string | null>(null);
+  const isMountedRef = useRef(true);
+  const tRef = useRef(t);
+  tRef.current = t;
+  // One store per mounted section; the section is keyed by organization.
+  const invitationsStoreRef = useRef<ReturnType<typeof createInvitationsStore> | null>(null);
+  if (invitationsStoreRef.current == null) {
+    invitationsStoreRef.current = createInvitationsStore({
+      request: () => apiGet<AccountInvitations>(INVITATIONS_PATH),
+      invalidateRequest: () => invalidateInFlightGet(INVITATIONS_PATH),
+      isActive: () => isMountedRef.current,
+      onChange: (snapshot, { keepError }) => {
+        setInvitationSnapshot(snapshot);
+        if (!keepError) setInvitationsError(null);
+      },
+      onError: (requestError) => setInvitationsError(getAccountErrorMessage(requestError, tRef.current)),
+    });
+  }
   const { confirmAction, confirmActionModal } = useConfirmAction();
 
   useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // Resolves true only when this response became the displayed state.
+  function loadInvitations(options?: { keepError?: boolean }): Promise<boolean> {
+    return invitationsStoreRef.current!.load(options);
+  }
+
+  useEffect(() => {
     let isActive = true;
+
+    loadInvitations();
 
     async function loadMembers() {
       try {
@@ -395,8 +439,18 @@ function AccountManagementSection({
     };
 
     try {
-      const member = await apiPost<AccountMember>('/api/accounts/members/', payload);
-      upsertMember(member);
+      // A new access is an invitation until the person chooses a password, so it
+      // belongs to the Invitations tab and not to the members list.
+      const member = await apiPost<AccountMemberCreated>('/api/accounts/members/', payload);
+      if (!isMountedRef.current) return;
+      // Show the server's own row for the new invitation right away, so an
+      // overlapping resend that discards the refresh below cannot hide it.
+      invitationsStoreRef.current!.applyMutation(member.invitation);
+      setActiveTab('invitations');
+      // Reconcile ordering and clock with a fresh list; a failure leaves the
+      // row visible and shows the retry action.
+      await loadInvitations();
+      if (!isMountedRef.current) return;
       setForm(emptyMemberForm);
       setRole(data.roles.find((roleOption) => roleOption.value === 'viewer')?.value
         ?? data.roles[0]?.value
@@ -439,6 +493,42 @@ function AccountManagementSection({
   function endBusyMember(membershipId: number) {
     endMemberMutation(busyMemberIdsRef.current, membershipId);
     setBusyMemberIds(new Set(busyMemberIdsRef.current));
+  }
+
+  async function handleInvitationResend(invitation: AccountInvitation) {
+    if (!invitation.can_resend) return;
+    setInvitationsError(null);
+    if (!beginBusyMember(invitation.id)) return;
+
+    try {
+      const response = await apiPost<AccountInvitationResendResponse>(
+        `/api/accounts/invitations/${invitation.id}/resend/`,
+        {},
+      );
+      if (!isMountedRef.current) return;
+      // Discards every list request started before this success.
+      invitationsStoreRef.current!.applyMutation(response.invitation, response.server_time);
+      setInvitationsError(null);
+      showMemberFeedback(invitation.id, 'resend_invitation');
+    } catch (requestError) {
+      if (!isMountedRef.current) return;
+      setInvitationsError(getAccountErrorMessage(requestError, t));
+      // The invitation changed under us (resent elsewhere or accepted): resync,
+      // keeping the explanation visible.
+      if (requestError instanceof ApiError && requestError.status === 409) {
+        await loadInvitations({ keepError: true });
+      }
+    } finally {
+      endBusyMember(invitation.id);
+    }
+  }
+
+  function handleTabKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    const next = activeTab === 'members' ? 'invitations' : 'members';
+    setActiveTab(next);
+    document.getElementById(`account-tab-${next}`)?.focus();
   }
 
   function memberActionLabel(action: MemberRowAction): string {
@@ -595,43 +685,6 @@ function AccountManagementSection({
         </button>
       </div>
 
-      <div className="account-overview">
-        <button
-          type="button"
-          className={roleFilter === 'all' ? 'account-overview-card is-active' : 'account-overview-card'}
-          onClick={() => setRoleFilter('all')}
-        >
-          <strong>{memberCounts.all}</strong>
-          <span>{t('manageAllAccounts')}</span>
-        </button>
-        <button
-          type="button"
-          className={roleFilter === 'admin' ? 'account-overview-card is-active' : 'account-overview-card'}
-          onClick={() => toggleRoleFilter('admin')}
-        >
-          <strong>{memberCounts.admin}</strong>
-          <span>{t('manageAdminAccounts')}</span>
-        </button>
-        <button
-          type="button"
-          className={
-            roleFilter === 'lab_technician' ? 'account-overview-card is-active' : 'account-overview-card'
-          }
-          onClick={() => toggleRoleFilter('lab_technician')}
-        >
-          <strong>{memberCounts.lab_technician}</strong>
-          <span>{t('manageTechnicianAccounts')}</span>
-        </button>
-        <button
-          type="button"
-          className={roleFilter === 'viewer' ? 'account-overview-card is-active' : 'account-overview-card'}
-          onClick={() => toggleRoleFilter('viewer')}
-        >
-          <strong>{memberCounts.viewer}</strong>
-          <span>{t('manageViewerAccounts')}</span>
-        </button>
-      </div>
-
       {isMemberFormOpen ? (
         <AdminActionPanel title={t('manageAddTitle')} closeLabel={t('close')} onClose={() => setIsMemberFormOpen(false)}>
           <form className="member-add-form" onSubmit={handleAddMember}>
@@ -708,8 +761,85 @@ function AccountManagementSection({
         </AdminActionPanel>
       ) : null}
 
+      <div className="admin-mode-switch account-tabs" role="tablist" aria-label={t('manageTabsLabel')} onKeyDown={handleTabKeyDown}>
+        <button
+          id="account-tab-members"
+          type="button"
+          role="tab"
+          className={activeTab === 'members' ? 'is-active' : ''}
+          aria-selected={activeTab === 'members'}
+          aria-controls="account-panel-members"
+          tabIndex={activeTab === 'members' ? 0 : -1}
+          onClick={() => setActiveTab('members')}
+        >
+          {t('manageTabMembers')}
+        </button>
+        <button
+          id="account-tab-invitations"
+          type="button"
+          role="tab"
+          className={activeTab === 'invitations' ? 'is-active' : ''}
+          aria-selected={activeTab === 'invitations'}
+          aria-controls="account-panel-invitations"
+          tabIndex={activeTab === 'invitations' ? 0 : -1}
+          onClick={() => setActiveTab('invitations')}
+        >
+          {t('manageTabInvitations')}
+          {invitationSnapshot?.invitations.length ? (
+            <span className="account-tab-count">{invitationSnapshot.invitations.length}</span>
+          ) : null}
+        </button>
+      </div>
+
       <p className="sr-only" role="status">{feedback?.message ?? ''}</p>
-      {loadError && data ? <p className="inline-error">{loadError}</p> : null}
+      {loadError && data && activeTab === 'members' ? <p className="inline-error">{loadError}</p> : null}
+      {invitationsError && activeTab === 'invitations' ? (
+        <div className="inline-error invitation-error" role="alert">
+          <span>{invitationsError}</span>
+          <button className="secondary-button" type="button" onClick={() => loadInvitations()}>
+            {t('manageInvitationsRetry')}
+          </button>
+        </div>
+      ) : null}
+
+      {activeTab === 'members' ? (
+      <div role="tabpanel" id="account-panel-members" aria-labelledby="account-tab-members" className="account-tab-panel">
+      <div className="account-overview">
+        <button
+          type="button"
+          className={roleFilter === 'all' ? 'account-overview-card is-active' : 'account-overview-card'}
+          onClick={() => setRoleFilter('all')}
+        >
+          <strong>{memberCounts.all}</strong>
+          <span>{t('manageAllAccounts')}</span>
+        </button>
+        <button
+          type="button"
+          className={roleFilter === 'admin' ? 'account-overview-card is-active' : 'account-overview-card'}
+          onClick={() => toggleRoleFilter('admin')}
+        >
+          <strong>{memberCounts.admin}</strong>
+          <span>{t('manageAdminAccounts')}</span>
+        </button>
+        <button
+          type="button"
+          className={
+            roleFilter === 'lab_technician' ? 'account-overview-card is-active' : 'account-overview-card'
+          }
+          onClick={() => toggleRoleFilter('lab_technician')}
+        >
+          <strong>{memberCounts.lab_technician}</strong>
+          <span>{t('manageTechnicianAccounts')}</span>
+        </button>
+        <button
+          type="button"
+          className={roleFilter === 'viewer' ? 'account-overview-card is-active' : 'account-overview-card'}
+          onClick={() => toggleRoleFilter('viewer')}
+        >
+          <strong>{memberCounts.viewer}</strong>
+          <span>{t('manageViewerAccounts')}</span>
+        </button>
+      </div>
 
       {filteredMembers.length ? (
         <div className="member-table-shell">
@@ -792,6 +922,26 @@ function AccountManagementSection({
         <p className="muted compact-text">
           {data.members.length ? t('manageNoFilteredMembers') : t('manageNoMembers')}
         </p>
+      )}
+      </div>
+      ) : (
+        <div role="tabpanel" id="account-panel-invitations" aria-labelledby="account-tab-invitations" className="account-tab-panel">
+          {!invitationSnapshot ? (
+            invitationsError ? null : <SkeletonRows count={3} />
+          ) : invitationSnapshot.invitations.length ? (
+            <AccountInvitationsPanel
+              snapshot={invitationSnapshot}
+              busyIds={busyMemberIds}
+              feedback={feedback ? { id: feedback.membershipId, tone: feedback.tone } : null}
+              getDisplayName={getMemberDisplayName}
+              onResend={handleInvitationResend}
+              onRevalidate={loadInvitations}
+              t={t}
+            />
+          ) : (
+            <p className="muted compact-text">{t('manageNoInvitations')}</p>
+          )}
+        </div>
       )}
       {confirmActionModal}
     </section>
@@ -2955,6 +3105,7 @@ export default function AdminView({
 
           {displayedSection === 'accounts' ? (
             <AccountManagementSection
+              key={profile.active_organization?.id ?? 'no-organization'}
               organizationName={activeOrganizationName}
               onResponsableChange={onResponsableChange}
               t={t}

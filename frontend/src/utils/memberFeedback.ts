@@ -15,7 +15,8 @@ export type MemberMutationKind =
   | 'demote_to_technician'
   | 'deactivate'
   | 'reactivate'
-  | 'relinquish_responsable';
+  | 'relinquish_responsable'
+  | 'resend_invitation';
 
 // Message shown and announced after each member mutation succeeds, with the
 // direction of the action: promotions and reactivations read as positive,
@@ -32,6 +33,7 @@ export const MEMBER_MUTATION_FEEDBACK: Record<
   deactivate: { key: 'manageMemberDeactivated', tone: 'negative' },
   reactivate: { key: 'manageMemberReactivated', tone: 'positive' },
   relinquish_responsable: { key: 'manageResponsableRelinquished', tone: 'negative' },
+  resend_invitation: { key: 'manageInvitationResent', tone: 'positive' },
 };
 
 // Row classes: an inactive membership stays dimmed, and a just-updated one keeps

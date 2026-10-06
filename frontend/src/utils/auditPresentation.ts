@@ -239,6 +239,8 @@ const DESCRIPTION_EXACT_KEYS: Record<string, string> = {
   'Member access created': 'auditDescriptionMemberCreated',
   'Member access restored': 'auditDescriptionMemberRestored',
   'Member access updated': 'auditDescriptionMemberUpdated',
+  'Member invitation resent': 'auditDescriptionInvitationResent',
+  'Member team visibility updated': 'auditDescriptionTeamVisibilityUpdated',
   'Weekly biological measurement CSV export': 'auditDescriptionWeeklyExport',
   'Organization created': 'auditDescriptionOrganizationCreated',
   'Organization updated': 'auditDescriptionOrganizationUpdated',

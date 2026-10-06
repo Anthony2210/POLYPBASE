@@ -113,19 +113,35 @@ export async function apiGet<T>(path: string, options: RequestOptions = {}): Pro
     return existingRequest as Promise<T>;
   }
 
-  const request = apiRequest<T>(path, options).then(
+  // Only remove our own entry: it may have been invalidated and replaced.
+  const forget = () => {
+    if (inFlightGetRequests.get(requestKey) === request) inFlightGetRequests.delete(requestKey);
+  };
+  const request: Promise<T> = apiRequest<T>(path, options).then(
     (data) => {
-      inFlightGetRequests.delete(requestKey);
+      forget();
       return data;
     },
     (error: unknown) => {
-      inFlightGetRequests.delete(requestKey);
+      forget();
       throw error;
     },
   );
 
   inFlightGetRequests.set(requestKey, request);
   return request;
+}
+
+/**
+ * Stop sharing in-flight GETs of `path` (every organization). Use after a
+ * mutation: the next apiGet starts a fresh request instead of joining one that
+ * captured the state before the mutation. Callers already awaiting the old
+ * request keep their promise.
+ */
+export function invalidateInFlightGet(path: string) {
+  for (const key of [...inFlightGetRequests.keys()]) {
+    if (key.slice(key.indexOf(':') + 1) === path) inFlightGetRequests.delete(key);
+  }
 }
 
 export async function apiEnsureCsrfCookie() {
