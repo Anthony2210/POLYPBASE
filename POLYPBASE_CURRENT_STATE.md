@@ -2,10 +2,10 @@
 
 ## Snapshot
 
-- Refreshed **2026-10-03**, from inspected canonical local Git state/history, all registered POLYPBASE worktrees, and supplied milestone validation/review evidence.
+- Refreshed **2026-10-06** for Administration > Équipe and canonical Git state, from inspected local refs/worktree registration and supplied milestone review/validation evidence. Other milestone and historical worktree records were not re-audited.
 - Canonical repository: `C:\Users\antoc\POLYPBASE`.
-- Canonical `HEAD` / `main` = local `origin/main` = **`8fced89309b8d2b2e53f2095164a81432443d86c`** (`feat: add portable transfer lineage foundation`). Main was clean before this documentation edit; it tracks `origin/main` with zero ahead/behind according to the inspected local refs. No fetch was performed; this is not fresh remote or production verification.
-- Ten POLYPBASE worktrees are registered: canonical main plus nine additional registered worktrees. Two contain dirty local changes; notably `C:\Users\antoc\worktrees\POLYPBASE\tablet-box-ui-polish\POLYPBASE` has substantial active frontend edits, **not integrated**. See Git / cleanup state. No worktree was modified for this refresh.
+- Canonical `HEAD` / `main` = **`e69b24d`** (`feat: separate team members and invitations`); local `origin/main` = `4bdd338`. Main was clean before this documentation edit and is **1 ahead / 0 behind** its inspected local upstream. The feature is not recorded as pushed. No fetch was performed; this is not fresh remote or production verification.
+- The completed `admin-team-invitations` worktree/branch remain registered pending Anthony's cleanup. The older worktree inventory and readiness notes below retain their **2026-10-03** context, not a fresh status audit. No worktree was modified for this refresh.
 - Phone/tablet laboratory readiness remains an immediate operational priority before real usage beginning **Monday 5 October 2026**. Responsive work is committed on main through `7356f0f`; newer local tablet/UI polish remains uncommitted in its worktree. No physical-device/browser QA is claimed.
 
 ## Integrated product state
@@ -191,6 +191,17 @@ Unresolved product decisions: whether source Boxes must be active-only at the ba
 
 - Contextual reference maintenance within real workflows is a **direction under consideration**, not an approved replacement design. Do not restore the rejected catalog merely to bypass missing-AAA guidance.
 
+### Administration > Équipe — DONE and integrated
+
+- Integrated on `main` at **`e69b24d`** (`feat: separate team members and invitations`). **Membres** and **Invitations** are separate views; Administration remains **desktop-only**.
+- Proven unaccepted invitations appear in Invitations rather than Membres; accepted users appear in Membres. An unusable password alone does not prove an invitation.
+- Invitations have persisted **24h validity**, with backend-authoritative expiry. Expired invitations can be resent under backend permissions; resend supersedes all previous invitation links.
+- Legacy invitations with repository-proven historical invitation audit evidence appear expired and resendable, without fabricated send/expiry timestamps. Expired rows reuse Inventory's inactive visual language.
+- Member/invitation organization isolation and backend permissions are enforced. No invitation uid, token or link is exposed by the team API.
+- `OrganizationMembership.is_hidden_from_team` supports hidden technical memberships: exclusion affects visible team lists/counters only. Roles, permissions and Admin/Responsable safety rules remain unchanged.
+- Technical memberships for **Ayoub AKKOUH, Anthony COMBES--AGUÉRA, Sophie LÈBRE and Clément ROMANET are NOT yet designated in environment data**. Designation remains a separate explicit operation using controlled `set_team_membership_visibility` and verified real membership IDs, never name-based inference.
+- **Open product question:** inactive unaccepted memberships currently appear in neither Membres nor Invitations, and resend is rejected. Change this only after an explicit product decision if/when needed.
+
 ### Organization create/update audit atomicity
 
 - Integrated at **`b95cb08`** (`fix: make organization audit writes atomic`). Organization creation and its required audit share a transaction; Organization update and its required audit also share a transaction. Audit failure rolls back the corresponding mutation.
@@ -213,8 +224,12 @@ Unresolved product decisions: whether source Boxes must be active-only at the ba
 
 ## Git / cleanup state
 
-- Canonical **`main = origin/main = 8fced89309b8d2b2e53f2095164a81432443d86c`**, tracking `origin/main`, clean before this document edit; `origin/HEAD` is a symbolic alias, not another remote branch. No fetch was performed.
-- Ten registered worktrees and their local branches (tracking relationship / ahead-behind versus canonical `main`):
+- Canonical **`main = e69b24d`**, tracking local **`origin/main = 4bdd338`**, **1 ahead / 0 behind**, clean before this document edit; `origin/HEAD` is a symbolic alias, not another remote branch. No fetch was performed; push is still a next step.
+- `admin-team-invitations` feature work is **complete and integrated**. Its worktree `C:\Users\antoc\worktrees\POLYPBASE\admin-team-invitations\POLYPBASE` and branch `feat/admin-team-invitations` at `7dbe497` still physically exist until Anthony removes them; their existence is not pending feature work. No cleanup was performed.
+
+### Historical cleanup inventory — 2026-10-03, not refreshed
+
+- Ten registered worktrees and their local branches at that snapshot (tracking relationship / ahead-behind versus canonical `main` then):
   - `C:\Users\antoc\POLYPBASE` — `main`, `8fced89309b8d2b2e53f2095164a81432443d86c`, clean before this edit, tracks `origin/main`, 0 ahead / 0 behind.
   - `C:\Users\antoc\worktrees\POLYPBASE\device-ux\POLYPBASE` — `fix/device-ux`, `7356f0f50edfcb369e5fa6f7eb189daaf857d1f6`, clean, no upstream shown, 0 ahead / 1 behind.
   - `C:\Users\antoc\worktrees\POLYPBASE\local-vm-copy-qa-docs\POLYPBASE` — `docs/local-vm-copy-qa`, `af130cf4cc3a11c4242ad45364dbfae0273cd8e3`, clean, no upstream shown, 0 ahead / 3 behind.
@@ -251,6 +266,15 @@ Unresolved product decisions: whether source Boxes must be active-only at the ba
 
 ## Next operational steps
 
+### Administration > Équipe follow-up
+
+1. Anthony reviews and commits this `POLYPBASE_CURRENT_STATE.md` update.
+2. Push `main` after the state update.
+3. Later, separately designate the four technical memberships using controlled `set_team_membership_visibility` and verified real membership IDs; no environment designation has been performed.
+4. Decide the inactive-unaccepted-invitation behavior only if/when needed; retain the current exclusion/resend rejection meanwhile.
+
+### Previously recorded operational tracks — not refreshed
+
 1. **Species/AAA stakeholder track:** continue waiting for Étienne/Anaïs responses to the 2026-10-01 email, then record explicit mapping/naming/qualifier decisions and review an approved manifest. No import-ready manifest exists. No importer or database import before explicit approvals; a dry-run importer contract is a later step on this track.
 2. **Immediate engineering priority:** phone/tablet laboratory readiness before real usage beginning **Monday 5 October 2026**. Responsive readiness work is integrated through `7356f0f`; further tablet/UI polishing is active but uncommitted in `tablet-box-ui-polish` and is not validated or integrated. No physical-device/browser QA is claimed. Administration remains desktop-only: hidden on tablet, and `/administration...` redirects directly to `/`.
 3. **Transfer/Strain technical track:** Phases 1 through 5 are integrated; **Phase 6 is NOT STARTED**. Its unresolved product decisions remain open; do not infer acceptance implementation from Phase 5.
@@ -260,7 +284,8 @@ Unresolved product decisions: whether source Boxes must be active-only at the ba
 ## Production / QA status
 
 - **Production is NOT REVALIDATED.** No production or Neon access occurred. Local main/push state does not prove deployment or applied migrations. No locally inspected record proves the current deployed commit; verify only under a separately authorized deployment task using the existing workflow.
-- No deployment occurred; local integration does not prove production state. This documentation-only refresh runs no application tests or builds.
+- No deployment occurred; local integration does not prove production state. **No production migration or deployment has been performed for the Équipe milestone.** This documentation-only refresh runs no application tests or builds.
+- **Équipe milestone validation (supplied completed evidence):** independent reviews completed; frontend stale-response findings corrected and re-reviewed; PostgreSQL invitation concurrency scenarios independently validated; integration with readable structured user identities resolved and validated. Final integrated commit on `main`: **`e69b24d`**. These validations were not rerun during this documentation refresh.
 - Latest supplied Phase 4 validation: isolated PostgreSQL 17.11 **106 tests passed**, including **8 concurrency scenarios**; historical migration compatibility correction completed before integration; full backend **686 total / 658 passed / 28 skipped / no failures**. Django check, migration drift and `git diff --check` passed. Independent implementation review **GREEN**, without a claimed reviewer PostgreSQL rerun. No production, Neon or shared DB used. These milestone results are supplied evidence, not reruns in this refresh.
 - Frontend consistency independent initial review: non-QR portions accepted; QR preparation had **2 Medium + 1 Low** findings. After correction, focused independent QR re-review marked **all three RESOLVED**, found no new findings and concluded **READY FOR COMMIT**.
 - Supplied post-integration validation on canonical `main` **`96c5593`**: `npm run test:inventory` **24 passed**; `npm run test:confirm` **25 passed**; `npm run test:labels` **69 passed**; `npm run test:zones` **50 passed**; `npm run typecheck`, `npm run check:css` and `npm run build` passed (**2209 modules transformed**). These commands were not rerun during this documentation refresh.
