@@ -2057,23 +2057,17 @@ button.account-overview-card:focus-visible {
   margin-left: auto;
 }
 
-/* Team tabs reuse the transfer mode switch; the count only sits beside the label. */
-.account-tabs {
-  width: fit-content;
+.account-invitations {
+  display: grid;
+  gap: var(--space-4);
 }
 
-.account-tab-count {
-  display: inline-grid;
-  min-width: 20px;
-  height: 20px;
-  margin-left: var(--space-2);
-  padding: 0 6px;
-  place-items: center;
-  color: var(--color-primary-hover);
-  font-size: .68rem;
-  font-weight: 800;
-  background: var(--color-primary-faint);
-  border-radius: var(--radius-xs);
+.account-invitations h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-style: italic;
+  font-weight: 700;
+  line-height: 1.2;
 }
 
 /* Invitations follow the inventory row language: a state strip on the left,

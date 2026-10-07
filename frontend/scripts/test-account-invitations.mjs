@@ -217,7 +217,7 @@ test('resend feedback is positive and translated', () => {
 });
 
 const NEW_KEYS = [
-  'manageTabsLabel', 'manageTabMembers', 'manageTabInvitations', 'manageInvitationPending',
+  'manageInvitationsTitle', 'manageInvitationPending',
   'manageInvitationExpired', 'manageInvitationExpiresIn', 'manageColValidity', 'manageInvitationResend',
   'manageInvitationResending', 'manageInvitationResendFor', 'manageInvitationResent', 'manageNoInvitations',
   'manageErrorInvitationNotPending', 'manageErrorInvitationStillValid', 'manageInvitationsRetry',
@@ -233,25 +233,94 @@ test('new invitation texts exist in French and English without a middle dot', ()
       assert.ok(!value.includes('·') && !value.includes('•'), `${language}.${key} uses a middle dot`);
     }
   }
-  assert.equal(catalogues.fr.manageTabMembers, 'Membres');
-  assert.equal(catalogues.fr.manageTabInvitations, 'Invitations');
+  assert.equal(catalogues.fr.manageInvitationsTitle, 'Invitations');
+  assert.equal(catalogues.en.manageInvitationsTitle, 'Invitations');
   assert.equal(catalogues.fr.manageInvitationExpired, 'Expirée');
 });
 
-test('the team tabs expose accessible tab semantics and no hardcoded labels', () => {
-  const source = read('components/AdminView.tsx');
-  assert.match(source, /role="tablist" aria-label=\{t\('manageTabsLabel'\)\}/);
-  for (const id of ['members', 'invitations']) {
-    assert.ok(source.includes(`id="account-tab-${id}"`));
-    assert.ok(source.includes(`aria-controls="account-panel-${id}"`));
-    assert.ok(source.includes(`aria-labelledby="account-tab-${id}"`));
+// Evaluate the actual section JSX without mounting hooks or making requests.
+const teamSection = adminAst.statements.find((node) =>
+  ts.isFunctionDeclaration(node) && node.name?.text === 'AccountManagementSection');
+const teamReturn = teamSection.body.statements.find((node) => ts.isReturnStatement(node));
+const teamRenderSource = ts.transpileModule(`export function renderTeam() { ${teamReturn.getText(adminAst)} }`, {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
+}).outputText;
+
+function renderTeam(overrides = {}) {
+  const members = [{ membership_id: 7, first_name: 'Grace', last_name: 'HOPPER', email: 'grace@example.org', role: 'viewer', role_label: 'Lecteur', is_active: true, last_login: null }];
+  const noop = () => {};
+  const exports = {};
+  const context = {
+    exports, require: () => jsxRuntime,
+    t: (key) => catalogues.fr[key],
+    isMemberFormOpen: false, feedback: null, loadError: null, invitationsError: null,
+    data: { members }, filteredMembers: members, memberCounts: accountMembers.getMemberRoleCounts(members), roleFilter: 'all',
+    setRoleFilter: noop, toggleRoleFilter: noop,
+    getMemberDisplayName, getMemberRowClassName: memberFeedback.getMemberRowClassName,
+    getMemberRowActions: accountMembers.getMemberRowActions,
+    getAccountMemberRoleLabel: accountMembers.getAccountMemberRoleLabel, memberActionLabel: noop,
+    busyMemberIds: new Set(), RowActionMenu: noop, PolypbaseIcon: noop, SkeletonRows: noop,
+    AccountInvitationsPanel: noop, handleInvitationResend: noop, loadInvitations: noop,
+    invitationSnapshot: { invitations: [pending(), legacy()], serverTime: '2026-10-05T10:00:00Z', receivedAtMs: SERVER_NOW },
+    confirmActionModal: null,
+    ...overrides,
+  };
+  vm.runInNewContext(teamRenderSource, context);
+  return { tree: exports.renderTeam(), context };
+}
+
+test('members and invitations render together, with the invitation subsection immediately after the member table', () => {
+  const { tree, context } = renderTeam();
+  const children = tree.props.children.flat().filter(React.isValidElement);
+  const memberTable = children.findIndex((node) => hasClass(node, 'member-table-shell'));
+  const subsection = children[memberTable + 1];
+  assert.ok(memberTable >= 0);
+  assert.match(text(children[memberTable]), /Grace HOPPER/);
+  assert.equal(subsection.type, 'section');
+  assert.ok(hasClass(subsection, 'account-invitations'));
+  const heading = nodes(subsection).find((node) => node.type === 'h3');
+  assert.equal(text(heading), 'Invitations');
+  assert.equal(subsection.props['aria-labelledby'], heading.props.id);
+  const panel = nodes(subsection).find((node) => node.props.snapshot);
+  assert.equal(panel.props.snapshot, context.invitationSnapshot);
+  assert.equal(panel.props.onResend, context.handleInvitationResend);
+  assert.equal(panel.props.onRevalidate, context.loadInvitations);
+  assert.equal(panel.props.busyIds, context.busyMemberIds);
+  assert.ok(nodes(tree).every((node) => !['tablist', 'tab', 'tabpanel'].includes(node.props.role)));
+  assert.doesNotMatch(teamSection.getText(adminAst), /activeTab|setActiveTab|handleTabKeyDown|account-tab/);
+  const css = read('styles/pages/administration.css');
+  const headingStyle = css.match(/\.account-invitations h3 \{[^}]*\}/)[0];
+  assert.match(headingStyle, /font-style: italic/);
+  assert.match(headingStyle, /font-weight: 700/);
+  assert.doesNotMatch(read('components/AccountInvitationsPanel.tsx'), />\s*(Renvoyer|Expirée|Resend|Expired)\s*</);
+});
+
+test('invitation loading, empty, error and retry states remain below the members', () => {
+  for (const overrides of [
+    { invitationSnapshot: null },
+    { invitationSnapshot: { invitations: [] } },
+    { invitationSnapshot: null, invitationsError: 'Invitation load failed' },
+    { invitationsError: 'Invitation refresh failed' },
+    { filteredMembers: [], data: { members: [] } },
+  ]) {
+    const { tree, context } = renderTeam(overrides);
+    const subsection = nodes(tree).find((node) => hasClass(node, 'account-invitations'));
+    assert.ok(subsection);
+    if (context.filteredMembers.length) assert.match(text(tree), /Grace HOPPER/);
+    if (context.invitationsError) {
+      assert.match(text(subsection), /Invitation (load|refresh) failed/);
+      const retry = nodes(subsection).find((node) => node.type === 'button');
+      assert.equal(text(retry), 'Réessayer');
+      retry.props.onClick();
+    }
+    const panel = nodes(subsection).find((node) => node.props.snapshot);
+    assert.equal(Boolean(panel), Boolean(context.invitationSnapshot?.invitations.length));
+    const skeleton = nodes(subsection).find((node) => node.props.count === 3);
+    assert.equal(Boolean(skeleton), !context.invitationSnapshot && !context.invitationsError);
+    if (context.invitationSnapshot?.invitations.length === 0) {
+      assert.match(text(subsection), /Aucune invitation/);
+    }
   }
-  assert.match(source, /tabIndex=\{activeTab === 'members' \? 0 : -1\}/);
-  assert.match(source, /event\.key !== 'ArrowLeft' && event\.key !== 'ArrowRight'/);
-  assert.match(source, /t\('manageTabMembers'\)/);
-  assert.match(source, /t\('manageTabInvitations'\)/);
-  const panel = read('components/AccountInvitationsPanel.tsx');
-  assert.doesNotMatch(panel, />\s*(Renvoyer|Expirée|Resend|Expired)\s*</);
 });
 
 test('the expired row reuses the inventory inactive treatment and keeps the action actionable', () => {
@@ -501,7 +570,7 @@ test('create and resend handlers apply the server row through the store', () => 
   const create = source.slice(source.indexOf('async function handleAddMember'), source.indexOf('// Clears any pending row feedback'));
   assert.ok(create.indexOf('applyMutation(member.invitation)') > 0);
   assert.ok(create.indexOf('applyMutation(member.invitation)') < create.indexOf('await loadInvitations()'));
-  const resend = source.slice(source.indexOf('async function handleInvitationResend'), source.indexOf('function handleTabKeyDown'));
+  const resend = source.slice(source.indexOf('async function handleInvitationResend'), source.indexOf('function memberActionLabel'));
   assert.match(resend, /applyMutation\(response\.invitation, response\.server_time\)/);
   assert.doesNotMatch(source, /setInvitationSnapshot\(\(current\)/);
   assert.match(source, /invalidateRequest: \(\) => invalidateInFlightGet\(INVITATIONS_PATH\)/);

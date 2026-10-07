@@ -1,4 +1,4 @@
-﻿import { type ChangeEvent, type FormEvent, type KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
+﻿import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   ArrowDownToLine,
@@ -339,7 +339,6 @@ function AccountManagementSection({
   const [roleFilter, setRoleFilter] = useState<MemberRoleFilter>('all');
   const [isMemberFormOpen, setIsMemberFormOpen] = useState(false);
   const [isInvitationInfoOpen, setIsInvitationInfoOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'members' | 'invitations'>('members');
   const [invitationSnapshot, setInvitationSnapshot] = useState<InvitationsSnapshot | null>(null);
   const [invitationsError, setInvitationsError] = useState<string | null>(null);
   const isMountedRef = useRef(true);
@@ -440,13 +439,13 @@ function AccountManagementSection({
 
     try {
       // A new access is an invitation until the person chooses a password, so it
-      // belongs to the Invitations tab and not to the members list.
+      // belongs to the Invitations subsection and not to the members list.
       const member = await apiPost<AccountMemberCreated>('/api/accounts/members/', payload);
       if (!isMountedRef.current) return;
       // Show the server's own row for the new invitation right away, so an
       // overlapping resend that discards the refresh below cannot hide it.
       invitationsStoreRef.current!.applyMutation(member.invitation);
-      setActiveTab('invitations');
+
       // Reconcile ordering and clock with a fresh list; a failure leaves the
       // row visible and shows the retry action.
       await loadInvitations();
@@ -521,14 +520,6 @@ function AccountManagementSection({
     } finally {
       endBusyMember(invitation.id);
     }
-  }
-
-  function handleTabKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-    event.preventDefault();
-    const next = activeTab === 'members' ? 'invitations' : 'members';
-    setActiveTab(next);
-    document.getElementById(`account-tab-${next}`)?.focus();
   }
 
   function memberActionLabel(action: MemberRowAction): string {
@@ -761,49 +752,9 @@ function AccountManagementSection({
         </AdminActionPanel>
       ) : null}
 
-      <div className="admin-mode-switch account-tabs" role="tablist" aria-label={t('manageTabsLabel')} onKeyDown={handleTabKeyDown}>
-        <button
-          id="account-tab-members"
-          type="button"
-          role="tab"
-          className={activeTab === 'members' ? 'is-active' : ''}
-          aria-selected={activeTab === 'members'}
-          aria-controls="account-panel-members"
-          tabIndex={activeTab === 'members' ? 0 : -1}
-          onClick={() => setActiveTab('members')}
-        >
-          {t('manageTabMembers')}
-        </button>
-        <button
-          id="account-tab-invitations"
-          type="button"
-          role="tab"
-          className={activeTab === 'invitations' ? 'is-active' : ''}
-          aria-selected={activeTab === 'invitations'}
-          aria-controls="account-panel-invitations"
-          tabIndex={activeTab === 'invitations' ? 0 : -1}
-          onClick={() => setActiveTab('invitations')}
-        >
-          {t('manageTabInvitations')}
-          {invitationSnapshot?.invitations.length ? (
-            <span className="account-tab-count">{invitationSnapshot.invitations.length}</span>
-          ) : null}
-        </button>
-      </div>
 
       <p className="sr-only" role="status">{feedback?.message ?? ''}</p>
-      {loadError && data && activeTab === 'members' ? <p className="inline-error">{loadError}</p> : null}
-      {invitationsError && activeTab === 'invitations' ? (
-        <div className="inline-error invitation-error" role="alert">
-          <span>{invitationsError}</span>
-          <button className="secondary-button" type="button" onClick={() => loadInvitations()}>
-            {t('manageInvitationsRetry')}
-          </button>
-        </div>
-      ) : null}
-
-      {activeTab === 'members' ? (
-      <div role="tabpanel" id="account-panel-members" aria-labelledby="account-tab-members" className="account-tab-panel">
+      {loadError && data ? <p className="inline-error">{loadError}</p> : null}
       <div className="account-overview">
         <button
           type="button"
@@ -923,26 +874,32 @@ function AccountManagementSection({
           {data.members.length ? t('manageNoFilteredMembers') : t('manageNoMembers')}
         </p>
       )}
-      </div>
-      ) : (
-        <div role="tabpanel" id="account-panel-invitations" aria-labelledby="account-tab-invitations" className="account-tab-panel">
-          {!invitationSnapshot ? (
-            invitationsError ? null : <SkeletonRows count={3} />
-          ) : invitationSnapshot.invitations.length ? (
-            <AccountInvitationsPanel
-              snapshot={invitationSnapshot}
-              busyIds={busyMemberIds}
-              feedback={feedback ? { id: feedback.membershipId, tone: feedback.tone } : null}
-              getDisplayName={getMemberDisplayName}
-              onResend={handleInvitationResend}
-              onRevalidate={loadInvitations}
-              t={t}
-            />
-          ) : (
-            <p className="muted compact-text">{t('manageNoInvitations')}</p>
-          )}
-        </div>
-      )}
+      <section className="account-invitations" aria-labelledby="account-invitations-title">
+        <h3 id="account-invitations-title">{t('manageInvitationsTitle')}</h3>
+        {invitationsError ? (
+          <div className="inline-error invitation-error" role="alert">
+            <span>{invitationsError}</span>
+            <button className="secondary-button" type="button" onClick={() => loadInvitations()}>
+              {t('manageInvitationsRetry')}
+            </button>
+          </div>
+        ) : null}
+        {!invitationSnapshot ? (
+          invitationsError ? null : <SkeletonRows count={3} />
+        ) : invitationSnapshot.invitations.length ? (
+          <AccountInvitationsPanel
+            snapshot={invitationSnapshot}
+            busyIds={busyMemberIds}
+            feedback={feedback ? { id: feedback.membershipId, tone: feedback.tone } : null}
+            getDisplayName={getMemberDisplayName}
+            onResend={handleInvitationResend}
+            onRevalidate={loadInvitations}
+            t={t}
+          />
+        ) : (
+          <p className="muted compact-text">{t('manageNoInvitations')}</p>
+        )}
+      </section>
       {confirmActionModal}
     </section>
   );
