@@ -77,6 +77,7 @@ Ne pas déduire une parenté d'une ressemblance de codes.
 - Services : `backend/apps/cultures/services.py`.
 - API et serializers : `backend/apps/cultures/api_views.py`, `backend/apps/cultures/serializers.py`.
 - Transfert UI : `frontend/src/components/MoveBoxModal.tsx`.
+- Diagnostic en lecture seule de l'historique d'emplacement : commande `diagnose_box_location_history` (`backend/apps/cultures/location_history_diagnostics.py`). Il constate sans réparer ni déduire de mouvement.
 - Inventaire et qualification : [`inventory.md`](inventory.md).
 - Mesures acceptées selon le statut : [`measurements-integrity.md`](measurements-integrity.md).
 - Transferts inter-institutions par CSV : [`../transferts_csv.md`](../transferts_csv.md).
