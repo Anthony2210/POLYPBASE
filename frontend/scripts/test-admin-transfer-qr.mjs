@@ -50,9 +50,9 @@ function harness(language = 'en') {
   };
   const jsx = (type, props) => ({ type, props });
   const unusedModules = [
-    'lucide-react', '../api/client', '../utils/accountMembers', '../utils/dateFormat',
+    'lucide-react', '../api/client', '../utils/accountMembers', '../utils/accountInvitations', '../utils/dateFormat',
     '../utils/memberMutationLock', '../utils/memberFeedback', '../utils/stepValue', '../utils/zoneOccupancy',
-    './AdminActionPanel', './AdminAuditSection', './BoxInventoryAdminSection', './ConfirmActionModal',
+    './AccountInvitationsPanel', './AdminActionPanel', './AdminAuditSection', './BoxInventoryAdminSection', './ConfirmActionModal',
     './PageLoader', './PolypbaseIcon', './RowActionMenu', './SkeletonRows', './TaxonomyAdminSection',
   ];
   const modules = Object.fromEntries(unusedModules.map((name) => [name, {}]));

@@ -39,6 +39,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Run frontend tests
+        run: npm run test:all
+
       - name: Check CSS, TypeScript, and production build
         run: npm run build
 

@@ -214,14 +214,24 @@ Dans la session frontend, relancer `npm run dev -- --host 127.0.0.1` et ouvrir `
 
 Exécuter depuis `frontend/`.
 
+Pour la validation complète :
+
+```powershell
+npm run test:all
+npm run typecheck
+npm run build
+```
+
+Pour une validation ciblée, utiliser la commande du domaine concerné plutôt que de réexécuter ces tests après `test:all` :
+
 ```powershell
 npm run test:api
 npm run test:charts
 npm run test:inventory
-npm run typecheck
 npm run check:css
-npm run build
 ```
+
+`npm run test:all` découvre les fichiers `frontend/scripts/test-*.mjs` et exécute la suite avec le runner Node, également en CI. Les imports statiques entre modules de tests définissent les groupes : chaque module est exécuté une seule fois, en conservant l'isolation entre points d'entrée. La commande refuse une suite vide, un cycle sans point d'entrée ou un module partagé entre plusieurs groupes plutôt que d'omettre ou de dupliquer des tests. Les nouveaux tests doivent suivre cette convention et utiliser des imports statiques directs entre fichiers frères; les helpers et le contrôle CSS ne font pas partie de la découverte. La concurrence est limitée à deux processus pour borner la consommation de ressources des harness TypeScript/VM. Les commandes ciblées existantes restent disponibles.
 
 `npm run build` réexécute le contrôle CSS et TypeScript avant le build Vite. Les scripts ciblés couvrent respectivement la gestion des erreurs API, les fenêtres de graphiques et la logique d'Inventaire; ils ne remplacent pas une QA navigateur pour une interaction visuelle.
 
