@@ -153,6 +153,15 @@ of caller mapping insertion order. Rejected oversized/configuration input is not
 hashed. These are preparation fingerprints, not persisted plans or acceptance
 receipts; no database matching outcome is generated.
 
+## Read-only planning consumer
+
+The institution-scoped consumer is documented in
+[`measurement-import-planner.md`](measurement-import-planner.md). It classifies
+these preparation results without changing the pure Phase 2 contract, existing
+importers, schema or write services. It preserves source states and date precision,
+blocks repeated slots and unresolved problems, and marks week-only CREATE
+candidates as blocked pending persistence support. It introduces no apply path.
+
 ## Future dependencies and next phase
 
 A future XLSX adapter can construct source-string mappings and `Provenance`,
@@ -167,14 +176,15 @@ schema/service support for source date precision and unknown observer vs importi
 actor. Do not satisfy the current schema with a fake Monday or overwrite an
 existing exact date when matching a week-only source.
 
-Next phase: resolve source box/observer references under server-authorized active
-organization scope; classify against the applicable supplied scientific fields
-and ISO week; make existing-row disagreements blocking, never silent updates;
-persist immutable reviewed plans and deterministic state guards. Follow with
-separate restricted creation/correction applicators, all-or-nothing transactions
-and durable receipts. Null/absent/blank comparison applicability and metadata
-handling must be made explicit in that planner, not inferred from model defaults.
-No unresolved decision blocks this preparation-only implementation.
+The read-only planner now resolves exact Box codes under server-authorized
+institution scope and compares applicable supplied values against the weekly
+slot. Its null/absent/blank comparison and metadata rules are explicit in the
+planner contract above. Named-observer resolution remains explicitly unsupported
+and blocking pending an approved reference contract. Future phases still require
+immutable reviewed durable plans and deterministic state guards, then separate
+restricted creation/correction applicators, all-or-nothing transactions and
+durable receipts. No unresolved decision blocks preparation or diagnostic-only
+planning; persistence and observer dependencies must be resolved before apply.
 
 ## Local validation
 
