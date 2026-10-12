@@ -789,10 +789,11 @@ export default function App() {
 
     async function loadOverview() {
       try {
-        const overview = await apiGet<OverviewResponse>('/api/overview/active-boxes/?months=3');
+        const overview = await apiGet<OverviewResponse>('/api/overview/active-boxes/?months=3&history=full');
         if (!isCurrentRequest()) return;
         setData((current) => ({ ...current, overview: overview.results.map((box) => ({
                   ...box, history_start_date: overview.history_start_date, history_end_date: overview.history_end_date,
+                  history_complete: overview.complete_history === true,
                 })) }));
       } catch (requestError) {
         if (!isCurrentRequest()) return;

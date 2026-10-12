@@ -468,9 +468,9 @@ const componentMeasurements = measurements.slice(0, 120).map((point, index) => {
   const date = new Date(Date.UTC(2024, 1, 19 + index * 7)).toISOString().slice(0, 10);
   return { ...point, measured_on: date, created_at: `${date}T12:00:00Z` };
 });
-function componentBox(points) {
+function componentBox(points, complete = false) {
   return {
-    id: 902, history_start_date: serverRange.startDate, history_end_date: serverRange.endDate,
+    id: 902, history_complete: complete, history_start_date: serverRange.startDate, history_end_date: serverRange.endDate,
     earliest_biological_measurement_on: '2024-02-19', locations: componentLocations,
     measurements: plain(normalizeOverviewMeasurements(points)),
   };
@@ -488,21 +488,17 @@ function assertComponentRange(view, range) {
   assert.equal(view.controls.extentEnd, '2026-06-03');
 }
 
-test('actual mini-chart JSX uses server calendar range, biological slider extent and asynchronous full history', async () => {
+test('actual mini-chart JSX defaults to the full history, loads it at once and keeps shorter periods explorable', async () => {
   const recent = componentMeasurements.filter(point => point.measured_on >= serverRange.startDate);
   const view = miniChartHarness(componentBox(recent));
   try {
-    assertComponentRange(view, serverRange);
+    assertComponentRange(view, fullComponentRange);
     assert.notEqual(view.chart.startDate, '2024-02-18', 'An old location must not anchor the default graph');
     assert.notEqual(view.controls.extentStart, '2024-02-18', 'Slider starts at biology, not location');
-    assert.deepEqual(plain(view.chart.measurements), chartPoints(recent));
+    assert.deepEqual(plain(view.chart.measurements), chartPoints(recent), 'Loaded readings stay until the rest arrives');
     assert.equal(view.chart.locations[0].startsAt, '2024-02-18T12:00:00Z');
-    assert.equal(view.requests.length, 0);
-    view.select(fullComponentRange);
-    assert.equal(view.requests.length, 1);
+    assert.equal(view.requests.length, 1, 'A partial payload loads the full history on mount');
     assert.equal(view.requests[0].boxId, 902);
-    assertComponentRange(view, serverRange);
-    assert.deepEqual(plain(view.chart.measurements), chartPoints(recent));
     assert.equal(view.find(node => node.props.role === 'status').length, 1);
     await view.settle(view.requests[0], {
       id: 902, biological_measurements: [...componentMeasurements].reverse(), locations: componentLocations,
@@ -515,8 +511,34 @@ test('actual mini-chart JSX uses server calendar range, biological slider extent
     assert.ok(view.chart.measurements.some(point => point.salinity === '0.00'));
     assert.equal(view.find(node => node.props.role === 'status').length, 0);
     view.select(serverRange);
-    assertComponentRange(view, serverRange);
+    assert.equal(view.chart.startDate, serverRange.startDate);
+    assert.equal(view.controls.extentStart, '2024-02-19', 'Shorter period keeps the complete extent');
+    assert.equal(view.chart.measurements.length, 120, 'Readings stay loaded for navigation');
+    view.select(fullComponentRange);
+    assertComponentRange(view, fullComponentRange);
     assert.equal(view.requests.length, 1);
+  } finally { view.unmount(); }
+});
+
+test('complete overview payload shows the whole multi-year history with real zeros and no request', () => {
+  const view = miniChartHarness(componentBox(componentMeasurements, true));
+  try {
+    assertComponentRange(view, fullComponentRange);
+    assert.deepEqual(plain(view.chart.measurements), chartPoints(componentMeasurements));
+    assert.ok(view.chart.measurements.some(point => point.polypCount === 0 && point.ephyraeCount === 0));
+    assert.equal(view.requests.length, 0);
+    assert.equal(view.find(node => node.props.role === 'status').length, 0);
+  } finally { view.unmount(); }
+});
+
+test('complete overview payload of a box with only recent readings keeps at least the recent extent', () => {
+  const recentOnly = { ...componentBox([{ ...componentMeasurements[0], measured_on: '2026-05-20' }], true),
+    earliest_biological_measurement_on: '2026-05-20' };
+  const view = miniChartHarness(recentOnly);
+  try {
+    assert.equal(view.controls.extentStart, serverRange.startDate);
+    assert.equal(view.chart.startDate, serverRange.startDate);
+    assert.equal(view.requests.length, 0);
   } finally { view.unmount(); }
 });
 
@@ -525,7 +547,7 @@ test('current stock transitions do not replace historical counts, ephyrae or sal
     { ...componentMeasurements[0], measured_on: '2026-03-04', polyp_count: 0, ephyrae_count: 0, salinity_psu: null },
     { ...componentMeasurements[1], measured_on: '2026-06-02', polyp_count: 120, ephyrae_count: 4, salinity_psu: '35.00' },
   ];
-  const box = componentBox(readings);
+  const box = componentBox(readings, true);
   const before = JSON.stringify(box.measurements);
   const view = miniChartHarness(box);
   try {
@@ -537,11 +559,11 @@ test('current stock transitions do not replace historical counts, ephyrae or sal
         source: kind ? { kind, id: revision, timestamp: '2026-06-03T12:00:00Z' } : null,
       } });
       assert.deepEqual(plain(view.chart.measurements), chartPoints(readings));
-      assertComponentRange(view, serverRange);
+      assertComponentRange(view, fullComponentRange);
       assert.equal(view.requests.length, 0);
     }
     const laterReading = { ...readings[1], measured_on: '2026-06-03', polyp_count: 62, ephyrae_count: 2, salinity_psu: null };
-    view.updateBox({ ...componentBox([...readings, laterReading]), current_polyp_state: {
+    view.updateBox({ ...componentBox([...readings, laterReading], true), current_polyp_state: {
       polyp_count: 62, revision: 'box:902:5',
       source: { kind: 'measurement', id: 5, timestamp: '2026-06-03T13:00:00Z', measured_on: '2026-06-03' },
     } });
@@ -615,20 +637,16 @@ test('overview freshness, weekly counters and sorting remain based on readings, 
   }
 });
 
-test('actual mini-chart JSX with only older readings renders controls and empty-period graph, then loads full detail', async () => {
+test('actual mini-chart JSX with only older readings renders controls and an empty graph while the full detail loads', async () => {
   const olderPoints = componentMeasurements.filter(point => point.measured_on < serverRange.startDate);
   const view = miniChartHarness(componentBox([]));
   try {
-    assertComponentRange(view, serverRange);
+    assertComponentRange(view, fullComponentRange);
     assert.deepEqual(plain(view.chart.measurements), []);
     assert.equal(view.chart.labels.empty, 'overviewNoHistory');
     assert.equal(view.find(node => node.props.className === 'overview-chart overview-chart-empty').length, 0,
       'Older biology must not be mistaken for no history ever');
-    assert.equal(view.requests.length, 0);
-    view.select(fullComponentRange);
     assert.equal(view.requests.length, 1);
-    assertComponentRange(view, serverRange);
-    assert.deepEqual(plain(view.chart.measurements), []);
     await view.settle(view.requests[0], {
       id: 902, biological_measurements: [...olderPoints].reverse(), locations: componentLocations,
     });
@@ -637,6 +655,21 @@ test('actual mini-chart JSX with only older readings renders controls and empty-
     assert.ok(view.chart.measurements.length >= 100);
     assert.ok(view.chart.measurements.some(point => point.polypCount === 0 && point.ephyraeCount === 0));
   } finally { view.unmount(); }
+});
+
+test('old-only complete payload shows its readings and an empty box shows the no-history state', () => {
+  const olderPoints = componentMeasurements.filter(point => point.measured_on < serverRange.startDate);
+  const old = miniChartHarness(componentBox(olderPoints, true));
+  try {
+    assertComponentRange(old, fullComponentRange);
+    assert.deepEqual(plain(old.chart.measurements), chartPoints(olderPoints));
+    assert.equal(old.requests.length, 0);
+  } finally { old.unmount(); }
+  const empty = miniChartHarness({ ...componentBox([], true), earliest_biological_measurement_on: null });
+  try {
+    assert.equal(empty.find(node => node.props.className === 'overview-chart overview-chart-empty').length, 1);
+    assert.equal(empty.requests.length, 0);
+  } finally { empty.unmount(); }
 });
 
 test('cancelled older load failure is cleared so a new older selection retries with a fresh load', async () => {
@@ -798,33 +831,25 @@ function scrubberControlsHarness(initialProps) {
 }
 
 for (const outcome of ['success', 'failure']) {
-  test(`actual controls drag back to committed range cancels pending overview extension before late ${outcome}`, async () => {
+  test(`actual controls narrowing to the loaded range cancels the initial full load before late ${outcome}`, async () => {
     const recent = componentMeasurements.filter(point => point.measured_on >= serverRange.startDate);
     const view = miniChartHarness(componentBox(recent));
     try {
       assert.equal(view.controls.notifyUnchanged, true, 'Overview must opt into unchanged notifications');
-      const controls = scrubberControlsHarness(view.controls);
-      controls.pointer('onPointerDown', 100);
-      assert.ok(controls.captures.has(1));
-      controls.pointer('onPointerMove', 0);
-      view.render();
-      controls.render(view.controls);
       assert.equal(view.requests.length, 1);
-      assert.equal(view.selections.length, 1);
-      assert.ok(view.selections[0].startDate < serverRange.startDate);
-      assert.equal(view.selections[0].endDate, serverRange.endDate);
-      assertComponentRange(view, serverRange);
       assert.equal(view.find(node => node.props.role === 'status').length, 1);
-      // Same drag, back to its original position while displayed props are still committed.
-      controls.pointer('onPointerMove', 100);
+      const controls = scrubberControlsHarness(view.controls);
+      // One pixel per day: 743 days moves the start thumb from the earliest reading to the loaded start.
+      controls.pointer('onPointerDown', 0);
+      controls.pointer('onPointerMove', 743);
       view.render();
       controls.render(view.controls);
-      assert.equal(view.selections.length, 2, 'Returning to displayed dates must invoke controller.select');
-      assert.deepEqual(view.selections[1], serverRange);
+      assert.equal(view.selections.length, 2, 'Mount selection plus one drag selection');
+      assert.equal(view.selections[1].startDate, serverRange.startDate);
+      assert.equal(view.selections[1].endDate, serverRange.endDate);
       assertComponentRange(view, serverRange);
       assert.equal(view.find(node => node.props.role === 'status').length, 0);
-      assert.equal(view.requests.length, 1);
-      controls.pointer('onPointerUp', 100);
+      controls.pointer('onPointerUp', 743);
       assert.equal(controls.captures.size, 0);
       if (outcome === 'success') {
         await view.settle(view.requests[0], {
@@ -941,6 +966,7 @@ function assertRecentBiology(view) {
 test('actual overview geometry has complete previous/current context before GET and is identical after full-history round trip', async () => {
   const app = appHarness();
   const view = miniChartHarness(continuityBox(), overviewCallback(app), continuityText);
+  view.select(recentRange); // narrow to the loaded period; the full load stays pending
   try {
     const first = graphSnapshot(view);
     assert.deepEqual({ startDate: first.start, endDate: first.end }, recentRange);
@@ -959,7 +985,7 @@ test('actual overview geometry has complete previous/current context before GET 
     assert.equal(transfers.length, 1);
     assert.equal(transfers[0].props.children, 'TRANSFERT', 'Generated movement is actually rendered');
     assertRecentBiology(view);
-    assertDetailGet(app, 0);
+    assertDetailGet(app, 1);
     const initialLocations = plain(view.chart.locations);
     const initialMeasurements = plain(view.chart.measurements);
     const withinLoaded = { startDate: '2026-08-01', endDate: '2026-09-01' };
@@ -969,12 +995,12 @@ test('actual overview geometry has complete previous/current context before GET 
     slider.pointer('onPointerUp', 120);
     view.render();
     assert.equal(view.chart.startDate, '2026-07-23');
-    assertDetailGet(app, 0);
+    assertDetailGet(app, 1);
     view.select(withinLoaded);
     assert.deepEqual(plain(view.chart.locations), initialLocations, 'Loaded-window slider never enriches location context');
     assert.deepEqual(plain(view.chart.measurements), initialMeasurements);
     assert.equal(chartGeometry(view).eventPoints[0].event.date, '2026-08-14');
-    assertDetailGet(app, 0);
+    assertDetailGet(app, 1);
     view.select(recentRange);
     assert.deepEqual(graphSnapshot(view), first);
     view.select(continuityFullRange);
@@ -999,6 +1025,7 @@ test('actual overview geometry resolves unknown end through a known ended predec
   }, continuityLocations[1]];
   const app = appHarness();
   const view = miniChartHarness(continuityBox(chain), overviewCallback(app), continuityText);
+  view.select(recentRange); // narrow to the loaded period; the full load stays pending
   try {
     const first = graphSnapshot(view);
     assert.deepEqual(first.bands.map(({ id, startDate, endDate }) => ({ id, startDate, endDate })), [
@@ -1007,7 +1034,7 @@ test('actual overview geometry resolves unknown end through a known ended predec
     assert.deepEqual(first.events, [], 'No invented transfer from the unknown period across the known end and gap');
     assert.equal(jsxNodes(trendChart.default(view.chart), node => node.props.className === 'bio-trend-event-label').length, 0);
     assertRecentBiology(view);
-    assertDetailGet(app, 0);
+    assertDetailGet(app, 1);
     view.select(continuityFullRange);
     assertDetailGet(app, 1);
     await view.settle(app.requests[0], continuityDetail(chain));
@@ -1025,6 +1052,7 @@ test('actual overview geometry resolves unknown end through a known ended predec
 test('actual history loading is an sr-only status; rejection renders error and retry GET without changing committed geometry', async () => {
   const app = appHarness();
   const view = miniChartHarness(continuityBox(), overviewCallback(app), continuityText);
+  view.select(recentRange); // narrow to the loaded period; the full load stays pending
   const assertLoading = () => {
     const statuses = view.find(node => node.props.role === 'status');
     assert.equal(statuses.length, 1);

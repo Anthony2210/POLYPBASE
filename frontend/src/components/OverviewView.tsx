@@ -400,10 +400,16 @@ function OverviewMiniChart({
   language: Language;
   t: TFunction;
 }) {
-  const defaultWindow = useMemo(() => overviewDefaultRange(new Date(`${box.history_end_date}T00:00:00`)), [box]);
+  const recentWindow = useMemo(() => overviewDefaultRange(new Date(`${box.history_end_date}T00:00:00`)), [box]);
+  const earliestDate = box.earliest_biological_measurement_on;
+  // The whole recorded history is the default view; the extent never shrinks below 3 months.
+  const defaultWindow = useMemo(() => ({
+    startDate: earliestDate && earliestDate < recentWindow.startDate ? earliestDate : recentWindow.startDate,
+    endDate: recentWindow.endDate,
+  }), [earliestDate, recentWindow]);
   const initialState = useMemo<OverviewHistoryState>(() => ({
     range: defaultWindow, measurements: box.measurements, locations: box.locations ?? [],
-    complete: false, loading: false, failedRange: null,
+    complete: box.history_complete === true, loading: false, failedRange: null,
   }), [box, defaultWindow]);
   const [history, setHistory] = useState(initialState);
   const controller = useRef<ReturnType<typeof createOverviewHistory> | null>(null);
@@ -412,14 +418,14 @@ function OverviewMiniChart({
     const current = createOverviewHistory(initialState, box.history_start_date,
       () => loadHistory(box.id), setHistory);
     controller.current = current;
+    // The default range is the full history: load it at once if the payload was partial.
+    void current.select(initialState.range);
     return () => { current.dispose(); controller.current = null; };
   }, [box, initialState, loadHistory]);
   const orderedMeasurements = useMemo(() => [...history.measurements]
     .sort((left, right) => left.date.localeCompare(right.date)), [history.measurements]);
   const extentEnd = defaultWindow.endDate;
-  const earliestDate = box.earliest_biological_measurement_on;
-  const extentStart = earliestDate && earliestDate < defaultWindow.startDate
-    ? earliestDate : defaultWindow.startDate;
+  const extentStart = defaultWindow.startDate;
   const { startDate, endDate } = history.range;
 
   if (!earliestDate && !orderedMeasurements.length) {

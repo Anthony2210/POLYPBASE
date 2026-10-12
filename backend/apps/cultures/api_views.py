@@ -506,6 +506,8 @@ class OverviewActiveBoxesAPIView(APIView):
 
     def get(self, request):
         months = self._get_months(request)
+        # Full history lifts the measurement cutoff only; temperatures keep the months window.
+        complete_history = request.query_params.get("history") == "full"
         reference_date = timezone.localdate()
         history_start_date = _subtract_calendar_months(reference_date, months)
         organization_ids = get_active_organization_ids(request)
@@ -545,13 +547,10 @@ class OverviewActiveBoxesAPIView(APIView):
         )
 
         measurements_by_box = defaultdict(list)
-        measurements = (
-            BiologicalMeasurement.objects.filter(
-                box_id__in=box_ids,
-                measured_on__gte=history_start_date,
-            )
-            .order_by("box_id", "measured_on", "created_at")
-        )
+        measurements = BiologicalMeasurement.objects.filter(box_id__in=box_ids)
+        if not complete_history:
+            measurements = measurements.filter(measured_on__gte=history_start_date)
+        measurements = measurements.order_by("box_id", "measured_on", "created_at")
         for measurement in measurements:
             measurements_by_box[measurement.box_id].append(
                 {
@@ -583,6 +582,7 @@ class OverviewActiveBoxesAPIView(APIView):
                 "months": months,
                 "history_start_date": history_start_date.isoformat(),
                 "history_end_date": reference_date.isoformat(),
+                "complete_history": complete_history,
                 "results": [
                     self._box_payload(
                         box,

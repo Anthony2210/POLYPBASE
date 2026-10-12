@@ -242,6 +242,7 @@ export type OverviewBox = {
   earliest_biological_measurement_on: string | null;
   history_start_date: string;
   history_end_date: string;
+  history_complete?: boolean;
   global_code: string;
   species_name: string;
   strain_code: string;
@@ -260,6 +261,7 @@ export type OverviewResponse = {
   months: number;
   history_start_date: string;
   history_end_date: string;
+  complete_history?: boolean;
   results: OverviewBox[];
 };
 

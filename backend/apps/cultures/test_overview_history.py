@@ -321,6 +321,54 @@ class OverviewHistoryTests(TestCase):
         self.assertEqual(boxes[self.box.pk]["measurements"], [])
         self.assertFalse(boxes[self.box.pk]["tracked_in_app"])
 
+    def test_full_history_returns_multi_year_measurements_with_zeros_in_order(self):
+        for measured_on, polyps, ephyrae in (
+            (date(2026, 7, 3), 4, 1),
+            (date(2023, 2, 1), 0, 0),
+            (date(2024, 5, 6), 9, 0),
+        ):
+            BiologicalMeasurement.objects.create(
+                box=self.box, measured_on=measured_on, polyp_count=polyps, ephyrae_count=ephyrae
+            )
+        BiologicalMeasurement.objects.create(
+            box=self.empty_box, measured_on=date(2022, 1, 3), polyp_count=1
+        )
+        DailyTemperature.objects.create(
+            thermal_zone=self.zone, date=date(2023, 2, 1), average_temperature_c=15
+        )
+
+        payload = self.get_overview(params={"history": "full"})
+        self.assertTrue(payload["complete_history"])
+        self.assertEqual(payload["months"], 3)
+        boxes = {box["id"]: box for box in payload["results"]}
+        self.assertEqual(
+            [(p["date"], p["polyp_count"], p["ephyrae_count"]) for p in boxes[self.box.pk]["measurements"]],
+            [("2023-02-01", 0, 0), ("2024-05-06", 9, 0), ("2026-07-03", 4, 1)],
+        )
+        self.assertEqual(boxes[self.box.pk]["earliest_biological_measurement_on"], "2023-02-01")
+        self.assertEqual(boxes[self.empty_box.pk]["measurements"][0]["date"], "2022-01-03")
+        self.assertEqual(boxes[self.box.pk]["temperatures"], [])
+
+    def test_full_history_handles_empty_and_old_only_boxes(self):
+        BiologicalMeasurement.objects.create(
+            box=self.box, measured_on=date(2020, 1, 6), polyp_count=0, ephyrae_count=0
+        )
+        boxes = {box["id"]: box for box in self.get_overview(params={"history": "full"})["results"]}
+        self.assertEqual(len(boxes[self.box.pk]["measurements"]), 1)
+        self.assertEqual(boxes[self.box.pk]["measurements"][0]["polyp_count"], 0)
+        self.assertEqual(boxes[self.empty_box.pk]["measurements"], [])
+
+    def test_default_request_is_not_complete_history(self):
+        self.assertFalse(self.get_overview()["complete_history"])
+
+    def test_full_history_never_includes_foreign_organization(self):
+        BiologicalMeasurement.objects.create(
+            box=self.foreign_box, measured_on=date(2000, 1, 3), polyp_count=88
+        )
+        payload = self.get_overview(params={"history": "full"})
+        self.assertEqual({box["id"] for box in payload["results"]}, {self.box.pk, self.empty_box.pk})
+        self.assertTrue(all(box["measurements"] == [] for box in payload["results"]))
+
     def test_foreign_organization_history_is_absent_even_with_membership(self):
         BiologicalMeasurement.objects.create(
             box=self.foreign_box, measured_on=date(2000, 1, 1), polyp_count=88
