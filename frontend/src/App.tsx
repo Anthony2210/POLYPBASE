@@ -2375,6 +2375,7 @@ function QrSearchModal({
 }) {
   const dialogRef = useRef<HTMLElement | null>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
+  const focusGenerationRef = useRef(0);
   const [query, setQuery] = useState('');
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const isBoxCollectionReady = boxCollectionStatus === 'ready';
@@ -2389,12 +2390,24 @@ function QrSearchModal({
     if (hasQuery) onRequestBoxCollection();
   }, [hasQuery, onRequestBoxCollection]);
 
-  useEffect(() => {
-    returnFocusRef.current = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
+  useLayoutEffect(() => {
+    if (focusGenerationRef.current === 0) {
+      returnFocusRef.current = document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    }
+    const generation = ++focusGenerationRef.current;
     dialogRef.current?.querySelector<HTMLButtonElement>('.modal-close-button')?.focus();
+    return () => {
+      // StrictMode replays setup before this runs; do not restore or recapture its opener.
+      queueMicrotask(() => {
+        if (focusGenerationRef.current !== generation || document.activeElement !== document.body) return;
+        if (returnFocusRef.current?.isConnected) returnFocusRef.current?.focus({ preventScroll: true });
+      });
+    };
+  }, []);
 
+  useEffect(() => {
     function handleKeyDown(event: globalThis.KeyboardEvent) {
       if (event.key === 'Escape') {
         event.preventDefault();
@@ -2423,10 +2436,7 @@ function QrSearchModal({
     }
 
     window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      returnFocusRef.current?.focus({ preventScroll: true });
-    };
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
   function selectHighlightedResult() {
