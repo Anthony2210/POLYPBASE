@@ -64,7 +64,7 @@ function translator(language) {
     return catalogs[language][key];
   };
 }
-const getLabelsViewLabels = appFunction('getLabelsViewLabels');
+const { getLabelsViewLabels } = evaluate(read('utils/presentationLabels.ts'));
 const origin = 'https://polypbase.test';
 const contextSignal = new AbortController().signal;
 const client = {

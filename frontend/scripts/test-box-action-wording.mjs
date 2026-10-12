@@ -61,7 +61,7 @@ for (const language of ['fr', 'en']) {
   test(`local Box movement catalogue uses unambiguous ${language} wording`, () => {
     assert.deepEqual(localKeys.map(key => catalogues[language][key]), localExpected[language]);
     if (language === 'fr') assert.doesNotMatch(localKeys.map(key => catalogues.fr[key]).join(' '), /transf[ée]r/i);
-    const getLabels = load(`${functionNode('getBoxInsightsLabels').getText(ast)}\nexports.labels = getBoxInsightsLabels;`).labels;
+    const getLabels = load(read('../src/utils/presentationLabels.ts')).getBoxInsightsLabels;
     assert.equal(getLabels(translator(language)).historyButton, language === 'fr' ? 'Voir détails' : 'View details');
   });
 

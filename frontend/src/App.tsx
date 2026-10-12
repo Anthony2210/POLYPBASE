@@ -141,6 +141,7 @@ import { formatBiologicalSalinity, stepBiologicalSalinity } from './utils/biolog
 import { triggerHaptic } from './utils/haptics';
 import { createInAppHistory } from './utils/inAppHistory';
 import { PHONE_NAVIGATION_ITEMS, type PhoneDestination } from './utils/phoneNavigation';
+import { getBoxInsightsLabels, getLabelsViewLabels, getProfileLabels } from './utils/presentationLabels';
 import { buildQrLabelItem, getBoxQrImageUrl, getBoxScanUrl, type QrLabelItem } from './utils/qrLabels';
 import { isRouteRequestCurrent } from './utils/routeSafety';
 
@@ -4603,109 +4604,6 @@ function InfoPill({ label, value, strong = false }: { label: string; value: stri
       <strong>{value}</strong>
     </span>
   );
-}
-
-function getBoxInsightsLabels(t: TFunction) {
-  return {
-    chartEmpty: t('chartEmpty'),
-    chartTitle: t('chartTitle'),
-    children: t('children'),
-    close: t('close'),
-    ephyraeFull: t('ephyraeFull'),
-    events: t('events'),
-    historyButton: t('historyButton'),
-    historyAllYears: t('historyAllYears'),
-    historyVisibleCount: (visible: number, total: number) => t('historyVisibleCount')
-      .replace('{visible}', String(visible)).replace('{total}', String(total)),
-    historyYearFilter: t('historyYearFilter'),
-    historyEnteredBy: t('historyEnteredBy'),
-    historyHideComment: t('historyHideComment'),
-    historyObservation: t('historyObservation'),
-    historyReadComment: t('historyReadComment'),
-    historyShowMore: t('historyShowMore'),
-    historyYear: t('historyYear'),
-    lineageEmptyGraph: t('lineageEmptyGraph'),
-    lineageLoading: t('lineageLoading'),
-    lineageRetry: t('lineageRetry'),
-    lineageTab: t('analysisTabLineage'),
-    measurementHistory: t('measurementHistory'),
-    measurementsTab: t('analysisTabMeasurements'),
-    missingReading: t('chartMissingReading'),
-    missingReadingRange: t('chartMissingReading'),
-    movementEvent: t('movementEvent'),
-    movedTo: t('movedTo'),
-    movementHistoryTitle: t('movementHistoryTitle'),
-    movementsTab: t('analysisTabMovements'),
-    noComment: t('noComment'),
-    noMeasurementHistory: t('noMeasurementHistory'),
-    noMovementHistory: t('noMovementHistory'),
-    oneMonth: t('oneMonth'),
-    oneYear: t('oneYear'),
-    parents: t('parents'),
-    polyps: t('polyps'),
-    salinityFull: t('salinityFull'),
-    sixMonths: t('sixMonths'),
-    subcultureEvent: t('subcultureEvent'),
-    temperature: t('temperature'),
-    temperatureNoData: t('temperatureNoData'),
-    threeMonths: t('threeMonths'),
-  };
-}
-
-function getProfileLabels(t: TFunction) {
-  return {
-    account: t('account'),
-    logoutAction: t('logoutAction'),
-    logoutError: t('logoutError'),
-    profileEmail: t('profileEmail'),
-    profileLanguage: t('profileLanguage'),
-    profileAdminAction: t('profileAdminAction'),
-    profileMemberships: t('profileMemberships'),
-    profileNoEmail: t('profileNoEmail'),
-    profileNoMembership: t('profileNoMembership'),
-    profileAllOrganizationsAccess: t('profileAllOrganizationsAccess'),
-    profilePreferences: t('profilePreferences'),
-    profileActiveOrganization: t('profileActiveOrganization'),
-    profileDefaultOrganization: t('profileDefaultOrganization'),
-    profileFullAccess: t('profileFullAccess'),
-    roleResponsable: t('roleResponsable'),
-    roleDescAdmin: t('roleDescAdmin'),
-    roleDescTechnician: t('roleDescTechnician'),
-    roleDescViewer: t('roleDescViewer'),
-    saving: t('saving'),
-  };
-}
-
-function getLabelsViewLabels(t: TFunction) {
-  return {
-    allZones: t('zoneFilterAll'),
-    noZone: t('noZone'),
-    qrLabelAddResults: (count: number) => t('qrLabelAddResults').replace('{count}', String(count)),
-    qrLabelAddResultsCompact: (count: number) => t('qrLabelAddResultsCompact').replace('{count}', String(count)),
-    qrLabelClearSelection: t('qrLabelClearSelection'),
-    qrLabelPreparing: t('qrLabelPreparing'),
-    qrLabelPopupBlocked: t('qrLabelPopupBlocked'),
-    qrLabelQrUnavailable: t('qrLabelQrUnavailable'),
-    qrLabelResourceUnavailable: t('qrLabelResourceUnavailable'),
-    qrLabelImagePreparationFailed: t('qrLabelImagePreparationFailed'),
-    qrLabelPreparationFailed: t('qrLabelPreparationFailed'),
-    qrLabelRetry: t('qrLabelRetry'),
-    qrLabelNoEligibleBoxes: t('qrLabelNoEligibleBoxes'),
-    qrLabelNoMatches: t('qrLabelNoMatches'),
-    qrLabelPrintCount: (count: number) => t('qrLabelPrintCount').replace('{count}', String(count)),
-    qrLabelSearchTitle: t('qrLabelSearchTitle'),
-    qrLabelSelectedSingular: t('qrLabelSelectedSingular'),
-    qrLabelSelectedPlural: t('qrLabelSelectedPlural'),
-    pageTitle: t('labelsTitle'),
-    qrLabelSearchPlaceholder: t('adminPrintLabelsSearchPlaceholder'),
-    qrLabelSpeciesCount: (count: number) => t('qrLabelSpeciesCount').replace('{count}', String(count)),
-    qrLabelSpeciesSelected: (count: number) => t('qrLabelSpeciesSelected').replace('{count}', String(count)),
-    qrLabelSpeciesSelectedCompact: (count: number) => t('qrLabelSpeciesSelectedCompact').replace('{count}', String(count)),
-    qrLabelSelectSpecies: (count: number, species: string) => t('qrLabelSelectSpecies').replace('{count}', String(count)).replace('{species}', species),
-    qrLabelDeselectSpecies: (count: number, species: string) => t('qrLabelDeselectSpecies').replace('{count}', String(count)).replace('{species}', species),
-    selectBox: t('boxInventoryBatchSelectBox'),
-    zoneLabel: t('zoneLabel'),
-  };
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
