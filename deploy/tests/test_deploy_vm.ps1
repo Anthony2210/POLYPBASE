@@ -63,6 +63,50 @@ $captured = Invoke-NativeCommand -Label 'Test capture contract' -FilePath $nativ
 ) -Capture
 Assert-True ($captured -ceq 'CAPTURE_VALUE') 'Captured output contract changed.'
 
+# Exercise only the three local Django command ASTs, never the deployment body.
+$djangoCommands = @($ast.FindAll({
+    param($node)
+    $node -is [System.Management.Automation.Language.CommandAst] -and
+        $node.GetCommandName() -eq 'Invoke-NativeCommand' -and
+        $node.Extent.Text.Contains('backend\manage.py')
+}, $true))
+Assert-True ($djangoCommands.Count -eq 3) 'Expected exactly three Django preflight commands.'
+$uvPath = 'fake-uv-never-executed'
+$script:DjangoArguments = @()
+function Invoke-NativeCommand {
+    param([string]$Label, [string]$FilePath, [string[]]$Arguments, [switch]$Capture)
+    Assert-True ($FilePath -ceq $uvPath) 'Unexpected Django executable.'
+    $script:DjangoArguments += ,$Arguments
+}
+foreach ($command in $djangoCommands) {
+    & ([scriptblock]::Create($command.Extent.Text))
+}
+Assert-True ($script:DjangoArguments[0][3] -ceq 'check') 'System checks were removed.'
+Assert-True ($script:DjangoArguments[1][3] -ceq 'makemigrations') 'Migration drift checks were removed.'
+Assert-True ($script:DjangoArguments[1] -contains '--check') 'Migration drift must fail.'
+Assert-True ($script:DjangoArguments[1] -contains '--dry-run') 'Migration drift must not write files.'
+Assert-True ($script:DjangoArguments[2][3] -ceq 'test') 'Backend tests were removed.'
+foreach ($app in @('accounts', 'audit', 'cultures', 'exports', 'measurements', 'organizations', 'taxonomy')) {
+    Assert-True ($script:DjangoArguments[2] -contains "apps.$app") "Missing backend coverage: $app"
+}
+foreach ($arguments in $script:DjangoArguments) {
+    $selectors = @($arguments | Where-Object { $_ -like '--settings*' })
+    Assert-True ($selectors.Count -eq 1) 'Each command needs exactly one settings selector.'
+    Assert-True ($selectors[0] -ceq '--settings=config.preflight_settings') 'Django preflight must force isolated settings.'
+    # Prove native argument forwarding on the current PowerShell version too.
+    $fixturePath = Join-Path ([System.IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString() + '.ps1')
+    try {
+        [System.IO.File]::WriteAllText($fixturePath, '[Console]::WriteLine($args[-1])')
+        $selector = & $nativeShell -NoProfile -NonInteractive -File $fixturePath @arguments
+        Assert-True ($LASTEXITCODE -eq 0 -and $selector -ceq '--settings=config.preflight_settings') 'Native child lost the settings selector.'
+    }
+    finally {
+        Remove-Item -LiteralPath $fixturePath -ErrorAction SilentlyContinue
+    }
+}
+Assert-True (-not $source.Contains("`$env:POSTGRES_DB = ''")) 'Do not rely on empty environment variables.'
+Write-Host ('PREFLIGHT_ARGUMENTS_OK PowerShell ' + $PSVersionTable.PSVersion)
+
 # Replace only the native boundary. The real remote wrapper and diagnostics run
 # with a fake transport so no VM, network, key file or production tool is used.
 function Invoke-NativeCommand {

@@ -266,6 +266,10 @@ La procédure de référence est :
 
 Le mode `-PreflightOnly` exécute les contrôles locaux sans modifier la VM. Le script doit être inspecté avant usage, car il constitue la procédure gardée actuelle. Il vérifie notamment branche, état Git, alignement avec `origin/main`, espaces, Django, dérive de migrations, tests backend isolés et build frontend.
 
+Les trois commandes Django locales sélectionnent explicitement `config.preflight_settings`, qui impose SQLite en mémoire même si l'environnement ou `backend/.env` active PostgreSQL, y compris l'opt-in QA des settings de test. L'isolation ne dépend pas d'une variable `POSTGRES_DB` vide (qui peut disparaître sous Windows PowerShell 5.1). Les settings et migrations distants restent inchangés.
+
+Les régressions du déploiement se lancent localement avec `uv run python -m unittest discover -s deploy/tests -v`. Elles utilisent des fixtures synthétiques, sans exécuter le workflow complet ni accéder à une base réelle ou à la VM; les tests PowerShell ciblent les versions `powershell` et `pwsh` disponibles.
+
 Sans `-PreflightOnly`, la procédure :
 
 1. refuse les états locaux ou distants incohérents;

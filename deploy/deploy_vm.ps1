@@ -144,8 +144,6 @@ if (-not (Test-Path -LiteralPath (Join-Path $repositoryPath 'frontend\package.js
 
 $remoteScript = $null
 $productionChanged = $false
-$previousPostgresDb = $env:POSTGRES_DB
-$hadPostgresDb = Test-Path Env:POSTGRES_DB
 
 Push-Location $repositoryPath
 try {
@@ -200,15 +198,16 @@ try {
     Write-Host "Target commit: $targetCommit" -ForegroundColor Green
     Write-Host (& $gitPath log -1 --format='%h %s' $targetCommit)
 
-    $env:POSTGRES_DB = ''
+    # Every local Django command explicitly selects unconditional in-memory SQLite.
+    # Empty environment variables can disappear on Windows PowerShell 5.1.
     Invoke-NativeCommand -Label 'Git whitespace' -FilePath $gitPath -Arguments @('diff', '--check')
-    Invoke-NativeCommand -Label 'Django system check' -FilePath $uvPath -Arguments @('run', 'python', 'backend\manage.py', 'check')
-    Invoke-NativeCommand -Label 'Django migration drift' -FilePath $uvPath -Arguments @('run', 'python', 'backend\manage.py', 'makemigrations', '--check', '--dry-run')
+    Invoke-NativeCommand -Label 'Django system check' -FilePath $uvPath -Arguments @('run', 'python', 'backend\manage.py', 'check', '--settings=config.preflight_settings')
+    Invoke-NativeCommand -Label 'Django migration drift' -FilePath $uvPath -Arguments @('run', 'python', 'backend\manage.py', 'makemigrations', '--check', '--dry-run', '--settings=config.preflight_settings')
     Invoke-NativeCommand -Label 'Django test suite' -FilePath $uvPath -Arguments @(
         'run', 'python', 'backend\manage.py', 'test',
         'apps.accounts', 'apps.audit', 'apps.cultures', 'apps.exports',
         'apps.measurements', 'apps.organizations', 'apps.taxonomy',
-        '--settings=config.test_settings'
+        '--settings=config.preflight_settings'
     )
     Invoke-NativeCommand -Label 'Frontend production build' -FilePath $npmPath -Arguments @('--prefix', 'frontend', 'run', 'build')
 
@@ -301,10 +300,4 @@ finally {
         }
     }
     Pop-Location
-    if ($hadPostgresDb) {
-        $env:POSTGRES_DB = $previousPostgresDb
-    }
-    else {
-        Remove-Item Env:POSTGRES_DB -ErrorAction SilentlyContinue
-    }
 }

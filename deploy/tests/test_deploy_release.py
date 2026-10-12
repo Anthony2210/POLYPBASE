@@ -183,7 +183,7 @@ class PowerShellTests(unittest.TestCase):
                 for marker in (
                     "NATIVE_SUCCESS_VISIBLE", "NATIVE_FAILURE_VISIBLE",
                     "NATIVE_STDERR_VISIBLE", "SERVICE_DIAGNOSTIC_VISIBLE",
-                    "JOURNAL_DIAGNOSTIC_VISIBLE", "POWERSHELL_TESTS_OK",
+                    "JOURNAL_DIAGNOSTIC_VISIBLE", "PREFLIGHT_ARGUMENTS_OK", "POWERSHELL_TESTS_OK",
                 ):
                     self.assertIn(marker, output)
 
