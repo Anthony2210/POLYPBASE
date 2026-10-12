@@ -257,7 +257,7 @@ class MeasurementEditingApiTests(TestCase):
         self.client.login(username="tech", password="secret")
 
         with patch(
-            "apps.cultures.api_views._record_measurement_audit",
+            "apps.measurements.services._record_measurement_audit",
             side_effect=RuntimeError("forced audit failure"),
         ), self.assertRaises(RuntimeError):
             self.client.post(
@@ -364,7 +364,7 @@ class MeasurementEditingApiTests(TestCase):
         self.client.login(username="tech", password="secret")
 
         with patch(
-            "apps.cultures.api_views._record_measurement_audit",
+            "apps.measurements.services._record_measurement_audit",
             side_effect=RuntimeError("forced audit failure"),
         ), self.assertRaises(RuntimeError):
             self.patch_measurement(self.box, measurement, {"polyp_count": 5})

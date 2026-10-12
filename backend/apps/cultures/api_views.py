@@ -22,6 +22,7 @@ from django.db.models import (
     When,
 )
 from django.db.models.functions import Coalesce, ExtractYear, TruncWeek
+from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -34,7 +35,6 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.accounts.models import OrganizationMembership
 from apps.accounts.permissions import (
     get_active_admin_organization_ids,
     get_active_organization_ids,
@@ -50,8 +50,19 @@ from apps.measurements.models import (
     SalinityMeasurement,
 )
 from apps.measurements.services import (
-    get_active_measurement_role,
-    get_measurement_editability,
+    MeasurementNotFound,
+    MeasurementWeekConflict,
+    MeasurementWriteError,
+    MeasurementWriteForbidden,
+    MeasurementWriteInvalid,
+    _changed_values,
+    _json_value,
+    _measurement_audit_values,
+    _record_measurement_audit,
+    _validate_measurement_create_permission,
+    _validated_measurement_data,
+    correct_biological_measurement,
+    create_biological_measurement,
 )
 from apps.organizations.serializers import OrganizationSummarySerializer
 
@@ -66,7 +77,6 @@ from .serializers import (
     BOX_INVENTORY_BATCH_MAX_ITEMS,
     HISTORICAL_BOX_IMPORT_DATE,
     AuditLogAccessSerializer,
-    BiologicalMeasurementCreateSerializer,
     BiologicalMeasurementSerializer,
     BoxActivateSerializer,
     BoxBatchQualifySerializer,
@@ -114,48 +124,6 @@ from .transfer_v1 import (
     import_transfer_v1,
     prepare_transfer_v1,
 )
-
-
-def _json_value(value):
-    if hasattr(value, "isoformat"):
-        return value.isoformat()
-    if value is None or isinstance(value, (bool, int, float, str)):
-        return value
-    return str(value)
-
-
-def _measurement_audit_values(measurement):
-    return {
-        "date": _json_value(measurement.measured_on),
-        "polypes": measurement.polyp_count,
-        "ephyrules": measurement.ephyrae_count,
-        "strobiles": measurement.strobila_count,
-        "salinite_psu": _json_value(measurement.salinity_psu),
-        "statut_culture": measurement.culture_status,
-        "a_verifier": measurement.needs_attention,
-        "note": measurement.notes,
-    }
-
-
-def _changed_values(before, after):
-    return {
-        key: {"avant": before.get(key), "apres": after.get(key)}
-        for key in after
-        if before.get(key) != after.get(key)
-    }
-
-
-def _record_measurement_audit(*, box, measurement, user, action, metadata):
-    """Record one immutable business event for a measurement write."""
-    return AuditLog.objects.create(
-        organization=box.organization,
-        user=user,
-        action=action,
-        object_type="box",
-        object_id=box.global_code,
-        description=f"Biological measurement for {measurement.measured_on}",
-        metadata=metadata,
-    )
 
 
 def _thermal_zone_audit_values(zone):
@@ -1234,6 +1202,26 @@ class MeasurementPermissionDenied(PermissionDenied):
         super().__init__({"detail": detail, "code": error_code})
 
 
+def _measurement_write_error_response(error):
+    if isinstance(error, MeasurementNotFound):
+        raise Http404(error.detail) from error
+    if isinstance(error, MeasurementWriteForbidden):
+        raise MeasurementPermissionDenied(error.detail, error_code=error.error_code) from error
+    if isinstance(error, MeasurementWriteInvalid):
+        raise DRFValidationError(error.detail) from error
+    if isinstance(error, MeasurementWeekConflict):
+        return Response(
+            {
+                "detail": str(error),
+                "code": "measurement_week_conflict",
+                "measurement_id": error.measurement_id,
+                "week_start": error.week_start.isoformat(),
+            },
+            status=status.HTTP_409_CONFLICT,
+        )
+    raise error
+
+
 class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
     serializer_class = BiologicalMeasurementSerializer
 
@@ -1249,53 +1237,23 @@ class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
         return Response({"results": serializer.data})
 
     def post(self, request, box_id):
-        box = self._get_box(request, box_id)
-        self._validate_create_permission(request, box)
-
-        serializer = BiologicalMeasurementCreateSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data.copy()
-        measured_on = data.pop("measured_on")
-        week_start = BiologicalMeasurement.week_start_for(measured_on)
-
-        with transaction.atomic():
-            box = self._get_box(request, box_id, for_update=True)
-            self._validate_create_permission(request, box)
-            existing_measurement = (
-                BiologicalMeasurement.objects.select_for_update()
-                .filter(box=box, week_start=week_start)
-                .first()
-            )
-            if existing_measurement:
-                return Response(
-                    {
-                        "detail": "A biological measurement already exists for this box and ISO week.",
-                        "code": "measurement_week_conflict",
-                        "measurement_id": existing_measurement.id,
-                        "week_start": week_start.isoformat(),
-                    },
-                    status=status.HTTP_409_CONFLICT,
-                )
-            self._validate_box_accepts_measurement(box)
-            measurement = BiologicalMeasurement.objects.create(
-                box=box,
-                measured_on=measured_on,
+        try:
+            organization_ids = get_active_organization_ids(request)
+            if not organization_ids:
+                # Preserve legacy HTTP error precedence without widening the
+                # reusable service's scope or reaching a write operation.
+                box = self._get_box(request, box_id)
+                _validate_measurement_create_permission(user=request.user, box=box)
+                _validated_measurement_data(data=lambda: request.data)
+                raise MeasurementNotFound("Box")
+            measurement = create_biological_measurement(
+                box_id=box_id,
+                organization_ids=organization_ids,
                 user=request.user,
-                **data,
+                data=lambda: request.data,
             )
-            after_values = _measurement_audit_values(measurement)
-            metadata = {
-                "measurement_id": measurement.id,
-                "valeurs": after_values,
-            }
-
-            _record_measurement_audit(
-                box=box,
-                measurement=measurement,
-                user=request.user,
-                action=AuditLog.Action.ENTRY,
-                metadata=metadata,
-            )
+        except MeasurementWriteError as exc:
+            return _measurement_write_error_response(exc)
 
         return Response(
             BiologicalMeasurementSerializer(
@@ -1305,37 +1263,14 @@ class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
             status=status.HTTP_201_CREATED,
         )
 
-    def _get_box(self, request, box_id, *, for_update=False):
-        if for_update:
-            queryset = Box.objects.select_for_update().select_related("organization").filter(
-                organization_id__in=get_active_organization_ids(request)
-            )
-        else:
-            queryset = box_queryset_for_user(
+    def _get_box(self, request, box_id):
+        return get_object_or_404(
+            box_queryset_for_user(
                 request.user,
                 organization_ids=get_active_organization_ids(request),
-            )
-        return get_object_or_404(
-            queryset,
+            ),
             id=box_id,
         )
-
-    @staticmethod
-    def _validate_create_permission(request, box):
-        role = get_active_measurement_role(user=request.user, organization=box.organization)
-        if role not in {
-            OrganizationMembership.Role.ADMIN,
-            OrganizationMembership.Role.LAB_TECHNICIAN,
-        }:
-            raise MeasurementPermissionDenied(
-                "This account cannot create biological measurements.",
-                error_code="measurement_write_forbidden",
-            )
-
-    @staticmethod
-    def _validate_box_accepts_measurement(box):
-        if box.status == Box.Status.INACTIVE:
-            raise DRFValidationError("An inactive box cannot receive a new measurement.")
 
 
 class BoxMeasurementDetailAPIView(generics.GenericAPIView):
@@ -1344,76 +1279,16 @@ class BoxMeasurementDetailAPIView(generics.GenericAPIView):
     serializer_class = BiologicalMeasurementSerializer
 
     def patch(self, request, box_id, pk):
-        with transaction.atomic():
-            box = get_object_or_404(
-                Box.objects.select_for_update().select_related("organization").filter(
-                    organization_id__in=get_active_organization_ids(request)
-                ),
-                id=box_id,
-            )
-            role = get_active_measurement_role(
+        try:
+            measurement = correct_biological_measurement(
+                box_id=box_id,
+                measurement_id=pk,
+                organization_ids=get_active_organization_ids(request),
                 user=request.user,
-                organization=box.organization,
+                data=lambda: request.data,
             )
-
-            measurement = get_object_or_404(
-                BiologicalMeasurement.objects.select_for_update().filter(box=box),
-                id=pk,
-            )
-            editability = get_measurement_editability(
-                user=request.user,
-                measurement=measurement,
-                role=role,
-            )
-            if not editability["can_edit"]:
-                raise MeasurementPermissionDenied(
-                    "This biological measurement can no longer be corrected by this account.",
-                    error_code=editability["edit_restriction"],
-                )
-
-            serializer = BiologicalMeasurementCreateSerializer(
-                measurement, data=request.data, partial=True
-            )
-            serializer.is_valid(raise_exception=True)
-            measured_on = serializer.validated_data.get(
-                "measured_on",
-                measurement.measured_on,
-            )
-            week_start = BiologicalMeasurement.week_start_for(measured_on)
-            weekly_conflict = (
-                BiologicalMeasurement.objects.select_for_update()
-                .filter(box=box, week_start=week_start)
-                .exclude(pk=measurement.pk)
-                .first()
-            )
-            if weekly_conflict:
-                return Response(
-                    {
-                        "detail": "A biological measurement already exists for this box and ISO week.",
-                        "code": "measurement_week_conflict",
-                        "measurement_id": weekly_conflict.id,
-                        "week_start": week_start.isoformat(),
-                    },
-                    status=status.HTTP_409_CONFLICT,
-                )
-
-            before_values = _measurement_audit_values(measurement)
-            measurement = serializer.save(user=request.user)
-            after_values = _measurement_audit_values(measurement)
-
-            _record_measurement_audit(
-                box=box,
-                measurement=measurement,
-                user=request.user,
-                action=AuditLog.Action.UPDATE,
-                metadata={
-                    "measurement_id": measurement.id,
-                    "before": before_values,
-                    "after": after_values,
-                    "valeurs": after_values,
-                    "modifications": _changed_values(before_values, after_values),
-                },
-            )
+        except MeasurementWriteError as exc:
+            return _measurement_write_error_response(exc)
         return Response(
             BiologicalMeasurementSerializer(
                 measurement,

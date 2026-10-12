@@ -26,6 +26,10 @@ from apps.cultures.models import (
     ThermalZone,
 )
 from apps.measurements.models import BiologicalMeasurement, Probe, SalinityMeasurement
+# Keep the existing public import path without limiting other serializer exports.
+from apps.measurements.serializers import (
+    BiologicalMeasurementCreateSerializer as BiologicalMeasurementCreateSerializer,
+)
 from apps.measurements.services import get_active_measurement_role, get_measurement_editability
 from apps.organizations.models import Organization
 from apps.organizations.serializers import OrganizationSummarySerializer
@@ -494,24 +498,6 @@ class BoxDetailSerializer(BoxListSerializer):
                 for lineage in child_lineages
             ],
         }
-
-
-class BiologicalMeasurementCreateSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = BiologicalMeasurement
-        fields = [
-            "measured_on",
-            "polyp_count",
-            "ephyrae_count",
-            "strobila_count",
-            "salinity_psu",
-            "culture_status",
-            "needs_attention",
-            "notes",
-        ]
-        # Live entry never writes "not measured": NULL is reserved for
-        # historical rows. An omitted value still defaults to a real 0.
-        extra_kwargs = {"strobila_count": {"allow_null": False}}
 
 
 class BoxCreateSerializer(serializers.Serializer):

@@ -11,11 +11,11 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 
 from apps.accounts.models import OrganizationMembership
 from apps.audit.models import AuditLog
+from apps.measurements import services as measurement_services
 from apps.measurements.models import BiologicalMeasurement
 from apps.organizations.models import Organization
 from apps.taxonomy.models import Species, Strain
 
-from . import api_views as cultures_api
 from .api_views import BoxMeasurementListCreateAPIView
 from .models import Box, ThermalZone
 
@@ -116,7 +116,7 @@ class BiologicalMeasurementConcurrencyTests(TransactionTestCase):
         first_inside_transaction = threading.Event()
         second_box_lock_attempted = threading.Event()
         release_first = threading.Event()
-        original_audit = cultures_api._record_measurement_audit
+        original_audit = measurement_services._record_measurement_audit
 
         def blocking_audit(*, user, **kwargs):
             result = original_audit(user=user, **kwargs)
@@ -127,7 +127,7 @@ class BiologicalMeasurementConcurrencyTests(TransactionTestCase):
             return result
 
         with patch.object(
-            cultures_api,
+            measurement_services,
             "_record_measurement_audit",
             blocking_audit,
         ), ThreadPoolExecutor(max_workers=2) as executor:
@@ -188,6 +188,63 @@ class BiologicalMeasurementConcurrencyTests(TransactionTestCase):
         self.assertEqual(creation.user, self.first_user)
         self.assertEqual(creation.metadata["valeurs"]["polypes"], expected_values[0])
         self.assertEqual(creation.metadata["valeurs"]["ephyrules"], expected_values[1])
+
+    def test_direct_service_corrections_serialize_partial_values_and_audit_snapshots(self):
+        measurement = measurement_services.create_biological_measurement(
+            box_id=self.box.pk, organization_ids=[self.organization.pk], user=self.first_user,
+            data={"measured_on": self.measured_on, "polyp_count": 10, "ephyrae_count": 2},
+        )
+        original_sequence = measurement.polyp_state_sequence
+        entered = threading.Event()
+        attempted = threading.Event()
+        release = threading.Event()
+        original_audit = measurement_services._record_measurement_audit
+
+        def blocking_audit(*, user, **kwargs):
+            result = original_audit(user=user, **kwargs)
+            if user.pk == self.first_user.pk:
+                entered.set()
+                if not release.wait(timeout=10):
+                    raise TimeoutError("First correction was not released.")
+            return result
+
+        def correct(user, values, *, second=False):
+            close_old_connections()
+            def observe(execute, sql, params, many, context):
+                if second and "FOR UPDATE" in sql and "cultures_box" in sql:
+                    attempted.set()
+                return execute(sql, params, many, context)
+            try:
+                with connection.execute_wrapper(observe):
+                    return measurement_services.correct_biological_measurement(
+                        box_id=self.box.pk, measurement_id=measurement.pk,
+                        organization_ids=[self.organization.pk], user=user, data=values,
+                    ).pk
+            finally:
+                connections.close_all()
+
+        with patch.object(measurement_services, "_record_measurement_audit", blocking_audit), ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(correct, self.first_user, {"polyp_count": 0})
+            try:
+                self.assertTrue(entered.wait(timeout=10))
+                second = pool.submit(correct, self.second_user, {"ephyrae_count": 0}, second=True)
+                self.assertTrue(attempted.wait(timeout=10))
+                self.assertFalse(second.done(), "The second correction must wait for the Box lock.")
+            finally:
+                release.set()
+            self.assertEqual(first.result(timeout=15), measurement.pk)
+            self.assertEqual(second.result(timeout=15), measurement.pk)
+
+        measurement.refresh_from_db()
+        self.box.refresh_from_db()
+        self.assertEqual((measurement.polyp_count, measurement.ephyrae_count), (0, 0))
+        self.assertEqual(measurement.user, self.second_user)
+        self.assertEqual(measurement.polyp_state_sequence, original_sequence)
+        self.assertEqual(self.box.polyp_state_revision, original_sequence + 2)
+        updates = list(AuditLog.objects.filter(action=AuditLog.Action.UPDATE).order_by("pk"))
+        self.assertEqual(len(updates), 2)
+        self.assertEqual(updates[0].metadata["after"], updates[1].metadata["before"])
+        self.assertEqual(updates[1].metadata["modifications"], {"ephyrules": {"avant": 2, "apres": 0}})
 
     def test_concurrent_first_entries_are_serialized_as_create_then_conflict(self):
         first_response, second_response = self._run_ordered_concurrent_posts(
