@@ -1534,12 +1534,12 @@ export default function App() {
         try {
           const [detail, zones] = await Promise.all([
             apiGet<BoxDetail>(`/api/boxes/${boxId}/`),
-            apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80'),
+            fetchAllPages<ThermalZone>('/api/thermal-zones/?limit=80'),
           ]);
           assertCurrent();
           setData((current) => ({
             ...mergeBoxDetail(current, detail),
-            zones: zones.results,
+            zones,
             overview: null,
             exportOptions: null,
           }));
@@ -1595,7 +1595,7 @@ export default function App() {
   }
 
   async function assignBoxInitialLocation(boxId: number, payload: BoxInitialLocationPayload) {
-    const { apiGet, apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
+    const { apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
     const detail = await apiPost<BoxDetail>(
       `/api/admin/box-inventory/${boxId}/assign-location/`,
       payload,
@@ -1608,9 +1608,10 @@ export default function App() {
       exportOptions: null,
     }));
     await refreshAfterMutation(async () => {
-      const zones = await apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80');
       assertCurrent();
-      setData((current) => ({ ...current, zones: zones.results }));
+      const zones = await fetchAllPages<ThermalZone>('/api/thermal-zones/?limit=80');
+      assertCurrent();
+      setData((current) => ({ ...current, zones }));
     }, assertCurrent);
     assertCurrent();
   }
@@ -1666,22 +1667,28 @@ export default function App() {
   }
 
   async function createThermalZone(payload: ThermalZonePayload) {
-    const { apiGet, apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
+    const { apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
     await apiPost<ThermalZone>('/api/thermal-zones/', payload);
     assertCurrent();
-    const zones = await apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80');
-    assertCurrent();
-    setData((current) => ({ ...current, zones: zones.results }));
+    await refreshAfterMutation(async () => {
+      assertCurrent();
+      const zones = await fetchAllPages<ThermalZone>('/api/thermal-zones/?limit=80');
+      assertCurrent();
+      setData((current) => ({ ...current, zones }));
+    }, assertCurrent);
     assertCurrent();
   }
 
   async function updateThermalZone(zoneId: number, payload: ThermalZonePayload) {
-    const { apiGet, apiPatch, setData, assertCurrent } = getOperationRequests(operationGeneration);
+    const { apiPatch, setData, assertCurrent } = getOperationRequests(operationGeneration);
     await apiPatch<ThermalZone>(`/api/thermal-zones/${zoneId}/`, payload);
     assertCurrent();
-    const zones = await apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80');
-    assertCurrent();
-    setData((current) => ({ ...current, zones: zones.results }));
+    await refreshAfterMutation(async () => {
+      assertCurrent();
+      const zones = await fetchAllPages<ThermalZone>('/api/thermal-zones/?limit=80');
+      assertCurrent();
+      setData((current) => ({ ...current, zones }));
+    }, assertCurrent);
     assertCurrent();
   }
 
@@ -1746,13 +1753,16 @@ export default function App() {
   }
 
   async function createProbe(payload: ProbePayload) {
-    const { apiGet, apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
+    const { apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
     await apiPost<Probe>('/api/probes/', payload);
     assertCurrent();
     // Probes are nested inside the zone payload, so refresh the zones list.
-    const zones = await apiGet<PaginatedResponse<ThermalZone>>('/api/thermal-zones/?limit=80');
-    assertCurrent();
-    setData((current) => ({ ...current, zones: zones.results }));
+    await refreshAfterMutation(async () => {
+      assertCurrent();
+      const zones = await fetchAllPages<ThermalZone>('/api/thermal-zones/?limit=80');
+      assertCurrent();
+      setData((current) => ({ ...current, zones }));
+    }, assertCurrent);
     assertCurrent();
   }
 
