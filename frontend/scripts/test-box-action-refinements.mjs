@@ -34,8 +34,11 @@ function catalogue(language) {
   return context.exports[language];
 }
 const catalogues = { fr: catalogue('fr'), en: catalogue('en') };
+const environmentContext = { exports: {} };
+evaluate(read('../src/utils/environmentFormat.ts'), environmentContext);
+const { formatSalinity, formatTemperature } = environmentContext.exports;
 
-function render({ desktop = false, phone = false, active = true, busy = false, write = true, status = true, language = 'en' } = {}) {
+function render({ desktop = false, phone = false, active = true, busy = false, write = true, status = true, language = 'en', currentZone = null, boxSalinity } = {}) {
   const contextSignal = new AbortController().signal;
   const context = {
     React, useState: React.useState, useEffect: React.useEffect,
@@ -44,11 +47,11 @@ function render({ desktop = false, phone = false, active = true, busy = false, w
     CirclePause, CirclePlay, GitFork, Route,
     isDesktopApp: desktop, isPhoneLayout: phone, isTabletLayout: !desktop && !phone,
     canWriteLabData: write, canShowStatusButton: status, isBoxActive: active, isChangingBoxStatus: busy,
-    box: { global_code: 'LONG-BOX-CODE-123456789', species: { scientific_name: 'Aurelia aurita' }, thermal_zone: null },
+    box: { global_code: 'LONG-BOX-CODE-123456789', species: { scientific_name: 'Aurelia aurita' }, thermal_zone: null, latest_salinity_psu: boxSalinity },
     qr: { imageUrl: '/api/boxes/7/qr.svg', scanUrl: '/bac/7' },
-    statusPresentation: { tone: active ? 'active' : 'inactive' }, displayDate: { labelKey: 'created', date: null }, currentZone: null,
+    statusPresentation: { tone: active ? 'active' : 'inactive' }, displayDate: { labelKey: 'created', date: null }, currentZone,
     t: key => catalogues[language][key] ?? key,
-    formatSalinity: value => value ?? '-', formatTemperature: value => value ?? '-', formatDisplayDate: value => value,
+    formatSalinity, formatTemperature, formatDisplayDate: value => value,
     buildQrLabelItem: (box, imageUrl) => ({ globalCode: box.global_code, qrImageUrl: imageUrl }),
     InfoPill: ({ label, value }) => React.createElement('div', null, label, value),
     PolypbaseIcon: ({ name }) => React.createElement('svg', { 'data-icon': name }),
@@ -118,6 +121,36 @@ for (const language of ['fr', 'en']) {
     assert.deepEqual(Array.from(phone.context.menu.actions, item => item.label),
       ['qrLabelTitle', 'moveAction', 'subcultureAction', 'boxArchiveAction'].map(key => catalogues[language][key]));
   });
+}
+
+for (const language of ['fr', 'en']) {
+  for (const layout of [{ desktop: true }, {}, { phone: true }]) {
+    const name = layout.desktop ? 'desktop' : layout.phone ? 'phone' : 'tablet';
+    test(`Box summary preserves zero, missing values and formatting in ${language} on ${name}`, () => {
+      const summaryValues = options => {
+        const { context } = render({ ...layout, language, ...options });
+        const summary = context.renderHeader().props.children.find(node =>
+          React.isValidElement(node) && node.props.className === 'entity-header__summary box-zone-summary');
+        return summary.props.children.filter(node => React.isValidElement(node)
+          && node.type === context.InfoPill).map(node => [node.props.label, node.props.value]);
+      };
+      const labels = ['zoneSalinityShort', 'boxSalinityShort', 'temperatureShort']
+        .map(key => catalogues[language][key]);
+      const expected = values => labels.map((label, index) => [label, values[index]]);
+      assert.deepEqual(summaryValues({
+        currentZone: { salinity_psu: '0.00', latest_temperature: { average_temperature_c: 0 } },
+        boxSalinity: 0,
+      }), expected(['0.0', '0.0', '0.0°C']));
+      assert.deepEqual(summaryValues({ boxSalinity: null }), expected(['-', '-', '-']));
+      assert.deepEqual(summaryValues({
+        currentZone: { salinity_psu: '', latest_temperature: { average_temperature_c: null } },
+      }), expected(['-', '-', '-']));
+      assert.deepEqual(summaryValues({
+        currentZone: { salinity_psu: '31.25', latest_temperature: { average_temperature_c: '-2.25' } },
+        boxSalinity: '30.00',
+      }), expected(['31.3', '30.0', '-2.3°C']));
+    });
+  }
 }
 
 test('tablet tracking remains icon-only, disabled while saving, and outside labeled styling', () => {

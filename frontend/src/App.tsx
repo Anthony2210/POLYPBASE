@@ -129,6 +129,7 @@ import {
   isMeasurementWeekConflict,
 } from './utils/boxMeasurement';
 import { formatDisplayDate } from './utils/dateFormat';
+import { formatSalinity, formatTemperature } from './utils/environmentFormat';
 import { getErrorMessage } from './utils/errors';
 import {
   getPasswordResetRoute,
@@ -4946,23 +4947,6 @@ function isBoxLocationChangedError(error: unknown) {
     && error.data.code === 'box_location_changed';
 }
 
-function formatTemperature(value: string | number | null | undefined) {
-  if (value === null || value === undefined || value === '') return '-';
-  const numericValue = typeof value === 'number' ? value : Number.parseFloat(value);
-  return Number.isFinite(numericValue) ? `${numericValue.toFixed(1)}°C` : '-';
-}
-
-function formatTemperatureValue(value: string | number | null | undefined) {
-  if (value === null || value === undefined || value === '') return '-';
-  const numericValue = typeof value === 'number' ? value : Number.parseFloat(value);
-  return Number.isFinite(numericValue) ? `${numericValue.toFixed(1)}°C` : '-';
-}
-
-function formatSalinity(value: string | number | null | undefined) {
-  if (value === null || value === undefined || value === '') return '-';
-  const numeric = typeof value === 'string' ? Number.parseFloat(value) : value;
-  return Number.isNaN(numeric) ? '-' : numeric.toFixed(1);
-}
 
 function getLanguage(profile: UserProfile | null): Language {
   return resolveLanguage(
