@@ -733,6 +733,7 @@ export default function App() {
 
   useEffect(() => {
     if (!isScanReady || route.scanBoxId == null) return;
+    const scanBoxId = route.scanBoxId;
 
     let isActive = true;
     const organizationGeneration = organizationRequestGenerationRef.current;
@@ -750,10 +751,10 @@ export default function App() {
     async function handoffScan() {
       setIsBoxLoading(true);
       try {
-        const result = await apiPost<{ global_code: string }>(`/api/boxes/${route.scanBoxId}/scan/`, {});
+        const result = await apiPost<{ global_code: string }>(`/api/boxes/${scanBoxId}/scan/`, {});
         if (!isCurrentRequest()) return;
         replaceRoute(
-          { tab: 'pilotage', boxCode: result.global_code, boxId: route.scanBoxId },
+          { tab: 'pilotage', boxCode: result.global_code, boxId: scanBoxId },
           `/boxes/${encodeURIComponent(result.global_code)}`,
         );
       } catch (requestError) {

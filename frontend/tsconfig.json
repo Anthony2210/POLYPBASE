@@ -16,6 +16,7 @@
        sous des milliers d'erreurs sur le code existant. On pourra durcir
        progressivement (strict, noUnusedLocals...). */
     "strict": false,
+    "strictNullChecks": true,
     "noImplicitAny": false,
     "forceConsistentCasingInFileNames": true
   },

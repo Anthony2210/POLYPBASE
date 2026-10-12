@@ -8,7 +8,7 @@ export function useAnchoredPopover<T extends HTMLElement>(
   align: 'start' | 'end' = 'start',
 ) {
   const id = useId();
-  const anchorRef = useRef<T>(null);
+  const anchorRef = useRef<T | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<CSSProperties>({ visibility: 'hidden' });
 

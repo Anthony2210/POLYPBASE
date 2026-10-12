@@ -422,7 +422,7 @@ function AccountManagementSection({
 
   async function handleAddMember(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isAdding || organizationId == null) return;
+    if (isAdding || organizationId == null || data == null) return;
 
     setIsAdding(true);
     setFormError(null);
@@ -1430,7 +1430,7 @@ function OrganizationCreateForm({
   const [postalAddress, setPostalAddress] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const existingCities = useMemo(() => organizations.map((organization) => organization.city).filter(Boolean), [organizations]);
+  const existingCities = useMemo(() => organizations.map((organization) => organization.city).filter((city): city is string => city != null && city !== ''), [organizations]);
   const cityOptions = useMemo(() => getCityOptions(country, existingCities), [country, existingCities]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1620,14 +1620,14 @@ function OrganizationManagementList({
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { confirmAction, confirmActionModal } = useConfirmAction();
-  const existingCities = useMemo(() => organizations.map((organization) => organization.city).filter(Boolean), [organizations]);
+  const existingCities = useMemo(() => organizations.map((organization) => organization.city).filter((city): city is string => city != null && city !== ''), [organizations]);
   const cityOptions = useMemo(() => getCityOptions(country, existingCities), [country, existingCities]);
   const [organizationSearch, setOrganizationSearch] = useState('');
   const [countryFilter, setCountryFilter] = useState('all');
   const canManageOrganizations = userHasAdminRole(profile);
   const countryOptions = useMemo(
     () =>
-      Array.from(new Set(organizations.map((organization) => organization.country).filter(Boolean)))
+      Array.from(new Set(organizations.map((organization) => organization.country).filter((country): country is string => country != null && country !== '')))
         .sort((a, b) => a.localeCompare(b, 'fr-FR')),
     [organizations],
   );
