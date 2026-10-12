@@ -4,11 +4,12 @@ import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
 import { ast, functionNode } from './app-operation-test-harness.mjs';
+import { loadComponent } from './ui-primitives-test-harness.mjs';
 
 const compile = source => ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
 }).outputText;
-const modalCode = compile(`${functionNode('BoxSearchStatus').getText(ast)}\n${functionNode('QrSearchModal').getText(ast)}\nexports.Modal = QrSearchModal;`);
+const modalCode = compile(`${functionNode('QrSearchModal').getText(ast)}\nexports.Modal = QrSearchModal;`);
 const searchCode = compile(readFileSync(new URL('../src/components/SearchField.tsx', import.meta.url), 'utf8'));
 
 // Follow the existing Node/TypeScript/VM dialog harness convention. Reconcile
@@ -69,6 +70,7 @@ function harness() {
     require(name) { assert.equal(name, 'react/jsx-runtime'); return runtime; },
     ModalPortal: 'portal', PolypbaseIcon: 'icon', TabletQrScanner: 'scanner',
     SearchField: searchExports.default,
+    BoxSearchStatus: loadComponent('BoxSearchStatus', { 'react/jsx-runtime': runtime }),
     filterBoxes: (boxes, query) => boxes.filter(box => box.global_code.includes(query)),
   });
   props = {

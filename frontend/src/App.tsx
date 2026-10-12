@@ -46,6 +46,9 @@ import type { BoxInsightTab } from './components/BoxInsights';
 import { useConfirmAction, type ConfirmActionOptions } from './components/ConfirmActionModal';
 import ApplicationErrorNotice from './components/ApplicationErrorNotice';
 import DetailBackButton from './components/DetailBackButton';
+import BoxSearchStatus from './components/BoxSearchStatus';
+import SuggestionList from './components/SuggestionList';
+import RecentAccessList from './components/RecentAccessList';
 import InfoPill from './components/InfoPill';
 import Metric from './components/Metric';
 import StepperButton from './components/StepperButton';
@@ -2633,33 +2636,6 @@ function OrganizationChoiceScreen({
   );
 }
 
-function BoxSearchStatus({
-  status,
-  onRetry,
-  t,
-}: {
-  status: BoxCollectionState['status'];
-  onRetry: () => void;
-  t: TFunction;
-}) {
-  if (status === 'error') {
-    return (
-      <section className="suggestion-panel" role="alert">
-        <p className="muted compact-text">{t('boxCollectionLoadError')}</p>
-        <button className="secondary-button" type="button" onClick={onRetry}>
-          {t('boxCollectionRetry')}
-        </button>
-      </section>
-    );
-  }
-
-  return (
-    <section className="suggestion-panel" role="status">
-      <p className="muted compact-text">{t('loading')}</p>
-    </section>
-  );
-}
-
 function PilotageView({
   activeOrganizationId,
   boxes,
@@ -3322,163 +3298,6 @@ function CreateBoxPanel({
   }
 
   return panel;
-}
-
-function RecentAccessList({
-  boxes,
-  isPhoneLayout,
-  onSelectBox,
-  t,
-}: {
-  boxes: BoxItem[];
-  isPhoneLayout: boolean;
-  onSelectBox: (id: number) => void;
-  t: TFunction;
-}) {
-  if (!boxes.length) {
-    return <p className="muted compact-text">{t('noRecentScans')}</p>;
-  }
-
-  return (
-    <section className="recent-panel" aria-label={t('recentAccessAriaLabel')}>
-      <div className="section-title">
-        <h2>{t('recentAccess')}</h2>
-        <span>{t('scanSearch')}</span>
-      </div>
-
-      <div className="recent-strip">
-        {boxes.map((box) => (
-          <button
-            key={box.id}
-            type="button"
-            onClick={() => onSelectBox(box.id)}
-          >
-            <span className="recent-box-heading">
-              <strong>{box.global_code}</strong>
-            </span>
-            <small>{box.species.scientific_name}</small>
-            <span className="recent-box-meta">
-              <span>{box.thermal_zone?.name ?? t('noZone')}</span>
-            </span>
-            {!isPhoneLayout ? (
-              <span className="recent-box-chevron" aria-hidden="true">
-                <PolypbaseIcon name="chevron-right" size={16} />
-              </span>
-            ) : null}
-          </button>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function SuggestionList({
-  boxes,
-  listId,
-  resultIdPrefix,
-  selectedBoxId,
-  totalCount,
-  heading,
-  isPhoneLayout,
-  onClear,
-  onSelectBox,
-  t,
-}: {
-  boxes: BoxItem[];
-  listId: string;
-  resultIdPrefix: string;
-  selectedBoxId: number | null;
-  totalCount: number;
-  heading: string;
-  isPhoneLayout: boolean;
-  onClear?: () => void;
-  onSelectBox: (id: number) => void;
-  t: TFunction;
-}) {
-  return (
-    <section className="suggestion-panel" aria-label={heading}>
-      <div className="section-title">
-        <h2>{heading}</h2>
-        <span aria-live="polite">{totalCount}</span>
-      </div>
-
-      {boxes.length > 0 ? (
-        <div className="suggestion-list" id={listId} role="listbox">
-          {boxes.map((box) => (
-            <button
-              key={box.id}
-              id={`${resultIdPrefix}-${box.id}`}
-              className={selectedBoxId === box.id ? 'suggestion-row is-selected' : 'suggestion-row'}
-              type="button"
-              role="option"
-              aria-selected={selectedBoxId === box.id}
-              onClick={() => onSelectBox(box.id)}
-            >
-              {isPhoneLayout ? (
-                <>
-                  <span className="suggestion-identity">
-                    <strong>{box.global_code}</strong>
-                    <small>{box.species.scientific_name}</small>
-                  </span>
-                  <span className="suggestion-reading">
-                    {box.latest_measurement ? (
-                      <>
-                        <strong>
-                          {box.latest_measurement.polyp_count} {t('polyps').toLocaleLowerCase()},{' '}
-                          {box.latest_measurement.ephyrae_count} {t('ephyrae').toLocaleLowerCase()}
-                        </strong>
-                        <small>{formatDisplayDate(box.latest_measurement.measured_on)}</small>
-                      </>
-                    ) : (
-                      <small>{t('noMeasurementHistory')}</small>
-                    )}
-                  </span>
-                  <span className="suggestion-location">
-                    <strong>{box.thermal_zone?.name ?? t('noZone')}</strong>
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span className="suggestion-identity">
-                    <strong>{box.global_code}</strong>
-                  </span>
-                  <span className="suggestion-context">
-                    <strong>{box.species.scientific_name}</strong>
-                  </span>
-                  <span className="suggestion-reading">
-                    {box.latest_measurement ? (
-                      <>
-                        <strong>
-                          {box.latest_measurement.polyp_count} {t('polyps').toLocaleLowerCase()},{' '}
-                          {box.latest_measurement.ephyrae_count} {t('ephyrae').toLocaleLowerCase()}
-                        </strong>
-                        <small>{formatDisplayDate(box.latest_measurement.measured_on)}</small>
-                      </>
-                    ) : (
-                      <small>{t('noMeasurementHistory')}</small>
-                    )}
-                  </span>
-                  <span className="suggestion-location">
-                    <strong>{box.thermal_zone?.name ?? t('noZone')}</strong>
-                  </span>
-                </>
-              )}
-              <span className="suggestion-chevron" aria-hidden="true">
-                <PolypbaseIcon name="chevron-right" size={17} />
-              </span>
-            </button>
-          ))}
-        </div>
-      ) : (
-        <div className="search-empty-state" id={listId} role="status">
-          <p>{t('searchNoResults')}</p>
-          {onClear ? (
-            <button type="button" onClick={onClear}>{t('searchClear')}</button>
-          ) : null}
-        </div>
-      )}
-    </section>
-  );
 }
 
 function BoxPage({

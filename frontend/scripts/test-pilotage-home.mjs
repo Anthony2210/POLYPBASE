@@ -8,6 +8,8 @@ import { appHarness, ast, functionNode, tick } from './app-operation-test-harnes
 
 const readSource = (relativePath) => readFileSync(new URL(relativePath, import.meta.url), 'utf8');
 const appSource = readSource('../src/App.tsx');
+const pilotageSource = functionNode('PilotageView').getText(ast);
+const suggestionSource = readSource('../src/components/SuggestionList.tsx');
 const searchFieldSource = readSource('../src/components/SearchField.tsx');
 const pilotageCss = readSource('../src/styles/pages/pilotage.css');
 const layoutCss = readSource('../src/styles/layout.css');
@@ -31,22 +33,22 @@ test('route request guard rejects stale request and navigation generations', () 
 });
 
 test('idle and active search states switch recent content correctly', () => {
-  assert.match(appSource, /const hasSearch = Boolean\(search\.trim\(\)\)/);
-  assert.match(appSource, /\{\(!hasSearch \|\| isPhoneLayout\) \? \(\s*<RecentAccessList/s);
-  assert.match(appSource, /\{hasSearch && !isBoxCollectionReady \? \(\s*<BoxSearchStatus[^>]*\/>\s*\) : hasSearch \? \(\s*<SuggestionList/s);
+  assert.match(pilotageSource, /const hasSearch = Boolean\(search\.trim\(\)\)/);
+  assert.match(pilotageSource, /\{\(!hasSearch \|\| isPhoneLayout\) \? \(\s*<RecentAccessList/s);
+  assert.match(pilotageSource, /\{hasSearch && !isBoxCollectionReady \? \(\s*<BoxSearchStatus[^>]*\/>\s*\) : hasSearch \? \(\s*<SuggestionList/s);
 });
 
 test('zero results render explicit feedback and a clear action', () => {
-  assert.match(appSource, /<div className="search-empty-state" id=\{listId\} role="status">/);
-  assert.match(appSource, /t\('searchNoResults'\)/);
-  assert.match(appSource, /t\('searchClear'\)/);
+  assert.match(suggestionSource, /<div className="search-empty-state" id=\{listId\} role="status">/);
+  assert.match(suggestionSource, /t\('searchNoResults'\)/);
+  assert.match(suggestionSource, /t\('searchClear'\)/);
 });
 
 test('desktop and tablet show total results while rendering at most fifteen', () => {
   assert.match(appSource, /const PILOTAGE_RESULT_LIMIT = 15/);
-  assert.match(appSource, /searchResults\.slice\(0, isPhoneLayout \? PHONE_RESULT_LIMIT : PILOTAGE_RESULT_LIMIT\)/);
-  assert.match(appSource, /totalCount=\{searchResults\.length\}/);
-  assert.doesNotMatch(appSource, /searchMoreResults|search-results-overflow/);
+  assert.match(pilotageSource, /searchResults\.slice\(0, isPhoneLayout \? PHONE_RESULT_LIMIT : PILOTAGE_RESULT_LIMIT\)/);
+  assert.match(pilotageSource, /totalCount=\{searchResults\.length\}/);
+  assert.doesNotMatch(pilotageSource + suggestionSource, /searchMoreResults|search-results-overflow/);
 });
 
 test('returning to idle Pilotage clears search without box-code injection', () => {
@@ -98,17 +100,17 @@ for (const traversal of ['push', 'popstate']) {
 }
 
 test('desktop and tablet use one in-flow semantic result surface', () => {
-  assert.equal((appSource.match(/'box-search-results'/g) ?? []).length, 1);
-  assert.doesNotMatch(appSource, /desktop-suggestion-slot|tablet-search-panel/);
-  assert.match(appSource, /className="pilotage-search-surface"/);
+  assert.equal((pilotageSource.match(/'box-search-results'/g) ?? []).length, 1);
+  assert.doesNotMatch(pilotageSource, /desktop-suggestion-slot|tablet-search-panel/);
+  assert.match(pilotageSource, /className="pilotage-search-surface"/);
   assert.match(pilotageCss, /\.pilotage-search-surface\s*\{[^}]*display:\s*grid[^}]*gap:\s*0[^}]*border:\s*1px solid var\(--color-line-strong\)/s);
   assert.match(pilotageCss, /\.pilotage-search-surface \.suggestion-panel\s*\{[^}]*border-top:\s*1px solid var\(--color-line\)/s);
   assert.match(pilotageCss, /\.suggestion-list\s*\{[^}]*overflow-y:\s*auto/s);
-  assert.match(appSource, /clearLabel=\{t\('searchClear'\)\}[\s\S]*?variant="control-deck"/);
+  assert.match(pilotageSource, /clearLabel=\{t\('searchClear'\)\}[\s\S]*?variant="control-deck"/);
   assert.match(searchFieldSource, /variant === 'control-deck' && value && clearLabel/);
   assert.match(searchFieldSource, /className="search-field-clear"[\s\S]*?onChange\(''\);[\s\S]*?inputRef\.current\?\.focus\(\)/);
-  assert.match(appSource, /<PolypbaseIcon name="chevron-right" size=\{17\}/);
-  assert.doesNotMatch(appSource, /<span className="suggestion-chevron"[^>]*>›<\/span>/);
+  assert.match(suggestionSource, /<PolypbaseIcon name="chevron-right" size=\{17\}/);
+  assert.doesNotMatch(suggestionSource, /<span className="suggestion-chevron"[^>]*>›<\/span>/);
   assert.doesNotMatch(pilotageCss, /\.desktop-suggestion-slot/);
 });
 
@@ -148,11 +150,12 @@ test('Pilotage heading reuses the shared page frame without a page-specific offs
 });
 
 test('desktop and tablet result rows show only the canonical box code and species', () => {
-  const contextIndex = appSource.indexOf('<span className="suggestion-context">');
-  const identityIndex = appSource.lastIndexOf('<span className="suggestion-identity">', contextIndex);
-  const desktopBranch = appSource.slice(
+  const contextIndex = suggestionSource.indexOf('<span className="suggestion-context">');
+  const identityIndex = suggestionSource.lastIndexOf('<span className="suggestion-identity">', contextIndex);
+  assert.ok(contextIndex > identityIndex && identityIndex >= 0);
+  const desktopBranch = suggestionSource.slice(
     identityIndex,
-    appSource.indexOf('<span className="suggestion-reading">', contextIndex),
+    suggestionSource.indexOf('<span className="suggestion-reading">', contextIndex),
   );
   assert.doesNotMatch(desktopBranch, /box\.local_code|box\.box_number|strain\.code/);
   assert.match(desktopBranch, /<strong>\{box\.global_code\}<\/strong>/);
@@ -162,8 +165,8 @@ test('desktop and tablet result rows show only the canonical box code and specie
 
 test('Pilotage retains the shared page frame and the phone workflow branch', () => {
   assert.match(layoutCss, /\.page-heading,\s*\.workspace-page\s*\{[^}]*width:\s*min\(var\(--page-width\), 100%\)/s);
-  assert.match(appSource, /className=\{`phone-lookup-panel is-\$\{tabletLookupMode\}-mode`\}/);
-  assert.match(appSource, /<TabletQrScanner[\s\S]*?onSelectBox=\{onSelectBox\}/);
+  assert.match(pilotageSource, /className=\{`phone-lookup-panel is-\$\{tabletLookupMode\}-mode`\}/);
+  assert.match(pilotageSource, /<TabletQrScanner[\s\S]*?onSelectBox=\{onSelectBox\}/);
   assert.match(pilotageCss, /@media \(max-width: 759px\), \(max-width: 900px\) and \(orientation: portrait\)/);
   assert.match(appSource, /presentation === 'inline' \? \(\s*<button\s*className="create-box-toggle"/s);
   assert.match(pilotageCss, /\.create-box-panel:has\(\.create-box-form\)\s*\{[^}]*position:\s*fixed/s);
