@@ -79,7 +79,7 @@ type TrendLabels = {
   historicalUser?: string;
   location: string;
   missingReading: string;
-  movement?: string;
+  movement: string;
   observation?: string;
   polyps: string;
   salinity?: string;
@@ -434,7 +434,7 @@ export default function BiologicalTrendChart({
           ))}
 
           {eventPoints.map(({ event, x }) => {
-            const eventTitle = event.title || labels.movement || 'Transfert';
+            const eventTitle = event.title || labels.movement;
             const detail = {
               id: `event-${event.id}`,
               left: (x / width) * 100,
@@ -482,7 +482,7 @@ export default function BiologicalTrendChart({
                     textAnchor="middle"
                     transform="rotate(-90)"
                   >
-                    {(labels.movement ?? 'Transfert').toLocaleUpperCase('fr-FR')}
+                    {labels.movement.toLocaleUpperCase('fr-FR')}
                   </text>
                 ) : null}
               </g>

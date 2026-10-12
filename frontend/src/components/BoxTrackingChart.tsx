@@ -163,7 +163,7 @@ export default function BoxTrackingChart({
               ephyrae: labels.ephyraeFull,
               location: language === 'fr' ? 'Emplacement' : 'Location',
               missingReading: labels.missingReading,
-              movement: language === 'fr' ? 'Transfert' : 'Transfer',
+              movement: createTranslator(language)('movementEvent'),
               observation: labels.historyObservation,
               polyps: labels.polyps,
               salinity: labels.salinityFull,

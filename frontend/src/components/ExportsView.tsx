@@ -803,7 +803,7 @@ export default function ExportsView({
                 events={selectedPreviewDetail.movements.map((movement) => ({
                   id: `movement-${movement.id}`,
                   date: movement.moved_at,
-                  title: language === 'fr' ? 'Transfert' : 'Transfer',
+                  title: translations[language].movementEvent,
                   detail: movement.to_thermal_zone.name,
                   kind: 'movement' as const,
                 }))}
@@ -817,7 +817,7 @@ export default function ExportsView({
                   ephyrae: language === 'fr' ? 'Éphyrules' : 'Ephyrae',
                   location: language === 'fr' ? 'Emplacement' : 'Location',
                   missingReading: language === 'fr' ? 'Période sans relevé' : 'Period without measurement',
-                  movement: language === 'fr' ? 'Transfert' : 'Transfer',
+                  movement: translations[language].movementEvent,
                   observation: language === 'fr' ? 'Observation' : 'Observation',
                   polyps: language === 'fr' ? 'Polypes' : 'Polyps',
                   salinity: 'PSU',

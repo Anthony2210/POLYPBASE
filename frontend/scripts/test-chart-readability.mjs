@@ -34,6 +34,66 @@ const geometry = (width, compact = false, values = readings) => chart.buildGeome
   values, locations, [], '2026-01-01', '2026-06-30', compact, chart.resolveChartLayout(compact, width, true),
 );
 
+test('location changes use the shared movement translation in every chart entry point', () => {
+  const trackingSource = readFileSync(new URL('../src/components/BoxTrackingChart.tsx', import.meta.url), 'utf8');
+  const exportSource = readFileSync(new URL('../src/components/ExportsView.tsx', import.meta.url), 'utf8');
+  const overviewSource = readFileSync(new URL('../src/components/OverviewView.tsx', import.meta.url), 'utf8');
+  assert.match(trackingSource, /movement: createTranslator\(language\)\('movementEvent'\)/);
+  assert.match(exportSource, /title: translations\[language\]\.movementEvent/);
+  assert.match(exportSource, /movement: translations\[language\]\.movementEvent/);
+  assert.match(overviewSource, /movement: t\('movementEvent'\)/);
+  for (const source of [chartSource, trackingSource, exportSource]) {
+    assert.doesNotMatch(source, /['"](?:Transferts?|Transfers?)['"]/);
+  }
+  assert.match(chartSource, /movement: string;/);
+
+  for (const [language, expected] of [['fr', 'Déplacement'], ['en', 'Move']]) {
+    const locale = compile(readFileSync(new URL(`../src/i18n/${language}.ts`, import.meta.url), 'utf8'))[language];
+    assert.equal(locale.movementEvent, expected);
+    assert.match(locale.adminTransferTitle, language === 'fr' ? /Transfert/ : /Transfer/);
+    const jsx = (type, props) => ({ type, props });
+    const renderedChart = compile(chartSource, {
+      'react/jsx-runtime': { jsx, jsxs: jsx },
+      react: {
+        useState: (initial) => [initial, () => {}],
+        useMemo: (callback) => callback(),
+        useRef: (current) => ({ current }),
+        useId: () => 'movement-test',
+        useEffect() {},
+        useLayoutEffect() {},
+      },
+      'd3-scale': scales, 'd3-shape': shapes,
+      '../utils/userIdentity': utility('userIdentity'),
+      '../utils/dateFormat': utility('dateFormat'),
+      '../utils/chartBiology': utility('chartBiology'),
+      '../utils/chartLocations': utility('chartLocations'),
+    }).default({
+      startDate: '2026-01-01', endDate: '2026-06-30', measurements: readings,
+      locations: [
+        { id: 1, name: 'A', startsAt: '2026-01-01', endsAt: '2026-03-01' },
+        { id: 2, name: 'B', startsAt: '2026-03-01', endsAt: null },
+      ],
+      events: [{ id: 3, date: '2026-02-01', title: expected, kind: 'movement' }],
+      labels: { chartTitle: 'Chart', empty: 'Empty', ephyrae: 'Ephyrae', location: 'Location', missingReading: 'Missing', movement: locale.movementEvent, polyps: 'Polyps' },
+    });
+    const nodes = [];
+    function visit(node) {
+      if (Array.isArray(node)) return node.forEach(visit);
+      if (!node || typeof node !== 'object') return;
+      nodes.push(node);
+      visit(node.props?.children);
+    }
+    visit(renderedChart);
+    const markers = nodes.filter((node) => node.props?.className === 'bio-trend-event is-movement');
+    assert.equal(markers.length, 2, 'explicit movement and generated location transition');
+    for (const marker of markers) assert.ok(marker.props['aria-label'].startsWith(`${expected} `));
+    const markerLabels = nodes.filter((node) => node.props?.className === 'bio-trend-event-label');
+    assert.equal(markerLabels.length, 2);
+    for (const label of markerLabels) assert.equal(label.props.children, expected.toLocaleUpperCase('fr-FR'));
+    assert.match(chartSource, /title: `\$\{eventTitle\} - \$\{formatDisplayDate\(event\.date\)\}`/);
+  }
+});
+
 test('phone/tablet geometry fills the available padded card content, in both chart modes', () => {
   for (const viewport of [320, 375, 390, 768, 960, 1024, 1180]) {
     // Model page/card padding, not the full viewport as drawing space.
