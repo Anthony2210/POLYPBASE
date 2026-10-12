@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
-import { appHarness, ast, functionNode } from './app-operation-test-harness.mjs';
+import { appHarness, ast } from './app-operation-test-harness.mjs';
+import { stepperHarness } from './ui-primitives-test-harness.mjs';
 
 const read = path => readFileSync(new URL(`../src/${path}`, import.meta.url), 'utf8');
 const app = read('App.tsx');
@@ -38,48 +39,6 @@ for (const [field, id] of [['polyp', 'polyps'], ['ephyrae', 'ephyrae']]) {
   });
 }
 
-function stepperHarness() {
-  let instance, index, focused;
-  const runtime = { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) };
-  const context = {
-    exports: {},
-    require: () => runtime,
-    useRef(value) {
-      const slot = index++;
-      return instance.slots[slot] ??= { current: value };
-    },
-    useState(value) {
-      const owner = instance, slot = index++;
-      if (!(slot in owner.slots)) owner.slots[slot] = value;
-      return [owner.slots[slot], next => { owner.slots[slot] = next; }];
-    },
-    useEffect() {},
-    window: { setTimeout: () => 1, clearTimeout() {}, setInterval: () => 2, clearInterval() {} },
-  };
-  vm.createContext(context);
-  const { outputText } = ts.transpileModule(functionNode('StepperButton').getText(ast), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
-  });
-  vm.runInContext(outputText, context);
-  const controls = new Map();
-  function render(name, onStep) {
-    instance = controls.get(name) ?? { slots: [] };
-    controls.set(name, instance);
-    index = 0;
-    instance.node = context.StepperButton({ 'aria-label': name, onStep, children: name });
-    return instance.node.props;
-  }
-  function pointer(name, onStep) {
-    const props = render(name, onStep);
-    props.onPointerDown({ preventDefault() {}, currentTarget: { focus(options) {
-      assert.equal(options.preventScroll, true);
-      if (focused && focused !== name) controls.get(focused)?.node.props.onBlur();
-      focused = name;
-    } } });
-    return render(name, onStep);
-  }
-  return { render, pointer, focus: name => { focused = name; }, getFocused: () => focused };
-}
 for (const field of ['polyps', 'ephyrae']) {
   test(`${field}: positive pointer step moves focus off minus and pressed state remains per-button`, () => {
     const h = stepperHarness();

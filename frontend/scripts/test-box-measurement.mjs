@@ -379,11 +379,8 @@ test('a pressed stepper is the only control marked active', () => {
   const appSource = readSource('../src/App.tsx');
   const css = readSource('../src/styles/pages/box-detail.css');
 
-  const buttonStart = appSource.indexOf('function StepperButton({');
-  const buttonEnd = appSource.indexOf('\nfunction InfoPill(', buttonStart);
-  assert.notEqual(buttonStart, -1);
-  assert.ok(buttonEnd > buttonStart);
-  const buttonSource = appSource.slice(buttonStart, buttonEnd);
+  const buttonSource = readSource('../src/components/StepperButton.tsx');
+  assert.match(buttonSource, /export default function StepperButton\(/);
 
   // The pressed state lives on the button instance and drives its own class.
   assert.match(buttonSource, /const \[isPressed, setIsPressed\] = useState\(false\);/);
@@ -401,6 +398,7 @@ test('a pressed stepper is the only control marked active', () => {
 
   // No pressed state shared between controls or keyed by the operation alone.
   assert.doesNotMatch(appSource, /pressedStepper|pressedDirection|pressedOperation|activeStepper/);
+  assert.doesNotMatch(buttonSource, /pressedStepper|pressedDirection|pressedOperation|activeStepper/);
 
   // The pressed look is scoped to the single button carrying the class...
   assert.match(
