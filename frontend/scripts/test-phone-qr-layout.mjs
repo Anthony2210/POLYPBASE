@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import ts from 'typescript';
 
 const read = (path) => readFileSync(new URL(`../src/${path}`, import.meta.url), 'utf8');
 const labelsCss = read('styles/pages/exports-labels.css');
@@ -79,7 +80,10 @@ test('phone modal keeps safe-area bounds, scrollable lookup, close and keyboard 
   assert.match(rule(phoneCss, '.qr-search-backdrop'), /safe-area-inset-top[\s\S]*safe-area-inset-bottom/);
   assert.match(rule(phoneCss, '.qr-search-modal'), /100dvh[\s\S]*safe-area-inset-top[\s\S]*safe-area-inset-bottom/);
   assert.match(rule(read('styles/components/qr-search.css'), '.qr-search-content'), /overflow-y:\s*auto/);
-  const modal = app.slice(app.indexOf('function QrSearchModal('), app.indexOf('function PilotageView('));
+  const ast = ts.createSourceFile('App.tsx', app, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const declaration = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'QrSearchModal');
+  assert.ok(declaration, 'Missing QrSearchModal declaration');
+  const modal = declaration.getText(ast);
   assert.match(modal, /event\.key === 'Escape'/);
   assert.match(modal, /event\.key !== 'Tab'/);
   assert.match(modal, /returnFocusRef\.current\?\.focus/);

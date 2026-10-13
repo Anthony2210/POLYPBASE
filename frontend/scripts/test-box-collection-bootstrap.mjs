@@ -4,6 +4,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
 import { ast, createHistoryFixture, deferred, functionNode, installAppRouting, tick } from './app-operation-test-harness.mjs';
+import { pilotageHarness } from './pilotage-test-harness.mjs';
 
 // The complete Box list is no longer part of the bootstrap. These tests run the
 // real App functions and effects with controlled request lifetimes, without a DOM.
@@ -475,26 +476,13 @@ test('the QR parser extracts a code to look up without touching /bac/ ids', () =
 });
 
 function pilotageContext(h, search, boxCollectionStatus) {
-  const React = { createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat() }) };
-  let index = 0;
   const resolved = [];
-  const selected = [];
-  Object.assign(h.context, {
-    React, useState: (init) => [index++ === 0 ? 'search' : init, () => {}], userCanCreateBoxes: () => false,
-    PHONE_RESULT_LIMIT: 5, PILOTAGE_RESULT_LIMIT: 15, SearchField: 'SearchField', SuggestionList: 'SuggestionList',
-    RecentAccessList: 'RecentAccessList', BoxSearchStatus: 'BoxSearchStatus', document: { getElementById() { return null; } },
-  });
-  const { outputText } = ts.transpileModule(functionNode('PilotageView').getText(ast), {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React },
-  });
-  vm.runInContext(outputText, h.context);
-  const tree = h.context.PilotageView({
-    isPhoneLayout: true, search, searchResults: [], recentBoxes: [], boxCollectionStatus, boxes: [],
-    t: (key) => key, onSearch() {}, onSelectBox: (id) => selected.push(id),
+  const view = pilotageHarness({
+    isPhoneLayout: true, search, boxCollectionStatus,
     onResolveBoxCode: (code) => { resolved.push(code); return Promise.resolve(42); },
   });
-  const nodes = (item) => (item && typeof item === 'object' ? [item, ...item.children.flatMap(nodes)] : []);
-  return { tree, nodes: nodes(tree), resolved, selected };
+  view.manual();
+  return { nodes: view.nodes, resolved, selected: view.selected };
 }
 
 test('search shows a loading or retry state, never partial results, until the list is complete', () => {

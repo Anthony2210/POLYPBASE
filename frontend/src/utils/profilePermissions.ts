@@ -14,3 +14,9 @@ export function userHasAdminRole(profile: UserProfile | null, activeOrganization
   if (profile.is_superuser) return true;
   return getMembershipRole(profile, activeOrganizationId) === 'admin';
 }
+
+export function userCanCreateBoxes(profile: UserProfile | null) {
+  if (!profile) return false;
+  if (profile.is_superuser) return true;
+  return ['admin', 'lab_technician'].includes(getMembershipRole(profile, getActiveOrganizationId(profile)) ?? '');
+}

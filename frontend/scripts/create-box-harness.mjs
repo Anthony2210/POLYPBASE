@@ -131,7 +131,7 @@ export function createBoxEnvironment() {
         return { jsx, jsxs: jsx, Fragment: 'test-fragment' };
       }
       // Inert leaves retain their props for nested-dialog callback tests.
-      if (['./ModalPortal', './PolypbaseIcon', './QuickStrainCreator'].includes(name)) return { default: name.slice(2) };
+      if (['./ModalPortal', './PolypbaseIcon', './QuickStrainCreator', './SearchField', './RecentAccessList', './TabletQrScanner', './PageLoader', './BoxSearchStatus', './SuggestionList'].includes(name)) return { default: name.slice(2) };
       if (name.startsWith('.')) {
         const candidates = /\.(ts|tsx)$/.test(name) ? [name] : [`${name}.ts`, `${name}.tsx`, `${name}/index.ts`];
         const resolved = candidates.map(path => new URL(path, url)).find(candidate => existsSync(candidate));
@@ -235,26 +235,7 @@ export function createBoxEnvironment() {
     flush();
     return api;
   }
-  function loadAppFunction(name, bindings) {
-    const url = new URL('../src/App.tsx', import.meta.url);
-    const source = readFileSync(url, 'utf8');
-    const ast = ts.createSourceFile('App.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-    const node = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === name);
-    assert.ok(node, `Missing App function: ${name}`);
-    const exports = {};
-    const jsx = (type, props, key) => ({ type, props, key });
-    const output = ts.transpileModule(`export ${node.getText(ast)}`, {
-      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
-    }).outputText;
-    vm.runInNewContext(output, {
-      exports, ...hooks, ...bindings, document, window,
-      require(name) {
-        assert.equal(name, 'react/jsx-runtime');
-        return { jsx, jsxs: jsx, Fragment: 'test-fragment' };
-      },
-    }, { filename: `${url.pathname}:${name}` });
-    return exports[name];
-  }
+
   function keyedChild(getNode) {
     let child = null, previousType, previousKey;
     return {
@@ -286,7 +267,7 @@ export function createBoxEnvironment() {
     };
   }
   return {
-    document, window, opener, requests, key, load, instance, external, loadAppFunction, keyedChild, confirmationHost,
+    document, window, opener, requests, key, load, instance, external, keyedChild, confirmationHost,
     listenerCount: () => listeners.get('keydown')?.size ?? 0,
     get frameCount() { return frames.size; },
     flushFrames() { const pending = [...frames.values()]; frames.clear(); pending.forEach(fn => fn(0)); },
@@ -323,13 +304,7 @@ export function createBoxHarness(initialProps = {}, options = {}) {
   const component = env.load('../src/components/CreateBoxPanel.tsx').default;
   let panel, parent = null, children = null;
   if (options.pilotage) {
-    const permissions = env.load('../src/utils/profilePermissions.ts');
-    const PilotageView = env.loadAppFunction('PilotageView', {
-      CreateBoxPanel: component,
-      userCanCreateBoxes: env.loadAppFunction('userCanCreateBoxes', permissions),
-      SearchField: 'SearchField', RecentAccessList: 'RecentAccessList', TabletQrScanner: 'TabletQrScanner',
-      PageLoader: 'PageLoader', BoxSearchStatus: 'BoxSearchStatus', SuggestionList: 'SuggestionList',
-    });
+    const PilotageView = env.load('../src/components/PilotageView.tsx').default;
     parent = env.instance(PilotageView, {
       ...props, activeOrganizationId: props.profile?.active_organization?.id ?? null,
       boxCollectionStatus: props.isBoxCollectionReady ? 'ready' : 'idle',

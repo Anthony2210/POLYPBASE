@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { pilotageHarness } from './pilotage-test-harness.mjs';
 
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
 const app = read('../src/App.tsx');
@@ -105,34 +106,28 @@ test('recent bootstrap preserves access ordering, uniqueness and six-item cap', 
 });
 
 test('portrait search renders empty feedback and clearing; no search renders no results', () => {
-  const source = sourceFunction(app, 'PilotageView');
   for (const search of ['missing', '']) {
-    let index = 0;
-    const context = { React, useState: init => [index++ === 0 ? 'search' : init, () => {}], userCanCreateBoxes: () => false,
-      PHONE_RESULT_LIMIT: 5, PILOTAGE_RESULT_LIMIT: 15, SearchField: 'SearchField', SuggestionList: 'SuggestionList', RecentAccessList: 'RecentAccessList',
-      BoxSearchStatus: 'BoxSearchStatus' };
-    evaluate(source, context);
-    let cleared;
-    const props = { isPhoneLayout: true, search, searchResults: [], recentBoxes: [], boxCollectionStatus: 'ready', t: key => key, onSearch: value => { cleared = value; } };
-    const tree = context.PilotageView(props);
-    const results = nodes(tree).find(el => el.type === 'SuggestionList');
+    const h = pilotageHarness({ isPhoneLayout: true, search });
+    h.manual();
+    const results = h.node('SuggestionList');
     assert.equal(Boolean(results), Boolean(search));
-    if (results) { assert.equal(results.props.boxes.length, 0); results.props.onClear(); assert.equal(cleared, ''); }
+    if (results) {
+      assert.equal(results.props.boxes.length, 0);
+      results.props.onClear();
+      assert.deepEqual(h.searched, ['']);
+    }
   }
 });
 
 test('arrow selection reveals its row without moving focus or submitting', () => {
-  let selected;
-  let scroll;
-  const context = { isPhoneLayout: false, visibleSuggestions: [{ id: 1 }, { id: 2 }], highlightedSuggestionIndex: 0,
-    setHighlightedSuggestionIndex: value => { selected = value; },
-    document: { getElementById: id => { assert.equal(id, 'box-search-result-2'); return { scrollIntoView: value => { scroll = value; } }; } } };
-  const source = sourceFunction(app, 'PilotageView');
-  evaluate(sourceFunction(source, 'highlightSuggestion') + sourceFunction(source, 'handleSearchKeyDown'), context);
-  let prevented = false;
-  context.handleSearchKeyDown({ key: 'ArrowDown', preventDefault() { prevented = true; } });
-  assert.equal(selected, 1);
-  assert.equal(prevented, true);
-  assert.equal(scroll.block, 'nearest');
-  assert.equal(scroll.inline, 'nearest');
+  const h = pilotageHarness({ search: 'box', searchResults: [{ id: 1 }, { id: 2 }] });
+  const focus = h.env.document.activeElement;
+  const event = h.key('ArrowDown');
+  assert.equal(h.node('SuggestionList').props.selectedBoxId, 2);
+  assert.equal(event.defaultPrevented, true);
+  assert.equal(h.scrolled[0].id, 'box-search-result-2');
+  assert.equal(h.scrolled[0].options.block, 'nearest');
+  assert.equal(h.scrolled[0].options.inline, 'nearest');
+  assert.equal(h.env.document.activeElement, focus);
+  assert.deepEqual(h.selected, []);
 });
