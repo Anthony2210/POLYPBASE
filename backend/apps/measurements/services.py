@@ -205,7 +205,8 @@ def create_biological_measurement(*, box_id, organization_ids, user, data):
         measurement = BiologicalMeasurement.objects.create(
             box=box, user=user, original_observer=user,
             observer_status=BiologicalMeasurement.ObserverStatus.KNOWN,
-            origin=BiologicalMeasurement.Origin.DIRECT_ENTRY, **values,
+            origin=BiologicalMeasurement.Origin.DIRECT_ENTRY,
+            temporal_precision=BiologicalMeasurement.TemporalPrecision.EXACT_DATE, **values,
         )
         _record_measurement_audit(
             box=box,

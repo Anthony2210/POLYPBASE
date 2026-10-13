@@ -38,6 +38,14 @@ Catégories supplémentaires : `EXPECTED_TTH_CORRECTION` (la valeur stockée est
 
 `deactivate_hs_boxes` est une commande séparée (simulation par défaut, mêmes garde-fous) qui réutilise `deactivate_box` pour la liste validée par Étienne. `CTU-CFC-2.007` reste `PENDING_CONFIRMATION`.
 
+## Précision temporelle : limite actuelle de persistance
+
+La fondation `0009_temporal_precision` conserve toutes les dates et clés ISO existantes. Les lundis conventionnels des imports CSV normalisés et `historical_2026` restent `legacy_unverified`, y compris pour de nouvelles créations via ces chemins; aucune date n'est automatiquement certifiée ou convertie. Observateur/origine Phase 4A et comportements d'import restent inchangés.
+
+La préparation canonique sait représenter `iso_week` sans `measured_on`, mais le planner Phase 3 reste en lecture seule : une semaine libre peut être classée `CREATE` avec l'issue bloquante `week_precision_persistence_required` (`ready=False`). Le nouveau champ n'active pas la persistance semaine seule : `measured_on` est toujours NOT NULL et la contrainte de précision refuse `iso_week`. Le contrat de baseline et les classifications du planner sont inchangés.
+
+Les prérequis de schéma, résolution scientifique, contrats d'import/correction et consommateurs sont détaillés dans [`measurements-integrity.md`](measurements-integrity.md#prérequis-exacts-pour-une-future-activation-semaine-seule). Une future clé ISO du lundi ne devra jamais être présentée comme un jour d'observation réel.
+
 ## Diagnostic avant contrainte
 
 Avant d'appliquer une contrainte d'unicité sur une base contenant de l'historique, exécuter la commande de diagnostic en lecture seule prévue pour le domaine. Pour les relevés biologiques, `check_biological_measurement_duplicates` rapporte organisation, boîte, date, nombre et identifiants.

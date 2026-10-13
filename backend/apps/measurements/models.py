@@ -8,6 +8,10 @@ from django.utils.translation import gettext_lazy as _
 
 
 class BiologicalMeasurement(models.Model):
+    class TemporalPrecision(models.TextChoices):
+        LEGACY_UNVERIFIED = "legacy_unverified", "Legacy stored date not verified"
+        EXACT_DATE = "exact_date", "Verified exact observation date"
+
     class ObserverStatus(models.TextChoices):
         LEGACY_UNESTABLISHED = "legacy_unestablished", "Legacy attribution not established"
         NOT_RECORDED = "not_recorded", "Observer not recorded"
@@ -35,6 +39,12 @@ class BiologicalMeasurement(models.Model):
     )
     measured_on = models.DateField()
     week_start = models.DateField(editable=False)
+    # Only ordinary creation certifies an exact date. Generic saves and
+    # corrections must not infer precision from a stored date or ISO Monday.
+    temporal_precision = models.CharField(
+        max_length=30, choices=TemporalPrecision.choices,
+        default=TemporalPrecision.LEGACY_UNVERIFIED, editable=False,
+    )
     polyp_count = models.PositiveIntegerField(default=0)
     ephyrae_count = models.PositiveIntegerField(default=0)
     # NULL means not measured (historical sources that never report strobilae);
@@ -79,6 +89,10 @@ class BiologicalMeasurement(models.Model):
             models.UniqueConstraint(
                 fields=["box", "week_start"],
                 name="unique_biological_measurement_per_box_week",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(temporal_precision__in=["legacy_unverified", "exact_date"]),
+                name="measurement_temporal_precision_supported",
             ),
             # A known account may later be deleted; do not retain a name snapshot
             # or silently relabel the original attribution as unknown/legacy.

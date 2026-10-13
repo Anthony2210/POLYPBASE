@@ -88,7 +88,7 @@ class ObserverOriginTests(TestCase):
         )
 
     def assert_response_provenance(self, data, row):
-        for field in ("observer_status", "origin", "import_format"):
+        for field in ("observer_status", "origin", "import_format", "temporal_precision"):
             self.assertEqual(data[field], getattr(row, field))
         for prefix in ("original_observer", "imported_by"):
             account = getattr(row, prefix)
@@ -113,6 +113,7 @@ class ObserverOriginTests(TestCase):
         row = BiologicalMeasurement.objects.get()
         self.assertEqual(self.provenance(row), ("known", self.observer.pk, "direct_entry", "", None))
         self.assertEqual(row.user_id, self.observer.pk)
+        self.assertEqual(row.temporal_precision, "exact_date")
         self.assertEqual((row.polyp_count, row.ephyrae_count, row.strobila_count), (0, 0, 0))
         self.assertEqual(row.salinity_psu, Decimal("0.00"))
         self.assertEqual(row.week_start, self.day)
@@ -142,6 +143,7 @@ class ObserverOriginTests(TestCase):
         self.assertEqual((row.pk, row.created_at, row.polyp_state_sequence), identity)
         self.assertEqual(self.provenance(row), provenance)
         self.assertEqual(row.user_id, self.corrector.pk)
+        self.assertEqual(row.temporal_precision, "exact_date")
         self.assertEqual((row.measured_on, row.week_start), (next_day, next_day))
         self.assertEqual((row.polyp_count, row.ephyrae_count, row.strobila_count), (0, 0, 0))
         self.assertEqual(self.revision(), revision + 2)
@@ -172,6 +174,7 @@ class ObserverOriginTests(TestCase):
 
     def spoofed_provenance(self):
         return {
+            "temporal_precision": "iso_week",
             "observer_status": "not_recorded", "original_observer": self.foreign_user.pk,
             "original_observer_id": self.foreign_user.pk, "origin": "file_import", "import_format": "csv",
             "imported_by": self.foreign_user.pk, "imported_by_id": self.foreign_user.pk,
@@ -372,6 +375,57 @@ class ObserverOriginTests(TestCase):
                     row.refresh_from_db()
                     self.assertEqual(self.provenance(row), (status, None, origin, format_, None))
 
+    def test_legacy_temporal_precision_survives_partial_empty_and_explicit_date_patch(self):
+        row = BiologicalMeasurement.objects.create(
+            box=self.box, measured_on=self.day, polyp_count=0, ephyrae_count=0,
+            strobila_count=None, user=None,
+        )
+        identity = (row.pk, row.created_at, row.polyp_state_sequence)
+        provenance = self.provenance(row)
+        revision = self.revision()
+        patches = (
+            {"notes": "Corrected counts only", "polyp_count": 0, "temporal_precision": "exact_date"},
+            {},
+            {"measured_on": (self.day + timedelta(days=8)).isoformat()},
+        )
+        for index, data in enumerate(patches, 1):
+            with self.subTest(data=data):
+                response = self.correct(row, data)
+                self.assertEqual(response.status_code, 200, response.content)
+                row.refresh_from_db()
+                self.assertEqual(row.temporal_precision, "legacy_unverified")
+                self.assertEqual(response.json()["temporal_precision"], "legacy_unverified")
+                self.assertEqual((row.pk, row.created_at, row.polyp_state_sequence), identity)
+                self.assertEqual(self.provenance(row), provenance)
+                self.assertEqual((row.polyp_count, row.ephyrae_count, row.strobila_count), (0, 0, None))
+                self.assertEqual(self.revision(), revision + index)
+        self.assertEqual(row.measured_on, self.day + timedelta(days=8))
+        self.assertEqual(row.week_start, self.day + timedelta(days=7))
+        self.assertEqual(AuditLog.objects.filter(action="update").count(), 3)
+
+    def test_week_only_entry_and_null_date_remain_unavailable(self):
+        before = self.snapshot()
+        for data in (
+            {"iso_year": 2026, "iso_week": 40, "temporal_precision": "iso_week"},
+            {"measured_on": None, "temporal_precision": "iso_week"},
+        ):
+            with self.subTest(data=data):
+                response = self.post(data)
+                self.assertEqual(response.status_code, 400, response.content)
+                self.assertIn("measured_on", response.json())
+                self.assertEqual(self.snapshot(), before)
+
+    def test_database_rejects_week_precision_even_with_a_fabricated_day(self):
+        row = BiologicalMeasurement.objects.create(box=self.box, measured_on=self.day)
+        for precision in ("iso_week", "", "unsupported"):
+            with self.subTest(precision=precision), self.assertRaises(IntegrityError), transaction.atomic():
+                BiologicalMeasurement.objects.filter(pk=row.pk).update(temporal_precision=precision)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            BiologicalMeasurement.objects.filter(pk=row.pk).update(measured_on=None)
+        row.refresh_from_db()
+        self.assertEqual(row.temporal_precision, "legacy_unverified")
+        self.assertEqual(row.measured_on, self.day)
+
     def test_http_audit_failure_rolls_back_creation_and_correction_including_provenance(self):
         original = services._record_measurement_audit
 
@@ -399,7 +453,7 @@ class ObserverOriginTests(TestCase):
 
 
 class ObserverOriginMigrationTests(TransactionTestCase):
-    def test_upgrade_0007_to_0008_preserves_all_original_fields_and_related_history(self):
+    def test_upgrade_0007_to_0009_preserves_fields_provenance_and_related_history(self):
         executor = MigrationExecutor(connection)
         latest = executor.loader.graph.leaf_nodes()
         self.addCleanup(lambda: MigrationExecutor(connection).migrate(latest))
@@ -478,3 +532,33 @@ class ObserverOriginMigrationTests(TransactionTestCase):
                 ("legacy_unestablished", None, "legacy_unclassified", "", None),
             )
         self.assertEqual(new_apps.get_model("cultures", "Box").objects.get(pk=parent.pk).polyp_state_revision, 43)
+
+        # Include established Phase 4A provenance and a non-Monday date; neither
+        # origin nor day-of-week can establish historical temporal precision.
+        rows = list(Measurement.objects.order_by("pk"))
+        Measurement.objects.filter(pk=rows[0].pk).update(
+            observer_status="known", original_observer_id=writer.pk, origin="direct_entry",
+        )
+        Measurement.objects.filter(pk=rows[2].pk).update(
+            observer_status="not_recorded", origin="file_import", import_format="csv",
+            imported_by_id=writer.pk, measured_on=rows[2].measured_on + timedelta(days=2),
+        )
+        snapshots = {
+            label: list(new_apps.get_model(*label).objects.order_by("pk").values()) for label in labels
+        }
+        targets = [node for node in latest if node[0] != "measurements"] + [("measurements", "0009_temporal_precision")]
+        with patch.object(BiologicalMeasurement, "save", side_effect=AssertionError("No current-model backfill")):
+            executor = MigrationExecutor(connection)
+            executor.migrate(targets)
+        precision_apps = executor.loader.project_state(targets).apps
+        for label, rows in snapshots.items():
+            with self.subTest(model=label, migration="0009"):
+                self.assertEqual(
+                    list(precision_apps.get_model(*label).objects.order_by("pk").values(*rows[0])), rows,
+                )
+        self.assertEqual(
+            list(precision_apps.get_model("measurements", "BiologicalMeasurement").objects.values_list(
+                "temporal_precision", flat=True,
+            )),
+            ["legacy_unverified"] * 3,
+        )

@@ -248,6 +248,10 @@ class ApplyTests(ImporterBase):
         self.assertIsNone(zero.strobila_count)
         self.assertIsNone(zero.user)
         self.assertEqual(zero.measured_on, date(2025, 12, 29))
+        self.assertEqual(zero.temporal_precision, "legacy_unverified")
+        self.assertEqual(zero.observer_status, "legacy_unestablished")
+        self.assertEqual(zero.origin, "legacy_unclassified")
+        self.assertFalse(BiologicalMeasurement.objects.exclude(temporal_precision="legacy_unverified").exists())
         self.assertEqual(zero.culture_status, "not_specified")
         self.assertEqual(receipt.action, AuditLog.Action.IMPORT)
         self.assertEqual(receipt.metadata["measurements_created"], 2)
@@ -268,6 +272,7 @@ class ApplyTests(ImporterBase):
         self.apply(self.standard(item("AAA-BBB-1.001", 1, 5, 0), item("AAA-BBB-1.001", 2, 1, 1)))
         existing.refresh_from_db()
         self.assertEqual(existing.strobila_count, 0)
+        self.assertEqual(existing.temporal_precision, "legacy_unverified")
 
     def test_missing_box_is_materialized_as_pending_review_without_inventions(self):
         manifest = make_manifest(

@@ -152,6 +152,7 @@ class BiologicalMeasurementSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "measured_on",
+            "temporal_precision",
             "polyp_count",
             "ephyrae_count",
             "strobila_count",
@@ -178,6 +179,7 @@ class BiologicalMeasurementSerializer(serializers.ModelSerializer):
             "user",
             "user_identity",
             "observer_status",
+            "temporal_precision",
             "origin",
             "import_format",
             "created_at",

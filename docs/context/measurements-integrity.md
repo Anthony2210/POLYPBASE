@@ -49,6 +49,34 @@ Pour le futur frontend, `not_recorded` correspond à « Observateur non renseign
 
 La persistance des noms d'observateurs externes et d'instantanés de comptes supprimés attend une politique produit explicite de conservation des données personnelles. Aucun faux compte n'est créé. L'import applicator et ses métadonnées de source fiables restent hors périmètre. Le planner existant conserve son contrat versionné : son ancien `MeasurementBaseline.observer_id` représente encore `measurement.user_id`, pas le nouvel observateur scientifique; sa migration contractuelle sera une tâche séparée.
 
+## Fondation de précision temporelle (sans activation semaine seule)
+
+`temporal_precision` est un champ backend non éditable, exposé en lecture seule par le serializer de relevés :
+
+- `legacy_unverified` : une date est stockée, mais son statut de date réelle d'observation n'a pas été établi par cette fondation. Ce statut ne prouve ni une date erronée ni une précision semaine seule. Il inclut les lignes existantes, même d'origine `direct_entry`, et les créations techniques/imports hors service ordinaire.
+- `exact_date` : le service de création ordinaire a reçu une date d'observation explicite validée. Il s'agit du contrat de saisie, pas d'une vérification indépendante de la véracité scientifique de la date.
+
+La migration additive `0009_temporal_precision`, après `0008_observer_origin`, attribue le défaut `legacy_unverified` sans inférence sur le jour de semaine, l'origine, l'auteur ou l'observateur. Aucun `RunPython` ni appel au `save()` courant : dates, clés ISO, IDs, comptes, zéros, NULL, séquences, timestamps, révisions de boîte, audits et snapshots de repiquage sont conservés. Même un lundi synthétique 2026 n'est ni certifié ni converti.
+
+Le POST ordinaire exige toujours `measured_on` et établit `exact_date` côté serveur. Le champ n'est pas dans l'allowlist d'écriture; les valeurs client sont ignorées comme pour les champs de provenance. Le PATCH partiel, vide ou corrigeant explicitement la date conserve la précision existante, l'observateur et l'origine. **Question produit ouverte :** une correction explicite de date legacy suffit-elle à établir une observation exacte, et sous quelles preuves/permissions ? Aucun changement de précision implicite ni endpoint de conversion n'est ajouté.
+
+`measured_on` reste NOT NULL; `week_start`, l'unicité `(box, week_start)`, le calcul ISO dans `save()`, les tris scientifiques, la priorité du résolveur et les audits restent inchangés. La contrainte `measurement_temporal_precision_supported` n'autorise que les deux valeurs ci-dessus, y compris hors validation Python : `iso_week` est refusé même accompagné d'un lundi fabriqué. Cette phase conserve l'interprétation runtime historique des dates legacy; elle ne résout pas rétroactivement leur incertitude.
+
+### Prérequis exacts pour une future activation semaine seule
+
+Une future ligne `iso_week` doit porter `measured_on=NULL` et une clé de semaine ISO explicite (`week_start`, lundi utilisé uniquement comme clé, jamais comme date d'observation). L'affichage sera par exemple « Semaine 40 · 2026 », sans jour inventé. Cette représentation n'est **pas persistable** dans cette phase.
+
+Avant de l'activer, il faut :
+
+1. Faire évoluer la nullabilité de `measured_on`, les choix et la contrainte de précision; imposer les combinaisons exact/legacy/semaine autorisées et valider les clés ISO. Découpler `save()`/`week_start_for()` d'une date obligatoire tout en conservant l'unicité hebdomadaire. Définir les transitions de précision et leur audit sans inférence ni conversion historique automatique.
+2. Décider puis implémenter la résolution scientifique des observations connues seulement à la semaine, notamment avant/après un repiquage au sein de la même semaine. Adapter `cultures/polyp_state.py`, ses requêtes/préchargements, le calcul et les snapshots des repiquages, sans imposer arbitrairement une priorité.
+3. Adapter les contrats API/serializers, corrections, historique/timeline, latest measurement, filtres/fraîcheur d'inventaire, Actions/audit et formulaires/admin. Ils utilisent encore une date obligatoire ou des clés fondées sur cette date.
+4. Adapter les types et consommateurs frontend (saisie, dates, tris, graphiques, inventaire, étiquettes), ainsi que les exports (périodes, emplacement historique, température journalière). Définir les règles des semaines chevauchant une période ou un mouvement, au lieu de choisir lundi.
+5. Versionner si nécessaire les baselines/fingerprints du planner : la baseline actuelle exige une date et ne contient pas la précision. Définir les comparaisons legacy/exact/semaine et un applicateur d'import autorisé, institutionnel, verrouillé, atomique et audité, préservant absence/NULL/0 et la provenance Phase 4A. Examiner les imports historiques et les transferts séparément, sans réinterpréter leurs conventions existantes.
+6. Valider migrations, contraintes, transactions et concurrence sur PostgreSQL jetable isolé, puis les consommateurs et frontières temporelles. Ne retirer le blocage `week_precision_persistence_required` du planner qu'une fois l'ensemble prêt.
+
+Aucun de ces changements futurs, ni changement d'UI, graphiques, exports ou import historique, n'est implémenté par la fondation.
+
 ## État courant et repiquage quantitatif
 
 `latest_measurement` reste le dernier relevé ordinaire et conserve ses règles de fraîcheur et de semaine ISO. `current_polyp_state` est une notion distincte : le serveur résout une observation absolue, un résultat absolu de repiquage parent ou l'allocation initiale absolue d'un enfant. Il ne soustrait jamais toutes les allocations historiques d'un dernier relevé.
