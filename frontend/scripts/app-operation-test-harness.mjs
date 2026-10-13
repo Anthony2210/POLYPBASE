@@ -5,15 +5,33 @@ import ts from 'typescript';
 
 export const source = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 export const ast = ts.createSourceFile('App.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+export const boxSource = readFileSync(new URL('../src/components/BoxPage.tsx', import.meta.url), 'utf8');
+export const boxAst = ts.createSourceFile('BoxPage.tsx', boxSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+const profilePermissionsSource = readFileSync(new URL('../src/utils/profilePermissions.ts', import.meta.url), 'utf8');
+const profilePermissionsAst = ts.createSourceFile('profilePermissions.ts', profilePermissionsSource, ts.ScriptTarget.Latest, true);
+const boxErrorsSource = readFileSync(new URL('../src/utils/boxErrors.ts', import.meta.url), 'utf8');
+const boxErrorsAst = ts.createSourceFile('boxErrors.ts', boxErrorsSource, ts.ScriptTarget.Latest, true);
+export const boxFunctionNames = [
+  'BoxPage', 'getInitialMeasurementForm', 'getZoneSalinityValue', 'getDefaultMeasurementSalinity',
+  'getTodayDateValue', 'getMeasurementHistory', 'getLatestComment', 'getBoxCreatedDate',
+  'getFirstMeasurementDate', 'getBoxDisplayDate', 'buildMeasurementPayload', 'parsePositiveInteger',
+  'incrementCountValue', 'decrementCountValue', 'getMeasurementSaveError', 'getBoxLineage',
+  'getBoxMovements', 'getCurrentThermalZone', 'getSubcultureSaveError', 'getMoveSaveError', 'userCanArchiveBox',
+  'dispatchBoxAction', 'saveMeasurement', 'handleSubmit', 'openWeeklyMeasurementEditor',
+  'cancelMeasurementEdit', 'handleSubculture', 'handleMove', 'handleLifecycleSubmit', 'handleLoadLineageGraph',
+];
 const compiledFunctions = new Map();
 export function functionNode(name) {
+  const owner = boxFunctionNames.includes(name) ? boxAst
+    : name === 'userCanWriteLabData' ? profilePermissionsAst
+    : name === 'isBoxLocationChangedError' ? boxErrorsAst : ast;
   let found;
   function visit(node) {
     if (ts.isFunctionDeclaration(node) && node.name?.text === name) found = node;
     ts.forEachChild(node, visit);
   }
-  visit(ast);
-  assert.ok(found, `Missing App function: ${name}`);
+  visit(owner);
+  assert.ok(found, `Missing ${owner.fileName} function: ${name}`);
   return found;
 }
 export function deferred() {
@@ -165,9 +183,16 @@ export function appHarness() {
     'deactivateBox', 'reactivateBox', 'qualifyBox', 'assignBoxInitialLocation', 'qualifyBoxesBatch', 'loadLineageGraph',
     'createThermalZone', 'updateThermalZone', 'recordManualTemperature', 'refreshZoneSalinityCapability',
     'recordManualSalinity', 'updateManualSalinity', 'createProbe', 'createOrganization', 'updateOrganization',
-    'deleteOrganization', 'createBoxTransfer', 'parsePositiveInteger', 'incrementCountValue', 'decrementCountValue',
+    'deleteOrganization', 'createBoxTransfer']) {
+    const node = functionNode(name);
+    assert.equal(node.getSourceFile(), ast, `Expected App-owned installation: ${name}`);
+    evaluate(node.getText());
+  }
+  for (const name of ['parsePositiveInteger', 'incrementCountValue', 'decrementCountValue',
     'buildMeasurementPayload', 'saveMeasurement', 'handleLoadLineageGraph']) {
-    evaluate(functionNode(name).getText(ast));
+    const node = functionNode(name);
+    assert.equal(node.getSourceFile(), boxAst, `Expected BoxPage-owned installation: ${name}`);
+    evaluate(node.getText());
   }
   return { context, state, requests, queuedUpdates, evaluate, browser,
     switchOrganization() { context.organizationRequestGenerationRef.current += 1; },

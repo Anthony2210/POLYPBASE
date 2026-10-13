@@ -8,7 +8,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import * as jsxRuntime from 'react/jsx-runtime';
 import { CirclePause, CirclePlay, GitFork, Route } from 'lucide-react';
 import ts from 'typescript';
-import { ast as appAst, functionNode } from './app-operation-test-harness.mjs';
+import { ast as appAst, boxAst, functionNode } from './app-operation-test-harness.mjs';
 
 
 const read = (path) => readFileSync(new URL(`../src/${path}`, import.meta.url), 'utf8');
@@ -31,7 +31,7 @@ function evaluate(source, imports = {}, globals = {}) {
 }
 
 function appFunction(name, globals = {}) {
-  return evaluate(`${functionNode(name).getText(appAst)}\nexports.result = ${name};`, {
+  return evaluate(`${functionNode(name).getText()}\nexports.result = ${name};`, {
     'react/jsx-runtime': jsxRuntime,
   }, globals).result;
 }
@@ -278,7 +278,7 @@ for (const language of ['fr', 'en']) {
 // the current permission/resource gates and modal callbacks, not a lookalike.
 let boxTools;
 function findQrTrigger(node) {
-  if (ts.isJsxElement(node) && node.openingElement.tagName.getText(appAst) === 'div'
+  if (ts.isJsxElement(node) && node.openingElement.tagName.getText(boxAst) === 'div'
     && node.openingElement.attributes.properties.some((attribute) =>
       ts.isJsxAttribute(attribute) && attribute.name.text === 'className'
       && attribute.initializer && ts.isStringLiteral(attribute.initializer) && attribute.initializer.text === 'box-header-tools')) {
@@ -289,11 +289,11 @@ function findQrTrigger(node) {
 }
 findQrTrigger(functionNode('BoxPage'));
 assert.ok(boxTools, 'Missing box tools JSX');
-const boxBody = functionNode('BoxPage').getText(appAst);
+const boxBody = functionNode('BoxPage').getText(boxAst);
 const boxActionSource = boxBody.slice(boxBody.indexOf('type BoxAction'), boxBody.indexOf('async function saveMeasurement'));
 const RowActionMenu = ({ ariaLabel }) => React.createElement('button', { className: 'row-action-menu-trigger', 'aria-label': ariaLabel });
 function boxQrTree(globals) {
-  return evaluate(`${boxActionSource}\nexports.result = (${boxTools.getText(appAst)});`, {
+  return evaluate(`${boxActionSource}\nexports.result = (${boxTools.getText(boxAst)});`, {
     'react/jsx-runtime': jsxRuntime,
   }, {
     QrLabel, PolypbaseIcon, RowActionMenu, CirclePause, CirclePlay, GitFork, Route,

@@ -3,10 +3,10 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
-import { ast, functionNode } from './app-operation-test-harness.mjs';
+import { boxAst as ast, functionNode } from './app-operation-test-harness.mjs';
 
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
-const body = functionNode('BoxPage').getText(ast);
+const body = functionNode('BoxPage').getText();
 const React = { createElement: (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat(Infinity) }) };
 const nodes = tree => tree && typeof tree === 'object' ? [tree, ...(tree.children ?? []).flatMap(nodes)] : [];
 function evaluate(code, context) {

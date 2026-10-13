@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import * as jsxRuntime from 'react/jsx-runtime';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { appHarness, ast, functionNode, deferred, tick } from './app-operation-test-harness.mjs';
+import { appHarness, boxAst as ast, functionNode, deferred, tick } from './app-operation-test-harness.mjs';
 
 // Use real API error classes so the extracted handlers exercise their instanceof branches.
 const clientSource = readFileSync(new URL('../src/api/client.ts', import.meta.url), 'utf8');
@@ -20,7 +20,7 @@ vm.runInNewContext(ts.transpileModule(errorClasses, {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
 }).outputText, { exports: apiErrors });
 
-// Render the actual App banner rather than duplicating its presentation condition.
+// Render the actual BoxPage banner rather than duplicating its presentation condition.
 function findSuccessBanner(node) {
   if (ts.isJsxElement(node) && node.openingElement.attributes.properties.some(attribute =>
     ts.isJsxAttribute(attribute) && attribute.name.getText(ast) === 'className'
@@ -28,7 +28,7 @@ function findSuccessBanner(node) {
   return ts.forEachChild(node, findSuccessBanner);
 }
 const successBanner = findSuccessBanner(ast);
-assert.ok(successBanner, 'Missing App subculture success banner');
+assert.ok(successBanner, 'Missing BoxPage subculture success banner');
 const presentation = {};
 vm.runInNewContext(ts.transpileModule(`export const renderSuccess = (subcultureSuccess, t) => (${successBanner.getText(ast)});`, {
   fileName: 'subculture-success.tsx',
@@ -147,7 +147,7 @@ function workflow({ answers = [true, false], canChangeBoxStatus = true } = {}) {
     };
   }
   for (const name of ['getSubcultureSaveError', 'handleSubculture', 'handleLifecycleSubmit']) {
-    h.evaluate(functionNode(name).getText(ast));
+    h.evaluate(functionNode(name).getText());
   }
   return { ...h, parent, draft, ui, writes, confirmations };
 }

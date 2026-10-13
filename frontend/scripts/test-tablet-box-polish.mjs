@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
-import { ast, source } from './app-operation-test-harness.mjs';
+import { boxAst as ast, boxSource as source } from './app-operation-test-harness.mjs';
 
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
 const exports = {};

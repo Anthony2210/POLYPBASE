@@ -116,7 +116,7 @@ for (const language of ['fr', 'en']) {
       setIsSavingMove: value => calls.push(['saving', value]), setMoveError: value => calls.push(['error', value]),
       onMoveBox: async (id, payload) => calls.push(['move', id, payload]), setIsMoveOpen: value => calls.push(['open', value]),
     };
-    const handleMove = load(`${functionNode('handleMove').getText(ast)}\nexports.handleMove = handleMove;`, {}, context).handleMove;
+    const handleMove = load(`${functionNode('handleMove').getText()}\nexports.handleMove = handleMove;`, {}, context).handleMove;
     const payload = { expected_thermal_zone_id: 1, thermal_zone_id: 2, notes: '' };
     await handleMove(payload);
     assert.deepEqual(calls, []);

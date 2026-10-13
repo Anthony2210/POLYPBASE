@@ -20,3 +20,13 @@ export function userCanCreateBoxes(profile: UserProfile | null) {
   if (profile.is_superuser) return true;
   return ['admin', 'lab_technician'].includes(getMembershipRole(profile, getActiveOrganizationId(profile)) ?? '');
 }
+
+export function userCanWriteLabData(profile: UserProfile | null, organizationId: number) {
+  if (!profile) return false;
+  if (profile.is_superuser) return true;
+
+  return profile.memberships.some(
+    (membership) => membership.organization.id === organizationId
+      && ['admin', 'lab_technician'].includes(membership.role),
+  );
+}

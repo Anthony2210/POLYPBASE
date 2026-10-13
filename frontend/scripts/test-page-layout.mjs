@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 const frontendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const readSource = (relativePath) => readFileSync(path.join(frontendRoot, relativePath), 'utf8');
 const appSource = readSource('src/App.tsx');
+const boxSource = readSource('src/components/BoxPage.tsx');
 const tokensSource = readSource('src/styles/tokens.css');
 const layoutSource = readSource('src/styles/layout.css');
 const zonesSource = readSource('src/styles/pages/zones.css');
@@ -38,7 +39,7 @@ const PAGE_ROOT_CLASSES = [
 const PAGE_ROOT_SOURCE_BY_CLASS = new Map([
   ['admin-panel', adminViewSource],
   ['admin-workspace', adminViewSource],
-  ['box-page', appSource],
+  ['box-page', boxSource],
   ['export-page', exportsViewSource],
   ['labels-page', labelsViewSource],
   ['overview-page', overviewViewSource],

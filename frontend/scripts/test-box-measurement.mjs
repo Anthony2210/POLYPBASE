@@ -4,7 +4,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 import ts from 'typescript';
-import { appHarness } from './app-operation-test-harness.mjs';
+import { appHarness, functionNode } from './app-operation-test-harness.mjs';
 
 for (const [input, expected] of [['0', 0], [' 0 ', 0], ['1e3', 1000], ['12.0', 12], ['2147483647', 2147483647],
   ['', null], [' ', null], ['1.5', null], ['-1', null], ['12abc', null], ['Infinity', null], ['NaN', null],
@@ -46,7 +46,7 @@ test('count buttons preserve invalid input and clamp within the database integer
   assert.equal(context.decrementCountValue('0'), '0');
 });
 test('biological salinity input permits the backend two-decimal precision independently of its coarse buttons', () => {
-  const app = readSource('../src/App.tsx');
+  const app = readSource('../src/components/BoxPage.tsx');
   assert.match(app, /inputMode="decimal"\s+step="0\.01"\s+placeholder=\{String\(SALINITY_STEP\)\}/);
 });
 
@@ -149,7 +149,7 @@ test('recognizes only stable weekly and deadline error contracts', () => {
 });
 
 test('measurement workflow uses PATCH for weekly corrections and locks server-denied forms', () => {
-  const appSource = readSource('../src/App.tsx');
+  const appSource = readSource('../src/components/BoxPage.tsx');
   const buttonSource = readSource('../src/components/MeasurementSaveButton.tsx');
 
   assert.match(
@@ -167,7 +167,7 @@ test('measurement workflow uses PATCH for weekly corrections and locks server-de
 });
 
 test('weekly measurement defaults to one compact server-authorized summary', () => {
-  const appSource = readSource('../src/App.tsx');
+  const appSource = readSource('../src/components/BoxPage.tsx');
 
   assert.match(appSource, /const \[isMeasurementEditorOpen, setIsMeasurementEditorOpen\] = useState\(false\);/);
   assert.match(
@@ -194,13 +194,10 @@ test('weekly measurement defaults to one compact server-authorized summary', () 
 });
 
 test('opening, saving and cancelling an edit preserve the PATCH-only flow', () => {
-  const appSource = readSource('../src/App.tsx');
-  const openStart = appSource.indexOf('function openWeeklyMeasurementEditor()');
-  const openSource = appSource.slice(openStart, appSource.indexOf('\n  function cancelMeasurementEdit()', openStart));
-  const cancelStart = appSource.indexOf('function cancelMeasurementEdit()');
-  const cancelSource = appSource.slice(cancelStart, appSource.indexOf('\n  async function handleSubculture(', cancelStart));
-  const saveStart = appSource.indexOf('async function saveMeasurement()');
-  const saveSource = appSource.slice(saveStart, appSource.indexOf('\n\n  function handleSubmit(', saveStart));
+  const appSource = readSource('../src/components/BoxPage.tsx');
+  const openSource = functionNode('openWeeklyMeasurementEditor').getText();
+  const cancelSource = functionNode('cancelMeasurementEdit').getText();
+  const saveSource = functionNode('saveMeasurement').getText();
 
   assert.match(openSource, /if \(!weeklyMeasurement\?\.can_edit\) return;/);
   assert.match(openSource, /setForm\(getMeasurementFormValues\(weeklyMeasurement\)\);/);
@@ -219,7 +216,7 @@ test('opening, saving and cancelling an edit preserve the PATCH-only flow', () =
 });
 
 test('measurement UI state resets between boxes and follows refreshed capabilities', () => {
-  const appSource = readSource('../src/App.tsx');
+  const appSource = readSource('../src/components/BoxPage.tsx');
   const resetStart = appSource.indexOf('setForm(getInitialMeasurementForm(defaultSalinity));');
   const resetEnd = appSource.indexOf('}, [box?.id]);', resetStart);
   const resetSource = appSource.slice(resetStart, resetEnd + '}, [box?.id]);'.length);
@@ -233,7 +230,7 @@ test('measurement UI state resets between boxes and follows refreshed capabiliti
 });
 
 test('Box uses shared localized back controls with a non-desktop normal-page escape', () => {
-  const appSource = readSource('../src/App.tsx');
+  const appSource = readSource('../src/components/BoxPage.tsx');
   const backControls = appSource.match(/<DetailBackButton label=\{t\('back'\)\} onBack=\{onBack\} \/>/g) ?? [];
   assert.equal(backControls.length, 2, 'one not-found escape and one normal-page control are defined');
   assert.match(appSource, /\{!isDesktopApp \? <DetailBackButton label=\{t\('back'\)\} onBack=\{onBack\} \/> : null\}/);
@@ -245,7 +242,7 @@ test('Box uses shared localized back controls with a non-desktop normal-page esc
 });
 
 test('measurement summary and editor are mutually exclusive states of one anchored module', () => {
-  const appSource = readSource('../src/App.tsx');
+  const appSource = readSource('../src/components/BoxPage.tsx');
   const css = readSource('../src/styles/pages/box-detail.css');
 
   assert.match(
@@ -279,12 +276,7 @@ test('summary transition is restrained and reduced motion remains global', () =>
 });
 
 test('weekly conflicts refresh server state before the error is shown', () => {
-  const appSource = readSource('../src/App.tsx');
-  const createStart = appSource.indexOf('async function createMeasurement(');
-  const createSource = appSource.slice(
-    createStart,
-    appSource.indexOf('\n  async function createBox(', createStart),
-  );
+  const createSource = functionNode('createMeasurement').getText();
 
   assert.match(createSource, /isMeasurementWeekConflict\(requestError\)/);
   assert.match(createSource, /await refreshBoxAfterMeasurement\(boxId\);/);
@@ -313,7 +305,7 @@ test('draft comparison treats zero as a real value and ignores untouched fields'
 });
 
 test('an unchanged weekly measurement cannot be saved again', () => {
-  const appSource = readSource('../src/App.tsx');
+  const appSource = readSource('../src/components/BoxPage.tsx');
   const buttonSource = readSource('../src/components/MeasurementSaveButton.tsx');
 
   assert.match(
@@ -331,14 +323,17 @@ test('an unchanged weekly measurement cannot be saved again', () => {
 });
 
 test('generic post-action feedback is removed while meaningful errors remain', () => {
-  const appSource = readSource('../src/App.tsx');
+  const appSource = readSource('../src/components/BoxPage.tsx');
+  const shellSource = readSource('../src/App.tsx');
   const adminSource = readSource('../src/components/AdminView.tsx');
   const inventorySource = readSource('../src/components/BoxInventoryAdminSection.tsx');
   const buttonSource = readSource('../src/components/MeasurementSaveButton.tsx');
   const frSource = readSource('../src/i18n/fr.ts');
   const enSource = readSource('../src/i18n/en.ts');
 
-  assert.doesNotMatch(appSource, /saveMessage|subcultureMessage|moveMessage|statusMessage|inline-success/);
+  for (const source of [shellSource, appSource]) {
+    assert.doesNotMatch(source, /saveMessage|subcultureMessage|moveMessage|statusMessage|inline-success/);
+  }
   assert.doesNotMatch(buttonSource, /isSuccess|labels\.saved/);
   assert.doesNotMatch(adminSource, /inline-success|setMessage\(/);
   for (const key of [
@@ -376,7 +371,8 @@ function readSource(relativePath) {
 // keyed by the operation that could mark a sibling — or the same symbol in another
 // field — as active.
 test('a pressed stepper is the only control marked active', () => {
-  const appSource = readSource('../src/App.tsx');
+  const appSource = readSource('../src/components/BoxPage.tsx');
+  const shellSource = readSource('../src/App.tsx');
   const css = readSource('../src/styles/pages/box-detail.css');
 
   const buttonSource = readSource('../src/components/StepperButton.tsx');
@@ -397,7 +393,9 @@ test('a pressed stepper is the only control marked active', () => {
   }
 
   // No pressed state shared between controls or keyed by the operation alone.
-  assert.doesNotMatch(appSource, /pressedStepper|pressedDirection|pressedOperation|activeStepper/);
+  for (const source of [shellSource, appSource]) {
+    assert.doesNotMatch(source, /pressedStepper|pressedDirection|pressedOperation|activeStepper/);
+  }
   assert.doesNotMatch(buttonSource, /pressedStepper|pressedDirection|pressedOperation|activeStepper/);
 
   // The pressed look is scoped to the single button carrying the class...

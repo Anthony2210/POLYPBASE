@@ -9,8 +9,8 @@ import ts from 'typescript';
 
 
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
-const source = read('../src/App.tsx');
-const ast = ts.createSourceFile('App.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+const source = read('../src/components/BoxPage.tsx');
+const ast = ts.createSourceFile('BoxPage.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 let boxPage, header;
 function visit(node) {
   if (ts.isFunctionDeclaration(node) && node.name?.text === 'BoxPage') boxPage = node;

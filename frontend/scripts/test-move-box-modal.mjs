@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
-import { appHarness, ast, functionNode, tick } from './app-operation-test-harness.mjs';
+import { appHarness, functionNode, tick } from './app-operation-test-harness.mjs';
 
 const read = (path) => readFileSync(new URL(`../src/${path}`, import.meta.url), 'utf8');
 const text = (node) => Array.isArray(node) ? node.map(text).join('')
@@ -266,7 +266,7 @@ test('Move sends the exact date-free modal payload to the API only after confirm
     setIsSavingMove() {}, setMoveError() {}, setIsMoveOpen() {},
     onMoveBox: app.context.moveBox,
   });
-  app.evaluate(functionNode('handleMove').getText(ast));
+  app.evaluate(functionNode('handleMove').getText());
   h.setProps({ onSubmit: app.context.handleMove });
   h.change('notes', '  Confirmed note  ');
   const pending = h.submit();

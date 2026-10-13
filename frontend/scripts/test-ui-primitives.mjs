@@ -5,7 +5,7 @@ import React from 'react';
 import * as jsxRuntime from 'react/jsx-runtime';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ts from 'typescript';
-import { ast, appHarness } from './app-operation-test-harness.mjs';
+import { ast as appAst, boxAst as ast, appHarness } from './app-operation-test-harness.mjs';
 import { fakeClock, loadComponent, readComponent, stepperHarness } from './ui-primitives-test-harness.mjs';
 
 const modules = { react: React, 'react/jsx-runtime': jsxRuntime };
@@ -328,20 +328,22 @@ function evaluateExpression(source, context) {
   return vm.runInNewContext(`${outputText}\nresult;`, { ...context });
 }
 
-test('App imports default primitives and uses them without retained local implementations', () => {
+test('BoxPage imports default primitives and uses them without retained local implementations', () => {
   for (const name of ['InfoPill', 'Metric', 'StepperButton']) {
     const imports = ast.statements.filter(node => ts.isImportDeclaration(node)
-      && node.moduleSpecifier.text === `./components/${name}`);
+      && node.moduleSpecifier.text === `./${name}`);
     assert.equal(imports.length, 1);
     assert.equal(imports[0].importClause.name.text, name);
     assert.ok(uses(name).length > 0);
-    assert.equal(nodes(ast, node => (ts.isFunctionDeclaration(node) || ts.isVariableDeclaration(node))
-      && node.name?.getText(ast) === name).length, 0);
+    for (const file of [appAst, ast]) {
+      assert.equal(nodes(file, node => (ts.isFunctionDeclaration(node) || ts.isVariableDeclaration(node))
+        && node.name?.getText(file) === name).length, 0);
+    }
   }
   assert.match(readComponent('StepperButton'), /useEffect\(\(\) => clearRepeat, \[\]\);/);
 });
 
-test('all six App stepper consumers retain their count/salinity updater wiring', () => {
+test('all six BoxPage stepper consumers retain their count/salinity updater wiring', () => {
   const elements = uses('StepperButton');
   assert.equal(elements.length, 6);
   const counts = appHarness().context;
@@ -378,7 +380,7 @@ test('all six App stepper consumers retain their count/salinity updater wiring',
   }
 });
 
-test('all six App InfoPill consumers pass their labels, values and emphasis to the extracted component', () => {
+test('all six BoxPage InfoPill consumers pass their labels, values and emphasis to the extracted component', () => {
   const elements = uses('InfoPill');
   assert.equal(elements.length, 6);
   const Component = loadComponent('InfoPill', modules);
@@ -412,7 +414,7 @@ test('all six App InfoPill consumers pass their labels, values and emphasis to t
   }
 });
 
-test('App Metric values pass recorded zero and missing measurements distinctly to the formatter', () => {
+test('BoxPage Metric values pass recorded zero and missing measurements distinctly to the formatter', () => {
   const elements = uses('Metric');
   assert.equal(elements.length, 2);
   for (const [i, field] of ['polyp_count', 'ephyrae_count'].entries()) {

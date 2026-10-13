@@ -4,7 +4,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 import ts from 'typescript';
-import { ast, functionNode } from './app-operation-test-harness.mjs';
+import { boxAst as ast, functionNode } from './app-operation-test-harness.mjs';
 
 function loadTypeScript(relativePath) {
   const source = readFileSync(new URL(relativePath, import.meta.url), 'utf8');

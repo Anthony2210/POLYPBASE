@@ -46,16 +46,20 @@ for (const { input, temperature, salinity } of cases) {
   });
 }
 
+const boxSource = readFileSync(new URL('../src/components/BoxPage.tsx', import.meta.url), 'utf8');
+const boxAst = ts.createSourceFile('BoxPage.tsx', boxSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const appAst = ts.createSourceFile('App.tsx', appSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 
-test('App imports its display formatters from the utility without retaining local implementations', () => {
-  const importNode = appAst.statements.find(node => ts.isImportDeclaration(node)
-    && node.moduleSpecifier.text === './utils/environmentFormat');
+test('BoxPage imports its display formatters from the utility without retaining local implementations', () => {
+  const importNode = boxAst.statements.find(node => ts.isImportDeclaration(node)
+    && node.moduleSpecifier.text === '../utils/environmentFormat');
   assert.ok(importNode);
   const bindings = importNode.importClause.namedBindings.elements;
   assert.deepEqual(bindings.map(binding => binding.name.text).sort(), ['formatSalinity', 'formatTemperature']);
   assert.ok(bindings.every(binding => !binding.propertyName));
-  assert.ok(appAst.statements.every(node => !ts.isFunctionDeclaration(node)
-    || !['formatTemperature', 'formatTemperatureValue', 'formatSalinity'].includes(node.name?.text)));
+  for (const file of [appAst, boxAst]) {
+    assert.ok(file.statements.every(node => !ts.isFunctionDeclaration(node)
+      || !['formatTemperature', 'formatTemperatureValue', 'formatSalinity'].includes(node.name?.text)));
+  }
 });

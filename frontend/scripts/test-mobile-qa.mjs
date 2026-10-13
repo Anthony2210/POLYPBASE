@@ -3,11 +3,11 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
-import { appHarness, ast } from './app-operation-test-harness.mjs';
+import { appHarness, boxAst as ast } from './app-operation-test-harness.mjs';
 import { stepperHarness } from './ui-primitives-test-harness.mjs';
 
 const read = path => readFileSync(new URL(`../src/${path}`, import.meta.url), 'utf8');
-const app = read('App.tsx');
+const app = read('components/BoxPage.tsx');
 const boxCss = read('styles/pages/box-detail.css');
 const phoneCss = read('styles/responsive/phone.css');
 function nodes(root, predicate) {

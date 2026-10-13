@@ -7,7 +7,7 @@ import React from 'react';
 import * as jsxRuntime from 'react/jsx-runtime';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ts from 'typescript';
-import { appHarness, ast as appAst, deferred, tick } from './app-operation-test-harness.mjs';
+import { appHarness, boxAst as appAst, deferred, tick } from './app-operation-test-harness.mjs';
 
 function lineageHarness() {
   const h = appHarness();

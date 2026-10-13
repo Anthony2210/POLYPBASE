@@ -128,7 +128,7 @@ test('desktop and tablet create boxes from the shared page header and reused mod
   assert.match(createBoxSource, /isConfirmationOpenRef\.current = true;[\s\S]*?confirmed = await confirmAction[\s\S]*?finally \{\s*isConfirmationOpenRef\.current = false;/);
   assert.match(createBoxSource, /if \(isQuickStrainOpenRef\.current \|\| isConfirmationOpenRef\.current\) return;/);
   assert.match(createBoxSource, /onSelectBox\(created\.id\);\s*if \(presentation === 'modal'\) \{[\s\S]*?requestAnimationFrame[\s\S]*?\[data-box-page-focus-target\]/);
-  assert.match(appSource, /<h2 data-box-page-focus-target tabIndex=\{-1\}>\{box\.global_code\}<\/h2>/);
+  assert.match(readSource('../src/components/BoxPage.tsx'), /<h2 data-box-page-focus-target tabIndex=\{-1\}>\{box\.global_code\}<\/h2>/);
 });
 
 test('landscape tablet result rows retain room for every operational column', () => {
