@@ -237,7 +237,7 @@ supporting controls nearby.
 **Problem:** collect accurate data efficiently without overwhelming routine
 users.
 
-- References: new-box flow (`CreateBoxPanel` in `frontend/src/App.tsx`),
+- References: new-box flow (`frontend/src/components/CreateBoxPanel.tsx`),
   measurement entry, and established modal forms. Reuse form controls,
   shared field styles, and existing field components; put related fields
   together, expose advanced choices progressively, and keep one clear primary

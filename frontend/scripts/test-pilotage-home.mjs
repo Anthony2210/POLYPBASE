@@ -10,6 +10,7 @@ const readSource = (relativePath) => readFileSync(new URL(relativePath, import.m
 const appSource = readSource('../src/App.tsx');
 const pilotageSource = functionNode('PilotageView').getText(ast);
 const suggestionSource = readSource('../src/components/SuggestionList.tsx');
+const createBoxSource = readSource('../src/components/CreateBoxPanel.tsx');
 const searchFieldSource = readSource('../src/components/SearchField.tsx');
 const pilotageCss = readSource('../src/styles/pages/pilotage.css');
 const layoutCss = readSource('../src/styles/layout.css');
@@ -119,13 +120,13 @@ test('desktop and tablet create boxes from the shared page header and reused mod
   assert.match(appSource, /className="secondary-button button-icon-label pilotage-create-action"/);
   assert.match(appSource, /onClick=\{\(\) => setIsCreateBoxOpen\(true\)\}/);
   assert.match(appSource, /presentation=\{isPhoneLayout \? 'inline' : 'modal'\}/);
-  assert.match(appSource, /className="create-box-modal"[\s\S]*?role="dialog"[\s\S]*?aria-modal="true"/);
-  assert.equal((appSource.match(/<form className="create-box-form"/g) ?? []).length, 1);
-  assert.match(appSource, /className="modal-close-button" type="button"[^>]*onClick=\{\(\) => setOpen\(false\)\}/);
-  assert.match(appSource, /onMouseDown=\{\(\) => setOpen\(false\)\}/);
-  assert.match(appSource, /isConfirmationOpenRef\.current = true;[\s\S]*?confirmed = await confirmAction[\s\S]*?finally \{\s*isConfirmationOpenRef\.current = false;/);
-  assert.match(appSource, /if \(isQuickStrainOpenRef\.current \|\| isConfirmationOpenRef\.current\) return;/);
-  assert.match(appSource, /onSelectBox\(created\.id\);\s*if \(presentation === 'modal'\) \{[\s\S]*?requestAnimationFrame[\s\S]*?\[data-box-page-focus-target\]/);
+  assert.match(createBoxSource, /className="create-box-modal"[\s\S]*?role="dialog"[\s\S]*?aria-modal="true"/);
+  assert.equal((createBoxSource.match(/<form className="create-box-form"/g) ?? []).length, 1);
+  assert.match(createBoxSource, /className="modal-close-button" type="button"[^>]*onClick=\{\(\) => setOpen\(false\)\}/);
+  assert.match(createBoxSource, /onMouseDown=\{\(\) => setOpen\(false\)\}/);
+  assert.match(createBoxSource, /isConfirmationOpenRef\.current = true;[\s\S]*?confirmed = await confirmAction[\s\S]*?finally \{\s*isConfirmationOpenRef\.current = false;/);
+  assert.match(createBoxSource, /if \(isQuickStrainOpenRef\.current \|\| isConfirmationOpenRef\.current\) return;/);
+  assert.match(createBoxSource, /onSelectBox\(created\.id\);\s*if \(presentation === 'modal'\) \{[\s\S]*?requestAnimationFrame[\s\S]*?\[data-box-page-focus-target\]/);
   assert.match(appSource, /<h2 data-box-page-focus-target tabIndex=\{-1\}>\{box\.global_code\}<\/h2>/);
 });
 
@@ -168,7 +169,7 @@ test('Pilotage retains the shared page frame and the phone workflow branch', () 
   assert.match(pilotageSource, /className=\{`phone-lookup-panel is-\$\{tabletLookupMode\}-mode`\}/);
   assert.match(pilotageSource, /<TabletQrScanner[\s\S]*?onSelectBox=\{onSelectBox\}/);
   assert.match(pilotageCss, /@media \(max-width: 759px\), \(max-width: 900px\) and \(orientation: portrait\)/);
-  assert.match(appSource, /presentation === 'inline' \? \(\s*<button\s*className="create-box-toggle"/s);
+  assert.match(createBoxSource, /presentation === 'inline' \? \(\s*<button\s*className="create-box-toggle"/s);
   assert.match(pilotageCss, /\.create-box-panel:has\(\.create-box-form\)\s*\{[^}]*position:\s*fixed/s);
   assert.match(pilotageCss, /\.create-box-toggle > span\s*\{[^}]*border-radius:\s*50%/s);
 });

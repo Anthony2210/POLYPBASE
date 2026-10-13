@@ -3,48 +3,38 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
-import { appHarness, ast as appAst, functionNode, deferred as operationDeferred, tick as operationTick,
+import { appHarness, tick as operationTick,
   createHistoryFixture, installAppRouting } from './app-operation-test-harness.mjs';
+import { createBoxHarness, text } from './create-box-harness.mjs';
 
 for (const gap of ['before confirmation', 'after mutation success']) {
   test(`create-box caller cannot navigate after organization replacement ${gap}`, async () => {
     const h = appHarness();
-    let submit;
-    function visit(node) {
-      if (ts.isFunctionDeclaration(node) && node.name?.text === 'handleSubmit') submit = node;
-      ts.forEachChild(node, visit);
-    }
-    visit(functionNode('CreateBoxPanel'));
-    assert.ok(submit);
-    h.evaluate(submit.getText(appAst));
-    const confirmation = operationDeferred();
-    const mutation = operationDeferred();
-    const navigations = [], errors = [], mutations = [];
-    Object.assign(h.context, {
-      isSaving: false, canSubmit: true, organizationId: 1, strainId: 2, zoneId: 3,
-      globalCode: 'BOX-1', boxNumber: '1', enteredOn: '2026-09-16', notes: '',
-      selectedStrain: null, selectedZone: null, activeOrganization: { name: 'Organization A' },
-      presentation: 'inline', isConfirmationOpenRef: { current: false }, operationLifetimeRef: { current: true },
+    const box = createBoxHarness({
+      presentation: 'inline',
       isOperationCurrent: () => h.context.organizationRequestGenerationRef.current === 0,
-      boxCodeMatchesBoxNumber: () => true, t: key => key, confirmAction: () => confirmation.promise,
-      setIsSaving() {}, setError(value) { errors.push(value); }, setGlobalCode() {}, setBoxNumber() {}, setNotes() {},
-      onCreateBox(payload) { mutations.push(payload); return mutation.promise; },
-      onSelectBox(id) { navigations.push(id); },
     });
-    const pending = h.context.handleSubmit({ preventDefault() {} });
+    box.panel.click(box.panel.byClass('create-box-toggle'));
+    box.env.requests[0].resolve({ strains: [{ id: 2, code: 'BOX', species: 1, species_scientific_name: 'Aurelia' }] });
+    await box.panel.settle();
+    box.panel.change(box.panel.field('create-box-location-field'), '10');
+    const pending = box.panel.submit();
+    const confirmation = box.confirmations[0];
     if (gap === 'before confirmation') {
       h.switchOrganization();
       confirmation.resolve(true);
     } else {
       confirmation.resolve(true);
       await operationTick();
-      mutation.resolve({ id: 7 });
+      box.mutations[0].resolve({ id: 7 });
       h.switchOrganization();
     }
     await pending;
-    assert.deepEqual(navigations, []);
-    assert.deepEqual(errors.filter(Boolean), []);
-    assert.equal(mutations.length, gap === 'before confirmation' ? 0 : 1);
+    await box.panel.settle();
+    assert.deepEqual(box.navigations, []);
+    assert.deepEqual(box.panel.nodes.filter(node => node.matches('.inline-error')).map(text), []);
+    assert.equal(box.mutations.length, gap === 'before confirmation' ? 0 : 1);
+    box.unmount();
   });
 }
 
