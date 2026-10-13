@@ -200,7 +200,7 @@ test('tracking window prefers the latest quantitative state over an older ordina
   const tracking = load('../src/components/BoxTrackingChart.tsx', {
     react: { useMemo: (fn) => fn(), useState: (initial) => [initial, () => {}] }, 'react/jsx-runtime': jsxRuntime,
     '../utils/chartWindow': utility('chartWindow'), '../utils/biologicalTimeline': timeline,
-    './BiologicalTrendChart': { default: () => null }, './ChartWindowControls': { default: () => null },
+    './BiologicalTrendChart': { ...chartHarness().chart, default: () => null }, './ChartWindowControls': { default: () => null },
     '../i18n': { createTranslator: (language) => translator(language === 'fr' ? fr : en, language) },
   });
   const oldMeasurement = reading(8, '2024-01-01', 100);

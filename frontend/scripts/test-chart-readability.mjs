@@ -74,7 +74,7 @@ test('location changes use the shared movement translation in every chart entry 
         { id: 2, name: 'B', startsAt: '2026-03-01', endsAt: null },
       ],
       events: [{ id: 3, date: '2026-02-01', title: expected, kind: 'movement' }],
-      labels: { chartTitle: 'Chart', empty: 'Empty', ephyrae: 'Ephyrae', location: 'Location', missingReading: 'Missing', movement: locale.movementEvent, polyps: 'Polyps' },
+      labels: { chartTitle: 'Chart', empty: 'Empty', ephyrae: 'Ephyrae', location: 'Location', locationChange: locale.locationPeriodChange, missingReading: 'Missing', movement: locale.movementEvent, polyps: 'Polyps' },
     });
     const nodes = [];
     function visit(node) {
@@ -85,12 +85,14 @@ test('location changes use the shared movement translation in every chart entry 
     }
     visit(renderedChart);
     const markers = nodes.filter((node) => node.props?.className === 'bio-trend-event is-movement');
-    assert.equal(markers.length, 2, 'explicit movement and generated location transition');
+    assert.equal(markers.length, 1, 'only the persisted movement uses the movement style');
     for (const marker of markers) assert.ok(marker.props['aria-label'].startsWith(`${expected} `));
+    const derived = nodes.filter((node) => node.props?.className === 'bio-trend-event is-location-change');
+    assert.equal(derived.length, 1, 'generated location transition is a separate period change');
+    assert.ok(derived[0].props['aria-label'].startsWith(`${locale.locationPeriodChange} `));
     const markerLabels = nodes.filter((node) => node.props?.className === 'bio-trend-event-label');
-    assert.equal(markerLabels.length, 2);
-    for (const label of markerLabels) assert.equal(label.props.children, expected.toLocaleUpperCase('fr-FR'));
-    assert.match(chartSource, /title: `\$\{eventTitle\} - \$\{formatDisplayDate\(event\.date\)\}`/);
+    assert.deepEqual([...markerLabels.map((label) => label.props.children)].sort(), [expected, locale.locationPeriodChange].map((text) => text.toLocaleUpperCase('fr-FR')).sort());
+    assert.match(chartSource, /title: `\$\{eventTitle\} - \$\{formatEventDate\(event\)\}`/);
   }
 });
 
@@ -188,3 +190,237 @@ test('responsive CSS contracts keep text readable, canvas fitted, and shape/colo
   assert.match(chartSource, /const chartId = useId\(\)/);
   assert.match(chartSource, /clipPath=\{`url\(#\$\{chartId\}-location-\$\{bandIndex\}\)`\}/);
 });
+
+test('persisted movements and derived period changes stay distinct, exact and deduplicated', () => {
+  const periods = [
+    { id: 1, name: 'A', startsAt: '2026-01-01T08:00:00Z', endsAt: '2026-03-01T10:00:00Z' },
+    { id: 2, name: 'B', startsAt: '2026-03-01T10:00:00Z', endsAt: null },
+  ];
+  const movement = (id, date, instant) => ({ id, date, instant, title: 'Move', detail: 'A -> B', kind: 'movement' });
+  const points = (events, locationList = periods) => chart.buildGeometry(readings, locationList, events, '2026-01-01', '2026-06-30', false).eventPoints;
+  const kinds = (events, locationList) => [...points(events, locationList).map(({ event }) => event.kind)];
+
+  // Period change without any BoxMovement: derived, never labelled as a recorded movement.
+  assert.deepEqual(kinds([]), ['location_change']);
+  assert.equal(points([])[0].event.title, '');
+  assert.equal(points([])[0].coincidesWithBoundary, false);
+
+  // Persisted movement away from every boundary keeps its own date, with no snapping.
+  const isolated = points([movement(7, '2026-02-10', '2026-02-10T09:00:00Z')]);
+  const geometry = chart.buildGeometry(readings, periods, [], '2026-01-01', '2026-06-30', false);
+  assert.deepEqual([...isolated.map(({ event }) => event.kind)].sort(), ['location_change', 'movement']);
+  assert.equal(isolated.find(({ event }) => event.kind === 'movement').x, geometry.xPosition('2026-02-10'));
+
+  // Same instant: a single persisted marker, flagged as coinciding with the boundary.
+  const same = points([movement(8, '2026-03-01', '2026-03-01T10:00:00Z')]);
+  assert.equal(same.length, 1);
+  assert.equal(same[0].event.kind, 'movement');
+  assert.equal(same[0].coincidesWithBoundary, true);
+  assert.equal(same[0].x, geometry.xPosition('2026-03-01'));
+  // Same instant written with another UTC offset is still the same instant.
+  assert.equal(points([movement(9, '2026-03-01', '2026-03-01T11:00:00+01:00')]).length, 1);
+
+  // Adjacent but different timestamps: two markers, movement not moved onto the boundary.
+  for (const [date, instant] of [['2026-02-28', '2026-02-28T10:00:00Z'], ['2026-03-02', '2026-03-02T10:00:00Z'], ['2026-03-01', '2026-03-01T10:00:01Z']]) {
+    const adjacent = points([movement(10, date, instant)]);
+    assert.deepEqual([...adjacent.map(({ event }) => event.kind)].sort(), ['location_change', 'movement'], instant);
+    assert.equal(adjacent.find(({ event }) => event.kind === 'movement').x, geometry.xPosition(date));
+    assert.equal(adjacent.find(({ event }) => event.kind === 'movement').coincidesWithBoundary, false);
+  }
+
+  // A date-only movement cannot prove it matches a timestamped boundary.
+  assert.equal(points([movement(11, '2026-03-01')]).length, 2);
+  // Date-only on both sides is the same instant at that precision.
+  const dateOnly = [{ id: 1, name: 'A', startsAt: '2026-01-01', endsAt: '2026-03-01' }, { id: 2, name: 'B', startsAt: '2026-03-01', endsAt: null }];
+  assert.deepEqual(kinds([movement(12, '2026-03-01')], dateOnly), ['movement']);
+});
+
+test('same-day events have separate native controls and exact event details in both languages', () => {
+  const periods = [
+    { id: 1, name: 'A', startsAt: '2026-01-01', endsAt: '2026-03-01T08:00:00Z' },
+    { id: 2, name: 'B', startsAt: '2026-03-01T08:00:00Z', endsAt: null },
+  ];
+  for (const language of ['fr', 'en']) {
+    const locale = compile(readFileSync(new URL(`../src/i18n/${language}.ts`, import.meta.url), 'utf8'))[language];
+    let stateIndex = 0;
+    const states = [];
+    const jsx = (type, props) => ({ type, props });
+    const component = compile(chartSource, {
+      'react/jsx-runtime': { jsx, jsxs: jsx },
+      react: {
+        useState(initial) {
+          const index = stateIndex++;
+          if (!(index in states)) states[index] = initial;
+          return [states[index], (value) => { states[index] = typeof value === 'function' ? value(states[index]) : value; }];
+        },
+        useMemo: (callback) => callback(), useRef: (current) => ({ current }),
+        useId: () => 'overlap-test', useEffect() {}, useLayoutEffect() {},
+      },
+      'd3-scale': scales, 'd3-shape': shapes,
+      '../utils/userIdentity': utility('userIdentity'), '../utils/dateFormat': utility('dateFormat'),
+      '../utils/chartBiology': utility('chartBiology'), '../utils/chartLocations': utility('chartLocations'),
+    }).default;
+    const props = {
+      startDate: '2026-01-01', endDate: '2026-06-30', measurements: readings, locations: periods,
+      labels: { chartTitle: 'Chart', empty: 'Empty', ephyrae: 'Ephyrae', location: 'Location',
+        locationChange: locale.locationPeriodChange, locationChangeNote: locale.locationPeriodChangeNote,
+        missingReading: 'Missing', movement: locale.movementEvent, polyps: 'Polyps' },
+      events: [{ id: 7, date: '2026-03-01', instant: '2026-03-01T10:00:00Z', title: locale.movementEvent, detail: 'A -> B', kind: 'movement' }],
+    };
+    function render() {
+      stateIndex = 0;
+      const nodes = [];
+      function visit(node) {
+        if (!node || typeof node !== 'object') return;
+        if (Array.isArray(node)) return node.forEach(visit);
+        nodes.push(node); visit(node.props?.children);
+      }
+      visit(component(props));
+      return nodes;
+    }
+    const choices = () => render().filter((node) => node.props?.className?.startsWith('bio-trend-event-choice '));
+    const tooltip = () => render().find((node) => node.props?.className?.startsWith('bio-trend-tooltip'));
+    assert.equal(choices().length, 2);
+    const markers = render().filter((node) => node.props?.className?.startsWith('bio-trend-event is-'));
+    assert.equal(new Set(markers.map((node) => node.props.transform)).size, 1, 'true x coordinates remain identical');
+    for (const marker of markers) {
+      assert.equal(marker.props['aria-hidden'], true);
+      assert.equal(marker.props.tabIndex, undefined, 'equivalent native buttons replace duplicate SVG tab stops');
+    }
+    for (const [index, expected, time] of [[0, locale.locationPeriodChange, '08:00:00 UTC'], [1, locale.movementEvent, '10:00:00 UTC']]) {
+      const button = choices()[index];
+      assert.equal(button.type, 'button');
+      assert.equal(button.props.type, 'button');
+      assert.ok(button.props['aria-label'].startsWith(expected));
+      assert.ok(button.props['aria-label'].includes(time));
+      button.props.onMouseEnter();
+      assert.ok(tooltip().props['aria-label'].includes(time), 'independent hover handler selects this detail');
+      button.props.onMouseLeave();
+      button.props.onFocus();
+      assert.ok(tooltip().props['aria-label'].includes(time), 'keyboard focus selects this detail');
+      button.props.onClick();
+      assert.equal(choices()[index].props['aria-pressed'], true, 'click/tap pins this event');
+      choices()[index].props.onKeyDown({ key: 'Escape' });
+      assert.equal(tooltip(), undefined);
+    }
+    // Arbitrarily many legacy movements, including date-only records, keep independent controls.
+    props.events.push(...[8, 9, 10].map((id) => ({ id, date: '2026-03-01', title: locale.movementEvent, kind: 'movement', detail: `Legacy ${id}` })));
+    assert.equal(choices().length, 5);
+    for (const button of choices().slice(2)) {
+      assert.doesNotMatch(button.props['aria-label'], /UTC|00:00/);
+      button.props.onClick();
+      assert.equal(tooltip().props['aria-label'], button.props.children[0].props.children);
+      button.props.onKeyDown({ key: 'Escape' });
+    }
+    // Exact coincidence removes only the derived transition, with no duplicate controls needed.
+    props.events = [{ ...props.events[0], instant: '2026-03-01T09:00:00+01:00' }];
+    assert.equal(choices().length, 0);
+    assert.equal(render().filter((node) => node.props?.className === 'bio-trend-event is-movement').length, 1);
+  }
+  // The harness invokes handlers; it does not simulate browser SVG hit testing or native keyboard clicks.
+  assert.match(css, /\.bio-trend-event\[data-overlapping\] \.bio-trend-event-hit-area \{ pointer-events: none; \}/);
+  assert.match(css, /min-height: 44px/);
+});
+
+test('event dates preserve exact seconds and offsets without inventing historical times', () => {
+  const event = (instant) => ({ id: 1, title: 'Move', date: '2026-03-01', instant });
+  assert.match(chart.formatEventDate(event('2026-03-01T08:00:01.123Z')), /08:00:01\.123 UTC$/);
+  assert.equal(chart.formatEventDate(event('2026-03-01T09:00:00+01:00')), chart.formatEventDate(event('2026-03-01T08:00:00Z')));
+  assert.doesNotMatch(chart.formatEventDate(event(undefined)), /UTC|00:00/);
+});
+
+test('period change and movement notes are translated and shown in tooltips', () => {
+  for (const language of ['fr', 'en']) {
+    const locale = compile(readFileSync(new URL(`../src/i18n/${language}.ts`, import.meta.url), 'utf8'))[language];
+    for (const key of ['locationPeriodChange', 'locationPeriodChangeNote', 'movementAtPeriodBoundaryNote']) assert.ok(locale[key], `${language}.${key}`);
+    assert.notEqual(locale.locationPeriodChange, locale.movementEvent);
+  }
+  assert.match(chartSource, /labels\.locationChangeNote/);
+  assert.match(chartSource, /labels\.movementAtBoundaryNote/);
+  assert.doesNotMatch(chartSource, /closestBoundary/);
+  assert.match(css, /\.bio-trend-event\.is-location-change \.bio-trend-event-line/);
+});
+
+const tracking = compile(`${readFileSync(new URL('../src/components/BoxTrackingChart.tsx', import.meta.url), 'utf8')}\nexport { prepareSharedChartData };`, {
+  react: {}, 'react/jsx-runtime': {}, '../i18n': {},
+  '../utils/chartWindow': utility('chartWindow'), '../utils/biologicalTimeline': utility('biologicalTimeline'),
+  './BiologicalTrendChart': chart, './ChartWindowControls': {},
+});
+
+function withParisCalendar(callback) {
+  const previous = process.env.TZ;
+  try {
+    process.env.TZ = 'Europe/Paris';
+    assert.equal(new Date('2026-10-03T22:00:00Z').getDate(), 4);
+    callback();
+  } finally {
+    if (previous === undefined) delete process.env.TZ;
+    else process.env.TZ = previous;
+  }
+}
+
+const rangeEvent = (date) => ({ id: date, date, instant: date.length > 10 ? date : undefined, title: 'Move', kind: 'movement' });
+const prepareRange = (events, start, end) => tracking.prepareSharedChartData(
+  { measurements: [], polypStates: [] }, [], events, start, end,
+).events;
+
+for (const [label, date, included] of [
+  ['selected end date', '2026-10-03T12:00:00Z', true],
+  ['last millisecond of end date', '2026-10-03T23:59:59.999+02:00', true],
+  ['midnight after end date', '2026-10-04T00:00:00+02:00', false],
+  ['after end date', '2026-10-04T12:00:00Z', false],
+  ['before start date', '2026-10-01T23:59:59.999+02:00', false],
+  ['midnight on start date', '2026-10-02T00:00:00+02:00', true],
+  ['another explicit UTC offset', '2026-10-04T00:59:59.999+03:00', true],
+  ['UTC previous date but Paris start date', '2026-10-01T22:30:00Z', true],
+  ['UTC end date but Paris following date', '2026-10-03T22:30:00Z', false],
+  ['date-only end date', '2026-10-03', true],
+  ['date-only before start', '2026-10-01', false],
+  ['date-only after end', '2026-10-04', false],
+]) {
+  test(`inclusive chart range: ${label}`, () => withParisCalendar(() => {
+    const event = rangeEvent(date);
+    const prepared = prepareRange([event], '2026-10-02', '2026-10-03');
+    const geometry = chart.buildGeometry([], [], [event], '2026-10-02', '2026-10-03', false);
+    assert.equal(prepared.length, Number(included), 'tracking preparation');
+    assert.equal(geometry.eventPoints.length, Number(included), 'shared export/overview geometry');
+    if (included) {
+      assert.equal(prepared[0], event);
+      assert.equal(geometry.eventPoints[0].event, event);
+      assert.equal(geometry.eventPoints[0].event.date, date, 'full timestamp retained');
+      assert.equal(geometry.eventPoints[0].event.instant, event.instant);
+      assert.equal(geometry.eventPoints[0].x, geometry.xPosition(date), 'existing positioning unchanged');
+    }
+  }));
+}
+
+test('inclusive range uses the next local midnight across DST rather than a fixed 24 hours', () => withParisCalendar(() => {
+  for (const [start, end, last, next] of [
+    ['2026-10-24', '2026-10-25', '2026-10-25T22:59:59.999Z', '2026-10-25T23:00:00Z'],
+    ['2026-03-28', '2026-03-29', '2026-03-29T21:59:59.999Z', '2026-03-29T22:00:00Z'],
+  ]) {
+    const events = [rangeEvent(last), rangeEvent(next)];
+    assert.deepEqual(Array.from(prepareRange(events, start, end), (event) => event.date), [last]);
+    assert.deepEqual(Array.from(chart.buildGeometry([], [], events, start, end, false).eventPoints, ({ event }) => event.date), [last]);
+  }
+}));
+
+test('end-date filtering retains exact-instant deduplication and date-only derived transitions', () => withParisCalendar(() => {
+  const periods = [
+    { id: 1, name: 'A', startsAt: '2026-10-01', endsAt: '2026-10-03T12:00:00Z' },
+    { id: 2, name: 'B', startsAt: '2026-10-03T12:00:00Z', endsAt: null },
+  ];
+  const points = (events, locations = periods) => chart.buildGeometry([], locations, events, '2026-10-02', '2026-10-03', false).eventPoints;
+  const movement = rangeEvent('2026-10-03T15:00:00+03:00');
+  const exact = points(prepareRange([movement], '2026-10-02', '2026-10-03'));
+  assert.equal(exact.length, 1);
+  assert.equal(exact[0].event, movement);
+  assert.equal(exact[0].coincidesWithBoundary, true);
+  assert.equal(points([rangeEvent('2026-10-03T12:00:00.001Z')]).length, 2, 'one millisecond apart is not deduplicated');
+  assert.equal(points([rangeEvent('2026-10-03')]).length, 2, 'date-only does not prove an exact timestamp match');
+  const historical = points([], periods.map((period) => ({ ...period, startsAt: period.startsAt.slice(0, 10), endsAt: period.endsAt?.slice(0, 10) ?? null })));
+  assert.equal(historical.length, 1);
+  assert.equal(historical[0].event.kind, 'location_change');
+  assert.equal(historical[0].event.date, '2026-10-03');
+  assert.equal(historical[0].event.instant, undefined, 'no historical time invented');
+}));

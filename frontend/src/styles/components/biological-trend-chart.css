@@ -346,6 +346,36 @@
 }
 
 
+.bio-trend-event-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.bio-trend-event-choice {
+  display: grid;
+  min-height: 44px;
+  max-width: 100%;
+  padding: var(--space-2) var(--space-3);
+  gap: var(--space-1);
+  color: var(--color-ink);
+  text-align: start;
+  overflow-wrap: anywhere;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-inline-start: 3px dashed var(--color-danger);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+
+.bio-trend-event-choice.is-location-change { border-inline-start: 3px dotted var(--color-muted); }
+.bio-trend-event-choice.is-subculture { border-inline-start-color: var(--color-primary); }
+.bio-trend-event-choice small { color: var(--color-muted); }
+.bio-trend-event-choice:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.bio-trend-event-choice[aria-pressed="true"] { background: var(--color-surface-subtle); }
+.bio-trend-event[data-overlapping] { pointer-events: none; }
+.bio-trend-event[data-overlapping] .bio-trend-event-hit-area { pointer-events: none; }
+
 .bio-trend-event { cursor: pointer; }
 .bio-trend-event:focus { outline: none; }
 .bio-trend-event-line {
@@ -392,6 +422,15 @@
   stroke-dasharray: 4 3;
   opacity: .88;
 }
+
+.bio-trend-event.is-location-change .bio-trend-event-line {
+  stroke: var(--color-muted);
+  stroke-width: 1;
+  stroke-dasharray: 1 4;
+  opacity: .9;
+}
+
+.bio-trend-event.is-location-change .bio-trend-event-label { fill: var(--color-muted); }
 
 .bio-trend-event-label {
   fill: var(--color-danger);

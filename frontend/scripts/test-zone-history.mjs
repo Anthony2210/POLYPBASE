@@ -147,3 +147,23 @@ test('entry and exit copy exists in French and English', () => {
   assert.match(enSource, /zoneMovementEntries: 'Entries'/);
   assert.match(enSource, /zoneMovementExits: 'Exits'/);
 });
+
+test('zone history wording describes location period starts and ends, not recorded moves', () => {
+  const expected = {
+    fr: { zoneRecentMovementsTitle: 'Entrées et sorties', zoneMovementHistoryTitle: 'Historique des entrées et sorties', zoneMovementEmpty: 'Aucune entrée ou sortie enregistrée.', zoneMovementSourceNote: /périodes d’emplacement.*pas toujours des déplacements saisis/, zoneMovementWeekSummary: /périodes d’emplacement/ },
+    en: { zoneRecentMovementsTitle: 'Entries and exits', zoneMovementHistoryTitle: 'Entry and exit history', zoneMovementEmpty: 'No entry or exit recorded.', zoneMovementSourceNote: /location periods.*not always recorded moves/, zoneMovementWeekSummary: /location periods/ },
+  };
+  for (const [language, source] of [['fr', frSource], ['en', enSource]]) {
+    for (const [key, value] of Object.entries(expected[language])) {
+      const match = source.match(new RegExp(`^  ${key}: '(.*)',$`, 'm'));
+      assert.ok(match, `${language}.${key}`);
+      if (value instanceof RegExp) assert.match(match[1], value); else assert.equal(match[1], value);
+    }
+    for (const key of ['zoneRecentMovementsTitle', 'zoneMovementHistoryTitle', 'zoneMovementDirectionFilter', 'zoneMovementEmpty']) {
+      const text = source.match(new RegExp(`^  ${key}: '(.*)',$`, 'm'))[1];
+      assert.doesNotMatch(text, /mouvement|movement|moves?/i, `${language}.${key} must not call period boundaries movements`);
+    }
+  }
+  assert.equal(historySource.match(/zoneMovementSourceNote/g).length, 2, 'summary and full history both show the source note');
+  assert.doesNotMatch(historySource, /movement\.(user|actor)/);
+});

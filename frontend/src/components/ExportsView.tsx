@@ -804,7 +804,10 @@ export default function ExportsView({
                   id: `movement-${movement.id}`,
                   date: movement.moved_at,
                   title: translations[language].movementEvent,
-                  detail: movement.to_thermal_zone.name,
+                  detail: movement.from_thermal_zone
+                    ? `${movement.from_thermal_zone.name} -> ${movement.to_thermal_zone.name}`
+                    : movement.to_thermal_zone.name,
+                  instant: movement.moved_at,
                   kind: 'movement' as const,
                 }))}
                 selectionScope={selectedPreviewDetail.id}
@@ -817,7 +820,10 @@ export default function ExportsView({
                   ephyrae: language === 'fr' ? 'Éphyrules' : 'Ephyrae',
                   location: language === 'fr' ? 'Emplacement' : 'Location',
                   missingReading: language === 'fr' ? 'Période sans relevé' : 'Period without measurement',
+                  locationChange: translations[language].locationPeriodChange,
+                  locationChangeNote: translations[language].locationPeriodChangeNote,
                   movement: translations[language].movementEvent,
+                  movementAtBoundaryNote: translations[language].movementAtPeriodBoundaryNote,
                   observation: language === 'fr' ? 'Observation' : 'Observation',
                   polyps: language === 'fr' ? 'Polypes' : 'Polyps',
                   salinity: 'PSU',

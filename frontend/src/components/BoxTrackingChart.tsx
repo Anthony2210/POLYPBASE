@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react';
 import type { BiologicalMeasurement, BoxLocation, BoxLineage, BoxMovement } from '../types';
 import { createTranslator, type Language } from '../i18n';
 import { buildChartWindow, getLatestChartWindowOffset, parseChartDate, toChartDateString } from '../utils/chartWindow';
-import BiologicalTrendChart, { type TrendEvent, type TrendLocation, type TrendPolypState } from './BiologicalTrendChart';
+import BiologicalTrendChart, { isChartEventInRange, type TrendEvent, type TrendLocation, type TrendPolypState } from './BiologicalTrendChart';
 import { getBiologicalTimelineLabels, prepareBiologicalChartData, type BiologicalTimelineEntry } from '../utils/biologicalTimeline';
 import ChartWindowControls from './ChartWindowControls';
 
@@ -29,6 +29,7 @@ type LifecycleEvent = {
   type: 'movement' | 'subculture';
   title: string;
   detail: string;
+  instant?: string;
   subcultureEventId?: number;
 };
 
@@ -162,8 +163,11 @@ export default function BoxTrackingChart({
               historicalUser: createTranslator(language)('historicalUser'),
               ephyrae: labels.ephyraeFull,
               location: language === 'fr' ? 'Emplacement' : 'Location',
+              locationChange: createTranslator(language)('locationPeriodChange'),
+              locationChangeNote: createTranslator(language)('locationPeriodChangeNote'),
               missingReading: labels.missingReading,
               movement: createTranslator(language)('movementEvent'),
+              movementAtBoundaryNote: createTranslator(language)('movementAtPeriodBoundaryNote'),
               observation: labels.historyObservation,
               polyps: labels.polyps,
               salinity: labels.salinityFull,
@@ -195,7 +199,7 @@ function prepareSharedChartData(
     endsAt: location.ends_at,
     endDateUnknown: location.end_date_unknown,
   }));
-  const sharedEvents = events.filter((event) => event.date >= startText && event.date <= endText);
+  const sharedEvents = events.filter((event) => isChartEventInRange(event.date, startText, endText));
 
   return {
     startDate: startText,
@@ -236,6 +240,7 @@ export function buildLifecycleEvents(
       id: `move-${movement.id}`,
       date,
       type: 'movement',
+      instant: movement.moved_at,
       title: labels.movementEvent,
       detail: movement.from_thermal_zone
         ? `${movement.from_thermal_zone.name} -> ${movement.to_thermal_zone.name}`

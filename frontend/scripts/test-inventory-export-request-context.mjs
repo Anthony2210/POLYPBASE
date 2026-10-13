@@ -458,3 +458,28 @@ test('exports successful current empty eligibility shows no-boxes text in the pr
     assert.equal(named(harness.tree, 'BiologicalTrendChart').length, 0);
   }
 });
+
+test('exports forwards selected calendar bounds and complete movement timestamps to the chart', async () => {
+  const harness = exportsHarness();
+  const dates = nodes(harness.tree, (node) => node.type === 'input' && node.props.type === 'date');
+  dates[0].props.onChange({ target: { value: '2026-10-02' } });
+  dates[1].props.onChange({ target: { value: '2026-10-03' } });
+  harness.flush();
+  await resolveEligibility(harness, 0, { ...eligible(), latest_measurement_on_by_box: { 1: '2026-10-03' } });
+  named(harness.tree, 'PreviewBoxPicker')[0].props.onSelect(1);
+  harness.flush();
+  const timestamps = ['2026-10-03T12:00:00Z', '2026-10-04T00:59:59.999+03:00'];
+  harness.requests[1].resolve({
+    id: 1, locations: [],
+    movements: timestamps.map((moved_at, index) => ({ id: index + 1, moved_at, from_thermal_zone: { name: 'A' }, to_thermal_zone: { name: 'B' } })),
+    biological_measurements: [{ id: 1, measured_on: '2026-10-03', polyp_count: 0, ephyrae_count: 0 }],
+  });
+  await harness.settle();
+  const chart = named(harness.tree, 'BiologicalTrendChart')[0];
+  assert.ok(chart);
+  assert.equal(chart.props.startDate, '2026-10-02');
+  assert.equal(chart.props.endDate, '2026-10-03');
+  assert.deepEqual(Array.from(chart.props.events, (event) => event.date), timestamps);
+  assert.deepEqual(Array.from(chart.props.events, (event) => event.instant), timestamps);
+  assert.deepEqual(Array.from(chart.props.events, (event) => event.id), ['movement-1', 'movement-2']);
+});

@@ -67,7 +67,10 @@ export type TrendEvent = {
   title: string;
   detail?: string;
   detailLines?: Array<{ label: string; value: string }>;
-  kind?: 'movement' | 'subculture';
+  // 'movement' is a persisted BoxMovement; 'location_change' is a derived location period boundary.
+  kind?: 'movement' | 'subculture' | 'location_change';
+  // Full timestamp, used for exact coincidence checks and event identification.
+  instant?: string;
 };
 
 type TrendLabels = {
@@ -78,8 +81,11 @@ type TrendLabels = {
   enteredBy?: string;
   historicalUser?: string;
   location: string;
+  locationChange: string;
+  locationChangeNote?: string;
   missingReading: string;
   movement: string;
+  movementAtBoundaryNote?: string;
   observation?: string;
   polyps: string;
   salinity?: string;
@@ -106,6 +112,7 @@ type DetailLine = {
 
 type LocationBand = {
   endDate: string;
+  startsAt: string;
   id: number | string;
   name: string;
   startDate: string;
@@ -246,6 +253,28 @@ export default function BiologicalTrendChart({
     yCount,
     zoneBandHeight,
   } = geometry;
+  const eventDetails = eventPoints.map(({ event, x, coincidesWithBoundary }) => {
+    const isDerived = event.kind === 'location_change';
+    const eventTitle = isDerived ? labels.locationChange : event.title || labels.movement;
+    const noteValue = isDerived ? labels.locationChangeNote : coincidesWithBoundary ? labels.movementAtBoundaryNote : undefined;
+    const detail: ActiveDetail = {
+      id: `event-${event.id}`,
+      left: (x / width) * 100,
+      top: plotTop + 6,
+      title: `${eventTitle} - ${formatEventDate(event)}`,
+      lines: [
+        ...(event.detailLines?.map((item) => ({ ...item, kind: 'allocation' as const })) ?? (event.detail
+          ? [{ kind: 'location' as const, label: labels.location, value: event.detail }]
+          : [])),
+        ...(noteValue ? [{ kind: 'note' as const, label: labels.locationChange, value: noteValue }] : []),
+      ],
+    };
+    return { event, x, detail, isDerived, eventTitle };
+  });
+  // Equivalent HTML controls avoid SVG paint-order collisions without changing chart coordinates.
+  const eventCountByX = new Map<number, number>();
+  for (const { x } of eventDetails) eventCountByX.set(x, (eventCountByX.get(x) ?? 0) + 1);
+  const overlappingEvents = eventDetails.filter(({ x }) => eventCountByX.get(x)! > 1);
   const visiblePoints = plottedMeasurements.filter((point) => visibleSeries.polyps || !('kind' in point));
   const pointHitAreas = buildMeasurementHitAreas(visiblePoints.map((point) => xPosition(point.date)), padding.left, width - padding.right, layout.responsive);
   const plottedReadingDetails = visiblePoints.map((measurement) => {
@@ -433,24 +462,18 @@ export default function BiologicalTrendChart({
             <path key={`ephyrae-${index}`} className="bio-trend-line is-ephyrae" d={countLine((point) => point.ephyraeCount)(segment) ?? ''} />
           ))}
 
-          {eventPoints.map(({ event, x }) => {
-            const eventTitle = event.title || labels.movement;
-            const detail = {
-              id: `event-${event.id}`,
-              left: (x / width) * 100,
-              top: plotTop + 6,
-              title: `${eventTitle} - ${formatDisplayDate(event.date)}`,
-              lines: event.detailLines?.map((item) => ({ ...item, kind: 'allocation' as const })) ?? (event.detail
-                ? [{ kind: 'location' as const, label: labels.location, value: event.detail }]
-                : []),
-            };
+          {eventDetails.map(({ event, x, detail, isDerived, eventTitle }) => {
+            const isSubculture = event.kind === 'subculture';
+            const overlaps = overlappingEvents.some((item) => item.detail.id === detail.id);
             return (
               <g
                 key={event.id}
-                className={`bio-trend-event is-${event.kind ?? 'movement'}`}
-                role="button"
-                tabIndex={0}
-                aria-label={`${eventTitle} ${formatDisplayDate(event.date)}`}
+                className={`bio-trend-event is-${isDerived ? 'location-change' : event.kind ?? 'movement'}`}
+                role={overlaps ? undefined : 'button'}
+                tabIndex={overlaps ? undefined : 0}
+                aria-hidden={overlaps || undefined}
+                data-overlapping={overlaps || undefined}
+                aria-label={overlaps ? undefined : detail.title}
                 transform={`translate(${x} ${padding.top})`}
                 onClick={(clickEvent) => stopAndToggle(clickEvent, detail)}
                 onKeyDown={(keyEvent) => handleDetailKey(keyEvent, detail)}
@@ -462,19 +485,19 @@ export default function BiologicalTrendChart({
                 <line
                   className="bio-trend-event-hit-area"
                   x1={0}
-                  y1={event.kind === 'movement' ? 0 : plotTop - padding.top}
+                  y1={isSubculture ? plotTop - padding.top : 0}
                   x2={0}
                   y2={chartAreaHeight}
                 />
                 <line
                   className="bio-trend-event-line"
                   x1={0}
-                  y1={event.kind === 'movement' ? 0 : plotTop - padding.top}
+                  y1={isSubculture ? plotTop - padding.top : 0}
                   x2={0}
                   y2={chartAreaHeight}
                 />
-                {event.kind !== 'movement' ? <path d="M0 0 L6 6 L0 12 L-6 6 Z" /> : null}
-                {event.kind === 'movement' ? (
+                {isSubculture ? <path d="M0 0 L6 6 L0 12 L-6 6 Z" /> : null}
+                {!isSubculture && !overlaps ? (
                   <text
                     className="bio-trend-event-label"
                     x={-chartAreaHeight / 2}
@@ -482,7 +505,7 @@ export default function BiologicalTrendChart({
                     textAnchor="middle"
                     transform="rotate(-90)"
                   >
-                    {labels.movement.toLocaleUpperCase('fr-FR')}
+                    {eventTitle.toLocaleUpperCase('fr-FR')}
                   </text>
                 ) : null}
               </g>
@@ -547,8 +570,38 @@ export default function BiologicalTrendChart({
 
       </div>
 
+      {overlappingEvents.length > 0 ? (
+        <div className="bio-trend-event-list" role="group" aria-label={labels.chartTitle}>
+          {overlappingEvents.map(({ event, detail, isDerived }) => (
+            <button
+              key={event.id}
+              type="button"
+              className={`bio-trend-event-choice is-${isDerived ? 'location-change' : event.kind ?? 'movement'}`}
+              aria-label={`${detail.title}${event.detail ? `, ${event.detail}` : ''}`}
+              aria-pressed={pinnedVisibleDetail?.id === detail.id}
+              aria-describedby={visibleDetail?.id === detail.id ? `${chartId}-event-detail` : undefined}
+              onClick={() => toggleDetail(detail)}
+              onMouseEnter={() => setHoveredDetail(detail)}
+              onMouseLeave={() => setHoveredDetail(null)}
+              onFocus={() => setFocusedDetail(detail)}
+              onBlur={() => setFocusedDetail(null)}
+              onKeyDown={(keyEvent) => {
+                if (keyEvent.key === 'Escape') {
+                  setPinnedDetail(null);
+                  setFocusedDetail(null);
+                  setHoveredDetail(null);
+                }
+              }}
+            >
+              <span>{detail.title}</span>
+              {event.detail ? <small>{event.detail}</small> : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       {visibleDetail ? (
-        <div ref={tooltipRef} className={`bio-trend-tooltip${pinnedVisibleDetail?.id === visibleDetail.id ? ' is-pinned' : ''}`} role="group" aria-label={visibleDetail.title}>
+        <div id={`${chartId}-event-detail`} ref={tooltipRef} className={`bio-trend-tooltip${pinnedVisibleDetail?.id === visibleDetail.id ? ' is-pinned' : ''}`} role="group" aria-label={visibleDetail.title}>
           <div className="bio-trend-tooltip-heading">
             <strong>{visibleDetail.title}</strong>
             {pinnedVisibleDetail?.id === visibleDetail.id ? (
@@ -718,7 +771,7 @@ export function buildGeometry(
     .filter((point) => point.date >= startText && point.date <= endText)
     .sort((left, right) => left.date.localeCompare(right.date) || (left.timelineOrder ?? 0) - (right.timelineOrder ?? 0));
   const plottedEvents = [...events]
-    .filter((event) => event.date >= startText && event.date <= endText)
+    .filter((event) => isChartEventInRange(event.date, startText, endText))
     .sort((left, right) => left.date.localeCompare(right.date));
   const xScale = scaleTime().domain([start, end]).range([padding.left, width - padding.right]);
   const xPosition = (date: string) => xScale(normalizeDate(date));
@@ -749,23 +802,30 @@ export function buildGeometry(
     .y((point) => yCount(selector(point)!));
 
   const timeTicks = buildTimeTicks(start, end, xPosition, padding, width, compact, layout.responsive);
+  const transitions = buildZoneTransitions(locationBands);
+  // Persisted movements sit at their own date; they are never snapped to a period boundary.
   const explicitEventPoints = plottedEvents.map((event) => ({
     event,
-    x: resolveEventX(event, locationBands, xPosition),
+    x: xPosition(event.date),
+    coincidesWithBoundary: event.kind === 'movement'
+      && transitions.some((transition) => isSameInstant(event.instant ?? event.date, transition.startsAt)),
   }));
-  const generatedTransferPoints = buildZoneTransitions(locationBands)
-    .filter((transition) => !explicitEventPoints.some(({ event, x }) => (
-      event.kind === 'movement' && Math.abs(x - transition.x) <= 2
+  // A derived boundary is dropped only when a persisted movement happened at the exact same instant.
+  const generatedTransferPoints = transitions
+    .filter((transition) => !explicitEventPoints.some(({ event }) => (
+      event.kind === 'movement' && isSameInstant(event.instant ?? event.date, transition.startsAt)
     )))
-    .map((transition): { event: TrendEvent; x: number } => ({
+    .map((transition): { event: TrendEvent; x: number; coincidesWithBoundary: boolean } => ({
       event: {
         id: `zone-transition-${transition.id}`,
         date: transition.date,
+        ...(transition.startsAt.length > 10 ? { instant: transition.startsAt } : {}),
         detail: `${transition.from} -> ${transition.to}`,
-        kind: 'movement' as const,
+        kind: 'location_change' as const,
         title: '',
       },
       x: transition.x,
+      coincidesWithBoundary: false,
     }));
 
   return {
@@ -774,7 +834,8 @@ export function buildGeometry(
     chartAreaHeight,
     end: endText,
     eventPoints: [...explicitEventPoints, ...generatedTransferPoints]
-      .sort((left, right) => left.x - right.x),
+      .sort((left, right) => left.x - right.x
+        || Number(right.event.kind === 'location_change') - Number(left.event.kind === 'location_change')),
     locationBands,
     hitAreas: buildMeasurementHitAreas(plottedMeasurements.map((point) => xPosition(point.date)), padding.left, width - padding.right, layout.responsive),
     maxCount,
@@ -850,6 +911,7 @@ function buildLocationBands(
         endDate: clippedEnd,
         id: location.id,
         name: location.name,
+        startsAt: location.startsAt,
         startDate: clippedStart,
         width: Math.max(2, x2 - x1),
         x1,
@@ -866,40 +928,38 @@ function buildZoneTransitions(locationBands: LocationBand[]) {
       date: band.startDate,
       from: previousBand.name,
       id: `${previousBand.id}-${band.id}`,
+      startsAt: band.startsAt,
       to: band.name,
       x: band.x1,
     }];
   });
 }
 
-function resolveEventX(
-  event: TrendEvent,
-  locationBands: LocationBand[],
-  xPosition: (date: string) => number,
-) {
-  const eventX = xPosition(event.date);
-  if (event.kind !== 'movement') return eventX;
-
-  const eventDay = event.date.slice(0, 10);
-  const boundaries = locationBands.flatMap((band) => [
-    { date: band.startDate, x: band.x1 },
-    { date: band.endDate, x: band.x1 + band.width },
-  ]);
-  const exactBoundary = boundaries.find((boundary) => boundary.date === eventDay);
-  if (exactBoundary) return exactBoundary.x;
-
-  const closestBoundary = boundaries.reduce<{ distance: number; x: number } | null>((closest, boundary) => {
-    const distance = Math.abs(boundary.x - eventX);
-    if (!closest || distance < closest.distance) {
-      return { distance, x: boundary.x };
-    }
-    return closest;
-  }, null);
-
-  return closestBoundary && closestBoundary.distance <= 18 ? closestBoundary.x : eventX;
+export function formatEventDate(event: TrendEvent) {
+  const instant = event.instant ?? event.date;
+  if (instant.length <= 10 || Number.isNaN(Date.parse(instant))) return formatDisplayDate(event.date);
+  // Keep the localized date convention and show the exact UTC time, including supplied precision.
+  const utc = new Date(instant).toISOString();
+  const time = utc.slice(11).replace(/\.000Z$/, 'Z').replace(/Z$/, ' UTC');
+  return `${formatDisplayDate(utc.slice(0, 10))} ${time}`;
 }
 
+// Two timestamps coincide only when both are known to the same precision and equal.
+function isSameInstant(first: string, second: string) {
+  const firstHasTime = first.length > 10;
+  if (firstHasTime !== second.length > 10) return false;
+  if (!firstHasTime) return first === second;
+  const firstTime = Date.parse(first);
+  return !Number.isNaN(firstTime) && firstTime === Date.parse(second);
+}
 
+export function isChartEventInRange(value: string, startDate: string, endDate: string) {
+  // Date-only history keeps calendar precision; timestamps use the selector's local days.
+  if (value.length === 10) return value >= startDate && value <= endDate;
+  const instant = new Date(value).getTime();
+  return instant >= normalizeDate(startDate).getTime()
+    && instant < addDays(normalizeDate(endDate), 1).getTime();
+}
 
 function normalizeDate(value: string) {
   return new Date(`${value.slice(0, 10)}T00:00:00`);

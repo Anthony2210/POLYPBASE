@@ -323,7 +323,7 @@ test('recent summary success A -> zone B -> B fails removes old chart and rows, 
   view.commit();
   assert.equal(view.requests[2].path, '/api/thermal-zones/2/history/summary/');
   await view.settle(view.requests[2], summary([], [], []));
-  assert.match(view.html, /No movement recorded\./);
+  assert.match(view.html, /No entry or exit recorded\./);
   assert.match(view.html, /No entry recorded\./);
   assert.match(view.html, /No exit recorded\./);
   assert.doesNotMatch(view.html, /zone-movement-flow-chart|Summary unavailable/);
@@ -379,9 +379,9 @@ test('chart preserves exact weekly counts and integer ticks across year boundari
   const view = createView('recent');
   const weeks = [week(7, 2, { week_start: '2025-12-29', iso_week: 1, iso_year: 2026 }), week(0, 0)];
   await view.settle(view.requests[0], summary(weeks, [], []));
-  assert.match(view.html, /role="img" aria-label="Entries and exits over the last eight weeks"/);
-  assert.match(view.html, /Week 1 of 2026: 7 entries, 2 exits\./);
-  assert.match(view.html, /Week 40 of 2026: 0 entries, 0 exits\./);
+  assert.match(view.html, /role="img" aria-label="Location entries and exits over the last eight weeks"/);
+  assert.match(view.html, /Week 1 of 2026: 7 entries, 2 exits \(location periods\)\./);
+  assert.match(view.html, /Week 40 of 2026: 0 entries, 0 exits \(location periods\)\./);
   assert.equal(view.find((node) => node.type === 'ul' && node.props.className === 'sr-only').length, 1);
   const entries = view.find((node) => node.props.className === 'zone-movement-flow-entry');
   const exits = view.find((node) => node.props.className === 'zone-movement-flow-exit');
@@ -400,8 +400,8 @@ test('all-zero weeks remain recorded chart data, not an absent chart', async () 
   const view = createView('recent');
   await view.settle(view.requests[0], summary([week(0, 0)], [], []));
   assert.match(view.html, /zone-movement-flow-chart/);
-  assert.match(view.html, /Week 40 of 2026: 0 entries, 0 exits\./);
-  assert.doesNotMatch(view.html, /No movement recorded\./);
+  assert.match(view.html, /Week 40 of 2026: 0 entries, 0 exits \(location periods\)\./);
+  assert.doesNotMatch(view.html, /No entry or exit recorded\./);
   assert.equal(view.find((node) => node.props.className === 'zone-movement-flow-entry')[0].props.height, 0);
   assert.equal(view.find((node) => node.props.className === 'zone-movement-flow-exit').length, 0);
 });

@@ -976,14 +976,14 @@ test('actual overview geometry has complete previous/current context before GET 
     ]);
     assert.equal(first.events.length, 1);
     assert.deepEqual(first.events[0].event, {
-      id: 'zone-transition-31-33', date: '2026-08-14',
-      detail: 'Synthetic previous zone -> Synthetic current zone', kind: 'movement', title: '',
+      id: 'zone-transition-31-33', date: '2026-08-14', instant: '2026-08-14T12:00:00Z',
+      detail: 'Synthetic previous zone -> Synthetic current zone', kind: 'location_change', title: '',
     });
     assert.equal(first.events[0].x, chartGeometry(view).xPosition('2026-08-14'));
     const rendered = trendChart.default(view.chart);
     const transfers = jsxNodes(rendered, node => node.props.className === 'bio-trend-event-label');
     assert.equal(transfers.length, 1);
-    assert.equal(transfers[0].props.children, 'TRANSFERT', 'Generated movement is actually rendered');
+    assert.equal(transfers[0].props.children, 'LOCATIONPERIODCHANGE', 'Derived period change is rendered with its own label, never as a movement');
     assertRecentBiology(view);
     assertDetailGet(app, 1);
     const initialLocations = plain(view.chart.locations);
