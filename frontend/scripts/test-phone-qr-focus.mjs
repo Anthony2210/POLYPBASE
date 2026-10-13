@@ -3,13 +3,14 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
-import { ast, functionNode } from './app-operation-test-harness.mjs';
+
 import { loadComponent } from './ui-primitives-test-harness.mjs';
 
 const compile = source => ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
 }).outputText;
-const modalCode = compile(`${functionNode('QrSearchModal').getText(ast)}\nexports.Modal = QrSearchModal;`);
+const lookupExports = {};
+vm.runInNewContext(compile(readFileSync(new URL('../src/utils/boxLookup.ts', import.meta.url), 'utf8')), { exports: lookupExports });
 const searchCode = compile(readFileSync(new URL('../src/components/SearchField.tsx', import.meta.url), 'utf8'));
 
 // Follow the existing Node/TypeScript/VM dialog harness convention. Reconcile
@@ -60,18 +61,21 @@ function harness() {
       throw new Error(`Unexpected import: ${name}`);
     },
   });
-  const exports = {};
-  vm.runInNewContext(modalCode, {
-    exports, ...hooks, document, HTMLElement: Element, queueMicrotask,
+  const Modal = loadComponent('QrSearchModal', {
+    react: hooks,
+    'react/jsx-runtime': runtime,
+    './ModalPortal': { default: 'portal' },
+    './PolypbaseIcon': { default: 'icon' },
+    './TabletQrScanner': { default: 'scanner' },
+    './SearchField': searchExports,
+    './BoxSearchStatus': { default: loadComponent('BoxSearchStatus', { 'react/jsx-runtime': runtime }) },
+    '../utils/boxLookup': lookupExports,
+  }, {
+    document, HTMLElement: Element, queueMicrotask,
     window: {
       addEventListener(name, fn) { assert.equal(name, 'keydown'); listeners.add(fn); },
       removeEventListener(name, fn) { assert.equal(name, 'keydown'); assert.ok(listeners.delete(fn)); },
     },
-    require(name) { assert.equal(name, 'react/jsx-runtime'); return runtime; },
-    ModalPortal: 'portal', PolypbaseIcon: 'icon', TabletQrScanner: 'scanner',
-    SearchField: searchExports.default,
-    BoxSearchStatus: loadComponent('BoxSearchStatus', { 'react/jsx-runtime': runtime }),
-    filterBoxes: (boxes, query) => boxes.filter(box => box.global_code.includes(query)),
   });
   props = {
     boxes: [], boxCollectionStatus: 'idle', t: key => key,
@@ -93,7 +97,7 @@ function harness() {
   function render(updates = {}) {
     props = { ...props, ...updates };
     index = 0;
-    tree = exports.Modal(props);
+    tree = Modal(props);
     controls = [];
     attach(tree);
     while (layout.length) layout.shift()();
@@ -127,7 +131,10 @@ function harness() {
   };
 }
 
-const box = { id: 1, global_code: 'BOX-1', species: { scientific_name: 'Aurelia aurita' } };
+const box = {
+  id: 1, global_code: 'BOX-1', local_code: 'LOCAL-1', box_number: '1',
+  species: { scientific_name: 'Aurelia aurita' }, strain: { code: 'AA' }, thermal_zone: null,
+};
 
 for (const disconnected of [false, true]) {
   test(`StrictMode effect replay preserves the external opener and cancels synthetic restoration (disconnected=${disconnected})`, async () => {

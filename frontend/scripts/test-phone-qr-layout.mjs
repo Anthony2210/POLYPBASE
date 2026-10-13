@@ -10,6 +10,7 @@ const phoneCss = read('styles/responsive/phone.css');
 const scanner = read('components/TabletQrScanner.tsx');
 const labels = read('components/LabelsView.tsx');
 const app = read('App.tsx');
+const qrSearchModal = read('components/QrSearchModal.tsx');
 const phoneMedia = '@media (max-width: 759px), (max-width: 900px) and (orientation: portrait)';
 
 function mediaBlock(source, header) {
@@ -80,7 +81,7 @@ test('phone modal keeps safe-area bounds, scrollable lookup, close and keyboard 
   assert.match(rule(phoneCss, '.qr-search-backdrop'), /safe-area-inset-top[\s\S]*safe-area-inset-bottom/);
   assert.match(rule(phoneCss, '.qr-search-modal'), /100dvh[\s\S]*safe-area-inset-top[\s\S]*safe-area-inset-bottom/);
   assert.match(rule(read('styles/components/qr-search.css'), '.qr-search-content'), /overflow-y:\s*auto/);
-  const ast = ts.createSourceFile('App.tsx', app, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const ast = ts.createSourceFile('QrSearchModal.tsx', qrSearchModal, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const declaration = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'QrSearchModal');
   assert.ok(declaration, 'Missing QrSearchModal declaration');
   const modal = declaration.getText(ast);
