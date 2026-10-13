@@ -116,7 +116,18 @@ class BoxMovementSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = BoxMovement
-        fields = ["id", "from_thermal_zone", "to_thermal_zone", "moved_at", "notes", "user", "user_identity"]
+        fields = [
+            "id",
+            "kind",
+            "from_thermal_zone",
+            "to_thermal_zone",
+            "moved_at",
+            "iso_week_start",
+            "revision",
+            "notes",
+            "user",
+            "user_identity",
+        ]
 
     def get_user(self, obj):
         return obj.user.get_username() if obj.user else None
@@ -759,6 +770,41 @@ class BoxMoveCreateSerializer(serializers.Serializer):
                 "The thermal zone must belong to the box organization."
             )
         return thermal_zone
+
+
+class BoxMovementCorrectionSerializer(serializers.Serializer):
+    """Explicit correction of one persisted movement; never a new movement."""
+
+    expected_revision = serializers.IntegerField(required=True, min_value=0)
+    moved_at = serializers.DateTimeField(required=False)
+    to_thermal_zone_id = serializers.PrimaryKeyRelatedField(
+        queryset=ThermalZone.objects.none(),
+        source="to_thermal_zone",
+        required=False,
+    )
+    notes = serializers.CharField(required=False, allow_blank=True)
+
+    def get_fields(self):
+        fields = super().get_fields()
+        # Foreign or inactive zones are indistinguishable from missing ones.
+        fields["to_thermal_zone_id"].queryset = ThermalZone.objects.filter(
+            organization_id=self.context["box"].organization_id,
+            is_active=True,
+        )
+        return fields
+
+    def validate(self, attrs):
+        if isinstance(self.initial_data, Mapping):
+            unknown = sorted(set(self.initial_data) - set(self.fields))
+            if unknown:
+                raise serializers.ValidationError(
+                    {field: ["This field cannot be corrected."] for field in unknown}
+                )
+        if not {"moved_at", "to_thermal_zone", "notes"} & set(attrs):
+            raise serializers.ValidationError(
+                "Provide at least one of moved_at, to_thermal_zone_id or notes."
+            )
+        return attrs
 
 
 class SubcultureChildCreateSerializer(serializers.Serializer):

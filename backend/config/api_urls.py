@@ -29,6 +29,7 @@ from apps.cultures.api_views import (
     BoxMeasurementDetailAPIView,
     BoxMeasurementListCreateAPIView,
     BoxMoveAPIView,
+    BoxMovementDetailAPIView,
     BoxQualifyAPIView,
     BoxScanAPIView,
     BoxSubcultureCodePreviewAPIView,
@@ -158,6 +159,11 @@ urlpatterns = [
         "boxes/<int:box_id>/move/",
         BoxMoveAPIView.as_view(),
         name="api_box_move",
+    ),
+    path(
+        "boxes/<int:box_id>/movements/<int:pk>/",
+        BoxMovementDetailAPIView.as_view(),
+        name="api_box_movement_detail",
     ),
     path(
         "boxes/<int:box_id>/lineage/",

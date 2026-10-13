@@ -106,7 +106,15 @@ from .serializers import (
 )
 from .box_codes import preview_box_codes
 from .polyp_state import current_state_prefetches, current_polyp_total, resolve_current_polyp_state
+from .movement_corrections import (
+    BoxMovementConflict,
+    BoxMovementForbidden,
+    BoxMovementInvalid,
+    BoxMovementNotFound,
+    correct_box_movement,
+)
 from .services import (
+    BoxMovementWeekConflict,
     SubcultureInvalid,
     SubcultureStateChanged,
     StaleBoxLocationError,
@@ -1394,12 +1402,85 @@ class BoxMoveAPIView(generics.GenericAPIView):
                 },
                 status=status.HTTP_409_CONFLICT,
             )
+        except BoxMovementWeekConflict as error:
+            return _box_movement_week_conflict_response(
+                movement_id=error.movement_id,
+                iso_week_start=error.iso_week_start,
+                detail=error.messages[0],
+            )
         except DjangoValidationError as error:
             raise DRFValidationError(error.messages) from error
 
         updated_box = get_object_or_404(
             box_queryset_for_user(request.user, organization_ids=get_active_organization_ids(request)),
             id=box.id,
+        )
+        return Response(BoxDetailSerializer(updated_box, context={"request": request}).data, status=status.HTTP_200_OK)
+
+
+def _box_movement_week_conflict_response(*, movement_id, iso_week_start, detail):
+    # The conflicting movement belongs to the same scoped box: no foreign data.
+    iso_year, iso_week, _ = iso_week_start.isocalendar()
+    return Response(
+        {
+            "code": "box_movement_week_conflict",
+            "detail": detail,
+            "conflicting_movement_id": movement_id,
+            "iso_week_start": iso_week_start.isoformat(),
+            "iso_year": iso_year,
+            "iso_week": iso_week,
+        },
+        status=status.HTTP_409_CONFLICT,
+    )
+
+
+class BoxMovementPermissionDenied(PermissionDenied):
+    def __init__(self, detail, *, error_code):
+        super().__init__({"detail": detail, "code": error_code})
+
+
+class BoxMovementValidationError(DRFValidationError):
+    def __init__(self, detail, *, error_code):
+        if error_code is not None and isinstance(detail, dict):
+            detail = {**detail, "code": error_code}
+        super().__init__(detail)
+
+
+@method_decorator(never_cache, name="dispatch")
+class BoxMovementDetailAPIView(generics.GenericAPIView):
+    """Correct one persisted movement of a box (explicit PATCH, never a new move)."""
+
+    def patch(self, request, box_id, pk):
+        organization_ids = get_active_organization_ids(request)
+        try:
+            correct_box_movement(
+                box_id=box_id,
+                movement_id=pk,
+                organization_ids=organization_ids,
+                user=request.user,
+                data=lambda: request.data,
+            )
+        except BoxMovementNotFound as error:
+            raise Http404(error.detail) from error
+        except BoxMovementForbidden as error:
+            raise BoxMovementPermissionDenied(error.detail, error_code=error.error_code) from error
+        except BoxMovementInvalid as error:
+            raise BoxMovementValidationError(error.detail, error_code=error.error_code) from error
+        except BoxMovementConflict as error:
+            if error.error_code == "box_movement_week_conflict":
+                return _box_movement_week_conflict_response(
+                    movement_id=error.movement_id,
+                    iso_week_start=error.iso_week_start,
+                    detail=error.detail,
+                )
+            return Response(
+                {"code": error.error_code, "detail": error.detail, **error.extra},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        updated_box = get_object_or_404(
+            box_queryset_for_user(request.user, organization_ids=organization_ids),
+            id=box_id,
         )
         return Response(BoxDetailSerializer(updated_box, context={"request": request}).data, status=status.HTTP_200_OK)
 

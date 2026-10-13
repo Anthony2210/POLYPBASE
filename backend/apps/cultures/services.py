@@ -36,6 +36,37 @@ class StaleBoxLocationError(ValidationError):
         )
 
 
+class BoxMovementWeekConflict(ValidationError):
+    """An ordinary movement already exists for this box in the target ISO week."""
+
+    def __init__(self, *, movement_id, iso_week_start):
+        self.movement_id = movement_id
+        self.iso_week_start = iso_week_start
+        super().__init__(
+            "An ordinary movement already exists for this box in this ISO week."
+        )
+
+
+def check_ordinary_movement_week(*, box, moved_at, movement=None):
+    """Raise when another ordinary movement occupies the Paris ISO week.
+
+    The caller must hold the Box row lock: it serializes every movement write
+    of the box, so the check and the following write cannot interleave. The
+    partial unique constraint remains the final defense.
+    """
+    iso_week_start = BoxMovement.week_start_for(moved_at)
+    conflicts = BoxMovement.objects.filter(
+        box=box,
+        kind=BoxMovement.Kind.ORDINARY,
+        iso_week_start=iso_week_start,
+    )
+    if movement is not None:
+        conflicts = conflicts.exclude(pk=movement.pk)
+    conflict = conflicts.order_by("pk").first()
+    if conflict is not None:
+        raise BoxMovementWeekConflict(movement_id=conflict.pk, iso_week_start=iso_week_start)
+
+
 def _locked_box(box):
     return (
         # Lock the box, not the nullable location side of the outer join.
@@ -112,6 +143,7 @@ def qualify_pending_box(
                 moved_at=timezone.now(),
                 user=user,
                 notes="Initial location assigned during historical qualification.",
+                kind=BoxMovement.Kind.QUALIFICATION,
             )
         box.status = Box.Status.ACTIVE
         box.stop_reason = ""
@@ -181,6 +213,7 @@ def assign_unlocated_active_box(*, box, thermal_zone, user, notes=""):
         moved_at=timezone.now(),
         user=user,
         notes=notes,
+        kind=BoxMovement.Kind.INITIAL_LOCATION,
     )
 
 
@@ -256,6 +289,7 @@ def reactivate_box(*, box, thermal_zone, user, notes=""):
         moved_at=timezone.now(),
         user=user,
         notes=notes,
+        kind=BoxMovement.Kind.REACTIVATION,
     )
     box.status = Box.Status.ACTIVE
     box.stop_reason = ""
@@ -401,8 +435,14 @@ def move_box_to_thermal_zone(
     user,
     notes,
     expected_thermal_zone_id=_EXPECTED_THERMAL_ZONE_UNSET,
+    kind=BoxMovement.Kind.ORDINARY,
 ):
-    """Move a box to another thermal zone and keep a location history."""
+    """Move a box to another thermal zone and keep a location history.
+
+    Lifecycle callers pass their own kind. An ordinary request for a box
+    without a current location is recorded as its first location: it is not
+    a transfer and does not use the weekly allowance.
+    """
     requested_box = box
     box = _locked_box(box)
     current_thermal_zone = (
@@ -424,6 +464,10 @@ def move_box_to_thermal_zone(
         raise ValidationError("The box is already in this thermal zone.")
 
     moved_at = moved_at or timezone.now()
+    if kind == BoxMovement.Kind.ORDINARY and current_thermal_zone is None:
+        kind = BoxMovement.Kind.INITIAL_LOCATION
+    if kind == BoxMovement.Kind.ORDINARY:
+        check_ordinary_movement_week(box=box, moved_at=moved_at)
     from_thermal_zone = current_thermal_zone
     active_locations = list(
         BoxLocation.objects.select_for_update()
@@ -438,7 +482,7 @@ def move_box_to_thermal_zone(
         location.ends_at = moved_at
         location.save(update_fields=["ends_at"])
 
-    BoxLocation.objects.create(
+    destination_location = BoxLocation.objects.create(
         box=box,
         thermal_zone=thermal_zone,
         starts_at=moved_at,
@@ -451,6 +495,17 @@ def move_box_to_thermal_zone(
         moved_at=moved_at,
         user=user,
         notes=notes,
+        kind=kind,
+        # Only an unambiguous origin is linked: several open periods, or one
+        # in another zone than the current pointer, are left unlinked.
+        origin_location=(
+            active_locations[0]
+            if len(active_locations) == 1
+            and from_thermal_zone is not None
+            and active_locations[0].thermal_zone_id == from_thermal_zone.id
+            else None
+        ),
+        destination_location=destination_location,
     )
     box.thermal_zone = thermal_zone
     box.save(update_fields=["thermal_zone"])
@@ -465,6 +520,12 @@ def move_box_to_thermal_zone(
         description=f"Box moved to {thermal_zone.name}",
         metadata={
             "movement_id": movement.id,
+            "movement_kind": movement.kind,
+            "iso_week_start": (
+                movement.iso_week_start.isoformat() if movement.iso_week_start else None
+            ),
+            "origin_location_id": movement.origin_location_id,
+            "destination_location_id": movement.destination_location_id,
             "from_thermal_zone_id": from_thermal_zone.id if from_thermal_zone else None,
             "from_thermal_zone_name": from_thermal_zone.name if from_thermal_zone else None,
             "to_thermal_zone_id": thermal_zone.id,

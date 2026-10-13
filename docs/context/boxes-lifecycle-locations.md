@@ -42,6 +42,26 @@ Le contrat d'intention utilise `expected_thermal_zone_id` :
 
 Si l'état a changé entre l'affichage et la confirmation, l'API répond `409` avec le code `box_location_changed`. Le frontend ne doit pas annoncer un succès : il recharge la boîte et les zones. Ce mécanisme complète le verrouillage et ne remplace ni la permission ni le contrôle d'organisation.
 
+## Nature des mouvements et limite hebdomadaire
+
+`BoxMovement.kind` distingue `ordinary` (transfert entre deux zones), `initial_location` (premier emplacement d'une boîte active sans emplacement, y compris via `move/` depuis `null`), `qualification`, `reactivation` et `unclassified`. `unclassified` signifie « provenance non établie » : toutes les lignes antérieures à la migration `0013` et toute écriture directe hors service. Aucune nature n'est déduite après coup.
+
+Au plus un mouvement `ordinary` par boîte et semaine ISO Europe/Paris (lundi-dimanche). `iso_week_start` est dérivé de `moved_at` dans `save()`; depuis `0014`, un `CHECK` impose en base sa correspondance avec le lundi de `moved_at` en Europe/Paris. Une contrainte unique partielle protège l'état final et le verrou de boîte sérialise les écritures. Un second mouvement ordinaire répond `409 box_movement_week_conflict` sans mutation (`conflicting_movement_id`, `iso_week_start`, `iso_year`, `iso_week`); `box_location_changed` reste prioritaire. Création manuelle, repiquage, désactivation et les natures de cycle de vie ne consomment pas ce créneau. Les mouvements `unclassified` n'y participent pas non plus.
+
+`QuerySet.update()` et `bulk_update()` via le manager normal refusent les champs `moved_at`, `kind` et `iso_week_start`. `bulk_create()` ne calcule pas la clé : le caller doit fournir une clé cohérente pour `ordinary`, sinon la base refuse l'écriture. Le `CHECK` et l'unicité PostgreSQL couvrent aussi les upserts, fixtures (`save_base(raw=True)`), le manager de base et les écritures SQL directes. Ces chemins hors service ne garantissent pas permissions, liens de périodes ou audits; ils ne remplacent pas le service métier. `ignore_conflicts=True` peut ignorer une ligne invalide sur SQLite; sur PostgreSQL, il ne masque pas un échec de `CHECK`. `0014` ne répare aucune donnée et échoue si une ligne ordinaire incohérente existe déjà. L'expression `ParisMovementWeekStart` est conservée pour la sérialisation des migrations.
+
+Les nouveaux mouvements référencent les périodes qu'ils ont écrites (`origin_location`, `destination_location`); une origine ambiguë reste `NULL`. Les liens historiques ne sont jamais reconstruits.
+
+## Correction d'un mouvement
+
+`PATCH /api/boxes/<box_id>/movements/<id>/` (service `movement_corrections.correct_box_movement`) exige `expected_revision` et au moins un champ parmi `notes`, `moved_at`, `to_thermal_zone_id`. Administrateurs et techniciens actifs de l'institution, sans délai ni restriction d'auteur. L'identifiant, la nature et l'auteur d'origine sont conservés; chaque correction incrémente `revision` et ajoute un `AuditLog` (`event: box_movement_correction`) avec avant/après, périodes touchées et changement de zone courante. Aucun mouvement n'est créé, supprimé ou fusionné.
+
+- notes : toujours corrigeables, y compris `unclassified`; seule la copie prouvée dans la période de destination suit.
+- date : seulement `ordinary` avec liens cohérents, strictement entre le début de la période d'origine et la fin de la période de destination, jamais dans le futur, sans autre mouvement ou période chevauchante, semaine cible libre.
+- destination : mouvement terminal uniquement (période de destination ouverte et courante, boîte active, aucun mouvement postérieur); met à jour période et pointeur courant.
+
+Refus `409` : `box_movement_changed`, `box_movement_week_conflict`, `movement_provenance_unresolved`, `movement_date_not_correctable`, `movement_period_link_missing`, `movement_period_mismatch`, `movement_period_overlap`, `movement_chronology_conflict`, `movement_not_terminal`. Refus `400` : validation, `movement_same_zone`, `movement_date_in_future`, `movement_correction_no_change`. L'admin Django générique est en lecture seule pour `BoxMovement` et `BoxLocation`, et `Box.thermal_zone` y est non modifiable.
+
 ## Repiquages et lignées
 
 `SubcultureEvent` décrit un repiquage depuis une boîte parent. `BoxLineage` conserve la relation parent-enfant, notamment créée par ce flux. L'historique de lignée doit survivre aux changements de statut et d'emplacement.
@@ -78,6 +98,8 @@ Ne pas déduire une parenté d'une ressemblance de codes.
 - API et serializers : `backend/apps/cultures/api_views.py`, `backend/apps/cultures/serializers.py`.
 - Transfert UI : `frontend/src/components/MoveBoxModal.tsx`.
 - Diagnostic en lecture seule de l'historique d'emplacement : commande `diagnose_box_location_history` (`backend/apps/cultures/location_history_diagnostics.py`). Il constate sans réparer ni déduire de mouvement.
+- Diagnostic en lecture seule par institution des candidats hebdomadaires, provenances non établies, liens mouvement-période, périodes ouvertes multiples, pointeurs et zones étrangères : commande `diagnose_box_movement_weeks` (`backend/apps/cultures/movement_week_diagnostics.py`).
+- Correction de mouvement : `backend/apps/cultures/movement_corrections.py`.
 - Inventaire et qualification : [`inventory.md`](inventory.md).
 - Mesures acceptées selon le statut : [`measurements-integrity.md`](measurements-integrity.md).
 - Transferts inter-institutions par CSV : [`../transferts_csv.md`](../transferts_csv.md).

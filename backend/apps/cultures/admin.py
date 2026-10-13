@@ -27,18 +27,37 @@ class BoxAdmin(admin.ModelAdmin):
     list_filter = ("status", "organization", "thermal_zone")
     search_fields = ("global_code", "local_code", "box_number", "strain__code", "strain__species__scientific_name")
 
+    def get_readonly_fields(self, request, obj=None):
+        # The current location changes only through the movement services.
+        readonly_fields = tuple(super().get_readonly_fields(request, obj))
+        return readonly_fields + ("thermal_zone",) if obj is not None else readonly_fields
+
+
+class LocationHistoryReadOnlyAdmin(admin.ModelAdmin):
+    """Location history is written by services that keep periods, movements,
+    the current pointer and audits consistent; the generic admin only reads it."""
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
 
 @admin.register(BoxLocation)
-class BoxLocationAdmin(admin.ModelAdmin):
+class BoxLocationAdmin(LocationHistoryReadOnlyAdmin):
     list_display = ("box", "thermal_zone", "starts_at", "ends_at")
     list_filter = ("thermal_zone",)
     search_fields = ("box__global_code", "thermal_zone__name")
 
 
 @admin.register(BoxMovement)
-class BoxMovementAdmin(admin.ModelAdmin):
-    list_display = ("box", "from_thermal_zone", "to_thermal_zone", "moved_at", "user")
-    list_filter = ("from_thermal_zone", "to_thermal_zone")
+class BoxMovementAdmin(LocationHistoryReadOnlyAdmin):
+    list_display = ("box", "kind", "from_thermal_zone", "to_thermal_zone", "moved_at", "user", "revision")
+    list_filter = ("kind", "from_thermal_zone", "to_thermal_zone")
     search_fields = ("box__global_code", "notes")
 
 

@@ -1,9 +1,12 @@
 import uuid
+from datetime import timedelta
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models import Q
+from django.db.models.functions import Cast, TruncWeek
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
@@ -153,7 +156,46 @@ class BoxInventoryInitialization(models.Model):
         return f"Box inventory initialized for {self.organization}"
 
 
+# Ordinary movements are limited per ISO week of the laboratory calendar,
+# independently of the server time zone setting.
+MOVEMENT_WEEK_TIME_ZONE = ZoneInfo("Europe/Paris")
+_MOVEMENT_WEEK_FIELDS = {"moved_at", "kind", "iso_week_start"}
+
+
+class ParisMovementWeekStart(Cast):
+    """Migration-serializable Paris-local Monday expression; keep for migrations."""
+
+    def __init__(self, expression):
+        super().__init__(
+            TruncWeek(expression, tzinfo=MOVEMENT_WEEK_TIME_ZONE),
+            output_field=models.DateField(),
+        )
+
+
+class BoxMovementQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        # The weekly key is derived in save(); bulk writes would bypass it.
+        if _MOVEMENT_WEEK_FIELDS & set(kwargs):
+            raise ValidationError(
+                "Box movement date and kind can only change through save() or the correction service."
+            )
+        return super().update(**kwargs)
+
+
 class BoxMovement(models.Model):
+    class Kind(models.TextChoices):
+        # Explicit transfer between two zones; limited to one per ISO week.
+        ORDINARY = "ordinary", _("Déplacement")
+        # First location of an active box without a current location.
+        INITIAL_LOCATION = "initial_location", _("Premier emplacement")
+        # Location assigned while qualifying a historical box.
+        QUALIFICATION = "qualification", _("Emplacement à la qualification")
+        # Location opened by the reactivation of an inactive box.
+        REACTIVATION = "reactivation", _("Réactivation")
+        # Provenance not established: rows written before kinds existed, or
+        # directly outside the movement service. Never inferred afterwards.
+        UNCLASSIFIED = "unclassified", _("Provenance non établie")
+
     box = models.ForeignKey(Box, on_delete=models.CASCADE, related_name="movements")
     from_thermal_zone = models.ForeignKey(
         ThermalZone,
@@ -170,9 +212,79 @@ class BoxMovement(models.Model):
     moved_at = models.DateTimeField(default=timezone.now)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     notes = models.TextField(blank=True)
+    kind = models.CharField(max_length=30, choices=Kind.choices, default=Kind.UNCLASSIFIED)
+    # Paris-local Monday of moved_at, stored for ordinary movements only.
+    iso_week_start = models.DateField(null=True, blank=True, editable=False)
+    # Incremented by each correction; clients send it back to detect stale forms.
+    revision = models.PositiveIntegerField(default=0, editable=False)
+    # Periods written together with the movement. NULL means the relation was
+    # not recorded (legacy rows) or was ambiguous; it is never reconstructed.
+    origin_location = models.OneToOneField(
+        BoxLocation,
+        on_delete=models.RESTRICT,
+        null=True,
+        blank=True,
+        editable=False,
+        related_name="closing_movement",
+    )
+    destination_location = models.OneToOneField(
+        BoxLocation,
+        on_delete=models.RESTRICT,
+        null=True,
+        blank=True,
+        editable=False,
+        related_name="opening_movement",
+    )
+
+    objects = BoxMovementQuerySet.as_manager()
 
     class Meta:
         ordering = ["-moved_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(kind__in=[
+                    "ordinary", "initial_location", "qualification", "reactivation", "unclassified",
+                ]),
+                name="box_movement_kind_valid",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(kind="ordinary", iso_week_start__isnull=False)
+                    | (~Q(kind="ordinary") & Q(iso_week_start__isnull=True))
+                ),
+                name="box_movement_week_only_for_ordinary",
+            ),
+            # Also cover writes that bypass save(): bulk inserts, fixtures and SQL.
+            models.CheckConstraint(
+                condition=(
+                    ~Q(kind="ordinary")
+                    | Q(iso_week_start=ParisMovementWeekStart("moved_at"))
+                ),
+                name="box_movement_week_matches_moved_at",
+            ),
+            models.UniqueConstraint(
+                fields=["box", "iso_week_start"],
+                condition=Q(kind="ordinary"),
+                name="unique_ordinary_box_movement_per_iso_week",
+            ),
+        ]
+
+    @staticmethod
+    def week_start_for(moved_at):
+        """Return the Monday of the Europe/Paris ISO week containing moved_at."""
+        if timezone.is_naive(moved_at):
+            moved_at = timezone.make_aware(moved_at)
+        local_date = moved_at.astimezone(MOVEMENT_WEEK_TIME_ZONE).date()
+        return local_date - timedelta(days=local_date.weekday())
+
+    def save(self, *args, **kwargs):
+        self.iso_week_start = (
+            self.week_start_for(self.moved_at) if self.kind == self.Kind.ORDINARY else None
+        )
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            kwargs["update_fields"] = set(update_fields) | {"iso_week_start"}
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.box} to {self.to_thermal_zone}"
