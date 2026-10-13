@@ -15,6 +15,7 @@ const adminViewSource = readSource('src/components/AdminView.tsx');
 const exportsViewSource = readSource('src/components/ExportsView.tsx');
 const labelsViewSource = readSource('src/components/LabelsView.tsx');
 const overviewViewSource = readSource('src/components/OverviewView.tsx');
+const pilotageViewSource = readSource('src/components/PilotageView.tsx');
 const profileViewSource = readSource('src/components/ProfileView.tsx');
 const zonesViewSource = readSource('src/components/ZonesView.tsx');
 
@@ -41,7 +42,7 @@ const PAGE_ROOT_SOURCE_BY_CLASS = new Map([
   ['export-page', exportsViewSource],
   ['labels-page', labelsViewSource],
   ['overview-page', overviewViewSource],
-  ['pilotage-flow', appSource],
+  ['pilotage-flow', pilotageViewSource],
   ['profile-page', `${profileViewSource}\n${labelsViewSource}`],
   ['zone-overview', zonesViewSource],
   ['zone-overview-shell', zonesViewSource],

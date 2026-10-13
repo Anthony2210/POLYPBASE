@@ -55,9 +55,10 @@ test('both normal strain forms use scoped AAA, preserve normal POST payloads and
 
 test('organization switching remounts code availability and shared-reference navigation uses existing route', () => {
   const app = source('../src/App.tsx');
+  const pilotage = source('../src/components/PilotageView.tsx');
   const admin = source('../src/components/AdminView.tsx');
   const taxonomy = source('../src/components/TaxonomyAdminSection.tsx');
-  assert.match(app, /key=\{activeOrganizationId \?\? 'none'\}/);
+  assert.match(pilotage, /<CreateBoxPanel\s+key=\{activeOrganizationId \?\? 'none'\}/);
   assert.match(admin, /key=\{activeOrganizationId\}/);
   assert.match(app, /openAdminSection\('references'\)/);
   assert.match(app, /references: '\/administration\/reference-data'/);
