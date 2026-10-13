@@ -12,7 +12,7 @@ from django.db.models import Q
 from rest_framework.exceptions import PermissionDenied
 
 from apps.accounts.models import OrganizationMembership
-from apps.cultures.models import Box
+from apps.cultures.models import Box, SubcultureAllocation, SubcultureEvent
 from apps.organizations.models import Organization
 
 from .canonical import PAYLOAD_FIELDS, SCHEMA, VERSION, Issue, RowResult, SourceCoordinate
@@ -52,6 +52,25 @@ class SourceSlotGroup:
 
 
 @dataclass(frozen=True)
+class SubcultureEvidence:
+    event_id: int
+    event_date: str
+    role: str
+    allocation_id: int | None = None
+
+
+@dataclass(frozen=True)
+class ChronologyConflict:
+    id: int
+    box_id: int
+    iso_year: int
+    iso_week: int
+    week_start: str
+    week_end: str
+    operations: tuple[SubcultureEvidence, ...]
+
+
+@dataclass(frozen=True)
 class PlannedRow:
     source: RowResult
     outcome: str
@@ -60,6 +79,7 @@ class PlannedRow:
     existing: MeasurementBaseline | None = None
     issues: tuple[Issue, ...] = ()
     duplicate_group_id: int | None = None
+    chronology_conflict_id: int | None = None
 
     @property
     def blocked(self):
@@ -89,7 +109,8 @@ class MeasurementImportPlan:
     issues: tuple[Issue, ...]
     duplicate_groups: tuple[SourceSlotGroup, ...] = ()
     schema: str = "polypbase.biological-measurement-plan"
-    schema_version: str = "1.0"
+    schema_version: str = "1.1"
+    chronology_conflicts: tuple[ChronologyConflict, ...] = ()
 
     @property
     def summary(self):
@@ -196,6 +217,56 @@ def _source_slot_conflicts(group):
     return False
 
 
+def _chronology_conflicts(keys, organization_id):
+    """Read exact slot ranges for known parent occurrences and child allocations.
+
+    Week boundaries are search keys only. Neither sequences nor ingestion times
+    establish when a week-only observation happened relative to an operation.
+    """
+    evidence = defaultdict(list)
+    for batch in _batches(keys):
+        parent_lookup = Q()
+        child_lookup = Q()
+        for box_id, week in batch:
+            iso = week.isocalendar()
+            end = date.fromisocalendar(iso.year, iso.week, 7)
+            parent_lookup |= Q(parent_box_id=box_id, event_date__range=(week, end))
+            child_lookup |= Q(child_box_id=box_id, event__event_date__range=(week, end))
+        # Partial counts do not erase occurrence evidence. Unlike absolute-state
+        # resolution, parent chronology does not require a known numeric result.
+        events = SubcultureEvent.objects.filter(
+            parent_lookup, parent_box__organization_id=organization_id,
+            occurred_at__isnull=False,
+        ).order_by("event_date", "pk").values_list("pk", "parent_box_id", "event_date")
+        for event_id, box_id, day in events:
+            iso = day.isocalendar()
+            key = (box_id, date.fromisocalendar(iso.year, iso.week, 1))
+            evidence[key].append(SubcultureEvidence(event_id, day.isoformat(), "parent"))
+        allocations = SubcultureAllocation.objects.filter(
+            child_lookup, child_box__organization_id=organization_id,
+            event__parent_box__organization_id=organization_id,
+            event__occurred_at__isnull=False, allocated_polyps__isnull=False,
+        ).order_by("event__event_date", "event_id", "pk").values_list(
+            "pk", "event_id", "child_box_id", "event__event_date",
+        )
+        for allocation_id, event_id, box_id, day in allocations:
+            iso = day.isocalendar()
+            key = (box_id, date.fromisocalendar(iso.year, iso.week, 1))
+            evidence[key].append(SubcultureEvidence(event_id, day.isoformat(), "child", allocation_id))
+    conflicts = {}
+    for key in sorted(evidence):
+        box_id, week = key
+        iso = week.isocalendar()
+        operations = tuple(sorted(evidence[key], key=lambda item: (
+            item.event_date, item.event_id, item.role, item.allocation_id or 0,
+        )))
+        conflicts[key] = ChronologyConflict(
+            len(conflicts) + 1, box_id, iso.year, iso.week, week.isoformat(),
+            date.fromisocalendar(iso.year, iso.week, 7).isoformat(), operations,
+        )
+    return conflicts
+
+
 def build_measurement_import_plan(preparation: CsvResult, *, organization, actor) -> MeasurementImportPlan:
     """Compare a Phase 2 result under current lab-write authority, without writes.
 
@@ -260,6 +331,18 @@ def build_measurement_import_plan(preparation: CsvResult, *, organization, actor
         ).order_by("pk"):
             existing[(measurement.box_id, measurement.week_start)] = _baseline(measurement)
 
+    # A satisfied slot is not a new observation or a precision upgrade. Preserve
+    # ALREADY_MATCHES; analyze unsatisfied week-only rows, including duplicates.
+    chronology_keys = set()
+    for source in valid:
+        box, week, key = resolved[source.provenance.coordinate]
+        if box is None or source.row.time.precision != "iso_week":
+            continue
+        baseline = existing.get((box.id, week))
+        if key in duplicate_groups or baseline is None or _differences(source, baseline):
+            chronology_keys.add((box.id, week))
+    chronology = _chronology_conflicts(sorted(chronology_keys), institution.pk)
+
     rows = []
     for source in preparation.records:
         if source.status == "blank":
@@ -281,6 +364,8 @@ def build_measurement_import_plan(preparation: CsvResult, *, organization, actor
             issues.append(_issue(source, "unknown_box", "box_reference"))
             outcome = "UNKNOWN_BOX"
         elif duplicate_group is not None:
+            if baseline is not None:
+                issues.extend(_differences(source, baseline))
             outcome = "CONFLICT"
         elif baseline is not None:
             issues.extend(_differences(source, baseline))
@@ -291,6 +376,10 @@ def build_measurement_import_plan(preparation: CsvResult, *, organization, actor
                 issues.append(Issue("inactive_box"))
             if source.row.time.precision == "iso_week":
                 issues.append(Issue("week_precision_persistence_required"))
+        conflict = chronology.get((box.id, week)) if box and source.row.time.precision == "iso_week" else None
+        if conflict is not None:
+            issues.append(Issue("week_subculture_chronology_conflict"))
+            outcome = "CONFLICT"
         observer = next(value for value in source.row.values if value.field == "observer_reference")
         if observer.state == "value":
             issues.append(_issue(source, "observer_resolution_unsupported", "observer_reference"))
@@ -299,8 +388,10 @@ def build_measurement_import_plan(preparation: CsvResult, *, organization, actor
         rows.append(PlannedRow(
             source, outcome, box, week.isoformat(), baseline, tuple(issues),
             duplicate_group.id if duplicate_group else None,
+            conflict.id if conflict else None,
         ))
     return MeasurementImportPlan(
         institution.pk, user.pk, preparation.fingerprint, preparation.complete,
         tuple(rows), tuple(plan_issues), tuple(duplicate_groups.values()),
+        chronology_conflicts=tuple(chronology.values()),
     )

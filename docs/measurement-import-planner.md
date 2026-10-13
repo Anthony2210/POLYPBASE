@@ -49,7 +49,7 @@ Every retained preparation record has one immutable `PlannedRow` in source order
 | `UNKNOWN_BOX` | Required reference cannot be resolved in the selected institution |
 | `CREATE` | No existing biological measurement in the Box/week slot; candidate only |
 | `ALREADY_MATCHES` | Supplied applicable payload agrees with the existing slot |
-| `CONFLICT` | Supplied payload/date disagrees, or source repeats the resolved slot |
+| `CONFLICT` | Supplied payload/date disagrees, source repeats the resolved slot, or week-only chronology is unresolved |
 | `BLOCKED` | Otherwise matching row has an unsupported observer reference, or unsupported preparation version |
 
 `CREATE` may have blocking issues. Inactive Boxes cannot receive a new ordinary
@@ -98,6 +98,98 @@ in the canonical contract. No user is guessed from a username, email or importer
 The importing actor ID is a separate plan field, and the existing observer ID is
 a separate baseline field. The future apply service must preserve this separation.
 
+## Week-only chronological conflicts (plan version 1.1)
+
+An unsatisfied valid `iso_week` row is a `CONFLICT` with the blocking machine code
+`week_subculture_chronology_conflict` when a relevant quantitative subculture's
+`event_date` lies inside its actual ISO week, Monday through Sunday inclusive.
+The order of the observation and operation is unknown. Boundaries are lookup
+keys only; the source `measured_on` remains `None`. No precedence is inferred
+from import time, occurrence timestamps, source sequences or week boundaries.
+
+Chronological relevance is distinct from eligibility as an absolute quantitative
+state source in `cultures/polyp_state.py`:
+
+- **Parent:** `SubcultureEvent.parent_box` with non-null `occurred_at` proves a
+  recorded quantitative operation occurred, including a partial operation whose
+  `allocated_polyp_count` and `parent_polyp_count_after` are `NULL`. Its actual
+  `event_date` is relevant to week-only chronology even though its incomplete
+  result cannot supersede an absolute parent state. All qualifying same-week
+  events are retained, not just the latest. Scientific state resolution is unchanged.
+- **Child:** `SubcultureAllocation.child_box`, known `allocated_polyps` (including
+  zero), with a non-null event occurrence. A known child of a partial event is
+  relevant even though that event has no quantitative parent result.
+- A Box can have both its incoming initialization and its outgoing operations.
+  Sibling or ancestor events do not propagate to unrelated Boxes. `BoxLineage`
+  alone is not a quantitative source and codes never imply parentage.
+
+The model's `subculture_absolute_polyp_balance` constraint permits a known
+occurrence with partial results; the service records `occurred_at` and `event_date`
+for both complete and partial operations. A `NULL` result is quantitative
+uncertainty, not evidence that no operation happened. The model has no
+pending/completed/cancelled status to filter; no such status is invented. The
+service records `event_date` as the local calendar day of `occurred_at`; the
+resolver uses `event_date` as its effective operation day.
+
+Legacy events with `occurred_at=NULL` retain a parent link and stored `event_date`,
+but the model explicitly denotes their occurrence history as unknown; the date
+field also has a default and alone does not establish confirmed occurrence or
+quantitative effects. They remain excluded, without reinterpreting their history.
+Whether and under what evidence they should block chronology is a separate product
+question. Unknown child allocations likewise remain excluded: their chronological
+meaning beyond known quantitative initialization needs an explicit product decision.
+A lineage alone does not resolve either question. This correction does not invent
+those rules or repair historical dates.
+
+Evidence is immutable and stored once per affected Box/week in
+`plan.chronology_conflicts`, referenced by `row.chronology_conflict_id`:
+
+```json
+{
+  "id": 1,
+  "box_id": 42,
+  "iso_year": 2026,
+  "iso_week": 40,
+  "week_start": "2026-09-28",
+  "week_end": "2026-10-04",
+  "operations": [
+    {"event_id": 7, "event_date": "2026-10-01", "role": "parent", "allocation_id": null}
+  ]
+}
+```
+
+The row already includes source coordinates, resolved Box code/ID, declared ISO
+week, baseline and blocking issues. Evidence groups are sorted by Box ID/week;
+operations by effective date, event ID, role and allocation ID. Repeated source
+rows share the evidence group rather than multiplying its full operation list.
+Existing validation, duplicate, occupancy, observer and lifecycle blockers are
+retained. Duplicate occupied rows also retain supplied-value/date disagreements.
+A free week with a chronology conflict retains its separate persistence blocker.
+
+An occupied matching week remains `ALREADY_MATCHES` without chronology evidence:
+it recognizes existing data, not a new observation, date-precision upgrade or
+origin change. An occupied nonmatching week stays a conflict and can carry both
+value disagreement and chronology evidence. Nothing overwrites the occupied slot.
+
+Resolution requires correcting the source with an **actual exact measurement
+date**, then preparing and building a fresh plan. The canonical parser rejects
+`date_week_mismatch` if that date is outside the declared ISO week. Exact-date
+rows do not receive this week-only ambiguity blocker, even on the operation day;
+existing exact-date comparisons and scientific same-day semantics are unchanged.
+A calendar date alone does not establish intra-day ordering. There is no force
+acceptance for unknown dates and no new scientific precedence rule.
+
+Any unresolved row blocks readiness for the **whole file**, including otherwise
+valid exact-date rows. No applicator, partial import, frontend warning or buttons
+are implemented. A future UI can translate this evidence as “Conflit chronologique
+détecté” / “Chronological conflict detected” and require cancellation or an exact
+date; this is not an existing UI.
+
+The additive JSON contract uses plan schema version **1.1**, so even unaffected
+plans receive new fingerprints. The canonical entry/CSV schemas stay at 1.0;
+measurement baselines, observer attribution and source precision are unchanged.
+All evidence and row references participate in stable canonical JSON/SHA-256.
+
 ## Repeated source slots
 
 All valid rows sharing a Box/week slot are blocked; none is silently deduplicated,
@@ -144,10 +236,11 @@ apply implementation exists or that a preview is concurrency-safe.
 
 ## Week-only persistence and guarded application dependencies
 
-The current model has a required `measured_on` and no source precision field.
+The current model has a required `measured_on` and the temporal-precision
+foundation, but does not allow persisted `iso_week` precision.
 A week-only CREATE therefore carries `week_precision_persistence_required` and
 blocks readiness. Its source date stays `None`; no synthetic Monday is fabricated.
-No schema or migration changes are included here.
+No database schema or migration changes are included here.
 
 Before application, implement reviewed schema and service support for week-only
 precision. The existing interactive service must not be reused blindly: it applies
@@ -176,9 +269,17 @@ signature, durable acceptance or complete guard by itself.
 
 For R distinct references and S distinct resolved Box/week slots, planning uses
 three authorization SELECTs plus `ceil(R/200)` Box SELECTs and `ceil(S/200)`
-measurement SELECTs (zero batches for empty sets). Measurement batch predicates
-select exact groups of Box IDs by week, not an unbounded Cartesian product of
-all Boxes and weeks. There are no per-row reads, lazy related-object reads, writes,
+measurement SELECTs (zero batches for empty sets). For C distinct unsatisfied
+week-only slots, add `2 * ceil(C/200)` SELECTs: one for parent events and one for
+child allocations per batch. Exact-date, unknown, invalid, unsupported and already
+matching nonduplicate rows need no chronology lookup. Both parent and child
+queries use exact Box/week range pairs, with institution predicates on the parent
+and (for allocations) child. No foreign operation evidence is exposed, including
+malformed cross-institution allocations. Selected scalar fields avoid lazy reads.
+Measurement batch predicates select exact groups of Box IDs by week, not an
+unbounded Cartesian product of all Boxes and weeks. Evidence construction is
+linear in returned operations plus rows, with deterministic sorting, and duplicate
+rows share evidence. There are no per-row reads, lazy related-object reads, writes,
 locks, audit calls or revision increments. Maximum CSV size/rows remain bounded
 by Phase 2. Duplicate diagnostics are linear in retained rows.
 
@@ -192,7 +293,7 @@ immutable baselines, determinism, and query bounds across the 200-slot boundary.
 Run from `backend/`, using the existing isolated SQLite configuration:
 
 ```sh
-POSTGRES_DB='' POLYPBASE_TEST_POSTGRES=0 DJANGO_DEBUG=1 uv run python manage.py test apps.measurements.test_import_planner apps.measurements.test_canonical_csv apps.measurements.test_write_services apps.measurements.test_nullable_strobila --settings=config.test_settings
+POSTGRES_DB='' POLYPBASE_TEST_POSTGRES=0 DJANGO_DEBUG=1 uv run python manage.py test apps.measurements.test_import_planner apps.measurements.test_import_chronology apps.measurements.test_canonical_csv apps.measurements.test_write_services apps.measurements.test_nullable_strobila --settings=config.test_settings
 POSTGRES_DB='' POLYPBASE_TEST_POSTGRES=0 DJANGO_DEBUG=1 uv run python manage.py check --settings=config.test_settings
 POSTGRES_DB='' POLYPBASE_TEST_POSTGRES=0 DJANGO_DEBUG=1 uv run python manage.py makemigrations --check --dry-run --settings=config.test_settings
 ```
