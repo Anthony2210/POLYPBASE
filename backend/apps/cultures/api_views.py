@@ -159,7 +159,7 @@ def box_queryset_for_user(user, organization_ids=None):
         *current_state_prefetches(),
         Prefetch(
             "biological_measurements",
-            queryset=BiologicalMeasurement.objects.select_related("user").order_by("-measured_on", "-created_at"),
+            queryset=BiologicalMeasurement.objects.select_related("user", "original_observer", "imported_by").order_by("-measured_on", "-created_at"),
         ),
         Prefetch(
             "parent_lineages",
@@ -216,7 +216,7 @@ def box_list_queryset_for_user(user, organization_ids=None):
     organization_ids = organization_ids or get_authorized_organization_ids(user)
 
     latest_measurements = (
-        BiologicalMeasurement.objects.select_related("user")
+        BiologicalMeasurement.objects.select_related("user", "original_observer", "imported_by")
         .order_by("-measured_on", "-created_at")[:1]
     )
 
@@ -282,7 +282,7 @@ def box_inventory_queryset_for_user(user, organization_ids=None):
     )
     latest_measurements = (
         BiologicalMeasurement.objects.filter(id__in=latest_measurement_id)
-        .select_related("user")
+        .select_related("user", "original_observer", "imported_by")
         .order_by("-measured_on", "-created_at")
     )
 
@@ -430,7 +430,7 @@ class DashboardAPIView(APIView):
             if len(recent_accesses) == 8:
                 break
         current_totals = current_polyp_total(boxes.filter(status=Box.Status.ACTIVE).prefetch_related(*current_state_prefetches()))
-        latest_entries = measurements.select_related("user").order_by("-measured_on", "-created_at")[:8]
+        latest_entries = measurements.select_related("user", "original_observer", "imported_by").order_by("-measured_on", "-created_at")[:8]
         measurement_totals = measurements.aggregate(
             polyps=Sum("polyp_count"),
             ephyrae=Sum("ephyrae_count"),
@@ -1227,7 +1227,7 @@ class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
 
     def get(self, request, box_id):
         box = self._get_box(request, box_id)
-        queryset = box.biological_measurements.select_related("user").order_by("-measured_on", "-created_at")
+        queryset = box.biological_measurements.select_related("user", "original_observer", "imported_by").order_by("-measured_on", "-created_at")
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)

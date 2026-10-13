@@ -1,12 +1,26 @@
 from datetime import date, datetime, timedelta
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 
 class BiologicalMeasurement(models.Model):
+    class ObserverStatus(models.TextChoices):
+        LEGACY_UNESTABLISHED = "legacy_unestablished", "Legacy attribution not established"
+        NOT_RECORDED = "not_recorded", "Observer not recorded"
+        KNOWN = "known", "Known observer"
+
+    class Origin(models.TextChoices):
+        LEGACY_UNCLASSIFIED = "legacy_unclassified", "Legacy unclassified origin"
+        DIRECT_ENTRY = "direct_entry", "Direct entry"
+        FILE_IMPORT = "file_import", "File import"
+
+    class ImportFormat(models.TextChoices):
+        CSV = "csv", "CSV"
+
     class CultureStatus(models.TextChoices):
         GOOD = "good", _("Bon")
         MEDIUM = "medium", _("Moyen")
@@ -35,6 +49,27 @@ class BiologicalMeasurement(models.Model):
     needs_attention = models.BooleanField(default=False)
     notes = models.TextField(blank=True)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    # user remains the legacy latest writer. Provenance is captured explicitly,
+    # never inferred by save() from that field or a measurement's date.
+    observer_status = models.CharField(
+        max_length=30, choices=ObserverStatus.choices,
+        default=ObserverStatus.LEGACY_UNESTABLISHED, editable=False,
+    )
+    original_observer = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="original_observations", editable=False,
+    )
+    origin = models.CharField(
+        max_length=30, choices=Origin.choices,
+        default=Origin.LEGACY_UNCLASSIFIED, editable=False,
+    )
+    import_format = models.CharField(
+        max_length=20, choices=ImportFormat.choices, blank=True, default="", editable=False,
+    )
+    imported_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="imported_measurements", editable=False,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     polyp_state_sequence = models.PositiveBigIntegerField(null=True, editable=False)
 
@@ -44,7 +79,33 @@ class BiologicalMeasurement(models.Model):
             models.UniqueConstraint(
                 fields=["box", "week_start"],
                 name="unique_biological_measurement_per_box_week",
-            )
+            ),
+            # A known account may later be deleted; do not retain a name snapshot
+            # or silently relabel the original attribution as unknown/legacy.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(observer_status="known")
+                    | models.Q(
+                        observer_status__in=["not_recorded", "legacy_unestablished"],
+                        original_observer__isnull=True,
+                    )
+                ),
+                name="measurement_observer_consistent",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(origin="file_import", import_format="csv")
+                    | models.Q(
+                        origin__in=["direct_entry", "legacy_unclassified"],
+                        import_format="", imported_by__isnull=True,
+                    )
+                ),
+                name="measurement_origin_consistent",
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(origin="direct_entry") | models.Q(observer_status="known"),
+                name="measurement_direct_observer_known",
+            ),
         ]
         indexes = [
             models.Index(fields=["box", "measured_on"]),
@@ -57,6 +118,25 @@ class BiologicalMeasurement(models.Model):
             measured_on = models.DateField().to_python(measured_on)
         return measured_on - timedelta(days=measured_on.weekday())
 
+    def _validate_attribution_accounts(self, *, previous=None):
+        from apps.accounts.models import OrganizationMembership
+
+        for field in ("original_observer", "imported_by"):
+            account_id = getattr(self, f"{field}_id")
+            if account_id is None:
+                continue
+            if previous and previous[f"{field}_id"] == account_id and previous["box_id"] == self.box_id:
+                continue
+            if not OrganizationMembership.objects.filter(
+                user_id=account_id, organization_id=self.box.organization_id,
+            ).exists():
+                raise ValidationError({field: "The account must belong to the measurement institution."})
+
+    def clean(self):
+        super().clean()
+        if self.box_id:
+            self._validate_attribution_accounts()
+
     def save(self, *args, **kwargs):
         from apps.cultures.models import Box
 
@@ -68,6 +148,13 @@ class BiologicalMeasurement(models.Model):
         # admin writes on the same ordering protocol as well.
         with transaction.atomic(using=kwargs.get("using")):
             box = Box.objects.select_for_update().get(pk=self.box_id)
+            if self.original_observer_id is not None or self.imported_by_id is not None:
+                previous = None
+                if not self._state.adding:
+                    previous = type(self).objects.filter(pk=self.pk).values(
+                        "box_id", "original_observer_id", "imported_by_id",
+                    ).first()
+                self._validate_attribution_accounts(previous=previous)
             box.polyp_state_revision += 1
             if self._state.adding:
                 self.polyp_state_sequence = box.polyp_state_revision

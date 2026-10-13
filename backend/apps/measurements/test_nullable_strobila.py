@@ -159,7 +159,9 @@ class NullableStrobilaMigrationTests(TransactionTestCase):
         executor = MigrationExecutor(connection)
         executor.migrate(latest)
         Measurement = executor.loader.project_state(latest).apps.get_model("measurements", "BiologicalMeasurement")
-        self.assertEqual(list(Measurement.objects.order_by("pk").values()), snapshot)
+        # Later additive provenance fields must not change this migration's
+        # preservation contract for the columns present before the upgrade.
+        self.assertEqual(list(Measurement.objects.order_by("pk").values(*snapshot[0])), snapshot)
         self.assertEqual(list(Measurement.objects.order_by("pk").values_list("strobila_count", flat=True)), [0, 0, 7])
         self.assertFalse(Measurement.objects.filter(strobila_count__isnull=True).exists())
         Measurement.objects.create(

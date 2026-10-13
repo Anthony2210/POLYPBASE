@@ -25,6 +25,30 @@ Une boîte inactive refuse un nouveau relevé. Un relevé historique déjà pré
 
 La commande `check_biological_measurement_duplicates` effectue un diagnostic en lecture seule avant l'application d'une contrainte sur une base existante. Elle liste organisation, boîte, date, nombre et identifiants concernés. Elle ne choisit jamais quelle donnée scientifique conserver.
 
+## Observateur et origine des relevés
+
+La fondation backend distingue l'attribution scientifique du dernier acteur d'écriture :
+
+- `user` conserve son contrat historique : acteur de création, puis acteur de la dernière correction ordinaire. `user_identity` reste inchangé; les audits ENTRY/UPDATE identifient leurs acteurs respectifs.
+- `observer_status` vaut `known`, `not_recorded` ou `legacy_unestablished`. `original_observer` est une référence de compte facultative, distincte de `user`.
+- `origin` vaut `direct_entry`, `file_import` ou `legacy_unclassified`. `import_format` est vide hors import fichier; seul `csv` est actuellement prévu. `imported_by` est une référence de compte facultative, jamais un observateur implicite.
+
+Le POST ordinaire capture une seule fois le compte authentifié comme observateur connu et établit l'origine `direct_entry`. Le PATCH conserve ces champs, y compris pour un relevé legacy ou un compte observateur supprimé. Les champs de provenance ne font pas partie de l'allowlist d'écriture ordinaire : les valeurs client sont ignorées, comme les anciens champs d'identité non modifiables. Aucun sélecteur d'observateur, endpoint d'attribution ou applicateur d'import n'est ajouté.
+
+La migration `0008_observer_origin` ajoute uniquement des champs et contraintes : tous les relevés existants restent `legacy_unestablished` / `legacy_unclassified`, avec comptes nuls et format vide. Elle ne copie jamais `user`, ne relit aucune source et n'appelle pas le `save()` courant. Les chemins historiques CSV/2026, transfert v1, seed et administration conservent ces défauts pour leurs créations; ils ne constituent pas une preuve automatique d'origine ou d'observateur. Les champs sont non éditables dans les formulaires/admin générés.
+
+Les nouvelles références de compte, ou leur remplacement, sont validées contre l'appartenance à l'institution de la boîte lors de `clean()` et `save()`. Le service ordinaire exige toujours le rôle actif autorisé. Une référence historique inchangée ne bloque pas une correction si le membership a ensuite disparu. Les écritures techniques par `QuerySet.update()`, `bulk_create()` ou SQL contournent cette validation relationnelle Python; tout futur applicateur doit donc appliquer explicitement la portée institutionnelle et ses permissions.
+
+### Contrat de lecture et conservation d'identité
+
+Le serializer existant ajoute `observer_status`, `origin`, `import_format`, `original_observer_identity`, `original_observer_display`, `imported_by_identity` et `imported_by_display`. Les identités sont celles des comptes vivants; l'affichage réutilise prénom + nom en majuscules, puis email, jamais le username technique. Aucun identifiant de compte supplémentaire ni snapshot personnel n'est exposé ou stocké.
+
+La suppression d'un compte met ses références à NULL sans changer le statut d'attribution ou l'origine, ni la révision scientifique. `known` avec une référence NULL signifie une attribution établie dont le compte n'est plus disponible, **pas** un nom externe stocké. Ne pas le requalifier implicitement en `not_recorded` ou en legacy. Aucun nom/email n'est conservé par cette fondation après suppression.
+
+Pour le futur frontend, `not_recorded` correspond à « Observateur non renseigné » / « Observer not recorded ». La ligne « Importé par » est réservée à `origin=file_import` et utilise le format réellement enregistré; elle est absente pour `direct_entry`. Ne pas déduire une origine CSV d'une date ancienne ou d'un compte absent. Le traitement visuel de `legacy_unestablished` et de `known` sans compte reste à préciser; aucune présentation frontend n'est modifiée ici.
+
+La persistance des noms d'observateurs externes et d'instantanés de comptes supprimés attend une politique produit explicite de conservation des données personnelles. Aucun faux compte n'est créé. L'import applicator et ses métadonnées de source fiables restent hors périmètre. Le planner existant conserve son contrat versionné : son ancien `MeasurementBaseline.observer_id` représente encore `measurement.user_id`, pas le nouvel observateur scientifique; sa migration contractuelle sera une tâche séparée.
+
 ## État courant et repiquage quantitatif
 
 `latest_measurement` reste le dernier relevé ordinaire et conserve ses règles de fraîcheur et de semaine ISO. `current_polyp_state` est une notion distincte : le serveur résout une observation absolue, un résultat absolu de repiquage parent ou l'allocation initiale absolue d'un enfant. Il ne soustrait jamais toutes les allocations historiques d'un dernier relevé.

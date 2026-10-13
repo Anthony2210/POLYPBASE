@@ -47,7 +47,7 @@ def select_measurement_export_data(
         boxes=[box.id for box in selected_boxes],
         date_from=date_from,
         date_to=date_to,
-    ).select_related("box", "box__thermal_zone", "user")
+    ).select_related("box", "box__thermal_zone", "user", "original_observer", "imported_by")
     measurements = _filter_measurements_by_zones(
         measurements,
         zone_ids=zone_ids,

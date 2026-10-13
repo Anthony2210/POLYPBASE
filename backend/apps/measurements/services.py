@@ -202,7 +202,11 @@ def create_biological_measurement(*, box_id, organization_ids, user, data):
         _check_measurement_week(box=box, measured_on=values["measured_on"])
         if box.status == Box.Status.INACTIVE:
             raise MeasurementWriteInvalid("An inactive box cannot receive a new measurement.")
-        measurement = BiologicalMeasurement.objects.create(box=box, user=user, **values)
+        measurement = BiologicalMeasurement.objects.create(
+            box=box, user=user, original_observer=user,
+            observer_status=BiologicalMeasurement.ObserverStatus.KNOWN,
+            origin=BiologicalMeasurement.Origin.DIRECT_ENTRY, **values,
+        )
         _record_measurement_audit(
             box=box,
             measurement=measurement,

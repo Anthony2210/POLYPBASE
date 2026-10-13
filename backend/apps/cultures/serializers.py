@@ -128,6 +128,10 @@ class BoxMovementSerializer(serializers.ModelSerializer):
 class BiologicalMeasurementSerializer(serializers.ModelSerializer):
     user = serializers.SerializerMethodField()
     user_identity = serializers.SerializerMethodField()
+    original_observer_identity = serializers.SerializerMethodField()
+    original_observer_display = serializers.SerializerMethodField()
+    imported_by_identity = serializers.SerializerMethodField()
+    imported_by_display = serializers.SerializerMethodField()
     can_edit = serializers.SerializerMethodField()
     edit_deadline = serializers.SerializerMethodField()
     edit_restriction = serializers.SerializerMethodField()
@@ -146,6 +150,13 @@ class BiologicalMeasurementSerializer(serializers.ModelSerializer):
             "notes",
             "user",
             "user_identity",
+            "observer_status",
+            "original_observer_identity",
+            "original_observer_display",
+            "origin",
+            "import_format",
+            "imported_by_identity",
+            "imported_by_display",
             "created_at",
             "can_edit",
             "edit_deadline",
@@ -155,6 +166,9 @@ class BiologicalMeasurementSerializer(serializers.ModelSerializer):
             "id",
             "user",
             "user_identity",
+            "observer_status",
+            "origin",
+            "import_format",
             "created_at",
             "can_edit",
             "edit_deadline",
@@ -166,6 +180,18 @@ class BiologicalMeasurementSerializer(serializers.ModelSerializer):
 
     def get_user_identity(self, obj):
         return serialize_user_identity(obj.user)
+
+    def get_original_observer_identity(self, obj):
+        return serialize_user_identity(obj.original_observer)
+
+    def get_original_observer_display(self, obj):
+        return readable_user_identity_label(obj.original_observer)
+
+    def get_imported_by_identity(self, obj):
+        return serialize_user_identity(obj.imported_by)
+
+    def get_imported_by_display(self, obj):
+        return readable_user_identity_label(obj.imported_by)
 
     def get_can_edit(self, obj):
         return self._editability(obj)["can_edit"]

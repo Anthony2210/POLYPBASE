@@ -1,10 +1,12 @@
 import csv
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from io import StringIO
 
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -170,6 +172,90 @@ class MeasurementExportApiTests(TestCase):
         )
         self.assertEqual(payload["locations"][0]["thermal_zone"]["id"], self.zone.id)
         self.assertEqual(payload["movements"], [])
+
+    def test_box_trend_observer_identities_have_constant_query_count(self):
+        observer = get_user_model().objects.create_user(
+            username="export-observer", email="observer@example.org",
+            first_name="Alice", last_name="Observer",
+        )
+        importer = get_user_model().objects.create_user(
+            username="export-importer", email="importer@example.org",
+            first_name="Bob", last_name="Importer",
+        )
+        for account in (observer, importer):
+            OrganizationMembership.objects.create(
+                user=account, organization=self.organization,
+                role=OrganizationMembership.Role.VIEWER,
+            )
+        provenance = {
+            "observer_status": BiologicalMeasurement.ObserverStatus.KNOWN,
+            "original_observer": observer,
+            "origin": BiologicalMeasurement.Origin.FILE_IMPORT,
+            "import_format": BiologicalMeasurement.ImportFormat.CSV,
+            "imported_by": importer,
+        }
+        self.box.biological_measurements.update(**provenance)
+        for index in range(4):
+            BiologicalMeasurement.objects.create(
+                box=self.box, measured_on=date(2026, 5, 18) + timedelta(weeks=index),
+                polyp_count=index, ephyrae_count=0,
+                strobila_count=None if index == 0 else 0,
+                salinity_psu=Decimal("0.00"), notes=f"Export row {index}",
+                user=self.user, **provenance,
+            )
+        foreign_box = Box.objects.create(
+            organization=self.other_organization, strain=self.strain,
+            global_code="ALA-9.002-PAR", box_number="002",
+        )
+        foreign_measurement = BiologicalMeasurement.objects.create(
+            box=foreign_box, measured_on=date(2026, 5, 6), polyp_count=999,
+        )
+        self.client.force_login(self.user)
+        url = reverse("api_export_box_trend", args=[self.box.id])
+        # Initialize the active-organization session before measuring requests.
+        self.client.get(url, {"date_from": "2026-05-01", "date_to": "2026-05-10"})
+        with CaptureQueriesContext(connection) as single_queries:
+            single_response = self.client.get(url, {
+                "date_from": "2026-05-01", "date_to": "2026-05-10",
+            })
+        single_query_count = len(single_queries)
+        with CaptureQueriesContext(connection) as multiple_queries:
+            multiple_response = self.client.get(url, {
+                "date_from": "2026-05-01", "date_to": "2026-06-14",
+            })
+
+        multiple_query_count = len(multiple_queries)
+        self.assertGreater(single_query_count, 0)
+        self.assertEqual(single_response.status_code, 200)
+        self.assertEqual(multiple_response.status_code, 200)
+        single_rows = single_response.json()["biological_measurements"]
+        rows = multiple_response.json()["biological_measurements"]
+        self.assertEqual(len(single_rows), 1)
+        self.assertEqual(len(rows), 6)
+        self.assertEqual(rows[0], single_rows[0])
+        self.assertEqual(
+            [(row["polyp_count"], row["ephyrae_count"], row["strobila_count"]) for row in rows],
+            [(100, 5, 0), (0, 0, 0), (0, 0, None), (1, 0, 0), (2, 0, 0), (3, 0, 0)],
+        )
+        self.assertEqual(rows[2]["salinity_psu"], "0.00")
+        self.assertEqual(rows[2]["notes"], "Export row 0")
+        for row in rows:
+            self.assertEqual(row["user"], self.user.username)
+            self.assertEqual(row["user_identity"]["email"], self.user.email)
+            self.assertEqual(row["observer_status"], "known")
+            self.assertEqual(row["original_observer_identity"]["email"], observer.email)
+            self.assertEqual(row["original_observer_display"], "Alice OBSERVER")
+            self.assertEqual(row["origin"], "file_import")
+            self.assertEqual(row["import_format"], "csv")
+            self.assertEqual(row["imported_by_identity"]["email"], importer.email)
+            self.assertEqual(row["imported_by_display"], "Bob IMPORTER")
+        self.assertNotIn(foreign_measurement.pk, [row["id"] for row in rows])
+        foreign_response = self.client.get(
+            reverse("api_export_box_trend", args=[foreign_box.id]),
+            {"date_from": "2026-05-01", "date_to": "2026-06-14"},
+        )
+        self.assertEqual(foreign_response.status_code, 404)
+        self.assertEqual(single_query_count, multiple_query_count)
 
     def test_box_trend_hides_boxes_from_another_organization(self):
         foreign_box = Box.objects.create(
