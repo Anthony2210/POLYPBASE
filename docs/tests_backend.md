@@ -1,19 +1,23 @@
 # Tests automatisés — backend POLYPBASE
 
-Récapitulatif lisible des **139 tests** de la suite Django, avec ce que chacun
-vérifie. Les tests couvrent l'API REST, les permissions par rôle et par
+Le tableau de **139 tests** ci-dessous est un inventaire historique, **pas le total
+courant de la suite Django** ni une preuve de validation au 2026-10-14. Les modules
+ciblés ont été complétés; les listes détaillées anciennes restent une trace de
+l'étape concernée et doivent être confrontées aux sources avant usage. Les tests couvrent l'API REST, les permissions par rôle et par
 organisation, le cycle de vie des boîtes (relevés, repiquage, déplacement,
 lignée), les QR codes, la gestion des comptes, les exports, les écrans
 d'administration (armoires, sondes, structures, transferts) et la salinité.
 
-- **Fichiers source** : `backend/apps/<app>/tests*.py`
-- **Lancer toute la suite** : `python manage.py test` (depuis `backend/`)
+- **Fichiers source** : `backend/apps/<app>/tests*.py` et `test_*.py`
+- **Lancer toute la suite isolée** : `uv run python manage.py test --settings=config.test_settings` (depuis `backend/`)
 - **CI** : la suite tourne automatiquement sur chaque push/PR
   (`.github/workflows/ci.yml`), avec `makemigrations --check` pour bloquer une
   migration oubliée.
-- **Note base de données** : sans `POSTGRES_DB`, `settings.py` bascule sur
-  SQLite — c'est ce que fait la CI (aucun service Postgres requis). En local,
-  si l'utilisateur PostgreSQL n'a pas le droit `CREATEDB`, faire pareil.
+- **Isolation** : utiliser les settings isolés explicites, pas l'absence supposée
+  d'une variable d'environnement. Pour les verrous/contraintes PostgreSQL,
+  utiliser uniquement un PostgreSQL jetable local; SQLite ne prouve pas ces
+  garanties. Ne jamais utiliser Neon/production. Voir
+  [`context/development-deployment.md`](context/development-deployment.md).
 
 | Domaine | Fichier | Nombre |
 |---|---|---|
@@ -35,6 +39,19 @@ Ces modules spécialisés ne sont pas inclus dans le tableau de comptage ci-dess
 | Propriété des Strain et import transfer v1 | `apps/cultures/test_transfer_strain_ownership.py` | propriété destination, conflits, atomicité, replay et périmètre d'organisation. |
 | Concurrence transfer v1 | `apps/cultures/test_transfer_v1_concurrency.py` | rejeu concurrent et contrainte d'unicité; conclusions de verrouillage uniquement sur PostgreSQL. |
 | Identité Species/local Strain | `apps/taxonomy/test_strain_species_concurrency.py` | cohérence PATCH/LocalStrainIdentity et contention réelle des verrous PostgreSQL. |
+| Services de relevés | `apps/measurements/test_write_services.py` | création/correction séparées, zéro, verrous, audit/rollback |
+| CSV canonique | `apps/measurements/test_canonical_csv.py` | états de cellules, mapping strict, dates/semaines et coordonnées |
+| Planner scientifique | `apps/measurements/test_import_planner.py`, `test_import_chronology.py` | scope, slots, doublons, conflits, parent partiel/enfant zéro, sans application |
+| Observateur/origine | `apps/measurements/test_observer_origin.py` | attribution initiale, corrections, legacy et suppression de compte |
+| Précision et lectures | `apps/measurements/test_temporal_read_contract.py`, `test_observer_origin.py` | legacy/exact, iso_week bloqué, clé de semaine et existence du relevé |
+| Intervalle scientifique | `apps/measurements/test_scientific_time.py` | comparaison pure ISO, chevauchement non résolu, sans jour inventé |
+| Repiquage quantitatif | `apps/cultures/test_quantitative_subculture.py` | sources, snapshots/allocations, zéro/NULL et révisions |
+| Mouvements | `apps/cultures/test_box_movement_weekly.py`, `test_box_movement_week_integrity.py`, `test_box_movement_week_concurrency.py`, `test_box_movement_corrections.py` | semaine Paris, CHECK/UNIQUE, périodes, corrections et audit |
+
+Ces noms sont des points d'entrée, pas un décompte exhaustif. Les résultats
+historiques writer/reviewer et leur scope sont dans
+[`../POLYPBASE_CURRENT_STATE.md`](../POLYPBASE_CURRENT_STATE.md). Aucun test n'a été
+exécuté pour la synchronisation documentaire.
 
 ---
 

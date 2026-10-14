@@ -1,5 +1,14 @@
 # Spécification des transferts CSV Polypbase
 
+## État au 2026-10-14
+
+Les API v1 restent implémentées mais la section Transferts de React Administration
+est désactivée. Transfer v2 fournit des services internes jusqu'à la Phase 5
+(projection/snapshot source 2.1 opt-in), **pas une acceptation destination**.
+Phase 6 (preflight, acceptation atomique/idempotente, matérialisation et fusion
+entrante) reste non implémentée. Statuts Git/revues :
+[`../POLYPBASE_CURRENT_STATE.md`](../POLYPBASE_CURRENT_STATE.md).
+
 ## Transfert v1 actuel — compatibilité historique
 
 La version courante est `polypbase.box_transfer.v1`. Le CSV est généré côté
@@ -145,7 +154,9 @@ Aucune mutation de Box/Strain/emplacement/relevé ni finalisation de v1.
 
 ### Limites à l'intégration de Phase 2B
 
-Cette section décrit l'état de Phase 2B, pas les capacités ajoutées ensuite.
+**Instantané historique à `20adf0a`, pas la roadmap actuelle.** Cette section
+décrit l'état de Phase 2B, pas les capacités ajoutées ensuite (3A/3B/3C, 4 et 5
+sont désormais intégrées).
 Aucun endpoint/UI v2, receipt/acceptation destinataire, résolution de Strain
 destination, représentation locale canonique, diagnostic de namespace,
 allocation X, identité portable de Box, lignée portable, inbox de transfert

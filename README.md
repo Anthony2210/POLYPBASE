@@ -1,7 +1,11 @@
 # Polypbase
 
 Polypbase is a web application for tracking jellyfish polyp cultures at the
-Aquarium de Paris.
+Aquarium de Paris, with organization-scoped workspaces and backend permissions.
+
+For the dated integration/local-work snapshot, see
+[`POLYPBASE_CURRENT_STATE.md`](POLYPBASE_CURRENT_STATE.md). Start domain navigation
+with [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md); dated audits are historical.
 
 ## Project Structure
 
@@ -58,18 +62,19 @@ Commit `pyproject.toml` and `uv.lock` after changing dependencies. Do not edit
 ## Backend
 
 The backend uses Django. It stores the data, exposes API endpoints, manages
-users and roles, provides authenticated API administration, and will generate
-server-side exports.
+users and roles, provides authenticated API administration, and generates
+server-side weekly CSV exports.
 
 Run backend commands from the `backend/` directory:
 
 ```powershell
 cd backend
-uv run python manage.py check
-uv run python manage.py test
+uv run python manage.py check --settings=config.test_settings
+uv run python manage.py test --settings=config.test_settings
 ```
 
-Create local demo data:
+Create local demo data **only after verifying an isolated local database**,
+never Neon or production:
 
 ```powershell
 cd backend
@@ -181,7 +186,10 @@ stable endpoints are:
 - `GET /api/boxes/<id>/`: box detail with measurement history and parent-child lineage.
 - `GET /api/boxes/<id>/lineage/`: complete accessible family graph for interactive navigation.
 - `GET /api/boxes/<id>/measurements/`: biological measurement history for one box.
-- `POST /api/boxes/<id>/measurements/`: create or update the measurement for one date.
+- `POST /api/boxes/<id>/measurements/`: create a reading in a free ISO week; occupied week returns `409 measurement_week_conflict`, even on the same date.
+- `PATCH /api/boxes/<id>/measurements/<measurement_id>/`: authorized correction, preserving original observer and audit history.
+- `POST /api/boxes/<id>/move/`: move with explicit expected current location; at most one ordinary movement per Paris ISO week.
+- `PATCH /api/boxes/<id>/movements/<movement_id>/`: audited correction with required expected revision, not a new movement.
 - `POST /api/boxes/<id>/subcultures/`: create a subculture event and one or more child boxes.
 - `GET /api/thermal-zones/`: thermal zones with probes and latest readings.
 - `POST /api/box-transfers/`: prepare an inter-organization box transfer.
@@ -204,9 +212,18 @@ species, strains, thermal zones, boxes, and dates can be combined.
 French prototype endpoints such as `/api/boites/` and `/api/zones/` have been
 removed. New frontend code should only use the English DRF routes above.
 
-This repository now uses clean initial migrations for the split Django apps.
-If a local development database was created before this refactor, recreate it
-or migrate it carefully before relying on existing data.
+The initial split-app migration refactor is historical. Later additive migrations
+cover provenance/temporal precision, quantitative subculture, weekly movements and
+portable transfer foundations. Do not recreate a database containing scientific
+history or rewrite migrations to match an old setup guide.
+
+Canonical CSV preparation and planner 1.1 are read-only foundations, not a generic
+import UI/applicator. `measured_on` is still required; week-only persistence is
+not enabled. Transfer v2 has internal foundations through Phase 5, not destination
+acceptance. References, Environment, Transfers and Organizations sections are
+currently disabled in React Administration; Accounts/Team, Inventory and History
+remain active. Backend endpoints still enforce their permissions. See the
+[current state](POLYPBASE_CURRENT_STATE.md) for remaining work.
 
 ## QR codes
 
@@ -216,9 +233,11 @@ Each box has a permanent QR code that encodes a short public URL:
 {PUBLIC_BASE_URL}/bac/<id>/
 ```
 
-Scanning it opens the box detail sheet directly. `/bac/<id>/` is a stable alias
-(it logs the access and redirects to the detail page), so printed labels keep
-working even if the internal page route changes. Set `PUBLIC_BASE_URL` in
+Scanning it leads to the box sheet. `/bac/<id>/` is a stable login-protected
+handoff without Box lookup or SCAN audit. Resolution and successful SCAN audit
+occur in `/api/boxes/<id>/scan/` under the explicit active organization;
+membership in another organization does not widen that lookup. Printed labels
+keep working if the internal route changes. Set `PUBLIC_BASE_URL` in
 `backend/.env` to the address phones can reach (the production domain in prod,
 the dev server otherwise).
 
@@ -277,8 +296,8 @@ the Django server running locally on the computer.
 
 Camera access on iPhone and iPad requires an HTTPS address. A local HTTP
 address is suitable for checking the interface and manual search, but not for
-testing QR-code scanning. Use an HTTPS staging or production address to test
-the camera on Safari.
+testing QR-code scanning. Use an isolated HTTPS QA/staging address with synthetic
+data to test the camera on Safari, not production.
 
 ### Temporary HTTPS tunnel
 
@@ -322,14 +341,11 @@ the VM. The detailed fallback procedure is documented in
 
 ## Database updates
 
-Apply every committed migration after pulling a new application version and
-before restarting the production service:
-
-```powershell
-cd backend
-uv run python manage.py migrate
-uv run python manage.py check
-```
+Production migrations are applied by the guarded deployment workflow after
+explicit authorization, backup and release checks; do not reproduce its steps
+manually. Git integration/CI does not prove they have been applied. For an
+isolated local database, inspect the migration plan and follow
+[`docs/context/development-deployment.md`](docs/context/development-deployment.md).
 
 The transfer workflow uses `BoxTransfer.polyp_count` and
 `BoxTransferImport`; both are created by the cultures migrations. Transfer
@@ -338,6 +354,8 @@ and source transfer identifier, so the same package cannot be imported twice.
 
 ## Internal documentation
 
+- `POLYPBASE_CURRENT_STATE.md`: verified dated state, reviews and remaining work.
+- `docs/PROJECT_CONTEXT.md`: domain routing and durable contracts.
 - `docs/guide_utilisateur.md`: concise operational procedures for laboratory users.
 - `docs/transferts_csv.md`: Polypbase transfer CSV format and import rules.
 - `docs/tests_backend.md`: backend test inventory and execution instructions.

@@ -1,8 +1,21 @@
 # Imports et exports
 
+## Import scientifique générique : fondations intégrées au 2026-10-14
+
+La préparation canonique/CSV (`measurements/canonical.py`, `csv_import.py`, contrat 1.0) et le planner Python en lecture seule (`import_planner.py`, plan 1.1) sont intégrés. Ce ne sont ni une interface d'import, ni un upload persistant, ni un applicateur. L'acteur Admin/technicien actif et l'institution sélectionnée sont validés; les boîtes sont résolues par code exact dans cette institution.
+
+- Statuts : `IGNORED`, `INVALID`, `UNKNOWN_BOX`, `CREATE`, `ALREADY_MATCHES`, `CONFLICT`, `BLOCKED`. Une ligne sans valeurs scientifiques est ignorée et comptée; dès qu'un payload existe, les deux comptes requis doivent être valides. Les champs facultatifs conservent absent/vide/NULL/zéro selon leur contrat.
+- Tout doublon source boîte/semaine bloque, même identique. `ALREADY_MATCHES` ne réécrit ni valeur, ni date, ni précision, ni provenance. Un plan/hash n'est ni une réservation, ni une permission d'appliquer, ni un snapshot transactionnel.
+- Un repiquage pertinent dans la semaine d'un relevé semaine seule produit `week_subculture_chronology_conflict`, avec evidence dédupliquée boîte/semaine. Un parent partiel avec occurrence connue reste pertinent; une allocation enfant zéro est connue. Les occurrences/allocations legacy inconnues ne sont pas certifiées sans risque.
+- Décision produit pour le futur applicateur : tout ou rien, aucune erreur non résolue; renseigner la vraie date de relevé dans la semaine en cas de conflit, ou annuler. Pas de force-import ni de maintien forcé de la précision hebdomadaire. Toute résolution régénère préparation et plan.
+
+La cible approuvée sépare applicateurs de saisie, correction de masse (ancienne valeur attendue + audit) et onboarding, après préparation/revue commune. La saisie/import laboratoire sera hors Administration; correction de masse/onboarding restent administratifs. Stockage privé de source originale, plan durable, idempotence/reçus, revalidation sous verrous et UI sont **prévus, non implémentés**. Une rétention de 30 jours des uploads non appliqués reste une proposition, pas une politique approuvée.
+
+Contrats détaillés : [`../canonical-measurement-csv.md`](../canonical-measurement-csv.md), [`../measurement-import-planner.md`](../measurement-import-planner.md). Ne pas généraliser ces garanties aux importeurs historiques ci-dessous.
+
 ## Import historique normalisé
 
-La commande `import_bdd_csv` importe les CSV normalisés de `data/tables/`. Elle s'exécute dans une transaction et propose un `--dry-run` qui rollbacke les écritures. Ses opérations `get_or_create` et `update_or_create` rendent la reprise idempotente selon les clés actuelles.
+La commande `import_bdd_csv` importe les CSV normalisés de `data/tables/`. Elle s'exécute dans une transaction et propose un `--dry-run` qui rollbacke les écritures. Ses opérations `get_or_create` et `update_or_create` rendent la reprise idempotente selon les clés actuelles. Ce chemin legacy peut mettre à jour les comptes d'un relevé au même lundi conventionnel; ce n'est pas le contrat du POST interactif ni une autorisation d'overwrite pour le futur applicateur générique. La conversion de `numero_souche_local` utilise encore `or None` après parsing et peut perdre X=0 : dette vérifiée, non corrigée ici.
 
 L'éventuelle remise à zéro est strictement limitée aux boîtes de l'organisation explicitement ciblée et à leurs relations concernées. Un import institutionnel ne doit jamais modifier ou supprimer les données d'une autre institution, y compris par cascade.
 
@@ -50,7 +63,7 @@ Les prérequis de schéma, résolution scientifique, contrats d'import/correctio
 
 ## Diagnostic avant contrainte
 
-Avant d'appliquer une contrainte d'unicité sur une base contenant de l'historique, exécuter la commande de diagnostic en lecture seule prévue pour le domaine. Pour les relevés biologiques, `check_biological_measurement_duplicates` rapporte organisation, boîte, date, nombre et identifiants.
+Avant d'appliquer une contrainte d'unicité sur une base contenant de l'historique, exécuter la commande de diagnostic en lecture seule prévue pour le domaine. Pour les relevés biologiques, `check_biological_measurement_duplicates` groupe par boîte/semaine ISO et rapporte organisation, boîte, clé/semaine ISO, nombre, identifiants et dates des relevés.
 
 Si un doublon existe, ne pas appliquer la migration concernée et ne pas choisir automatiquement une mesure à conserver. La résolution de données scientifiques demande une décision explicite. Les principes généraux de diagnostic avant migration sont documentés dans [`development-deployment.md`](development-deployment.md).
 
@@ -64,6 +77,8 @@ Contrats importants :
 - une boîte sans relevé dans la période et le périmètre retenus est exclue du CSV et des graphiques;
 - une cellule sans relevé reste vide, tandis qu'un zéro enregistré reste `0`;
 - le filtre de zone s'appuie sur l'emplacement historique à la date du relevé;
+- la température utilise l'agrégat journalier disponible, sinon la consigne de la zone; ne pas présenter ce fallback comme une température observée;
+- dans le preview, `measurement_count=0` distingue les zéros d'agrégat d'une semaine sans relevé d'un véritable relevé zéro; l'initialisation quantitative d'un enfant seule n'est pas un relevé exportable;
 - `include_other_zones` permet, pour les boîtes ayant contribué dans la zone sélectionnée, d'inclure aussi leurs relevés réalisés dans d'autres zones;
 - la sélection, la génération et l'audit restent rattachés à l'organisation active.
 
@@ -73,13 +88,13 @@ Le modèle `DataExport` prévoit plusieurs formats. Une valeur de choix dans un 
 
 Transfer v1 dispose maintenant d'une frontière de service backend dédiée. Préparation + audit obligatoire et import atomique, ainsi que les cas de rejeu, sont couverts par des tests ciblés. Les conclusions de concurrence réelle exigent PostgreSQL isolé; SQLite seul ne valide pas les verrous. Consulter [`../transferts_csv.md`](../transferts_csv.md) pour les détails, sans recopier le contrat ici. Un transfert n'accorde aucun accès durable aux données de l'institution source.
 
-### Transfer v2 — Phase 2B DONE and integrated
+### Transfer v2 — fondations intégrées jusqu'à la Phase 5
 
 Phase 2B est intégrée à `main` au commit `20adf0a` (`feat: add transfer v2 protocol foundation`). `TransferEnvelope` / `TransferItem` sont persistés avec des UUID stables, le discriminateur `polypbase.transfer` et la version exacte `2.0`. Le service interne construit des snapshots allowlistés côté backend; le parser strict reste indépendant du transport et n'effectue aucune recherche ni écriture en base. `GlobalStrainIdentity` est obligatoire sur chaque souche source. Package, items et audit obligatoire sont créés dans une transaction. Le périmètre reste un service Python interne.
 
-Validation fournie sur `main` après cherry-pick : suite backend complète **579 au total / 559 réussis / 20 ignorés / aucune erreur ni échec**; contrôle Django, contrôle de dérive des migrations et `git diff --check` réussis.
+Depuis cette livraison, sont aussi intégrés : resolver destination read-only (3A), diagnostic d'identité (3B), cardinalité canonique Organization + GlobalStrainIdentity (3C), allocateur X interne (4), projection de lignée portable source et snapshots protocole 2.1 opt-in (5). Le défaut reste 2.0. Les identités/lignées n'accordent aucun accès aux données opérationnelles étrangères; les observations du resolver ne réservent rien.
 
-Le contrat exact est décrit dans [`../transferts_csv.md`](../transferts_csv.md). Il n'existe toujours aucun endpoint/UI v2, receipt/acceptation destinataire, résolution de Strain destination, représentation locale canonique, diagnostic de namespace, identité portable de Box, lignée, allocateur X, inbox de transfert direct, adaptateur fichier ou mutation du cycle de vie/stock source. V1 reste séparé et inchangé. La phase technique suivante est la Phase 3 : résolution destination de `GlobalStrainIdentity`, représentation locale canonique et diagnostic de namespace.
+**Phase 6 non implémentée :** preflight/acceptation destination atomique et idempotente, matérialisation Strain/Box, fusion entrante et arête de continuation. Aucun endpoint/UI v2, receipt, inbox, adaptateur fichier ni mutation du stock/lifecycle source. Politique source active-only, effet quantité/statut et authenticité inter-instance restent à décider. V1 reste séparé. Contrat exact : [`../transferts_csv.md`](../transferts_csv.md); statuts Git et preuves QA datées : [`../../POLYPBASE_CURRENT_STATE.md`](../../POLYPBASE_CURRENT_STATE.md).
 
 ## Tests à cibler
 

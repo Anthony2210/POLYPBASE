@@ -19,11 +19,11 @@ La base garantit au plus une ligne par boîte et semaine ISO. Le POST interactif
 3. répondre `409 measurement_week_conflict` sans mutation si un relevé existe déjà dans la semaine, y compris à la même date;
 4. écrire l'audit dans la même transaction, sans génération ni synchronisation d'alertes.
 
-Deux créations concurrentes sont ainsi sérialisées selon la même règle que deux opérations séquentielles : une seule ligne finale et un conflit pour la seconde. La contrainte DB reste la défense finale contre les doublons. Toute correction d'un relevé existant passe exclusivement par le PATCH prévu.
+Deux créations concurrentes sont ainsi sérialisées selon la même règle que deux opérations séquentielles : une seule ligne finale et un conflit pour la seconde. La contrainte DB sur `(box, week_start)` reste la défense finale contre les doublons. Le `save()` calcule la clé depuis la date; il n'existe pas encore de CHECK dédié lundi/date pour les chemins bulk/SQL qui le contournent. Ces chemins ne garantissent ni permission, ni audit, ni cohérence scientifique de la clé. Toute correction d'un relevé existant passe exclusivement par le PATCH prévu.
 
 Une boîte inactive refuse un nouveau relevé. Un relevé historique déjà présent peut être corrigé par un utilisateur autorisé. Vérifier le statut sous verrou au moment de l'écriture, pas seulement dans l'interface.
 
-La commande `check_biological_measurement_duplicates` effectue un diagnostic en lecture seule avant l'application d'une contrainte sur une base existante. Elle liste organisation, boîte, date, nombre et identifiants concernés. Elle ne choisit jamais quelle donnée scientifique conserver.
+La commande `check_biological_measurement_duplicates` effectue un diagnostic en lecture seule avant l'application d'une contrainte sur une base existante. Elle groupe par boîte/semaine ISO et liste organisation, boîte, clé/semaine ISO, nombre, identifiants et dates concernés. Elle ne choisit jamais quelle donnée scientifique conserver.
 
 ## Observateur et origine des relevés
 
@@ -87,7 +87,7 @@ Cette tranche ne modifie ni schéma, ni contraintes, ni `save()`, ni écriture :
 
 `measurements/scientific_time.py` fournit `ObservationTime`, représentation immuable et pure de la précision, de `measured_on` et de la clé `week_start`, avec année/semaine ISO. `from_measurement()` lit uniquement ces champs scalaires, sans requête ni mutation lorsqu'ils sont déjà chargés; les objets semaine seule utilisés en test ne sont jamais enregistrés. Les combinaisons incohérentes sont refusées, sans inférer une précision.
 
-`compare_operation_day()` compare au jour local d'une occurrence confirmée :
+`compare_operation_day()` exprime **l'observation relativement au jour local de l'opération** confirmée (et non l'inverse) :
 
 - date exacte ou legacy : `before`, `after` ou `same_day`; ce dernier conserve le sens de l'éligibilité datée `measured_on >= operation_day`, sans prouver un ordre intra-journalier;
 - semaine seule : intervalle possible lundi–dimanche inclus; `before` si son dimanche précède l'opération, `after` si son lundi suit l'opération, sinon `unresolved`, même aux deux extrémités;
@@ -126,7 +126,7 @@ Un repiquage quantitatif ne crée aucun `BiologicalMeasurement`, ni éphyrule ou
 
 Un repiquage partiel (au moins une allocation enfant `null` ou omise) conserve l'avant connu mais a un total et un après `null`. Sa révision invalide les intentions sans transition scientifique. Tous les chemins du résolveur, y compris les sous-requêtes de priorité des relevés et les préchargements, ignorent ces événements comme sources parent et les allocations inconnues comme initialisations enfant. L'historique conserve l'événement partiel sans point quantitatif après; un enfant inconnu n'a pas d'entrée d'initialisation inventée. Zéro reste une initialisation connue. Les règles hebdomadaires et de correction restent inchangées.
 
-Voir [`boxes-lifecycle-locations.md`](boxes-lifecycle-locations.md) et le contrat backend pour les détails du repiquage et du résolveur.
+Voir [`boxes-lifecycle-locations.md`](boxes-lifecycle-locations.md) et [`../../backend/QUANTITATIVE_SUBCULTURE.md`](../../backend/QUANTITATIVE_SUBCULTURE.md) pour les détails du repiquage et du résolveur. L'ordre proposé des tranches restantes (contrat explicite, garde, consommateurs, schéma, planner puis applicateurs) et les preuves de revue sont suivis dans [`../../POLYPBASE_CURRENT_STATE.md`](../../POLYPBASE_CURRENT_STATE.md), sans activer de règle métier non décidée.
 
 ## Températures
 

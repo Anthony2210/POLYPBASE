@@ -22,7 +22,7 @@ Le filtrage, les compteurs et les ensembles sélectionnables doivent tous utilis
 
 Pour la cohorte historique explicitement reconnue dont la date technique d'insertion ne représente pas la création réelle, la date affichée comme « création » utilise le premier relevé disponible. Cette exception est implémentée dans le queryset d'Inventaire et couverte par tests; ne pas la généraliser à d'autres lots ou dates sans décision métier.
 
-Un relevé postérieur à la date de référence n'est pas « plus ancien que X » et ne reçoit pas d'âge négatif. Une boîte sans relevé n'a ni date ni ancienneté inventée.
+Un relevé postérieur à la date de référence n'est pas « plus ancien que X » et ne reçoit pas d'âge négatif. Une boîte sans relevé n'a ni date ni ancienneté inventée. Le filtre « sans relevé » et la sélection groupée utilisent un `Exists` corrélé : une date de dernier relevé NULL ne signifie pas absence de ligne. Latest par boîte trie par `week_start`, puis `created_at` et PK décroissants. Ancienneté et création historique restent fondées sur les dates stockées; la persistance semaine seule n'est pas activée.
 
 Les indicateurs de synthèse sont intentionnellement masqués. Ne pas les réactiver sans décision produit explicite.
 

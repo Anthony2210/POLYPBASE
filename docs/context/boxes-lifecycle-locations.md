@@ -24,13 +24,13 @@ La qualification historique `pending_review -> active` autorise exceptionnelleme
 
 - `Box.thermal_zone` pointe vers l'emplacement courant.
 - `BoxLocation` conserve chaque période d'emplacement, avec une éventuelle fin historique inconnue.
-- `BoxMovement` représente un déplacement et son auteur.
+- `BoxMovement` représente un événement enregistré, sa nature/provenance et son auteur; une nature legacy non établie ne prouve pas un déplacement ordinaire.
 - Une boîte inactive n'a pas d'emplacement courant, mais peut conserver un dernier emplacement historique affichable.
 - Déplacer, désactiver ou réactiver une boîte ne doit jamais écraser les périodes précédentes.
 
 L'emplacement courant et le dernier emplacement historique sont deux notions distinctes. Les interfaces et exports doivent choisir celle qui correspond à la question posée, et ne pas présenter l'historique comme l'état actuel.
 
-## Transferts concurrents
+## Déplacements concurrents
 
 Le déplacement d'une boîte est transactionnel. Le service verrouille la boîte et ses périodes ouvertes, puis met à jour pointeur courant, période, mouvement et audit de manière cohérente.
 
@@ -44,7 +44,7 @@ Si l'état a changé entre l'affichage et la confirmation, l'API répond `409` a
 
 ## Nature des mouvements et limite hebdomadaire
 
-`BoxMovement.kind` distingue `ordinary` (transfert entre deux zones), `initial_location` (premier emplacement d'une boîte active sans emplacement, y compris via `move/` depuis `null`), `qualification`, `reactivation` et `unclassified`. `unclassified` signifie « provenance non établie » : toutes les lignes antérieures à la migration `0013` et toute écriture directe hors service. Aucune nature n'est déduite après coup.
+`BoxMovement.kind` distingue `ordinary` (transfert entre deux zones), `initial_location` (premier emplacement d'une boîte active sans emplacement, y compris via `move/` depuis `null`), `qualification`, `reactivation` et `unclassified`. `unclassified` signifie « provenance non établie » : toutes les lignes antérieures à la migration `0013`, et valeur par défaut des créations techniques sans nature explicite. Une écriture ORM/SQL peut fournir une nature; elle ne constitue pas à elle seule une preuve de provenance ni un workflow autorisé. Aucune nature n'est déduite après coup.
 
 Au plus un mouvement `ordinary` par boîte et semaine ISO Europe/Paris (lundi-dimanche). `iso_week_start` est dérivé de `moved_at` dans `save()`; depuis `0014`, un `CHECK` impose en base sa correspondance avec le lundi de `moved_at` en Europe/Paris. Une contrainte unique partielle protège l'état final et le verrou de boîte sérialise les écritures. Un second mouvement ordinaire répond `409 box_movement_week_conflict` sans mutation (`conflicting_movement_id`, `iso_week_start`, `iso_year`, `iso_week`); `box_location_changed` reste prioritaire. Création manuelle, repiquage, désactivation et les natures de cycle de vie ne consomment pas ce créneau. Les mouvements `unclassified` n'y participent pas non plus.
 
@@ -60,7 +60,13 @@ Les nouveaux mouvements référencent les périodes qu'ils ont écrites (`origin
 - date : seulement `ordinary` avec liens cohérents, strictement entre le début de la période d'origine et la fin de la période de destination, jamais dans le futur, sans autre mouvement ou période chevauchante, semaine cible libre.
 - destination : mouvement terminal uniquement (période de destination ouverte et courante, boîte active, aucun mouvement postérieur); met à jour période et pointeur courant.
 
-Refus `409` : `box_movement_changed`, `box_movement_week_conflict`, `movement_provenance_unresolved`, `movement_date_not_correctable`, `movement_period_link_missing`, `movement_period_mismatch`, `movement_period_overlap`, `movement_chronology_conflict`, `movement_not_terminal`. Refus `400` : validation, `movement_same_zone`, `movement_date_in_future`, `movement_correction_no_change`. L'admin Django générique est en lecture seule pour `BoxMovement` et `BoxLocation`, et `Box.thermal_zone` y est non modifiable.
+Refus `409` : `box_movement_changed`, `box_movement_week_conflict`, `movement_provenance_unresolved`, `movement_date_not_correctable`, `movement_period_link_missing`, `movement_period_mismatch`, `movement_period_overlap`, `movement_chronology_conflict`, `movement_not_terminal`. Refus `400` : validation, `movement_same_zone`, `movement_date_in_future`, `movement_correction_no_change`. L'admin Django générique est en lecture seule pour `BoxMovement` et `BoxLocation`, et `Box.thermal_zone` y est non modifiable pour une boîte existante.
+
+## Présentation de l'historique et correction inline
+
+Le graphique distingue `movement` (`BoxMovement` persisté) de `location_change` (frontière déduite de `BoxLocation`). L'historique Emplacement présente des entrées/sorties de périodes, sans prétendre à autant de mouvements physiques. Le bandeau « Dernier déplacement » de `BoxPage` sélectionne le dernier événement persisté par date puis ID, affiche origine → destination à noms complets et se transforme en éditeur inline. Il n'ouvre pas une modale. Sauvegarde masquée sans changement normalisé, annulation disponible, conflit de révision imposant un rechargement/réexamen explicite. Le backend reste autorité : les liens de périodes ne sont pas tous exposés à l'UI.
+
+L'éditeur utilise Paris et refuse un horaire modifié ambigu/inexistant pendant le DST; une valeur inchangée conserve l'instant original. Les détails graphiques UTC et filtres en jours locaux navigateur sont un autre contrat, pas une décision d'unifier tous les fuseaux. Le sujet du marqueur historique UTC/Paris a été mis en attente; aucun reclassement ni correction historique n'en découle.
 
 ## Repiquages et lignées
 
@@ -80,7 +86,7 @@ Ne pas déduire une parenté d'une ressemblance de codes.
 
 **V1 actuel :** l'import crée une nouvelle Box locale à destination; il ne déplace ni ne réaffecte la Box source et ne crée aucune relation `BoxLineage` de transfert.
 
-**Direction future, non implémentée :** parentage/repiquage et arêtes de transfert sont des sémantiques distinctes. Une Strain identique n'implique pas une lignée; aucune parenté ne doit être inférée d'une ressemblance de codes. Les métadonnées de lignée inter-institutions ne doivent jamais donner accès aux fiches opérationnelles étrangères de Box.
+**V2, fondation source intégrée :** la Phase 5 projette la lignée connue dans des nœuds/arêtes portables et fige un snapshot source en protocole 2.1 opt-in (défaut 2.0). Elle ne matérialise ni n'accepte une Box destination; aucune arête de continuation de transfert n'est créée par un workflow d'acceptation. Phase 6 reste future. Parentage/repiquage et arêtes de transfert sont des sémantiques distinctes. Une Strain identique n'implique pas une lignée; aucune parenté ne doit être inférée d'une ressemblance de codes. Les métadonnées de lignée inter-institutions ne doivent jamais donner accès aux fiches opérationnelles étrangères de Box.
 
 ## Règles de modification
 
@@ -96,7 +102,7 @@ Ne pas déduire une parenté d'une ressemblance de codes.
 - Modèles : `backend/apps/cultures/models.py`.
 - Services : `backend/apps/cultures/services.py`.
 - API et serializers : `backend/apps/cultures/api_views.py`, `backend/apps/cultures/serializers.py`.
-- Transfert UI : `frontend/src/components/MoveBoxModal.tsx`.
+- Déplacement UI : `frontend/src/components/MoveBoxModal.tsx`; correction inline : `LatestMovementBanner.tsx`, orchestration dans `App.tsx`.
 - Diagnostic en lecture seule de l'historique d'emplacement : commande `diagnose_box_location_history` (`backend/apps/cultures/location_history_diagnostics.py`). Il constate sans réparer ni déduire de mouvement.
 - Diagnostic en lecture seule par institution des candidats hebdomadaires, provenances non établies, liens mouvement-période, périodes ouvertes multiples, pointeurs et zones étrangères : commande `diagnose_box_movement_weeks` (`backend/apps/cultures/movement_week_diagnostics.py`).
 - Correction de mouvement : `backend/apps/cultures/movement_corrections.py`.

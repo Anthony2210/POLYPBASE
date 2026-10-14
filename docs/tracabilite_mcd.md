@@ -5,6 +5,12 @@ Ce document boucle la traçabilité entre les **3 MCD validés par les professeu
 (les `models.py` des applications). Il sert de preuve de cohérence conception →
 code pour le mémoire, et liste les écarts à arbitrer.
 
+**Relecture ciblée au 2026-10-14 :** relevés, repiquages, mouvements et fondations
+portables. Les MCD validés restent des pièces de conception historiques, sans
+modification de leurs décisions. Une différence n'est pas une autorisation de
+migration ni une roadmap produit. État courant :
+[`../POLYPBASE_CURRENT_STATE.md`](../POLYPBASE_CURRENT_STATE.md).
+
 - **Méthode** : pour chaque entité et chaque association du MCD, on indique le
   modèle / champ Django correspondant, puis on note les écarts.
 - **Statut** : ✅ couvert · 🟠 partiel / divergence structurelle · ❌ manquant
@@ -38,9 +44,9 @@ code pour le mémoire, et liste les écarts à arbitrer.
 | **POSSEDER_SOUCHE** (ESPECE 0,N — SOUCHE 1,1) | `Strain.species` (FK PROTECT) | ✅ |
 | **CONTENIR** (SOUCHE 0,N — BOITE 1,1) | `Box.strain` (FK PROTECT) | ✅ |
 | **AVOIR_PROVENANCE** (SOUCHE 0,1 — STRUCTURE 0,N : type_provenance, lieu, commentaire) | `taxonomy.Origin` (source_type, description, latitude/longitude, **partner_institution** → `organizations.PartnerInstitution`) relié par `Strain.origin` | 🟠 provenance reliée à `PartnerInstitution`, pas à `STRUCTURE` ; `lieu` éclaté en lat/long + nom institution |
-| **SAISIR_RELEVE** (UTILISATEUR — BOITE : date_releve, nb_polypes, nb_ephyrules, type_observation, commentaire) | `measurements.BiologicalMeasurement` (measured_on, polyp_count, ephyrae_count, notes, user) **+** `measurements.Observation` (observation_type) | 🟠 type_observation porté par un modèle `Observation` séparé ; relevé enrichi (strobila_count, culture_status, needs_attention) |
-| **EFFECTUER_REPIQUAGE** (UTILISATEUR + BOITE parent + BOITE enfant : date_repiquage, motif, nb_polypes_preleves) | `cultures.SubcultureEvent` (event_date, reason, user) **+** `cultures.BoxLineage` (parent_box, child_box) | 🟠 **nombre_polypes_preleves absent** |
-| **RANGE** (UTILISATEUR + BOITE + ZONE : date_entree, date_sortie, motif) | `cultures.BoxLocation` (starts_at, ends_at, notes) **+** `cultures.BoxMovement` (from/to zone, moved_at, user) | 🟠 historique de présence = `BoxLocation` (sans `user`) ; déplacement = `BoxMovement` (avec `user`) |
+| **SAISIR_RELEVE** (UTILISATEUR — BOITE : date_releve, nb_polypes, nb_ephyrules, type_observation, commentaire) | `measurements.BiologicalMeasurement` (measured_on, week_start, temporal_precision, counts, notes, user, original_observer, observer_status, origin, imported_by) **+** `Observation` (observation_type) | 🟠 observation séparée; unicité boîte/semaine, acteur/observateur/origine distincts; `measured_on` reste obligatoire, pas de semaine seule persistée |
+| **EFFECTUER_REPIQUAGE** (UTILISATEUR + BOITE parent + BOITE enfant : date_repiquage, motif, nb_polypes_preleves) | `SubcultureEvent` (event_date, occurred_at, reason, user, parent_polyp_count_before, allocated_polyp_count, parent_polyp_count_after, parent_state_snapshot) **+** `SubcultureAllocation` (child_box, allocated_polyps) **+** `BoxLineage` | ✅ quantités/snapshot implémentés; total/après NULL en saisie partielle, allocation enfant zéro distincte d'inconnue; legacy conservé |
+| **RANGE** (UTILISATEUR + BOITE + ZONE : date_entree, date_sortie, motif) | `BoxLocation` (starts_at, ends_at, notes) **+** `BoxMovement` (from/to zone, moved_at, user, kind, iso_week_start, revision, origin/destination_location) | 🟠 périodes et événements distincts; auteur original et corrections auditées; un ordinary/semaine Paris; legacy non reclassé |
 | **AFFECTER_SONDE** (SONDE 0,N — ZONE 0,N : date_debut, date_fin) | `Probe.thermal_zone` (FK simple) | ❌ **non historisé** : pas de date_debut/date_fin, une sonde = une zone courante |
 | **MESURER_TEMPERATURE** (SONDE — ZONE : temperature_mesuree, date_mesure, heure_mesure) | `measurements.TemperatureMeasurement` (probe, measured_at, temperature_c) **+** `DailyTemperature` (agrégat) | ✅ date+heure → `measured_at` (DateTime) |
 | **MESURER_SALINITE** (ZONE — UTILISATEUR : date_mesure, heure_mesure, valeur_salinite) | `measurements.SalinityMeasurement` (thermal_zone, measured_on, salinity_psu, user) | 🟠 **heure_mesure absente** (`measured_on` est un DateField) |
@@ -58,8 +64,10 @@ Par ordre d'impact pour le besoin métier :
 2. **AFFECTER_SONDE non historisé** — si l'historique sonde↔zone est requis,
    créer un modèle `ProbeAssignment` (probe, zone, date_debut, date_fin). Sinon
    documenter le choix « zone courante uniquement ».
-3. **EFFECTUER_REPIQUAGE : `nombre_polypes_preleves`** — ajouter le champ sur
-   `SubcultureEvent` (ou `BoxLineage`).
+3. **EFFECTUER_REPIQUAGE — écart quantitatif résolu** : champs avant/réparti/après
+   sur `SubcultureEvent` et allocations enfant sur `SubcultureAllocation`.
+   Ne plus programmer l'ajout du champ comme travail manquant; voir
+   [`../backend/QUANTITATIVE_SUBCULTURE.md`](../backend/QUANTITATIVE_SUBCULTURE.md).
 4. **STRUCTURE : `type_structure`** (aquarium/laboratoire) — ajouter sur
    `organizations.Organization`.
 5. **MESURER_SALINITE : `heure_mesure`** — passer `measured_on` en DateTime ou
@@ -97,6 +105,19 @@ anciennes alertes ne sont pas des fonctionnalités à réintroduire ou à promou
 dans le MCD actif. Les mesures restent factuelles, sans avertissement
 opérationnel ou biologique inféré.
 
+### Extensions intégrées depuis les MCD initiaux
+
+- `Organization.portable_id`, `GlobalStrainIdentity`, AAA/BBB institutionnels,
+  `LocalStrainIdentity`, cardinalité canonique et compteur X interne : identité
+  technique/biologique distincte des permissions, sans backfill inféré.
+- `TransferEnvelope` / `TransferItem`, `PortableLineageNode` / `PortableLineageEdge`
+  et snapshots : fondations source Transfer v2 jusqu'à Phase 5; pas d'acceptation
+  ou matérialisation destination Phase 6.
+- `BoxCodeNamespace`, révisions/séquences scientifiques et allocations immuables :
+  cohérence du repiquage et réservation de codes, distinctes de l'allocateur Strain.
+- Invitations persistées, Responsable et visibilité technique de membership :
+  contrat comptes dans [`context/organizations-permissions.md`](context/organizations-permissions.md).
+
 ## 5. Conclusion
 
 Le cœur du MCD validé est **fidèlement implémenté** : toutes les entités
@@ -104,14 +125,16 @@ principales (ESPECE, TAXON, SOUCHE, BOITE, ZONE_THERMIQUE, UTILISATEUR,
 STRUCTURE) et la majorité des associations existent en base. Les écarts sont
 surtout :
 
-- des **champs de détail manquants** (section 3), faciles à ajouter par migration ;
+- des **champs de détail manquants** (section 3), dont le besoin et les effets
+  doivent être décidés avant toute migration ;
 - des **divergences structurelles assumées** (relevé/observation, range/movement,
   provenance via PartnerInstitution) qui *couvrent* le besoin différemment ;
 - des **enrichissements hors MCD** (section 4) — notamment le **QR code** — à
   réintégrer dans le MCD pour que la documentation reste le miroir du code.
 
 **Actions recommandées :**
-1. Trancher les 9 écarts de la section 3 (ajout de champs / modèle d'historisation).
+1. Réexaminer les écarts encore ouverts de la section 3 selon les besoins produit;
+   le point quantitatif repiquage est résolu, pas un champ restant à ajouter.
 2. Mettre à jour les 3 MCD pour intégrer les enrichissements retenus (section 4),
    au minimum le QR code (`IdentificationTag`).
 3. Générer migrations + tests pour les champs ajoutés, puis re-vérifier ce document.

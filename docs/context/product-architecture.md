@@ -16,7 +16,7 @@ Les principaux utilisateurs sont les techniciens et soigneurs de laboratoire, le
 | Données | PostgreSQL en production | Persistance et contraintes; SQLite est utilisé par les tests isolés ordinaires |
 | Déploiement | `deploy/` | Préflight, sauvegarde, mise à jour, build, migrations et contrôles de service |
 
-Le frontend n'utilise pas React Router. `frontend/src/App.tsx` traduit l'URL en état de route et s'appuie sur l'API History. Les appels réutilisables passent par `frontend/src/api/client.ts`, qui gère notamment le contexte d'organisation et les jetons CSRF des mutations.
+Le frontend n'utilise pas React Router. `frontend/src/App.tsx` traduit l'URL en état de route et s'appuie sur l'API History. Les appels réutilisables passent par `frontend/src/api/client.ts`, qui gère notamment le contexte d'organisation et les jetons CSRF des mutations. `PilotageView`, `CreateBoxPanel`, `QrSearchModal` et `BoxPage` sont désormais des modules distincts; App conserve orchestration, mutations et caches. La garde institutionnelle n'est pas une garantie de fraîcheur intra-institution; voir [`frontend-ux.md`](frontend-ux.md).
 
 ## Domaines backend
 
@@ -43,10 +43,10 @@ Les Alertes ne sont plus une fonctionnalité active : aucun parcours de consulta
 | `Organization` | Institution ou aquarium propriétaire d'un espace de travail |
 | `OrganizationMembership` | Appartenance d'un utilisateur à une institution, avec un rôle propre |
 | `Box` | Unité centrale de culture, identifiée par un code global |
-| `Species` / `Strain` | Espèce et souche du référentiel taxonomique partagé |
-| `BiologicalMeasurement` | Relevé daté d'une boîte |
+| `Species` / `Strain` | Espèce partagée et souche opérationnelle normalement institutionnelle; cas legacy explicitement bornés |
+| `BiologicalMeasurement` | Relevé d'une boîte, unique par semaine ISO, avec date stockée, précision et observateur/origine distincts |
 | `ThermalZone` | Emplacement thermique d'une institution |
-| `BoxLocation` / `BoxMovement` | Période d'emplacement et événement de déplacement |
+| `BoxLocation` / `BoxMovement` | Période d'emplacement et événement enregistré typé; une frontière de période ne prouve pas un déplacement physique |
 | `DailyTemperature` | Agrégat journalier de température d'une zone |
 | `SubcultureEvent` / `BoxLineage` | Repiquage et relation parent-enfant |
 | `AuditLog` | Trace d'une action, de son auteur et de son institution |
@@ -58,6 +58,15 @@ Ne pas enrichir les définitions biologiques sans validation métier.
 Les réglages propres à un environnement et les secrets sont fournis par variables d'environnement. Les invitations et la récupération de mot de passe utilisent la configuration d'e-mail du backend. Ne jamais lire ou reproduire le contenu d'un `.env`.
 
 L'interface est française par défaut et dispose d'un catalogue anglais. Les contenus taxonomiques peuvent être localisés séparément en français, anglais et japonais. Voir [`frontend-ux.md`](frontend-ux.md) pour les conventions i18n.
+
+## État vivant et frontières de livraison
+
+[`../../POLYPBASE_CURRENT_STATE.md`](../../POLYPBASE_CURRENT_STATE.md) suit les intégrations, travaux locaux, décisions, revues, limites et roadmap datés. Les audits restent des instantanés historiques.
+
+- Import scientifique : CSV canonique et planner read-only intégrés, pas encore d'applicateur/UI générique. `iso_week` sans jour exact est une cible approuvée, pas une capacité de persistance actuelle.
+- Transfer v2 : fondations source/résolution/identité/allocateur/lignée intégrées jusqu'à la Phase 5; acceptation/matérialisation destination Phase 6 absente.
+- References, Environment, Transfers et Organizations sont désactivés dans Administration, sans désactiver leurs API backend; Équipe/Comptes, Inventaire et Historique restent actifs. Le grand catalogue partagé est abandonné; maintenance AAA contextuelle à concevoir, routine BBB/provenance différée.
+- Le ledger Species/AAA du dépôt compagnon contient désormais des réponses d'Étienne. Ces décisions ne sont ni une approbation finale de manifeste ni une autorisation de réécrire les identifiants historiques.
 
 ## Pour aller plus loin
 

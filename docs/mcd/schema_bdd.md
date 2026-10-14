@@ -1,8 +1,11 @@
 # Schéma de la base de données POLYPBASE (tables réelles)
 
-Diagrammes **entité-relation** générés à partir des modèles Django actuels
-(`backend/apps/*/models.py`). Ils reflètent la base **telle qu'implémentée**, et
-suivent le découpage des 3 MCD validés (`métier`, `environnement`, `gestion`).
+Diagrammes **entité-relation** maintenus à partir des modèles Django
+(`backend/apps/*/models.py`), suivant les 3 MCD validés (`métier`, `environnement`,
+`gestion`). **Relecture ciblée au 2026-10-14** : relevés, quantités de repiquage,
+mouvements et identité institutionnelle. C'est une vue sélective, pas une génération
+exhaustive de chaque table/champ ni la preuve du schéma déployé. Les extensions
+portables/taxonomiques sont recensées sous les diagrammes.
 
 > **Comment visualiser** : ce fichier se rend automatiquement sur **GitHub**.
 > Dans **VS Code**, installe l'extension « Markdown Preview Mermaid Support »
@@ -33,6 +36,8 @@ erDiagram
     Box ||--o{ BoxLineage : "parent"
     Box ||--o{ BoxLineage : "enfant"
     SubcultureEvent ||--o{ BoxLineage : "trace"
+    SubcultureEvent ||--o{ SubcultureAllocation : "répartit"
+    Box ||--o| SubcultureAllocation : "initialisée par"
     Box ||--o{ IdentificationTag : "étiquetée par"
     Box ||--o{ BoxTransfer : "transférée par"
 
@@ -77,11 +82,19 @@ erDiagram
         int id PK
         int box_id FK
         date measured_on
+        date week_start
+        string temporal_precision
+        bigint polyp_state_sequence
         int polyp_count
         int ephyrae_count
         int strobila_count
         string culture_status
         int user_id FK
+        int original_observer_id FK
+        string observer_status
+        string origin
+        string import_format
+        int imported_by_id FK
     }
     Observation {
         int id PK
@@ -94,7 +107,22 @@ erDiagram
         int id PK
         int parent_box_id FK
         date event_date
+        datetime occurred_at
+        bigint parent_state_sequence
+        int parent_polyp_count_before
+        int allocated_polyp_count
+        int parent_polyp_count_after
+        json parent_state_snapshot
         int user_id FK
+    }
+    SubcultureAllocation {
+        int id PK
+        int event_id FK
+        int child_box_id FK
+        int position
+        int allocated_polyps
+        bigint child_state_sequence
+        string child_global_code
     }
     BoxLineage {
         int id PK
@@ -166,6 +194,11 @@ erDiagram
         int from_thermal_zone_id FK
         int to_thermal_zone_id FK
         datetime moved_at
+        string kind
+        date iso_week_start
+        int revision
+        int origin_location_id FK
+        int destination_location_id FK
         int user_id FK
     }
     Probe {
@@ -236,6 +269,7 @@ erDiagram
 
     Organization {
         int id PK
+        uuid portable_id
         string name
         string slug
         string city
@@ -267,6 +301,8 @@ erDiagram
         int organization_id FK
         string role
         bool is_active
+        bool is_responsable
+        bool is_hidden_from_team
     }
     UserPreference {
         int id PK
@@ -313,6 +349,39 @@ erDiagram
 ```
 
 ---
+
+## Contraintes scientifiques et extensions non dessinées
+
+- `BiologicalMeasurement` : UNIQUE `(box, week_start)`. `measured_on` et la clé
+  restent non NULL; précisions persistées `legacy_unverified` / `exact_date`.
+  **Pas de persistance `iso_week`**, malgré les objets de préparation semaine seule.
+  `user` est le dernier acteur legacy, pas l'observateur original. Strobiles et
+  salinité peuvent être NULL; zéro reste connu.
+- Repiquage : les champs quantitatifs d'un événement legacy restent NULL. Pour
+  une nouvelle saisie partielle, avant connu, total/après NULL. Allocation enfant
+  NULL = inconnue, zéro = connue. Snapshots/allocations acceptés ne sont pas
+  recalculés après correction de relevé. `Box.polyp_state_revision` et
+  `BoxCodeNamespace` participent à la concurrence/réservation, pas à une mesure.
+- Mouvements : UNIQUE partielle `(box, iso_week_start)` pour `ordinary`, CHECK
+  de correspondance à `moved_at` en semaine Paris. Autres kinds sans clé/quota;
+  liens de périodes NULL en legacy, jamais reconstruits automatiquement.
+- Taxonomie : `Strain.organization`, `GlobalStrainIdentity`, AAA
+  `OrganizationSpeciesCode`, `LocalStrainIdentity`, `BiologicalProvenance`, BBB
+  `OrganizationProvenanceCode`, `LocalStrainNumberCounter`. Les relations sont
+  documentées dans les contrats; global code historique et identité ne sont
+  ni synonymes ni autorisations. Au plus une Strain owned par institution/global
+  identity non NULL; allocator X interne, pas unicité universelle de `number`.
+- Transfer v2 : `TransferEnvelope`, `TransferItem`, `PortableLineageNode`,
+  `PortableLineageEdge`, snapshots source 2.0/2.1 opt-in. **Pas de receipt ni
+  acceptation destination Phase 6**. Voir [`../transferts_csv.md`](../transferts_csv.md).
+- `AccountInvitation` conserve génération, émission et expiry de 24 h, sans secret;
+  membership masqué n'altère pas les permissions. Voir
+  [`../context/organizations-permissions.md`](../context/organizations-permissions.md).
+
+Les diagrammes n'énumèrent pas toutes ces extensions pour préserver la lisibilité;
+modèles/migrations sont l'autorité technique. Voir aussi
+[`../tracabilite_mcd.md`](../tracabilite_mcd.md) et
+[`../../POLYPBASE_CURRENT_STATE.md`](../../POLYPBASE_CURRENT_STATE.md).
 
 ## Liens entre domaines (rappel)
 

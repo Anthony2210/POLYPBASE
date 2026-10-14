@@ -95,8 +95,11 @@ Absent/null observer references remain absent/unknown and do not claim to replac
 an existing observer. A named observer reference is blocked with
 `observer_resolution_unsupported`: no approved lookup namespace/profile exists
 in the canonical contract. No user is guessed from a username, email or importer.
-The importing actor ID is a separate plan field, and the existing observer ID is
-a separate baseline field. The future apply service must preserve this separation.
+The importing actor ID is a separate plan field. The legacy baseline field
+`MeasurementBaseline.observer_id` currently stores **`measurement.user_id`**, the
+actor/latest corrector, not the scientific `original_observer_id` introduced later.
+Do not infer original observer or importer from it. A future versioned baseline
+must preserve these separate meanings explicitly before application.
 
 ## Week-only chronological conflicts (plan version 1.1)
 
@@ -252,7 +255,9 @@ reference contract. These dependencies do not prevent a safe diagnostic planner.
 
 The frozen plan carries preparation fingerprint, selected institution and actor,
 resolved Box ID/code/status/revision, weekly key, and the existing measurement
-ID, full payload, exact date, creation time, observer and source sequence. Stable
+ID, full payload, exact date, creation time, legacy actor (`observer_id`, as
+explained above) and source sequence. It does not yet include the new temporal
+precision/original-observer/origin fields. Stable
 canonical JSON and SHA-256 cover this preview, with no wall-clock timestamp.
 An absent baseline records an empty slot at preview time only.
 

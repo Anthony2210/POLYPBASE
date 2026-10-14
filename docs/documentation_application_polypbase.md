@@ -2,6 +2,12 @@
 
 Ce document sert de trace de reprise pour les personnes qui continueront le projet Polypbase. Il décrit ce qui existe dans l'application, la logique métier associée, les choix d'interface, les différences entre bureau, tablette et téléphone, ainsi que les fichiers de code principaux.
 
+**Synchronisation ciblée : 2026-10-14.** Ce document reste une vue fonctionnelle
+large, pas un inventaire Git ni une preuve de déploiement. Pour les statuts,
+revues et limitations actuels, lire [`../POLYPBASE_CURRENT_STATE.md`](../POLYPBASE_CURRENT_STATE.md);
+les contrats durables sont routés par [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md).
+Les composants conservés de sections désactivées ne sont pas des parcours actifs.
+
 L'application est construite avec une architecture hybride. Django gère la base de données, les règles métier, les droits, les API, les exports et les pages serveur. React gère l'interface principale utilisée par le laboratoire et par les personnes qui consultent les données.
 
 ## 1. Organisation générale du projet
@@ -12,7 +18,7 @@ Le backend est dans `backend/`. Il contient le projet Django, les applications m
 
 Le frontend est dans `frontend/`. Il contient l'application React, les composants d'interface, les types TypeScript, le client API et les fichiers CSS.
 
-Les documents de conception sont dans `docs/`. Les notebooks d'analyse sont dans `notebooks/`. Les scripts utilitaires sont dans `scripts/`.
+Les documents de conception sont dans `docs/`. Le chantier d'analyse historique est suivi dans le dépôt compagnon POLYPBASE-ANALYSES; ses décisions ne constituent pas un manifeste d'import approuvé. Les scripts utilitaires sont dans `scripts/`.
 
 Les fichiers les plus importants pour comprendre l'application sont :
 
@@ -21,7 +27,7 @@ Les fichiers les plus importants pour comprendre l'application sont :
 | Entrée React | `frontend/src/App.tsx` | Route les pages, charge les données, gère l'institution active, les actions principales et les modales. |
 | Client API | `frontend/src/api/client.ts` | Centralise les appels HTTP, le CSRF et l'envoi de l'institution active. |
 | Types frontend | `frontend/src/types.ts` | Décrit les objets manipulés côté React. |
-| Styles globaux | `frontend/src/styles/app.css` | Style principal, bureau et tablette. |
+| Styles globaux | `frontend/src/styles/index.css` | Agrège les styles partagés, composants et pages. |
 | Styles téléphone | `frontend/src/styles/phone.css` | Adaptations spécifiques au téléphone. |
 | Détection support | `frontend/src/hooks/useIsDesktopApp.ts` | Sépare les usages bureau des usages laboratoire. |
 | Routes API | `backend/config/api_urls.py` | Liste les endpoints utilisés par React. |
@@ -114,12 +120,15 @@ La page de connexion permet d'ouvrir une session Django depuis React. Le bouton 
 Lorsqu'un administrateur crée un accès, Polypbase crée un compte sans mot de
 passe utilisable et envoie un lien d'activation à usage unique. La personne
 choisit elle-même son mot de passe avec les validateurs Django. Le lien expire
-après une heure et le compte n'est pas créé si l'email d'invitation ne peut pas
+selon la validité persistée de 24 h; un renvoi invalide tous les anciens liens.
+Les invitations prouvées non acceptées sont distinctes des membres et les
+invitations legacy sans horodatage prouvé restent expirées/renvoyables, sans
+heure inventée. Le compte n'est pas créé si l'email d'invitation ne peut pas
 être envoyé.
 
 ## 6. Page Suivi
 
-La page Suivi est la page d'entrée principale pour le laboratoire. Elle correspond au composant `PilotageView` dans `frontend/src/App.tsx`.
+La page Suivi est la page d'entrée principale pour le laboratoire. Elle correspond au composant `frontend/src/components/PilotageView.tsx`, composé par `App.tsx`.
 
 Elle sert à retrouver une boîte rapidement, soit avec la recherche, soit avec un QR code.
 
@@ -180,7 +189,7 @@ Le code global est la référence principale de la boîte. Les anciennes notions
 
 ## 8. Fiche boîte
 
-La fiche boîte est la page centrale de l'application. Elle est définie par le composant `BoxPage` dans `frontend/src/App.tsx`.
+La fiche boîte est la page centrale de l'application. Elle est définie par `frontend/src/components/BoxPage.tsx`. App conserve les mutations API, caches partagés et gardes institutionnelles; la fiche possède ses interactions locales.
 
 Elle regroupe :
 
@@ -242,7 +251,7 @@ Endpoint utilisé :
 POST /api/boxes/<box_id>/measurements/
 ```
 
-Le backend utilise `update_or_create`. Cela veut dire qu'une boîte ne possède qu'un relevé biologique par date. Si un relevé existe déjà pour la même boîte et la même date, il est corrigé au lieu de créer un doublon.
+Le POST utilise le service partagé de création : au plus un relevé par boîte et semaine ISO, clé `week_start`. Une semaine libre crée la ligne; une semaine occupée, même à date identique ou avec `0/0`, répond `409 measurement_week_conflict` sans mutation. La correction passe exclusivement par PATCH. La date exacte reste obligatoire; les fondations `temporal_precision` et intervalle ISO n'activent pas encore la persistance semaine seule.
 
 Le bouton d'enregistrement a une animation de maintien. L'utilisateur doit maintenir le bouton pour valider. Ce choix limite les validations accidentelles sur tablette et téléphone. Sur mobile, le retour haptique est déclenché quand le navigateur le permet.
 
@@ -258,7 +267,7 @@ La correction utilise :
 PATCH /api/boxes/<box_id>/measurements/<measurement_id>/
 ```
 
-L'historique d'audit garde une trace de la correction.
+L'historique d'audit garde une trace de la correction. L'observateur original et l'origine sont conservés; `measurement.user` reste le dernier acteur legacy. L'importateur n'est jamais inféré comme observateur. Les données historiques restent non certifiées quant à leur observateur/origine et précision; aucun lundi conventionnel n'est changé automatiquement.
 
 ### Relevés et graphiques
 
@@ -284,7 +293,18 @@ Le bouton `Voir relevés` ouvre un historique plus détaillé des relevés. Il p
 
 ### Mouvements
 
-Le sous-onglet Mouvements affiche les déplacements de la boîte entre emplacements thermiques.
+Le bandeau « Dernier déplacement » sous « Dernier relevé » utilise le dernier
+mouvement persisté : origine → destination à noms complets, notes et crayon.
+Correction inline, pas de modale; sauvegarde masquée sans changement effectif.
+PATCH exige une révision attendue et conserve l'auteur original/audit. Sans délai
+ni restriction d'auteur pour Admin/technicien autorisé, mais notes-only en legacy
+non classé et refus structurel si périodes/chronologie non prouvées. Un conflit
+exige rechargement/réexamen, pas une sauvegarde silencieuse.
+
+Le sous-onglet Mouvements conserve les événements enregistrés. Les marqueurs
+`movement` sont distincts des `location_change` dérivés des périodes;
+l'historique Emplacement présente des entrées/sorties, pas autant de déplacements
+physiques prouvés.
 
 Les déplacements sont créés via :
 
@@ -350,7 +370,13 @@ La fonction backend `create_subculture` crée :
 - les emplacements initiaux des enfants ;
 - les entrées d'audit.
 
-L'opération est exécutée avec `transaction.atomic`. Si une partie échoue, rien n'est enregistré partiellement.
+L'opération est atomique sous verrou parent et révision attendue. Elle conserve
+l'instantané avant/réparti/après et les allocations enfant immuables. Zéro est
+connu; une allocation omise/NULL est inconnue. En saisie partielle, avant reste
+connu, total/après NULL et l'état parent précédent reste autoritaire; les enfants
+connus sont initialisés individuellement. Aucun relevé artificiel ni créneau
+hebdomadaire n'est créé, et corriger une mesure consommée ne réécrit pas le snapshot.
+Voir [`../backend/QUANTITATIVE_SUBCULTURE.md`](../backend/QUANTITATIVE_SUBCULTURE.md).
 
 La logique de code global utilise le code de souche et le prochain numéro disponible. Par exemple, si la boîte parent est liée à la souche `FPA-LSP-1` et que le dernier numéro existant est `007`, le code suivant proposé est `FPA-LSP-1.008`. Si `008` et `009` existent déjà, la suite proposée commence après le dernier numéro disponible.
 
@@ -365,7 +391,11 @@ Fichiers principaux :
 - `backend/apps/cultures/services.py`
 - `backend/apps/cultures/models.py`
 
-Le modèle `BoxLocation` garde les périodes de présence dans un emplacement. Le modèle `BoxMovement` garde les événements de déplacement.
+Le modèle `BoxLocation` garde les périodes de présence. `BoxMovement` garde les
+événements typés : un seul `ordinary` par semaine ISO Europe/Paris; initialisation,
+qualification et réactivation ne consomment pas ce quota. Legacy `unclassified`
+n'est pas reclassé automatiquement. L'intention d'emplacement attendu, les verrous,
+CHECK/UNIQUE et audits sont côté Django. Voir [`context/boxes-lifecycle-locations.md`](context/boxes-lifecycle-locations.md).
 
 Une boîte possède un emplacement courant, mais son historique reste disponible. Cela permet de savoir où elle était avant un changement d'armoire ou de zone.
 
@@ -389,11 +419,14 @@ La logique récente de cette page est la suivante :
 - afficher les boîtes suivies dans l'application ;
 - ignorer les boîtes désactivées ;
 - s'appuyer sur les relevés faits via l'application pour décider qu'une boîte est suivie dans le circuit actuel ;
-- montrer ensuite les données des six derniers mois pour donner du contexte, même si certains relevés viennent de données historiques ;
+- recevoir un payload initial borné à six mois avec date de première evidence/completeness, puis charger l'historique complet de la boîte si nécessaire pour la fenêtre par défaut ;
 - trier les boîtes par ancienneté du dernier relevé ;
 - aider à repérer les boîtes à relever en priorité.
 
-Les cartes affichent le dernier relevé, le nombre de jours depuis ce relevé, l'emplacement et un graphique compact des six derniers mois.
+Les cartes affichent le dernier relevé, son ancienneté, l'emplacement et un graphique
+dont la fenêtre par défaut couvre tout l'historique enregistré, au moins trois mois.
+Le chargement complémentaire a des états attente/erreur/retry. Overview fournit
+les périodes au graphique, pas les mouvements persistés.
 
 Les filtres permettent de chercher par code, espèce ou emplacement. Les cartes de synthèse et les filtres par emplacement sont cliquables. L'objectif est de permettre aux chercheurs de passer d'une vue globale à une liste de boîtes à traiter sans manipuler trop de menus.
 
@@ -558,14 +591,12 @@ Fichier principal :
 
 - `frontend/src/components/AdminView.tsx`
 
-Les sections sont :
-
-- Comptes ;
-- Référentiel biologique ;
-- Emplacements et sondes ;
-- Institutions ;
-- Transferts ;
-- Historique.
+Sections actives : Équipe/Comptes, Inventaire et Historique. References,
+Emplacements/sondes, Institutions et Transferts sont actuellement désactivés
+(`DISABLED_ADMIN_SECTIONS`); une demande directe retombe sur Comptes. Leurs API
+backend restent soumises aux permissions. Les descriptions suivantes de ces
+sections sont des parcours conservés, pas une disponibilité actuelle.
+Administration reste desktop-only : tablette redirigée vers `/` sans UI intermédiaire.
 
 ### Comptes
 
@@ -582,9 +613,13 @@ La création de compte envoie une invitation sécurisée depuis
 `backend/apps/accounts/api_views.py`. Aucun administrateur ne peut définir ou
 recevoir le mot de passe d'une autre personne.
 
-### Référentiel biologique
+### Référentiel biologique — désactivé
 
-Cette section permet à un administrateur de créer et de modifier les espèces et les souches utilisées par Polypbase. L'identification scientifique, les codes, l'identifiant WoRMS Aphia et les notes sont séparés des noms et descriptions localisés. Le français est obligatoire. L'anglais et le japonais sont facultatifs.
+Le grand catalogue partagé est abandonné pour la direction actuelle. La maintenance
+AAA contextuelle reste à concevoir; création Strain normale exige déjà l'AAA
+institutionnelle côté Django. Ne pas réactiver le catalogue pour contourner le
+lien de récupération manquante. Les fondations BBB/provenance restent backend,
+sans UI de routine. Dans le composant conservé, cette section permet à un administrateur de créer et de modifier les espèces et les souches utilisées par Polypbase. L'identification scientifique, les codes, l'identifiant WoRMS Aphia et les notes sont séparés des noms et descriptions localisés. Le français est obligatoire. L'anglais et le japonais sont facultatifs.
 
 Les champs de langue sont produits à partir de `CONTENT_LANGUAGES`. Une langue ajoutée à cette configuration apparaît automatiquement dans le formulaire. Les données sont enregistrées dans `SpeciesTranslation` et `StrainTranslation`, avec une seule traduction par référence et par langue. Les créations sont aussi ajoutées au journal d'actions.
 
@@ -595,9 +630,9 @@ Fichiers principaux :
 - `backend/apps/taxonomy/serializers.py` ;
 - `backend/apps/taxonomy/api_views.py`.
 
-### Emplacements et sondes
+### Emplacements et sondes — section Administration désactivée
 
-Cette section permet :
+Dans le composant conservé, cette section permet :
 
 - de créer un emplacement thermique ;
 - de définir sa température cible ;
@@ -609,9 +644,9 @@ Cette section permet :
 
 Ces actions modifient les modèles `ThermalZone`, `Probe` et `SalinityMeasurement`.
 
-### Institutions
+### Institutions — section désactivée
 
-La section Institutions permet de créer et modifier les institutions partenaires.
+Dans le composant conservé, la section Institutions permet de créer et modifier les institutions partenaires.
 
 Le modèle principal est :
 
@@ -619,9 +654,9 @@ Le modèle principal est :
 
 Les informations affichées sont le nom, le pays, la ville, le contact, l'email, le téléphone et l'adresse postale. Un bouton crayon permet de modifier les informations d'une institution.
 
-### Transferts
+### Transferts — section désactivée
 
-La section Transferts prépare les échanges entre structures.
+Le parcours v1 conservé prépare les échanges entre structures.
 
 Elle contient :
 
@@ -657,7 +692,8 @@ Endpoint utilisé :
 GET /api/accounts/audit-log/
 ```
 
-L'historique est paginé pour éviter de charger trop d'entrées d'un coup. Il peut être filtré par type d'action et par date. Les entrées sont regroupées par jour. Certaines entrées peuvent être développées pour voir les détails.
+L'historique est paginé pour éviter de charger trop d'entrées d'un coup. Il peut être filtré par type d'action et par date. Les entrées sont regroupées par jour. Les informations métier et transitions sont lisibles directement dans les lignes,
+sans disclosures d'action ni metadata brute.
 
 Les actions enregistrées incluent notamment :
 
@@ -684,7 +720,9 @@ Il sert à garder une trace des modifications importantes. Chaque entrée contie
 
 La journalisation est importante pour Polypbase, car l'application manipule des données de suivi biologique. Il faut pouvoir comprendre qui a modifié une donnée, quand, et sur quel objet.
 
-Les relevés corrigés sont traités avec attention. Le backend garde une seule entrée lisible par relevé, mais enrichit les métadonnées pour indiquer les valeurs modifiées.
+Chaque correction de relevé ajoute une evidence d'audit avant/après. Les événements
+antérieurs restent append-only; la ligne de relevé courante est corrigée sans
+réécrire les anciennes corrections.
 
 ## 19. Gestion de la traduction
 
@@ -725,10 +763,12 @@ Les choix principaux sont :
 
 Les fichiers de style sont :
 
-- `frontend/src/styles/app.css`
+- `frontend/src/styles/index.css` (agrégateur de styles composants/pages)
 - `frontend/src/styles/phone.css`
 
-Le fichier `app.css` contient le style principal et les adaptations bureau/tablette. Le fichier `phone.css` surcharge l'interface pour le téléphone.
+L'agrégateur `index.css` charge les familles partagées et les styles de pages.
+Les adaptations locales restent dans leurs propriétaires; `phone.css` porte
+les règles spécifiques téléphone. Consulter [`context/frontend-style.md`](context/frontend-style.md).
 
 ## 21. Animations et interactions
 
@@ -967,8 +1007,8 @@ Les tests avec la caméra doivent être faits en HTTPS. En local simple, Safari 
 | Besoin | Fichiers à regarder en premier |
 | --- | --- |
 | Modifier la navigation | `frontend/src/App.tsx`, `frontend/src/hooks/useIsDesktopApp.ts` |
-| Modifier la page Suivi | `frontend/src/App.tsx`, `frontend/src/components/SearchField.tsx`, `frontend/src/components/TabletQrScanner.tsx` |
-| Modifier la fiche boîte | `frontend/src/App.tsx`, `frontend/src/components/BoxInsights.tsx`, `frontend/src/components/QrLabelModal.tsx` |
+| Modifier la page Suivi | `frontend/src/components/PilotageView.tsx`, `CreateBoxPanel.tsx`, `QrSearchModal.tsx`; orchestration dans `App.tsx` |
+| Modifier la fiche boîte | `frontend/src/components/BoxPage.tsx`, `LatestMovementBanner.tsx`, `BoxInsights.tsx`; mutations dans `App.tsx` |
 | Modifier les graphiques de boîte | `frontend/src/components/BoxInsights.tsx` |
 | Modifier la parenté | `frontend/src/components/InteractiveLineageGraph.tsx`, `backend/apps/cultures/services.py` |
 | Modifier les emplacements | `frontend/src/components/ZonesView.tsx`, `backend/apps/cultures/api_views.py` |
@@ -978,7 +1018,7 @@ Les tests avec la caméra doivent être faits en HTTPS. En local simple, Safari 
 | Modifier l'administration | `frontend/src/components/AdminView.tsx` |
 | Modifier les droits | `backend/apps/accounts/permissions.py`, `backend/apps/accounts/models.py` |
 | Modifier l'audit | `backend/apps/audit/models.py`, `backend/apps/accounts/api_views.py`, `backend/apps/cultures/api_views.py` |
-| Modifier les styles bureau/tablette | `frontend/src/styles/app.css` |
+| Modifier les styles bureau/tablette | `frontend/src/styles/index.css`, styles du composant/de la page concernée |
 | Modifier les styles téléphone | `frontend/src/styles/phone.css` |
 
 ## 27. Commandes utiles
@@ -1008,9 +1048,9 @@ Vérifier le backend :
 
 ```powershell
 cd backend
-uv run python manage.py check
-uv run python manage.py test
-uv run python manage.py makemigrations --check --dry-run
+uv run python manage.py check --settings=config.test_settings
+uv run python manage.py test --settings=config.test_settings
+uv run python manage.py makemigrations --check --dry-run --settings=config.test_settings
 ```
 
 Vérifier le frontend :
@@ -1020,19 +1060,31 @@ cd frontend
 npm run build
 ```
 
-Si la base partagée Neon est utilisée, il ne faut pas lancer `migrate`, `loaddata` ou `seed_demo_data` sans accord de l'équipe, car ces commandes peuvent modifier la base commune.
+Ne jamais utiliser Neon ou la production pour tests, imports d'essai ou démo.
+Les migrations de production passent uniquement par le déploiement explicitement
+autorisé et ses protections. Lancer les validations sur des settings isolés;
+les garanties PostgreSQL exigent une base QA jetable séparée.
 
 ## 28. Limites actuelles et sujets à surveiller
 
-Le fichier `frontend/src/App.tsx` contient encore beaucoup de logique. Il fonctionne, mais il gagnerait à être découpé progressivement si le projet continue.
+M8/M9 ont extrait Pilotage, création, recherche QR et fiche boîte. App conserve
+l'orchestration légitime. L'audit recommande d'arrêter le découpage motivé seulement
+par le nombre de lignes. Le défaut de fraîcheur GET/mutations intra-institution
+reste sur main; M10.1 est local/non committé, dernière revue attendue, et M10.2
+zones paginées n'est pas intégré. Les gardes institutionnels ne suffisent pas à
+cette garantie; voir [`context/frontend-ux.md`](context/frontend-ux.md).
 
 Le catalogue principal du frontend est centralisé, mais certains composants plus anciens contiennent encore des libellés locaux ou français. Une passe d'inventaire et une relecture humaine de l'anglais restent nécessaires avant de considérer l'interface comme entièrement traduite. La version japonaise de l'interface n'est pas encore disponible.
 
-Les graphiques ont été améliorés, mais ils doivent être testés avec beaucoup de données réelles. Les cas importants sont les longues périodes sans relevé, les valeurs nulles, les températures manquantes et les boîtes désactivées.
+Les graphiques ont été améliorés; les QA futures doivent utiliser un environnement
+isolé et des données synthétiques représentatives, pas la production. Les cas importants sont les longues périodes sans relevé, les valeurs nulles, les températures manquantes et les boîtes désactivées.
 
 Le scan QR code doit être testé sur les vrais supports utilisés par l'Aquarium de Paris. Le comportement dépend du navigateur, des autorisations caméra et du HTTPS.
 
-Les imports et transferts CSV doivent être testés avec des fichiers réels avant utilisation régulière.
+CSV canonique/planner sont des fondations sans applicateur générique; les importeurs
+historiques ont leurs contrats distincts. La section transfert v1 est désactivée;
+v2 n'a pas d'acceptation destination. Les futurs tests utilisent des fixtures
+synthétiques isolées et une revue de contrat, pas des données de production.
 
 Les règles exactes de conservation des comptes, de RGPD et d'hébergement doivent être finalisées avant une mise en production.
 
@@ -1059,11 +1111,9 @@ Les règles exactes de conservation des comptes, de RGPD et d'hébergement doive
 - désactiver ou réactiver une boîte ;
 - consulter les emplacements thermiques ;
 - saisir une température manuelle ;
-- ajouter des emplacements et des sondes ;
+- disposer d'API backend d'emplacements/sondes sous permissions, leur section Administration étant désactivée ;
 - gérer les comptes ;
-- gérer les institutions ;
-- préparer des transferts ;
-- importer un transfert CSV ;
+- disposer d'API backend d'institutions et de transfert v1, sans parcours React actif pour ces sections ;
 - exporter des relevés ;
 - imprimer des étiquettes QR code ;
 - consulter un historique global des actions.

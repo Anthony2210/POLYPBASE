@@ -69,7 +69,7 @@ keyboard/touch use, or clear metadata.
 **Problem:** orient users immediately and distinguish identity from current
 facts, actions, and supporting metadata.
 
-- Strong references: box detail (`frontend/src/App.tsx`,
+- Strong references: box detail (`frontend/src/components/BoxPage.tsx`,
   `frontend/src/styles/components/entity-header.css`,
   `frontend/src/styles/pages/box-detail.css`); zone/emplacement detail and
   directory (`frontend/src/components/ZonesView.tsx`,
@@ -94,7 +94,7 @@ facts, actions, and supporting metadata.
 and correction deliberate.
 
 - Strong references: box biological reading in `BoxPage`
-  (`frontend/src/App.tsx`, `frontend/src/styles/pages/box-detail.css`) and the
+  (`frontend/src/components/BoxPage.tsx`, `frontend/src/styles/pages/box-detail.css`) and the
   Emplacement salinity summary/editor in `frontend/src/components/ZonesView.tsx`.
 - Reuse the `measurement-summary`, `measurement-module`,
   `measurement-editor-fields`, and shared save/action styles where appropriate.
@@ -105,6 +105,11 @@ and correction deliberate.
 - Keep correction distinct from creation in labels and behavior. Include
   loading, locked/disabled, validation, save, cancel, and error states as the
   flow requires.
+- The latest movement banner (`LatestMovementBanner.tsx`) reuses this family
+  below the reading: inline correction, full Origin → Destination with one
+  arrow and wrapping names, no individual chevrons. Hide Save without a
+  normalized change, keep Cancel. Movement permissions/chronology are backend
+  contracts, not the measurement correction window.
 - Salinity's correction window/capability and its particular create/edit
   details are business rules, not generic UI rules. Do not transfer them to
   biological measurements.
@@ -193,9 +198,10 @@ business meaning with audit storage details.
   scientific meaning, permissions, lifecycle transitions, editing capabilities,
   authorization rules, or domain-specific fields to another action.
 - Emplacement movement history: `frontend/src/components/ZoneMovementHistory.tsx`
-  and `frontend/src/styles/pages/zones.css`. This is a directional operational
-  flow with separate arrivals/departures, time, related place when relevant,
-  and a factual weekly chart. The chart has textual accessible representation.
+  and `frontend/src/styles/pages/zones.css`. This is a directional history of
+  location-period entries/exits, not proof of physical movements at every boundary,
+  with time, related place when relevant and a factual weekly chart. The chart
+  has textual accessible representation.
 - Reuse the suitable family; do not force both into one universal timeline.
   Audit implementation metadata is not automatically user-facing history.
 - Misuse: exposing raw audit descriptions, duplicating details already visible,
@@ -406,7 +412,7 @@ Avoid these unless product evidence gives a specific reason:
 | Dense box directory | Inventory; Emplacement `ZoneBoxes` | Scannable operational rows, direct facts, restrained separators |
 | Rich box preview | `BoxTrackingPreview` | Shared anchored tracking preview from box references |
 | Business history | Profile actions; admin audit | Business-first summaries, details only when useful |
-| Physical location history | `ZoneMovementHistory` | Separate directional operational event lists and factual flow summary |
+| Location-period history | `ZoneMovementHistory` | Separate entries/exits and factual flow summary; not inferred physical movements |
 | Search / lookup | Pilotage; phone lookup | Shared `SearchField`/lookup matching with context-aware presentation |
 | Profile/preferences | `ProfileView` | Identity plus grouped organization/preferences/actions |
 | Modal data entry | Manual temperature; lifecycle/move dialogs | Focused bounded task using portal/dialog conventions |

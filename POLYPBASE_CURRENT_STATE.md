@@ -1,298 +1,216 @@
 # POLYPBASE current state
 
-## Snapshot
-
-- Refreshed **2026-10-06** for Administration > Équipe and canonical Git state, from inspected local refs/worktree registration and supplied milestone review/validation evidence. Other milestone and historical worktree records were not re-audited.
-- Canonical repository: `C:\Users\antoc\POLYPBASE`.
-- Canonical `HEAD` / `main` = **`e69b24d`** (`feat: separate team members and invitations`); local `origin/main` = `4bdd338`. Main was clean before this documentation edit and is **1 ahead / 0 behind** its inspected local upstream. The feature is not recorded as pushed. No fetch was performed; this is not fresh remote or production verification.
-- The completed `admin-team-invitations` worktree/branch remain registered pending Anthony's cleanup. The older worktree inventory and readiness notes below retain their **2026-10-03** context, not a fresh status audit. No worktree was modified for this refresh.
-- Phone/tablet laboratory readiness remains an immediate operational priority before real usage beginning **Monday 5 October 2026**. Responsive work is committed on main through `7356f0f`; newer local tablet/UI polish remains uncommitted in its worktree. No physical-device/browser QA is claimed.
-
-## Integrated product state
-
-### Actions
-
-- Profile has personal Actions, scoped server-side to the authenticated actor and active institution; active membership roles can read their own history. Administration has institution-scoped, admin-only history with family/date filters. Business mutations are included; login, view and scan events are not included in these streams.
-- Measurement correction events are append-only. Correcting a measurement updates the current authorized record and adds audit evidence; it does not rewrite earlier correction events. Linked measurement history is explicitly identified and institution-scoped.
-- The latest integrated presentation sequence is `cc2d466` → `3d9f96e` → **`673db92`**: removed disclosure-based/raw-metadata presentation, unified readable account/target summaries, preserved historical salinity snapshots, and refined inline transitions, previous location, units and notes.
-- Manual temperature/salinity actions identify the zone and use °C/PSU. Before/after coloring applies to populated changes; notes have a localized prefix and three-line visual clamping. Box context/previews and lineage/transfer information remain available.
-- Evidence: `backend/apps/accounts/api_views.py`, `backend/apps/audit/services.py`, `backend/apps/accounts/tests_actions_api.py`, `backend/apps/accounts/tests_audit_measurement.py`, `frontend/src/components/AuditTimeline.tsx`, `frontend/src/utils/auditPresentation.ts`, `frontend/scripts/test-audit-presentation.mjs`.
-
-### Alerts
-
-- Alerts are no longer an active product feature. The integrated removal leaves no normal runtime producer, active Alert API workflow or frontend Alert UI; polyp decline is no longer turned into a frontend “À surveiller” interpretation.
-- Measurements remain factual data, including scientific zero. Historical Alert persistence (model/table, migrations and stored rows) is dormant and retained for preservation only; historical AuditLog/Actions entries involving old Alert events remain displayable.
-- Removing the dormant Alert schema or stored data requires a separate, explicit destructive-migration decision. No destructive Alert migration was created.
-
-### Charts
-
-- Shared `BiologicalTrendChart` is used by box tracking, Overview and export previews. Recent integrated milestones: `efcb3bc` (interactions/window controls), `ff2fab9` (Overview cards sized to chart content), `fa33e32` (visual refinements, including overlapping/zero points and stable box-tab layout).
-- Scientific zero, including `0/0`, remains plotted; absent optional salinity stays absent. Connecting lines break across gaps greater than 10 calendar days. Both biological series cannot be hidden simultaneously.
-- Point detail prioritizes pinned, then focused, then hovered values; keyboard point navigation and Escape are supported. Biological plotting uses a 0–1000 scale with clamping and explicit overflow markers, not deletion of larger observations.
-- Box/Overview date scrubbers support drag, resize and keyboard interaction with calendar-day/DST-safe arithmetic. Default windows are six months for box tracking and three months for Overview.
-- Overview loads a bounded six-month measurement history for active institution boxes. Its loaded extent is **not lifetime history**; existing “no history” / “full history” wording needs care when older observations exist outside that payload.
-- Emplacement also has observed temperature visualization and an eight-ISO-week movement chart. These are distinct from biological charts; observed extrema are not invented alert thresholds.
-- Evidence: `frontend/src/components/BiologicalTrendChart.tsx`, `BoxTrackingChart.tsx`, `ChartWindowControls.tsx`, `OverviewView.tsx`, `frontend/src/utils/chartBiology.ts`, `frontend/scripts/test-chart-*.mjs`, `backend/apps/cultures/api_views.py`.
-- Registered UI/readiness worktrees are listed under Git / cleanup state; none constitutes additional integrated chart work beyond main.
-
-### Labels / étiquettes
-
-- This feature means **physical Box QR labels**, not taxonomy code assignments or chart labels. Recent integrated sequence: `8ad925b` (printing), `b13f1d1` (text readability), `3922d55` (selection UX), **`f999bd9`** (41 × 28 mm printer stock).
-- Selection has search/zone filters, species accordions, tri-state species selection, individual selection, add-results and clear. Changing filters preserves the global selection.
-- Selector eligibility is an active box with a latest measurement within 15 months; zero counts do not remove eligibility.
-- Print geometry is now **41 × 28 mm**, borderless, with a 25 mm vector QR, rotated code/species text, 7.5 pt code and 7 pt species text, and up to three species lines. Popup printing uses one label per page; SVG download and modal preview share the geometry. Older 40 × 30 assumptions are superseded.
-- Labels use the existing Box identifier and species display, not a newly generated AAA/BBB/X identity. QR targets remain `/bac/<id>/`, leading to the box sheet; scan recording is distinct from the Actions stream.
-- Evidence: `frontend/src/components/LabelsView.tsx`, `frontend/src/utils/qrLabels.ts`, `frontend/scripts/test-qr-labels.mjs`, `backend/apps/cultures/views.py`.
-- Physical printer scaling, clipping and scanability were not verified in this refresh; printer geometry delivery is integrated in main.
-
-### QR active-Organization isolation
-
-- Integrated at **`69b39f4`** (`fix: enforce active organization for QR flows`). `/bac/<id>/` is a login-protected handoff using only the opaque Box identifier: no Box lookup and no SCAN audit occur in the handoff.
-- Authorized QR-link resolution occurs through backend `/api/boxes/<id>/scan/` in an explicit active Organization context. Membership in another Organization does not widen the Box lookup. Rejected foreign-context resolution produces no successful SCAN audit; authorized resolution preserves its SCAN audit.
-- Protected QR SVG resources also require active Organization context. Frontend QR resource requests carry that context; stale scan/resource completions are invalidated when Organization context changes. Camera scan semantics remain unchanged.
-- Evidence: `backend/apps/cultures/views.py`, `api_views.py`, `tests.py`, `frontend/src/App.tsx`, `frontend/src/api/client.ts`, `frontend/scripts/test-scan-handoff.mjs`, `test-qr-resources.mjs`.
-
-### Measurements / Emplacement
-
-- At most one biological measurement per Box per ISO week, enforced by Django/database. A real `0/0` occupies that week. Interactive POST returns `409 measurement_week_conflict` without mutation if occupied; correction uses the authorized PATCH flow. Inactive boxes reject new readings but retain correctable historical records under backend permissions.
-- Thermal display separates target/consigne from observed values; Min/Max are factual extrema. Manual temperature entries update the daily aggregate transactionally, not an individual-per-entry temperature history.
-- Salinity readings are persisted as separate dated `SalinityMeasurement` rows; new readings do not overwrite previous dates. Duplicate zone/date readings are rejected. Emplacement currently shows the latest reading, not the full persisted history. Corrections are audited and permitted strictly before `created_at + 24h`; equality is locked, with no admin override. Zero PSU is valid.
-- Occupancy/capacity is informational, not a movement blocker; zero and null remain distinct. `BoxLocation` periods retain repeated stays and inactive-box history; movements preserve authors/audits even where operational UI omits the actor.
-- Zone boxes group Species > Strain and use canonical current-location start/latest biological reading. Inventory retains rich Box tracking previews.
-- Same-day movement plus date-only biological readings cannot reliably establish variation for a particular stay. Do not infer attribution.
-- `0d7985a` remains the integrated Emplacement milestone; later Actions presentation does not replace these scientific rules. Evidence: `docs/context/measurements-integrity.md`, `docs/context/boxes-lifecycle-locations.md`, `backend/apps/cultures/test_zone_salinity_lifecycle.py` and corresponding API/services.
-
-### Measurement history
-
-- `2292a61` refines the box-sheet “Voir relevés” modal with a compact summary and a responsive, dense history presentation while retaining progressive loading. The API contract and scientific data are unchanged; scientific zero, `0/0`, PSU `0` and absent values remain distinct.
-- The accessible dialog interaction was improved. No backend, permission, lifecycle or measurement-rule change was made.
-- Independent review: **READY FOR COMMIT**, no genuine findings. Targeted measurement/chart/date tests, typecheck, CSS check and build passed; after integration on `main`, a production frontend build was observed successful in **10.44 s**.
-
-### Frontend consistency
-
-- **`96c5593`** is the integrated frontend-only consistency milestone; no redesign occurred.
-- Organization request-generation guard is integrated at **`07c69c2`**: old Organization responses cannot overwrite a newer selected context; failed replacement context does not leave previous Organization-scoped data presented as current.
-- Request-state consistency: Zone movement history no longer presents previous direction/zone/organization results as current after context changes or failures. Inventory hides previous-filter rows and actions when a replacement request fails. Export eligibility is tied to the current request context; stale eligibility cannot validate current counts, selection or download state. Django remains authoritative for Inventory operations and actual export generation.
-- MoveBox and Subculture specifically now have coherent initial focus, Tab containment, Escape/focus restoration and safe dismissal. Closure and duplicate submission are blocked while mutation submission is pending; nested confirmations retain their own keyboard ownership. This is not a claim about every application dialog.
-- Affected Overview selected controls meet normal-text WCAG AA contrast using existing visual tokens and a non-color selection cue. Movement Entry/Exit bars and legend now differ by fill/outline as well as existing color semantics; exact counts, zero values and accessible text remain preserved.
-- QR preparation returns explicit `prepared` / `cancelled` / `failed` outcomes, retaining empty-input behavior. User closure of the preparation popup is cancellation, not technical failure. Failed attempts clean sibling pending resources before returning; retries are isolated from earlier attempts. Labels, the Box QR modal and the Administration transfer-label caller handle technical failures explicitly; transfer QR feedback stays separate from transfer backend errors. `prepared` means browser workflow handoff, never physical printer success.
-- QR geometry remains 41 × 28 mm with the existing 25 mm vector QR where defined; Box identifier/species content, `/bac/<id>/` target and Labels selection behavior are unchanged. Transfer business/backend semantics are unchanged.
-- No temperature behavior changed: scientific zero and observed/target distinction remain factual. Alerts remain inactive; this milestone does not change dormant persistence, measurement-history design, Actions, Administration desktop-only, or Strain/taxonomy/provenance decisions.
-
-### Taxonomy / Strain / AAA
-
-- `GlobalStrainIdentity` is a shared opaque UUID foundation. Nullable `Strain.global_identity` is not an authorization boundary, is not inferred from matching local codes and is not automatically created/attached by normal Strain POST. No legacy backfill occurred.
-- Normal operational Strains are institution-owned. Reference reads/counts, Box creation and subculture enforce institution eligibility. Legacy unowned Strains remain eligible only where a preexisting Box links them to that institution, including inactive boxes; foreign-only/orphan legacy Strains are excluded. Eligible unowned legacy Strains are not editable via the owned-Strain PATCH endpoint.
-- `OrganizationSpeciesCode` is **runtime-active**, not merely schema: institution-scoped `/api/taxonomy/species-codes/` GET/POST and detail GET/PATCH are implemented (`ce4e66b`). Reads require laboratory-write capability; writes require active-institution Admin authorization. Uniqueness covers institution/species and institution/code; PATCH changes only the code. Writes and audit are atomic.
-- AAA is a product term: backend accepts a nonempty code of at most three characters, not an exact three-uppercase-letter grammar. The existing UI uppercases/trims its input; do not assume the API does so.
-- `LocalStrainIdentity` (`7dd9847`) and the locked, transactional creation service (`fc679b6`) connect an owned Strain to its institution AAA. Service checks include institution/species consistency, duplicate identity and optional BBB/provenance consistency.
-- **Normal taxonomy Strain POST requires institution AAA** (`dcb6c81`) and atomically creates Strain, translations, local identity and audit. It has no fallback to shared Species code or another institution's assignment. The current normal flow creates an AAA-only identity, with unresolved provenance.
-- Missing-AAA frontend loading/error/retry/blocking guidance is integrated (`519e601`) in quick creation and the retained taxonomy component. Django is authoritative. The recovery link currently points at **disabled References**, so a missing assignment has no reachable assignment-management flow in the current React UI.
-- AAA management UI was implemented (`f8e8077`) inside `TaxonomyAdminSection`, but its Administration section is now disabled. **API delivery does not mean an active management screen.**
-- **Internal X allocator implemented in Phase 4**, scoped to Organization + Species + BiologicalProvenance (explicit NULL allowed); see allocator contract below. Counter namespace uniqueness is not universal `Strain.number` uniqueness. Generated AAA–BBB–X identifiers and dedicated immutable issued-code snapshots remain unimplemented. Normal API still accepts manual code/number/origin-code fields. Global `(species, code)` Strain uniqueness remains.
-- Existing Species/Strain/Box legacy identifier fields are retained. AAA/BBB changes do not recompute issued identifiers; there is no automatic ownership, Global ID or local-identity reconciliation.
-- Enforcement is not yet universal: historical/transfer import writers can create owned Strains without the normal POST's AAA/local-identity flow. The integrated Species PATCH integrity milestone below protects existing local identities.
-- **Integrated `1ea84e5` Species/local-identity integrity milestone:** a Strain with `LocalStrainIdentity` cannot change Species through generic PATCH; a no-op same-Species PATCH remains allowed and other fields remain editable. An identity-less owned Strain retains legacy behavior. AAA assigned to another Species cannot bypass consistency validation. Strain-first locking is coherent with local identity creation, and mutation plus audit are atomic. No dedicated Species correction workflow is implemented.
-- PostgreSQL QA: `apps.taxonomy.test_strain_species_concurrency` ran **2 tests: 2 passed, 0 skipped**. Real PostgreSQL lock contention was observed; QA required no code correction.
-- Evidence: `backend/apps/taxonomy/models.py`, `scoping.py`, `services.py`, `api_views.py`, `serializers.py`, migrations `0003`–`0009`, `test_species_codes_api.py`, `test_local_strain_service.py`, `test_strain_species_concurrency.py`, and `frontend/src/utils/strainSpeciesCode.ts`.
-
-### Transfers inter-institutions
-
-- **Phase 1 integrated at `6e92674`** (`refactor: harden transfer v1 backend boundary`): `backend/apps/cultures/transfer_v1.py` is the focused business boundary. Preparation and its mandatory source audit are atomic; destination import is atomic. The legacy replay identity is unchanged. Sequential replay retains HTTP 400; replay is checked again after the Species lock, and a late replay-constraint loss is translated only after rollback. Unrelated `IntegrityError`s are not converted to duplicate responses. Request-layer scoping continues to enforce active-organization isolation and Admin checks. Foreign-owned and `organization=NULL` Strain collisions remain conflicts. No model or migration changed.
-- Validation evidence: targeted main tests after cherry-pick **18/18 passed** under isolated SQLite settings; Django system check passed; independent review **GREEN**, no findings. Isolated PostgreSQL QA ran `test_transfer_v1_concurrency.py`: **2 executed, 2 passed, 0 skipped**, with both real concurrent scenarios verified and no deadlock, timeout or transaction anomaly. That PostgreSQL QA was run on the reviewed implementation before integration; the cherry-pick applied cleanly without code conflict. The PostgreSQL tests were not rerun on main after cherry-pick.
-- **Current v1 limits:** resolution by Species + `strain_code`; transfer-created Strains do not require AAA/`LocalStrainIdentity`; no `GlobalStrainIdentity`, portable Box identity or portable lineage graph. The frontend CSV path remains legacy and the parser consumes one data row. Global `(species, code)` Strain uniqueness and globally unique `Box.global_code` remain. The Transfers section is disabled in Administration. V1 is not the Transfer v2 architecture.
-
-#### Phase 2A — portable Organization identity — DONE and integrated
-
-- Integrated at **`71e7d91`** (`feat: add portable organization identity`). `Organization.portable_id` is an opaque UUID generated independently with `uuid.uuid4`. Existing Organizations received random portable identities through the additive staged migration `0002_organization_portable_id` (nullable field, per-row population, then non-null/unique field); new Organizations receive one automatically.
-- Normal API/admin/form workflows cannot replace it. Ordinary Organization API payloads, existing integer PKs, routes and `X-Organization-Id` behavior remain unchanged. `portable_id` is identification, not authorization, and is unrelated to biological `GlobalStrainIdentity`. No `TransferEnvelope` or `TransferItem` was implemented in Phase 2A.
-- Supplied initial targeted validation: `apps.organizations` **12/12 passed**; Django check, `makemigrations --check --dry-run` and `git diff --check` passed. Independent Phase 2A review **GREEN**, no findings. These checks were not rerun in this documentation-only update.
-- A later full CI run exposed **four failures** in historical taxonomy `MigrationExecutor` tests: their historical Organization project state did not match the physical organizations schema after `portable_id` became NOT NULL. This was a **test-harness / cross-app migration-state issue**, not a `portable_id` model/migration defect.
-- Correction integrated at **`a99b986`**: coordinated historical organizations/taxonomy targets, normalized tests to current migration leaves before rollback, and restored all current leaves in `finally`. Historical test semantics were preserved; no production model or migration changed. The inspected commit changes only the three affected taxonomy test files. Supplied independent correction review: **GREEN**, no findings, no PostgreSQL-specific concern.
-- Final integrated-main full-suite status is **not independently verified here**: the inspected repository/history contains no archived CI-equivalent result establishing the proposed 542 total / 522 passed / 0 failures / 0 errors / 20 skipped. Those counts are not claimed as a verified main result; no application suite was run for this refresh.
-
-#### Phase 2B — protocol foundation — DONE and integrated
-
-- Integrated on `main` at **`20adf0a`** (`feat: add transfer v2 protocol foundation`). The implementation persists source-owned `TransferEnvelope` / `TransferItem` records with stable transfer/item UUIDs, discriminator `polypbase.transfer` and exact protocol version `2.0`. A strict transport-neutral parser validates the protocol; backend-built allowlisted snapshots are persisted with required source `GlobalStrainIdentity`. Source package, all items and mandatory audit are atomic. The capability is an internal Python service only; portable IDs identify and do not authorize.
-- Migration `cultures.0008_transfer_v2_source_package` creates only the new tables/constraints. No legacy data migration. Serialization reads frozen snapshot columns; technical ORM/SQL writers must preserve established snapshots. Required declared quantity is a nonnegative integer; literal `0` remains `0`.
-- Supplied post-cherry-pick validation on `main`: full backend suite **579 total / 559 passed / 20 skipped / no failures or errors**; Django check passed; migration drift check passed; `git diff --check` passed. This is the supplied main validation evidence; no application tests or builds were run during this documentation-only update.
-- Approved product decision: Transfer v2 requires a non-null `GlobalStrainIdentity` on every source Strain. If absent, envelope construction rejects that item; v2 does not create, infer or attach the identity automatically. Identity-less Strains are legacy/transition state, not a normal Transfer v2 variant.
-- Phase 2B itself did not implement destination resolution, portable lineage or acceptance. Destination resolution, diagnostic/readiness gate, canonical local-representation cardinality, internal X allocation and the portable-lineage source foundation are now integrated through Phases 3A/3B/3C, 4 and 5. Still absent are recipient receipt/acceptance, the destination Box/Strain materialization workflow, direct transfer inbox, file adapter and source lifecycle/stock mutation. Transfer v1 remains separate and unchanged: its routes, CSV, replay key and lifecycle are not altered by v2.
-
-#### Phase 3A — read-only destination resolver — DONE and integrated
-
-- **Phase 3A integrated at `030a2da`** (`feat: add transfer v2 destination resolver`). `backend/apps/cultures/transfer_v2_destination.py` exposes internal `resolve_destination_strain` with an immutable typed result. The caller supplies an already-authorized destination Organization; no endpoint or new authorization rule is introduced.
-- Candidates are destination-owned Strains with the exact transported Global UUID. Zero destination candidates yield `NEW_LOCAL_REPRESENTATION_REQUIRED`; one coherent candidate yields `REUSE`. An incoherent single candidate remains a consistency conflict, not permission to create another representation. Multiple candidates remain defensively handled as conflict for legacy/corrupt/pre-constraint states, never an arbitrary selection. Identity is not inferred from local codes, AAA, BBB, Species equality, Origin or Box relationships. A single candidate must match the exact Species scientific-name snapshot and have coherent AAA/BBB relationships if a local identity exists. Species is consistency evidence, not identity evidence.
-- A coherent owned candidate without `LocalStrainIdentity` remains reusable with `missing_local_identity=True`. No owned candidate yields `NEW_LOCAL_REPRESENTATION_REQUIRED`, with identity state `KNOWN` or `UNKNOWN_LOCALLY` and an existence-only legacy-unowned review flag. Foreign/legacy Strain identifiers and operational details are not returned; legacy rows are not claimed.
-- The resolver only observes: no writes, locks, Global UUID materialization, Strain/local-identity creation, X allocation, Species correction or acceptance. Status precedence is multiple representations, then Species mismatch, then local-identity inconsistency. Observations are not reservations; future acceptance must recheck state.
-- Phase 3A does not itself create the new local representation. Phase 3 is **DONE through 3A, 3B and 3C**; global `(species, code)` uniqueness and v1 remain unchanged.
-
-#### Phase 3B — diagnostic/readiness gate — DONE and integrated
-
-- Integrated at **`c82e6b2`** (`feat: add global strain identity diagnostic`). The read-only `GlobalStrainIdentity` diagnostic in `backend/apps/taxonomy/diagnostics.py` remains useful for readiness checks, legacy/corrupt databases and migration safety. It observes conflicts and integrity evidence without mutation, row locks, merge authorization or a snapshot/reservation guarantee; concurrent writes may invalidate readiness evidence.
-- Legacy AAA–BBB–X parsing, empty suffixes and raw numeric-code equivalence are optional future audit backlog only, not current roadmap work or pending historical-branch integration.
-
-#### Phase 3C — canonical local representation — DONE and integrated
-
-- Integrated at **`9ac0034`** (`feat: enforce canonical global strain identity`). When `organization != NULL` and `global_identity != NULL`, database cardinality is **at most one Strain per (organization, global_identity)**. Species is not part of this key.
-- `organization=NULL` legacy Strains are outside the invariant; `global_identity=NULL` legacy/transition Strains remain allowed. Different Organizations may represent the same `GlobalStrainIdentity`.
-- Migration `taxonomy.0008_strain_canonical_global_identity` checks owned duplicates before adding the partial uniqueness constraint; it refuses conflicting data without changing rows. No automatic merge, deletion, ownership rewrite or identity inference occurred. Resolver defensive multiple-candidate handling remains. Phase 3C did not implement X allocation.
-- Evidence: `backend/apps/taxonomy/models.py`, migration `0008`, `test_canonical_global_identity.py`, `test_global_strain_diagnostic.py`, `backend/apps/cultures/test_transfer_v2_destination.py`.
-
-- **Phase 4 — concurrency-safe local X allocator — DONE and integrated**
-
-- Integrated at **`5a29b06`** (`feat: add concurrent local strain number allocator`). Internal primitive: `allocate_next_local_strain_number(*, organization, species, biological_provenance) -> int`, in `backend/apps/taxonomy/services.py`. The caller supplies persisted Organization/Species and an explicit BiologicalProvenance or NULL. Namespace: **Organization + Species + BiologicalProvenance**, with no inference from codes, Origin or Boxes.
-- Persisted `LocalStrainNumberCounter` holds `last_number` per namespace. Two partial uniqueness cases protect first-use counter creation: Organization + Species + non-null BiologicalProvenance; Organization + Species when BiologicalProvenance is NULL. NULL provenance has its own protected namespace, not an unprotected duplicate-counter case.
-- PostgreSQL is the concurrency authority at normal READ COMMITTED isolation. `get_or_create` recovers initial competing inserts using database uniqueness and a savepoint; `select_for_update` serializes allocations in the same namespace until the enclosing transaction ends. Different namespaces do not share one global lock.
-- Empty scope allocates **1**. Existing explicit non-null `Strain.number` values form the baseline only where a real `LocalStrainIdentity` has coherent same-Organization/Species AAA relationships and the requested provenance relationship (no BBB for explicit NULL; matching same-Organization BBB for non-null provenance). Missing local identity is not treated as NULL provenance. Legacy/inconsistent rows are excluded, not inferred or rewritten.
-- Each allocation rereads the explicit maximum and returns one above both that maximum and the persisted counter. Sequential explicit writes in the coherent namespace are respected; gaps are not filled. **X=0 remains a real stored value**, distinct from NULL and unmodified by allocation. Exhaustion of the positive-integer range is rejected.
-- Rollback of the surrounding transaction rolls back counter creation/advancement. A committed allocation may remain unused, so gaps may exist; it is not a reservation outside the database transaction.
-- **Limits:** internal allocation primitive only. No automatic destination Strain materialization, Transfer v2 acceptance, endpoint, frontend behavior, future-caller permission policy or automatic conversion of existing writers. Existing writers may still supply explicit `Strain.number`; concurrent manual writers not participating in this allocator are outside its locking guarantee. This is not universal Strain X uniqueness or universal zero-safe import enforcement.
-- **Known technical backlog, not a Phase 4 failure:** `backend/apps/cultures/management/commands/import_bdd_csv.py` still uses `self._as_int(row.get("numero_souche_local")) or None`, which may collapse explicit X=0 into NULL. Not fixed in this documentation task.
-- Supplied milestone validation: real isolated **PostgreSQL 17.11** QA exercised **8 concurrency scenarios**. A historical migration compatibility issue was found and corrected before integration; final PostgreSQL validation passed (**106 tests passed**). Full backend suite passed (**686 total / 658 passed / 28 skipped / no failures**); Django check, migration drift and `git diff --check` passed. No production, Neon or shared DB was used. Independent reviewer inspected the implementation and reported **GREEN**; no independent reviewer PostgreSQL rerun is claimed. These checks were not rerun in this documentation-only refresh.
-- Evidence: `backend/apps/taxonomy/models.py`, `services.py`, migration `0009_localstrainnumbercounter.py`, `test_local_strain_number.py`.
-
-#### Phase 5 — portable lineage foundation — DONE and integrated
-
-- Integrated on canonical `main` at **`8fced89309b8d2b2e53f2095164a81432443d86c`** (`feat: add portable transfer lineage foundation`). The commit includes `PortableLineageNode`, `PortableLineageEdge`, `TransferItem.lineage_snapshot`, `backend/apps/cultures/portable_lineage.py`, migration `0009_portable_lineage.py`, exact Transfer v2 protocol 2.1 support, and source snapshot construction. Protocol 2.0 remains unchanged; 2.1 is opt-in and the default remains 2.0.
-- Institution-owned projection uses stable opaque node and edge UUIDs; local Box bridges are nullable, so foreign-known nodes do not require fake local Boxes. Biological/local lineage is distinct from `transfer`. Local Box/BoxLineage history is projected lazily and durably; only known directed predecessor ancestry is included. Disconnected families under one `GlobalStrainIdentity` are valid. No lineage is inferred from Species, Strain, codes or Global ID.
-- Each TransferItem freezes its own lineage snapshot. Source protocol 2.1 construction uses a scoped PostgreSQL SERIALIZABLE transaction with retries for coherent graph freezing. Portable IDs identify history; they do not grant operational access.
-- No live cross-institution synchronization, destination acceptance/materialization, outgoing transfer-continuation edge, or transport of measurements, zones, movements, notes, users or audit as lineage is implemented. Phase 6 is not implemented.
-- Supported domain services validate tenant relationships and source export fails closed on relevant inconsistencies. Direct technical ORM/SQL writes can bypass service invariants; this is not a public writable projection API.
-- Supplied writer validation (not rerun for this documentation update): disposable local PostgreSQL 17.11; 36 Phase 5 concurrency/model/migration tests passed, covering node and edge bridge races, concurrent source builders, concurrent lineage writer/snapshot coherence, rollback, retry exhaustion and PostgreSQL isolation restoration. Full isolated backend: **819 total / 780 passed / 39 skipped / no failures**. Django check, migration drift and `git diff --check` passed.
-- Supplied independent review: **GREEN — Phase 5 ready for commit**; Critical/High/Medium/Low findings: none. The reviewer did **not** rerun PostgreSQL QA or the full backend suite. These are supplied milestone results, not checks run during this documentation-only refresh.
-- Evidence: commit `8fced89309b8d2b2e53f2095164a81432443d86c`; `backend/apps/cultures/models.py`, `portable_lineage.py`, `transfer_v2_protocol.py`, `transfer_v2.py`, migration `0009_portable_lineage.py`, and Phase 5 tests.
-
-#### FUTURE / NOT IMPLEMENTED — Phase 6 and later Transfer v2 direction
-
-The approved target remains a versioned contract with portable transfer/item/institution identities, explicit `GlobalStrainIdentity`, and known ancestry metadata. Same-instance institutions may eventually use direct Organization-to-Organization transfer; versioned files remain an adapter for separate installations, offline exchange and external/legacy systems. Repiquage and transfer preserve `GlobalStrainIdentity`; automatic destination materialization/acceptance does not exist.
-
-Phase 5 lineage freezes known ancestry only; it does not synchronize institutions or grant access to foreign operational/scientific records. Future destination acceptance remains all-or-nothing: preflight may report issues without mutation; acceptance commits entirely or rolls back entirely. Mutation/hybridization rules are out of scope.
-
-Dependency-aware roadmap: **Phase 1 DONE; Phase 2A DONE; Phase 2B DONE; Phase 3A/3B/3C DONE; Phase 4 DONE; Phase 5 DONE. Phase 6 NOT STARTED.** Phase 6 is backend preflight plus atomic/idempotent destination acceptance, including destination authorization/context, rechecking resolution, incoming lineage contradiction checks, destination Strain reuse/materialization, destination Box creation, incoming projection merge, a transfer-continuation edge, replay/idempotence and one atomic acceptance transaction. Later direct same-instance transfer, cross-instance/offline/external file adapter and UX/inbox remain future work.
-
-Unresolved product decisions: whether source Boxes must be active-only at the backend; the exact source Box/quantity/status effect of transfer; and the trust/authenticity model for cross-instance packages.
-
-### BiologicalProvenance / BBB
-
-- **Implemented backend foundation:** shared `BiologicalProvenance`; institution-local `OrganizationProvenanceCode` with uniqueness per institution/provenance and institution/code; nullable local-identity BBB relationship (`54e115d`); provenance-aware service validation.
-- **Implemented API** (`6ee81d4`): `/api/taxonomy/biological-provenances/` and `/api/taxonomy/provenance-codes/`, each GET/POST only. Reads require laboratory-write capability; creation requires active-institution Admin authorization, strict payloads and atomic audit. BBB list is institution-filtered. No detail/PATCH/DELETE routes exist. Duplicate shared provenance names are allowed.
-- A local identity reaches provenance through its BBB assignment; there is no separate Strain provenance field. Service support for known provenance is not exposed by the normal Strain API/UI.
-- **Active product workflow:** normal new-Strain creation remains AAA-only. Main has no provenance/BBB frontend consumer.
-- **Product direction for continuation:** provenance + BBB remain deferred from routine/new UI. Keep the backend foundation; removal requires a separate explicit product decision.
-- Biological provenance is distinct from provider, acquisition event, transfer history and legacy `Origin`. Unknown means no relation. Historical BBB-like tokens do not establish provenance. No conversion/backfill/inference was performed.
-- Evidence: `backend/apps/taxonomy/test_provenance_codes_api.py`, `test_local_code_schema.py`, `test_local_strain_service.py`, models/services/API and `backend/config/api_urls.py`.
-
-### Administration / references
-
-- Accounts/institution/laboratory Administration and its action history remain active under backend permissions. Administration is **desktop-only**: tablet entry is absent and `/administration...` redirects directly to `/` without intermediary Administration UI/message.
-- `6bad008` temporarily enabled References; **`284c033` supersedes that decision and disables it again**. `DISABLED_ADMIN_SECTIONS` contains `references`; selection is refused and a direct reference-section request falls back to Accounts. Backend taxonomy APIs are not disabled by this UX guard.
-- The large **“Référentiel partagé” Administration concept is abandoned for current product direction**, not a feature awaiting routine merge. This direction is supplied by Anthony for this refresh; the code independently confirms the section is disabled.
-
-- Contextual reference maintenance within real workflows is a **direction under consideration**, not an approved replacement design. Do not restore the rejected catalog merely to bypass missing-AAA guidance.
-
-### Administration > Équipe — DONE and integrated
-
-- Integrated on `main` at **`e69b24d`** (`feat: separate team members and invitations`). **Membres** and **Invitations** are separate views; Administration remains **desktop-only**.
-- Proven unaccepted invitations appear in Invitations rather than Membres; accepted users appear in Membres. An unusable password alone does not prove an invitation.
-- Invitations have persisted **24h validity**, with backend-authoritative expiry. Expired invitations can be resent under backend permissions; resend supersedes all previous invitation links.
-- Legacy invitations with repository-proven historical invitation audit evidence appear expired and resendable, without fabricated send/expiry timestamps. Expired rows reuse Inventory's inactive visual language.
-- Member/invitation organization isolation and backend permissions are enforced. No invitation uid, token or link is exposed by the team API.
-- `OrganizationMembership.is_hidden_from_team` supports hidden technical memberships: exclusion affects visible team lists/counters only. Roles, permissions and Admin/Responsable safety rules remain unchanged.
-- Technical memberships for **Ayoub AKKOUH, Anthony COMBES--AGUÉRA, Sophie LÈBRE and Clément ROMANET are NOT yet designated in environment data**. Designation remains a separate explicit operation using controlled `set_team_membership_visibility` and verified real membership IDs, never name-based inference.
-- **Open product question:** inactive unaccepted memberships currently appear in neither Membres nor Invitations, and resend is rejected. Change this only after an explicit product decision if/when needed.
-
-### Organization create/update audit atomicity
-
-- Integrated at **`b95cb08`** (`fix: make organization audit writes atomic`). Organization creation and its required audit share a transaction; Organization update and its required audit also share a transaction. Audit failure rolls back the corresponding mutation.
-- Existing no-op update behavior remains: no changed values means no update audit. Deletion behavior was not changed by this fix. This does not establish atomicity for all application audit writes.
-- Evidence: `backend/apps/organizations/api_views.py`, `backend/apps/cultures/tests_admin_api.py`.
-
-## POLYPBASE-ANALYSES
-
-- Companion repository exists at `C:\Users\antoc\POLYPBASE-ANALYSES`. Verified integration state supplied for this synchronization: **`main = origin/main = 346512d`** (`feat: add species AAA historical review tooling`), pushed, with clean canonical status `## main...origin/main`. Previous main was `24da481` (`docs: record Pennaria historical audit`). No repository re-audit or fetch was performed for this patch.
-- Species/AAA technical milestone at **`346512d`** is **committed, fast-forward integrated and pushed**; no merge commit was created. All four review/tooling files listed below are committed in companion main. Private generated CSV artifacts remain ignored, outside Git, and were not committed. This supplied integration evidence does not claim a current companion branch/worktree inventory.
-- **Post-integration validation:** `uv run pytest -q` ran on canonical POLYPBASE-ANALYSES main after fast-forward integration and returned **89 passed**.
-- Historical **Suivi 2019–2026 Species/AAA extraction is completed locally**. Deterministic review tooling preserves literal evidence/conflicts and verifies baseline/source fingerprints. Following independent review, local fixes narrowed bare `Genus sp.` lexical-variant handling to the documented qualified-sp case, made CSV export use exclusive creation after preflight to prevent overwrite/truncation, and expanded regression coverage. Changes affect `src/polypbase_analysis/species_aaa_review.py`, `tests/test_species_aaa_review.py` and `docs/SPECIES_AAA_REVIEW.md`; the issue register was not modified.
-- **Earlier focused validation, before integration:** targeted tests **15 passed**; full `uv run pytest -q` **89 passed**; historical `--check-only` extraction and CLA assertions passed. The 15-targeted run is not claimed to have been repeated after integration. Baseline reproduced unchanged: 1,376 observations, 1,337 parseable, 39 unparseable, 126 valid AAA, 555 parsed exact identifiers, 22 malformed strings, 106 CLEAN, 9 LABEL VARIANT, 11 POSSIBLE COLLISION, 6 reverse conflicts, 30 exact-box conflicts, and X tokens 1, 2, 3, 4, 5. SHA-256 hashes of all four existing private review CSVs remained unchanged before/after validation; no outputs were regenerated. No raw XLSX, private CSV contents or product decisions were modified; no row-level evidence is copied here.
-- **Independent technical re-review completed successfully: technical review GREEN, with no remaining genuine technical findings.** Documentation is consistent; the bare `sp.` fix, atomic/exclusive export protection, regression coverage and partial-failure policy were accepted. The technical tooling milestone is now committed/integrated/pushed. Stakeholder decisions still block final manifest approval; technical approval and integration do not make the manifest import-ready.
-- A WoRMS review document records research checked **2026-09-30**, separately from human approval. Anthony's mapping/exclusion/normalization decisions are documented; proposed canonical-name changes and local AAA acceptance are separate decisions. Source history remains immutable.
-- **Not import-ready:** existing CSV decision/approval/review fields are still blank; documented decisions have not become an approved assignment manifest. No POLYPBASE Species/AAA importer is implemented. Extraction does not decide ownership, provenance, BBB meaning or identifier rewrites. No database/production writes were part of this inspection or the read-only review workflow inspected.
-- **Waiting on Étienne and Anaïs:** Anthony sent the Species/AAA validation email on **2026-10-01**. Feedback is requested on more than D11/D12: CLA allocation between Chrysaora lactea and Cyanea lamarckii; Lobonemoides robustus / gracilis; Obelia OSP / OBE; Turritopsis references; ATH Aurelia labels; AVA Valentine / Aurelia malayensis; CMU and COR collisions; THY double label; Chrysaora helvola / fuscescens and CHE / CFU; Tubularia bellis / Ectopleura larynx and TBE / ELR; Aurelia coerulea DD; color/form qualifier policy; and special handling of “hybrid”. These are unresolved review topics, not approved mappings. A nomenclatural synonym relationship alone does not settle historical biological identity.
-- The manifest remains **not import-ready until stakeholder decisions are explicitly resolved** and approvals are recorded. Older Pennaria grouping, Excel color interpretation and import-notebook species/box-context harmonization remain open/deferred; do not treat them as settled biology.
-- The four files committed in companion main at `346512d`: `docs/SPECIES_AAA_REVIEW.md`, `docs/SPECIES_AAA_ISSUES_AND_PROPOSED_CORRECTIONS.md`, `src/polypbase_analysis/species_aaa_review.py`, `tests/test_species_aaa_review.py`. Committed analysis milestones/older validation: `docs/ANALYSIS_REFACTOR_LOG.md`.
-
-## Git / cleanup state
-
-- Canonical **`main = e69b24d`**, tracking local **`origin/main = 4bdd338`**, **1 ahead / 0 behind**, clean before this document edit; `origin/HEAD` is a symbolic alias, not another remote branch. No fetch was performed; push is still a next step.
-- `admin-team-invitations` feature work is **complete and integrated**. Its worktree `C:\Users\antoc\worktrees\POLYPBASE\admin-team-invitations\POLYPBASE` and branch `feat/admin-team-invitations` at `7dbe497` still physically exist until Anthony removes them; their existence is not pending feature work. No cleanup was performed.
-
-### Historical cleanup inventory — 2026-10-03, not refreshed
-
-- Ten registered worktrees and their local branches at that snapshot (tracking relationship / ahead-behind versus canonical `main` then):
-  - `C:\Users\antoc\POLYPBASE` — `main`, `8fced89309b8d2b2e53f2095164a81432443d86c`, clean before this edit, tracks `origin/main`, 0 ahead / 0 behind.
-  - `C:\Users\antoc\worktrees\POLYPBASE\device-ux\POLYPBASE` — `fix/device-ux`, `7356f0f50edfcb369e5fa6f7eb189daaf857d1f6`, clean, no upstream shown, 0 ahead / 1 behind.
-  - `C:\Users\antoc\worktrees\POLYPBASE\local-vm-copy-qa-docs\POLYPBASE` — `docs/local-vm-copy-qa`, `af130cf4cc3a11c4242ad45364dbfae0273cd8e3`, clean, no upstream shown, 0 ahead / 3 behind.
-  - `C:\Users\antoc\worktrees\POLYPBASE\mobile-tablet-readiness\POLYPBASE` — `fix/mobile-tablet-readiness`, `ba9d5e4399036460e36c7000b6a40359f0dc2a13`, clean, no upstream shown, 0 ahead / 2 behind.
-  - `C:\Users\antoc\worktrees\POLYPBASE\readiness-async-routing\POLYPBASE` — `fix/readiness-async-routing`, `af130cf4cc3a11c4242ad45364dbfae0273cd8e3`, clean, no upstream shown, 0 ahead / 3 behind.
-  - `C:\Users\antoc\worktrees\POLYPBASE\readiness-measurements-zones\POLYPBASE` — `fix/readiness-measurements-zones`, `af130cf4cc3a11c4242ad45364dbfae0273cd8e3`, clean, no upstream shown, 0 ahead / 3 behind.
-  - `C:\Users\antoc\worktrees\POLYPBASE\readiness-responsive-mobile\POLYPBASE` — `fix/readiness-responsive-mobile`, `af130cf4cc3a11c4242ad45364dbfae0273cd8e3`, clean, no upstream shown, 0 ahead / 3 behind.
-  - `C:\Users\antoc\worktrees\POLYPBASE\species-labels\POLYPBASE` — `fix/species-labels`, `ba9d5e4399036460e36c7000b6a40359f0dc2a13`, dirty: `POLYPBASE_CURRENT_STATE.md`, `frontend/scripts/test-qr-labels.mjs`; 0 ahead / 2 behind. Its status and diff were inspected read-only; its dirty document/test edits were not read or modified.
-  - `C:\Users\antoc\worktrees\POLYPBASE\tablet-box-ui-polish\POLYPBASE` — `fix/tablet-box-ui-polish`, `7356f0f50edfcb369e5fa6f7eb189daaf857d1f6`, dirty: 21 tracked modified files and 10 untracked files; 0 ahead / 1 behind.
-  - `C:\Users\antoc\worktrees\POLYPBASE\ui-system-polish\POLYPBASE` — `fix/ui-system-polish`, `ba9d5e4399036460e36c7000b6a40359f0dc2a13`, clean, no upstream shown, 0 ahead / 2 behind.
-- Some legacy readiness/UX branch names point to commits already in main history; their existence does not mean their worktree-local changes are integrated. In particular, `tablet-box-ui-polish` has **ACTIVE LOCAL WORK — NOT INTEGRATED**: app navigation/history, Box/Zone/label/QR interactions, responsive tablet/phone styles and local frontend scripts/tests. The worktree is one commit behind main and also has uncommitted changes. This scope is based on status, filenames, diff statistics and branch history, not a full diff review. It is not evidence of finished, validated or approved behavior, and is not authorization to treat it as current main product behavior.
-- The active frontend worktree was inspected read-only and preserved exactly. No worktree or branch was created or removed by this refresh. Main's desktop-only Administration rule remains: tablet menu hidden and `/administration...` redirects directly to `/` without intermediate UI/message.
-- Companion analysis integration/stakeholder evidence above is retained as supplied historical state; its current worktree/branch inventory was not re-audited here.
-
-## Product decisions / constraints
-
-- Scientific **0 is real**, never missing data. Preserve measurements, locations, movements, lineages, authors and append-only audit evidence.
-- Strict active-institution isolation and backend permissions are mandatory for IDs, relations, choices, aggregates, exports and bulk actions. A frontend filter/desktop guard is not permission.
-- Existing Box/Strain identifiers are not silently rewritten. No automatic historical ownership, Global ID, AAA/BBB or biological inference from source tokens.
-- Biological provenance is not acquisition/provider/history. Provenance/BBB UI is deferred; keep its backend foundation unless explicitly decided otherwise.
-- Species + AAA should eventually be initialized from a **reviewed and approved manifest**, not directly from exploratory CSVs. Contextual maintenance is a likely direction, still awaiting product design; the large shared-reference catalog is not the next delivery.
-- Phase 4 internal X allocation is implemented with explicit institution/species/provenance scope, including NULL provenance. Automatic use by existing writers/materialization and stable issued-code snapshots remain unimplemented. Preserve historical X values; review every writer/consumer before claiming universal consistency or changing global uniqueness.
-- French/English user text uses existing i18n; no invented biological or operational rules. Administration remains desktop-only.
-- No production/Neon test/import/demo access. Anthony performs commit/push/merge/deploy unless explicitly delegated. This refresh performs none of them.
-
-## Pending / blocked work
-
-1. **Étienne / Anaïs:** Anthony sent the validation email on **2026-10-01**. Several Species/AAA mappings, collisions, naming questions and color/form/“hybrid” qualifier decisions listed above await their feedback; the blocked state is broader than D11/D12. The manifest remains **not import-ready** until those decisions are explicitly resolved and approved.
-2. **Technical tooling is delivered:** committed at `346512d`, fast-forward integrated into companion main, pushed, independently reviewed GREEN with no remaining technical findings, and **89 tests passed on canonical main after integration**. Earlier focused validation also recorded 15 targeted tests, historical check-only baseline and private CSV hashes unchanged. **Product/manifest work remains blocked:** stakeholder responses and explicit decisions are still required; no final approved manifest or POLYPBASE importer exists. Do not begin importer work from unresolved mappings. Committed review tooling/documents are not an approved import contract; private CSV decision fields remain unresolved.
-3. Missing-AAA recovery is incomplete because References is disabled. Design a small contextual assignment/maintenance workflow; do not resurrect the rejected catalog or introduce provenance/BBB as a prerequisite.
-4. Review import writers before claiming universal AAA/zero consistency or connecting them to the allocator/issued-code snapshots. Transfer imports still do not require AAA/local identity; the `import_bdd_csv` X=0 conversion noted above remains technical backlog. The Species/local-identity PATCH integrity gap is resolved.
-5. Overview absence/full-history wording for bounded data remains a follow-up. Organization create/update audit atomicity and QR active-Organization isolation are integrated, not unresolved integration work.
-6. Transfer v2 Phases **1, 2A, 2B, 3A/3B/3C, 4 and 5 are DONE and integrated**. **Phase 6 is NOT STARTED**; it is backend preflight plus atomic/idempotent destination acceptance. Probe connectivity/combined monitoring, DNA enrichment and application WoRMS integration remain separate future work; models/Aphia IDs do not prove connected features.
-
-## Next operational steps
-
-### Administration > Équipe follow-up
-
-1. Anthony reviews and commits this `POLYPBASE_CURRENT_STATE.md` update.
-2. Push `main` after the state update.
-3. Later, separately designate the four technical memberships using controlled `set_team_membership_visibility` and verified real membership IDs; no environment designation has been performed.
-4. Decide the inactive-unaccepted-invitation behavior only if/when needed; retain the current exclusion/resend rejection meanwhile.
-
-### Previously recorded operational tracks — not refreshed
-
-1. **Species/AAA stakeholder track:** continue waiting for Étienne/Anaïs responses to the 2026-10-01 email, then record explicit mapping/naming/qualifier decisions and review an approved manifest. No import-ready manifest exists. No importer or database import before explicit approvals; a dry-run importer contract is a later step on this track.
-2. **Immediate engineering priority:** phone/tablet laboratory readiness before real usage beginning **Monday 5 October 2026**. Responsive readiness work is integrated through `7356f0f`; further tablet/UI polishing is active but uncommitted in `tablet-box-ui-polish` and is not validated or integrated. No physical-device/browser QA is claimed. Administration remains desktop-only: hidden on tablet, and `/administration...` redirects directly to `/`.
-3. **Transfer/Strain technical track:** Phases 1 through 5 are integrated; **Phase 6 is NOT STARTED**. Its unresolved product decisions remain open; do not infer acceptance implementation from Phase 5.
-4. **Missing-AAA contextual UX:** remains a separate future product workflow requiring a scoped decision. Do not restore the rejected References catalog; keep provenance/BBB deferred.
-5. Preserve private review artifacts. Ten POLYPBASE worktrees remain registered, including active local frontend work and other clean older worktrees; see Git / cleanup state. Any separately authorized implementation receives targeted isolated QA, then broader checks as needed. Review final diffs; Anthony handles integration/deployment unless delegated.
-
-## Production / QA status
-
-- **Production is NOT REVALIDATED.** No production or Neon access occurred. Local main/push state does not prove deployment or applied migrations. No locally inspected record proves the current deployed commit; verify only under a separately authorized deployment task using the existing workflow.
-- No deployment occurred; local integration does not prove production state. **No production migration or deployment has been performed for the Équipe milestone.** This documentation-only refresh runs no application tests or builds.
-- **Équipe milestone validation (supplied completed evidence):** independent reviews completed; frontend stale-response findings corrected and re-reviewed; PostgreSQL invitation concurrency scenarios independently validated; integration with readable structured user identities resolved and validated. Final integrated commit on `main`: **`e69b24d`**. These validations were not rerun during this documentation refresh.
-- Latest supplied Phase 4 validation: isolated PostgreSQL 17.11 **106 tests passed**, including **8 concurrency scenarios**; historical migration compatibility correction completed before integration; full backend **686 total / 658 passed / 28 skipped / no failures**. Django check, migration drift and `git diff --check` passed. Independent implementation review **GREEN**, without a claimed reviewer PostgreSQL rerun. No production, Neon or shared DB used. These milestone results are supplied evidence, not reruns in this refresh.
-- Frontend consistency independent initial review: non-QR portions accepted; QR preparation had **2 Medium + 1 Low** findings. After correction, focused independent QR re-review marked **all three RESOLVED**, found no new findings and concluded **READY FOR COMMIT**.
-- Supplied post-integration validation on canonical `main` **`96c5593`**: `npm run test:inventory` **24 passed**; `npm run test:confirm` **25 passed**; `npm run test:labels` **69 passed**; `npm run test:zones` **50 passed**; `npm run typecheck`, `npm run check:css` and `npm run build` passed (**2209 modules transformed**). These commands were not rerun during this documentation refresh.
-- That historical frontend-consistency milestone had no real-browser, screen-reader or physical-printer QA; backend tests were not rerun for that frontend-only change. No production, Neon or shared-database access occurred.
-- Alerts-removal milestone validation before its review: targeted backend **140 passed, 6 skipped**; isolated backend **514 passed, 18 skipped**; Django system check and migration dry-run/check passed; targeted frontend scripts **232 passed**; typecheck, CSS check, production frontend build and `git diff --check` passed. Independent review was **READY FOR COMMIT** with no material findings; focused frontend **113 passed**, backend **108 passed** and additional backend **51 passed**, with frontend typecheck passed. No browser QA or PostgreSQL concurrency QA was performed in review; this does not supersede the successful writer migration check.
-- Measurement-history modal, independent review before integration: **READY FOR COMMIT**, no genuine findings; `npm run test:measurements` (**28/28**), `npm run test:charts` (**28/28**), `npm run test:dates` (**4/4**), typecheck, CSS check and build passed. After integration on `main`, a production frontend build was observed successful in **10.44 s**. No other suites are claimed as rerun on `main` after integration.
-- No production validation or browser QA is claimed for the modal; no production or Neon access occurred.
-- The prior snapshot records **historical Emplacement delivery** validation for `0d7985a`: 408 backend tests (15 skipped, no failures), targeted frontend suites, TypeScript/CSS/build/migration checks and accepted manual QA. This was not rerun and does not validate later main commits.
-- Companion `ANALYSIS_REFACTOR_LOG.md` records 74 passing tests and clean diff check at an earlier committed analysis milestone. The supplied Species/AAA integration record confirms **89 tests passed with `uv run pytest -q` on canonical companion main after fast-forward integration at `346512d`**, now pushed. Earlier focused validation recorded **15 targeted tests passed**, historical `--check-only` extraction and CLA assertions passed, the historical baseline unchanged, and unchanged SHA-256 hashes for all four private review CSVs; no outputs were regenerated. The targeted run is not claimed to have been repeated after integration. These validations were not rerun during this documentation patch; **independent technical re-review is GREEN with no remaining technical findings**. Tooling is committed/integrated/pushed, but stakeholder decisions remain pending and the manifest is not import-ready. No database import, production or Neon access occurred.
-- Locking/concurrency conclusions require disposable isolated PostgreSQL QA. SQLite alone does not establish PostgreSQL behavior. Never substitute Neon or production.
+## Snapshot and evidence scope — 2026-10-14
+
+This is the living project summary. Durable contracts belong in [`docs/context/`](docs/context/); [`AGENTS.md`](AGENTS.md) remains authoritative for invariants. This refresh replaces the **2026-10-06** snapshot in this file. The four conversations used an older **2026-10-03** copy; those dates describe different snapshots, not conflicting current HEADs.
+
+- All four supplied transmissions were read completely: **IMPORTS**, **DEPLACEMENTS_UI**, **GIT_WORKTREES**, **APP_ARCHITECTURE_CONCURRENCE**, dated 2026-10-14. Input copies are in the pre-existing, untracked `_transmissions_2026-10-14/` directory; they are evidence, not rewritten living documentation.
+- Inspection: local Git refs/history, canonical and registered worktree statuses/diffs, relevant code, migrations and test sources, current domain documents, and the companion Species/AAA decision ledger. Other worktrees and the companion repository were read-only.
+- Canonical repository: `C:\Users\antoc\POLYPBASE`. **Canonical HEAD = main = local origin/main = `ec81a187291dbf7a930e8e03d62a81082455b224`**, `feat: add scientific week interval comparison foundation`. Canonical tracked/untracked status and index were clean; **0 ahead / 0 behind** the inspected local upstream.
+- Documentation worktree: `C:\Users\antoc\worktrees\POLYPBASE\docs-sync-2026-10-14\POLYPBASE`, branch `docs/sync-2026-10-14`, starting at the same commit. No existing tracked documentation diff; the four input transmissions were already untracked.
+- **No fetch or fresh remote/CI query.** The transmissions separately report successful pushes and green GitHub CI, including [CI for ec81a18](https://github.com/Anthony2210/POLYPBASE/actions/runs/38544101545). Local tracking alignment is not a new remote verification.
+- **No application tests/builds, database access, migrations, imports or production operations during this documentation task.** Test/review results below are dated milestone evidence, not reruns. Deployment and applied production migrations remain unverified.
+
+Historical snapshots remain in Git: `f72838a` contains the 2026-10-06 state (`main e69b24d`, local upstream `4bdd338`, plus the older ten-worktree inventory); its evidence describes that date only. Dated repository audits and the supplied transmissions were not rewritten or removed.
+
+Status vocabulary: **A** integrated into main; **B** committed but not integrated; **C** local/uncommitted; **D** awaiting independent review; **E** reviewed, awaiting integration; **F** planned/blocked; **G** abandoned/superseded; **H** unverifiable. These axes may combine (for example C+D). A source SHA outside main ancestry is not automatically B: integration is checked by patch equivalence as well as ancestry.
+
+## Integrated product capabilities
+
+### Scientific measurements and quantitative subculture
+
+- **One biological measurement per Box per ISO week**, including `0/0`. Interactive POST creates only in a free week (`201`); an occupied week, even the same date, returns **`409 measurement_week_conflict` without mutation**. Correction uses authorized PATCH. Inactive boxes reject new readings but retain correctable history. The old same-date upsert contract is historical, not current.
+- Shared create/correct services are integrated (`016712b`). Box-first locking, weekly uniqueness and mandatory audit protect normal writes. Database uniqueness protects `(box, week_start)`; current `save()` computes its Monday key. It does not establish safe permissions/audits or a dedicated date/key CHECK for arbitrary bulk/SQL writers.
+- **Observer/origin foundation** (`681af82`, measurements migration `0008`): direct entry captures the authenticated observer; correction preserves that observer and origin. Legacy `measurement.user` remains actor/latest corrector. Importer is not inferred as observer. Historical rows remain `legacy_unestablished` / `legacy_unclassified`, without copied users or fabricated identities. Account deletion nulls references, not attribution status; no extra personal-name snapshot exists.
+- **Temporal precision foundation** (`41b79a8`, migration `0009`): persisted `legacy_unverified` or `exact_date` only; **`measured_on` remains NOT NULL and `iso_week` is rejected**. Historical Mondays are neither certified nor converted. Generic PATCH, including explicit date correction, does not promote precision.
+- **Read preparation** (`18b5cd0`): additive `week_start`; latest-per-Box ordering by week, creation time and PK; Inventory absence uses existence rather than nullable date. Mixed timeline, cross-Box ordering, freshness, frontend and exports still need work before week-only activation.
+- **Scientific interval helper** (`ec81a18`): pure immutable `ObservationTime`, ISO boundaries and `before/after/same_day/unresolved`. The relation describes **the observation relative to the operation day**. It is **not called by `cultures/polyp_state.py`**, does not change stock resolution, and activates no week-only persistence or new operation guard.
+- **Quantitative subculture** (`8adea6c`, cultures migrations `0010`–`0012`): atomic parent before/allocated/after snapshot, immutable ordered child allocations, source sequences and revision checks, server-reserved child codes. Explicit child zero is known; omitted/NULL is unknown. Partial allocation keeps before known, total/after NULL and the previous authoritative parent state, while incrementing intention revision. It creates no artificial measurement or weekly slot. Corrections of consumed measurements do not rewrite accepted snapshots. Optional deactivation at parent zero is a separate operation.
+- Latest ordinary reading and `current_polyp_state` are distinct. Current resolver returns a known count (including zero) or absence, without an explicit unresolved-state contract. See [`measurements-integrity.md`](docs/context/measurements-integrity.md) and [`QUANTITATIVE_SUBCULTURE.md`](backend/QUANTITATIVE_SUBCULTURE.md).
+
+### Imports — delivered foundations, not a generic import workflow
+
+| Milestone | Main commit | Implemented scope (A) |
+|---|---|---|
+| Phase 1 | `016712b` | Shared ordinary measurement write services |
+| Phase 2 | `2d3d617` | Strict canonical CSV preparation/mapping, source coordinates, zero/NULL distinctions |
+| Phase 3 | `794e29c` | Authorized, institution-scoped, read-only deterministic planner |
+| Phase 4A | `681af82` | Observer/origin persistence, reads and audit |
+| Phase 4B.1 | `41b79a8` | Legacy/exact temporal precision, without week-only writes |
+| Phase 4B.2 | `186c458` | Planner 1.1 subculture chronology evidence/conflicts |
+| Phase 4B.3a | `18b5cd0` | First temporal read compatibility tranche |
+| Phase 4B.3b | `ec81a18` | Pure interval comparison foundation |
+
+- Canonical preparation is pure; planner **1.1** is an ephemeral Python preview, not a durable plan, upload, API apply endpoint or import UI. States include `IGNORED`, `INVALID`, `UNKNOWN_BOX`, `CREATE`, `ALREADY_MATCHES`, `CONFLICT`, `BLOCKED`. Duplicate source Box/week slots block even if identical. `ALREADY_MATCHES` performs no write or precision/provenance promotion.
+- A free week-only row can be `CREATE` but still carries **`week_precision_persistence_required`, ready=False**. A relevant subculture in its week yields `week_subculture_chronology_conflict`. A parent operation with confirmed occurrence remains relevant even if partial; a known child allocation includes zero. Legacy unknown occurrences/allocations are not thereby certified safe.
+- Approved target: shared preparation/review, **separate authorized applicators** for entry, bulk correction and onboarding. Any unresolved error blocks the whole file; regenerate preparation/plan after resolution. Bulk correction uses expected-old-value guards, not overwrite. Laboratory entry/import will live outside desktop-only Administration; bulk correction/onboarding remain administrative. **These applicators and UI are not implemented.**
+- Separate existing historical workflows remain active backend tools: `import_bdd_csv`, guarded **2026 manifest import** (`0f6fdab`) and reviewed cleanup/deactivation commands. Their permissions, source conventions and guarded corrections are not a generic import contract. Legacy CSV still upserts some measurements and may collapse local Strain X=0 via `or None`; neither behavior is a new approved scientific rule.
+- Contracts and remaining prerequisites: [`imports-exports.md`](docs/context/imports-exports.md), [`canonical-measurement-csv.md`](docs/canonical-measurement-csv.md), [`measurement-import-planner.md`](docs/measurement-import-planner.md).
+
+### Environmental readings
+
+- Temperature display separates target from observed average/extrema; manual entries update a daily aggregate transactionally, not an individual-per-entry history. Connected probe ingestion is not established by schema presence.
+- Salinity persists dated zone readings (duplicate zone/date rejected); UI currently shows latest, not full history. Corrections are audited and allowed strictly before `created_at + 24h`, equality locked, no Admin override; zero PSU is valid. Historical milestone `0d7985a` and `test_zone_salinity_lifecycle.py` remain the evidence, not a new rule from movement corrections.
+
+### Movements, periods and audited correction
+
+- **`b387621`**, cultures migrations **`0013` / `0014`**: at most one **ordinary** BoxMovement per Box per ISO week **Europe/Paris**. Initial location, qualification, reactivation and legacy `unclassified` are distinct traceable kinds, not ordinary quota consumption. No historical reclassification or period-link reconstruction.
+- `Box.thermal_zone` is current location; `BoxLocation` is a period; `BoxMovement` is a recorded event. A period boundary is not automatic evidence of a physical movement. Capacity/occupancy remains informational, not a movement blocker.
+- POST move requires `expected_thermal_zone_id`, including explicit NULL; `box_location_changed` takes precedence over `box_movement_week_conflict`. Box lock, partial UNIQUE and Paris-week CHECK protect ordinary movement consistency.
+- **PATCH `/api/boxes/<box_id>/movements/<movement_id>/`** requires `expected_revision`. Authorized institution Admin/technician may correct without time limit or original-authorship requirement. Preserve event identity/kind/original actor; increment revision and append before/after audit atomically. Notes include legacy; date is ordinary-only with proven period links/chronology; destination is classified terminal-only. No cascading history rewrite or second movement.
+- Generic Django admin is read-only for movements/periods; existing Box location cannot be edited there. Backend can refuse a structural correction even when the conservative UI shows a pencil.
+- **`b60620b`**: charts distinguish persisted `movement` from derived `location_change`; Emplacement history describes period entries/exits. Event timestamps retain precision for detail/identity (JavaScript millisecond comparison), while chart positions remain day-based. Overview passes periods, not persisted movement events. Timestamp range bounds use browser-local calendar days, including the whole final selected day; this is not the backend Paris-week rule.
+- **`0703f19` + `9d20dba`**: latest persisted movement banner under latest reading; correction **inline, not modal**; full **Origin → Destination**, one arrow, no individual chevrons/truncation. Paris datetime editing preserves an unchanged original timestamp and rejects changed DST gaps/folds. Save hidden without normalized change, Cancel retained; revision conflict requires explicit reload/re-examination, no silent rebase.
+- Historical investigation reported discrepancies for ten boxes without established structural corruption. No automatic reconstruction from temperatures or blanket correction was approved. The chart period-marker UTC/Paris question was explicitly deferred to another agent; its final result is H, not a new task here.
+- Durable details: [`boxes-lifecycle-locations.md`](docs/context/boxes-lifecycle-locations.md).
+
+### Frontend architecture and request state
+
+- Integrated extraction sequence: formatters `e24ed08`, labels `a33edb2`, primitives `839999a`; **M8** leaves `184f656`, CreateBoxPanel `3b1fc92`, PilotageView `d1c9ca1`, test-owner correction `5cf3879`; **M9** QrSearchModal `dd154bf`, BoxPage `c299df3`.
+- `App` retains authentication/bootstrap, organization generation, navigation, shared caches, mutations and recovery. Extracted components own local UI state; BoxPage mounting key remains Organization + Box ID. Strict null checks (`f1ab87e`) and complete frontend test discovery in CI (`e48601e`) are integrated.
+- Current `App.tsx`: **2,653 lines** at `ec81a18`; **2,628** was the post-M9 baseline before inline movement integration. Line/prop/state counts are historical measurements, not architecture contracts. Recommendation after audit: stop decomposition merely to reduce lines; no M9.3 or orchestration-hook rewrite approved.
+- Full Box collection is deferred (`178ce33`), with explicit partial/ready state; zone refresh preserves complete paginated collections (`ab96234`); list-query optimization is integrated (`785ff3f`, [`performance evidence`](docs/BOX_LIST_QUERY_PERFORMANCE.md)). Raw retained QA JSON is historical, not a new main benchmark.
+- Organization-generation guard (`07c69c2`) prevents old-context publication, **not stale reads within one institution**. Main still shares in-flight GETs by institution/path, with no Box resource freshness barrier in App. A pre-mutation GET or delayed mutation snapshot can restore an obsolete frontend projection. The transmission reproduced this for zero corrections, subculture and location; **no server data loss was demonstrated**.
+- **M10.1 is C+D, not integrated**; see active work below. Zones/pagination M10.2 is F. Single-slot `refreshRecovery`, AST/source-owned test fragility and duplicated profile helper are separate debts, not reasons for opportunistic refactoring.
+
+### Charts, exports, QR and labels
+
+- Shared `BiologicalTrendChart`: zero and `0/0` plotted, absent salinity remains absent, line breaks over gaps >10 calendar days, at least one biological series visible. Keyboard/focus/pin interactions and overflow markers preserve observations above the 0–1000 plotting scale. Historical chart milestones `efcb3bc`, `ff2fab9`, `fa33e32` remain integrated.
+- **Overview full-history correction `2942966` supersedes the old bounded-history limitation.** Initial API payload is bounded to six months but reports earliest evidence/completeness; a partial chart loads full Box history immediately for the default range, at least three months wide, with loading/error/retry states. This is not proof that every older consumer supports future NULL dates.
+- Weekly exports remain organization-scoped, ordinary-measurement-only, with zero versus empty cells preserved. Child initialization alone is not an exported reading. Zone filtering uses recorded-date location; daily temperature falls back to zone target when no daily aggregate exists. Preview `measurement_count=0` distinguishes empty-week aggregate zeros from a real zero reading. Week-only period/location/temperature policy is not implemented.
+- Physical Box labels: **41 × 28 mm**, 25 mm vector QR (`f999bd9`), existing literal Box identifier/species, `/bac/<id>/` target; filters preserve global selection. Eligibility is active Box with latest reading within 15 months, including zero. No taxonomy/provenance inference at render time.
+- QR isolation (`69b39f4`): login-protected `/bac/<id>/` handoff performs no Box lookup or SCAN; authorized `/api/boxes/<id>/scan/` resolves within explicit active Organization and audits success. Protected SVG uses the same context. Foreign membership is not permission in the active institution.
+- Consistency/QR handling (`96c5593`) is integrated: request-scoped Inventory/export eligibility, guarded history replacement, focus-safe MoveBox/Subculture dialogs, distinct `prepared/cancelled/failed` preparation outcomes. Prepared is browser handoff, never physical printing success. Phone QR-focus fix `83700f4` and tablet/mobile polish `23a9f3e` are integrated; the old `tablet-box-ui-polish` pending claim is superseded.
+- Measurement-history modal `2292a61` is integrated, preserving progressive loading and scientific values. Physical printer and real laboratory tablet QA are not established by this refresh.
+
+### Actions, Alerts and Administration
+
+- Personal Actions are actor + active-institution scoped; Administration audit is institution-scoped and admin-only. Business mutations, append-only correction evidence and readable structured identities are preserved; login/view/scan are not these Actions streams. Presentation `cc2d466` → `3d9f96e` → `673db92` and identities `4bdd338` are integrated.
+- **Alerts abandoned (G), runtime removal integrated at `5f773ff` (A).** No active producer/API/UI or inferred decline warning. Dormant model/table/migrations/data and historical audit remain. Any schema/data removal requires a separate explicit decision.
+- Administration remains **desktop-only**: tablet entry absent, `/administration...` replaced with `/` without intermediary UI. Backend permissions still apply. References is disabled (`284c033` supersedes temporary `6bad008`); the large shared catalog is abandoned for current direction. `DISABLED_ADMIN_SECTIONS` also contains **environment, transfers, organizations**; Accounts/Team, Inventory and History remain active in React. Disabled sections fall back to Accounts; backend APIs remain.
+- **Équipe `e69b24d`**, later layout **`9199871`**: members and invitations are distinct lists within the team screen, invitations below members. Persisted **24h** validity, backend expiry, resend invalidating prior links, proven legacy invitations expired without fabricated times. Unusable password alone does not prove invitation. Hidden technical membership flag affects lists/counters, not permissions or last-Admin/Responsable rules.
+- Environment designation of technical memberships is **not reverified**; no name-based inference or operation occurred. Inactive unaccepted memberships currently appear in neither list and cannot be resent; changing this requires a product decision.
+- Organization create/update + required audit atomicity (`b95cb08`) is integrated. No-op updates produce no update audit; this is not universal audit atomicity.
+
+### Taxonomy, AAA/BBB and Transfer v2
+
+- Institution-owned operational Strains; eligible unowned legacy only via a pre-existing Box in the institution. Normal Strain POST requires institution AAA and atomically creates local identity/audit (`dcb6c81`); no fallback from global Species code. AAA API is active (`ce4e66b`), but its disabled References management screen is not. Missing-AAA guidance (`519e601`) still links to disabled References; contextual maintenance design is pending.
+- AAA means nonempty code ≤3 characters at API level, not an exact three-uppercase-letter grammar. Manual Strain code/number fields and global `(species, code)` uniqueness remain. Local identity creation `7dd9847` / `fc679b6` and Species-change protection `1ea84e5` are integrated; identity-less owned legacy behavior remains. No automatic historical ownership/global identity/local identity reconciliation.
+- BBB/provenance models (`54e115d`) and GET/POST APIs (`6ee81d4`) remain backend foundations. No detail/PATCH/DELETE or active frontend consumer. Normal creation is AAA-only; routine provenance/BBB UI is deferred, not authorized for removal. Biological provenance is not provider, acquisition, Origin or transfer history.
+
+| Transfer milestone | Verified main commit | Scope (A) |
+|---|---|---|
+| Phase 1 | `6e92674` | Dedicated atomic v1 boundary/replay handling |
+| 2A | `71e7d91` | Opaque Organization portable UUID; historical migration test-harness fix `a99b986` |
+| 2B | `20adf0a` | Source-owned envelope/items, frozen snapshots, protocol 2.0, required source GlobalStrainIdentity |
+| 3A | `030a2da` | Read-only destination resolver; no reservation/materialization |
+| 3B | `c82e6b2` | Read-only identity diagnostic/readiness evidence |
+| 3C | `9ac0034` | At most one owned Strain per Organization + non-null global identity; NULL legacy allowed |
+| 4 | `5a29b06` | Internal locked X allocator per Organization + Species + explicit provenance/NULL |
+| 5 | `8fced89` | Portable source lineage projection and frozen snapshots; protocol 2.1 opt-in, default 2.0 |
+
+- Portable IDs identify, never authorize. Missing source GlobalStrainIdentity rejects v2 construction; no inferred/attached identity. Lineage projects known predecessor ancestry only; disconnected families are valid; no inference from codes/Species/Strain/global ID. Nullable local Box bridges avoid fake foreign Boxes. Source 2.1 snapshot uses PostgreSQL SERIALIZABLE with retries.
+- X counter starts at 1 in an empty namespace and above coherent explicit values/persisted counter thereafter, respects stored zero, explicit NULL provenance and rollback; gaps allowed. It is not universal manual-writer locking, Strain number uniqueness, issued AAA–BBB–X codes or destination materialization.
+- **Phase 6 F — not implemented:** destination preflight, atomic/idempotent acceptance, incoming graph merge/continuation edge, Strain reuse/materialization and destination Boxes. No v2 acceptance endpoint/UI, receipt, inbox, file adapter or source-stock/lifecycle effect. V1 remains a separate one-data-row CSV path resolving Species + code, without mandatory AAA/local identity or portable lineage; foreign/unowned code collisions remain conflicts.
+- Durable contract: [`transferts_csv.md`](docs/transferts_csv.md). Source-active-only policy, source quantity/status effect and cross-instance trust/authenticity remain unresolved.
+
+## Species/AAA decisions and companion repository
+
+- Read-only local verification: `C:\Users\antoc\POLYPBASE-ANALYSES` is clean; **main = local origin/main = `4623fb1a9f689ce1d65d32154bbdd1306e245cc2`**, `docs: record species AAA stakeholder decisions`. No fetch. Technical tooling milestone **`346512d`** remains integrated; historical post-integration validation **89 pytest tests passed**, independent technical review GREEN. Those tests were not rerun here.
+- The committed `docs/SPECIES_AAA_ISSUES_AND_PROPOSED_CORRECTIONS.md` now records Étienne's answers, **superseding blanket “waiting for Étienne/Anaïs” assertions**. No reply date or separate Anaïs reply is established.
+- Resolved examples: CLA retained for Cyanea lamarckii, CLC for Chrysaora lactea; gracilis retained for Lobonemoides; OBE for Obelia; AVA for Aurelia malayensis; CMU/CLV separated; COR/ATO handling; ATH-THA as Aurelia sp.4 and APH-PHI excluded from initialization; helvola and bellis retained locally; DD = Direct Développement; literal operational color/form/hybrid qualifiers retained **without biological interpretation of hybrid**.
+- D22 confirmed **Thyroscyphus sp.2 / THY / strain 2**, example `THY-FGU-2.001`; earlier THI was a stakeholder typo, not another AAA. No new sp.1 identifier follows. D8/D9 historical corrections have explicit temporal/strain scope. Anthony's D5, D13–D16 and T03 future-name normalizations are already accepted, not pending taxonomy proposals.
+- Source identifiers/labels remain literal evidence. Decisions about future references, local assignments, reviewed historical corrections, physical labels and persisted records are separate. The 2026 historical importer has its own narrow approved corrections; the companion ledger does not authorize generic database rewrites.
+- **Final Species/AAA manifest approval remains F.** No approved assignment manifest or dedicated POLYPBASE Species/AAA importer verified. R02 Chrysaoa spelling, T04 Ralpharia formatting and T06/unidentified labels retain review limits; qualifier architecture and any biological meaning of hybrid are not inferred. Targets and institution scope of further persisted corrections remain unverified. Private generated CSV approval contents/hashes were not reopened in this refresh.
+- Historical extraction baseline: 1,376 observations, 1,337 parseable, 39 unparseable, 126 AAA, 106 clean, 9 variants, 11 possible collisions, 6 reverse conflicts, 30 exact-Box conflicts, 22 malformed strings. Historical check-only/hash preservation and 15 targeted tests were reported at tooling delivery, not rerun now. Technical review/integration does not make the manifest import-ready.
+
+## Git/worktrees and local work — verified 2026-10-14
+
+**12 local branches, 9 registered worktrees**, including this documentation task (the transmission's 11/8 predates it). No staged changes in inspected worktrees. Ahead/behind numbers below are ancestry counts against `main`, **not pending patch counts**.
+
+Worktree roots are under `C:\Users\antoc\worktrees\POLYPBASE\<name>\POLYPBASE`, except canonical main.
+
+| Worktree / branch | HEAD | Ahead/behind main | Actual state |
+|---|---|---|---|
+| Canonical / `main` | `ec81a18` | 0/0 | Clean, matches local origin/main |
+| `docs-sync-2026-10-14` / `docs/sync-2026-10-14` | `ec81a18` | 0/0 | Documentation synchronization; input transmissions pre-existing/untracked |
+| `app-box-page` / `refactor/app-box-page` | `de23ed7` | 1/7 | Patch equivalent to integrated `c299df3`; untracked 271-line extraction audit retained |
+| `box-dialog-redesign` / `fix/box-dialog-redesign` | `23a9f3e` | 0/41 | **C:** 12 tracked frontend files modified, no staged changes; unfinished proposal, not integrated |
+| `box-movement-banner-polish` / `fix/box-movement-banner-polish` | `3643665` | 1/2 | Clean; patch equivalent to `9d20dba` |
+| `box-read-freshness` / `fix/box-read-freshness` | `0703f19` | 0/2 | **C+D:** five tracked paths modified + new freshness test, no commit |
+| `import-week-interval-science` / `feat/import-week-interval-science` | `06e6985` | 1/2 | Clean; patch equivalent to `ec81a18`, no later implementation inferred |
+| `perf-box-list-query` / `perf/box-list-query` | `48e77b6` | 1/34 | Patch equivalent to `785ff3f`; three untracked `.qa-box-list/*.json` retained |
+| `species-labels` / `fix/species-labels` | `ba9d5e4` | 0/45 | **C:** CURRENT_STATE notes + QR script diff; three proposed tests, not integrated |
+
+Three additional branches, without registered worktrees or expected directories, remain: `refactor/app-create-box-panel` **`6d48d55`**, `fix/chart-deplacements` **`6eae3f6`**, `fix/pilotage-ci-tests` **`bfe11d7`**. `git cherry` reports all three patches already integrated (respectively `3b1fc92`, `49e7870`, `5cf3879`). Cause/date/actor of directory disappearance and fate of ignored/uncommitted artifacts are **H**, not proof of loss or archival. No outstanding unique committed patch was found among the remaining source branches.
+
+### Active and retained work
+
+- **M10.1 C+D:** `App.tsx`, `api/client.ts`, `app-operation-test-harness.mjs`, `test-app-history-routing.mjs`, `test-box-movement-inline.mjs`, new `test-box-read-freshness.mjs`. Read-only diff confirms resource barriers, scoped GET invalidation, guarded mutation/React publication, synchronous revision cleanup on organization-generation changes and scalar mutation watermark. These are local technical choices, **not main guarantees or server commit ordering**.
+- Review sequence supplied: first High for delayed mutation responses → corrected and independently confirmed resolved; later Medium for unbounded cross-generation retention/full-map dispatch copy → writer reports corrected, **last independent re-review still missing**. Latest writer: **113/113 freshness and 449/449 targeted tests**, TS/CSS/build/diff green, sensitivity checks 5/4 expected failures. Not a fresh execution, mounted-browser QA, integration result or CI for M10.1.
+- M10.1 base `0703f19` precedes both `9d20dba` and `ec81a18`. Combined integration is not verified; the inline movement test overlaps the polish and must preserve its final UX. Main PATCH movement currently ignores returned detail before GET refresh; the local patch changes publication handling, not movement business rules.
+- **box-dialog-redesign C:** older MoveBox/Subculture/QR modal proposals and tests/styles/i18n. Transmission audit identifies incompatibility with current quantitative revision/allocations, destination revalidation and physical print sheet. Twelve-file local diff persists. Not accepted wholesale, not declared abandoned; selectively reconcile only after a separate decision.
+- **species-labels C:** three QR tests cover literal scientific qualifiers/code, no identifier-derived taxonomy, and independence of label content from zero/NULL measurements. The latter does not directly test scientific zero semantics. Local state notes are not authoritative; ledger checked separately. Do not overwrite newer main files from this old worktree.
+- **Retained evidence, not unfinished features:** `.qa-box-list/{initial-before,before,after}.json` (~18 MB; confidentiality not audited/copied) and `docs/audits/box-page-extraction.md` (271 lines). Its old build-timeout BLOCKED verdict is historical; later reviewer build and M9 integration/CI passed. No archival operation verified.
+- **Cleanup suspended by Anthony.** Git transmission reports controlled removal totals of 42 branches/42 worktrees, with cherry-pick/adaptation evidence and a resolved interrupted removal. `.git/polypbase-local-cleanup-report.json` exists, but its entire contents/reflogs were not re-audited here. Do not infer deleted source SHAs are main ancestors, recreate worktrees, or resume cleanup from this documentation task.
+
+## Independent review and historical validation evidence
+
+These are **supplied milestone results**, not tests run during this refresh and not an independent review of this documentation diff.
+
+| Milestone | Reported validation | Review / limitation |
+|---|---|---|
+| Imports 4A | Backend 1,269 total / 1,210 passed / 59 skipped; disposable PG 17.4 52/52 | Final GREEN; export N+1 fixed before closure |
+| Temporal 4B.1 | Backend 1,348 total / 1,283 passed / 65 skipped; PG 200/200 | GREEN |
+| Chronology 4B.2 | Initial 887 passed / 42 skipped; parent-partial correction 65/65 | Independent correction validation; no new migration |
+| Reads 4B.3a | Writer 230 passed / 1 skipped; reviewer 73/73 | READY TO COMMIT, integrated |
+| Interval 4B.3b | Writer 124 passed / 13 skipped; reviewer 122 passed / 1 skipped | READY TO COMMIT; main check/drift/push reported, no supplied post-integration test output |
+| Weekly movements | Writer SQLite 1,314 passed / 65 skipped; PG 17.4 69 tests, 6 concurrency scenarios, 12 lock waits | CHECK bypass corrected, re-review green; unrelated global PG failures reproduced on baseline, **not a globally green PG suite** |
+| Event distinction | Final writer 160 targeted; reviewer 24/24, 17/17, 14/14 | Export final-day finding corrected; READY TO COMMIT |
+| M9 BoxPage | Reviewer 554/554, TS/diff/build passed | Old writer timeout superseded; integrated CI reported green |
+| Inline movement/portage | Writer 1,589 full frontend + 83 targeted; reviewer 43 targeted | READY TO COMMIT; Chromium synthetic desktop/tablet |
+| Movement polish | Worktree 1,592 full frontend + 46 targeted; build passed | Main build 1m01s + TS/CSS reported; **1,592 not claimed rerun on main**; no deployment |
+| Transfer v1 | Main SQLite 18/18; pre-integration PG 2/2, no skips | GREEN; PG not rerun after cherry-pick |
+| Transfer 2B | Main backend 579 total / 559 passed / 20 skipped | Check/drift/diff passed |
+| Transfer 4 | PG 106 passed, including 8 concurrency scenarios; full 686 / 658 passed / 28 skipped | GREEN; reviewer did not rerun PG |
+| Transfer 5 | PG 36 targeted; full 819 / 780 passed / 39 skipped | GREEN; reviewer did not rerun PG/full suite |
+| M10.1 latest local | Writer 113/113 + 449/449, TS/CSS/build/diff | **Final Medium correction not independently re-reviewed**; not integrated |
+
+Older integrated milestone evidence is retained historically: Emplacement `0d7985a` (408 backend, 15 skipped); Alerts removal (writer 514 backend passed/18 skipped plus targeted/frontend checks, independent READY FOR COMMIT); frontend consistency `96c5593` (main Inventory 24, Confirm 25, Labels 69, Zones 50; TS/CSS/build); measurement-history `2292a61` (review 28 measurement, 28 chart, 4 date tests, TS/CSS/build); Species integrity (2 PG concurrency tests); Équipe (independent stale-response corrections/re-review and PG invitation concurrency reported). These counts validate their milestones, not all subsequent main commits. No new physical-printer/tablet, screen-reader or production validation is claimed.
+
+## Decisions, blockers and next logical steps
+
+### Confirmed decisions to preserve
+
+- Zero is real; tenant isolation and Django authority mandatory; preserve histories, authors, lineage and append-only audits. Administration desktop-only; French/English i18n; no implicit biological or operational inference.
+- Week-only observation target is `iso_week`, **NULL day**, ISO Monday key, display “Semaine 40 · 2026” / “Week 40 · 2026”. Exact known dates stay exact. Chronologically relevant same-week subculture requires the **real exact observation date**, cancellation or date entry, **no force/keep-weekly bypass**; unresolved file blocked in full. Implementation remains gated.
+- Ordinary movement quota/correction and final inline Origin → Destination UX are delivered decisions, not proposed redesigns.
+- Species answers apply only within their recorded scope; historical strings unchanged, no inferred BBB/global identity/ownership. Retain backend BBB foundation; defer routine UI. References catalog and Alerts are abandoned, not normal pending merges.
+
+### Product decisions still needed
+
+1. Scientific unresolved-state display/operation policy, inverse subculture guard, legacy unknown occurrences and unknown child allocations; proof/permission/audit for precision correction. Same-day exact convention does not establish intra-day order.
+2. Week-only period inclusion/overlap, age/freshness thresholds, movement-week location attribution and unknown daily temperature; no Monday/zone/temperature fabrication.
+3. External observer names, account-deletion retention/presentation and source-file lifecycle. Private source storage/durable plan is planned; **30-day unapplied-upload retention is a proposal, not approved policy**.
+4. Final Species/AAA manifest review/approval, remaining named issues and contextual AAA maintenance. No blanket waiting on already resolved Étienne answers and no generic importer authorization.
+5. Transfer v2 source active-only policy, stock/quantity/status effect and cross-instance package trust. Phase 6 remains blocked on required decisions, not silently implemented.
+6. Inactive unaccepted invitations if a change is needed; technical membership environment designation and historical location corrections require separate verified targets/authorization.
+
+### Proposed technical ordering, not new product rules
+
+1. Independent read-only review of this complete documentation diff, then Anthony decides integration. No commit/push here.
+2. Close **M10.1**: final independent review, authorized commit/integration against actual main, preserve `9d20dba`/`ec81a18`, combined tests and CI. Only then address **M10.2** paginated-zone freshness; retain full-collection publication and GET-only recovery. No new writer launched by this refresh.
+3. Scientific track: **4B.3c** explicit known/absent/unresolved contract without schema activation; then bidirectional guard, consumers/UI/exports, additive week-only schema with disposable PG QA, versioned planner baselines/readiness, durable guarded applicators and UI. Later tranche labels 4B.3d–g are provisional; dependencies, not labels, determine safe activation.
+4. Species/AAA approved manifest and small contextual management design; Transfer v2 Phase 6 after its decisions; selective old-dialog/test/evidence preservation only if Anthony reopens those topics. Git cleanup remains suspended.
+5. Release readiness and real-device QA are separate tasks. Probe connectivity, DNA enrichment and application WoRMS integration remain future/exploratory; existing fields/models do not prove connected features.
+
+## Reconciliation notes and unverifiable scope
+
+- **Time drift resolved:** old main/worktree inventory, ahead-of-upstream push step, pre-5-October urgency and uncommitted tablet polish are superseded by inspected Git and integrated commits. No old worktree was recreated.
+- **Imports transmission orientation corrected:** its helper description reverses the relation at one point; implementation/tests define observation relative to operation, documented above. No biological decision inferred.
+- **No overstatement of consumers:** Overview full-history is now delivered, but it does not receive persisted movement events. Week-only helper/read contracts do not mean persistence or scientific resolver integration.
+- **Review drift resolved:** M9 old build BLOCKED is superseded; M10.1 latest writer success is not final independent approval. No B/E unique pending source patch found; C/D work remains.
+- **Species drift resolved:** companion `4623fb1` decisions replace blanket pending claims; neither ledger nor local QR notes prove approved CSV fields or completed environment corrections. Anaïs response, private artifact status and actual corrected database records remain H where not evidenced.
+- **Production remains H:** no current deployed SHA, applied migration list or later production diagnostics verified. A reported historical `016712b` deployment reference is not today's production state. Local main, reported push and green CI do not prove release, migrations or laboratory readiness.
+
+Documentation-only validation and final diff are handed to an independent reviewer; this writer does not claim independent approval. No commit, push, merge, cherry-pick, cleanup, deployment or production/Neon access was performed.
