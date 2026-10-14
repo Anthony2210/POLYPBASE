@@ -68,13 +68,19 @@ function bannerHarness(overrides = {}) {
   const jsx = (type, props, key) => ({ type, props, key });
   const Metric = load('components/Metric.tsx', { 'react/jsx-runtime': { jsx, jsxs: jsx } });
   const Banner = load('components/LatestMovementBanner.tsx', {
-    react: hooks, 'react/jsx-runtime': { jsx, jsxs: jsx }, 'lucide-react': { ChevronDown: 'chevron-icon', Pencil: 'pencil-icon' },
+    react: hooks, 'react/jsx-runtime': { jsx, jsxs: jsx }, 'lucide-react': { ArrowRight: 'arrow-icon', Pencil: 'pencil-icon' },
     '../utils/boxMovementCorrection': helpers, './Metric': Metric,
+    './MeasurementSaveButton': { default: (props) => jsx('button', {
+      className: 'measurement-save-button', type: props.isDesktop ? 'submit' : 'button',
+      disabled: props.isDisabled || props.isSaving,
+      onClick: () => props.onSave(), 'aria-label': props.isDesktop ? undefined : props.labels.hold,
+      children: props.isSaving ? props.labels.saving : props.labels.save,
+    }) },
   }, { requestAnimationFrame(callback) { frames.push(callback); } }).default;
   let props = {
     box: box(), zones: [origin, destination, alternative, zone(4, 'Inactive', { is_active: false }),
       zone(5, 'Other organization', { organization: { id: 2 } })],
-    language: 'en', canEdit: true, isOperationCurrent: () => true,
+    language: 'en', canEdit: true, isDesktop: true, isOperationCurrent: () => true,
     onCorrect: async (...args) => { calls.push(args); },
     onRefresh: async (id) => { refreshes.push(id); return props.box; }, ...overrides,
   };
@@ -182,6 +188,48 @@ test('pencil opens a prefilled inline editor with immutable origin and scoped ac
   assert.equal(h.field('notes').props.value, 'Recorded comment');
 });
 
+for (const language of ['fr', 'en']) {
+  test(`editor ${language}: accessible date without visible label/help and normalized dirty actions`, () => {
+    const h = bannerHarness({ language }); h.click('movementCorrect');
+    assert.equal(h.field('date').props['aria-label'], h.t('movementDate'));
+    assert.equal(h.field('date').props['aria-describedby'], undefined);
+    assert.ok(!text(h.tree).includes(h.t('movementDate')));
+    assert.ok(!text(h.tree).includes(h.t('movementTimeHelp')));
+    assert.equal(h.button('movementSave'), undefined);
+    assert.ok(h.button('cancel'), 'clean draft can still be closed');
+    h.change('notes', '  Recorded comment  ');
+    assert.equal(h.button('movementSave'), undefined, 'compare trimmed API content');
+    for (const [field, changed, original] of [
+      ['notes', 'Correction', 'Recorded comment'],
+      ['destination', 3, 2],
+      ['date', '2026-07-06T12:13:13', '2026-07-06T12:12:13'],
+    ]) {
+      h.change(field, changed);
+      assert.ok(h.button('movementSave'));
+      const row = h.find((node) => node.props.className === 'measurement-actions-row');
+      assert.equal(text(row.props.children[0]), h.t('movementSave'));
+      assert.equal(text(row.props.children[1]), h.t('cancel'));
+      h.change(field, original);
+      assert.equal(h.button('movementSave'), undefined, 'reset hides save again');
+    }
+    h.click('cancel'); h.click('movementCorrect');
+    assert.equal(h.button('movementSave'), undefined, 'reopen starts clean');
+    assert.equal(h.calls.length, 0);
+  });
+}
+
+test('tablet uses the shared hold-save control and ignores direct form submission', async () => {
+  const h = bannerHarness({ isDesktop: false }); h.click('movementCorrect');
+  h.change('notes', 'Tablet correction');
+  const save = h.button('movementSave');
+  assert.equal(save.props.type, 'button');
+  assert.equal(save.props['aria-label'], h.t('holdToUpdate'));
+  h.submit(); assert.equal(h.calls.length, 0);
+  h.click('movementSave'); await h.settle();
+  assert.equal(h.calls.length, 1);
+  assert.equal(h.find((node) => node.type === 'form'), undefined);
+});
+
 test('notes-only save preserves fractional timestamp/revision zero, locks pending actions, refreshes before closing', async () => {
   const save = deferred(), refresh = deferred(), calls = [], refreshes = [];
   const h = bannerHarness({
@@ -209,7 +257,8 @@ test('notes-only save preserves fractional timestamp/revision zero, locks pendin
 
 test('no-change submit and invalid Paris DST input are rejected locally without a save', () => {
   const h = bannerHarness(); h.click('movementCorrect'); h.submit();
-  assert.ok(text(h.tree).includes(h.t('movementErrorNoChange')));
+  assert.equal(h.button('movementSave'), undefined);
+  assert.ok(!text(h.tree).includes(h.t('movementErrorNoChange')));
   h.change('date', '2026-03-29T02:30:00'); h.submit();
   assert.ok(text(h.tree).includes(h.t('movementTimeGap')));
   h.change('date', '2026-10-25T02:30:00'); h.submit();
@@ -456,35 +505,36 @@ test('CSS source: tablet and phone order is last reading, movement, then measure
   }
 });
 
-test('long zone names remain complete in native keyboard/touch disclosures, including read-only mode', () => {
+test('long zone names remain complete without decorative disclosures, including read-only mode', () => {
   const originName = 'Origin laboratory with a very long zone name '.repeat(30);
   const destinationName = 'Destination laboratory with a very long zone name '.repeat(30);
   for (const canEdit of [true, false]) {
     const h = bannerHarness({ canEdit, box: box({ movements: [movement({
       from_thermal_zone: zone(1, originName), to_thermal_zone: zone(2, destinationName),
     })] }) });
-    const disclosures = h.nodes.filter((node) => node.type === 'details');
-    assert.equal(disclosures.length, 2);
-    for (const [index, disclosure] of disclosures.entries()) {
-      assert.equal(disclosure.props.className, 'metric movement-zone-disclosure');
-      assert.ok(!disclosure.props.open, 'compact by default');
-      const summary = disclosure.props.children;
-      assert.equal(summary.type, 'summary', 'native activation supports keyboard and touch');
-      assert.equal(summary.props.title, index === 0 ? originName : destinationName);
-      assert.equal(summary.props.children[1].props.children, summary.props.title, 'full name, not a shortened string');
-    }
+    assert.equal(h.nodes.filter((node) => node.type === 'details').length, 0);
+    assert.equal(h.nodes.filter((node) => node.type === 'chevron-icon').length, 0);
+    const route = h.find((node) => node.props.className === 'movement-route');
+    assert.ok(route);
+    assert.deepEqual(h.nodes.filter((node) => node.props.className === 'metric movement-zone')
+      .map((node) => text(node.props.children[1])), [originName, destinationName]);
+    const arrow = h.find((node) => node.type === 'arrow-icon');
+    assert.equal(arrow.props['aria-hidden'], 'true');
+    assert.equal(route.props.children[1], arrow, 'one explicit arrow between origin and destination');
     const comment = h.find((node) => node.props.className === 'last-reading-comment');
     assert.equal(comment.props.children[0].props.className, 'last-reading-comment-header');
     assert.equal(h.calls.length, 0, 'disclosure rendering does not mutate business data');
   }
 });
 
-test('compact zones inherit measurement typography and expand without a fixed or maximum height', () => {
+test('movement route inherits measurement typography and wraps complete names without a height cap', () => {
   const css = read('styles/pages/box-detail.css');
   assert.doesNotMatch(css, /\.latest-movement-banner \.metric strong\s*\{[^}]*font-size/);
-  assert.match(css, /\.movement-zone-disclosure:not\(\[open\]\) > summary strong\s*\{[^}]*text-overflow:\s*ellipsis;[^}]*white-space:\s*nowrap;/);
-  assert.match(css, /\.movement-zone-disclosure\[open\] > summary strong\s*\{[^}]*overflow-wrap:\s*anywhere;/);
-  const disclosureRules = [...css.matchAll(/([^{}]*movement-zone-disclosure[^{}]*)\{([^{}]*)\}/g)];
+  assert.match(css, /\.movement-zone strong\s*\{[^}]*overflow-wrap:\s*anywhere;/);
+  assert.match(css, /\.movement-route\s*\{[^}]*grid-column:\s*span 2;[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto minmax\(0, 1fr\)/);
+  assert.match(css, /@media \(min-width: 1181px\)\s*\{\s*\.box-page \.last-reading-card\.measurement-summary\.latest-movement-banner:not\(\.is-empty\)\s*\{[^}]*minmax\(0, 1\.8fr\)/);
+  assert.match(css, /@media \(max-width: 1180px\)\s*\{\s*\.box-page \.last-reading-card\.measurement-summary\.latest-movement-banner:not\(\.is-empty\)\s*\{[^}]*repeat\(2, minmax\(0, 1fr\)\)/);
+  const disclosureRules = [...css.matchAll(/([^{}]*movement-zone[^{}]*)\{([^{}]*)\}/g)];
   assert.ok(disclosureRules.length > 0);
   for (const [, , declarations] of disclosureRules) assert.doesNotMatch(declarations, /(?:max-)?height\s*:/);
 });
@@ -512,11 +562,12 @@ test('source contracts: banner wiring stays independent of measurement editor an
   assert.match(boxSource, /<LatestMovementBanner[\s\S]*?canEdit=\{canWriteLabData\}[\s\S]*?onCorrect=\{onCorrectMovement\}[\s\S]*?onRefresh=\{onRefreshMovementState\}/);
   const css = read('styles/pages/box-detail.css');
   assert.match(css, /\.box-page-grid\s*>\s*\.measurement-module:is\(\.latest-movement-banner,\s*\.latest-movement-editor\)\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/);
-  for (const selector of ['movement-correction-fields', 'movement-correction-actions']) {
+  for (const selector of ['movement-correction-fields']) {
     const block = css.match(new RegExp(`\\.${selector}\\s*\\{([^}]+)\\}`))?.[1];
     assert.ok(block, `Missing ${selector}`);
     assert.match(block, /repeat\(auto-fit,\s*minmax\(min\(100%,\s*\d+px\),\s*1fr\)\)/);
   }
-  assert.match(css, /\.movement-correction-actions\s*>\s*button\s*\{[^}]*min-height:\s*44px/);
+  assert.match(read('components/LatestMovementBanner.tsx'), /className="measurement-actions-row"/);
+  assert.match(css, /\.measurement-cancel-button\s*\{[^}]*min-height:\s*44px/);
   assert.match(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{\s*\.latest-movement-editor[^}]*animation:\s*none/);
 });

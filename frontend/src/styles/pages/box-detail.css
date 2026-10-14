@@ -498,33 +498,40 @@
   background: var(--color-surface);
 }
 
-.movement-zone-disclosure > summary {
-  display: block;
-  cursor: pointer;
-  list-style: none;
-}
-
-.movement-zone-disclosure > summary::-webkit-details-marker { display: none; }
-
-.movement-zone-disclosure > summary small {
-  display: flex;
+.movement-route {
+  display: grid;
+  grid-column: span 2;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-1);
+  gap: var(--space-2);
+  min-width: 0;
 }
 
-.movement-zone-disclosure > summary small svg { flex-shrink: 0; }
+.movement-route-arrow { color: var(--color-muted); }
 
-.movement-zone-disclosure[open] > summary small svg { transform: rotate(180deg); }
+.movement-zone strong { overflow-wrap: anywhere; }
 
-.movement-zone-disclosure:not([open]) > summary strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+@media (min-width: 1181px) {
+  .box-page .last-reading-card.measurement-summary.latest-movement-banner:not(.is-empty) {
+    grid-template-columns: minmax(150px, .75fr) minmax(0, 1.8fr) minmax(220px, 1.2fr);
+  }
+
+  .latest-movement-banner .movement-route { grid-column: auto; }
 }
 
-.movement-zone-disclosure[open] > summary strong {
-  overflow-wrap: anywhere;
+@media (max-width: 1180px) {
+  .box-page .last-reading-card.measurement-summary.latest-movement-banner:not(.is-empty) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .latest-movement-banner > :first-child,
+  .latest-movement-banner .last-reading-comment { grid-column: 1 / -1; }
+
+  .last-reading-card.measurement-summary.latest-movement-banner .last-reading-comment {
+    padding: var(--space-3) 0 0;
+    border-top: 1px solid var(--color-line);
+    border-left: 0;
+  }
 }
 
 .latest-movement-banner .last-reading-comment p {
@@ -556,16 +563,6 @@
   display: grid;
   min-width: 0;
   gap: var(--space-2);
-}
-
-.movement-correction-actions {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
-  gap: var(--space-2);
-}
-
-.movement-correction-actions > button {
-  min-height: 44px;
 }
 
 @media (prefers-reduced-motion: reduce) {

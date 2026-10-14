@@ -824,6 +824,7 @@ export default function BoxPage({
           zones={zones}
           language={language}
           canEdit={canWriteLabData}
+          isDesktop={isDesktopApp}
           onCorrect={onCorrectMovement}
           onRefresh={onRefreshMovementState}
           isOperationCurrent={() => operationLifetimeRef.current && isOperationCurrent()}

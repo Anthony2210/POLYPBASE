@@ -61,14 +61,14 @@ test('BoxPage alone imports and renders the original movement banner with exact 
     return [attribute.name.getText(), attribute.initializer.expression.getText()];
   }));
   assert.deepEqual(expressions, {
-    box: 'box', zones: 'zones', language: 'language', canEdit: 'canWriteLabData',
+    box: 'box', zones: 'zones', language: 'language', canEdit: 'canWriteLabData', isDesktop: 'isDesktopApp',
     isOperationCurrent: '() => operationLifetimeRef.current && isOperationCurrent()', onCorrect: 'onCorrectMovement',
     onRefresh: 'onRefreshMovementState', t: 't',
   });
   const context = {
     React: { createElement: (type, props) => ({ type, props }) }, LatestMovementBanner: 'LatestMovementBanner',
     box: { id: 7, movements: [{ id: 9, revision: 0 }] }, zones: [{ id: 12 }], language: 'fr',
-    canWriteLabData: true, operationLifetimeRef: { current: true }, isOperationCurrent: () => true,
+    canWriteLabData: true, isDesktopApp: true, operationLifetimeRef: { current: true }, isOperationCurrent: () => true,
     onCorrectMovement: () => 'correct', onRefreshMovementState: () => 'refresh', t: () => 'translated',
   };
   const render = () => evaluate(`(() => (${calls[0].getText()}))()`, context);
@@ -84,6 +84,8 @@ test('BoxPage alone imports and renders the original movement banner with exact 
   assert.equal(render().props.isOperationCurrent(), false);
   context.canWriteLabData = false;
   assert.equal(render().props.canEdit, false);
+  context.isDesktopApp = false;
+  assert.equal(render().props.isDesktop, false);
 });
 
 test('shared write permission and location errors are imported from neutral real owners', () => {
