@@ -62,6 +62,27 @@ Le POST ordinaire exige toujours `measured_on` et établit `exact_date` côté s
 
 `measured_on` reste NOT NULL; `week_start`, l'unicité `(box, week_start)`, le calcul ISO dans `save()`, les tris scientifiques, la priorité du résolveur et les audits restent inchangés. La contrainte `measurement_temporal_precision_supported` n'autorise que les deux valeurs ci-dessus, y compris hors validation Python : `iso_week` est refusé même accompagné d'un lundi fabriqué. Cette phase conserve l'interprétation runtime historique des dates legacy; elle ne résout pas rétroactivement leur incertitude.
 
+### Première tranche de compatibilité des lectures temporelles
+
+Le contrat partagé `cultures.BiologicalMeasurementSerializer` expose désormais `week_start` en lecture seule, au même format de date ISO `YYYY-MM-DD` que `measured_on`. Ce lundi est exclusivement une **clé de semaine ISO**, jamais un jour d'observation de remplacement. `measured_on`, `temporal_precision`, les valeurs scientifiques et les identités/provenances existantes restent inchangés. Les réponses de liste, détail, historique de relevés, inventaire et dashboard utilisant ce serializer bénéficient de ce champ additif, sans chargement relationnel supplémentaire.
+
+La représentation du serializer accepte déjà un objet non persisté avec `measured_on=None` : un relevé reste un objet avec ID/valeurs/clé de semaine, distinct de `latest_measurement=null` (absence de relevé). Cela ne change **pas** sa validation d'entrée : le POST et le PATCH continuent à refuser une date explicitement nulle. Le fixture `iso_week` de test n'est jamais enregistré.
+
+Les lectures par boîte (préchargements liste/détail/inventaire, GET des relevés, fallbacks des serializers et dernière salinité biologique renseignée) trient par `-week_start`, puis `-created_at`, puis `-pk`. L'unicité `(box, week_start)` et le calcul actuel de la clé garantissent le même dernier relevé pour les données valides actuelles, y compris aux frontières d'année ISO. Les clés techniques ne prétendent pas établir une chronologie d'observation. Les sources de `current_polyp_state`, leurs priorités et les snapshots ne sont pas modifiés.
+
+Le filtre d'inventaire « sans relevé », partagé avec la sélection groupée, utilise un `Exists` corrélé à la boîte et non la nullité de la date du dernier relevé. Zéro reste présent; une strobile inconnue reste `null`. Les règles d'ancienneté et de création historique restent basées sur les dates existantes, sans seuil nouveau ni lundi de remplacement.
+
+**Consommateurs restant à adapter avant toute persistance semaine seule :**
+
+- `cultures/biological_timeline.py` appelle encore `measured_on.isoformat()` et trie ensemble relevés et repiquages par date effective. Remplacer cette date par lundi imposerait une priorité intra-semaine non décidée; cette lecture reste volontairement inchangée.
+- Le dashboard trie ses derniers relevés **entre plusieurs boîtes** par date : l'unicité hebdomadaire par boîte ne permet pas de remplacer ce tri sans changer l'ordre actuel au sein d'une semaine.
+- `cultures/polyp_state.py`, résolution scientifique et snapshots de repiquage, Actions/audit, historique/overview, formulaires/admin et services d'écriture utilisent toujours des dates réelles obligatoires.
+- L'ancienneté d'inventaire et la première date de relevé de la cohorte historique demandent une règle explicite pour une date inconnue; aucune ancienneté ou création biologique n'est déduite de `week_start`.
+- Le planner 1.1 conserve `MeasurementBaseline.measured_on` obligatoire et son fingerprint actuel; parser, classifications et readiness sont inchangés.
+- Les types et consommateurs frontend attendent toujours des dates non nulles (historique, inventaire, saisie, tris, graphiques, étiquettes); exports et transferts restent à examiner séparément.
+
+Cette tranche ne modifie ni schéma, ni contraintes, ni `save()`, ni écriture : `iso_week` n'est toujours **pas persistable**.
+
 ### Prérequis exacts pour une future activation semaine seule
 
 Une future ligne `iso_week` doit porter `measured_on=NULL` et une clé de semaine ISO explicite (`week_start`, lundi utilisé uniquement comme clé, jamais comme date d'observation). L'affichage sera par exemple « Semaine 40 · 2026 », sans jour inventé. Cette représentation n'est **pas persistable** dans cette phase.
@@ -70,12 +91,12 @@ Avant de l'activer, il faut :
 
 1. Faire évoluer la nullabilité de `measured_on`, les choix et la contrainte de précision; imposer les combinaisons exact/legacy/semaine autorisées et valider les clés ISO. Découpler `save()`/`week_start_for()` d'une date obligatoire tout en conservant l'unicité hebdomadaire. Définir les transitions de précision et leur audit sans inférence ni conversion historique automatique.
 2. Décider puis implémenter la résolution scientifique des observations connues seulement à la semaine, notamment avant/après un repiquage au sein de la même semaine. Adapter `cultures/polyp_state.py`, ses requêtes/préchargements, le calcul et les snapshots des repiquages, sans imposer arbitrairement une priorité.
-3. Adapter les contrats API/serializers, corrections, historique/timeline, latest measurement, filtres/fraîcheur d'inventaire, Actions/audit et formulaires/admin. Ils utilisent encore une date obligatoire ou des clés fondées sur cette date.
+3. Compléter la première tranche de lecture décrite ci-dessus : corrections, historique/timeline, tris inter-boîtes, fraîcheur/création historique d'inventaire, Actions/audit et formulaires/admin utilisent encore une date obligatoire. Le contrat additif et les tris latest par boîte ne suffisent pas à activer la persistance.
 4. Adapter les types et consommateurs frontend (saisie, dates, tris, graphiques, inventaire, étiquettes), ainsi que les exports (périodes, emplacement historique, température journalière). Définir les règles des semaines chevauchant une période ou un mouvement, au lieu de choisir lundi.
 5. Versionner si nécessaire les baselines/fingerprints du planner : la baseline actuelle exige une date et ne contient pas la précision. Définir les comparaisons legacy/exact/semaine et un applicateur d'import autorisé, institutionnel, verrouillé, atomique et audité, préservant absence/NULL/0 et la provenance Phase 4A. Examiner les imports historiques et les transferts séparément, sans réinterpréter leurs conventions existantes.
 6. Valider migrations, contraintes, transactions et concurrence sur PostgreSQL jetable isolé, puis les consommateurs et frontières temporelles. Ne retirer le blocage `week_precision_persistence_required` du planner qu'une fois l'ensemble prêt.
 
-Aucun de ces changements futurs, ni changement d'UI, graphiques, exports ou import historique, n'est implémenté par la fondation.
+La fondation et la première tranche de lecture ne réalisent pas ces prérequis restants; aucun changement d'UI, graphiques, exports ou import historique n'est activé.
 
 ## État courant et repiquage quantitatif
 

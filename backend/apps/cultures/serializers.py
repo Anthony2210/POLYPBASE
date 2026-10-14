@@ -137,6 +137,7 @@ class BoxMovementSerializer(serializers.ModelSerializer):
 
 
 class BiologicalMeasurementSerializer(serializers.ModelSerializer):
+    week_start = serializers.DateField(read_only=True)
     user = serializers.SerializerMethodField()
     user_identity = serializers.SerializerMethodField()
     original_observer_identity = serializers.SerializerMethodField()
@@ -152,6 +153,7 @@ class BiologicalMeasurementSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "measured_on",
+            "week_start",
             "temporal_precision",
             "polyp_count",
             "ephyrae_count",
@@ -300,7 +302,7 @@ class BoxListSerializer(serializers.ModelSerializer):
         if measurements is not None:
             measurement = next(iter(measurements), None)
         else:
-            measurement = obj.biological_measurements.order_by("-measured_on", "-created_at").first()
+            measurement = obj.biological_measurements.order_by("-week_start", "-created_at", "-pk").first()
         return (
             BiologicalMeasurementSerializer(measurement, context=self.context).data
             if measurement
@@ -324,7 +326,7 @@ class BoxListSerializer(serializers.ModelSerializer):
 
         latest = (
             obj.biological_measurements.filter(salinity_psu__isnull=False)
-            .order_by("-measured_on", "-created_at")
+            .order_by("-week_start", "-created_at", "-pk")
             .first()
         )
         return _render_salinity(latest.salinity_psu) if latest else None
@@ -383,8 +385,9 @@ class BoxInventorySerializer(serializers.ModelSerializer):
             measurement = next(iter(measurements), None)
         else:
             measurement = obj.biological_measurements.order_by(
-                "-measured_on",
+                "-week_start",
                 "-created_at",
+                "-pk",
             ).first()
         return (
             BiologicalMeasurementSerializer(measurement, context=self.context).data

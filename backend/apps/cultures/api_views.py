@@ -10,6 +10,7 @@ from django.db.models import (
     CharField,
     Count,
     DateField,
+    Exists,
     F,
     IntegerField,
     Min,
@@ -167,7 +168,7 @@ def box_queryset_for_user(user, organization_ids=None):
         *current_state_prefetches(),
         Prefetch(
             "biological_measurements",
-            queryset=BiologicalMeasurement.objects.select_related("user", "original_observer", "imported_by").order_by("-measured_on", "-created_at"),
+            queryset=BiologicalMeasurement.objects.select_related("user", "original_observer", "imported_by").order_by("-week_start", "-created_at", "-pk"),
         ),
         Prefetch(
             "parent_lineages",
@@ -225,12 +226,12 @@ def box_list_queryset_for_user(user, organization_ids=None):
 
     latest_measurements = (
         BiologicalMeasurement.objects.select_related("user", "original_observer", "imported_by")
-        .order_by("-measured_on", "-created_at")[:1]
+        .order_by("-week_start", "-created_at", "-pk")[:1]
     )
 
     latest_salinity = Subquery(
         BiologicalMeasurement.objects.filter(box_id=OuterRef("pk"), salinity_psu__isnull=False)
-        .order_by("-measured_on", "-created_at")
+        .order_by("-week_start", "-created_at", "-pk")
         .values("salinity_psu")[:1]
     )
     current_location_started_at = Subquery(
@@ -276,22 +277,25 @@ def box_inventory_queryset_for_user(user, organization_ids=None):
         .values("measured_on")[:1]
     )
 
+    has_biological_measurement = Exists(
+        BiologicalMeasurement.objects.filter(box_id=OuterRef("pk"))
+    )
     latest_measurement_on = Subquery(
         BiologicalMeasurement.objects.filter(box_id=OuterRef("pk"))
-        .order_by("-measured_on", "-created_at")
+        .order_by("-week_start", "-created_at", "-pk")
         .values("measured_on")[:1],
         output_field=DateField(),
     )
 
     latest_measurement_id = Subquery(
         BiologicalMeasurement.objects.filter(box_id=OuterRef("box_id"))
-        .order_by("-measured_on", "-created_at")
+        .order_by("-week_start", "-created_at", "-pk")
         .values("id")[:1]
     )
     latest_measurements = (
         BiologicalMeasurement.objects.filter(id__in=latest_measurement_id)
         .select_related("user", "original_observer", "imported_by")
-        .order_by("-measured_on", "-created_at")
+        .order_by("-week_start", "-created_at", "-pk")
     )
 
     latest_location_id = Subquery(
@@ -328,6 +332,7 @@ def box_inventory_queryset_for_user(user, organization_ids=None):
                 output_field=DateField(),
             ),
             latest_measurement_on_annotation=latest_measurement_on,
+            has_biological_measurement_annotation=has_biological_measurement,
         )
         .annotate(
             inventory_created_year_annotation=ExtractYear(
@@ -780,7 +785,7 @@ def _apply_box_inventory_filters(queryset, request, organization_ids, filter_sta
         )
 
     if filter_state["measurement_filter"] == "none":
-        queryset = queryset.filter(latest_measurement_on_annotation__isnull=True)
+        queryset = queryset.filter(has_biological_measurement_annotation=False)
     elif filter_state["measurement_filter"] == "older_than":
         cutoff_date = _subtract_calendar_months(
             filter_state["reference_date"],
@@ -1235,7 +1240,7 @@ class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
 
     def get(self, request, box_id):
         box = self._get_box(request, box_id)
-        queryset = box.biological_measurements.select_related("user", "original_observer", "imported_by").order_by("-measured_on", "-created_at")
+        queryset = box.biological_measurements.select_related("user", "original_observer", "imported_by").order_by("-week_start", "-created_at", "-pk")
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)

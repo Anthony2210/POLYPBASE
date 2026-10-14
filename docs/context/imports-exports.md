@@ -44,6 +44,8 @@ La fondation `0009_temporal_precision` conserve toutes les dates et clés ISO ex
 
 La préparation canonique sait représenter `iso_week` sans `measured_on`, mais le planner Phase 3 reste en lecture seule : une semaine libre peut être classée `CREATE` avec l'issue bloquante `week_precision_persistence_required` (`ready=False`). Le nouveau champ n'active pas la persistance semaine seule : `measured_on` est toujours NOT NULL et la contrainte de précision refuse `iso_week`. Le contrat de baseline et les classifications du planner sont inchangés.
 
+Une première tranche backend de lecture expose désormais `week_start` (date ISO du lundi, clé seulement) séparément de `measured_on`, prépare les tris latest par boîte et distingue l'existence d'un relevé de la disponibilité de son jour exact dans le filtre d'inventaire. Elle n'active aucune écriture semaine seule et ne modifie ni baseline/fingerprint 1.1, ni classification, ni readiness du planner. La timeline mixte, les tris inter-boîtes, la fraîcheur, le frontend et les exports restent à adapter avant activation.
+
 Les prérequis de schéma, résolution scientifique, contrats d'import/correction et consommateurs sont détaillés dans [`measurements-integrity.md`](measurements-integrity.md#prérequis-exacts-pour-une-future-activation-semaine-seule). Une future clé ISO du lundi ne devra jamais être présentée comme un jour d'observation réel.
 
 ## Diagnostic avant contrainte
