@@ -139,6 +139,7 @@
   display: grid;
   grid-template:
     "form last" auto
+    "movement movement" auto
     "insights insights" auto / minmax(0, 1fr) minmax(250px, 280px);
   gap: var(--space-4);
 }
@@ -147,16 +148,22 @@
 .box-page-grid > .last-reading-card { grid-area: last; }
 .box-page-grid > .box-insights-section { grid-area: insights; }
 
+/* A separate full-width row keeps movement and measurement modules independent. */
+.box-page-grid > .measurement-module:is(.latest-movement-banner, .latest-movement-editor) {
+  grid-area: movement;
+  grid-column: 1 / -1;
+}
+
 .box-page.is-read-only .box-page-grid {
-  grid-template: "last" auto "insights" auto / minmax(0, 1fr);
+  grid-template: "last" auto "movement" auto "insights" auto / minmax(0, 1fr);
 }
 
 .box-page-grid.is-inactive {
-  grid-template: "form" auto "insights" auto / minmax(0, 1fr);
+  grid-template: "form" auto "movement" auto "insights" auto / minmax(0, 1fr);
 }
 
 .box-page-grid.has-measurement-module {
-  grid-template: "last" auto "insights" auto / minmax(0, 1fr);
+  grid-template: "last" auto "movement" auto "insights" auto / minmax(0, 1fr);
 }
 
 .box-page-grid > .measurement-module { grid-area: last; }
@@ -486,6 +493,85 @@
   animation: measurement-editor-open 240ms ease-out;
 }
 
+:is(.latest-movement-banner, .box-page .last-reading-card.measurement-summary.latest-movement-banner).is-empty {
+  grid-template-columns: minmax(0, 1fr);
+  background: var(--color-surface);
+}
+
+.movement-zone-disclosure > summary {
+  display: block;
+  cursor: pointer;
+  list-style: none;
+}
+
+.movement-zone-disclosure > summary::-webkit-details-marker { display: none; }
+
+.movement-zone-disclosure > summary small {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+}
+
+.movement-zone-disclosure > summary small svg { flex-shrink: 0; }
+
+.movement-zone-disclosure[open] > summary small svg { transform: rotate(180deg); }
+
+.movement-zone-disclosure:not([open]) > summary strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.movement-zone-disclosure[open] > summary strong {
+  overflow-wrap: anywhere;
+}
+
+.latest-movement-banner .last-reading-comment p {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+}
+
+.movement-kind-label {
+  margin: var(--space-1) 0 0;
+  color: var(--color-muted);
+  font-size: .78rem;
+  line-height: 1.45;
+}
+
+.movement-banner-feedback {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.movement-correction-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  align-items: start;
+  gap: var(--space-3);
+}
+
+.movement-correction-fields > label {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-2);
+}
+
+.movement-correction-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: var(--space-2);
+}
+
+.movement-correction-actions > button {
+  min-height: 44px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .latest-movement-editor.is-expanded .fake-form { animation: none; }
+}
+
 @keyframes measurement-editor-open {
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: translateY(0); }
@@ -502,8 +588,8 @@
   .box-header-tools { gap: var(--space-2); }
   .box-zone-summary { padding-inline: var(--space-3); }
   .box-action-stack { min-width: 0; }
-  .box-page-grid { grid-template: "last" auto "form" auto "insights" auto / minmax(0, 1fr); }
-  .box-page-grid.has-measurement-module { grid-template: "last" auto "insights" auto / minmax(0, 1fr); }
+  .box-page-grid { grid-template: "last" auto "movement" auto "form" auto "insights" auto / minmax(0, 1fr); }
+  .box-page-grid.has-measurement-module { grid-template: "last" auto "movement" auto "insights" auto / minmax(0, 1fr); }
   .last-reading-card { grid-template-columns: minmax(130px, .7fr) repeat(2, minmax(100px, .45fr)) minmax(180px, 1fr); align-items: center; }
   .last-reading-comment { padding: 0 0 0 var(--space-3); border-top: 0; border-left: 1px solid var(--color-line); }
   .measurement-date-field { display: none; }
@@ -528,7 +614,7 @@
   .box-action-stack { min-width: 0; padding: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .box-action-stack > :last-child:nth-child(odd) { grid-column: 1 / -1; }
 
-  .box-page-grid { grid-template: "last" auto "form" auto "insights" auto / minmax(0, 1fr); gap: var(--space-3); }
+  .box-page-grid { grid-template: "last" auto "movement" auto "form" auto "insights" auto / minmax(0, 1fr); gap: var(--space-3); }
   .last-reading-card { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: var(--space-4); }
   :is(.last-reading-card.measurement-summary, .box-page.is-read-only .last-reading-card.measurement-summary) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .last-reading-card > :first-child, .last-reading-comment { grid-column: 1 / -1; }

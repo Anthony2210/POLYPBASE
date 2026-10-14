@@ -25,6 +25,7 @@ import type { ConfirmActionOptions } from './ConfirmActionModal';
 import DetailBackButton from './DetailBackButton';
 import InfoPill from './InfoPill';
 import Metric from './Metric';
+import LatestMovementBanner from './LatestMovementBanner';
 import StepperButton from './StepperButton';
 import { RowActionMenu, type RowActionMenuItem } from './RowActionMenu';
 import MeasurementSaveButton from './MeasurementSaveButton';
@@ -47,6 +48,7 @@ import type {
   BoxItem,
   BoxLineage,
   BoxMovement,
+  BoxMovementCorrectionPayload,
   BoxMovePayload,
 
   LineageGraph,
@@ -103,6 +105,8 @@ export default function BoxPage({
   isOperationCurrent,
   onUpdateMeasurement,
   onRefreshMeasurementState,
+  onCorrectMovement,
+  onRefreshMovementState,
   onCreateSubculture,
   onMoveBox,
   onDeactivateBox,
@@ -132,6 +136,8 @@ export default function BoxPage({
     payload: MeasurementPayload,
   ) => Promise<BiologicalMeasurement>;
   onRefreshMeasurementState: (boxId: number) => Promise<BoxDetail>;
+  onCorrectMovement: (boxId: number, movementId: number, payload: BoxMovementCorrectionPayload) => Promise<void>;
+  onRefreshMovementState: (boxId: number) => Promise<BoxDetail>;
   onCreateSubculture: (boxId: number, payload: SubculturePayload) => Promise<SubcultureResult>;
   onMoveBox: (boxId: number, payload: BoxMovePayload) => Promise<BoxDetail>;
   onDeactivateBox: (boxId: number, payload: BoxDeactivatePayload) => Promise<void>;
@@ -812,6 +818,17 @@ export default function BoxPage({
           ) : null}
         </section>
         ) : null}
+
+        <LatestMovementBanner
+          box={box}
+          zones={zones}
+          language={language}
+          canEdit={canWriteLabData}
+          onCorrect={onCorrectMovement}
+          onRefresh={onRefreshMovementState}
+          isOperationCurrent={() => operationLifetimeRef.current && isOperationCurrent()}
+          t={t}
+        />
 
         {canShowMeasurementForm ? (
           <section className={`box-section measurement-form-section${isMeasurementEditorExpanded ? ' measurement-module is-expanded' : ''}${isMeasurementFormLocked ? ' is-locked' : ''}`}>

@@ -263,7 +263,7 @@ test('measurement summary and editor are mutually exclusive states of one anchor
   assert.match(css, /\.measurement-summary-edit-button \{[^}]*position: absolute;[^}]*width: 44px;[^}]*height: 44px;/s);
   assert.match(
     css,
-    /\.box-page-grid\.has-measurement-module \{\s*grid-template: "last" auto "insights" auto \/ minmax\(0, 1fr\);\s*\}/s,
+    /\.box-page-grid\.has-measurement-module \{\s*grid-template: "last" auto "movement" auto "insights" auto \/ minmax\(0, 1fr\);\s*\}/s,
   );
   assert.match(css, /\.measurement-module\.is-expanded \.fake-form \{\s*animation: measurement-editor-open 240ms ease-out;/s);
 });

@@ -38,11 +38,52 @@ test('BoxPage and every moved helper/handler have one real owner, never an App f
   }
   assert.ok(functionNode('BoxPage').modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.DefaultKeyword));
   for (const name of ['mergeBoxDetail', 'upsertThermalZones', 'createMeasurement', 'updateMeasurement',
-    'createSubculture', 'moveBox', 'refreshBoxAfterMeasurement', 'loadLineageGraph', 'closeBoxPage']) {
+    'createSubculture', 'moveBox', 'correctMovement', 'refreshMovementState',
+    'refreshBoxAfterMeasurement', 'loadLineageGraph', 'closeBoxPage']) {
     assert.equal(functionNode(name).getSourceFile(), ast, name);
+    assert.equal(nodes(ast, node => ts.isFunctionDeclaration(node) && node.name?.text === name).length, 1, name);
     assert.equal(nodes(boxAst, node => ts.isFunctionDeclaration(node) && node.name?.text === name).length, 0, name);
   }
   assert.throws(() => functionNode('missingRequiredInstallation'), /Missing App.tsx function/);
+});
+
+test('BoxPage alone imports and renders the original movement banner with exact callback identities', () => {
+  imports(boxAst, './LatestMovementBanner', 'LatestMovementBanner', true);
+  assert.equal(nodes(ast, node => ts.isImportDeclaration(node)
+    && node.moduleSpecifier.text.endsWith('/LatestMovementBanner')).length, 0);
+  const banners = file => nodes(file, node => (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node))
+    && node.tagName.getText() === 'LatestMovementBanner');
+  assert.equal(banners(ast).length, 0);
+  const calls = banners(boxAst);
+  assert.equal(calls.length, 1);
+  const expressions = Object.fromEntries(calls[0].attributes.properties.map(attribute => {
+    assert.ok(ts.isJsxAttribute(attribute) && ts.isJsxExpression(attribute.initializer));
+    return [attribute.name.getText(), attribute.initializer.expression.getText()];
+  }));
+  assert.deepEqual(expressions, {
+    box: 'box', zones: 'zones', language: 'language', canEdit: 'canWriteLabData',
+    isOperationCurrent: '() => operationLifetimeRef.current && isOperationCurrent()', onCorrect: 'onCorrectMovement',
+    onRefresh: 'onRefreshMovementState', t: 't',
+  });
+  const context = {
+    React: { createElement: (type, props) => ({ type, props }) }, LatestMovementBanner: 'LatestMovementBanner',
+    box: { id: 7, movements: [{ id: 9, revision: 0 }] }, zones: [{ id: 12 }], language: 'fr',
+    canWriteLabData: true, operationLifetimeRef: { current: true }, isOperationCurrent: () => true,
+    onCorrectMovement: () => 'correct', onRefreshMovementState: () => 'refresh', t: () => 'translated',
+  };
+  const render = () => evaluate(`(() => (${calls[0].getText()}))()`, context);
+  assert.equal(render().type, context.LatestMovementBanner);
+  for (const [prop, expression] of Object.entries(expressions)) {
+    if (prop !== 'isOperationCurrent') assert.equal(render().props[prop], context[expression], prop);
+  }
+  assert.equal(render().props.isOperationCurrent(), true);
+  context.operationLifetimeRef.current = false;
+  assert.equal(render().props.isOperationCurrent(), false);
+  context.operationLifetimeRef.current = true;
+  context.isOperationCurrent = () => false;
+  assert.equal(render().props.isOperationCurrent(), false);
+  context.canWriteLabData = false;
+  assert.equal(render().props.canEdit, false);
 });
 
 test('shared write permission and location errors are imported from neutral real owners', () => {
@@ -61,7 +102,7 @@ test('shared write permission and location errors are imported from neutral real
   assert.equal(constants(boxAst)[0].initializer.getText(), '0.1');
 });
 
-// Exact expressions recorded from the pre-extraction App invocation. This keeps
+// Exact expressions from the App invocation, including movement callbacks. This keeps
 // App's route, lifetime, callbacks and loading contract separate from Box UI tests.
 const wiring = {
   key: '`${activeOrganizationId}:${selectedBoxId}`',
@@ -72,6 +113,7 @@ const wiring = {
   isOperationCurrent: '() => operationGeneration === organizationRequestGenerationRef.current',
   onUpdateMeasurement: 'updateMeasurement', onRefreshMeasurementState: 'refreshBoxAfterMeasurement',
   onCreateSubculture: 'createSubculture', onMoveBox: 'moveBox',
+  onCorrectMovement: 'correctMovement', onRefreshMovementState: 'refreshMovementState',
   onDeactivateBox: 'deactivateBox', onReactivateBox: 'reactivateBox', onLoadLineageGraph: 'loadLineageGraph',
   measurementPrefill: 'measurementPrefill', onMeasurementPrefillConsumed: '() => setMeasurementPrefill(null)',
   onOpenBox: 'openBox', onOpenZone: 'openZone', onAddQrLabel: 'addQrLabelToSelection',
@@ -109,7 +151,8 @@ test('real App JSX forwards fixture identities, loading flags and current-operat
     measurementPrefill: { box_id: 7, id: 9 }, setMeasurementPrefill: value => consumed.push(value),
   };
   const callbacks = Object.fromEntries(['createMeasurement', 'updateMeasurement', 'refreshBoxAfterMeasurement',
-    'createSubculture', 'moveBox', 'deactivateBox', 'reactivateBox', 'loadLineageGraph', 'openBox',
+    'createSubculture', 'moveBox', 'correctMovement', 'refreshMovementState',
+    'deactivateBox', 'reactivateBox', 'loadLineageGraph', 'openBox',
     'openZone', 'addQrLabelToSelection', 'closeBoxPage', 'openQrLabelSelection', 'confirmAction', 't']
     .map(name => [name, () => name]));
   Object.assign(context, callbacks);

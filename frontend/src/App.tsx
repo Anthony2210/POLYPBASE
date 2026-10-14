@@ -61,6 +61,7 @@ import type {
   BoxInventoryBatchResult,
   BoxItem,
   BoxMovePayload,
+  BoxMovementCorrectionPayload,
   BoxQualifyPayload,
   Dashboard,
   CurrentPolypState,
@@ -1347,6 +1348,28 @@ export default function App() {
     return detail;
   }
 
+  async function correctMovement(boxId: number, movementId: number, payload: BoxMovementCorrectionPayload) {
+    const { apiPatch, assertCurrent } = getOperationRequests(operationGeneration);
+    await apiPatch(`/api/boxes/${boxId}/movements/${movementId}/`, payload);
+    assertCurrent();
+  }
+
+  async function refreshMovementState(boxId: number) {
+    const { apiGet, setData, assertCurrent } = getOperationRequests(operationGeneration);
+    const [detail, zones] = await Promise.all([
+      apiGet<BoxDetail>(`/api/boxes/${boxId}/`),
+      fetchAllPages<ThermalZone>('/api/thermal-zones/'),
+    ]);
+    assertCurrent();
+    setData((current) => ({
+      ...mergeBoxDetail(current, detail),
+      zones,
+      overview: null,
+      exportOptions: null,
+    }));
+    return detail;
+  }
+
   async function createMeasurement(boxId: number, payload: MeasurementPayload) {
     const { apiPost, assertCurrent } = getOperationRequests(operationGeneration);
     try {
@@ -2014,6 +2037,8 @@ export default function App() {
                 isOperationCurrent={() => operationGeneration === organizationRequestGenerationRef.current}
                 onUpdateMeasurement={updateMeasurement}
                 onRefreshMeasurementState={refreshBoxAfterMeasurement}
+                onCorrectMovement={correctMovement}
+                onRefreshMovementState={refreshMovementState}
                 onCreateSubculture={createSubculture}
                 onMoveBox={moveBox}
                 onDeactivateBox={deactivateBox}

@@ -292,8 +292,21 @@ export type BoxLocation = {
   notes: string;
 };
 
+export type BoxMovementKind = 'ordinary' | 'initial_location' | 'qualification' | 'reactivation' | 'unclassified';
+
+export type BoxMovementCorrectionPayload = {
+  expected_revision: number;
+  notes?: string;
+  moved_at?: string;
+  to_thermal_zone_id?: number;
+};
+
 export type BoxMovement = {
   id: number;
+  kind?: BoxMovementKind;
+  revision?: number;
+  iso_week_start?: string | null;
+
   from_thermal_zone: ThermalZoneSummary | null;
   to_thermal_zone: ThermalZoneSummary;
   moved_at: string;
