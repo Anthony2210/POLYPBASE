@@ -17,6 +17,7 @@ import {
   apiPatch,
   apiPost,
   getStoredActiveOrganizationId,
+  invalidateInFlightGet,
   setActiveOrganizationContext,
 } from './api/client';
 
@@ -170,6 +171,10 @@ function setStoredSidebarCollapsed(collapsed: boolean): void {
   }
 }
 
+class BoxDetailSupersededError extends Error {}
+
+type MutationRefreshRecovery = (() => Promise<void>) & { isFresh?: () => boolean };
+
 type AppData = {
   boxes: BoxItem[];
   boxDetails: Record<number, BoxDetail>;
@@ -236,6 +241,7 @@ export default function App() {
   const navigationOrganizationRef = useRef(activeOrganizationId);
   const organizationRequestGenerationRef = useRef(0);
   const openBoxRequestGenerationRef = useRef(0);
+  const boxDetailRevisionsRef = useRef(new Map<string, number>());
   const [data, setData] = useState<AppData>({
     boxes: [],
     boxDetails: {},
@@ -260,7 +266,7 @@ export default function App() {
   } | null>(null);
   const [exportOptionsRequested, setExportOptionsRequested] = useState(false);
   const [error, setError] = useState<ApplicationError | null>(null);
-  const [refreshRecovery, setRefreshRecovery] = useState<(() => Promise<void>) | null>(null);
+  const [refreshRecovery, setRefreshRecovery] = useState<MutationRefreshRecovery | null>(null);
   const [isRecoveringRefresh, setIsRecoveringRefresh] = useState(false);
 
   useEffect(() => {
@@ -328,11 +334,64 @@ export default function App() {
 
   const operationGeneration = organizationRequestGenerationRef.current;
 
+  function invalidateBoxDetail(boxId: number, generation = organizationRequestGenerationRef.current) {
+    const key = `${generation}:${boxId}`;
+    // Allocate client boundary tokens within this organization lifetime, not server commit order.
+    const sequenceKey = `${generation}:sequence`;
+    const revision = (boxDetailRevisionsRef.current.get(sequenceKey) ?? 0) + 1;
+    boxDetailRevisionsRef.current.set(sequenceKey, revision);
+    boxDetailRevisionsRef.current.set(key, revision);
+    invalidateInFlightGet(`/api/boxes/${boxId}/`, activeOrganizationId);
+    setRefreshRecovery((current) => current?.isFresh && !current.isFresh() ? null : current);
+    return revision;
+  }
+
+  function beginBoxMutation() {
+    const generation = operationGeneration;
+    // A scalar watermark also covers IDs learned from creation/subculture responses.
+    const startedRevision = boxDetailRevisionsRef.current.get(`${generation}:sequence`) ?? 0;
+    return (boxId: number) => {
+      const key = `${generation}:${boxId}`;
+      const safe = (boxDetailRevisionsRef.current.get(key) ?? 0) <= startedRevision;
+      // Success invalidates reads even when response ordering cannot establish freshness.
+      const revision = invalidateBoxDetail(boxId, generation);
+      const { setData, assertCurrent } = getOperationRequests(generation);
+      const isCurrent = () => generation === organizationRequestGenerationRef.current
+        && revision === boxDetailRevisionsRef.current.get(key);
+      return {
+        isCurrent,
+        setData: (update: (current: AppData) => AppData) => setData((current) => (
+          safe && isCurrent() ? update(current) : current
+        )),
+        reconcile: (afterRead?: () => Promise<unknown>) => safe && !afterRead ? Promise.resolve() : refreshAfterMutation(
+          async () => {
+            if (!safe && isCurrent()) {
+              try {
+                await refreshBoxAfterMeasurement(boxId);
+              } catch (requestError) {
+                if (!(requestError instanceof BoxDetailSupersededError) && isCurrent()) throw requestError;
+              }
+            }
+            if (afterRead) await afterRead();
+          }, assertCurrent, afterRead
+            // Side-resource recovery remains needed even after this Box is superseded.
+            ? () => generation === organizationRequestGenerationRef.current
+            : isCurrent,
+        ),
+      };
+    };
+  }
+
   function getOperationRequests(generation = organizationRequestGenerationRef.current) {
+    const detailReads = new Map<string, number>();
+    const areDetailsCurrent = (reads = detailReads) => [...reads].every(
+      ([key, revision]) => revision === (boxDetailRevisionsRef.current.get(key) ?? 0),
+    );
     const assertCurrent = () => {
       if (generation !== organizationRequestGenerationRef.current) {
         throw new ApiResourceCancelledError();
       }
+      if (!areDetailsCurrent()) throw new BoxDetailSupersededError();
     };
     async function run<T>(request: () => Promise<T>): Promise<T> {
       assertCurrent();
@@ -346,14 +405,27 @@ export default function App() {
       }
     }
     return {
-      apiGet: <T,>(path: string) => run(() => apiGet<T>(path)),
+      apiGet: <T,>(path: string) => {
+        const match = /^\/api\/boxes\/(\d+)\/$/.exec(path);
+        if (match) {
+          const key = `${generation}:${Number(match[1])}`;
+          detailReads.set(key, boxDetailRevisionsRef.current.get(key) ?? 0);
+        }
+        return run(() => apiGet<T>(path));
+      },
       apiPost: <T,>(path: string, payload: unknown) => run(() => apiPost<T>(path, payload)),
       apiPatch: <T,>(path: string, payload: unknown) => run(() => apiPatch<T>(path, payload)),
       apiDelete: <T,>(path: string) => run(() => apiDelete<T>(path)),
       assertCurrent,
-      setData: (update: (current: AppData) => AppData) => setData((current) => (
-        generation === organizationRequestGenerationRef.current ? update(current) : current
-      )),
+      isCurrent: () => generation === organizationRequestGenerationRef.current && areDetailsCurrent(),
+      setData: (update: (current: AppData) => AppData) => {
+        // React may apply this updater after another mutation has committed.
+        const reads = new Map(detailReads);
+        setData((current) => (
+          generation === organizationRequestGenerationRef.current && areDetailsCurrent(reads)
+            ? update(current) : current
+        ));
+      },
     };
   }
 
@@ -505,6 +577,7 @@ export default function App() {
     }
 
     const requestGeneration = ++organizationRequestGenerationRef.current;
+    boxDetailRevisionsRef.current.clear();
     openBoxRequestGenerationRef.current += 1;
     resetBoxCollection();
     setIsBoxLoading(false);
@@ -588,6 +661,7 @@ export default function App() {
 
     let isActive = true;
     const requestGeneration = ++organizationRequestGenerationRef.current;
+    boxDetailRevisionsRef.current.clear();
     const isCurrentRequest = () => isActive && requestGeneration === organizationRequestGenerationRef.current;
 
     async function loadData() {
@@ -870,15 +944,16 @@ export default function App() {
     const isCurrentRequest = () => isActive && requestGeneration === organizationRequestGenerationRef.current;
 
     async function loadBoxDetail(boxId: number) {
+      const { apiGet, setData, isCurrent: isDetailCurrent } = getOperationRequests(requestGeneration);
       try {
         setIsBoxLoading(true);
         const detail = await apiGet<BoxDetail>(`/api/boxes/${boxId}/`);
         if (!isCurrentRequest()) return;
         setData((current) => mergeBoxDetail(current, detail));
       } catch (requestError) {
-        if (!isCurrentRequest()) return;
+        if (!isCurrentRequest() || !isDetailCurrent()) return;
         const applicationError = await getApplicationError(requestError);
-        if (!isCurrentRequest()) return;
+        if (!isCurrentRequest() || !isDetailCurrent()) return;
         setError(applicationError);
       } finally {
         if (isCurrentRequest()) setIsBoxLoading(false);
@@ -937,19 +1012,18 @@ export default function App() {
     if (!missingIds.length) return;
 
     missingIds.forEach((boxId) => requestedIds.add(boxId));
-    const { apiGet, setData } = getOperationRequests();
-    void Promise.allSettled(missingIds.map((boxId) => apiGet<BoxDetail>(`/api/boxes/${boxId}/`)))
-      .then((results) => {
-        const loadedBoxes: BoxDetail[] = [];
-        results.forEach((result, index) => {
-          if (result.status === 'fulfilled') loadedBoxes.push(result.value);
-          else requestedIds.delete(missingIds[index]);
+    missingIds.forEach((boxId) => {
+      // Keep each publication independent: one changed Box must not discard its siblings.
+      const { apiGet, setData } = getOperationRequests();
+      void apiGet<BoxDetail>(`/api/boxes/${boxId}/`)
+        .then((detail) => {
+          setData((current) => ({ ...current, boxes: upsertBoxes(current.boxes, [detail]) }));
+        })
+        .catch(() => {
+          // A failed recent box is only left out; it is retried on a later visit.
+          requestedIds.delete(boxId);
         });
-        // A failed recent box is only left out; it is retried on a later visit.
-        if (loadedBoxes.length) {
-          setData((current) => ({ ...current, boxes: upsertBoxes(current.boxes, loadedBoxes) }));
-        }
-      });
+    });
   }, [
     activeOrganizationId,
     activeTab,
@@ -988,6 +1062,7 @@ export default function App() {
     }
 
     const navigationGeneration = navigationGenerationRef.current;
+    const { apiGet, setData, isCurrent: isDetailCurrent } = getOperationRequests(organizationGeneration);
     setIsBoxLoading(true);
     void apiGet<BoxDetail>(`/api/boxes/${boxId}/`)
       .then((detail) => {
@@ -1002,7 +1077,7 @@ export default function App() {
         navigateTo({ tab: 'pilotage', boxCode: detail.global_code, boxId }, `/boxes/${encodeURIComponent(detail.global_code)}`);
       })
       .catch(async (requestError) => {
-        if (organizationGeneration !== organizationRequestGenerationRef.current) return;
+        if (!isDetailCurrent()) return;
         if (!isRouteRequestCurrent(
           requestGeneration,
           openBoxRequestGenerationRef.current,
@@ -1010,7 +1085,7 @@ export default function App() {
           navigationGenerationRef.current,
         )) return;
         const applicationError = await getApplicationError(requestError);
-        if (organizationGeneration === organizationRequestGenerationRef.current && isRouteRequestCurrent(
+        if (isDetailCurrent() && isRouteRequestCurrent(
           requestGeneration,
           openBoxRequestGenerationRef.current,
           navigationGeneration,
@@ -1259,7 +1334,9 @@ export default function App() {
 
   async function logoutCurrentUser() {
     await apiPost<void>('/api/auth/logout/', {});
+    setActiveOrganizationContext(null);
     organizationRequestGenerationRef.current += 1;
+    boxDetailRevisionsRef.current.clear();
     openBoxRequestGenerationRef.current += 1;
     setRefreshRecovery(null);
 
@@ -1282,22 +1359,34 @@ export default function App() {
     setIsLoginRoute(true);
   }
 
-  async function refreshAfterMutation(refresh: () => Promise<unknown>, assertCurrent: () => void) {
+  async function refreshAfterMutation(
+    refresh: () => Promise<unknown>, assertCurrent: () => void, isFresh = () => true,
+  ) {
     const generation = organizationRequestGenerationRef.current;
     assertCurrent();
+    if (!isFresh()) return;
     try {
       await refresh();
       assertCurrent();
     } catch (requestError) {
       assertCurrent();
+      // A later committed Box mutation owns the refresh now; this is not a read failure.
+      if (requestError instanceof BoxDetailSupersededError || !isFresh()) return;
       setRefreshRecovery((current) => {
-        if (generation !== organizationRequestGenerationRef.current) return current;
+        if (generation !== organizationRequestGenerationRef.current || !isFresh()) return current;
         const recovery = async () => {
           assertCurrent();
-          await refresh();
-          assertCurrent();
+          if (isFresh()) {
+            try {
+              await refresh();
+              assertCurrent();
+            } catch (requestError) {
+              if (!(requestError instanceof BoxDetailSupersededError) && isFresh()) throw requestError;
+            }
+          }
           setRefreshRecovery((pending) => pending === recovery ? null : pending);
         };
+        recovery.isFresh = isFresh;
         return recovery;
       });
     }
@@ -1316,8 +1405,10 @@ export default function App() {
     }
   }
 
-  function applyMeasurementResult(boxId: number, measurement: BiologicalMeasurement) {
-    const { setData } = getOperationRequests(operationGeneration);
+  function applyMeasurementResult(
+    boxId: number, measurement: BiologicalMeasurement,
+    setData: (update: (current: AppData) => AppData) => void,
+  ) {
     setData((current) => {
       const detail = current.boxDetails[boxId];
       if (!detail) return current;
@@ -1350,8 +1441,16 @@ export default function App() {
 
   async function correctMovement(boxId: number, movementId: number, payload: BoxMovementCorrectionPayload) {
     const { apiPatch, assertCurrent } = getOperationRequests(operationGeneration);
-    await apiPatch(`/api/boxes/${boxId}/movements/${movementId}/`, payload);
+    const commit = beginBoxMutation();
+    const detail = await apiPatch<BoxDetail>(`/api/boxes/${boxId}/movements/${movementId}/`, payload);
     assertCurrent();
+    const publication = commit(boxId);
+    // The component owns the subsequent guarded detail and movement refresh.
+    publication.setData((current) => ({
+      ...mergeBoxDetail(current, detail),
+      overview: null,
+      exportOptions: null,
+    }));
   }
 
   async function refreshMovementState(boxId: number) {
@@ -1372,11 +1471,13 @@ export default function App() {
 
   async function createMeasurement(boxId: number, payload: MeasurementPayload) {
     const { apiPost, assertCurrent } = getOperationRequests(operationGeneration);
+    const commit = beginBoxMutation();
     try {
       const created = await apiPost<BiologicalMeasurement>(`/api/boxes/${boxId}/measurements/`, payload);
       assertCurrent();
-      applyMeasurementResult(boxId, created);
-      await refreshAfterMutation(() => refreshBoxAfterMeasurement(boxId), assertCurrent);
+      const publication = commit(boxId);
+      applyMeasurementResult(boxId, created, publication.setData);
+      await refreshAfterMutation(() => refreshBoxAfterMeasurement(boxId), assertCurrent, publication.isCurrent);
       assertCurrent();
       return created;
     } catch (requestError) {
@@ -1393,30 +1494,35 @@ export default function App() {
   }
 
   async function createBox(payload: BoxCreatePayload) {
-    const { apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
+    const { apiPost, assertCurrent } = getOperationRequests(operationGeneration);
+    const commit = beginBoxMutation();
     const detail = await apiPost<BoxDetail>('/api/boxes/', payload);
     assertCurrent();
+    const publication = commit(detail.id);
 
-    setData((current) => ({
+    publication.setData((current) => ({
       ...mergeBoxDetail(current, detail),
       boxes: upsertBoxes(current.boxes, [detail]),
       overview: null,
       exportOptions: null,
     }));
+    await publication.reconcile();
     assertCurrent();
     return detail;
   }
 
   async function updateMeasurement(boxId: number, measurementId: number, payload: MeasurementPayload) {
     const { apiPatch, assertCurrent } = getOperationRequests(operationGeneration);
+    const commit = beginBoxMutation();
     try {
       const updated = await apiPatch<BiologicalMeasurement>(
         `/api/boxes/${boxId}/measurements/${measurementId}/`,
         payload,
       );
       assertCurrent();
-      applyMeasurementResult(boxId, updated);
-      await refreshAfterMutation(() => refreshBoxAfterMeasurement(boxId), assertCurrent);
+      const publication = commit(boxId);
+      applyMeasurementResult(boxId, updated, publication.setData);
+      await refreshAfterMutation(() => refreshBoxAfterMeasurement(boxId), assertCurrent, publication.isCurrent);
       assertCurrent();
       return updated;
     } catch (requestError) {
@@ -1433,7 +1539,9 @@ export default function App() {
   }
 
   async function createSubculture(boxId: number, payload: SubculturePayload) {
-    const { apiGet, apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
+    const { apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
+    const commit = beginBoxMutation();
+    const conflictRevision = boxDetailRevisionsRef.current.get(`${operationGeneration}:${boxId}`) ?? 0;
     let result: SubcultureResult;
     try {
       result = await apiPost<SubcultureResult>(`/api/boxes/${boxId}/subcultures/`, payload);
@@ -1446,7 +1554,8 @@ export default function App() {
           const state = requestError.data.current_polyp_state as CurrentPolypState;
           setData((current) => {
             const detail = current.boxDetails[boxId];
-            return detail ? mergeBoxDetail(current, { ...detail, current_polyp_state: state }) : current;
+            return detail && conflictRevision === (boxDetailRevisionsRef.current.get(`${operationGeneration}:${boxId}`) ?? 0)
+              ? mergeBoxDetail(current, { ...detail, current_polyp_state: state }) : current;
           });
         }
         try {
@@ -1458,7 +1567,9 @@ export default function App() {
       throw requestError;
     }
     assertCurrent();
-    setData((current) => {
+    const publication = commit(boxId);
+    const children = result.children.map((child) => ({ child, publication: commit(child.id) }));
+    publication.setData((current) => {
       const detail = current.boxDetails[boxId];
       const updated = detail ? mergeBoxDetail(current, {
         ...detail,
@@ -1473,36 +1584,39 @@ export default function App() {
       }) : current;
       return {
         ...updated,
-        boxes: upsertBoxes(updated.boxes, result.children),
         overview: null,
         exportOptions: null,
       };
     });
-    await refreshAfterMutation(async () => {
-      const detail = await apiGet<BoxDetail>(`/api/boxes/${boxId}/`);
-      assertCurrent();
-      setData((current) => mergeBoxDetail(current, detail));
-    }, assertCurrent);
+    children.forEach(({ child, publication: childPublication }) => {
+      childPublication.setData((current) => ({ ...current, boxes: upsertBoxes(current.boxes, [child]) }));
+    });
+    await Promise.all([
+      refreshAfterMutation(() => refreshBoxAfterMeasurement(boxId), assertCurrent, publication.isCurrent),
+      ...children.map(({ publication: childPublication }) => childPublication.reconcile()),
+    ]);
     assertCurrent();
     return result;
   }
 
   async function moveBox(boxId: number, payload: BoxMovePayload) {
     const { apiGet, apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
+    const commit = beginBoxMutation();
     try {
       const detail = await apiPost<BoxDetail>(`/api/boxes/${boxId}/move/`, payload);
       assertCurrent();
-      setData((current) => ({
+      const publication = commit(boxId);
+      publication.setData((current) => ({
         ...mergeBoxDetail(current, detail),
         overview: null,
         exportOptions: null,
       }));
-      await refreshAfterMutation(async () => {
+      await publication.reconcile(async () => {
         assertCurrent();
         const zones = await fetchAllPages<ThermalZone>('/api/thermal-zones/?limit=80');
         assertCurrent();
         setData((current) => ({ ...current, zones }));
-      }, assertCurrent);
+      });
       assertCurrent();
       return detail;
     } catch (requestError) {
@@ -1529,108 +1643,107 @@ export default function App() {
   }
 
   async function deactivateBox(boxId: number, payload: BoxDeactivatePayload) {
-    const { apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
+    const { apiPost, assertCurrent } = getOperationRequests(operationGeneration);
+    const commit = beginBoxMutation();
     const detail = await apiPost<BoxDetail>(`/api/boxes/${boxId}/deactivate/`, payload);
     assertCurrent();
+    const publication = commit(boxId);
 
-    setData((current) => ({
+    publication.setData((current) => ({
       ...mergeBoxDetail(current, detail),
       boxes: upsertBoxes(current.boxes, [detail]),
       overview: null,
       exportOptions: null,
     }));
+    await publication.reconcile();
     assertCurrent();
   }
 
   async function reactivateBox(boxId: number, payload: BoxActivatePayload) {
-    const { apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
+    const { apiPost, assertCurrent } = getOperationRequests(operationGeneration);
+    const commit = beginBoxMutation();
     const detail = await apiPost<BoxDetail>(`/api/boxes/${boxId}/activate/`, payload);
     assertCurrent();
+    const publication = commit(boxId);
 
-    setData((current) => ({
+    publication.setData((current) => ({
       ...mergeBoxDetail(current, detail),
       boxes: upsertBoxes(current.boxes, [detail]),
       overview: null,
       exportOptions: null,
     }));
+    await publication.reconcile();
     assertCurrent();
   }
 
   async function qualifyBox(boxId: number, payload: BoxQualifyPayload) {
-    const { apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
+    const { apiPost, assertCurrent } = getOperationRequests(operationGeneration);
+    const commit = beginBoxMutation();
     const detail = await apiPost<BoxDetail>(`/api/boxes/${boxId}/qualify/`, payload);
     assertCurrent();
+    const publication = commit(boxId);
 
-    setData((current) => ({
+    publication.setData((current) => ({
       ...mergeBoxDetail(current, detail),
       boxes: upsertBoxes(current.boxes, [detail]),
       overview: null,
       exportOptions: null,
     }));
+    await publication.reconcile();
     assertCurrent();
   }
 
   async function assignBoxInitialLocation(boxId: number, payload: BoxInitialLocationPayload) {
     const { apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
+    const commit = beginBoxMutation();
     const detail = await apiPost<BoxDetail>(
       `/api/admin/box-inventory/${boxId}/assign-location/`,
       payload,
     );
     assertCurrent();
-    setData((current) => ({
+    const publication = commit(boxId);
+    publication.setData((current) => ({
       ...mergeBoxDetail(current, detail),
       boxes: upsertBoxes(current.boxes, [detail]),
       overview: null,
       exportOptions: null,
     }));
-    await refreshAfterMutation(async () => {
+    await publication.reconcile(async () => {
       assertCurrent();
       const zones = await fetchAllPages<ThermalZone>('/api/thermal-zones/?limit=80');
       assertCurrent();
       setData((current) => ({ ...current, zones }));
-    }, assertCurrent);
+    });
     assertCurrent();
   }
 
   async function qualifyBoxesBatch(payload: BoxInventoryBatchQualifyPayload) {
-    const { apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
+    const { apiPost, assertCurrent } = getOperationRequests(operationGeneration);
+    const commit = beginBoxMutation();
     const result = await apiPost<BoxInventoryBatchResult>(
       '/api/admin/box-inventory/batch-qualify/',
       payload,
     );
     assertCurrent();
-    const successfulStatuses = new Map(
-      result.successes.map((item) => [item.box_id, item.status]),
-    );
-
-    setData((current) => {
-      const boxDetails = { ...current.boxDetails };
-      result.successes.forEach((item) => {
-        const detail = boxDetails[item.box_id];
-        if (!detail) return;
-        boxDetails[item.box_id] = {
-          ...detail,
-          status: item.status,
-          thermal_zone: item.status === 'inactive' ? null : detail.thermal_zone,
+    const publications = result.successes.map((item) => {
+      const publication = commit(item.box_id);
+      publication.setData((current) => {
+        const project = <T extends BoxItem>(box: T): T => ({
+          ...box, status: item.status,
+          thermal_zone: item.status === 'inactive' ? null : box.thermal_zone,
+        });
+        const detail = current.boxDetails[item.box_id];
+        return {
+          ...current,
+          boxes: current.boxes.map((box) => box.id === item.box_id ? project(box) : box),
+          boxDetails: detail ? { ...current.boxDetails, [item.box_id]: project(detail) } : current.boxDetails,
+          overview: null,
+          exportOptions: null,
         };
       });
-
-      return {
-        ...current,
-        boxes: current.boxes.map((box) => {
-          const nextStatus = successfulStatuses.get(box.id);
-          if (!nextStatus) return box;
-          return {
-            ...box,
-            status: nextStatus,
-            thermal_zone: nextStatus === 'inactive' ? null : box.thermal_zone,
-          };
-        }),
-        boxDetails,
-        overview: null,
-        exportOptions: null,
-      };
+      return publication;
     });
+    await Promise.all(publications.map((publication) => publication.reconcile()));
     assertCurrent();
     return result;
   }

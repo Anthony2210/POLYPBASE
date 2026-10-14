@@ -93,7 +93,11 @@ export function installAppRouting(context, evaluate, organization = 1) {
     navigationOrganizationRef: { current: organization },
     navigationPolicyRef: { current: { isDesktopApp: true, canUseAdmin: true } },
     navigationGenerationRef: context.navigationGenerationRef ?? { current: 0 },
+    boxDetailRevisionsRef: context.boxDetailRevisionsRef ?? { current: new Map() },
   });
+  const supersededError = ast.statements.find(node => ts.isClassDeclaration(node)
+    && node.name?.text === 'BoxDetailSupersededError');
+  evaluate(supersededError.getText(ast));
   for (const name of ['inAppHistory', 'authRouting', 'routeSafety']) {
     const moduleSource = readFileSync(new URL(`../src/utils/${name}.ts`, import.meta.url), 'utf8');
     const { outputText } = ts.transpileModule(moduleSource, {
@@ -152,6 +156,8 @@ export function appHarness() {
     setSearch() {}, setIsTabletScannerOpen() {}, setIsLoginRoute() {}, setPasswordReset() {},
     operationGeneration: 0,
     organizationRequestGenerationRef: { current: 0 },
+    boxDetailRevisionsRef: { current: new Map() },
+    invalidateInFlightGet() {},
     ApiResourceCancelledError: class ApiResourceCancelledError extends Error {},
     ApiError: class ApiError extends Error {},
     setData(update) { state.data = update(state.data); },
@@ -178,7 +184,7 @@ export function appHarness() {
     return vm.runInContext(compiledFunctions.get(code), context);
   }
   installAppRouting(context, evaluate);
-  for (const name of ['getOperationRequests', 'fetchAllPages', 'mergeBoxDetail', 'refreshAfterMutation', 'applyMeasurementResult',
+  for (const name of ['invalidateBoxDetail', 'beginBoxMutation', 'getOperationRequests', 'fetchAllPages', 'mergeBoxDetail', 'refreshAfterMutation', 'applyMeasurementResult',
     'refreshBoxAfterMeasurement', 'createMeasurement', 'updateMeasurement', 'createBox', 'createSubculture', 'moveBox',
     'deactivateBox', 'reactivateBox', 'qualifyBox', 'assignBoxInitialLocation', 'qualifyBoxesBatch', 'loadLineageGraph',
     'createThermalZone', 'updateThermalZone', 'recordManualTemperature', 'refreshZoneSalinityCapability',

@@ -423,7 +423,10 @@ test('App correctMovement PATCH uses the revision payload and propagates server 
   assert.equal(h.requests[0].method, 'apiPatch');
   assert.equal(h.requests[0].url, '/api/boxes/17/movements/12/');
   assert.equal(h.requests[0].payload, payload);
-  h.requests[0].resolve({}); await pending;
+  const saved = box();
+  saved.movements[0] = { ...saved.movements[0], revision: 1, notes: 'Corrected' };
+  h.requests[0].resolve(saved); await pending;
+  assert.equal(h.state.data.boxDetails[17], saved, 'retain the committed correction before the refresh');
   assert.equal(h.requests.length, 1, 'component owns refresh, not the PATCH handler');
   const error = failure('box_movement_week_conflict');
   const refused = h.context.correctMovement(17, 12, payload);

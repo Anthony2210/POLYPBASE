@@ -91,6 +91,15 @@ export function setActiveOrganizationContext(organizationId: number | null) {
   } else {
     window.localStorage.setItem(ACTIVE_ORGANIZATION_STORAGE_KEY, String(organizationId));
   }
+  if (previousOrganizationId !== organizationId) {
+    // A return to this organization must not join a detail read from its old lifetime.
+    const prefix = `${previousOrganizationId ?? 'none'}:`;
+    for (const key of inFlightGetRequests.keys()) {
+      if (key.startsWith(prefix) && /^\/api\/boxes\/\d+\/$/.test(key.slice(prefix.length))) {
+        inFlightGetRequests.delete(key);
+      }
+    }
+  }
   if (previousOrganizationId !== organizationId && organizationResourceController) {
     const previousController = organizationResourceController;
     organizationResourceController = new AbortController();
@@ -133,12 +142,16 @@ export async function apiGet<T>(path: string, options: RequestOptions = {}): Pro
 }
 
 /**
- * Stop sharing in-flight GETs of `path` (every organization). Use after a
+ * Stop sharing in-flight GETs of `path` (every organization unless scoped). Use after a
  * mutation: the next apiGet starts a fresh request instead of joining one that
  * captured the state before the mutation. Callers already awaiting the old
  * request keep their promise.
  */
-export function invalidateInFlightGet(path: string) {
+export function invalidateInFlightGet(path: string, organizationId?: number | null) {
+  if (organizationId !== undefined) {
+    inFlightGetRequests.delete(`${organizationId ?? 'none'}:${path}`);
+    return;
+  }
   for (const key of [...inFlightGetRequests.keys()]) {
     if (key.slice(key.indexOf(':') + 1) === path) inFlightGetRequests.delete(key);
   }

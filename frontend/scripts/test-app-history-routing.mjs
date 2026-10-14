@@ -57,6 +57,7 @@ function harness(initialPath = '/zones', organization = 1) {
     setProfileActiveOrganization(profile, id) { return { ...profile, organizationId: id }; },
     buildRecentBoxIds() { return []; },
     fetchScopedData() { return Promise.resolve(context.data); },
+    setActiveOrganizationContext() {},
     apiPost() { return Promise.resolve(); },
     apiGet(url) { const request = { ...deferred(), url }; requests.push(request); return request.promise; },
     mergeBoxDetail(data, detail) { return { ...data, boxDetails: { ...data.boxDetails, [detail.id]: detail } }; },
@@ -70,7 +71,7 @@ function harness(initialPath = '/zones', organization = 1) {
     return vm.runInContext(outputText, context);
   }
   installAppRouting(context, evaluate, organization);
-  for (const name of ['openBox', 'chooseOrganization', 'handleAuthenticated', 'logoutCurrentUser']) {
+  for (const name of ['getOperationRequests', 'openBox', 'chooseOrganization', 'handleAuthenticated', 'logoutCurrentUser']) {
     evaluate(functionNode(name).getText(ast));
   }
   context.route = context.getCurrentRoute();
