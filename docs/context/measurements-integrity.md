@@ -83,6 +83,26 @@ Le filtre d'inventaire « sans relevé », partagé avec la sélection groupée,
 
 Cette tranche ne modifie ni schéma, ni contraintes, ni `save()`, ni écriture : `iso_week` n'est toujours **pas persistable**.
 
+### Fondation de comparaison scientifique par intervalle (sans activation)
+
+`measurements/scientific_time.py` fournit `ObservationTime`, représentation immuable et pure de la précision, de `measured_on` et de la clé `week_start`, avec année/semaine ISO. `from_measurement()` lit uniquement ces champs scalaires, sans requête ni mutation lorsqu'ils sont déjà chargés; les objets semaine seule utilisés en test ne sont jamais enregistrés. Les combinaisons incohérentes sont refusées, sans inférer une précision.
+
+`compare_operation_day()` compare au jour local d'une occurrence confirmée :
+
+- date exacte ou legacy : `before`, `after` ou `same_day`; ce dernier conserve le sens de l'éligibilité datée `measured_on >= operation_day`, sans prouver un ordre intra-journalier;
+- semaine seule : intervalle possible lundi–dimanche inclus; `before` si son dimanche précède l'opération, `after` si son lundi suit l'opération, sinon `unresolved`, même aux deux extrémités;
+- occurrence non confirmée : passer `None`, résultat `unresolved`. Une date legacy d'événement ne confirme pas à elle seule son occurrence.
+
+Les bornes sont des limites d'incertitude, jamais une date effective d'observation. Ni compte (dont zéro), séquence technique, `created_at` ni timestamp d'import ne résolvent un chevauchement. La comparaison ne sélectionne pas une source : une mesure chronologiquement postérieure doit encore satisfaire les règles existantes de consommation/séquence. Corrections, séquences immuables et snapshots restent inchangés.
+
+**Blocage précis de l'intégration au résolveur :** `current_polyp_state` expose actuellement un nombre utilisable pour repiquage, ou `None` pour absence de source absolue éligible. Il ne distingue pas une observation présente mais chronologiquement non résolue. Filtrer celle-ci pourrait rendre un ancien résultat autoritaire à tort; retourner son compte permettrait sa dépense; retourner `None` seul confondrait ambiguïté et absence. Le service de repiquage, les agrégats et les consommateurs API/frontend doivent adopter un statut explicite avant cette intégration. Aucun fallback biologique n'est introduit ici. Le résolveur SQL et ses préchargements bornés restent inchangés.
+
+Avant des dates NULL, adapter ensemble filtrage, sélection d'évidence et fallback : le filtre `measured_on >= operation_day` éliminerait les NULL, et le tri descendant actuel les place en premier sur PostgreSQL mais en dernier sur SQLite. Un placement explicite des NULL ne constitue pas une décision de priorité scientifique; le préchargement limité à une source ne doit pas éliminer l'évidence d'ambiguïté.
+
+**Prérequis du garde inverse futur :** lorsqu'une mesure semaine seule existe puis qu'un repiquage est demandé, réutiliser la comparaison d'intervalle sous le verrou de boîte, en capturant une seule fois occurrence et jour local avant toute écriture/réservation de codes. Le chemin d'import devra vérifier la même compatibilité sous ce verrou, pas seulement dans le planner. Aucun refus nouveau n'est activé. Le produit doit décider du traitement de l'opération chevauchante et du workflow de résolution; l'import chevauchant exige déjà une date exacte, sans force-import.
+
+Distinguer occurrence et source quantitative : un parent partiel a une occurrence documentée mais pas de transition absolue; une allocation enfant zéro est connue, une allocation NULL ne l'est pas; un événement legacy sans occurrence confirmée ne fournit pas une date opérationnelle certaine. L'absence de conflit dans les filtres actuels du planner ne certifie donc pas la sécurité de tous les historiques incomplets. Leur traitement conservateur avant activation et le contrat des états/agrégats non résolus restent à décider, sans reconstruction historique.
+
 ### Prérequis exacts pour une future activation semaine seule
 
 Une future ligne `iso_week` doit porter `measured_on=NULL` et une clé de semaine ISO explicite (`week_start`, lundi utilisé uniquement comme clé, jamais comme date d'observation). L'affichage sera par exemple « Semaine 40 · 2026 », sans jour inventé. Cette représentation n'est **pas persistable** dans cette phase.
@@ -90,7 +110,7 @@ Une future ligne `iso_week` doit porter `measured_on=NULL` et une clé de semain
 Avant de l'activer, il faut :
 
 1. Faire évoluer la nullabilité de `measured_on`, les choix et la contrainte de précision; imposer les combinaisons exact/legacy/semaine autorisées et valider les clés ISO. Découpler `save()`/`week_start_for()` d'une date obligatoire tout en conservant l'unicité hebdomadaire. Définir les transitions de précision et leur audit sans inférence ni conversion historique automatique.
-2. Décider puis implémenter la résolution scientifique des observations connues seulement à la semaine, notamment avant/après un repiquage au sein de la même semaine. Adapter `cultures/polyp_state.py`, ses requêtes/préchargements, le calcul et les snapshots des repiquages, sans imposer arbitrairement une priorité.
+2. Intégrer la fondation de comparaison d'intervalle après décision sur le contrat d'état non résolu et le garde inverse; implémenter la résolution scientifique des observations connues seulement à la semaine, notamment avant/après un repiquage au sein de la même semaine. Adapter `cultures/polyp_state.py`, ses requêtes/préchargements, le calcul et les snapshots des repiquages, sans imposer arbitrairement une priorité.
 3. Compléter la première tranche de lecture décrite ci-dessus : corrections, historique/timeline, tris inter-boîtes, fraîcheur/création historique d'inventaire, Actions/audit et formulaires/admin utilisent encore une date obligatoire. Le contrat additif et les tris latest par boîte ne suffisent pas à activer la persistance.
 4. Adapter les types et consommateurs frontend (saisie, dates, tris, graphiques, inventaire, étiquettes), ainsi que les exports (périodes, emplacement historique, température journalière). Définir les règles des semaines chevauchant une période ou un mouvement, au lieu de choisir lundi.
 5. Versionner si nécessaire les baselines/fingerprints du planner : la baseline actuelle exige une date et ne contient pas la précision. Définir les comparaisons legacy/exact/semaine et un applicateur d'import autorisé, institutionnel, verrouillé, atomique et audité, préservant absence/NULL/0 et la provenance Phase 4A. Examiner les imports historiques et les transferts séparément, sans réinterpréter leurs conventions existantes.

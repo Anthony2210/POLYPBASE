@@ -1,6 +1,6 @@
 """Science, API, provenance, rollback and namespace regression coverage."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as datetime_timezone
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -631,6 +631,49 @@ class QuantitativeSubcultureTests(TestCase):
         event.refresh_from_db()
         self.assertEqual(event.parent_state_snapshot["polyp_count"], 100)
         self.assertEqual(event.parent_polyp_count_after, 70)
+
+    @patch("django.utils.timezone.now", return_value=datetime(2026, 10, 1, 12, tzinfo=datetime_timezone.utc))
+    def test_dated_precisions_keep_consumption_snapshots_and_prefetch_contract(self, clock):
+        from apps.measurements.scientific_time import ObservationTime, TemporalRelation
+
+        parents = [Box.objects.create(
+            organization=self.org, strain=self.strain, thermal_zone=self.zone,
+            global_code=f"AQT-QA-1.{number}", box_number=str(number),
+        ) for number in (901, 902)]
+        for parent, precision in zip(parents, BiologicalMeasurement.TemporalPrecision.values, strict=True):
+            with self.subTest(precision=precision):
+                measurement = BiologicalMeasurement.objects.create(
+                    box=parent, measured_on=timezone.localdate(), polyp_count=100,
+                    temporal_precision=precision, strobila_count=None,
+                )
+                parent.refresh_from_db()
+                event, children = create_subculture(
+                    parent_box=parent, organization=self.org, user=self.user,
+                    expected_current_state_revision=resolve_current_polyp_state(parent)["revision"],
+                    children=[{"thermal_zone": self.zone, "allocated_polyps": 30},
+                              {"thermal_zone": self.zone, "allocated_polyps": 0}],
+                )
+                snapshot = event.parent_state_snapshot
+                sequence = measurement.polyp_state_sequence
+                with self.assertNumQueries(0):
+                    temporal = ObservationTime.from_measurement(measurement)
+                    self.assertEqual(temporal.precision, precision)
+                    self.assertEqual(temporal.compare_operation_day(event.event_date), TemporalRelation.SAME_DAY)
+                measurement.polyp_count = 999
+                measurement.measured_on += timedelta(days=14)
+                measurement.save()
+                measurement.refresh_from_db()
+                self.assertEqual(measurement.polyp_state_sequence, sequence)
+                parent.refresh_from_db()
+                state = resolve_current_polyp_state(parent)
+                self.assertEqual(state["polyp_count"], 70)
+                prefetched = Box.objects.prefetch_related(*current_state_prefetches()).get(pk=parent.pk)
+                with self.assertNumQueries(0):
+                    self.assertEqual(resolve_current_polyp_state(prefetched), state)
+                self.assertEqual(resolve_current_polyp_state(children[1])["polyp_count"], 0)
+                event.refresh_from_db()
+                self.assertEqual(event.parent_state_snapshot, snapshot)
+                self.assertEqual(event.parent_polyp_count_after, 70)
 
     def test_service_refuses_inactive_or_missing_actor(self):
         with self.assertRaises(PermissionDenied):
