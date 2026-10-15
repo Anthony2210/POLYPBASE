@@ -120,6 +120,22 @@ La découverte effectue trois requêtes : vérification de portée, agrégat SQL
 
 Aucun appel n'est ajouté au résolveur, aux serializers, aux totaux, aux écritures ou aux imports. Aucun verrou ni snapshot concurrent n'est garanti par cette lecture seule. Une intégration future nécessite son propre contrat transactionnel et les décisions de résolution encore ouvertes. Les contraintes hebdomadaires, corrections, séquences, snapshots et la non-persistance d'`iso_week` restent inchangés.
 
+### Résolution interne d'une proposition semaine seule (sans intégration)
+
+`cultures/scientific_resolution.py` ajoute `resolve_week_observation_state(box=..., organization_id=..., measurement=...)`. Son périmètre est **une seule proposition non persistée `iso_week`**, dans une semaine libre, comparée aux sources datées déjà persistées. Il réutilise la découverte factuelle et le résolveur daté existant; il ne reconstruit pas l'histoire et ne certifie pas rétroactivement les occurrences legacy. L'institution fournie reste celle préalablement autorisée par l'appelant serveur. Il n'est appelé par aucun consommateur public, agrégat, import ou service d'écriture.
+
+- Un compte absolu zéro est connu; un compte proposé `NULL` est invalide, pas un zéro. Les allocations enfant inconnues ne deviennent pas des initialisations.
+- Une proposition consommée ne ressuscite jamais. Une transition complète ultérieure établit son après absolu; une observation entièrement antérieure à la dernière barrière ne la remplace pas.
+- Une observation entièrement postérieure à la dernière barrière exige aussi une séquence source connue et supérieure. Une séquence inconnue reste inconnue, avec `unresolved` et le motif interne `unknown_source_sequence`; aucun ordre biologique n'est déduit de cette séquence.
+- Un chevauchement encore pertinent, y compris lundi/dimanche, reste `unresolved`. Les opérations partielles, allocations inconnues et occurrences legacy ne sont pas des barrières quantitatives; leurs chevauchements/occurrences inconnues restent conservateurs. Aucune politique d'acceptation ou de rejet des écritures n'en découle.
+- Un relevé persisté éligible d'une semaine strictement ultérieure gagne sur la proposition plus ancienne, même ambiguë : cette proposition ne peut pas le dépasser dans la priorité biologique existante. Un ancien compte n'est jamais sélectionné en ignorant une proposition plus récente encore pertinente et non résolue.
+
+Le contrat interne reste `known / no_eligible_source / unresolved`; la façade publique continue de refuser tout état non résolu. La proposition sélectionnée a une provenance interne `week_observation` avec clé ISO, sans jour, ID ou timestamp inventé. Une semaine occupée est refusée comme entrée incompatible de cette comparaison hypothétique, sans nouveau garde d'écriture ni règle de remplacement/correction.
+
+La découverte effectue trois requêtes, la vérification de semaine une, et le fallback daté au plus trois : **au plus sept requêtes**, indépendamment du nombre d'opérations; quatre avec le fallback déjà préchargé. Les résumés SQL restent bornés, sans troncature; le coût SQL de l'agrégat dépend encore de l'historique de la Box. Les préchargements publics ne changent pas. Les objets/préchargements doivent être frais; la lecture ne garantit ni verrou ni snapshot concurrent. Ne pas l'utiliser en boucle pour une liste de boîtes.
+
+**Limite volontaire :** pas de résolution d'un lot de propositions synthétiques ni de reconstruction mixte générale. La politique produit pour les chevauchements opérationnels partiels/inconnus/legacy, leur résolution et les gardes inverses reste à approuver avant intégration. Aucun schéma, snapshot, audit, permission, API ou applicateur n'est modifié; `iso_week` demeure non persistable.
+
 ### Prérequis exacts pour une future activation semaine seule
 
 Une future ligne `iso_week` doit porter `measured_on=NULL` et une clé de semaine ISO explicite (`week_start`, lundi utilisé uniquement comme clé, jamais comme date d'observation). L'affichage sera par exemple « Semaine 40 · 2026 », sans jour inventé. Cette représentation n'est **pas persistable** dans cette phase.

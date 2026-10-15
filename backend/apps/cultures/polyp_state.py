@@ -35,17 +35,23 @@ class NoEligiblePolypSource:
 
 @dataclass(frozen=True, slots=True)
 class UnresolvedPolypState:
-    """Unresolved pair evidence, not a conclusion about the whole Box state."""
+    """Uncertainty without a spendable count or selected source."""
 
     observation: ObservationTime
     operation_day: date | None
+    reason: Literal["chronology", "unknown_source_sequence"] = "chronology"
     status: ClassVar[Literal["unresolved"]] = "unresolved"
 
     def __post_init__(self):
         if not isinstance(self.observation, ObservationTime):
             raise ValueError("Unresolved chronology requires an observation time.")
-        if self.observation.compare_operation_day(self.operation_day) != TemporalRelation.UNRESOLVED:
+        if self.reason not in ("chronology", "unknown_source_sequence"):
+            raise ValueError("Unsupported scientific uncertainty reason.")
+        relation = self.observation.compare_operation_day(self.operation_day)
+        if self.reason == "chronology" and relation != TemporalRelation.UNRESOLVED:
             raise ValueError("The provided observation chronology is not unresolved.")
+        if self.reason == "unknown_source_sequence" and self.operation_day is None:
+            raise ValueError("Unknown consumption requires a confirmed barrier day.")
 
 
 ScientificPolypState = KnownPolypState | NoEligiblePolypSource | UnresolvedPolypState
