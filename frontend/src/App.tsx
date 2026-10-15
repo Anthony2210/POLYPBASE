@@ -1381,6 +1381,7 @@ export default function App() {
               await refresh();
               assertCurrent();
             } catch (requestError) {
+              assertCurrent();
               if (!(requestError instanceof BoxDetailSupersededError) && isFresh()) throw requestError;
             }
           }

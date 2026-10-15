@@ -590,18 +590,22 @@ test('React applies queued subculture writes only while their organization gener
   const h = workflow({ answers: [true] });
   h.queueUpdates();
   const { pending, mutation } = await startSubculture(h);
-  mutation.resolve(subcultureResult());
+  const result = subcultureResult();
+  mutation.resolve(result);
   await tick();
   const refresh = assertRequest(h, 1, 'apiGet', '/api/boxes/17/');
-  assert.equal(h.queuedUpdates.length, 1);
+  const expectedPublications = 1 + result.children.length;
+  assert.equal(h.queuedUpdates.length, expectedPublications, 'one parent publication and one per returned child');
   h.switchOrganization();
   const replacement = { boxes: [], boxDetails: {}, zones: [] };
-  assert.equal(h.queuedUpdates[0](replacement), replacement);
+  for (const update of h.queuedUpdates) {
+    assert.equal(update(replacement), replacement, 'every obsolete publication preserves replacement identity');
+  }
   h.state.data = replacement;
   refresh.resolve(parentBox(0, 'old-revision'));
   await pending;
   assert.equal(h.state.data, replacement);
-  assert.equal(h.queuedUpdates.length, 1);
+  assert.equal(h.queuedUpdates.length, expectedPublications, 'obsolete GET queues no additional publication');
   assert.equal(h.ui.subcultureSuccess, null);
 });
 

@@ -106,6 +106,52 @@ for (const stage of ['POST', 'refresh', 'recovery']) {
     if (stage !== 'recovery') assert.equal(h.state.recovery, null);
   });
 }
+for (const outcome of ['success', 'failure']) {
+  test(`initial location obsolete recovery ${outcome} rejects cancellation and preserves newer recovery`, async () => {
+    const h = appHarness();
+    const pending = h.context.assignBoxInitialLocation(7, {});
+    h.requests[0].resolve({ id: 7, thermal_zone: { id: 12 } });
+    await tick();
+    h.requests[1].reject(new Error('offline'));
+    await pending;
+    const recovery = h.state.recovery();
+    const rejected = assert.rejects(recovery, h.context.ApiResourceCancelledError);
+    h.switchOrganization();
+    const replacement = { boxes: [], boxDetails: {}, zones: [] };
+    h.state.data = replacement;
+    const newerRecovery = async () => {};
+    h.state.recovery = newerRecovery;
+    if (outcome === 'success') h.requests[2].resolve({ results: [{ id: 12 }] });
+    else h.requests[2].reject(new Error('obsolete transport failure'));
+    await rejected;
+    assert.equal(h.state.data, replacement);
+    assert.equal(h.state.recovery, newerRecovery);
+    assert.equal(h.requests.length, 3);
+    assert.equal(h.requests.filter(request => request.method === 'apiPost').length, 1);
+  });
+
+  test(`initial location recovery ${outcome} preserves a newer same-organization recovery slot`, async () => {
+    const h = appHarness();
+    const pending = h.context.assignBoxInitialLocation(7, {});
+    h.requests[0].resolve({ id: 7, thermal_zone: { id: 12 } });
+    await tick();
+    h.requests[1].reject(new Error('offline'));
+    await pending;
+    const recovery = h.state.recovery();
+    const failure = new Error('fresh transport failure');
+    const completion = outcome === 'failure' ? assert.rejects(recovery, error => error === failure) : recovery;
+    const newerRecovery = async () => {};
+    h.state.recovery = newerRecovery;
+    if (outcome === 'success') h.requests[2].resolve({ results: [{ id: 12 }] });
+    else h.requests[2].reject(failure);
+    await completion;
+    assert.equal(h.state.recovery, newerRecovery);
+    assert.equal(h.state.data.zones.length, outcome === 'success' ? 1 : 0);
+    assert.equal(h.requests.length, 3);
+    assert.equal(h.requests.filter(request => request.method === 'apiPost').length, 1);
+  });
+}
+
 test('overlapping Box pages keep numeric IDs exactly once in first-occurrence order', async () => {
   const h = appHarness();
   const first = { id: 2, global_code: 'FIRST' };
