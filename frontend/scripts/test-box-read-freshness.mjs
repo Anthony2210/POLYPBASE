@@ -582,7 +582,10 @@ test('delayed movement PATCH snapshot cannot overwrite newer committed zero, eve
   h.request('GET', '/api/boxes/7/', 1).respond({ detail: 'Movement refresh unavailable' }, 503);
   h.request('GET', '/api/thermal-zones/').respond({ results: [{ id: 2 }], next: null });
   assert.equal((await refresh).error.status, 503);
-  assert.equal(h.state.data, committed, 'failed movement reconciliation preserves the already authoritative zero');
+  assert.equal(h.state.data.boxDetails, committed.boxDetails,
+    'failed movement detail reconciliation preserves the already authoritative zero');
+  assert.deepEqual(structuredClone(h.state.data.zones), [{ id: 2 }],
+    'the independent complete zone refresh can still publish');
   assertZero(h);
   assert.equal(h.state.data.boxDetails[7].current_polyp_state.polyp_count, 0);
   assert.equal(h.state.recovery, null);
@@ -637,7 +640,8 @@ for (const failedRead of ['detail', 'zones']) {
     h.request('GET', '/api/thermal-zones/').respond(failedRead === 'zones' ? { detail: 'Zones unavailable' }
       : { results: [], next: null }, failedRead === 'zones' ? 503 : 200);
     assert.equal((await firstRefresh).error.status, 503, 'component receives the read failure separately from save success');
-    assert.equal(h.state.data, committed, 'failed refresh does not discard the saved correction');
+    assert.deepEqual(structuredClone(h.state.data), structuredClone(committed),
+      'failed detail refresh may publish independent complete zones, but cannot discard the saved correction');
     assert.deepEqual(structuredClone(h.state.data.boxDetails[7]), corrected);
     assert.equal(h.state.recovery, null, 'movement refresh recovery belongs to the component, not App');
     const beforeRetry = h.fetches.length;
@@ -1256,6 +1260,7 @@ function installRevisionLifecycle(h) {
     async fetchScopedData(profile, organization) {
       h.client.setActiveOrganizationContext(organization);
       return { boxes: [], boxDetails: {}, zones: [], dashboard: null, overview: null,
+        zoneRead: { isCurrent: () => true },
         exportOptions: null, profile: { ...profile, organization } };
     },
   });

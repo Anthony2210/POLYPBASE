@@ -242,6 +242,9 @@ export default function App() {
   const organizationRequestGenerationRef = useRef(0);
   const openBoxRequestGenerationRef = useRef(0);
   const boxDetailRevisionsRef = useRef(new Map<string, number>());
+  const zoneCollectionRevisionRef = useRef(0);
+  const zoneCollectionReadRef = useRef(0);
+  const zoneRevisionsRef = useRef(new Map<string, number>());
   const [data, setData] = useState<AppData>({
     boxes: [],
     boxDetails: {},
@@ -346,7 +349,7 @@ export default function App() {
     return revision;
   }
 
-  function beginBoxMutation() {
+  function beginBoxMutation(affectsZones = false) {
     const generation = operationGeneration;
     // A scalar watermark also covers IDs learned from creation/subculture responses.
     const startedRevision = boxDetailRevisionsRef.current.get(`${generation}:sequence`) ?? 0;
@@ -355,6 +358,7 @@ export default function App() {
       const safe = (boxDetailRevisionsRef.current.get(key) ?? 0) <= startedRevision;
       // Success invalidates reads even when response ordering cannot establish freshness.
       const revision = invalidateBoxDetail(boxId, generation);
+      if (affectsZones) zoneCollectionRevisionRef.current += 1;
       const { setData, assertCurrent } = getOperationRequests(generation);
       const isCurrent = () => generation === organizationRequestGenerationRef.current
         && revision === boxDetailRevisionsRef.current.get(key);
@@ -411,7 +415,8 @@ export default function App() {
           const key = `${generation}:${Number(match[1])}`;
           detailReads.set(key, boxDetailRevisionsRef.current.get(key) ?? 0);
         }
-        return run(() => apiGet<T>(path));
+        // Zone snapshots must not join pages or histories captured before a boundary.
+        return run(() => apiGet<T>(path, path.startsWith('/api/thermal-zones/') ? { cache: 'no-store' } : {}));
       },
       apiPost: <T,>(path: string, payload: unknown) => run(() => apiPost<T>(path, payload)),
       apiPatch: <T,>(path: string, payload: unknown) => run(() => apiPatch<T>(path, payload)),
@@ -463,19 +468,96 @@ export default function App() {
     return results;
   }
 
+  function publishZoneUpdate(zoneId: number) {
+    // Client response boundaries, not server transaction commit ordering.
+    zoneCollectionRevisionRef.current += 1;
+    const key = String(zoneId);
+    const revision = (zoneRevisionsRef.current.get(key) ?? 0) + 1;
+    zoneRevisionsRef.current.set(key, revision);
+    const { setData } = getOperationRequests(operationGeneration);
+    return (update: (current: AppData) => AppData) => setData((current) => (
+      zoneRevisionsRef.current.get(key) === revision ? update(current) : current
+    ));
+  }
+
+  function beginZoneMutation(zoneId: number) {
+    const generation = operationGeneration;
+    const key = String(zoneId);
+    const startedRevision = zoneRevisionsRef.current.get(key) ?? 0;
+    const capabilityKey = `capability:${zoneId}`;
+    const startedCapability = zoneRevisionsRef.current.get(capabilityKey) ?? 0;
+    const { assertCurrent } = getOperationRequests(operationGeneration);
+    return () => {
+      assertCurrent();
+      // Overlapping full snapshots cannot establish server commit order, even for different fields.
+      const safe = startedRevision === (zoneRevisionsRef.current.get(key) ?? 0)
+        && startedCapability === (zoneRevisionsRef.current.get(capabilityKey) ?? 0);
+      const publish = publishZoneUpdate(zoneId);
+      const revision = zoneRevisionsRef.current.get(key);
+      const isFresh = () => generation === organizationRequestGenerationRef.current
+        && revision === zoneRevisionsRef.current.get(key);
+      return {
+        setData: (update: (current: AppData) => AppData) => publish((current) => safe ? update(current) : current),
+        reconcile: () => safe ? Promise.resolve() : refreshAfterMutation(async () => {
+          const collectionRead = zoneCollectionReadRef.current;
+          const capability = zoneRevisionsRef.current.get(capabilityKey) ?? 0;
+          const isReadCurrent = () => collectionRead === zoneCollectionReadRef.current
+            && capability === (zoneRevisionsRef.current.get(capabilityKey) ?? 0);
+          // Detail GET uses the write serializer. Find this zone's complete summary instead.
+          const zones = await fetchAllPages<ThermalZone>(
+            '/api/thermal-zones/?limit=80', (items) => items.some((zone) => zone.id === zoneId),
+          );
+          assertCurrent();
+          if (!isFresh() || !isReadCurrent()) return;
+          const zone = zones.find((item) => item.id === zoneId);
+          if (!zone) throw new Error('Zone summary not found.');
+          publish((current) => isReadCurrent() ? {
+            ...current, zones: upsertThermalZones(current.zones, [zone]),
+          } : current);
+        }, assertCurrent, isFresh),
+      };
+    };
+  }
+
+  async function readZoneCollection(path = '/api/thermal-zones/?limit=80') {
+    const generation = organizationRequestGenerationRef.current;
+    const revision = ++zoneCollectionRevisionRef.current;
+    zoneCollectionReadRef.current += 1;
+    const { assertCurrent } = getOperationRequests(generation);
+    const isCurrent = () => generation === organizationRequestGenerationRef.current
+      && revision === zoneCollectionRevisionRef.current;
+    try {
+      const zones = await fetchAllPages<ThermalZone>(path);
+      return { zones, isCurrent };
+    } catch (requestError) {
+      assertCurrent();
+      if (isCurrent()) throw requestError;
+      // Superseded collection work is a safe no-op, not a recovery failure.
+      return { zones: [] as ThermalZone[], isCurrent };
+    }
+  }
+
+  async function refreshZones(path = '/api/thermal-zones/?limit=80') {
+    const { setData, assertCurrent } = getOperationRequests(operationGeneration);
+    assertCurrent();
+    const read = await readZoneCollection(path);
+    setData((current) => read.isCurrent() ? { ...current, zones: read.zones } : current);
+  }
+
   async function fetchScopedData(profile: UserProfile, organizationId: number) {
     setActiveOrganizationContext(organizationId);
     const scopedProfile = setProfileActiveOrganization(profile, organizationId);
     // The complete Box list is not part of the bootstrap: see requestBoxCollection.
-    const [zones, dashboard] = await Promise.all([
-      fetchAllPages<ThermalZone>('/api/thermal-zones/?limit=80'),
+    const [zoneRead, dashboard] = await Promise.all([
+      readZoneCollection(),
       apiGet<Dashboard>('/api/dashboard/'),
     ]);
 
     return {
       boxes: [] as BoxItem[],
       boxDetails: {},
-      zones,
+      zones: zoneRead.zones,
+      zoneRead,
       dashboard,
       overview: null,
       exportOptions: null,
@@ -578,6 +660,7 @@ export default function App() {
 
     const requestGeneration = ++organizationRequestGenerationRef.current;
     boxDetailRevisionsRef.current.clear();
+    zoneRevisionsRef.current.clear();
     openBoxRequestGenerationRef.current += 1;
     resetBoxCollection();
     setIsBoxLoading(false);
@@ -611,9 +694,10 @@ export default function App() {
     }
 
     try {
-      const nextData = await fetchScopedData(data.profile, organizationId);
+      const { zoneRead, ...nextData } = await fetchScopedData(data.profile, organizationId);
       if (requestGeneration !== organizationRequestGenerationRef.current) return;
-      setData(nextData);
+      setData((current) => requestGeneration === organizationRequestGenerationRef.current
+        ? { ...nextData, zones: zoneRead.isCurrent() ? nextData.zones : current.zones } : current);
       setRecentBoxIds(getRecentBoxIds(nextData.dashboard));
     } catch (requestError) {
       if (requestGeneration !== organizationRequestGenerationRef.current) return;
@@ -662,6 +746,7 @@ export default function App() {
     let isActive = true;
     const requestGeneration = ++organizationRequestGenerationRef.current;
     boxDetailRevisionsRef.current.clear();
+    zoneRevisionsRef.current.clear();
     const isCurrentRequest = () => isActive && requestGeneration === organizationRequestGenerationRef.current;
 
     async function loadData() {
@@ -719,10 +804,11 @@ export default function App() {
         updateNavigationOrganization(resolvedOrganizationId);
         setNeedsOrganizationChoice(false);
 
-        const nextData = await fetchScopedData(profile, resolvedOrganizationId);
+        const { zoneRead, ...nextData } = await fetchScopedData(profile, resolvedOrganizationId);
         if (!isCurrentRequest()) return;
 
-        setData(nextData);
+        setData((current) => isCurrentRequest()
+          ? { ...nextData, zones: zoneRead.isCurrent() ? nextData.zones : current.zones } : current);
         setRecentBoxIds(getRecentBoxIds(nextData.dashboard));
       } catch (requestError) {
         if (!isCurrentRequest()) return;
@@ -1337,6 +1423,7 @@ export default function App() {
     setActiveOrganizationContext(null);
     organizationRequestGenerationRef.current += 1;
     boxDetailRevisionsRef.current.clear();
+    zoneRevisionsRef.current.clear();
     openBoxRequestGenerationRef.current += 1;
     setRefreshRecovery(null);
 
@@ -1442,7 +1529,7 @@ export default function App() {
 
   async function correctMovement(boxId: number, movementId: number, payload: BoxMovementCorrectionPayload) {
     const { apiPatch, assertCurrent } = getOperationRequests(operationGeneration);
-    const commit = beginBoxMutation();
+    const commit = beginBoxMutation(true);
     const detail = await apiPatch<BoxDetail>(`/api/boxes/${boxId}/movements/${movementId}/`, payload);
     assertCurrent();
     const publication = commit(boxId);
@@ -1456,14 +1543,13 @@ export default function App() {
 
   async function refreshMovementState(boxId: number) {
     const { apiGet, setData, assertCurrent } = getOperationRequests(operationGeneration);
-    const [detail, zones] = await Promise.all([
+    const [detail] = await Promise.all([
       apiGet<BoxDetail>(`/api/boxes/${boxId}/`),
-      fetchAllPages<ThermalZone>('/api/thermal-zones/'),
+      refreshZones('/api/thermal-zones/'),
     ]);
     assertCurrent();
     setData((current) => ({
       ...mergeBoxDetail(current, detail),
-      zones,
       overview: null,
       exportOptions: null,
     }));
@@ -1496,7 +1582,7 @@ export default function App() {
 
   async function createBox(payload: BoxCreatePayload) {
     const { apiPost, assertCurrent } = getOperationRequests(operationGeneration);
-    const commit = beginBoxMutation();
+    const commit = beginBoxMutation(true);
     const detail = await apiPost<BoxDetail>('/api/boxes/', payload);
     assertCurrent();
     const publication = commit(detail.id);
@@ -1541,7 +1627,7 @@ export default function App() {
 
   async function createSubculture(boxId: number, payload: SubculturePayload) {
     const { apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
-    const commit = beginBoxMutation();
+    const commit = beginBoxMutation(true);
     const conflictRevision = boxDetailRevisionsRef.current.get(`${operationGeneration}:${boxId}`) ?? 0;
     let result: SubcultureResult;
     try {
@@ -1602,7 +1688,7 @@ export default function App() {
 
   async function moveBox(boxId: number, payload: BoxMovePayload) {
     const { apiGet, apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
-    const commit = beginBoxMutation();
+    const commit = beginBoxMutation(true);
     try {
       const detail = await apiPost<BoxDetail>(`/api/boxes/${boxId}/move/`, payload);
       assertCurrent();
@@ -1614,23 +1700,21 @@ export default function App() {
       }));
       await publication.reconcile(async () => {
         assertCurrent();
-        const zones = await fetchAllPages<ThermalZone>('/api/thermal-zones/?limit=80');
+        await refreshZones();
         assertCurrent();
-        setData((current) => ({ ...current, zones }));
       });
       assertCurrent();
       return detail;
     } catch (requestError) {
       if (isBoxLocationChangedError(requestError)) {
         try {
-          const [detail, zones] = await Promise.all([
+          const [detail] = await Promise.all([
             apiGet<BoxDetail>(`/api/boxes/${boxId}/`),
-            fetchAllPages<ThermalZone>('/api/thermal-zones/?limit=80'),
+            refreshZones(),
           ]);
           assertCurrent();
           setData((current) => ({
             ...mergeBoxDetail(current, detail),
-            zones,
             overview: null,
             exportOptions: null,
           }));
@@ -1645,7 +1729,7 @@ export default function App() {
 
   async function deactivateBox(boxId: number, payload: BoxDeactivatePayload) {
     const { apiPost, assertCurrent } = getOperationRequests(operationGeneration);
-    const commit = beginBoxMutation();
+    const commit = beginBoxMutation(true);
     const detail = await apiPost<BoxDetail>(`/api/boxes/${boxId}/deactivate/`, payload);
     assertCurrent();
     const publication = commit(boxId);
@@ -1662,7 +1746,7 @@ export default function App() {
 
   async function reactivateBox(boxId: number, payload: BoxActivatePayload) {
     const { apiPost, assertCurrent } = getOperationRequests(operationGeneration);
-    const commit = beginBoxMutation();
+    const commit = beginBoxMutation(true);
     const detail = await apiPost<BoxDetail>(`/api/boxes/${boxId}/activate/`, payload);
     assertCurrent();
     const publication = commit(boxId);
@@ -1679,7 +1763,7 @@ export default function App() {
 
   async function qualifyBox(boxId: number, payload: BoxQualifyPayload) {
     const { apiPost, assertCurrent } = getOperationRequests(operationGeneration);
-    const commit = beginBoxMutation();
+    const commit = beginBoxMutation(true);
     const detail = await apiPost<BoxDetail>(`/api/boxes/${boxId}/qualify/`, payload);
     assertCurrent();
     const publication = commit(boxId);
@@ -1695,8 +1779,8 @@ export default function App() {
   }
 
   async function assignBoxInitialLocation(boxId: number, payload: BoxInitialLocationPayload) {
-    const { apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
-    const commit = beginBoxMutation();
+    const { apiPost, assertCurrent } = getOperationRequests(operationGeneration);
+    const commit = beginBoxMutation(true);
     const detail = await apiPost<BoxDetail>(
       `/api/admin/box-inventory/${boxId}/assign-location/`,
       payload,
@@ -1711,16 +1795,15 @@ export default function App() {
     }));
     await publication.reconcile(async () => {
       assertCurrent();
-      const zones = await fetchAllPages<ThermalZone>('/api/thermal-zones/?limit=80');
+      await refreshZones();
       assertCurrent();
-      setData((current) => ({ ...current, zones }));
     });
     assertCurrent();
   }
 
   async function qualifyBoxesBatch(payload: BoxInventoryBatchQualifyPayload) {
     const { apiPost, assertCurrent } = getOperationRequests(operationGeneration);
-    const commit = beginBoxMutation();
+    const commit = beginBoxMutation(true);
     const result = await apiPost<BoxInventoryBatchResult>(
       '/api/admin/box-inventory/batch-qualify/',
       payload,
@@ -1757,68 +1840,89 @@ export default function App() {
   }
 
   async function createThermalZone(payload: ThermalZonePayload) {
-    const { apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
+    const { apiPost, assertCurrent } = getOperationRequests(operationGeneration);
     await apiPost<ThermalZone>('/api/thermal-zones/', payload);
     assertCurrent();
+    zoneCollectionRevisionRef.current += 1;
     await refreshAfterMutation(async () => {
       assertCurrent();
-      const zones = await fetchAllPages<ThermalZone>('/api/thermal-zones/?limit=80');
+      await refreshZones();
       assertCurrent();
-      setData((current) => ({ ...current, zones }));
     }, assertCurrent);
     assertCurrent();
   }
 
   async function updateThermalZone(zoneId: number, payload: ThermalZonePayload) {
-    const { apiPatch, setData, assertCurrent } = getOperationRequests(operationGeneration);
+    const { apiPatch, assertCurrent } = getOperationRequests(operationGeneration);
+    const commit = beginZoneMutation(zoneId);
     await apiPatch<ThermalZone>(`/api/thermal-zones/${zoneId}/`, payload);
     assertCurrent();
+    commit();
     await refreshAfterMutation(async () => {
       assertCurrent();
-      const zones = await fetchAllPages<ThermalZone>('/api/thermal-zones/?limit=80');
+      await refreshZones();
       assertCurrent();
-      setData((current) => ({ ...current, zones }));
     }, assertCurrent);
     assertCurrent();
   }
 
   async function recordManualTemperature(zoneId: number, payload: ManualTemperaturePayload) {
     const { apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
+    const commit = beginZoneMutation(zoneId);
     const zone = await apiPost<ThermalZone>(`/api/thermal-zones/${zoneId}/temperature/`, payload);
     assertCurrent();
-    setData((current) => ({
+    const publication = commit();
+    publication.setData((current) => ({
       ...current,
       zones: upsertThermalZones(current.zones, [zone]),
-      overview: null,
-      exportOptions: null,
     }));
+    // The write succeeded even if its full zone snapshot needs reconciliation.
+    setData((current) => ({ ...current, overview: null, exportOptions: null }));
+    await publication.reconcile();
     assertCurrent();
     return zone;
   }
 
   async function refreshZoneSalinityCapability(zoneId: number) {
     const { apiGet, setData, assertCurrent } = getOperationRequests(operationGeneration);
+    const key = String(zoneId);
+    const revision = zoneRevisionsRef.current.get(key) ?? 0;
+    const readKey = `salinity:${zoneId}`;
+    const readRevision = (zoneRevisionsRef.current.get(readKey) ?? 0) + 1;
+    zoneRevisionsRef.current.set(readKey, readRevision);
+    const collectionRead = zoneCollectionReadRef.current;
+    const isCurrent = () => revision === (zoneRevisionsRef.current.get(key) ?? 0)
+      && readRevision === zoneRevisionsRef.current.get(readKey)
+      && collectionRead === zoneCollectionReadRef.current;
     const readings = await apiGet<ZoneSalinityMeasurement[]>(
       `/api/thermal-zones/${zoneId}/salinity/history/`,
     );
     assertCurrent();
-    setData((current) => ({
+    if (!isCurrent()) return;
+    // A partial salinity projection must not cancel an independent queued zone payload.
+    const capabilityKey = `capability:${zoneId}`;
+    zoneRevisionsRef.current.set(capabilityKey, (zoneRevisionsRef.current.get(capabilityKey) ?? 0) + 1);
+    zoneCollectionRevisionRef.current += 1;
+    setData((current) => isCurrent() ? {
       ...current,
       zones: current.zones.map((zone) => zone.id === zoneId
         ? { ...zone, latest_salinity: readings[0] ?? null }
         : zone),
-    }));
+    } : current);
     assertCurrent();
   }
 
   async function recordManualSalinity(zoneId: number, payload: ManualSalinityPayload) {
-    const { apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
+    const { apiPost, assertCurrent } = getOperationRequests(operationGeneration);
+    const commit = beginZoneMutation(zoneId);
     const zone = await apiPost<ThermalZone>(`/api/thermal-zones/${zoneId}/salinity/`, payload);
     assertCurrent();
-    setData((current) => ({
+    const publication = commit();
+    publication.setData((current) => ({
       ...current,
       zones: upsertThermalZones(current.zones, [zone]),
     }));
+    await publication.reconcile();
     assertCurrent();
     return zone;
   }
@@ -1828,30 +1932,33 @@ export default function App() {
     measurementId: number,
     payload: ManualSalinityUpdatePayload,
   ) {
-    const { apiPatch, setData, assertCurrent } = getOperationRequests(operationGeneration);
+    const { apiPatch, assertCurrent } = getOperationRequests(operationGeneration);
+    const commit = beginZoneMutation(zoneId);
     const zone = await apiPatch<ThermalZone>(
       `/api/thermal-zones/${zoneId}/salinity/${measurementId}/`,
       payload,
     );
     assertCurrent();
-    setData((current) => ({
+    const publication = commit();
+    publication.setData((current) => ({
       ...current,
       zones: upsertThermalZones(current.zones, [zone]),
     }));
+    await publication.reconcile();
     assertCurrent();
     return zone;
   }
 
   async function createProbe(payload: ProbePayload) {
-    const { apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
+    const { apiPost, assertCurrent } = getOperationRequests(operationGeneration);
     await apiPost<Probe>('/api/probes/', payload);
     assertCurrent();
     // Probes are nested inside the zone payload, so refresh the zones list.
+    zoneCollectionRevisionRef.current += 1;
     await refreshAfterMutation(async () => {
       assertCurrent();
-      const zones = await fetchAllPages<ThermalZone>('/api/thermal-zones/?limit=80');
+      await refreshZones();
       assertCurrent();
-      setData((current) => ({ ...current, zones }));
     }, assertCurrent);
     assertCurrent();
   }

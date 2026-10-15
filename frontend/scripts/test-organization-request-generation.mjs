@@ -208,7 +208,7 @@ function harness() {
     return vm.runInContext(outputText, context);
   }
   installAppRouting(context, evaluate);
-  for (const name of ['getOperationRequests', 'fetchAllPages', 'getOrganizationById', 'setProfileActiveOrganization', 'fetchScopedData', 'chooseOrganization', 'openBox']) {
+  for (const name of ['getOperationRequests', 'fetchAllPages', 'readZoneCollection', 'getOrganizationById', 'setProfileActiveOrganization', 'fetchScopedData', 'chooseOrganization', 'openBox']) {
     evaluate(findFunction(name).getText(ast));
   }
   function beginEffect(name) {

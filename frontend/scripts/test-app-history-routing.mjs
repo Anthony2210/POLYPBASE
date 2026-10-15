@@ -56,7 +56,7 @@ function harness(initialPath = '/zones', organization = 1) {
     setData(value) { context.data = typeof value === 'function' ? value(context.data) : value; },
     setProfileActiveOrganization(profile, id) { return { ...profile, organizationId: id }; },
     buildRecentBoxIds() { return []; },
-    fetchScopedData() { return Promise.resolve(context.data); },
+    fetchScopedData() { return Promise.resolve({ ...context.data, zoneRead: { isCurrent: () => true } }); },
     setActiveOrganizationContext() {},
     apiPost() { return Promise.resolve(); },
     apiGet(url) { const request = { ...deferred(), url }; requests.push(request); return request.promise; },

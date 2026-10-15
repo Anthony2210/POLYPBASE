@@ -94,6 +94,9 @@ export function installAppRouting(context, evaluate, organization = 1) {
     navigationPolicyRef: { current: { isDesktopApp: true, canUseAdmin: true } },
     navigationGenerationRef: context.navigationGenerationRef ?? { current: 0 },
     boxDetailRevisionsRef: context.boxDetailRevisionsRef ?? { current: new Map() },
+    zoneCollectionRevisionRef: context.zoneCollectionRevisionRef ?? { current: 0 },
+    zoneCollectionReadRef: context.zoneCollectionReadRef ?? { current: 0 },
+    zoneRevisionsRef: context.zoneRevisionsRef ?? { current: new Map() },
   });
   const supersededError = ast.statements.find(node => ts.isClassDeclaration(node)
     && node.name?.text === 'BoxDetailSupersededError');
@@ -120,7 +123,7 @@ export function installAppRouting(context, evaluate, organization = 1) {
   context.requestedRecentBoxIdsRef ??= { current: new Set() };
   context.setBoxCollection ??= (value) => { context.boxCollectionState = value; };
   context.setResolvedBoxCode ??= (value) => { context.resolvedBoxCodeState = value; };
-  for (const name of ['writeBoxCollection', 'resetBoxCollection', 'requestBoxCollection',
+  for (const name of ['readZoneCollection', 'writeBoxCollection', 'resetBoxCollection', 'requestBoxCollection',
     'findBoxBySearch', 'findBoxIdByCode']) {
     evaluate(functionNode(name).getText(ast));
   }
@@ -157,6 +160,9 @@ export function appHarness() {
     operationGeneration: 0,
     organizationRequestGenerationRef: { current: 0 },
     boxDetailRevisionsRef: { current: new Map() },
+    zoneCollectionRevisionRef: { current: 0 },
+    zoneCollectionReadRef: { current: 0 },
+    zoneRevisionsRef: { current: new Map() },
     invalidateInFlightGet() {},
     ApiResourceCancelledError: class ApiResourceCancelledError extends Error {},
     ApiError: class ApiError extends Error {},
@@ -166,7 +172,7 @@ export function appHarness() {
     isMeasurementEditWindowExpired(error) { return error?.data?.code === 'edit_window_expired'; },
     isBoxLocationChangedError(error) { return error?.data?.code === 'box_location_changed'; },
     upsertBoxes(items, updates) { return [...items.filter(item => !updates.some(update => update.id === item.id)), ...updates]; },
-    upsertThermalZones(items, updates) { return [...items.filter(item => !updates.some(update => update.id === item.id)), ...updates]; },
+
   };
   for (const method of ['apiGet', 'apiPost', 'apiPatch', 'apiDelete']) {
     context[method] = (url, payload) => {
@@ -184,7 +190,9 @@ export function appHarness() {
     return vm.runInContext(compiledFunctions.get(code), context);
   }
   installAppRouting(context, evaluate);
-  for (const name of ['invalidateBoxDetail', 'beginBoxMutation', 'getOperationRequests', 'fetchAllPages', 'mergeBoxDetail', 'refreshAfterMutation', 'applyMeasurementResult',
+  for (const name of ['invalidateBoxDetail', 'beginBoxMutation', 'getOperationRequests', 'fetchAllPages',
+    'publishZoneUpdate', 'beginZoneMutation', 'readZoneCollection', 'refreshZones', 'refreshMovementState', 'correctMovement',
+    'mergeBoxDetail', 'upsertThermalZones', 'refreshAfterMutation', 'applyMeasurementResult',
     'refreshBoxAfterMeasurement', 'createMeasurement', 'updateMeasurement', 'createBox', 'createSubculture', 'moveBox',
     'deactivateBox', 'reactivateBox', 'qualifyBox', 'assignBoxInitialLocation', 'qualifyBoxesBatch', 'loadLineageGraph',
     'createThermalZone', 'updateThermalZone', 'recordManualTemperature', 'refreshZoneSalinityCapability',
