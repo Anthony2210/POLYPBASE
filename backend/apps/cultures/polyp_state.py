@@ -1,11 +1,74 @@
 """Resolve absolute polyp sources without inventing weekly measurements."""
 
+from dataclasses import dataclass
+from datetime import date
+from typing import ClassVar, Literal
+
 from django.db.models import Case, F, FilteredRelation, OuterRef, Prefetch, Q, Subquery, Value, When
 from django.db.models.functions import Coalesce
 
 from apps.measurements.models import BiologicalMeasurement
+from apps.measurements.scientific_time import ObservationTime, TemporalRelation
 
 from .models import SubcultureAllocation, SubcultureEvent
+
+
+@dataclass(frozen=True, slots=True)
+class KnownPolypState:
+    polyp_count: int
+    source: dict
+    status: ClassVar[Literal["known"]] = "known"
+
+    def __post_init__(self):
+        if type(self.polyp_count) is not int or self.polyp_count < 0:
+            raise ValueError("A known state requires a nonnegative integer count.")
+        if not isinstance(self.source, dict) or not self.source:
+            raise ValueError("A known state requires its selected absolute source.")
+
+
+@dataclass(frozen=True, slots=True)
+class NoEligiblePolypSource:
+    """No selected absolute source; historical evidence may still exist."""
+
+    status: ClassVar[Literal["no_eligible_source"]] = "no_eligible_source"
+
+
+@dataclass(frozen=True, slots=True)
+class UnresolvedPolypState:
+    """Unresolved pair evidence, not a conclusion about the whole Box state."""
+
+    observation: ObservationTime
+    operation_day: date | None
+    status: ClassVar[Literal["unresolved"]] = "unresolved"
+
+    def __post_init__(self):
+        if not isinstance(self.observation, ObservationTime):
+            raise ValueError("Unresolved chronology requires an observation time.")
+        if self.observation.compare_operation_day(self.operation_day) != TemporalRelation.UNRESOLVED:
+            raise ValueError("The provided observation chronology is not unresolved.")
+
+
+ScientificPolypState = KnownPolypState | NoEligiblePolypSource | UnresolvedPolypState
+
+
+def unresolved_observation(observation: ObservationTime, operation_day: date | None) -> UnresolvedPolypState | None:
+    """Represent uncertainty for this pair only, without source selection.
+
+    None means chronology is resolved, not that a source is eligible or absent.
+    Pass None for an unconfirmed occurrence; never substitute a legacy date.
+    No count, sequence or older authority is accepted or selected here.
+    """
+    if observation.compare_operation_day(operation_day) == TemporalRelation.UNRESOLVED:
+        return UnresolvedPolypState(observation, operation_day)
+    return None
+
+
+def _legacy_polyp_state(result: ScientificPolypState, revision):
+    if isinstance(result, KnownPolypState):
+        return {"polyp_count": result.polyp_count, "source": result.source, "revision": revision}
+    if isinstance(result, NoEligiblePolypSource):
+        return {"polyp_count": None, "source": None, "revision": revision}
+    raise RuntimeError("Scientific state contract violation: the legacy facade requires a resolved state.")
 
 
 MEASUREMENT_STATE_ORDER = ("-measured_on", "-state_order", "-created_at", "-pk")
@@ -80,7 +143,7 @@ def state_revision(box):
     return f"box:{box.pk}:{box.polyp_state_revision}"
 
 
-def resolve_current_polyp_state(box):
+def resolve_scientific_polyp_state(box) -> ScientificPolypState:
     """A transition supersedes every source that existed when it committed.
 
     Only a newly created measurement on/after that operation's day can supersede
@@ -95,13 +158,12 @@ def resolve_current_polyp_state(box):
         measurements = _measurement_candidates().filter(box=box).order_by(*MEASUREMENT_STATE_ORDER)[:1]
     measurement = next(iter(measurements), None)
     if measurement is not None:
-        result = {
-            "polyp_count": measurement.polyp_count,
-            "source": {"kind": "measurement", "id": measurement.pk,
-                       "timestamp": measurement.created_at.isoformat(),
-                       "measured_on": measurement.measured_on.isoformat()},
-        }
-        return {**result, "revision": state_revision(box)}
+        return KnownPolypState(
+            measurement.polyp_count,
+            {"kind": "measurement", "id": measurement.pk,
+             "timestamp": measurement.created_at.isoformat(),
+             "measured_on": measurement.measured_on.isoformat()},
+        )
 
     events = getattr(box, "polyp_state_events", None)
     if events is None:
@@ -111,11 +173,10 @@ def resolve_current_polyp_state(box):
                 ).order_by("-parent_state_sequence", "-pk")[:1]
     event = next(iter(events), None)
     if event is not None:
-        result = {
-            "polyp_count": event.parent_polyp_count_after,
-            "source": {"kind": "subculture", "id": event.pk, "timestamp": event.occurred_at.isoformat()},
-        }
-        return {**result, "revision": state_revision(box)}
+        return KnownPolypState(
+            event.parent_polyp_count_after,
+            {"kind": "subculture", "id": event.pk, "timestamp": event.occurred_at.isoformat()},
+        )
 
     if hasattr(box, "polyp_state_initialization"):
         allocation = box.polyp_state_initialization
@@ -125,13 +186,17 @@ def resolve_current_polyp_state(box):
             event__parent_box__organization_id=box.organization_id,
         ).first()
     if allocation:
-        result = {
-            "polyp_count": allocation.allocated_polyps,
-            "source": {"kind": "subculture_initialization", "id": allocation.pk,
-                       "timestamp": allocation.event.occurred_at.isoformat()},
-        }
-        return {**result, "revision": state_revision(box)}
-    return {"polyp_count": None, "source": None, "revision": state_revision(box)}
+        return KnownPolypState(
+            allocation.allocated_polyps,
+            {"kind": "subculture_initialization", "id": allocation.pk,
+             "timestamp": allocation.event.occurred_at.isoformat()},
+        )
+    return NoEligiblePolypSource()
+
+
+def resolve_current_polyp_state(box):
+    """Keep the dated public contract; unresolved evidence must never escape it."""
+    return _legacy_polyp_state(resolve_scientific_polyp_state(box), state_revision(box))
 
 
 def current_polyp_total(boxes):

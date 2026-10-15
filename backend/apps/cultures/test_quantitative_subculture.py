@@ -21,7 +21,10 @@ from apps.taxonomy.models import Species, Strain
 from .api_views import box_list_queryset_for_user
 from .box_codes import allocate_box_codes
 from .models import Box, BoxCodeNamespace, BoxLineage, BoxLocation, SubcultureAllocation, SubcultureEvent, ThermalZone
-from .polyp_state import current_state_prefetches, resolve_current_polyp_state
+from .polyp_state import (
+    KnownPolypState, NoEligiblePolypSource, current_state_prefetches,
+    resolve_current_polyp_state, resolve_scientific_polyp_state,
+)
 from .serializers import BoxListSerializer
 from .services import SubcultureInvalid, SubcultureStateChanged, create_subculture
 
@@ -63,6 +66,70 @@ class QuantitativeSubcultureTests(TestCase):
             children=[{"thermal_zone": self.zone, "allocated_polyps": value} for value in values])
         data.update(kwargs)
         return create_subculture(**data)
+
+    def assert_internal_state(self, box, expected):
+        box.refresh_from_db()
+        self.assertEqual(resolve_scientific_polyp_state(box), expected)
+        prefetched = Box.objects.prefetch_related(*current_state_prefetches()).get(pk=box.pk)
+        with self.assertNumQueries(0):
+            self.assertEqual(resolve_scientific_polyp_state(prefetched), expected)
+            public = resolve_current_polyp_state(prefetched)
+        self.assertEqual(public, resolve_current_polyp_state(box))
+        self.assertEqual(set(public), {"polyp_count", "source", "revision"})
+        self.assertEqual(public["revision"], f"box:{box.pk}:{box.polyp_state_revision}")
+        return public
+
+    def test_internal_dated_known_positive_and_zero_keep_exact_public_provenance(self):
+        for precision in BiologicalMeasurement.TemporalPrecision.values:
+            for count in (100, 0):
+                with self.subTest(precision=precision, count=count):
+                    self.measurement.temporal_precision = precision
+                    self.measurement.polyp_count = count
+                    self.measurement.save()
+                    source = {"kind": "measurement", "id": self.measurement.pk,
+                              "timestamp": self.measurement.created_at.isoformat(),
+                              "measured_on": self.measurement.measured_on.isoformat()}
+                    public = self.assert_internal_state(self.box, KnownPolypState(count, source))
+                    self.assertEqual(public["polyp_count"], count)
+                    self.assertEqual(public["source"], source)
+                    self.measurement.refresh_from_db()
+                    self.assertEqual(self.measurement.temporal_precision, precision)
+
+    def test_internal_no_eligible_source_without_evidence_is_not_known_zero(self):
+        self.measurement.delete()
+        public = self.assert_internal_state(self.box, NoEligiblePolypSource())
+        self.assertIsNone(public["polyp_count"])
+        self.assertIsNone(public["source"])
+        self.assertNotEqual(NoEligiblePolypSource(), KnownPolypState(0, {"kind": "measurement"}))
+
+    def test_internal_partial_parent_and_zero_unknown_children_keep_evidence_distinct(self):
+        before = resolve_scientific_polyp_state(self.box)
+        event, children = self.operation((0, None))
+        self.assertIsNone(event.parent_polyp_count_after)
+        self.assert_internal_state(self.box, before)
+        allocation = children[0].subculture_initialization
+        self.assert_internal_state(children[0], KnownPolypState(0, {
+            "kind": "subculture_initialization", "id": allocation.pk,
+            "timestamp": event.occurred_at.isoformat(),
+        }))
+        self.assertTrue(SubcultureAllocation.objects.filter(child_box=children[1], allocated_polyps=None).exists())
+        self.assert_internal_state(children[1], NoEligiblePolypSource())
+
+    def test_internal_consumed_correction_keeps_complete_parent_authority_and_snapshot(self):
+        event, _ = self.operation((100,))
+        snapshot = event.parent_state_snapshot
+        sequence = self.measurement.polyp_state_sequence
+        self.measurement.polyp_count = 999
+        self.measurement.measured_on += timedelta(days=14)
+        self.measurement.save()
+        self.assertEqual(self.measurement.polyp_state_sequence, sequence)
+        self.assertTrue(self.box.biological_measurements.filter(pk=self.measurement.pk).exists())
+        self.assert_internal_state(self.box, KnownPolypState(0, {
+            "kind": "subculture", "id": event.pk, "timestamp": event.occurred_at.isoformat(),
+        }))
+        event.refresh_from_db()
+        self.assertEqual(event.parent_state_snapshot, snapshot)
+        self.assertEqual(event.parent_polyp_count_after, 0)
 
     def test_absolute_parent_and_explicit_zero_child_without_synthetic_measurements(self):
         response = self.post()
