@@ -204,7 +204,8 @@ test('tracking window prefers the latest quantitative state over an older ordina
     '../i18n': { createTranslator: (language) => translator(language === 'fr' ? fr : en, language) },
   });
   const oldMeasurement = reading(8, '2024-01-01', 100);
-  const tree = tracking.default({ measurements: [oldMeasurement], biologicalTimeline: [parentEntry], locations: [], events: [], language: 'fr', labels: {
+  const temperatures = [{ date: parentEntry.effective_date, average_temperature_c: 0 }];
+  const tree = tracking.default({ temperatures, measurements: [oldMeasurement], biologicalTimeline: [parentEntry], locations: [], events: [], language: 'fr', labels: {
     polyps: fr.polyps, chartTitle: fr.chartTitle, chartEmpty: fr.chartEmpty,
   } });
   const trend = allNodes(tree).find((node) => node.props?.polypStates);
@@ -213,6 +214,8 @@ test('tracking window prefers the latest quantitative state over an older ordina
   assert.equal(trend.props.events.length, 1);
   assert.equal(trend.props.polypStates[0].title, 'Repiquage');
   assert.equal(trend.props.labels.subculture, 'Repiquage');
+  assert.equal(trend.props.temperatures, temperatures);
+  assert.equal(trend.props.labels.temperature, fr.temperature);
 });
 
 test('lifecycle grouping and preview integration use one event per parent operation', () => {

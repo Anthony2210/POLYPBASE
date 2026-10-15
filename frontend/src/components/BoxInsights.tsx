@@ -15,6 +15,7 @@ import type {
   BoxLocation,
   BoxLineage,
   BoxMovement,
+  BoxTemperaturePoint,
   LineageGraph,
 } from '../types';
 import { createTranslator } from '../i18n';
@@ -86,6 +87,7 @@ export default function BoxInsights({
   lineage,
   measurements,
   movements,
+  temperatures,
   locations,
   onLoadLineageGraph,
   onOpenHistory,
@@ -102,6 +104,7 @@ export default function BoxInsights({
   lineage: BoxLineage;
   measurements: BiologicalMeasurement[];
   movements: BoxMovement[];
+  temperatures?: BoxTemperaturePoint[];
   locations: BoxLocation[];
   onLoadLineageGraph: () => void;
   onOpenHistory: () => void;
@@ -157,6 +160,7 @@ export default function BoxInsights({
             language={language}
             locations={locations}
             measurements={measurements}
+            temperatures={temperatures}
             onOpenHistory={onOpenHistory}
           />
         </div>

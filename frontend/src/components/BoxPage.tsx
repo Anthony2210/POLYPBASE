@@ -1062,6 +1062,7 @@ export default function BoxPage({
             language={language}
             lineage={lineage}
             locations={'locations' in box ? box.locations : []}
+            temperatures={'temperature_history' in box ? box.temperature_history : []}
             measurements={measurements}
             biologicalTimeline={'biological_timeline' in box ? box.biological_timeline : undefined}
             movements={getBoxMovements(box)}

@@ -247,8 +247,10 @@ test('typed timeline and unchanged historical readings pass through to the chart
 test('opening details still delegates the exact existing callback and payload to the chart', () => {
   let opened = 0;
   const measurements = [{ id: 7, polyp_count: 0, ephyrae_count: 0 }];
-  const h = createInsights({ activeTab: 'measurements', measurements, onOpenHistory() { opened++; } });
+  const temperatures = [{ date: '2026-01-01', average_temperature_c: 0 }];
+  const h = createInsights({ activeTab: 'measurements', measurements, temperatures, onOpenHistory() { opened++; } });
   assert.equal(h.chartProps.measurements, measurements);
+  assert.equal(h.chartProps.temperatures, temperatures);
   h.chartProps.onOpenHistory();
   assert.equal(opened, 1);
   const chart = read('../src/components/BoxTrackingChart.tsx');

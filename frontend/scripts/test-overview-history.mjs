@@ -42,8 +42,9 @@ const trendChart = loadModule('../src/components/BiologicalTrendChart.tsx', {
   '../utils/chartLocations': loadModule('../src/utils/chartLocations.ts'),
 });
 const chartWindow = loadModule('../src/utils/chartWindow.ts');
-const { overviewDefaultRange, normalizeOverviewMeasurements, createOverviewHistory } = loadModule(
-  '../src/utils/overviewHistory.ts', { './chartWindow': chartWindow },
+const chartLocations = loadModule('../src/utils/chartLocations.ts');
+const { overviewDefaultRange, normalizeOverviewMeasurements, scopeOverviewTemperatures, createOverviewHistory } = loadModule(
+  '../src/utils/overviewHistory.ts', { './chartWindow': chartWindow, './chartLocations': chartLocations },
 );
 // VM objects have different prototypes; compare their plain, serializable values.
 const plain = value => JSON.parse(JSON.stringify(value));
@@ -72,12 +73,17 @@ const locations = [{
   id: 1, thermal_zone: { id: 1, name: 'Synthetic zone' }, starts_at: '2024-02-01T12:00:00Z',
   ends_at: null, end_date_unknown: false, notes: 'Synthetic test only',
 }];
-const detail = { id: 901, biological_measurements: [...measurements].reverse(), locations };
+const detailTemperatures = [
+  { date: '2026-07-03', average_temperature_c: 0, zone_id: 2, zone_name: 'Previous synthetic zone' },
+  { date: '2026-10-03', average_temperature_c: 18, zone_id: 1, zone_name: 'Synthetic zone' },
+];
+const detail = { id: 901, biological_measurements: [...measurements].reverse(), locations, temperature_history: detailTemperatures };
 function initialState() {
   return {
     range: { ...recentRange },
     measurements: expectedMeasurements.filter(point => point.date >= recentRange.startDate),
-    locations: [], complete: false, loading: false, failedRange: null,
+    locations: [], temperatures: [{ date: '2026-10-03', average_temperature_c: 20 }],
+    complete: false, loading: false, failedRange: null,
   };
 }
 function historyHarness(load = () => Promise.resolve(detail)) {
@@ -112,6 +118,66 @@ function overviewCallback(harness) {
     : `(${callback.getText(ast)})`;
   return harness.evaluate(`((operationGeneration) => ${expression})(organizationRequestGenerationRef.current)`);
 }
+
+test('initial temperatures follow recorded residence and gaps without inventing unknown ends', () => {
+  const location = (id, zone, start, end, unknown = false) => ({
+    id, thermal_zone: { id: zone, name: `Synthetic ${zone}` },
+    starts_at: `${start}T12:00:00Z`, ends_at: end ? `${end}T12:00:00Z` : null,
+    end_date_unknown: unknown,
+  });
+  const box = {
+    thermal_zone: { id: 1, name: 'Synthetic 1' }, history_end_date: '2026-10-03',
+    locations: [
+      location(1, 1, '2026-07-01', null, true),
+      location(2, 2, '2026-07-10', '2026-08-01'),
+      location(3, 1, '2026-09-01', null),
+    ],
+    temperatures: ['2026-06-30', '2026-07-01', '2026-07-09', '2026-07-10',
+      '2026-08-01', '2026-08-15', '2026-09-01', '2026-10-03', '2026-10-04']
+      .map(date => ({ date, average_temperature_c: 0 })),
+  };
+  const before = plain(box);
+  assert.deepEqual(plain(scopeOverviewTemperatures(box)), box.temperatures.filter(point =>
+    ['2026-07-01', '2026-09-01', '2026-10-03'].includes(point.date))
+    .map(point => ({ ...point, zone_id: 1, zone_name: 'Synthetic 1' })));
+  assert.deepEqual(box, before, 'Do not mutate source periods or temperatures');
+  assert.deepEqual(plain(scopeOverviewTemperatures({ ...box, thermal_zone: null })), []);
+  assert.deepEqual(plain(scopeOverviewTemperatures({ ...box, locations: [] })), []);
+  assert.deepEqual(plain(scopeOverviewTemperatures({ ...box, temperatures: [] })), []);
+  assert.deepEqual(plain(scopeOverviewTemperatures({ ...box, locations: [
+    location(4, 1, '2026-09-01', null, true),
+  ] })), [{ ...box.temperatures.find(point => point.date === '2026-09-01'), zone_id: 1, zone_name: 'Synthetic 1' }],
+  'An unknown terminal end must not imply continuing residence');
+});
+
+test('initial temperatures do not extend an unknown occupancy end up to its successor', () => {
+  const box = {
+    thermal_zone: { id: 1, name: 'Synthetic A' }, history_end_date: '2026-10-03',
+    locations: [
+      { id: 1, thermal_zone: { id: 1, name: 'Synthetic A' }, starts_at: '2026-07-01T12:00:00Z', ends_at: null, end_date_unknown: true },
+      { id: 2, thermal_zone: { id: 2, name: 'Synthetic B' }, starts_at: '2026-07-10T12:00:00Z', ends_at: '2026-08-01T12:00:00Z' },
+      { id: 3, thermal_zone: { id: 1, name: 'Synthetic A' }, starts_at: '2026-09-01T12:00:00Z', ends_at: null, end_date_unknown: false },
+    ],
+    temperatures: ['2026-07-01', '2026-07-09', '2026-08-15', '2026-09-01']
+      .map(date => ({ date, average_temperature_c: 0 })),
+  };
+  assert.deepEqual([...scopeOverviewTemperatures(box)].map(point => point.date), ['2026-07-01', '2026-09-01']);
+});
+
+test('initial current-zone values retain inclusive departure days but reject other residence and gaps', () => {
+  const box = {
+    thermal_zone: { id: 1, name: 'Synthetic A' }, history_end_date: '2026-06-30',
+    locations: [
+      { id: 1, thermal_zone: { id: 1 }, starts_at: '2026-06-01T12:00:00Z', ends_at: '2026-06-15T10:00:00Z', end_date_unknown: false },
+      { id: 2, thermal_zone: { id: 2 }, starts_at: '2026-06-15T10:00:00Z', ends_at: '2026-06-20T12:00:00Z', end_date_unknown: false },
+      { id: 3, thermal_zone: { id: 1 }, starts_at: '2026-06-25T12:00:00Z', ends_at: null, end_date_unknown: false },
+    ],
+    temperatures: ['2026-05-31', '2026-06-15', '2026-06-16', '2026-06-21', '2026-06-25', '2026-07-01']
+      .map(date => ({ date, average_temperature_c: 0 })),
+  };
+  assert.deepEqual(plain(scopeOverviewTemperatures(box)), ['2026-06-15', '2026-06-25']
+    .map(date => ({ date, average_temperature_c: 0, zone_id: 1, zone_name: 'Synthetic A' })));
+});
 
 test('default range is three calendar months, including month-end clamping and year boundaries', () => {
   for (const [year, month, day, startDate, endDate] of [
@@ -158,7 +224,7 @@ test('recent-only initial data makes no GET; older selection commits complete Ap
   app.requests[0].resolve(detail);
   await selection;
   assert.deepEqual(plain(history.state), {
-    range: olderRange, measurements: expectedMeasurements, locations,
+    range: olderRange, measurements: expectedMeasurements, locations, temperatures: detailTemperatures,
     complete: true, loading: false, failedRange: null,
   });
   assert.ok(history.state.measurements.some(point => point.date > olderRange.endDate), 'Commit all history, not just the visible range');
@@ -166,6 +232,7 @@ test('recent-only initial data makes no GET; older selection commits complete Ap
     await history.controller.select(range);
     assert.deepEqual(plain(history.state.range), range);
     assert.deepEqual(plain(history.state.measurements), expectedMeasurements);
+    assert.deepEqual(plain(history.state.temperatures), detailTemperatures);
   }
   assert.equal(app.requests.length, 1);
   assert.equal(history.loads, 1);
@@ -180,6 +247,7 @@ test('deferred loading keeps the last valid selected range, measurements and loc
   assert.deepEqual(plain(history.state.range), loadedRange);
   assert.equal(history.state.measurements, valid.measurements);
   assert.equal(history.state.locations, valid.locations);
+  assert.equal(history.state.temperatures, valid.temperatures);
   assert.equal(history.state.complete, false);
   assert.equal(history.state.loading, true);
   assert.equal(history.state.failedRange, null);
@@ -201,6 +269,7 @@ test('failure preserves valid data and range, exposes failedRange, and retry com
   assert.deepEqual(plain(history.state.range), loadedRange);
   assert.equal(history.state.measurements, valid.measurements);
   assert.equal(history.state.locations, valid.locations);
+  assert.equal(history.state.temperatures, valid.temperatures);
   assert.equal(history.state.complete, false);
   assert.equal(history.state.loading, false);
   assert.deepEqual(plain(history.state.failedRange), olderRange);
@@ -277,7 +346,9 @@ test('normalization preserves date-only values and leap day in multiple real pro
     const compilerOptions = ${JSON.stringify(compilerOptions)};
     ${loadModule.toString()}
     const chartWindow = loadModule('../src/utils/chartWindow.ts');
-    const utility = loadModule('../src/utils/overviewHistory.ts', { './chartWindow': chartWindow });
+    const utility = loadModule('../src/utils/overviewHistory.ts', {
+      './chartWindow': chartWindow, './chartLocations': loadModule('../src/utils/chartLocations.ts'),
+    });
     const input = ${JSON.stringify([...measurements].reverse())};
     const result = utility.normalizeOverviewMeasurements(input);
     assert.deepEqual(JSON.parse(JSON.stringify(result)), ${JSON.stringify(expectedMeasurements)});
@@ -395,7 +466,7 @@ function miniChartHarness(box, loadHistory, t = key => key) {
     export { OverviewMiniChart };
   `, { compilerOptions: { ...compilerOptions, jsx: ts.JsxEmit.ReactJSX } });
   vm.runInNewContext(outputText, {
-    exports, Date, ChartWindowControls, BiologicalTrendChart, overviewDefaultRange,
+    exports, Date, ChartWindowControls, BiologicalTrendChart, overviewDefaultRange, scopeOverviewTemperatures,
     createOverviewHistory(...args) {
       const controller = createOverviewHistory(...args);
       return { ...controller, select(range) {
@@ -520,6 +591,109 @@ test('actual mini-chart JSX defaults to the full history, loads it at once and k
   } finally { view.unmount(); }
 });
 
+test('mini-chart wires scoped initial temperatures and translated label, then retains capped detail temperatures across ranges', async () => {
+  const initialTemperatures = [
+    { date: '2024-01-01', average_temperature_c: 99 },
+    { date: '2026-06-01', average_temperature_c: 0 },
+  ];
+  const box = { ...componentBox(componentMeasurements), thermal_zone: { id: 1, name: 'Synthetic zone' }, temperatures: initialTemperatures };
+  const view = miniChartHarness(box, undefined, key => `translated:${key}`);
+  const loadedTemperatures = [
+    { date: '2026-03-01', average_temperature_c: 0, zone_id: 2, zone_name: 'Previous synthetic zone' },
+    { date: '2026-06-01', average_temperature_c: 17, zone_id: 1, zone_name: 'Synthetic zone' },
+  ];
+  try {
+    assert.deepEqual(plain(view.chart.temperatures), [{ ...initialTemperatures[1], zone_id: 1, zone_name: 'Synthetic zone' }]);
+    assert.equal(view.chart.labels.temperature, 'translated:temperature');
+    await view.settle(view.requests[0], {
+      id: box.id, biological_measurements: componentMeasurements, locations: componentLocations,
+      temperature_history: loadedTemperatures,
+    });
+    for (const range of [serverRange, fullComponentRange, olderRange]) {
+      view.select(range);
+      assert.deepEqual(plain(view.chart.temperatures), loadedTemperatures,
+        'Keep only actual detail values; do not merge initial temperatures or backfill beyond the server cap');
+    }
+    assert.equal(view.requests.length, 1);
+    view.updateBox({ ...box, id: 903, history_complete: true, temperatures: [] });
+    assert.deepEqual(plain(view.chart.temperatures), [], 'A new box must not retain the previous detail temperatures');
+  } finally { view.unmount(); }
+});
+
+test('A to B detail keeps both occupied zones, including both daily aggregates on the movement day', async () => {
+  const movementDay = '2026-06-15';
+  const occupiedLocations = [
+    { id: 11, thermal_zone: { id: 11, name: 'Synthetic A' }, starts_at: '2026-05-01T12:00:00Z', ends_at: `${movementDay}T10:00:00Z`, end_date_unknown: false },
+    { id: 22, thermal_zone: { id: 22, name: 'Synthetic B' }, starts_at: `${movementDay}T10:00:00Z`, ends_at: null, end_date_unknown: false },
+  ];
+  const temperatures = [
+    { date: '2026-06-08', average_temperature_c: 0, min_temperature_c: null, max_temperature_c: null, zone_id: 11, zone_name: 'Synthetic A' },
+    { date: movementDay, average_temperature_c: 16, zone_id: 11, zone_name: 'Synthetic A' },
+    { date: movementDay, average_temperature_c: 22, zone_id: 22, zone_name: 'Synthetic B' },
+    { date: '2026-06-22', average_temperature_c: 23, zone_id: 22, zone_name: 'Synthetic B' },
+  ];
+  const box = { ...componentBox(componentMeasurements), history_end_date: '2026-06-30', thermal_zone: { id: 22, name: 'Synthetic B' },
+    locations: occupiedLocations, temperatures: [
+      { date: '2026-06-08', average_temperature_c: 99 },
+      { date: movementDay, average_temperature_c: 22 },
+      { date: '2026-06-22', average_temperature_c: 23 },
+    ] };
+  const view = miniChartHarness(box);
+  try {
+    assert.deepEqual([...view.chart.temperatures].map(point => point.date), [movementDay, '2026-06-22'],
+      'Initial temperatures belong only to B, and must not be backdated into A');
+    assert.ok(view.chart.temperatures.every(point => point.zone_id === 22 && point.zone_name === 'Synthetic B'));
+    await view.settle(view.requests[0], { id: box.id, biological_measurements: componentMeasurements,
+      locations: occupiedLocations, temperature_history: temperatures });
+    assert.deepEqual(plain(view.chart.temperatures), temperatures,
+      'The server has scoped detail points per occupancy; never filter detail to current B');
+    const details = [];
+    const jsx = (type, props, key) => ({ type, props, key });
+    const chart = loadModule('../src/components/BiologicalTrendChart.tsx', {
+      react: { useState: initial => [initial, value => details.push(value)], useMemo: factory => factory(),
+        useRef: current => ({ current }), useId: () => 'occupancy-chart', useEffect() {}, useLayoutEffect() {} },
+      'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: Symbol('Fragment') },
+      'd3-scale': scales, 'd3-shape': shapes,
+      '../utils/userIdentity': loadModule('../src/utils/userIdentity.ts'),
+      '../utils/dateFormat': loadModule('../src/utils/dateFormat.ts'),
+      '../utils/chartBiology': loadModule('../src/utils/chartBiology.ts'),
+      '../utils/chartLocations': chartLocations,
+    });
+    const tree = chart.default({ ...view.chart, startDate: '2026-06-01', endDate: '2026-06-30' });
+    const points = [];
+    function visit(node) {
+      if (Array.isArray(node)) return node.forEach(visit);
+      if (!node || typeof node !== 'object') return;
+      if (node.props?.className === 'bio-trend-temperature-point') points.push(node);
+      visit(node.props?.children);
+    }
+    visit(tree);
+    assert.equal(points.length, 4);
+    points.forEach((node, index) => {
+      const expected = temperatures[index];
+      node.props.onFocus();
+      const detail = details.at(-1);
+      assert.equal(detail.date, expected.date);
+      assert.ok(detail.lines.some(line => line.kind === 'temperature' && line.value === String(expected.average_temperature_c)));
+      assert.ok(detail.lines.some(line => line.kind === 'location' && line.value === expected.zone_name));
+      assert.ok(node.props['aria-label'].includes(expected.zone_name));
+    });
+    assert.equal(points[1].props.children[0].props.cx, points[2].props.children[0].props.cx,
+      'Two daily aggregates share a date coordinate, not invented before/after measurement times');
+    view.select(serverRange);
+    assert.deepEqual(plain(view.chart.temperatures), temperatures);
+    assert.equal(view.requests.length, 1);
+  } finally { view.unmount(); }
+});
+
+test('an empty detail temperature history replaces initial temperatures without fallback', async () => {
+  const history = historyHarness(() => Promise.resolve({ ...detail, temperature_history: [] }));
+  await history.controller.select(olderRange);
+  assert.deepEqual(plain(history.state.temperatures), []);
+  await history.controller.select(recentRange);
+  assert.deepEqual(plain(history.state.temperatures), []);
+});
+
 test('complete overview payload shows the whole multi-year history with real zeros and no request', () => {
   const view = miniChartHarness(componentBox(componentMeasurements, true));
   try {
@@ -596,7 +770,7 @@ test('overview freshness, weekly counters and sorting remain based on readings, 
       useRef: initial => ({ current: initial }), useEffect() {},
     },
     'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: Symbol('Fragment') },
-    '../utils/overviewHistory': { createOverviewHistory, overviewDefaultRange },
+    '../utils/overviewHistory': { createOverviewHistory, overviewDefaultRange, scopeOverviewTemperatures },
     './BiologicalTrendChart': { default() {} }, './ChartWindowControls': { default() {} },
     './PageLoader': { default() {} }, './PolypbaseIcon': { default() {} },
   }).default;

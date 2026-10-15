@@ -1,4 +1,5 @@
-import type { BiologicalMeasurement, BoxDetail, BoxLocation, OverviewMeasurementPoint } from '../types';
+import type { BiologicalMeasurement, BoxDetail, BoxLocation, OverviewBox, OverviewMeasurementPoint, OverviewTemperaturePoint } from '../types';
+
 import { addChartMonths, toChartDateString } from './chartWindow';
 
 export type OverviewRange = { startDate: string; endDate: string };
@@ -6,6 +7,7 @@ export type OverviewHistoryState = {
   range: OverviewRange;
   measurements: OverviewMeasurementPoint[];
   locations: BoxLocation[];
+  temperatures: OverviewTemperaturePoint[];
   complete: boolean;
   loading: boolean;
   failedRange: OverviewRange | null;
@@ -22,6 +24,19 @@ export function normalizeOverviewMeasurements(measurements: BiologicalMeasuremen
     ephyrae_count: point.ephyrae_count,
     salinity_psu: point.salinity_psu,
   })).sort((left, right) => left.date.localeCompare(right.date));
+}
+
+export function scopeOverviewTemperatures(box: OverviewBox): OverviewTemperaturePoint[] {
+  const zone = box.thermal_zone;
+  if (!zone) return [];
+  const periods = (box.locations ?? []).filter((location) => location.thermal_zone.id === zone.id);
+  // Initial values describe the current zone, unlike the box-scoped detail history.
+  // Match the serializer's inclusive daily bounds; an unknown end proves only the start day.
+  return (box.temperatures ?? []).filter((point) => point.date <= box.history_end_date && periods.some((location) => {
+    const start = location.starts_at.slice(0, 10);
+    const end = location.end_date_unknown ? start : location.ends_at?.slice(0, 10) ?? box.history_end_date;
+    return point.date >= start && point.date <= end;
+  })).map((point) => ({ ...point, zone_id: zone.id, zone_name: zone.name }));
 }
 
 // Only commit a wider range once its complete history has arrived.
@@ -49,8 +64,10 @@ export function createOverviewHistory(
       try {
         const detail = await request;
         if (!active || requestGeneration !== generation) return;
+        // Complete refers to biology; detail temperatures remain limited to the server's 180-day window.
         update({ ...state, range, measurements: normalizeOverviewMeasurements(detail.biological_measurements),
-          locations: detail.locations, complete: true, loading: false, failedRange: null });
+          locations: detail.locations, temperatures: detail.temperature_history ?? [],
+          complete: true, loading: false, failedRange: null });
       } catch {
         if (!active || requestGeneration !== generation) return;
         update({ ...state, loading: false, failedRange: range });

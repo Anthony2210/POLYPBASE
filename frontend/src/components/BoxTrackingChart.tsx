@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 
-import type { BiologicalMeasurement, BoxLocation, BoxLineage, BoxMovement } from '../types';
+import type { BiologicalMeasurement, BoxLocation, BoxLineage, BoxMovement, BoxTemperaturePoint } from '../types';
 import { createTranslator, type Language } from '../i18n';
 import { buildChartWindow, getLatestChartWindowOffset, parseChartDate, toChartDateString } from '../utils/chartWindow';
 import BiologicalTrendChart, { isChartEventInRange, type TrendEvent, type TrendLocation, type TrendPolypState } from './BiologicalTrendChart';
@@ -43,6 +43,7 @@ export default function BoxTrackingChart({
   locations,
   measurements,
   onOpenHistory,
+  temperatures = [],
 }: {
   compact?: boolean;
   initialWindowOffset?: number;
@@ -52,6 +53,7 @@ export default function BoxTrackingChart({
   language: Language;
   locations: BoxLocation[];
   measurements: BiologicalMeasurement[];
+  temperatures?: BoxTemperaturePoint[];
   onOpenHistory?: () => void;
 }) {
   const timelineLabels = useMemo(() => getBiologicalTimelineLabels(createTranslator(language)), [language]);
@@ -151,6 +153,7 @@ export default function BoxTrackingChart({
             startDate={preparedData.startDate}
             endDate={preparedData.endDate}
             measurements={preparedData.measurements}
+            temperatures={temperatures}
             polypStates={preparedData.polypStates}
             locations={preparedData.locations}
             events={preparedData.events}
@@ -171,6 +174,7 @@ export default function BoxTrackingChart({
               observation: labels.historyObservation,
               polyps: labels.polyps,
               salinity: labels.salinityFull,
+              temperature: createTranslator(language)('temperature'),
               selectReading: language === 'fr'
                 ? 'Sélectionnez un point du graphique pour afficher le relevé.'
                 : 'Select a chart point to display the reading.',

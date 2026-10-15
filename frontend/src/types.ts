@@ -235,6 +235,8 @@ export type OverviewMeasurementPoint = {
 export type OverviewTemperaturePoint = {
   date: string;
   average_temperature_c: number;
+  zone_id?: number;
+  zone_name?: string;
 };
 
 export type OverviewBox = {

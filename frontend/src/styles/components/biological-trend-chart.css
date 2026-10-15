@@ -75,6 +75,20 @@
 
 .bio-trend-legend .is-polyps { --series-color: var(--color-primary); }
 .bio-trend-legend .is-ephyrae { --series-color: var(--color-ephyrae); }
+.bio-trend-legend .is-temperature,
+.bio-trend-line.is-temperature,
+.bio-trend-dot.is-temperature { --series-color: var(--color-temperature); }
+
+.bio-trend-temperature-axis line { stroke: var(--color-temperature); }
+.bio-trend-temperature-axis text {
+  fill: var(--color-temperature);
+  font-family: inherit;
+  font-size: var(--chart-axis-size);
+  font-variant-numeric: tabular-nums;
+}
+
+.bio-trend-temperature-hit { fill: transparent; cursor: pointer; }
+.bio-trend-temperature-point:focus-visible { outline: 2px solid var(--color-temperature); }
 
 .bio-trend-legend button {
   min-height: 30px;

@@ -34,6 +34,45 @@ const geometry = (width, compact = false, values = readings) => chart.buildGeome
   values, locations, [], '2026-01-01', '2026-06-30', compact, chart.resolveChartLayout(compact, width, true),
 );
 
+test('temperature uses an independent right axis and connects sparse weekly values without synthesizing samples', () => {
+  const temperatures = [
+    { date: '2026-01-15', average_temperature_c: 24 },
+    { date: '2026-01-01', average_temperature_c: 0 },
+    { date: '2026-01-08', average_temperature_c: 22 },
+    { date: '2026-01-09', average_temperature_c: null },
+    { date: '2026-01-10', average_temperature_c: NaN },
+    { date: '2025-12-31', average_temperature_c: 100 },
+  ];
+  for (const compact of [true, false]) {
+    for (const responsive of [true, false]) {
+      const result = chart.buildGeometry(readings, locations, [], '2026-01-01', '2026-01-15', compact,
+        chart.resolveChartLayout(compact, 296, responsive), [], temperatures);
+      assert.equal(result.plottedTemperatures.length, 3);
+      assert.equal(result.plottedTemperatures[0].average_temperature_c, 0);
+      assert.equal(result.plottedTemperatures[1].date, '2026-01-08');
+      const path = result.temperatureLine(result.plottedTemperatures);
+      assert.equal((path.match(/M/g) ?? []).length, 1);
+      assert.equal((path.match(/L/g) ?? []).length, 2);
+      assert.ok(result.padding.right >= 62);
+      assert.ok(result.temperatureTicks.length > 1);
+      for (const point of result.plottedTemperatures) {
+        const y = result.yTemperature(point.average_temperature_c);
+        assert.ok(y >= result.plotTop && y <= result.countHeight - result.padding.bottom);
+      }
+      assert.equal(result.maxCount, 1000);
+      assert.equal(result.zoneBandHeight, 0);
+    }
+  }
+  const single = chart.buildGeometry([], [], [], '2026-01-01', '2026-01-15', false, undefined, [], temperatures.slice(0, 1));
+  assert.ok(Number.isFinite(single.yTemperature(24)));
+  assert.equal(single.plottedTemperatures.length, 1);
+  assert.match(chartSource, /className="bio-trend-temperature-axis"/);
+  assert.match(chartSource, /x1=\{width - padding.right\} x2=\{width - padding.right\}/);
+  assert.match(chartSource, /role="button" tabIndex=\{0\}/);
+  assert.match(chartSource, /\{value\} °C/);
+  assert.match(css, /--series-color: var\(--color-temperature\)/);
+});
+
 test('location changes use the shared movement translation in every chart entry point', () => {
   const trackingSource = readFileSync(new URL('../src/components/BoxTrackingChart.tsx', import.meta.url), 'utf8');
   const exportSource = readFileSync(new URL('../src/components/ExportsView.tsx', import.meta.url), 'utf8');
@@ -69,12 +108,13 @@ test('location changes use the shared movement translation in every chart entry 
       '../utils/chartLocations': utility('chartLocations'),
     }).default({
       startDate: '2026-01-01', endDate: '2026-06-30', measurements: readings,
+      temperatures: [{ date: '2026-01-01', average_temperature_c: 0 }, { date: '2026-01-08', average_temperature_c: 22 }],
       locations: [
         { id: 1, name: 'A', startsAt: '2026-01-01', endsAt: '2026-03-01' },
         { id: 2, name: 'B', startsAt: '2026-03-01', endsAt: null },
       ],
       events: [{ id: 3, date: '2026-02-01', title: expected, kind: 'movement' }],
-      labels: { chartTitle: 'Chart', empty: 'Empty', ephyrae: 'Ephyrae', location: 'Location', locationChange: locale.locationPeriodChange, missingReading: 'Missing', movement: locale.movementEvent, polyps: 'Polyps' },
+      labels: { temperature: locale.temperature, chartTitle: 'Chart', empty: 'Empty', ephyrae: 'Ephyrae', location: 'Location', locationChange: locale.locationPeriodChange, missingReading: 'Missing', movement: locale.movementEvent, polyps: 'Polyps' },
     });
     const nodes = [];
     function visit(node) {
@@ -84,6 +124,15 @@ test('location changes use the shared movement translation in every chart entry 
       visit(node.props?.children);
     }
     visit(renderedChart);
+    assert.equal(nodes.filter((node) => node.props?.className === 'bio-trend-location-band').length, 0);
+    const temperaturePoints = nodes.filter((node) => node.props?.className === 'bio-trend-temperature-point');
+    assert.equal(temperaturePoints.length, 2);
+    assert.ok(temperaturePoints[0].props['aria-label'].includes(`${locale.temperature}: 0 °C`));
+    assert.equal(temperaturePoints[0].props.tabIndex, 0);
+    for (const handler of ['onFocus', 'onMouseEnter', 'onClick', 'onKeyDown']) assert.equal(typeof temperaturePoints[0].props[handler], 'function');
+    assert.equal(nodes.filter((node) => node.props?.className === 'bio-trend-line is-temperature').length, 1);
+    const temperatureLegend = nodes.find((node) => node.type === 'button' && node.props.className === 'is-temperature');
+    assert.equal(temperatureLegend.props['aria-pressed'], true);
     const markers = nodes.filter((node) => node.props?.className === 'bio-trend-event is-movement');
     assert.equal(markers.length, 1, 'only the persisted movement uses the movement style');
     for (const marker of markers) assert.ok(marker.props['aria-label'].startsWith(`${expected} `));
@@ -186,9 +235,9 @@ test('responsive CSS contracts keep text readable, canvas fitted, and shape/colo
   assert.match(css, /\.bio-trend-dot\.is-ephyrae \{ --series-color: var\(--color-ephyrae\)/);
   assert.match(chartSource, /entry\.contentRect\.width/);
   assert.match(chartSource, /canvas\.clientWidth - parseFloat\(style\.paddingLeft\) - parseFloat\(style\.paddingRight\)/);
-  assert.match(chartSource, /width=\{band\.width - 8\} height=\{zoneBandHeight\}/);
+  assert.doesNotMatch(chartSource, /className="bio-trend-location-band"/);
   assert.match(chartSource, /const chartId = useId\(\)/);
-  assert.match(chartSource, /clipPath=\{`url\(#\$\{chartId\}-location-\$\{bandIndex\}\)`\}/);
+  assert.doesNotMatch(chartSource, /chartId\}-location-/);
 });
 
 test('persisted movements and derived period changes stay distinct, exact and deduplicated', () => {

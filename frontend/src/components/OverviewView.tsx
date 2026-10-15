@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { BoxDetail, OverviewBox, OverviewMeasurementPoint } from '../types';
-import { createOverviewHistory, overviewDefaultRange, type OverviewHistoryState } from '../utils/overviewHistory';
+import { createOverviewHistory, overviewDefaultRange, scopeOverviewTemperatures, type OverviewHistoryState } from '../utils/overviewHistory';
 import BiologicalTrendChart from './BiologicalTrendChart';
 import ChartWindowControls from './ChartWindowControls';
 import PageLoader from './PageLoader';
@@ -409,6 +409,7 @@ function OverviewMiniChart({
   }), [earliestDate, recentWindow]);
   const initialState = useMemo<OverviewHistoryState>(() => ({
     range: defaultWindow, measurements: box.measurements, locations: box.locations ?? [],
+    temperatures: scopeOverviewTemperatures(box),
     complete: box.history_complete === true, loading: false, failedRange: null,
   }), [box, defaultWindow]);
   const [history, setHistory] = useState(initialState);
@@ -479,6 +480,7 @@ function OverviewMiniChart({
           salinity: point.salinity_psu,
         }))}
         locations={locations}
+        temperatures={history.temperatures}
         selectionScope={box.id}
         labels={{
           chartTitle: t('overviewChartTitle'),
@@ -493,6 +495,7 @@ function OverviewMiniChart({
           movementAtBoundaryNote: t('movementAtPeriodBoundaryNote'),
           polyps: t('polyps'),
           salinity: 'PSU',
+          temperature: t('temperature'),
           selectedReading: language === 'fr' ? 'Relevé sélectionné' : 'Selected reading',
         }}
       />
