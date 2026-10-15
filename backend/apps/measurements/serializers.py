@@ -18,4 +18,7 @@ class BiologicalMeasurementCreateSerializer(serializers.ModelSerializer):
         ]
         # Live entry never writes "not measured": NULL is reserved for
         # historical rows. An omitted value still defaults to a real 0.
-        extra_kwargs = {"strobila_count": {"allow_null": False}}
+        extra_kwargs = {
+            field: {"allow_null": False}
+            for field in ("strobila_count", "culture_status", "needs_attention", "notes")
+        }

@@ -11,7 +11,7 @@ function moduleAt(path, modules = {}) {
   const { outputText } = ts.transpileModule(readFileSync(new URL(path, import.meta.url), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   });
-  vm.runInNewContext(outputText, { exports, FormData, require: name => {
+  vm.runInNewContext(outputText, { exports, FormData, URL, window: { location: { origin: 'https://polypbase.test' } }, require: name => {
     assert.ok(Object.hasOwn(modules, name), name);
     return modules[name];
   } });
@@ -25,10 +25,11 @@ const file = new File(['box,count,ignored\nB,0,x'], 'test.csv', { type: 'text/cs
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const response = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
 function setup() {
-  const calls = [];
-  const api = resourceClient({ document: { cookie: 'csrftoken=csrf-test' }, fetch: (path, options) => new Promise((resolve, reject) => calls.push({ path, options, resolve, reject })) });
+  const calls = [], downloads = [];
+  const api = resourceClient({ document: { cookie: 'csrftoken=csrf-test', body: { appendChild() {} },
+    createElement: () => ({ click() { downloads.push(this.download); }, remove() {} }) }, fetch: (path, options) => new Promise((resolve, reject) => calls.push({ path, options, resolve, reject })) });
   const logic = moduleAt('../src/api/measurementImport.ts', { './client': api });
-  return { api, logic, calls };
+  return { api, logic, calls, downloads };
 }
 
 function harness() {
@@ -85,9 +86,14 @@ function harness() {
     env.calls.at(-1).resolve(response(data)); await tick(); render();
   }
   function confirm() { find(node => node.props.type === 'checkbox').props.onChange({ target: { checked: true } }); render(); }
+  function confirmImport() { nodes().filter(node => node.props?.type === 'checkbox')[1].props.onChange({ target: { checked: true } }); render(); }
+  async function showPreview(data = readyPreview()) {
+    await inspect(); completeMapping(); button('csvPreview').props.onClick(); render();
+    env.calls.at(-1).resolve(response(data)); await tick(); render();
+  }
   function completeMapping() { map(0, 'field:box_reference'); map(1, 'field:polyp_count'); map(2, 'ignore'); confirm(); }
   render();
-  return { ...env, render, nodes, find, button, chooseFile, map, inspect, confirm, completeMapping,
+  return { ...env, render, nodes, find, button, chooseFile, map, inspect, confirm, confirmImport, showPreview, completeMapping,
     text: () => nodes().filter(node => typeof node === 'string' || typeof node === 'number').join(' '),
     changeDelimiter(value) { nodes().find(node => node.type === 'select').props.onChange({ target: { value } }); render(); },
     setCurrent(value) { operationCurrent = value; },
@@ -104,6 +110,14 @@ const preview = (overrides = {}) => ({
       { field: 'salinity_psu', state: 'absent', value: null }, { field: 'culture_status', state: 'blank', value: null }],
     issues: [{ code: 'future_issue', field: null, column: 2 }] }], ...overrides,
 });
+
+const readyPreview = (overrides = {}) => preview({ application_available: true,
+  rows: [{ ...preview().rows[0], measured_on: '2026-01-02', precision: 'exact_date', issues: [] }], ...overrides });
+const accepted = (overrides = {}) => ({ replayed: false, receipt: {
+  id: '9a4249dc-3a94-4c5f-9578-17bfbdb6ab7b', accepted_at: '2026-10-15T12:00:00Z', source_sha256: 'abc123',
+  created_count: 1, already_matching_count: 0, ignored_count: 0, measurement_ids: [42],
+  source_url: '/api/measurement-import/receipts/receipt/source/', receipt_url: '/api/measurement-import/receipts/receipt/',
+}, ...overrides });
 
 test('multipart reuses CSRF, organization and no-store without setting a boundary; JSON behavior stays intact', async () => {
   const { api, logic, calls } = setup();
@@ -246,7 +260,7 @@ test('blocked, incomplete, empty and paginated preview states execute actual ren
   assert.equal(h.nodes().filter(node => node.type === 'h4').length, 50);
 });
 
-test('FR/EN parity and issue translations cover current canonical/planner codes; diagnostic-only copy persists', () => {
+test('FR/EN parity covers import, retention, receipt and canonical/planner issues', () => {
   const { logic } = setup();
   for (const key of Object.keys(fr).filter(key => key.startsWith('csv'))) {
     assert.ok(fr[key]); assert.ok(en[key]); assert.notEqual(fr[key], key); assert.notEqual(en[key], key);
@@ -254,14 +268,130 @@ test('FR/EN parity and issue translations cover current canonical/planner codes;
   for (const key of [...Object.values(logic.fieldLabels), ...Object.values(logic.issueLabels), ...Object.values(logic.outcomeLabels)]) {
     assert.ok(fr[key]); assert.ok(en[key]);
   }
-  assert.match(fr.csvDiagnosticOnly, /Aucun relevé importé/);
-  assert.match(en.csvDiagnosticOnly, /durable receipt contract/);
-  const source = readFileSync(new URL('../src/api/measurementImport.ts', import.meta.url), 'utf8');
-  assert.equal((source.match(/\/api\/measurement-import\//g) ?? []).length, 2);
-  assert.doesNotMatch(source, /\/apply\//);
+  assert.match(fr.csvRetentionHelp, /privée et permanente/);
+  assert.match(en.csvRetentionHelp, /even if no measurements are created/);
+  assert.match(en.csvConfirmMapping, /does not authorize any import/);
 });
 
-test('laboratory entry has no superuser bypass and can close/unmount the diagnostic panel', () => {
+test('apply sends the reviewed bytes, mapping and both fingerprints with an independent confirmation', async () => {
+  const h = harness(); await h.showPreview();
+  assert.equal(h.calls.length, 2);
+  assert.equal(h.button('csvApply').props.disabled, true);
+  h.button('csvApply').props.onClick(); assert.equal(h.calls.length, 2);
+  h.confirmImport();
+  const submit = h.button('csvApply').props.onClick;
+  submit(); submit(); h.render();
+  assert.equal(h.calls.length, 3);
+  const call = h.calls[2];
+  assert.equal(call.path, '/api/measurement-import/apply/');
+  assert.equal(call.options.body.get('confirmed'), 'true');
+  assert.equal(call.options.body.get('expected_preparation_fingerprint'), 'prep');
+  assert.equal(call.options.body.get('expected_plan_fingerprint'), 'plan');
+  assert.equal(call.options.body.get('delimiter'), ',');
+  assert.equal(await call.options.body.get('file').text(), await file.text());
+  assert.equal(call.options.body.get('mapping'), '{"box":"box_reference","count":"polyp_count","ignored":null}');
+  assert.equal(call.options.headers.get('X-Organization-Id'), '1');
+  assert.equal(call.options.headers.get('X-CSRFToken'), 'csrf-test');
+  assert.equal(h.button('csvApply').props.disabled, true);
+  call.resolve(response(accepted(), 201)); await tick(); h.render();
+  assert.match(h.text(), /Import accepted/);
+  assert.match(h.text(), /abc123/);
+  assert.match(h.text(), /9a4249dc/);
+  assert.equal(h.button('csvApply'), undefined);
+  submit(); assert.equal(h.calls.length, 3);
+  h.button('csvDownloadReceipt').props.onClick(); h.render();
+  assert.equal(h.calls[3].path, accepted().receipt.receipt_url);
+  assert.equal(h.calls[3].options.headers.get('X-Organization-Id'), '1');
+  h.calls[3].resolve(response(accepted().receipt)); await tick(); h.render();
+  assert.deepEqual(h.downloads, ['measurement-receipt.json']);
+  h.button('csvDownloadSource').props.onClick(); h.render();
+  assert.equal(h.calls[4].path, accepted().receipt.source_url);
+  h.calls[4].resolve(new Response('original bytes')); await tick(); h.render();
+  assert.deepEqual(h.downloads, ['measurement-receipt.json', 'measurement-source.csv']);
+});
+
+test('unavailable, blocked, incomplete or fingerprint-less previews cannot be applied', async () => {
+  for (const data of [preview(), readyPreview({ source_complete: false }),
+    readyPreview({ summary: { ...preview().summary, ready: false } }), readyPreview({ plan_fingerprint: '' })]) {
+    const h = harness(); await h.showPreview(data);
+    assert.equal(h.button('csvApply'), undefined);
+    await assert.rejects(h.logic.applyMeasurements(file, ',', 1, inspection,
+      { box: 'box_reference', count: 'polyp_count', ignored: null }, true, data, new AbortController().signal));
+    assert.equal(h.calls.length, 2);
+  }
+});
+
+test('no-op acceptance and replay show zero counts and retained-source receipt', async () => {
+  for (const replayed of [false, true]) {
+    const h = harness();
+    await h.showPreview(readyPreview({ rows: [], summary: { ...preview().summary, create_candidates: 0 } }));
+    h.confirmImport(); h.button('csvApply').props.onClick(); h.render();
+    h.calls[2].resolve(response(accepted({ replayed, receipt: { ...accepted().receipt, created_count: 0, measurement_ids: [] } }), replayed ? 200 : 201));
+    await tick(); h.render();
+    assert.match(h.text(), replayed ? /already accepted/ : /Import accepted/);
+    assert.ok(h.nodes().includes(0));
+    assert.ok(h.button('csvDownloadSource'));
+    assert.equal(h.button('csvApply'), undefined);
+  }
+});
+
+test('stale apply requires a fresh preview; uncertain failures allow confirmed idempotent retry', async () => {
+  for (const [code, status, key] of [['stale_plan', 409, 'csvErrorStale'], ['stale_preparation', 400, 'csvErrorStale'],
+    ['plan_not_applicable', 400, 'csvErrorStale'], ['private failure', 500, 'csvErrorApply'], ['forbidden', 403, 'csvErrorPermission']]) {
+    const h = harness(); await h.showPreview(); h.confirmImport(); h.button('csvApply').props.onClick(); h.render();
+    h.calls[2].resolve(response({ error_code: code }, status)); await tick(); h.render();
+    assert.ok(h.text().includes(en[key])); assert.doesNotMatch(h.text(), /private failure/);
+    if (key === 'csvErrorStale') assert.equal(h.button('csvApply'), undefined);
+    else {
+      assert.equal(h.button('csvApply').props.disabled, true);
+      h.confirmImport(); assert.equal(h.button('csvApply').props.disabled, false);
+    }
+    assert.equal(h.button('csvPreview').props.disabled, false);
+  }
+});
+
+test('source, mapping and institution changes discard delayed apply successes and errors', async () => {
+  for (const change of [h => h.chooseFile(), h => h.changeDelimiter(';'), h => h.map(1, 'ignore'),
+    h => h.api.setActiveOrganizationContext(2), h => h.setCurrent(false), h => h.unmount()]) {
+    for (const status of [201, 409]) {
+      const h = harness(); await h.showPreview(); h.confirmImport(); h.button('csvApply').props.onClick(); h.render();
+      change(h); h.calls[2].resolve(response(status === 201 ? accepted() : { error_code: 'stale_plan' }, status));
+      await tick(); h.render();
+      assert.equal(h.updatesAfterUnmount, 0);
+      assert.doesNotMatch(h.text(), /Import accepted/);
+      assert.equal(h.find(node => node.props.role === 'alert'), undefined);
+    }
+  }
+});
+
+test('recalculating preview resets import confirmation and mapping changes remove it', async () => {
+  const h = harness(); await h.showPreview(); h.confirmImport();
+  h.button('csvPreview').props.onClick(); h.render();
+  h.calls.at(-1).resolve(response(readyPreview())); await tick(); h.render();
+  assert.equal(h.button('csvApply').props.disabled, true);
+  h.confirmImport(); h.map(1, 'ignore');
+  assert.equal(h.button('csvApply'), undefined);
+});
+
+test('private downloads reject foreign URLs, report errors and suppress stale file delivery', async () => {
+  const env = setup();
+  await assert.rejects(env.logic.downloadImportResource('https://foreign.test/api/measurement-import/source/', 1, new AbortController().signal, 'source.csv'));
+  assert.equal(env.calls.length, 0);
+  for (const change of [h => h.api.setActiveOrganizationContext(2), h => h.chooseFile(), h => h.setCurrent(false), h => h.unmount()]) {
+    const h = harness(); await h.showPreview(); h.confirmImport(); h.button('csvApply').props.onClick(); h.render();
+    h.calls[2].resolve(response(accepted(), 201)); await tick(); h.render();
+    h.button('csvDownloadSource').props.onClick(); h.render(); change(h);
+    h.calls[3].resolve(new Response('private bytes')); await tick(); h.render();
+    assert.deepEqual(h.downloads, []);
+  }
+  const h = harness(); await h.showPreview(); h.confirmImport(); h.button('csvApply').props.onClick(); h.render();
+  h.calls[2].resolve(response(accepted())); await tick(); h.render();
+  h.button('csvDownloadReceipt').props.onClick(); h.render(); h.calls[3].resolve(response({}, 500)); await tick(); h.render();
+  assert.ok(h.text().includes(en.csvErrorDownload));
+  assert.equal(h.button('csvDownloadReceipt').props.disabled, false);
+});
+
+test('laboratory entry has no superuser bypass and can close/unmount the import panel', () => {
   let open = false;
   const jsx = (type, props) => ({ type, props });
   const Entry = loadComponent('MeasurementImportEntry', {

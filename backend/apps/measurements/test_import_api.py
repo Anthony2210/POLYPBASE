@@ -139,7 +139,7 @@ class MeasurementImportAPITests(TestCase):
         response = self.post(**kwargs)
         self.assertEqual(response.status_code, 200, response.content)
         result = response.json()
-        self.assertIs(result["application_available"], False)
+        self.assertIs(result["application_available"], result["summary"]["ready"])
         return result
 
     def test_inspection_and_exact_delimiters(self):
@@ -361,7 +361,7 @@ class MeasurementImportAPITests(TestCase):
     def test_metadata_is_bounded_even_if_global_limit_disabled(self):
         self.assert_error(self.post(extra={"mapping": "x" * (MAX_REQUEST_BYTES + 1)}), "request_too_large", 413)
 
-    def test_no_model_audit_or_revision_changes_and_no_apply_route(self):
+    def test_inspection_preview_do_not_change_models_audits_or_revisions(self):
         def snapshot():
             return {model._meta.label: list(model.objects.order_by("pk").values()) for model in apps.get_models()}
         before = snapshot()
@@ -369,7 +369,7 @@ class MeasurementImportAPITests(TestCase):
         self.preview()
         self.preview(rows=[{}, {}])
         self.assertEqual(snapshot(), before)
-        self.assertEqual(self.client.post("/api/measurement-import/apply/").status_code, 404)
+        self.assertEqual(self.client.post("/api/measurement-import/apply/").status_code, 403)
         for method in (self.client.get, self.client.put, self.client.delete):
             response = method(PREVIEW, HTTP_X_ORGANIZATION_ID=str(self.org.pk))
             self.assertEqual(response.status_code, 405)

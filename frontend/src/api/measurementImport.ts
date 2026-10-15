@@ -1,4 +1,4 @@
-import { ApiError, apiPostForm, getStoredActiveOrganizationId } from './client';
+import { ApiError, apiDownload, apiPostForm, getStoredActiveOrganizationId } from './client';
 import type { TranslationKey } from '../i18n';
 
 export type ImportIssue = { code: string; field: string | null; column: number | null };
@@ -27,7 +27,7 @@ export const summaryFields = [
   'conflicts', 'unknown_boxes', 'invalid_or_blocked', 'blocked_rows',
 ] as const;
 export type DiagnosticPreview = {
-  application_available: false;
+  application_available: boolean;
   preparation_fingerprint: string;
   plan_fingerprint: string;
   source_complete: boolean;
@@ -60,6 +60,48 @@ export async function previewMeasurements(
   return apiPostForm<DiagnosticPreview>('/api/measurement-import/preview/', form, signal);
 }
 
+export type ImportReceipt = {
+  id: string;
+  accepted_at: string;
+  source_sha256: string;
+  created_count: number;
+  already_matching_count: number;
+  ignored_count: number;
+  measurement_ids: number[];
+  source_url: string;
+  receipt_url: string;
+};
+export type ImportAcceptance = { receipt: ImportReceipt; replayed: boolean };
+
+export function canApplyPreview(preview: DiagnosticPreview | null): preview is DiagnosticPreview {
+  return Boolean(preview?.application_available && preview.source_complete && preview.summary.ready
+    && preview.preparation_fingerprint && preview.plan_fingerprint);
+}
+
+export async function applyMeasurements(
+  file: File, delimiter: string, organizationId: number, inspection: Inspection,
+  mapping: Mapping, confirmed: boolean, preview: DiagnosticPreview, signal: AbortSignal,
+) {
+  if (!confirmed || !mappingComplete(inspection, mapping) || !canApplyPreview(preview)) {
+    throw new Error('Unconfirmed or unavailable import.');
+  }
+  const form = sourceForm(file, delimiter, organizationId);
+  form.set('mapping', JSON.stringify(Object.fromEntries(inspection.headers.map(header => [header, mapping[header]]))));
+  form.set('confirmed', 'true');
+  form.set('expected_preparation_fingerprint', preview.preparation_fingerprint);
+  form.set('expected_plan_fingerprint', preview.plan_fingerprint);
+  return apiPostForm<ImportAcceptance>('/api/measurement-import/apply/', form, signal);
+}
+
+export async function downloadImportResource(path: string, organizationId: number, signal: AbortSignal, fileName: string, isCurrent?: () => boolean) {
+  if (getStoredActiveOrganizationId() !== organizationId) throw new Error('Organization context changed.');
+  const url = new URL(path, window.location.origin);
+  if (url.origin !== window.location.origin || !url.pathname.startsWith('/api/measurement-import/')) {
+    throw new Error('Invalid import resource URL.');
+  }
+  return apiDownload(url.pathname + url.search, { signal, fileName, isCurrent });
+}
+
 function sourceForm(file: File, delimiter: string, organizationId: number) {
   if (getStoredActiveOrganizationId() !== organizationId) throw new Error('Organization context changed.');
   const form = new FormData();
@@ -74,6 +116,7 @@ export function diagnosticErrorKey(error: unknown): TranslationKey {
     if (error.status === 413 || code === 'file_too_large' || code === 'request_too_large') return 'csvErrorSize';
     if (error.status === 401 || error.status === 403) return 'csvErrorPermission';
     if (code === 'invalid_mapping' || code === 'mapping_not_confirmed') return 'csvErrorMapping';
+    if (code === 'stale_preparation' || code === 'stale_plan' || code === 'plan_not_applicable' || error.status === 409) return 'csvErrorStale';
     if (error.status === 400) return 'csvErrorConfiguration';
   }
   return 'csvErrorRequest';

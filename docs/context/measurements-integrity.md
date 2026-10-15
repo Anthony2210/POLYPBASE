@@ -1,5 +1,19 @@
 # Mesures et intégrité scientifique
 
+## Import CSV exact-date : ajout local
+
+L'applicateur `measurements/import_apply.py` réutilise le verrou de boîte, le
+`save()` allouant les séquences et la contrainte hebdomadaire, sans défauts de
+saisie interactive. La migration `0010_measurement_import_receipt` autorise NULL
+pour `culture_status`, `needs_attention` et `notes` afin de conserver les inconnus
+importés; elle ne réécrit pas les lignes existantes. Les valeurs par défaut et
+le refus de NULL explicite en saisie courante sont préservés. Source, états
+canoniques, plan 1.2, résultat et audits sont conservés dans un reçu privé immuable,
+dans la même transaction. `user` est l'acteur d'import, l'observateur original
+reste NULL/not_recorded. Aucune persistance iso_week ni conversion de précision.
+Contrat courant : [`../measurement-csv-diagnostics.md`](../measurement-csv-diagnostics.md).
+Les mentions « futur applicateur » ci-dessous décrivent les fondations antérieures.
+
 ## Invariant zéro
 
 `0` est une mesure scientifique réelle. Une absence de relevé est représentée par l'absence d'une ligne; une valeur facultative absente reste `null`. Aucun serializer, filtre, graphique, import, export ou fallback frontend ne doit remplacer `0` par du vide ni transformer du vide en `0`.

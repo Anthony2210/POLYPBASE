@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { getOrganizationResourceSignal } from '../api/client';
 import {
-  diagnosticErrorKey, fieldLabels, inspectMeasurements, issueLabels, mappingComplete, outcomeLabels,
-  previewMeasurements, summaryFields,
-  type DiagnosticPreview, type DiagnosticValue, type ImportIssue, type Inspection, type Mapping,
+  applyMeasurements, canApplyPreview, diagnosticErrorKey, downloadImportResource, fieldLabels,
+  inspectMeasurements, issueLabels, mappingComplete, outcomeLabels, previewMeasurements, summaryFields,
+  type DiagnosticPreview, type DiagnosticValue, type ImportAcceptance, type ImportIssue, type Inspection, type Mapping,
 } from '../api/measurementImport';
 import type { Translator, TranslationKey } from '../i18n';
 
@@ -25,11 +25,14 @@ export default function MeasurementImportPanel({ organizationId, isOperationCurr
   const [mapping, setMapping] = useState<Mapping>({});
   const [confirmed, setConfirmed] = useState(false);
   const [preview, setPreview] = useState<DiagnosticPreview | null>(null);
-  const [busy, setBusy] = useState<'inspect' | 'preview' | null>(null);
+  const [busy, setBusy] = useState<'inspect' | 'preview' | 'apply' | 'download' | null>(null);
+  const [importConfirmed, setImportConfirmed] = useState(false);
+  const [acceptance, setAcceptance] = useState<ImportAcceptance | null>(null);
   const [error, setError] = useState<TranslationKey | null>(null);
   const [page, setPage] = useState(0);
   const generation = useRef(0);
   const request = useRef<AbortController | null>(null);
+  const acceptedRequest = useRef(false);
   const fileInput = useRef<HTMLInputElement | null>(null);
   const context = getOrganizationResourceSignal();
   const currentOperation = useRef(isOperationCurrent);
@@ -40,6 +43,9 @@ export default function MeasurementImportPanel({ organizationId, isOperationCurr
     request.current?.abort();
     request.current = null;
     setPreview(null);
+    setImportConfirmed(false);
+    setAcceptance(null);
+    acceptedRequest.current = false;
     setConfirmed(false);
     setError(null);
     setBusy(null);
@@ -64,11 +70,10 @@ export default function MeasurementImportPanel({ organizationId, isOperationCurr
   }, [context, organizationId]);
 
   async function diagnose(mode: 'inspect' | 'preview') {
-    if (!file || context.aborted || !currentOperation.current()) return;
+    if (!file || request.current || context.aborted || !currentOperation.current()) return;
     if (mode === 'preview' && (!confirmed || !mappingComplete(inspection, mapping))) return;
     generation.current += 1;
     const token = generation.current;
-    request.current?.abort();
     const controller = new AbortController();
     request.current = controller;
     const isCurrent = () => token === generation.current && !controller.signal.aborted
@@ -76,6 +81,9 @@ export default function MeasurementImportPanel({ organizationId, isOperationCurr
     setBusy(mode);
     setError(null);
     setPreview(null);
+    setImportConfirmed(false);
+    setAcceptance(null);
+    acceptedRequest.current = false;
     setPage(0);
     if (mode === 'inspect') {
       setInspection(null);
@@ -93,7 +101,51 @@ export default function MeasurementImportPanel({ organizationId, isOperationCurr
     } catch (failure) {
       if (isCurrent()) setError(diagnosticErrorKey(failure));
     } finally {
-      if (isCurrent()) setBusy(null);
+      if (isCurrent()) { setBusy(null); request.current = null; }
+    }
+  }
+
+  async function acceptImport() {
+    if (!file || !inspection || !confirmed || !importConfirmed || !canApplyPreview(preview)
+      || acceptance || acceptedRequest.current || request.current || context.aborted || !currentOperation.current()) return;
+    const token = ++generation.current;
+    const controller = new AbortController();
+    request.current = controller;
+    const isCurrent = () => token === generation.current && !controller.signal.aborted
+      && !context.aborted && currentOperation.current();
+    setBusy('apply');
+    setError(null);
+    try {
+      const result = await applyMeasurements(file, delimiter, organizationId, inspection, mapping, importConfirmed, preview, controller.signal);
+      if (isCurrent()) { acceptedRequest.current = true; setAcceptance(result); setImportConfirmed(false); }
+    } catch (failure) {
+      if (isCurrent()) {
+        const key = diagnosticErrorKey(failure);
+        setError(key === 'csvErrorRequest' ? 'csvErrorApply' : key);
+        setImportConfirmed(false);
+        if (key === 'csvErrorStale') setPreview(null);
+      }
+    } finally {
+      if (isCurrent()) { setBusy(null); request.current = null; }
+    }
+  }
+
+  async function download(kind: 'source' | 'receipt') {
+    if (!acceptance || request.current || context.aborted || !currentOperation.current()) return;
+    const token = ++generation.current;
+    const controller = new AbortController();
+    request.current = controller;
+    const isCurrent = () => token === generation.current && !controller.signal.aborted
+      && !context.aborted && currentOperation.current();
+    setBusy('download');
+    setError(null);
+    try {
+      await downloadImportResource(kind === 'source' ? acceptance.receipt.source_url : acceptance.receipt.receipt_url,
+        organizationId, controller.signal, kind === 'source' ? 'measurement-source.csv' : 'measurement-receipt.json', isCurrent);
+    } catch (failure) {
+      if (isCurrent()) setError(diagnosticErrorKey(failure) === 'csvErrorPermission' ? 'csvErrorPermission' : 'csvErrorDownload');
+    } finally {
+      if (isCurrent()) { setBusy(null); request.current = null; }
     }
   }
 
@@ -102,7 +154,7 @@ export default function MeasurementImportPanel({ organizationId, isOperationCurr
   return (
     <section className="measurement-csv" aria-labelledby="measurement-csv-title">
       <h2 id="measurement-csv-title">{t('csvTitle')}</h2>
-      <p className="login-notice">{t('csvDiagnosticOnly')}</p>
+      <p className="login-notice">{t('csvPreviewHelp')}</p>
       <p>{t('csvSourceHelp')}</p>
       <div className="measurement-csv-controls">
         <label className="field-label">
@@ -129,7 +181,7 @@ export default function MeasurementImportPanel({ organizationId, isOperationCurr
         <button type="button" className="secondary-button" disabled={!file || file.size > 5 * 1024 * 1024 || Boolean(busy) || context.aborted}
           onClick={() => void diagnose('inspect')}>{t('csvInspect')}</button>
       </div>
-      {busy && <p role="status">{t(busy === 'inspect' ? 'csvInspecting' : 'csvPreviewing')}</p>}
+      {busy && <p role="status">{t(busy === 'inspect' ? 'csvInspecting' : busy === 'preview' ? 'csvPreviewing' : busy === 'apply' ? 'csvApplying' : 'csvDownloading')}</p>}
       {error && <p role="alert" className="inline-error">{t(error)}</p>}
       {inspection && <>
         <IssueList issues={inspection.issues} t={t} />
@@ -163,13 +215,40 @@ export default function MeasurementImportPanel({ organizationId, isOperationCurr
             onClick={() => void diagnose('preview')}>{t('csvPreview')}</button>
         </fieldset>}
       </>}
+      {acceptance && <section aria-labelledby="measurement-csv-receipt">
+        <h3 id="measurement-csv-receipt">{t('csvReceiptTitle')}</h3>
+        <p role="status">{t(acceptance.replayed ? 'csvReplayed' : 'csvAccepted')}</p>
+        <dl className="measurement-csv-summary">
+          <div><dt>{t('csvReceiptId')}</dt><dd>{acceptance.receipt.id}</dd></div>
+          <div><dt>{t('csvAcceptedAt')}</dt><dd>{acceptance.receipt.accepted_at}</dd></div>
+          <div><dt>{t('csvCreated')}</dt><dd>{acceptance.receipt.created_count}</dd></div>
+          <div><dt>{t('csvSummaryMatches')}</dt><dd>{acceptance.receipt.already_matching_count}</dd></div>
+          <div><dt>{t('csvSummaryIgnored')}</dt><dd>{acceptance.receipt.ignored_count}</dd></div>
+          <div><dt>{t('csvSourceHash')}</dt><dd><code>{acceptance.receipt.source_sha256}</code></dd></div>
+        </dl>
+        <p>{t('csvReceiptHelp')}</p>
+        <div className="measurement-csv-controls">
+          <button type="button" className="secondary-button" disabled={Boolean(busy)} onClick={() => void download('receipt')}>{t('csvDownloadReceipt')}</button>
+          <button type="button" className="secondary-button" disabled={Boolean(busy)} onClick={() => void download('source')}>{t('csvDownloadSource')}</button>
+        </div>
+      </section>}
       {preview && <section aria-labelledby="measurement-csv-preview">
         <h3 id="measurement-csv-preview">{t('csvPreviewTitle')}</h3>
-        <p role="status">{t(!preview.source_complete ? 'csvSourceIncomplete' : preview.summary.ready ? 'csvDiagnosticReady' : 'csvDiagnosticBlocked')}</p>
+        {!acceptance && <p role="status">{t(!preview.source_complete ? 'csvSourceIncomplete' : preview.summary.ready ? 'csvDiagnosticReady' : 'csvDiagnosticBlocked')}</p>}
         <dl className="measurement-csv-summary">
           {summaryFields.map(field => <div key={field}><dt>{t(summaryLabels[field])}</dt><dd>{preview.summary[field]}</dd></div>)}
         </dl>
         <IssueList issues={preview.issues} t={t} />
+        {!acceptance && (canApplyPreview(preview) ? <fieldset disabled={Boolean(busy)}>
+          <legend>{t('csvImportConfirmation')}</legend>
+          <p>{t('csvRetentionHelp')}</p>
+          <label className="measurement-csv-confirm">
+            <input type="checkbox" checked={importConfirmed} onChange={event => setImportConfirmed(event.target.checked)} />
+            <span>{t('csvConfirmImport')}</span>
+          </label>
+          <button type="button" className="primary-button" disabled={!importConfirmed || Boolean(busy) || context.aborted}
+            onClick={() => void acceptImport()}>{t('csvApply')}</button>
+        </fieldset> : <p>{t('csvApplyUnavailable')}</p>)}
         <p>{t('csvValuesHelp')}</p>
         {preview.rows.length === 0 ? <p>{t('csvNoRows')}</p> : <>
           <nav className="measurement-csv-pagination" aria-label={t('csvPagination')}>

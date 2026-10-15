@@ -1,163 +1,134 @@
-# Diagnostic CSV de relevés — livraison partielle
+# Historical biological-measurement CSV import — exact dates
 
-## Statut et limite d'activation
+## Local implementation
 
-**PARTIALLY IMPLEMENTED / BLOCKED.** Cette tranche permet de préparer et de
-comparer un CSV dans l'institution active. Elle ne permet pas d'importer des
-relevés, même lorsque le diagnostic ne détecte aucun blocage.
+The laboratory CSV panel now supports a complete acceptance workflow outside
+Administration: select bounded UTF-8 CSV, inspect headers, explicitly map every
+column, confirm mapping, review diagnostics, explicitly confirm import, and
+receive a durable receipt. No partial acceptance, correction, Box creation or
+identity guessing is available.
 
-L'inspection part d'un worktree propre sur `f008862`. Les contrats existants
-prévoient une source originale privée, un plan durable, une acceptation et des
-reçus idempotents. Leur infrastructure générique n'existe pas. La conservation
-pendant 30 jours des sources non appliquées reste une proposition non approuvée
-(`context/imports-exports.md`). Aucun délai de conservation ou mécanisme de
-suppression automatique n'est introduit ici.
+The local base is `ce70fc1`, which includes diagnostics commit `2b4382a`.
+This implementation has not been committed, deployed or independently reviewed.
 
-Avant d'activer une application, il reste à définir et implémenter :
+## Scientific contract
 
-- le cycle de vie de la source originale et des preuves dérivées, y compris les
-  données personnelles éventuellement contenues dans les cellules ignorées;
-- le contrat d'acceptation durable et de reçu : identité d'acceptation,
-  autorisation de consultation/application, rejeu et lots sans création;
-- la matérialisation fidèle des états facultatifs absents/vides lors de créations,
-  sans réutiliser les défauts interactifs ni convertir une absence en zéro;
-- une baseline versionnée couvrant précision, observateur original, origine,
-  importateur et acteur historique séparément;
-- le service d'application atomique avec relecture de la source et des permissions,
-  verrouillage cohérent des boîtes, revalidation complète, audit par mesure et
-  reçu transactionnel; puis sa validation concurrente sur PostgreSQL jetable.
+- Only unblocked `CREATE`, `ALREADY_MATCHES` and `IGNORED` rows are accepted.
+- CREATE requires a genuine exact date; no synthetic Monday is persisted.
+- A real zero (including 0/0) occupies its Box/ISO-week slot.
+- Every blocking row rejects the whole batch. Source duplicates block even when identical.
+- ALREADY_MATCHES and IGNORED never modify scientific data or provenance.
+- Week-only CREATE and named observer references remain blocked.
+- No mixed-source resolution, new subculture guard, precision conversion,
+  correction, legacy importer change or iso_week persistence is activated.
 
-Les précédents `AuditLog`, import historique 2026 et transferts fournissent des
-motifs utiles, mais pas une politique générique de conservation ou d'acceptation.
-Leurs conventions ne sont pas transformées implicitement en décision produit.
+Imported measurements explicitly establish `exact_date`, `file_import`, `csv`,
+`imported_by=actor`, `observer_status=not_recorded` and no original observer.
+The legacy `user` field remains the writing actor, not an observer attribution.
 
-## Parcours livré
+Nullable optional counts/salinity remain unknown rather than zero. The additive
+migration also permits NULL culture status, attention and notes, so missing or
+blank imported metadata does not acquire interactive defaults. Exact canonical
+`absent`, `blank`, `null`, `value` states remain in immutable acceptance evidence.
+Ordinary entry keeps its existing defaults and rejects explicit null for its
+previously nonnullable input fields. Existing rows are not rewritten.
 
-Depuis l'accueil du laboratoire, hors Administration, un membre Admin ou
-technicien peut ouvrir **Diagnostiquer un CSV de relevés** :
+## Private source and durable receipt
 
-1. choisir un fichier UTF-8 de 5 Mio maximum et un séparateur explicite;
-2. inspecter les en-têtes (ceci ne valide pas les lignes de données);
-3. choisir pour chaque colonne un champ canonique ou une exclusion volontaire,
-   sans correspondance devinée;
-4. confirmer les correspondances **pour le diagnostic uniquement**;
-5. calculer un aperçu : comptes, candidats à la création, lignes identiques,
-   ignorées, invalides, conflits et blocages, avec références d'enregistrement,
-   lignes physiques et colonnes;
-6. corriger le fichier ou le mapping et recalculer si nécessaire.
+`MeasurementImportReceipt` stores original bytes in a database BinaryField,
+their SHA-256, the complete canonical preparation (schema/version, mapping,
+delimiter, source coordinates and interpretation), the reviewed versioned plan,
+organization, importing account ID, acceptance time, result snapshots,
+measurement IDs and mandatory audit IDs. This includes blank-only/header-only
+and already-matching accepted batches creating zero measurements.
 
-Les résultats sont paginés par 50 lignes dans l'interface. Les états absent,
-vide, NULL, zéro et faux restent distincts. Les textes sont traduits FR/EN.
-Un avertissement permanent précise qu'aucun relevé n'a été importé et qu'aucune
-application n'est disponible. Il n'existe ni bouton de confirmation d'import,
-ni résultat de succès d'import, ni endpoint d'application.
+Source, receipt, measurements, sequence increments and audits use **one database
+transaction**. No filesystem/object-storage operation, staging file, on-commit
+source write, public media URL or cross-resource atomicity claim is involved.
+A failure to persist the bytes or receipt rolls back all scientific writes and
+audits. Inspection and preview retain no source or receipt.
 
-Toute modification du fichier, du séparateur ou des correspondances invalide
-le résultat précédent et sa confirmation. Changement d'institution, fermeture
-et démontage annulent les requêtes; leurs réponses obsolètes ne sont pas publiées.
+Receipts reject update/delete through the model/queryset and SQLite/PostgreSQL
+triggers. There is no automatic deletion, expiration or retention schedule.
+Database backups must therefore include this table; source bytes and canonical
+snapshots can include personal data from ignored columns and original cells.
+This is private application storage, not encryption against database operators.
 
-## Contrat API diagnostique
+## API
 
-Deux routes POST uniquement, avec session Django, CSRF et en-tête explicite
-`X-Organization-Id` :
+Session authentication, CSRF for POST, explicit `X-Organization-Id`, fresh active
+Admin/technician membership and active institution/account are mandatory.
+Superuser status without product membership does not bypass authorization.
+Authorization precedes multipart parsing. Responses are `Cache-Control: no-store`.
 
-- `/api/measurement-import/inspect/`
-- `/api/measurement-import/preview/`
+- `POST /api/measurement-import/inspect/`: ephemeral header inspection.
+- `POST /api/measurement-import/preview/`: ephemeral diagnostics with availability.
+- `POST /api/measurement-import/apply/`: source and mapping resubmission plus
+  `expected_preparation_fingerprint` and `expected_plan_fingerprint`.
+- `GET /api/measurement-import/receipts/<uuid>/`: authorized receipt JSON,
+  including counts, source identity, mapping, actor/institution and result snapshots.
+- `GET /api/measurement-import/receipts/<uuid>/source/`: authorized private
+  original bytes, forced attachment, octet-stream and nosniff.
 
-Le corps est un `multipart/form-data` avec un seul champ fichier `file` et
-`delimiter` (virgule, point-virgule ou tabulation réelle). L'aperçu exige également
-`mapping`, un objet JSON en-tête exact vers champ canonique ou `null`, et
-`confirmed`, la chaîne exacte `true`. Aucun plan ou hash fourni par le client
-n'est accepté comme autorisation.
+Uploads use the existing bounded in-memory handler: 5 MiB source, 10,000 data
+records, 64 columns and 16,384 decoded characters per field, with bounded
+multipart metadata. Apply requires confirmed=true, complete explicit mapping
+and two lowercase SHA-256 fingerprints. No client plan is accepted as authority.
 
-L'inspection retourne `headers`, `fields`, `issues` et
-`application_available: false`. L'aperçu retourne cette même indisponibilité,
-les empreintes de préparation et de plan, `source_complete`, les issues fichier,
-le résumé du planner et les lignes projetées. Une issue contient un code stable,
-un champ canonique éventuel et une colonne éventuelle. Les erreurs de transport
-retournent `error_code` avec un statut 400/413; les refus d'accès retournent 403.
-Les problèmes CSV restent des diagnostics, pas une autorisation partielle.
+An accepted response is `{receipt, replayed}`: 201 for new acceptance, 200 for
+replay. Stale source/interpretation/plan or unsupported batches return 409;
+malformed inputs return 400, oversized inputs 413, unauthorized access 403,
+foreign receipt IDs 404, database acceptance failures 503. Errors expose stable
+codes, not source contents or database exception messages.
 
-`summary.ready` signifie uniquement « aucun blocage du planner détecté ». Cela
-ne garantit ni disponibilité de l'application, ni réservation, ni fraîcheur
-transactionnelle. Les lectures du planner ne sont pas un snapshot verrouillé.
-Un nouveau calcul observe les modifications intervenues depuis le précédent.
+## Locks, freshness and replay
 
-## Autorisation, limites et données
+The server reparses actual bytes, recomputes their interpretation and locks all
+resolved Boxes in PK order. It reloads authority, rebuilds the complete plan and
+compares its fingerprint before any scientific write. Plan 1.2 includes Box
+identity/status/revision, occupancy, all measurement payload fields, date,
+precision, sequence, latest writer, original observer, origin and importer.
+Ordinary creation/correction uses the same Box-lock protocol; weekly uniqueness
+remains the final database constraint. Existing subculture snapshots, consumption,
+movements and audits are not rewritten. New measurements allocate normal source
+sequences through the existing model save behavior.
 
-L'acteur, l'institution et le membership actif sont rechargés au serveur. Seuls
-Admin et technicien actifs de l'institution explicitement sélectionnée sont
-acceptés. Le superutilisateur sans membership produit n'est pas une dérogation.
-L'autorisation précède le parsing multipart, y compris pour la vérification CSRF.
-Le planner conserve ses recherches de boîtes par code exact dans cette seule
-institution. Une référence étrangère est indiscernable d'une référence inconnue.
+Uniqueness is organization + exact source SHA-256 + preparation fingerprint.
+Same accepted interpretation returns its original receipt without reapplying
+data or producing new audits, including after later correction/deletion. A second
+authorized actor can replay a previously reviewed identical interpretation; the
+receipt retains its original accepting actor. Original reviewed guards or a fresh
+matching preview identify a replay. Changed source/interpretation requires its
+own valid preview and is a distinct acceptance, not an implicit replay.
 
-Un upload handler unique conserve temporairement les octets en mémoire, arrête
-l'accumulation au-delà de 5 Mio et ne bascule pas sur un fichier temporaire Django.
-Le flux multipart entier est également borné, même sans limite globale Django.
-Les limites canoniques restent 10 000 enregistrements, 64 colonnes et 16 384
-caractères par champ. Les métadonnées et le mapping sont contrôlés et bornés.
-Les limites globales Django peuvent rejeter une configuration volumineuse avant
-les limites maximales théoriques du mapping.
+The frontend prevents repeated submission and discards stale responses after
+source/mapping/delimiter/institution change or closure. A lost response may be
+retried safely. Cancellation cannot undo an already committed server transaction.
+Success exposes receipt/source downloads with fresh organization authorization.
+All user-facing copy uses the existing French/English catalogs.
 
-Aucune source, plan, profil de mapping ou reçu n'est persisté. Le nom du fichier,
-les cellules brutes/ignorées, notes, noms d'observateurs et baselines stockées ne
-sont pas renvoyés par l'aperçu. Les en-têtes et valeurs canoniques utiles sont
-rendus comme texte React, sans HTML injecté. Les réponses, y compris les erreurs,
-portent `Cache-Control: no-store`. Ceci décrit le traitement applicatif; cela
-n'invente aucune politique pour les infrastructures externes de journalisation.
+## Validation evidence
 
-Les routes diagnostiques évitent également les écritures indirectes habituelles
-de préférence de langue et de session. Les tests surveillent les requêtes SQL
-et comparent l'ensemble des tables applicatives avant/après.
+Ordinary tests use SQLite in-memory with `POSTGRES_DB=''`,
+`POLYPBASE_TEST_POSTGRES=0`, `DJANGO_DEBUG=1` and `config.test_settings`.
+PostgreSQL tests opt in to the fixed disposable loopback port 55439 only, using
+an empty locally created `postgres:16-alpine` container, never the shared local
+container on port 55432, Neon or production.
 
-## Intégrité et compatibilité
+- Complete backend suite: 1,603 discovered, passed with 74 skips (SQLite).
+- Focused measurement/migration regressions: 327 discovered, passed with 9 skips.
+- PostgreSQL acceptance/API/concurrency: 58 passed, including 9 real locking races.
+- Frontend targeted API/measurement/history/timeline/CSV regressions: 122 passed.
+- Django check, migration drift, TypeScript, CSS and Vite production build passed.
+- Complete frontend suite: 1,782 passed, zero failures. Its initial run found a
+  static allowlist test that did not yet admit the CSV field-label metadata
+  module; that metadata-only allowance was updated without weakening
+  null-versus-zero assertions.
+- Final measurements-only SQLite run: 290 discovered, passed with 9 skips.
+- `git diff --check` passed. The disposable PostgreSQL container was removed.
 
-Le contrat canonique 1.0 et le planner 1.1 restent l'autorité de classification.
-Un doublon source bloque, même identique. Un zéro occupe une semaine comme toute
-autre valeur. Un match n'est jamais une réécriture. Les semaines seules restent
-sans jour fabriqué et les candidats CREATE portent le blocage de persistance
-existant. Une référence d'observateur nommée reste non résolue et bloquante.
-
-Aucun relevé, audit, séquence scientifique, révision, snapshot de repiquage,
-mouvement ou état de boîte n'est modifié. Les POST/PATCH ordinaires, importeurs
-legacy, contraintes de précision et résolveurs scientifiques sont inchangés.
-Aucun modèle, migration ou dépendance de production n'est ajouté.
-
-## Validation locale effectuée
-
-Toutes les commandes Django ci-dessous utilisent, depuis `backend/`, le préfixe
-`POSTGRES_DB='' POLYPBASE_TEST_POSTGRES=0 DJANGO_DEBUG=1` et
-`--settings=config.test_settings`, donc SQLite isolé en mémoire :
-
-- `uv run python manage.py test apps.measurements apps.accounts.tests.AccountPreferenceTests apps.accounts.tests.SessionLoginApiTests` : **253 tests réussis**, dont **22 nouveaux** tests d'inspection/API;
-- `uv run python manage.py check` : aucun problème;
-- `uv run python manage.py makemigrations --check --dry-run` : aucune dérive;
-- suite backend complète : 1 504 tests découverts, arrêt à la limite de
-  **240 secondes**, sans résultat final; non déclarée validée.
-
-Depuis `frontend/` :
-
-- `node --test scripts/test-measurement-csv.mjs` : **11 tests réussis**;
-- `node --test scripts/test-api-errors.mjs scripts/test-pilotage-home.mjs scripts/test-auth-routing.mjs` : **73 tests de régression réussis**;
-- contrôle CSS via `npm run check:css` : réussi;
-- `node node_modules/typescript/bin/tsc --noEmit` : réussi;
-- `node node_modules/vite/bin/vite.js build` : réussi, **2 241 modules** transformés;
-- `npm run build` : échoue sur l'exécutable `tsc` absent de `node_modules/.bin`;
-  les trois étapes CSS/TypeScript/Vite ont été validées séparément;
-- `npm ci --no-audit --no-fund` : limite de **180 secondes**, installation non
-  considérée terminée; aucun fichier de dépendances versionné modifié;
-- `npm run test:all` : limite de **180 secondes**, sans résultat final;
-  suite complète non déclarée validée.
-
-`git diff --check` a été exécuté sans erreur de whitespace. Aucun accès à Neon,
-production ou base partagée. Aucun test d'application ou de concurrence import
-PostgreSQL : l'applicateur n'existe pas. La disponibilité du moteur Docker n'a
-pas pu être confirmée avant le délai limite. Aucune QA dans un vrai navigateur
-n'a été effectuée; les tests de composants utilisent le harness Node existant.
-Les contrôles du skill QA ont été exécutés manuellement avec les settings isolés,
-pas via son script qui lance certains contrôles avec les settings par défaut.
-
-**Le diagnostic est implémenté et testé localement; le parcours complet d'import
-n'est pas utilisable.** Attendre une revue indépendante avant toute suite. Aucun
-commit, push, merge ou déploiement n'a été effectué.
+The PostgreSQL races verify import/import (same and differing source, multiple
+actors, disjoint and reversed multi-Box order), import/manual creation in both
+orders and concurrent no-op receipt uniqueness. They do not certify all possible
+production workloads. No live-browser QA or production migration was performed.
+Wait for an independent read-only review before release decisions.

@@ -49,9 +49,9 @@ export type BiologicalMeasurement = {
   ephyrae_count: number;
   strobila_count: number | null;
   salinity_psu: string | null;
-  culture_status: string;
-  needs_attention: boolean;
-  notes: string;
+  culture_status: string | null;
+  needs_attention: boolean | null;
+  notes: string | null;
   user: string | null;
   user_identity: ReadableUserIdentity | null;
   created_at: string;

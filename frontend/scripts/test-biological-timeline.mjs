@@ -72,6 +72,17 @@ test('ordinary consumers retain their measurements without a new timeline', () =
   assert.equal(data.events.length, 0);
 });
 
+test('imported zero measurements with unknown metadata remain chart readings without invented notes', () => {
+  const imported = { ...reading(12, '2026-09-15', 0), culture_status: null, needs_attention: null, notes: null };
+  const data = timeline.prepareBiologicalChartData([imported], undefined, labelsFor(en, 'en'));
+  assert.equal(data.measurements[0].polypCount, 0);
+  assert.equal(data.measurements[0].ephyraeCount, 0);
+  assert.equal(data.measurements[0].note, null);
+  const { render } = chartHarness();
+  const markup = renderToStaticMarkup(render({ ...data, startDate: '2026-09-01', endDate: '2026-09-30', labels: chartLabels(en) }));
+  assert.doesNotMatch(markup, /NaN|undefined/);
+});
+
 test('a multi-child parent event yields one absolute state and one lifecycle marker', () => {
   const data = timeline.prepareBiologicalChartData([measurement], [parentEntry, measurementEntry, parentEntry], labelsFor(fr, 'fr'));
   assert.equal(data.measurements.length, 1);

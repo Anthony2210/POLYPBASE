@@ -1219,7 +1219,7 @@ function getMeasurementHistory(box: BoxItem | BoxDetail) {
 
 function getLatestComment(measurements: BiologicalMeasurement[], box: BoxItem | BoxDetail) {
   const measurementWithComment = measurements.find((measurement) => measurement.notes?.trim());
-  return measurementWithComment?.notes.trim() || box.latest_measurement?.notes?.trim();
+  return measurementWithComment?.notes?.trim() || box.latest_measurement?.notes?.trim();
 }
 
 function getBoxCreatedDate(box: BoxItem | BoxDetail) {

@@ -55,7 +55,11 @@ from apps.exports.views import (
     WeeklyMeasurementCSVExportAPIView,
     WeeklyMeasurementPreviewAPIView,
 )
-from apps.measurements.import_api import MeasurementImportInspectAPIView, MeasurementImportPreviewAPIView
+from apps.measurements.import_api import (
+    MeasurementImportInspectAPIView, MeasurementImportPreviewAPIView,
+    MeasurementImportApplyAPIView, MeasurementImportReceiptAPIView,
+    MeasurementImportSourceAPIView,
+)
 from apps.organizations.api_views import (
     OrganizationCreateAPIView,
     OrganizationDetailAPIView,
@@ -76,6 +80,9 @@ urlpatterns = [
     path("health/", HealthAPIView.as_view(), name="api_health"),
     path("measurement-import/inspect/", MeasurementImportInspectAPIView.as_view(), name="api_measurement_import_inspect"),
     path("measurement-import/preview/", MeasurementImportPreviewAPIView.as_view(), name="api_measurement_import_preview"),
+    path("measurement-import/apply/", MeasurementImportApplyAPIView.as_view(), name="api_measurement_import_apply"),
+    path("measurement-import/receipts/<uuid:receipt_id>/", MeasurementImportReceiptAPIView.as_view(), name="api_measurement_import_receipt"),
+    path("measurement-import/receipts/<uuid:receipt_id>/source/", MeasurementImportSourceAPIView.as_view(), name="api_measurement_import_source"),
     path("auth/session/", SessionLoginAPIView.as_view(), name="api_session_login"),
     path("auth/logout/", SessionLogoutAPIView.as_view(), name="api_session_logout"),
     path(

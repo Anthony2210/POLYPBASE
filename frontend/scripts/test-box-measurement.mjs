@@ -77,6 +77,20 @@ function measurement(overrides = {}) {
   };
 }
 
+test('imported unknown metadata stays null in reads without changing interactive form defaults', () => {
+  const imported = measurement({ polyp_count: 0, ephyrae_count: 0, culture_status: null, needs_attention: null, notes: null });
+  const h = appHarness();
+  h.evaluate(functionNode('getLatestComment').getText());
+  const { context } = h;
+  assert.equal(context.getLatestComment([imported], { latest_measurement: imported }), undefined);
+  assert.equal(context.getLatestComment([imported, measurement({ notes: 'Recorded comment' })], { latest_measurement: imported }), 'Recorded comment');
+  assert.equal(exports.getMeasurementFormValues(imported).notes, '');
+  assert.equal(imported.notes, null);
+  assert.equal(imported.culture_status, null);
+  assert.equal(imported.needs_attention, null);
+  assert.equal(exports.getMeasurementFormValues(imported).polypCount, '0');
+});
+
 test('ISO weeks run Monday through Sunday across year boundaries', () => {
   assert.equal(exports.getIsoWeekStart('2026-09-14'), '2026-09-14');
   assert.equal(exports.getIsoWeekStart('2026-09-20'), '2026-09-14');

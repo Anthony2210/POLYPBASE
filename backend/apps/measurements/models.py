@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+import uuid
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -51,13 +52,15 @@ class BiologicalMeasurement(models.Model):
     # 0 is a measured scientific zero. Live entry keeps defaulting to 0.
     strobila_count = models.PositiveIntegerField(default=0, null=True, blank=True)
     salinity_psu = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    # File imports preserve unknown optional metadata as NULL. Ordinary entry
+    # keeps its existing defaults; canonical source states live in the receipt.
     culture_status = models.CharField(
         max_length=30,
         choices=CultureStatus.choices,
-        default=CultureStatus.NOT_SPECIFIED,
+        default=CultureStatus.NOT_SPECIFIED, null=True,
     )
-    needs_attention = models.BooleanField(default=False)
-    notes = models.TextField(blank=True)
+    needs_attention = models.BooleanField(default=False, null=True)
+    notes = models.TextField(blank=True, null=True, default="")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     # user remains the legacy latest writer. Provenance is captured explicitly,
     # never inferred by save() from that field or a measurement's date.
@@ -177,6 +180,61 @@ class BiologicalMeasurement(models.Model):
 
     def __str__(self):
         return f"{self.box} - {self.measured_on}"
+
+
+class ImmutableImportReceiptQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("Accepted import evidence cannot be changed.")
+
+    def delete(self):
+        raise ValidationError("Accepted import evidence cannot be deleted.")
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise ValidationError("Accepted import evidence cannot be changed.")
+
+
+class MeasurementImportReceipt(models.Model):
+    """Permanent private acceptance evidence, including the exact original bytes.
+
+    No receipt is created for previews or rejected applications. JSON snapshots
+    retain scientific identities even if live measurements are later corrected.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.PROTECT,
+        related_name="measurement_import_receipts",
+    )
+    # Keep the accepting account identity without mutable account name snapshots.
+    actor_id = models.PositiveBigIntegerField()
+    accepted_at = models.DateTimeField(default=timezone.now, editable=False)
+    source_sha256 = models.CharField(max_length=64)
+    source_bytes = models.BinaryField(editable=False)
+    preparation_fingerprint = models.CharField(max_length=64)
+    plan_fingerprint = models.CharField(max_length=64)
+    preparation = models.JSONField()
+    accepted_plan = models.JSONField()
+    result = models.JSONField()
+
+    objects = ImmutableImportReceiptQuerySet.as_manager()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "source_sha256", "preparation_fingerprint"],
+                name="unique_measurement_import_acceptance",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("Accepted import evidence cannot be changed.")
+        # Never let an INSERT with an existing UUID fall back to an UPDATE.
+        kwargs["force_insert"] = True
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Accepted import evidence cannot be deleted.")
 
 
 class Observation(models.Model):

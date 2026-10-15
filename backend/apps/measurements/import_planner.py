@@ -39,9 +39,15 @@ class MeasurementBaseline:
     measured_on: str
     week_start: str
     values: tuple[tuple[str, str | int | bool | None], ...]
-    observer_id: int | None
+    observer_id: int | None  # Legacy name for user_id (latest writer), not original observer.
     created_at: str
     polyp_state_sequence: int | None
+    temporal_precision: str
+    observer_status: str
+    original_observer_id: int | None
+    origin: str
+    import_format: str
+    imported_by_id: int | None
 
 
 @dataclass(frozen=True)
@@ -109,7 +115,7 @@ class MeasurementImportPlan:
     issues: tuple[Issue, ...]
     duplicate_groups: tuple[SourceSlotGroup, ...] = ()
     schema: str = "polypbase.biological-measurement-plan"
-    schema_version: str = "1.1"
+    schema_version: str = "1.2"
     chronology_conflicts: tuple[ChronologyConflict, ...] = ()
 
     @property
@@ -142,6 +148,14 @@ class MeasurementImportPlan:
         return hashlib.sha256(self.canonical_json().encode("utf-8")).hexdigest()
 
 
+def preview_identity(plan):
+    """Return the guards to submit with the reviewed source and interpretation."""
+    return {
+        "preparation_fingerprint": plan.preparation_fingerprint,
+        "plan_fingerprint": plan.fingerprint,
+    }
+
+
 def _batches(items):
     for start in range(0, len(items), BATCH_SIZE):
         yield items[start:start + BATCH_SIZE]
@@ -172,6 +186,9 @@ def _baseline(measurement):
         measurement.pk, measurement.box_id, measurement.measured_on.isoformat(),
         measurement.week_start.isoformat(), tuple(values), measurement.user_id,
         measurement.created_at.isoformat(), measurement.polyp_state_sequence,
+        measurement.temporal_precision, measurement.observer_status,
+        measurement.original_observer_id, measurement.origin,
+        measurement.import_format, measurement.imported_by_id,
     )
 
 

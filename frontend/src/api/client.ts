@@ -202,11 +202,18 @@ export async function apiDelete<T>(path: string): Promise<T> {
   });
 }
 
-export async function apiDownload(path: string): Promise<string> {
+export async function apiDownload(path: string, options: { signal?: AbortSignal; fileName?: string; isCurrent?: () => boolean } = {}): Promise<string> {
+  const context = getOrganizationResourceSignal();
+  context.throwIfAborted();
+  options.signal?.throwIfAborted();
   const response = await fetch(path, {
     credentials: 'include',
     headers: buildRequestHeaders(),
+    cache: 'no-store',
+    signal: options.signal,
   });
+  context.throwIfAborted();
+  options.signal?.throwIfAborted();
 
   if (!response.ok) {
     const contentType = response.headers.get('content-type') ?? '';
@@ -218,7 +225,11 @@ export async function apiDownload(path: string): Promise<string> {
   }
 
   const blob = await response.blob();
-  const fileName = getDownloadFileName(response.headers.get('content-disposition'));
+  context.throwIfAborted();
+  options.signal?.throwIfAborted();
+  if (options.isCurrent && !options.isCurrent()) throw new ApiResourceCancelledError();
+  const disposition = response.headers.get('content-disposition');
+  const fileName = disposition ? getDownloadFileName(disposition) : options.fileName ?? getDownloadFileName(null);
   const objectUrl = URL.createObjectURL(blob);
   const link = document.createElement('a');
 

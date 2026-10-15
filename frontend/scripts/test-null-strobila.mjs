@@ -73,5 +73,6 @@ test('no unreviewed strobila references exist outside the typed API and audit pr
     }
   };
   walk(root);
-  assert.deepEqual(offenders.sort(), ['types.ts', 'utils/auditPresentation.ts']);
+  // CSV metadata labels name the field without coercing its scientific value.
+  assert.deepEqual(offenders.sort(), ['api/measurementImport.ts', 'types.ts', 'utils/auditPresentation.ts']);
 });

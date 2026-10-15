@@ -1,4 +1,4 @@
-"""Ephemeral diagnostic uploads. No source storage or application capability."""
+"""Bounded CSV previews and authorized atomic acceptance with private receipts."""
 
 from dataclasses import asdict
 import json
@@ -6,7 +6,10 @@ from types import SimpleNamespace
 
 from django.core.exceptions import RequestDataTooBig, TooManyFieldsSent, TooManyFilesSent
 from django.core.files.uploadhandler import MemoryFileUploadHandler, StopUpload
+from django.http import HttpResponse
 from django.http.multipartparser import MultiPartParserError
+from django.db import DatabaseError
+from django.shortcuts import get_object_or_404
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.exceptions import APIException, ParseError, PermissionDenied, UnsupportedMediaType
 from rest_framework.parsers import MultiPartParser
@@ -18,6 +21,8 @@ from rest_framework.views import APIView
 from .canonical import FIELDS
 from .csv_import import CsvLimits, inspect_csv, read_csv
 from .import_planner import authorize_measurement_import, build_measurement_import_plan
+from .import_apply import MeasurementImportApplyError, apply_measurement_import
+from .models import MeasurementImportReceipt
 
 LIMITS = CsvLimits()
 # Includes worst-case JSON escaping of all bounded mapping headers plus framing.
@@ -126,6 +131,7 @@ class MeasurementImportDiagnosticAPIView(APIView):
     renderer_classes = [JSONRenderer]
     http_method_names = ["post", "options"]
     preview = False
+    apply = False
 
     def initialize_request(self, request, *args, **kwargs):
         # Install before session CSRF handling, which can access request.POST.
@@ -158,6 +164,8 @@ class MeasurementImportDiagnosticAPIView(APIView):
         if handler.error_code:
             raise DiagnosticRequestError(handler.error_code, 413 if handler.error_code == "file_too_large" else 400)
         allowed = {"delimiter", "mapping", "confirmed"} if self.preview else {"delimiter"}
+        if self.apply:
+            allowed |= {"expected_preparation_fingerprint", "expected_plan_fingerprint"}
         if set(request.POST) - allowed or any(len(request.POST.getlist(key)) != 1 for key in request.POST):
             raise DiagnosticRequestError("invalid_configuration")
         if set(request.FILES) != {"file"} or len(request.FILES.getlist("file")) != 1:
@@ -200,9 +208,25 @@ class MeasurementImportDiagnosticAPIView(APIView):
             source, source_id="diagnostic-upload", mapping=mapping,
             confirmed=True, delimiter=delimiter, limits=LIMITS,
         )
+        if self.apply:
+            fingerprints = [data.get(key) for key in ("expected_preparation_fingerprint", "expected_plan_fingerprint")]
+            if any(not isinstance(value, str) or len(value) != 64 or any(c not in "0123456789abcdef" for c in value) for value in fingerprints):
+                raise DiagnosticRequestError("invalid_preview_identity")
+            try:
+                receipt, replayed = apply_measurement_import(
+                    source=source, mapping=mapping, delimiter=delimiter,
+                    expected_preparation_fingerprint=fingerprints[0],
+                    expected_plan_fingerprint=fingerprints[1],
+                    organization=self.organization, actor=request.user,
+                )
+            except MeasurementImportApplyError as exc:
+                raise DiagnosticRequestError(exc.code, 409) from None
+            except DatabaseError:
+                raise DiagnosticRequestError("acceptance_failed", 503) from None
+            return Response({"receipt": _receipt_payload(receipt), "replayed": replayed}, status=200 if replayed else 201)
         plan = build_measurement_import_plan(preparation, organization=self.organization, actor=request.user)
         return Response({
-            "application_available": False,
+            "application_available": plan.ready,
             "preparation_fingerprint": plan.preparation_fingerprint,
             "plan_fingerprint": plan.fingerprint,
             "source_complete": plan.source_complete,
@@ -227,3 +251,46 @@ class MeasurementImportInspectAPIView(MeasurementImportDiagnosticAPIView):
 
 class MeasurementImportPreviewAPIView(MeasurementImportDiagnosticAPIView):
     preview = True
+
+
+class MeasurementImportApplyAPIView(MeasurementImportPreviewAPIView):
+    apply = True
+
+
+def _receipt_payload(receipt):
+    base = f"/api/measurement-import/receipts/{receipt.pk}/"
+    summary = receipt.result["summary"]
+    return {
+        "id": str(receipt.pk), "accepted_at": receipt.accepted_at.isoformat(),
+        "source_sha256": receipt.source_sha256,
+        "organization_id": receipt.organization_id, "actor_id": receipt.actor_id,
+        "preparation_fingerprint": receipt.preparation_fingerprint,
+        "plan_fingerprint": receipt.plan_fingerprint,
+        "canonical_schema": receipt.preparation["schema"],
+        "canonical_version": receipt.preparation["schema_version"],
+        "mapping": receipt.preparation["mapping"],
+        "delimiter": receipt.preparation["delimiter"],
+        "result": receipt.result,
+        "created_count": summary["create_candidates"],
+        "already_matching_count": summary["already_matching"],
+        "ignored_count": summary["ignored_rows"],
+        "measurement_ids": [row["measurement_id"] for row in receipt.result["rows"] if row["measurement_id"] is not None],
+        "source_url": base + "source/", "receipt_url": base,
+    }
+
+
+class MeasurementImportReceiptAPIView(MeasurementImportDiagnosticAPIView):
+    http_method_names = ["get", "options"]
+
+    def get(self, request, receipt_id):
+        receipt = get_object_or_404(MeasurementImportReceipt, pk=receipt_id, organization=self.organization)
+        return Response(_receipt_payload(receipt))
+
+
+class MeasurementImportSourceAPIView(MeasurementImportReceiptAPIView):
+    def get(self, request, receipt_id):
+        receipt = get_object_or_404(MeasurementImportReceipt, pk=receipt_id, organization=self.organization)
+        response = HttpResponse(bytes(receipt.source_bytes), content_type="application/octet-stream")
+        response["Content-Disposition"] = f'attachment; filename="measurement-import-{receipt.pk}.csv"'
+        response["X-Content-Type-Options"] = "nosniff"
+        return response
