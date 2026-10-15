@@ -124,6 +124,45 @@ def _records(text, delimiter, limits):
         yield tuple(cells), start, line, False
 
 
+def _header_issues(headers):
+    normalized = [header.strip().casefold() for header in headers]
+    if any(not header for header in normalized) or len(set(normalized)) != len(headers):
+        return (Issue("duplicate_or_ambiguous_header"),)
+    return ()
+
+
+@dataclass(frozen=True)
+class CsvInspection:
+    """Header diagnostics only; this does not certify data records."""
+
+    headers: tuple[str, ...] = ()
+    issues: tuple[Issue, ...] = ()
+
+
+def inspect_csv(data: bytes, *, delimiter: str = ",", limits: CsvLimits = CsvLimits()) -> CsvInspection:
+    """Inspect an explicit UTF-8 CSV header using the preparation lexer/limits."""
+    if not isinstance(data, bytes):
+        raise TypeError("CSV input must be bytes.")
+    if delimiter not in {",", ";", "\t"}:
+        raise ValueError("Choose an explicit comma, semicolon or tab delimiter.")
+    if len(data) > limits.max_bytes:
+        return CsvInspection(issues=(Issue("byte_limit"),))
+    try:
+        text = data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return CsvInspection(issues=(Issue("invalid_utf8"),))
+    if "\x00" in text:
+        return CsvInspection(issues=(Issue("nul_character"),))
+    try:
+        header = next(_records(text, delimiter, limits), None)
+    except _CsvFailure as failure:
+        return CsvInspection(issues=(Issue(failure.code),))
+    if header is None:
+        return CsvInspection(issues=(Issue("missing_header"),))
+    headers = header[0]
+    return CsvInspection(headers, _header_issues(headers))
+
+
 def read_csv(data: bytes, *, source_id: str, mapping: Mapping[str, str | None],
              confirmed: bool, delimiter: str = ",", limits: CsvLimits = CsvLimits()) -> CsvResult:
     """Prepare bounded UTF-8 bytes; no sniffing, I/O, model lookup or mutation.
@@ -174,9 +213,9 @@ def read_csv(data: bytes, *, source_id: str, mapping: Mapping[str, str | None],
         if header_record is None:
             return result(issues=(Issue("missing_header"),))
         headers, _, _, _ = header_record
-        normalized_headers = [header.strip().casefold() for header in headers]
-        if any(not header for header in normalized_headers) or len(set(normalized_headers)) != len(headers):
-            return result(issues=(Issue("duplicate_or_ambiguous_header"),))
+        header_issues = _header_issues(headers)
+        if header_issues:
+            return result(issues=header_issues)
         if set(headers) != set(mapping):
             return result(issues=(Issue("incomplete_header_mapping"),))
         ordered_mapping = tuple((header, mapping[header]) for header in headers)

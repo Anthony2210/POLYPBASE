@@ -15,8 +15,10 @@ plan = build_measurement_import_plan(
 summary = plan.summary
 ```
 
-This is an ephemeral read-only preview, not an endpoint, durable plan, apply
-operation, correction service, audit event or acceptance receipt. It consumes the
+This service produces an ephemeral read-only preview, not a durable plan, apply
+operation, correction service, audit event or acceptance receipt. A separate
+[diagnostic API and laboratory UI](measurement-csv-diagnostics.md) now expose a
+minimized projection; application remains unavailable. The service consumes the
 trusted Phase 2 preparation object, not arbitrary client-created dataclasses.
 The canonical parser and all existing importers remain unchanged. Invalid or
 incomplete preparations still produce useful diagnostic rows, never a partially

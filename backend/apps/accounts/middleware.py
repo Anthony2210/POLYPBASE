@@ -21,6 +21,15 @@ class UserInterfaceLanguageMiddleware:
         return response
 
     def _get_language(self, request):
+        if request.user.is_authenticated and request.path in {
+            "/api/measurement-import/inspect/", "/api/measurement-import/preview/",
+        }:
+            # Diagnostic uploads must not create preferences or persist sessions.
+            return (
+                UserPreference.objects.filter(user=request.user)
+                .values_list("interface_language", flat=True).first()
+                or settings.LANGUAGE_CODE.split("-")[0]
+            )
         if request.user.is_authenticated:
             preference, _created = UserPreference.objects.get_or_create(user=request.user)
             request.session["interface_language"] = preference.interface_language

@@ -1,0 +1,108 @@
+.measurement-csv-entry {
+  min-width: 0;
+  margin-top: var(--space-5);
+}
+
+.measurement-csv {
+  margin-top: var(--space-3);
+  padding: var(--space-5);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  overflow-wrap: anywhere;
+}
+
+.measurement-csv h2,
+.measurement-csv h3,
+.measurement-csv h4 {
+  margin: 0 0 var(--space-3);
+}
+
+.measurement-csv p {
+  margin: var(--space-3) 0;
+}
+
+.measurement-csv-controls,
+.measurement-csv-mapping {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  align-items: end;
+  gap: var(--space-3);
+}
+
+.measurement-csv .field-label {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-2);
+}
+
+.measurement-csv input[type="file"] {
+  padding: var(--space-2);
+}
+
+.measurement-csv fieldset {
+  min-width: 0;
+  margin: var(--space-5) 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+}
+
+.measurement-csv-confirm {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--touch-target);
+  margin: var(--space-3) 0;
+}
+
+.measurement-csv-confirm input {
+  width: 22px;
+  min-height: 22px;
+  flex-shrink: 0;
+}
+
+.measurement-csv-summary,
+.measurement-csv-values {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: var(--space-3);
+}
+
+.measurement-csv dt {
+  color: var(--color-ink-soft);
+}
+
+.measurement-csv dd {
+  margin: var(--space-1) 0 0;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.measurement-csv-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-4) 0;
+}
+
+.measurement-csv-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.measurement-csv-rows > li {
+  padding: var(--space-4) 0;
+  border-top: 1px solid var(--color-line);
+}
+
+.measurement-csv-issues {
+  padding-left: var(--space-5);
+  color: var(--color-ink-soft);
+}
+
+.measurement-csv-issues li + li {
+  margin-top: var(--space-2);
+}

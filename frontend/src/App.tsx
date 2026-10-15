@@ -122,6 +122,7 @@ import { isRouteRequestCurrent } from './utils/routeSafety';
 
 const AdminView = lazy(() => import('./components/AdminView'));
 const ExportsView = lazy(() => import('./components/ExportsView'));
+const MeasurementImportEntry = lazy(() => import('./components/MeasurementImportEntry'));
 const LabelsView = lazy(() => import('./components/LabelsView'));
 const OverviewView = lazy(() => import('./components/OverviewView'));
 const ZoneDetailPage = lazy(() =>
@@ -2305,6 +2306,16 @@ export default function App() {
                 confirmAction={confirmAction}
                 onSearch={setSearch}
                 onSelectBox={openBox}
+                t={t}
+              />
+            )}
+
+            {activeTab === 'pilotage' && !isBoxRoute && !isLoading && (
+              <MeasurementImportEntry
+                key={activeOrganizationId}
+                profile={data.profile}
+                organizationId={activeOrganizationId}
+                isOperationCurrent={() => operationGeneration === organizationRequestGenerationRef.current}
                 t={t}
               />
             )}

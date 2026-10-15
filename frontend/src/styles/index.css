@@ -23,6 +23,7 @@
 @import './pages/box-insights.css' layer(pages);
 @import './pages/overview.css' layer(pages);
 @import './pages/pilotage.css' layer(pages);
+@import './pages/measurement-csv.css' layer(pages);
 @import './pages/zones.css' layer(pages);
 @import './pages/exports-labels.css' layer(pages);
 @import './pages/profile.css' layer(pages);

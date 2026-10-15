@@ -147,7 +147,8 @@ def _batches(items):
         yield items[start:start + BATCH_SIZE]
 
 
-def _authorize(actor, organization):
+def authorize_measurement_import(actor, organization):
+    """Reload and authorize the explicit institution's active laboratory member."""
     if not actor or not actor.is_authenticated or not actor.pk:
         raise PermissionDenied(code="measurement_import_forbidden")
     # Reload security state: an object passed by a caller is not authority.
@@ -275,7 +276,7 @@ def build_measurement_import_plan(preparation: CsvResult, *, organization, actor
     repeats. A CREATE with issues is a non-executable candidate. No row is an
     instruction to overwrite data, and readiness never permits partial application.
     """
-    user, institution = _authorize(actor, organization)
+    user, institution = authorize_measurement_import(actor, organization)
     if not isinstance(preparation, CsvResult):
         raise TypeError("Expected a canonical CSV preparation result.")
     plan_issues = list(preparation.issues)

@@ -22,4 +22,9 @@ class BrowserSecurityHeadersMiddleware:
         response = self.get_response(request)
         response.setdefault("Content-Security-Policy", self.CONTENT_SECURITY_POLICY)
         response.setdefault("Permissions-Policy", self.PERMISSIONS_POLICY)
+        if request.path in {
+            "/api/measurement-import/inspect/", "/api/measurement-import/preview/",
+        }:
+            # Include errors produced outside the diagnostic API view.
+            response["Cache-Control"] = "no-store"
         return response
