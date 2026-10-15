@@ -103,6 +103,23 @@ Avant des dates NULL, adapter ensemble filtrage, sélection d'évidence et fallb
 
 Distinguer occurrence et source quantitative : un parent partiel a une occurrence documentée mais pas de transition absolue; une allocation enfant zéro est connue, une allocation NULL ne l'est pas; un événement legacy sans occurrence confirmée ne fournit pas une date opérationnelle certaine. L'absence de conflit dans les filtres actuels du planner ne certifie donc pas la sécurité de tous les historiques incomplets. Leur traitement conservateur avant activation et le contrat des états/agrégats non résolus restent à décider, sans reconstruction historique.
 
+### Découverte interne d'évidence par observation (sans intégration)
+
+`cultures/scientific_evidence.py` fournit `discover_observation_evidence(box=..., organization_id=..., observation=ObservationTime(...), source_sequence=None)`. L'institution est le contexte actif autorisé par le backend appelant; la fonction revérifie l'appartenance de la Box persistée et filtre les relations enfant sur les deux institutions. Ce n'est pas une API de permissions utilisateur.
+
+Le résultat immuable contient des **résumés factuels**, pas une collection exhaustive d'événements ni un nouvel état de stock :
+
+- opérations parent confirmées complètes ou partielles, groupées par relation temporelle de l'observation relativement à l'opération;
+- initialisation enfant connue, y compris zéro, ou allocation inconnue (`NULL`), à partir de la relation d'allocation explicite, jamais d'une ressemblance de codes;
+- opérations legacy parent/enfant sans occurrence confirmée : jour opérationnel inconnu et relation `unresolved`, sans utiliser leur `event_date`;
+- barrières de consommation uniquement pour les opérations complètes et initialisations connues confirmées. Chaque résumé expose leur nombre, la séquence-barrière maximale et le nombre ayant consommé la séquence fournie (`source_sequence <= barrier_sequence`). Ce dernier reste `None` si la séquence d'observation est inconnue; zéro signifie seulement qu'aucune de ces barrières ne l'a consommée, pas que la source est éligible.
+
+Le SQL partitionne les événements selon les bornes d'`ObservationTime`; les relations retournées utilisent `compare_operation_day()`. Les bornes de jours exposées sont celles des opérations du groupe, pas un jour d'observation reconstruit. Tout chevauchement semaine/opération, lundi et dimanche inclus, reste chronologiquement non résolu, indépendamment des faits de consommation. Une ambiguïté consommée reste visible sans empêcher ni choisir une autorité plus récente.
+
+La découverte effectue trois requêtes : vérification de portée, agrégat SQL parent, allocation enfant one-to-one. Elle couvre tous les événements de la Box dans au plus sept groupes parent et un résumé enfant, sans limite arbitraire et sans charger les relevés. Le volume de résultats et de requêtes est borné; le travail de l'agrégat reste proportionnel à l'historique de cette Box. Les références exhaustives des tests sont limitées à de petits historiques isolés.
+
+Aucun appel n'est ajouté au résolveur, aux serializers, aux totaux, aux écritures ou aux imports. Aucun verrou ni snapshot concurrent n'est garanti par cette lecture seule. Une intégration future nécessite son propre contrat transactionnel et les décisions de résolution encore ouvertes. Les contraintes hebdomadaires, corrections, séquences, snapshots et la non-persistance d'`iso_week` restent inchangés.
+
 ### Prérequis exacts pour une future activation semaine seule
 
 Une future ligne `iso_week` doit porter `measured_on=NULL` et une clé de semaine ISO explicite (`week_start`, lundi utilisé uniquement comme clé, jamais comme date d'observation). L'affichage sera par exemple « Semaine 40 · 2026 », sans jour inventé. Cette représentation n'est **pas persistable** dans cette phase.
