@@ -35,14 +35,39 @@ test('audit values show an unmeasured strobila count differently from zero', () 
   assert.equal(audit.formatAuditChange({ avant: null, apres: 0 }, t), '- -> 0');
 });
 
-test('no frontend reader coerces a strobila count outside the typed API and audit presentation', () => {
+function hasStrobilaReference(path, source) {
+  // Exempt only the CSV translation entry, never numerical readers in the same file.
+  if (path === 'api/measurementImport.ts') {
+    source = source.replace(/\bstrobila_count:\s*'csvFieldStrobila'(?=\s*[,}])/, '');
+  }
+  return /strobila_count|strobiles/.test(source);
+}
+
+test('the CSV field label is metadata but numerical strobila readers remain detectable', () => {
+  const path = 'api/measurementImport.ts';
+  const source = readFileSync(new URL(`../src/${path}`, import.meta.url), 'utf8');
+  assert.equal(hasStrobilaReference(path, source), false);
+  for (const expression of [
+    'Number(row.strobila_count)',
+    '+row.strobila_count',
+    'row.strobila_count ?? 0',
+    'row.strobila_count || 0',
+    'Number(row.strobiles)',
+  ]) {
+    assert.equal(hasStrobilaReference(path, `${source}\nconst count = ${expression};`), true, expression);
+  }
+  assert.equal(hasStrobilaReference('other.ts', "strobila_count: 'csvFieldStrobila',"), true);
+  assert.equal(hasStrobilaReference(path, 'strobila_count: Number(null),'), true);
+});
+
+test('no unreviewed strobila references exist outside the typed API and audit presentation', () => {
   const root = new URL('../src/', import.meta.url);
   const offenders = [];
   const walk = (directory) => {
     for (const name of readdirSync(directory)) {
       const path = new URL(`${name}${statSync(new URL(`${directory.href}${name}`)).isDirectory() ? '/' : ''}`, directory);
       if (statSync(path).isDirectory()) walk(path);
-      else if (/\.(ts|tsx)$/.test(name) && /strobila_count|strobiles/.test(readFileSync(path, 'utf8'))) {
+      else if (/\.(ts|tsx)$/.test(name) && hasStrobilaReference(path.pathname.split('/src/')[1], readFileSync(path, 'utf8'))) {
         offenders.push(path.pathname.split('/src/')[1]);
       }
     }
