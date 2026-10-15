@@ -90,6 +90,7 @@ from .serializers import (
     BoxLocationSerializer,
     BoxMoveCreateSerializer,
     BoxQualifySerializer,
+    BoxTemperatureHistoryQuerySerializer,
     BoxTransferCreateSerializer,
     ManualSalinityCreateSerializer,
     ManualSalinityUpdateSerializer,
@@ -105,6 +106,7 @@ from .serializers import (
     ThermalZoneSerializer,
     salinity_editable_until,
 )
+from .temperature_history import box_temperature_queryset, temperature_history_point
 from .box_codes import preview_box_codes
 from .polyp_state import current_state_prefetches, current_polyp_total, resolve_current_polyp_state
 from .movement_corrections import (
@@ -1075,6 +1077,30 @@ class BoxDetailAPIView(generics.RetrieveAPIView):
             self.request.user,
             organization_ids=get_active_organization_ids(self.request),
         )
+
+
+class BoxTemperatureHistoryPagination(LimitOffsetPagination):
+    default_limit = 100
+    max_limit = 500
+
+
+class BoxTemperatureHistoryAPIView(generics.GenericAPIView):
+    """Read a bounded range of daily temperatures from recorded occupancy."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = BoxTemperatureHistoryQuerySerializer
+    pagination_class = BoxTemperatureHistoryPagination
+
+    def get(self, request, box_id):
+        organization = get_required_active_organization_from_request(request)
+        box = get_object_or_404(Box.objects.filter(organization=organization), pk=box_id)
+        query = self.get_serializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        temperatures = box_temperature_queryset(box, **query.validated_data)
+        page = self.paginate_queryset(temperatures)
+        return self.get_paginated_response([
+            temperature_history_point(temperature) for temperature in page
+        ])
 
 
 class BoxScanAPIView(APIView):

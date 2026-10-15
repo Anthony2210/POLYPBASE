@@ -6,6 +6,8 @@ import { buildChartWindow, getLatestChartWindowOffset, parseChartDate, toChartDa
 import BiologicalTrendChart, { isChartEventInRange, type TrendEvent, type TrendLocation, type TrendPolypState } from './BiologicalTrendChart';
 import { getBiologicalTimelineLabels, prepareBiologicalChartData, type BiologicalTimelineEntry } from '../utils/biologicalTimeline';
 import ChartWindowControls from './ChartWindowControls';
+import { useTemperatureHistory } from '../hooks/useTemperatureHistory';
+import TemperatureHistoryStatus from './TemperatureHistoryStatus';
 
 export type BoxTrackingChartLabels = {
   chartEmpty: string;
@@ -35,6 +37,7 @@ type LifecycleEvent = {
 
 export default function BoxTrackingChart({
   compact = false,
+  boxId,
   initialWindowOffset,
   biologicalTimeline,
   events,
@@ -46,6 +49,7 @@ export default function BoxTrackingChart({
   temperatures = [],
 }: {
   compact?: boolean;
+  boxId?: number;
   initialWindowOffset?: number;
   biologicalTimeline?: readonly BiologicalTimelineEntry[];
   events: LifecycleEvent[];
@@ -123,6 +127,7 @@ export default function BoxTrackingChart({
   const startDate = currentWindow.startDate < extentStart
     ? extentStart
     : currentWindow.startDate >= endDate ? extentStart : currentWindow.startDate;
+  const temperatureHistory = useTemperatureHistory(boxId, startDate, endDate, locations);
   const preparedData = useMemo(
     () => prepareSharedChartData(biologicalData, locations, chartEvents, startDate, endDate),
     [biologicalData, chartEvents, locations, startDate, endDate],
@@ -146,6 +151,7 @@ export default function BoxTrackingChart({
         title={compact ? undefined : labels.chartTitle}
       />
 
+      <TemperatureHistoryStatus {...temperatureHistory} language={language} />
       <div className="chart-window-viewport">
         <div className="chart-window-content">
           <BiologicalTrendChart
@@ -153,7 +159,7 @@ export default function BoxTrackingChart({
             startDate={preparedData.startDate}
             endDate={preparedData.endDate}
             measurements={preparedData.measurements}
-            temperatures={temperatures}
+            temperatures={boxId == null ? temperatures : temperatureHistory.points}
             polypStates={preparedData.polypStates}
             locations={preparedData.locations}
             events={preparedData.events}

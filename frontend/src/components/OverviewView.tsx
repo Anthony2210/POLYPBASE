@@ -6,6 +6,8 @@ import BiologicalTrendChart from './BiologicalTrendChart';
 import ChartWindowControls from './ChartWindowControls';
 import PageLoader from './PageLoader';
 import PolypbaseIcon from './PolypbaseIcon';
+import { useTemperatureHistory } from '../hooks/useTemperatureHistory';
+import TemperatureHistoryStatus from './TemperatureHistoryStatus';
 
 type Language = 'fr' | 'en';
 type TFunction = (key: string) => string;
@@ -428,6 +430,7 @@ function OverviewMiniChart({
   const extentEnd = defaultWindow.endDate;
   const extentStart = defaultWindow.startDate;
   const { startDate, endDate } = history.range;
+  const temperatureHistory = useTemperatureHistory(box.id, startDate, endDate, box);
 
   if (!earliestDate && !orderedMeasurements.length) {
     return (
@@ -468,6 +471,7 @@ function OverviewMiniChart({
           </button>
         </div>
       ) : null}
+      <TemperatureHistoryStatus {...temperatureHistory} language={language} />
       <BiologicalTrendChart
         compact
         startDate={startDate}
@@ -480,7 +484,7 @@ function OverviewMiniChart({
           salinity: point.salinity_psu,
         }))}
         locations={locations}
-        temperatures={history.temperatures}
+        temperatures={temperatureHistory.points}
         selectionScope={box.id}
         labels={{
           chartTitle: t('overviewChartTitle'),

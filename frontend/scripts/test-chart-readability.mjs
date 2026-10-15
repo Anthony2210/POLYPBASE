@@ -394,6 +394,7 @@ const tracking = compile(`${readFileSync(new URL('../src/components/BoxTrackingC
   react: {}, 'react/jsx-runtime': {}, '../i18n': {},
   '../utils/chartWindow': utility('chartWindow'), '../utils/biologicalTimeline': utility('biologicalTimeline'),
   './BiologicalTrendChart': chart, './ChartWindowControls': {},
+  '../hooks/useTemperatureHistory': {}, './TemperatureHistoryStatus': {},
 });
 
 function withParisCalendar(callback) {

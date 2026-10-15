@@ -7,6 +7,7 @@ import ts from 'typescript';
 import * as scales from 'd3-scale';
 import * as shapes from 'd3-shape';
 import { appHarness, ast, deferred, source as appSource } from './app-operation-test-harness.mjs';
+import { resourceClient } from './resource-test-harness.mjs';
 
 const compilerOptions = { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 };
 function loadModule(relativePath, dependencies = {}) {
@@ -16,7 +17,7 @@ function loadModule(relativePath, dependencies = {}) {
   });
   const exports = {};
   vm.runInNewContext(outputText, {
-    exports, Date,
+    exports, Date, AbortController, URLSearchParams,
     require(name) {
       assert.ok(Object.hasOwn(dependencies, name), `Unexpected dependency: ${name}`);
       return dependencies[name];
@@ -421,6 +422,7 @@ function miniChartHarness(box, loadHistory, t = key => key) {
   assert.ok(componentNode, 'Missing actual OverviewMiniChart component');
   const slots = [];
   const requests = [];
+  const temperatureRequests = [];
   const selections = [];
   let cursor = 0;
   let dirty = false;
@@ -455,6 +457,16 @@ function miniChartHarness(box, loadHistory, t = key => key) {
       if (!sameDeps(slots[index]?.deps, deps)) effects.set(index, { effect, deps });
     },
   };
+  const temperatureClient = resourceClient({ fetch: (url, options) => {
+    const request = { ...deferred(), url, options };
+    temperatureRequests.push(request);
+    return request.promise;
+  } });
+  const temperatureUtility = loadModule('../src/utils/temperatureHistory.ts', { '../api/client': temperatureClient });
+  const { useTemperatureHistory } = loadModule('../src/hooks/useTemperatureHistory.ts', {
+    react: hooks, '../api/client': temperatureClient, '../utils/temperatureHistory': temperatureUtility,
+  });
+  const TemperatureHistoryStatus = function TemperatureHistoryStatus() {};
   // Mock leaf components only; execute the production component's full JSX and hooks.
   const ChartWindowControls = function ChartWindowControls() {};
   const BiologicalTrendChart = function BiologicalTrendChart() {};
@@ -467,6 +479,7 @@ function miniChartHarness(box, loadHistory, t = key => key) {
   `, { compilerOptions: { ...compilerOptions, jsx: ts.JsxEmit.ReactJSX } });
   vm.runInNewContext(outputText, {
     exports, Date, ChartWindowControls, BiologicalTrendChart, overviewDefaultRange, scopeOverviewTemperatures,
+    useTemperatureHistory, TemperatureHistoryStatus,
     createOverviewHistory(...args) {
       const controller = createOverviewHistory(...args);
       return { ...controller, select(range) {
@@ -518,7 +531,13 @@ function miniChartHarness(box, loadHistory, t = key => key) {
   }
   render();
   return {
-    requests, selections, find, render,
+    requests, temperatureRequests, selections, find, render,
+    async settleTemperature(request, results) {
+      request.resolve({ ok: true, headers: new Headers({ 'Content-Type': 'application/json' }),
+        json: async () => ({ results, count: results.length, next: null, previous: null }) });
+      await new Promise(resolve => setImmediate(resolve));
+      render();
+    },
     updateBox(nextBox) { props.box = nextBox; render(); },
     get controls() { return single(ChartWindowControls); },
     get chart() { return single(BiologicalTrendChart); },
@@ -591,7 +610,7 @@ test('actual mini-chart JSX defaults to the full history, loads it at once and k
   } finally { view.unmount(); }
 });
 
-test('mini-chart wires scoped initial temperatures and translated label, then retains capped detail temperatures across ranges', async () => {
+test('mini-chart loads temperatures independently for every selected range without bounded payload fallback', async () => {
   const initialTemperatures = [
     { date: '2024-01-01', average_temperature_c: 99 },
     { date: '2026-06-01', average_temperature_c: 0 },
@@ -603,16 +622,23 @@ test('mini-chart wires scoped initial temperatures and translated label, then re
     { date: '2026-06-01', average_temperature_c: 17, zone_id: 1, zone_name: 'Synthetic zone' },
   ];
   try {
-    assert.deepEqual(plain(view.chart.temperatures), [{ ...initialTemperatures[1], zone_id: 1, zone_name: 'Synthetic zone' }]);
+    assert.deepEqual(plain(view.chart.temperatures), []);
+    assert.equal(view.temperatureRequests.length, 1);
     assert.equal(view.chart.labels.temperature, 'translated:temperature');
     await view.settle(view.requests[0], {
       id: box.id, biological_measurements: componentMeasurements, locations: componentLocations,
       temperature_history: loadedTemperatures,
     });
-    for (const range of [serverRange, fullComponentRange, olderRange]) {
+    assert.deepEqual(plain(view.chart.temperatures), [], 'Detail temperatures are not the chart data source');
+    for (const range of [serverRange, olderRange]) {
       view.select(range);
-      assert.deepEqual(plain(view.chart.temperatures), loadedTemperatures,
-        'Keep only actual detail values; do not merge initial temperatures or backfill beyond the server cap');
+      assert.deepEqual(plain(view.chart.temperatures), []);
+      const request = view.temperatureRequests.at(-1);
+      const query = new URL(request.url, 'https://test').searchParams;
+      assert.equal(query.get('start'), range.startDate);
+      assert.equal(query.get('end'), range.endDate);
+      await view.settleTemperature(request, loadedTemperatures);
+      assert.deepEqual(plain(view.chart.temperatures), loadedTemperatures);
     }
     assert.equal(view.requests.length, 1);
     view.updateBox({ ...box, id: 903, history_complete: true, temperatures: [] });
@@ -640,11 +666,11 @@ test('A to B detail keeps both occupied zones, including both daily aggregates o
     ] };
   const view = miniChartHarness(box);
   try {
-    assert.deepEqual([...view.chart.temperatures].map(point => point.date), [movementDay, '2026-06-22'],
-      'Initial temperatures belong only to B, and must not be backdated into A');
-    assert.ok(view.chart.temperatures.every(point => point.zone_id === 22 && point.zone_name === 'Synthetic B'));
+    assert.deepEqual(plain(view.chart.temperatures), [], 'Never backfill the range from current-zone temperatures');
     await view.settle(view.requests[0], { id: box.id, biological_measurements: componentMeasurements,
       locations: occupiedLocations, temperature_history: temperatures });
+    view.select({ startDate: '2026-06-01', endDate: '2026-06-30' });
+    await view.settleTemperature(view.temperatureRequests.at(-1), temperatures);
     assert.deepEqual(plain(view.chart.temperatures), temperatures,
       'The server has scoped detail points per occupancy; never filter detail to current B');
     const details = [];
@@ -681,6 +707,8 @@ test('A to B detail keeps both occupied zones, including both daily aggregates o
     assert.equal(points[1].props.children[0].props.cx, points[2].props.children[0].props.cx,
       'Two daily aggregates share a date coordinate, not invented before/after measurement times');
     view.select(serverRange);
+    assert.deepEqual(plain(view.chart.temperatures), []);
+    await view.settleTemperature(view.temperatureRequests.at(-1), temperatures);
     assert.deepEqual(plain(view.chart.temperatures), temperatures);
     assert.equal(view.requests.length, 1);
   } finally { view.unmount(); }
@@ -771,6 +799,8 @@ test('overview freshness, weekly counters and sorting remain based on readings, 
     },
     'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: Symbol('Fragment') },
     '../utils/overviewHistory': { createOverviewHistory, overviewDefaultRange, scopeOverviewTemperatures },
+    '../hooks/useTemperatureHistory': { useTemperatureHistory() { return { points: [], loading: false, failed: false, retry() {} }; } },
+    './TemperatureHistoryStatus': { default() {} },
     './BiologicalTrendChart': { default() {} }, './ChartWindowControls': { default() {} },
     './PageLoader': { default() {} }, './PolypbaseIcon': { default() {} },
   }).default;

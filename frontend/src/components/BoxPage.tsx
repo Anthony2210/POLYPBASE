@@ -1054,6 +1054,7 @@ export default function BoxPage({
 
         <section className="box-insights-section">
           <BoxInsights
+            boxId={box.id}
             activeTab={activeInsightTab}
             graph={lineageGraph}
             graphError={lineageGraphError}

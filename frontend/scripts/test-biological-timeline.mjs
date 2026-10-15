@@ -212,6 +212,8 @@ test('tracking window prefers the latest quantitative state over an older ordina
     react: { useMemo: (fn) => fn(), useState: (initial) => [initial, () => {}] }, 'react/jsx-runtime': jsxRuntime,
     '../utils/chartWindow': utility('chartWindow'), '../utils/biologicalTimeline': timeline,
     './BiologicalTrendChart': { ...chartHarness().chart, default: () => null }, './ChartWindowControls': { default: () => null },
+    '../hooks/useTemperatureHistory': { useTemperatureHistory: () => ({ points: [], loading: false, failed: false, retry() {} }) },
+    './TemperatureHistoryStatus': { default: () => null },
     '../i18n': { createTranslator: (language) => translator(language === 'fr' ? fr : en, language) },
   });
   const oldMeasurement = reading(8, '2024-01-01', 100);
@@ -234,6 +236,7 @@ test('lifecycle grouping and preview integration use one event per parent operat
     react: {}, 'react/jsx-runtime': jsxRuntime,
     '../utils/chartWindow': utility('chartWindow'), '../utils/biologicalTimeline': timeline,
     './BiologicalTrendChart': {}, './ChartWindowControls': {},
+    '../hooks/useTemperatureHistory': {}, './TemperatureHistoryStatus': {},
     '../i18n': { createTranslator: (language) => translator(language === 'fr' ? fr : en, language) },
   });
   const event = { id: 9, event_date: '2026-09-15' };

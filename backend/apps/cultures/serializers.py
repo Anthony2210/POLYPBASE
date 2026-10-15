@@ -36,6 +36,11 @@ from apps.organizations.serializers import OrganizationSummarySerializer
 from apps.taxonomy.models import Species, Strain
 from apps.taxonomy.scoping import eligible_strains
 from .polyp_state import current_state_prefetches, current_polyp_total, resolve_current_polyp_state
+from .temperature_history import (
+    MAX_TEMPERATURE_RANGE_DAYS,
+    box_temperature_queryset,
+    temperature_history_point,
+)
 
 # The historical import stamped existing boxes with its execution date rather
 # than their original creation date. The inventory uses their first measurement.
@@ -407,6 +412,23 @@ class BoxInventorySerializer(serializers.ModelSerializer):
         return BoxLocationSerializer(location).data if location else None
 
 
+class BoxTemperatureHistoryQuerySerializer(serializers.Serializer):
+    start = serializers.DateField(input_formats=["%Y-%m-%d"])
+    end = serializers.DateField(input_formats=["%Y-%m-%d"])
+
+    def validate(self, attrs):
+        for field in ("start", "end"):
+            if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", self.initial_data[field]):
+                raise serializers.ValidationError({field: _("Use YYYY-MM-DD format.")})
+        if attrs["end"] < attrs["start"]:
+            raise serializers.ValidationError({"end": _("End must be on or after start.")})
+        if (attrs["end"] - attrs["start"]).days >= MAX_TEMPERATURE_RANGE_DAYS:
+            raise serializers.ValidationError({
+                "end": _("The date range must not exceed 366 days, inclusive."),
+            })
+        return attrs
+
+
 class BoxDetailSerializer(BoxListSerializer):
     tags = IdentificationTagSerializer(many=True, read_only=True)
     temperature_history = serializers.SerializerMethodField()
@@ -466,47 +488,9 @@ class BoxDetailSerializer(BoxListSerializer):
         """Return daily temperatures for the zones occupied by this box."""
         today = timezone.localdate()
         lower_bound = today - timedelta(days=180)
-        locations = _prefetched_list(obj, "locations")
-        if locations is None:
-            locations = obj.locations.select_related("thermal_zone").order_by("-starts_at")
-
-        points = {}
-        for location in locations:
-            start_date = max(location.starts_at.date(), lower_bound)
-            if location.end_date_unknown:
-                end_date = location.starts_at.date()
-            else:
-                end_date = location.ends_at.date() if location.ends_at else today
-            if end_date < lower_bound:
-                continue
-
-            temperatures = location.thermal_zone.daily_temperatures.filter(
-                date__gte=start_date,
-                date__lte=end_date,
-            ).order_by("date")
-
-            for temperature in temperatures:
-                key = (temperature.date, location.thermal_zone_id)
-                points[key] = {
-                    "date": temperature.date,
-                    "average_temperature_c": float(temperature.average_temperature_c),
-                    "min_temperature_c": (
-                        float(temperature.min_temperature_c)
-                        if temperature.min_temperature_c is not None
-                        else None
-                    ),
-                    "max_temperature_c": (
-                        float(temperature.max_temperature_c)
-                        if temperature.max_temperature_c is not None
-                        else None
-                    ),
-                    "zone_id": location.thermal_zone_id,
-                    "zone_name": location.thermal_zone.name,
-                }
-
         return [
-            points[key]
-            for key in sorted(points.keys(), key=lambda item: (item[0], item[1]))
+            temperature_history_point(temperature)
+            for temperature in box_temperature_queryset(obj, lower_bound, today)
         ]
 
     def get_lineage(self, obj):

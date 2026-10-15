@@ -77,6 +77,7 @@ type BoxInsightsLabels = {
 };
 
 export default function BoxInsights({
+  boxId,
   activeTab,
   biologicalTimeline,
   graph,
@@ -94,6 +95,7 @@ export default function BoxInsights({
   onSelectBox,
   onSelectTab,
 }: {
+  boxId?: number;
   activeTab: BoxInsightTab;
   biologicalTimeline?: readonly BiologicalTimelineEntry[];
   graph: LineageGraph | null;
@@ -154,6 +156,7 @@ export default function BoxInsights({
       {activeTab === 'measurements' ? (
         <div ref={insightPanelRef} className="insight-panel" style={insightPanelStyle}>
           <BoxTrackingChart
+            boxId={boxId}
             biologicalTimeline={biologicalTimeline}
             events={lifecycleEvents}
             labels={labels}
