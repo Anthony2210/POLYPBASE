@@ -554,12 +554,38 @@
 
 .movement-correction-fields {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
   align-items: start;
-  gap: var(--space-3);
+  gap: var(--space-4);
 }
 
-.movement-correction-fields > label {
+.movement-correction-details {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  align-items: start;
+  gap: var(--space-4);
+}
+
+.latest-movement-editor .movement-editor-context {
+  margin: var(--space-2) 0 0;
+  color: var(--color-muted);
+  font-size: .82rem;
+  line-height: 1.5;
+}
+
+.latest-movement-editor input[readonly] {
+  background: var(--color-surface-subtle);
+  color: var(--color-muted);
+}
+
+.latest-movement-editor .measurement-lock-note {
+  margin: 0;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.movement-correction-fields > label,
+.movement-correction-details > label {
   display: grid;
   min-width: 0;
   gap: var(--space-2);
@@ -595,6 +621,7 @@
 }
 
 @media (max-width: 759px), (max-width: 900px) and (orientation: portrait) {
+  .movement-correction-details { grid-template-columns: minmax(0, 1fr); }
   .box-page { gap: var(--space-3); }
   .entity-header--box {
     --entity-columns: minmax(0, 1fr) 48px;

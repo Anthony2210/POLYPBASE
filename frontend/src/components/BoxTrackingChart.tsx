@@ -77,6 +77,7 @@ export default function BoxTrackingChart({
   }, [biologicalData.events, events]);
   const timelineKey = useMemo(
     () => [
+      boxId ?? '',
       measurements.length,
       measurements[0]?.measured_on,
       measurements[measurements.length - 1]?.measured_on,
@@ -84,9 +85,9 @@ export default function BoxTrackingChart({
       events.length,
       biologicalTimeline?.map((entry) => `${entry.kind}:${entry.id}:${entry.polyp_count_after}`).join(','),
     ].join('-'),
-    [biologicalTimeline, events.length, locations.length, measurements],
+    [biologicalTimeline, boxId, events.length, locations.length, measurements],
   );
-  const boxKey = `${measurements[0]?.id ?? ''}:${locations[0]?.id ?? ''}:${events[0]?.id ?? ''}:${biologicalData.polypStates[0]?.id ?? ''}`;
+  const boxKey = `${boxId ?? ''}:${measurements[0]?.id ?? ''}:${locations[0]?.id ?? ''}:${events[0]?.id ?? ''}:${biologicalData.polypStates[0]?.id ?? ''}`;
   const chartSourceDates = useMemo(
     () => getSharedChartSourceDates(measurements, locations, chartEvents, biologicalData.polypStates),
     [biologicalData.polypStates, chartEvents, locations, measurements],
@@ -151,7 +152,6 @@ export default function BoxTrackingChart({
         title={compact ? undefined : labels.chartTitle}
       />
 
-      <TemperatureHistoryStatus {...temperatureHistory} language={language} />
       <div className="chart-window-viewport">
         <div className="chart-window-content">
           <BiologicalTrendChart
@@ -160,6 +160,7 @@ export default function BoxTrackingChart({
             endDate={preparedData.endDate}
             measurements={preparedData.measurements}
             temperatures={boxId == null ? temperatures : temperatureHistory.points}
+            temperatureStatus={boxId != null ? <TemperatureHistoryStatus {...temperatureHistory} language={language} /> : undefined}
             polypStates={preparedData.polypStates}
             locations={preparedData.locations}
             events={preparedData.events}
@@ -181,6 +182,7 @@ export default function BoxTrackingChart({
               polyps: labels.polyps,
               salinity: labels.salinityFull,
               temperature: createTranslator(language)('temperature'),
+              temperatureOutsideScale: createTranslator(language)('temperatureOutsideScale'),
               selectReading: language === 'fr'
                 ? 'Sélectionnez un point du graphique pour afficher le relevé.'
                 : 'Select a chart point to display the reading.',

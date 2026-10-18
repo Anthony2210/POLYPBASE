@@ -6,6 +6,12 @@ type RequestOptions = RequestInit & {
 const ACTIVE_ORGANIZATION_STORAGE_KEY = 'polypbase.activeOrganizationId';
 const inFlightGetRequests = new Map<string, Promise<unknown>>();
 let organizationResourceController: AbortController | null = null;
+const temperatureHistoryListeners = new Set<() => void>();
+
+export function subscribeTemperatureHistoryChanges(listener: () => void): () => void {
+  temperatureHistoryListeners.add(listener);
+  return () => { temperatureHistoryListeners.delete(listener); };
+}
 
 export class ApiResourceCancelledError extends Error {
   constructor() {
@@ -162,7 +168,9 @@ export async function apiEnsureCsrfCookie() {
 }
 
 export async function apiPost<T>(path: string, payload: unknown): Promise<T> {
-  return apiRequest<T>(path, {
+  const temperatureContext = /^\/api\/thermal-zones\/\d+\/temperature\/$/.test(path)
+    ? getOrganizationResourceSignal() : null;
+  const result = await apiRequest<T>(path, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -170,6 +178,12 @@ export async function apiPost<T>(path: string, payload: unknown): Promise<T> {
     },
     body: JSON.stringify(payload),
   });
+  // A successful aggregate write invalidates even empty chart coverage. Never
+  // publish across an institution switch, or replay a write to refresh a read.
+  if (temperatureContext && !temperatureContext.aborted) {
+    for (const listener of temperatureHistoryListeners) listener();
+  }
+  return result;
 }
 
 export async function apiPostForm<T>(path: string, body: FormData, signal?: AbortSignal): Promise<T> {

@@ -90,6 +90,9 @@ export default function BoxInsights({
   movements,
   temperatures,
   locations,
+  correctableMovementId,
+  correctMovementLabel,
+  onCorrectMovement,
   onLoadLineageGraph,
   onOpenHistory,
   onSelectBox,
@@ -108,6 +111,9 @@ export default function BoxInsights({
   movements: BoxMovement[];
   temperatures?: BoxTemperaturePoint[];
   locations: BoxLocation[];
+  correctableMovementId?: number | null;
+  correctMovementLabel?: string;
+  onCorrectMovement?: (movementId: number) => void;
   onLoadLineageGraph: () => void;
   onOpenHistory: () => void;
   onSelectBox: (boxId: number, globalCode: string) => void;
@@ -174,7 +180,9 @@ export default function BoxInsights({
           <div className="insight-heading">
             <h2>{labels.movementHistoryTitle}</h2>
           </div>
-          <MovementTimeline movements={movements} labels={labels} language={language} />
+          <MovementTimeline movements={movements} labels={labels} language={language}
+            correctableMovementId={correctableMovementId} correctMovementLabel={correctMovementLabel}
+            onCorrectMovement={onCorrectMovement} />
         </div>
       ) : null}
 
@@ -216,10 +224,16 @@ function MovementTimeline({
   labels,
   movements,
   language,
+  correctableMovementId,
+  correctMovementLabel,
+  onCorrectMovement,
 }: {
   labels: BoxInsightsLabels;
   movements: BoxMovement[];
   language: Language;
+  correctableMovementId?: number | null;
+  correctMovementLabel?: string;
+  onCorrectMovement?: (movementId: number) => void;
 }) {
   const t = createTranslator(language);
   const sortedMovements = [...movements]
@@ -255,6 +269,10 @@ function MovementTimeline({
             </strong>
             <small>{formatReadableUserIdentity(movement.user_identity) || t('historicalUser')}</small>
             {movement.notes ? <p>{movement.notes}</p> : null}
+            {onCorrectMovement && movement.id === correctableMovementId ? (
+              <button type="button" className="secondary-button movement-correct-button"
+                onClick={() => onCorrectMovement(movement.id)}>{correctMovementLabel}</button>
+            ) : null}
           </div>
         </li>
       ))}

@@ -7,6 +7,7 @@ import {
   useState,
   type KeyboardEvent,
   type MouseEvent,
+  type ReactNode,
 } from 'react';
 import { scaleLinear, scaleTime } from 'd3-scale';
 import { line } from 'd3-shape';
@@ -96,6 +97,7 @@ type TrendLabels = {
   polyps: string;
   salinity?: string;
   temperature?: string;
+  temperatureOutsideScale?: string;
   selectReading?: string;
   selectedReading?: string;
   subculture?: string;
@@ -108,6 +110,8 @@ type ActiveDetail = {
 
   top: number;
   title: string;
+  // Screen readers still get the exact event time; it is not shown in the visible tooltip.
+  accessibleTitle?: string;
   lines: DetailLine[];
 };
 
@@ -134,6 +138,18 @@ type TimeTick = {
 };
 
 const BIOLOGICAL_COUNT_AXIS_MAX = 1000;
+const VALUE_AXIS_TICK_COUNT = 4;
+export const BIOLOGICAL_TEMPERATURE_DOMAIN = [0, 40] as const;
+export const BIOLOGICAL_TEMPERATURE_TICKS = [0, 5, 10, 15, 20, 25, 30, 35, 40] as const;
+
+function temperaturePointId(point: TrendTemperature) {
+  return `temperature-${point.zone_id ?? point.zone_name ?? ''}-${point.date}`;
+}
+
+function isTemperatureInScale(point: TrendTemperature) {
+  return point.average_temperature_c >= BIOLOGICAL_TEMPERATURE_DOMAIN[0]
+    && point.average_temperature_c <= BIOLOGICAL_TEMPERATURE_DOMAIN[1];
+}
 
 export default function BiologicalTrendChart({
   compact = false,
@@ -146,6 +162,7 @@ export default function BiologicalTrendChart({
   selectionScope,
   startDate,
   temperatures = [],
+  temperatureStatus,
 }: {
   compact?: boolean;
   endDate: string;
@@ -157,6 +174,7 @@ export default function BiologicalTrendChart({
   selectionScope?: number | string;
   startDate: string;
   temperatures?: TrendTemperature[];
+  temperatureStatus?: ReactNode;
 }) {
   const [pinnedDetail, setPinnedDetail] = useState<ActiveDetail | null>(null);
   const [hoveredDetail, setHoveredDetail] = useState<ActiveDetail | null>(null);
@@ -190,10 +208,11 @@ export default function BiologicalTrendChart({
       media.removeEventListener('change', measure);
     };
   }, []);
+  const temperatureEnabled = labels.temperature != null;
   const layout = resolveChartLayout(compact, canvasSize.width, canvasSize.responsive);
   const geometry = useMemo(
-    () => buildGeometry(measurements, locations, events, startDate, endDate, compact, layout, polypStates, temperatures),
-    [compact, endDate, events, locations, measurements, polypStates, temperatures, startDate, layout.width, layout.responsive],
+    () => buildGeometry(measurements, locations, events, startDate, endDate, compact, layout, polypStates, temperatures, temperatureEnabled),
+    [compact, endDate, events, locations, measurements, polypStates, temperatures, temperatureEnabled, startDate, layout.width, layout.responsive],
   );
 
   useEffect(() => {
@@ -206,10 +225,12 @@ export default function BiologicalTrendChart({
 
   useEffect(() => {
     setPinnedDetail((current) => current
-      && [...measurements, ...polypStates].some((measurement) => (
+      && ((current.id.startsWith('temperature-') && temperatures.some((point) => (
+        temperaturePointId(point) === current.id && point.date >= startDate && point.date <= endDate
+      ))) || [...measurements, ...polypStates].some((measurement) => (
         getTrendPointId(measurement) === current.id
         && measurement.date >= startDate && measurement.date <= endDate
-      )) ? current : null);
+      ))) ? current : null);
     setHoveredDetail(null);
     setFocusedDetail(null);
   }, [startDate, endDate]);
@@ -246,6 +267,7 @@ export default function BiologicalTrendChart({
   const {
     countHeight,
     countLine,
+    countTicks,
     chartAreaHeight,
     end,
     eventPoints,
@@ -266,21 +288,19 @@ export default function BiologicalTrendChart({
     temperatureTicks,
     yTemperature,
   } = geometry;
-  const eventDetails = eventPoints.map(({ event, x, coincidesWithBoundary }) => {
+  const eventDetails = eventPoints.filter(({ event }) => event.kind !== 'location_change').map(({ event, x }) => {
     const isDerived = event.kind === 'location_change';
     const eventTitle = isDerived ? labels.locationChange : event.title || labels.movement;
-    const noteValue = isDerived ? labels.locationChangeNote : coincidesWithBoundary ? labels.movementAtBoundaryNote : undefined;
+    // The movement tooltip stays light: title and location only, no exact time or boundary note.
     const detail: ActiveDetail = {
       id: `event-${event.id}`,
       left: (x / width) * 100,
       top: plotTop + 6,
-      title: `${eventTitle} - ${formatEventDate(event)}`,
-      lines: [
-        ...(event.detailLines?.map((item) => ({ ...item, kind: 'allocation' as const })) ?? (event.detail
-          ? [{ kind: 'location' as const, label: labels.location, value: event.detail }]
-          : [])),
-        ...(noteValue ? [{ kind: 'note' as const, label: labels.locationChange, value: noteValue }] : []),
-      ],
+      title: eventTitle,
+      accessibleTitle: `${eventTitle} - ${formatEventDate(event)}`,
+      lines: event.detailLines?.map((item) => ({ ...item, kind: 'allocation' as const })) ?? (event.detail
+        ? [{ kind: 'location' as const, label: labels.location, value: event.detail }]
+        : []),
     };
     return { event, x, detail, isDerived, eventTitle };
   });
@@ -307,25 +327,42 @@ export default function BiologicalTrendChart({
     };
     return { detail, measurement, x };
   });
-  const temperatureDetails = plottedTemperatures.map((point, index) => {
+  const temperatureDetails = plottedTemperatures.map((point) => {
     const x = xPosition(point.date);
-    const y = yTemperature(point.average_temperature_c);
+    const outsideScale = !isTemperatureInScale(point);
+    // Off-scale readings use directional markers, never a dot at a false measurement.
+    const y = outsideScale
+      ? point.average_temperature_c < 0 ? countHeight - padding.bottom : plotTop
+      : yTemperature(point.average_temperature_c);
     const detail: ActiveDetail = {
-      id: `temperature-${point.date}-${index}`, date: point.date, left: (x / width) * 100, top: y,
+      id: temperaturePointId(point), date: point.date, left: (x / width) * 100, top: y,
       title: formatDisplayDate(point.date),
       lines: [
         { kind: 'temperature', label: `${labels.temperature} (°C)`, value: String(point.average_temperature_c) },
+        ...(outsideScale && labels.temperatureOutsideScale ? [{ kind: 'note' as const, label: labels.temperature!, value: labels.temperatureOutsideScale }] : []),
         ...(point.zone_name != null ? [{ kind: 'location' as const, label: labels.location, value: point.zone_name }] : []),
       ],
     };
-    return { point, detail, x, y };
+    return { point, detail, x, y, outsideScale };
   });
+  const temperatureCountByPosition = new Map<string, number>();
+  for (const { x, y } of temperatureDetails) {
+    const key = `${x}:${y}`;
+    temperatureCountByPosition.set(key, (temperatureCountByPosition.get(key) ?? 0) + 1);
+  }
+  const overlappingTemperatures = temperatureDetails.filter(({ x, y }) => temperatureCountByPosition.get(`${x}:${y}`)! > 1);
   const selectedDetail = selectedVisibleReading(plottedReadingDetails.map(({ detail }) => detail), pinnedDetail?.id ?? null);
   const selectedReading = plottedReadingDetails.find(({ detail }) => detail.id === selectedDetail?.id) ?? null;
   const pinnedVisibleDetail = pinnedDetail?.id.startsWith('temperature-')
     ? (temperatureVisible ? temperatureDetails.find(({ detail }) => detail.id === pinnedDetail.id)?.detail ?? null : null)
     : pinnedDetail && (pinnedDetail.id.startsWith('measurement-') || pinnedDetail.id.startsWith('biological-')) ? selectedDetail : pinnedDetail;
-  const visibleDetail = resolveChartDetail(pinnedVisibleDetail, focusedDetail, hoveredDetail);
+  const liveDetail = (detail: ActiveDetail | null) => detail == null ? null
+    : [...plottedReadingDetails, ...eventDetails, ...(temperatureEnabled && temperatureVisible ? temperatureDetails : [])]
+      .find((item) => item.detail.id === detail.id)?.detail ?? null;
+  const visibleDetail = resolveChartDetail(liveDetail(pinnedVisibleDetail), liveDetail(focusedDetail), liveDetail(hoveredDetail));
+  const selectedTemperature = temperatureEnabled && temperatureVisible ? temperatureDetails.find(({ detail }) => detail.id === pinnedVisibleDetail?.id) : null;
+  const selectionX = selectedTemperature?.x ?? selectedReading?.x;
+  const hasTemperatureOverflow = temperatureDetails.some(({ outsideScale }) => outsideScale);
   const hasOverflow = plottedMeasurements.some((measurement) => (
     (visibleSeries.polyps && measurement.polypCount > maxCount)
     || (visibleSeries.ephyrae && measurement.ephyraeCount != null && measurement.ephyraeCount > maxCount)
@@ -334,7 +371,9 @@ export default function BiologicalTrendChart({
     event: KeyboardEvent<SVGGElement>,
     detail: ActiveDetail,
     measurementIndex: number,
+    series: 'measurement' | 'temperature' = 'measurement',
   ) {
+    const details = series === 'temperature' ? temperatureDetails : plottedReadingDetails;
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       setPinnedDetail(detail);
@@ -349,16 +388,16 @@ export default function BiologicalTrendChart({
         : event.key === 'Home'
           ? 0
           : event.key === 'End'
-            ? plottedReadingDetails.length - 1
+            ? details.length - 1
             : null;
     if (targetIndex == null) return;
 
     event.preventDefault();
-    const nextIndex = Math.max(0, Math.min(plottedReadingDetails.length - 1, targetIndex));
-    const nextReading = plottedReadingDetails[nextIndex];
+    const nextIndex = Math.max(0, Math.min(details.length - 1, targetIndex));
+    const nextReading = details[nextIndex];
     if (!nextReading) return;
     event.currentTarget.ownerSVGElement
-      ?.querySelector<SVGGElement>(`[data-measurement-index="${nextIndex}"]`)
+      ?.querySelector<SVGGElement>(`[data-${series}-index="${nextIndex}"]`)
       ?.focus();
   }
 
@@ -413,11 +452,11 @@ export default function BiologicalTrendChart({
           aria-label={labels.chartTitle}
           onClick={() => setPinnedDetail(null)}
         >
-          {plottedTemperatures.length > 0 ? (
+          {temperatureEnabled ? (
             <g className="bio-trend-temperature-axis" aria-label={`${labels.temperature} (°C)`}>
-              <line x1={width - padding.right} x2={width - padding.right} y1={plotTop} y2={countHeight - padding.bottom} />
+              <line className="bio-trend-axis" x1={width - padding.right} x2={width - padding.right} y1={plotTop} y2={countHeight - padding.bottom} />
               {temperatureTicks.map((value) => (
-                <text key={value} x={width - padding.right + 6} y={yTemperature(value) + 3}>{value} °C</text>
+                <text className="bio-trend-value-label" key={value} x={width - padding.right + 8} y={yTemperature(value) + 4}>{value} °C</text>
               ))}
             </g>
           ) : null}
@@ -440,18 +479,17 @@ export default function BiologicalTrendChart({
             </g>
           ))}
 
-          {[0.25, 0.5, 0.75].map((ratio) => {
-            const y = plotTop + ratio * plotHeight;
-            return <line key={ratio} className="bio-trend-grid" x1={padding.left} y1={y} x2={width - padding.right} y2={y} />;
-          })}
+          {countTicks.filter((value) => value > 0 && value < maxCount).map((value) => (
+            <line key={value} className="bio-trend-grid" x1={padding.left} y1={yCount(value)} x2={width - padding.right} y2={yCount(value)} />
+          ))}
           <line className="bio-trend-axis" x1={padding.left} y1={countHeight - padding.bottom} x2={width - padding.right} y2={countHeight - padding.bottom} />
           <line className="bio-trend-axis" x1={padding.left} y1={plotTop} x2={padding.left} y2={countHeight - padding.bottom} />
 
-          {selectedReading ? (
+          {selectionX != null ? (
             <line
               className="bio-trend-selection-guide"
-              x1={selectedReading.x}
-              x2={selectedReading.x}
+              x1={selectionX}
+              x2={selectionX}
               y1={plotTop}
               y2={countHeight - padding.bottom}
             />
@@ -464,7 +502,7 @@ export default function BiologicalTrendChart({
             <path key={`ephyrae-${index}`} className="bio-trend-line is-ephyrae" d={countLine((point) => point.ephyraeCount)(segment) ?? ''} />
           ))}
 
-          {temperatureVisible && plottedTemperatures.length > 0 ? (
+          {temperatureEnabled && temperatureVisible && plottedTemperatures.length > 0 ? (
             <path className="bio-trend-line is-temperature" d={temperatureLine(plottedTemperatures) ?? ''} />
           ) : null}
 
@@ -479,7 +517,7 @@ export default function BiologicalTrendChart({
                 tabIndex={overlaps ? undefined : 0}
                 aria-hidden={overlaps || undefined}
                 data-overlapping={overlaps || undefined}
-                aria-label={overlaps ? undefined : detail.title}
+                aria-label={overlaps ? undefined : detail.accessibleTitle ?? detail.title}
                 transform={`translate(${x} ${padding.top})`}
                 onClick={(clickEvent) => stopAndToggle(clickEvent, detail)}
                 onKeyDown={(keyEvent) => handleDetailKey(keyEvent, detail)}
@@ -556,13 +594,20 @@ export default function BiologicalTrendChart({
             );
           })}
 
-          {temperatureVisible && temperatureDetails.map(({ point, detail, x, y }) => (
-            <g key={detail.id} className="bio-trend-temperature-point" role="button" tabIndex={0}
-              aria-label={`${detail.title}, ${labels.temperature}: ${point.average_temperature_c} °C${point.zone_name != null ? `, ${labels.location}: ${point.zone_name}` : ''}`}
+          {temperatureEnabled && temperatureVisible && temperatureDetails.map(({ point, detail, x, y, outsideScale }, index) => (
+            <g key={detail.id} className={`bio-trend-temperature-point${selectedTemperature?.detail.id === detail.id ? ' is-selected' : ''}`} role="button" tabIndex={0}
+              data-temperature-index={index}
+              aria-pressed={selectedTemperature?.detail.id === detail.id}
+              aria-describedby={visibleDetail?.id === detail.id ? `${chartId}-event-detail` : undefined}
+              aria-label={`${detail.title}, ${labels.temperature}: ${point.average_temperature_c} °C${point.zone_name != null ? `, ${labels.location}: ${point.zone_name}` : ''}${outsideScale ? `, ${labels.temperatureOutsideScale ?? ''}` : ''}`}
               onMouseEnter={() => setHoveredDetail(detail)} onMouseLeave={() => setHoveredDetail(null)}
               onFocus={() => setFocusedDetail(detail)} onBlur={() => setFocusedDetail(null)}
-              onClick={(event) => stopAndToggle(event, detail)} onKeyDown={(event) => handleDetailKey(event, detail)}>
-              <circle className="bio-trend-dot is-temperature" cx={x} cy={y} r={layout.pointRadius} />
+              onClick={(event) => selectMeasurement(event, detail)} onKeyDown={(event) => handleMeasurementKey(event, detail, index, 'temperature')}>
+              {outsideScale ? <path className="bio-trend-overflow is-temperature"
+                d={point.average_temperature_c < 0
+                  ? `M${x - 4} ${y - 7} L${x} ${y - 1} L${x + 4} ${y - 7} Z`
+                  : `M${x - 4} ${y + 7} L${x} ${y + 1} L${x + 4} ${y + 7} Z`} />
+                : <circle className="bio-trend-dot is-temperature" cx={x} cy={y} r={point.average_temperature_c === 0 ? layout.zeroRadius : layout.pointRadius} />}
               <circle className="bio-trend-temperature-hit" cx={x} cy={y} r={layout.responsive ? 12 : 8} />
             </g>
           ))}
@@ -573,10 +618,10 @@ export default function BiologicalTrendChart({
 
           <text className="bio-trend-label" x={padding.left} y={countHeight - 9}>{formatDisplayDate(start)}</text>
           <text className="bio-trend-label is-end" x={width - padding.right} y={countHeight - 9}>{formatDisplayDate(end)}</text>
-          {[maxCount, 750, 500, 250, 0].map((value) => (
+          {countTicks.map((value) => (
             <text
               key={value}
-              className="bio-trend-y-label"
+              className="bio-trend-y-label bio-trend-value-label"
               x={padding.left - 8}
               y={yCount(value) + 4}
             >
@@ -594,7 +639,7 @@ export default function BiologicalTrendChart({
               key={event.id}
               type="button"
               className={`bio-trend-event-choice is-${isDerived ? 'location-change' : event.kind ?? 'movement'}`}
-              aria-label={`${detail.title}${event.detail ? `, ${event.detail}` : ''}`}
+              aria-label={`${detail.accessibleTitle ?? detail.title}${event.detail ? `, ${event.detail}` : ''}`}
               aria-pressed={pinnedVisibleDetail?.id === detail.id}
               aria-describedby={visibleDetail?.id === detail.id ? `${chartId}-event-detail` : undefined}
               onClick={() => toggleDetail(detail)}
@@ -618,15 +663,17 @@ export default function BiologicalTrendChart({
       ) : null}
 
       {visibleDetail ? (
-        <div id={`${chartId}-event-detail`} ref={tooltipRef} className={`bio-trend-tooltip${pinnedVisibleDetail?.id === visibleDetail.id ? ' is-pinned' : ''}`} role="group" aria-label={visibleDetail.title}>
+        <div id={`${chartId}-event-detail`} ref={tooltipRef} className={`bio-trend-tooltip${pinnedVisibleDetail?.id === visibleDetail.id ? ' is-pinned' : ''}`} role="group" aria-label={visibleDetail.accessibleTitle ?? visibleDetail.title}>
           <div className="bio-trend-tooltip-heading">
             <strong>{visibleDetail.title}</strong>
             {pinnedVisibleDetail?.id === visibleDetail.id ? (
               <button type="button" aria-label={labels.closeDetail} onClick={() => {
                 setPinnedDetail(null);
-                const index = selectedReading ? plottedReadingDetails.indexOf(selectedReading) : -1;
+                const series = selectedTemperature ? 'temperature' : 'measurement';
+                const index = selectedTemperature ? temperatureDetails.indexOf(selectedTemperature)
+                  : selectedReading ? plottedReadingDetails.indexOf(selectedReading) : -1;
                 if (index >= 0) {
-                  svgRef.current?.querySelector<SVGGElement>(`[data-measurement-index="${index}"]`)?.focus();
+                  svgRef.current?.querySelector<SVGGElement>(`[data-${series}-index="${index}"]`)?.focus();
                 }
               }}>×</button>
             ) : null}
@@ -660,7 +707,16 @@ export default function BiologicalTrendChart({
                 </span>
               ))}
             </>
-          ) : visibleDetail.lines.map((item, index) => (
+          ) : visibleDetail.id.startsWith('temperature-') ? <>
+            <div className="bio-trend-tooltip-values">
+              {visibleDetail.lines.filter((item) => item.kind === 'temperature').map((item) => (
+                <span key={item.kind} className="is-temperature"><small>{item.label}</small><strong>{item.value}</strong></span>
+              ))}
+            </div>
+            {visibleDetail.lines.filter((item) => item.kind !== 'temperature').map((item) => (
+              <span className="bio-trend-tooltip-context" key={item.kind}><small>{item.label}</small><strong>{item.value}</strong></span>
+            ))}
+          </> : visibleDetail.lines.map((item, index) => (
             <span className="bio-trend-tooltip-context" key={`${item.kind}-${index}`}>
               <small>{item.label}</small><strong>{item.value}</strong>
             </span>
@@ -673,13 +729,40 @@ export default function BiologicalTrendChart({
           onClick={() => setVisibleSeries((current) => toggleChartSeries(current, 'polyps'))}>{labels.polyps}</button>
         <button type="button" className={`is-ephyrae${visibleSeries.ephyrae ? '' : ' is-hidden'}`} aria-pressed={visibleSeries.ephyrae}
           onClick={() => setVisibleSeries((current) => toggleChartSeries(current, 'ephyrae'))}>{labels.ephyrae}</button>
-        {plottedTemperatures.length > 0 ? (
+        {temperatureEnabled ? (
           <button type="button" className={`is-temperature${temperatureVisible ? '' : ' is-hidden'}`} aria-pressed={temperatureVisible}
-            onClick={() => { setTemperatureVisible((current) => !current); setPinnedDetail(null); setHoveredDetail(null); setFocusedDetail(null); }}>{labels.temperature} (°C)</button>
+            onClick={() => {
+              setTemperatureVisible((current) => !current);
+              const keepOtherSeries = (current: ActiveDetail | null) => current?.id.startsWith('temperature-') ? null : current;
+              setPinnedDetail(keepOtherSeries);
+              setHoveredDetail(keepOtherSeries);
+              setFocusedDetail(keepOtherSeries);
+            }}>{labels.temperature} (°C)</button>
         ) : null}
         {polypStates.length > 0 && labels.subculture ? <span className="is-subculture">{labels.subculture}</span> : null}
         {hasOverflow ? <span className="is-overflow">&gt; {maxCount}</span> : null}
+        {temperatureEnabled ? <div className="bio-trend-series-feedback">
+          {temperatureStatus}
+          {hasTemperatureOverflow ? <span className="bio-trend-temperature-overflow-note">{labels.temperatureOutsideScale}</span> : null}
+        </div> : null}
       </div>
+      {temperatureEnabled && temperatureVisible && overlappingTemperatures.length > 0 ? (
+        <div className="bio-trend-event-list" role="group" aria-label={labels.temperature}>
+          {overlappingTemperatures.map(({ detail, point }) => (
+            <button key={detail.id} type="button" className="bio-trend-event-choice is-temperature"
+              aria-pressed={selectedTemperature?.detail.id === detail.id}
+              onClick={() => setPinnedDetail(detail)}
+              onFocus={() => setFocusedDetail(detail)} onBlur={() => setFocusedDetail(null)}
+              onMouseEnter={() => setHoveredDetail(detail)} onMouseLeave={() => setHoveredDetail(null)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') { setPinnedDetail(null); setFocusedDetail(null); setHoveredDetail(null); }
+              }}>
+              <span>{detail.title} — {point.average_temperature_c} °C</span>
+              <small>{point.zone_name}</small>
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -777,6 +860,7 @@ export function buildGeometry(
   layout = resolveChartLayout(compact),
   polypStates: TrendPolypState[] = [],
   temperatures: TrendTemperature[] = [],
+  temperatureEnabled = true,
 ) {
   const { width, countHeight } = layout;
   const plottedTemperatures = temperatures
@@ -788,7 +872,7 @@ export function buildGeometry(
     : compact
     ? { top: 6, right: 22, bottom: 34, left: 44 }
     : { top: 8, right: 26, bottom: 34, left: 44 };
-  if (plottedTemperatures.length) padding.right = 62;
+  if (temperatureEnabled) padding.right = 62;
   const start = normalizeDate(startDate);
   const requestedEnd = normalizeDate(endDate);
   const end = requestedEnd <= start ? addDays(start, 1) : requestedEnd;
@@ -828,17 +912,15 @@ export function buildGeometry(
     .x((point) => xPosition(point.date))
     .y((point) => yCount(selector(point)!));
 
-  const values = plottedTemperatures.map((point) => point.average_temperature_c);
-  const minimum = values.length ? values.reduce((lowest, value) => Math.min(lowest, value)) : 0;
-  const maximum = values.length ? values.reduce((highest, value) => Math.max(highest, value)) : 0;
-  const temperaturePadding = Math.max(0.5, (maximum - minimum) * 0.1);
   const yTemperature = scaleLinear()
-    .domain([minimum - temperaturePadding, maximum + temperaturePadding]).nice(4)
+    .domain(BIOLOGICAL_TEMPERATURE_DOMAIN)
     .range([countHeight - padding.bottom, plotTop]);
   // Sparse historical readings remain connected; no daily samples are synthesized.
   const temperatureLine = line<TrendTemperature>()
+    .defined(isTemperatureInScale)
     .x((point) => xPosition(point.date)).y((point) => yTemperature(point.average_temperature_c));
-  const temperatureTicks = yTemperature.ticks(4);
+  const countTicks = yCount.ticks(VALUE_AXIS_TICK_COUNT);
+  const temperatureTicks = BIOLOGICAL_TEMPERATURE_TICKS;
 
   const timeTicks = buildTimeTicks(start, end, xPosition, padding, width, compact, layout.responsive);
   const transitions = buildZoneTransitions(locationBands);
@@ -870,6 +952,7 @@ export function buildGeometry(
   return {
     countHeight,
     countLine,
+    countTicks,
     chartAreaHeight,
     end: endText,
     eventPoints: [...explicitEventPoints, ...generatedTransferPoints]

@@ -427,3 +427,4 @@
   .measurement-history-heading .icon-button { width: var(--control-height); height: var(--control-height); }
   .measurement-history-toolbar select, .measurement-history-note button { min-height: var(--control-height); }
 }
+.movement-correct-button { justify-self: start; }

@@ -26,6 +26,7 @@ import DetailBackButton from './DetailBackButton';
 import InfoPill from './InfoPill';
 import Metric from './Metric';
 import LatestMovementBanner from './LatestMovementBanner';
+import { correctableLifecycleMovement } from '../utils/boxMovementCorrection';
 import StepperButton from './StepperButton';
 import { RowActionMenu, type RowActionMenuItem } from './RowActionMenu';
 import MeasurementSaveButton from './MeasurementSaveButton';
@@ -165,6 +166,7 @@ export default function BoxPage({
   const isPhoneLayout = useIsPhoneLayout();
   const isTabletLayout = !isDesktopApp && !isPhoneLayout;
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [movementCorrectionRequest, setMovementCorrectionRequest] = useState<{ movementId: number } | null>(null);
   const [lineageGraph, setLineageGraph] = useState<LineageGraph | null>(null);
   const [isLineageGraphLoading, setIsLineageGraphLoading] = useState(false);
   const [lineageGraphError, setLineageGraphError] = useState<string | null>(null);
@@ -828,6 +830,8 @@ export default function BoxPage({
           onCorrect={onCorrectMovement}
           onRefresh={onRefreshMovementState}
           isOperationCurrent={() => operationLifetimeRef.current && isOperationCurrent()}
+          correctionRequest={movementCorrectionRequest}
+          onCorrectionRequestHandled={() => setMovementCorrectionRequest(null)}
           t={t}
         />
 
@@ -1067,6 +1071,9 @@ export default function BoxPage({
             measurements={measurements}
             biologicalTimeline={'biological_timeline' in box ? box.biological_timeline : undefined}
             movements={getBoxMovements(box)}
+            correctableMovementId={canWriteLabData ? correctableLifecycleMovement(box)?.id ?? null : null}
+            correctMovementLabel={t('movementCorrect')}
+            onCorrectMovement={(movementId) => setMovementCorrectionRequest({ movementId })}
             onLoadLineageGraph={handleLoadLineageGraph}
             onOpenHistory={() => setIsHistoryOpen(true)}
             onSelectBox={onOpenBox}

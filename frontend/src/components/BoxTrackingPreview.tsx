@@ -18,7 +18,7 @@ const TrackingChart = lazy(async () => {
     const events = useMemo(() => buildLifecycleEvents(detail.lineage, detail.movements, {
       movementEvent: t('movementEvent'), subcultureEvent: t('subcultureEvent'),
     }), [detail, t]);
-    return <BoxTrackingChart compact biologicalTimeline={detail.biological_timeline} measurements={detail.biological_measurements} locations={detail.locations} events={events} language={language} labels={{
+    return <BoxTrackingChart compact boxId={detail.id} biologicalTimeline={detail.biological_timeline} measurements={detail.biological_measurements} locations={detail.locations} events={events} language={language} labels={{
       ...getBiologicalTimelineLabels(t),
       chartTitle: t('chartTitle'), chartEmpty: t('chartEmpty'), polyps: t('polyps'),
       ephyraeFull: t('ephyraeFull'), missingReading: t('chartMissingReading'),

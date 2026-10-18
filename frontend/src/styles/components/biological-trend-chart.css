@@ -52,7 +52,8 @@
 .bio-trend-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  align-items: center;
+  gap: 4px 12px;
 }
 
 .bio-trend-legend :is(button, span) {
@@ -68,6 +69,7 @@
 .bio-trend-legend :is(button, span)::before {
   width: 15px;
   height: 2px;
+  flex: 0 0 auto;
   content: '';
   background: var(--series-color);
   border-radius: var(--radius-pill);
@@ -79,16 +81,54 @@
 .bio-trend-line.is-temperature,
 .bio-trend-dot.is-temperature { --series-color: var(--color-temperature); }
 
-.bio-trend-temperature-axis line { stroke: var(--color-temperature); }
-.bio-trend-temperature-axis text {
-  fill: var(--color-temperature);
+.bio-trend-temperature-axis .bio-trend-value-label { fill: var(--color-temperature); }
+
+.bio-trend-value-label {
+  fill: var(--color-muted);
   font-family: inherit;
   font-size: var(--chart-axis-size);
+  font-weight: 650;
   font-variant-numeric: tabular-nums;
 }
 
 .bio-trend-temperature-hit { fill: transparent; cursor: pointer; }
-.bio-trend-temperature-point:focus-visible { outline: 2px solid var(--color-temperature); }
+.bio-trend-temperature-point:focus { outline: none; }
+.bio-trend-temperature-point:is(:hover, :focus, .is-selected) .bio-trend-dot {
+  stroke: var(--color-temperature);
+  stroke-width: 2.5;
+}
+.bio-trend-temperature-point:focus-visible .bio-trend-dot { stroke-width: 3.5; }
+.bio-trend-overflow.is-temperature { fill: var(--color-temperature); }
+.bio-trend-temperature-point:is(:focus-visible, .is-selected) .bio-trend-overflow {
+  stroke: var(--color-ink);
+  stroke-width: 1.5;
+}
+
+.bio-trend-series-feedback {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-inline-start: auto;
+  color: var(--color-muted);
+  font-size: var(--chart-legend-size);
+}
+
+.bio-trend-series-status {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.bio-trend-series-feedback span::before { content: none; }
+.bio-trend-series-feedback .bio-trend-series-retry {
+  color: var(--color-muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.bio-trend-series-feedback .bio-trend-series-retry::before { content: none; }
+.bio-trend-temperature-overflow-note { color: var(--color-temperature); }
+.bio-trend-event-choice.is-temperature { color: var(--color-temperature); }
 
 .bio-trend-legend button {
   min-height: 30px;
@@ -530,6 +570,7 @@
 .bio-trend-tooltip-values small { overflow-wrap: anywhere; }
 .bio-trend-tooltip-values .is-polyps :is(small, strong) { color: var(--color-primary); }
 .bio-trend-tooltip-values .is-ephyrae :is(small, strong) { color: var(--color-ephyrae); }
+.bio-trend-tooltip-values .is-temperature :is(small, strong) { color: var(--color-temperature); }
 .bio-trend-tooltip-values strong { font-size: 1.2rem; font-weight: 750; line-height: 1.15; }
 .bio-trend-tooltip-values .is-salinity strong { color: var(--color-ink); font-size: .9rem; }
 

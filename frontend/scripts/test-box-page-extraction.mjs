@@ -63,6 +63,7 @@ test('BoxPage alone imports and renders the original movement banner with exact 
   assert.deepEqual(expressions, {
     box: 'box', zones: 'zones', language: 'language', canEdit: 'canWriteLabData', isDesktop: 'isDesktopApp',
     isOperationCurrent: '() => operationLifetimeRef.current && isOperationCurrent()', onCorrect: 'onCorrectMovement',
+    correctionRequest: 'movementCorrectionRequest', onCorrectionRequestHandled: '() => setMovementCorrectionRequest(null)',
     onRefresh: 'onRefreshMovementState', t: 't',
   });
   const context = {
@@ -70,11 +71,12 @@ test('BoxPage alone imports and renders the original movement banner with exact 
     box: { id: 7, movements: [{ id: 9, revision: 0 }] }, zones: [{ id: 12 }], language: 'fr',
     canWriteLabData: true, isDesktopApp: true, operationLifetimeRef: { current: true }, isOperationCurrent: () => true,
     onCorrectMovement: () => 'correct', onRefreshMovementState: () => 'refresh', t: () => 'translated',
+    movementCorrectionRequest: null, setMovementCorrectionRequest: () => {},
   };
   const render = () => evaluate(`(() => (${calls[0].getText()}))()`, context);
   assert.equal(render().type, context.LatestMovementBanner);
   for (const [prop, expression] of Object.entries(expressions)) {
-    if (prop !== 'isOperationCurrent') assert.equal(render().props[prop], context[expression], prop);
+    if (!['isOperationCurrent', 'onCorrectionRequestHandled'].includes(prop)) assert.equal(render().props[prop], context[expression], prop);
   }
   assert.equal(render().props.isOperationCurrent(), true);
   context.operationLifetimeRef.current = false;

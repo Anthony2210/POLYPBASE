@@ -1,9 +1,11 @@
 import { ArrowRight, Pencil } from 'lucide-react';
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Language, TranslationKey, Translator } from '../i18n';
 import type { BoxDetail, BoxItem, BoxMovement, BoxMovementCorrectionPayload, ThermalZone } from '../types';
 import {
+  correctableLifecycleMovement,
   formatMovementTimestamp,
+  isLifecycleMovement,
   latestPersistedMovement,
   movementCorrectionCapabilities,
   movementCorrectionErrorCode,
@@ -33,6 +35,9 @@ export type LatestMovementBannerProps = {
   onCorrect: (boxId: number, movementId: number, payload: BoxMovementCorrectionPayload) => Promise<void>;
   onRefresh: (boxId: number) => Promise<BoxDetail>;
   isOperationCurrent: () => boolean;
+  /** Opens the editor for a lifecycle movement chosen in the movement history. */
+  correctionRequest?: { movementId: number } | null;
+  onCorrectionRequestHandled?: () => void;
   t: Translator;
 };
 
@@ -49,7 +54,7 @@ export default function LatestMovementBanner(props: LatestMovementBannerProps) {
   return <MovementBannerState key={`${props.box.organization.id}:${props.box.id}`} {...props} />;
 }
 
-function MovementBannerState({ box, zones, language, canEdit, isDesktop, onCorrect, onRefresh, isOperationCurrent, t }: LatestMovementBannerProps) {
+function MovementBannerState({ box, zones, language, canEdit, isDesktop, onCorrect, onRefresh, isOperationCurrent, correctionRequest, onCorrectionRequestHandled, t }: LatestMovementBannerProps) {
   const [refreshed, setRefreshed] = useState<{ base: BoxItem | BoxDetail; detail: BoxDetail } | null>(null);
   const [draft, setDraft] = useState<MovementDraft | null>(null);
   const [pending, setPending] = useState(false);
@@ -69,10 +74,13 @@ function MovementBannerState({ box, zones, language, canEdit, isDesktop, onCorre
   }, []);
 
   const displayedBox = refreshed?.base === box ? refreshed.detail : box;
-  const movement = latestPersistedMovement(displayedBox);
+  // Lifecycle entries remain in the history, not in the last-movement summary.
+  const movement = latestPersistedMovement(displayedBox, (entry) => !isLifecycleMovement(entry));
   const capabilities = movement ? movementCorrectionCapabilities(displayedBox, movement) : null;
-  const draftChanged = Boolean(draft && (draft.movement.id !== movement?.id
-    || draft.movement.revision !== movement?.revision));
+  // A lifecycle draft is compared with the newest movement overall, an ordinary one with the banner movement.
+  const draftReference = draft && isLifecycleMovement(draft.movement) ? latestPersistedMovement(displayedBox) : movement;
+  const draftChanged = Boolean(draft && (draft.movement.id !== draftReference?.id
+    || draft.movement.revision !== draftReference?.revision));
   const locked = pending || !canEdit || reviewRequired || refreshRequired || draftChanged;
   const availableZones = zones.filter((zone) => zone.is_active && zone.organization.id === box.organization.id
     && zone.id !== draft?.movement.from_thermal_zone?.id);
@@ -84,17 +92,29 @@ function MovementBannerState({ box, zones, language, canEdit, isDesktop, onCorre
     || (draft.capabilities.destination && draft.destination !== draft.movement.to_thermal_zone.id)
   ));
 
-  function openEditor() {
-    if (!canOpen || !movement || !capabilities || !isOperationCurrent()) return;
+  function openEditor(target = movement) {
+    const targetCapabilities = target ? movementCorrectionCapabilities(displayedBox, target) : null;
+    if (!target || !targetCapabilities || !canEdit || !targetCapabilities.notes || pending || refreshRequired
+      || !isOperationCurrent()) return;
     setDraft({
-      movement: { ...movement }, capabilities,
-      time: toParisMovementInput(movement.moved_at) ?? '',
-      destination: movement.to_thermal_zone.id, notes: movement.notes,
+      movement: { ...target }, capabilities: targetCapabilities,
+      time: toParisMovementInput(target.moved_at) ?? '',
+      destination: target.to_thermal_zone.id, notes: target.notes,
     });
     setError(null);
     setSaved(false);
     setReviewRequired(false);
   }
+
+  useEffect(() => {
+    if (!correctionRequest) return;
+    const target = correctableLifecycleMovement(displayedBox);
+    if (target?.id === correctionRequest.movementId) {
+      // After a saved correction whose refresh failed, reopening only recovers the data; it never writes again.
+      if (refreshRequired) { if (!pending) void retryRefresh(); } else openEditor(target);
+    }
+    onCorrectionRequestHandled?.();
+  }, [correctionRequest]);
 
   function closeEditor() {
     if (busy.current) return;
@@ -217,18 +237,14 @@ function MovementBannerState({ box, zones, language, canEdit, isDesktop, onCorre
       <section className="box-section measurement-form-section measurement-module is-expanded latest-movement-editor" aria-busy={pending}>
         <form className="fake-form" onSubmit={(event) => { event.preventDefault(); if (isDesktop) void saveCorrection(); }}>
           <div className="section-title">
-            <div><h2>{t('movementCorrect')}</h2>{draft.movement.kind !== 'ordinary' ? <p>{t(movementKindKey(draft.movement))}</p> : null}</div>
+            <div>
+              <h2>{t('movementCorrect')}</h2>
+              <p className="movement-editor-context">{t('movementCorrectionHelp')}</p>
+              {draft.movement.kind !== 'ordinary' ? <p className="movement-kind-label">{t(movementKindKey(draft.movement))}</p> : null}
+            </div>
           </div>
           <fieldset className="measurement-editor-fields" disabled={locked}>
             <div className="movement-correction-fields">
-              <label htmlFor={`${id}-date`}>
-
-                {draft.capabilities.date ? (
-                  <input id={`${id}-date`} type="datetime-local" step="1" required value={draft.time}
-                    aria-label={t('movementDate')} autoFocus
-                    onChange={(event) => setDraft({ ...draft, time: event.target.value })} />
-                ) : <input id={`${id}-date`} readOnly aria-label={t('movementDate')} value={formatMovementTimestamp(draft.movement.moved_at, language)} />}
-              </label>
               <label htmlFor={`${id}-origin`}>
                 {t('movementOrigin')}
                 <input id={`${id}-origin`} readOnly value={draft.movement.from_thermal_zone?.name ?? t('movementNoOrigin')} />
@@ -247,11 +263,22 @@ function MovementBannerState({ box, zones, language, canEdit, isDesktop, onCorre
                 {!draft.capabilities.destination ? <small id={`${id}-destination-help`} className="measurement-lock-note">{t('movementDestinationReadOnly')}</small> : null}
               </label>
             </div>
-            <label className="notes-field" htmlFor={`${id}-notes`}>
-              {t('movementNotes')}
-              <textarea id={`${id}-notes`} value={draft.notes} autoFocus={!draft.capabilities.date}
-                onChange={(event) => setDraft({ ...draft, notes: event.target.value })} />
-            </label>
+            <div className="movement-correction-details">
+              <label htmlFor={`${id}-date`}>
+                {t('movementDate')}
+                {draft.capabilities.date ? (
+                  <input id={`${id}-date`} type="datetime-local" step="1" required value={draft.time}
+                    aria-describedby={`${id}-date-help`} autoFocus
+                    onChange={(event) => setDraft({ ...draft, time: event.target.value })} />
+                ) : <input id={`${id}-date`} readOnly aria-describedby={`${id}-date-help`} value={formatMovementTimestamp(draft.movement.moved_at, language)} />}
+                <small id={`${id}-date-help`} className="measurement-lock-note">{t(draft.capabilities.date ? 'movementTimeHelp' : 'movementDateReadOnly')}</small>
+              </label>
+              <label className="notes-field" htmlFor={`${id}-notes`}>
+                {t('movementNotes')}
+                <textarea id={`${id}-notes`} value={draft.notes} autoFocus={!draft.capabilities.date} rows={3}
+                  onChange={(event) => setDraft({ ...draft, notes: event.target.value })} />
+              </label>
+            </div>
           </fieldset>
           {feedback}
           {!pending && (reviewRequired || draftChanged) ? <p className="measurement-lock-note" role="status">{t('movementReviewReopen')}</p> : null}
@@ -272,14 +299,17 @@ function MovementBannerState({ box, zones, language, canEdit, isDesktop, onCorre
     );
   }
 
+  // A lifecycle-only box has no banner, but a pending refresh recovery must stay reachable after the editor closes.
+  if (!movement) return refreshRequired ? <div className="latest-movement-recovery">{feedback}</div> : null;
+
   return (
-    <section className={`last-reading-card measurement-summary measurement-module latest-movement-banner${movement ? '' : ' is-empty'}${canOpen ? ' has-edit-capability' : ''}`} aria-busy={pending}>
+    <section className={`last-reading-card measurement-summary measurement-module latest-movement-banner${canOpen ? ' has-edit-capability' : ''}`} aria-busy={pending}>
       <div>
         <h2>{t('latestMovement')}</h2>
-        {movement ? <><time dateTime={movement.moved_at}>{formatMovementTimestamp(movement.moved_at, language)}</time>{movement.kind !== 'ordinary' ? <p className="movement-kind-label">{t(movementKindKey(movement))}</p> : null}</>
-          : <p>{t('movements' in displayedBox ? 'latestMovementEmpty' : 'latestMovementUnavailable')}</p>}
+        <time dateTime={movement.moved_at}>{formatMovementTimestamp(movement.moved_at, language)}</time>
+        {movement.kind !== 'ordinary' ? <p className="movement-kind-label">{t(movementKindKey(movement))}</p> : null}
       </div>
-      {movement ? <>
+      <>
         <div className="movement-route">
           <MovementZoneMetric label={t('movementOrigin')} value={movement.from_thermal_zone?.name ?? t('movementNoOrigin')} />
           <ArrowRight className="movement-route-arrow" aria-hidden="true" size={20} />
@@ -290,10 +320,10 @@ function MovementBannerState({ box, zones, language, canEdit, isDesktop, onCorre
           <p>{movement.notes || t('movementNoNotes')}</p>
         </div>
         {canOpen ? <button ref={editButton} className="icon-button measurement-summary-edit-button" type="button"
-          aria-label={t('movementCorrect')} title={t('movementCorrect')} onClick={openEditor}>
+          aria-label={t('movementCorrect')} title={t('movementCorrect')} onClick={() => openEditor()}>
           <Pencil aria-hidden="true" size={18} />
         </button> : null}
-      </> : null}
+      </>
       {feedback}
     </section>
   );

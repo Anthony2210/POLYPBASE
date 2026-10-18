@@ -63,9 +63,11 @@ export function formatMovementTimestamp(value: string, language: Language): stri
   }).format(new Date(value));
 }
 
-export function latestPersistedMovement(box: BoxItem | BoxDetail): BoxMovement | null {
+export function latestPersistedMovement(
+  box: BoxItem | BoxDetail, include: (movement: BoxMovement) => boolean = () => true,
+): BoxMovement | null {
   if (!('movements' in box)) return null;
-  return [...box.movements].sort((a, b) => {
+  return box.movements.filter(include).sort((a, b) => {
     const left = Date.parse(a.moved_at);
     const right = Date.parse(b.moved_at);
     return (Number.isFinite(right) ? right : -Infinity) - (Number.isFinite(left) ? left : -Infinity)
@@ -81,6 +83,17 @@ const KIND_KEYS: Record<string, TranslationKey> = {
 
 export function movementKindKey(movement: BoxMovement): TranslationKey {
   return KIND_KEYS[movement.kind ?? 'unclassified'] ?? 'movementKindUnclassified';
+}
+
+// Lifecycle entries stay in the history; they never appear in the last-movement banner.
+export function isLifecycleMovement(movement: BoxMovement) {
+  return ['initial_location', 'qualification', 'reactivation'].includes(movement.kind ?? '');
+}
+
+/** The newest movement when it is a correctable lifecycle entry, reached from the movement history. */
+export function correctableLifecycleMovement(box: BoxItem | BoxDetail): BoxMovement | null {
+  const latest = latestPersistedMovement(box);
+  return latest && isLifecycleMovement(latest) && movementCorrectionCapabilities(box, latest).notes ? latest : null;
 }
 
 export function movementCorrectionCapabilities(box: BoxItem | BoxDetail, movement: BoxMovement) {

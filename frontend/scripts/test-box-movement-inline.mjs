@@ -57,6 +57,7 @@ function bannerHarness(overrides = {}) {
       }];
     },
     useRef(initial) { const index = cursor++; return slots[index] ??= { current: initial }; },
+    useEffect(effect, dependencies) { return hooks.useLayoutEffect(effect, dependencies); },
     useLayoutEffect(effect, dependencies) {
       const index = cursor++;
       if (!slots[index] || dependencies.some((value, offset) => value !== slots[index][offset])) {
@@ -124,6 +125,38 @@ function bannerHarness(overrides = {}) {
   return h;
 }
 
+for (const language of ['fr', 'en']) {
+  test(`editor ${language}: route precedes date and comment, with visible labels and linked help`, () => {
+    const h = bannerHarness({ language });
+    h.click('movementCorrect');
+    const content = text(h.tree);
+    const labels = ['movementOrigin', 'movementDestination', 'movementDate', 'movementNotes'];
+    for (let index = 1; index < labels.length; index++) {
+      assert.ok(content.indexOf(h.t(labels[index - 1])) < content.indexOf(h.t(labels[index])));
+    }
+    assert.ok(content.includes(h.t('movementCorrectionHelp')));
+    for (const [name, key] of [['origin', 'movementOrigin'], ['destination', 'movementDestination'], ['date', 'movementDate'], ['notes', 'movementNotes']]) {
+      const field = h.field(name);
+      const label = h.find((node) => node.type === 'label' && node.props.htmlFor === field.props.id);
+      assert.ok(text(label).includes(h.t(key)), `${name} has a visible translated label`);
+    }
+    assert.equal(h.field('date').props.autoFocus, true);
+    const help = h.find((node) => node.props.id === h.field('date').props['aria-describedby']);
+    assert.equal(text(help), h.t('movementTimeHelp'));
+    assert.equal(h.button('movementSave'), undefined, 'unchanged form has no save action');
+    const recorded = movement({ kind: 'unclassified' });
+    h.setProps({ box: box({ movements: [recorded] }) });
+    h.click('cancel');
+    h.click('movementCorrect');
+    for (const [name, key] of [['date', 'movementDateReadOnly'], ['destination', 'movementDestinationReadOnly']]) {
+      assert.equal(h.field(name).props.readOnly, true);
+      const note = h.find((node) => node.props.id === h.field(name).props['aria-describedby']);
+      assert.equal(text(note), h.t(key));
+    }
+    assert.equal(h.field('notes').props.autoFocus, true);
+  });
+}
+
 test('summary titles match the measurement family in French and English', () => {
   assert.equal(catalogues.fr.latestMovement, 'Dernier déplacement');
   assert.equal(catalogues.en.latestMovement, 'Last movement');
@@ -145,14 +178,27 @@ for (const language of ['fr', 'en']) {
     assert.equal(h.find((node) => node.props.role === 'dialog' || node.type === 'portal'), undefined);
     assert.equal(movements[0], older, 'sorting must not mutate persisted history');
     h.setProps({ box: box({ movements: [] }) });
-    assert.ok(text(h.tree).includes(h.t('latestMovementEmpty')));
+    assert.equal(h.tree, null, 'no section, heading, border or reserved space');
     assert.equal(h.button('movementCorrect'), undefined);
     const item = box(); delete item.movements;
     h.setProps({ box: item });
-    assert.ok(text(h.tree).includes(h.t('latestMovementUnavailable')));
+    assert.equal(h.tree, null, 'no summary while movement history is unavailable');
   });
 
-  for (const kind of ['initial_location', 'qualification', 'reactivation', 'unclassified']) {
+  for (const kind of ['initial_location', 'qualification', 'reactivation']) {
+    test(`banner ${language}: ${kind} alone is not a movement summary`, () => {
+      const lifecycle = movement({ id: 99, kind, from_thermal_zone: null, moved_at: '2026-07-07T10:00:00Z' });
+      const h = bannerHarness({ language, box: box({ movements: [lifecycle] }) });
+      assert.equal(h.tree, null);
+      h.setProps({ box: box({ movements: [movement(), lifecycle] }) });
+      assert.equal(h.find((node) => node.type === 'time').props.dateTime, movement().moved_at);
+      assert.ok(text(h.tree).includes('Recorded comment'));
+      h.click('movementCorrect');
+      assert.equal(h.field('date').props.type, 'datetime-local', 'ordinary movement correction remains available');
+    });
+  }
+
+  for (const kind of ['unclassified']) {
     test(`banner ${language}: ${kind} is explicitly not ordinary and has a readonly date`, () => {
       const recorded = movement({ kind, from_thermal_zone: null, notes: '' });
       const h = bannerHarness({ language, box: box({ movements: [recorded] }) });
@@ -189,12 +235,12 @@ test('pencil opens a prefilled inline editor with immutable origin and scoped ac
 });
 
 for (const language of ['fr', 'en']) {
-  test(`editor ${language}: accessible date without visible label/help and normalized dirty actions`, () => {
+  test(`editor ${language}: visibly labelled date with help and normalized dirty actions`, () => {
     const h = bannerHarness({ language }); h.click('movementCorrect');
-    assert.equal(h.field('date').props['aria-label'], h.t('movementDate'));
-    assert.equal(h.field('date').props['aria-describedby'], undefined);
-    assert.ok(!text(h.tree).includes(h.t('movementDate')));
-    assert.ok(!text(h.tree).includes(h.t('movementTimeHelp')));
+    const label = h.find((node) => node.type === 'label' && node.props.htmlFor === h.field('date').props.id);
+    assert.ok(text(label).includes(h.t('movementDate')));
+    assert.ok(h.field('date').props['aria-describedby']);
+    assert.ok(text(h.tree).includes(h.t('movementTimeHelp')));
     assert.equal(h.button('movementSave'), undefined);
     assert.ok(h.button('cancel'), 'clean draft can still be closed');
     h.change('notes', '  Recorded comment  ');
@@ -377,6 +423,89 @@ test('normalized zero seconds retain the exact original fractional timestamp and
     assert.deepEqual(plain(h.calls), [[17, 12, { expected_revision: 0, notes: 'Notes correction only' }]]);
     assert.ok(!text(h.tree).includes(h.t('movementTimeAmbiguous')));
   }
+});
+
+for (const kind of ['initial_location', 'qualification', 'reactivation']) {
+  test(`${kind}: no banner, but the correction stays reachable from the movement history`, async () => {
+    const lifecycle = movement({ id: 99, kind, from_thermal_zone: null });
+    const detail = box({ movements: [lifecycle] });
+    // Visibility rule: a lifecycle entry never produces the last-movement banner.
+    const h = bannerHarness({ box: detail });
+    assert.equal(h.tree, null);
+    assert.equal(helpers.correctableLifecycleMovement(detail).id, 99);
+    // Accessibility rule: a history request opens the same editor with the destination correction.
+    let handled = 0;
+    h.setProps({ correctionRequest: { movementId: 99 }, onCorrectionRequestHandled: () => { handled += 1; } });
+    h.flush();
+    assert.equal(handled, 1);
+    assert.equal(h.field('destination').type, 'select');
+    assert.equal(h.field('date').props.readOnly, true);
+    h.change('destination', '3'); h.change('notes', 'Corrected');
+    h.submit(); await h.settle();
+    assert.deepEqual(plain(h.calls[0]), [17, 99, { expected_revision: 0, notes: 'Corrected', to_thermal_zone_id: 3 }]);
+    assert.equal(h.refreshes.length, 1);
+    assert.equal(h.tree, null, 'editor closes and no banner appears for the lifecycle entry');
+  });
+}
+
+test('lifecycle correction: failed refresh stays recoverable after the editor closes, with no second write and no banner', async () => {
+  const lifecycle = movement({ id: 99, kind: 'initial_location', from_thermal_zone: null });
+  const detail = box({ movements: [lifecycle] });
+  let refreshAttempts = 0;
+  const h = bannerHarness({ box: detail, onRefresh: async () => { refreshAttempts += 1; if (refreshAttempts === 1) throw new Error('offline'); return detail; } });
+  const request = () => h.setProps({ correctionRequest: { movementId: 99 }, onCorrectionRequestHandled() {} });
+  const hasBannerContent = () => Boolean(h.find((node) => node.type === 'h2' || node.type === 'time'));
+  request(); h.flush();
+  h.change('notes', 'Corrected'); h.submit(); await h.settle();
+  assert.equal(h.calls.length, 1, 'the correction is written once');
+  assert.ok(h.button('movementRefresh'), 'retry is offered inside the open editor');
+  // Dismiss the editor with the review action: the recovery must remain reachable.
+  h.click('movementReview');
+  assert.equal(h.find((node) => node.type === 'form'), undefined);
+  assert.ok(h.button('movementRefresh'), 'retry stays reachable after the editor is closed');
+  assert.equal(hasBannerContent(), false, 'no lifecycle banner appears');
+  // Reopening from the history recovers the data instead of being blocked or writing again.
+  request(); await h.settle();
+  assert.equal(refreshAttempts, 2);
+  assert.equal(h.calls.length, 1, 'no duplicate POST');
+  assert.equal(h.tree, null, 'recovery finished and the lifecycle banner stays hidden');
+  request(); h.flush();
+  assert.ok(h.find((node) => node.type === 'form'), 'the editor opens again once refresh has recovered');
+  assert.equal(h.calls.length, 1);
+});
+
+test('lifecycle correction: the visible retry button also recovers after dismissal, and a plain cancel leaves nothing behind', async () => {
+  const lifecycle = movement({ id: 99, kind: 'reactivation', from_thermal_zone: null });
+  const detail = box({ movements: [lifecycle] });
+  let refreshAttempts = 0;
+  const h = bannerHarness({ box: detail, onRefresh: async () => { refreshAttempts += 1; if (refreshAttempts === 1) throw new Error('offline'); return detail; } });
+  h.setProps({ correctionRequest: { movementId: 99 }, onCorrectionRequestHandled() {} }); h.flush();
+  h.click('cancel');
+  assert.equal(h.tree, null, 'cancelling without saving leaves no recovery UI');
+  h.setProps({ correctionRequest: { movementId: 99 }, onCorrectionRequestHandled() {} }); h.flush();
+  h.change('notes', 'Corrected'); h.submit(); await h.settle();
+  h.click('movementReview');
+  h.click('movementRefresh'); await h.settle();
+  assert.equal(refreshAttempts, 2);
+  assert.equal(h.calls.length, 1, 'retry never resubmits the correction');
+  assert.equal(h.tree, null);
+});
+
+test('history correction requests honour the unchanged eligibility rules', () => {
+  const lifecycle = movement({ id: 99, kind: 'initial_location', from_thermal_zone: null });
+  const request = { correctionRequest: { movementId: 99 }, onCorrectionRequestHandled() {} };
+  // Read-only role, stale id, ordinary latest movement and an older lifecycle entry are not offered.
+  assert.equal(bannerHarness({ box: box({ movements: [lifecycle] }), canEdit: false, ...request }).tree, null);
+  assert.equal(bannerHarness({ box: box({ movements: [lifecycle] }), correctionRequest: { movementId: 5 }, onCorrectionRequestHandled() {} }).tree, null);
+  assert.equal(helpers.correctableLifecycleMovement(box()), null);
+  const older = box({ movements: [lifecycle, movement({ id: 100, moved_at: '2026-07-08T10:00:00Z' })] });
+  assert.equal(helpers.correctableLifecycleMovement(older), null);
+  assert.equal(helpers.correctableLifecycleMovement(box({ movements: [movement({ id: 99, kind: 'unclassified', revision: undefined })] })), null);
+  // The history lists the shortcut only for the correctable entry and passes the id back.
+  const source = read('components/BoxInsights.tsx');
+  assert.match(source, /movement\.id === correctableMovementId/);
+  assert.match(read('components/BoxPage.tsx'), /correctableLifecycleMovement\(box\)/);
+  assert.match(read('components/BoxPage.tsx'), /canWriteLabData \? correctableLifecycleMovement/);
 });
 
 test('capabilities separate ordinary, lifecycle and unclassified data and conservatively restrict destination', () => {

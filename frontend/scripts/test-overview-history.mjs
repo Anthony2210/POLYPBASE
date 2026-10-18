@@ -520,7 +520,7 @@ function miniChartHarness(box, loadHistory, t = key => key) {
     function visit(node) {
       if (Array.isArray(node)) return node.flatMap(visit);
       if (!node || typeof node !== 'object' || !node.props) return [];
-      return [...(predicate(node) ? [node] : []), ...visit(node.props.children)];
+      return [...(predicate(node) ? [node] : []), ...visit(node.props.children), ...visit(node.props.temperatureStatus)];
     }
     return visit(tree);
   }
@@ -538,7 +538,13 @@ function miniChartHarness(box, loadHistory, t = key => key) {
       await new Promise(resolve => setImmediate(resolve));
       render();
     },
+    async rejectTemperature(request) {
+      request.reject(new Error('Synthetic temperature failure'));
+      await new Promise(resolve => setImmediate(resolve));
+      render();
+    },
     updateBox(nextBox) { props.box = nextBox; render(); },
+    get temperatureStatus() { return single(TemperatureHistoryStatus); },
     get controls() { return single(ChartWindowControls); },
     get chart() { return single(BiologicalTrendChart); },
     select(range) { single(ChartWindowControls).onChange(range.startDate, range.endDate); render(); },
@@ -610,7 +616,7 @@ test('actual mini-chart JSX defaults to the full history, loads it at once and k
   } finally { view.unmount(); }
 });
 
-test('mini-chart loads temperatures independently for every selected range without bounded payload fallback', async () => {
+test('mini-chart loads in-range temperatures independently without bounded payload fallback', async () => {
   const initialTemperatures = [
     { date: '2024-01-01', average_temperature_c: 99 },
     { date: '2026-06-01', average_temperature_c: 0 },
@@ -618,7 +624,7 @@ test('mini-chart loads temperatures independently for every selected range witho
   const box = { ...componentBox(componentMeasurements), thermal_zone: { id: 1, name: 'Synthetic zone' }, temperatures: initialTemperatures };
   const view = miniChartHarness(box, undefined, key => `translated:${key}`);
   const loadedTemperatures = [
-    { date: '2026-03-01', average_temperature_c: 0, zone_id: 2, zone_name: 'Previous synthetic zone' },
+    { date: '2026-03-03', average_temperature_c: 0, zone_id: 2, zone_name: 'Previous synthetic zone' },
     { date: '2026-06-01', average_temperature_c: 17, zone_id: 1, zone_name: 'Synthetic zone' },
   ];
   try {
@@ -637,12 +643,54 @@ test('mini-chart loads temperatures independently for every selected range witho
       const query = new URL(request.url, 'https://test').searchParams;
       assert.equal(query.get('start'), range.startDate);
       assert.equal(query.get('end'), range.endDate);
-      await view.settleTemperature(request, loadedTemperatures);
-      assert.deepEqual(plain(view.chart.temperatures), loadedTemperatures);
+      const inRange = loadedTemperatures.filter(point => point.date >= range.startDate && point.date <= range.endDate);
+      await view.settleTemperature(request, inRange);
+      assert.deepEqual(plain(view.chart.temperatures), inRange);
+      assert.equal(view.temperatureStatus.loading, false);
+      assert.equal(view.temperatureStatus.failed, false);
+      assert.deepEqual(plain(view.temperatureStatus.points), inRange);
     }
     assert.equal(view.requests.length, 1);
     view.updateBox({ ...box, id: 903, history_complete: true, temperatures: [] });
     assert.deepEqual(plain(view.chart.temperatures), [], 'A new box must not retain the previous detail temperatures');
+  } finally { view.unmount(); }
+});
+
+test('an Overview box without biology keeps temperature-only loading, inline failure/retry and successful empty coverage', async () => {
+  const box = { ...componentBox([], true), earliest_biological_measurement_on: null };
+  const view = miniChartHarness(box);
+  const observed = [{ date: '2026-05-15', average_temperature_c: 0, min_temperature_c: null,
+    max_temperature_c: null, zone_id: 11, zone_name: 'Synthetic historical zone' }];
+  try {
+    assert.deepEqual(plain(view.chart.measurements), []);
+    assert.equal(view.chart.labels.empty, 'overviewNoHistoryEver');
+    assert.ok(view.chart.temperatureStatus);
+    assert.equal(view.temperatureStatus.loading, true);
+    assert.equal(view.temperatureStatus.failed, false);
+    assert.equal(view.requests.length, 0, 'Temperature loading is independent of biological history');
+    await view.rejectTemperature(view.temperatureRequests[0]);
+    assert.equal(view.temperatureStatus.loading, false);
+    assert.equal(view.temperatureStatus.failed, true);
+    assert.equal(view.find(node => node.props.role === 'alert').length, 0, 'Temperature failures are not standalone alerts');
+    view.temperatureStatus.retry(); view.render();
+    assert.equal(view.temperatureStatus.loading, true);
+    assert.equal(view.temperatureStatus.failed, false);
+    await view.settleTemperature(view.temperatureRequests[1], observed);
+    assert.deepEqual(plain(view.chart.temperatures), observed);
+    assert.deepEqual(plain(view.temperatureStatus.points), observed);
+    assert.deepEqual(plain(view.chart.measurements), [], 'A temperature zero does not invent a biological zero');
+    assert.equal(view.temperatureStatus.loading, false);
+    assert.equal(view.temperatureStatus.failed, false);
+    const requestCount = view.temperatureRequests.length;
+    view.select({ startDate: '2026-04-01', endDate: '2026-04-02' });
+    assert.deepEqual(plain(view.chart.temperatures), []);
+    assert.deepEqual(plain(view.temperatureStatus.points), []);
+    assert.equal(view.temperatureStatus.loading, false);
+    assert.equal(view.temperatureStatus.failed, false);
+    assert.equal(view.temperatureRequests.length, requestCount, 'Covered empty days do not reload');
+    view.select({ startDate: '2026-05-14', endDate: '2026-05-16' });
+    assert.deepEqual(plain(view.chart.temperatures), observed);
+    assert.equal(view.temperatureRequests.length, requestCount);
   } finally { view.unmount(); }
 });
 
@@ -708,8 +756,12 @@ test('A to B detail keeps both occupied zones, including both daily aggregates o
       'Two daily aggregates share a date coordinate, not invented before/after measurement times');
     view.select(serverRange);
     assert.deepEqual(plain(view.chart.temperatures), []);
-    await view.settleTemperature(view.temperatureRequests.at(-1), temperatures);
-    assert.deepEqual(plain(view.chart.temperatures), temperatures);
+    await view.settleTemperature(view.temperatureRequests.at(-1), []);
+    assert.deepEqual(plain(view.chart.temperatures), [], 'June observations are outside a period ending June 3');
+    const requestCount = view.temperatureRequests.length;
+    view.select({ startDate: '2026-06-01', endDate: '2026-06-30' });
+    assert.deepEqual(plain(view.chart.temperatures), temperatures, 'Cached occupancy points retain both historical zones');
+    assert.equal(view.temperatureRequests.length, requestCount);
     assert.equal(view.requests.length, 1);
   } finally { view.unmount(); }
 });
@@ -783,8 +835,9 @@ test('child current stock including zero does not invent overview history', () =
         polyp_count: count, revision: 'box:902:1',
         source: count === null ? null : { kind: 'subculture_initialization', id: 1, timestamp: '2026-06-03T12:00:00Z' },
       } });
-      assert.equal(view.find(node => node.props.className === 'overview-chart overview-chart-empty').length, 1);
-      assert.equal(view.find(node => node.props.children === 'overviewNoHistoryEver').length, 1);
+      assert.deepEqual(plain(view.chart.measurements), [], 'Stock, including zero, does not invent biological readings');
+      assert.equal(view.chart.labels.empty, 'overviewNoHistoryEver');
+      assert.equal(view.temperatureStatus.loading, true, 'Temperature loading remains available without biology');
       assert.equal(view.requests.length, 0);
     }
   } finally { view.unmount(); }
@@ -861,7 +914,7 @@ test('actual mini-chart JSX with only older readings renders controls and an emp
   } finally { view.unmount(); }
 });
 
-test('old-only complete payload shows its readings and an empty box shows the no-history state', () => {
+test('old-only complete payload shows readings and an empty box retains the no-history label with temperature status', async () => {
   const olderPoints = componentMeasurements.filter(point => point.measured_on < serverRange.startDate);
   const old = miniChartHarness(componentBox(olderPoints, true));
   try {
@@ -871,8 +924,14 @@ test('old-only complete payload shows its readings and an empty box shows the no
   } finally { old.unmount(); }
   const empty = miniChartHarness({ ...componentBox([], true), earliest_biological_measurement_on: null });
   try {
-    assert.equal(empty.find(node => node.props.className === 'overview-chart overview-chart-empty').length, 1);
+    assert.deepEqual(plain(empty.chart.measurements), []);
+    assert.equal(empty.chart.labels.empty, 'overviewNoHistoryEver');
+    assert.equal(empty.temperatureStatus.loading, true);
     assert.equal(empty.requests.length, 0);
+    await empty.settleTemperature(empty.temperatureRequests[0], []);
+    assert.equal(empty.temperatureStatus.loading, false);
+    assert.equal(empty.temperatureStatus.failed, false);
+    assert.deepEqual(plain(empty.temperatureStatus.points), []);
   } finally { empty.unmount(); }
 });
 
@@ -1186,8 +1245,7 @@ test('actual overview geometry has complete previous/current context before GET 
     assert.equal(first.events[0].x, chartGeometry(view).xPosition('2026-08-14'));
     const rendered = trendChart.default(view.chart);
     const transfers = jsxNodes(rendered, node => node.props.className === 'bio-trend-event-label');
-    assert.equal(transfers.length, 1);
-    assert.equal(transfers[0].props.children, 'LOCATIONPERIODCHANGE', 'Derived period change is rendered with its own label, never as a movement');
+    assert.equal(transfers.length, 0, 'period attribution is retained without noisy derived markers');
     assertRecentBiology(view);
     assertDetailGet(app, 1);
     const initialLocations = plain(view.chart.locations);

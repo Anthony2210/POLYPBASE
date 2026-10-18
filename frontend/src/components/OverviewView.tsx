@@ -432,15 +432,6 @@ function OverviewMiniChart({
   const { startDate, endDate } = history.range;
   const temperatureHistory = useTemperatureHistory(box.id, startDate, endDate, box);
 
-  if (!earliestDate && !orderedMeasurements.length) {
-    return (
-      <div className="overview-chart overview-chart-empty">
-        <strong>{t('overviewChartTitle')}</strong>
-        <span>{t('overviewNoHistoryEver')}</span>
-      </div>
-    );
-  }
-
   const locations = history.locations.map((location) => ({
     id: location.id,
     name: location.thermal_zone.name,
@@ -471,7 +462,6 @@ function OverviewMiniChart({
           </button>
         </div>
       ) : null}
-      <TemperatureHistoryStatus {...temperatureHistory} language={language} />
       <BiologicalTrendChart
         compact
         startDate={startDate}
@@ -485,11 +475,12 @@ function OverviewMiniChart({
         }))}
         locations={locations}
         temperatures={temperatureHistory.points}
+        temperatureStatus={<TemperatureHistoryStatus {...temperatureHistory} language={language} />}
         selectionScope={box.id}
         labels={{
           chartTitle: t('overviewChartTitle'),
           closeDetail: t('close'),
-          empty: t('overviewNoHistory'),
+          empty: t(!earliestDate && !orderedMeasurements.length ? 'overviewNoHistoryEver' : 'overviewNoHistory'),
           ephyrae: t('ephyraeFull'),
           location: language === 'fr' ? 'Emplacement' : 'Location',
           missingReading: t('chartMissingReading'),
@@ -500,6 +491,7 @@ function OverviewMiniChart({
           polyps: t('polyps'),
           salinity: 'PSU',
           temperature: t('temperature'),
+          temperatureOutsideScale: t('temperatureOutsideScale'),
           selectedReading: language === 'fr' ? 'Relevé sélectionné' : 'Selected reading',
         }}
       />
