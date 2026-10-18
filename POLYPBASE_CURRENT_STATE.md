@@ -154,6 +154,16 @@ Three additional branches, without registered worktrees or expected directories,
 - **Retained evidence, not unfinished features:** `.qa-box-list/{initial-before,before,after}.json` (~18 MB; confidentiality not audited/copied) and `docs/audits/box-page-extraction.md` (271 lines). Its old build-timeout BLOCKED verdict is historical; later reviewer build and M9 integration/CI passed. No archival operation verified.
 - **Cleanup suspended by Anthony.** Git transmission reports controlled removal totals of 42 branches/42 worktrees, with cherry-pick/adaptation evidence and a resolved interrupted removal. `.git/polypbase-local-cleanup-report.json` exists, but its entire contents/reflogs were not re-audited here. Do not infer deleted source SHAs are main ancestors, recreate worktrees, or resume cleanup from this documentation task.
 
+### CCA-EOB V3 attribution correction — milestone 2026-10-18
+
+Local worktree `cca-eob-v2-correction` (branch `fix/cca-eob-v2-correction`, HEAD `6ae7a90`, same as `main` in this checkout); details in [`docs/cca-eob-v2-correction.md`](docs/cca-eob-v2-correction.md). Local results only, **not claims about `main`, production or Neon**.
+
+- **Code:** `correct_cca_eob_v2` V3 (operation `cca_eob_v2_20261016_v3`) plus tests. Independent review green; **uncommitted and not integrated**, awaiting Anthony's Git decision. A confirmed PostgreSQL deadlock (40P01) between the corrector and the member-permission PATCH was fixed by lock order Boxes, Organization (`NO KEY UPDATE`), membership, user, with a permanent regression test. Native isolated PostgreSQL 17.4 QA: 75 + 50 + 578 tests passed, 0 skipped.
+- **Data:** 72 `box_id` reassignments applied **only to the local test copy** `polypbase_anomalies_test_20261016` (127.0.0.1:55438). Final dry-run: `REASSIGN_REQUIRED=0`, `ALREADY_MATCHES=80`, `OUT_OF_SOURCE=4`. The immutable reference database, production and Neon were not touched.
+- **Preserved:** historical authors (still displayed as historical user), locations, movements, thermal zones, temperatures, W41/W42 and all other histories. Only the 72 `box_id` values, three Box revisions and 73 new audits (72 individual plus one batch receipt) changed.
+- **Evidence:** full `pg_dump` backup restored and verified on a disposable instance (56/56 table hashes identical), exhaustive 56-table comparison after apply with no unauthorized change. Artefacts are outside Git in `C:\Users\antoc\POLYPBASE-BACKUPS\cca-eob-20261018\`.
+- **Next steps, reserved for Anthony:** review the diff, stage explicit paths, commit and integrate; any application elsewhere needs a new dry-run, review and explicit authorization. The `species-labels` worktree has an older uncommitted edit of this file; reconcile on integration.
+
 ## Independent review and historical validation evidence
 
 These are **supplied milestone results**, not tests run during this refresh and not an independent review of this documentation diff.

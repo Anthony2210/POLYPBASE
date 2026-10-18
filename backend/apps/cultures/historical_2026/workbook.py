@@ -9,6 +9,7 @@ import re
 import zipfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
+from io import BytesIO
 
 _MAIN = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 _REL = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
@@ -142,28 +143,45 @@ def _drop_merged_non_anchor_values(sheet, root):
                     sheet.ignored_merged_values[(row, column)] = sheet.cells.pop((row, column))
 
 
+def _read_archive(archive, sha256):
+    shared = _shared_strings(archive)
+    book = ET.fromstring(archive.read("xl/workbook.xml"))
+    rels = ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+    targets = {
+        rel.get("Id"): rel.get("Target") for rel in rels.findall(f"{_PKG_REL}Relationship")
+    }
+    sheets = []
+    for node in book.find(f"{_MAIN}sheets").findall(f"{_MAIN}sheet"):
+        target = targets[node.get(f"{_REL}id")]
+        target = target.lstrip("/")
+        if not target.startswith("xl/"):
+            target = f"xl/{target}"
+        sheets.append(
+            _read_sheet(
+                archive,
+                target,
+                shared,
+                node.get("name"),
+                node.get("state", "visible"),
+            )
+        )
+    return Workbook(sha256=sha256, sheets=sheets)
+
+
 def read_workbook(path):
     sha256 = file_sha256(path)
     with zipfile.ZipFile(path) as archive:
-        shared = _shared_strings(archive)
-        book = ET.fromstring(archive.read("xl/workbook.xml"))
-        rels = ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
-        targets = {
-            rel.get("Id"): rel.get("Target") for rel in rels.findall(f"{_PKG_REL}Relationship")
-        }
-        sheets = []
-        for node in book.find(f"{_MAIN}sheets").findall(f"{_MAIN}sheet"):
-            target = targets[node.get(f"{_REL}id")]
-            target = target.lstrip("/")
-            if not target.startswith("xl/"):
-                target = f"xl/{target}"
-            sheets.append(
-                _read_sheet(
-                    archive,
-                    target,
-                    shared,
-                    node.get("name"),
-                    node.get("state", "visible"),
-                )
-            )
-    return Workbook(sha256=sha256, sheets=sheets)
+        return _read_archive(archive, sha256)
+
+
+def read_verified_workbook(path, expected_sha256):
+    """Read once and verify the exact bytes before interpreting ZIP or XML."""
+    with open(path, "rb") as handle:
+        data = handle.read()
+    sha256 = hashlib.sha256(data).hexdigest()
+    if sha256 != expected_sha256:
+        raise WorkbookError(
+            f"Unexpected workbook SHA-256 {sha256}; expected {expected_sha256}."
+        )
+    with BytesIO(data) as buffer, zipfile.ZipFile(buffer) as archive:
+        return _read_archive(archive, sha256)
