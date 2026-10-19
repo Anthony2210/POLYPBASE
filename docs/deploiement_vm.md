@@ -170,6 +170,31 @@ Pour exécuter uniquement les contrôles locaux sans contacter la VM :
 .\deploy\deploy_vm.ps1 -PreflightOnly
 ```
 
+### Reprise rapide après CI GitHub vérifiée (`-UseVerifiedGitHubCi`)
+
+Option explicite, jamais activée par défaut. Elle évite de relancer les tests
+Django locaux et le build frontend local lorsque la CI GitHub officielle a déjà
+validé le commit exact. Elle exige `gh` installé et connecté (`gh auth login`) ;
+aucun jeton n'est stocké ou accepté par le script. Si la vérification est
+indisponible, ambiguë, incomplète ou en échec, le script s'arrête avant tout
+accès à la VM : il n'y a aucun repli.
+
+Conditions : exactement un run `push` sur `main` du workflow
+`.github/workflows/ci.yml` pour le SHA exact, terminé en `success`, issu du dépôt
+`origin`, avec exactement un job `Frontend checks` et un job `Backend checks`
+terminés en `success`. Restent exécutés : branche, état Git, alignement avec
+`origin/main`, `git diff --check`, `manage.py check`, dérive de migrations, ainsi que
+toutes les étapes côté VM (dépendances, build frontend, contrôles Django, sauvegarde,
+revue/approbation et garde SHA du plan de migration, migrations, publication,
+redémarrage, santé).
+
+```powershell
+.\deploy\deploy_vm.ps1 -UseVerifiedGitHubCi -ReviewedMigrationApproval ('{0}:{1}' -f (git rev-parse HEAD).Trim(), (Read-Host 'SHA-256 du migrate-plan.txt exact revu'))
+```
+
+`-ReviewedMigrationApproval` n'est nécessaire que si le plan l'exige.
+`-UseVerifiedGitHubCi -PreflightOnly` vérifie la CI sans modifier la VM.
+
 La clé PuTTY est cherchée dans la variable `POLYPBASE_SSH_KEY`, puis dans le
 chemin local historique d’Anthony. Un autre chemin peut être fourni avec
 `-SshKeyPath`. La clé et son contenu ne sont jamais copiés dans le dépôt.

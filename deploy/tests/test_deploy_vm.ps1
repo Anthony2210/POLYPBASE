@@ -16,7 +16,7 @@ function Assert-True {
     if (-not $Condition) { throw $Message }
 }
 
-foreach ($name in @('Write-Step', 'Invoke-NativeCommand', 'Invoke-RemoteCommand', 'Show-RemoteDiagnostics')) {
+foreach ($name in @('Write-Step', 'Invoke-NativeCommand', 'Invoke-RemoteCommand', 'Show-RemoteDiagnostics', 'Get-GitHubRepositorySlug', 'Invoke-GitHubApi', 'Assert-VerifiedGitHubCi')) {
     $definition = $ast.Find({
         param($node)
         $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -150,4 +150,104 @@ foreach ($ReviewedMigrationApproval in @('', $approval)) {
     Assert-True ($script:ObservedArguments[1] -ceq '-hostkey') 'Plink host-key safeguard changed.'
 }
 Show-RemoteDiagnostics
+
+# Verified fast mode: the GitHub API boundary is replaced by an in-memory fixture.
+$slug = 'owner/repo'
+$sha = $targetCommit
+function New-CiFixture {
+    param([hashtable]$Run = @{}, [object[]]$Jobs = $null)
+    $runObject = @{
+        id = 42; head_sha = $sha; head_branch = 'main'; event = 'push'
+        path = '.github/workflows/ci.yml'; status = 'completed'; conclusion = 'success'
+        repository = @{ full_name = $slug }; head_repository = @{ full_name = $slug }
+    }
+    foreach ($key in $Run.Keys) { $runObject[$key] = $Run[$key] }
+    if ($null -eq $Jobs) {
+        $Jobs = @(
+            @{ name = 'Frontend checks'; head_sha = $sha; status = 'completed'; conclusion = 'success' },
+            @{ name = 'Backend checks'; head_sha = $sha; status = 'completed'; conclusion = 'success' }
+        )
+    }
+    $script:CiRuns = [pscustomobject]@{ workflow_runs = @([pscustomobject]$runObject) }
+    $script:CiJobs = [pscustomobject]@{ total_count = $Jobs.Count; jobs = @($Jobs | ForEach-Object { [pscustomobject]$_ }) }
+}
+function Invoke-GitHubApi {
+    param([string]$Path)
+    if ($script:CiApiDown) { throw 'Fixture GitHub API unavailable' }
+    if ($Path -like "repos/$slug/actions/runs?head_sha=$sha*") { return $script:CiRuns }
+    if ($Path -like "repos/$slug/actions/runs/42/jobs*") { return $script:CiJobs }
+    throw "Unexpected API path: $Path"
+}
+function Assert-FastModeRefused {
+    param([string]$Case)
+    $refused = $false
+    try { Assert-VerifiedGitHubCi -Slug $slug -TargetCommit $sha | Out-Null }
+    catch { $refused = $_.Exception.Message -match 'Verified fast mode refused' }
+    Assert-True $refused "Fast mode must fail closed: $Case"
+}
+
+$script:CiApiDown = $false
+New-CiFixture
+$verifiedRun = Assert-VerifiedGitHubCi -Slug $slug -TargetCommit $sha
+Assert-True ($verifiedRun.id -eq 42) 'Valid CI was not accepted.'
+
+New-CiFixture -Run @{ conclusion = 'failure' }
+Assert-FastModeRefused 'failed run'
+New-CiFixture -Run @{ status = 'in_progress'; conclusion = $null }
+Assert-FastModeRefused 'incomplete run'
+New-CiFixture -Run @{ head_sha = ('c' * 40) }
+Assert-FastModeRefused 'wrong commit'
+New-CiFixture -Run @{ head_branch = 'feature' }
+Assert-FastModeRefused 'wrong branch'
+New-CiFixture -Run @{ event = 'pull_request' }
+Assert-FastModeRefused 'wrong event'
+New-CiFixture -Run @{ path = '.github/workflows/other.yml' }
+Assert-FastModeRefused 'unofficial workflow'
+New-CiFixture -Run @{ head_repository = @{ full_name = 'fork/repo' } }
+Assert-FastModeRefused 'fork run'
+New-CiFixture -Jobs @(@{ name = 'Backend checks'; head_sha = $sha; status = 'completed'; conclusion = 'success' })
+Assert-FastModeRefused 'missing frontend job'
+New-CiFixture -Jobs @(@{ name = 'Frontend checks'; head_sha = $sha; status = 'completed'; conclusion = 'success' })
+Assert-FastModeRefused 'missing backend job'
+New-CiFixture -Jobs @(
+    @{ name = 'Frontend checks'; head_sha = $sha; status = 'completed'; conclusion = 'success' },
+    @{ name = 'Backend checks'; head_sha = $sha; status = 'completed'; conclusion = 'skipped' }
+)
+Assert-FastModeRefused 'skipped job'
+New-CiFixture
+$script:CiJobs.total_count = 150
+Assert-FastModeRefused 'truncated job list'
+New-CiFixture
+$script:CiRuns = [pscustomobject]@{ workflow_runs = @($script:CiRuns.workflow_runs[0], $script:CiRuns.workflow_runs[0]) }
+Assert-FastModeRefused 'ambiguous runs'
+New-CiFixture
+$script:CiRuns = [pscustomobject]@{ workflow_runs = @() }
+Assert-FastModeRefused 'no run'
+New-CiFixture
+$script:CiApiDown = $true
+Assert-FastModeRefused 'unavailable API'
+$script:CiApiDown = $false
+
+Assert-True ((Get-GitHubRepositorySlug -RemoteUrl 'https://github.com/Anthony2210/POLYPBASE.git') -ceq 'Anthony2210/POLYPBASE') 'HTTPS remote slug.'
+Assert-True ((Get-GitHubRepositorySlug -RemoteUrl 'git@github.com:Anthony2210/POLYPBASE.git') -ceq 'Anthony2210/POLYPBASE') 'SSH remote slug.'
+$slugRejected = $false
+try { Get-GitHubRepositorySlug -RemoteUrl 'https://example.com/a/b.git' | Out-Null } catch { $slugRejected = $true }
+Assert-True $slugRejected 'Non-GitHub remote must be rejected.'
+
+# Structure: the flag is opt-in and only the two redundant local steps are gated.
+Assert-True ($ast.ParamBlock.Parameters.Name.VariablePath.UserPath -contains 'UseVerifiedGitHubCi') 'Flag missing.'
+$flag = $ast.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -eq 'UseVerifiedGitHubCi' }
+Assert-True ($flag.StaticType -eq [System.Management.Automation.SwitchParameter]) 'Flag must be an opt-in switch.'
+$gates = @($ast.FindAll({
+    param($node)
+    $node -is [System.Management.Automation.Language.IfStatementAst] -and
+        $node.Clauses[0].Item1.Extent.Text -ceq '-not $UseVerifiedGitHubCi'
+}, $true))
+Assert-True ($gates.Count -eq 1) 'Exactly one skip gate expected.'
+$gateText = $gates[0].Extent.Text
+Assert-True ($gateText.Contains("'Django test suite'") -and $gateText.Contains("'Frontend production build'")) 'Gate must cover tests and build.'
+Assert-True (-not $gateText.Contains("'check'") -and -not $gateText.Contains('makemigrations')) 'Checks and drift must stay ungated.'
+Assert-True (([regex]::Matches($source, "'Django test suite'")).Count -eq 1) 'Test step must exist once.'
+Assert-True ($source.Contains('ReviewedMigrationApproval')) 'Migration approval guard must remain.'
+
 Write-Host 'POWERSHELL_TESTS_OK'

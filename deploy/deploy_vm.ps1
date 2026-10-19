@@ -7,7 +7,8 @@ param(
     [string]$HostKeyFingerprint = 'ssh-ed25519 255 SHA256:qLQPuLRIqeGa/b5fKNsCOcpF2TJZCmbMB0ZRJ90Ifwk',
     [ValidatePattern('\A[0-9a-f]{40}:[0-9a-f]{64}\z', Options = 'None')]
     [string]$ReviewedMigrationApproval,
-    [switch]$PreflightOnly
+    [switch]$PreflightOnly,
+    [switch]$UseVerifiedGitHubCi
 )
 
 $ErrorActionPreference = 'Stop'
@@ -95,6 +96,74 @@ function Test-PublicEndpoint {
     throw "$Label failed: $lastError"
 }
 
+function Get-GitHubRepositorySlug {
+    param([string]$RemoteUrl)
+
+    if ($RemoteUrl -cmatch '\A(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?/?\z') {
+        return $Matches[1]
+    }
+    throw "origin is not a recognizable github.com repository: $RemoteUrl"
+}
+
+function Invoke-GitHubApi {
+    param([string]$Path)
+
+    # The GitHub CLI uses the operator's own login. No token is stored or accepted here.
+    $output = & $script:GhPath api -H 'Accept: application/vnd.github+json' $Path
+    if ($LASTEXITCODE -ne 0) {
+        throw "GitHub API request failed with exit code ${LASTEXITCODE}: $Path"
+    }
+    return (($output | Out-String) | ConvertFrom-Json)
+}
+
+function Assert-VerifiedGitHubCi {
+    param(
+        [string]$Slug,
+        [string]$TargetCommit
+    )
+
+    $requiredJobs = @('Frontend checks', 'Backend checks')
+    try {
+        $runs = Invoke-GitHubApi -Path "repos/$Slug/actions/runs?head_sha=$TargetCommit&event=push&branch=main&per_page=100"
+        $candidates = @(
+            @($runs.workflow_runs) | Where-Object {
+                $_.head_sha -ceq $TargetCommit -and
+                $_.head_branch -ceq 'main' -and
+                $_.event -ceq 'push' -and
+                $_.path -ceq '.github/workflows/ci.yml' -and
+                $_.repository.full_name -ieq $Slug -and
+                $_.head_repository.full_name -ieq $Slug
+            }
+        )
+        if ($candidates.Count -ne 1) {
+            throw "Expected exactly one official CI push run for $TargetCommit on main, found $($candidates.Count)."
+        }
+        $run = $candidates[0]
+        if ($run.status -cne 'completed' -or $run.conclusion -cne 'success') {
+            throw "CI run $($run.id) is not successful (status=$($run.status), conclusion=$($run.conclusion))."
+        }
+
+        $jobsResponse = Invoke-GitHubApi -Path "repos/$Slug/actions/runs/$($run.id)/jobs?filter=latest&per_page=100"
+        $jobs = @($jobsResponse.jobs)
+        if ([int]$jobsResponse.total_count -ne $jobs.Count) {
+            throw "CI job list for run $($run.id) is incomplete."
+        }
+        foreach ($name in $requiredJobs) {
+            $matching = @($jobs | Where-Object { $_.name -ceq $name -and $_.head_sha -ceq $TargetCommit })
+            if ($matching.Count -ne 1) {
+                throw "Expected exactly one CI job named '$name', found $($matching.Count)."
+            }
+            if ($matching[0].status -cne 'completed' -or $matching[0].conclusion -cne 'success') {
+                throw "CI job '$name' is not successful (status=$($matching[0].status), conclusion=$($matching[0].conclusion))."
+            }
+        }
+        return $run
+    }
+    catch {
+        throw "Verified fast mode refused: $($_.Exception.Message) Run without -UseVerifiedGitHubCi for the full local checks."
+    }
+}
+
 function Show-RemoteDiagnostics {
     Write-Host "`nDeployment diagnostics:" -ForegroundColor Yellow
     try {
@@ -131,6 +200,9 @@ $pscpPath = (Get-Command pscp.exe -ErrorAction Stop).Source
 $gitPath = (Get-Command git.exe -ErrorAction Stop).Source
 $uvPath = (Get-Command uv.exe -ErrorAction Stop).Source
 $npmPath = (Get-Command npm.cmd -ErrorAction Stop).Source
+if ($UseVerifiedGitHubCi) {
+    $script:GhPath = (Get-Command gh.exe -ErrorAction Stop).Source
+}
 
 if (-not (Test-Path -LiteralPath (Join-Path $repositoryPath '.git'))) {
     throw "Not a Git repository: $repositoryPath"
@@ -181,6 +253,17 @@ try {
         throw "Local main is not aligned with origin/main. Push the commit before deploying."
     }
 
+    if ($UseVerifiedGitHubCi) {
+        Write-Step 'Verify GitHub CI for the exact release commit'
+        $remoteUrl = (& $gitPath remote get-url origin).Trim()
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Could not read the origin remote URL.'
+        }
+        $ciRun = Assert-VerifiedGitHubCi -Slug (Get-GitHubRepositorySlug -RemoteUrl $remoteUrl) -TargetCommit $targetCommit
+        Write-Host "GitHub CI verified: run $($ciRun.id) $($ciRun.html_url)" -ForegroundColor Green
+        Write-Host 'Local Django tests and local frontend build will be skipped.' -ForegroundColor Yellow
+    }
+
     $executorPath = Join-Path $repositoryPath 'deploy\scripts\deploy_release.sh'
     $trackedExecutor = (& $gitPath ls-tree -r --name-only HEAD -- deploy/scripts/deploy_release.sh).Trim()
     if ($LASTEXITCODE -ne 0 -or $trackedExecutor -ne 'deploy/scripts/deploy_release.sh') {
@@ -203,13 +286,15 @@ try {
     Invoke-NativeCommand -Label 'Git whitespace' -FilePath $gitPath -Arguments @('diff', '--check')
     Invoke-NativeCommand -Label 'Django system check' -FilePath $uvPath -Arguments @('run', 'python', 'backend\manage.py', 'check', '--settings=config.preflight_settings')
     Invoke-NativeCommand -Label 'Django migration drift' -FilePath $uvPath -Arguments @('run', 'python', 'backend\manage.py', 'makemigrations', '--check', '--dry-run', '--settings=config.preflight_settings')
-    Invoke-NativeCommand -Label 'Django test suite' -FilePath $uvPath -Arguments @(
-        'run', 'python', 'backend\manage.py', 'test',
-        'apps.accounts', 'apps.audit', 'apps.cultures', 'apps.exports',
-        'apps.measurements', 'apps.organizations', 'apps.taxonomy',
-        '--settings=config.preflight_settings'
-    )
-    Invoke-NativeCommand -Label 'Frontend production build' -FilePath $npmPath -Arguments @('--prefix', 'frontend', 'run', 'build')
+    if (-not $UseVerifiedGitHubCi) {
+        Invoke-NativeCommand -Label 'Django test suite' -FilePath $uvPath -Arguments @(
+            'run', 'python', 'backend\manage.py', 'test',
+            'apps.accounts', 'apps.audit', 'apps.cultures', 'apps.exports',
+            'apps.measurements', 'apps.organizations', 'apps.taxonomy',
+            '--settings=config.preflight_settings'
+        )
+        Invoke-NativeCommand -Label 'Frontend production build' -FilePath $npmPath -Arguments @('--prefix', 'frontend', 'run', 'build')
+    }
 
     if ($PreflightOnly) {
         Write-Host "`nPreflight passed. Production was not changed." -ForegroundColor Green
