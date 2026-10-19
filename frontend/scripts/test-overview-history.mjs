@@ -229,7 +229,7 @@ test('overview normalization and actual mini-chart retain source environments wi
     assert.equal(view.chart.measurements[1].environmentLocations[0].name, 'JKA zone 2');
     assert.equal(view.chart.measurements[1].environmentLocations[0].endDateUnknown, true);
     assert.equal(view.chart.measurements[2].environmentLocations, null);
-    assert.equal(view.chart.labels.temperature, 'canonicalBoxTemperature');
+    assert.equal(view.chart.labels.temperature, 'temperature');
   } finally { view.unmount(); }
 });
 

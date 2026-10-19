@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 
-import type { BiologicalMeasurement, BoxLocation, BoxLineage, BoxMovement, BoxTemperaturePoint, LocationConflict } from '../types';
+import type { BiologicalMeasurement, BoxLocation, BoxLineage, BoxMovement, BoxTemperaturePoint } from '../types';
 import { createTranslator, type Language } from '../i18n';
 import { buildChartWindow, getLatestChartWindowOffset, parseChartDate, toChartDateString } from '../utils/chartWindow';
 import BiologicalTrendChart, { isChartEventInRange, type TrendEvent, type TrendLocation, type TrendPolypState } from './BiologicalTrendChart';
@@ -50,7 +50,6 @@ export default function BoxTrackingChart({
   measurements,
   onOpenHistory,
   temperatures = [],
-  locationConflicts = [],
   historicalTemperatureRefreshKey,
 }: {
   compact?: boolean;
@@ -63,7 +62,6 @@ export default function BoxTrackingChart({
   locations: BoxLocation[];
   measurements: BiologicalMeasurement[];
   temperatures?: BoxTemperaturePoint[];
-  locationConflicts?: readonly LocationConflict[];
   historicalTemperatureRefreshKey?: unknown;
   onOpenHistory?: () => void;
 }) {
@@ -173,15 +171,6 @@ export default function BoxTrackingChart({
         title={compact ? undefined : labels.chartTitle}
       />
 
-      {locationConflicts.length > 0 ? (
-        <p className="measurement-lock-note" role="note">
-          {createTranslator(language)('locationConflictNotice')}{' '}
-          {locationConflicts.map((conflict) => conflict.locations.map((location) => (
-            `${location.zone_name} (${location.box_code}, #${location.box_id}${location.end_unknown
-              ? `, ${createTranslator(language)('locationConflictUnknownEnd')}` : ''})`
-          )).join(' / ')).join(' ; ')}
-        </p>
-      ) : null}
       <div className="chart-window-viewport">
         <div className="chart-window-content">
           <BiologicalTrendChart
@@ -192,7 +181,7 @@ export default function BoxTrackingChart({
             temperatures={chartTemperatures}
             temperatureStatus={boxId != null ? <>
               <TemperatureHistoryStatus {...temperatureHistory} language={language} />
-              <HistoricalTemperatureStatus {...historicalTemperatures} pointCount={historicalTemperatures.points.length} language={language} />
+              <HistoricalTemperatureStatus {...historicalTemperatures} language={language} />
             </> : undefined}
             polypStates={preparedData.polypStates}
             locations={preparedData.locations}
@@ -215,8 +204,7 @@ export default function BoxTrackingChart({
               observation: labels.historyObservation,
               polyps: labels.polyps,
               salinity: labels.salinityFull,
-              temperature: createTranslator(language)(biologicalData.measurements.some((measurement) => measurement.environmentLocations != null)
-                ? 'canonicalBoxTemperature' : 'temperature'),
+              temperature: createTranslator(language)('temperature'),
               historicalTemperature: boxId != null ? createTranslator(language)('historicalTemperatureSeries') : undefined,
               historicalWeek: createTranslator(language)('historicalTemperatureWeek'),
               historicalPeriod: createTranslator(language)('historicalTemperaturePeriod'),

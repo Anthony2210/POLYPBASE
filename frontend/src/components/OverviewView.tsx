@@ -497,8 +497,7 @@ function OverviewMiniChart({
           movementAtBoundaryNote: t('movementAtPeriodBoundaryNote'),
           polyps: t('polyps'),
           salinity: 'PSU',
-          temperature: t(orderedMeasurements.some((point) => point.environment_locations != null || point.environment_source_box != null)
-            ? 'canonicalBoxTemperature' : 'temperature'),
+          temperature: t('temperature'),
           sourceLocation: t('recordedOriginalLocation'),
           temperatureOutsideScale: t('temperatureOutsideScale'),
           selectedReading: language === 'fr' ? 'Relevé sélectionné' : 'Selected reading',

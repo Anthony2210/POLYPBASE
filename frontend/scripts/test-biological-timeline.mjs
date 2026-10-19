@@ -195,10 +195,10 @@ for (const [language, catalog] of [['fr', fr], ['en', en]]) {
       labels: { polyps: catalog.polyps, ephyraeFull: catalog.ephyraeFull, chartTitle: catalog.chartTitle, chartEmpty: catalog.chartEmpty },
     });
     const trend = allNodes(tree).find(node => node.props?.polypStates);
-    assert.equal(trend.props.labels.temperature, catalog.canonicalBoxTemperature);
+    assert.equal(trend.props.labels.temperature, catalog.temperature);
     assert.equal(trend.props.labels.sourceLocation, catalog.recordedOriginalLocation);
-    assert.doesNotMatch(catalog.canonicalBoxTemperature, /canonical|canonique/i, 'zone temperatures are not presented as certain canonical locations');
-    assert.equal(allNodes(tree).find(node => node.props?.role === 'note'), undefined, 'no notice without a conflict');
+    for (const key of ['canonicalBoxTemperature', 'locationConflictNotice', 'locationConflictUnknownEnd', 'historicalTemperatureEmpty']) assert.equal(catalog[key], undefined, `${key} is removed`);
+    assert.equal(allNodes(tree).find(node => node.props?.role === 'note'), undefined, 'no location notice without a conflict');
     const conflict = { basis: 'end_unknown', locations: [
       { location_id: 5945, box_id: 2141, box_code: 'PCA-JKA-1.005', zone_id: 2, zone_name: 'Zone 2', end_unknown: true },
       { location_id: 5979, box_id: 2135, box_code: 'PCA-CHO-1.005', zone_id: 1, zone_name: 'Zone 1', end_unknown: false },
@@ -206,10 +206,7 @@ for (const [language, catalog] of [['fr', fr], ['en', en]]) {
     const noticeTree = tracking.default({ measurements: raw, locations: canonicalLocations, temperatures, events: [], language,
       locationConflicts: [conflict],
       labels: { polyps: catalog.polyps, ephyraeFull: catalog.ephyraeFull, chartTitle: catalog.chartTitle, chartEmpty: catalog.chartEmpty } });
-    const notice = renderToStaticMarkup(allNodes(noticeTree).find(node => node.props?.role === 'note'));
-    assert.ok(notice.includes(catalog.locationConflictNotice));
-    assert.ok(notice.includes('Zone 2 (PCA-JKA-1.005, #2141') && notice.includes('Zone 1 (PCA-CHO-1.005, #2135)'), 'both histories are named, neither is chosen');
-    assert.ok(notice.includes(catalog.locationConflictUnknownEnd));
+    assert.equal(allNodes(noticeTree).find(node => node.props?.role === 'note'), undefined, 'a merged box shows no location conflict notice');
     assert.deepEqual(plain(trend.props.locations.map(item => item.id)), [100, 101], 'never concatenate source and canonical periods');
     assert.deepEqual(plain(trend.props.measurements.find(point => point.id === 41).environmentLocations), []);
     assert.deepEqual(plain(trend.props.measurements.find(point => point.id === 42).environmentLocations), [{
@@ -232,11 +229,11 @@ for (const [language, catalog] of [['fr', fr], ['en', en]]) {
     }
     const temperaturePoints = allNodes(harness.render(props)).filter(node => node.props?.className === 'bio-trend-temperature-point');
     assert.equal(temperaturePoints.length, temperatures.length);
-    assert.ok(temperaturePoints[0].props['aria-label'].includes(catalog.canonicalBoxTemperature));
+    assert.ok(temperaturePoints[0].props['aria-label'].includes(catalog.temperature));
     temperaturePoints[0].props.onFocus();
     const tooltip = allNodes(harness.render(props)).find(node => node.props?.className?.startsWith('bio-trend-tooltip'));
     const markup = renderToStaticMarkup(tooltip);
-    assert.ok(markup.includes(catalog.canonicalBoxTemperature));
+    assert.ok(markup.includes(catalog.temperature));
     assert.match(markup, /CHO 15 C/);
     assert.doesNotMatch(markup, /JKA zone 2/);
     assert.equal(JSON.stringify({ raw, canonicalLocations, sourceLocations }), before);

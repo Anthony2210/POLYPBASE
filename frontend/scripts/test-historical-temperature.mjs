@@ -134,7 +134,7 @@ test('every historical string exists in French and English without a middle dot'
   const french = read('../src/i18n/fr.ts');
   const english = read('../src/i18n/en.ts');
   const keys = [...french.matchAll(/^ {2}(historicalTemperature\w+):/gm)].map((match) => match[1]);
-  assert.ok(keys.length >= 8);
+  assert.ok(keys.length >= 7);
   for (const key of keys) {
     for (const text of [french, english]) {
       const line = text.match(new RegExp(`^ {2}${key}:.*$`, 'm'));
@@ -168,12 +168,14 @@ test('zero, negative and above-scale weekly values keep their exact text and out
   assert.match(chartSource, /point\.average_temperature_c === 0 \? layout\.zeroRadius/);
 });
 
-test('status shows loading, failure with retry and empty inside the chart feedback area', () => {
+test('status shows loading and failure with retry inside the chart feedback area', () => {
   const source = read('../src/components/HistoricalTemperatureStatus.tsx');
-  for (const key of ['Loading', 'Failed', 'Retry', 'Empty']) assert.match(source, new RegExp(`historicalTemperature${key}`));
+  for (const key of ['Loading', 'Failed', 'Retry']) assert.match(source, new RegExp(`historicalTemperature${key}`));
   assert.match(source, /role="alert"/);
   assert.match(source, /onClick=\{retry\}/);
   assert.match(source, /bio-trend-series-status/);
+  assert.doesNotMatch(source, /historicalTemperatureEmpty/, 'no empty message for boxes without weekly values');
+  assert.match(source, /if \(!loading && !failed\) return null/, 'an idle status renders nothing');
 });
 
 function hookHarness(fetch) {

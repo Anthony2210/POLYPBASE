@@ -16,7 +16,6 @@ import type {
   BoxLineage,
   BoxMovement,
   BoxTemperaturePoint,
-  LocationConflict,
   LineageGraph,
 } from '../types';
 import { createTranslator } from '../i18n';
@@ -90,7 +89,6 @@ export default function BoxInsights({
   measurements,
   movements,
   temperatures,
-  locationConflicts,
   historicalTemperatureRefreshKey,
   locations,
   correctableMovementId,
@@ -113,7 +111,6 @@ export default function BoxInsights({
   measurements: BiologicalMeasurement[];
   movements: BoxMovement[];
   temperatures?: BoxTemperaturePoint[];
-  locationConflicts?: readonly LocationConflict[];
   historicalTemperatureRefreshKey?: unknown;
   locations: BoxLocation[];
   correctableMovementId?: number | null;
@@ -175,7 +172,6 @@ export default function BoxInsights({
             locations={locations}
             measurements={measurements}
             temperatures={temperatures}
-            locationConflicts={locationConflicts}
             historicalTemperatureRefreshKey={historicalTemperatureRefreshKey}
             onOpenHistory={onOpenHistory}
           />
