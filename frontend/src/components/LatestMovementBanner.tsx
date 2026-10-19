@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Language, TranslationKey, Translator } from '../i18n';
 import type { BoxDetail, BoxItem, BoxMovement, BoxMovementCorrectionPayload, ThermalZone } from '../types';
 import {
+  canCorrectMovement,
   correctableLifecycleMovement,
   formatMovementTimestamp,
   isLifecycleMovement,
@@ -11,6 +12,7 @@ import {
   movementCorrectionErrorCode,
   movementCorrectionErrorKey,
   movementKindKey,
+  parisMovementWeekBounds,
   resolveParisMovementTime,
   toParisMovementInput,
 } from '../utils/boxMovementCorrection';
@@ -84,8 +86,9 @@ function MovementBannerState({ box, zones, language, canEdit, isDesktop, onCorre
   const locked = pending || !canEdit || reviewRequired || refreshRequired || draftChanged;
   const availableZones = zones.filter((zone) => zone.is_active && zone.organization.id === box.organization.id
     && zone.id !== draft?.movement.from_thermal_zone?.id);
-  const canOpen = canEdit && capabilities?.notes && !pending && !refreshRequired;
+  const canOpen = canEdit && capabilities && canCorrectMovement(capabilities) && !pending && !refreshRequired;
   const draftTime = draft?.capabilities.date ? resolveParisMovementTime(draft.time, draft.movement.moved_at) : null;
+  const weekBounds = draft?.capabilities.date ? parisMovementWeekBounds(draft.movement.moved_at) : null;
   const hasChanges = Boolean(draft && (
     draft.notes.trim() !== draft.movement.notes
     || (draftTime && (draftTime.error || draftTime.timestamp !== draft.movement.moved_at))
@@ -94,7 +97,7 @@ function MovementBannerState({ box, zones, language, canEdit, isDesktop, onCorre
 
   function openEditor(target = movement) {
     const targetCapabilities = target ? movementCorrectionCapabilities(displayedBox, target) : null;
-    if (!target || !targetCapabilities || !canEdit || !targetCapabilities.notes || pending || refreshRequired
+    if (!target || !targetCapabilities || !canEdit || !canCorrectMovement(targetCapabilities) || pending || refreshRequired
       || !isOperationCurrent()) return;
     setDraft({
       movement: { ...target }, capabilities: targetCapabilities,
@@ -239,8 +242,7 @@ function MovementBannerState({ box, zones, language, canEdit, isDesktop, onCorre
           <div className="section-title">
             <div>
               <h2>{t('movementCorrect')}</h2>
-              <p className="movement-editor-context">{t('movementCorrectionHelp')}</p>
-              {draft.movement.kind !== 'ordinary' ? <p className="movement-kind-label">{t(movementKindKey(draft.movement))}</p> : null}
+              {draft.movement.kind !== 'ordinary' && draft.movement.kind !== 'unclassified' ? <p className="movement-kind-label">{t(movementKindKey(draft.movement))}</p> : null}
             </div>
           </div>
           <fieldset className="measurement-editor-fields" disabled={locked}>
@@ -259,8 +261,7 @@ function MovementBannerState({ box, zones, language, canEdit, isDesktop, onCorre
                     ) : null}
                     {availableZones.map((zone) => <option key={zone.id} value={zone.id}>{zone.name}</option>)}
                   </select>
-                ) : <input id={`${id}-destination`} readOnly value={draft.movement.to_thermal_zone.name} aria-describedby={`${id}-destination-help`} />}
-                {!draft.capabilities.destination ? <small id={`${id}-destination-help`} className="measurement-lock-note">{t('movementDestinationReadOnly')}</small> : null}
+                ) : <input id={`${id}-destination`} readOnly value={draft.movement.to_thermal_zone.name} />}
               </label>
             </div>
             <div className="movement-correction-details">
@@ -268,10 +269,9 @@ function MovementBannerState({ box, zones, language, canEdit, isDesktop, onCorre
                 {t('movementDate')}
                 {draft.capabilities.date ? (
                   <input id={`${id}-date`} type="datetime-local" step="1" required value={draft.time}
-                    aria-describedby={`${id}-date-help`} autoFocus
+                    min={weekBounds?.min} max={weekBounds?.max} autoFocus
                     onChange={(event) => setDraft({ ...draft, time: event.target.value })} />
-                ) : <input id={`${id}-date`} readOnly aria-describedby={`${id}-date-help`} value={formatMovementTimestamp(draft.movement.moved_at, language)} />}
-                <small id={`${id}-date-help`} className="measurement-lock-note">{t(draft.capabilities.date ? 'movementTimeHelp' : 'movementDateReadOnly')}</small>
+                ) : <input id={`${id}-date`} readOnly value={formatMovementTimestamp(draft.movement.moved_at, language)} />}
               </label>
               <label className="notes-field" htmlFor={`${id}-notes`}>
                 {t('movementNotes')}

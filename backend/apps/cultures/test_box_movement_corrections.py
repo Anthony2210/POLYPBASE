@@ -1,5 +1,6 @@
 import json
 from datetime import date, datetime, timedelta
+from datetime import timezone as dt_timezone
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -158,14 +159,43 @@ class BoxMovementCorrectionTests(TestCase):
             moved_at=self.t1, user=None, notes="Legacy",
         )
         before = self.snapshot()
-        for payload in ({"moved_at": paris(2026, 8, 12).isoformat()}, {"to_thermal_zone_id": self.zone_c.pk}):
+        cases = (
+            ({"moved_at": paris(2026, 8, 12).isoformat()}, "movement_provenance_unresolved"),
+            # No recorded period link: the timeline is never guessed.
+            ({"to_thermal_zone_id": self.zone_c.pk}, "movement_period_link_missing"),
+        )
+        for payload, code in cases:
             response = self.patch_movement({"expected_revision": 0, **payload}, movement=legacy)
-            self.assertEqual(response.status_code, 409)
-            self.assertEqual(response.json()["code"], "movement_provenance_unresolved")
+            self.assertEqual((response.status_code, response.json()["code"]), (409, code))
         self.assert_unchanged(before)
         self.assertEqual(self.patch_movement({"expected_revision": 0, "notes": "Legacy fixed"}, movement=legacy).status_code, 200)
         legacy.refresh_from_db()
         self.assertEqual((legacy.notes, legacy.kind, legacy.iso_week_start), ("Legacy fixed", "unclassified", None))
+
+    def test_unclassified_movement_with_proven_links_allows_a_terminal_destination_only(self):
+        self.movement.kind = BoxMovement.Kind.UNCLASSIFIED
+        self.movement.save()
+        before = self.snapshot()
+        response = self.patch_movement({"expected_revision": 0, "moved_at": paris(2026, 8, 12).isoformat()})
+        self.assertEqual((response.status_code, response.json()["code"]), (409, "movement_provenance_unresolved"))
+        self.assert_unchanged(before)
+        response = self.patch_movement({"expected_revision": 0, "to_thermal_zone_id": self.zone_c.pk})
+        self.assertEqual(response.status_code, 200, response.content)
+        self.movement.refresh_from_db()
+        self.assertEqual((self.movement.kind, self.movement.iso_week_start), ("unclassified", None))
+        self.assertEqual(self.movement.destination_location.thermal_zone, self.zone_c)
+
+    def test_serializer_exposes_period_link_flags_without_ids(self):
+        legacy = BoxMovement.objects.create(
+            box=self.box, from_thermal_zone=self.zone_a, to_thermal_zone=self.zone_b, moved_at=self.t0,
+        )
+        self.client.force_login(self.technician)
+        response = self.client.get(reverse("api_box_detail", args=[self.box.pk]))
+        items = {item["id"]: item for item in response.json()["movements"]}
+        linked = items[self.movement.pk]
+        self.assertEqual((linked["has_origin_link"], linked["has_destination_link"]), (True, True))
+        self.assertEqual((items[legacy.pk]["has_origin_link"], items[legacy.pk]["has_destination_link"]), (False, False))
+        self.assertNotIn("origin_location", items[legacy.pk])
 
     # Date --------------------------------------------------------------------
 
@@ -191,14 +221,100 @@ class BoxMovementCorrectionTests(TestCase):
         self.assertEqual(datetime.fromisoformat(changes["destination"]["before"]["starts_at"]), self.t1)
         self.assertEqual(datetime.fromisoformat(changes["destination"]["after"]["starts_at"]), new_time)
 
-    def test_date_correction_into_a_free_week_updates_the_week_key(self):
-        new_time = paris(2026, 8, 6, 8, 0)
-        response = self.patch_movement({"expected_revision": 0, "moved_at": new_time.isoformat()})
+    def boxed_movement(self, moved_at, *, start, code):
+        """An ordinary movement of its own box, after a first period opened at ``start``."""
+        box = Box.objects.create(
+            organization=self.organization, global_code=code, box_number=code[-3:],
+            strain=self.strain, thermal_zone=self.zone_a,
+        )
+        BoxLocation.objects.create(box=box, thermal_zone=self.zone_a, starts_at=start)
+        movement = move_box_to_thermal_zone(
+            box=box, thermal_zone=self.zone_b, moved_at=moved_at, user=self.admin, notes="",
+        )
+        return {"movement": movement, "box": box}
+
+    def test_date_correction_covers_monday_to_sunday_of_the_original_week(self):
+        steps = (paris(2026, 8, 10, 0, 0, 0), paris(2026, 8, 16, 23, 59, 59), self.t1)
+        for revision, moved_at in enumerate(steps):
+            response = self.patch_movement({"expected_revision": revision, "moved_at": moved_at.isoformat()})
+            self.assertEqual(response.status_code, 200, (moved_at, response.content))
+            self.movement.refresh_from_db()
+            self.assertEqual((self.movement.moved_at, self.movement.iso_week_start), (moved_at, date(2026, 8, 10)))
+
+    def test_date_correction_cannot_leave_the_original_week(self):
+        before = self.snapshot()
+        cases = (
+            paris(2026, 8, 17, 0, 0, 0),  # Sunday into Monday
+            paris(2026, 8, 9, 23, 59, 59),  # Monday back into the previous Sunday
+            paris(2026, 8, 6, 8),  # a free earlier week stays refused
+            paris(2026, 8, 19, 10),  # a free later week stays refused
+        )
+        for moved_at in cases:
+            response = self.patch_movement({"expected_revision": 0, "moved_at": moved_at.isoformat(), "notes": "also"})
+            self.assertEqual((response.status_code, response.json()["code"]), (400, "movement_date_outside_week"), moved_at)
+            self.assertIn("moved_at", response.json())
+        self.assert_unchanged(before)
+
+    def test_week_boundary_uses_paris_days_not_utc_days(self):
+        # Sunday 23:30 Paris is 21:30 UTC the same day; Monday 00:30 Paris is still Sunday in UTC.
+        sunday_late = paris(2026, 8, 16, 23, 30)
+        self.assertEqual(self.patch_movement({"expected_revision": 0, "moved_at": sunday_late.isoformat()}).status_code, 200)
+        monday_early = paris(2026, 8, 17, 0, 30)
+        self.assertEqual(monday_early.astimezone(dt_timezone.utc).date(), date(2026, 8, 16))
+        before = self.snapshot()
+        response = self.patch_movement({"expected_revision": 1, "moved_at": monday_early.isoformat()})
+        self.assertEqual(response.json()["code"], "movement_date_outside_week")
+        self.assert_unchanged(before)
+        # In its own Monday week, the same kind of instant is accepted.
+        target = self.boxed_movement(paris(2026, 8, 25, 10), start=paris(2026, 8, 20), code="ACR-LAB-1.090")
+        early = paris(2026, 8, 24, 0, 30)
+        self.assertEqual(early.astimezone(dt_timezone.utc).date(), date(2026, 8, 23))
+        response = self.patch_movement({"expected_revision": 0, "moved_at": early.isoformat()}, **target)
         self.assertEqual(response.status_code, 200, response.content)
-        self.movement.refresh_from_db()
-        self.assertEqual(self.movement.iso_week_start, date(2026, 8, 3))
-        # The released week is available again for an ordinary movement.
-        self.assertEqual(self.second_movement(paris(2026, 8, 12, 9)).iso_week_start, date(2026, 8, 10))
+        target["movement"].refresh_from_db()
+        self.assertEqual(target["movement"].iso_week_start, date(2026, 8, 24))
+
+    def test_iso_year_boundary_weeks_stay_within_their_own_week(self):
+        # 2026-12-31 is in ISO week 53 of 2026 (Mon 2026-12-28 to Sun 2027-01-03); week 1 of 2027 starts 2027-01-04.
+        cases = (
+            (paris(2026, 12, 31, 10), paris(2026, 12, 28, 0), paris(2027, 1, 3, 23, 59, 59), paris(2027, 1, 4, 0)),
+            (paris(2027, 1, 5, 10), paris(2027, 1, 4, 0), paris(2027, 1, 10, 23, 59, 59), paris(2027, 1, 3, 23, 59, 59)),
+        )
+        with patch("apps.cultures.movement_corrections.timezone.now", return_value=paris(2027, 3, 1)):
+            for index, (original, first, last, outside) in enumerate(cases):
+                target = self.boxed_movement(original, start=paris(2026, 12, 1), code=f"ACR-LAB-1.09{index + 1}")
+                for revision, moved_at in enumerate((first, last)):
+                    response = self.patch_movement({"expected_revision": revision, "moved_at": moved_at.isoformat()}, **target)
+                    self.assertEqual(response.status_code, 200, (moved_at, response.content))
+                    target["movement"].refresh_from_db()
+                    self.assertEqual(target["movement"].iso_week_start, BoxMovement.week_start_for(original))
+                response = self.patch_movement({"expected_revision": 2, "moved_at": outside.isoformat()}, **target)
+                self.assertEqual(response.json()["code"], "movement_date_outside_week", outside)
+
+    def test_dst_change_weeks_are_correctable_within_the_week_only(self):
+        # Spring change: Sunday 2026-03-29, 02:00 -> 03:00. Autumn change: Sunday 2026-10-25, 03:00 -> 02:00.
+        cases = (
+            (paris(2026, 3, 26, 10), paris(2026, 3, 29, 3, 30), paris(2026, 3, 30, 0, 0)),
+            (paris(2026, 10, 22, 10), paris(2026, 10, 25, 23, 59, 59), paris(2026, 10, 26, 0, 0)),
+        )
+        with patch("apps.cultures.movement_corrections.timezone.now", return_value=paris(2026, 12, 1)):
+            for index, (original, inside, outside) in enumerate(cases):
+                target = self.boxed_movement(original, start=paris(2026, 3, 1), code=f"ACR-LAB-1.08{index + 1}")
+                response = self.patch_movement({"expected_revision": 0, "moved_at": inside.isoformat()}, **target)
+                self.assertEqual(response.status_code, 200, response.content)
+                target["movement"].refresh_from_db()
+                self.assertEqual(target["movement"].moved_at, inside)
+                self.assertEqual(target["movement"].iso_week_start, BoxMovement.week_start_for(original))
+                response = self.patch_movement({"expected_revision": 1, "moved_at": outside.isoformat()}, **target)
+                self.assertEqual(response.json()["code"], "movement_date_outside_week")
+
+    def test_week_violation_rolls_back_a_combined_date_and_destination_correction(self):
+        before = self.snapshot()
+        response = self.patch_movement(
+            {"expected_revision": 0, "moved_at": paris(2026, 8, 19, 10).isoformat(), "to_thermal_zone_id": self.zone_c.pk},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assert_unchanged(before)
 
     def test_zone_history_still_matches_movements_after_a_date_correction(self):
         new_time = paris(2026, 8, 12, 7, 0)
@@ -216,35 +332,30 @@ class BoxMovementCorrectionTests(TestCase):
             {"expected_revision": 0, "moved_at": paris(2026, 8, 14, 10).isoformat(), "notes": "also"},
             movement=later,
         )
-        self.assertEqual(response.status_code, 409)
-        self.assertEqual(response.json()["code"], "box_movement_week_conflict")
-        self.assertEqual(response.json()["conflicting_movement_id"], self.movement.pk)
-        self.assertEqual(
-            (response.json()["iso_week_start"], response.json()["iso_year"], response.json()["iso_week"]),
-            ("2026-08-10", 2026, 33),
-        )
+        self.assertEqual((response.status_code, response.json()["code"]), (400, "movement_date_outside_week"))
         self.assert_unchanged(before)
 
     def test_date_corrections_keep_period_chronology(self):
-        later = self.second_movement(paris(2026, 8, 19, 10))
+        # The origin period opens on the Monday of the movement's own week and the destination closes on Thursday.
+        target = self.boxed_movement(paris(2026, 9, 9, 10), start=paris(2026, 9, 7, 9), code="ACR-LAB-1.070")
+        with patch("apps.cultures.services.timezone.now", return_value=paris(2026, 9, 10, 12)):
+            deactivate_box(box=target["box"], user=self.admin, reason="Stopped")
         before = self.snapshot()
-        cases = [
-            (self.movement, self.t0, "movement_chronology_conflict"),  # zero-duration origin
-            (self.movement, self.t0 - timedelta(hours=1), "movement_chronology_conflict"),  # inverted origin
-            (self.movement, paris(2026, 8, 19, 10), "movement_chronology_conflict"),  # zero-duration destination
-            (self.movement, paris(2026, 8, 25, 10), "movement_chronology_conflict"),  # after the later movement
-            (later, self.t1, "movement_chronology_conflict"),
-        ]
-        for movement, moved_at, code in cases:
-            response = self.patch_movement({"expected_revision": 0, "moved_at": moved_at.isoformat()}, movement=movement)
-            self.assertEqual((response.status_code, response.json()["code"]), (409, code), moved_at)
+        cases = (
+            paris(2026, 9, 7, 9),  # zero-duration origin
+            paris(2026, 9, 7, 8),  # inverted origin
+            paris(2026, 9, 10, 12),  # zero-duration destination
+            paris(2026, 9, 11, 10),  # after the destination ended
+        )
+        for moved_at in cases:
+            response = self.patch_movement({"expected_revision": 0, "moved_at": moved_at.isoformat()}, **target)
+            self.assertEqual((response.status_code, response.json()["code"]), (409, "movement_chronology_conflict"), moved_at)
         self.assert_unchanged(before)
 
     def test_future_date_is_rejected(self):
         before = self.snapshot()
-        response = self.patch_movement(
-            {"expected_revision": 0, "moved_at": (timezone.now() + timedelta(days=1)).isoformat()},
-        )
+        with patch("apps.cultures.movement_corrections.timezone.now", return_value=paris(2026, 8, 12, 12)):
+            response = self.patch_movement({"expected_revision": 0, "moved_at": paris(2026, 8, 13, 10).isoformat()})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["code"], "movement_date_in_future")
         self.assert_unchanged(before)
@@ -263,7 +374,7 @@ class BoxMovementCorrectionTests(TestCase):
         self.assert_unchanged(before)
 
     def test_date_correction_cannot_cross_a_deactivation(self):
-        with patch("apps.cultures.services.timezone.now", return_value=paris(2026, 8, 20, 12)):
+        with patch("apps.cultures.services.timezone.now", return_value=paris(2026, 8, 13, 12)):
             deactivate_box(box=self.box, user=self.admin, reason="Stopped")
         destination = self.movement.destination_location
         destination.refresh_from_db()

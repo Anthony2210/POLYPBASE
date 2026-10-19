@@ -118,6 +118,8 @@ class BoxMovementSerializer(serializers.ModelSerializer):
     to_thermal_zone = ThermalZoneSummarySerializer(read_only=True)
     user = serializers.SerializerMethodField()
     user_identity = serializers.SerializerMethodField()
+    has_origin_link = serializers.SerializerMethodField()
+    has_destination_link = serializers.SerializerMethodField()
 
     class Meta:
         model = BoxMovement
@@ -132,7 +134,16 @@ class BoxMovementSerializer(serializers.ModelSerializer):
             "notes",
             "user",
             "user_identity",
+            "has_origin_link",
+            "has_destination_link",
         ]
+
+    # Whether the movement recorded the periods it wrote; the ids stay private.
+    def get_has_origin_link(self, obj):
+        return obj.origin_location_id is not None
+
+    def get_has_destination_link(self, obj):
+        return obj.destination_location_id is not None
 
     def get_user(self, obj):
         return obj.user.get_username() if obj.user else None

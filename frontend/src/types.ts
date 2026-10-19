@@ -308,7 +308,8 @@ export type BoxMovement = {
   kind?: BoxMovementKind;
   revision?: number;
   iso_week_start?: string | null;
-
+  has_origin_link?: boolean;
+  has_destination_link?: boolean;
   from_thermal_zone: ThermalZoneSummary | null;
   to_thermal_zone: ThermalZoneSummary;
   moved_at: string;

@@ -33,6 +33,7 @@ const zone = (id, name, extra = {}) => ({ id, name, organization, is_active: tru
 const origin = zone(1, 'Origin zone'), destination = zone(2, 'Destination zone'), alternative = zone(3, 'Alternative zone');
 const movement = (extra = {}) => ({
   id: 12, revision: 0, kind: 'ordinary', moved_at: '2026-07-06T10:12:13.123456Z',
+  has_origin_link: true, has_destination_link: true,
   from_thermal_zone: origin, to_thermal_zone: destination, notes: 'Recorded comment', ...extra,
 });
 const box = (extra = {}) => ({
@@ -134,26 +135,24 @@ for (const language of ['fr', 'en']) {
     for (let index = 1; index < labels.length; index++) {
       assert.ok(content.indexOf(h.t(labels[index - 1])) < content.indexOf(h.t(labels[index])));
     }
-    assert.ok(content.includes(h.t('movementCorrectionHelp')));
+    for (const removed of ['movementCorrectionHelp', 'movementDateReadOnly', 'movementDestinationReadOnly', 'movementTimeHelp']) {
+      for (const language of ['fr', 'en']) assert.equal(catalogues[language][removed], undefined, `${removed} was removed`);
+    }
+    assert.equal(h.find((node) => node.type === 'small'), undefined, 'no helper paragraph in the editor');
     for (const [name, key] of [['origin', 'movementOrigin'], ['destination', 'movementDestination'], ['date', 'movementDate'], ['notes', 'movementNotes']]) {
       const field = h.field(name);
       const label = h.find((node) => node.type === 'label' && node.props.htmlFor === field.props.id);
       assert.ok(text(label).includes(h.t(key)), `${name} has a visible translated label`);
     }
     assert.equal(h.field('date').props.autoFocus, true);
-    const help = h.find((node) => node.props.id === h.field('date').props['aria-describedby']);
-    assert.equal(text(help), h.t('movementTimeHelp'));
+    assert.equal(h.field('date').props.min, '2026-07-06T00:00:00');
+    assert.equal(h.field('date').props.max, '2026-07-12T23:59:59');
     assert.equal(h.button('movementSave'), undefined, 'unchanged form has no save action');
-    const recorded = movement({ kind: 'unclassified' });
-    h.setProps({ box: box({ movements: [recorded] }) });
     h.click('cancel');
-    h.click('movementCorrect');
-    for (const [name, key] of [['date', 'movementDateReadOnly'], ['destination', 'movementDestinationReadOnly']]) {
-      assert.equal(h.field(name).props.readOnly, true);
-      const note = h.find((node) => node.props.id === h.field(name).props['aria-describedby']);
-      assert.equal(text(note), h.t(key));
-    }
-    assert.equal(h.field('notes').props.autoFocus, true);
+    assert.ok(h.button('movementCorrect'), 'a closed editor can be reopened');
+    h.setProps({ box: box({ movements: [movement({ kind: 'unclassified', has_origin_link: false, has_destination_link: false })] }) });
+    assert.equal(h.button('movementCorrect'), undefined, 'no notes-only editor for an unlinked legacy movement');
+    assert.ok(text(h.tree).includes('Recorded comment'), 'the movement stays visible');
   });
 }
 
@@ -208,8 +207,7 @@ for (const language of ['fr', 'en']) {
       h.click('movementCorrect');
       assert.equal(h.field('date').props.readOnly, true);
       assert.equal(h.field('origin').props.readOnly, true);
-      assert.equal(h.field('destination').type, kind === 'unclassified' ? 'input' : 'select');
-      if (kind === 'unclassified') assert.equal(h.field('destination').props.readOnly, true);
+      assert.equal(h.field('destination').type, 'select');
     });
   }
 }
@@ -239,8 +237,6 @@ for (const language of ['fr', 'en']) {
     const h = bannerHarness({ language }); h.click('movementCorrect');
     const label = h.find((node) => node.type === 'label' && node.props.htmlFor === h.field('date').props.id);
     assert.ok(text(label).includes(h.t('movementDate')));
-    assert.ok(h.field('date').props['aria-describedby']);
-    assert.ok(text(h.tree).includes(h.t('movementTimeHelp')));
     assert.equal(h.button('movementSave'), undefined);
     assert.ok(h.button('cancel'), 'clean draft can still be closed');
     h.change('notes', '  Recorded comment  ');
@@ -392,12 +388,22 @@ test('Paris helper handles winter/summer, DST gaps/folds, invalid dates and unch
   assert.equal(helpers.resolveParisMovementTime(helpers.toParisMovementInput(original), original).timestamp, original);
   const fold = '2026-10-25T02:30:00.654321+02:00';
   assert.equal(helpers.resolveParisMovementTime(helpers.toParisMovementInput(fold), fold).timestamp, fold);
-  assert.equal(helpers.resolveParisMovementTime('2026-01-06T11:00', original).timestamp, '2026-01-06T10:00:00.000Z');
+  assert.equal(helpers.resolveParisMovementTime('2026-07-08T11:00', original).timestamp, '2026-07-08T09:00:00.000Z');
   assert.equal(helpers.resolveParisMovementTime('2026-07-06T12:00:00', original).timestamp, '2026-07-06T10:00:00.000Z');
   for (const [input, error] of [['2026-03-29T02:30:00', 'movementTimeGap'], ['2026-10-25T02:30:00', 'movementTimeAmbiguous'],
-    ['2026-02-30T12:00:00', 'movementTimeInvalid'], ['', 'movementTimeInvalid'], ['2026-01-01T25:00:00', 'movementTimeInvalid']]) {
+    ['2026-07-13T00:00:00', 'movementTimeOutsideWeek'], ['2026-07-05T23:59:59', 'movementTimeOutsideWeek'],
+    ['2026-01-06T11:00:00', 'movementTimeOutsideWeek'], ['2026-02-30T12:00:00', 'movementTimeInvalid'], ['', 'movementTimeInvalid'], ['2026-01-01T25:00:00', 'movementTimeInvalid']]) {
     assert.equal(helpers.resolveParisMovementTime(input, original).error, error);
   }
+  for (const [input, last] of [['2026-07-06T10:12:13Z', '2026-07-12'], ['2026-07-12T21:30:00Z', '2026-07-12'],
+    ['2026-07-12T22:30:00Z', '2026-07-19'], ['2026-12-31T10:00:00Z', '2027-01-03'], ['2027-01-04T10:00:00Z', '2027-01-10']]) {
+    assert.equal(helpers.parisMovementWeekBounds(input).max, `${last}T23:59:59`, input);
+  }
+  assert.deepEqual(plain(helpers.parisMovementWeekBounds('2026-10-22T10:00:00Z')),
+    { min: '2026-10-19T00:00:00', max: '2026-10-25T23:59:59' }, 'week of the autumn DST change');
+  assert.equal(helpers.resolveParisMovementTime('2026-10-25T23:59:59', '2026-10-22T10:00:00Z').timestamp, '2026-10-25T22:59:59.000Z');
+  assert.equal(helpers.resolveParisMovementTime('2026-10-26T00:00:00', '2026-10-22T10:00:00Z').error, 'movementTimeOutsideWeek');
+  assert.equal(helpers.parisMovementWeekBounds('2026-01-01'), null);
   assert.equal(helpers.toParisMovementInput('2026-01-01'), null);
   assert.equal(helpers.toParisMovementInput('invalid'), null);
   for (const language of ['fr', 'en']) {
@@ -514,7 +520,14 @@ test('capabilities separate ordinary, lifecycle and unclassified data and conser
   for (const kind of ['initial_location', 'qualification', 'reactivation']) {
     assert.deepEqual(capabilities(box({ movements: [movement({ kind })] })), { notes: true, date: false, destination: true });
   }
-  assert.deepEqual(capabilities(box({ movements: [movement({ kind: 'unclassified' })] })), { notes: true, date: false, destination: false });
+  // Without recorded period links (legacy rows) only the notes are editable; links alone never unlock the date of an unclassified row.
+  assert.deepEqual(capabilities(box({ movements: [movement({ kind: 'unclassified' })] })), { notes: true, date: false, destination: true });
+  const unlinked = { has_origin_link: false, has_destination_link: false };
+  for (const kind of ['ordinary', 'unclassified', 'initial_location']) {
+    assert.deepEqual(capabilities(box({ movements: [movement({ kind, ...unlinked })] })), { notes: true, date: false, destination: false });
+  }
+  assert.deepEqual(capabilities(box({ movements: [movement({ has_origin_link: false })] })), { notes: true, date: false, destination: true });
+  assert.deepEqual(capabilities(box({ movements: [movement({ has_destination_link: undefined })] })), { notes: true, date: false, destination: false });
   for (const revision of [undefined, null, -1, 0.5]) {
     assert.deepEqual(capabilities(box({ movements: [movement({ revision })] })), { notes: false, date: false, destination: false });
   }
@@ -531,7 +544,7 @@ test('capabilities separate ordinary, lifecycle and unclassified data and conser
 test('error helper maps codes/statuses and does not interpret arbitrary objects as trusted API errors', () => {
   for (const [code, key] of [['box_movement_changed', 'movementErrorChanged'], ['box_movement_week_conflict', 'movementErrorWeekConflict'],
     ['movement_provenance_unresolved', 'movementErrorProvenance'], ['movement_period_link_missing', 'movementErrorMissingLink'],
-    ['movement_not_terminal', 'movementErrorNotTerminal']]) assert.equal(helpers.movementCorrectionErrorKey(failure(code)), key);
+    ['movement_not_terminal', 'movementErrorNotTerminal'], ['movement_date_outside_week', 'movementErrorOutsideWeek']]) assert.equal(helpers.movementCorrectionErrorKey(failure(code)), key);
   for (const [status, key] of [[400, 'movementErrorValidation'], [401, 'movementErrorForbidden'], [403, 'movementErrorForbidden'],
     [404, 'movementErrorNotFound'], [409, 'movementErrorConflict'], [500, 'movementErrorSave']]) {
     assert.equal(helpers.movementCorrectionErrorKey(failure('unknown', status)), key);
@@ -702,4 +715,37 @@ test('source contracts: banner wiring stays independent of measurement editor an
   assert.match(read('components/LatestMovementBanner.tsx'), /className="measurement-actions-row"/);
   assert.match(css, /\.measurement-cancel-button\s*\{[^}]*min-height:\s*44px/);
   assert.match(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{\s*\.latest-movement-editor[^}]*animation:\s*none/);
+});
+
+test('editor refuses a date outside the original Paris week locally and saves one inside it', async () => {
+  const h = bannerHarness();
+  h.click('movementCorrect');
+  h.change('date', '2026-07-13T00:00:00'); // Monday after the original Monday week
+  h.submit(); await h.settle();
+  assert.equal(h.calls.length, 0);
+  assert.equal(text(h.find((node) => node.props.role === 'alert')), h.t('movementTimeOutsideWeek'));
+  h.change('date', '2026-07-12T23:59:59');
+  h.submit(); await h.settle();
+  assert.deepEqual(plain(h.calls), [[17, 12, { expected_revision: 0, moved_at: '2026-07-12T21:59:59.000Z' }]]);
+});
+
+test('movements without a safe date or destination correction expose no editor, in either language', () => {
+  const unlinked = { has_origin_link: false, has_destination_link: false };
+  const cases = [
+    movement({ kind: 'unclassified', ...unlinked }), movement({ kind: 'ordinary', ...unlinked }),
+    movement({ kind: 'initial_location', ...unlinked }), movement({ kind: 'unclassified', has_destination_link: undefined }),
+  ];
+  for (const language of ['fr', 'en']) for (const recorded of cases) {
+    const h = bannerHarness({ language, box: box({ movements: [recorded] }) });
+    assert.equal(h.button('movementCorrect'), undefined);
+    if (recorded.kind !== 'initial_location') assert.ok(text(h.tree).includes(recorded.notes), 'the summary stays visible');
+  }
+  const nonTerminal = box({ movements: [movement(), movement({ id: 13, moved_at: '2026-07-20T10:00:00Z' })] });
+  // The older ordinary movement keeps its date correction even when its destination is locked.
+  assert.deepEqual(plain(helpers.movementCorrectionCapabilities(nonTerminal, nonTerminal.movements[0])),
+    { notes: true, date: true, destination: false });
+  assert.equal(helpers.canCorrectMovement({ notes: true, date: false, destination: false }), false);
+  assert.equal(helpers.canCorrectMovement({ notes: false, date: true, destination: true }), false);
+  const readOnly = bannerHarness({ canEdit: false });
+  assert.equal(readOnly.button('movementCorrect'), undefined);
 });

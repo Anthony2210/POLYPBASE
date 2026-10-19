@@ -159,9 +159,9 @@ class BoxMovementWeekConcurrencyTests(TransactionTestCase):
         self.assertEqual(movement.revision, 1)
         self.assertEqual(AuditLog.objects.filter(metadata__event="box_movement_correction").count(), 1)
 
-    def test_post_racing_a_patch_into_the_same_week(self):
+    def test_post_racing_a_patch_into_another_week(self):
         now = timezone.now()
-        # Terminal movement of the previous week, then both writers target this week.
+        # Terminal movement of the previous week: a correction may not leave its week.
         movement = self._ordinary_move(self.zone_b, self.week_start - timedelta(days=2))
         patch_time = self.week_start + (now - self.week_start) / 2
         from . import api_views
@@ -174,9 +174,9 @@ class BoxMovementWeekConcurrencyTests(TransactionTestCase):
             ],
         )
         statuses = sorted(response.status_code for response in responses)
-        self.assertEqual(statuses, [200, 409])
-        conflict = next(response for response in responses if response.status_code == 409)
-        self.assertEqual(json.loads(conflict.content)["code"], "box_movement_week_conflict")
+        self.assertEqual(statuses, [200, 400])
+        rejected = next(response for response in responses if response.status_code == 400)
+        self.assertEqual(json.loads(rejected.content)["code"], "movement_date_outside_week")
         current_week = BoxMovement.week_start_for(now)
         self.assertEqual(
             self.box.movements.filter(kind=BoxMovement.Kind.ORDINARY, iso_week_start=current_week).count(), 1,

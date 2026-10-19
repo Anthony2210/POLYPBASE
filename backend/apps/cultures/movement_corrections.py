@@ -24,8 +24,10 @@ from .services import BoxMovementWeekConflict, check_ordinary_movement_week
 # Kinds whose date is bounded by a lifecycle event (first placement,
 # qualification, reactivation) or whose provenance is unknown.
 DATE_CORRECTABLE_KINDS = {BoxMovement.Kind.ORDINARY}
+# Unclassified rows qualify only when the destination period link is proven below.
 DESTINATION_CORRECTABLE_KINDS = {
     BoxMovement.Kind.ORDINARY,
+    BoxMovement.Kind.UNCLASSIFIED,
     BoxMovement.Kind.INITIAL_LOCATION,
     BoxMovement.Kind.QUALIFICATION,
     BoxMovement.Kind.REACTIVATION,
@@ -200,6 +202,13 @@ def _validate_date_correction(*, box, movement, origin, destination, moved_at):
             movement_id=movement.pk,
             movement_kind=movement.kind,
         )
+    # The recorded event stays in its original Paris ISO week (Monday to Sunday).
+    original_week = BoxMovement.week_start_for(movement.moved_at)
+    if BoxMovement.week_start_for(moved_at) != original_week:
+        raise BoxMovementInvalid(
+            {"moved_at": ["The corrected date must stay within the ISO week of the original movement."]},
+            error_code="movement_date_outside_week",
+        )
     if origin is None:
         raise BoxMovementConflict(
             "This movement has no recorded origin period; its date cannot be safely corrected.",
@@ -347,9 +356,9 @@ def correct_box_movement(*, box_id, movement_id, organization_ids, user, data):
 
         origin = destination = None
         if "moved_at" in changes or "to_thermal_zone" in changes:
-            if movement.kind == BoxMovement.Kind.UNCLASSIFIED:
+            if "moved_at" in changes and movement.kind == BoxMovement.Kind.UNCLASSIFIED:
                 raise BoxMovementConflict(
-                    "The provenance of this movement is not established; only its notes can be corrected.",
+                    "The provenance of this movement is not established; its date cannot be corrected.",
                     error_code="movement_provenance_unresolved",
                     movement_id=movement.pk,
                 )

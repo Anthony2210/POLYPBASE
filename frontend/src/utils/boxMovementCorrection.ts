@@ -22,7 +22,17 @@ export function toParisMovementInput(value: string): string | null {
 
 export type ParisMovementTimeResult =
   | { timestamp: string; error?: never }
-  | { timestamp?: never; error: 'movementTimeInvalid' | 'movementTimeGap' | 'movementTimeAmbiguous' };
+  | { timestamp?: never; error: 'movementTimeInvalid' | 'movementTimeGap' | 'movementTimeAmbiguous' | 'movementTimeOutsideWeek' };
+
+/** Monday 00:00:00 to Sunday 23:59:59 Paris wall time of the week holding the original movement. */
+export function parisMovementWeekBounds(original: string): { min: string; max: string } | null {
+  const local = toParisMovementInput(original);
+  if (!local) return null;
+  const day = Date.parse(`${local.slice(0, 10)}T00:00:00Z`);
+  const monday = day - ((new Date(day).getUTCDay() + 6) % 7) * 86400000;
+  const date = (offset: number) => new Date(monday + offset * 86400000).toISOString().slice(0, 10);
+  return { min: `${date(0)}T00:00:00`, max: `${date(6)}T23:59:59` };
+}
 
 /** Reject folds as well as gaps: the editor never guesses which instant was intended. */
 export function resolveParisMovementTime(value: string, original: string): ParisMovementTimeResult {
@@ -47,6 +57,9 @@ export function resolveParisMovementTime(value: string, original: string): Paris
     .filter((instant) => toParisMovementInput(instant) === normalized);
   if (!candidates.length) return { error: 'movementTimeGap' };
   if (candidates.length > 1) return { error: 'movementTimeAmbiguous' };
+  // Wall-time strings compare chronologically, so the week check is independent of DST and UTC days.
+  const bounds = parisMovementWeekBounds(original);
+  if (!bounds || normalized < bounds.min || normalized > bounds.max) return { error: 'movementTimeOutsideWeek' };
   return { timestamp: candidates[0] };
 }
 
@@ -93,19 +106,27 @@ export function isLifecycleMovement(movement: BoxMovement) {
 /** The newest movement when it is a correctable lifecycle entry, reached from the movement history. */
 export function correctableLifecycleMovement(box: BoxItem | BoxDetail): BoxMovement | null {
   const latest = latestPersistedMovement(box);
-  return latest && isLifecycleMovement(latest) && movementCorrectionCapabilities(box, latest).notes ? latest : null;
+  return latest && isLifecycleMovement(latest) && canCorrectMovement(movementCorrectionCapabilities(box, latest)) ? latest : null;
+}
+
+/** A notes-only correction is never offered: the editor needs a date or a destination the server can verify. */
+export function canCorrectMovement(capabilities: { notes: boolean; date: boolean; destination: boolean }) {
+  return capabilities.notes && (capabilities.date || capabilities.destination);
 }
 
 export function movementCorrectionCapabilities(box: BoxItem | BoxDetail, movement: BoxMovement) {
   const notes = Number.isInteger(movement.revision) && (movement.revision ?? -1) >= 0;
-  const classified = ['ordinary', 'initial_location', 'qualification', 'reactivation'].includes(movement.kind ?? '');
+  // The server exposes whether the movement recorded its periods; without them nothing but notes is safe.
+  const classified = ['ordinary', 'initial_location', 'qualification', 'reactivation', 'unclassified'].includes(movement.kind ?? 'unclassified');
+  const destinationLinked = movement.has_destination_link === true;
   const openPeriods = 'locations' in box
     ? box.locations.filter((period) => period.ends_at === null && !period.end_date_unknown) : [];
   // These are UI eligibility checks only. The server verifies recorded links and history.
   return {
     notes,
-    date: notes && movement.kind === 'ordinary' && hasTimestamp(movement.moved_at),
-    destination: notes && classified && 'movements' in box
+    date: notes && movement.kind === 'ordinary' && hasTimestamp(movement.moved_at)
+      && destinationLinked && movement.has_origin_link === true,
+    destination: notes && classified && destinationLinked && 'movements' in box
       && Number.isFinite(Date.parse(movement.moved_at))
       && box.status === 'active' && box.thermal_zone?.id === movement.to_thermal_zone.id
       && latestPersistedMovement(box)?.id === movement.id
@@ -127,6 +148,7 @@ const ERROR_KEYS: Record<string, TranslationKey> = {
   movement_not_terminal: 'movementErrorNotTerminal',
   movement_same_zone: 'movementErrorSameZone',
   movement_date_in_future: 'movementErrorFuture',
+  movement_date_outside_week: 'movementErrorOutsideWeek',
   movement_correction_no_change: 'movementErrorNoChange',
 };
 
