@@ -53,6 +53,18 @@ Catégories supplémentaires : `EXPECTED_TTH_CORRECTION` (la valeur stockée est
 
 `deactivate_hs_boxes` est une commande séparée (simulation par défaut, mêmes garde-fous) qui réutilise `deactivate_box` pour la liste validée par Étienne. `CTU-CFC-2.007` reste `PENDING_CONFIRMATION`.
 
+## Températures historiques 2020–2026 : procédure de production préparée
+
+`historical_temperature_production` sépare explicitement `plan`, `backup`, `apply`
+et `postcheck`, avec organisation 1, administrateur actif, cible attestée, plan
+post-fusion PCA recalculé, sauvegarde vérifiée et autorisation liée au hash exact.
+Il réutilise le pipeline scientifique existant et exclut les associations ambiguës;
+il ne réutilise ni le snapshot QA ni son ancien plan de 40 291 associations.
+Les températures/preuves, reçu et audit sont atomiques. Ce travail local n'est
+ni une intégration ni une autorisation de production. Procédure opérateur,
+verrous globaux, limites de sauvegarde/replay et résultats de tests :
+[`historical-temperature-production.md`](../historical-temperature-production.md).
+
 ## Correcteur local CCA-EOB / V2
 
 `correct_cca_eob_v2` prépare une matrice exacte en lecture seule par défaut et peut réattribuer les relevés ISO 2026 documentés par V2, après revue indépendante. Il ne généralise pas l'import historique : correspondance au manifeste ancien, cellules V2 vérifiées sur les mêmes octets hashés, codes exacts, plan empreinté, administrateur actif, revalidation sous verrous, ordre de transferts compatible avec l'unicité et audits atomiques. Aucun changement de valeur biologique, date ou statut; les semaines hors source restent intactes.
