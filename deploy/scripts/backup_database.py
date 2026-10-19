@@ -2,9 +2,7 @@
 
 import argparse
 import datetime
-import hashlib
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -37,59 +35,29 @@ def main():
     django.setup()
     from django.conf import settings
 
+    from config.database_backup import create_archive
+
     database = settings.DATABASES["default"]
     if database["ENGINE"] != "django.db.backends.postgresql":
         raise SystemExit("The configured database is not PostgreSQL.")
 
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
-    target = args.output_dir / f"{args.label}-{timestamp}.dump"
-    partial = target.with_suffix(".dump.part")
+    archive = create_archive(database, args.output_dir, args.label)
+    target = Path(archive["path"])
+    print(
+        f"BACKUP_OK {target.name} {archive['size_bytes']} bytes "
+        f"sha256={archive['sha256']}"
+    )
 
-    environment = os.environ.copy()
-    environment["PGPASSWORD"] = database["PASSWORD"]
-    environment["PGSSLMODE"] = database.get("OPTIONS", {}).get("sslmode", "prefer")
-
-    command = [
-        "/usr/bin/pg_dump",
-        "--format=custom",
-        "--no-owner",
-        "--no-acl",
-        "--no-password",
-        "--file",
-        str(partial),
-        "--host",
-        database["HOST"],
-        "--port",
-        str(database["PORT"]),
-        "--username",
-        database["USER"],
-        database["NAME"],
-    ]
-
-    try:
-        subprocess.run(command, check=True, env=environment)
-        subprocess.run(
-            ["/usr/bin/pg_restore", "--list", str(partial)],
-            check=True,
-            stdout=subprocess.DEVNULL,
+    if args.retention_days is not None:
+        if args.retention_days < 1:
+            raise SystemExit("--retention-days must be at least 1.")
+        cutoff = datetime.datetime.now(datetime.UTC).timestamp() - (
+            args.retention_days * 24 * 60 * 60
         )
-        partial.replace(target)
-        digest = hashlib.sha256(target.read_bytes()).hexdigest()
-        print(f"BACKUP_OK {target.name} {target.stat().st_size} bytes sha256={digest}")
-
-        if args.retention_days is not None:
-            if args.retention_days < 1:
-                raise SystemExit("--retention-days must be at least 1.")
-            cutoff = datetime.datetime.now(datetime.UTC).timestamp() - (
-                args.retention_days * 24 * 60 * 60
-            )
-            for backup in args.output_dir.glob(f"{args.label}-*.dump"):
-                if backup != target and backup.stat().st_mtime < cutoff:
-                    backup.unlink()
-                    print(f"BACKUP_REMOVED {backup.name}")
-    finally:
-        partial.unlink(missing_ok=True)
+        for backup in args.output_dir.resolve().glob(f"{args.label}-*.dump"):
+            if backup != target and backup.stat().st_mtime < cutoff:
+                backup.unlink()
+                print(f"BACKUP_REMOVED {backup.name}")
 
 
 if __name__ == "__main__":

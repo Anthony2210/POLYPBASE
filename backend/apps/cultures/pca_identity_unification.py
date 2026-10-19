@@ -1,4 +1,4 @@
-"""Bounded, local-only PCA identity merge. Independent of historical corrections."""
+"""Reviewed PCA merge; QA entry points remain local-only."""
 
 import base64
 import hashlib
@@ -365,6 +365,11 @@ def build_plan(organization_id, *, actor):
     require_local_database()
     actor_id = _require_scope(organization_id, actor)
     _verify_connection()
+    return _build_read_only_plan(organization_id, actor_id)
+
+
+def _build_read_only_plan(organization_id, actor_id):
+    """Shared snapshot implementation; callers must verify their target first."""
     # SET TRANSACTION must precede the first query. Refuse nested callers rather
     # than accidentally changing the isolation/read-only state of their work.
     if connection.in_atomic_block:
@@ -397,7 +402,18 @@ def apply_plan(organization_id, *, actor, expected_plan_hash, backup_ref, review
             or not isinstance(review_ref, str) or not review_ref.strip()):
         raise ValueError("Apply requires a reviewed SHA-256 plan hash, backup reference and independent review reference.")
     _verify_connection(apply=True)
+    return _apply_reviewed_plan(
+        organization_id, actor_id=actor_id, expected_plan_hash=expected_plan_hash,
+        backup_ref=backup_ref, review_ref=review_ref,
+    )
+
+
+def _apply_reviewed_plan(organization_id, *, actor_id, expected_plan_hash, backup_ref,
+                         review_ref, execution_evidence=None, verify_execution=None):
+    """Shared locked merge; public callers own target and evidence verification."""
     with transaction.atomic():
+        if verify_execution is not None:
+            verify_execution()
         boxes = list(Box.objects.select_for_update().filter(
             pk__in=BOX_IDS, organization_id=organization_id).order_by("pk"))
         if {b.pk for b in boxes} != set(BOX_IDS):
@@ -409,6 +425,11 @@ def apply_plan(organization_id, *, actor, expected_plan_hash, backup_ref, review
         if receipts:
             if len(receipts) != 1 or receipts[0].metadata.get("plan_hash") != expected_plan_hash:
                 raise ValueError("A different or ambiguous merge receipt already exists.")
+            if execution_evidence is not None:
+                previous = receipts[0].metadata.get("execution_evidence", {})
+                if any(previous.get(key) != execution_evidence.get(key)
+                       for key in ("target", "approved_plan_hash")):
+                    raise ValueError("The receipt belongs to a different production approval or target.")
             # A receipt replays an operation, not the current mutable Box state.
             return _validate_receipt(receipts[0], expected_plan_hash)
         list(_movements().select_for_update(of=("self",)).order_by("pk"))
@@ -429,6 +450,9 @@ def apply_plan(organization_id, *, actor, expected_plan_hash, backup_ref, review
             raise ValueError("Stale plan: review a new read-only plan before applying.")
         if not plan["ready"]:
             raise ValueError("Unresolved conflicts block the entire identity merge.")
+        if verify_execution is not None:
+            # Locks may have waited: recheck identity, rights and fresh evidence.
+            verify_execution()
         # Registration may now create missing counters, in the same sorted order
         # as the existing-row locks. A concurrent insert uses the allocator's
         # unique-key retry; neither existing source Box code is being allocated.
@@ -462,6 +486,8 @@ def apply_plan(organization_id, *, actor, expected_plan_hash, backup_ref, review
         metadata = {"operation": OPERATION, "plan_hash": expected_plan_hash, "actor_id": user.pk,
                     "backup_ref": backup_ref, "review_ref": review_ref, "reviewed_plan": plan,
                     "changes": plan["changes"], "counts": plan["counts"]}
+        if execution_evidence is not None:
+            metadata["execution_evidence"] = execution_evidence
         metadata["receipt_fingerprint"] = fingerprint(metadata)
         return AuditLog.objects.create(
             organization_id=organization_id, user=user, action=AuditLog.Action.UPDATE,

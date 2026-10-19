@@ -152,8 +152,11 @@ operation. Migration `0014` extends the historical guards for canonical readings
 the explicit CHO-to-JKA product identity, duplicate exclusion and retired boxes;
 reversal restores the old functions before removing referenced fields. The QA
 cleanup reinstalls these extensions, not only the original historical guards.
-PCA commands accept only the independently verified disposable QA harness; no
-legacy local database target remains an alternative.
+The existing `unify_pca_identity` command and its public QA service accept only the
+independently verified disposable QA harness; no legacy local database target
+remains an alternative. The separate, explicitly authorized production workflow
+is documented in [pca-production-execution.md](pca-production-execution.md); it is
+never invoked by this harness, a deployment, or a migration.
 
 ## Integrated PostgreSQL validation — 2026-10-19
 
