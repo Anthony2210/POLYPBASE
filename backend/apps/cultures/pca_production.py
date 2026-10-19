@@ -24,7 +24,8 @@ OUTCOME = {"canonical_box_id": 2135, "retired_box_id": 2141,
            "canonical_measurements": 94, "evidence_retained_duplicates": 18}
 TARGET_KEYS = {"schema", "machine_id", "configured_host", "configured_port",
                "database", "role", "server_address", "server_port", "database_oid", "role_oid",
-               "postmaster_started_at", "server_version_num"}
+               "postmaster_started_at", "server_version_num", "connection_mode",
+               "socket_uid", "socket_gid"}
 # All functions are public PostgreSQL metadata reads; no pg_control_system grant.
 IDENTITY_SQL = """
 SELECT current_database(), d.oid::bigint, session_user::text, current_user::text,
@@ -32,7 +33,7 @@ SELECT current_database(), d.oid::bigint, session_user::text, current_user::text
        to_char(pg_postmaster_start_time() AT TIME ZONE 'UTC',
                'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'), current_setting('server_version_num')::integer,
        current_setting('session_replication_role'), current_schemas(false),
-       pg_is_in_recovery()
+       pg_is_in_recovery(), current_setting('port')::integer
 FROM pg_database d, pg_roles r
 WHERE d.datname = current_database() AND r.rolname = current_user
 """
@@ -83,25 +84,39 @@ def write_artifact(path, value):
 
 def require_target(target):
     """Preconnect refusal: no discovery, DNS lists, libpq redirection or QA bypass."""
-    if type(target) is not dict or set(target) != TARGET_KEYS or target["schema"] != "pca_target_v2":
-        raise ValueError("A complete authenticated pca_target_v2 attestation is required.")
+    if type(target) is not dict or set(target) != TARGET_KEYS or target["schema"] != "pca_target_v3":
+        raise ValueError("A complete authenticated pca_target_v3 attestation is required.")
     if (not all(isinstance(target[key], str) and target[key].strip() for key in
                 ("machine_id", "configured_host", "configured_port", "database",
-                 "role", "server_address", "postmaster_started_at"))
+                 "role", "postmaster_started_at"))
             or not re.fullmatch(r"[0-9a-f]{32}", target["machine_id"])
             or any(type(target[key]) is not int or target[key] <= 0 for key in
-                   ("server_port", "database_oid", "role_oid", "server_version_num"))):
+                   ("database_oid", "role_oid", "server_version_num"))):
         raise ValueError("Incomplete or invalid target identity.")
     # The command runs locally on the production server, never through a tunnel.
-    address = ipaddress.ip_address(target["server_address"])
     host = target["configured_host"]
-    if (not address.is_loopback or host not in ("localhost", str(address))
-            or not target["configured_port"].isdigit()
-            or int(target["configured_port"]) != target["server_port"]
-            or not 1 <= target["server_port"] <= 65535
+    if (not target["configured_port"].isascii() or not target["configured_port"].isdigit()
+            or not 1 <= int(target["configured_port"]) <= 65535
             or any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", target[key]) for key in ("database", "role"))
             or target["database"] in ("postgres", "template0", "template1")):
         raise ValueError("An exact local application database endpoint is required; no tunnels or remote hosts.")
+    if target["connection_mode"] == "tcp":
+        if not isinstance(target["server_address"], str):
+            raise ValueError("A canonical numeric loopback address is required.")
+        address = ipaddress.ip_address(target["server_address"])
+        if (str(address) != target["server_address"] or not address.is_loopback or host not in ("localhost", str(address))
+                or type(target["server_port"]) is not int
+                or target["server_port"] != int(target["configured_port"])
+                or target["socket_uid"] is not None or target["socket_gid"] is not None):
+            raise ValueError("An exact loopback TCP endpoint is required.")
+    elif target["connection_mode"] == "unix":
+        if (host not in ("/var/run/postgresql", "/run/postgresql")
+                or target["server_address"] is not None or target["server_port"] is not None
+                or any(type(target[key]) is not int or target[key] <= 0
+                       for key in ("socket_uid", "socket_gid"))):
+            raise ValueError("An explicitly attested local PostgreSQL Unix socket is required.")
+    else:
+        raise ValueError("Unsupported connection mode.")
     if any(key.upper().startswith("PG") for key in os.environ):
         raise ValueError("Remove inherited PG* libpq variables before production execution.")
     config = connection.settings_dict
@@ -119,24 +134,49 @@ def require_target(target):
             (host, target["configured_port"], target["database"], target["role"])
             or machine_id() != target["machine_id"]):
         raise ValueError("Configured database or local machine differs from the independent attestation.")
+    if target["connection_mode"] == "unix":
+        with socket_guard(target):
+            pass
     return qa
 
 
-def verify_target(target):
+def socket_guard(target):
+    if target["connection_mode"] != "unix":
+        return nullcontext()
+    return pca_protected_artifacts.protected_postgresql_socket(
+        target["configured_host"], target["configured_port"],
+        target["socket_uid"], target["socket_gid"],
+    )
+
+
+def verify_target(target, *, in_snapshot=False):
+    """Verify the target; in_snapshot skips only the QA READ COMMITTED check.
+
+    The QA harness was already verified before the snapshot transaction began.
+    """
     qa = require_target(target)
-    if qa:
+    if qa and not in_snapshot:
         merge._verify_connection()
+    with socket_guard(target):
+        _verify_live_target(target)
+
+
+def _verify_live_target(target):
     connection.ensure_connection()
     info = connection.connection.info
-    if (info.hostaddr, str(info.port), info.dbname, info.user) != (
-            target["server_address"], target["configured_port"], target["database"], target["role"]):
+    unix = target["connection_mode"] == "unix"
+    if ((unix and (info.host != target["configured_host"] or info.hostaddr != ""))
+            or (info.hostaddr, str(info.port), info.dbname, info.user) != (
+                "" if unix else target["server_address"], target["configured_port"],
+                target["database"], target["role"])):
         raise ValueError("Effective connection differs from the attested target.")
     with connection.cursor() as cursor:
         cursor.execute(IDENTITY_SQL)
         row = cursor.fetchone()
         expected = (target["database"], target["database_oid"], target["role"], target["role"],
                     target["role_oid"], target["server_address"], target["server_port"],
-                    target["postmaster_started_at"], target["server_version_num"], "origin", ["public"], False)
+                    target["postmaster_started_at"], target["server_version_num"], "origin", ["public"], False,
+                    int(target["configured_port"]))
         actual = tuple(row)
         if actual != expected:
             raise ValueError("Live database identity/session state differs from the independent attestation.")
@@ -185,9 +225,10 @@ def backup_plan(organization_id, *, actor, document, approved_hash, output_dir):
         raise ValueError("Backup must start outside an existing transaction.")
     directory_guard = (nullcontext() if _is_disposable_qa()
                        else pca_protected_artifacts.protected_directory(output_dir))
-    with directory_guard, cast(AbstractContextManager[None], transaction.atomic(using="default")):
+    with socket_guard(target), directory_guard, cast(AbstractContextManager[None], transaction.atomic(using="default")):
         with connection.cursor() as cursor:
             cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+            verify_target(target, in_snapshot=True)
             organization, _ = merge._authorize(organization_id, actor_id)
             if merge._make_plan(organization) != plan:
                 raise ValueError("Stale plan: no backup evidence can be issued for a different live snapshot.")
@@ -200,6 +241,7 @@ def backup_plan(organization_id, *, actor, document, approved_hash, output_dir):
         )
         if not _is_disposable_qa():
             pca_protected_artifacts.validate_file(evidence["archive"]["path"])
+        verify_target(target, in_snapshot=True)
         return evidence
 
 

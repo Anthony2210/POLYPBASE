@@ -19,6 +19,7 @@ from config import pca_protected_artifacts as artifacts
 
 STATUS = """Name:\ttest
 Uid:\t1000 1000 1000 1000
+Gid:\t1000 1000 1000 1000
 CapInh:\t0000000000000000
 CapPrm:\t0000000000000000
 CapEff:\t0000000000000000
@@ -47,9 +48,9 @@ class SimulatedLinux:
         self.add("/srv/pca", stat.S_IFDIR | 0o700, uid=1000)
         self.add("/srv/pca/plan.json", stat.S_IFREG | 0o600, uid=1000, data=b'{"zero": 0}')
 
-    def add(self, path, mode, uid=0, data=b""):
+    def add(self, path, mode, uid=0, data=b"", gid=0):
         node = SimpleNamespace(
-            st_mode=mode, st_uid=uid, st_gid=0, st_dev=1,
+            st_mode=mode, st_uid=uid, st_gid=gid, st_dev=1,
             st_ino=self.next_inode, st_nlink=1, st_size=len(data),
             st_mtime_ns=10, st_ctime_ns=10, data=data,
         )
@@ -135,6 +136,8 @@ class SimulatedLinux:
         stack.enter_context(patch.object(artifacts.sys, "platform", "linux"))
         stack.enter_context(patch("builtins.open", side_effect=self.proc_open))
         stack.enter_context(patch.object(artifacts.os, "geteuid", return_value=1000, create=True))
+        stack.enter_context(patch.object(artifacts.os, "getegid", return_value=1000, create=True))
+        self.access = stack.enter_context(patch.object(artifacts.os, "access", return_value=False))
         # Windows lacks these Linux flags; distinct simulated values are deliberate.
         for index, name in enumerate(("O_DIRECTORY", "O_NOFOLLOW", "O_CLOEXEC", "O_NONBLOCK"), 20):
             stack.enter_context(patch.object(artifacts.os, name, 1 << index, create=True))
@@ -532,9 +535,30 @@ class SimulatedLinuxArtifactTests(unittest.TestCase):
     def test_runtime_requires_four_equal_nonzero_uids(self):
         for value in ("0 0 0 0", "1000 0 1000 1000", "1000 1000 0 1000", "1000 1000 1000 0", "1000 1000 1000", "2000 2000 2000 2000", "x x x x"):
             with self.subTest(value=value):
-                self.fs.status = STATUS.replace("1000 1000 1000 1000", value)
+                self.fs.status = STATUS.replace("Uid:\t1000 1000 1000 1000", "Uid:\t" + value)
                 with self.assertRaises(artifacts.ArtifactSecurityError):
                     artifacts.assert_unprivileged_runtime()
+
+    def test_runtime_requires_four_equal_decimal_gids(self):
+        for value in (
+            "", "1000 1000 1000", "1000 1000 1000 1000 1000", "x x x x",
+            "-1 -1 -1 -1", "+1000 +1000 +1000 +1000", "1000.0 1000 1000 1000",
+            "110 1000 1000 1000", "1000 110 1000 1000",
+            "1000 1000 110 1000", "1000 1000 1000 110",
+        ):
+            with self.subTest(gids=value):
+                self.fs.status = STATUS.replace("Gid:\t1000 1000 1000 1000", "Gid:\t" + value)
+                with self.assertRaisesRegex(artifacts.ArtifactSecurityError, "equal GIDs"):
+                    artifacts.read_attestation()
+                self.assertEqual(self.fs.open_calls, [])
+
+    def test_runtime_gids_must_match_effective_gid(self):
+        with patch.object(artifacts.os, "getegid", return_value=110):
+            with self.assertRaisesRegex(artifacts.ArtifactSecurityError, "equal GIDs"):
+                artifacts.read_attestation()
+            self.assertEqual(self.fs.open_calls, [])
+            self.fs.status = STATUS.replace("Gid:\t1000 1000 1000 1000", "Gid:\t110 110 110 110")
+            self.assertEqual(artifacts.assert_unprivileged_runtime(), 1000)
 
     def test_runtime_rejects_each_capability(self):
         for field in ("CapInh", "CapPrm", "CapEff", "CapAmb"):
@@ -545,7 +569,7 @@ class SimulatedLinuxArtifactTests(unittest.TestCase):
                         artifacts.assert_unprivileged_runtime()
 
     def test_runtime_missing_or_duplicate_required_fields(self):
-        for field in ("Uid", "CapInh", "CapPrm", "CapEff", "CapAmb", "NoNewPrivs"):
+        for field in ("Uid", "Gid", "CapInh", "CapPrm", "CapEff", "CapAmb", "NoNewPrivs"):
             with self.subTest(field=field):
                 self.fs.status = "\n".join(line for line in STATUS.splitlines() if not line.startswith(field + ":"))
                 with self.assertRaises(artifacts.ArtifactSecurityError):
@@ -576,6 +600,253 @@ class SimulatedLinuxArtifactTests(unittest.TestCase):
                 with self.subTest(function=function.__name__), self.assertRaises(artifacts.ArtifactSecurityError):
                     function(*args)
         self.assertEqual(self.fs.open_calls, [])
+
+
+class SimulatedLinuxPostgresqlSocketTests(unittest.TestCase):
+    def setUp(self):
+        self.fs = SimulatedLinux()
+        self.stack = ExitStack()
+        self.addCleanup(self.stack.close)
+        self.fs.install(self.stack)
+        for name, value in (("getgid", 1000), ("getegid", 1000), ("getgroups", [1000, 1001])):
+            self.stack.enter_context(patch.object(artifacts.os, name, return_value=value, create=True))
+        self.readlink = self.stack.enter_context(patch.object(
+            artifacts.os, "readlink", side_effect=self.read_alias, create=True,
+        ))
+        self.fs.add("/run", stat.S_IFDIR | 0o755)
+        self.fs.add("/var", stat.S_IFDIR | 0o755)
+        self.fs.add("/var/run", stat.S_IFLNK | 0o777, data=b"/run")
+        self.directory = self.fs.add("/run/postgresql", stat.S_IFDIR | 0o2775, uid=105, gid=110)
+        self.socket_path = "/run/postgresql/.s.PGSQL.5432"
+        self.socket = self.fs.add(self.socket_path, stat.S_IFSOCK | 0o777, uid=105, gid=110)
+
+    def tearDown(self):
+        self.assertEqual(self.fs.handles, {}, "Every descriptor must be closed")
+
+    def read_alias(self, name, *, dir_fd):
+        self.assertEqual(name, "run")
+        self.assertEqual(self.fs.handles[dir_fd][0], "/var")
+        return self.fs.nodes[self.fs.path(name, dir_fd)].data.decode("ascii")
+
+    def endpoint(self, host="/run/postgresql", port="5432", owner_uid=105, owner_gid=110):
+        return artifacts.protected_postgresql_socket(host, port, owner_uid, owner_gid)
+
+    def reject_endpoint(self, **kwargs):
+        with self.assertRaises((artifacts.ArtifactSecurityError, OSError)):
+            with self.endpoint(**kwargs):
+                self.fail("Unsafe endpoint entered caller body")
+        self.assertEqual(self.fs.handles, {})
+
+    def test_run_and_debian_alias_allow_group_writable_postgres_directory(self):
+        for host in ("/run/postgresql", "/var/run/postgresql"):
+            with self.subTest(host=host):
+                self.fs.open_calls.clear()
+                self.fs.access.reset_mock()
+                with self.endpoint(host=host) as result:
+                    self.assertIsNone(result)
+                    directory_fd = next(fd for fd, handle in self.fs.handles.items()
+                                        if handle[0] == "/run/postgresql")
+                    self.fs.access.assert_called_once_with(
+                        ".", artifacts.os.W_OK, dir_fd=directory_fd, effective_ids=True,
+                    )
+                    paths = [handle[0] for handle in self.fs.handles.values()]
+                    self.assertCountEqual(paths, (
+                        ["/", "/run", "/run/postgresql"] if host == "/run/postgresql"
+                        else ["/", "/var", "/", "/run", "/run/postgresql"]
+                    ))
+                self.assertEqual(self.fs.handles, {})
+                for path, flags, _, parent in self.fs.open_calls:
+                    for flag in (artifacts.os.O_DIRECTORY, artifacts.os.O_NOFOLLOW, artifacts.os.O_CLOEXEC):
+                        self.assertTrue(flags & flag)
+                    self.assertEqual(parent is None, path == "/")
+                self.assertNotIn(self.socket_path, [call[0] for call in self.fs.open_calls])
+        self.assertEqual(self.readlink.call_count, 2)
+
+    def test_untrusted_and_noncanonical_hosts_rejected_before_open(self):
+        for host in (
+            "postgresql", "run/postgresql", "/tmp/postgresql", "/run", "/run/postgresql/",
+            "/run//postgresql", "/run/./postgresql", "/var/run/../run/postgresql",
+            "localhost", "", None, b"/run/postgresql", "C:\\run\\postgresql",
+        ):
+            with self.subTest(host=host):
+                self.reject_endpoint(host=host)
+        self.assertEqual(self.fs.open_calls, [])
+
+    def test_invalid_ports_and_attested_owner_ids_rejected_before_open(self):
+        for port in (None, 5432, True, "", "0", "65536", "-1", "+5432", " 5432", "5432/other", "５４３２"):
+            with self.subTest(port=port):
+                self.reject_endpoint(port=port)
+        for field in ("owner_uid", "owner_gid"):
+            for value in (None, 0, -1, True, 105.0, "105"):
+                with self.subTest(field=field, value=value):
+                    self.reject_endpoint(**{field: value})
+        self.assertEqual(self.fs.open_calls, [])
+
+    def test_runtime_owner_and_each_group_membership_rejected_before_open(self):
+        self.directory.st_uid = self.socket.st_uid = 1000
+        self.reject_endpoint(owner_uid=1000)
+        self.directory.st_uid = self.socket.st_uid = 105
+        for name, value in (("getgid", 110), ("getegid", 110), ("getgroups", [1000, 110])):
+            with self.subTest(identity=name):
+                self.fs.status = STATUS
+                if name == "getegid":
+                    self.fs.status = STATUS.replace("Gid:\t1000 1000 1000 1000", "Gid:\t110 110 110 110")
+                with patch.object(artifacts.os, name, return_value=value):
+                    self.reject_endpoint()
+        self.assertEqual(self.fs.open_calls, [])
+
+    def test_acl_write_grant_rejected_before_body_and_descriptors_closed(self):
+        def writable(name, mode, *, dir_fd, effective_ids):
+            self.assertEqual(name, ".")
+            self.assertEqual(mode, artifacts.os.W_OK)
+            self.assertIs(effective_ids, True)
+            self.assertIs(self.fs.handles[dir_fd][1], self.directory)
+            return True
+
+        self.fs.access.side_effect = writable
+        for host in ("/run/postgresql", "/var/run/postgresql"):
+            with self.subTest(host=host):
+                self.fs.access.reset_mock()
+                with self.assertRaisesRegex(artifacts.ArtifactSecurityError, "must not be able to write"):
+                    with self.endpoint(host=host):
+                        self.fail("ACL-writable directory entered caller body")
+                self.fs.access.assert_called_once()
+                self.assertEqual(self.fs.handles, {})
+
+    def test_runtime_security_checked_before_open(self):
+        for status, uid_map in (
+            (STATUS.replace("NoNewPrivs:\t1", "NoNewPrivs:\t0"), "0 0 4294967295\n"),
+            (STATUS, "0 1000 1\n"),
+        ):
+            with self.subTest(status=status, uid_map=uid_map):
+                self.fs.status, self.fs.uid_map = status, uid_map
+                self.reject_endpoint()
+        self.assertEqual(self.fs.open_calls, [])
+
+    def test_ancestors_require_root_owner_and_no_group_or_world_write(self):
+        for path in ("/", "/run", "/var"):
+            node = self.fs.nodes[path]
+            host = "/var/run/postgresql" if path == "/var" else "/run/postgresql"
+            for field, value in (("st_uid", 1000), ("st_mode", stat.S_IFDIR | 0o775), ("st_mode", stat.S_IFDIR | 0o1777)):
+                with self.subTest(path=path, field=field, value=value):
+                    original = getattr(node, field)
+                    setattr(node, field, value)
+                    self.reject_endpoint(host=host)
+                    setattr(node, field, original)
+
+    def test_postgres_directory_world_write_or_wrong_owner_and_gid_rejected(self):
+        for field, value in (
+            ("st_mode", stat.S_IFDIR | 0o2777), ("st_uid", 0), ("st_uid", 999),
+            ("st_gid", 0), ("st_gid", 999),
+        ):
+            with self.subTest(field=field, value=value):
+                original = getattr(self.directory, field)
+                setattr(self.directory, field, value)
+                self.reject_endpoint()
+                setattr(self.directory, field, original)
+
+    def test_symlink_directories_and_socket_or_non_socket_leaf_rejected(self):
+        for path in ("/run", "/run/postgresql", self.socket_path):
+            node = self.fs.nodes[path]
+            with self.subTest(symlink=path):
+                original = node.st_mode
+                node.st_mode = stat.S_IFLNK | 0o777
+                self.reject_endpoint()
+                node.st_mode = original
+        for kind in (stat.S_IFREG, stat.S_IFDIR, stat.S_IFIFO):
+            with self.subTest(kind=kind):
+                self.socket.st_mode = kind | 0o777
+                self.reject_endpoint()
+
+    def test_socket_wrong_owner_or_gid_rejected(self):
+        for field in ("st_uid", "st_gid"):
+            for value in (0, 1000, 999):
+                with self.subTest(field=field, value=value):
+                    original = getattr(self.socket, field)
+                    setattr(self.socket, field, value)
+                    self.reject_endpoint()
+                    setattr(self.socket, field, original)
+
+    def test_alias_must_be_root_owned_symlink_to_absolute_run(self):
+        alias = self.fs.nodes["/var/run"]
+        for field, value in (
+            ("st_uid", 1000), ("st_mode", stat.S_IFDIR | 0o755),
+            ("data", b"../run"), ("data", b"/tmp/run"), ("data", b"/run/"),
+        ):
+            with self.subTest(field=field, value=value):
+                original = getattr(alias, field)
+                setattr(alias, field, value)
+                self.reject_endpoint(host="/var/run/postgresql")
+                setattr(alias, field, original)
+
+    def test_socket_and_directory_name_replacements_rejected_on_exit(self):
+        for path in (self.socket_path, "/run/postgresql", "/run", "/var"):
+            for symlink in (False, True):
+                with self.subTest(path=path, symlink=symlink):
+                    original = self.fs.nodes[path]
+                    with self.assertRaises(artifacts.ArtifactSecurityError):
+                        with self.endpoint(host="/var/run/postgresql"):
+                            self.fs.add(
+                                path, stat.S_IFLNK | 0o777 if symlink else original.st_mode,
+                                uid=original.st_uid, gid=original.st_gid,
+                            )
+                    self.assertEqual(self.fs.handles, {})
+                    self.fs.nodes[path] = original
+
+    def test_open_directory_metadata_mutations_rejected_on_exit(self):
+        for field in ("st_mode", "st_uid", "st_gid", "st_dev", "st_ino", "st_nlink"):
+            with self.subTest(field=field):
+                original = getattr(self.directory, field)
+                with self.assertRaisesRegex(artifacts.ArtifactSecurityError, "endpoint changed"):
+                    with self.endpoint():
+                        setattr(self.directory, field, original + 1)
+                self.assertEqual(self.fs.handles, {})
+                setattr(self.directory, field, original)
+
+    def test_socket_metadata_mutations_rejected_on_exit(self):
+        for field in ("mode", "uid", "gid", "dev", "ino", "nlink", "size", "mtime_ns", "ctime_ns"):
+            with self.subTest(field=field):
+                attr = "st_" + field
+                original = getattr(self.socket, attr)
+                with self.assertRaisesRegex(artifacts.ArtifactSecurityError, "endpoint changed"):
+                    with self.endpoint():
+                        setattr(self.socket, attr, original + 1)
+                self.assertEqual(self.fs.handles, {})
+                setattr(self.socket, attr, original)
+
+    def test_alias_replacement_and_retargeting_rejected_on_exit(self):
+        alias = self.fs.nodes["/var/run"]
+        with self.assertRaisesRegex(artifacts.ArtifactSecurityError, "alias changed"):
+            with self.endpoint(host="/var/run/postgresql"):
+                self.fs.add("/var/run", alias.st_mode, data=b"/run")
+        self.assertEqual(self.fs.handles, {})
+        self.fs.nodes["/var/run"] = alias
+        with self.assertRaisesRegex(artifacts.ArtifactSecurityError, "alias changed"):
+            with self.endpoint(host="/var/run/postgresql"):
+                alias.data = b"/tmp/run"
+        self.assertEqual(self.fs.handles, {})
+
+    def test_first_fstat_failures_close_all_descriptors(self):
+        for path in ("/", "/var", "/run", "/run/postgresql"):
+            with self.subTest(path=path):
+                def fail(event, current_path):
+                    if (event, current_path) == ("fstat", path):
+                        raise OSError("Simulated fstat failure")
+                self.fs.hook = fail
+                with self.assertRaisesRegex(OSError, "Simulated fstat failure"):
+                    with self.endpoint(host="/var/run/postgresql"):
+                        self.fail("Failed fstat entered caller body")
+                self.assertEqual(self.fs.handles, {})
+        self.fs.hook = lambda event, path: None
+
+    def test_body_errors_preserved_and_all_descriptors_closed(self):
+        for host in ("/run/postgresql", "/var/run/postgresql"):
+            with self.subTest(host=host):
+                with self.assertRaisesRegex(RuntimeError, "caller failed"):
+                    with self.endpoint(host=host):
+                        self.directory.st_mtime_ns += 1
+                        raise RuntimeError("caller failed")
+                self.assertEqual(self.fs.handles, {})
 
 
 if __name__ == "__main__":

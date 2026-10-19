@@ -1,0 +1,58 @@
+name: PCA Unix socket guards
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/pca-unix.yml"
+      - "scripts/pca_unix_ci/**"
+      - "scripts/run_pca_qa.py"
+      - "scripts/validate_historical_temperature_postgres.py"
+      - "backend/**"
+      - "pyproject.toml"
+      - "uv.lock"
+
+permissions:
+  contents: read
+
+jobs:
+  pca-unix:
+    name: Isolated PostgreSQL 18 Unix socket QA
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Verify and log the exact tested commit
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          echo "Tested source commit: ${actual}"
+          if [ "${actual}" != "${EXPECTED_SHA}" ]; then
+            echo "Tested commit differs from the intended SHA ${EXPECTED_SHA}" >&2
+            exit 1
+          fi
+
+      - name: Build disposable QA image from tracked files only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git archive --format=tar HEAD | docker build \
+            --file scripts/pca_unix_ci/Dockerfile \
+            --tag polypbase-pca-unix-ci -
+
+      - name: Run synthetic QA without networking or host mounts
+        run: >-
+          docker run --name polypbase-pca-unix-ci --network none --rm
+          polypbase-pca-unix-ci
+
+      - name: Remove container if the job was interrupted
+        if: always()
+        run: docker rm --force polypbase-pca-unix-ci 2>/dev/null || true

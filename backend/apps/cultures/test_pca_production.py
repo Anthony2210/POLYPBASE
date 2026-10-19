@@ -3,7 +3,7 @@
 import json
 import os
 import tempfile
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -30,7 +30,7 @@ MACHINE = "a" * 32
 
 
 def synthetic_target():
-    return {"schema": "pca_target_v2",
+    return {"schema": "pca_target_v3", "connection_mode": "tcp", "socket_uid": None, "socket_gid": None,
             "machine_id": MACHINE, "configured_host": "127.0.0.1", "configured_port": "65432",
             "database": "synthetic_pca", "role": "synthetic_runtime", "server_address": "127.0.0.1",
             "server_port": 65432, "database_oid": 1234, "role_oid": 5678,
@@ -193,9 +193,9 @@ class ProductionRefusalTests(SimpleTestCase):
 
     def test_live_identity_and_unsafe_roles_are_refused(self):
         row = ("synthetic_pca", 1234, "synthetic_runtime", "synthetic_runtime", 5678, "127.0.0.1",
-               65432, self.target["postmaster_started_at"], 180000, "origin", ["public"], False)
+               65432, self.target["postmaster_started_at"], 180000, "origin", ["public"], False, 65432)
         cases = [(("other", *row[1:]), []), ((*row[:3], "other", *row[4:]), []),
-                 ((*row[:11], True), []), (row, [("unsafe_inherited_role",)])]
+                 ((*row[:11], True, row[12]), []), (row, [("unsafe_inherited_role",)])]
         for live, unsafe in cases:
             with self.subTest(live=live, unsafe=unsafe), patch.object(production, "connection") as mocked:
                 mocked.settings_dict = self.config
@@ -206,6 +206,163 @@ class ProductionRefusalTests(SimpleTestCase):
                 cursor.fetchall.return_value = unsafe
                 with self.assertRaises(ValueError):
                     production.verify_target(self.target)
+
+    def unix_target(self):
+        self.target.update(connection_mode="unix", configured_host="/var/run/postgresql",
+                           server_address=None, server_port=None, socket_uid=110, socket_gid=115)
+        self.config["HOST"] = self.target["configured_host"]
+        return self.target
+
+    def test_unix_libpq_redirections_and_options_fail_before_socket_or_connect(self):
+        target = self.unix_target()
+        for variable in ("PGHOST", "PGHOSTADDR", "PGPORT", "PGDATABASE", "PGUSER", "PGSERVICE", "PGOPTIONS"):
+            with self.subTest(variable=variable), patch.dict(os.environ, {variable: "other"}), \
+                    patch.object(production, "connection") as mocked, \
+                    patch.object(production.pca_protected_artifacts, "protected_postgresql_socket") as guard:
+                mocked.settings_dict = self.config
+                with self.assertRaises(ValueError):
+                    production.require_target(target)
+                guard.assert_not_called()
+                mocked.ensure_connection.assert_not_called()
+        with patch.object(production, "connection") as mocked:
+            mocked.settings_dict = {**self.config, "OPTIONS": {"sslmode": "prefer", "hostaddr": "127.0.0.1"}}
+            with self.assertRaises(ValueError):
+                production.require_target(target)
+            mocked.ensure_connection.assert_not_called()
+
+    def test_tcp_localhost_and_numeric_loopback_keep_verified_support(self):
+        for host, address in (("127.0.0.1", "127.0.0.1"), ("localhost", "127.0.0.1"), ("::1", "::1")):
+            with self.subTest(host=host), patch.object(production, "connection") as mocked:
+                self.target.update(configured_host=host, server_address=address)
+                self.config["HOST"] = host
+                mocked.settings_dict = self.config
+                mocked.connection.info = SimpleNamespace(host=host, hostaddr=address, port=65432,
+                                                          dbname=self.target["database"], user=self.target["role"])
+                cursor = mocked.cursor.return_value.__enter__.return_value
+                cursor.fetchone.return_value = (self.target["database"], 1234, self.target["role"], self.target["role"],
+                                                5678, address, 65432, self.target["postmaster_started_at"],
+                                                180000, "origin", ["public"], False, 65432)
+                cursor.fetchall.return_value = []
+                production.verify_target(self.target)
+
+    def test_unix_target_requires_complete_transport_evidence_before_connect(self):
+        target = self.unix_target()
+        changes = ({"configured_host": "/tmp/postgresql"}, {"server_address": "127.0.0.1"},
+                   {"server_port": 65432}, {"socket_uid": None}, {"socket_gid": 0},
+                   {"connection_mode": "other"}, {"configured_port": "65433"},
+                   {"role": "other"}, {"database": "other"}, {"machine_id": "b" * 32})
+        for change in changes:
+            with self.subTest(change=change), patch.object(production, "connection") as mocked:
+                mocked.settings_dict = self.config
+                with self.assertRaises(ValueError):
+                    production.require_target({**target, **change})
+                mocked.ensure_connection.assert_not_called()
+        with patch.object(production, "connection") as mocked, \
+                patch.object(production.pca_protected_artifacts, "protected_postgresql_socket",
+                             side_effect=ValueError("Unsafe PostgreSQL socket")):
+            mocked.settings_dict = self.config
+            with self.assertRaisesMessage(ValueError, "Unsafe PostgreSQL socket"):
+                production.require_target(target)
+            mocked.ensure_connection.assert_not_called()
+
+    def test_unix_backup_keeps_socket_bound_and_forwards_snapshot_without_hostaddr(self):
+        target = self.unix_target()
+        plan = {"ready": True, "blockers": [], "operation": merge.OPERATION, "organization_id": 1,
+                "counts": {"duplicates": 18, "moved": 92, "untouched": 2}}
+        document = production.envelope(target, plan)
+        active = []
+
+        @contextmanager
+        def socket_guard(*args):
+            active.append(args)
+            try:
+                yield
+            finally:
+                active.pop()
+
+        def archive(database, reviewed_target, approved_hash, output_dir, **kwargs):
+            self.assertTrue(active)
+            self.assertEqual(database["HOST"], target["configured_host"])
+            self.assertEqual(database["PORT"], target["configured_port"])
+            self.assertEqual(reviewed_target, target)
+            self.assertEqual(kwargs, {"snapshot": "synthetic-exported-snapshot", "hostaddr": None})
+            return {"archive": {"path": "/srv/private/archive.dump"}}
+
+        with patch.object(production, "connection") as mocked, \
+                patch.object(production, "verify_target") as verify, \
+                patch.object(production.transaction, "atomic"), \
+                patch.object(merge, "_authorize", return_value=(object(), object())), \
+                patch.object(merge, "_make_plan", return_value=plan), \
+                patch.object(production.pca_protected_artifacts, "protected_postgresql_socket", socket_guard), \
+                patch.object(production.pca_protected_artifacts, "protected_directory"), \
+                patch.object(production.pca_protected_artifacts, "validate_file"), \
+                patch.object(database_backup, "create_evidence", side_effect=archive):
+            mocked.settings_dict = self.config
+            mocked.in_atomic_block = False
+            mocked.cursor.return_value.__enter__.return_value.fetchone.return_value = ("synthetic-exported-snapshot",)
+            production.backup_plan(1, actor=SimpleNamespace(pk=1), document=document,
+                                   approved_hash=merge.fingerprint(document), output_dir="/srv/private")
+            self.assertEqual([call.kwargs for call in verify.call_args_list],
+                             [{}, {"in_snapshot": True}, {"in_snapshot": True}])
+        self.assertEqual(active, [])
+
+    def test_qa_backup_does_not_revalidate_read_committed_inside_snapshot(self):
+        target = self.unix_target()
+        plan = {"ready": True, "blockers": [], "operation": merge.OPERATION, "organization_id": 1,
+                "counts": {"duplicates": 18, "moved": 92, "untouched": 2}}
+        document = production.envelope(target, plan)
+        state = {"isolation": "read committed"}
+        checks = []
+
+        def qa_verifier():
+            checks.append(state["isolation"])
+            if state["isolation"] != "read committed":
+                raise ValueError("QA verifier requires READ COMMITTED")
+
+        def execute(sql, *args):
+            if "REPEATABLE READ" in sql:
+                state["isolation"] = "repeatable read"
+
+        with patch.object(production, "connection") as mocked,                 patch.object(production, "require_target", return_value=True),                 patch.object(production, "_is_disposable_qa", return_value=True),                 patch.object(production, "socket_guard", return_value=nullcontext()),                 patch.object(production, "_verify_live_target") as live,                 patch.object(production.transaction, "atomic", return_value=nullcontext()),                 patch.object(merge, "_verify_connection", side_effect=qa_verifier),                 patch.object(merge, "_authorize", return_value=(object(), object())),                 patch.object(merge, "_make_plan", return_value=plan),                 patch.object(database_backup, "create_evidence", return_value={"archive": {}}):
+            mocked.in_atomic_block = False
+            cursor = mocked.cursor.return_value.__enter__.return_value
+            cursor.execute.side_effect = execute
+            cursor.fetchone.return_value = ("snapshot",)
+            production.backup_plan(1, actor=SimpleNamespace(pk=1), document=document,
+                                   approved_hash=merge.fingerprint(document), output_dir="/synthetic")
+        # QA is verified only before the snapshot; live identity is still rechecked inside it.
+        self.assertEqual(checks, ["read committed"])
+        self.assertEqual(live.call_count, 3)
+
+    def test_unix_effective_endpoint_and_live_identity_are_exact(self):
+        target = self.unix_target()
+        info = dict(host="/var/run/postgresql", hostaddr="", port=65432,
+                    dbname=target["database"], user=target["role"])
+        row = (target["database"], 1234, target["role"], target["role"], 5678, None, None,
+               target["postmaster_started_at"], 180000, "origin", ["public"], False, 65432)
+        cases = [(info, row, [])]
+        cases += [({**info, **change}, row, []) for change in (
+            {"host": "/run/other"}, {"hostaddr": "127.0.0.1"}, {"hostaddr": None},
+            {"port": 65433}, {"dbname": "other"}, {"user": "other"})]
+        cases += [(info, (*row[:index], value, *row[index + 1:]), [])
+                  for index, value in ((0, "other"), (1, 99), (2, "other"), (3, "other"),
+                                       (4, 99), (5, "127.0.0.1"), (6, 65432), (7, "other"),
+                                       (8, 170000), (12, 65433))]
+        cases.append((info, row, [("unsafe_role",)]))
+        for index, (effective, live, unsafe) in enumerate(cases):
+            with self.subTest(index=index), patch.object(production, "connection") as mocked, \
+                    patch.object(production.pca_protected_artifacts, "protected_postgresql_socket") as guard:
+                mocked.settings_dict = self.config
+                mocked.connection.info = SimpleNamespace(**effective)
+                cursor = mocked.cursor.return_value.__enter__.return_value
+                cursor.fetchone.return_value = live
+                cursor.fetchall.return_value = unsafe
+                if index == 0:
+                    production.verify_target(target)
+                    guard.assert_called_with("/var/run/postgresql", "65432", 110, 115)
+                else:
+                    with self.assertRaises(ValueError):
+                        production.verify_target(target)
 
     def test_explicit_command_mode_is_required_before_reading_any_artifact(self):
         with patch.object(production, "read_artifact") as read:
@@ -228,7 +385,7 @@ class ProductionWorkflowTests(PcaFixtureMixin, TransactionTestCase):
             cursor.execute(production.IDENTITY_SQL)
             row = cursor.fetchone()
         config = connection.settings_dict
-        self.target = {"schema": "pca_target_v2",
+        self.target = {"schema": "pca_target_v3", "connection_mode": "tcp", "socket_uid": None, "socket_gid": None,
                        "machine_id": MACHINE, "configured_host": config["HOST"],
                        "configured_port": str(config["PORT"]), "database": row[0], "database_oid": row[1],
                        "role": row[2], "role_oid": row[4], "server_address": row[5], "server_port": row[6],

@@ -115,6 +115,8 @@ def create_archive(database, output_dir, label, *, snapshot=None, hostaddr=None)
     if snapshot is not None and (not isinstance(snapshot, str) or not snapshot.strip()):
         raise ValueError("Snapshot must be a nonempty string.")
     if hostaddr is not None:
+        if str(database.get("HOST", "")).startswith("/"):
+            raise ValueError("Host address cannot be supplied for a Unix socket host.")
         try:
             if (not isinstance(hostaddr, str) or "%" in hostaddr
                     or str(ipaddress.ip_address(hostaddr)) != hostaddr):

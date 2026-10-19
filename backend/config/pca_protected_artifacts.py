@@ -9,7 +9,7 @@ import json
 import os
 import stat
 import sys
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 
 PINNED_ATTESTATION = "/etc/polypbase/pca-production-target.json"
 
@@ -37,6 +37,11 @@ def assert_unprivileged_runtime():
         uids = tuple(int(item, 10) for item in uids)
         if not uids[0] or len(set(uids)) != 1 or os.geteuid() != uids[0]:
             raise ValueError
+        gids = fields["Gid"]
+        if (len(gids) != 4 or any(not item.isdecimal() for item in gids)
+                or len(set(int(item, 10) for item in gids)) != 1
+                or int(gids[0], 10) != os.getegid()):
+            raise ValueError
         for key in ("CapInh", "CapPrm", "CapEff", "CapAmb"):
             values = fields[key]
             if (len(values) != 1 or not values[0]
@@ -46,7 +51,7 @@ def assert_unprivileged_runtime():
         if fields["NoNewPrivs"] != ["1"]:
             raise ValueError
     except (KeyError, ValueError) as error:
-        raise ArtifactSecurityError("Runtime must have equal nonzero UIDs, no capabilities and NoNewPrivs=1") from error
+        raise ArtifactSecurityError("Runtime must have equal nonzero UIDs, equal GIDs, no capabilities and NoNewPrivs=1") from error
     # Namespace-local UID 0 must not stand in for host root ownership.
     with open("/proc/self/uid_map", "r", encoding="ascii") as stream:
         rows = [line.split() for line in stream]
@@ -195,6 +200,55 @@ def protected_file(path):
             _verify_file(fd, parent, parts[-1], info, owners)
         finally:
             os.close(fd)
+
+
+@contextmanager
+def protected_postgresql_socket(host, port, owner_uid, owner_gid):
+    """Trust only the independently attested Debian PostgreSQL socket namespace.
+
+    Debian's postgres-owned 2775 directory is allowed, but the runtime must not
+    own it or belong to its writable group. Only /var/run -> /run may be a link.
+    """
+    uid = assert_unprivileged_runtime()
+    if (host not in ("/run/postgresql", "/var/run/postgresql")
+            or not isinstance(port, str) or not port.isascii() or not port.isdigit()
+            or not 1 <= int(port) <= 65535
+            or any(type(value) is not int or value <= 0 for value in (owner_uid, owner_gid))
+            or uid == owner_uid or owner_gid in {os.getgid(), os.getegid(), *os.getgroups()}):
+        raise ArtifactSecurityError("Untrusted PostgreSQL socket endpoint or runtime identity")
+    with ExitStack() as stack:
+        if host == "/var/run/postgresql":
+            var = stack.enter_context(_directories(["var"], {0}, False))
+            alias = os.stat("run", dir_fd=var, follow_symlinks=False)
+            if (not stat.S_ISLNK(alias.st_mode) or alias.st_uid != 0
+                    or os.readlink("run", dir_fd=var) != "/run"):
+                raise ArtifactSecurityError("Only the root-owned /var/run -> /run alias is trusted")
+        run = stack.enter_context(_directories(["run"], {0}, False))
+        fd = os.open("postgresql", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=run)
+        stack.callback(os.close, fd)
+        directory = os.fstat(fd)
+        if (not stat.S_ISDIR(directory.st_mode)
+                or (directory.st_uid, directory.st_gid) != (owner_uid, owner_gid)
+                or directory.st_mode & 0o002):
+            raise ArtifactSecurityError("Unsafe PostgreSQL socket directory")
+        # Mode bits alone miss named POSIX ACL entries granting runtime access.
+        if os.access(".", os.W_OK, dir_fd=fd, effective_ids=True):
+            raise ArtifactSecurityError("Runtime must not be able to write the PostgreSQL socket directory")
+        name = f".s.PGSQL.{port}"
+        socket = os.stat(name, dir_fd=fd, follow_symlinks=False)
+        if (not stat.S_ISSOCK(socket.st_mode)
+                or (socket.st_uid, socket.st_gid) != (owner_uid, owner_gid)):
+            raise ArtifactSecurityError("Unsafe PostgreSQL socket ownership or type")
+        yield
+        if (_directory_signature(os.fstat(fd)) != _directory_signature(directory)
+                or _directory_signature(os.stat("postgresql", dir_fd=run, follow_symlinks=False))
+                != _directory_signature(directory)
+                or _signature(os.stat(name, dir_fd=fd, follow_symlinks=False)) != _signature(socket)):
+            raise ArtifactSecurityError("PostgreSQL socket endpoint changed or was replaced")
+        if host == "/var/run/postgresql" and (
+                _signature(os.stat("run", dir_fd=var, follow_symlinks=False)) != _signature(alias)
+                or os.readlink("run", dir_fd=var) != "/run"):
+            raise ArtifactSecurityError("PostgreSQL socket alias changed")
 
 
 def validate_directory(path):

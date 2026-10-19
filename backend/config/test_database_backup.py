@@ -122,6 +122,66 @@ class DatabaseBackupTests(unittest.TestCase):
                 self.assertNotIn("PGHOST", dump.kwargs["env"])
                 self.assertNotIn("PGHOSTADDR", restore.kwargs["env"])
 
+    def test_socket_evidence_preserves_host_port_snapshot_and_clean_environment(self):
+        self.database["HOST"] = "/var/run/postgresql/"
+        snapshot = "00000003-0000001B-1"
+        with patch.dict(os.environ, {
+            "PGHOST": "wrong-host", "PGHOSTADDR": "192.0.2.99",
+            "PGPORT": "9999", "PGDATABASE": "wrong-db",
+            "PGUSER": "wrong-user", "PGPASSWORD": "wrong-password",
+            "PGSSLMODE": "disable", "PGSERVICE": "wrong-service",
+            "PGSERVICEFILE": "wrong-file", "PGPASSFILE": "wrong-password-file",
+            "PGOPTIONS": "wrong-options", "PGUNKNOWN": "wrong-value",
+            "KEEP_BACKUP_TEST": "keep",
+        }):
+            evidence = backup.create_evidence(
+                self.database, self.target, self.plan_hash, self.directory,
+                snapshot=snapshot,
+            )
+        dump, restore = self.runner.call_args_list
+        self.assertEqual(dump.args[0], [
+            "/usr/bin/pg_dump", "--format=custom", "--no-owner", "--no-acl",
+            "--no-password", "--file", evidence["archive"]["path"],
+            "--host", "/var/run/postgresql/", "--port", "5433",
+            "--username", "test-user", "--dbname", "test-db",
+            "--snapshot", snapshot,
+        ])
+        self.assertEqual(
+            {k: v for k, v in dump.kwargs["env"].items() if k.upper().startswith("PG")},
+            {"PGPASSWORD": "private-password", "PGSSLMODE": "require"},
+        )
+        self.assertNotIn("PGHOSTADDR", dump.kwargs["env"])
+        self.assertEqual(dump.kwargs["env"]["KEEP_BACKUP_TEST"], "keep")
+        self.assertFalse(any(k.upper().startswith("PG") for k in restore.kwargs["env"]))
+
+    def test_socket_hostaddr_is_rejected_before_creating_files(self):
+        self.database["HOST"] = "/var/run/postgresql"
+        output = self.directory / "not-created"
+        for address in ("127.0.0.1", "::1", ""):
+            with self.subTest(address=address), self.assertRaisesRegex(
+                ValueError, "Host address cannot be supplied for a Unix socket host",
+            ):
+                backup.create_evidence(
+                    self.database, self.target, self.plan_hash, output,
+                    snapshot="snapshot-1", hostaddr=address,
+                )
+        self.runner.assert_not_called()
+        self.assertFalse(output.exists())
+        self.assertEqual(list(self.directory.iterdir()), [])
+
+    def test_socket_requires_explicit_port(self):
+        self.database["HOST"] = "/var/run/postgresql"
+        for port in (None, "", " "):
+            with self.subTest(port=port), self.assertRaisesRegex(
+                ValueError, "Explicit database connection parameters are required",
+            ):
+                backup.create_archive(
+                    {**self.database, "PORT": port}, self.directory, "socket",
+                    snapshot="snapshot-1",
+                )
+        self.runner.assert_not_called()
+        self.assertEqual(list(self.directory.iterdir()), [])
+
     def test_hostaddr_requires_canonical_numeric_ip_before_creating_files(self):
         for address in ("", "localhost", "127.000.0.1", "127.0.0.1,::1",
                         " 127.0.0.1", "127.0.0.1/32", "[::1]", "0:0:0:0:0:0:0:1",
