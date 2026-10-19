@@ -4,7 +4,7 @@ from urllib.parse import urlparse
 
 from django.contrib.auth.decorators import login_required
 from django.http import Http404, HttpResponse
-from django.shortcuts import get_object_or_404, redirect, render
+from django.shortcuts import redirect, render
 from django.views.decorators.cache import never_cache
 from django.views.decorators.vary import vary_on_headers
 from rest_framework.exceptions import PermissionDenied
@@ -12,6 +12,7 @@ from rest_framework.exceptions import PermissionDenied
 from apps.accounts.permissions import get_required_active_organization_from_request
 
 from . import qr
+from .identity_resolution import resolve_box_identity
 from .models import Box
 
 
@@ -52,7 +53,7 @@ def box_qr(request, box_id):
     except PermissionDenied as error:
         # Plain Django views cannot render DRF permission exceptions.
         raise Http404("Box not found.") from error
-    box = get_object_or_404(Box.objects.filter(organization=organization), id=box_id)
+    box = resolve_box_identity(Box.objects.filter(organization=organization), box_id)
     svg = qr.render_qr_svg(_qr_scan_url(request, box))
     response = HttpResponse(svg, content_type="image/svg+xml")
     response["Content-Disposition"] = f'inline; filename="bac-{box.id}.svg"'

@@ -142,7 +142,7 @@ function harness(path = '/?scan_box=42') {
 test('permanent QR opens the authorized detail directly without a box-list match', async () => {
   const h = harness('/?scan_box=42');
   h.render();
-  h.requests[0].resolve({ global_code: 'LATE-PAGE-42' });
+  h.requests[0].resolve({ id: 42, global_code: 'LATE-PAGE-42' });
   await tick();
   assert.equal(h.context.data.boxes.length, 0);
   h.context.useMemo = callback => callback();
@@ -201,7 +201,7 @@ test('login next preserves the scan, which waits for profile and organization re
   assert.equal(request.url, '/api/boxes/42/scan/');
   assert.deepEqual(Object.keys(request.payload), []);
   assert.equal(request.organizationId, 1);
-  request.resolve({ global_code: 'AUR /42' });
+  request.resolve({ id: 42, global_code: 'AUR /42' });
   await tick();
   assert.equal(h.context.route.boxCode, 'AUR /42');
   assert.equal(h.context.route.boxId, 42, 'permanent QR retains the authorized id even without a cached list item');
@@ -219,7 +219,7 @@ test('ordinary rerenders and profile updates do not submit the scan twice', asyn
   h.context.data.profile = { ...h.context.data.profile, interface_language: 'en' };
   h.render();
   assert.equal(h.requests.length, 1);
-  h.requests[0].resolve({ global_code: 'AUR-42' });
+  h.requests[0].resolve({ id: 42, global_code: 'AUR-42' });
   await tick();
 });
 
@@ -248,7 +248,7 @@ for (const [name, supersede] of Object.entries(invalidate)) {
     h.render();
     supersede(h);
     const navigationCount = h.navigations.length;
-    h.requests[0].resolve({ global_code: 'STALE-42' });
+    h.requests[0].resolve({ id: 2135, global_code: 'STALE-42' });
     await tick();
     assert.equal(h.navigations.length, navigationCount);
     assert.equal(h.state.error, null);
@@ -295,14 +295,15 @@ test('organization change retains the handoff but isolates old completion and lo
   h.render();
   assert.equal(h.requests.at(-1).url, '/api/boxes/42/scan/');
   assert.equal(h.requests.at(-1).organizationId, 2);
-  h.requests[0].resolve({ global_code: 'OLD-42' });
+  h.requests[0].resolve({ id: 2135, global_code: 'OLD-42' });
   await tick();
   assert.equal(h.state.boxLoading, true);
   assert.deepEqual(h.navigations, [{ mode: 'replace', path: '/?scan_box=42' }],
     'Old scan completion must not navigate after the organization history reset');
-  h.requests.at(-1).resolve({ global_code: 'CURRENT-42' });
+  h.requests.at(-1).resolve({ id: 99, global_code: 'CURRENT-42' });
   await tick();
   assert.equal(h.context.route.boxCode, 'CURRENT-42');
+  assert.equal(h.context.route.boxId, 99);
   assert.equal(h.state.boxLoading, false);
 });
 
@@ -323,18 +324,118 @@ test('current scan errors remain visible and do not trigger another POST', async
   }
 });
 
-test('camera scans still open boxes without POSTing a SCAN', async () => {
+test('camera scans resolve even cached identities without POSTing a SCAN', async () => {
   const h = harness('/');
   h.context.data.boxes = [{ id: 42, global_code: 'AUR-42' }];
   h.context.openScannedBox(42);
   assert.equal(h.state.tabletScanner, false);
-  assert.equal(h.context.route.boxCode, 'AUR-42');
-  assert.equal(h.requests.length, 0);
-  h.context.openScannedBox(99);
+  assert.equal(h.context.route.boxCode, null, 'a cached code is not an authorized identity resolution');
   assert.equal(h.requests.length, 1);
   assert.equal(h.requests[0].method, 'GET');
-  assert.equal(h.requests[0].url, '/api/boxes/99/');
-  h.requests[0].resolve({ id: 99, global_code: 'AUR-99' });
+  assert.equal(h.requests[0].url, '/api/boxes/42/');
+  h.requests[0].resolve({ id: 42, global_code: 'AUR-42' });
+  await tick();
+  assert.equal(h.context.route.boxCode, 'AUR-42');
+  assert.equal(h.context.route.boxId, 42);
+  h.context.openScannedBox(99);
+  assert.equal(h.requests.length, 2);
+  assert.equal(h.requests[1].method, 'GET');
+  assert.equal(h.requests[1].url, '/api/boxes/99/');
+  h.requests[1].resolve({ id: 99, global_code: 'AUR-99' });
   await tick();
   assert.equal(h.context.route.boxCode, 'AUR-99');
+  assert.equal(h.context.route.boxId, 99);
 });
+
+for (const requestedId of [2135, 2141]) {
+  test(`printed QR ${requestedId} selects the returned canonical ID for detail and actions`, async () => {
+    const h = harness(`/bac/${requestedId}/`);
+    h.context.data.boxes = [{ id: 2141, global_code: 'RETIRED-PCA-JKA-1.005' }];
+    h.render();
+    assert.equal(h.requests[0].url, `/api/boxes/${requestedId}/scan/`);
+    h.requests[0].resolve({ id: 2135, global_code: 'PCA-JKA-1.005' });
+    await tick();
+    assert.equal(h.context.route.boxId, 2135);
+    assert.equal(h.context.route.boxCode, 'PCA-JKA-1.005');
+    assert.equal(h.browser.path, '/boxes/PCA-JKA-1.005');
+    h.context.useMemo = callback => callback();
+    Object.assign(h.context, { resolvedBoxCode: null, isBoxCodeResolved: false });
+    const selectedId = findNode(node => ts.isVariableDeclaration(node) && node.name.getText(ast) === 'selectedBoxId');
+    h.context.selectedBoxId = h.evaluate(selectedId.initializer.getText(ast));
+    assert.equal(h.context.selectedBoxId, 2135);
+    h.context.selectedBoxDetail = null;
+    const detailEffect = functionNode('loadBoxDetail').parent.parent.parent;
+    h.evaluate(`(${detailEffect.arguments[0].getText(ast)})()`);
+    assert.equal(h.requests[1].url, '/api/boxes/2135/');
+    h.requests[1].resolve({ id: 2135, global_code: 'PCA-JKA-1.005' });
+    await tick();
+    assert.equal(h.context.data.boxDetails[2135].id, 2135);
+    assert.equal(h.context.data.boxDetails[2141], undefined);
+  });
+}
+
+for (const cached of [false, true]) {
+  test(`camera resolves retired ID to canonical identity with cached=${cached}`, async () => {
+    const h = harness('/');
+    if (cached) h.context.data.boxes = [{ id: 2141, global_code: 'OLD-PCA-JKA-1.005' }];
+    h.context.openScannedBox(2141);
+    assert.equal(h.navigations.length, 0);
+    assert.equal(h.requests.length, 1);
+    assert.equal(h.requests[0].method, 'GET');
+    assert.equal(h.requests[0].url, '/api/boxes/2141/');
+    h.requests[0].resolve({ id: 2135, global_code: 'PCA-JKA-1.005' });
+    await tick();
+    assert.equal(h.context.route.boxId, 2135);
+    assert.equal(h.context.route.boxCode, 'PCA-JKA-1.005');
+    assert.equal(h.browser.path, '/boxes/PCA-JKA-1.005');
+    assert.equal(h.context.data.boxDetails[2135].id, 2135);
+    assert.equal(h.context.data.boxDetails[2141], undefined);
+    assert.equal(h.requests.some(request => request.method === 'POST'), false);
+  });
+}
+
+for (const [name, supersede] of Object.entries({
+  organization(h) { h.context.organizationRequestGenerationRef.current += 1; },
+  navigation(h) { h.context.openZone(7); },
+  newerBox(h) { h.context.openScannedBox(99); },
+  roundTripOrganization(h) {
+    h.context.organizationRequestGenerationRef.current += 2;
+  },
+})) {
+  test(`camera ignores canonical success after ${name}`, async () => {
+    const h = harness('/');
+    h.context.data.boxes = [{ id: 2141, global_code: 'OLD-PCA' }];
+    h.context.openScannedBox(2141);
+    supersede(h);
+    const route = h.context.route;
+    const data = h.context.data;
+    const navigationCount = h.navigations.length;
+    h.requests[0].resolve({ id: 2135, global_code: 'PCA-JKA-1.005' });
+    await tick();
+    assert.equal(h.context.route, route);
+    assert.equal(h.context.data, data);
+    assert.equal(h.navigations.length, navigationCount);
+    assert.equal(h.state.error, null);
+    if (name === 'newerBox') assert.equal(h.state.boxLoading, true);
+  });
+  test(`camera ignores alias failure after ${name}`, async () => {
+    const h = harness('/');
+    h.context.openScannedBox(2141);
+    supersede(h);
+    h.requests[0].reject(new Error('Denied alias'));
+    await tick();
+    assert.equal(h.recoveries.length, 0);
+    assert.equal(h.state.error, null);
+  });
+  test(`camera ignores delayed alias error recovery after ${name}`, async () => {
+    const h = harness('/');
+    h.context.openScannedBox(2141);
+    h.requests[0].reject(new Error('Denied alias'));
+    await tick();
+    assert.equal(h.recoveries.length, 1);
+    supersede(h);
+    h.recoveries[0].resolve({ message: 'Stale alias error', requiresAuthentication: false });
+    await tick();
+    assert.equal(h.state.error, null);
+  });
+}

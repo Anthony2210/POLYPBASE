@@ -12,6 +12,7 @@ import json
 from collections import Counter
 from datetime import date
 
+from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 
@@ -236,7 +237,7 @@ def _plan_materialization(spec, organization, strains_by_code):
 
 
 def build_plan(manifest, organization, *, lock=False):
-    plan = Plan(manifest, organization)
+    """Classify read-only; the apply-only lock mode takes Box locks before Organization."""
     corrections = {
         item["to_code"]: item for item in manifest["decisions"]["identity_corrections"]
     }
@@ -245,8 +246,23 @@ def build_plan(manifest, organization, *, lock=False):
     codes |= {item["from_code"] for item in corrections.values()}
     queryset = Box.objects.filter(global_code__in=codes).select_related("strain", "strain__species")
     if lock:
-        queryset = queryset.select_for_update(of=("self",)).order_by("global_code")
-    by_code = {box.global_code: box for box in queryset}
+        # Match ordinary writers and reviewed correctors: own Boxes by PK first,
+        # then Organization. Never wait for another Box after taking that lock.
+        by_code = {box.global_code: box for box in queryset.filter(
+            organization_id=organization.pk,
+        ).select_for_update(of=("self",)).order_by("pk")}
+        organization = Organization.objects.select_for_update(no_key=True).get(pk=organization.pk)
+        current_ids = dict(Box.objects.filter(
+            organization_id=organization.pk, global_code__in=codes,
+        ).values_list("global_code", "pk"))
+        if current_ids != {code: box.pk for code, box in by_code.items()}:
+            raise HistoricalImportError("Box identities changed while acquiring import locks; review a new dry-run.")
+        # Foreign code collisions still block the plan, without locking another
+        # institution's rows. Missing codes remain guarded by global uniqueness.
+        by_code.update({box.global_code: box for box in queryset.exclude(organization_id=organization.pk)})
+    else:
+        by_code = {box.global_code: box for box in queryset}
+    plan = Plan(manifest, organization)
 
     strains_by_code = {}
     for strain in Strain.objects.filter(
@@ -276,7 +292,7 @@ def build_plan(manifest, organization, *, lock=False):
 
     existing_measurements = {}
     present_boxes = [s["box"] for s in plan.boxes.values() if s["box"] is not None]
-    for measurement in BiologicalMeasurement.objects.filter(
+    for measurement in BiologicalMeasurement.objects.canonical().filter(
         box_id__in=[box.pk for box in present_boxes],
         week_start__in=_manifest_week_starts(manifest),
     ).select_related("box"):
@@ -384,6 +400,8 @@ def _classify_row(item, state, existing_measurements, organization):
 
 
 def _require_admin(actor, organization):
+    if actor is None or not actor.is_active:
+        raise PermissionDenied("Only an active administrator of the organization can apply this import.")
     role = get_active_measurement_role(user=actor, organization=organization)
     if role != OrganizationMembership.Role.ADMIN:
         raise PermissionDenied("Only an active administrator of the organization can apply this import.")
@@ -538,7 +556,7 @@ def _apply_measurement_correction(row, box, actor, fingerprint, organization):
     else:
         expected, reason = item["expected_current"], item["corrections"][-1]["code"]
     week_start = date.fromisocalendar(item["year"], item["iso_week"], 1)
-    measurement = BiologicalMeasurement.objects.select_for_update().get(box=box, week_start=week_start)
+    measurement = BiologicalMeasurement.objects.canonical().select_for_update().get(box=box, week_start=week_start)
     if (
         box.organization_id != organization.pk
         or box.global_code != item["box"]
@@ -580,8 +598,13 @@ def apply_import(manifest, organization, *, actor, expected_plan_hash):
     _require_admin(actor, organization)
     fingerprint = manifest["fingerprint"]
     with transaction.atomic():
-        locked_org = Organization.objects.select_for_update().get(pk=organization.pk)
-        plan = build_plan(manifest, locked_org, lock=True)
+        plan = build_plan(manifest, organization, lock=True)
+        locked_org = plan.organization
+        list(OrganizationMembership.objects.select_for_update().filter(
+            organization=locked_org, user_id=actor.pk,
+        ).order_by("pk"))
+        actor = get_user_model().objects.select_for_update(no_key=True).get(pk=actor.pk)
+        _require_admin(actor, locked_org)
         if plan.blockers:
             raise HistoricalImportBlocked(plan)
         if plan.plan_hash != expected_plan_hash:

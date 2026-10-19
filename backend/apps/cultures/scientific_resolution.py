@@ -29,6 +29,8 @@ def resolve_week_observation_state(*, box, organization_id, measurement) -> Scie
         raise ValueError("Resolution requires a non-persisted week observation.")
     if measurement.box_id != box.pk:
         raise ValueError("The observation must belong to the supplied Box.")
+    if measurement.duplicate_of_id is not None:
+        raise ValueError("An excluded duplicate cannot be a proposed scientific source.")
     observation = ObservationTime.from_measurement(measurement)
     if observation.precision != ObservationPrecision.ISO_WEEK:
         raise ValueError("Use the established resolver for dated measurements.")
@@ -40,7 +42,7 @@ def resolve_week_observation_state(*, box, organization_id, measurement) -> Scie
     )
     if box.organization_id != organization_id:
         raise PermissionDenied("The Box is outside the supplied institution scope.")
-    if BiologicalMeasurement.objects.using(box._state.db).filter(
+    if BiologicalMeasurement.objects.canonical().using(box._state.db).filter(
         box_id=box.pk, box__organization_id=organization_id, week_start=observation.week_start,
     ).exists():
         # This is input validation for an isolated hypothetical read, not a new

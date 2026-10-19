@@ -18,11 +18,13 @@ export function overviewDefaultRange(today = new Date()): OverviewRange {
 }
 
 export function normalizeOverviewMeasurements(measurements: BiologicalMeasurement[]): OverviewMeasurementPoint[] {
-  return measurements.map((point) => ({
+  return measurements.filter((point) => point.duplicate_of == null).map((point) => ({
     date: point.measured_on,
     polyp_count: point.polyp_count,
     ephyrae_count: point.ephyrae_count,
     salinity_psu: point.salinity_psu,
+    environment_source_box: point.environment_source_box,
+    environment_locations: point.environment_locations,
   })).sort((left, right) => left.date.localeCompare(right.date));
 }
 

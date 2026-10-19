@@ -37,7 +37,7 @@ class MeasurementExportOptionsAPIView(APIView):
     def get(self, request):
         organization_ids = get_active_organization_ids(request)
         boxes = Box.objects.filter(
-            organization_id__in=organization_ids,
+            organization_id__in=organization_ids, merged_into__isnull=True,
         ).select_related(
             "organization",
             "strain",
@@ -116,7 +116,7 @@ class BoxMeasurementTrendAPIView(APIView):
         date_to = serializer.validated_data["date_to"]
         box = get_object_or_404(
             Box.objects.filter(
-                organization_id__in=get_active_organization_ids(request),
+                organization_id__in=get_active_organization_ids(request), merged_into__isnull=True,
             ).only("id"),
             id=box_id,
         )
@@ -299,7 +299,7 @@ def _get_filtered_export_boxes(request, filters):
     organization_ids = requested_organization_ids or active_organization_ids
     if organization_ids - active_organization_ids:
         raise PermissionDenied("This export must stay inside the selected organization.")
-    boxes = Box.objects.filter(organization_id__in=organization_ids)
+    boxes = Box.objects.filter(organization_id__in=organization_ids, merged_into__isnull=True)
     return _apply_measurement_export_filters(boxes, filters)
 
 

@@ -228,6 +228,58 @@ test('a direct /boxes/CODE route resolves its id through the scoped search, not 
   assert.equal(h.state.data.boxDetails[42], detail);
 });
 
+test('legacy code bookmark resolves only an exact previous code and replaces it with the canonical URL', async () => {
+  const oldCode = 'PCA-CHO-1.005';
+  const h = harness({ path: '/boxes/' + oldCode });
+  let route;
+  h.context.setRoute = next => { route = next; };
+  Object.assign(h.context, { route: { tab: 'pilotage', boxCode: oldCode, boxId: null }, isBoxCodePending: true });
+  h.run(resolutionEffect());
+  assert.equal(h.requests[0].url, '/api/boxes/?limit=100&q=' + oldCode);
+  h.requests[0].resolve(pages([box(99, { previous_global_code: oldCode + '0' })],
+    'https://polypbase.test/api/boxes/?limit=100&q=' + oldCode + '&offset=100'));
+  await tick();
+  assert.equal(h.requests.length, 2);
+  h.requests[1].resolve(pages([box(2135, { global_code: 'PCA-JKA-1.005', previous_global_code: oldCode })]));
+  await tick();
+  assert.equal(h.state.resolved.boxId, 2135);
+  assert.equal(route.boxId, 2135);
+  assert.equal(route.boxCode, 'PCA-JKA-1.005');
+  assert.equal(h.browser.path, '/boxes/PCA-JKA-1.005');
+  assert.equal(h.browser.pushCalls, 0, 'canonicalization replaces the bookmark instead of adding history');
+  assert.equal(h.state.collection.status, 'idle');
+});
+
+for (const supersede of ['organization', 'navigation', 'cleanup']) {
+  test(`legacy bookmark resolution cannot redirect after ${supersede}`, async () => {
+    const oldCode = 'PCA-CHO-1.005';
+    const h = harness({ path: '/boxes/' + oldCode });
+    Object.assign(h.context, { route: { tab: 'pilotage', boxCode: oldCode, boxId: null }, isBoxCodePending: true });
+    const cleanup = h.run(resolutionEffect());
+    if (supersede === 'organization') h.context.organizationRequestGenerationRef.current++;
+    if (supersede === 'navigation') h.context.openZone(17);
+    if (supersede === 'cleanup') cleanup();
+    const path = h.browser.path;
+    h.requests[0].resolve(pages([box(2135, { global_code: 'PCA-JKA-1.005', previous_global_code: oldCode })]));
+    await tick();
+    assert.equal(h.browser.path, path);
+    assert.equal(h.state.resolved, undefined);
+    assert.equal(h.state.error, null);
+  });
+}
+
+test('typed former codes resolve case-insensitively to the canonical numeric identity', async () => {
+  const h = harness();
+  const lookup = h.context.findBoxIdByCode('  pca-cho-1.005 ');
+  h.requests[0].resolve(pages([box(2135, { global_code: 'PCA-JKA-1.005', previous_global_code: 'PCA-CHO-1.005' })]));
+  assert.equal(await lookup, 2135);
+  h.context.openBox(2135);
+  assert.equal(h.requests[1].url, '/api/boxes/2135/');
+  h.requests[1].resolve({ id: 2135, global_code: 'PCA-JKA-1.005' });
+  await tick();
+  assert.equal(h.browser.path, '/boxes/PCA-JKA-1.005');
+});
+
 test('code lookup follows pages only until the exact code is found and reports an absent code', async () => {
   const h = harness();
   Object.assign(h.context, { route: { tab: 'pilotage', boxCode: 'AUR-1', boxId: null }, isBoxCodePending: true });

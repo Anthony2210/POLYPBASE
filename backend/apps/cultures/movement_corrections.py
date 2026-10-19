@@ -86,7 +86,7 @@ class BoxMovementCorrectionWeekConflict(BoxMovementConflict):
 
 def _scoped_box(*, box_id, organization_ids, for_update=False):
     queryset = Box.objects.select_related("organization").filter(
-        organization_id__in=organization_ids,
+        organization_id__in=organization_ids, merged_into__isnull=True,
     )
     if for_update:
         queryset = queryset.select_for_update(of=("self",))

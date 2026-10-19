@@ -630,6 +630,7 @@ export default function App() {
     const needle = code.trim().toLowerCase();
     const box = await findBoxBySearch(code, (item) => (
       item.global_code.toLowerCase() === needle || item.local_code.toLowerCase() === needle
+      || item.previous_global_code?.toLowerCase() === needle
     ));
     return box?.id ?? null;
   }
@@ -863,10 +864,10 @@ export default function App() {
     async function handoffScan() {
       setIsBoxLoading(true);
       try {
-        const result = await apiPost<{ global_code: string }>(`/api/boxes/${scanBoxId}/scan/`, {});
+        const result = await apiPost<{ id: number; global_code: string }>(`/api/boxes/${scanBoxId}/scan/`, {});
         if (!isCurrentRequest()) return;
         replaceRoute(
-          { tab: 'pilotage', boxCode: result.global_code, boxId: scanBoxId },
+          { tab: 'pilotage', boxCode: result.global_code, boxId: result.id },
           `/boxes/${encodeURIComponent(result.global_code)}`,
         );
       } catch (requestError) {
@@ -995,13 +996,21 @@ export default function App() {
     const organizationId = activeOrganizationId;
     let isActive = true;
     const requestGeneration = organizationRequestGenerationRef.current;
-    const isCurrentRequest = () => isActive && requestGeneration === organizationRequestGenerationRef.current;
+    const navigationGeneration = navigationGenerationRef.current;
+    const isCurrentRequest = () => isActive && requestGeneration === organizationRequestGenerationRef.current
+      && navigationGeneration === navigationGenerationRef.current;
 
     async function resolveBoxCode() {
       try {
-        const box = await findBoxBySearch(code, (item) => item.global_code === code);
+        const box = await findBoxBySearch(code, (item) => item.global_code === code || item.previous_global_code === code);
         if (!isCurrentRequest()) return;
         setResolvedBoxCode({ organizationId, code, boxId: box?.id ?? null });
+        if (box && box.global_code !== code) {
+          replaceRoute(
+            { tab: 'pilotage', boxCode: box.global_code, boxId: box.id },
+            `/boxes/${encodeURIComponent(box.global_code)}`,
+          );
+        }
       } catch (requestError) {
         if (!isCurrentRequest()) return;
         const applicationError = await getApplicationError(requestError);
@@ -1133,20 +1142,10 @@ export default function App() {
     openBox(measurement.box_id, measurement.box_code);
   }
 
-  function openBox(boxId: number, fallbackCode?: string) {
+  function openBox(boxId: number, _fallbackCode?: string) {
     const organizationGeneration = organizationRequestGenerationRef.current;
     const requestGeneration = ++openBoxRequestGenerationRef.current;
-    const box = data.boxes.find((item) => item.id === boxId);
-    if (box) {
-      setIsBoxLoading(false);
-      navigateTo({ tab: 'pilotage', boxCode: box.global_code, boxId: null }, `/boxes/${encodeURIComponent(box.global_code)}`);
-      return;
-    }
-
-    if (fallbackCode) {
-      navigateTo({ tab: 'pilotage', boxCode: fallbackCode, boxId }, `/boxes/${encodeURIComponent(fallbackCode)}`);
-    }
-
+    // Cached codes can belong to a retired identity. Resolve before selecting action targets.
     const navigationGeneration = navigationGenerationRef.current;
     const { apiGet, setData, isCurrent: isDetailCurrent } = getOperationRequests(organizationGeneration);
     setIsBoxLoading(true);
@@ -1160,7 +1159,7 @@ export default function App() {
           navigationGenerationRef.current,
         )) return;
         setData((current) => mergeBoxDetail(current, detail));
-        navigateTo({ tab: 'pilotage', boxCode: detail.global_code, boxId }, `/boxes/${encodeURIComponent(detail.global_code)}`);
+        navigateTo({ tab: 'pilotage', boxCode: detail.global_code, boxId: detail.id }, `/boxes/${encodeURIComponent(detail.global_code)}`);
       })
       .catch(async (requestError) => {
         if (!isDetailCurrent()) return;
@@ -1367,7 +1366,7 @@ export default function App() {
     const result = getInAppHistory().push({ path, organization: navigationOrganizationRef.current });
     if (result === 'pending') return;
     navigationGenerationRef.current += 1;
-    // A same-path noop can still enrich boxId after the fallback-code request.
+    // A same-path noop can still refresh the resolved box identity.
     setRoute(nextRoute);
   }
 

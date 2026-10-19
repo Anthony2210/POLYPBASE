@@ -106,7 +106,11 @@ from .serializers import (
     ThermalZoneSerializer,
     salinity_editable_until,
 )
-from .temperature_history import box_temperature_queryset, temperature_history_point
+from .identity_resolution import resolve_box_identity
+from .temperature_history import (
+    box_historical_temperature_queryset, box_temperature_queryset, has_merged_identity,
+    historical_temperature_history_point, temperature_history_point, temperature_support_periods,
+)
 from .box_codes import preview_box_codes
 from .polyp_state import current_state_prefetches, current_polyp_total, resolve_current_polyp_state
 from .movement_corrections import (
@@ -156,10 +160,13 @@ def _salinity_measurement_audit_values(measurement):
     }
 
 
-def box_queryset_for_user(user, organization_ids=None):
+def box_queryset_for_user(user, organization_ids=None, *, include_merged=False):
     """Return boxes the user can access, with data needed by serializers."""
     organization_ids = organization_ids or get_authorized_organization_ids(user)
-    return Box.objects.select_related(
+    queryset = Box.objects.all()
+    if not include_merged:
+        queryset = queryset.filter(merged_into__isnull=True)
+    return queryset.select_related(
         "organization",
         "strain",
         "strain__species",
@@ -170,7 +177,7 @@ def box_queryset_for_user(user, organization_ids=None):
         *current_state_prefetches(),
         Prefetch(
             "biological_measurements",
-            queryset=BiologicalMeasurement.objects.select_related("user", "original_observer", "imported_by").order_by("-week_start", "-created_at", "-pk"),
+            queryset=BiologicalMeasurement.objects.canonical().select_related("user", "original_observer", "imported_by").order_by("-week_start", "-created_at", "-pk"),
         ),
         Prefetch(
             "parent_lineages",
@@ -227,12 +234,12 @@ def box_list_queryset_for_user(user, organization_ids=None):
     organization_ids = organization_ids or get_authorized_organization_ids(user)
 
     latest_measurements = (
-        BiologicalMeasurement.objects.select_related("user", "original_observer", "imported_by")
+        BiologicalMeasurement.objects.canonical().select_related("user", "original_observer", "imported_by")
         .order_by("-week_start", "-created_at", "-pk")[:1]
     )
 
     latest_salinity = Subquery(
-        BiologicalMeasurement.objects.filter(box_id=OuterRef("pk"), salinity_psu__isnull=False)
+        BiologicalMeasurement.objects.canonical().filter(box_id=OuterRef("pk"), salinity_psu__isnull=False)
         .order_by("-week_start", "-created_at", "-pk")
         .values("salinity_psu")[:1]
     )
@@ -265,7 +272,7 @@ def box_list_queryset_for_user(user, organization_ids=None):
             *current_state_prefetches(),
             Prefetch("biological_measurements", queryset=latest_measurements, to_attr="list_latest_measurements")
         )
-        .filter(organization_id__in=organization_ids)
+        .filter(organization_id__in=organization_ids, merged_into__isnull=True)
     )
 
 
@@ -274,28 +281,28 @@ def box_inventory_queryset_for_user(user, organization_ids=None):
     organization_ids = organization_ids or get_authorized_organization_ids(user)
 
     first_measurement_on = Subquery(
-        BiologicalMeasurement.objects.filter(box_id=OuterRef("pk"))
+        BiologicalMeasurement.objects.canonical().filter(box_id=OuterRef("pk"))
         .order_by("measured_on", "created_at")
         .values("measured_on")[:1]
     )
 
     has_biological_measurement = Exists(
-        BiologicalMeasurement.objects.filter(box_id=OuterRef("pk"))
+        BiologicalMeasurement.objects.canonical().filter(box_id=OuterRef("pk"))
     )
     latest_measurement_on = Subquery(
-        BiologicalMeasurement.objects.filter(box_id=OuterRef("pk"))
+        BiologicalMeasurement.objects.canonical().filter(box_id=OuterRef("pk"))
         .order_by("-week_start", "-created_at", "-pk")
         .values("measured_on")[:1],
         output_field=DateField(),
     )
 
     latest_measurement_id = Subquery(
-        BiologicalMeasurement.objects.filter(box_id=OuterRef("box_id"))
+        BiologicalMeasurement.objects.canonical().filter(box_id=OuterRef("box_id"))
         .order_by("-week_start", "-created_at", "-pk")
         .values("id")[:1]
     )
     latest_measurements = (
-        BiologicalMeasurement.objects.filter(id__in=latest_measurement_id)
+        BiologicalMeasurement.objects.canonical().filter(id__in=latest_measurement_id)
         .select_related("user", "original_observer", "imported_by")
         .order_by("-week_start", "-created_at", "-pk")
     )
@@ -350,7 +357,7 @@ def box_inventory_queryset_for_user(user, organization_ids=None):
                 to_attr="inventory_last_locations",
             ),
         )
-        .filter(organization_id__in=organization_ids)
+        .filter(organization_id__in=organization_ids, merged_into__isnull=True)
     )
 
 
@@ -427,8 +434,8 @@ class DashboardAPIView(APIView):
             id__in=organization_ids,
         ).order_by("name")
 
-        boxes = Box.objects.filter(organization_id__in=organization_ids)
-        measurements = BiologicalMeasurement.objects.filter(box__organization_id__in=organization_ids)
+        boxes = Box.objects.filter(organization_id__in=organization_ids, merged_into__isnull=True)
+        measurements = BiologicalMeasurement.objects.canonical().filter(box__organization_id__in=organization_ids)
         access_candidates = AuditLog.objects.filter(
             organization_id__in=organization_ids,
             user=request.user,
@@ -513,7 +520,7 @@ class OverviewActiveBoxesAPIView(APIView):
         box_ids = [box.id for box in boxes]
         zone_ids = {box.thermal_zone_id for box in boxes if box.thermal_zone_id}
         app_tracked_box_ids = set(
-            BiologicalMeasurement.objects.filter(
+            BiologicalMeasurement.objects.canonical().filter(
                 box_id__in=box_ids,
                 user__isnull=False,
             )
@@ -522,7 +529,7 @@ class OverviewActiveBoxesAPIView(APIView):
         )
 
         earliest_measurement_by_box = dict(
-            BiologicalMeasurement.objects.filter(box_id__in=box_ids)
+            BiologicalMeasurement.objects.canonical().filter(box_id__in=box_ids)
             .order_by()
             .values("box_id")
             .annotate(earliest_measured_on=Min("measured_on"))
@@ -530,7 +537,7 @@ class OverviewActiveBoxesAPIView(APIView):
         )
 
         measurements_by_box = defaultdict(list)
-        measurements = BiologicalMeasurement.objects.filter(box_id__in=box_ids)
+        measurements = BiologicalMeasurement.objects.canonical().filter(box_id__in=box_ids)
         if not complete_history:
             measurements = measurements.filter(measured_on__gte=history_start_date)
         measurements = measurements.order_by("box_id", "measured_on", "created_at")
@@ -644,6 +651,7 @@ class BoxListAPIView(generics.ListCreateAPIView):
         if search:
             queryset = queryset.filter(
                 Q(global_code__icontains=search)
+                | Q(previous_global_code__icontains=search)
                 | Q(local_code__icontains=search)
                 | Q(box_number__icontains=search)
                 | Q(strain__code__icontains=search)
@@ -823,7 +831,7 @@ class AdminBoxInventoryListAPIView(generics.ListAPIView):
 
         # Institution-wide counters, independent of the current page and filters.
         self.inventory_summary = Box.objects.filter(
-            organization_id__in=organization_ids,
+            organization_id__in=organization_ids, merged_into__isnull=True,
         ).aggregate(
             pending_review_count=Count("pk", filter=Q(status=Box.Status.PENDING_REVIEW)),
             active_without_location_count=Count(
@@ -959,7 +967,7 @@ class AdminBoxInventoryBatchQualifyAPIView(APIView):
                 with transaction.atomic():
                     box = (
                         Box.objects.select_for_update()
-                        .filter(id=box_id, organization_id__in=organization_ids)
+                        .filter(id=box_id, organization_id__in=organization_ids, merged_into__isnull=True)
                         .first()
                     )
                     if box is None:
@@ -1076,7 +1084,13 @@ class BoxDetailAPIView(generics.RetrieveAPIView):
         return box_queryset_for_user(
             self.request.user,
             organization_ids=get_active_organization_ids(self.request),
+            include_merged=True,
         )
+
+    def get_object(self):
+        box = resolve_box_identity(self.get_queryset(), self.kwargs["pk"])
+        self.check_object_permissions(self.request, box)
+        return box
 
 
 class BoxTemperatureHistoryPagination(LimitOffsetPagination):
@@ -1093,13 +1107,33 @@ class BoxTemperatureHistoryAPIView(generics.GenericAPIView):
 
     def get(self, request, box_id):
         organization = get_required_active_organization_from_request(request)
-        box = get_object_or_404(Box.objects.filter(organization=organization), pk=box_id)
+        box = resolve_box_identity(Box.objects.filter(organization=organization), box_id)
         query = self.get_serializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         temperatures = box_temperature_queryset(box, **query.validated_data)
         page = self.paginate_queryset(temperatures)
+        support = temperature_support_periods(box) if has_merged_identity(box) else None
         return self.get_paginated_response([
-            temperature_history_point(temperature) for temperature in page
+            temperature_history_point(temperature, support) for temperature in page
+        ])
+
+
+class BoxHistoricalTemperatureAPIView(generics.GenericAPIView):
+    """Read confirmed week-precision temperatures recorded with a Box's counts."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = BoxTemperatureHistoryQuerySerializer
+    pagination_class = BoxTemperatureHistoryPagination
+
+    def get(self, request, box_id):
+        organization = get_required_active_organization_from_request(request)
+        box = resolve_box_identity(Box.objects.filter(organization=organization), box_id)
+        query = self.get_serializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        readings = box_historical_temperature_queryset(box, **query.validated_data)
+        page = self.paginate_queryset(readings)
+        return self.get_paginated_response([
+            historical_temperature_history_point(reading) for reading in page
         ])
 
 
@@ -1110,7 +1144,7 @@ class BoxScanAPIView(APIView):
 
     def post(self, request, box_id):
         organization = get_required_active_organization_from_request(request)
-        box = get_object_or_404(Box.objects.filter(organization=organization), id=box_id)
+        box = resolve_box_identity(Box.objects.filter(organization=organization), box_id)
         AuditLog.objects.create(
             organization=box.organization,
             user=request.user,
@@ -1118,9 +1152,9 @@ class BoxScanAPIView(APIView):
             object_type="box",
             object_id=box.global_code,
             description=f"QR scan of {box.global_code}",
-            metadata={"box_id": box.id, "source": "qr_link"},
+            metadata={"box_id": box.id, "requested_box_id": box_id, "source": "qr_link"},
         )
-        return Response({"global_code": box.global_code}, status=status.HTTP_201_CREATED)
+        return Response({"id": box.id, "global_code": box.global_code}, status=status.HTTP_201_CREATED)
 
 
 class BoxAccessAPIView(APIView):
@@ -1266,7 +1300,7 @@ class BoxMeasurementListCreateAPIView(generics.GenericAPIView):
 
     def get(self, request, box_id):
         box = self._get_box(request, box_id)
-        queryset = box.biological_measurements.select_related("user", "original_observer", "imported_by").order_by("-week_start", "-created_at", "-pk")
+        queryset = box.biological_measurements.canonical().select_related("user", "original_observer", "imported_by").order_by("-week_start", "-created_at", "-pk")
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)

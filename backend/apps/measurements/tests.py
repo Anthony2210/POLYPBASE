@@ -453,10 +453,12 @@ class MeasurementEditingApiTests(TestCase):
         )
         output = StringIO()
 
+        canonical_rows = MagicMock()
+        canonical_rows.values.return_value = rows
         with patch.object(
             BiologicalMeasurement.objects,
-            "values",
-            return_value=rows,
+            "canonical",
+            return_value=canonical_rows,
         ), self.assertRaises(CommandError):
             call_command(
                 "check_biological_measurement_duplicates",

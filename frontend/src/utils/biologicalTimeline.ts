@@ -53,7 +53,14 @@ export function prepareBiologicalChartData(
   timeline: readonly BiologicalTimelineEntry[] | undefined,
   labels: BiologicalTimelineLabels,
 ) {
-  const readings = new Map<number, TrendMeasurement>(measurements.map((measurement) => [measurement.id, toTrendMeasurement(measurement)]));
+  // Evidence marked in either input must not re-enter through the other input.
+  const duplicateIds = new Set([
+    ...measurements,
+    ...(timeline ?? []).flatMap((entry) => entry.kind === 'measurement' && entry.measurement ? [entry.measurement] : []),
+  ].filter((measurement) => measurement.duplicate_of != null).map((measurement) => measurement.id));
+  const readings = new Map<number, TrendMeasurement>(measurements
+    .filter((measurement) => !duplicateIds.has(measurement.id))
+    .map((measurement) => [measurement.id, toTrendMeasurement(measurement)]));
   const polypStates: TrendPolypState[] = [];
   const events: Array<TrendEvent & { subcultureEventId: number }> = [];
   const seen = new Set<string>();
@@ -62,6 +69,7 @@ export function prepareBiologicalChartData(
     if (seen.has(identity)) return;
     seen.add(identity);
     if (entry.kind === 'measurement') {
+      if (duplicateIds.has(entry.id) || (entry.measurement && duplicateIds.has(entry.measurement.id))) return;
       const reading = entry.measurement ? toTrendMeasurement(entry.measurement) : readings.get(entry.id);
       if (reading) readings.set(entry.id, { ...reading, timelineOrder });
       return;
@@ -121,5 +129,14 @@ function toTrendMeasurement(measurement: BiologicalMeasurement): TrendMeasuremen
     salinity: measurement.salinity_psu,
     user_identity: measurement.user_identity,
     note: measurement.notes,
+    environmentLocations: measurement.environment_locations === undefined && measurement.environment_source_box != null
+      ? []
+      : measurement.environment_locations?.map((location) => ({
+        id: location.id,
+        name: location.thermal_zone.name,
+        startsAt: location.starts_at,
+        endsAt: location.ends_at,
+        endDateUnknown: location.end_date_unknown,
+      })) ?? null,
   };
 }

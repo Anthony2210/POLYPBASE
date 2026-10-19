@@ -142,6 +142,42 @@ function clickEvent() {
   return { stopped: false, stopPropagation() { this.stopped = true; } };
 }
 
+test('weekly evidence uses uncertainty spans and independent toggles without changing main chart geometry', () => {
+  const weekly = { date: '2026-01-08', average_temperature_c: 0,
+    week: { id: 55, year: 2026, number: 2, start: '2026-01-05', end: '2026-01-11', valueText: '0.000' } };
+  const daily = { date: '2026-01-08', average_temperature_c: 12, zone_id: 7, zone_name: 'Zone' };
+  const view = mountTrendChart({ temperatures: [weekly, daily], labels: {
+    chartTitle: 'Chart', empty: 'Empty', polyps: 'Polyps', ephyrae: 'Ephyrae', location: 'Location',
+    temperature: 'Zone temperature', historicalTemperature: 'Historical temperature by week',
+    historicalWeek: 'Week', historicalPeriod: 'Possible period', historicalNote: 'Exact day unknown',
+  } });
+  let nodes = view.render();
+  const axes = axisFrame(nodes), biology = biologyGeometry(nodes);
+  const weeklyLegend = () => nodes.find(node => node.type === 'button' && hasClass(node, 'is-weekly'));
+  assert.equal(temperatureControls(nodes).length, 2);
+  assert.equal(nodes.filter(node => hasClass(node, 'bio-trend-week-span')).length, 1);
+  assert.equal(nodes.filter(node => node.type === 'rect' && hasClass(node, 'is-weekly')).length, 1);
+  const control = temperatureControls(nodes).find(node => node.props['aria-label'].startsWith('Week 2, 2026'));
+  assert.ok(control.props['aria-label'].includes('Historical temperature by week: 0.000'));
+  assert.doesNotMatch(control.props['aria-label'], /08\/01\/2026/);
+  control.props.onClick(clickEvent());
+  nodes = view.render();
+  const tooltipText = nodeText(chartTooltip(nodes));
+  assert.ok(tooltipText.includes(`Possible period${utility('dateFormat').formatDisplayDate(weekly.week.start)} - ${utility('dateFormat').formatDisplayDate(weekly.week.end)}`));
+  assert.ok(!tooltipText.includes(utility('dateFormat').formatDisplayDate(weekly.date)), 'synthetic marker position is never an observed day');
+  assert.match(nodeText(chartTooltip(nodes)), /Exact day unknown/);
+  temperatureLegend(nodes).props.onClick();
+  nodes = view.render();
+  assert.equal(temperatureControls(nodes).length, 1, 'daily toggle leaves weekly evidence visible');
+  assert.ok(chartTooltip(nodes), 'daily toggle does not unpin weekly evidence');
+  weeklyLegend().props.onClick();
+  nodes = view.render();
+  assert.equal(temperatureControls(nodes).length, 0);
+  assert.equal(chartTooltip(nodes), undefined);
+  assert.equal(axisFrame(nodes), axes);
+  assert.equal(biologyGeometry(nodes), biology);
+});
+
 test('temperature uses an independent right axis and connects sparse weekly values without synthesizing samples', () => {
   const temperatures = [
     { date: '2026-01-15', average_temperature_c: 24 },
@@ -903,6 +939,7 @@ const tracking = compile(`${readFileSync(new URL('../src/components/BoxTrackingC
   '../utils/chartWindow': utility('chartWindow'), '../utils/biologicalTimeline': utility('biologicalTimeline'),
   './BiologicalTrendChart': chart, './ChartWindowControls': {},
   '../hooks/useTemperatureHistory': {}, './TemperatureHistoryStatus': {},
+  '../hooks/useHistoricalTemperatures': {}, './HistoricalTemperatureStatus': {}, '../utils/historicalTemperature': {},
 });
 
 function withParisCalendar(callback) {

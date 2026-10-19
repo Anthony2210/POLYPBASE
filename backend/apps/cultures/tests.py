@@ -1678,11 +1678,11 @@ class PolypbaseApiTests(TestCase):
 
                 response = self.client.post(reverse("api_box_scan", args=[allowed.id]), **headers)
                 self.assertEqual(response.status_code, 201)
-                self.assertEqual(response.json(), {"global_code": allowed.global_code})
+                self.assertEqual(response.json(), {"id": allowed.id, "global_code": allowed.global_code})
                 audit = AuditLog.objects.get(action=AuditLog.Action.SCAN, object_id=allowed.global_code)
                 self.assertEqual(audit.organization_id, organization.id)
                 self.assertEqual(audit.user_id, self.user.id)
-                self.assertEqual(audit.metadata, {"box_id": allowed.id, "source": "qr_link"})
+                self.assertEqual(audit.metadata, {"box_id": allowed.id, "requested_box_id": allowed.id, "source": "qr_link"})
                 self.assertEqual(audit.description, f"QR scan of {allowed.global_code}")
                 svg = self.client.get(reverse("qr_boite", args=[allowed.id]), **headers)
                 self.assertEqual(svg.status_code, 200)

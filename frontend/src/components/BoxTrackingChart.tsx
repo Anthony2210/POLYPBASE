@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 
-import type { BiologicalMeasurement, BoxLocation, BoxLineage, BoxMovement, BoxTemperaturePoint } from '../types';
+import type { BiologicalMeasurement, BoxLocation, BoxLineage, BoxMovement, BoxTemperaturePoint, LocationConflict } from '../types';
 import { createTranslator, type Language } from '../i18n';
 import { buildChartWindow, getLatestChartWindowOffset, parseChartDate, toChartDateString } from '../utils/chartWindow';
 import BiologicalTrendChart, { isChartEventInRange, type TrendEvent, type TrendLocation, type TrendPolypState } from './BiologicalTrendChart';
@@ -8,6 +8,9 @@ import { getBiologicalTimelineLabels, prepareBiologicalChartData, type Biologica
 import ChartWindowControls from './ChartWindowControls';
 import { useTemperatureHistory } from '../hooks/useTemperatureHistory';
 import TemperatureHistoryStatus from './TemperatureHistoryStatus';
+import HistoricalTemperatureStatus from './HistoricalTemperatureStatus';
+import { useHistoricalTemperatures } from '../hooks/useHistoricalTemperatures';
+import { weeklyTrendTemperatures } from '../utils/historicalTemperature';
 
 export type BoxTrackingChartLabels = {
   chartEmpty: string;
@@ -47,6 +50,8 @@ export default function BoxTrackingChart({
   measurements,
   onOpenHistory,
   temperatures = [],
+  locationConflicts = [],
+  historicalTemperatureRefreshKey,
 }: {
   compact?: boolean;
   boxId?: number;
@@ -58,6 +63,8 @@ export default function BoxTrackingChart({
   locations: BoxLocation[];
   measurements: BiologicalMeasurement[];
   temperatures?: BoxTemperaturePoint[];
+  locationConflicts?: readonly LocationConflict[];
+  historicalTemperatureRefreshKey?: unknown;
   onOpenHistory?: () => void;
 }) {
   const timelineLabels = useMemo(() => getBiologicalTimelineLabels(createTranslator(language)), [language]);
@@ -129,6 +136,20 @@ export default function BoxTrackingChart({
     ? extentStart
     : currentWindow.startDate >= endDate ? extentStart : currentWindow.startDate;
   const temperatureHistory = useTemperatureHistory(boxId, startDate, endDate, locations);
+  // App publishes a new Box projection after mutations and guarded refreshes, including identity
+  // corrections whose counts and dates did not change. Never retain pre-correction evidence.
+  const historicalRefreshScope = useMemo(() => ({ historicalTemperatureRefreshKey, measurements, locations }),
+    [historicalTemperatureRefreshKey, measurements, locations]);
+  const historicalTemperatures = useHistoricalTemperatures(boxId, extentStart, extentEnd, historicalRefreshScope);
+  // Week-only observations stay distinct from the current zone readings they are plotted with.
+  const weeklyTemperatures = useMemo(
+    () => weeklyTrendTemperatures(historicalTemperatures.points),
+    [historicalTemperatures.points],
+  );
+  const chartTemperatures = useMemo(
+    () => boxId == null ? temperatures : [...temperatureHistory.points, ...weeklyTemperatures],
+    [boxId, temperatureHistory.points, temperatures, weeklyTemperatures],
+  );
   const preparedData = useMemo(
     () => prepareSharedChartData(biologicalData, locations, chartEvents, startDate, endDate),
     [biologicalData, chartEvents, locations, startDate, endDate],
@@ -152,6 +173,15 @@ export default function BoxTrackingChart({
         title={compact ? undefined : labels.chartTitle}
       />
 
+      {locationConflicts.length > 0 ? (
+        <p className="measurement-lock-note" role="note">
+          {createTranslator(language)('locationConflictNotice')}{' '}
+          {locationConflicts.map((conflict) => conflict.locations.map((location) => (
+            `${location.zone_name} (${location.box_code}, #${location.box_id}${location.end_unknown
+              ? `, ${createTranslator(language)('locationConflictUnknownEnd')}` : ''})`
+          )).join(' / ')).join(' ; ')}
+        </p>
+      ) : null}
       <div className="chart-window-viewport">
         <div className="chart-window-content">
           <BiologicalTrendChart
@@ -159,8 +189,11 @@ export default function BoxTrackingChart({
             startDate={preparedData.startDate}
             endDate={preparedData.endDate}
             measurements={preparedData.measurements}
-            temperatures={boxId == null ? temperatures : temperatureHistory.points}
-            temperatureStatus={boxId != null ? <TemperatureHistoryStatus {...temperatureHistory} language={language} /> : undefined}
+            temperatures={chartTemperatures}
+            temperatureStatus={boxId != null ? <>
+              <TemperatureHistoryStatus {...temperatureHistory} language={language} />
+              <HistoricalTemperatureStatus {...historicalTemperatures} pointCount={historicalTemperatures.points.length} language={language} />
+            </> : undefined}
             polypStates={preparedData.polypStates}
             locations={preparedData.locations}
             events={preparedData.events}
@@ -173,6 +206,7 @@ export default function BoxTrackingChart({
               historicalUser: createTranslator(language)('historicalUser'),
               ephyrae: labels.ephyraeFull,
               location: language === 'fr' ? 'Emplacement' : 'Location',
+              sourceLocation: createTranslator(language)('recordedOriginalLocation'),
               locationChange: createTranslator(language)('locationPeriodChange'),
               locationChangeNote: createTranslator(language)('locationPeriodChangeNote'),
               missingReading: labels.missingReading,
@@ -181,7 +215,12 @@ export default function BoxTrackingChart({
               observation: labels.historyObservation,
               polyps: labels.polyps,
               salinity: labels.salinityFull,
-              temperature: createTranslator(language)('temperature'),
+              temperature: createTranslator(language)(biologicalData.measurements.some((measurement) => measurement.environmentLocations != null)
+                ? 'canonicalBoxTemperature' : 'temperature'),
+              historicalTemperature: boxId != null ? createTranslator(language)('historicalTemperatureSeries') : undefined,
+              historicalWeek: createTranslator(language)('historicalTemperatureWeek'),
+              historicalPeriod: createTranslator(language)('historicalTemperaturePeriod'),
+              historicalNote: createTranslator(language)('historicalTemperatureNote'),
               temperatureOutsideScale: createTranslator(language)('temperatureOutsideScale'),
               selectReading: language === 'fr'
                 ? 'Sélectionnez un point du graphique pour afficher le relevé.'

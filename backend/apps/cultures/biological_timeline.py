@@ -23,6 +23,8 @@ def biological_timeline(box, *, context):
 
     entries = []
     for measurement in box.biological_measurements.all():
+        if measurement.duplicate_of_id is not None:
+            continue
         data = BiologicalMeasurementSerializer(measurement, context=context).data
         entries.append({
             "kind": "measurement", "id": measurement.pk, "identity": f"measurement:{measurement.pk}",

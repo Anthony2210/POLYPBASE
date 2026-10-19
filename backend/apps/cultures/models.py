@@ -78,28 +78,45 @@ class Box(models.Model):
     deactivated_on = models.DateField(null=True, blank=True)
     notes = models.TextField(blank=True)
     polyp_state_revision = models.PositiveBigIntegerField(default=0, editable=False)
+    merged_into = models.ForeignKey(
+        "self", on_delete=models.PROTECT, null=True, blank=True,
+        related_name="merged_sources", editable=False,
+    )
+    previous_global_code = models.CharField(max_length=100, blank=True, editable=False)
 
     def save(self, *args, **kwargs):
-        # All ordinary code writers share the allocator lock, including imports
-        # and admin renames. Status/location updates never acquire this lock.
         from .box_codes import register_box_code
 
-        update_fields = kwargs.get("update_fields")
-        if not self._state.adding and update_fields is None:
-            # Ordinary full saves must not overwrite a newer scientific revision
-            # from an object fetched before a measurement/subculture committed.
-            update_fields = {field.name for field in self._meta.concrete_fields
-                             if not field.primary_key and field.name != "polyp_state_revision"}
-            kwargs["update_fields"] = update_fields
-        if self._state.adding or "global_code" in update_fields:
-            with transaction.atomic(using=kwargs.get("using")):
-                if not self._state.adding:
-                    type(self).objects.select_for_update().only("pk").get(pk=self.pk)
+        # Recheck retirement after waiting for the same lock as laboratory
+        # writers. A stale model instance must never resurrect an alias.
+        with transaction.atomic(using=kwargs.get("using")):
+            if not self._state.adding:
+                current = type(self).objects.select_for_update().only("merged_into", "previous_global_code").get(pk=self.pk)
+                if current.merged_into_id is not None:
+                    raise ValidationError(_("A merged identity is read-only."))
+                if current.previous_global_code != self.previous_global_code:
+                    raise ValidationError(_("The culture identity changed. Reload the culture."))
+            update_fields = kwargs.get("update_fields")
+            if not self._state.adding and update_fields is None:
+                update_fields = {field.name for field in self._meta.concrete_fields
+                                 if not field.primary_key and field.name != "polyp_state_revision"}
+                kwargs["update_fields"] = update_fields
+            if self._state.adding or "global_code" in update_fields:
                 register_box_code(self.global_code, namespace=self.strain.code)
-                return super().save(*args, **kwargs)
-        return super().save(*args, **kwargs)
+                if type(self).objects.filter(previous_global_code=self.global_code).exclude(pk=self.pk).exists():
+                    raise ValidationError(_("This code is reserved by a historical culture identity."))
+            return super().save(*args, **kwargs)
 
     class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(merged_into__isnull=True) | (
+                    Q(status="inactive", thermal_zone__isnull=True)
+                    & ~Q(merged_into=models.F("pk"))
+                ),
+                name="merged_box_is_retired",
+            ),
+        ]
         indexes = [
             models.Index(fields=["organization", "status"]),
             models.Index(fields=["global_code"]),

@@ -34,6 +34,7 @@ from apps.cultures.api_views import (
     BoxScanAPIView,
     BoxSubcultureCodePreviewAPIView,
     BoxSubcultureCreateAPIView,
+    BoxHistoricalTemperatureAPIView,
     BoxTemperatureHistoryAPIView,
     BoxTransferCreateAPIView,
     BoxTransferImportAPIView,
@@ -124,6 +125,11 @@ urlpatterns = [
         "boxes/<int:box_id>/temperatures/",
         BoxTemperatureHistoryAPIView.as_view(),
         name="api_box_temperatures",
+    ),
+    path(
+        "boxes/<int:box_id>/historical-temperatures/",
+        BoxHistoricalTemperatureAPIView.as_view(),
+        name="api_box_historical_temperatures",
     ),
     path("boxes/<int:box_id>/scan/", BoxScanAPIView.as_view(), name="api_box_scan"),
     path(

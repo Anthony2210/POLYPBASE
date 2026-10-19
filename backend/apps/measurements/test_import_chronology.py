@@ -379,7 +379,7 @@ class MeasurementImportChronologyTests(PlannerHelperMixin, TestCase):
         first = self.plan(preparation)
         second = self.plan(preparation)
         evidence = self.assert_evidence(first, 0, [self.operation(event)])
-        self.assertEqual(first.schema_version, "1.2")
+        self.assertEqual(first.schema_version, "1.3")
         self.assertIsInstance(first.chronology_conflicts, tuple)
         self.assertEqual(first, second)
         self.assertEqual(first.canonical_json(), second.canonical_json())

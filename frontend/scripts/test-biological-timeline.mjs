@@ -83,6 +83,177 @@ test('imported zero measurements with unknown metadata remain chart readings wit
   assert.doesNotMatch(markup, /NaN|undefined/);
 });
 
+test('retained duplicate archive stays separate while canonical zero and null metadata remain intact', () => {
+  const zero = Object.freeze({ ...reading(10, '2026-09-15', 0), duplicate_of: null,
+    environment_source_box: 2141, strobila_count: null, culture_status: null, needs_attention: null, notes: null });
+  const ordinary = Object.freeze({ ...reading(11, '2026-09-22', 0), salinity_psu: '0' });
+  const archive = Object.freeze(Array.from({ length: 18 }, (_, index) => Object.freeze({
+    ...reading(100 + index, '2026-09-15', index), duplicate_of: zero.id, environment_source_box: 2141,
+    strobila_count: null, notes: 'Retained source evidence', can_edit: false,
+    edit_restriction: 'measurement_duplicate_read_only',
+  })));
+  const detail = Object.freeze({ biological_measurements: Object.freeze([zero, ordinary]),
+    duplicate_measurements: archive,
+    identity_history: Object.freeze([{ id: 2141, global_code: 'RETIRED-PCA', merged_into: 2135, locations: [] }]),
+  });
+  const before = JSON.stringify(detail);
+  const data = timeline.prepareBiologicalChartData([
+    ...detail.biological_measurements, ...detail.duplicate_measurements,
+  ], undefined, labelsFor(en, 'en'));
+  assert.deepEqual(plain(data.measurements.map(item => item.id)), [10, 11]);
+  assert.deepEqual(plain(data.measurements.map(item => item.polypCount)), [0, 0]);
+  assert.deepEqual(plain(data.measurements.map(item => item.ephyraeCount)), [0, 0]);
+  assert.equal(data.measurements[0].salinity, null);
+  assert.equal(data.measurements[0].note, null);
+  assert.equal(data.measurements[1].salinity, '0');
+  assert.equal(data.polypStates.length, 0);
+  assert.equal(data.events.length, 0);
+  assert.equal(detail.duplicate_measurements.length, 18);
+  assert.equal(detail.biological_measurements[0].strobila_count, null);
+  assert.equal(JSON.stringify(detail), before, 'chart preparation must not rewrite archived evidence');
+  const { chart } = chartHarness();
+  const geometry = chart.buildGeometry(data.measurements, [], [], '2026-09-01', '2026-09-30', false);
+  assert.deepEqual(plain(geometry.plottedMeasurements.map(point => point.polypCount)), [0, 0]);
+});
+
+for (const duplicateOf of [10, 0]) {
+  test(`nested timeline duplicate_of=${duplicateOf} never becomes a plotted measurement`, () => {
+    const zero = { ...reading(10, '2026-09-15', 0), duplicate_of: null, notes: null, environment_source_box: 2141 };
+    const duplicate = { ...reading(12, '2026-09-15', 999), duplicate_of: duplicateOf };
+    const entries = Object.freeze([
+      Object.freeze({ kind: 'measurement', id: duplicate.id, effective_date: duplicate.measured_on, measurement: duplicate }),
+      Object.freeze({ kind: 'measurement', id: zero.id, effective_date: zero.measured_on, measurement: zero }),
+    ]);
+    const before = JSON.stringify(entries);
+    const data = timeline.prepareBiologicalChartData([], entries, labelsFor(fr, 'fr'));
+    assert.deepEqual(plain(data.measurements.map(item => item.id)), [10]);
+    assert.equal(data.measurements[0].polypCount, 0);
+    assert.equal(data.measurements[0].ephyraeCount, 0);
+    assert.equal(data.measurements[0].salinity, null);
+    assert.equal(data.measurements[0].note, null);
+    assert.equal(data.events.length, 0);
+    assert.equal(JSON.stringify(entries), before);
+  });
+}
+
+for (const markedInput of ['measurements', 'timeline', 'laterTimelineCopy']) {
+  test(`duplicate flagged in ${markedInput} cannot be reinjected by a copy missing metadata`, () => {
+    const canonical = { ...reading(10, '2026-09-15', 0), duplicate_of: null };
+    const unmarkedCopy = reading(12, '2026-09-15', 999);
+    const duplicate = { ...unmarkedCopy, duplicate_of: canonical.id };
+    const entry = (measurement, date = measurement.measured_on) => ({
+      kind: 'measurement', id: measurement.id, effective_date: date, measurement,
+    });
+    const measurements = [canonical, markedInput === 'measurements' ? duplicate : unmarkedCopy];
+    const entries = markedInput === 'measurements' ? [entry(unmarkedCopy)]
+      : markedInput === 'timeline' ? [entry(duplicate)]
+        : [entry(unmarkedCopy), entry(duplicate, '2026-09-22')];
+    const before = JSON.stringify({ measurements, entries });
+    const data = timeline.prepareBiologicalChartData(measurements, entries, labelsFor(en, 'en'));
+    assert.deepEqual(plain(data.measurements.map(item => item.id)), [canonical.id]);
+    assert.equal(data.measurements[0].polypCount, 0);
+    assert.equal(data.measurements[0].salinity, null);
+    assert.equal(JSON.stringify({ measurements, entries }), before);
+  });
+}
+
+for (const [language, catalog] of [['fr', fr], ['en', en]]) {
+  test(`${language}: actual chart uses source environments and keeps canonical temperatures independent`, () => {
+    const location = (id, name, start, end = null, unknown = false) => ({
+      id, thermal_zone: { id, name }, starts_at: start, ends_at: end, end_date_unknown: unknown,
+    });
+    const canonicalLocations = [
+      location(100, 'CHO 15 C', '2025-12-01', '2026-10-08'),
+      location(101, 'CHO 10 C', '2026-10-09'),
+    ];
+    const sourceLocations = [location(200, 'JKA zone 2', '2026-01-12', null, true)];
+    const raw = [
+      { ...reading(41, '2025-12-29', 0), environment_source_box: 2141, environment_locations: [] },
+      { ...reading(42, '2026-01-12', 1), environment_source_box: 2141, environment_locations: sourceLocations },
+      { ...reading(43, '2026-01-19', 2), environment_source_box: 2141, environment_locations: sourceLocations },
+      { ...reading(44, '2026-10-05', 3), environment_locations: null },
+      { ...reading(45, '2026-10-12', 4), environment_locations: null },
+    ];
+    const before = JSON.stringify({ raw, canonicalLocations, sourceLocations });
+    const temperatures = raw.map(point => ({ date: point.measured_on,
+      average_temperature_c: point.id === 45 ? 10 : 15,
+      zone_name: point.id === 45 ? 'CHO 10 C' : 'CHO 15 C', zone_id: point.id === 45 ? 101 : 100 }));
+    const tracking = load('../src/components/BoxTrackingChart.tsx', {
+      react: { useMemo: fn => fn(), useState: initial => [initial, () => {}] }, 'react/jsx-runtime': jsxRuntime,
+      '../utils/chartWindow': utility('chartWindow'), '../utils/biologicalTimeline': timeline,
+      './BiologicalTrendChart': { ...chartHarness().chart, default: () => null }, './ChartWindowControls': { default: () => null },
+      '../hooks/useTemperatureHistory': { useTemperatureHistory: () => ({ points: [], loading: false, failed: false, retry() {} }) },
+      './TemperatureHistoryStatus': { default: () => null },
+      './HistoricalTemperatureStatus': { default: () => null },
+      '../hooks/useHistoricalTemperatures': { useHistoricalTemperatures: () => ({ points: [], loading: false, failed: false, retry() {} }) },
+      '../utils/historicalTemperature': { weeklyTrendTemperatures: () => [] },
+      '../i18n': { createTranslator: lang => translator(lang === 'fr' ? fr : en, lang) },
+    });
+    const tree = tracking.default({ measurements: raw.filter(point => point.id !== 42),
+      biologicalTimeline: [{ kind: 'measurement', id: 42, effective_date: raw[1].measured_on, measurement: raw[1] }],
+      locations: canonicalLocations, temperatures, events: [], language,
+      labels: { polyps: catalog.polyps, ephyraeFull: catalog.ephyraeFull, chartTitle: catalog.chartTitle, chartEmpty: catalog.chartEmpty },
+    });
+    const trend = allNodes(tree).find(node => node.props?.polypStates);
+    assert.equal(trend.props.labels.temperature, catalog.canonicalBoxTemperature);
+    assert.equal(trend.props.labels.sourceLocation, catalog.recordedOriginalLocation);
+    assert.doesNotMatch(catalog.canonicalBoxTemperature, /canonical|canonique/i, 'zone temperatures are not presented as certain canonical locations');
+    assert.equal(allNodes(tree).find(node => node.props?.role === 'note'), undefined, 'no notice without a conflict');
+    const conflict = { basis: 'end_unknown', locations: [
+      { location_id: 5945, box_id: 2141, box_code: 'PCA-JKA-1.005', zone_id: 2, zone_name: 'Zone 2', end_unknown: true },
+      { location_id: 5979, box_id: 2135, box_code: 'PCA-CHO-1.005', zone_id: 1, zone_name: 'Zone 1', end_unknown: false },
+    ] };
+    const noticeTree = tracking.default({ measurements: raw, locations: canonicalLocations, temperatures, events: [], language,
+      locationConflicts: [conflict],
+      labels: { polyps: catalog.polyps, ephyraeFull: catalog.ephyraeFull, chartTitle: catalog.chartTitle, chartEmpty: catalog.chartEmpty } });
+    const notice = renderToStaticMarkup(allNodes(noticeTree).find(node => node.props?.role === 'note'));
+    assert.ok(notice.includes(catalog.locationConflictNotice));
+    assert.ok(notice.includes('Zone 2 (PCA-JKA-1.005, #2141') && notice.includes('Zone 1 (PCA-CHO-1.005, #2135)'), 'both histories are named, neither is chosen');
+    assert.ok(notice.includes(catalog.locationConflictUnknownEnd));
+    assert.deepEqual(plain(trend.props.locations.map(item => item.id)), [100, 101], 'never concatenate source and canonical periods');
+    assert.deepEqual(plain(trend.props.measurements.find(point => point.id === 41).environmentLocations), []);
+    assert.deepEqual(plain(trend.props.measurements.find(point => point.id === 42).environmentLocations), [{
+      id: 200, name: 'JKA zone 2', startsAt: '2026-01-12', endsAt: null, endDateUnknown: true,
+    }], 'nested timeline measurements retain the source period exactly');
+    const props = { ...trend.props, startDate: '2025-12-01', endDate: '2026-10-31' };
+    const harness = chartHarness();
+    const expectedLocations = new Map([[41, null], [42, 'JKA zone 2'], [43, null], [44, 'CHO 15 C'], [45, 'CHO 10 C']]);
+    for (const [id, expected] of expectedLocations) {
+      const point = allNodes(harness.render(props)).find(node => node.key === `measurement-${id}`);
+      assert.ok(point, `missing rendered point ${id}`);
+      if (expected) assert.ok(point.props['aria-label'].includes(expected));
+      else assert.doesNotMatch(point.props['aria-label'], /CHO 15 C|CHO 10 C|JKA zone 2/);
+      point.props.onFocus();
+      const tooltip = allNodes(harness.render(props)).find(node => node.props?.className?.startsWith('bio-trend-tooltip'));
+      const markup = renderToStaticMarkup(tooltip);
+      if (expected) assert.ok(markup.includes(expected));
+      else assert.doesNotMatch(markup, /CHO 15 C|CHO 10 C|JKA zone 2/);
+      assert.doesNotMatch(markup, /°C|Temperature|Température/, 'no canonical or nearest temperature is attached to a biological point');
+    }
+    const temperaturePoints = allNodes(harness.render(props)).filter(node => node.props?.className === 'bio-trend-temperature-point');
+    assert.equal(temperaturePoints.length, temperatures.length);
+    assert.ok(temperaturePoints[0].props['aria-label'].includes(catalog.canonicalBoxTemperature));
+    temperaturePoints[0].props.onFocus();
+    const tooltip = allNodes(harness.render(props)).find(node => node.props?.className?.startsWith('bio-trend-tooltip'));
+    const markup = renderToStaticMarkup(tooltip);
+    assert.ok(markup.includes(catalog.canonicalBoxTemperature));
+    assert.match(markup, /CHO 15 C/);
+    assert.doesNotMatch(markup, /JKA zone 2/);
+    assert.equal(JSON.stringify({ raw, canonicalLocations, sourceLocations }), before);
+  });
+}
+
+test('source environment projection preserves null fallback and fails closed when source periods are missing', () => {
+  const data = timeline.prepareBiologicalChartData([
+    { ...reading(1, '2026-10-05', 0), environment_locations: null },
+    { ...reading(2, '2026-10-12', 0) },
+    { ...reading(3, '2026-01-01', 0), environment_source_box: 2141 },
+  ], undefined, labelsFor(en, 'en'));
+  assert.equal(data.measurements[0].environmentLocations, null);
+  assert.equal(data.measurements[1].environmentLocations, null);
+  assert.deepEqual(plain(data.measurements[2].environmentLocations), []);
+});
+
 test('a multi-child parent event yields one absolute state and one lifecycle marker', () => {
   const data = timeline.prepareBiologicalChartData([measurement], [parentEntry, measurementEntry, parentEntry], labelsFor(fr, 'fr'));
   assert.equal(data.measurements.length, 1);
@@ -214,6 +385,8 @@ test('tracking window prefers the latest quantitative state over an older ordina
     './BiologicalTrendChart': { ...chartHarness().chart, default: () => null }, './ChartWindowControls': { default: () => null },
     '../hooks/useTemperatureHistory': { useTemperatureHistory: () => ({ points: [], loading: false, failed: false, retry() {} }) },
     './TemperatureHistoryStatus': { default: () => null },
+    '../hooks/useHistoricalTemperatures': { useHistoricalTemperatures: () => ({ points: [], loading: false, failed: false, retry() {} }) },
+    './HistoricalTemperatureStatus': { default: () => null }, '../utils/historicalTemperature': { weeklyTrendTemperatures: () => [] },
     '../i18n': { createTranslator: (language) => translator(language === 'fr' ? fr : en, language) },
   });
   const oldMeasurement = reading(8, '2024-01-01', 100);
@@ -237,6 +410,7 @@ test('lifecycle grouping and preview integration use one event per parent operat
     '../utils/chartWindow': utility('chartWindow'), '../utils/biologicalTimeline': timeline,
     './BiologicalTrendChart': {}, './ChartWindowControls': {},
     '../hooks/useTemperatureHistory': {}, './TemperatureHistoryStatus': {},
+    '../hooks/useHistoricalTemperatures': {}, './HistoricalTemperatureStatus': {}, '../utils/historicalTemperature': {},
     '../i18n': { createTranslator: (language) => translator(language === 'fr' ? fr : en, language) },
   });
   const event = { id: 9, event_date: '2026-09-15' };

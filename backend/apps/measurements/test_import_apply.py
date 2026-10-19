@@ -143,7 +143,7 @@ class MeasurementImportApplyTests(TestCase):
         self.assertEqual(receipt.preparation["source_id"], "diagnostic-upload")
         self.assertEqual(receipt.preparation["source_sha256"], receipt.source_sha256)
         self.assertEqual(receipt.plan_fingerprint, args["expected_plan_fingerprint"])
-        self.assertEqual(receipt.accepted_plan["schema_version"], "1.2")
+        self.assertEqual(receipt.accepted_plan["schema_version"], "1.3")
         self.assertEqual(set(receipt.result["audit_ids"]), set(AuditLog.objects.values_list("pk", flat=True)))
         self.assertEqual(AuditLog.objects.count(), 2)
         self.assertFalse(Alert.objects.exists())

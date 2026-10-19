@@ -1,4 +1,6 @@
 from django.contrib import admin
+from django.db.models.deletion import ProtectedError
+from django.utils.translation import gettext_lazy as _
 
 from .models import (
     BiologicalMeasurement,
@@ -25,6 +27,23 @@ class BiologicalMeasurementAdmin(admin.ModelAdmin):
     )
     list_filter = ("culture_status", "needs_attention", "measured_on")
     search_fields = ("box__global_code", "box__box_number")
+    readonly_fields = ("duplicate_of", "environment_source_box")
+
+    def has_change_permission(self, request, obj=None):
+        if obj is not None and obj.duplicate_of_id is not None:
+            return False
+        return super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if obj is not None and obj.duplicate_of_id is not None:
+            return False
+        return super().has_delete_permission(request, obj)
+
+    def delete_queryset(self, request, queryset):
+        duplicates = list(queryset.filter(duplicate_of__isnull=False))
+        if duplicates:
+            raise ProtectedError(_("Duplicate measurement evidence cannot be deleted."), duplicates)
+        return super().delete_queryset(request, queryset)
 
 
 @admin.register(Observation)

@@ -64,8 +64,11 @@ test('returning to idle Pilotage clears search without box-code injection', () =
   assert.doesNotMatch(openBoxSource, /setSearch\(/);
 });
 
-test('late box fallback responses are guarded against route changes', () => {
-  assert.match(appSource, /if \(box\) \{\s*setIsBoxLoading\(false\)/);
+test('numeric box resolution is server-authoritative and guarded against route changes', () => {
+  const openBoxSource = functionNode('openBox').getText(ast);
+  assert.doesNotMatch(openBoxSource, /data\.boxes\.find/);
+  assert.match(openBoxSource, /apiGet<BoxDetail>\(`\/api\/boxes\/\$\{boxId\}\//);
+  assert.match(openBoxSource, /boxId: detail\.id/);
   assert.match(appSource, /const navigationGeneration = navigationGenerationRef\.current/);
   const navigateSource = functionNode('navigateTo').getText(ast);
   assert.match(navigateSource, /getInAppHistory\(\)\.push/);
@@ -83,6 +86,7 @@ for (const traversal of ['push', 'popstate']) {
     h.context.data = h.state.data;
     h.context.setIsBoxLoading = () => {};
     h.evaluate(functionNode('openBox').getText(ast));
+    h.context.openZone(3);
     h.context.openBox(42, 'BOX-42');
     const generation = h.context.navigationGenerationRef.current;
     if (traversal === 'push') {

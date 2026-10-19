@@ -81,6 +81,21 @@ test('location periods keep repeated stays, short visits and historical gaps dis
   assert.equal(locationExports.findChartLocationAtDate(locations, '2026-01-16'), 'Zone 5');
 });
 
+test('source locations never extend an unknown end to a reading or a following period', () => {
+  const locations = Object.freeze([
+    Object.freeze({ id: 1, name: 'JKA zone 2', startsAt: '2026-01-12T08:00:00Z', endsAt: null, endDateUnknown: true }),
+    Object.freeze({ id: 2, name: 'JKA zone 3', startsAt: '2026-02-02T08:00:00Z', endsAt: '2026-02-04T08:00:00Z' }),
+  ]);
+  assert.equal(locationExports.findSourceChartLocationAtDate([], '2025-12-29'), undefined);
+  assert.equal(locationExports.findSourceChartLocationAtDate(locations, '2025-12-29'), undefined);
+  assert.equal(locationExports.findSourceChartLocationAtDate(locations, '2026-01-12'), 'JKA zone 2');
+  assert.equal(locationExports.findSourceChartLocationAtDate(locations, '2026-01-19'), undefined);
+  assert.equal(locationExports.findSourceChartLocationAtDate(locations, '2026-02-01'), undefined);
+  assert.equal(locationExports.findSourceChartLocationAtDate(locations, '2026-02-02'), 'JKA zone 3');
+  assert.equal(locationExports.findSourceChartLocationAtDate(locations, '2026-02-04'), 'JKA zone 3');
+  assert.equal(locationExports.findSourceChartLocationAtDate(locations, '2026-02-05'), undefined);
+});
+
 test('an unknown location end is not extended when no reading supports it', () => {
   const periods = locationExports.resolveChartLocationPeriods([{
     id: 1,

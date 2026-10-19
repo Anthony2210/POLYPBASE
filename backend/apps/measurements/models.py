@@ -3,9 +3,33 @@ import uuid
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import models, transaction
+from django.db import models, router, transaction
+from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+
+
+class BiologicalMeasurementQuerySet(models.QuerySet):
+    def canonical(self):
+        return self.filter(duplicate_of__isnull=True)
+
+    def delete(self):
+        self._for_write = True
+        with transaction.atomic(using=self.db):
+            # Lock a plain PK selection so distinct/search querysets keep their
+            # delete semantics while a reviewed reclassification cannot race us.
+            rows = list(self.model._base_manager.using(self.db).filter(
+                pk__in=self.values("pk"),
+            ).select_for_update().order_by("pk"))
+            duplicates = [row for row in rows if row.duplicate_of_id is not None]
+            if duplicates:
+                raise ProtectedError(_("Duplicate measurement evidence cannot be deleted."), duplicates)
+            result = models.QuerySet.delete(self.filter(pk__in=[row.pk for row in rows]))
+            self._result_cache = None
+            return result
+
+    delete.alters_data = True
+    delete.queryset_only = True
 
 
 class BiologicalMeasurement(models.Model):
@@ -37,6 +61,14 @@ class BiologicalMeasurement(models.Model):
         "cultures.Box",
         on_delete=models.CASCADE,
         related_name="biological_measurements",
+    )
+    duplicate_of = models.ForeignKey(
+        "self", on_delete=models.PROTECT, null=True, blank=True,
+        related_name="duplicate_measurements", editable=False,
+    )
+    environment_source_box = models.ForeignKey(
+        "cultures.Box", on_delete=models.PROTECT, null=True, blank=True,
+        related_name="environment_source_measurements", editable=False,
     )
     measured_on = models.DateField()
     week_start = models.DateField(editable=False)
@@ -86,12 +118,21 @@ class BiologicalMeasurement(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     polyp_state_sequence = models.PositiveBigIntegerField(null=True, editable=False)
 
+    # Evidence remains visible to audits and reviewed operations. Scientific
+    # readers must opt in to canonical(), including reverse-relation readers.
+    objects = BiologicalMeasurementQuerySet.as_manager()
+
     class Meta:
         ordering = ["-measured_on", "-created_at"]
         constraints = [
             models.UniqueConstraint(
                 fields=["box", "week_start"],
+                condition=models.Q(duplicate_of__isnull=True),
                 name="unique_biological_measurement_per_box_week",
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(duplicate_of=models.F("pk")),
+                name="measurement_duplicate_not_self",
             ),
             models.CheckConstraint(
                 condition=models.Q(temporal_precision__in=["legacy_unverified", "exact_date"]),
@@ -149,10 +190,33 @@ class BiologicalMeasurement(models.Model):
             ).exists():
                 raise ValidationError({field: "The account must belong to the measurement institution."})
 
+    def _validate_evidence_relations(self):
+        if self.environment_source_box_id is not None:
+            if self.environment_source_box.organization_id != self.box.organization_id:
+                raise ValidationError({
+                    "environment_source_box": "The environment source must belong to the measurement institution.",
+                })
+        if self.duplicate_of_id is not None:
+            target = self.duplicate_of
+            if target.pk == self.pk or target.duplicate_of_id is not None:
+                raise ValidationError({"duplicate_of": "A duplicate must reference a different canonical measurement."})
+            if target.box.organization_id != self.box.organization_id:
+                raise ValidationError({"duplicate_of": "The canonical measurement must belong to the same institution."})
+            if target.week_start != self.week_start_for(self.measured_on):
+                raise ValidationError({"duplicate_of": "The canonical measurement must belong to the same ISO week."})
+            if self.pk and self.duplicate_measurements.exists():
+                raise ValidationError({"duplicate_of": "A canonical measurement with duplicate evidence cannot become a duplicate."})
+        elif self.pk and self.duplicate_measurements.exclude(
+            week_start=self.week_start_for(self.measured_on),
+            box__organization_id=self.box.organization_id,
+        ).exists():
+            raise ValidationError({"measured_on": "The correction would invalidate retained duplicate evidence."})
+
     def clean(self):
         super().clean()
         if self.box_id:
             self._validate_attribution_accounts()
+            self._validate_evidence_relations()
 
     def save(self, *args, **kwargs):
         from apps.cultures.models import Box
@@ -165,18 +229,31 @@ class BiologicalMeasurement(models.Model):
         # admin writes on the same ordering protocol as well.
         with transaction.atomic(using=kwargs.get("using")):
             box = Box.objects.select_for_update().get(pk=self.box_id)
+            previous = None
+            if self.pk is not None:
+                previous = type(self).objects.select_for_update().filter(pk=self.pk).values(
+                    "box_id", "original_observer_id", "imported_by_id", "duplicate_of_id",
+                ).first()
+                if previous and previous["duplicate_of_id"] is not None:
+                    raise ValidationError(
+                        _("Duplicate measurement evidence is read-only."), code="measurement_duplicate_read_only",
+                    )
+            self._validate_evidence_relations()
             if self.original_observer_id is not None or self.imported_by_id is not None:
-                previous = None
-                if not self._state.adding:
-                    previous = type(self).objects.filter(pk=self.pk).values(
-                        "box_id", "original_observer_id", "imported_by_id",
-                    ).first()
                 self._validate_attribution_accounts(previous=previous)
             box.polyp_state_revision += 1
             if self._state.adding:
                 self.polyp_state_sequence = box.polyp_state_revision
             box.save(update_fields=["polyp_state_revision"])
             super().save(*args, **kwargs)
+
+    def delete(self, using=None, keep_parents=False):
+        using = using or router.db_for_write(type(self), instance=self)
+        with transaction.atomic(using=using):
+            current = type(self).objects.using(using).select_for_update().filter(pk=self.pk).first()
+            if current is not None and current.duplicate_of_id is not None:
+                raise ProtectedError(_("Duplicate measurement evidence cannot be deleted."), [current])
+            return super().delete(using=using, keep_parents=keep_parents)
 
     def __str__(self):
         return f"{self.box} - {self.measured_on}"
@@ -392,3 +469,260 @@ class ThermalAnomaly(models.Model):
 
     def __str__(self):
         return f"{self.thermal_zone} - anomaly {self.starts_at:%Y-%m-%d}"
+
+
+class HistoricalTemperatureQuerySet(models.QuerySet):
+    """Require validated inserts and retain accepted historical associations."""
+
+    def update(self, **kwargs):
+        raise ValidationError("Historical temperature records cannot be changed.")
+
+    def delete(self):
+        raise ValidationError("Historical temperature records cannot be deleted.")
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        raise ValidationError("Historical temperature records cannot be changed.")
+
+    def bulk_create(self, objs, *args, **kwargs):
+        raise ValidationError("Historical temperature records require validated inserts.")
+
+
+class HistoricalTemperatureImportReceipt(models.Model):
+    """Private, durable approval, original workbooks and exact acceptance results."""
+
+    organization = models.ForeignKey("organizations.Organization", on_delete=models.PROTECT)
+    # Match biological import receipts: retain identity even if an account is removed.
+    actor_id = models.PositiveBigIntegerField()
+    plan_fingerprint = models.CharField(max_length=64, unique=True)
+    snapshot_sha256 = models.CharField(max_length=64)
+    accepted_plan = models.JSONField()
+    source_archive = models.BinaryField()
+    results = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = HistoricalTemperatureQuerySet.as_manager()
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("Historical temperature receipts cannot be changed.")
+        kwargs["force_insert"] = True
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Historical temperature receipts cannot be deleted.")
+
+
+class HistoricalTemperatureReading(models.Model):
+    """One week-precision reading; organization and Box exist only through biology.
+
+    The ISO week is a source snapshot, not the biological observation's day or
+    precision. Exact decimal text avoids fixed-scale database rounding.
+    """
+
+    class AssociationStatus(models.TextChoices):
+        CONFIRMED = "confirmed", "Confirmed"
+        PENDING_REVIEW = "pending_review", "Pending review"
+
+    biological_measurement = models.OneToOneField(
+        BiologicalMeasurement, on_delete=models.PROTECT,
+        related_name="historical_temperature",
+    )
+    association_status = models.CharField(
+        max_length=20, choices=AssociationStatus.choices,
+        default=AssociationStatus.CONFIRMED, editable=False,
+    )
+    iso_year = models.PositiveSmallIntegerField()
+    iso_week = models.PositiveSmallIntegerField()
+    temperature_c = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = HistoricalTemperatureQuerySet.as_manager()
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(iso_year__gte=1, iso_year__lte=9999),
+                name="historical_temp_year_valid",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(association_status__in=["confirmed", "pending_review"]),
+                name="historical_temp_status_valid",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(iso_week__gte=1, iso_week__lte=53),
+                name="historical_temp_week_valid",
+            ),
+        ]
+
+    def clean(self):
+        from .temperature_series import iso_week_bounds, temperature_decimal
+
+        super().clean()
+        try:
+            temperature_decimal(self.temperature_c)
+        except ValueError as exc:
+            raise ValidationError({"temperature_c": str(exc)}) from exc
+        try:
+            first, _last = iso_week_bounds(self.iso_year, self.iso_week)
+        except (ValueError, TypeError) as exc:
+            raise ValidationError({"iso_week": "A valid ISO year and week are required."}) from exc
+        if self._state.adding and self.association_status != self.AssociationStatus.CONFIRMED:
+            raise ValidationError({"association_status": "New historical associations must be confirmed."})
+        if self.biological_measurement_id and (
+            self.biological_measurement.duplicate_of_id is not None
+            or self.biological_measurement.box.merged_into_id is not None
+        ):
+            raise ValidationError({"biological_measurement": "Historical readings require canonical biology and Box identity."})
+        if self.biological_measurement_id and self.association_status == self.AssociationStatus.CONFIRMED and (
+            self.biological_measurement.week_start != first
+            or BiologicalMeasurement.week_start_for(self.biological_measurement.measured_on) != first
+        ):
+            raise ValidationError({
+                "biological_measurement": "The biological measurement must belong to the source ISO week.",
+            })
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("Historical temperature records cannot be changed.")
+        # Validate before TextField coercion, which would conceal float input.
+        self.clean()
+        # A caller may have changed a cached related object without saving it.
+        self.biological_measurement = BiologicalMeasurement.objects.db_manager(
+            kwargs.get("using") or self._state.db,
+        ).get(pk=self.biological_measurement_id)
+        self.full_clean()
+        kwargs["force_insert"] = True
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Historical temperature records cannot be deleted.")
+
+
+class HistoricalTemperatureEvidence(models.Model):
+    """An original source association supporting an unchanged weekly reading.
+
+    Source biological values are literal provenance, not instructions to change
+    counts or to reinterpret reviewed source-label inversions.
+    """
+
+    reading = models.ForeignKey(
+        HistoricalTemperatureReading, on_delete=models.PROTECT, related_name="evidences",
+    )
+    source_file = models.CharField(max_length=255)
+    source_sha256 = models.CharField(max_length=64)
+    sheet = models.CharField(max_length=255)
+    temperature_cell = models.CharField(max_length=16)
+    temperature_merged_range = models.CharField(max_length=35, blank=True, default="")
+    source_value = models.TextField()
+    source_box = models.TextField()
+    polyp_cell = models.CharField(max_length=16)
+    polyp_value = models.TextField()
+    ephyrae_cell = models.CharField(max_length=16)
+    ephyrae_value = models.TextField()
+    week_cell = models.CharField(max_length=16)
+    week_value = models.TextField()
+    source_iso_year = models.PositiveSmallIntegerField()
+    source_iso_week = models.PositiveSmallIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = HistoricalTemperatureQuerySet.as_manager()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["reading", "source_sha256", "sheet", "polyp_cell", "ephyrae_cell"],
+                name="unique_historical_temp_evidence",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(source_iso_year__gte=1, source_iso_year__lte=9999),
+                name="historical_temp_src_year_valid",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(source_iso_week__gte=1, source_iso_week__lte=53),
+                name="historical_temp_src_week_valid",
+            ),
+        ]
+
+    def clean(self):
+        import re
+        from .historical_temperature_source import canonical_box
+        from .historical_temperature_identity import temperature_source_matches
+        from .temperature_series import iso_week_bounds, temperature_decimal
+
+        super().clean()
+        errors = {}
+        if not isinstance(self.source_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", self.source_sha256):
+            errors["source_sha256"] = "A lowercase SHA-256 digest is required."
+        for field in ("temperature_cell", "polyp_cell", "ephyrae_cell", "week_cell"):
+            value = getattr(self, field)
+            pattern = r"C[1-9][0-9]*" if field == "temperature_cell" else r"[A-Z]+[1-9][0-9]*"
+            if not isinstance(value, str) or not re.fullmatch(pattern, value):
+                errors[field] = "An unqualified A1 cell reference is required (column C for temperature)."
+        if self.temperature_merged_range:
+            match = re.fullmatch(r"(C[1-9][0-9]*):C([1-9][0-9]*)", self.temperature_merged_range)
+            if (not match or match[1] != self.temperature_cell
+                    or int(match[2]) <= int(match[1][1:])):
+                errors["temperature_merged_range"] = "The column C merge must start at the source cell."
+        if not any(field in errors for field in (
+            "temperature_cell", "temperature_merged_range", "polyp_cell", "ephyrae_cell", "week_cell",
+        )):
+            polyp = re.fullmatch(r"([A-Z]+)([0-9]+)", self.polyp_cell)
+            ephyrae = re.fullmatch(r"([A-Z]+)([0-9]+)", self.ephyrae_cell)
+            week = re.fullmatch(r"([A-Z]+)([0-9]+)", self.week_cell)
+            start = int(self.temperature_cell[1:])
+            end = int(self.temperature_merged_range.split(":")[1][1:]) if self.temperature_merged_range else None
+            if (polyp[1] != ephyrae[1] or polyp[1] != week[1]
+                    or int(ephyrae[2]) != int(polyp[2]) + 1
+                    or (end is None and int(polyp[2]) != start)
+                    or (end is not None and not (start <= int(polyp[2]) and int(ephyrae[2]) <= end))):
+                errors["polyp_cell"] = "Biological source cells must be paired within the temperature block."
+        try:
+            source_temperature = temperature_decimal(self.source_value)
+        except ValueError:
+            errors["source_value"] = "A finite source decimal string is required."
+        else:
+            if self.reading_id and source_temperature != temperature_decimal(self.reading.temperature_c):
+                errors["source_value"] = "Conflicting source temperatures cannot support one reading."
+        try:
+            iso_week_bounds(self.source_iso_year, self.source_iso_week)
+        except (ValueError, TypeError):
+            errors["source_iso_week"] = "A valid source ISO year and week are required."
+        if self.reading_id and (self.source_iso_year, self.source_iso_week) != (
+            self.reading.iso_year, self.reading.iso_week,
+        ):
+            errors["source_iso_week"] = "Source evidence must belong to the reading's ISO week."
+        if self.reading_id:
+            if self.reading.association_status != HistoricalTemperatureReading.AssociationStatus.CONFIRMED:
+                errors["reading"] = "Pending associations cannot receive automatic source evidence."
+            biology = self.reading.biological_measurement
+            if biology.duplicate_of_id is not None or biology.box.merged_into_id is not None:
+                errors["reading"] = "Historical evidence requires canonical biology and Box identity."
+            if (not isinstance(self.source_box, str)
+                    or not temperature_source_matches(canonical_box(self.source_box), biology.box.global_code)):
+                errors["source_box"] = "The original source Box must match the linked Box identity."
+            first, _last = iso_week_bounds(self.reading.iso_year, self.reading.iso_week)
+            if (biology.week_start != first
+                    or BiologicalMeasurement.week_start_for(biology.measured_on) != first):
+                errors["reading"] = "The biological measurement must belong to the source ISO week."
+            for field, expected in (("polyp_value", biology.polyp_count), ("ephyrae_value", biology.ephyrae_count)):
+                try:
+                    if temperature_decimal(getattr(self, field)) != expected:
+                        errors[field] = "Source biological counts must match the linked measurement."
+                except ValueError:
+                    errors[field] = "A finite biological count string is required."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("Historical temperature records cannot be changed.")
+        self.clean()
+        self.reading = HistoricalTemperatureReading.objects.db_manager(
+            kwargs.get("using") or self._state.db,
+        ).get(pk=self.reading_id)
+        self.full_clean()
+        kwargs["force_insert"] = True
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Historical temperature records cannot be deleted.")

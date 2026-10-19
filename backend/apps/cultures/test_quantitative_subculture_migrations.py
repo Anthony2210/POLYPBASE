@@ -13,7 +13,10 @@ class QuantitativeSubcultureMigrationTests(TransactionTestCase):
         executor = MigrationExecutor(connection)
         latest = executor.loader.graph.leaf_nodes()
         self.addCleanup(lambda: MigrationExecutor(connection).migrate(latest))
-        before = [node for node in latest if node[0] != "cultures"] + [("cultures", "0011_protect_subculture_history")]
+        before = [node for node in latest if node[0] not in {"cultures", "measurements"}] + [
+            ("cultures", "0011_protect_subculture_history"),
+            ("measurements", "0013_historical_temperature_receipt"),
+        ]
         executor.migrate(before)
         apps = executor.loader.project_state(before).apps
         org = apps.get_model("organizations", "Organization").objects.create(name="Optional upgrade QA")

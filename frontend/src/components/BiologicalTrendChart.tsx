@@ -25,6 +25,7 @@ import {
 } from '../utils/chartBiology';
 import {
   findChartLocationAtDate,
+  findSourceChartLocationAtDate,
   resolveChartLocationPeriods,
   type ChartLocation,
 } from '../utils/chartLocations';
@@ -39,6 +40,7 @@ export type TrendMeasurement = {
   enteredBy?: string | null;
   user_identity?: ReadableUserIdentity | null;
   note?: string | null;
+  environmentLocations?: readonly ChartLocation[] | null;
 };
 
 export type TrendPolypState = {
@@ -60,6 +62,8 @@ export type TrendTemperature = {
   average_temperature_c: number;
   zone_id?: number;
   zone_name?: string;
+  // Week-only observation: `date` positions the marker and is never displayed as a day.
+  week?: { id: number; year: number; number: number; start: string; end: string; valueText: string };
 };
 export type TrendPoint = TrendMeasurement | TrendPolypState;
 export type TrendLocation = ChartLocation;
@@ -88,6 +92,7 @@ type TrendLabels = {
   enteredBy?: string;
   historicalUser?: string;
   location: string;
+  sourceLocation?: string;
   locationChange: string;
   locationChangeNote?: string;
   missingReading: string;
@@ -98,6 +103,10 @@ type TrendLabels = {
   salinity?: string;
   temperature?: string;
   temperatureOutsideScale?: string;
+  historicalTemperature?: string;
+  historicalWeek?: string;
+  historicalPeriod?: string;
+  historicalNote?: string;
   selectReading?: string;
   selectedReading?: string;
   subculture?: string;
@@ -143,6 +152,7 @@ export const BIOLOGICAL_TEMPERATURE_DOMAIN = [0, 40] as const;
 export const BIOLOGICAL_TEMPERATURE_TICKS = [0, 5, 10, 15, 20, 25, 30, 35, 40] as const;
 
 function temperaturePointId(point: TrendTemperature) {
+  if (point.week) return `temperature-week-${point.week.id}`;
   return `temperature-${point.zone_id ?? point.zone_name ?? ''}-${point.date}`;
 }
 
@@ -185,6 +195,7 @@ export default function BiologicalTrendChart({
   const tooltipRef = useRef<HTMLDivElement>(null);
   const [visibleSeries, setVisibleSeries] = useState({ polyps: true, ephyrae: true });
   const [temperatureVisible, setTemperatureVisible] = useState(true);
+  const [historicalVisible, setHistoricalVisible] = useState(true);
   const [canvasSize, setCanvasSize] = useState({ width: 0, responsive: false });
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
@@ -221,6 +232,7 @@ export default function BiologicalTrendChart({
     setFocusedDetail(null);
     setVisibleSeries({ polyps: true, ephyrae: true });
     setTemperatureVisible(true);
+    setHistoricalVisible(true);
   }, [selectionScope]);
 
   useEffect(() => {
@@ -316,18 +328,17 @@ export default function BiologicalTrendChart({
       visibleSeries.polyps ? yCount(measurement.polypCount) : Infinity,
       visibleSeries.ephyrae && measurement.ephyraeCount != null ? yCount(measurement.ephyraeCount) : Infinity,
     );
-    const locationName = findChartLocationAtDate(locations, measurement.date);
     const detail: ActiveDetail = {
       id: getTrendPointId(measurement),
       date: measurement.date,
       left: (x / width) * 100,
       top: Number.isFinite(topY) ? topY : yCount(measurement.polypCount),
       title: 'kind' in measurement ? `${measurement.title} - ${formatDisplayDate(measurement.date)}` : formatDisplayDate(measurement.date),
-      lines: buildMeasurementDetailLines(measurement, labels, locations, locationName),
+      lines: buildMeasurementDetailLines(measurement, labels, locations),
     };
     return { detail, measurement, x };
   });
-  const temperatureDetails = plottedTemperatures.map((point) => {
+  const allTemperatureDetails = plottedTemperatures.map((point) => {
     const x = xPosition(point.date);
     const outsideScale = !isTemperatureInScale(point);
     // Off-scale readings use directional markers, never a dot at a false measurement.
@@ -336,15 +347,21 @@ export default function BiologicalTrendChart({
       : yTemperature(point.average_temperature_c);
     const detail: ActiveDetail = {
       id: temperaturePointId(point), date: point.date, left: (x / width) * 100, top: y,
-      title: formatDisplayDate(point.date),
+      title: point.week ? `${labels.historicalWeek ?? ''} ${point.week.number}, ${point.week.year}`.trim() : formatDisplayDate(point.date),
       lines: [
-        { kind: 'temperature', label: `${labels.temperature} (°C)`, value: String(point.average_temperature_c) },
+        { kind: 'temperature', label: `${point.week ? labels.historicalTemperature ?? labels.temperature : labels.temperature} (°C)`, value: point.week?.valueText ?? String(point.average_temperature_c) },
+        ...(point.week ? [
+          { kind: 'note' as const, label: labels.historicalPeriod ?? '', value: `${formatDisplayDate(point.week.start)} - ${formatDisplayDate(point.week.end)}` },
+          ...(labels.historicalNote ? [{ kind: 'note' as const, label: labels.historicalTemperature ?? labels.temperature!, value: labels.historicalNote }] : []),
+        ] : []),
         ...(outsideScale && labels.temperatureOutsideScale ? [{ kind: 'note' as const, label: labels.temperature!, value: labels.temperatureOutsideScale }] : []),
         ...(point.zone_name != null ? [{ kind: 'location' as const, label: labels.location, value: point.zone_name }] : []),
       ],
     };
     return { point, detail, x, y, outsideScale };
   });
+  const temperatureDetails = allTemperatureDetails.filter(({ point }) => point.week ? historicalVisible : temperatureVisible);
+  const hasWeeklyTemperatures = allTemperatureDetails.some(({ point }) => point.week);
   const temperatureCountByPosition = new Map<string, number>();
   for (const { x, y } of temperatureDetails) {
     const key = `${x}:${y}`;
@@ -354,13 +371,13 @@ export default function BiologicalTrendChart({
   const selectedDetail = selectedVisibleReading(plottedReadingDetails.map(({ detail }) => detail), pinnedDetail?.id ?? null);
   const selectedReading = plottedReadingDetails.find(({ detail }) => detail.id === selectedDetail?.id) ?? null;
   const pinnedVisibleDetail = pinnedDetail?.id.startsWith('temperature-')
-    ? (temperatureVisible ? temperatureDetails.find(({ detail }) => detail.id === pinnedDetail.id)?.detail ?? null : null)
+    ? temperatureDetails.find(({ detail }) => detail.id === pinnedDetail.id)?.detail ?? null
     : pinnedDetail && (pinnedDetail.id.startsWith('measurement-') || pinnedDetail.id.startsWith('biological-')) ? selectedDetail : pinnedDetail;
   const liveDetail = (detail: ActiveDetail | null) => detail == null ? null
-    : [...plottedReadingDetails, ...eventDetails, ...(temperatureEnabled && temperatureVisible ? temperatureDetails : [])]
+    : [...plottedReadingDetails, ...eventDetails, ...(temperatureEnabled ? temperatureDetails : [])]
       .find((item) => item.detail.id === detail.id)?.detail ?? null;
   const visibleDetail = resolveChartDetail(liveDetail(pinnedVisibleDetail), liveDetail(focusedDetail), liveDetail(hoveredDetail));
-  const selectedTemperature = temperatureEnabled && temperatureVisible ? temperatureDetails.find(({ detail }) => detail.id === pinnedVisibleDetail?.id) : null;
+  const selectedTemperature = temperatureEnabled ? temperatureDetails.find(({ detail }) => detail.id === pinnedVisibleDetail?.id) : null;
   const selectionX = selectedTemperature?.x ?? selectedReading?.x;
   const hasTemperatureOverflow = temperatureDetails.some(({ outsideScale }) => outsideScale);
   const hasOverflow = plottedMeasurements.some((measurement) => (
@@ -502,8 +519,8 @@ export default function BiologicalTrendChart({
             <path key={`ephyrae-${index}`} className="bio-trend-line is-ephyrae" d={countLine((point) => point.ephyraeCount)(segment) ?? ''} />
           ))}
 
-          {temperatureEnabled && temperatureVisible && plottedTemperatures.length > 0 ? (
-            <path className="bio-trend-line is-temperature" d={temperatureLine(plottedTemperatures) ?? ''} />
+          {temperatureEnabled && temperatureVisible && plottedTemperatures.some((point) => !point.week) ? (
+            <path className="bio-trend-line is-temperature" d={temperatureLine(plottedTemperatures.filter((point) => !point.week)) ?? ''} />
           ) : null}
 
           {eventDetails.map(({ event, x, detail, isDerived, eventTitle }) => {
@@ -594,12 +611,12 @@ export default function BiologicalTrendChart({
             );
           })}
 
-          {temperatureEnabled && temperatureVisible && temperatureDetails.map(({ point, detail, x, y, outsideScale }, index) => (
+          {temperatureEnabled && temperatureDetails.map(({ point, detail, x, y, outsideScale }, index) => (
             <g key={detail.id} className={`bio-trend-temperature-point${selectedTemperature?.detail.id === detail.id ? ' is-selected' : ''}`} role="button" tabIndex={0}
               data-temperature-index={index}
               aria-pressed={selectedTemperature?.detail.id === detail.id}
               aria-describedby={visibleDetail?.id === detail.id ? `${chartId}-event-detail` : undefined}
-              aria-label={`${detail.title}, ${labels.temperature}: ${point.average_temperature_c} °C${point.zone_name != null ? `, ${labels.location}: ${point.zone_name}` : ''}${outsideScale ? `, ${labels.temperatureOutsideScale ?? ''}` : ''}`}
+              aria-label={`${detail.title}, ${point.week ? labels.historicalTemperature : labels.temperature}: ${point.week?.valueText ?? point.average_temperature_c} °C${point.zone_name != null ? `, ${labels.location}: ${point.zone_name}` : ''}${outsideScale ? `, ${labels.temperatureOutsideScale ?? ''}` : ''}`}
               onMouseEnter={() => setHoveredDetail(detail)} onMouseLeave={() => setHoveredDetail(null)}
               onFocus={() => setFocusedDetail(detail)} onBlur={() => setFocusedDetail(null)}
               onClick={(event) => selectMeasurement(event, detail)} onKeyDown={(event) => handleMeasurementKey(event, detail, index, 'temperature')}>
@@ -607,7 +624,13 @@ export default function BiologicalTrendChart({
                 d={point.average_temperature_c < 0
                   ? `M${x - 4} ${y - 7} L${x} ${y - 1} L${x + 4} ${y - 7} Z`
                   : `M${x - 4} ${y + 7} L${x} ${y + 1} L${x + 4} ${y + 7} Z`} />
-                : <circle className="bio-trend-dot is-temperature" cx={x} cy={y} r={point.average_temperature_c === 0 ? layout.zeroRadius : layout.pointRadius} />}
+                : point.week ? <>
+                  <line className="bio-trend-week-span" x1={Math.max(padding.left, xPosition(point.week.start))}
+                    x2={Math.min(width - padding.right, xPosition(point.week.end))} y1={y} y2={y} />
+                  <rect className="bio-trend-dot is-temperature is-weekly"
+                    x={x - layout.pointRadius} y={y - layout.pointRadius}
+                    width={layout.pointRadius * 2} height={layout.pointRadius * 2} />
+                </> : <circle className="bio-trend-dot is-temperature" cx={x} cy={y} r={point.average_temperature_c === 0 ? layout.zeroRadius : layout.pointRadius} />}
               <circle className="bio-trend-temperature-hit" cx={x} cy={y} r={layout.responsive ? 12 : 8} />
             </g>
           ))}
@@ -713,8 +736,8 @@ export default function BiologicalTrendChart({
                 <span key={item.kind} className="is-temperature"><small>{item.label}</small><strong>{item.value}</strong></span>
               ))}
             </div>
-            {visibleDetail.lines.filter((item) => item.kind !== 'temperature').map((item) => (
-              <span className="bio-trend-tooltip-context" key={item.kind}><small>{item.label}</small><strong>{item.value}</strong></span>
+            {visibleDetail.lines.filter((item) => item.kind !== 'temperature').map((item, index) => (
+              <span className="bio-trend-tooltip-context" key={`${item.kind}-${index}`}><small>{item.label}</small><strong>{item.value}</strong></span>
             ))}
           </> : visibleDetail.lines.map((item, index) => (
             <span className="bio-trend-tooltip-context" key={`${item.kind}-${index}`}>
@@ -733,11 +756,21 @@ export default function BiologicalTrendChart({
           <button type="button" className={`is-temperature${temperatureVisible ? '' : ' is-hidden'}`} aria-pressed={temperatureVisible}
             onClick={() => {
               setTemperatureVisible((current) => !current);
-              const keepOtherSeries = (current: ActiveDetail | null) => current?.id.startsWith('temperature-') ? null : current;
+              const keepOtherSeries = (current: ActiveDetail | null) => current?.id.startsWith('temperature-') && !current.id.startsWith('temperature-week-') ? null : current;
               setPinnedDetail(keepOtherSeries);
               setHoveredDetail(keepOtherSeries);
               setFocusedDetail(keepOtherSeries);
             }}>{labels.temperature} (°C)</button>
+        ) : null}
+        {temperatureEnabled && hasWeeklyTemperatures && labels.historicalTemperature ? (
+          <button type="button" className={`is-temperature is-weekly${historicalVisible ? '' : ' is-hidden'}`} aria-pressed={historicalVisible}
+            onClick={() => {
+              setHistoricalVisible((current) => !current);
+              const keepOtherSeries = (current: ActiveDetail | null) => current?.id.startsWith('temperature-week-') ? null : current;
+              setPinnedDetail(keepOtherSeries);
+              setHoveredDetail(keepOtherSeries);
+              setFocusedDetail(keepOtherSeries);
+            }}>{labels.historicalTemperature} (°C)</button>
         ) : null}
         {polypStates.length > 0 && labels.subculture ? <span className="is-subculture">{labels.subculture}</span> : null}
         {hasOverflow ? <span className="is-overflow">&gt; {maxCount}</span> : null}
@@ -746,7 +779,7 @@ export default function BiologicalTrendChart({
           {hasTemperatureOverflow ? <span className="bio-trend-temperature-overflow-note">{labels.temperatureOutsideScale}</span> : null}
         </div> : null}
       </div>
-      {temperatureEnabled && temperatureVisible && overlappingTemperatures.length > 0 ? (
+      {temperatureEnabled && overlappingTemperatures.length > 0 ? (
         <div className="bio-trend-event-list" role="group" aria-label={labels.temperature}>
           {overlappingTemperatures.map(({ detail, point }) => (
             <button key={detail.id} type="button" className="bio-trend-event-choice is-temperature"
@@ -757,8 +790,8 @@ export default function BiologicalTrendChart({
               onKeyDown={(event) => {
                 if (event.key === 'Escape') { setPinnedDetail(null); setFocusedDetail(null); setHoveredDetail(null); }
               }}>
-              <span>{detail.title} — {point.average_temperature_c} °C</span>
-              <small>{point.zone_name}</small>
+              <span>{detail.title} — {point.week?.valueText ?? point.average_temperature_c} °C</span>
+              <small>{point.week ? labels.historicalTemperature : point.zone_name}</small>
             </button>
           ))}
         </div>
@@ -773,7 +806,10 @@ function buildMeasurementDetailLines(
   locations: TrendLocation[],
   knownLocationName?: string,
 ): DetailLine[] {
-  const locationName = knownLocationName ?? findChartLocationAtDate(locations, measurement.date);
+  const sourceLocations = 'kind' in measurement ? null : measurement.environmentLocations;
+  const locationName = sourceLocations != null
+    ? findSourceChartLocationAtDate(sourceLocations, measurement.date)
+    : knownLocationName ?? findChartLocationAtDate(locations, measurement.date);
   const lines: DetailLine[] = 'kind' in measurement
     ? [
       { kind: 'polyps', label: labels.polyps, value: String(measurement.polypCount) },
@@ -782,7 +818,11 @@ function buildMeasurementDetailLines(
     : chartBiologicalValues(measurement, labels);
 
   if (locationName) {
-    lines.push({ kind: 'location', label: labels.location, value: locationName });
+    lines.push({
+      kind: 'location',
+      label: sourceLocations != null ? labels.sourceLocation ?? labels.location : labels.location,
+      value: locationName,
+    });
   }
 
   if (labels.enteredBy) {

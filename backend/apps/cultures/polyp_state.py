@@ -90,7 +90,7 @@ def _measurement_candidates():
         box__subculture_initialization__allocated_polyps__isnull=False,
         box__subculture_initialization__event__parent_box__organization_id=F("box__organization_id"),
     )
-    return BiologicalMeasurement.objects.alias(
+    return BiologicalMeasurement.objects.canonical().alias(
         # Join the selected operation once, instead of independently looking up
         # its sequence/date in every eligibility expression. Initialization is
         # one-to-one, so its joins cannot multiply measurement candidates.
@@ -160,9 +160,14 @@ def resolve_scientific_polyp_state(box) -> ScientificPolypState:
     unknown child allocations are evidence, not initialization sources.
     """
     measurements = getattr(box, "polyp_state_measurements", None)
+    has_excluded_prefetch = measurements is not None and any(row.duplicate_of_id is not None for row in measurements)
     if measurements is None:
         measurements = _measurement_candidates().filter(box=box).order_by(*MEASUREMENT_STATE_ORDER)[:1]
-    measurement = next(iter(measurements), None)
+    measurement = next((row for row in measurements if row.duplicate_of_id is None), None)
+    if measurement is None and has_excluded_prefetch:
+        # A caller-supplied sliced prefetch may contain only excluded evidence.
+        # Fall back to canonical candidates rather than inventing an unknown state.
+        measurement = _measurement_candidates().filter(box=box).order_by(*MEASUREMENT_STATE_ORDER).first()
     if measurement is not None:
         return KnownPolypState(
             measurement.polyp_count,

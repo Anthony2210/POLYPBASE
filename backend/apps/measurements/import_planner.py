@@ -48,6 +48,8 @@ class MeasurementBaseline:
     origin: str
     import_format: str
     imported_by_id: int | None
+    duplicate_of_id: int | None
+    environment_source_box_id: int | None
 
 
 @dataclass(frozen=True)
@@ -115,7 +117,7 @@ class MeasurementImportPlan:
     issues: tuple[Issue, ...]
     duplicate_groups: tuple[SourceSlotGroup, ...] = ()
     schema: str = "polypbase.biological-measurement-plan"
-    schema_version: str = "1.2"
+    schema_version: str = "1.3"
     chronology_conflicts: tuple[ChronologyConflict, ...] = ()
 
     @property
@@ -189,6 +191,7 @@ def _baseline(measurement):
         measurement.temporal_precision, measurement.observer_status,
         measurement.original_observer_id, measurement.origin,
         measurement.import_format, measurement.imported_by_id,
+        measurement.duplicate_of_id, measurement.environment_source_box_id,
     )
 
 
@@ -308,7 +311,9 @@ def build_measurement_import_plan(preparation: CsvResult, *, organization, actor
                          for record in valid})
     boxes = {}
     for batch in _batches(references):
-        for box in Box.objects.filter(organization_id=institution.pk, global_code__in=batch).order_by("pk"):
+        for box in Box.objects.filter(
+            organization_id=institution.pk, global_code__in=batch, merged_into__isnull=True,
+        ).order_by("pk"):
             boxes[box.global_code] = BoxBaseline(
                 box.pk, box.organization_id, box.global_code, box.status, box.polyp_state_revision,
             )
@@ -344,7 +349,7 @@ def build_measurement_import_plan(preparation: CsvResult, *, organization, actor
         lookup = Q()
         for week, box_ids in weeks.items():
             lookup |= Q(box_id__in=box_ids, week_start=week)
-        for measurement in BiologicalMeasurement.objects.filter(
+        for measurement in BiologicalMeasurement.objects.canonical().filter(
             lookup, box__organization_id=institution.pk,
         ).order_by("pk"):
             existing[(measurement.box_id, measurement.week_start)] = _baseline(measurement)

@@ -15,9 +15,10 @@ from django.db.models import (
     Subquery,
     When,
 )
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
-from apps.cultures.models import BoxLocation
+from apps.cultures.models import Box, BoxLocation
 from apps.measurements.models import BiologicalMeasurement, DailyTemperature
 
 
@@ -47,7 +48,12 @@ def select_measurement_export_data(
         boxes=[box.id for box in selected_boxes],
         date_from=date_from,
         date_to=date_to,
-    ).select_related("box", "box__thermal_zone", "user", "original_observer", "imported_by")
+    ).select_related(
+        "box", "box__thermal_zone", "user", "original_observer", "imported_by",
+        "environment_source_box", "environment_source_box__thermal_zone",
+    ).prefetch_related(
+        Prefetch("environment_source_box__locations", queryset=BoxLocation.objects.select_related("thermal_zone")),
+    )
     measurements = _filter_measurements_by_zones(
         measurements,
         zone_ids=zone_ids,
@@ -123,9 +129,14 @@ def build_weekly_measurement_csv(
     )
     week_keys = _iter_iso_weeks(effective_start, effective_end)
 
+    boxes_by_id = {box.pk: box for box in selected_boxes}
+    environment_boxes = {
+        measurement.pk: _environment_box(measurement, boxes_by_id[measurement.box_id])
+        for measurement in measurement_list
+    }
     zone_ids = {
         zone_id
-        for box in selected_boxes
+        for box in environment_boxes.values()
         for zone_id in _box_zone_ids(box)
     }
     temperature_dates = {
@@ -170,7 +181,7 @@ def build_weekly_measurement_csv(
                 continue
 
             temperature = _measurement_temperature(
-                box=box,
+                box=environment_boxes[measurement.pk],
                 measured_on=measurement.measured_on,
                 daily_temperatures=daily_temperatures,
             )
@@ -334,6 +345,13 @@ def _iso_week_key(value):
     return iso_calendar.year, iso_calendar.week
 
 
+def _environment_box(measurement, canonical_box):
+    source = measurement.environment_source_box if measurement.environment_source_box_id else canonical_box
+    if source.organization_id != canonical_box.organization_id:
+        raise ValueError("The environment source is outside the measurement institution.")
+    return source
+
+
 def _box_zone_ids(box):
     zone_ids = {box.thermal_zone_id} if box.thermal_zone_id else set()
     zone_ids.update(location.thermal_zone_id for location in box.locations.all())
@@ -366,7 +384,7 @@ def _thermal_zone_for_date(box, measured_on):
 
 
 def _measurement_queryset(*, boxes, date_from=None, date_to=None):
-    measurements = BiologicalMeasurement.objects.filter(box_id__in=boxes)
+    measurements = BiologicalMeasurement.objects.canonical().filter(box_id__in=boxes)
     if date_from:
         measurements = measurements.filter(measured_on__gte=date_from)
     if date_to:
@@ -379,15 +397,23 @@ def _filter_measurements_by_zones(measurements, *, zone_ids=None, include_other_
     if not selected_zone_ids:
         return measurements
 
+    measurements = measurements.alias(
+        environment_box_id=Coalesce("environment_source_box_id", "box_id"),
+    )
     matching_location = BoxLocation.objects.filter(
-        box_id=OuterRef("box_id"),
+        box_id=OuterRef("environment_box_id"),
+        thermal_zone__organization_id=OuterRef("box__organization_id"),
         starts_at__date__lte=OuterRef("measured_on"),
     ).filter(
         Q(ends_at__isnull=True, end_date_unknown=False)
         | Q(ends_at__date__gte=OuterRef("measured_on"))
         | Q(end_date_unknown=True, starts_at__date=OuterRef("measured_on")),
     ).order_by("-starts_at")
-    location_history = BoxLocation.objects.filter(box_id=OuterRef("box_id"))
+    location_history = BoxLocation.objects.filter(box_id=OuterRef("environment_box_id"))
+    source_box = Box.objects.filter(
+        pk=OuterRef("environment_box_id"), organization_id=OuterRef("box__organization_id"),
+        thermal_zone__organization_id=OuterRef("box__organization_id"),
+    )
     zoned_measurements = measurements.annotate(
         matched_zone_id=Subquery(
             matching_location.values("thermal_zone_id")[:1],
@@ -396,7 +422,7 @@ def _filter_measurements_by_zones(measurements, *, zone_ids=None, include_other_
         has_location_history=Exists(location_history),
     ).annotate(
         export_zone_id=Case(
-            When(has_location_history=False, then=F("box__thermal_zone_id")),
+            When(has_location_history=False, then=Subquery(source_box.values("thermal_zone_id")[:1])),
             default=F("matched_zone_id"),
             output_field=IntegerField(),
         )

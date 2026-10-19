@@ -402,7 +402,7 @@ class Command(BaseCommand):
                 row_number=row_number,
             )
             week_start = BiologicalMeasurement.week_start_for(measured_on)
-            existing = BiologicalMeasurement.objects.filter(
+            existing = BiologicalMeasurement.objects.canonical().filter(
                 box=box,
                 week_start=week_start,
             ).first()
@@ -413,7 +413,7 @@ class Command(BaseCommand):
                     f"existing={existing.id}:{existing.measured_on}, "
                     f"imported_date={measured_on}."
                 )
-            BiologicalMeasurement.objects.update_or_create(
+            BiologicalMeasurement.objects.canonical().update_or_create(
                 box=box,
                 week_start=week_start,
                 defaults={

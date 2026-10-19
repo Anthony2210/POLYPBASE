@@ -68,12 +68,15 @@ def check_ordinary_movement_week(*, box, moved_at, movement=None):
 
 
 def _locked_box(box):
-    return (
+    box = (
         # Lock the box, not the nullable location side of the outer join.
         Box.objects.select_for_update(of=("self",))
         .select_related("organization", "thermal_zone")
         .get(pk=box.pk)
     )
+    if box.merged_into_id is not None:
+        raise ValidationError("A merged identity is read-only. Reload the canonical culture.")
+    return box
 
 
 def _close_current_locations(*, box, ended_at=None, end_date_unknown=False):

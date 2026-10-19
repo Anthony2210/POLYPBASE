@@ -169,7 +169,10 @@ class OrganizationPortableIdentityMigrationTests(TransactionTestCase):
 
         executor = MigrationExecutor(connection)
         latest = executor.loader.graph.leaf_nodes()
-        before_targets = [node for node in latest if node[0] != "organizations"] + [before]
+        before_targets = [node for node in latest if node[0] not in {"organizations", "cultures", "measurements"}] + [
+            before, ("cultures", "0014_box_movement_week_matches_moved_at"),
+            ("measurements", "0013_historical_temperature_receipt"),
+        ]
         try:
             executor.migrate(before_targets)
             old_apps = executor.loader.project_state(before_targets).apps

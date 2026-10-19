@@ -83,7 +83,7 @@ def apply_measurement_import(
                 for value in record.row.values if value.field == "box_reference"
             })
             boxes = list(Box.objects.select_for_update().filter(
-                organization=organization, global_code__in=references,
+                organization=organization, global_code__in=references, merged_into__isnull=True,
             ).order_by("pk"))
             actor, organization = authorize_measurement_import(actor, organization)
             # Another application may have committed while we waited for Box locks.
@@ -150,7 +150,7 @@ def apply_measurement_import(
                     audit_id = audit.pk
                     audit_ids.append(audit_id)
                 elif row.outcome == "ALREADY_MATCHES":
-                    measurement = BiologicalMeasurement.objects.get(
+                    measurement = BiologicalMeasurement.objects.canonical().get(
                         pk=row.existing.id, box__organization=organization,
                     )
                 results.append({

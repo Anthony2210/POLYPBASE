@@ -6,6 +6,7 @@ from django.db.models import (
     Case,
     CharField,
     Count,
+    Q,
     Value,
     When,
 )
@@ -418,16 +419,27 @@ def resolve_legacy_audit_measurements(logs, *, organization_id):
     global_codes = {global_code for global_code, _measured_on in lookup_keys}
     measured_dates = {measured_on for _global_code, measured_on in lookup_keys}
     measurements = BiologicalMeasurement.objects.filter(
-        box__global_code__in=global_codes,
+        Q(box__global_code__in=global_codes)
+        | Q(box__previous_global_code__in=global_codes)
+        | Q(environment_source_box__previous_global_code__in=global_codes),
         box__organization_id=organization_id,
         measured_on__in=measured_dates,
-    ).select_related("box")
-    return {
-        lookup_key: measurement
-        for measurement in measurements
-        if (lookup_key := (measurement.box.global_code, measurement.measured_on))
-        in lookup_keys
-    }
+    ).select_related("box", "environment_source_box")
+    candidates = {}
+    for measurement in measurements:
+        source = measurement.environment_source_box
+        if source is not None and source.organization_id != organization_id:
+            continue
+        historical_box = source or measurement.box
+        codes = {historical_box.previous_global_code or historical_box.global_code}
+        if measurement.duplicate_of_id is None:
+            codes.add(measurement.box.global_code)
+        for code in codes:
+            key = (code, measurement.measured_on)
+            if key in lookup_keys:
+                candidates.setdefault(key, []).append(measurement)
+    # A legacy code/date link must not guess between retained evidence rows.
+    return {key: rows[0] for key, rows in candidates.items() if len(rows) == 1}
 
 
 def resolve_audit_accounts(logs, *, organization_id):

@@ -41,6 +41,16 @@ export function findChartLocationAtDate(locations: ChartLocation[], date: string
     ?.name;
 }
 
+export function findSourceChartLocationAtDate(locations: readonly ChartLocation[], date: string) {
+  // A source period with an unknown end proves only its recorded start day.
+  return [...locations].sort((left, right) => right.startsAt.localeCompare(left.startsAt))
+    .find((location) => {
+      const startDate = location.startsAt.slice(0, 10);
+      const endDate = location.endDateUnknown ? startDate : location.endsAt?.slice(0, 10) ?? date;
+      return startDate <= date && date <= endDate;
+    })?.name;
+}
+
 function laterDate(first: string, second: string) {
   return first > second ? first : second;
 }

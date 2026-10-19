@@ -92,6 +92,10 @@
 }
 
 .bio-trend-temperature-hit { fill: transparent; cursor: pointer; }
+/* Weekly intervals express uncertainty, not an observed day. */
+.bio-trend-dot.is-weekly { fill: var(--color-surface); stroke: var(--series-color); stroke-width: 2; }
+.bio-trend-week-span { stroke: var(--color-temperature); stroke-width: 2; stroke-opacity: 0.45; stroke-linecap: round; }
+.bio-trend-legend button.is-weekly::before { width: 9px; height: 9px; border: 2px solid var(--series-color); border-radius: 0; background: transparent; }
 .bio-trend-temperature-point:focus { outline: none; }
 .bio-trend-temperature-point:is(:hover, :focus, .is-selected) .bio-trend-dot {
   stroke: var(--color-temperature);

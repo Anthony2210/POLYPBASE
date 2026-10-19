@@ -234,7 +234,8 @@ class TemporalReadContractTests(TestCase):
 
     def test_unprefetched_serializer_fallbacks_use_the_same_total_order(self):
         self.year_boundary_rows()
-        manager_class = type(self.box.biological_measurements)
+        # Fallbacks read canonical rows, so the ordering call lands on the queryset.
+        manager_class = type(self.box.biological_measurements.canonical())
         for serializer_class in (BoxListSerializer, BoxDetailSerializer, BoxInventorySerializer):
             with self.subTest(serializer=serializer_class.__name__):
                 original = manager_class.order_by

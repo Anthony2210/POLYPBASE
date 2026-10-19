@@ -115,7 +115,10 @@ class CanonicalGlobalIdentityMigrationTests(TransactionTestCase):
         # Normalize preceding historical tests, then retain current cross-app states,
         # including Organization.portable_id, in both schema and historical models.
         executor.migrate(self.latest)
-        self.before_targets = [node for node in self.latest if node[0] != "taxonomy"] + [BEFORE]
+        self.before_targets = [node for node in self.latest if node[0] not in {"taxonomy", "cultures", "measurements"}] + [
+            BEFORE, ("cultures", "0014_box_movement_week_matches_moved_at"),
+            ("measurements", "0013_historical_temperature_receipt"),
+        ]
         executor = MigrationExecutor(connection)
         executor.migrate(self.before_targets)
         return executor.loader.project_state(self.before_targets).apps

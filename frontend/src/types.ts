@@ -57,7 +57,10 @@ export type BiologicalMeasurement = {
   created_at: string;
   can_edit: boolean;
   edit_deadline: string | null;
-  edit_restriction: 'edit_window_expired' | 'role_read_only' | null;
+  edit_restriction: 'edit_window_expired' | 'role_read_only' | 'measurement_duplicate_read_only' | null;
+  readonly duplicate_of?: number | null;
+  readonly environment_source_box?: number | null;
+  readonly environment_locations?: readonly BoxLocation[] | null;
 };
 
 export type CurrentPolypState = {
@@ -109,11 +112,44 @@ export type BoxTemperaturePoint = {
   max_temperature_c: number | null;
   zone_id: number;
   zone_name: string;
+  // Recorded periods supporting this zone temperature; absent for ordinary boxes.
+  readonly supported_by?: readonly { location_id: number; box_id: number; box_code: string }[];
+};
+
+// Week-precision temperature; the interval is uncertainty, not an observation day.
+export type HistoricalTemperaturePoint = {
+  id: number;
+  key: string;
+  source_kind: 'historical_weekly';
+  temporal_precision: 'iso_week';
+  statistic: 'source_reading';
+  temperature_c: string;
+  unit: 'degC';
+  iso_year: number;
+  iso_week: number;
+  interval_start: string;
+  interval_end: string;
+  measured_on: null;
+  measured_at: null;
+  biological_measurement_id: number;
+  box_id: number;
+  thermal_zone_id: null;
+  probe_id: null;
+  evidence_count: number;
+};
+
+export type LocationConflict = {
+  readonly basis: 'end_unknown' | 'recorded';
+  readonly locations: readonly {
+    location_id: number; box_id: number; box_code: string;
+    zone_id: number; zone_name: string; end_unknown: boolean;
+  }[];
 };
 
 export type BoxItem = {
   id: number;
   global_code: string;
+  readonly previous_global_code?: string;
   local_code: string;
   box_number: string;
   status: string;
@@ -230,6 +266,9 @@ export type OverviewMeasurementPoint = {
   polyp_count: number;
   ephyrae_count: number;
   salinity_psu: string | null;
+  readonly duplicate_of?: number | null;
+  readonly environment_source_box?: number | null;
+  readonly environment_locations?: readonly BoxLocation[] | null;
 };
 
 export type OverviewTemperaturePoint = {
@@ -279,10 +318,20 @@ export type BoxDetail = BoxItem & {
   movements: BoxMovement[];
   biological_measurements: BiologicalMeasurement[];
   biological_timeline: BiologicalTimelineEntry[];
+  readonly duplicate_measurements?: readonly BiologicalMeasurement[];
+  readonly identity_history?: readonly BoxIdentityHistory[];
+  readonly location_conflicts?: readonly LocationConflict[];
   temperature_history: BoxTemperaturePoint[];
   scan_url: string;
   qr_image_url: string;
   can_create_measurement: boolean;
+};
+
+export type BoxIdentityHistory = {
+  readonly id: number;
+  readonly global_code: string;
+  readonly merged_into: number;
+  readonly locations: readonly BoxLocation[];
 };
 
 export type BoxLocation = {

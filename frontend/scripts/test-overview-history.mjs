@@ -209,6 +209,30 @@ test('normalization preserves all 140 exact dates, both counts, zero and null sa
   assert.deepEqual(plain(normalizeOverviewMeasurements([])), []);
 });
 
+test('overview normalization and actual mini-chart retain source environments without canonical fallback', () => {
+  const sourceLocations = [{ id: 11, thermal_zone: { id: 2, name: 'JKA zone 2' },
+    starts_at: '2024-02-19', ends_at: null, end_date_unknown: true }];
+  const input = [
+    { ...measurements[0], environment_source_box: 2141, environment_locations: [] },
+    { ...measurements[1], environment_source_box: 2141, environment_locations: sourceLocations },
+    { ...measurements[2], environment_source_box: null, environment_locations: null },
+    { ...measurements[3], duplicate_of: measurements[0].id },
+  ];
+  const normalized = normalizeOverviewMeasurements(input);
+  assert.equal(normalized.length, 3);
+  assert.deepEqual(plain(normalized[0].environment_locations), []);
+  assert.deepEqual(plain(normalized[1].environment_locations), sourceLocations);
+  assert.equal(normalized[2].environment_locations, null);
+  const view = miniChartHarness(componentBox(input, true));
+  try {
+    assert.deepEqual(plain(view.chart.measurements[0].environmentLocations), []);
+    assert.equal(view.chart.measurements[1].environmentLocations[0].name, 'JKA zone 2');
+    assert.equal(view.chart.measurements[1].environmentLocations[0].endDateUnknown, true);
+    assert.equal(view.chart.measurements[2].environmentLocations, null);
+    assert.equal(view.chart.labels.temperature, 'canonicalBoxTemperature');
+  } finally { view.unmount(); }
+});
+
 test('recent-only initial data makes no GET; older selection commits complete App detail and retains selected range', async () => {
   const app = appHarness();
   const load = overviewCallback(app);
@@ -573,7 +597,7 @@ function componentBox(points, complete = false) {
 }
 const chartPoints = points => points.map(point => ({
   id: point.measured_on, date: point.measured_on, polypCount: point.polyp_count,
-  ephyraeCount: point.ephyrae_count, salinity: point.salinity_psu,
+  ephyraeCount: point.ephyrae_count, salinity: point.salinity_psu, environmentLocations: null,
 }));
 function assertComponentRange(view, range) {
   for (const props of [view.controls, view.chart]) {

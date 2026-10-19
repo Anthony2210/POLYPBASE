@@ -10,7 +10,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         grouped = defaultdict(list)
-        rows = BiologicalMeasurement.objects.values(
+        rows = BiologicalMeasurement.objects.canonical().values(
             "id",
             "box_id",
             "box__global_code",

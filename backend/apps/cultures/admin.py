@@ -27,6 +27,12 @@ class BoxAdmin(admin.ModelAdmin):
     list_filter = ("status", "organization", "thermal_zone")
     search_fields = ("global_code", "local_code", "box_number", "strain__code", "strain__species__scientific_name")
 
+    def has_change_permission(self, request, obj=None):
+        return (obj is None or obj.merged_into_id is None) and super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        return (obj is None or obj.merged_into_id is None) and super().has_delete_permission(request, obj)
+
     def get_readonly_fields(self, request, obj=None):
         # The current location changes only through the movement services.
         readonly_fields = tuple(super().get_readonly_fields(request, obj))

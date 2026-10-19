@@ -425,7 +425,7 @@ function OverviewMiniChart({
     void current.select(initialState.range);
     return () => { current.dispose(); controller.current = null; };
   }, [box, initialState, loadHistory]);
-  const orderedMeasurements = useMemo(() => [...history.measurements]
+  const orderedMeasurements = useMemo(() => history.measurements.filter((point) => point.duplicate_of == null)
     .sort((left, right) => left.date.localeCompare(right.date)), [history.measurements]);
   const extentEnd = defaultWindow.endDate;
   const extentStart = defaultWindow.startDate;
@@ -472,6 +472,13 @@ function OverviewMiniChart({
           polypCount: point.polyp_count,
           ephyraeCount: point.ephyrae_count,
           salinity: point.salinity_psu,
+          environmentLocations: point.environment_locations === undefined && point.environment_source_box != null
+            ? []
+            : point.environment_locations?.map((location) => ({
+              id: location.id, name: location.thermal_zone.name,
+              startsAt: location.starts_at, endsAt: location.ends_at,
+              endDateUnknown: location.end_date_unknown,
+            })) ?? null,
         }))}
         locations={locations}
         temperatures={temperatureHistory.points}
@@ -490,7 +497,9 @@ function OverviewMiniChart({
           movementAtBoundaryNote: t('movementAtPeriodBoundaryNote'),
           polyps: t('polyps'),
           salinity: 'PSU',
-          temperature: t('temperature'),
+          temperature: t(orderedMeasurements.some((point) => point.environment_locations != null || point.environment_source_box != null)
+            ? 'canonicalBoxTemperature' : 'temperature'),
+          sourceLocation: t('recordedOriginalLocation'),
           temperatureOutsideScale: t('temperatureOutsideScale'),
           selectedReading: language === 'fr' ? 'Relevé sélectionné' : 'Selected reading',
         }}

@@ -219,8 +219,9 @@ class BoxMovementWeekConstraintMigrationTests(TransactionTestCase):
         executor = MigrationExecutor(connection)
         latest = executor.loader.graph.leaf_nodes()
         self.addCleanup(lambda: MigrationExecutor(connection).migrate(latest))
-        before = [node for node in latest if node[0] != "cultures"] + [
+        before = [node for node in latest if node[0] not in {"cultures", "measurements"}] + [
             ("cultures", "0013_box_movement_kind_week_links"),
+            ("measurements", "0013_historical_temperature_receipt"),
         ]
         executor.migrate(before)
         apps = executor.loader.project_state(before).apps

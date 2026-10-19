@@ -145,7 +145,10 @@ class LocalStrainIdentityMigrationTests(TransactionTestCase):
         executor = MigrationExecutor(connection)
         latest = executor.loader.graph.leaf_nodes()
         # Keep the physical schema aligned with the historical cross-app models.
-        other_targets = [node for node in latest if node[0] not in {"taxonomy", "organizations"}]
+        other_targets = [node for node in latest if node[0] not in {"taxonomy", "organizations", "cultures", "measurements"}] + [
+            ("cultures", "0014_box_movement_week_matches_moved_at"),
+            ("measurements", "0013_historical_temperature_receipt"),
+        ]
         organizations = ("organizations", "0001_initial")
         before_targets = other_targets + [before, organizations]
         after_targets = other_targets + [after, organizations]
@@ -215,7 +218,10 @@ class LocalStrainProvenanceMigrationTests(TransactionTestCase):
         executor = MigrationExecutor(connection)
         latest = executor.loader.graph.leaf_nodes()
         # Keep the physical schema aligned with the historical cross-app models.
-        other_targets = [node for node in latest if node[0] not in {"taxonomy", "organizations"}]
+        other_targets = [node for node in latest if node[0] not in {"taxonomy", "organizations", "cultures", "measurements"}] + [
+            ("cultures", "0014_box_movement_week_matches_moved_at"),
+            ("measurements", "0013_historical_temperature_receipt"),
+        ]
         organizations = ("organizations", "0001_initial")
         before_targets = other_targets + [before, organizations]
         after_targets = other_targets + [after, organizations]

@@ -147,14 +147,14 @@ for (const code of ['AUR-42', 'AUR 42', 'AUR /42', 'AUR/ZONE/42', 'AUR%2F42',
     const previous = '/zones/3/history?direction=departure';
     const h = harness(previous);
     h.context.openBox(42, code);
-    assert.equal(h.path, path);
-    assert.equal(h.context.route.boxCode, code);
-    assert.equal(h.context.route.boxId, 42);
+    assert.equal(h.path, previous, 'wait for authorized numeric identity resolution');
     h.requests[0].resolve({ id: 42, global_code: code });
     await tick();
     assert.equal(h.path, path);
-    assert.equal(h.pushCalls, 1, 'Async enrichment must not add another history entry');
-    assert.equal(h.context.routeWrites, 2);
+    assert.equal(h.context.route.boxCode, code);
+    assert.equal(h.context.route.boxId, 42);
+    assert.equal(h.pushCalls, 1, 'Resolved navigation must add only one history entry');
+    assert.equal(h.context.routeWrites, 1);
     assert.equal(h.context.getCurrentRoute().boxCode, code, 'Parser decodes the identifier once, without splitting it');
     h.context.closeBoxPage();
     h.flush();
@@ -204,13 +204,15 @@ test('invalid encoded route navigation resets rather than creating a trusted pre
   }
 });
 
-test('actual async openBox enrichment updates route without a duplicate history entry', async () => {
+test('actual async openBox resolves identity before adding one history entry', async () => {
   const h = harness('/zones/3/history?direction=departure');
-  h.context.openBox(42, 'BOX-42');
-  assert.equal(h.context.route.boxId, 42);
-  h.requests[0].resolve({ id: 42, global_code: 'BOX-42' });
+  h.context.openBox(42, 'OLD-BOX-42');
+  assert.equal(h.context.route.boxId, null);
+  h.requests[0].resolve({ id: 17, global_code: 'BOX-17' });
   await tick();
-  assert.equal(h.context.routeWrites, 2);
+  assert.equal(h.context.route.boxId, 17);
+  assert.equal(h.path, '/boxes/BOX-17');
+  assert.equal(h.context.routeWrites, 1);
   assert.equal(h.pushCalls, 1);
   h.context.closeBoxPage();
   h.flush();
@@ -236,6 +238,7 @@ test('same-path noop explicitly updates enriched route, pending push/replace do 
 
 test('Back invalidates an in-flight box request before popstate arrives', async () => {
   const h = harness('/labels');
+  h.context.navigateTo(boxRoute('CURRENT', 17), '/boxes/CURRENT');
   h.context.openBox(42, 'BOX-42');
   h.context.closeBoxPage();
   h.requests[0].resolve({ id: 42, global_code: 'BOX-42' });

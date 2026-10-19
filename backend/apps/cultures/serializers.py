@@ -3,7 +3,7 @@ from collections.abc import Mapping
 from datetime import date, timedelta
 from decimal import Decimal
 
-from django.db import transaction
+from django.db import models, transaction
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
@@ -39,7 +39,10 @@ from .polyp_state import current_state_prefetches, current_polyp_total, resolve_
 from .temperature_history import (
     MAX_TEMPERATURE_RANGE_DAYS,
     box_temperature_queryset,
+    has_merged_identity,
+    location_provenance_conflicts,
     temperature_history_point,
+    temperature_support_periods,
 )
 
 # The historical import stamped existing boxes with its execution date rather
@@ -163,6 +166,7 @@ class BiologicalMeasurementSerializer(serializers.ModelSerializer):
     can_edit = serializers.SerializerMethodField()
     edit_deadline = serializers.SerializerMethodField()
     edit_restriction = serializers.SerializerMethodField()
+    environment_locations = serializers.SerializerMethodField()
 
     class Meta:
         model = BiologicalMeasurement
@@ -171,6 +175,9 @@ class BiologicalMeasurementSerializer(serializers.ModelSerializer):
             "measured_on",
             "week_start",
             "temporal_precision",
+            "duplicate_of",
+            "environment_source_box",
+            "environment_locations",
             "polyp_count",
             "ephyrae_count",
             "strobila_count",
@@ -198,6 +205,9 @@ class BiologicalMeasurementSerializer(serializers.ModelSerializer):
             "user_identity",
             "observer_status",
             "temporal_precision",
+            "duplicate_of",
+            "environment_source_box",
+            "environment_locations",
             "origin",
             "import_format",
             "created_at",
@@ -223,6 +233,20 @@ class BiologicalMeasurementSerializer(serializers.ModelSerializer):
 
     def get_imported_by_display(self, obj):
         return readable_user_identity_label(obj.imported_by)
+
+    def get_environment_locations(self, obj):
+        """Return recorded source periods only; null means no source identity."""
+        if obj.environment_source_box_id is None:
+            return None
+        cache = self.context.setdefault("environment_locations_by_box", {})
+        if obj.environment_source_box_id not in cache:
+            locations = BoxLocation.objects.filter(
+                box_id=obj.environment_source_box_id,
+                box__organization_id=obj.box.organization_id,
+                thermal_zone__organization_id=obj.box.organization_id,
+            ).select_related("thermal_zone").order_by("starts_at", "pk")
+            cache[obj.environment_source_box_id] = BoxLocationSerializer(locations, many=True).data
+        return cache[obj.environment_source_box_id]
 
     def get_can_edit(self, obj):
         return self._editability(obj)["can_edit"]
@@ -272,6 +296,7 @@ class BoxListSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "global_code",
+            "previous_global_code",
             "local_code",
             "box_number",
             "status",
@@ -316,9 +341,9 @@ class BoxListSerializer(serializers.ModelSerializer):
         if measurements is None:
             measurements = _prefetched_list(obj, "biological_measurements")
         if measurements is not None:
-            measurement = next(iter(measurements), None)
+            measurement = next((m for m in measurements if m.duplicate_of_id is None), None)
         else:
-            measurement = obj.biological_measurements.order_by("-week_start", "-created_at", "-pk").first()
+            measurement = obj.biological_measurements.canonical().order_by("-week_start", "-created_at", "-pk").first()
         return (
             BiologicalMeasurementSerializer(measurement, context=self.context).data
             if measurement
@@ -336,12 +361,12 @@ class BoxListSerializer(serializers.ModelSerializer):
         measurements = _prefetched_list(obj, "biological_measurements")
         if measurements is not None:
             for measurement in measurements:  # ordered most-recent first
-                if measurement.salinity_psu is not None:
+                if measurement.duplicate_of_id is None and measurement.salinity_psu is not None:
                     return _render_salinity(measurement.salinity_psu)
             return None
 
         latest = (
-            obj.biological_measurements.filter(salinity_psu__isnull=False)
+            obj.biological_measurements.canonical().filter(salinity_psu__isnull=False)
             .order_by("-week_start", "-created_at", "-pk")
             .first()
         )
@@ -389,7 +414,7 @@ class BoxInventorySerializer(serializers.ModelSerializer):
         if hasattr(obj, "first_measurement_on_annotation"):
             first_measurement_on = obj.first_measurement_on_annotation
         else:
-            first_measurement_on = obj.biological_measurements.order_by(
+            first_measurement_on = obj.biological_measurements.canonical().order_by(
                 "measured_on",
                 "created_at",
             ).values_list("measured_on", flat=True).first()
@@ -398,9 +423,9 @@ class BoxInventorySerializer(serializers.ModelSerializer):
     def get_latest_measurement(self, obj):
         measurements = _prefetched_list(obj, "biological_measurements")
         if measurements is not None:
-            measurement = next(iter(measurements), None)
+            measurement = next((m for m in measurements if m.duplicate_of_id is None), None)
         else:
-            measurement = obj.biological_measurements.order_by(
+            measurement = obj.biological_measurements.canonical().order_by(
                 "-week_start",
                 "-created_at",
                 "-pk",
@@ -446,11 +471,38 @@ class BoxDetailSerializer(BoxListSerializer):
     lineage = serializers.SerializerMethodField()
     locations = BoxLocationSerializer(many=True, read_only=True)
     movements = BoxMovementSerializer(many=True, read_only=True)
-    biological_measurements = BiologicalMeasurementSerializer(many=True, read_only=True)
+    biological_measurements = serializers.SerializerMethodField()
+    duplicate_measurements = serializers.SerializerMethodField()
+    identity_history = serializers.SerializerMethodField()
+    location_conflicts = serializers.SerializerMethodField()
     scan_url = serializers.SerializerMethodField()
     qr_image_url = serializers.SerializerMethodField()
     can_create_measurement = serializers.SerializerMethodField()
     biological_timeline = serializers.SerializerMethodField()
+
+    def get_biological_measurements(self, obj):
+        readings = _prefetched_list(obj, "biological_measurements")
+        if readings is None:
+            readings = obj.biological_measurements.canonical().select_related("user", "original_observer", "imported_by")
+        return BiologicalMeasurementSerializer(
+            [m for m in readings if m.duplicate_of_id is None], many=True, context=self.context,
+        ).data
+
+    def get_duplicate_measurements(self, obj):
+        # Query the model directly: the related manager may hold a prefetch
+        # already restricted to canonical rows, which would hide the evidence.
+        readings = BiologicalMeasurement.objects.filter(
+            box_id=obj.pk, duplicate_of__isnull=False,
+        ).select_related("user", "original_observer", "imported_by").order_by("week_start", "pk")
+        return BiologicalMeasurementSerializer(readings, many=True, context=self.context).data
+
+    def get_identity_history(self, obj):
+        sources = obj.merged_sources.filter(organization_id=obj.organization_id).prefetch_related("locations__thermal_zone")
+        return [{
+            "id": source.pk, "global_code": source.previous_global_code,
+            "merged_into": obj.pk,
+            "locations": BoxLocationSerializer(source.locations.all(), many=True).data,
+        } for source in sources]
 
     def get_biological_timeline(self, obj):
         from .biological_timeline import biological_timeline
@@ -470,6 +522,9 @@ class BoxDetailSerializer(BoxListSerializer):
             "locations",
             "movements",
             "biological_measurements",
+            "duplicate_measurements",
+            "identity_history",
+            "location_conflicts",
             "scan_url",
             "qr_image_url",
             "can_create_measurement",
@@ -499,10 +554,15 @@ class BoxDetailSerializer(BoxListSerializer):
         """Return daily temperatures for the zones occupied by this box."""
         today = timezone.localdate()
         lower_bound = today - timedelta(days=180)
+        # Ordinary boxes keep the single-query, unannotated contract.
+        support = temperature_support_periods(obj) if has_merged_identity(obj) else None
         return [
-            temperature_history_point(temperature)
+            temperature_history_point(temperature, support)
             for temperature in box_temperature_queryset(obj, lower_bound, today)
         ]
+
+    def get_location_conflicts(self, obj):
+        return location_provenance_conflicts(obj) if has_merged_identity(obj) else []
 
     def get_lineage(self, obj):
         parent_lineages = _prefetched_list(obj, "parent_lineages")
@@ -572,7 +632,9 @@ class BoxCreateSerializer(serializers.Serializer):
         if thermal_zone and thermal_zone.organization_id != organization.id:
             raise serializers.ValidationError("L’emplacement doit appartenir à la structure de la boîte.")
 
-        if Box.objects.filter(global_code=global_code).exists():
+        if Box.objects.filter(
+            models.Q(global_code=global_code) | models.Q(previous_global_code=global_code),
+        ).exists():
             raise serializers.ValidationError({"global_code": "Une boîte utilise déjà ce code."})
 
         try:

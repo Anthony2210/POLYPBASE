@@ -51,8 +51,8 @@ class PortableLineageMigrationTests(TransactionTestCase):
         executor.migrate(self.latest)
         self.addCleanup(self.restore_latest)
         self.other_targets = [
-            node for node in self.latest if node[0] not in {"cultures", "organizations", "taxonomy"}
-        ]
+            node for node in self.latest if node[0] not in {"cultures", "organizations", "taxonomy", "measurements"}
+        ] + [("measurements", "0005_biologicalmeasurement_week_start")]
 
     def restore_latest(self):
         MigrationExecutor(connection).migrate(self.latest)

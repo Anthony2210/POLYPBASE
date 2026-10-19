@@ -1,13 +1,13 @@
 from datetime import timedelta
 
-from django.db import transaction
+from django.db import models, transaction
 from django.utils import timezone
 
 from apps.accounts.models import OrganizationMembership
 from apps.audit.models import AuditLog
 from apps.cultures.models import Box
 
-from .models import BiologicalMeasurement
+from .models import BiologicalMeasurement, HistoricalTemperatureReading
 from .serializers import BiologicalMeasurementCreateSerializer
 
 MEASUREMENT_EDIT_WINDOW = timedelta(hours=24)
@@ -36,6 +36,13 @@ def get_measurement_editability(*, user, measurement, now=None, role=_ROLE_UNSET
             user=user,
             organization=measurement.box.organization,
         )
+
+    if measurement.duplicate_of_id is not None:
+        return {
+            "can_edit": False,
+            "edit_deadline": None,
+            "edit_restriction": "measurement_duplicate_read_only",
+        }
 
     if role == OrganizationMembership.Role.ADMIN:
         return {
@@ -134,7 +141,7 @@ def _record_measurement_audit(*, box, measurement, user, action, metadata):
 
 def _get_measurement_box(*, box_id, organization_ids, for_update=False):
     queryset = Box.objects.select_related("organization").filter(
-        organization_id__in=organization_ids,
+        organization_id__in=organization_ids, merged_into__isnull=True,
     )
     if for_update:
         queryset = queryset.select_for_update()
@@ -170,7 +177,7 @@ def _validated_measurement_data(*, data, measurement=None):
 
 def _check_measurement_week(*, box, measured_on, measurement=None):
     week_start = BiologicalMeasurement.week_start_for(measured_on)
-    queryset = BiologicalMeasurement.objects.select_for_update().filter(
+    queryset = BiologicalMeasurement.objects.canonical().select_for_update().filter(
         box=box, week_start=week_start,
     )
     if measurement is not None:
@@ -247,13 +254,38 @@ def correct_biological_measurement(*, box_id, measurement_id, organization_ids, 
         )
 
     values = _validated_measurement_data(data=data, measurement=measurement)
+    corrected_week = BiologicalMeasurement.week_start_for(values.get("measured_on", measurement.measured_on))
+    if corrected_week != measurement.week_start and measurement.duplicate_measurements.exists():
+        raise MeasurementWriteInvalid("The correction would invalidate retained duplicate evidence.")
     _check_measurement_week(
         box=box,
         measured_on=values.get("measured_on", measurement.measured_on),
         measurement=measurement,
     )
-    # Future reviewed-plan guards belong here, while both rows are locked and
-    # before taking the audit snapshot or assigning any corrected values.
+    historical = HistoricalTemperatureReading.objects.select_for_update().filter(
+        biological_measurement=measurement,
+    ).first()
+    historical_audit = None
+    if historical is not None:
+        previous_status = historical.association_status
+        uncertain = (
+            values.get("polyp_count", measurement.polyp_count) != measurement.polyp_count
+            or values.get("ephyrae_count", measurement.ephyrae_count) != measurement.ephyrae_count
+            or BiologicalMeasurement.week_start_for(values.get("measured_on", measurement.measured_on))
+            != measurement.week_start
+        )
+        if uncertain and previous_status == HistoricalTemperatureReading.AssociationStatus.CONFIRMED:
+            # Only this monotone status transition bypasses the append-only ORM
+            # manager. SQL guards independently enforce it for all other writers.
+            models.QuerySet(model=HistoricalTemperatureReading, using=measurement._state.db).filter(
+                pk=historical.pk, association_status=previous_status,
+            ).update(association_status=HistoricalTemperatureReading.AssociationStatus.PENDING_REVIEW)
+            historical.association_status = HistoricalTemperatureReading.AssociationStatus.PENDING_REVIEW
+        historical_audit = {
+            "reading_id": historical.pk,
+            "before": previous_status,
+            "after": historical.association_status,
+        }
     before_values = _measurement_audit_values(measurement)
     for field, value in values.items():
         setattr(measurement, field, value)
@@ -271,6 +303,7 @@ def correct_biological_measurement(*, box_id, measurement_id, organization_ids, 
             "after": after_values,
             "valeurs": after_values,
             "modifications": _changed_values(before_values, after_values),
+            **({"historical_temperature": historical_audit} if historical_audit is not None else {}),
         },
     )
     return measurement

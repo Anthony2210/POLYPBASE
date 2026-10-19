@@ -321,6 +321,9 @@ function trackingChartHarness() {
     '../i18n': { createTranslator: () => key => key },
     './BiologicalTrendChart': { default: trend, isChartEventInRange: () => true },
     './ChartWindowControls': { default: controls }, './TemperatureHistoryStatus': { default: status },
+    './HistoricalTemperatureStatus': { default: () => null },
+    '../hooks/useHistoricalTemperatures': { useHistoricalTemperatures: () => ({ points: [], loading: false, failed: false, retry() {} }) },
+    '../utils/historicalTemperature': { weeklyTrendTemperatures: () => [] },
   }).default;
   function find(tree, type) {
     if (Array.isArray(tree)) return tree.flatMap(node => find(node, type));
@@ -337,7 +340,7 @@ test('actual Box chart controls reuse covered ranges and preserve overlap and bi
     { id: 1, measured_on: '2020-02-29', polyp_count: 0, ephyrae_count: 0, salinity_psu: null }],
     locations: [], events: [], labels: { polyps: 'Polyps', chartTitle: 'Measurements', chartEmpty: 'Empty' } };
   let tree = hook.renderWith(chart, props);
-  assert.equal(find(tree, trend)[0].temperatureStatus.type, status);
+  assert.equal(find(tree, trend)[0].temperatureStatus.props.children[0].type, status);
   assert.equal(find(tree, status)[0].loading, true);
   assert.equal(find(tree, status)[0].language, 'en');
   const initial = find(tree, controls)[0];
@@ -412,7 +415,7 @@ test('supplied-array charts make no coverage claim and Box IDs reset both window
   const initial = find(tree, controls)[0];
   const scope = find(tree, trend)[0].selectionScope;
   assert.equal(find(tree, trend)[0].temperatures.length, 0, 'Native loading never backfills from supplied arrays');
-  assert.equal(find(tree, trend)[0].temperatureStatus.props.loading, true);
+  assert.equal(find(tree, trend)[0].temperatureStatus.props.children[0].props.loading, true);
   find(tree, controls)[0].onChange('2019-01-01', '2019-02-01');
   tree = hook.renderWith(chart, { ...props, boxId: 17 });
   assert.equal(find(tree, controls)[0].startDate, '2019-01-01');
@@ -700,7 +703,7 @@ test('Box, preview and Overview use the native range loader and put translated s
   assert.match(source('components/OverviewView.tsx'), /useTemperatureHistory\(box.id, startDate, endDate, box\)/);
   assert.match(source('components/OverviewView.tsx'), /temperatures=\{temperatureHistory.points\}/);
   assert.match(source('components/OverviewView.tsx'), /temperatureStatus=\{<TemperatureHistoryStatus \{\.\.\.temperatureHistory\} language=\{language\} \/>\}/);
-  assert.match(source('components/BoxTrackingChart.tsx'), /temperatureStatus=\{boxId != null \? <TemperatureHistoryStatus/);
+  assert.match(source('components/BoxTrackingChart.tsx'), /temperatureStatus=\{boxId != null \? <>\s*<TemperatureHistoryStatus/);
   assert.match(source('components/BoxTrackingPreview.tsx'), /<BoxTrackingChart compact boxId=\{detail.id\}/);
   for (const language of ['fr', 'en']) {
     const catalog = load(`../src/i18n/${language}.ts`, {})[language];

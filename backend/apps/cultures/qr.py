@@ -18,16 +18,25 @@ from django.conf import settings
 from django.urls import reverse
 from qrcode.image.svg import SvgPathImage
 
+from .identity_resolution import resolve_box_identity
 from .models import Box, IdentificationTag
 
 
+def _canonical_box(box: Box) -> Box:
+    if box.merged_into_id is None:
+        return box
+    return resolve_box_identity(Box.objects.filter(organization_id=box.organization_id), box.pk)
+
+
 def box_scan_url(box: Box) -> str:
-    """Return the absolute URL encoded in the box QR code."""
+    """Return a direct canonical URL for newly generated box QR codes."""
+    box = _canonical_box(box)
     return f"{settings.PUBLIC_BASE_URL}/bac/{box.id}/"
 
 
 def box_qr_image_url(box: Box) -> str:
-    """Return the absolute URL of the box QR code SVG image."""
+    """Return the absolute URL of the canonical box QR code SVG image."""
+    box = _canonical_box(box)
     return f"{settings.PUBLIC_BASE_URL}{reverse('qr_boite', args=[box.id])}"
 
 
@@ -61,6 +70,7 @@ def sync_box_qr_tag(box: Box) -> IdentificationTag:
     The tag stores the URL the printed code points to so it can be listed in
     the admin and the API without recomputing it.
     """
+    box = _canonical_box(box)
     tag, _ = IdentificationTag.objects.update_or_create(
         box=box,
         tag_type=IdentificationTag.TagType.QR,
