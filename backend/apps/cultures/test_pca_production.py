@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import skipUnless
 from unittest.mock import patch
 
 from config import database_backup
@@ -214,6 +215,7 @@ class ProductionRefusalTests(SimpleTestCase):
             read.assert_not_called()
 
 
+@skipUnless(connection.vendor == "postgresql", "Production workflow requires independent PostgreSQL QA, never SQLite.")
 class ProductionWorkflowTests(PcaFixtureMixin, TransactionTestCase):
     reset_sequences = True
 
