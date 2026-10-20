@@ -15,8 +15,9 @@ import io
 import re
 import zipfile
 from collections import Counter, defaultdict
-from contextlib import AbstractContextManager, nullcontext
+from contextlib import AbstractContextManager, ExitStack, contextmanager, nullcontext
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import cast
 
 from config import database_backup, pca_protected_artifacts
@@ -25,7 +26,8 @@ from django.db import connection, transaction
 
 from apps.audit.models import AuditLog
 from apps.cultures import pca_identity_unification as merge
-from apps.cultures import pca_production as production
+from . import historical_temperature_target as production
+from .historical_temperature_backup_timeouts import check_backup_timeouts
 from apps.cultures.models import Box
 from apps.organizations.models import Organization
 
@@ -81,6 +83,17 @@ def plan_hash(document):
 
 def _utc_now():
     return datetime.now(timezone.utc).isoformat()
+
+
+@contextmanager
+def _protected_sources(raw_directory):
+    """Bind the private original workbooks while the existing pipeline reads them."""
+    with ExitStack() as stack:
+        if not production._is_disposable_qa():
+            stack.enter_context(pca_protected_artifacts.protected_directory(raw_directory))
+            for name in SOURCES:
+                stack.enter_context(pca_protected_artifacts.protected_file(Path(raw_directory) / name))
+        yield
 
 
 def _chunks(values, size=CHUNK):
@@ -265,7 +278,8 @@ def build_document(organization, raw_directory, target, generated_at):
     if state["pending"]:
         blockers.append("PENDING_REVIEW_ASSOCIATION_PRESENT")
     baseline = snapshot_baseline(state["snapshot"])
-    report = build_report(raw_directory, organization_id=organization.pk, baseline=baseline)
+    with _protected_sources(raw_directory):
+        report = build_report(raw_directory, organization_id=organization.pk, baseline=baseline)
     sources = [{"filename": row["filename"], "iso_year": row["iso_year"], "sha256": row["sha256"]}
                for row in report["source_extraction"]["sources"]]
     if sources != [{"filename": name, "iso_year": year, "sha256": digest}
@@ -371,6 +385,7 @@ def backup_plan(organization_id, *, actor, document, approved_hash, raw_director
     _recompute(organization_id, actor_id, document, raw_directory)
     if connection.in_atomic_block:
         raise ProductionImportError("Backup must start outside an existing transaction.")
+    check_backup_timeouts(connection)
     directory_guard = (nullcontext() if production._is_disposable_qa()
                        else pca_protected_artifacts.protected_directory(output_dir))
     with production.socket_guard(target), directory_guard, cast(
@@ -387,10 +402,12 @@ def backup_plan(organization_id, *, actor, document, approved_hash, raw_director
                 raise StalePlanError("Stale plan: no backup evidence can be issued for a different live snapshot.")
             cursor.execute("SELECT pg_export_snapshot()")
             snapshot = cursor.fetchone()[0]
-        database = {**connection.settings_dict, "ENGINE": "django.db.backends.postgresql"}
-        evidence = database_backup.create_evidence(
-            database, target, approved_hash, output_dir, snapshot=snapshot,
-            hostaddr=target["server_address"])
+        # The restricted import connection keeps exporting the approved snapshot.
+        # Only the independently attested backup login reads the complete database.
+        with production.backup_database(target, snapshot) as database:
+            evidence = database_backup.create_evidence(
+                database, target, approved_hash, output_dir, snapshot=snapshot,
+                hostaddr=target["server_address"])
         if not production._is_disposable_qa():
             pca_protected_artifacts.validate_file(evidence["archive"]["path"])
         production.verify_target(target, in_snapshot=True)
@@ -513,7 +530,8 @@ def apply_plan(organization_id, *, actor, document, approved_hash, backup_eviden
     production._validate_backup(backup_evidence, target, approved_hash)
     production.verify_target(target)
     try:
-        archive = _archive_sources(raw_directory)
+        with _protected_sources(raw_directory):
+            archive = _archive_sources(raw_directory)
     except ValueError as error:
         raise ProductionImportError(str(error)) from None
     with _snapshot_transaction():

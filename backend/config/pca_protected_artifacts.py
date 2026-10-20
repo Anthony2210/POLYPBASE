@@ -169,6 +169,12 @@ def read_attestation():
     return _read_json(PINNED_ATTESTATION, {0}, False)
 
 
+def read_historical_temperature_attestation():
+    """Read the dedicated root-owned historical temperature target, without overrides."""
+    assert_unprivileged_runtime()
+    return _read_json("/etc/polypbase/historical-temperature-production-target.json", {0}, False)
+
+
 def read_json(path):
     """Read a manifest beneath a private root/runtime-owned directory."""
     uid = assert_unprivileged_runtime()

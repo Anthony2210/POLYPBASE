@@ -96,6 +96,16 @@ class DatabaseBackupTests(unittest.TestCase):
             self.assertEqual(stat.S_IMODE(Path(archive["path"]).stat().st_mode), 0o600)
             self.assertEqual(stat.S_IMODE(Path(archive["path"]).parent.stat().st_mode), 0o700)
 
+    def test_explicit_peer_backup_disables_default_and_inherited_password_files(self):
+        self.database["PASSWORD"] = ""
+        self.database["OPTIONS"] = {"sslmode": "disable", "passfile": "/dev/null"}
+        with patch.dict(os.environ, {"PGPASSFILE": "inherited-private-file"}):
+            self.evidence()
+        dump, restore = self.runner.call_args_list
+        self.assertEqual(dump.kwargs["env"]["PGPASSFILE"], "/dev/null")
+        self.assertEqual(dump.kwargs["env"]["PGPASSWORD"], "")
+        self.assertNotIn("PGPASSFILE", restore.kwargs["env"])
+
     def test_normal_archive_has_no_snapshot_and_defaults_sslmode(self):
         self.database.pop("OPTIONS")
         backup.create_archive(self.database, self.directory, "backup")

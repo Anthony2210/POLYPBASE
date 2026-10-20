@@ -1,6 +1,6 @@
 """Connection-free tests for the staged local-UI temperature import.
 
-Run only with config.historical_temperature_test_settings (SQLite, no migrations).
+Run with config.test_settings or config.historical_temperature_test_settings.
 Nothing here connects to PostgreSQL or to any scientific database.
 """
 
@@ -340,7 +340,12 @@ class SettingsTests(SimpleTestCase):
     def load(self, **env):
         base = {key: value for key, value in os.environ.items()
                 if not key.upper().startswith("PG") and not key.startswith("POLYPBASE_UI_TEMP")}
+        # Base settings may have loaded application variables from dotenv. These
+        # imports exercise a synthetic target, not the parent process database.
         base.update({
+            "POSTGRES_DB": "",
+            "POLYPBASE_TEST_POSTGRES": "0",
+            "PYTHON_DOTENV_DISABLED": "1",
             "POLYPBASE_UI_TEMP_DB_HOST": "127.0.0.1",
             "POLYPBASE_UI_TEMP_DB_PORT": "65432",
             "POLYPBASE_UI_TEMP_DB_DATABASE": "synthetic_temperature_ui",
@@ -350,7 +355,7 @@ class SettingsTests(SimpleTestCase):
         })
         base.update(env)
         sys.modules.pop(SETTINGS, None)
-        with patch.dict(os.environ, base, clear=True):
+        with patch.dict(os.environ, base, clear=True), patch("dotenv.load_dotenv"):
             try:
                 return importlib.import_module(SETTINGS)
             finally:
@@ -390,6 +395,30 @@ class SettingsTests(SimpleTestCase):
                          {"PGUSER": "postgres"}, {"PGPASSWORD": "x"}, {"pghost": "x"}):
             with self.assertRaises((ImproperlyConfigured, RuntimeError), msg=redirect):
                 self.load(**env, **redirect)
+
+
+class SettingsIsolationTests(SimpleTestCase):
+    def test_inherited_database_environment_is_isolated_and_restored(self):
+        inherited = {"POSTGRES_DB": "synthetic_inherited_database", "POLYPBASE_TEST_POSTGRES": "1",
+                     "PGHOST": "synthetic.invalid", "PYTHON_DOTENV_DISABLED": "0"}
+        import dotenv
+
+        original_loader = dotenv.load_dotenv
+        with patch.dict(os.environ, inherited):
+            module = SettingsTests().load(
+                POLYPBASE_UI_TEMP_DB_USER="synthetic_temperature_runtime", POLYPBASE_UI_TEMP_STAGE="C")
+            self.assertEqual(module.DATABASES["default"]["NAME"], "synthetic_temperature_ui")
+            for name, value in inherited.items():
+                self.assertEqual(os.environ[name], value)
+        self.assertIs(dotenv.load_dotenv, original_loader)
+
+    def test_explicit_forbidden_database_variables_are_still_refused(self):
+        for forbidden in ({"POSTGRES_DB": "synthetic_forbidden"}, {"POLYPBASE_TEST_POSTGRES": "1"}):
+            with self.subTest(forbidden=forbidden), self.assertRaisesMessage(
+                RuntimeError, "Clear inherited application and test database configuration"
+            ):
+                SettingsTests().load(POLYPBASE_UI_TEMP_DB_USER="synthetic_temperature_runtime",
+                                     POLYPBASE_UI_TEMP_STAGE="C", **forbidden)
 
 
 @override_settings(HISTORICAL_TEMPERATURE_UI_STAGE="C", HISTORICAL_TEMPERATURE_LOCAL_UI_APPLY_ENABLED=True,

@@ -39,7 +39,7 @@ from django.test import SimpleTestCase, TransactionTestCase
 from apps.accounts.models import OrganizationMembership
 from apps.audit.models import AuditLog
 from apps.cultures import pca_identity_unification as merge
-from apps.cultures import pca_production
+from . import historical_temperature_target as pca_production
 from apps.cultures.models import Box
 from apps.cultures.test_pca_identity_unification import PcaFixtureMixin
 from apps.organizations.models import Organization
@@ -60,7 +60,8 @@ CHECK_RUNTIME_PRIVILEGES = production.check_runtime_privileges
 
 def synthetic_target(config=None):
     config = config or {"HOST": "127.0.0.1", "PORT": "55439"}
-    return {"schema": "pca_target_v3", "connection_mode": "tcp", "socket_uid": None, "socket_gid": None,
+    return {"schema": "historical_temperature_target_v1", "backup_role": "synthetic_backup", "backup_role_oid": 5679,
+                "connection_mode": "tcp", "socket_uid": None, "socket_gid": None,
             "machine_id": MACHINE, "configured_host": config["HOST"], "configured_port": str(config["PORT"]),
             "database": "synthetic_ht", "role": "synthetic_runtime", "server_address": "127.0.0.1",
             "server_port": int(config["PORT"]), "database_oid": 1234, "role_oid": 5678,
@@ -182,7 +183,13 @@ class ProductionFixture(PcaFixtureMixin, TransactionTestCase):
             patcher = patch.object(pca_production, name, side_effect=mocked)
             patcher.start()
             self.addCleanup(patcher.stop)
-        artifacts = pca_production.pca_protected_artifacts
+        # Workflow fixtures use the disposable owner. Dedicated target and restricted
+        # role tests cover native identity checks and the actual privilege boundary.
+        patcher = patch.object(pca_production, "backup_database", side_effect=lambda target, snapshot: nullcontext(
+            {**connection.settings_dict, "ENGINE": "django.db.backends.postgresql"}))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        artifacts = production.pca_protected_artifacts
         for name in ("protected_file", "protected_directory"):
             patcher = patch.object(artifacts, name, side_effect=lambda path: nullcontext())
             patcher.start()
@@ -853,7 +860,7 @@ class ConcurrencyTests(ProductionFixture):
 class CommandTests(ProductionFixture):
     def run_command(self, action, **options):
         defaults = {"production": True, "organization_id": 1, "actor_id": self.admin.pk,
-                    "target": "/etc/polypbase/pca-production-target.json",
+                    "target": pca_production.PINNED_ATTESTATION,
                     "plan_file": str(self.directory / "plan.json")}
         defaults.update(options)
         out = StringIO()
@@ -943,6 +950,191 @@ class RefusalWithoutDatabaseTests(SimpleTestCase):
                     production.build_plan(organization_id, actor=SimpleNamespace(pk=1),
                                           target={}, raw_directory=Path("x"))
             verify.assert_not_called()
+
+
+class BackupOrchestrationTests(SimpleTestCase):
+    """Verify Unix backup orchestration without a database or external tools."""
+
+    def test_unix_backup_keeps_socket_bound_and_forwards_snapshot_without_hostaddr(self):
+        config = {"ENGINE": "django.db.backends.postgresql", "HOST": "/var/run/postgresql",
+                  "PORT": "5433", "NAME": "synthetic_ht", "USER": "synthetic_runtime",
+                  "OPTIONS": {"sslmode": "disable"}}
+        target = {**synthetic_target(config), "connection_mode": "unix", "server_address": None,
+                  "server_port": None, "socket_uid": 110, "socket_gid": 111}
+        plan = {"payloads": [{"biological_measurement_id": 101}]}
+        state = {"fingerprint": "baseline", "post_pca": {"receipt_audit_id": 2834}}
+        document = {"target": target, "plan": plan, "baseline": {"fingerprint": "baseline"},
+                    "post_pca": state["post_pca"], "touched_biology_fingerprint": "biology"}
+        approved_hash = "a" * 64
+        output_dir = "/srv/private/backups"
+        raw_directory = Path("/srv/private/sources")
+        snapshot = "synthetic-exported-snapshot"
+        evidence = {"archive": {"path": "/srv/private/backups/archive.dump"}}
+        organization, user = object(), object()
+        active = set()
+
+        @contextmanager
+        def held(name):
+            active.add(name)
+            try:
+                yield
+            finally:
+                active.remove(name)
+
+        def socket_guard(host, port, uid, gid):
+            self.assertEqual((host, port, uid, gid), ("/var/run/postgresql", "5433", 110, 111))
+            return held("socket")
+
+        @contextmanager
+        def backup_database(reviewed_target, exported_snapshot):
+            self.assertEqual(reviewed_target, target)
+            self.assertEqual(exported_snapshot, snapshot)
+            with held("backup"):
+                yield config
+
+        def archive(database, reviewed_target, reviewed_hash, directory, **kwargs):
+            self.assertEqual(active, {"socket", "directory", "transaction", "backup"})
+            self.assertEqual(database, config)
+            self.assertEqual(reviewed_target, target)
+            self.assertEqual(reviewed_target["server_version_num"], 180000)
+            self.assertEqual(reviewed_hash, approved_hash)
+            self.assertEqual(directory, output_dir)
+            self.assertEqual(kwargs, {"snapshot": snapshot, "hostaddr": None})
+            self.assertEqual([call.args[0] for call in cursor.execute.call_args_list], [
+                "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY",
+                "SELECT pg_export_snapshot()",
+            ])
+            return evidence
+
+        with patch.object(production, "connection") as db, \
+                patch.object(production.transaction, "atomic", side_effect=lambda **kwargs: held("transaction")) as atomic, \
+                patch.object(production, "validate_plan", return_value=plan), \
+                patch.object(pca_production, "require_target") as require_target, \
+                patch.object(pca_production, "verify_target") as verify, \
+                patch.object(pca_production, "_is_disposable_qa", return_value=False), \
+                patch.object(production, "_recompute") as recompute, \
+                patch.object(production, "check_backup_timeouts") as timeouts, \
+                                patch.object(pca_production, "backup_database", side_effect=backup_database), \
+                patch.object(merge, "_authorize", return_value=(organization, user)), \
+                patch.object(production, "read_state", return_value=state), \
+                patch.object(production, "touched_fingerprint", return_value="biology"), \
+                patch.object(production.pca_protected_artifacts, "protected_postgresql_socket",
+                             side_effect=socket_guard) as socket, \
+                patch.object(production.pca_protected_artifacts, "protected_directory",
+                             side_effect=lambda path: held("directory")) as directory, \
+                patch.object(production.pca_protected_artifacts, "validate_file") as validate_file, \
+                patch.object(database_backup, "create_evidence", side_effect=archive) as dump:
+            db.settings_dict = config
+            db.in_atomic_block = False
+            cursor = db.cursor.return_value.__enter__.return_value
+            cursor.fetchone.return_value = (snapshot,)
+            result = production.backup_plan(
+                1, actor=SimpleNamespace(pk=1), document=document, approved_hash=approved_hash,
+                raw_directory=raw_directory, output_dir=output_dir)
+            self.assertIs(result, evidence)
+            require_target.assert_called_once_with(target)
+            recompute.assert_called_once_with(1, 1, document, raw_directory)
+            atomic.assert_called_once_with(using="default")
+            timeouts.assert_called_once_with(db)
+            directory.assert_called_once_with(output_dir)
+            socket.assert_called_once_with("/var/run/postgresql", "5433", 110, 111)
+            dump.assert_called_once()
+            validate_file.assert_called_once_with(evidence["archive"]["path"])
+            self.assertEqual([call.kwargs for call in verify.call_args_list],
+                             [{}, {"in_snapshot": True}, {"in_snapshot": True}])
+        self.assertEqual(active, set())
+
+
+class ProtectedSourceTests(SimpleTestCase):
+    """Production source paths use the same Linux trust boundary as artifacts."""
+
+    def setUp(self):
+        self.raw = Path("/srv/polypbase/private/historical-temperature/sources")
+        self.qa = patch.object(pca_production, "_is_disposable_qa", return_value=False)
+        self.qa.start()
+        self.addCleanup(self.qa.stop)
+
+    def test_all_seven_files_are_held_until_the_reader_finishes(self):
+        events = []
+
+        @contextmanager
+        def held(path):
+            events.append(("enter", path))
+            yield
+            events.append(("exit", path))
+
+        with patch.object(production.pca_protected_artifacts, "protected_directory", side_effect=held), \
+                patch.object(production.pca_protected_artifacts, "protected_file", side_effect=held):
+            with production._protected_sources(self.raw):
+                self.assertEqual(events, [("enter", self.raw)] + [
+                    ("enter", self.raw / name) for name in SOURCES])
+            self.assertEqual(events[8:], [("exit", self.raw / name) for name in reversed(SOURCES)]
+                             + [("exit", self.raw)])
+
+    def test_unsafe_directory_is_refused_before_opening_workbooks(self):
+        with patch.object(production.pca_protected_artifacts, "protected_directory",
+                          side_effect=ValueError("unsafe source directory")), \
+                patch.object(production.pca_protected_artifacts, "protected_file") as files:
+            with self.assertRaisesMessage(ValueError, "unsafe source directory"):
+                with production._protected_sources(self.raw):
+                    self.fail("The reader must not run")
+            files.assert_not_called()
+
+    def test_an_unsafe_workbook_is_refused_before_the_reader_runs(self):
+        with patch.object(production.pca_protected_artifacts, "protected_directory", return_value=nullcontext()), \
+                patch.object(production.pca_protected_artifacts, "protected_file",
+                             side_effect=ValueError("unsafe source file")):
+            with self.assertRaisesMessage(ValueError, "unsafe source file"):
+                with production._protected_sources(self.raw):
+                    self.fail("The reader must not run")
+
+    def test_replacement_detected_at_guard_exit_is_not_ignored(self):
+        @contextmanager
+        def replaced(path):
+            yield
+            raise ValueError("source replaced during read")
+
+        with patch.object(production.pca_protected_artifacts, "protected_directory", return_value=nullcontext()), \
+                patch.object(production.pca_protected_artifacts, "protected_file", side_effect=replaced):
+            with self.assertRaisesMessage(ValueError, "source replaced during read"):
+                with production._protected_sources(self.raw):
+                    pass
+
+    def test_only_the_existing_disposable_qa_gate_skips_linux_source_guards(self):
+        with patch.object(pca_production, "_is_disposable_qa", return_value=True), \
+                patch.object(production.pca_protected_artifacts, "protected_directory") as directory, \
+                patch.object(production.pca_protected_artifacts, "protected_file") as files:
+            with production._protected_sources(self.raw):
+                pass
+            directory.assert_not_called()
+            files.assert_not_called()
+
+    def test_planning_refuses_unsafe_sources_before_extraction(self):
+        state = {"pending": [], "snapshot": {}}
+        with patch.object(production, "read_state", return_value=state), \
+                patch.object(production, "snapshot_baseline", return_value={}), \
+                patch.object(production, "_protected_sources", side_effect=ValueError("unsafe sources")), \
+                patch.object(production, "build_report") as report:
+            with self.assertRaisesMessage(ValueError, "unsafe sources"):
+                production.build_document(SimpleNamespace(pk=1), self.raw, {}, "now")
+            report.assert_not_called()
+
+    def test_apply_refuses_unsafe_sources_before_archiving_or_writing(self):
+        with patch.object(production, "validate_plan", return_value={}), \
+                patch.object(pca_production, "require_target"), \
+                patch.object(pca_production, "verify_target"), \
+                patch.object(pca_production, "_validate_backup"), \
+                patch.object(production, "connection") as db, \
+                patch.object(production, "_protected_sources", side_effect=ValueError("unsafe sources")), \
+                patch.object(production, "_archive_sources") as archive:
+            db.in_atomic_block = False
+            approved = "a" * 64
+            with self.assertRaisesMessage(production.ProductionImportError, "unsafe sources"):
+                production.apply_plan(1, actor=SimpleNamespace(pk=1), document={"target": {}},
+                                      approved_hash=approved, backup_evidence={}, review_ref="review",
+                                      authorization=production.authorization_text(approved), raw_directory=self.raw)
+            archive.assert_not_called()
+            db.cursor.assert_not_called()
 
 
 class RuntimePrivilegeTests(SimpleTestCase):

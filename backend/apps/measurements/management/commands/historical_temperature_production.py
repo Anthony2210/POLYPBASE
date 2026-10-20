@@ -4,11 +4,13 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+from psycopg import Error as PsycopgError
+
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.core.management.base import BaseCommand, CommandError
 from django.db import DatabaseError
 
-from apps.cultures import pca_production as target_tools
+from apps.measurements import historical_temperature_target as target_tools
 from apps.measurements import historical_temperature_production as production
 
 # Options each action accepts besides the common ones; anything else is refused.
@@ -93,7 +95,7 @@ class Command(BaseCommand):
             self.stdout.write(json.dumps(result, indent=2, sort_keys=True, ensure_ascii=False))
             if action == "plan" and not document["ready"]:
                 raise CommandError("Blocked: the plan cannot be applied; inspect blockers and review.")
-        except DatabaseError:
+        except (DatabaseError, PsycopgError):
             raise CommandError("Database verification or transaction failed; stop and investigate without privilege escalation.") from None
         except (OSError, ObjectDoesNotExist, PermissionDenied, ValueError) as error:
             raise CommandError(str(error)) from error

@@ -78,6 +78,7 @@ def main():
             encoding="utf-8")
         env["PYTHONPATH"] = str(directory) + os.pathsep + str(ROOT / "backend")
         env["POLYPBASE_PCA_QA_PG_BIN"] = str(args.pg_bin.resolve())
+        env["POLYPBASE_HISTORICAL_TEMPERATURE_DISPOSABLE_CLUSTER"] = str(data.resolve())
         if args.scale_boxes:
             env["POLYPBASE_HISTORICAL_TEMPERATURE_SCALE"] = str(args.scale_boxes)
         report_dir = ROOT / ".local-docs"

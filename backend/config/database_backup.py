@@ -45,6 +45,10 @@ def _environment(database=None, *, hostaddr=None):
         environment["PGSSLMODE"] = str(
             database.get("OPTIONS", {}).get("sslmode", "prefer")
         )
+        # Historical peer backups explicitly disable the default password file.
+        # Existing callers without this option keep their original environment.
+        if "passfile" in database.get("OPTIONS", {}):
+            environment["PGPASSFILE"] = str(database["OPTIONS"]["passfile"])
     if hostaddr is not None:
         environment["PGHOSTADDR"] = hostaddr
     return environment
