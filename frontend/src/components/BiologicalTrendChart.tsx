@@ -62,6 +62,8 @@ export type TrendTemperature = {
   average_temperature_c: number;
   zone_id?: number;
   zone_name?: string;
+  // Omitted by the current daily payload. Unrecognized sources remain uncertain.
+  source_kind?: string;
   // Week-only observation: `date` positions the marker and is never displayed as a day.
   week?: { id: number; year: number; number: number; start: string; end: string; valueText: string };
 };
@@ -103,10 +105,12 @@ type TrendLabels = {
   salinity?: string;
   temperature?: string;
   temperatureOutsideScale?: string;
+  temperatureComparable?: string;
+  temperatureUncertain?: string;
+  dailyTemperature?: string;
   historicalTemperature?: string;
   historicalWeek?: string;
   historicalPeriod?: string;
-  historicalNote?: string;
   selectReading?: string;
   selectedReading?: string;
   subculture?: string;
@@ -153,12 +157,36 @@ export const BIOLOGICAL_TEMPERATURE_TICKS = [0, 5, 10, 15, 20, 25, 30, 35, 40] a
 
 function temperaturePointId(point: TrendTemperature) {
   if (point.week) return `temperature-week-${point.week.id}`;
-  return `temperature-${point.zone_id ?? point.zone_name ?? ''}-${point.date}`;
+  const source = point.source_kind && point.source_kind !== 'daily_aggregate' ? `${point.source_kind}-` : '';
+  return `temperature-${source}${point.zone_id ?? point.zone_name ?? ''}-${point.date}`;
 }
 
 function isTemperatureInScale(point: TrendTemperature) {
   return point.average_temperature_c >= BIOLOGICAL_TEMPERATURE_DOMAIN[0]
     && point.average_temperature_c <= BIOLOGICAL_TEMPERATURE_DOMAIN[1];
+}
+
+function isTemperatureInRange(point: TrendTemperature, startDate: string, endDate: string) {
+  return point.week
+    ? point.week.start <= endDate && point.week.end >= startDate
+    : point.date >= startDate && point.date <= endDate;
+}
+
+function isDailyTemperature(point: TrendTemperature) {
+  return !point.week && (point.source_kind == null || point.source_kind === 'daily_aggregate');
+}
+
+// The input is in display order. These are visual connectors, never extra samples.
+export function buildTemperatureConnections(points: readonly TrendTemperature[]) {
+  return points.slice(1).map((to, index) => {
+    const from = points[index];
+
+    // Historical payloads establish neither zone nor probe equivalence. Their
+    // midpoint ordering is conventional, even across distinct ISO weeks.
+    const comparable = isDailyTemperature(from) && isDailyTemperature(to) && from.date < to.date
+      && from.zone_id != null && from.zone_id === to.zone_id;
+    return { from, to, uncertain: !comparable };
+  });
 }
 
 export default function BiologicalTrendChart({
@@ -238,7 +266,7 @@ export default function BiologicalTrendChart({
   useEffect(() => {
     setPinnedDetail((current) => current
       && ((current.id.startsWith('temperature-') && temperatures.some((point) => (
-        temperaturePointId(point) === current.id && point.date >= startDate && point.date <= endDate
+        temperaturePointId(point) === current.id && isTemperatureInRange(point, startDate, endDate)
       ))) || [...measurements, ...polypStates].some((measurement) => (
         getTrendPointId(measurement) === current.id
         && measurement.date >= startDate && measurement.date <= endDate
@@ -341,18 +369,14 @@ export default function BiologicalTrendChart({
   const allTemperatureDetails = plottedTemperatures.map((point) => {
     const x = xPosition(point.date);
     const outsideScale = !isTemperatureInScale(point);
-    // Off-scale readings use directional markers, never a dot at a false measurement.
-    const y = outsideScale
-      ? point.average_temperature_c < 0 ? countHeight - padding.bottom : plotTop
-      : yTemperature(point.average_temperature_c);
+    const y = yTemperature(point.average_temperature_c);
     const detail: ActiveDetail = {
       id: temperaturePointId(point), date: point.date, left: (x / width) * 100, top: y,
       title: point.week ? `${labels.historicalWeek ?? ''} ${point.week.number}, ${point.week.year}`.trim() : formatDisplayDate(point.date),
       lines: [
-        { kind: 'temperature', label: `${point.week ? labels.historicalTemperature ?? labels.temperature : labels.temperature} (°C)`, value: point.week?.valueText ?? String(point.average_temperature_c) },
+        { kind: 'temperature', label: `${point.week ? labels.historicalTemperature ?? labels.temperature : isDailyTemperature(point) ? labels.dailyTemperature ?? labels.temperature : labels.temperature} (°C)`, value: point.week?.valueText ?? String(point.average_temperature_c) },
         ...(point.week ? [
           { kind: 'note' as const, label: labels.historicalPeriod ?? '', value: `${formatDisplayDate(point.week.start)} - ${formatDisplayDate(point.week.end)}` },
-          ...(labels.historicalNote ? [{ kind: 'note' as const, label: labels.historicalTemperature ?? labels.temperature!, value: labels.historicalNote }] : []),
         ] : []),
         ...(outsideScale && labels.temperatureOutsideScale ? [{ kind: 'note' as const, label: labels.temperature!, value: labels.temperatureOutsideScale }] : []),
         ...(point.zone_name != null ? [{ kind: 'location' as const, label: labels.location, value: point.zone_name }] : []),
@@ -362,6 +386,7 @@ export default function BiologicalTrendChart({
   });
   const temperatureDetails = allTemperatureDetails.filter(({ point }) => point.week ? historicalVisible : temperatureVisible);
   const hasWeeklyTemperatures = allTemperatureDetails.some(({ point }) => point.week);
+  const temperatureConnections = buildTemperatureConnections(temperatureDetails.map(({ point }) => point));
   const temperatureCountByPosition = new Map<string, number>();
   for (const { x, y } of temperatureDetails) {
     const key = `${x}:${y}`;
@@ -519,9 +544,10 @@ export default function BiologicalTrendChart({
             <path key={`ephyrae-${index}`} className="bio-trend-line is-ephyrae" d={countLine((point) => point.ephyraeCount)(segment) ?? ''} />
           ))}
 
-          {temperatureEnabled && temperatureVisible && plottedTemperatures.some((point) => !point.week) ? (
-            <path className="bio-trend-line is-temperature" d={temperatureLine(plottedTemperatures.filter((point) => !point.week)) ?? ''} />
-          ) : null}
+          {temperatureEnabled && temperatureConnections.map(({ from, to, uncertain }, index) => (
+            <path key={index} className={`bio-trend-line is-temperature${uncertain ? ' is-uncertain' : ''}`}
+              d={temperatureLine([from, to]) ?? ''} />
+          ))}
 
           {eventDetails.map(({ event, x, detail, isDerived, eventTitle }) => {
             const isSubculture = event.kind === 'subculture';
@@ -616,21 +642,17 @@ export default function BiologicalTrendChart({
               data-temperature-index={index}
               aria-pressed={selectedTemperature?.detail.id === detail.id}
               aria-describedby={visibleDetail?.id === detail.id ? `${chartId}-event-detail` : undefined}
-              aria-label={`${detail.title}, ${point.week ? labels.historicalTemperature : labels.temperature}: ${point.week?.valueText ?? point.average_temperature_c} °C${point.zone_name != null ? `, ${labels.location}: ${point.zone_name}` : ''}${outsideScale ? `, ${labels.temperatureOutsideScale ?? ''}` : ''}`}
+              aria-label={`${detail.title}, ${point.week ? labels.historicalTemperature : isDailyTemperature(point) ? labels.dailyTemperature ?? labels.temperature : labels.temperature}: ${point.week?.valueText ?? point.average_temperature_c} °C${point.zone_name != null ? `, ${labels.location}: ${point.zone_name}` : ''}${outsideScale ? `, ${labels.temperatureOutsideScale ?? ''}` : ''}`}
               onMouseEnter={() => setHoveredDetail(detail)} onMouseLeave={() => setHoveredDetail(null)}
               onFocus={() => setFocusedDetail(detail)} onBlur={() => setFocusedDetail(null)}
               onClick={(event) => selectMeasurement(event, detail)} onKeyDown={(event) => handleMeasurementKey(event, detail, index, 'temperature')}>
-              {outsideScale ? <path className="bio-trend-overflow is-temperature"
-                d={point.average_temperature_c < 0
-                  ? `M${x - 4} ${y - 7} L${x} ${y - 1} L${x + 4} ${y - 7} Z`
-                  : `M${x - 4} ${y + 7} L${x} ${y + 1} L${x + 4} ${y + 7} Z`} />
-                : point.week ? <>
-                  <line className="bio-trend-week-span" x1={Math.max(padding.left, xPosition(point.week.start))}
-                    x2={Math.min(width - padding.right, xPosition(point.week.end))} y1={y} y2={y} />
-                  <rect className="bio-trend-dot is-temperature is-weekly"
-                    x={x - layout.pointRadius} y={y - layout.pointRadius}
-                    width={layout.pointRadius * 2} height={layout.pointRadius * 2} />
-                </> : <circle className="bio-trend-dot is-temperature" cx={x} cy={y} r={point.average_temperature_c === 0 ? layout.zeroRadius : layout.pointRadius} />}
+              {point.week ? <line className="bio-trend-week-span" x1={Math.max(padding.left, xPosition(point.week.start))}
+                x2={Math.min(width - padding.right, xPosition(point.week.end))} y1={y} y2={y} /> : null}
+              <rect className={`bio-trend-dot is-temperature${point.week ? ' is-weekly' : ''}`}
+                x={x - (point.average_temperature_c === 0 ? layout.zeroRadius : layout.pointRadius)}
+                y={y - (point.average_temperature_c === 0 ? layout.zeroRadius : layout.pointRadius)}
+                width={(point.average_temperature_c === 0 ? layout.zeroRadius : layout.pointRadius) * 2}
+                height={(point.average_temperature_c === 0 ? layout.zeroRadius : layout.pointRadius) * 2} />
               <circle className="bio-trend-temperature-hit" cx={x} cy={y} r={layout.responsive ? 12 : 8} />
             </g>
           ))}
@@ -772,6 +794,10 @@ export default function BiologicalTrendChart({
               setFocusedDetail(keepOtherSeries);
             }}>{labels.historicalTemperature} (°C)</button>
         ) : null}
+        {temperatureEnabled && temperatureDetails.length > 1 ? <>
+          {labels.temperatureComparable ? <span className="is-temperature is-comparable">{labels.temperatureComparable}</span> : null}
+          {labels.temperatureUncertain ? <span className="is-temperature is-uncertain">{labels.temperatureUncertain}</span> : null}
+        </> : null}
         {polypStates.length > 0 && labels.subculture ? <span className="is-subculture">{labels.subculture}</span> : null}
         {hasOverflow ? <span className="is-overflow">&gt; {maxCount}</span> : null}
         {temperatureEnabled ? <div className="bio-trend-series-feedback">
@@ -904,9 +930,11 @@ export function buildGeometry(
 ) {
   const { width, countHeight } = layout;
   const plottedTemperatures = temperatures
-    .filter((point) => point.date >= startDate && point.date <= endDate
+    .filter((point) => isTemperatureInRange(point, startDate, endDate)
       && typeof point.average_temperature_c === 'number' && Number.isFinite(point.average_temperature_c))
-    .slice().sort((left, right) => left.date.localeCompare(right.date));
+    // Clip only the graphical anchor, never the week interval or source value.
+    .map((point) => point.week ? { ...point, date: point.date < startDate ? startDate : point.date > endDate ? endDate : point.date } : point)
+    .sort((left, right) => left.date.localeCompare(right.date) || temperaturePointId(left).localeCompare(temperaturePointId(right)));
   const padding = layout.responsive
     ? { top: 8, right: 12, bottom: 34, left: 44 }
     : compact
@@ -952,15 +980,19 @@ export function buildGeometry(
     .x((point) => xPosition(point.date))
     .y((point) => yCount(selector(point)!));
 
+  const temperatureDomain: [number, number] = [...BIOLOGICAL_TEMPERATURE_DOMAIN];
+  for (const point of plottedTemperatures) {
+    temperatureDomain[0] = Math.min(temperatureDomain[0], point.average_temperature_c);
+    temperatureDomain[1] = Math.max(temperatureDomain[1], point.average_temperature_c);
+  }
   const yTemperature = scaleLinear()
-    .domain(BIOLOGICAL_TEMPERATURE_DOMAIN)
+    .domain(temperatureDomain)
     .range([countHeight - padding.bottom, plotTop]);
-  // Sparse historical readings remain connected; no daily samples are synthesized.
   const temperatureLine = line<TrendTemperature>()
-    .defined(isTemperatureInScale)
     .x((point) => xPosition(point.date)).y((point) => yTemperature(point.average_temperature_c));
   const countTicks = yCount.ticks(VALUE_AXIS_TICK_COUNT);
-  const temperatureTicks = BIOLOGICAL_TEMPERATURE_TICKS;
+  const temperatureTicks = temperatureDomain[0] === 0 && temperatureDomain[1] === 40
+    ? BIOLOGICAL_TEMPERATURE_TICKS : yTemperature.ticks(8);
 
   const timeTicks = buildTimeTicks(start, end, xPosition, padding, width, compact, layout.responsive);
   const transitions = buildZoneTransitions(locationBands);

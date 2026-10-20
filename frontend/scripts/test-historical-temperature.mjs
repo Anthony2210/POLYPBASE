@@ -127,14 +127,22 @@ test('chart renders week-only readings as a titled week with a possible period, 
   assert.match(chartSource, /point\.week \? `\$\{labels\.historicalWeek \?\? ''\} \$\{point\.week\.number\}, \$\{point\.week\.year\}`/);
   assert.match(chartSource, /bio-trend-week-span/);
   assert.match(chartSource, /point\.week\?\.valueText \?\? String\(point\.average_temperature_c\)/);
-  assert.match(chartSource, /plottedTemperatures\.filter\(\(point\) => !point\.week\)/);
+  assert.equal(chart.buildTemperatureConnections([
+    { date: '2026-01-08', average_temperature_c: 0, week: { id: 1 } },
+    { date: '2026-01-15', average_temperature_c: 12, week: { id: 2 } },
+  ])[0].uncertain, true);
 });
 
 test('every historical string exists in French and English without a middle dot', () => {
   const french = read('../src/i18n/fr.ts');
   const english = read('../src/i18n/en.ts');
-  const keys = [...french.matchAll(/^ {2}(historicalTemperature\w+):/gm)].map((match) => match[1]);
-  assert.ok(keys.length >= 7);
+  const catalogKeys = (source) => [...source.matchAll(/^ {2}(historicalTemperature\w+):/gm)].map((match) => match[1]).sort();
+  const keys = catalogKeys(french);
+  assert.deepEqual(keys, [
+    'historicalTemperatureFailed', 'historicalTemperatureLoading', 'historicalTemperaturePeriod',
+    'historicalTemperatureRetry', 'historicalTemperatureSource', 'historicalTemperatureWeek',
+  ]);
+  assert.deepEqual(catalogKeys(english), keys);
   for (const key of keys) {
     for (const text of [french, english]) {
       const line = text.match(new RegExp(`^ {2}${key}:.*$`, 'm'));
@@ -144,10 +152,31 @@ test('every historical string exists in French and English without a middle dot'
   }
 });
 
+test('imported temperature copy replaces the old series label and notes in both catalogs and chart consumers', () => {
+  const french = read('../src/i18n/fr.ts');
+  const english = read('../src/i18n/en.ts');
+  const tracking = read('../src/components/BoxTrackingChart.tsx');
+  assert.match(french, /^ {2}historicalTemperatureSource: 'Température importée',$/m);
+  assert.match(english, /^ {2}historicalTemperatureSource: 'Imported temperature',$/m);
+  assert.match(tracking, /historicalTemperature: boxId != null \? createTranslator\(language\)\('historicalTemperatureSource'\)/);
+  const removedTexts = [
+    'Température historique par semaine',
+    'Historical temperature by week',
+    'Température observée, notée avec les comptages. Le jour exact et la sonde ne sont pas établis.',
+    'Observed temperature recorded with the counts. The exact day and probe are not established.',
+  ];
+  for (const source of [french, english, chartSource, tracking]) {
+    assert.doesNotMatch(source, /\b(?:historicalTemperatureSeries|historicalTemperatureNote|historicalNote)\b/);
+    for (const text of removedTexts) assert.ok(!source.includes(text), `removed historical copy: ${text}`);
+  }
+});
+
 test('weekly and daily series have separate legend toggles, ids and main-scale handling', () => {
   assert.match(chartSource, /temperaturePointId[\s\S]*temperature-week-\$\{point\.week\.id\}/);
   assert.match(chartSource, /point\.week \? historicalVisible : temperatureVisible/);
-  assert.match(chartSource, /is-temperature is-weekly/);
+  assert.match(chartSource, /<rect className=\{`bio-trend-dot is-temperature\$\{point\.week \? ' is-weekly' : ''\}`\}/);
+  assert.doesNotMatch(chartSource, /<circle className="bio-trend-dot is-temperature"/);
+  assert.match(chartSource, /point\.week \? <line className="bio-trend-week-span"/);
   assert.match(chartSource, /labels\.historicalTemperature\} \(°C\)/);
   assert.match(chartSource, /temperatureOutsideScale/);
   // The legend is not gated on compact, so compact charts carry the distinction too.
@@ -159,13 +188,63 @@ test('weekly and daily series have separate legend toggles, ids and main-scale h
   assert.match(tracking, /historicalTemperature: boxId != null/);
 });
 
-test('zero, negative and above-scale weekly values keep their exact text and outside-scale handling', () => {
+test('zero, negative and above-usual-range weekly values retain exact text on an expanded axis', () => {
   const { toWeeklyTrendTemperature } = utilities(async () => response([]));
   const geometry = chart.buildGeometry([], [], [], '2026-01-01', '2026-01-31', false, undefined, [],
     ['0', '-2.5', '45.125'].map((value, index) => toWeeklyTrendTemperature(point(index + 1, index + 2, value))));
   assert.deepEqual(plain(geometry.plottedTemperatures.map((item) => item.week.valueText)), ['0', '-2.5', '45.125']);
   assert.equal(geometry.plottedTemperatures[0].average_temperature_c, 0);
+  assert.deepEqual([...geometry.yTemperature.domain()], [-2.5, 45.125]);
+  for (const item of geometry.plottedTemperatures) {
+    const y = geometry.yTemperature(item.average_temperature_c);
+    assert.ok(y >= geometry.plotTop && y <= geometry.countHeight - geometry.padding.bottom);
+    assert.ok(Math.abs(geometry.yTemperature.invert(y) - item.average_temperature_c) < 1e-10);
+  }
+  const path = geometry.temperatureLine(geometry.plottedTemperatures);
+  assert.equal((path.match(/M/g) ?? []).length, 1);
+  assert.equal((path.match(/L/g) ?? []).length, 2);
+  assert.ok([...chart.buildTemperatureConnections(geometry.plottedTemperatures)].every(connection => connection.uncertain));
   assert.match(chartSource, /point\.average_temperature_c === 0 \? layout\.zeroRadius/);
+});
+
+test('overlapping weekly intervals remain visible with midpoint anchors clamped to the window', () => {
+  const { toWeeklyTrendTemperature } = utilities(async () => response([]));
+  const weekly = [point(1, 2, '0'), point(2, 3, '12'), point(3, 4, '13')].map(toWeeklyTrendTemperature);
+  const snapshot = JSON.stringify(weekly);
+  for (const [start, end, expected] of [
+    ['2026-01-10', '2026-01-13', [[1, '2026-01-10'], [2, '2026-01-13']]],
+    ['2026-01-11', '2026-01-12', [[1, '2026-01-11'], [2, '2026-01-12']]],
+    ['2026-01-08', '2026-01-08', [[1, '2026-01-08']]],
+    ['2026-02-01', '2026-02-02', []],
+  ]) {
+    const geometry = chart.buildGeometry([], [], [], start, end, false, undefined, [], weekly);
+    assert.deepEqual(plain(geometry.plottedTemperatures.map(item => [item.week.id, item.date])), expected);
+    for (const item of geometry.plottedTemperatures) {
+      const original = weekly.find(source => source.week.id === item.week.id);
+      assert.deepEqual(plain(item.week), plain(original.week), 'Display clamping never rewrites evidence bounds or text');
+      const x = geometry.xPosition(item.date);
+      assert.ok(x >= geometry.padding.left && x <= geometry.width - geometry.padding.right);
+    }
+    const connections = chart.buildTemperatureConnections(geometry.plottedTemperatures);
+    assert.equal(connections.length, Math.max(0, expected.length - 1));
+    assert.ok([...connections].every(connection => connection.uncertain));
+  }
+  assert.equal(JSON.stringify(weekly), snapshot);
+});
+
+test('coincident weekly and daily anchors sort deterministically by display date then point identity', () => {
+  const { toWeeklyTrendTemperature } = utilities(async () => response([]));
+  const temperatures = [toWeeklyTrendTemperature(point(9, 2, '0')), toWeeklyTrendTemperature(point(2, 2, '0')),
+    { date: '2026-01-08', average_temperature_c: 0, zone_id: 8 },
+    { date: '2026-01-08', average_temperature_c: 0, zone_id: 7 }];
+  const identity = item => item.week ? `temperature-week-${item.week.id}` : `temperature-${item.zone_id}-${item.date}`;
+  const expected = temperatures.map(identity).sort((a, b) => a.localeCompare(b));
+  for (const input of [temperatures, [...temperatures].reverse()]) {
+    const geometry = chart.buildGeometry([], [], [], '2026-01-01', '2026-01-31', false, undefined, [], input);
+    assert.deepEqual(Array.from(geometry.plottedTemperatures, identity), expected);
+    assert.equal(geometry.plottedTemperatures.length, 4);
+    assert.ok([...chart.buildTemperatureConnections(geometry.plottedTemperatures)].every(connection => connection.uncertain));
+  }
 });
 
 test('status shows loading and failure with retry inside the chart feedback area', () => {

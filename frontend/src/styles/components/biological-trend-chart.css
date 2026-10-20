@@ -82,6 +82,12 @@
 .bio-trend-dot.is-temperature { --series-color: var(--color-temperature); }
 
 .bio-trend-temperature-axis .bio-trend-value-label { fill: var(--color-temperature); }
+.bio-trend-line.is-temperature.is-uncertain { stroke-dasharray: 5 4; }
+.bio-trend-legend .is-temperature.is-uncertain::before {
+  height: 0;
+  background: transparent;
+  border-top: 2px dashed var(--series-color);
+}
 
 .bio-trend-value-label {
   fill: var(--color-muted);
@@ -95,6 +101,7 @@
 /* Weekly intervals express uncertainty, not an observed day. */
 .bio-trend-dot.is-weekly { fill: var(--color-surface); stroke: var(--series-color); stroke-width: 2; }
 .bio-trend-week-span { stroke: var(--color-temperature); stroke-width: 2; stroke-opacity: 0.45; stroke-linecap: round; }
+.bio-trend-legend button.is-temperature::before { width: 9px; height: 9px; border-radius: 0; }
 .bio-trend-legend button.is-weekly::before { width: 9px; height: 9px; border: 2px solid var(--series-color); border-radius: 0; background: transparent; }
 .bio-trend-temperature-point:focus { outline: none; }
 .bio-trend-temperature-point:is(:hover, :focus, .is-selected) .bio-trend-dot {
@@ -102,11 +109,6 @@
   stroke-width: 2.5;
 }
 .bio-trend-temperature-point:focus-visible .bio-trend-dot { stroke-width: 3.5; }
-.bio-trend-overflow.is-temperature { fill: var(--color-temperature); }
-.bio-trend-temperature-point:is(:focus-visible, .is-selected) .bio-trend-overflow {
-  stroke: var(--color-ink);
-  stroke-width: 1.5;
-}
 
 .bio-trend-series-feedback {
   display: flex;

@@ -205,10 +205,12 @@ export default function BoxTrackingChart({
               polyps: labels.polyps,
               salinity: labels.salinityFull,
               temperature: createTranslator(language)('temperature'),
-              historicalTemperature: boxId != null ? createTranslator(language)('historicalTemperatureSeries') : undefined,
+              dailyTemperature: createTranslator(language)('dailyTemperatureAggregate'),
+              temperatureComparable: createTranslator(language)('temperatureComparableObservations'),
+              temperatureUncertain: createTranslator(language)('temperatureUncertainTransition'),
+              historicalTemperature: boxId != null ? createTranslator(language)('historicalTemperatureSource') : undefined,
               historicalWeek: createTranslator(language)('historicalTemperatureWeek'),
               historicalPeriod: createTranslator(language)('historicalTemperaturePeriod'),
-              historicalNote: createTranslator(language)('historicalTemperatureNote'),
               temperatureOutsideScale: createTranslator(language)('temperatureOutsideScale'),
               selectReading: language === 'fr'
                 ? 'Sélectionnez un point du graphique pour afficher le relevé.'

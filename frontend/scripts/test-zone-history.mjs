@@ -148,10 +148,23 @@ test('entry and exit copy exists in French and English', () => {
   assert.match(enSource, /zoneMovementExits: 'Exits'/);
 });
 
+test('movement catalogs have matching keys and omit the removed source note in both languages', () => {
+  const keys = (source) => [...source.matchAll(/^ {2}(zone(?:Movement|RecentMovements)\w+):/gm)].map((match) => match[1]).sort();
+  assert.deepEqual(keys(frSource), keys(enSource));
+  const removedTexts = [
+    'Début et fin des périodes d’emplacement enregistrées. Ce ne sont pas toujours des déplacements saisis.',
+    'Start and end of recorded location periods. These are not always recorded moves.',
+  ];
+  for (const source of [frSource, enSource, historySource]) {
+    assert.doesNotMatch(source, /\bzoneMovementSourceNote\b/);
+    for (const text of removedTexts) assert.ok(!source.includes(text), `removed source note: ${text}`);
+  }
+});
+
 test('zone history wording describes location period starts and ends, not recorded moves', () => {
   const expected = {
-    fr: { zoneRecentMovementsTitle: 'Entrées et sorties', zoneMovementHistoryTitle: 'Historique des entrées et sorties', zoneMovementEmpty: 'Aucune entrée ou sortie enregistrée.', zoneMovementSourceNote: /périodes d’emplacement.*pas toujours des déplacements saisis/, zoneMovementWeekSummary: /périodes d’emplacement/ },
-    en: { zoneRecentMovementsTitle: 'Entries and exits', zoneMovementHistoryTitle: 'Entry and exit history', zoneMovementEmpty: 'No entry or exit recorded.', zoneMovementSourceNote: /location periods.*not always recorded moves/, zoneMovementWeekSummary: /location periods/ },
+    fr: { zoneRecentMovementsTitle: 'Entrées et sorties', zoneMovementHistoryTitle: 'Historique des entrées et sorties', zoneMovementEmpty: 'Aucune entrée ou sortie enregistrée.', zoneMovementWeekSummary: /périodes d’emplacement/ },
+    en: { zoneRecentMovementsTitle: 'Entries and exits', zoneMovementHistoryTitle: 'Entry and exit history', zoneMovementEmpty: 'No entry or exit recorded.', zoneMovementWeekSummary: /location periods/ },
   };
   for (const [language, source] of [['fr', frSource], ['en', enSource]]) {
     for (const [key, value] of Object.entries(expected[language])) {
@@ -164,6 +177,6 @@ test('zone history wording describes location period starts and ends, not record
       assert.doesNotMatch(text, /mouvement|movement|moves?/i, `${language}.${key} must not call period boundaries movements`);
     }
   }
-  assert.equal(historySource.match(/zoneMovementSourceNote/g).length, 2, 'summary and full history both show the source note');
+  assert.doesNotMatch(historySource, /zoneMovementSourceNote|zone-movement-source-note/, 'neither summary nor full history renders the removed source note');
   assert.doesNotMatch(historySource, /movement\.(user|actor)/);
 });

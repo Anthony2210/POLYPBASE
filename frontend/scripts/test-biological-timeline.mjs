@@ -229,11 +229,11 @@ for (const [language, catalog] of [['fr', fr], ['en', en]]) {
     }
     const temperaturePoints = allNodes(harness.render(props)).filter(node => node.props?.className === 'bio-trend-temperature-point');
     assert.equal(temperaturePoints.length, temperatures.length);
-    assert.ok(temperaturePoints[0].props['aria-label'].includes(catalog.temperature));
+    assert.ok(temperaturePoints[0].props['aria-label'].includes(catalog.dailyTemperatureAggregate));
     temperaturePoints[0].props.onFocus();
     const tooltip = allNodes(harness.render(props)).find(node => node.props?.className?.startsWith('bio-trend-tooltip'));
     const markup = renderToStaticMarkup(tooltip);
-    assert.ok(markup.includes(catalog.temperature));
+    assert.ok(markup.includes(catalog.dailyTemperatureAggregate));
     assert.match(markup, /CHO 15 C/);
     assert.doesNotMatch(markup, /JKA zone 2/);
     assert.equal(JSON.stringify({ raw, canonicalLocations, sourceLocations }), before);

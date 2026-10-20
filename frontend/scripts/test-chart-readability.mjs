@@ -52,7 +52,8 @@ function mountTrendChart(overrides = {}) {
     labels: { chartTitle: 'Chart', closeDetail: 'Close details', empty: 'Empty', ephyrae: 'Ephyrae',
       location: 'Location', locationChange: 'Location change', missingReading: 'Missing',
       movement: 'Move', polyps: 'Polyps', temperature: 'Temperature',
-      temperatureOutsideScale: 'Outside the displayed scale (0–40 °C)' },
+      historicalTemperature: 'Imported temperature',
+      temperatureOutsideScale: 'Outside usual 0–40 °C range; axis expanded' },
     ...overrides,
   };
   const unchanged = (previous, next) => previous != null && next != null
@@ -122,6 +123,7 @@ function chartNodes(tree) {
 const hasClass = (node, name) => node.props?.className?.split(' ').includes(name);
 const temperatureControls = (nodes) => nodes.filter((node) => hasClass(node, 'bio-trend-temperature-point'));
 const temperatureLegend = (nodes) => nodes.find((node) => node.type === 'button' && hasClass(node, 'is-temperature') && !hasClass(node, 'bio-trend-event-choice'));
+const temperaturePaths = (nodes) => nodes.filter(node => node.type === 'path' && hasClass(node, 'bio-trend-line') && hasClass(node, 'is-temperature'));
 const chartTooltip = (nodes) => nodes.find((node) => hasClass(node, 'bio-trend-tooltip'));
 const selectionGuide = (nodes) => nodes.find((node) => hasClass(node, 'bio-trend-selection-guide'));
 const nodeText = (node) => Array.isArray(node) ? node.map(nodeText).join('')
@@ -148,8 +150,8 @@ test('weekly evidence uses uncertainty spans and independent toggles without cha
   const daily = { date: '2026-01-08', average_temperature_c: 12, zone_id: 7, zone_name: 'Zone' };
   const view = mountTrendChart({ temperatures: [weekly, daily], labels: {
     chartTitle: 'Chart', empty: 'Empty', polyps: 'Polyps', ephyrae: 'Ephyrae', location: 'Location',
-    temperature: 'Zone temperature', historicalTemperature: 'Historical temperature by week',
-    historicalWeek: 'Week', historicalPeriod: 'Possible period', historicalNote: 'Exact day unknown',
+    temperature: 'Zone temperature', historicalTemperature: 'Imported temperature',
+    historicalWeek: 'Week', historicalPeriod: 'Possible period',
   } });
   let nodes = view.render();
   const axes = axisFrame(nodes), biology = biologyGeometry(nodes);
@@ -158,14 +160,14 @@ test('weekly evidence uses uncertainty spans and independent toggles without cha
   assert.equal(nodes.filter(node => hasClass(node, 'bio-trend-week-span')).length, 1);
   assert.equal(nodes.filter(node => node.type === 'rect' && hasClass(node, 'is-weekly')).length, 1);
   const control = temperatureControls(nodes).find(node => node.props['aria-label'].startsWith('Week 2, 2026'));
-  assert.ok(control.props['aria-label'].includes('Historical temperature by week: 0.000'));
+  assert.ok(control.props['aria-label'].includes('Imported temperature: 0.000'));
   assert.doesNotMatch(control.props['aria-label'], /08\/01\/2026/);
   control.props.onClick(clickEvent());
   nodes = view.render();
   const tooltipText = nodeText(chartTooltip(nodes));
   assert.ok(tooltipText.includes(`Possible period${utility('dateFormat').formatDisplayDate(weekly.week.start)} - ${utility('dateFormat').formatDisplayDate(weekly.week.end)}`));
   assert.ok(!tooltipText.includes(utility('dateFormat').formatDisplayDate(weekly.date)), 'synthetic marker position is never an observed day');
-  assert.match(nodeText(chartTooltip(nodes)), /Exact day unknown/);
+  assert.doesNotMatch(nodeText(chartTooltip(nodes)), /Exact day unknown/);
   temperatureLegend(nodes).props.onClick();
   nodes = view.render();
   assert.equal(temperatureControls(nodes).length, 1, 'daily toggle leaves weekly evidence visible');
@@ -178,7 +180,209 @@ test('weekly evidence uses uncertainty spans and independent toggles without cha
   assert.equal(biologyGeometry(nodes), biology);
 });
 
-test('temperature uses an independent right axis and connects sparse weekly values without synthesizing samples', () => {
+test('French and English rendered legends and tooltips omit the removed temperature wording', () => {
+  const removed = /historique par semaine|historical temperature by week|Température observée, notée|Observed temperature recorded with the counts/i;
+  for (const language of ['fr', 'en']) {
+    const catalog = compile(readFileSync(new URL(`../src/i18n/${language}.ts`, import.meta.url), 'utf8'))[language];
+    const view = mountTrendChart({ measurements: [], temperatures: [
+      { date: '2026-01-08', average_temperature_c: 0,
+        week: { id: 55, year: 2026, number: 2, start: '2026-01-05', end: '2026-01-11', valueText: '0.000' } },
+    ], labels: {
+      chartTitle: 'Chart', empty: 'Empty', polyps: catalog.polyps, ephyrae: catalog.ephyraeFull,
+      location: 'Location', temperature: catalog.temperature,
+      historicalTemperature: catalog.historicalTemperatureSource,
+      historicalWeek: catalog.historicalTemperatureWeek, historicalPeriod: catalog.historicalTemperaturePeriod,
+    } });
+    let nodes = view.render();
+    assert.doesNotMatch(nodeText(nodes), removed);
+    assert.ok(nodeText(nodes).includes(`${catalog.historicalTemperatureSource} (°C)`));
+    temperatureControls(nodes)[0].props.onClick(clickEvent());
+    nodes = view.render();
+    assert.doesNotMatch(nodeText(nodes), removed);
+    assert.ok(nodeText(chartTooltip(nodes)).includes(`${catalog.historicalTemperatureSource} (°C)0.000`));
+    assert.ok(nodeText(chartTooltip(nodes)).includes(catalog.historicalTemperaturePeriod));
+  }
+});
+
+test('French and English explain daily aggregates, comparable observations, uncertainty and expanded axes', () => {
+  for (const language of ['fr', 'en']) {
+    const catalog = compile(readFileSync(new URL(`../src/i18n/${language}.ts`, import.meta.url), 'utf8'))[language];
+    const keys = ['temperatureComparableObservations', 'temperatureUncertainTransition', 'dailyTemperatureAggregate', 'temperatureOutsideScale'];
+    for (const key of keys) {
+      assert.equal(typeof catalog[key], 'string', `${language}: ${key}`);
+      assert.ok(catalog[key].trim().length > 0);
+      assert.doesNotMatch(catalog[key], /·/);
+    }
+    assert.equal(catalog.dailyTemperatureAggregate, language === 'fr' ? 'Moyenne journalière de zone' : 'Daily zone average');
+    assert.doesNotMatch(catalog.temperatureOutsideScale, /Outside the displayed scale|hors de l['’]échelle affichée/i);
+    assert.match(catalog.temperatureOutsideScale, language === 'fr' ? /(?:élargi|étendu|adapté)/i : /expand/i);
+    const view = mountTrendChart({ temperatures: [
+      { date: '2026-01-01', average_temperature_c: -2, zone_id: 7 },
+      { date: '2026-01-02', average_temperature_c: 12, zone_id: 7 },
+      { date: '2026-01-08', average_temperature_c: 43, week: { id: 2, year: 2026, number: 2, start: '2026-01-05', end: '2026-01-11', valueText: '43.000' } },
+    ], labels: {
+      chartTitle: 'Chart', empty: 'Empty', polyps: catalog.polyps, ephyrae: catalog.ephyraeFull,
+      location: 'Location', temperature: catalog.temperature, historicalTemperature: catalog.historicalTemperatureSource,
+      historicalWeek: catalog.historicalTemperatureWeek, historicalPeriod: catalog.historicalTemperaturePeriod,
+      temperatureComparable: catalog.temperatureComparableObservations,
+      temperatureUncertain: catalog.temperatureUncertainTransition,
+      dailyTemperature: catalog.dailyTemperatureAggregate, temperatureOutsideScale: catalog.temperatureOutsideScale,
+    } });
+    let nodes = view.render();
+    const paths = temperaturePaths(nodes);
+    assert.equal(paths.length, 2);
+    assert.equal(hasClass(paths[0], 'is-uncertain'), false);
+    assert.equal(hasClass(paths[1], 'is-uncertain'), true);
+    assert.ok(nodeText(nodes).includes(catalog.temperatureComparableObservations));
+    assert.ok(nodeText(nodes).includes(catalog.temperatureUncertainTransition));
+    assert.ok(nodeText(nodes).includes(catalog.temperatureOutsideScale));
+    temperatureControls(nodes)[0].props.onClick(clickEvent());
+    nodes = view.render();
+    assert.ok(nodeText(chartTooltip(nodes)).includes(catalog.dailyTemperatureAggregate));
+    assert.ok(nodeText(chartTooltip(nodes)).includes(catalog.temperatureOutsideScale));
+    temperatureControls(nodes)[2].props.onClick(clickEvent());
+    nodes = view.render();
+    assert.ok(nodeText(chartTooltip(nodes)).includes(catalog.historicalTemperatureSource));
+    assert.ok(nodeText(chartTooltip(nodes)).includes('43.000'));
+    assert.ok(!nodeText(chartTooltip(nodes)).includes(catalog.dailyTemperatureAggregate));
+  }
+  assert.match(css, /\.bio-trend-line\.is-temperature\.is-uncertain\s*\{[^}]*stroke-dasharray:/);
+});
+
+test('daily aggregates from the manual-entry path use connected squares in chronological order', () => {
+  const temperatures = [
+    { date: '2026-01-22', average_temperature_c: 18.75, zone_id: 7 },
+    { date: '2026-01-01', average_temperature_c: 0, zone_id: 7 },
+    { date: '2026-01-08', average_temperature_c: 12, zone_id: 7 },
+  ];
+  for (const compact of [false, true]) {
+    const nodes = mountTrendChart({ temperatures, compact, measurements: [] }).render();
+    const points = temperatureControls(nodes);
+    assert.equal(points.length, 3);
+    assert.deepEqual(points.map(point => point.key), [
+      'temperature-7-2026-01-01', 'temperature-7-2026-01-08', 'temperature-7-2026-01-22',
+    ]);
+    const squares = points.map(point => chartNodes(point).find(node => hasClass(node, 'bio-trend-dot')));
+    assert.ok(squares.every(node => node.type === 'rect' && node.props.width > 0 && node.props.width === node.props.height));
+    const paths = temperaturePaths(nodes);
+    assert.equal(paths.length, 2);
+    for (const path of paths) {
+      assert.equal(hasClass(path, 'is-uncertain'), false);
+      assert.equal((path.props.d.match(/M/g) ?? []).length, 1);
+      assert.equal((path.props.d.match(/L/g) ?? []).length, 1);
+    }
+  }
+});
+
+test('a single daily or imported observation keeps a visible square without a fabricated connection', () => {
+  const weekly = { date: '2026-01-08', average_temperature_c: 12,
+    week: { id: 55, year: 2026, number: 2, start: '2026-01-05', end: '2026-01-11', valueText: '12' } };
+  for (const point of [weekly, { date: '2026-01-08', average_temperature_c: 12, zone_id: 7 }]) {
+    const nodes = mountTrendChart({ temperatures: [point], measurements: [] }).render();
+    const squares = nodes.filter(node => hasClass(node, 'bio-trend-dot') && hasClass(node, 'is-temperature'));
+    assert.equal(squares.length, 1);
+    assert.equal(squares[0].type, 'rect');
+    assert.ok(squares[0].props.width > 0);
+    assert.equal(temperaturePaths(nodes).length, 0);
+  }
+});
+
+test('composite temperature connections preserve every adjacent transition without implying comparability', () => {
+  const daily = (date, zone_id, value = 12) => ({ date, zone_id, average_temperature_c: value });
+  const weekly = { date: '2026-01-08', average_temperature_c: 14,
+    week: { id: 55, year: 2026, number: 2, start: '2026-01-05', end: '2026-01-11', valueText: '14' } };
+  const temperatures = [daily('2026-01-01', 7, 0), weekly, daily('2026-01-09', 7),
+    daily('2026-01-10', 8), daily('2026-01-11', 7), daily('2026-01-11', 7),
+    daily('2026-01-12', undefined), daily('2026-01-13', undefined)];
+  const result = chart.buildGeometry([], [], [], '2026-01-01', '2026-01-31', false, undefined, [], temperatures);
+  assert.equal(result.plottedTemperatures.length, 8);
+  assert.equal('temperatureSegments' in result, false);
+  const connections = chart.buildTemperatureConnections(result.plottedTemperatures);
+  assert.equal(connections.length, 7);
+  for (const [index, connection] of connections.entries()) {
+    assert.equal(connection.from, result.plottedTemperatures[index]);
+    assert.equal(connection.to, result.plottedTemperatures[index + 1]);
+    assert.equal(connection.uncertain, true);
+  }
+  const nodes = mountTrendChart({ temperatures, measurements: [] }).render();
+  assert.equal(temperaturePaths(nodes).length, 7);
+  assert.ok(temperaturePaths(nodes).every(path => hasClass(path, 'is-uncertain')));
+  assert.equal(nodes.filter(node => hasClass(node, 'bio-trend-week-span')).length, 1);
+});
+
+test('connection comparability requires daily evidence, matching known zones and distinct dates', () => {
+  const daily = (date, zone_id = 7, source_kind) => ({ date, zone_id, source_kind, average_temperature_c: 12 });
+  const weekly = (id, date) => ({ ...daily(date), week: {
+    id, year: 2026, number: id, start: '2026-01-05', end: '2026-01-11', valueText: '12',
+  } });
+  const cases = [
+    ['legacy daily', daily('2026-01-01'), daily('2026-01-02'), false],
+    ['explicit daily', daily('2026-01-01', 7, 'daily_aggregate'), daily('2026-01-02', 7, 'daily_aggregate'), false],
+    ['default daily source', daily('2026-01-01'), daily('2026-01-02', 7, 'daily_aggregate'), false],
+    ['different zones', daily('2026-01-01'), daily('2026-01-02', 8), true],
+    ['unknown zones', daily('2026-01-01', null), daily('2026-01-02', null), true],
+    ['one unknown zone', daily('2026-01-01'), daily('2026-01-02', null), true],
+    ['same day', daily('2026-01-01'), daily('2026-01-01'), true],
+    ['different sources', daily('2026-01-01'), daily('2026-01-02', 7, 'probe'), true],
+    ['same unknown source', daily('2026-01-01', 7, 'probe'), daily('2026-01-02', 7, 'probe'), true],
+    ['empty source', daily('2026-01-01', 7, ''), daily('2026-01-02', 7, ''), true],
+    ['weekly to daily', weekly(2, '2026-01-08'), daily('2026-01-09'), true],
+    ['daily to weekly', daily('2026-01-01'), weekly(2, '2026-01-08'), true],
+    ['weekly to weekly', weekly(2, '2026-01-08'), weekly(3, '2026-01-15'), true],
+    ['coincident weeks', weekly(2, '2026-01-08'), weekly(3, '2026-01-08'), true],
+  ];
+  assert.equal(chart.buildTemperatureConnections([]).length, 0);
+  assert.equal(chart.buildTemperatureConnections([daily('2026-01-01')]).length, 0);
+  for (const [name, from, to, uncertain] of cases) {
+    const points = Object.freeze([Object.freeze(from), Object.freeze(to)]);
+    const connections = chart.buildTemperatureConnections(points);
+    assert.equal(connections.length, 1, name);
+    assert.equal(connections[0].from, from, name);
+    assert.equal(connections[0].to, to, name);
+    assert.equal(connections[0].uncertain, uncertain, name);
+    const nodes = mountTrendChart({ temperatures: points, measurements: [] }).render();
+    assert.equal(temperaturePaths(nodes).length, 1, name);
+    assert.equal(hasClass(temperaturePaths(nodes)[0], 'is-uncertain'), uncertain, name);
+  }
+});
+
+test('independent filters rebuild composite connections across only the visible evidence', () => {
+  const temperatures = [
+    { date: '2026-01-01', average_temperature_c: 0, zone_id: 7 },
+    { date: '2026-01-08', average_temperature_c: 12, week: { id: 2, year: 2026, number: 2, start: '2026-01-05', end: '2026-01-11', valueText: '12' } },
+    { date: '2026-01-15', average_temperature_c: 14, week: { id: 3, year: 2026, number: 3, start: '2026-01-12', end: '2026-01-18', valueText: '14' } },
+    { date: '2026-01-22', average_temperature_c: 20, zone_id: 7 },
+  ];
+  for (const compact of [false, true]) {
+    const view = mountTrendChart({ temperatures, compact });
+    let nodes = view.render();
+    const frame = axisFrame(nodes), biology = biologyGeometry(nodes);
+    const weeklyLegend = () => nodes.find(node => node.type === 'button' && hasClass(node, 'is-weekly'));
+    assert.equal(temperaturePaths(nodes).length, 3);
+    assert.ok(temperaturePaths(nodes).every(path => hasClass(path, 'is-uncertain')));
+    weeklyLegend().props.onClick();
+    nodes = view.render();
+    assert.equal(temperatureControls(nodes).length, 2);
+    assert.equal(temperaturePaths(nodes).length, 1);
+    assert.equal(hasClass(temperaturePaths(nodes)[0], 'is-uncertain'), false);
+    temperatureLegend(nodes).props.onClick();
+    nodes = view.render();
+    assert.equal(temperaturePaths(nodes).length, 0);
+    assert.equal(temperatureControls(nodes).length, 0);
+    weeklyLegend().props.onClick();
+    nodes = view.render();
+    assert.equal(temperatureControls(nodes).length, 2);
+    assert.equal(temperaturePaths(nodes).length, 1);
+    assert.ok(hasClass(temperaturePaths(nodes)[0], 'is-uncertain'));
+    temperatureLegend(nodes).props.onClick();
+    nodes = view.render();
+    assert.equal(temperaturePaths(nodes).length, 3);
+    assert.equal(axisFrame(nodes), frame);
+    assert.equal(biologyGeometry(nodes), biology);
+  }
+});
+
+test('temperature uses an independent right axis without synthesizing sparse samples', () => {
   const temperatures = [
     { date: '2026-01-15', average_temperature_c: 24 },
     { date: '2026-01-01', average_temperature_c: 0 },
@@ -217,8 +421,8 @@ test('temperature uses an independent right axis and connects sparse weekly valu
   assert.match(css, /--series-color: var\(--color-temperature\)/);
 });
 
-test('value axes retain independent fixed domains and factual temperatures in every layout', () => {
-  const samples = [[0], [22.3], [22.1, 22.4], [-4.7, -1.2], [-0.2, 0, 0.3], [0, 24]];
+test('temperature domain expands only for outliers while biological axes remain fixed in every layout', () => {
+  const samples = [[0], [22.3], [22.1, 22.4], [-4.7, -1.2], [-0.2, 0, 0.3], [0, 24], [43], [-2, 0, 43]];
   for (const compact of [true, false]) {
     for (const responsive of [true, false]) {
       for (const values of samples) {
@@ -227,19 +431,26 @@ test('value axes retain independent fixed domains and factual temperatures in ev
         const result = chart.buildGeometry(readings, [], [], '2026-01-01', '2026-01-31', compact,
           chart.resolveChartLayout(compact, 360, responsive), [], temperatures);
         assert.deepEqual([...result.countTicks], scales.scaleLinear().domain([0, 1000]).ticks(4));
-        assert.deepEqual([...result.temperatureTicks], [0, 5, 10, 15, 20, 25, 30, 35, 40]);
-        assert.deepEqual([...result.yTemperature.domain()], [0, 40]);
+        const domain = [Math.min(0, ...values), Math.max(40, ...values)];
+        assert.deepEqual([...result.yTemperature.domain()], domain);
+        if (domain[0] === 0 && domain[1] === 40) {
+          assert.deepEqual([...result.temperatureTicks], [0, 5, 10, 15, 20, 25, 30, 35, 40]);
+        } else {
+          assert.ok(result.temperatureTicks.length > 1);
+
+          assert.ok([...result.temperatureTicks].every(value => value >= domain[0] && value <= domain[1]));
+        }
         assert.notDeepEqual([...result.temperatureTicks], [...result.countTicks]);
         assert.equal(result.yCount(0), result.countHeight - result.padding.bottom);
         assert.equal(result.yCount(1200), result.yCount(1000), 'Biological overflow remains clamped at 1000');
-        assert.equal(result.temperatureTicks.length, 9);
+
         assert.equal(JSON.stringify(result.plottedTemperatures), snapshot, 'Do not round or synthesize real samples');
         assert.equal(JSON.stringify(temperatures), snapshot, 'Do not mutate source temperatures');
         for (const value of values) {
           const y = result.yTemperature(value);
           assert.ok(Number.isFinite(y));
-          if (value >= 0 && value <= 40) assert.ok(y >= result.plotTop && y <= result.countHeight - result.padding.bottom);
-          else assert.ok(y < result.plotTop || y > result.countHeight - result.padding.bottom, 'Scale never silently clamps an out-of-range value');
+          assert.ok(y >= result.plotTop && y <= result.countHeight - result.padding.bottom);
+          assert.ok(Math.abs(result.yTemperature.invert(y) - value) < 1e-10, 'Outliers retain their real coordinates, not clamped coordinates');
         }
       }
     }
@@ -345,8 +556,8 @@ test('temperature hover/focus are transient; click, Enter and Space pin exact de
     assert.ok(hasClass(chartTooltip(nodes), 'is-pinned'));
     assert.ok(nodeText(chartTooltip(nodes)).includes('Temperature (°C)22'));
     const dot = chartNodes(point).find((node) => hasClass(node, 'bio-trend-dot'));
-    assert.equal(selectionGuide(nodes).props.x1, dot.props.cx);
-    assert.equal(selectionGuide(nodes).props.x2, dot.props.cx);
+    assert.equal(selectionGuide(nodes).props.x1, dot.props.x + dot.props.width / 2);
+    assert.equal(selectionGuide(nodes).props.x2, dot.props.x + dot.props.width / 2);
     assert.equal(axisFrame(nodes), frame);
     const escape = keyEvent('Escape');
     point.props.onKeyDown(escape);
@@ -464,7 +675,8 @@ test('temperature zone/date identity retains a pin across overlapping windows an
   assert.equal(retained.props['data-temperature-index'], 0);
   assert.equal(retained.props['aria-pressed'], true, 'Window effects preserve a still-visible pin');
   assert.ok(hasClass(chartTooltip(nodes), 'is-pinned'));
-  assert.equal(selectionGuide(nodes).props.x1, chartNodes(retained).find((node) => hasClass(node, 'bio-trend-dot')).props.cx);
+  const retainedDot = chartNodes(retained).find((node) => hasClass(node, 'bio-trend-dot'));
+  assert.equal(selectionGuide(nodes).props.x1, retainedDot.props.x + retainedDot.props.width / 2);
   nodes = harness.render({ temperatures: [
     { date: '2026-01-22', average_temperature_c: 24, zone_id: 8, zone_name: 'Warm room' },
     { date: '2026-01-08', average_temperature_c: 21.75, zone_id: 7, zone_name: 'Renamed room' },
@@ -513,8 +725,9 @@ test('rendered sparse observations retain zero and exact decimals without invent
   assert.deepEqual(points.map((node) => node.key), ['temperature-7-2026-01-01', 'temperature-7-2026-01-22']);
   const dots = points.map((point) => chartNodes(point).find((node) => hasClass(node, 'bio-trend-dot')));
   const axis = chartNodes(nodes.find((node) => hasClass(node, 'bio-trend-temperature-axis'))).find((node) => node.type === 'line');
-  assert.equal(dots[0].props.cy, axis.props.y2, 'A real zero is rendered on the zero tick');
-  assert.ok(dots[0].props.r > dots[1].props.r, 'Zero retains its deliberate visible marker');
+  assert.ok(dots.every(dot => dot.type === 'rect' && dot.props.width === dot.props.height));
+  assert.equal(dots[0].props.y + dots[0].props.height / 2, axis.props.y2, 'A real zero is centered on the zero tick');
+  assert.ok(dots[0].props.width > dots[1].props.width, 'Zero retains its deliberate visible marker');
   assert.ok(points[0].props['aria-label'].includes('Temperature: 0 °C'));
   assert.ok(points[1].props['aria-label'].includes('22.125 °C'));
   const path = nodes.find((node) => hasClass(node, 'bio-trend-line') && hasClass(node, 'is-temperature')).props.d;
@@ -527,7 +740,7 @@ test('rendered sparse observations retain zero and exact decimals without invent
   assert.equal(JSON.stringify(temperatures), original);
 });
 
-test('off-scale -2/43 temperatures use directional markers, exact details and notes, never clamped dots or lines', () => {
+test('outlier -2/43 temperatures use squares, continuous connections and exact details on the expanded axis', () => {
   const harness = mountTrendChart({ temperatures: [
     { date: '2026-01-01', average_temperature_c: 20, zone_id: 7 },
     { date: '2026-01-08', average_temperature_c: -2, zone_id: 7 },
@@ -538,21 +751,23 @@ test('off-scale -2/43 temperatures use directional markers, exact details and no
   let nodes = harness.render();
   const points = temperatureControls(nodes);
   const axis = chartNodes(nodes.find((node) => hasClass(node, 'bio-trend-temperature-axis'))).find((node) => node.type === 'line');
-  const path = nodes.find((node) => hasClass(node, 'bio-trend-line') && hasClass(node, 'is-temperature')).props.d;
-  assert.equal((path.match(/M/g) ?? []).length, 3, 'Off-scale samples split the real in-range segments');
-  assert.equal((path.match(/L/g) ?? []).length, 0, 'No clamped connection or bridge through an off-scale sample');
-  assert.equal(nodes.filter((node) => hasClass(node, 'bio-trend-dot') && hasClass(node, 'is-temperature')).length, 3);
-  assert.equal(nodes.filter((node) => hasClass(node, 'bio-trend-overflow') && hasClass(node, 'is-temperature')).length, 2);
+  const paths = temperaturePaths(nodes);
+  assert.equal(paths.length, 4);
+  assert.ok(paths.every(path => !hasClass(path, 'is-uncertain') && (path.props.d.match(/L/g) ?? []).length === 1));
+  assert.equal(nodes.filter((node) => hasClass(node, 'bio-trend-dot') && hasClass(node, 'is-temperature')).length, 5);
+  assert.equal(nodes.filter((node) => hasClass(node, 'bio-trend-overflow') && hasClass(node, 'is-temperature')).length, 0);
+  const squares = points.map(point => chartNodes(point).find(node => hasClass(node, 'bio-trend-dot')));
+  assert.ok(squares.every(square => square.type === 'rect'));
+  const center = square => square.props.y + square.props.height / 2;
+  assert.equal(center(squares[1]), axis.props.y2);
+  assert.equal(center(squares[3]), axis.props.y1);
+  assert.ok(center(squares[0]) > axis.props.y1 && center(squares[0]) < axis.props.y2);
   const note = nodeText(nodes.find((node) => hasClass(node, 'bio-trend-temperature-overflow-note')));
-  assert.equal(note, 'Outside the displayed scale (0–40 °C)');
-  for (const [index, value, edge, direction] of [[1, -2, axis.props.y2, -1], [3, 43, axis.props.y1, 1]]) {
+  assert.equal(note, 'Outside usual 0–40 °C range; axis expanded');
+  for (const [index, value] of [[1, -2], [3, 43]]) {
     const point = points[index];
-    assert.equal(chartNodes(point).some((node) => hasClass(node, 'bio-trend-dot')), false);
-    const marker = chartNodes(point).find((node) => hasClass(node, 'bio-trend-overflow'));
     const hit = chartNodes(point).find((node) => hasClass(node, 'bio-trend-temperature-hit'));
-    assert.equal(hit.props.cy, edge);
-    const coordinates = marker.props.d.match(/-?\d+(?:\.\d+)?/g).map(Number);
-    assert.equal(coordinates[3], edge + direction, 'Marker tip explicitly indicates the out-of-scale direction');
+    assert.equal(hit.props.cy, center(squares[index]));
     assert.ok(point.props['aria-label'].includes(`${value} °C`));
     assert.ok(point.props['aria-label'].includes(note));
     point.props.onClick(clickEvent());
@@ -574,8 +789,8 @@ test('coincident same-day same-value zones retain separate native temperature bu
   assert.equal(points.length, 2);
   assert.equal(new Set(points.map((node) => node.key)).size, 2);
   const dots = points.map((point) => chartNodes(point).find((node) => hasClass(node, 'bio-trend-dot')));
-  assert.equal(dots[0].props.cx, dots[1].props.cx);
-  assert.equal(dots[0].props.cy, dots[1].props.cy, 'Native alternatives must not jitter the scientific coordinates');
+  assert.equal(dots[0].props.x, dots[1].props.x);
+  assert.equal(dots[0].props.y, dots[1].props.y, 'Native alternatives must not jitter the scientific coordinates');
   assert.equal(choices(nodes).length, 2);
   for (const [index, room] of ['Cold room', 'Warm room'].entries()) {
     let button = choices(nodes)[index];
@@ -596,7 +811,7 @@ test('coincident same-day same-value zones retain separate native temperature bu
     assert.equal(choices(nodes)[index].props['aria-pressed'], true);
     assert.equal(choices(nodes)[1 - index].props['aria-pressed'], false);
     assert.ok(nodeText(chartTooltip(nodes)).includes(room));
-    assert.equal(selectionGuide(nodes).props.x1, dots[index].props.cx);
+    assert.equal(selectionGuide(nodes).props.x1, dots[index].props.x + dots[index].props.width / 2);
     button = choices(nodes)[index];
     button.props.onKeyDown(keyEvent('Escape'));
     nodes = harness.render();
@@ -665,7 +880,8 @@ test('location changes use the shared movement translation in every chart entry 
     assert.ok(temperaturePoints[0].props['aria-label'].includes(`${locale.temperature}: 0 °C`));
     assert.equal(temperaturePoints[0].props.tabIndex, 0);
     for (const handler of ['onFocus', 'onMouseEnter', 'onClick', 'onKeyDown']) assert.equal(typeof temperaturePoints[0].props[handler], 'function');
-    assert.equal(nodes.filter((node) => node.props?.className === 'bio-trend-line is-temperature').length, 1);
+    assert.equal(temperaturePaths(nodes).length, 1);
+    assert.ok(hasClass(temperaturePaths(nodes)[0], 'is-uncertain'), 'Unknown zones do not imply comparable observations');
     const temperatureLegend = nodes.find((node) => node.type === 'button' && node.props.className === 'is-temperature');
     assert.equal(temperatureLegend.props['aria-pressed'], true);
     const rightAxis = nodes.find((node) => node.props?.className === 'bio-trend-temperature-axis');

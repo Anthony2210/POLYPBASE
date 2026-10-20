@@ -323,7 +323,6 @@ export function ZoneRecentMovements({
   return (
     <section className="zone-page-section zone-recent-movements" aria-busy={isLoading}>
       <h2>{t('zoneRecentMovementsTitle')}</h2>
-      <p className="muted compact-text zone-movement-source-note">{t('zoneMovementSourceNote')}</p>
       <p className="sr-only" role="status">{isLoading ? t('loading') : ''}</p>
       {isLoading ? (
         <SkeletonRows count={3} />
@@ -419,7 +418,6 @@ export default function ZoneMovementHistoryPage({
       </header>
 
       <section className="zone-page-section zone-movement-history-section" aria-busy={history.isLoading}>
-        <p className="muted compact-text zone-movement-source-note">{t('zoneMovementSourceNote')}</p>
         <div className="zone-movement-direction-switch" role="group" aria-label={t('zoneMovementDirectionFilter')}>
           {(['arrival', 'departure'] as const).map((option) => (
             <button
