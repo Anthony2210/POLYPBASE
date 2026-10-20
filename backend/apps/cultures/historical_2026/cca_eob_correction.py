@@ -240,15 +240,23 @@ def build_plan(organization_id, *, workbook_path):
     """Read only: exact source cells, exact legacy witness, full persisted baseline."""
     require_local_database()
     _verify_connection()
+    return _build_plan(organization_id, workbook_path=workbook_path)
+
+
+def _build_plan(organization_id, *, workbook_path, data=None):
+    """Shared bounded planner; callers must verify their execution boundary first."""
     source = load_source(workbook_path)
     manifest = load_manifest()
-    organization = Organization.objects.filter(pk=organization_id).first()
-    boxes = list(Box.objects.filter(organization_id=organization_id, global_code__in=CODES).order_by("pk"))
+    organization = (Organization.objects.only("id").filter(pk=organization_id).first()
+                    if data is None else data["organization"])
+    boxes = (list(Box.objects.filter(organization_id=organization_id, global_code__in=CODES).order_by("pk"))
+             if data is None else data["boxes"])
     by_code = {box.global_code: box for box in boxes}
     by_id = {box.pk: box.global_code for box in boxes}
-    measurements = list(BiologicalMeasurement.objects.filter(box_id__in=by_id).order_by("pk"))
-    histories = _histories(list(by_id))
-    location_context = _location_context(boxes)
+    measurements = (list(BiologicalMeasurement.objects.filter(box_id__in=by_id).order_by("pk"))
+                    if data is None else data["measurements"])
+    histories = _histories(list(by_id)) if data is None else data["histories"]
+    location_context = _location_context(boxes) if data is None else data["location_context"]
     blockers = []
     if organization is None or set(by_code) != set(CODES):
         blockers.append("All three exact Box codes must exist in the explicit organization.")
@@ -288,9 +296,12 @@ def build_plan(organization_id, *, workbook_path):
         if entry["classification"] == MOVE:
             for field in ("original_observer_id", "imported_by_id"):
                 account_id = getattr(measurement, field)
-                if account_id is not None and not OrganizationMembership.objects.filter(
+                if account_id is None:
+                    continue
+                belongs = (OrganizationMembership.objects.filter(
                     organization_id=organization_id, user_id=account_id,
-                ).exists():
+                ).exists() if data is None else account_id in data["attribution_user_ids"])
+                if account_id is not None and not belongs:
                     entry["classification"] = CONFLICT
                     entry["issues"].append("Historical attribution account is outside this institution.")
     duplicate_pks = {pk for pk, count in Counter(selected).items() if count > 1}
@@ -355,42 +366,118 @@ def build_plan(organization_id, *, workbook_path):
                   "counts": dict(Counter(e["classification"] for e in entries))})
 
 
+def _move_audit(plan, entry, measurement, actor_id, plan_hash, execution_evidence=None):
+    return {
+        "organization_id": plan["organization_id"], "user_id": actor_id,
+        "action": AuditLog.Action.UPDATE, "object_type": "box", "object_id": entry["target_box"],
+        "description": (f"{REASON} {entry['current_box']} -> {entry['target_box']}; "
+                        f"2026-W{entry['iso_week']:02}."),
+        "metadata": {
+            "operation": OPERATION, "product_decision": plan["product_decision"],
+            "location_context": entry["location_context"], "measurement_id": entry["measurement_pk"],
+            "plan_hash": plan_hash, "v2_sha256": V2_SHA256,
+            "legacy_manifest_fingerprint": plan["legacy_manifest_fingerprint"],
+            "source": {k: entry[k] for k in (
+                "sheet", "polyp_cell", "ephyrae_cell", "source_identifier", "target_code",
+                "iso_year", "iso_week", "polyps", "ephyrae")},
+            "previous_box": entry["current_box"], "new_box": entry["target_box"],
+            "valeurs": _measurement_audit_values(measurement),
+            "modifications": {"boite": {"avant": entry["current_box"], "apres": entry["target_box"]}},
+            "before": entry["before"], "after": {**entry["before"], "box_id": entry["target_box_pk"]},
+            **({"execution_evidence": execution_evidence} if execution_evidence else {}),
+        },
+    }
+
+
+def _summary_audit(plan, actor_id, plan_hash, execution_evidence=None):
+    return {
+        "organization_id": plan["organization_id"], "user_id": actor_id,
+        "action": AuditLog.Action.IMPORT, "object_type": "historical_correction",
+        "object_id": OPERATION, "description": REASON,
+        "metadata": {
+            "operation": OPERATION, "plan_hash": plan_hash, "product_decision": plan["product_decision"],
+            "reviewed_plan": plan, "revisions": plan["revision_changes"], "moved": len(plan["move_order"]),
+            **({"execution_evidence": execution_evidence} if execution_evidence else {}),
+        },
+    }
+
+
+def write_recipe(plan, measurements, actor_id):
+    """Pure, reviewable writes; the SQL boundary never accepts a runtime recipe."""
+    by_pk = {measurement.pk: measurement for measurement in measurements}
+    entries = {entry["measurement_pk"]: entry for entry in plan["entries"]
+               if entry["classification"] == MOVE}
+    moves, audits = [], []
+    for pk in plan["move_order"]:
+        entry = entries[pk]
+        moves.append({"id": pk, "before_box_id": entry["before"]["box_id"],
+                      "target_box_id": entry["target_box_pk"], "week_start": entry["before"]["week_start"]})
+        audits.append(_move_audit(plan, entry, by_pk[pk], actor_id, fingerprint(plan)))
+    if moves:
+        audits.append(_summary_audit(plan, actor_id, fingerprint(plan)))
+    return _json({"moves": moves, "revisions": plan["revision_changes"], "audits": audits})
+
+
 def apply_plan(organization_id, *, workbook_path, actor, expected_plan_hash):
     """Rebuild under locks; update only box_id, revision tokens and new audit rows."""
     require_local_database()
     if actor is None or not actor.pk or not expected_plan_hash:
         raise ValueError("An explicit active administrator and reviewed plan hash are required.")
-    _verify_connection()
+    return _apply_reviewed_plan(
+        organization_id, workbook_path=workbook_path, actor=actor,
+        expected_plan_hash=expected_plan_hash, verify_execution=_verify_connection,
+    )
+
+
+def _apply_reviewed_plan(organization_id, *, workbook_path, actor, expected_plan_hash,
+                         verify_execution, execution_evidence=None, verify_locked_plan=None,
+                         lock_scope=None):
+    """Internal transaction shared only by the QA and dedicated CCA production gates."""
+    verify_execution()
     with transaction.atomic():
+        verify_execution()
+        if lock_scope is not None:
+            lock_scope(actor.pk)
+
+        def locked(queryset, **options):
+            # The production-only helper already holds this exact lock set. QA
+            # retains the original ORM row-lock protocol without a SQL helper.
+            return queryset if lock_scope is not None else queryset.select_for_update(**options)
+
         # Boxes first: ordinary measurement writes lock Box then Organization, and
         # an Organization/user FOR UPDATE held before waiting for a Box can deadlock
         # with FK inserts in a concurrent subculture.
-        boxes = list(Box.objects.select_for_update().filter(
-            organization_id=organization_id, global_code__in=CODES).order_by("pk"))
+        boxes = list(locked(Box.objects.filter(
+            organization_id=organization_id, global_code__in=CODES)).order_by("pk"))
         box_ids = [box.pk for box in boxes]
         # Then Organization before membership, like member PATCH (Organization,
         # membership). Locking the membership first deadlocks with that PATCH
         # when the deferred audit FK check waits for Organization at commit.
         # NO KEY UPDATE serializes with the PATCH but not with FK KEY SHARE checks.
-        Organization.objects.select_for_update(no_key=True).get(pk=organization_id)
-        memberships = list(OrganizationMembership.objects.select_for_update().filter(
-            organization_id=organization_id, user_id=actor.pk))
-        user = get_user_model().objects.select_for_update(no_key=True).get(pk=actor.pk)
+        locked(Organization.objects.only("id"), no_key=True).get(pk=organization_id)
+        memberships = list(locked(OrganizationMembership.objects.filter(
+            organization_id=organization_id, user_id=actor.pk).only(
+                "id", "organization_id", "user_id", "is_active", "role")))
+        user = locked(get_user_model().objects.only("id", "is_active"), no_key=True).get(pk=actor.pk)
         if not user.is_active or not any(m.is_active and m.role == "admin" for m in memberships):
             raise PermissionDenied("An active administrator membership in this organization is required.")
         # All services serialize on Box first. Movement corrections then lock
         # Movement before linked Location; keep that order for full snapshots.
-        list(_related_movements(box_ids).select_for_update(of=("self",)).order_by("pk"))
-        list(BoxLocation.objects.select_for_update().filter(box_id__in=box_ids).order_by("pk"))
+        list(locked(_related_movements(box_ids), of=("self",)).order_by("pk"))
+        list(locked(BoxLocation.objects.filter(box_id__in=box_ids)).order_by("pk"))
         context = _location_context(boxes)
         # Protect tenancy without blocking ordinary FK references to the zone.
         # A subculture explicitly locking this same zone still serializes here.
-        list(ThermalZone.objects.select_for_update(no_key=True).filter(
-            pk__in=[zone["id"] for zone in context["zones"]]).order_by("pk"))
+        list(locked(ThermalZone.objects.filter(
+            pk__in=[zone["id"] for zone in context["zones"]]).only("id", "organization_id"),
+            no_key=True).order_by("pk"))
         # Same Box-before-measurement protocol as ordinary measurement writes.
-        measurements = list(BiologicalMeasurement.objects.select_for_update().filter(
-            box_id__in=box_ids).order_by("pk"))
-        plan = build_plan(organization_id, workbook_path=workbook_path)
+        measurements = list(locked(BiologicalMeasurement.objects.filter(
+            box_id__in=box_ids)).order_by("pk"))
+        plan = _build_plan(organization_id, workbook_path=workbook_path)
+        verify_execution()
+        if verify_locked_plan is not None:
+            verify_locked_plan(plan)
         if fingerprint(plan) != expected_plan_hash:
             raise ValueError("Stale plan: database or source changed; review a new dry-run.")
         if not plan["ready"]:
@@ -414,24 +501,8 @@ def apply_plan(organization_id, *, workbook_path, actor, expected_plan_hash):
             ).update(box_id=entry["target_box_pk"])
             if changed != 1:
                 raise ValueError("Measurement changed during application.")
-            after = {**entry["before"], "box_id": entry["target_box_pk"]}
-            AuditLog.objects.create(
-                organization_id=organization_id, user=user, action=AuditLog.Action.UPDATE,
-                object_type="box", object_id=entry["target_box"],
-                description=(f"{REASON} {entry['current_box']} -> {entry['target_box']}; "
-                             f"2026-W{entry['iso_week']:02}."),
-                metadata={"operation": OPERATION, "product_decision": plan["product_decision"],
-                                          "location_context": entry["location_context"], "measurement_id": pk,
-                          "plan_hash": expected_plan_hash, "v2_sha256": V2_SHA256,
-                          "legacy_manifest_fingerprint": plan["legacy_manifest_fingerprint"],
-                          "source": {k: entry[k] for k in (
-                              "sheet", "polyp_cell", "ephyrae_cell", "source_identifier",
-                              "target_code", "iso_year", "iso_week", "polyps", "ephyrae")},
-                          "previous_box": entry["current_box"], "new_box": entry["target_box"],
-                          "valeurs": _measurement_audit_values(measurement),
-                          "modifications": {"boite": {"avant": entry["current_box"], "apres": entry["target_box"]}},
-                          "before": entry["before"], "after": after},
-            )
+            AuditLog.objects.create(**_move_audit(
+                plan, entry, measurement, user.pk, expected_plan_hash, execution_evidence))
         revisions = plan["revision_changes"]
         for revision in revisions:
             changed = Box.objects.filter(pk=revision["box_id"], organization_id=organization_id,
@@ -440,10 +511,6 @@ def apply_plan(organization_id, *, workbook_path, actor, expected_plan_hash):
             if changed != 1:
                 raise ValueError("The exact previous Box revision no longer matches.")
         if moves:
-            AuditLog.objects.create(
-                organization_id=organization_id, user=user, action=AuditLog.Action.IMPORT,
-                object_type="historical_correction", object_id=OPERATION, description=REASON,
-                metadata={"operation": OPERATION, "plan_hash": expected_plan_hash,
-                          "product_decision": plan["product_decision"], "reviewed_plan": plan, "revisions": revisions, "moved": len(moves)},
-            )
+            AuditLog.objects.create(**_summary_audit(
+                plan, user.pk, expected_plan_hash, execution_evidence))
         return plan

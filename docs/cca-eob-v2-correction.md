@@ -2,6 +2,11 @@
 
 ## Périmètre et statut
 
+Le chemin QA décrit ici reste strictement local. La préparation d'un exécuteur
+**distinct** de production, sans autorisation d'exécution, est documentée dans
+[`cca-eob-production-execution.md`](cca-eob-production-execution.md). Elle ne
+réutilise ni les effectifs ni les hashes de la copie QA comme approbation de production.
+
 Ce mécanisme ne concerne que les relevés ISO 2026 des codes exacts
 `CCA-EOB-2.004`, `CCA-EOB-2.005` et `CCA-EOB-2.006`, dans l'organisation
 explicitement fournie. Il ne corrige aucune autre famille, valeur biologique,
