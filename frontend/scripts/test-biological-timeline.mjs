@@ -419,5 +419,33 @@ test('lifecycle grouping and preview integration use one event per parent operat
   assert.equal(events[0].detail, 'SF.002, SF.003');
   const source = readFileSync(new URL('../src/components/BoxTrackingPreview.tsx', import.meta.url), 'utf8');
   assert.match(source, /biologicalTimeline=\{detail\.biological_timeline\}/);
-  assert.match(source, /detail\.biological_timeline\?\.length/);
+  const ast = ts.createSourceFile('BoxTrackingPreview.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const preview = ast.statements.find(node => ts.isFunctionDeclaration(node)
+    && node.name?.text === 'BoxTrackingPreviewContent');
+  assert.ok(preview);
+  const { outputText } = ts.transpileModule(`${preview.getText(ast)}\nexport { BoxTrackingPreviewContent };`, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
+  });
+  for (const biological_timeline of [undefined, []]) {
+    const detail = { id: 7, biological_timeline, biological_measurements: [], locations: [], movements: [],
+      lineage: { parents: [], children: [] } };
+    const exports = {};
+    let stateIndex = 0;
+    const Suspense = Symbol('Suspense');
+    const TrackingChart = () => null;
+    vm.runInNewContext(outputText, {
+      exports, Suspense, TrackingChart, SkeletonRows: () => null,
+      useState: () => [[detail, null, 0][stateIndex++], () => {}],
+      useEffect() {},
+      require: name => {
+        assert.equal(name, 'react/jsx-runtime');
+        return jsxRuntime;
+      },
+    });
+    const rendered = exports.BoxTrackingPreviewContent({ boxId: detail.id, language: 'en',
+      onSpeciesLoaded() {}, t: key => key });
+    assert.equal(rendered.type, Suspense);
+    assert.equal(rendered.props.children.type, TrackingChart, 'Empty biological history must not block temperature loading');
+    assert.equal(rendered.props.children.props.detail, detail);
+  }
 });
