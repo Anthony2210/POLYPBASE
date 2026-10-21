@@ -170,17 +170,6 @@ function BoxTrackingPreviewContent({ boxId, language, onSpeciesLoaded, t }: {
   const loading = <div className="box-tracking-preview-state" role="status" aria-label={t('loading')}><SkeletonRows count={3} /></div>;
   if (error) return <div className="box-tracking-preview-state" role="alert"><p>{error}</p><button type="button" onClick={() => setAttempt((current) => current + 1)}>{t('lineageRetry')}</button></div>;
   if (!detail) return loading;
-  const hasTimeline = (detail.biological_timeline?.length ?? 0) > 0
-    || detail.biological_measurements.length > 0
-    || detail.locations.length > 0
-    || detail.movements.length > 0
-    || detail.lineage.parents.some((relation) => relation.event != null)
-    || detail.lineage.children.some((relation) => relation.event != null);
-  return (
-    <>
-      {hasTimeline ? (
-        <Suspense fallback={loading}><TrackingChart detail={detail} language={language} t={t} /></Suspense>
-      ) : <div className="box-tracking-preview-state"><p>{t('noMeasurementHistory')}</p></div>}
-    </>
-  );
+  // Temperature sources are loaded by the chart, independently of biological history.
+  return <Suspense fallback={loading}><TrackingChart detail={detail} language={language} t={t} /></Suspense>;
 }

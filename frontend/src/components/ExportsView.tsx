@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { apiDownload, apiGet } from '../api/client';
+import { apiDownload, apiGet, getOrganizationResourceSignal } from '../api/client';
 import type { BoxDetail, ExportOptions } from '../types';
 import { translations } from '../i18n';
 import {
@@ -10,7 +10,12 @@ import {
   parseChartDate,
   toChartDateString,
 } from '../utils/chartWindow';
+import { useTemperatureHistory } from '../hooks/useTemperatureHistory';
+import { useHistoricalTemperatures } from '../hooks/useHistoricalTemperatures';
+import { weeklyTrendTemperatures } from '../utils/historicalTemperature';
 import BiologicalTrendChart from './BiologicalTrendChart';
+import TemperatureHistoryStatus from './TemperatureHistoryStatus';
+import HistoricalTemperatureStatus from './HistoricalTemperatureStatus';
 import PageLoader from './PageLoader';
 import PolypbaseIcon from './PolypbaseIcon';
 
@@ -51,6 +56,7 @@ type ExportEligibility = {
 type EligibilityRequestState = {
   key: string;
   options: ExportOptions;
+  contextSignal: AbortSignal;
   data: ExportEligibility | null;
   error: string | null;
 };
@@ -62,6 +68,7 @@ type DownloadFeedback = {
 };
 
 const PREVIEW_PICKER_PAGE_SIZE = 16;
+const EMPTY_TREND_CACHE: Record<string, BoxTrendPreview> = {};
 
 const emptyFilters: ExportFilters = {
   species: [],
@@ -210,7 +217,14 @@ export default function ExportsView({
   const [filters, setFilters] = useState<ExportFilters>(emptyFilters);
   const [isDownloading, setIsDownloading] = useState(false);
   const [selectedPreviewBoxId, setSelectedPreviewBoxId] = useState<number | null>(null);
-  const [trendCache, setTrendCache] = useState<Record<string, BoxTrendPreview>>({});
+  const contextSignal = getOrganizationResourceSignal();
+  const previewScope = useMemo(() => ({ options, contextSignal }), [options, contextSignal]);
+  const [scopedTrendCache, setScopedTrendCache] = useState<{
+    scope: unknown;
+    details: Record<string, BoxTrendPreview>;
+  } | null>(null);
+  const trendCache = scopedTrendCache?.scope === previewScope
+    ? scopedTrendCache.details : EMPTY_TREND_CACHE;
   const [eligibilityRequest, setEligibilityRequest] = useState<EligibilityRequestState | null>(null);
   const [eligibilityRetryVersion, setEligibilityRetryVersion] = useState(0);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
@@ -228,7 +242,8 @@ export default function ExportsView({
   const eligibilityQuery = buildEligibilityQuery(filters);
   const eligibilityKey = JSON.stringify([eligibilityQuery, eligibilityRetryVersion]);
   const isCurrentEligibility = eligibilityRequest?.key === eligibilityKey
-    && eligibilityRequest.options === options && !invalidPeriod && !isLoading;
+    && eligibilityRequest.options === options && eligibilityRequest.contextSignal === contextSignal
+    && !contextSignal.aborted && !invalidPeriod && !isLoading;
   const eligibility = isCurrentEligibility ? eligibilityRequest.data : null;
   const eligibilityError = isCurrentEligibility ? eligibilityRequest.error : null;
   const isEligibilityLoading = Boolean(options && !invalidPeriod && !eligibility && !eligibilityError);
@@ -238,23 +253,27 @@ export default function ExportsView({
   const error = downloadFeedback?.query === downloadQuery ? downloadFeedback.error : null;
 
   useEffect(() => {
-    if (!options || invalidPeriod || isLoading) return;
+    if (!options || invalidPeriod || isLoading || contextSignal.aborted) return;
 
     const controller = new AbortController();
-    setEligibilityRequest({ key: eligibilityKey, options, data: null, error: null });
+    const stop = () => controller.abort();
+    contextSignal.addEventListener('abort', stop, { once: true });
+    setEligibilityRequest({ key: eligibilityKey, options, contextSignal, data: null, error: null });
     const timeoutId = window.setTimeout(async () => {
+      if (controller.signal.aborted) return;
       try {
         const nextEligibility = await apiGet<ExportEligibility>(
           `/api/exports/eligible-boxes/${eligibilityQuery ? `?${eligibilityQuery}` : ''}`,
           { signal: controller.signal },
         );
         if (controller.signal.aborted) return;
-        setEligibilityRequest({ key: eligibilityKey, options, data: nextEligibility, error: null });
+        setEligibilityRequest({ key: eligibilityKey, options, contextSignal, data: nextEligibility, error: null });
       } catch (eligibilityLoadError) {
         if (controller.signal.aborted || isAbortError(eligibilityLoadError)) return;
         setEligibilityRequest({
           key: eligibilityKey,
           options,
+          contextSignal,
           data: null,
           error: eligibilityLoadError instanceof Error
             ? eligibilityLoadError.message
@@ -266,8 +285,10 @@ export default function ExportsView({
     return () => {
       window.clearTimeout(timeoutId);
       controller.abort();
+      contextSignal.removeEventListener('abort', stop);
     };
   }, [
+    contextSignal,
     eligibilityKey,
     eligibilityQuery,
     invalidPeriod,
@@ -356,9 +377,31 @@ export default function ExportsView({
         filters.zones.join(','),
         filters.includeOtherZones ? 'all-zones' : 'selected-zones',
       ].join(':');
-  const selectedPreviewDetail = selectedPreviewCacheKey === null
+  const selectedPreviewDetail = selectedPreviewOption === null || selectedPreviewCacheKey === null
     ? null
     : trendCache[selectedPreviewCacheKey] ?? null;
+  const temperatureScope = useMemo(
+    () => ({ previewScope, selectedPreviewCacheKey, eligibility }),
+    [previewScope, selectedPreviewCacheKey, eligibility],
+  );
+  const temperatureBoxId = selectedPreviewOption && selectedPreviewDetail && !previewError
+    ? selectedPreviewOption.id : undefined;
+  const temperatureHistory = useTemperatureHistory(
+    temperatureBoxId, previewWindow.startDate, previewWindow.endDate, temperatureScope,
+  );
+  // Historical weeks have no zone metadata and the endpoint does not filter by zone.
+  // Do not infer an association from current occupancy or a week's plotting date.
+  const restrictTemperatureZones = filters.zones.length > 0 && !filters.includeOtherZones;
+  const historicalTemperatures = useHistoricalTemperatures(
+    restrictTemperatureZones ? undefined : temperatureBoxId,
+    previewWindow.startDate, previewWindow.endDate, temperatureScope,
+  );
+  const chartTemperatures = useMemo(() => [
+    ...temperatureHistory.points.filter((point) => (
+      !restrictTemperatureZones || filters.zones.includes(point.zone_id)
+    )),
+    ...weeklyTrendTemperatures(historicalTemperatures.points),
+  ], [temperatureHistory.points, historicalTemperatures.points, restrictTemperatureZones, filters.zones]);
 
   useEffect(() => {
     if (
@@ -372,6 +415,8 @@ export default function ExportsView({
 
   useEffect(() => {
     const controller = new AbortController();
+    const stop = () => controller.abort();
+    contextSignal.addEventListener('abort', stop, { once: true });
 
     async function loadSelectedBox() {
       if (
@@ -380,6 +425,7 @@ export default function ExportsView({
         || selectedPreviewCacheKey === null
         || trendCache[selectedPreviewCacheKey]
         || invalidPeriod
+        || contextSignal.aborted
       ) {
         setIsPreviewLoading(false);
         return;
@@ -402,11 +448,14 @@ export default function ExportsView({
           { signal: controller.signal },
         );
         if (controller.signal.aborted) return;
-        setTrendCache((current) => {
-          const next = { ...current, [selectedPreviewCacheKey]: detail };
+        setScopedTrendCache((current) => {
+          const next = {
+            ...(current?.scope === previewScope ? current.details : {}),
+            [selectedPreviewCacheKey]: detail,
+          };
           const keys = Object.keys(next);
           if (keys.length > 20) delete next[keys[0]];
-          return next;
+          return { scope: previewScope, details: next };
         });
       } catch (previewLoadError) {
         if (controller.signal.aborted || isAbortError(previewLoadError)) return;
@@ -420,8 +469,13 @@ export default function ExportsView({
 
     void loadSelectedBox();
 
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      contextSignal.removeEventListener('abort', stop);
+    };
   }, [
+    contextSignal,
+    previewScope,
     invalidPeriod,
     labels.previewError,
     filters.includeOtherZones,
@@ -761,7 +815,7 @@ export default function ExportsView({
         {selectedPreviewOption && selectedPreviewDetail && !previewError ? (
           <div
             ref={previewPanelElementRef}
-            className={`export-trend-panel${visiblePreviewMeasurementCount ? '' : ' is-empty'}`}
+            className={`export-trend-panel${visiblePreviewMeasurementCount || chartTemperatures.length ? '' : ' is-empty'}`}
           >
             <section className="export-trend-overview">
               <dl className="export-trend-context">
@@ -779,9 +833,12 @@ export default function ExportsView({
                 </div>
               </dl>
             </section>
-            {visiblePreviewMeasurementCount > 0 ? (
               <BiologicalTrendChart
-
+                temperatures={chartTemperatures}
+                temperatureStatus={<>
+                  <TemperatureHistoryStatus {...temperatureHistory} language={language} />
+                  <HistoricalTemperatureStatus {...historicalTemperatures} language={language} />
+                </>}
                 startDate={previewWindow.startDate}
                 endDate={previewWindow.endDate}
                 measurements={visiblePreviewMeasurements.map((measurement) => ({
@@ -827,18 +884,19 @@ export default function ExportsView({
                   observation: language === 'fr' ? 'Observation' : 'Observation',
                   polyps: language === 'fr' ? 'Polypes' : 'Polyps',
                   salinity: 'PSU',
+                  temperature: translations[language].temperature,
+                  dailyTemperature: translations[language].dailyTemperatureAggregate,
+                  historicalTemperature: translations[language].temperature,
+                  historicalWeek: translations[language].historicalTemperatureWeek,
+                  historicalPeriod: translations[language].historicalTemperaturePeriod,
+                  temperatureOutsideScale: translations[language].temperatureOutsideScale,
                   selectReading: language === 'fr'
                     ? 'Sélectionnez un point pour consulter le relevé.'
                     : 'Select a point to review the measurement.',
                   selectedReading: labels.previewReading,
                 }}
               />
-            ) : (
-              <div className="export-trend-empty">
-                <strong>{labels.previewEmptyTitle}</strong>
-                <span>{labels.previewEmptyHint}</span>
-              </div>
-            )}
+
           </div>
         ) : null}
       </section>

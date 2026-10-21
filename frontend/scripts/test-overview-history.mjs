@@ -10,14 +10,14 @@ import { appHarness, ast, deferred, source as appSource } from './app-operation-
 import { resourceClient } from './resource-test-harness.mjs';
 
 const compilerOptions = { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 };
-function loadModule(relativePath, dependencies = {}) {
+function loadModule(relativePath, dependencies = {}, globals = {}) {
   const source = readFileSync(new URL(relativePath, import.meta.url), 'utf8');
   const { outputText } = ts.transpileModule(source, {
     compilerOptions: { ...compilerOptions, jsx: ts.JsxEmit.ReactJSX },
   });
   const exports = {};
   vm.runInNewContext(outputText, {
-    exports, Date, AbortController, URLSearchParams,
+    exports, Date, AbortController, DOMException, URLSearchParams, ...globals,
     require(name) {
       assert.ok(Object.hasOwn(dependencies, name), `Unexpected dependency: ${name}`);
       return dependencies[name];
@@ -438,7 +438,10 @@ test('supplemental component wiring uses the controller, cleanup, retry and orga
   assert.match(view, /const \{ startDate, endDate \} = history\.range/);
 });
 
-function miniChartHarness(box, loadHistory, t = key => key) {
+const { createTemperatureLoadQueue } = loadModule('../src/utils/temperatureLoadQueue.ts');
+const flushQueue = () => new Promise(resolve => setImmediate(resolve));
+
+function miniChartHarness(box, loadHistory, t = key => key, options = {}) {
   const viewSource = readFileSync(new URL('../src/components/OverviewView.tsx', import.meta.url), 'utf8');
   const viewAst = ts.createSourceFile('OverviewView.tsx', viewSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const componentNode = viewAst.statements.find(node =>
@@ -447,7 +450,25 @@ function miniChartHarness(box, loadHistory, t = key => key) {
   const slots = [];
   const requests = [];
   const temperatureRequests = [];
+  const historicalRequests = [];
   const selections = [];
+  const observers = [];
+  const element = { synthetic: 'mini-chart-root' };
+  let visible = options.visible ?? true;
+  let mounted = true;
+  class FakeIntersectionObserver {
+    constructor(callback, settings) {
+      this.callback = callback;
+      this.settings = settings;
+      this.disconnected = false;
+      observers.push(this);
+    }
+    observe(target) {
+      assert.equal(target, element, 'The real root ref must be mounted before effects');
+      if (visible) this.callback([{ target, isIntersecting: true }]);
+    }
+    disconnect() { this.disconnected = true; }
+  }
   let cursor = 0;
   let dirty = false;
   let effects = new Map();
@@ -482,15 +503,37 @@ function miniChartHarness(box, loadHistory, t = key => key) {
     },
   };
   const temperatureClient = resourceClient({ fetch: (url, options) => {
-    const request = { ...deferred(), url, options };
-    temperatureRequests.push(request);
-    return request.promise;
+    const request = { ...deferred(), url, options, settled: false };
+    (url.includes('/historical-temperatures/') ? historicalRequests : temperatureRequests).push(request);
+    const abort = () => request.reject(new DOMException('Synthetic request aborted', 'AbortError'));
+    options.signal.addEventListener('abort', abort, { once: true });
+    return request.promise.finally(() => {
+      request.settled = true;
+      options.signal.removeEventListener('abort', abort);
+    });
   } });
   const temperatureUtility = loadModule('../src/utils/temperatureHistory.ts', { '../api/client': temperatureClient });
   const { useTemperatureHistory } = loadModule('../src/hooks/useTemperatureHistory.ts', {
     react: hooks, '../api/client': temperatureClient, '../utils/temperatureHistory': temperatureUtility,
   });
+  const historicalUtility = loadModule('../src/utils/historicalTemperature.ts', {
+    '../api/client': temperatureClient, './temperatureHistory': temperatureUtility,
+  });
+  const { useHistoricalTemperatures } = loadModule('../src/hooks/useHistoricalTemperatures.ts', {
+    react: hooks, '../api/client': temperatureClient, '../utils/historicalTemperature': historicalUtility,
+  });
+  const { weeklyTrendTemperatures } = historicalUtility;
+  const { useTemperatureChartActivation } = loadModule('../src/hooks/useTemperatureChartActivation.ts', {
+    react: hooks, '../api/client': temperatureClient,
+  }, { IntersectionObserver: FakeIntersectionObserver });
+  const queue = options.queue ?? createTemperatureLoadQueue(2);
+  const queued = load => (boxId, range, signal) => queue.run(signal, () => load(boxId, range, signal));
+  const temperatureLoaders = options.temperatureLoaders ?? {
+    daily: queued(temperatureUtility.loadTemperatureHistory),
+    historical: queued(historicalUtility.loadHistoricalTemperatures),
+  };
   const TemperatureHistoryStatus = function TemperatureHistoryStatus() {};
+  const HistoricalTemperatureStatus = function HistoricalTemperatureStatus() {};
   // Mock leaf components only; execute the production component's full JSX and hooks.
   const ChartWindowControls = function ChartWindowControls() {};
   const BiologicalTrendChart = function BiologicalTrendChart() {};
@@ -503,7 +546,8 @@ function miniChartHarness(box, loadHistory, t = key => key) {
   `, { compilerOptions: { ...compilerOptions, jsx: ts.JsxEmit.ReactJSX } });
   vm.runInNewContext(outputText, {
     exports, Date, ChartWindowControls, BiologicalTrendChart, overviewDefaultRange, scopeOverviewTemperatures,
-    useTemperatureHistory, TemperatureHistoryStatus,
+    useTemperatureHistory, TemperatureHistoryStatus, useTemperatureChartActivation,
+    useHistoricalTemperatures, weeklyTrendTemperatures, HistoricalTemperatureStatus,
     createOverviewHistory(...args) {
       const controller = createOverviewHistory(...args);
       return { ...controller, select(range) {
@@ -518,7 +562,7 @@ function miniChartHarness(box, loadHistory, t = key => key) {
     },
   }, { filename: 'OverviewMiniChart.tsx' });
   const props = {
-    box, language: 'en', t,
+    box, language: 'en', t, temperatureLoaders,
     loadHistory: loadHistory ?? (boxId => {
       const request = { ...deferred(), boxId };
       requests.push(request);
@@ -526,6 +570,7 @@ function miniChartHarness(box, loadHistory, t = key => key) {
     }),
   };
   function render() {
+    if (!mounted) return;
     let iterations = 0;
     do {
       assert.ok(++iterations < 20, 'Component renders and effects must settle');
@@ -533,6 +578,8 @@ function miniChartHarness(box, loadHistory, t = key => key) {
       cursor = 0;
       effects = new Map();
       tree = exports.OverviewMiniChart(props);
+      assert.ok(tree.props.ref, 'Mini-chart root exposes the activation ref');
+      tree.props.ref.current = element;
       for (const [index, { effect, deps }] of effects) {
         slots[index]?.cleanup?.();
         slots[index] = { deps };
@@ -555,10 +602,20 @@ function miniChartHarness(box, loadHistory, t = key => key) {
   }
   render();
   return {
-    requests, temperatureRequests, selections, find, render,
-    async settleTemperature(request, results) {
+    requests, temperatureRequests, historicalRequests, selections, observers, find, render,
+    async flush() { await flushQueue(); render(); },
+    intersect(nextVisible = true) {
+      visible = nextVisible;
+      for (const observer of observers.filter(item => !item.disconnected)) {
+        observer.callback([{ target: element, isIntersecting: visible }]);
+      }
+      render();
+    },
+    changeOrganization(id) { temperatureClient.setActiveOrganizationContext(id); render(); },
+    async settleTemperature(request, results, page = {}) {
+      assert.ok(request, 'Expected a started temperature request');
       request.resolve({ ok: true, headers: new Headers({ 'Content-Type': 'application/json' }),
-        json: async () => ({ results, count: results.length, next: null, previous: null }) });
+        json: async () => ({ results, count: results.length, next: null, previous: null, ...page }) });
       await new Promise(resolve => setImmediate(resolve));
       render();
     },
@@ -569,15 +626,26 @@ function miniChartHarness(box, loadHistory, t = key => key) {
     },
     updateBox(nextBox) { props.box = nextBox; render(); },
     get temperatureStatus() { return single(TemperatureHistoryStatus); },
+    get historicalStatus() { return single(HistoricalTemperatureStatus); },
     get controls() { return single(ChartWindowControls); },
     get chart() { return single(BiologicalTrendChart); },
     select(range) { single(ChartWindowControls).onChange(range.startDate, range.endDate); render(); },
+    async rejectHistory(request) {
+      request.reject(new Error('Synthetic biological history failure'));
+      await new Promise(resolve => setImmediate(resolve));
+      render();
+    },
     async settle(request, fullDetail) {
       request.resolve(fullDetail);
       await new Promise(resolve => setImmediate(resolve));
       render();
     },
-    unmount() { slots.forEach(slot => slot?.cleanup?.()); },
+    unmount() {
+      if (!mounted) return;
+      mounted = false;
+      slots.forEach(slot => slot?.cleanup?.());
+      tree.props.ref.current = null;
+    },
   };
 }
 
@@ -662,6 +730,7 @@ test('mini-chart loads in-range temperatures independently without bounded paylo
     assert.deepEqual(plain(view.chart.temperatures), [], 'Detail temperatures are not the chart data source');
     for (const range of [serverRange, olderRange]) {
       view.select(range);
+      await view.flush();
       assert.deepEqual(plain(view.chart.temperatures), []);
       const request = view.temperatureRequests.at(-1);
       const query = new URL(request.url, 'https://test').searchParams;
@@ -677,6 +746,365 @@ test('mini-chart loads in-range temperatures independently without bounded paylo
     assert.equal(view.requests.length, 1);
     view.updateBox({ ...box, id: 903, history_complete: true, temperatures: [] });
     assert.deepEqual(plain(view.chart.temperatures), [], 'A new box must not retain the previous detail temperatures');
+  } finally { view.unmount(); }
+});
+
+const weeklyOverviewTemperature = {
+  id: 701, iso_year: 2026, iso_week: 20,
+  interval_start: '2026-05-11', interval_end: '2026-05-17', temperature_c: '0.00',
+};
+const dailyOverviewTemperature = {
+  date: '2026-05-14', average_temperature_c: 17, zone_id: 1, zone_name: 'Synthetic zone',
+};
+function assertTemperatureRequest(request, boxId, range, historical = false) {
+  const url = new URL(request.url, 'https://test');
+  assert.equal(url.pathname, `/api/boxes/${boxId}/${historical ? 'historical-temperatures' : 'temperatures'}/`);
+  assert.equal(url.searchParams.get('start'), range.startDate);
+  assert.equal(url.searchParams.get('end'), range.endDate);
+}
+
+test('offscreen overview preserves biology without requesting either temperature source', async () => {
+  const recent = componentMeasurements.filter(point => point.measured_on >= serverRange.startDate);
+  const box = componentBox(recent);
+  const view = miniChartHarness(box, undefined, key => key, { visible: false });
+  try {
+    assert.equal(view.temperatureRequests.length, 0);
+    assert.equal(view.historicalRequests.length, 0);
+    assert.deepEqual(plain(view.chart.measurements), chartPoints(recent));
+    assert.equal(view.requests.length, 1, 'Biological history is not visibility-gated');
+    await view.settle(view.requests[0], {
+      id: box.id, biological_measurements: componentMeasurements, locations: componentLocations,
+    });
+    assert.deepEqual(plain(view.chart.measurements), chartPoints(componentMeasurements));
+    view.intersect(false);
+    await view.flush();
+    assert.equal(view.temperatureRequests.length, 0);
+    assert.equal(view.historicalRequests.length, 0);
+    view.intersect();
+    await view.flush();
+    assert.equal(view.temperatureRequests.length, 1);
+    assert.equal(view.historicalRequests.length, 1);
+    const daily = view.temperatureRequests[0];
+    const weekly = view.historicalRequests[0];
+    view.intersect(false);
+    assert.equal(daily.options.signal.aborted, false, 'Leaving the viewport does not cancel activated coverage');
+    assert.equal(weekly.options.signal.aborted, false);
+    // Select a single covered window before completing it to keep this assertion independent of chunk count.
+    view.select(serverRange);
+    await view.flush();
+    await view.settleTemperature(view.temperatureRequests.at(-1), [dailyOverviewTemperature]);
+    await view.settleTemperature(view.historicalRequests.at(-1), [weeklyOverviewTemperature]);
+    const counts = [view.temperatureRequests.length, view.historicalRequests.length];
+    view.intersect(); view.intersect(false); view.intersect();
+    await view.flush();
+    assert.deepEqual([view.temperatureRequests.length, view.historicalRequests.length], counts);
+    assert.equal(view.chart.temperatures.length, 2);
+  } finally { view.unmount(); }
+});
+
+test('queued Box, institution and unmount changes remove obsolete jobs before loaders run', async () => {
+  for (const change of ['box', 'organization', 'unmount']) {
+    const queue = createTemperatureLoadQueue(2);
+    const release = deferred();
+    const blockerSignal = new AbortController().signal;
+    const blockers = [queue.run(blockerSignal, () => release.promise), queue.run(blockerSignal, () => release.promise)];
+    const box = { ...componentBox([], true), earliest_biological_measurement_on: null };
+    const view = miniChartHarness(box, undefined, key => key, { queue, visible: false });
+    try {
+      view.intersect();
+      assert.equal(view.temperatureRequests.length, 0);
+      assert.equal(view.historicalRequests.length, 0);
+      view.intersect(false);
+      if (change === 'box') view.updateBox({ ...box, id: 903 });
+      else if (change === 'organization') view.changeOrganization(2);
+      else view.unmount();
+      release.resolve();
+      await Promise.all(blockers);
+      await view.flush();
+      assert.equal(view.temperatureRequests.length, 0, 'Old queued daily loader never starts');
+      assert.equal(view.historicalRequests.length, 0, 'Old queued historical loader never starts');
+      if (change !== 'unmount') {
+        view.intersect();
+        await view.flush();
+        assert.equal(view.temperatureRequests.length, 1);
+        assert.equal(view.historicalRequests.length, 1);
+        const id = change === 'box' ? 903 : box.id;
+        assertTemperatureRequest(view.temperatureRequests[0], id, serverRange);
+        assertTemperatureRequest(view.historicalRequests[0], id, serverRange, true);
+        await view.settleTemperature(view.temperatureRequests[0], [dailyOverviewTemperature]);
+        await view.settleTemperature(view.historicalRequests[0], [weeklyOverviewTemperature]);
+        assert.equal(view.chart.temperatures.length, 2);
+      }
+    } finally {
+      release.resolve();
+      view.unmount();
+      await flushQueue();
+    }
+  }
+});
+
+test('active Box and institution replacements abort both sources and wait for fresh visibility', async () => {
+  for (const change of ['box', 'organization']) {
+    const box = { ...componentBox([], true), earliest_biological_measurement_on: null };
+    const view = miniChartHarness(box, undefined, key => key, { visible: false });
+    try {
+      view.intersect();
+      const daily = view.temperatureRequests[0];
+      const weekly = view.historicalRequests[0];
+      view.intersect(false);
+      if (change === 'box') view.updateBox({ ...box, id: 903 });
+      else view.changeOrganization(2);
+      assert.equal(daily.options.signal.aborted, true);
+      assert.equal(weekly.options.signal.aborted, true);
+      await view.settleTemperature(daily, [dailyOverviewTemperature]);
+      await view.settleTemperature(weekly, [weeklyOverviewTemperature]);
+      assert.deepEqual(plain(view.chart.temperatures), [], 'Neither obsolete source can publish');
+      assert.equal(view.temperatureRequests.length, 1, 'Replacement remains offscreen');
+      assert.equal(view.historicalRequests.length, 1);
+      view.intersect();
+      await view.flush();
+      assert.equal(view.temperatureRequests.length, 2);
+      assert.equal(view.historicalRequests.length, 2);
+      view.unmount();
+      assert.equal(view.temperatureRequests[1].options.signal.aborted, true);
+      assert.equal(view.historicalRequests[1].options.signal.aborted, true);
+    } finally {
+      view.unmount();
+      await flushQueue();
+    }
+  }
+});
+
+test('shared overview queue limits multiple cards to two loads and fetches all multi-year chunks and pages', async () => {
+  const queue = createTemperatureLoadQueue(2);
+  const views = [902, 903, 904].map(id => miniChartHarness({
+    ...componentBox([], true), id,
+  }, undefined, key => key, { queue }));
+  const seen = new Set();
+  const completed = new Map();
+  let peak = 0;
+  try {
+    for (let iteration = 0; iteration < 100; iteration += 1) {
+      await Promise.all(views.map(view => view.flush()));
+      const all = views.flatMap(view => [...view.temperatureRequests, ...view.historicalRequests]
+        .map(request => ({ view, request })));
+      const pending = all.filter(({ request }) => !request.settled);
+      peak = Math.max(peak, pending.length);
+      assert.ok(pending.length <= 2, 'Daily and weekly loaders share the same two slots across cards');
+      const next = pending.find(({ request }) => !seen.has(request));
+      if (!next) {
+        assert.ok(views.every(view => !view.temperatureStatus.loading && !view.historicalStatus.loading),
+          'The queue must drain every visible card rather than silently lose pending work');
+        break;
+      }
+      const { view, request } = next;
+      seen.add(request);
+      const url = new URL(request.url, 'https://test');
+      const historical = url.pathname.includes('historical-temperatures');
+      const offset = Number(url.searchParams.get('offset'));
+      const chunk = `${url.pathname}:${url.searchParams.get('start')}:${url.searchParams.get('end')}`;
+      const pages = completed.get(chunk) ?? [];
+      pages.push(offset); completed.set(chunk, pages);
+      const start = url.searchParams.get('start');
+      let results;
+      if (historical) {
+        const monday = new Date(`${start}T00:00:00Z`);
+        // Use two distinct full weeks inside each chunk, one on each synthetic page.
+        monday.setUTCDate(monday.getUTCDate() + (8 - monday.getUTCDay()) % 7 + (offset === 0 ? 0 : 7));
+        const sunday = new Date(monday);
+        sunday.setUTCDate(sunday.getUTCDate() + 6);
+        const thursday = new Date(monday);
+        thursday.setUTCDate(thursday.getUTCDate() + 3);
+        const isoYear = thursday.getUTCFullYear();
+        const isoWeek = Math.ceil(((thursday.getTime() - Date.UTC(isoYear, 0, 1)) / 86_400_000 + 1) / 7);
+        results = [{
+          id: 1000 + seen.size, iso_year: isoYear, iso_week: isoWeek,
+          interval_start: monday.toISOString().slice(0, 10), interval_end: sunday.toISOString().slice(0, 10),
+          temperature_c: offset === 0 ? '0.00' : '17.00',
+        }];
+      } else {
+        results = [{ date: start, average_temperature_c: offset === 0 ? 0 : 17,
+          zone_id: offset === 0 ? 1 : 2, zone_name: 'Synthetic zone' }];
+      }
+      await view.settleTemperature(request, results, {
+        count: 501, next: offset === 0 ? 'https://untrusted.invalid/ignored-page' : null,
+      });
+      assert.ok(iteration < 99, 'All chunks and pages must eventually finish');
+    }
+    assert.equal(peak, 2);
+    const { temperatureRangeChunks } = loadModule('../src/utils/temperatureHistory.ts', {
+      '../api/client': {},
+    });
+    const chunks = temperatureRangeChunks(fullComponentRange);
+    for (const view of views) {
+      const id = view.chart.selectionScope;
+      for (const source of ['temperatures', 'historical-temperatures']) {
+        for (const chunk of chunks) {
+          assert.deepEqual(completed.get(`/api/boxes/${id}/${source}/:${chunk.startDate}:${chunk.endDate}`), [0, 500]);
+        }
+      }
+      assert.equal(view.temperatureStatus.loading, false);
+      assert.equal(view.historicalStatus.loading, false);
+      assert.equal(view.chart.temperatures.length, chunks.length * 4, 'Every page of both sources reaches the chart');
+      assert.ok(view.chart.temperatures.some(point => point.average_temperature_c === 0));
+    }
+  } finally {
+    views.forEach(view => view.unmount());
+    await flushQueue();
+  }
+});
+
+test('a failed source releases its shared slot and retry cannot strand another card', async () => {
+  const queue = createTemperatureLoadQueue(2);
+  const box = { ...componentBox([], true), earliest_biological_measurement_on: null };
+  const first = miniChartHarness(box, undefined, key => key, { queue });
+  const second = miniChartHarness({ ...box, id: 903 }, undefined, key => key, { queue });
+  try {
+    assert.equal(second.temperatureRequests.length, 0);
+    await first.rejectTemperature(first.historicalRequests[0]);
+    await second.flush();
+    assert.equal(first.historicalStatus.failed, true);
+    assert.equal(second.temperatureRequests.length, 1, 'Rejected historical load frees capacity');
+    first.historicalStatus.retry(); first.render();
+    await first.settleTemperature(first.temperatureRequests[0], [dailyOverviewTemperature]);
+    await second.flush();
+    assert.equal(second.historicalRequests.length, 1);
+    await second.settleTemperature(second.temperatureRequests[0], []);
+    await first.flush();
+    assert.equal(first.historicalRequests.length, 2, 'Retry eventually obtains a released slot');
+    await first.settleTemperature(first.historicalRequests[1], [weeklyOverviewTemperature]);
+    await second.settleTemperature(second.historicalRequests[0], []);
+    assert.equal(first.historicalStatus.failed, false);
+    assert.equal(first.chart.temperatures.length, 2);
+    assert.equal(second.temperatureStatus.loading, false);
+    assert.equal(second.historicalStatus.loading, false);
+  } finally {
+    first.unmount(); second.unmount();
+    await flushQueue();
+  }
+});
+
+test('overview combines daily and weekly temperatures without inventing a day or biological zero', async () => {
+  const box = { ...componentBox([], true), earliest_biological_measurement_on: null };
+  const view = miniChartHarness(box, undefined, key => `translated:${key}`);
+  try {
+    assert.equal(view.requests.length, 0);
+    assert.equal(view.temperatureRequests.length, 1);
+    assert.equal(view.historicalRequests.length, 1);
+    assertTemperatureRequest(view.temperatureRequests[0], box.id, serverRange);
+    assertTemperatureRequest(view.historicalRequests[0], box.id, serverRange, true);
+    assert.equal(view.historicalStatus.loading, true);
+    await view.settleTemperature(view.historicalRequests[0], [weeklyOverviewTemperature]);
+    const weekly = plain(view.chart.temperatures);
+    assert.deepEqual(weekly, [{
+      date: '2026-05-14', average_temperature_c: 0,
+      week: { id: 701, year: 2026, number: 20, start: '2026-05-11', end: '2026-05-17', valueText: '0.00' },
+    }]);
+    assert.equal(view.temperatureStatus.loading, true, 'Weekly values do not wait for daily aggregates');
+    assert.equal(view.historicalStatus.loading, false);
+    await view.settleTemperature(view.temperatureRequests[0], [dailyOverviewTemperature]);
+    assert.deepEqual(plain(view.chart.temperatures), [dailyOverviewTemperature, ...weekly]);
+    assert.deepEqual(plain(view.chart.measurements), []);
+    assert.equal(view.chart.selectionScope, box.id);
+    assert.equal(view.chart.labels.historicalTemperature, 'translated:temperature');
+    assert.equal(view.chart.labels.historicalWeek, 'translated:historicalTemperatureWeek');
+    assert.equal(view.chart.labels.historicalPeriod, 'translated:historicalTemperaturePeriod');
+    assert.equal(Object.hasOwn(view.chart.labels, 'temperatureComparable'), false);
+    assert.equal(Object.hasOwn(view.chart.labels, 'temperatureUncertain'), false);
+    assert.equal(view.temperatureStatus.language, 'en');
+    assert.equal(view.historicalStatus.language, 'en');
+    view.render();
+    assert.equal(view.historicalRequests.length, 1, 'Unchanged renders do not download again');
+  } finally { view.unmount(); }
+});
+
+test('overview temperature failures and retries are independent of each other and biological history', async () => {
+  const box = { ...componentBox(componentMeasurements.filter(point => point.measured_on >= '2026-04-01')),
+    earliest_biological_measurement_on: serverRange.startDate, history_start_date: '2026-04-01' };
+  const view = miniChartHarness(box);
+  try {
+    const biology = plain(view.chart.measurements);
+    await view.rejectTemperature(view.historicalRequests.at(-1));
+    assert.equal(view.historicalStatus.failed, true);
+    assert.equal(view.temperatureStatus.failed, false);
+    await view.settleTemperature(view.temperatureRequests.at(-1), [dailyOverviewTemperature]);
+    assert.deepEqual(plain(view.chart.temperatures), [dailyOverviewTemperature]);
+    const dailyCount = view.temperatureRequests.length;
+    view.historicalStatus.retry(); view.render(); await view.flush();
+    assert.equal(view.historicalStatus.loading, true);
+    assert.equal(view.historicalStatus.failed, false);
+    await view.settleTemperature(view.historicalRequests.at(-1), [weeklyOverviewTemperature]);
+    assert.equal(view.chart.temperatures.length, 2);
+    assert.equal(view.temperatureRequests.length, dailyCount, 'Weekly retry does not reload daily temperatures');
+    await view.rejectHistory(view.requests[0]);
+    assert.deepEqual(plain(view.chart.measurements), biology);
+    assert.equal(view.chart.temperatures.length, 2, 'Biological failure does not discard either temperature source');
+    assert.equal(view.historicalStatus.failed, false);
+    assert.equal(view.find(node => node.props.role === 'alert').length, 1);
+  } finally { view.unmount(); }
+
+  const dailyFailure = miniChartHarness({ ...componentBox([], true), earliest_biological_measurement_on: null });
+  try {
+    await dailyFailure.rejectTemperature(dailyFailure.temperatureRequests[0]);
+    await dailyFailure.settleTemperature(dailyFailure.historicalRequests[0], [weeklyOverviewTemperature]);
+    assert.equal(dailyFailure.temperatureStatus.failed, true);
+    assert.equal(dailyFailure.historicalStatus.failed, false);
+    assert.equal(dailyFailure.chart.temperatures[0].week.id, weeklyOverviewTemperature.id);
+    dailyFailure.temperatureStatus.retry(); dailyFailure.render(); await dailyFailure.flush();
+    await dailyFailure.settleTemperature(dailyFailure.temperatureRequests.at(-1), [dailyOverviewTemperature]);
+    assert.equal(dailyFailure.chart.temperatures.length, 2);
+    assert.equal(dailyFailure.historicalRequests.length, 1, 'Daily retry does not reload weekly temperatures');
+  } finally { dailyFailure.unmount(); }
+});
+
+test('overview weekly requests follow selected range and box publication, cancelling stale scopes', async () => {
+  const box = { ...componentBox([], true), earliest_biological_measurement_on: null };
+  const view = miniChartHarness(box);
+  try {
+    const original = view.historicalRequests[0];
+    const selected = { startDate: '2026-05-12', endDate: '2026-05-15' };
+    view.select(selected);
+    await view.flush();
+    assert.equal(original.options.signal.aborted, true);
+    assertTemperatureRequest(view.historicalRequests.at(-1), box.id, selected, true);
+    assert.equal(view.chart.startDate, selected.startDate);
+    assert.equal(view.chart.endDate, selected.endDate);
+    await view.settleTemperature(original, [weeklyOverviewTemperature]);
+    assert.deepEqual(plain(view.chart.temperatures), [], 'Late old-range data cannot publish');
+    await view.settleTemperature(view.historicalRequests.at(-1), [weeklyOverviewTemperature]);
+    assert.equal(view.chart.temperatures[0].week.id, weeklyOverviewTemperature.id,
+      'An overlapping week retains its full interval');
+    const beforeRefresh = view.historicalRequests.length;
+    view.updateBox({ ...box });
+    await view.flush();
+    assert.ok(view.historicalRequests.length > beforeRefresh, 'Same-ID publication refreshes evidence');
+    assert.deepEqual(plain(view.chart.temperatures), [], 'Previous publication is hidden immediately');
+    const previousBox = view.historicalRequests.at(-1);
+    view.updateBox({ ...box, id: 903 });
+    await view.flush();
+    assert.equal(previousBox.options.signal.aborted, true);
+    assert.equal(view.chart.selectionScope, 903);
+    assertTemperatureRequest(view.historicalRequests.at(-1), 903, serverRange, true);
+    await view.settleTemperature(previousBox, [weeklyOverviewTemperature]);
+    assert.deepEqual(plain(view.chart.temperatures), [], 'Previous Box data cannot publish');
+    const pending = view.historicalRequests.at(-1);
+    view.unmount();
+    assert.equal(pending.options.signal.aborted, true);
+  } finally { view.unmount(); }
+});
+
+test('overview weekly temperatures use the existing organization cancellation guard', async () => {
+  const view = miniChartHarness({ ...componentBox([], true), earliest_biological_measurement_on: null });
+  try {
+    const previous = view.historicalRequests[0];
+    view.changeOrganization(2);
+    await view.flush();
+    assert.equal(previous.options.signal.aborted, true);
+    await view.settleTemperature(previous, [weeklyOverviewTemperature]);
+    assert.deepEqual(plain(view.chart.temperatures), []);
+    assert.equal(view.historicalStatus.loading, true);
+    await view.settleTemperature(view.historicalRequests.at(-1), [weeklyOverviewTemperature]);
+    assert.equal(view.chart.temperatures[0].week.id, weeklyOverviewTemperature.id);
   } finally { view.unmount(); }
 });
 
@@ -696,7 +1124,7 @@ test('an Overview box without biology keeps temperature-only loading, inline fai
     assert.equal(view.temperatureStatus.loading, false);
     assert.equal(view.temperatureStatus.failed, true);
     assert.equal(view.find(node => node.props.role === 'alert').length, 0, 'Temperature failures are not standalone alerts');
-    view.temperatureStatus.retry(); view.render();
+    view.temperatureStatus.retry(); view.render(); await view.flush();
     assert.equal(view.temperatureStatus.loading, true);
     assert.equal(view.temperatureStatus.failed, false);
     await view.settleTemperature(view.temperatureRequests[1], observed);
@@ -742,6 +1170,7 @@ test('A to B detail keeps both occupied zones, including both daily aggregates o
     await view.settle(view.requests[0], { id: box.id, biological_measurements: componentMeasurements,
       locations: occupiedLocations, temperature_history: temperatures });
     view.select({ startDate: '2026-06-01', endDate: '2026-06-30' });
+    await view.flush();
     await view.settleTemperature(view.temperatureRequests.at(-1), temperatures);
     assert.deepEqual(plain(view.chart.temperatures), temperatures,
       'The server has scoped detail points per occupancy; never filter detail to current B');
@@ -787,6 +1216,7 @@ test('A to B detail keeps both occupied zones, including both daily aggregates o
     assert.equal(markerCenters[1], markerCenters[2],
       'Two daily aggregates share a date coordinate, not invented before/after measurement times');
     view.select(serverRange);
+    await view.flush();
     assert.deepEqual(plain(view.chart.temperatures), []);
     await view.settleTemperature(view.temperatureRequests.at(-1), []);
     assert.deepEqual(plain(view.chart.temperatures), [], 'June observations are outside a period ending June 3');
@@ -886,6 +1316,12 @@ test('overview freshness, weekly counters and sorting remain based on readings, 
     '../utils/overviewHistory': { createOverviewHistory, overviewDefaultRange, scopeOverviewTemperatures },
     '../hooks/useTemperatureHistory': { useTemperatureHistory() { return { points: [], loading: false, failed: false, retry() {} }; } },
     './TemperatureHistoryStatus': { default() {} },
+    '../hooks/useHistoricalTemperatures': { useHistoricalTemperatures() { return { points: [], loading: false, failed: false, retry() {} }; } },
+    '../utils/historicalTemperature': { weeklyTrendTemperatures: () => [], loadHistoricalTemperatures() {} },
+    '../utils/temperatureHistory': { loadTemperatureHistory() {} },
+    '../utils/temperatureLoadQueue': { createTemperatureLoadQueue },
+    '../hooks/useTemperatureChartActivation': { useTemperatureChartActivation() { return { ref: { current: null }, active: true }; } },
+    './HistoricalTemperatureStatus': { default() {} },
     './BiologicalTrendChart': { default() {} }, './ChartWindowControls': { default() {} },
     './PageLoader': { default() {} }, './PolypbaseIcon': { default() {} },
   }).default;
@@ -908,6 +1344,13 @@ test('overview freshness, weekly counters and sorting remain based on readings, 
       isLoading: false, language: 'en', t: key => key,
       loadHistory() { assert.fail('Freshness must not load history'); }, onSelectBox() {}, onOpenZone() {},
     });
+    const cards = jsxNodes(tree, node => node.type?.name === 'OverviewMiniChart');
+    assert.equal(cards.length, 3);
+    const sharedLoaders = cards[0].props.temperatureLoaders;
+    assert.equal(typeof sharedLoaders?.daily, 'function');
+    assert.equal(typeof sharedLoaders?.historical, 'function');
+    assert.ok(cards.every(card => card.props.temperatureLoaders === sharedLoaders),
+      'The actual view passes one stable loader pair to every card');
     const articles = jsxNodes(tree, node => node.type === 'article');
     assert.deepEqual(articles.map(node => Number(node.key)), [3, 2, 1]);
     assert.ok(articles[0].props.className.endsWith('is-due'));

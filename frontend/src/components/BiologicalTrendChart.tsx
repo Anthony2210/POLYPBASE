@@ -105,8 +105,7 @@ type TrendLabels = {
   salinity?: string;
   temperature?: string;
   temperatureOutsideScale?: string;
-  temperatureComparable?: string;
-  temperatureUncertain?: string;
+
   dailyTemperature?: string;
   historicalTemperature?: string;
   historicalWeek?: string;
@@ -223,7 +222,7 @@ export default function BiologicalTrendChart({
   const tooltipRef = useRef<HTMLDivElement>(null);
   const [visibleSeries, setVisibleSeries] = useState({ polyps: true, ephyrae: true });
   const [temperatureVisible, setTemperatureVisible] = useState(true);
-  const [historicalVisible, setHistoricalVisible] = useState(true);
+
   const [canvasSize, setCanvasSize] = useState({ width: 0, responsive: false });
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
@@ -260,7 +259,7 @@ export default function BiologicalTrendChart({
     setFocusedDetail(null);
     setVisibleSeries({ polyps: true, ephyrae: true });
     setTemperatureVisible(true);
-    setHistoricalVisible(true);
+
   }, [selectionScope]);
 
   useEffect(() => {
@@ -374,7 +373,7 @@ export default function BiologicalTrendChart({
       id: temperaturePointId(point), date: point.date, left: (x / width) * 100, top: y,
       title: point.week ? `${labels.historicalWeek ?? ''} ${point.week.number}, ${point.week.year}`.trim() : formatDisplayDate(point.date),
       lines: [
-        { kind: 'temperature', label: `${point.week ? labels.historicalTemperature ?? labels.temperature : isDailyTemperature(point) ? labels.dailyTemperature ?? labels.temperature : labels.temperature} (°C)`, value: point.week?.valueText ?? String(point.average_temperature_c) },
+        { kind: 'temperature', label: `${point.week ? labels.temperature : isDailyTemperature(point) ? labels.dailyTemperature ?? labels.temperature : labels.temperature} (°C)`, value: point.week?.valueText ?? String(point.average_temperature_c) },
         ...(point.week ? [
           { kind: 'note' as const, label: labels.historicalPeriod ?? '', value: `${formatDisplayDate(point.week.start)} - ${formatDisplayDate(point.week.end)}` },
         ] : []),
@@ -384,8 +383,7 @@ export default function BiologicalTrendChart({
     };
     return { point, detail, x, y, outsideScale };
   });
-  const temperatureDetails = allTemperatureDetails.filter(({ point }) => point.week ? historicalVisible : temperatureVisible);
-  const hasWeeklyTemperatures = allTemperatureDetails.some(({ point }) => point.week);
+  const temperatureDetails = temperatureVisible ? allTemperatureDetails : [];
   const temperatureConnections = buildTemperatureConnections(temperatureDetails.map(({ point }) => point));
   const temperatureCountByPosition = new Map<string, number>();
   for (const { x, y } of temperatureDetails) {
@@ -642,7 +640,7 @@ export default function BiologicalTrendChart({
               data-temperature-index={index}
               aria-pressed={selectedTemperature?.detail.id === detail.id}
               aria-describedby={visibleDetail?.id === detail.id ? `${chartId}-event-detail` : undefined}
-              aria-label={`${detail.title}, ${point.week ? labels.historicalTemperature : isDailyTemperature(point) ? labels.dailyTemperature ?? labels.temperature : labels.temperature}: ${point.week?.valueText ?? point.average_temperature_c} °C${point.zone_name != null ? `, ${labels.location}: ${point.zone_name}` : ''}${outsideScale ? `, ${labels.temperatureOutsideScale ?? ''}` : ''}`}
+              aria-label={`${detail.title}, ${point.week ? labels.temperature : isDailyTemperature(point) ? labels.dailyTemperature ?? labels.temperature : labels.temperature}: ${point.week?.valueText ?? point.average_temperature_c} °C${point.zone_name != null ? `, ${labels.location}: ${point.zone_name}` : ''}${outsideScale ? `, ${labels.temperatureOutsideScale ?? ''}` : ''}`}
               onMouseEnter={() => setHoveredDetail(detail)} onMouseLeave={() => setHoveredDetail(null)}
               onFocus={() => setFocusedDetail(detail)} onBlur={() => setFocusedDetail(null)}
               onClick={(event) => selectMeasurement(event, detail)} onKeyDown={(event) => handleMeasurementKey(event, detail, index, 'temperature')}>
@@ -778,26 +776,13 @@ export default function BiologicalTrendChart({
           <button type="button" className={`is-temperature${temperatureVisible ? '' : ' is-hidden'}`} aria-pressed={temperatureVisible}
             onClick={() => {
               setTemperatureVisible((current) => !current);
-              const keepOtherSeries = (current: ActiveDetail | null) => current?.id.startsWith('temperature-') && !current.id.startsWith('temperature-week-') ? null : current;
+              const keepOtherSeries = (current: ActiveDetail | null) => current?.id.startsWith('temperature-') ? null : current;
               setPinnedDetail(keepOtherSeries);
               setHoveredDetail(keepOtherSeries);
               setFocusedDetail(keepOtherSeries);
             }}>{labels.temperature} (°C)</button>
         ) : null}
-        {temperatureEnabled && hasWeeklyTemperatures && labels.historicalTemperature ? (
-          <button type="button" className={`is-temperature is-weekly${historicalVisible ? '' : ' is-hidden'}`} aria-pressed={historicalVisible}
-            onClick={() => {
-              setHistoricalVisible((current) => !current);
-              const keepOtherSeries = (current: ActiveDetail | null) => current?.id.startsWith('temperature-week-') ? null : current;
-              setPinnedDetail(keepOtherSeries);
-              setHoveredDetail(keepOtherSeries);
-              setFocusedDetail(keepOtherSeries);
-            }}>{labels.historicalTemperature} (°C)</button>
-        ) : null}
-        {temperatureEnabled && temperatureDetails.length > 1 ? <>
-          {labels.temperatureComparable ? <span className="is-temperature is-comparable">{labels.temperatureComparable}</span> : null}
-          {labels.temperatureUncertain ? <span className="is-temperature is-uncertain">{labels.temperatureUncertain}</span> : null}
-        </> : null}
+
         {polypStates.length > 0 && labels.subculture ? <span className="is-subculture">{labels.subculture}</span> : null}
         {hasOverflow ? <span className="is-overflow">&gt; {maxCount}</span> : null}
         {temperatureEnabled ? <div className="bio-trend-series-feedback">

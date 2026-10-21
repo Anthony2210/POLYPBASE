@@ -62,8 +62,8 @@ const exportOptions = {
 const eligible = (ids = [1]) => ({
   box_ids: ids, latest_measurement_on_by_box: { 1: '2020-01-01' }, measurement_count: ids.length,
 });
-function exportsHarness() {
-  const harness = createRequestContextHarness('ExportsView', { options: exportOptions, language: 'en', isLoading: false });
+function exportsHarness(options = exportOptions) {
+  const harness = createRequestContextHarness('ExportsView', { options, language: 'en', isLoading: false });
   harness.flush();
   return harness;
 }
@@ -393,7 +393,7 @@ test('exports cached A chart is hidden immediately and stays hidden after B elig
   assert.equal(named(harness.tree, 'BiologicalTrendChart').length, 0);
   harness.flush();
   harness.runTimers();
-  harness.requests[2].reject(new Error('B failed'));
+  harness.requests.findLast((request) => request.url.includes('/eligible-boxes/')).reject(new Error('B failed'));
   await harness.settle();
   assertUnverifiedExports(harness);
   assert.equal(named(harness.tree, 'BiologicalTrendChart').length, 0);
@@ -439,7 +439,8 @@ test('exports preview failure retries the same box and filters without reloading
   assert.doesNotMatch(text(harness.tree), /Preview failed|Loading measurements/);
   assert.equal(named(harness.tree, 'PreviewBoxPicker')[0].props.selectedId, 1);
   harness.runTimers();
-  assert.equal(harness.requests.length, 3, 'Retry must issue only one new trend request');
+  assert.equal(harness.requests.filter((request) => request.url.includes('/trend/')).length, 2,
+    'Retry must issue only one new trend request');
 });
 
 test('exports successful current empty eligibility shows no-boxes text in the preview in both languages', async () => {
@@ -483,3 +484,274 @@ test('exports forwards selected calendar bounds and complete movement timestamps
   assert.deepEqual(Array.from(chart.props.events, (event) => event.instant), timestamps);
   assert.deepEqual(Array.from(chart.props.events, (event) => event.id), ['movement-1', 'movement-2']);
 });
+
+const temperatureRequests = (harness) => harness.requests.filter((request) => /\/(?:historical-)?temperatures\//.test(request.url));
+const dailyRequest = (harness) => harness.requests.findLast((request) => /\/temperatures\//.test(request.url));
+const weeklyRequest = (harness) => harness.requests.findLast((request) => /\/historical-temperatures\//.test(request.url));
+const chartProps = (harness) => named(harness.tree, 'BiologicalTrendChart')[0]?.props;
+const temperaturePage = (results) => ({ count: results.length, results, next: null, previous: null });
+const dailyPoint = (zone_id = 7, value = 0) => ({
+  date: '2020-01-01', zone_id, zone_name: `Zone ${zone_id}`, average_temperature_c: value,
+  min_temperature_c: value, max_temperature_c: value,
+});
+const weeklyPoint = (value = '0') => ({
+  id: 91, box_id: 1, biological_measurement_id: 31, iso_year: 2020, iso_week: 1,
+  interval_start: '2019-12-30', interval_end: '2020-01-05', temperature_c: value,
+  temporal_precision: 'iso_week', association_status: 'confirmed',
+});
+async function selectExportPreview(harness, id = 1, measurements = []) {
+  named(harness.tree, 'PreviewBoxPicker')[0].props.onSelect(id);
+  harness.flush();
+  const request = harness.requests.findLast((entry) => entry.url.includes(`/boxes/${id}/trend/`));
+  assert.ok(request);
+  request.resolve({ id, locations: [], movements: [], biological_measurements: measurements });
+  await harness.settle();
+}
+function temperatureStatus(harness, name) {
+  return named(chartProps(harness)?.temperatureStatus, name)[0]?.props;
+}
+
+for (const series of ['daily', 'weekly']) {
+  test(`exports ${series} temperature-only preview renders real zero without changing eligibility or CSV`, async () => {
+    const harness = exportsHarness();
+    await resolveEligibility(harness, 0);
+    await selectExportPreview(harness);
+    assert.equal(chartProps(harness).measurements.length, 0);
+    assert.equal(temperatureStatus(harness, 'TemperatureHistoryStatus').loading, true);
+    assert.equal(temperatureStatus(harness, 'HistoricalTemperatureStatus').loading, true);
+    dailyRequest(harness).resolve(temperaturePage(series === 'daily' ? [dailyPoint()] : []));
+    weeklyRequest(harness).resolve(temperaturePage(series === 'weekly' ? [weeklyPoint()] : []));
+    await harness.settle();
+    const chart = chartProps(harness);
+    assert.ok(chart);
+    assert.equal(chart.measurements.length, 0);
+    assert.equal(chart.temperatures.length, 1);
+    assert.equal(chart.temperatures[0].average_temperature_c, 0);
+    assert.equal(Boolean(chart.temperatures[0].week), series === 'weekly');
+    assert.equal(chart.labels.temperature, 'Temperature');
+    assert.equal(chart.labels.historicalTemperature, 'Temperature');
+    assert.equal(chart.labels.historicalWeek, 'ISO week');
+    assert.equal(chart.labels.historicalPeriod, 'Period');
+    assert.equal(chart.labels.temperatureComparable, undefined);
+    assert.equal(chart.labels.temperatureUncertain, undefined);
+    assert.equal(temperatureStatus(harness, 'TemperatureHistoryStatus').loading, false);
+    assert.equal(temperatureStatus(harness, 'HistoricalTemperatureStatus').loading, false);
+    const review = nodes(harness.tree, (node) => node.props?.className === 'export-review-count')[0];
+    assert.match(text(review), /1/);
+    const download = button(harness.tree, 'Download CSV').props.onClick();
+    assert.equal(harness.downloads[0].url, '/api/exports/measurements.csv');
+    harness.downloads[0].resolve('measurements.csv');
+    await download;
+  });
+}
+
+test('exports temperature loading and failures never hide valid biological zero readings or the other series', async () => {
+  const harness = exportsHarness();
+  await resolveEligibility(harness, 0);
+  await selectExportPreview(harness, 1, [
+    { id: 31, measured_on: '2020-01-01', polyp_count: 0, ephyrae_count: 0 },
+  ]);
+  assert.equal(chartProps(harness).measurements[0].polypCount, 0);
+  dailyRequest(harness).reject(new Error('Daily failed'));
+  await harness.settle();
+  assert.equal(temperatureStatus(harness, 'TemperatureHistoryStatus').failed, true);
+  assert.equal(temperatureStatus(harness, 'HistoricalTemperatureStatus').loading, true);
+  assert.equal(chartProps(harness).measurements[0].ephyraeCount, 0);
+  weeklyRequest(harness).resolve(temperaturePage([weeklyPoint('18.5')]));
+  await harness.settle();
+  assert.equal(chartProps(harness).temperatures[0].average_temperature_c, 18.5);
+  temperatureStatus(harness, 'TemperatureHistoryStatus').retry();
+  harness.flush();
+  dailyRequest(harness).resolve(temperaturePage([dailyPoint(7, 19)]));
+  await harness.settle();
+  assert.equal(chartProps(harness).temperatures.length, 2);
+  assert.equal(temperatureStatus(harness, 'TemperatureHistoryStatus').failed, false);
+  assert.equal(chartProps(harness).measurements[0].polypCount, 0);
+});
+
+test('exports historical failure and retry leave daily temperatures and biological readings intact', async () => {
+  const harness = exportsHarness();
+  await resolveEligibility(harness, 0);
+  await selectExportPreview(harness, 1, [
+    { id: 31, measured_on: '2020-01-01', polyp_count: 0, ephyrae_count: 0 },
+  ]);
+  dailyRequest(harness).resolve(temperaturePage([dailyPoint(7, 17)]));
+  weeklyRequest(harness).reject(new Error('Weekly failed'));
+  await harness.settle();
+  assert.equal(temperatureStatus(harness, 'HistoricalTemperatureStatus').failed, true);
+  assert.equal(chartProps(harness).temperatures[0].average_temperature_c, 17);
+  assert.equal(chartProps(harness).measurements[0].polypCount, 0);
+  const dailyCount = harness.requests.filter((request) => /\/temperatures\//.test(request.url)).length;
+  temperatureStatus(harness, 'HistoricalTemperatureStatus').retry();
+  harness.flush();
+  assert.equal(chartProps(harness).temperatures[0].average_temperature_c, 17);
+  weeklyRequest(harness).resolve(temperaturePage([weeklyPoint('0')]));
+  await harness.settle();
+  assert.equal(chartProps(harness).temperatures.length, 2);
+  assert.equal(temperatureStatus(harness, 'HistoricalTemperatureStatus').failed, false);
+  assert.equal(harness.requests.filter((request) => /\/temperatures\//.test(request.url)).length, dailyCount);
+});
+
+test('exports institution abort before eligibility debounce cannot start an obsolete request', async () => {
+  const harness = exportsHarness();
+  harness.switchOrganization();
+  harness.runTimers();
+  assert.equal(harness.requests.length, 0);
+  harness.flush();
+  await resolveEligibility(harness, 0);
+  assert.equal(temperatureRequests(harness).length, 0);
+});
+
+test('exports requests both temperature series only within the selected preview calendar window', async () => {
+  const harness = exportsHarness();
+  const dates = nodes(harness.tree, (node) => node.type === 'input' && node.props.type === 'date');
+  dates[0].props.onChange({ target: { value: '2020-01-01' } });
+  dates[1].props.onChange({ target: { value: '2020-01-02' } });
+  harness.flush();
+  await resolveEligibility(harness, 0);
+  assert.equal(temperatureRequests(harness).length, 0);
+  await selectExportPreview(harness);
+  for (const request of temperatureRequests(harness)) {
+    const query = new URL(request.url, 'https://local.test').searchParams;
+    assert.equal(query.get('start'), '2020-01-01');
+    assert.equal(query.get('end'), '2020-01-02');
+    assert.equal(request.config.cache, 'no-store');
+  }
+  assert.equal(chartProps(harness).startDate, '2020-01-01');
+  assert.equal(chartProps(harness).endDate, '2020-01-02');
+});
+
+test('exports restricted zones filter daily points and do not fetch or fabricate historical week zones', async () => {
+  const harness = exportsHarness();
+  disclosure(harness, 'Thermal zones').props.onToggle(7);
+  harness.flush();
+  await resolveEligibility(harness, 0);
+  await selectExportPreview(harness);
+  assert.equal(weeklyRequest(harness), undefined);
+  dailyRequest(harness).resolve(temperaturePage([dailyPoint(7, 0), dailyPoint(8, 25)]));
+  await harness.settle();
+  assert.deepEqual(Array.from(chartProps(harness).temperatures, (point) => point.zone_id), [7]);
+  assert.equal(chartProps(harness).temperatures[0].average_temperature_c, 0);
+  assert.equal(temperatureStatus(harness, 'HistoricalTemperatureStatus').loading, false);
+  disclosure(harness, 'Thermal zones').props.extraContent.props.children[0]
+    .props.onChange({ target: { checked: true } });
+  harness.render(false);
+  assert.equal(chartProps(harness), undefined);
+  harness.flush();
+  await resolveEligibility(harness, harness.requests.length);
+  await selectExportPreview(harness);
+  assert.ok(weeklyRequest(harness));
+  dailyRequest(harness).resolve(temperaturePage([dailyPoint(7, 0), dailyPoint(8, 25)]));
+  weeklyRequest(harness).resolve(temperaturePage([weeklyPoint('20')]));
+  await harness.settle();
+  assert.equal(chartProps(harness).temperatures.length, 3);
+  assert.equal(chartProps(harness).temperatures[2].zone_id, undefined);
+  assert.ok(chartProps(harness).temperatures[2].week);
+});
+
+test('exports never starts temperatures without a current eligible successful preview', async () => {
+  const harness = exportsHarness();
+  assert.equal(temperatureRequests(harness).length, 0);
+  await resolveEligibility(harness, 0);
+  assert.equal(temperatureRequests(harness).length, 0);
+  named(harness.tree, 'PreviewBoxPicker')[0].props.onSelect(1);
+  harness.flush();
+  assert.equal(temperatureRequests(harness).length, 0, 'Wait for successful current preview');
+  harness.requests[1].reject(new Error('Preview failed'));
+  await harness.settle();
+  assert.equal(temperatureRequests(harness).length, 0);
+  changeExportDate(harness, '2021-01-01');
+  harness.flush();
+  await resolveEligibility(harness, 2, eligible([]));
+  assert.equal(temperatureRequests(harness).length, 0);
+  assert.equal(chartProps(harness), undefined);
+});
+
+for (const gate of ['date', 'zone', 'species', 'strain', 'box', 'invalid-period', 'loading', 'options', 'institution']) {
+  test(`exports ${gate} change hides temperatures immediately and ignores obsolete completions`, async () => {
+    const harness = exportsHarness();
+    await resolveEligibility(harness, 0);
+    await selectExportPreview(harness);
+    const oldDaily = dailyRequest(harness);
+    const oldWeekly = weeklyRequest(harness);
+    const before = temperatureRequests(harness).length;
+    if (gate === 'date') changeExportDate(harness, '2021-01-01');
+    if (gate === 'zone') disclosure(harness, 'Thermal zones').props.onToggle(7);
+    if (['species', 'strain', 'box'].includes(gate)) {
+      const title = { species: 'Species', strain: 'Strains', box: 'Boxes' }[gate];
+      disclosure(harness, title).props.onToggle(999);
+    }
+    if (gate === 'invalid-period') {
+      const dates = nodes(harness.tree, (node) => node.type === 'input' && node.props.type === 'date');
+      dates[0].props.onChange({ target: { value: '2021-01-01' } });
+      dates[1].props.onChange({ target: { value: '2020-01-01' } });
+    }
+    if (gate === 'loading') harness.setProps({ isLoading: true });
+    if (gate === 'options') harness.setProps({ options: { ...exportOptions } });
+    if (gate === 'institution') harness.switchOrganization();
+    harness.render(false);
+    assert.equal(chartProps(harness), undefined, 'Do not wait for effect cleanup to hide old context');
+    harness.flush();
+    assert.equal(oldDaily.config.signal.aborted, true);
+    assert.equal(oldWeekly.config.signal.aborted, true);
+    oldDaily.resolve(temperaturePage([dailyPoint(7, 99)]));
+    oldWeekly.reject(new Error('Obsolete week failure'));
+    await harness.settle();
+    assert.equal(chartProps(harness), undefined);
+    assert.equal(temperatureRequests(harness).length, before, 'No fetch in unverified or excluded context');
+    assert.doesNotMatch(text(harness.tree), /Obsolete week failure/);
+  });
+}
+
+test('exports switching boxes discards pending temperatures before effects and cannot associate late readings', async () => {
+  const options = { ...exportOptions, boxes: [exportOptions.boxes[0], { ...exportOptions.boxes[0], id: 2, global_code: 'BOX-2' }] };
+  const harness = exportsHarness(options);
+  await resolveEligibility(harness, 0, { ...eligible([1, 2]), latest_measurement_on_by_box: { 1: '2020-01-01', 2: '2020-01-01' } });
+  await selectExportPreview(harness);
+  const oldDaily = dailyRequest(harness);
+  const oldWeekly = weeklyRequest(harness);
+  named(harness.tree, 'PreviewBoxPicker')[0].props.onSelect(2);
+  harness.render(false);
+  assert.equal(chartProps(harness), undefined);
+  harness.flush();
+  harness.requests.findLast((request) => request.url.includes('/boxes/2/trend/')).resolve({
+    id: 2, locations: [], movements: [], biological_measurements: [],
+  });
+  await harness.settle();
+  assert.equal(chartProps(harness).selectionScope, 2);
+  assert.equal(chartProps(harness).temperatures.length, 0);
+  assert.equal(oldDaily.config.signal.aborted, true);
+  assert.equal(oldWeekly.config.signal.aborted, true);
+  oldDaily.resolve(temperaturePage([dailyPoint(7, 99)]));
+  oldWeekly.resolve(temperaturePage([weeklyPoint('99')]));
+  await harness.settle();
+  assert.equal(chartProps(harness).temperatures.length, 0);
+  dailyRequest(harness).resolve(temperaturePage([dailyPoint(8, 12)]));
+  weeklyRequest(harness).resolve(temperaturePage([]));
+  await harness.settle();
+  assert.equal(chartProps(harness).temperatures[0].average_temperature_c, 12);
+});
+
+for (const gate of ['options', 'institution']) {
+  test(`exports ${gate} change cannot reuse cached biological preview or temperatures for the same box`, async () => {
+    const harness = exportsHarness();
+    await resolveEligibility(harness, 0);
+    await selectExportPreview(harness);
+    dailyRequest(harness).resolve(temperaturePage([dailyPoint(7, 99)]));
+    weeklyRequest(harness).resolve(temperaturePage([weeklyPoint('99')]));
+    await harness.settle();
+    assert.equal(chartProps(harness).temperatures.length, 2);
+    if (gate === 'options') harness.setProps({ options: { ...exportOptions } });
+    else harness.switchOrganization();
+    harness.flush();
+    await resolveEligibility(harness, harness.requests.length);
+    named(harness.tree, 'PreviewBoxPicker')[0].props.onSelect(1);
+    harness.flush();
+    assert.equal(chartProps(harness), undefined, 'Same ids require a new preview in the new context');
+    const request = harness.requests.findLast((entry) => entry.url.includes('/trend/'));
+    request.resolve({ id: 1, locations: [], movements: [], biological_measurements: [] });
+    await harness.settle();
+    assert.equal(chartProps(harness).temperatures.length, 0);
+    assert.equal(temperatureStatus(harness, 'TemperatureHistoryStatus').loading, true);
+  });
+}

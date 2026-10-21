@@ -16,13 +16,14 @@ type Result = {
 // points loaded for another key are discarded at once rather than shown stale.
 export function useHistoricalTemperatures(
   boxId: number | undefined, startDate: string, endDate: string, refreshKey: unknown = '',
+  load = loadHistoricalTemperatures,
 ) {
   const contextSignal = getOrganizationResourceSignal();
   const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<Result | null>(null);
   const scope = useMemo(
-    () => ({ boxId, startDate, endDate, refreshKey, contextSignal, attempt }),
-    [boxId, startDate, endDate, refreshKey, contextSignal, attempt],
+    () => ({ boxId, startDate, endDate, refreshKey, contextSignal, attempt, load }),
+    [boxId, startDate, endDate, refreshKey, contextSignal, attempt, load],
   );
 
   useEffect(() => {
@@ -30,7 +31,7 @@ export function useHistoricalTemperatures(
     const controller = new AbortController();
     const stop = () => controller.abort();
     contextSignal.addEventListener('abort', stop, { once: true });
-    loadHistoricalTemperatures(boxId, { startDate, endDate }, controller.signal).then(
+    load(boxId, { startDate, endDate }, controller.signal).then(
       (points) => { if (!controller.signal.aborted) setResult({ scope, points, failed: false }); },
       () => { if (!controller.signal.aborted) setResult({ scope, points: [], failed: true }); },
     );

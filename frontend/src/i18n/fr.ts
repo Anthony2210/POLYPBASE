@@ -1013,12 +1013,11 @@ export const fr = {
   overviewHistoryRetry: 'Réessayer le chargement',
 
   temperatureOutsideScale: 'Valeur hors de la plage habituelle 0–40 °C : échelle étendue.',
-  temperatureComparableObservations: 'Observations comparables',
-  temperatureUncertainTransition: 'Transition visuelle incertaine',
+
   dailyTemperatureAggregate: 'Moyenne journalière de zone',
-  historicalTemperatureSource: 'Température importée',
+
   historicalTemperatureWeek: 'Semaine',
-  historicalTemperaturePeriod: 'Période possible',
+  historicalTemperaturePeriod: 'Mesuré pour la période :',
   historicalTemperatureLoading: 'Chargement des températures historiques.',
   historicalTemperatureFailed: 'Températures historiques indisponibles.',
   historicalTemperatureRetry: 'Réessayer',

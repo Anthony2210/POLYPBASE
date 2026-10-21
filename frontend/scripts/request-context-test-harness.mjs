@@ -9,6 +9,7 @@ export function createRequestContextHarness(componentName, initialProps) {
   const timers = new Map();
   const requests = [];
   const downloads = [];
+  let organizationController = new AbortController();
   let cursor = 0;
   let dirty = true;
   let tree;
@@ -67,6 +68,8 @@ export function createRequestContextHarness(componentName, initialProps) {
   class ApiError extends Error {}
   const api = {
     ApiError,
+    getOrganizationResourceSignal: () => organizationController.signal,
+    subscribeTemperatureHistoryChanges: () => () => {},
     apiGet(url, config) {
       const request = deferredRequest(url, config);
       requests.push(request);
@@ -88,8 +91,12 @@ export function createRequestContextHarness(componentName, initialProps) {
     scrollY: 0,
   };
   const translations = {
-    en: { loading: 'Loading...', reloadAction: 'Reload', close: 'Close' },
-    fr: { loading: 'Chargement...', reloadAction: 'Recharger', close: 'Fermer' },
+    en: { loading: 'Loading...', reloadAction: 'Reload', close: 'Close',
+      temperature: 'Temperature', dailyTemperatureAggregate: 'Daily temperature',
+      historicalTemperatureWeek: 'ISO week', historicalTemperaturePeriod: 'Period' },
+    fr: { loading: 'Chargement...', reloadAction: 'Recharger', close: 'Fermer',
+      temperature: 'Température', dailyTemperatureAggregate: 'Température journalière',
+      historicalTemperatureWeek: 'Semaine ISO', historicalTemperaturePeriod: 'Période' },
   };
   function load(url) {
     if (modules.has(url.href)) return modules.get(url.href);
@@ -114,7 +121,8 @@ export function createRequestContextHarness(componentName, initialProps) {
       if (name === '../boxStatus') {
         return { getBoxStatusPresentation: (status) => ({ tone: status, label: status }) };
       }
-      if (name.startsWith('../utils/') || name === '../api/boxInventory') {
+      if (name.startsWith('../utils/') || name.startsWith('../hooks/') || name === '../api/boxInventory'
+        || (name.startsWith('./') && /\/(?:hooks|utils)\//.test(url.pathname))) {
         return load(new URL(`${name}.ts`, url));
       }
       if (name.startsWith('./')) return { default: name.slice(2) };
@@ -123,6 +131,7 @@ export function createRequestContextHarness(componentName, initialProps) {
     };
     vm.runInNewContext(outputText, {
       exports, require, window, URLSearchParams, AbortController, DOMException, Error,
+      setTimeout: window.setTimeout, clearTimeout: window.clearTimeout,
       document: { documentElement: { lang: 'en' } },
     }, { filename: url.pathname });
     return exports;
@@ -171,6 +180,12 @@ export function createRequestContextHarness(componentName, initialProps) {
     get tree() { return tree; },
     setProps(next) { props = { ...props, ...next }; dirty = true; },
     holdDeferred(value) { holdDeferred = value; dirty = true; },
+    switchOrganization() {
+      const previous = organizationController;
+      organizationController = new AbortController();
+      previous.abort();
+      dirty = true;
+    },
     unmount() { slots.forEach((slot) => slot?.cleanup?.()); },
   };
 }

@@ -8,6 +8,18 @@ import PageLoader from './PageLoader';
 import PolypbaseIcon from './PolypbaseIcon';
 import { useTemperatureHistory } from '../hooks/useTemperatureHistory';
 import TemperatureHistoryStatus from './TemperatureHistoryStatus';
+import { useHistoricalTemperatures } from '../hooks/useHistoricalTemperatures';
+import { loadHistoricalTemperatures, weeklyTrendTemperatures } from '../utils/historicalTemperature';
+import HistoricalTemperatureStatus from './HistoricalTemperatureStatus';
+import { useTemperatureChartActivation } from '../hooks/useTemperatureChartActivation';
+import { loadTemperatureHistory } from '../utils/temperatureHistory';
+
+import { createTemperatureLoadQueue } from '../utils/temperatureLoadQueue';
+
+type OverviewTemperatureLoaders = {
+  daily: typeof loadTemperatureHistory;
+  historical: typeof loadHistoricalTemperatures;
+};
 
 type Language = 'fr' | 'en';
 type TFunction = (key: string) => string;
@@ -55,6 +67,14 @@ export default function OverviewView({
   const [focusFilter, setFocusFilter] = useState<OverviewFocusFilter>('all');
   const [query, setQuery] = useState('');
   const [visibleCount, setVisibleCount] = useState(12);
+  const temperatureLoaders = useMemo<OverviewTemperatureLoaders>(() => {
+    // Share two slots across all cards and both sources, not two slots per card.
+    const queue = createTemperatureLoadQueue(2);
+    return {
+      daily: (boxId, range, signal) => queue.run(signal, () => loadTemperatureHistory(boxId, range, signal)),
+      historical: (boxId, range, signal) => queue.run(signal, () => loadHistoricalTemperatures(boxId, range, signal)),
+    };
+  }, []);
   const overviewBoxes = boxes ?? [];
   const noZoneLabel = t('noZone');
   const trackedEntries = useMemo<OverviewEntry[]>(
@@ -308,7 +328,7 @@ export default function OverviewView({
                   </div>
                 </header>
 
-                <OverviewMiniChart box={entry.box} loadHistory={loadHistory} language={language} t={t} />
+                <OverviewMiniChart box={entry.box} loadHistory={loadHistory} temperatureLoaders={temperatureLoaders} language={language} t={t} />
               </article>
             ))}
           </div>
@@ -394,11 +414,13 @@ function getDaysSinceDate(date: string) {
 function OverviewMiniChart({
   box,
   loadHistory,
+  temperatureLoaders,
   language,
   t,
 }: {
   box: OverviewBox;
   loadHistory: (boxId: number) => Promise<BoxDetail>;
+  temperatureLoaders: OverviewTemperatureLoaders;
   language: Language;
   t: TFunction;
 }) {
@@ -430,7 +452,14 @@ function OverviewMiniChart({
   const extentEnd = defaultWindow.endDate;
   const extentStart = defaultWindow.startDate;
   const { startDate, endDate } = history.range;
-  const temperatureHistory = useTemperatureHistory(box.id, startDate, endDate, box);
+  const temperatureActivation = useTemperatureChartActivation(box.id);
+  const temperatureBoxId = temperatureActivation.active ? box.id : undefined;
+  const temperatureHistory = useTemperatureHistory(temperatureBoxId, startDate, endDate, box, temperatureLoaders.daily);
+  const historicalTemperatures = useHistoricalTemperatures(temperatureBoxId, startDate, endDate, box, temperatureLoaders.historical);
+  const chartTemperatures = useMemo(
+    () => [...temperatureHistory.points, ...weeklyTrendTemperatures(historicalTemperatures.points)],
+    [temperatureHistory.points, historicalTemperatures.points],
+  );
 
   const locations = history.locations.map((location) => ({
     id: location.id,
@@ -441,7 +470,7 @@ function OverviewMiniChart({
   }));
 
   return (
-    <div className="overview-mini-chart">
+    <div ref={temperatureActivation.ref} className="overview-mini-chart">
       <ChartWindowControls
         compact
         notifyUnchanged
@@ -481,8 +510,11 @@ function OverviewMiniChart({
             })) ?? null,
         }))}
         locations={locations}
-        temperatures={temperatureHistory.points}
-        temperatureStatus={<TemperatureHistoryStatus {...temperatureHistory} language={language} />}
+        temperatures={chartTemperatures}
+        temperatureStatus={<>
+          <TemperatureHistoryStatus {...temperatureHistory} language={language} />
+          <HistoricalTemperatureStatus {...historicalTemperatures} language={language} />
+        </>}
         selectionScope={box.id}
         labels={{
           chartTitle: t('overviewChartTitle'),
@@ -499,8 +531,9 @@ function OverviewMiniChart({
           salinity: 'PSU',
           temperature: t('temperature'),
           dailyTemperature: t('dailyTemperatureAggregate'),
-          temperatureComparable: t('temperatureComparableObservations'),
-          temperatureUncertain: t('temperatureUncertainTransition'),
+          historicalTemperature: t('temperature'),
+          historicalWeek: t('historicalTemperatureWeek'),
+          historicalPeriod: t('historicalTemperaturePeriod'),
           sourceLocation: t('recordedOriginalLocation'),
           temperatureOutsideScale: t('temperatureOutsideScale'),
           selectedReading: language === 'fr' ? 'Relevé sélectionné' : 'Selected reading',

@@ -700,9 +700,14 @@ test('Box, preview and Overview use the native range loader and put translated s
   assert.match(source('components/BoxPage.tsx'), /<BoxInsights\s+boxId=\{box.id\}/);
   assert.match(source('components/BoxInsights.tsx'), /<BoxTrackingChart\s+boxId=\{boxId\}/);
   assert.match(source('components/BoxTrackingChart.tsx'), /useTemperatureHistory\(boxId, startDate, endDate, locations\)/);
-  assert.match(source('components/OverviewView.tsx'), /useTemperatureHistory\(box.id, startDate, endDate, box\)/);
-  assert.match(source('components/OverviewView.tsx'), /temperatures=\{temperatureHistory.points\}/);
-  assert.match(source('components/OverviewView.tsx'), /temperatureStatus=\{<TemperatureHistoryStatus \{\.\.\.temperatureHistory\} language=\{language\} \/>\}/);
+  assert.match(source('components/OverviewView.tsx'), /useTemperatureChartActivation\(box.id\)/);
+  assert.match(source('components/OverviewView.tsx'), /temperatureBoxId = temperatureActivation.active \? box.id : undefined/);
+  assert.match(source('components/OverviewView.tsx'), /useTemperatureHistory\(temperatureBoxId, startDate, endDate, box, temperatureLoaders.daily\)/);
+  assert.match(source('components/OverviewView.tsx'), /useHistoricalTemperatures\(temperatureBoxId, startDate, endDate, box, temperatureLoaders.historical\)/);
+  assert.match(source('components/OverviewView.tsx'), /createTemperatureLoadQueue\(2\)/);
+  assert.match(source('components/OverviewView.tsx'), /temperatures=\{chartTemperatures\}/);
+  assert.match(source('components/OverviewView.tsx'), /temperatureStatus=\{<>\s*<TemperatureHistoryStatus \{\.\.\.temperatureHistory\} language=\{language\} \/>/);
+  assert.match(source('components/OverviewView.tsx'), /<HistoricalTemperatureStatus \{\.\.\.historicalTemperatures\}/);
   assert.match(source('components/BoxTrackingChart.tsx'), /temperatureStatus=\{boxId != null \? <>\s*<TemperatureHistoryStatus/);
   assert.match(source('components/BoxTrackingPreview.tsx'), /<BoxTrackingChart compact boxId=\{detail.id\}/);
   for (const language of ['fr', 'en']) {

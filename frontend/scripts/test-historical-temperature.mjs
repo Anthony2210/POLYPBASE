@@ -123,7 +123,7 @@ test('weekly points are plotted with a real zero next to current zone readings',
   assert.equal(stray.plottedTemperatures.length, 0);
 });
 
-test('chart renders week-only readings as a titled week with a possible period, not a date', () => {
+test('chart renders week-only readings as a titled week with a measured period, not a date', () => {
   assert.match(chartSource, /point\.week \? `\$\{labels\.historicalWeek \?\? ''\} \$\{point\.week\.number\}, \$\{point\.week\.year\}`/);
   assert.match(chartSource, /bio-trend-week-span/);
   assert.match(chartSource, /point\.week\?\.valueText \?\? String\(point\.average_temperature_c\)/);
@@ -140,7 +140,7 @@ test('every historical string exists in French and English without a middle dot'
   const keys = catalogKeys(french);
   assert.deepEqual(keys, [
     'historicalTemperatureFailed', 'historicalTemperatureLoading', 'historicalTemperaturePeriod',
-    'historicalTemperatureRetry', 'historicalTemperatureSource', 'historicalTemperatureWeek',
+    'historicalTemperatureRetry', 'historicalTemperatureWeek',
   ]);
   assert.deepEqual(catalogKeys(english), keys);
   for (const key of keys) {
@@ -152,40 +152,96 @@ test('every historical string exists in French and English without a middle dot'
   }
 });
 
-test('imported temperature copy replaces the old series label and notes in both catalogs and chart consumers', () => {
+test('generic temperature copy replaces imported labels and removed legend wording in both languages', () => {
   const french = read('../src/i18n/fr.ts');
   const english = read('../src/i18n/en.ts');
   const tracking = read('../src/components/BoxTrackingChart.tsx');
-  assert.match(french, /^ {2}historicalTemperatureSource: 'Température importée',$/m);
-  assert.match(english, /^ {2}historicalTemperatureSource: 'Imported temperature',$/m);
-  assert.match(tracking, /historicalTemperature: boxId != null \? createTranslator\(language\)\('historicalTemperatureSource'\)/);
+  assert.match(french, /^ {2}historicalTemperaturePeriod: 'Mesuré pour la période :',$/m);
+  assert.match(english, /^ {2}historicalTemperaturePeriod: 'Measured for the period:',$/m);
+  assert.match(tracking, /temperature: createTranslator\(language\)\('temperature'\)/);
   const removedTexts = [
     'Température historique par semaine',
     'Historical temperature by week',
+    'Température importée',
+    'Imported temperature',
+    'Observations comparables',
+    'Comparable observations',
+    'Transition visuelle incertaine',
+    'Uncertain visual transition',
     'Température observée, notée avec les comptages. Le jour exact et la sonde ne sont pas établis.',
     'Observed temperature recorded with the counts. The exact day and probe are not established.',
   ];
   for (const source of [french, english, chartSource, tracking]) {
-    assert.doesNotMatch(source, /\b(?:historicalTemperatureSeries|historicalTemperatureNote|historicalNote)\b/);
+    assert.doesNotMatch(source, /\b(?:historicalTemperatureSource|historicalTemperatureSeries|historicalTemperatureNote|historicalNote|temperatureComparableObservations|temperatureUncertainTransition|temperatureComparable|temperatureUncertain)\b/);
     for (const text of removedTexts) assert.ok(!source.includes(text), `removed historical copy: ${text}`);
   }
 });
 
-test('weekly and daily series have separate legend toggles, ids and main-scale handling', () => {
+test('weekly and daily points share visibility while preserving ids, square markers and scale handling', () => {
   assert.match(chartSource, /temperaturePointId[\s\S]*temperature-week-\$\{point\.week\.id\}/);
-  assert.match(chartSource, /point\.week \? historicalVisible : temperatureVisible/);
+  assert.doesNotMatch(chartSource, /\bhistoricalVisible\b|\bsetHistoricalVisible\b/);
+  assert.match(chartSource, /const temperatureDetails = temperatureVisible \? allTemperatureDetails : \[\]/);
   assert.match(chartSource, /<rect className=\{`bio-trend-dot is-temperature\$\{point\.week \? ' is-weekly' : ''\}`\}/);
   assert.doesNotMatch(chartSource, /<circle className="bio-trend-dot is-temperature"/);
   assert.match(chartSource, /point\.week \? <line className="bio-trend-week-span"/);
-  assert.match(chartSource, /labels\.historicalTemperature\} \(°C\)/);
+  assert.match(chartSource, /historicalTemperature\?: string/);
+  assert.match(chartSource, /labels\.temperature\} \(°C\)/);
   assert.match(chartSource, /temperatureOutsideScale/);
-  // The legend is not gated on compact, so compact charts carry the distinction too.
+  // The shared legend remains available in compact charts.
   assert.doesNotMatch(chartSource.slice(chartSource.indexOf('bio-trend-legend bio-trend-legend--footer')), /\{!compact/);
   const css = read('../src/styles/components/biological-trend-chart.css');
-  assert.match(css, /\.bio-trend-legend button\.is-weekly::before/);
+  assert.doesNotMatch(css, /\.bio-trend-legend button\.is-weekly::before/);
   const tracking = read('../src/components/BoxTrackingChart.tsx');
   assert.match(tracking, /temperatureStatus=\{boxId != null/);
-  assert.match(tracking, /historicalTemperature: boxId != null/);
+  assert.match(tracking, /historicalTemperature: createTranslator\(language\)\('temperature'\)/);
+});
+
+test('Box tracking forwards daily and weekly readings independently of biology and source failures', () => {
+  const jsx = (type, props) => ({ type, props });
+  const TrendChart = function TrendChart() {};
+  const historical = utilities(async () => response([]));
+  const daily = { date: '2026-01-08', average_temperature_c: 0, zone_id: 7 };
+  const weekly = point(1, 2, '15.250');
+  for (const compact of [false, true]) {
+    for (const failedSource of [null, 'daily', 'weekly']) {
+      const component = compile(read('../src/components/BoxTrackingChart.tsx'), {
+        react: { useMemo: (fn) => fn(), useState: (value) => [value, () => {}] },
+        'react/jsx-runtime': { jsx, jsxs: jsx },
+        '../i18n': { createTranslator: () => (key) => key },
+        '../utils/chartWindow': compile(read('../src/utils/chartWindow.ts')),
+        '../utils/biologicalTimeline': compile(read('../src/utils/biologicalTimeline.ts')),
+        './BiologicalTrendChart': { ...chart, default: TrendChart },
+        './ChartWindowControls': { default: () => null },
+        '../hooks/useTemperatureHistory': { useTemperatureHistory: () => ({
+          points: failedSource === 'daily' ? [] : [daily], failed: failedSource === 'daily', loading: false,
+        }) },
+        '../hooks/useHistoricalTemperatures': { useHistoricalTemperatures: () => ({
+          points: failedSource === 'weekly' ? [] : [weekly], failed: failedSource === 'weekly', loading: false,
+        }) },
+        '../utils/historicalTemperature': historical,
+        './TemperatureHistoryStatus': { default: () => null },
+        './HistoricalTemperatureStatus': { default: () => null },
+      }).default;
+      const tree = component({ compact, boxId: 7, measurements: [], locations: [], events: [],
+        language: 'en', labels: { chartTitle: 'Chart', chartEmpty: 'Empty', polyps: 'Polyps', ephyraeFull: 'Ephyrae' } });
+      function find(node) {
+        if (!node || typeof node !== 'object') return null;
+        if (node.type === TrendChart) return node.props;
+        for (const child of [node.props?.children].flat(Infinity)) {
+          const result = find(child);
+          if (result) return result;
+        }
+        return null;
+      }
+      const props = find(tree);
+      assert.ok(props);
+      assert.equal(props.measurements.length, 0, 'No biological values are invented');
+      assert.equal(props.temperatures.length, failedSource === null ? 2 : 1);
+      if (failedSource !== 'daily') assert.equal(props.temperatures[0].average_temperature_c, 0);
+      if (failedSource !== 'weekly') assert.equal(props.temperatures.at(-1).week.valueText, '15.250');
+      assert.ok(props.temperatureStatus, 'Source feedback remains in the shared chart');
+    }
+  }
 });
 
 test('zero, negative and above-usual-range weekly values retain exact text on an expanded axis', () => {

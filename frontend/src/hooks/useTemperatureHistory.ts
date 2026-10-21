@@ -1,19 +1,25 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { getOrganizationResourceSignal } from '../api/client';
-import { createTemperatureHistory, type TemperatureHistoryState } from '../utils/temperatureHistory';
+import { createTemperatureHistory, loadTemperatureHistory, type TemperatureHistoryState } from '../utils/temperatureHistory';
 
-type HistoryScope = { boxId: number | undefined; contextSignal: AbortSignal; refreshSource: unknown };
+type HistoryScope = {
+  boxId: number | undefined;
+  contextSignal: AbortSignal;
+  refreshSource: unknown;
+  load: typeof loadTemperatureHistory;
+};
 type HistorySelection = { scope: HistoryScope; startDate: string; endDate: string };
 
 export function useTemperatureHistory(
   boxId: number | undefined, startDate: string, endDate: string, refreshSource?: unknown,
+  load = loadTemperatureHistory,
 ) {
   const contextSignal = getOrganizationResourceSignal();
-  const scopeRef = useRef<HistoryScope>({ boxId, contextSignal, refreshSource });
+  const scopeRef = useRef<HistoryScope>({ boxId, contextSignal, refreshSource, load });
   if (scopeRef.current.boxId !== boxId || scopeRef.current.contextSignal !== contextSignal
-    || !Object.is(scopeRef.current.refreshSource, refreshSource)) {
-    scopeRef.current = { boxId, contextSignal, refreshSource };
+    || !Object.is(scopeRef.current.refreshSource, refreshSource) || scopeRef.current.load !== load) {
+    scopeRef.current = { boxId, contextSignal, refreshSource, load };
   }
   const scope = scopeRef.current;
   const selectionRef = useRef<HistorySelection>({ scope, startDate, endDate });
@@ -27,7 +33,7 @@ export function useTemperatureHistory(
 
   useEffect(() => {
     if (scope.boxId == null) return;
-    const entry = { scope, history: createTemperatureHistory(scope.boxId, () => {}, scope.contextSignal) };
+    const entry = { scope, history: createTemperatureHistory(scope.boxId, () => {}, scope.contextSignal, scope.load) };
     controller.current = entry;
     return () => {
       entry.history.dispose();

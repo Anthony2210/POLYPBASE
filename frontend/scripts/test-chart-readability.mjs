@@ -144,70 +144,84 @@ function clickEvent() {
   return { stopped: false, stopPropagation() { this.stopped = true; } };
 }
 
-test('weekly evidence uses uncertainty spans and independent toggles without changing main chart geometry', () => {
+test('one temperature toggle hides daily and weekly evidence without changing main chart geometry', () => {
   const weekly = { date: '2026-01-08', average_temperature_c: 0,
     week: { id: 55, year: 2026, number: 2, start: '2026-01-05', end: '2026-01-11', valueText: '0.000' } };
   const daily = { date: '2026-01-08', average_temperature_c: 12, zone_id: 7, zone_name: 'Zone' };
   const view = mountTrendChart({ temperatures: [weekly, daily], labels: {
     chartTitle: 'Chart', empty: 'Empty', polyps: 'Polyps', ephyrae: 'Ephyrae', location: 'Location',
-    temperature: 'Zone temperature', historicalTemperature: 'Imported temperature',
-    historicalWeek: 'Week', historicalPeriod: 'Possible period',
+    temperature: 'Temperature',
+    historicalWeek: 'Week', historicalPeriod: 'Measured for the period:',
   } });
   let nodes = view.render();
   const axes = axisFrame(nodes), biology = biologyGeometry(nodes);
-  const weeklyLegend = () => nodes.find(node => node.type === 'button' && hasClass(node, 'is-weekly'));
+  assert.equal(nodes.filter(node => node.type === 'button' && hasClass(node, 'is-temperature')).length, 1);
   assert.equal(temperatureControls(nodes).length, 2);
   assert.equal(nodes.filter(node => hasClass(node, 'bio-trend-week-span')).length, 1);
   assert.equal(nodes.filter(node => node.type === 'rect' && hasClass(node, 'is-weekly')).length, 1);
   const control = temperatureControls(nodes).find(node => node.props['aria-label'].startsWith('Week 2, 2026'));
-  assert.ok(control.props['aria-label'].includes('Imported temperature: 0.000'));
+  assert.ok(control.props['aria-label'].includes('Temperature: 0.000'));
   assert.doesNotMatch(control.props['aria-label'], /08\/01\/2026/);
   control.props.onClick(clickEvent());
   nodes = view.render();
   const tooltipText = nodeText(chartTooltip(nodes));
-  assert.ok(tooltipText.includes(`Possible period${utility('dateFormat').formatDisplayDate(weekly.week.start)} - ${utility('dateFormat').formatDisplayDate(weekly.week.end)}`));
+  assert.ok(tooltipText.includes(`Measured for the period:${utility('dateFormat').formatDisplayDate(weekly.week.start)} - ${utility('dateFormat').formatDisplayDate(weekly.week.end)}`));
   assert.ok(!tooltipText.includes(utility('dateFormat').formatDisplayDate(weekly.date)), 'synthetic marker position is never an observed day');
   assert.doesNotMatch(nodeText(chartTooltip(nodes)), /Exact day unknown/);
   temperatureLegend(nodes).props.onClick();
   nodes = view.render();
-  assert.equal(temperatureControls(nodes).length, 1, 'daily toggle leaves weekly evidence visible');
-  assert.ok(chartTooltip(nodes), 'daily toggle does not unpin weekly evidence');
-  weeklyLegend().props.onClick();
+  assert.equal(temperatureControls(nodes).length, 0, 'one toggle hides daily and weekly evidence');
+  assert.equal(chartTooltip(nodes), undefined, 'hidden weekly evidence cannot retain a popup');
+  assert.equal(nodes.filter(node => hasClass(node, 'bio-trend-week-span')).length, 0);
+  assert.equal(temperatureLegend(nodes).props['aria-pressed'], false);
+  assert.equal(axisFrame(nodes), axes);
+  assert.equal(biologyGeometry(nodes), biology);
+  temperatureLegend(nodes).props.onClick();
   nodes = view.render();
-  assert.equal(temperatureControls(nodes).length, 0);
-  assert.equal(chartTooltip(nodes), undefined);
+  assert.equal(temperatureControls(nodes).length, 2);
+  assert.equal(nodes.filter(node => hasClass(node, 'bio-trend-week-span')).length, 1);
+  assert.equal(temperatureLegend(nodes).props['aria-pressed'], true);
   assert.equal(axisFrame(nodes), axes);
   assert.equal(biologyGeometry(nodes), biology);
 });
 
 test('French and English rendered legends and tooltips omit the removed temperature wording', () => {
-  const removed = /historique par semaine|historical temperature by week|Température observée, notée|Observed temperature recorded with the counts/i;
+  const removed = /historique par semaine|historical temperature by week|Température observée, notée|Observed temperature recorded with the counts|Température importée|Imported temperature|Observations comparables|Comparable observations|Transition visuelle incertaine|Uncertain visual transition|Période possible|Possible period/i;
   for (const language of ['fr', 'en']) {
     const catalog = compile(readFileSync(new URL(`../src/i18n/${language}.ts`, import.meta.url), 'utf8'))[language];
-    const view = mountTrendChart({ measurements: [], temperatures: [
-      { date: '2026-01-08', average_temperature_c: 0,
-        week: { id: 55, year: 2026, number: 2, start: '2026-01-05', end: '2026-01-11', valueText: '0.000' } },
-    ], labels: {
-      chartTitle: 'Chart', empty: 'Empty', polyps: catalog.polyps, ephyrae: catalog.ephyraeFull,
-      location: 'Location', temperature: catalog.temperature,
-      historicalTemperature: catalog.historicalTemperatureSource,
-      historicalWeek: catalog.historicalTemperatureWeek, historicalPeriod: catalog.historicalTemperaturePeriod,
-    } });
-    let nodes = view.render();
-    assert.doesNotMatch(nodeText(nodes), removed);
-    assert.ok(nodeText(nodes).includes(`${catalog.historicalTemperatureSource} (°C)`));
-    temperatureControls(nodes)[0].props.onClick(clickEvent());
-    nodes = view.render();
-    assert.doesNotMatch(nodeText(nodes), removed);
-    assert.ok(nodeText(chartTooltip(nodes)).includes(`${catalog.historicalTemperatureSource} (°C)0.000`));
-    assert.ok(nodeText(chartTooltip(nodes)).includes(catalog.historicalTemperaturePeriod));
+    for (const valueText of ['0.000', '15.250', '-0.50']) {
+      const view = mountTrendChart({ measurements: [], temperatures: [
+        { date: '2026-01-08', average_temperature_c: Number(valueText),
+          week: { id: 55, year: 2026, number: 2, start: '2026-01-05', end: '2026-01-11', valueText } },
+      ], labels: {
+        chartTitle: 'Chart', empty: 'Empty', polyps: catalog.polyps, ephyrae: catalog.ephyraeFull,
+        location: 'Location', temperature: catalog.temperature,
+        historicalWeek: catalog.historicalTemperatureWeek, historicalPeriod: catalog.historicalTemperaturePeriod,
+      } });
+      let nodes = view.render();
+      assert.doesNotMatch(nodeText(nodes), removed);
+      assert.ok(nodeText(temperatureLegend(nodes)).includes(`${catalog.temperature} (°C)`));
+      assert.equal(nodes.filter(node => node.type === 'button' && hasClass(node, 'is-temperature')).length, 1);
+      assert.equal(catalog.historicalTemperaturePeriod, language === 'fr' ? 'Mesuré pour la période :' : 'Measured for the period:');
+      temperatureControls(nodes)[0].props.onClick(clickEvent());
+      nodes = view.render();
+      assert.doesNotMatch(nodeText(nodes), removed);
+      const popup = nodeText(chartTooltip(nodes));
+      assert.ok(popup.includes(`${catalog.temperature} (°C)${valueText}`));
+      assert.ok(popup.includes(`${catalog.historicalTemperatureWeek} 2, 2026`));
+      assert.ok(popup.includes(`${catalog.historicalTemperaturePeriod}${utility('dateFormat').formatDisplayDate('2026-01-05')} - ${utility('dateFormat').formatDisplayDate('2026-01-11')}`));
+      assert.ok(!popup.includes(utility('dateFormat').formatDisplayDate('2026-01-08')), 'midpoint is not an observed date');
+    }
   }
 });
 
-test('French and English explain daily aggregates, comparable observations, uncertainty and expanded axes', () => {
+test('French and English retain daily aggregate and expanded-axis details without connection legend wording', () => {
   for (const language of ['fr', 'en']) {
     const catalog = compile(readFileSync(new URL(`../src/i18n/${language}.ts`, import.meta.url), 'utf8'))[language];
-    const keys = ['temperatureComparableObservations', 'temperatureUncertainTransition', 'dailyTemperatureAggregate', 'temperatureOutsideScale'];
+    const keys = ['dailyTemperatureAggregate', 'temperatureOutsideScale'];
+    for (const key of ['temperatureComparableObservations', 'temperatureUncertainTransition', 'historicalTemperatureSource']) {
+      assert.equal(key in catalog, false, `${language}: removed ${key}`);
+    }
     for (const key of keys) {
       assert.equal(typeof catalog[key], 'string', `${language}: ${key}`);
       assert.ok(catalog[key].trim().length > 0);
@@ -222,10 +236,8 @@ test('French and English explain daily aggregates, comparable observations, unce
       { date: '2026-01-08', average_temperature_c: 43, week: { id: 2, year: 2026, number: 2, start: '2026-01-05', end: '2026-01-11', valueText: '43.000' } },
     ], labels: {
       chartTitle: 'Chart', empty: 'Empty', polyps: catalog.polyps, ephyrae: catalog.ephyraeFull,
-      location: 'Location', temperature: catalog.temperature, historicalTemperature: catalog.historicalTemperatureSource,
+      location: 'Location', temperature: catalog.temperature,
       historicalWeek: catalog.historicalTemperatureWeek, historicalPeriod: catalog.historicalTemperaturePeriod,
-      temperatureComparable: catalog.temperatureComparableObservations,
-      temperatureUncertain: catalog.temperatureUncertainTransition,
       dailyTemperature: catalog.dailyTemperatureAggregate, temperatureOutsideScale: catalog.temperatureOutsideScale,
     } });
     let nodes = view.render();
@@ -233,8 +245,9 @@ test('French and English explain daily aggregates, comparable observations, unce
     assert.equal(paths.length, 2);
     assert.equal(hasClass(paths[0], 'is-uncertain'), false);
     assert.equal(hasClass(paths[1], 'is-uncertain'), true);
-    assert.ok(nodeText(nodes).includes(catalog.temperatureComparableObservations));
-    assert.ok(nodeText(nodes).includes(catalog.temperatureUncertainTransition));
+    assert.doesNotMatch(nodeText(nodes), /Observations comparables|Comparable observations|Transition visuelle incertaine|Uncertain visual transition/i);
+    assert.equal(nodes.filter(node => node.type === 'span' && hasClass(node, 'is-temperature')
+      && (hasClass(node, 'is-comparable') || hasClass(node, 'is-uncertain'))).length, 0);
     assert.ok(nodeText(nodes).includes(catalog.temperatureOutsideScale));
     temperatureControls(nodes)[0].props.onClick(clickEvent());
     nodes = view.render();
@@ -242,7 +255,7 @@ test('French and English explain daily aggregates, comparable observations, unce
     assert.ok(nodeText(chartTooltip(nodes)).includes(catalog.temperatureOutsideScale));
     temperatureControls(nodes)[2].props.onClick(clickEvent());
     nodes = view.render();
-    assert.ok(nodeText(chartTooltip(nodes)).includes(catalog.historicalTemperatureSource));
+    assert.ok(nodeText(chartTooltip(nodes)).includes(`${catalog.temperature} (°C)`));
     assert.ok(nodeText(chartTooltip(nodes)).includes('43.000'));
     assert.ok(!nodeText(chartTooltip(nodes)).includes(catalog.dailyTemperatureAggregate));
   }
@@ -346,7 +359,7 @@ test('connection comparability requires daily evidence, matching known zones and
   }
 });
 
-test('independent filters rebuild composite connections across only the visible evidence', () => {
+test('shared temperature filter restores every composite connection in full and compact charts', () => {
   const temperatures = [
     { date: '2026-01-01', average_temperature_c: 0, zone_id: 7 },
     { date: '2026-01-08', average_temperature_c: 12, week: { id: 2, year: 2026, number: 2, start: '2026-01-05', end: '2026-01-11', valueText: '12' } },
@@ -357,26 +370,23 @@ test('independent filters rebuild composite connections across only the visible 
     const view = mountTrendChart({ temperatures, compact });
     let nodes = view.render();
     const frame = axisFrame(nodes), biology = biologyGeometry(nodes);
-    const weeklyLegend = () => nodes.find(node => node.type === 'button' && hasClass(node, 'is-weekly'));
+    assert.equal(nodes.filter(node => node.type === 'button' && hasClass(node, 'is-temperature')).length, 1);
+    assert.equal(temperatureControls(nodes).length, 4);
     assert.equal(temperaturePaths(nodes).length, 3);
     assert.ok(temperaturePaths(nodes).every(path => hasClass(path, 'is-uncertain')));
-    weeklyLegend().props.onClick();
-    nodes = view.render();
-    assert.equal(temperatureControls(nodes).length, 2);
-    assert.equal(temperaturePaths(nodes).length, 1);
-    assert.equal(hasClass(temperaturePaths(nodes)[0], 'is-uncertain'), false);
+    const connections = temperaturePaths(nodes).map(node => node.props.d);
     temperatureLegend(nodes).props.onClick();
     nodes = view.render();
     assert.equal(temperaturePaths(nodes).length, 0);
     assert.equal(temperatureControls(nodes).length, 0);
-    weeklyLegend().props.onClick();
-    nodes = view.render();
-    assert.equal(temperatureControls(nodes).length, 2);
-    assert.equal(temperaturePaths(nodes).length, 1);
-    assert.ok(hasClass(temperaturePaths(nodes)[0], 'is-uncertain'));
+    assert.equal(nodes.filter(node => hasClass(node, 'bio-trend-week-span')).length, 0);
+    assert.equal(axisFrame(nodes), frame);
+    assert.equal(biologyGeometry(nodes), biology);
     temperatureLegend(nodes).props.onClick();
     nodes = view.render();
+    assert.equal(temperatureControls(nodes).length, 4);
     assert.equal(temperaturePaths(nodes).length, 3);
+    assert.deepEqual(temperaturePaths(nodes).map(node => node.props.d), connections);
     assert.equal(axisFrame(nodes), frame);
     assert.equal(biologyGeometry(nodes), biology);
   }

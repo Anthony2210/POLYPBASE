@@ -1015,12 +1015,11 @@ export const en: Record<TranslationKey, string> = {
   overviewHistoryRetry: 'Retry loading',
 
   temperatureOutsideScale: 'Value outside the usual 0–40 °C range: expanded scale.',
-  temperatureComparableObservations: 'Comparable observations',
-  temperatureUncertainTransition: 'Uncertain visual transition',
+
   dailyTemperatureAggregate: 'Daily zone average',
-  historicalTemperatureSource: 'Imported temperature',
+
   historicalTemperatureWeek: 'Week',
-  historicalTemperaturePeriod: 'Possible period',
+  historicalTemperaturePeriod: 'Measured for the period:',
   historicalTemperatureLoading: 'Loading historical temperatures.',
   historicalTemperatureFailed: 'Historical temperatures unavailable.',
   historicalTemperatureRetry: 'Retry',
