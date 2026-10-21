@@ -776,7 +776,15 @@ test('A to B detail keeps both occupied zones, including both daily aggregates o
       assert.ok(detail.lines.some(line => line.kind === 'location' && line.value === expected.zone_name));
       assert.ok(node.props['aria-label'].includes(expected.zone_name));
     });
-    assert.equal(points[1].props.children[0].props.cx, points[2].props.children[0].props.cx,
+    const markerCenters = points.map(point => {
+      const markers = jsxNodes(point, node => node.type === 'rect'
+        && node.props.className?.split(' ').includes('bio-trend-dot')
+        && node.props.className?.split(' ').includes('is-temperature'));
+      assert.equal(markers.length, 1, 'Each daily temperature has one square marker');
+      const { x, width } = markers[0].props;
+      return x + width / 2;
+    });
+    assert.equal(markerCenters[1], markerCenters[2],
       'Two daily aggregates share a date coordinate, not invented before/after measurement times');
     view.select(serverRange);
     assert.deepEqual(plain(view.chart.temperatures), []);
