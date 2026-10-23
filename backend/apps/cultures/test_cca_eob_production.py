@@ -341,6 +341,93 @@ class ProductionBoundaryTests(SimpleTestCase):
             production.verify_target(self.target)
 
 
+class ThermalExceptionContractTests(SimpleTestCase):
+    def setUp(self):
+        self.plan = {
+            "operation": correction.OPERATION, "organization_id": 1, "v2_sha256": correction.V2_SHA256,
+            "ready": True, "blockers": [], "move_order": list(range(1, 73)),
+            "entries": [{"measurement_pk": pk, "classification": correction.MOVE,
+                         "before": {"id": pk, "box_id": 1836, "polyp_count": 0, "ephyrae_count": None},
+                         "target_box_pk": 1835, "iso_year": 2026, "iso_week": (pk % 36) + 1}
+                        for pk in range(1, 73)],
+            "baseline": {"histories": {key: [] for key in (
+                "subculture_events", "subculture_allocations", "lineages", "transfer_items")}},
+        }
+        self.witness = {"schema": "cca_eob_unlinked_72_v1", "original_plan": deepcopy(self.plan),
+                        "original_plan_hash": correction.fingerprint(self.plan)}
+
+    def test_exact_original_evidence_is_preserved_and_empty_history_encoding_is_allowed(self):
+        original = deepcopy(self.witness)
+        role_contract.validate_thermal_exception(self.witness, self.plan)
+        current = deepcopy(self.plan)
+        current["baseline"]["histories"] = dict.fromkeys(current["baseline"]["histories"], False)
+        role_contract.validate_thermal_exception(self.witness, current)
+        self.assertEqual(original, self.witness)
+
+    def test_missing_witness_wrong_schema_and_tampered_original_fail(self):
+        for witness in (None, {}, {**self.witness, "schema": "other"},
+                        {**self.witness, "original_plan_hash": "0" * 64},
+                        {**self.witness, "original_plan": {**self.plan, "organization_id": 2}}):
+            with self.subTest(witness_type=type(witness)), self.assertRaises(ValueError):
+                role_contract.validate_thermal_exception(witness, self.plan)
+
+    def test_changed_identity_target_week_provenance_and_zero_fail(self):
+        for field, value in (("measurement_pk", 999), ("target_box_pk", 1837), ("iso_week", 42),
+                             ("before", {"id": 1, "box_id": 1836, "polyp_count": None, "ephyrae_count": None})):
+            current = deepcopy(self.plan)
+            current["entries"][0][field] = value
+            with self.subTest(field=field), self.assertRaisesMessage(ValueError, "exact current identity"):
+                role_contract.validate_thermal_exception(self.witness, current)
+
+    def test_71_73_duplicate_or_substituted_moves_are_not_the_exception(self):
+        for order in (list(range(1, 72)), list(range(1, 74)), [1] * 72, list(range(2, 74))):
+            plan = {**self.plan, "move_order": order}
+            witness = {**self.witness, "original_plan": plan, "original_plan_hash": correction.fingerprint(plan)}
+            with self.subTest(order=order), self.assertRaisesMessage(ValueError, "72 moves"):
+                role_contract.validate_thermal_exception(witness, plan)
+
+    def test_foreign_organization_source_operation_and_blocked_plan_are_rejected(self):
+        for field, value in (("organization_id", 2), ("operation", "other"), ("v2_sha256", "b" * 64),
+                             ("ready", False), ("blockers", ["conflict"])):
+            plan = {**self.plan, field: value}
+            witness = {**self.witness, "original_plan": plan, "original_plan_hash": correction.fingerprint(plan)}
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                role_contract.validate_thermal_exception(witness, plan)
+
+    def test_both_admin_decisions_require_the_independently_fixed_historical_hash(self):
+        emitter = RoleSqlContractTests.emitter()
+        document = {"schema": production.SCHEMA, "target": socket_target(), "actor_id": 7, "plan": {
+            "correction": self.plan, "database_snapshot": {"historical_readings_exist": True},
+            "thermal_exception": self.witness, "write_recipe": {},
+        }}
+        fixed_hash = self.witness["original_plan_hash"]
+        expiry = (datetime.now(timezone.utc) + timedelta(minutes=2)).isoformat()
+        for generator in (emitter.approval_sql, emitter.final_authorization_sql):
+            digest = correction.fingerprint(document)
+            release = synthetic_release(document)
+            with self.assertRaisesMessage(ValueError, "independently authenticated fixed"):
+                generator(document, digest, release, expiry)
+            generator(document, digest, release, expiry, historical_plan_hash=fixed_hash)
+            alternative = deepcopy(document)
+            alternative["plan"]["correction"]["entries"][0]["before"]["polyp_count"] = 99
+            witness = alternative["plan"]["thermal_exception"]
+            witness["original_plan"] = deepcopy(alternative["plan"]["correction"])
+            witness["original_plan_hash"] = correction.fingerprint(witness["original_plan"])
+            with self.assertRaisesMessage(ValueError, "independently authenticated fixed"):
+                generator(alternative, correction.fingerprint(alternative), synthetic_release(alternative),
+                          expiry, historical_plan_hash=fixed_hash)
+
+    def test_runtime_plan_requires_the_witness_when_any_temperature_exists(self):
+        document = {"schema": production.SCHEMA, "target": {}, "actor_id": 7, "plan": {
+            "correction": self.plan, "database_snapshot": {"historical_readings_exist": True},
+            "thermal_exception": self.witness,
+        }}
+        production.validate_plan(document, correction.fingerprint(document))
+        document["plan"]["thermal_exception"] = None
+        with self.assertRaisesMessage(ValueError, "authenticated original"):
+            production.validate_plan(document, correction.fingerprint(document))
+
+
 class RootDocumentTests(SimpleTestCase):
     def test_pure_release_validator_rejects_malformed_metadata_without_io(self):
         document = {"target": socket_target(), "actor_id": 7, "synthetic": True}
@@ -718,7 +805,8 @@ class ProductionWorkflowTests(CcaEobFixtureMixin, TransactionTestCase):
         self.seed_approval(document, release=release)
         if self.final_authorization_state() == (None, None, None):
             self.seed_final_authorization(document, release=release)
-        with patch.object(production, "_root_document", return_value=release), \
+        with patch.object(production, "_root_document", side_effect=lambda path: (
+                        document["plan"].get("thermal_exception") if path == production.HISTORICAL_PLAN_PATH else release)), \
                 patch.object(production.artifacts, "protected_file"), \
                 patch.object(production.database_backup, "verify_archive"):
             yield release
@@ -837,6 +925,8 @@ class ProductionWorkflowTests(CcaEobFixtureMixin, TransactionTestCase):
     def test_apply_table_locks_reject_concurrent_incoming_relations_and_temperature(self):
         from config import historical_temperature_pgqa as guard
 
+        readings_count = HistoricalTemperatureReading.objects.count()
+
         decoy = Box.objects.create(
             organization=self.other_org, strain=self.strain, global_code="SYN-QAA-1.001", box_number="001",
         )
@@ -906,7 +996,7 @@ class ProductionWorkflowTests(CcaEobFixtureMixin, TransactionTestCase):
         incoming.refresh_from_db()
         self.assertIsNone(incoming.environment_source_box_id)
         self.assertIsNone(incoming.duplicate_of_id)
-        self.assertFalse(HistoricalTemperatureReading.objects.exists())
+        self.assertEqual(HistoricalTemperatureReading.objects.count(), readings_count)
 
     @runtime_workflow
     def test_real_read_only_repeatable_read_plan_preserves_every_table(self):
@@ -1189,6 +1279,141 @@ class ProductionWorkflowTests(CcaEobFixtureMixin, TransactionTestCase):
             })
             self.assert_production_blocked("Incoming evidence relations")
 
+    def prepare_unlinked_72(self):
+        """Synthetic historical evidence, not a reconstruction of the real plan."""
+        BiologicalMeasurement.objects.all().delete()
+        self.source["entries"].clear()
+        self.manifest["measurements"].clear()
+        self.measurements = []
+        for week in range(1, 37):
+            for old, target in ((5, 4), (6, 5)):
+                polyps = 0 if week == 1 and target == 4 else week * 10 + target
+                biology = BiologicalMeasurement.objects.create(
+                    box=self.boxes[old], measured_on=date.fromisocalendar(2026, week, 3),
+                    polyp_count=polyps, ephyrae_count=0, strobila_count=0,
+                    user=self.writer, original_observer=self.writer, observer_status="known",
+                    notes="Preserve synthetic provenance", salinity_psu="0.00",
+                )
+                self.measurements.append(biology)
+                row = 121 if target == 4 else 125
+                column = chr(65 + week // 26) + chr(65 + week % 26)
+                self.source["entries"].append({
+                    "sheet": "Semaestomeae", "source_identifier": f"CCA-EOB-2.{target:02}",
+                    "target_code": self.boxes[target].global_code, "iso_year": 2026, "iso_week": week,
+                    "polyp_cell": f"{column}{row}", "ephyrae_cell": f"{column}{row + 1}",
+                    "polyps": polyps, "ephyrae": 0,
+                })
+                self.manifest["measurements"].append({
+                    "box": self.boxes[old].global_code, "year": 2026, "iso_week": week,
+                    "polyps": polyps, "ephyrae": 0,
+                })
+        unchanged = BiologicalMeasurement.objects.create(
+            box=self.boxes[4], measured_on=date.fromisocalendar(2026, 42, 3),
+            polyp_count=0, ephyrae_count=0,
+        )
+        original = correction._build_plan(1, workbook_path=self.workbook_path)
+        self.assertEqual(len(original["move_order"]), 72)
+        self.historical_witness = {"schema": "cca_eob_unlinked_72_v1", "original_plan": original,
+                                   "original_plan_hash": correction.fingerprint(original)}
+        self.enterContext(patch.object(production, "_root_document", return_value=self.historical_witness))
+        self.add_historical_link(unchanged)
+        return self.production_plan()
+
+    def add_historical_link(self, biology):
+        week = biology.week_start.isocalendar().week
+        with transaction.atomic():
+            reading = HistoricalTemperatureReading.objects.create(
+                biological_measurement=biology, iso_year=2026, iso_week=week, temperature_c="0",
+            )
+            HistoricalTemperatureEvidence.objects.create(reading=reading, **evidence(
+                source_box=biology.box.global_code, source_value="0", source_iso_week=week, week_value=str(week),
+                polyp_value=str(biology.polyp_count), ephyrae_value=str(biology.ephyrae_count),
+            ))
+        return reading
+
+    @runtime_workflow
+    def test_authenticated_72_preserve_thermal_rows_science_and_audits(self):
+        document = self.prepare_unlinked_72()
+        before = self.database_snapshot()
+        rows = {m.pk: json_snapshot(m) for m in BiologicalMeasurement.objects.all()}
+        old_audits = set(AuditLog.objects.values_list("pk", flat=True))
+        with self.synthetic_release_io(document):
+            self.production_apply(document)
+        after = self.database_snapshot()
+        targets = {m["id"]: m["target_box_id"] for m in document["plan"]["write_recipe"]["moves"]}
+        self.assertEqual(len(targets), 72)
+        for m in BiologicalMeasurement.objects.all():
+            self.assertEqual(json_snapshot(m), {**rows[m.pk], "box_id": targets.get(m.pk, rows[m.pk]["box_id"])})
+        mutable = {Box._meta.db_table, BiologicalMeasurement._meta.db_table, AuditLog._meta.db_table}
+        for table in before.keys() - mutable:
+            self.assertEqual(before[table], after[table], table)
+        for row in before[AuditLog._meta.db_table]:
+            self.assertIn(row, after[AuditLog._meta.db_table])
+        audits = list(AuditLog.objects.exclude(pk__in=old_audits).order_by("pk"))
+        self.assertEqual(len(audits), 73)
+        self.assertEqual([a.metadata["measurement_id"] for a in audits[:-1]], document["plan"]["correction"]["move_order"])
+        for audit in audits:
+            self.assertEqual(audit.metadata["execution_evidence"]["historical_plan_hash"],
+                             self.historical_witness["original_plan_hash"])
+            self.assertEqual((audit.organization_id, audit.user_id), (1, self.admin.pk))
+        self.assertEqual(self.historical_witness["original_plan"], document["plan"]["thermal_exception"]["original_plan"])
+
+    @runtime_workflow
+    def test_authenticated_72_reject_new_confirmed_and_pending_links(self):
+        document = self.prepare_unlinked_72()
+        reading = self.add_historical_link(self.measurements[0])
+        for status in ("confirmed", "pending_review"):
+            if status == "pending_review":
+                with connection.cursor() as cursor:
+                    cursor.execute("UPDATE measurements_historicaltemperaturereading SET association_status='pending_review' WHERE id=%s", [reading.pk])
+            before = self.database_snapshot()
+            blocked = self.production_plan()
+            self.assertFalse(blocked["plan"]["correction"]["ready"])
+            self.assertTrue(any("historical temperature association" in reason
+                                for reason in blocked["plan"]["correction"]["blockers"]))
+            with self.synthetic_release_io(document):
+                with self.assertRaisesMessage(ValueError, "Stale production plan"):
+                    self.production_apply(document)
+            self.assertIsNone(self.approval_consumed_at())
+            self.assertEqual(before, self.database_snapshot())
+
+    @runtime_workflow
+    def test_authenticated_72_stale_identity_rolls_back(self):
+        document = self.prepare_unlinked_72()
+        with connection.cursor() as cursor:
+            cursor.execute("UPDATE measurements_biologicalmeasurement SET notes='changed' WHERE id=%s", [self.measurements[0].pk])
+        before = self.database_snapshot()
+        with self.synthetic_release_io(document):
+            with self.assertRaisesMessage(ValueError, "exact current identity failed"):
+                self.production_apply(document)
+        self.assertEqual(before, self.database_snapshot())
+        self.assertIsNone(self.approval_consumed_at())
+
+    @runtime_workflow
+    def test_authenticated_72_excludes_concurrent_temperature_creation(self):
+        self.prepare_unlinked_72()
+        self.test_apply_table_locks_reject_concurrent_incoming_relations_and_temperature()
+
+    @runtime_workflow
+    def test_authenticated_72_late_audit_failure_rolls_back_entire_batch(self):
+        document = self.prepare_unlinked_72()
+        before = self.database_snapshot()
+        with connection.cursor() as cursor:
+            cursor.execute("""CREATE FUNCTION public.cca_qa_fail_72() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN IF NEW.object_type='historical_correction' THEN
+                    RAISE EXCEPTION 'Synthetic 72 receipt failure'; END IF; RETURN NEW; END $$;
+                CREATE TRIGGER cca_qa_fail_72 BEFORE INSERT ON public.audit_auditlog
+                FOR EACH ROW EXECUTE FUNCTION public.cca_qa_fail_72()""")
+        try:
+            with self.synthetic_release_io(document):
+                with self.assertRaisesMessage(DatabaseError, "Synthetic 72 receipt failure"):
+                    self.production_apply(document)
+            self.assertEqual(before, self.database_snapshot())
+            self.assertIsNone(self.approval_consumed_at())
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute("DROP TRIGGER cca_qa_fail_72 ON public.audit_auditlog; DROP FUNCTION public.cca_qa_fail_72()")
+
     @runtime_workflow
     def test_existing_historical_temperature_blocks_with_real_immutable_guards(self):
         biology = self.measurements[0]
@@ -1200,7 +1425,7 @@ class ProductionWorkflowTests(CcaEobFixtureMixin, TransactionTestCase):
                 source_box=biology.box.global_code, source_value="0", source_iso_week=32, week_value="32",
                 polyp_value=str(biology.polyp_count), ephyrae_value=str(biology.ephyrae_count),
             ))
-        self.assert_production_blocked("Historical temperature state changed")
+        self.assert_production_blocked("historical temperature association")
         reading.refresh_from_db()
         self.assertEqual(reading.temperature_c, "0")
         self.assertEqual(reading.association_status, "confirmed")
@@ -1772,6 +1997,63 @@ class LockHelperTests(MinimumPrivilegeBase):
 @skipUnless(_ENABLED, "Requires the explicitly authorized, leased disposable PG18 harness")
 class WriterCapabilityTests(MinimumPrivilegeBase):
     """Call SQL directly: Python validation is not a database permission."""
+
+    prepare_unlinked_72 = ProductionWorkflowTests.prepare_unlinked_72
+    add_historical_link = ProductionWorkflowTests.add_historical_link
+
+    def test_direct_writer_rejects_missing_changed_or_non72_thermal_witness(self):
+        self.reviewed_document()
+        original = self.prepare_unlinked_72()
+        for case in ("missing", "changed", "71"):
+            document = deepcopy(original)
+            if case == "missing":
+                document["plan"]["thermal_exception"] = None
+            elif case == "changed":
+                document["plan"]["thermal_exception"]["original_plan"]["entries"][0]["iso_week"] = 42
+            else:
+                plan = document["plan"]["correction"]
+                removed = plan["move_order"].pop()
+                plan["entries"] = [e for e in plan["entries"] if e["measurement_pk"] != removed]
+                document["plan"]["write_recipe"]["moves"].pop()
+                document["plan"]["write_recipe"]["audits"].pop(0)
+            with self.subTest(case=case):
+                self.clear_approval()
+                with self.synthetic_release_io(document):
+                    error = self.assert_writer_denied(correction.fingerprint(document))
+                self.assertIn("72-move thermal exception", str(error))
+
+    def test_direct_writer_rejects_confirmed_pending_links_even_with_refreshed_snapshot(self):
+        self.reviewed_document()
+        original = self.prepare_unlinked_72()
+        reading = self.add_historical_link(self.measurements[0])
+        for status in ("confirmed", "pending_review"):
+            if status == "pending_review":
+                with connection.cursor() as cursor:
+                    cursor.execute("UPDATE measurements_historicaltemperaturereading SET association_status='pending_review' WHERE id=%s", [reading.pk])
+            document = deepcopy(original)
+            with self.production_runtime():
+                document["plan"]["database_snapshot"] = production._read_scope(self.admin)
+            self.clear_approval()
+            with self.subTest(status=status), self.synthetic_release_io(document):
+                error = self.assert_writer_denied(correction.fingerprint(document))
+            self.assertIn("historical temperature association", str(error))
+
+    def test_direct_writer_rolls_back_if_a_trigger_changes_other_biological_columns(self):
+        self.reviewed_document()
+        document = self.prepare_unlinked_72()
+        with connection.cursor() as cursor:
+            cursor.execute("""CREATE FUNCTION public.cca_qa_corrupt_72() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN IF NEW.box_id<>OLD.box_id THEN NEW.notes := 'unexpected mutation'; END IF;
+                RETURN NEW; END $$;
+                CREATE TRIGGER cca_qa_corrupt_72 BEFORE UPDATE ON public.measurements_biologicalmeasurement
+                FOR EACH ROW EXECUTE FUNCTION public.cca_qa_corrupt_72()""")
+        try:
+            with self.synthetic_release_io(document):
+                error = self.assert_writer_denied(correction.fingerprint(document))
+            self.assertIn("post-write biological integrity", str(error))
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute("DROP TRIGGER cca_qa_corrupt_72 ON public.measurements_biologicalmeasurement; DROP FUNCTION public.cca_qa_corrupt_72()")
 
     def reviewed_document(self):
         with self.production_runtime():
@@ -2486,7 +2768,7 @@ class RoleSqlContractTests(SimpleTestCase):
             'plan': {
                 'correction': {'operation': correction.OPERATION, 'organization_id': 1,
                                'v2_sha256': role_contract.V2_SHA256, 'ready': True, 'blockers': []},
-                'database_snapshot': {}, 'write_recipe': {},
+                'database_snapshot': {'historical_readings_exist': False}, 'write_recipe': {},
             },
         }
         digest = correction.fingerprint(document)

@@ -7,6 +7,11 @@ d’approbation ou apply ne doit partir automatiquement. La commande QA
 restent stricts. `cca_eob_production` est indépendante : aucune migration, aucun
 serveur, import ou déploiement ne l’appelle.
 
+> Complément courant : [exception des 72 réattributions sans lien thermique](cca-eob-unlinked-72-handoff.md).
+> Il remplace ci-dessous le veto thermique global, uniquement pour le plan
+> historique intégral authentifié. Les résultats et comptes anciens ne sont
+> pas des preuves courantes. Aucune autorisation de production n'en découle.
+
 ## État et périmètre
 
 Le contexte initial indiquait `37587da`; la préparation historique a commencé sur
@@ -20,16 +25,18 @@ Cibles seules : organisation **1**, boîtes **1835 / CCA-EOB-2.004**,
 **1836 / CCA-EOB-2.005**, **1837 / CCA-EOB-2.006**, relevés ISO 2026 appariés par
 le manifeste et le classeur V2 SHA-256
 `0d5cd16eee88845ea51fbd4f122be15c12e5896b5237458573fc432ebda8b160`.
-Les constats read-only fournis (0/41/41 relevés 2026; zéro température historique)
-ne sont pas une matrice approuvée. **Ne pas attendre ni imposer 72/8/4** : ces
-comptes et les anciens hashes appartiennent à une autre QA.
+Les constats read-only initiaux (0/41/41 relevés 2026; zéro température historique)
+et les comptes 72/8/4 d'une autre QA sont historiques, pas une matrice approuvée.
+L'exception courante exige séparément le véritable plan historique authentifié
+de 72 mouvements; ne jamais le reconstruire depuis ces anciens comptes/hashes.
 
 Aucune correction générique ni option `force`. Identités fusionnées/renommées,
 doublons, contexte environnemental explicite, références entrantes externes,
 correspondances inconnues, conflits, lignées, repiquages, transferts et historiques
-institutionnels incohérents bloquent. La présence désormais constatée de tout
-relevé thermique historique bloque : aucune association ne doit être invalidée,
-détachée ou réécrite pour permettre la correction. Seuls `box_id`, les révisions
+institutionnels incohérents bloquent. La présence d'un relevé thermique exige
+désormais l'exception authentifiée décrite dans le complément; un lien direct
+sur une mesure déplacée bloque toujours. Aucune association ne doit être
+invalidée, détachée ou réécrite pour permettre la correction. Seuls `box_id`, les révisions
 scientifiques attendues et de **nouveaux** audits métier peuvent changer. Zéro et
 NULL restent distincts. Dates, auteurs, précision, provenance, séquences
 scientifiques, statuts, zones, emplacements, mouvements et anciens audits restent

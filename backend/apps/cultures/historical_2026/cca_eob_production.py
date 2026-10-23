@@ -22,6 +22,7 @@ from . import cca_eob_correction as correction
 
 TARGET_PATH = "/etc/polypbase/cca-eob-production-target.json"
 RELEASE_PATH = "/etc/polypbase/cca-eob-production-authorization.json"
+HISTORICAL_PLAN_PATH = "/etc/polypbase/cca-eob-authenticated-historical-plan.json"
 SCHEMA = "cca_eob_production_plan_v2"
 BOXES = {1835: "CCA-EOB-2.004", 1836: "CCA-EOB-2.005", 1837: "CCA-EOB-2.006"}
 TARGET_SCHEMA = "cca_eob_target_v2"
@@ -353,15 +354,23 @@ def _plan(workbook_path, actor):
         blockers.append("Duplicate evidence or explicit environmental source is outside this correction.")
     if payload["incoming_evidence"]:
         blockers.append("Incoming evidence relations require independent resolution.")
-    # Production inspection found zero readings. Never invalidate, detach or rewrite one.
-    if payload["historical_readings_exist"]:
-        blockers.append("Historical temperature state changed: stop; no associations may be rewritten.")
+    witness = None
+    linked_moves = set(plan["move_order"]) & set(payload["historical_linked_measurement_ids"])
+    if linked_moves:
+        blockers.append("A planned measurement has a historical temperature association; the entire batch is blocked.")
+    elif payload["historical_readings_exist"]:
+        # Root pins the independently authenticated original plan, never a runtime
+        # reconstruction or a caller-selected hash. Preserve the entire evidence.
+        witness = _root_document(HISTORICAL_PLAN_PATH)
+        role_contract.validate_thermal_exception(witness, plan)
+
     if plan["v2_sha256"] != correction.V2_SHA256:
         blockers.append("Only the pinned reviewed Excel V2 fingerprint is accepted.")
     plan["ready"] = not blockers
     return correction._json({
         "correction": plan, "deployed_guards": _schema_state(), "database_snapshot": payload,
         "write_recipe": correction.write_recipe(plan, data["measurements"], actor.pk),
+        "thermal_exception": witness,
     })
 
 
@@ -391,6 +400,8 @@ def validate_plan(document, approved_hash):
     if (not plan["ready"] or plan["blockers"] or plan["organization_id"] != 1
             or plan["operation"] != correction.OPERATION or plan["v2_sha256"] != correction.V2_SHA256):
         raise ValueError("Only a complete conflict-free CCA-EOB V3 plan may be applied.")
+    if document["plan"]["database_snapshot"]["historical_readings_exist"]:
+        role_contract.validate_thermal_exception(document["plan"].get("thermal_exception"), plan)
     return plan
 
 

@@ -217,7 +217,7 @@ def emit(action):
     return PREFLIGHT + body(action)
 
 
-def _validate_reviewed_evidence(document, reviewed_hash, release):
+def _validate_reviewed_evidence(document, reviewed_hash, release, historical_plan_hash=None):
     """Pure document/evidence checks shared by the two administrative decisions."""
     fingerprint = hashlib.sha256(json.dumps(document, sort_keys=True, default=str).encode()).hexdigest()
     if not isinstance(reviewed_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", reviewed_hash) or fingerprint != reviewed_hash:
@@ -234,6 +234,13 @@ def _validate_reviewed_evidence(document, reviewed_hash, release):
             or correction.get("ready") is not True or correction.get("blockers") != []
             or not isinstance(plan.get("database_snapshot"), dict) or not isinstance(plan.get("write_recipe"), dict)):
         raise ValueError("Expected a complete ready fixed-scope plan and deterministic write recipe.")
+    if plan["database_snapshot"].get("historical_readings_exist") is not False:
+        contract.validate_thermal_exception(plan.get("thermal_exception"), correction)
+        if (type(historical_plan_hash) is not str
+                or historical_plan_hash != plan["thermal_exception"]["original_plan_hash"]):
+            raise ValueError("The independently authenticated fixed historical fingerprint is required.")
+    elif historical_plan_hash is not None:
+        raise ValueError("A historical fingerprint is only accepted for the thermal exception.")
     contract.validate_release(release, document, reviewed_hash)
 
 
@@ -252,9 +259,9 @@ END $administrator$;
 """
 
 
-def approval_sql(document, reviewed_hash, release, expires_at):
+def approval_sql(document, reviewed_hash, release, expires_at, *, historical_plan_hash=None):
     """Approve the reviewed plan only; never arm the mutation capability."""
-    _validate_reviewed_evidence(document, reviewed_hash, release)
+    _validate_reviewed_evidence(document, reviewed_hash, release, historical_plan_hash)
     expiry = _expiry(expires_at)
     doc_sql = literal(json.dumps(document, sort_keys=True, default=str, allow_nan=False))
     release_sql = literal(json.dumps(release, sort_keys=True, default=str, allow_nan=False))
@@ -269,9 +276,9 @@ COMMIT;
 """
 
 
-def final_authorization_sql(document, reviewed_hash, release, expires_at):
+def final_authorization_sql(document, reviewed_hash, release, expires_at, *, historical_plan_hash=None):
     """Second administrator decision; one installation, no renewal or caller token."""
-    _validate_reviewed_evidence(document, reviewed_hash, release)
+    _validate_reviewed_evidence(document, reviewed_hash, release, historical_plan_hash)
     expiry = _expiry(expires_at)
     if (expiry-datetime.now(timezone.utc)).total_seconds() > contract.FINAL_AUTHORIZATION_MAX_SECONDS:
         raise ValueError("Final apply authorization must expire within five minutes.")
@@ -315,6 +322,7 @@ if __name__ == "__main__":
     parser.add_argument("--document", type=Path)
     parser.add_argument("--release", type=Path)
     parser.add_argument("--reviewed-hash")
+    parser.add_argument("--historical-plan-hash")
     parser.add_argument("--expires-at")
     args = parser.parse_args()
     if args.action in ("approve", "authorize-apply"):
@@ -322,9 +330,10 @@ if __name__ == "__main__":
             parser.error("approve/authorize-apply requires --document, --release, --reviewed-hash and --expires-at")
         generator = approval_sql if args.action == "approve" else final_authorization_sql
         sql = generator(json.loads(args.document.read_text(encoding="utf-8")), args.reviewed_hash,
-                           json.loads(args.release.read_text(encoding="utf-8")), args.expires_at)
+                           json.loads(args.release.read_text(encoding="utf-8")), args.expires_at,
+                           historical_plan_hash=args.historical_plan_hash)
     else:
-        if any((args.document, args.release, args.reviewed_hash, args.expires_at)):
+        if any((args.document, args.release, args.reviewed_hash, args.expires_at, args.historical_plan_hash)):
             parser.error("approval arguments are only accepted with approve or authorize-apply")
         sql = emit(args.action)
     # Exact prosrc checks require LF-only bytes on every platform.

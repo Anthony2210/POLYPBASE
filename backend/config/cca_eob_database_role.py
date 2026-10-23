@@ -5,6 +5,8 @@ The approval document is imported and fingerprint-checked by the administrator,
 not supplied by the runtime. PostgreSQL never reserializes it to compute a hash.
 """
 
+import hashlib
+import json
 import re
 
 ROLE = "polypbase_cca_eob"
@@ -127,6 +129,40 @@ def validate_release(release, document, reviewed_hash):
             or type(archive["sha256"]) is not str or not re.fullmatch(r"[0-9a-f]{64}", archive["sha256"])
             or type(archive["size_bytes"]) is not int or not 0 < archive["size_bytes"] <= 9223372036854775807):
         raise ValueError("Malformed archive path, SHA-256 or size metadata.")
+
+
+def validate_thermal_exception(witness, correction):
+    """Authenticate the protected historical witness without rebuilding its evidence."""
+    if (type(witness) is not dict
+            or set(witness) != {"schema", "original_plan_hash", "original_plan"}
+            or witness["schema"] != "cca_eob_unlinked_72_v1"):
+        raise ValueError("A protected authenticated original 72-move plan is required.")
+    original = witness["original_plan"]
+    digest = witness["original_plan_hash"]
+    # The historical local planner serializes empty histories as lists; the
+    # production reader uses booleans. Normalize only this known representation.
+    comparable = original
+    if (original != correction and type(original) is dict and type(original.get("baseline")) is dict
+            and original["baseline"].get("histories") == {
+                "subculture_events": [], "subculture_allocations": [], "lineages": [], "transfer_items": []}):
+        comparable = {**original, "baseline": {**original["baseline"], "histories": {
+            "subculture_events": False, "subculture_allocations": False, "lineages": False, "transfer_items": False}}}
+    if (type(digest) is not str or not re.fullmatch(r"[0-9a-f]{64}", digest)
+            or hashlib.sha256(json.dumps(original, sort_keys=True, default=str).encode()).hexdigest() != digest
+            or type(original) is not dict or comparable != correction
+            or original.get("operation") != "cca_eob_v2_20261016_v3"
+            or type(original.get("organization_id")) is not int or original["organization_id"] != 1
+            or original.get("v2_sha256") != V2_SHA256
+            or original.get("ready") is not True or original.get("blockers") != []):
+        raise ValueError("Historical plan authentication or exact current identity failed.")
+    order = original.get("move_order")
+    entries = original.get("entries")
+    if (type(order) is not list or len(order) != 72
+            or any(type(pk) is not int or pk <= 0 for pk in order) or len(set(order)) != 72
+            or type(entries) is not list
+            or {e.get("measurement_pk") for e in entries if e.get("classification") == "REASSIGN_REQUIRED"} != set(order)
+            or sum(e.get("classification") == "REASSIGN_REQUIRED" for e in entries) != 72):
+        raise ValueError("Only the exact authenticated batch of 72 moves is eligible.")
 
 
 def identifier(value):
@@ -442,6 +478,10 @@ BEGIN
             WHERE box_id NOT IN (SELECT id FROM boxes) AND
                 (duplicate_of_id IN (SELECT id FROM biology) OR environment_source_box_id IN (SELECT id FROM boxes))),
         'historical_readings_exist', EXISTS (SELECT 1 FROM public.measurements_historicaltemperaturereading),
+        'historical_linked_measurement_ids', (SELECT coalesce(jsonb_agg(r.biological_measurement_id
+            ORDER BY r.biological_measurement_id),'[]'::jsonb)
+            FROM public.measurements_historicaltemperaturereading r
+            WHERE r.biological_measurement_id IN (SELECT id FROM biology)),
         'guard_state', jsonb_build_object(
             'triggers', (SELECT coalesce(jsonb_agg(jsonb_build_object(
                 'binding',to_jsonb(t),'table',c.relname,'definition',pg_get_triggerdef(t.oid),
@@ -472,6 +512,7 @@ DECLARE
     locked_approval public.cca_eob_approval_v1%ROWTYPE;
     doc jsonb; correction jsonb; recipe jsonb; state jsonb; entry jsonb; move jsonb;
     revision jsonb; audit jsonb; raw jsonb; reviewed_raw jsonb; before_source jsonb;
+    historical_plan jsonb;
     actor bigint; pk bigint; box_pk bigint;
     seen bigint[] := ARRAY[]::bigint[]; revised bigint[] := ARRAY[]::bigint[];
     touched bigint; expected_after bigint; changed bigint; move_count integer; i integer;
@@ -523,7 +564,6 @@ BEGIN
     __CCA_APPROVAL_GUARD__
     state := public.cca_eob_read_v1(actor);
     IF state IS DISTINCT FROM doc#>'{plan,database_snapshot}'
-        OR state->'historical_readings_exist' <> 'false'::jsonb
         OR state->'incoming_evidence' <> 'false'::jsonb
         OR EXISTS (SELECT 1 FROM jsonb_each(state->'histories') h WHERE h.value <> 'false'::jsonb)
         OR state->'external_movement_links' <> '[]'::jsonb
@@ -556,6 +596,26 @@ BEGIN
             WHERE e->>'classification'='REASSIGN_REQUIRED')<>move_count THEN
         RAISE EXCEPTION 'CCA-EOB recipe cardinalities differ';
     END IF;
+    -- The trusted administrator authenticates the Python fingerprint offline.
+    -- SQL independently binds the immutable original evidence and exact 72 moves.
+    IF state->'historical_readings_exist' IS DISTINCT FROM 'false'::jsonb THEN
+        historical_plan := doc#>'{plan,thermal_exception,original_plan}';
+        IF historical_plan#>'{baseline,histories}' =
+            '{"subculture_events":[],"subculture_allocations":[],"lineages":[],"transfer_items":[]}'::jsonb THEN
+            historical_plan := jsonb_set(historical_plan,'{baseline,histories}',state->'histories');
+        END IF;
+        IF (move_count=72
+            AND doc#>>'{plan,thermal_exception,schema}'='cca_eob_unlinked_72_v1'
+            AND doc#>>'{plan,thermal_exception,original_plan_hash}' ~ '^[0-9a-f]{64}$'
+            AND historical_plan=correction) IS NOT TRUE THEN
+            RAISE EXCEPTION 'Authenticated original 72-move thermal exception required';
+        END IF;
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.measurements_historicaltemperaturereading r
+        JOIN jsonb_array_elements(recipe->'moves') m ON r.biological_measurement_id=(m->>'id')::bigint) THEN
+        RAISE EXCEPTION 'A planned measurement has a historical temperature association';
+    END IF;
+    -- The lock helper holds SHARE on readings until commit: no phantom link can appear.
     -- Validate every raw baseline before the first update. JSON null and zero differ.
     FOR i IN 0..move_count-1 LOOP
         pk := (correction->'move_order'->>i)::bigint;
@@ -647,6 +707,19 @@ BEGIN
         GET DIAGNOSTICS changed = ROW_COUNT;
         IF changed<>1 THEN RAISE EXCEPTION 'CCA-EOB measurement update cardinality'; END IF;
     END LOOP;
+    -- Recheck all scoped biology columns, not just the moved Box IDs.
+    FOR raw IN SELECT value FROM jsonb_array_elements(state->'measurements') LOOP
+        before_source := raw;
+        SELECT m INTO move FROM jsonb_array_elements(recipe->'moves') m WHERE m->'id'=raw->'id';
+        IF FOUND THEN before_source := jsonb_set(raw,'{box_id}',move->'target_box_id'); END IF;
+        IF (SELECT to_jsonb(b) FROM public.measurements_biologicalmeasurement b
+            WHERE b.id=(raw->>'id')::bigint) IS DISTINCT FROM before_source THEN
+            RAISE EXCEPTION 'CCA-EOB post-write biological integrity failure';
+        END IF;
+    END LOOP;
+    IF EXISTS (SELECT 1 FROM public.measurements_historicaltemperaturereading WHERE biological_measurement_id=ANY(seen)) THEN
+        RAISE EXCEPTION 'CCA-EOB post-write thermal integrity failure';
+    END IF;
     FOR revision IN SELECT value FROM jsonb_array_elements(recipe->'revisions') LOOP
         UPDATE public.cultures_box SET polyp_state_revision=(revision->>'after')::bigint
             WHERE id=(revision->>'box_id')::bigint AND organization_id=1
@@ -662,7 +735,8 @@ BEGIN
             (audit->'metadata') || jsonb_build_object('execution_evidence',jsonb_build_object(
                 'target',doc->'target','production_plan_hash',reviewed_hash,
                 'authorization','APPLY_CCA_EOB_ORGANIZATION_1:'||reviewed_hash,'release',approval.release,
-                'final_authorized_at',approval.final_authorized_at,'final_expires_at',approval.final_expires_at)),
+                'final_authorized_at',approval.final_authorized_at,'final_expires_at',approval.final_expires_at,
+                'historical_plan_hash',doc#>'{plan,thermal_exception,original_plan_hash}')),
             clock_timestamp(),NULL,NULL,'{}'::jsonb);
     END LOOP;
     UPDATE public.cca_eob_approval_v1 SET consumed_at=clock_timestamp()
