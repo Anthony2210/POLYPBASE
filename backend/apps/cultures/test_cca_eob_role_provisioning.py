@@ -90,6 +90,21 @@ class ApprovalEmitterContractTests(SimpleTestCase):
                 with self.subTest(label=label, action=action), self.assertRaises(ValueError):
                     getattr(self.emitter, action)(document, reviewed_hash, malformed, deadline)
 
+    def test_missing_or_ambiguous_thermal_state_requires_authenticated_evidence(self):
+        document, _, release, expiry = ProvisioningSqlExecutionTests.synthetic_approval()
+        self.assertIs(document["plan"]["database_snapshot"]["historical_readings_exist"], False)
+        deadline = (datetime.now(timezone.utc) + timedelta(seconds=120)).isoformat()
+        for snapshot in ({}, {"historical_readings_exist": True},
+                         {"historical_readings_exist": None}, {"historical_readings_exist": 0}):
+            changed = deepcopy(document)
+            changed["plan"]["database_snapshot"] = snapshot
+            reviewed_hash = hashlib.sha256(json.dumps(changed, sort_keys=True, default=str).encode()).hexdigest()
+            evidence = {**release, "plan_hash": reviewed_hash}
+            for action, expires in (("approval_sql", expiry), ("final_authorization_sql", deadline)):
+                with self.subTest(snapshot=snapshot, action=action), self.assertRaisesMessage(
+                        ValueError, "A protected authenticated original 72-move plan is required."):
+                    getattr(self.emitter, action)(changed, reviewed_hash, evidence, expires)
+
     def test_final_emitter_requires_complete_reviewed_document_and_explicit_future_expiry(self):
         document, reviewed_hash, release, _ = ProvisioningSqlExecutionTests.synthetic_approval()
         deadline = (datetime.now(timezone.utc) + timedelta(seconds=120)).isoformat()
@@ -558,10 +573,10 @@ for org_id in (1, 2):
 
     @staticmethod
     def synthetic_approval():
-        """Emitter-valid evidence with an intentionally incomplete synthetic target."""
+        """Non-thermal emitter evidence with an intentionally incomplete synthetic target."""
         document = {
             "schema": "cca_eob_production_plan_v2", "actor_id": 1, "target": {"synthetic": True},
-            "plan": {"database_snapshot": {}, "write_recipe": {}, "correction": {
+            "plan": {"database_snapshot": {"historical_readings_exist": False}, "write_recipe": {}, "correction": {
                 "operation": "cca_eob_v2_20261016_v3", "organization_id": 1,
                 "v2_sha256": contract.V2_SHA256, "ready": True, "blockers": [],
             }},
