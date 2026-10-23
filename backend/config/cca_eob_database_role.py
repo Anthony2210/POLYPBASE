@@ -132,13 +132,24 @@ def validate_release(release, document, reviewed_hash):
 
 
 def validate_thermal_exception(witness, correction):
-    """Authenticate the protected historical witness without rebuilding its evidence."""
+    """Authenticate the complete historical document before extracting its V3 plan."""
     if (type(witness) is not dict
-            or set(witness) != {"schema", "original_plan_hash", "original_plan"}
-            or witness["schema"] != "cca_eob_unlinked_72_v1"):
+            or set(witness) != {"schema", "original_plan_hash", "original_document"}
+            or witness["schema"] != "cca_eob_unlinked_72_v2"):
         raise ValueError("A protected authenticated original 72-move plan is required.")
-    original = witness["original_plan"]
+    document = witness["original_document"]
     digest = witness["original_plan_hash"]
+    if (type(document) is not dict
+            or set(document) != {"schema", "target", "actor_id", "plan"}
+            or document.get("schema") != "cca_eob_production_plan_v2"
+            or type(document.get("target")) is not dict
+            or type(document.get("actor_id")) is not int or document["actor_id"] <= 0
+            or type(document.get("plan")) is not dict
+            or type(document["plan"].get("correction")) is not dict
+            or type(digest) is not str or not re.fullmatch(r"[0-9a-f]{64}", digest)
+            or hashlib.sha256(json.dumps(document, sort_keys=True, default=str).encode()).hexdigest() != digest):
+        raise ValueError("Historical document authentication or schema failed.")
+    original = document["plan"]["correction"]
     # The historical local planner serializes empty histories as lists; the
     # production reader uses booleans. Normalize only this known representation.
     comparable = original
@@ -147,9 +158,7 @@ def validate_thermal_exception(witness, correction):
                 "subculture_events": [], "subculture_allocations": [], "lineages": [], "transfer_items": []}):
         comparable = {**original, "baseline": {**original["baseline"], "histories": {
             "subculture_events": False, "subculture_allocations": False, "lineages": False, "transfer_items": False}}}
-    if (type(digest) is not str or not re.fullmatch(r"[0-9a-f]{64}", digest)
-            or hashlib.sha256(json.dumps(original, sort_keys=True, default=str).encode()).hexdigest() != digest
-            or type(original) is not dict or comparable != correction
+    if (comparable != correction
             or original.get("operation") != "cca_eob_v2_20261016_v3"
             or type(original.get("organization_id")) is not int or original["organization_id"] != 1
             or original.get("v2_sha256") != V2_SHA256
@@ -596,17 +605,22 @@ BEGIN
             WHERE e->>'classification'='REASSIGN_REQUIRED')<>move_count THEN
         RAISE EXCEPTION 'CCA-EOB recipe cardinalities differ';
     END IF;
-    -- The trusted administrator authenticates the Python fingerprint offline.
+    -- The administrator authenticates the complete historical document's Python
+    -- fingerprint offline; SQL never reserializes JSONB as that historical identity.
     -- SQL independently binds the immutable original evidence and exact 72 moves.
     IF state->'historical_readings_exist' IS DISTINCT FROM 'false'::jsonb THEN
-        historical_plan := doc#>'{plan,thermal_exception,original_plan}';
+        historical_plan := doc#>'{plan,thermal_exception,original_document,plan,correction}';
         IF historical_plan#>'{baseline,histories}' =
             '{"subculture_events":[],"subculture_allocations":[],"lineages":[],"transfer_items":[]}'::jsonb THEN
             historical_plan := jsonb_set(historical_plan,'{baseline,histories}',state->'histories');
         END IF;
         IF (move_count=72
-            AND doc#>>'{plan,thermal_exception,schema}'='cca_eob_unlinked_72_v1'
+            AND doc#>>'{plan,thermal_exception,schema}'='cca_eob_unlinked_72_v2'
             AND doc#>>'{plan,thermal_exception,original_plan_hash}' ~ '^[0-9a-f]{64}$'
+            AND jsonb_typeof(doc#>'{plan,thermal_exception,original_document}')='object'
+            AND doc#>>'{plan,thermal_exception,original_document,schema}'='cca_eob_production_plan_v2'
+            AND jsonb_typeof(doc#>'{plan,thermal_exception,original_document,plan}')='object'
+            AND jsonb_typeof(historical_plan)='object'
             AND historical_plan=correction) IS NOT TRUE THEN
             RAISE EXCEPTION 'Authenticated original 72-move thermal exception required';
         END IF;
@@ -728,6 +742,7 @@ BEGIN
         IF changed<>1 THEN RAISE EXCEPTION 'CCA-EOB revision update cardinality'; END IF;
     END LOOP;
     FOR audit IN SELECT value FROM jsonb_array_elements(recipe->'audits') LOOP
+        -- historical_plan_hash retains the complete historical document's identity.
         -- Match the ORM default for a new audit with no edit history.
         INSERT INTO public.audit_auditlog (organization_id,user_id,action,object_type,object_id,
             description,metadata,created_at,edited_at,edited_by_id,original_values)

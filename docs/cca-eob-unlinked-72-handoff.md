@@ -61,29 +61,48 @@ protégé au chemin fixe :
 
 Il contient exactement trois clés :
 
-- `schema` : `cca_eob_unlinked_72_v1`;
-- `original_plan_hash` : l'empreinte historique **déjà fixée et authentifiée**;
-- `original_plan` : le contenu intégral du plan scientifique historique couvert
-  par cette empreinte, sans ajout, suppression ou réécriture d'évidence.
+- `schema` : `cca_eob_unlinked_72_v2`;
+- `original_plan_hash` : l'empreinte indépendante du **document historique
+  complet**, déjà fixée et authentifiée; le nom du champ est conservé;
+- `original_document` : le document historique complet et inchangé, incluant
+  toute son enveloppe et son évidence. Ne pas y substituer un plan extrait.
 
-Le format pris en charge est le plan scientifique historique V3, tel que le
-champ `plan` de la sortie du correcteur local. Si l'empreinte authentifiée porte
-sur une autre enveloppe, ou si les représentations ont changé au-delà de la
-normalisation explicite ci-dessus : **STOP**. Ne pas recalculer une nouvelle
-empreinte pour faire correspondre un plan actuel, ni masquer une dérive.
+L'empreinte indépendante communiquée pour ce document complet est
+`7be6a6e8674601e9f0b3429da0d1ec0f748a9443e9b959ab537dba5ff671e7c8`.
+Elle n'a pas été vérifiée contre le JSON privé pendant l'implémentation locale.
+Le validateur calcule SHA-256 sur la sérialisation historique existante
+`json.dumps(original_document, sort_keys=True, default=str).encode()` et exige
+l'égalité avec cette identité fournie indépendamment. Il ne faut jamais
+remplacer celle-ci par le hash recalculé d'une extraction ou d'une reconstruction.
+
+L'enveloppe suit le schéma existant `cca_eob_production_plan_v2`, avec exactement
+`schema`, `target`, `actor_id`, `plan`; cible objet, acteur entier positif et
+`plan` objet. **Après authentification du document complet**, le validateur
+extrait uniquement `original_document["plan"]["correction"]`, plan scientifique
+V3 objet, prêt, sans bloqueur et contenant exactement 72 mouvements distincts.
+Ce plan scientifique reste strictement égal à la correction courante, hormis
+la seule normalisation des quatre historiques vides déjà décrite. Les anciennes
+cibles, gardes et autres évidences restent dans le document authentifié; elles
+ne sont ni reconstruites ni remplacées par leurs versions courantes.
+
+Le témoin v1, dont le hash portait sur le plan interne, est refusé. Préparer le
+nouveau conteneur v2 autour du document privé original **sans modifier ce document
+ni son empreinte**; ne pas republier son contenu dans Zed, Git ou un ticket.
+Schéma incompatible, empreinte différente ou dérive scientifique : **STOP**.
 
 Les protections existantes de lecture des documents root s'appliquent. Aucun
 chemin ni hash de substitution n'est accepté par la commande Django. Le témoin
 complet entre dans le nouveau plan de production; il est relu lors de la
 reconstruction sous verrous. Les audits enregistrent séparément
-`execution_evidence.historical_plan_hash`, le hash scientifique courant et le
-hash complet du nouveau plan de production. L'original demeure dans le témoin
+`execution_evidence.historical_plan_hash` (identité du document historique
+complet, nom conservé), le hash scientifique courant et le hash complet du
+nouveau plan de production. L'original demeure dans le témoin
 protégé et le document d'approbation conservé après consommation.
 
 Pour **chacune** des décisions `approve` et `authorize-apply`, l'émetteur SQL
 exige en plus `--historical-plan-hash`. L'administrateur doit fournir la valeur
-depuis la source d'authentification indépendante, **jamais la copier depuis le
-plan candidat**. Une substitution cohérente du plan et de son hash embarqué
+depuis la source d'authentification indépendante du document historique complet,
+**jamais la copier depuis le plan candidat**. Une substitution cohérente du plan et de son hash embarqué
 est ainsi refusée si l'empreinte indépendante reste inchangée. Les empreintes
 ne constituent pas seules une preuve de provenance : la confiance dans
 l'administrateur indépendant demeure explicite.

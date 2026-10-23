@@ -341,6 +341,16 @@ class ProductionBoundaryTests(SimpleTestCase):
             production.verify_target(self.target)
 
 
+def synthetic_historical_witness(plan, *, actor_id=7):
+    """Pin a complete synthetic historical envelope, never production evidence."""
+    document = {
+        "schema": production.SCHEMA, "target": {"synthetic": True}, "actor_id": actor_id,
+        "plan": {"correction": deepcopy(plan), "historical_evidence": {"synthetic": "preserve verbatim"}},
+    }
+    return {"schema": "cca_eob_unlinked_72_v2", "original_document": document,
+            "original_plan_hash": correction.fingerprint(document)}
+
+
 class ThermalExceptionContractTests(SimpleTestCase):
     def setUp(self):
         self.plan = {
@@ -353,8 +363,7 @@ class ThermalExceptionContractTests(SimpleTestCase):
             "baseline": {"histories": {key: [] for key in (
                 "subculture_events", "subculture_allocations", "lineages", "transfer_items")}},
         }
-        self.witness = {"schema": "cca_eob_unlinked_72_v1", "original_plan": deepcopy(self.plan),
-                        "original_plan_hash": correction.fingerprint(self.plan)}
+        self.witness = synthetic_historical_witness(self.plan)
 
     def test_exact_original_evidence_is_preserved_and_empty_history_encoding_is_allowed(self):
         original = deepcopy(self.witness)
@@ -367,9 +376,54 @@ class ThermalExceptionContractTests(SimpleTestCase):
     def test_missing_witness_wrong_schema_and_tampered_original_fail(self):
         for witness in (None, {}, {**self.witness, "schema": "other"},
                         {**self.witness, "original_plan_hash": "0" * 64},
-                        {**self.witness, "original_plan": {**self.plan, "organization_id": 2}}):
+                        {**self.witness, "original_document": {"plan": {"correction": self.plan}}}):
             with self.subTest(witness_type=type(witness)), self.assertRaises(ValueError):
                 role_contract.validate_thermal_exception(witness, self.plan)
+
+    def test_full_document_hash_is_not_an_inner_plan_hash(self):
+        document = self.witness["original_document"]
+        self.assertEqual(self.witness["original_plan_hash"], correction.fingerprint(document))
+        for inner in (document["plan"], document["plan"]["correction"]):
+            digest = correction.fingerprint(inner)
+            self.assertNotEqual(digest, self.witness["original_plan_hash"])
+            with self.assertRaisesMessage(ValueError, "Historical document authentication"):
+                role_contract.validate_thermal_exception({**self.witness, "original_plan_hash": digest}, self.plan)
+
+    def test_mutations_anywhere_in_the_authenticated_envelope_are_rejected(self):
+        for section in ("target", "evidence", "science"):
+            witness = deepcopy(self.witness)
+            document = witness["original_document"]
+            if section == "target":
+                document["target"]["synthetic"] = False
+            elif section == "evidence":
+                document["plan"]["historical_evidence"]["synthetic"] = "altered"
+            else:
+                document["plan"]["correction"]["entries"][0]["before"]["polyp_count"] = 99
+            with self.subTest(section=section), self.assertRaisesMessage(ValueError, "Historical document authentication"):
+                role_contract.validate_thermal_exception(witness, self.plan)
+
+    def test_legacy_witness_and_malformed_envelope_schemas_are_rejected(self):
+        legacy = {"schema": "cca_eob_unlinked_72_v1", "original_plan": self.plan,
+                  "original_plan_hash": correction.fingerprint(self.plan)}
+        with self.assertRaises(ValueError):
+            role_contract.validate_thermal_exception(legacy, self.plan)
+        for document in (None, self.plan, {"plan": {"correction": self.plan}},
+                         {**self.witness["original_document"], "schema": "other"},
+                         {**self.witness["original_document"], "plan": {"correction": []}},
+                         {**self.witness["original_document"], "actor_id": True}):
+            witness = {**self.witness, "original_document": document,
+                       "original_plan_hash": correction.fingerprint(document)}
+            with self.subTest(document_type=type(document)), self.assertRaises(ValueError):
+                role_contract.validate_thermal_exception(witness, self.plan)
+
+    def test_only_the_four_empty_histories_may_be_normalized(self):
+        witness = deepcopy(self.witness)
+        witness["original_document"]["plan"]["correction"]["baseline"]["histories"]["lineages"] = [1]
+        witness["original_plan_hash"] = correction.fingerprint(witness["original_document"])
+        current = deepcopy(self.plan)
+        current["baseline"]["histories"] = dict.fromkeys(current["baseline"]["histories"], False)
+        with self.assertRaisesMessage(ValueError, "exact current identity"):
+            role_contract.validate_thermal_exception(witness, current)
 
     def test_changed_identity_target_week_provenance_and_zero_fail(self):
         for field, value in (("measurement_pk", 999), ("target_box_pk", 1837), ("iso_week", 42),
@@ -382,7 +436,7 @@ class ThermalExceptionContractTests(SimpleTestCase):
     def test_71_73_duplicate_or_substituted_moves_are_not_the_exception(self):
         for order in (list(range(1, 72)), list(range(1, 74)), [1] * 72, list(range(2, 74))):
             plan = {**self.plan, "move_order": order}
-            witness = {**self.witness, "original_plan": plan, "original_plan_hash": correction.fingerprint(plan)}
+            witness = synthetic_historical_witness(plan)
             with self.subTest(order=order), self.assertRaisesMessage(ValueError, "72 moves"):
                 role_contract.validate_thermal_exception(witness, plan)
 
@@ -390,7 +444,7 @@ class ThermalExceptionContractTests(SimpleTestCase):
         for field, value in (("organization_id", 2), ("operation", "other"), ("v2_sha256", "b" * 64),
                              ("ready", False), ("blockers", ["conflict"])):
             plan = {**self.plan, field: value}
-            witness = {**self.witness, "original_plan": plan, "original_plan_hash": correction.fingerprint(plan)}
+            witness = synthetic_historical_witness(plan)
             with self.subTest(field=field), self.assertRaises(ValueError):
                 role_contract.validate_thermal_exception(witness, plan)
 
@@ -408,14 +462,35 @@ class ThermalExceptionContractTests(SimpleTestCase):
             with self.assertRaisesMessage(ValueError, "independently authenticated fixed"):
                 generator(document, digest, release, expiry)
             generator(document, digest, release, expiry, historical_plan_hash=fixed_hash)
+            for forged_hash in ("0" * 64, correction.fingerprint(self.plan)):
+                with self.subTest(generator=generator.__name__, forged_hash=forged_hash), self.assertRaisesMessage(
+                        ValueError, "independently authenticated fixed"):
+                    generator(document, digest, release, expiry, historical_plan_hash=forged_hash)
             alternative = deepcopy(document)
             alternative["plan"]["correction"]["entries"][0]["before"]["polyp_count"] = 99
             witness = alternative["plan"]["thermal_exception"]
-            witness["original_plan"] = deepcopy(alternative["plan"]["correction"])
-            witness["original_plan_hash"] = correction.fingerprint(witness["original_plan"])
+            witness["original_document"]["plan"]["correction"] = deepcopy(alternative["plan"]["correction"])
+            witness["original_plan_hash"] = correction.fingerprint(witness["original_document"])
             with self.assertRaisesMessage(ValueError, "independently authenticated fixed"):
                 generator(alternative, correction.fingerprint(alternative), synthetic_release(alternative),
                           expiry, historical_plan_hash=fixed_hash)
+
+    def test_both_admin_decisions_reject_a_rehashed_replacement_envelope(self):
+        emitter = RoleSqlContractTests.emitter()
+        fixed_hash = self.witness["original_plan_hash"]
+        witness = deepcopy(self.witness)
+        witness["original_document"]["target"]["synthetic"] = False
+        witness["original_plan_hash"] = correction.fingerprint(witness["original_document"])
+        document = {"schema": production.SCHEMA, "target": socket_target(), "actor_id": 7, "plan": {
+            "correction": self.plan, "database_snapshot": {"historical_readings_exist": True},
+            "thermal_exception": witness, "write_recipe": {},
+        }}
+        expiry = (datetime.now(timezone.utc) + timedelta(minutes=2)).isoformat()
+        for generator in (emitter.approval_sql, emitter.final_authorization_sql):
+            with self.subTest(generator=generator.__name__), self.assertRaisesMessage(
+                    ValueError, "independently authenticated fixed"):
+                generator(document, correction.fingerprint(document), synthetic_release(document), expiry,
+                          historical_plan_hash=fixed_hash)
 
     def test_runtime_plan_requires_the_witness_when_any_temperature_exists(self):
         document = {"schema": production.SCHEMA, "target": {}, "actor_id": 7, "plan": {
@@ -1313,8 +1388,7 @@ class ProductionWorkflowTests(CcaEobFixtureMixin, TransactionTestCase):
         )
         original = correction._build_plan(1, workbook_path=self.workbook_path)
         self.assertEqual(len(original["move_order"]), 72)
-        self.historical_witness = {"schema": "cca_eob_unlinked_72_v1", "original_plan": original,
-                                   "original_plan_hash": correction.fingerprint(original)}
+        self.historical_witness = synthetic_historical_witness(original, actor_id=self.admin.pk)
         self.enterContext(patch.object(production, "_root_document", return_value=self.historical_witness))
         self.add_historical_link(unchanged)
         return self.production_plan()
@@ -1356,7 +1430,8 @@ class ProductionWorkflowTests(CcaEobFixtureMixin, TransactionTestCase):
             self.assertEqual(audit.metadata["execution_evidence"]["historical_plan_hash"],
                              self.historical_witness["original_plan_hash"])
             self.assertEqual((audit.organization_id, audit.user_id), (1, self.admin.pk))
-        self.assertEqual(self.historical_witness["original_plan"], document["plan"]["thermal_exception"]["original_plan"])
+        self.assertEqual(self.historical_witness["original_document"],
+                         document["plan"]["thermal_exception"]["original_document"])
 
     @runtime_workflow
     def test_authenticated_72_reject_new_confirmed_and_pending_links(self):
@@ -2009,7 +2084,7 @@ class WriterCapabilityTests(MinimumPrivilegeBase):
             if case == "missing":
                 document["plan"]["thermal_exception"] = None
             elif case == "changed":
-                document["plan"]["thermal_exception"]["original_plan"]["entries"][0]["iso_week"] = 42
+                document["plan"]["thermal_exception"]["original_document"]["plan"]["correction"]["entries"][0]["iso_week"] = 42
             else:
                 plan = document["plan"]["correction"]
                 removed = plan["move_order"].pop()

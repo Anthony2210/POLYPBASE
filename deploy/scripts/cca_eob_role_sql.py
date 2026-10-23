@@ -235,6 +235,7 @@ def _validate_reviewed_evidence(document, reviewed_hash, release, historical_pla
             or not isinstance(plan.get("database_snapshot"), dict) or not isinstance(plan.get("write_recipe"), dict)):
         raise ValueError("Expected a complete ready fixed-scope plan and deterministic write recipe.")
     if plan["database_snapshot"].get("historical_readings_exist") is not False:
+        # Both decisions bind the independent complete-document hash, not an inner plan hash.
         contract.validate_thermal_exception(plan.get("thermal_exception"), correction)
         if (type(historical_plan_hash) is not str
                 or historical_plan_hash != plan["thermal_exception"]["original_plan_hash"]):
