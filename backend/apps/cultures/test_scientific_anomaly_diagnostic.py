@@ -21,6 +21,7 @@ from apps.taxonomy.models import (
 from .historical_2026 import anomaly_diagnostic as diagnostic
 from .historical_2026 import decisions
 from .historical_2026 import species_correction as correction
+from . import pca_identity_unification as pca
 from .models import Box
 
 
@@ -648,3 +649,152 @@ class SourceEvidenceTests(DiagnosticBase):
         self.assertEqual(Box.objects.get(pk=box.pk).status, Box.Status.ACTIVE)
         for warning in entry["warnings"]:
             self.assertNotIn("eligible", warning["message"])
+
+
+class IdentityDecisionTests(DiagnosticBase):
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.ato = Strain.objects.create(organization=cls.org, code="ATO-JIS-1",
+                                        species=Species.objects.create(scientific_name="Atorella sp."))
+        cls.cor = Strain.objects.create(organization=cls.org, code="COR-JIS-1",
+                                        species=Species.objects.create(scientific_name="Coronatae sp."))
+        pca_species = Species.objects.create(scientific_name="Phacellophora camtschatica")
+        cls.pca_cho = Strain.objects.create(organization=cls.org, code="PCA-CHO-1", species=pca_species)
+        cls.pca_jka = Strain.objects.create(organization=cls.org, code="PCA-JKA-1", species=pca_species)
+        cls.ldr = Strain.objects.create(organization=cls.org, code="LDR-JAP-1",
+                                        species=Species.objects.create(scientific_name="Lychnorhiza test"))
+        cls.lactea = Species.objects.create(scientific_name="Chrysaora lactea")
+        cls.lamarckii = Species.objects.create(scientific_name="Cyanea lamarckii")
+        cls.cla = Strain.objects.create(organization=cls.org, code="CLA-JKA-1", species=cls.lamarckii)
+        cls.clc = Strain.objects.create(organization=cls.org, code="CLC-JKA-1", species=cls.lactea)
+        stomolophus = Species.objects.create(scientific_name="Stomolophus meleagris")
+        cls.sme1 = Strain.objects.create(organization=cls.org, code="SME-JKA-1", species=stomolophus)
+        cls.sme2 = Strain.objects.create(organization=cls.org, code="SME-JKA-2", species=stomolophus)
+        cls.ssp = Strain.objects.create(organization=cls.org, code="SSP-JKA-1",
+                                        species=Species.objects.create(scientific_name="Stomolophus sp.2"))
+
+    def box(self, code, strain, org=None):
+        return Box.objects.create(organization=org or self.org, global_code=code,
+                                  box_number=code.rsplit(".", 1)[1], strain=strain)
+
+    def identity(self, org=None):
+        return self.run_report(org, mode="identity")["identity_decisions"]
+
+    def approved(self, org=None):
+        return {e["correction"].split()[0]: e for e in self.identity(org)["approved_corrections"]}
+
+    def unresolved(self, group):
+        return {e["global_code"]: e for e in self.identity()["unresolved"][group]["entries"]}
+
+    def test_empty_state_is_missing_never_applied(self):
+        statuses = {code: e["status"] for code, e in self.approved().items()}
+        self.assertEqual(statuses, {"COR-JIS-1.001": "MISSING", "PCA-CHO-1.005": "MISSING",
+                                    "LDR-JAP-1.001": "MISSING"})
+
+    def test_cor_ato_states(self):
+        cor = self.box("COR-JIS-1.001", self.cor)
+        self.assertEqual(self.approved()["COR-JIS-1.001"]["status"], "NOT_APPLIED")
+        ato = self.box("ATO-JIS-1.001", self.ato)
+        self.assertEqual(self.approved()["COR-JIS-1.001"]["status"], "CONFLICT")
+        cor.delete()
+        self.assertEqual(self.approved()["COR-JIS-1.001"]["status"], "APPLIED_VERIFIED")
+        Box.objects.filter(pk=ato.pk).update(strain=self.cor)
+        self.assertEqual(self.approved()["COR-JIS-1.001"]["status"], "CONFLICT")
+
+    def test_pca_states(self):
+        old = self.box("PCA-CHO-1.005", self.pca_cho)
+        self.assertEqual(self.approved()["PCA-CHO-1.005"]["status"], "NOT_APPLIED")
+        donor = self.box("PCA-JKA-1.005", self.pca_jka)
+        self.assertEqual(self.approved()["PCA-CHO-1.005"]["status"], "NOT_APPLIED")
+        Box.objects.filter(pk=donor.pk).update(global_code=pca.RETIRED_CODE, status="inactive", merged_into=old,
+                                               previous_global_code="PCA-JKA-1.005")
+        Box.objects.filter(pk=old.pk).update(global_code="PCA-JKA-1.005", strain=self.pca_jka,
+                                             previous_global_code="PCA-CHO-1.005")
+        self.assertEqual(self.approved()["PCA-CHO-1.005"]["status"], "APPLIED_VERIFIED")
+        Box.objects.filter(pk=donor.pk).update(merged_into=None)
+        self.assertEqual(self.approved()["PCA-CHO-1.005"]["status"], "UNVERIFIED")
+
+    def test_ldr_zero_is_a_real_value_and_absence_is_missing(self):
+        box = self.box("LDR-JAP-1.001", self.ldr)
+        self.assertEqual(self.approved()["LDR-JAP-1.001"]["status"], "MISSING")
+        other_week = BiologicalMeasurement.objects.create(
+            box=box, measured_on=date.fromisocalendar(2026, 17, 1), polyp_count=80, ephyrae_count=0)
+        self.assertEqual(self.approved()["LDR-JAP-1.001"]["status"], "MISSING")
+        measurement = BiologicalMeasurement.objects.create(
+            box=box, measured_on=date.fromisocalendar(2026, 18, 1), polyp_count=80, ephyrae_count=8,
+            strobila_count=None)
+        self.assertEqual(self.approved()["LDR-JAP-1.001"]["status"], "NOT_APPLIED")
+        BiologicalMeasurement.objects.filter(pk=measurement.pk).update(ephyrae_count=0)
+        entry = self.approved()["LDR-JAP-1.001"]
+        self.assertEqual(entry["status"], "APPLIED_VERIFIED")
+        self.assertEqual(entry["persisted_value"]["ephyrae_count"], 0)
+        self.assertEqual(entry["persisted_value"]["measurement_id"], measurement.pk)
+        BiologicalMeasurement.objects.filter(pk=measurement.pk).update(polyp_count=0, ephyrae_count=0)
+        self.assertEqual(self.approved()["LDR-JAP-1.001"]["status"], "CONFLICT")
+        self.assertEqual(BiologicalMeasurement.objects.get(pk=other_week.pk).ephyrae_count, 0)
+
+    def test_cla_clc_is_always_blocked_and_reports_contradictions(self):
+        self.box("CLA-JKA-1.009", self.cla)
+        entries = self.unresolved("D11_CLA_CLC")
+        self.assertEqual(set(entries), {"CLA-JKA-1.009", "CLA-JKA-1.010"})
+        for entry in entries.values():
+            self.assertEqual(entry["status"], "BLOCKED_DECISION_REQUIRED")
+            self.assertIn("BOX_CODE_DECISION_REQUIRED", entry["reasons"])
+        self.assertIn("SPECIES_DIFFERS_FROM_SOURCE:CLA-JKA-1.009", entries["CLA-JKA-1.009"]["reasons"])
+        self.assertEqual(entries["CLA-JKA-1.009"]["source_evidence"]["v2_literal"], "CLC-JKA-1.09")
+        self.assertEqual(entries["CLA-JKA-1.010"]["source_evidence"]["v2_literal"], "CLC-JKA1.10")
+        self.assertFalse(entries["CLA-JKA-1.010"]["persisted"][0]["exists"])
+        Box.objects.filter(global_code="CLA-JKA-1.009").update(strain=self.clc)
+        self.box("CLC-JKA-1.009", self.clc)
+        entry = self.unresolved("D11_CLA_CLC")["CLA-JKA-1.009"]
+        self.assertEqual(entry["status"], "BLOCKED_DECISION_REQUIRED")
+        self.assertIn("DUPLICATE_IDENTITY", entry["reasons"])
+        self.assertFalse(any(reason.startswith("SPECIES_DIFFERS") for reason in entry["reasons"]))
+
+    def test_sme_ssp_is_blocked_with_possible_duplicates_and_bounded_scope(self):
+        for code, strain in (("SME-JKA-1.004", self.sme1), ("SME-JKA-1.008", self.sme1),
+                             ("SSP-JKA-1.008", self.ssp), ("SSP-JKA-1.011", self.ssp),
+                             ("SME-JKA-2.001", self.sme2)):
+            self.box(code, strain)
+        group = self.identity()["unresolved"]["D8_SME_SSP"]
+        entries = {e["global_code"]: e for e in group["entries"]}
+        self.assertEqual(set(entries), {"SME-JKA-1.004", "SME-JKA-1.008"})
+        for entry in entries.values():
+            self.assertEqual(entry["status"], "BLOCKED_DECISION_REQUIRED")
+            self.assertIn("TARGET_IDENTITY_UNSPECIFIED", entry["reasons"])
+        self.assertIn("POSSIBLE_DUPLICATE_IDENTITY:SSP-JKA-1.008", entries["SME-JKA-1.008"]["reasons"])
+        self.assertFalse(any(r.startswith("POSSIBLE") for r in entries["SME-JKA-1.004"]["reasons"]))
+        self.assertEqual(entries["SME-JKA-1.004"]["source_history"]["2021"], "Stomolophus sp.2")
+        self.assertEqual(group["persisted_collision_namespace_codes"], ["SSP-JKA-1.008", "SSP-JKA-1.011"])
+        self.assertEqual(group["source_history_sha256"], decisions.CLEAN_HISTORY_SHA256)
+
+    def test_other_organization_is_never_reported(self):
+        foreign = Strain.objects.create(organization=self.other_org, code="SME-JKA-1",
+                                        species=Species.objects.create(scientific_name="Foreign Secret Species"))
+        self.box("SME-JKA-1.001", foreign, org=self.other_org)
+        self.box("ATO-JIS-1.001", self.ato, org=self.other_org)
+        self.box("CLA-JKA-1.010", foreign)  # own Box pointing at a foreign Strain
+        report = self.run_report(mode="identity")
+        text = json.dumps(report) + diagnostic.render_summary(report)
+        self.assertNotIn("Foreign Secret Species", text)
+        identity = report["identity_decisions"]
+        self.assertEqual(identity["unresolved"]["D8_SME_SSP"]["entries"], [])
+        self.assertEqual(self.approved()["COR-JIS-1.001"]["status"], "MISSING")
+        cla = self.unresolved("D11_CLA_CLC")["CLA-JKA-1.010"]
+        self.assertEqual(cla["persisted"][0]["strain"], {"available_in_organization": False})
+        self.assertNotIn(f'"id": {foreign.pk},', json.dumps(cla))
+
+    def test_identity_mode_writes_nothing_and_summarizes(self):
+        self.box("CLA-JKA-1.009", self.cla)
+        before, audits = self.database_snapshot(), AuditLog.objects.count()
+        out = StringIO()
+        call_command("diagnose_scientific_anomalies", organization_id=self.org.pk, mode="identity",
+                     summary_only=True, stdout=out)
+        self.assertEqual(self.database_snapshot(), before)
+        self.assertEqual(AuditLog.objects.count(), audits)
+        self.assertIn("Identities blocked pending a product decision: 2", out.getvalue())
+        self.assertIn("CLA-JKA-1.009: BLOCKED_DECISION_REQUIRED", out.getvalue())
+        report = self.run_report(mode="identity")
+        self.assertEqual(report["report_sha256"], diagnostic.fingerprint(report))
+        self.assertNotIn("urgent_species", report)

@@ -302,15 +302,63 @@ class ApplyTests(ImporterBase):
         self.assertEqual((Strain.objects.count(), Species.objects.count()), before)
         self.assertEqual(Box.objects.get(global_code="AAA-BBB-1.002").strain, self.strain)
 
-    def test_strain_species_disagreeing_with_the_source_needs_a_reviewed_exception(self):
+    def test_strain_species_disagreeing_with_the_source_blocks_even_with_a_label_exception(self):
         spec = box_spec("AAA-BBB-1.002", species="Chrysaora lactea", number="02")
         manifest = make_manifest([spec], [item("AAA-BBB-1.002", 1, 1, 0)])
         self.assertEqual(self.classes(self.plan(manifest)), {("AAA-BBB-1.002", 1): importer.IDENTITY_MISMATCH})
         excepted = make_manifest(
-            [spec], [item("AAA-BBB-1.002", 1, 1, 0)],
-            exceptions={"AAA-BBB-1": {"source_label": "Chrysaora lactea", "reason": "TEST"}},
+            [spec], [item("AAA-BBB-1.002", 1, 0, 0)],
+            exceptions={"AAA-BBB-1": {"source_label": "Chrysaora lactea", "reason": "TEST_D11"}},
+        )
+        plan = self.plan(excepted)
+        self.assertEqual(self.classes(plan), {("AAA-BBB-1.002", 1): importer.IDENTITY_MISMATCH})
+        [blocker] = [b for b in plan.blockers if b["iso_week"] is None]
+        self.assertIn("TEST_D11", blocker["detail"])
+        self.assertIn("human decision", blocker["detail"])
+        before, audits = self.counts(), AuditLog.objects.count()
+        with self.assertRaises(importer.HistoricalImportBlocked):
+            self.apply(excepted, plan_hash=plan.plan_hash)
+        self.assertEqual((self.counts(), AuditLog.objects.count()), (before, audits))
+        self.assertFalse(Box.objects.filter(global_code="AAA-BBB-1.002").exists())
+
+    def test_label_exception_is_unused_when_strain_species_matches_the_source(self):
+        Strain.objects.filter(pk=self.strain.pk).update(
+            species=Species.objects.create(scientific_name="Chrysaora lactea"))
+        spec = box_spec("AAA-BBB-1.002", species="Chrysaora lactea", number="02")
+        excepted = make_manifest(
+            [spec], [item("AAA-BBB-1.002", 1, 0, 0)],
+            exceptions={"AAA-BBB-1": {"source_label": "Chrysaora lactea", "reason": "TEST_D11"}},
         )
         self.assertEqual(self.classes(self.plan(excepted)), {("AAA-BBB-1.002", 1): importer.MISSING_BOX})
+        self.apply(excepted)
+        box = Box.objects.get(global_code="AAA-BBB-1.002")
+        self.assertEqual(box.strain.species.scientific_name, "Chrysaora lactea")
+        measurement = box.biological_measurements.get()
+        self.assertEqual((measurement.polyp_count, measurement.ephyrae_count, measurement.strobila_count),
+                         (0, 0, None))
+
+    def test_materialization_revalidates_species_without_the_label_exception(self):
+        Strain.objects.filter(pk=self.strain.pk).update(
+            species=Species.objects.create(scientific_name="Chrysaora lactea"))
+        spec = box_spec("AAA-BBB-1.002", species="Chrysaora lactea", number="02")
+        excepted = make_manifest(
+            [spec], [item("AAA-BBB-1.002", 1, 1, 0)],
+            exceptions={"AAA-BBB-1": {"source_label": "Chrysaora lactea", "reason": "TEST_D11"}},
+        )
+        plan_hash = self.plan(excepted).plan_hash
+        before, audits = self.counts(), AuditLog.objects.count()
+        original = importer._species_and_strain
+
+        def drifted(*args, **kwargs):
+            # Simulate a concurrent Species change between plan and write.
+            Strain.objects.filter(pk=self.strain.pk).update(species=self.species)
+            return original(*args, **kwargs)
+
+        with mock.patch.object(importer, "_species_and_strain", side_effect=drifted), \
+                self.assertRaisesMessage(importer.HistoricalImportError, "species changed"):
+            self.apply(excepted, plan_hash=plan_hash)
+        self.assertEqual((self.counts(), AuditLog.objects.count()), (before, audits))
+        self.assertEqual(Strain.objects.get(pk=self.strain.pk).species.scientific_name, "Chrysaora lactea")
 
     def test_box_creation_rolls_back_when_a_later_measurement_fails(self):
         manifest = make_manifest(
@@ -844,3 +892,106 @@ class TthCorrectionTests(ImporterBase):
                 self.apply(manifest, plan_hash=plan_hash)
         existing.refresh_from_db()
         self.assertEqual((existing.polyp_count, existing.ephyrae_count), (20, 300))
+
+
+class D11ExistingBoxTests(ImporterBase):
+    CODES = (("CLA-JKA-1.009", "09"), ("CLA-JKA-1.010", "10"))
+
+    def setUp(self):
+        super().setUp()
+        self.lactea = Species.objects.create(scientific_name="Chrysaora lactea")
+        self.lamarckii = Species.objects.create(scientific_name="Cyanea lamarckii")
+        self.cla = Strain.objects.create(species=self.lamarckii, organization=self.org, code="CLA-JKA-1")
+        self.d11 = {
+            code: self.make_box(code, strain=self.cla, local=f"CLA-JKA-1.{number}", number=number)
+            for code, number in self.CODES
+        }
+
+    def d11_manifest(self, code, number, *, polyps=0, ephyrae=0):
+        return make_manifest(
+            [box_spec("AAA-BBB-1.001"), box_spec(code, species="Chrysaora lactea", number=number)],
+            [item("AAA-BBB-1.001", 1, 5, 1), item(code, 1, polyps, ephyrae)],
+            exceptions={"CLA-JKA-1": {"source_label": "Chrysaora lactea", "reason": "TEST_D11"}},
+        )
+
+    def state(self):
+        return (self.counts(), list(Box.objects.order_by("pk").values_list(
+            "pk", "global_code", "local_code", "strain_id", "status")))
+
+    def test_existing_d11_box_with_contradicting_species_blocks_the_whole_batch(self):
+        for code, number in self.CODES:
+            with self.subTest(code=code):
+                manifest = self.d11_manifest(code, number)
+                plan = self.plan(manifest)
+                self.assertEqual(plan.boxes[code]["state"], importer.BOX_IDENTITY_MISMATCH)
+                self.assertEqual(self.classes(plan)[(code, 1)], importer.IDENTITY_MISMATCH)
+                self.assertIn("D11", plan.boxes[code]["detail"])
+                self.assertNotIn(code, [d["box"] for d in plan.informational["species_label_differences"]])
+                before = self.state()
+                with self.assertRaises(importer.HistoricalImportBlocked):
+                    self.apply(manifest, plan_hash=plan.plan_hash)
+                self.assertEqual(self.state(), before)
+                self.assertFalse(BiologicalMeasurement.objects.exists())
+
+    def test_hash_from_a_compatible_dry_run_cannot_bypass_the_guard(self):
+        Strain.objects.filter(pk=self.cla.pk).update(species=self.lactea)
+        manifest = self.d11_manifest("CLA-JKA-1.009", "09")
+        reviewed_hash = self.plan(manifest).plan_hash
+        Strain.objects.filter(pk=self.cla.pk).update(species=self.lamarckii)
+        before = self.state()
+        with self.assertRaises(importer.HistoricalImportBlocked):
+            self.apply(manifest, plan_hash=reviewed_hash)
+        self.assertEqual(self.state(), before)
+
+    def test_compatible_identity_is_accepted_and_keeps_real_zero(self):
+        Strain.objects.filter(pk=self.cla.pk).update(species=self.lactea)
+        box = self.d11["CLA-JKA-1.010"]
+        self.measurement(box, 2, 0, 0)
+        manifest = make_manifest(
+            [box_spec("CLA-JKA-1.010", species="Chrysaora lactea", number="10")],
+            [item("CLA-JKA-1.010", 1, 0, 0), item("CLA-JKA-1.010", 2, 0, 0)],
+        )
+        plan = self.plan(manifest)
+        self.assertEqual(self.classes(plan), {("CLA-JKA-1.010", 1): importer.CREATE,
+                                              ("CLA-JKA-1.010", 2): importer.EXACT_ALREADY_PRESENT})
+        self.apply(manifest, plan_hash=plan.plan_hash)
+        values = list(box.biological_measurements.order_by("measured_on").values_list(
+            "polyp_count", "ephyrae_count", "strobila_count"))
+        # Created row keeps strobila NULL; the existing 0/0/0 row is left untouched.
+        self.assertEqual(values, [(0, 0, None), (0, 0, 0)])
+        box.refresh_from_db()
+        self.assertEqual((box.global_code, box.strain_id), ("CLA-JKA-1.010", self.cla.pk))
+
+    def test_apply_revalidates_identity_drift_under_lock_and_rolls_back(self):
+        Strain.objects.filter(pk=self.cla.pk).update(species=self.lactea)
+        manifest = self.d11_manifest("CLA-JKA-1.009", "09")
+        plan_hash = self.plan(manifest).plan_hash
+        before = self.state()
+        original = importer.build_plan
+
+        def drifted(*args, **kwargs):
+            plan = original(*args, **kwargs)
+            # Concurrent Species change after the locked plan read the Strain.
+            Strain.objects.filter(pk=self.cla.pk).update(species=self.lamarckii)
+            return plan
+
+        with mock.patch.object(importer, "build_plan", side_effect=drifted), \
+                self.assertRaisesMessage(importer.HistoricalImportError, "D11"):
+            self.apply(manifest, plan_hash=plan_hash)
+        self.assertEqual(self.state(), before)
+        self.assertEqual(Strain.objects.get(pk=self.cla.pk).species, self.lactea)
+
+    def test_label_difference_outside_d11_stays_informational(self):
+        manifest = make_manifest([box_spec("AAA-BBB-1.001", species="Aurelia test variant")],
+                                 [item("AAA-BBB-1.001", 1, 0, 0)])
+        plan = self.plan(manifest)
+        self.assertEqual(plan.boxes["AAA-BBB-1.001"]["state"], importer.BOX_PRESENT)
+        self.assertEqual(self.classes(plan), {("AAA-BBB-1.001", 1): importer.CREATE})
+        self.assertEqual(plan.informational["species_label_differences"],
+                         [{"box": "AAA-BBB-1.001", "database": "Aurelia test", "source": "Aurelia test variant"}])
+        self.apply(manifest, plan_hash=plan.plan_hash)
+        measurement = self.box.biological_measurements.get()
+        self.assertEqual((measurement.polyp_count, measurement.ephyrae_count), (0, 0))
+
+    def test_guard_scope_is_exactly_the_two_d11_identities(self):
+        self.assertEqual(importer.D11_SOURCE_IDENTITY_BOXES, {"CLA-JKA-1.009", "CLA-JKA-1.010"})

@@ -11,7 +11,8 @@ class Command(BaseCommand):
     help = (
         "Read-only report (JSON on stdout, summary on stderr) explaining whether "
         "correct_urgent_species is READY or BLOCKED and how the HS deactivation plan "
-        "classifies each listed label. Never writes, never selects a target Strain."
+        "classifies each listed label, and which approved identity corrections are persisted "
+        "or blocked pending a decision. Never writes, never selects a target Strain."
     )
 
     def add_arguments(self, parser):

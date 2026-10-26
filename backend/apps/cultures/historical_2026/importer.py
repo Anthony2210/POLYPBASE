@@ -24,7 +24,7 @@ from apps.cultures.api_views import (
     _record_measurement_audit,
 )
 from apps.cultures.models import Box, IdentificationTag
-from . import reviewed_cleanup
+from . import decisions, reviewed_cleanup
 from apps.measurements.models import BiologicalMeasurement
 from apps.measurements.services import get_active_measurement_role
 from apps.organizations.models import Organization
@@ -60,6 +60,13 @@ BOX_MATERIALIZE = "MATERIALIZE"
 BOX_IDENTITY_MISMATCH = "IDENTITY_MISMATCH"
 
 IMPORT_OBJECT_TYPE = "historical_import_2026"
+
+# D11: these exact existing Boxes only accept source rows while their persisted
+# Strain Species is the source identity. Other historical label differences stay
+# informational.
+D11_SOURCE_IDENTITY_BOXES = frozenset(
+    box["code"] for box in decisions.UNRESOLVED_IDENTITIES["D11_CLA_CLC"]["boxes"]
+)
 
 
 class HistoricalImportError(Exception):
@@ -225,14 +232,17 @@ def _plan_materialization(spec, organization, strains_by_code):
         organization=organization, strain=strain
     ).exists():
         return BOX_IDENTITY_MISMATCH, "unowned strain without a box in this organization"
-    exception = spec["_exception"]
-    if strain.species.scientific_name != spec["species_name"] and not (
-        exception and exception["source_label"] == spec["species_name"]
-    ):
-        return BOX_IDENTITY_MISMATCH, (
+    if strain.species.scientific_name != spec["species_name"]:
+        detail = (
             f"strain species {strain.species.scientific_name!r} differs from "
             f"source {spec['species_name']!r}"
         )
+        exception = spec["_exception"]
+        if exception and exception["source_label"] == spec["species_name"]:
+            # A recorded label exception is evidence, never permission to file a
+            # source observation under another Species.
+            detail += f"; unresolved identity ({exception['reason']}) requires a human decision"
+        return BOX_IDENTITY_MISMATCH, detail
     return BOX_MATERIALIZE, "existing strain"
 
 
@@ -318,6 +328,8 @@ def _plan_present(plan, spec, existing, organization):
     if existing.box_number and existing.box_number != spec["box_number"]:
         return _mismatch(spec, f"box number is {existing.box_number!r}")
     if existing.strain.species.scientific_name != spec["species_name"]:
+        if spec["code"] in D11_SOURCE_IDENTITY_BOXES:
+            return _mismatch(spec, _d11_detail(spec, existing.strain.species.scientific_name))
         plan.informational["species_label_differences"].append(
             {
                 "box": spec["code"],
@@ -326,6 +338,25 @@ def _plan_present(plan, spec, existing, organization):
             }
         )
     return {"state": BOX_PRESENT, "box": existing, "detail": "", "spec": spec}
+
+
+def _d11_detail(spec, persisted_species):
+    return (
+        f"strain species {persisted_species!r} contradicts source {spec['species_name']!r}; "
+        "unresolved D11 CLA/CLC identity requires a human decision"
+    )
+
+
+def _revalidate_d11_boxes(plan):
+    """Re-read the locked Box, Strain and Species of each D11 Box before any write."""
+    for code in sorted(D11_SOURCE_IDENTITY_BOXES & set(plan.boxes)):
+        state = plan.boxes[code]
+        if state["state"] != BOX_PRESENT:
+            continue  # materialization revalidates its own Strain species
+        box = Box.objects.select_for_update().get(pk=state["box"].pk)
+        strain = Strain.objects.select_for_update().select_related("species").get(pk=box.strain_id)
+        if box.global_code != code or strain.species.scientific_name != state["spec"]["species_name"]:
+            raise HistoricalImportError(f"{code}: {_d11_detail(state['spec'], strain.species.scientific_name)}.")
 
 
 def _plan_identity_correction(spec, correction, source, organization):
@@ -505,10 +536,7 @@ def _apply_identity_correction(plan, state, actor, fingerprint):
 def _materialize_box(plan, state, actor, fingerprint):
     spec, organization = state["spec"], plan.organization
     strain, created = _species_and_strain(spec, organization)
-    exception = spec["_exception"]
-    if strain.species.scientific_name != spec["species_name"] and not (
-        exception and exception["source_label"] == spec["species_name"]
-    ):
+    if strain.species.scientific_name != spec["species_name"]:
         raise HistoricalImportError(f"Strain {strain.code} species changed during the import.")
     if strain.organization_id not in (None, organization.pk):
         raise HistoricalImportError(f"Strain {strain.code} belongs to another organization.")
@@ -612,6 +640,7 @@ def apply_import(manifest, organization, *, actor, expected_plan_hash):
                 "The database changed since the reviewed dry-run "
                 f"(plan {plan.plan_hash} != {expected_plan_hash})."
             )
+        _revalidate_d11_boxes(plan)
         if not plan.has_changes:
             return plan, None
 

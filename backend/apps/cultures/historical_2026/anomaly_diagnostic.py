@@ -1,12 +1,15 @@
 """Read-only diagnosis of the persisted state behind historical scientific anomalies.
 
-Two modes share one report:
+Three modes share one report:
 
 * ``urgent``: why ``correct_urgent_species`` is READY or BLOCKED for the six
   reviewed Boxes. The verdict comes from the real ``build_plan`` mechanism; this
   module only explains it with persisted facts.
 * ``hs``: what the existing HS deactivation plan would classify for the 35 listed
   labels, with safety warnings. A warning is never a lifecycle proposal.
+* ``identity``: whether the persisted state shows the other approved identity and
+  value corrections as applied, and the persisted facts behind identities that
+  stay BLOCKED until a product decision. Never a correction proposal.
 
 Nothing here writes, locks, creates references or infers a taxonomic identity.
 Candidate references are reported as candidates only. Every SQL statement runs
@@ -16,10 +19,12 @@ through a guard that refuses writes and row locks.
 import hashlib
 import json
 import re
+from datetime import date
 
 from django.db import DEFAULT_DB_ALIAS, connections
 from django.db.models import Count, Q
 
+from apps.cultures import pca_identity_unification as pca
 from apps.cultures.models import Box
 from apps.measurements.models import BiologicalMeasurement
 from apps.organizations.models import Organization
@@ -33,7 +38,7 @@ from .species_correction import LEDGER_SHA256, SPECS, V2_SHA256, build_plan
 
 SCHEMA = "polypbase.scientific_anomaly_diagnostic"
 SCHEMA_VERSION = 1
-MODES = ("urgent", "hs", "all")
+MODES = ("urgent", "hs", "identity", "all")
 
 URGENT_CODES = frozenset(spec[0] for spec in SPECS)
 
@@ -95,6 +100,8 @@ def diagnose(organization_id, *, mode="all", cac_strain_id=None, oce_strain_id=N
             report["urgent_species"] = _urgent(organization, cac_strain_id, oce_strain_id)
         if mode in ("hs", "all"):
             report["hs_deactivation"] = _hs(organization)
+        if mode in ("identity", "all"):
+            report["identity_decisions"] = _identity(organization)
         report["report_sha256"] = fingerprint(report)
         return report
 
@@ -484,6 +491,172 @@ def _hs(organization):
     }
 
 
+APPLIED = "APPLIED_VERIFIED"
+NOT_APPLIED = "NOT_APPLIED"
+ABSENT = "MISSING"
+INCONSISTENT = "CONFLICT"
+UNVERIFIED = "UNVERIFIED"
+DECISION_REQUIRED = "BLOCKED_DECISION_REQUIRED"
+
+
+def _box_facts(organization, box):
+    """Persisted identity of one Box of this Organization; a foreign Strain is never described."""
+    facts = {"global_code": box.global_code, "exists": True, "pk": box.pk, "status": box.status,
+             "merged_into_id": box.merged_into_id, "previous_global_code": box.previous_global_code}
+    if box.strain_id in _available_strain_ids(organization, [box.strain_id]):
+        facts["strain"] = _strain_ref(box.strain, organization)
+    else:
+        facts["strain"] = dict(UNAVAILABLE)
+    return facts
+
+
+def _identity_box(organization, code):
+    box = Box.objects.select_related("strain__species").filter(organization=organization, global_code=code).first()
+    if box is None:
+        return None, {"global_code": code, "exists": False}
+    return box, _box_facts(organization, box)
+
+
+def _strain_is(facts, code, species_name):
+    strain = facts.get("strain") or {}
+    return strain.get("code") == code and strain.get("species_name") == species_name
+
+
+def _identity_correction(organization, item):
+    """COR-JIS-1.001 -> ATO-JIS-1.001 is a rename of one Box by the historical importer."""
+    source, source_facts = _identity_box(organization, item["from_code"])
+    target, target_facts = _identity_box(organization, item["to_code"])
+    if source and target:
+        status, detail = INCONSISTENT, "Both codes exist: one culture would have two identities."
+    elif target:
+        if _strain_is(target_facts, item["to_strain_code"], item["to_species_name"]):
+            status, detail = APPLIED, "Corrected identity is persisted."
+        else:
+            status, detail = INCONSISTENT, "The corrected code exists with another Strain or Species."
+    elif source:
+        status, detail = NOT_APPLIED, "Only the original code exists; the reviewed import applies the rename."
+    else:
+        status, detail = ABSENT, "Neither code exists in this organization."
+    return {"correction": f"{item['from_code']} -> {item['to_code']}", "reason": item["reason"],
+            "status": status, "detail": detail, "persisted": [source_facts, target_facts]}
+
+
+def _pca_unification(organization):
+    old, old_facts = _identity_box(organization, pca.OLD_CODE)
+    official, official_facts = _identity_box(organization, pca.OFFICIAL_CODE)
+    retired, retired_facts = _identity_box(organization, pca.RETIRED_CODE)
+    if old is not None:
+        status, detail = NOT_APPLIED, "The erroneous code still exists; the reviewed unification is pending."
+    elif official is None:
+        status, detail = ABSENT, "No Box carries the official code in this organization."
+    elif (official.merged_into_id is None and official.previous_global_code == pca.OLD_CODE
+          and official_facts["strain"].get("code") == pca.OFFICIAL_CODE.rsplit(".", 1)[0]
+          and retired is not None and retired.merged_into_id == official.pk):
+        status, detail = APPLIED, "Official code, retired donor and merge link are persisted."
+    else:
+        status, detail = UNVERIFIED, "The official code exists without the complete reviewed merge evidence."
+    return {"correction": f"{pca.OLD_CODE} -> {pca.OFFICIAL_CODE}", "reason": "D26",
+            "operation": pca.OPERATION, "status": status, "detail": detail,
+            "persisted": [old_facts, official_facts, retired_facts]}
+
+
+def _measurement_correction(organization, item):
+    box, facts = _identity_box(organization, item["box"])
+    expected = (item["expected_current"]["polyps"], item["expected_current"]["ephyrae"])
+    target = (item["target"]["polyps"], item["target"]["ephyrae"])
+    entry = {"correction": f"{item['box']} {item['iso_year']}-W{item['iso_week']:02d} "
+                           f"{expected[0]}/{expected[1]} -> {target[0]}/{target[1]}",
+             "reason": item["reason"], "persisted": [facts], "persisted_value": None}
+    measurement = None
+    if box is not None:
+        measurement = BiologicalMeasurement.objects.canonical().filter(
+            box=box, week_start=date.fromisocalendar(item["iso_year"], item["iso_week"], 1)).first()
+    if measurement is None:
+        entry.update(status=ABSENT, detail="No canonical measurement exists for this Box and week.")
+        return entry
+    # None means not measured; it is never equal to a real 0.
+    current = (measurement.polyp_count, measurement.ephyrae_count)
+    entry["persisted_value"] = {"measurement_id": measurement.pk, "polyp_count": current[0],
+                                "ephyrae_count": current[1], "measured_on": measurement.measured_on.isoformat()}
+    if current == target:
+        entry.update(status=APPLIED, detail="The approved value is persisted.")
+    elif current == expected:
+        entry.update(status=NOT_APPLIED, detail="The original value is persisted; the reviewed import corrects it.")
+    else:
+        entry.update(status=INCONSISTENT, detail="Neither the original nor the approved value is persisted.")
+    return entry
+
+
+def _cla_clc(organization, spec):
+    entries = []
+    for item in spec["boxes"]:
+        box, facts = _identity_box(organization, item["code"])
+        candidate, candidate_facts = _identity_box(organization, item["candidate_code"])
+        reasons = ["BOX_CODE_DECISION_REQUIRED"]
+        if box and candidate:
+            reasons.append("DUPLICATE_IDENTITY")
+        for found in (facts, candidate_facts):
+            strain = found.get("strain")
+            if strain and strain.get("available_in_organization") \
+                    and strain["species_name"] != spec["source_species"]:
+                reasons.append(f"SPECIES_DIFFERS_FROM_SOURCE:{found['global_code']}")
+        entries.append({
+            "global_code": item["code"], "status": DECISION_REQUIRED, "reasons": reasons,
+            "persisted": [facts, candidate_facts],
+            "source_evidence": {"origin": "workbooks_static", "species_label": spec["source_species"],
+                                "original_literal": item["original_literal"], "v2_literal": item["v2_literal"],
+                                "cell": item["cell"]},
+        })
+    return {"decision": spec["decision"], "open_question": spec["open_question"], "entries": entries}
+
+
+def _sme_ssp(organization, spec):
+    def survey(namespace):
+        boxes = Box.objects.select_related("strain__species").filter(
+            organization=organization, global_code__startswith=f"{namespace}.").order_by("global_code")
+        return {box.global_code: _box_facts(organization, box) for box in boxes}
+
+    sme, ssp = survey(spec["namespace"]), survey(spec["collision_namespace"])
+    numbers = {code.rsplit(".", 1)[1]: code for code in ssp}
+    entries = []
+    for code, facts in sme.items():
+        reasons = ["BOX_SCOPE_NOT_ENUMERATED", "TARGET_IDENTITY_UNSPECIFIED"]
+        twin = numbers.get(code.rsplit(".", 1)[1])
+        if twin:
+            reasons.append(f"POSSIBLE_DUPLICATE_IDENTITY:{twin}")
+        literal = f"{spec['namespace']}.{int(code.rsplit('.', 1)[1]):02d}"
+        entries.append({"global_code": code, "status": DECISION_REQUIRED, "reasons": reasons,
+                        "persisted": [facts] + ([ssp[twin]] if twin else []),
+                        "source_history": spec["history"].get(literal)})
+    return {"decision": spec["decision"], "open_question": spec["open_question"],
+            "source_history_sha256": decisions.CLEAN_HISTORY_SHA256,
+            "out_of_scope_namespaces": list(spec["out_of_scope_namespaces"]),
+            "persisted_collision_namespace_codes": sorted(ssp), "entries": entries}
+
+
+def _identity(organization):
+    approved = [_identity_correction(organization, item) for item in decisions.IDENTITY_CORRECTIONS]
+    approved.append(_pca_unification(organization))
+    approved += [_measurement_correction(organization, item) for item in decisions.MEASUREMENT_CORRECTIONS]
+    unresolved = {
+        "D11_CLA_CLC": _cla_clc(organization, decisions.UNRESOLVED_IDENTITIES["D11_CLA_CLC"]),
+        "D8_SME_SSP": _sme_ssp(organization, decisions.UNRESOLVED_IDENTITIES["D8_SME_SSP"]),
+    }
+    statuses = {}
+    for entry in approved:
+        statuses[entry["status"]] = statuses.get(entry["status"], 0) + 1
+    return {
+        "approved_corrections": approved,
+        "urgent_species_note": "CAC-JKA-2.001-.005 and OCE-TAI-1.002 are verified by the urgent mode.",
+        "unresolved": unresolved,
+        "summary": {
+            "approved_status": statuses,
+            "blocked_decision_required": sum(len(group["entries"]) for group in unresolved.values()),
+            "note": "BLOCKED entries are never corrected, skipped or certified by any command.",
+        },
+    }
+
+
 def render_summary(report):
     lines = [f"Organization {report['organization']['id']} | mode {report['mode']} | read-only | "
              f"report {report['report_sha256'][:12]}"]
@@ -504,4 +677,14 @@ def render_summary(report):
             if entry["deactivation_safety"] == "UNSAFE":
                 lines.append(f"  WARNING {entry['listed_code']} -> {entry['resolved_code']}: "
                              f"plan {entry['deactivation_plan_status']}; UNSAFE (diagnostic only)")
+    identity = report.get("identity_decisions")
+    if identity:
+        lines.append("Approved identity/value corrections (persisted state):")
+        for entry in identity["approved_corrections"]:
+            lines.append(f"  {entry['correction']}: {entry['status']}")
+        lines.append(f"Identities blocked pending a product decision: "
+                     f"{identity['summary']['blocked_decision_required']}")
+        for group in identity["unresolved"].values():
+            for entry in group["entries"]:
+                lines.append(f"  {entry['global_code']}: {entry['status']} [{', '.join(entry['reasons'])}]")
     return "\n".join(lines)

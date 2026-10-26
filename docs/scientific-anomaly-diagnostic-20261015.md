@@ -8,7 +8,7 @@ It writes nothing, calls no lifecycle or import service and creates no Species, 
 Run from `backend/`, only against an environment that was separately authorized:
 
 ```text
-uv run python manage.py diagnose_scientific_anomalies --organization-id <ORGANIZATION_PK> [--mode urgent|hs|all]
+uv run python manage.py diagnose_scientific_anomalies --organization-id <ORGANIZATION_PK> [--mode urgent|hs|identity|all]
     [--cac-strain-id <REVIEWED_PK>] [--oce-strain-id <REVIEWED_PK>] [--summary-only]
 ```
 
@@ -27,6 +27,21 @@ explicit target PK every entry is BLOCKED (`TARGET_NOT_SUPPLIED`); `readiness_if
 `hs`: the 35 literal labels through the existing `build_deactivation_plan`, approved remaps, Box PK/status, latest
 `BiologicalMeasurement` (a real `0` stays `0`; `null` strobilae stay `null`; no measurement is `latest: null`), and
 `deactivation_safety` of `UNSAFE`, `UNVERIFIED` or `NOT_APPLICABLE`. It is never `SAFE` and never a proposal.
+
+`identity` (added 2026-10-26): persisted-state verification, never a correction proposal.
+
+- Approved corrections: `COR-JIS-1.001 -> ATO-JIS-1.001`, the PCA unification (`PCA-CHO-1.005 -> PCA-JKA-1.005`,
+  retired donor and merge link) and `LDR-JAP-1.001` 2026-W18 `80/8 -> 80/0`, each `APPLIED_VERIFIED`, `NOT_APPLIED`,
+  `MISSING`, `CONFLICT` (for example both COR and ATO codes exist, or an unexpected value) or `UNVERIFIED`.
+  A real `0` is compared as `0`. CAC/OCE stay in `urgent`.
+- Unresolved identities, always `BLOCKED_DECISION_REQUIRED`: D11 `CLA-JKA-1.009/.010` (Chrysaora lactea, V2
+  `CLC-JKA-1.09` / `CLC-JKA1.10`; the Box code and Strain are undecided) and every persisted `SME-JKA-1.*` Box under D8
+  (exact affected Boxes and target identity undecided; an `SSP-JKA-1` Box with the same number is reported as a
+  possible duplicate identity). `SME-JKA-2`, `SME-ACH-1` and `SSP-JKA-1.011/.012` are 2024+ and out of scope.
+  Literal labels by year come from the clean long-format history (SHA-256 `621d55e7…95e1ee`), not from the database.
+
+The historical importer no longer lets the recorded `CLA-JKA-1` label exception materialize a Chrysaora lactea Box
+under a Strain of another Species: that case is an `IDENTITY_MISMATCH` blocking the import until a decision.
 
 ## Organization isolation
 

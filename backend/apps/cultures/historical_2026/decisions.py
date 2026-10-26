@@ -85,9 +85,11 @@ APPROVED_OPERATIONAL_TAXA = (
     "Tubularia sp.",
 )
 
-# Source label is known to differ from the Strain species and the Strain wins:
-# Étienne keeps CLA for Cyanea lamarckii and gives Chrysaora lactea the code CLC,
-# without rewriting historical identifiers.
+# Recorded evidence, kept in the sealed manifest: Étienne keeps CLA for Cyanea
+# lamarckii and gives Chrysaora lactea the code CLC, without rewriting historical
+# identifiers. Whether the Chrysaora lactea Boxes CLA-JKA-1.009/.010 keep their
+# codes is not decided, so the importer blocks instead of filing the source label
+# under a Strain of another Species.
 STRAIN_LABEL_EXCEPTIONS = {
     "CLA-JKA-1": {
         "source_label": "Chrysaora lactea",
@@ -201,4 +203,49 @@ HS_V2_CONTRADICTIONS = {
 # Not approved: left for a human decision and never deactivated automatically.
 HS_PENDING_CONFIRMATION = {
     "CTU-CFC-2.007": "CTU-FCF-2.007 is not approved as the same culture",
+}
+
+# Identities whose correction needs a product decision. Read-only diagnostic input:
+# nothing here authorizes a rename, a Strain change or a label. Source facts were
+# extracted read-only from the SHA-256-checked workbooks named below.
+CLEAN_HISTORY_SHA256 = "621d55e7b841b2261af533247e97a1969a79221d461104d147c8e0b74c95e1ee"
+UNRESOLVED_IDENTITIES = {
+    "D11_CLA_CLC": {
+        "decision": "D11: CLA stays Cyanea lamarckii, Chrysaora lactea becomes CLC; "
+                    "no historical identifier rewrite.",
+        "open_question": "Do the Chrysaora lactea Boxes keep their CLA codes or become CLC, "
+                         "and under which Strain?",
+        "source_species": "Chrysaora lactea",
+        "boxes": (
+            {"code": "CLA-JKA-1.009", "candidate_code": "CLC-JKA-1.009",
+             "original_literal": "CLA-JKA-1.09", "v2_literal": "CLC-JKA-1.09", "cell": "Semaestomeae!B77"},
+            {"code": "CLA-JKA-1.010", "candidate_code": "CLC-JKA-1.010",
+             "original_literal": "CLA-JKA1.10", "v2_literal": "CLC-JKA1.10", "cell": "Semaestomeae!B81"},
+        ),
+    },
+    "D8_SME_SSP": {
+        "decision": "D8: 2020-21 Stomolophus sp. Boxes carrying SME are SSP; affected 2022-23 "
+                    "S. meleagris SME entries become Stomolophus sp.2 SSP; correct from 2024.",
+        "open_question": "Which exact SME-JKA-1 Boxes are affected, do they keep their codes, "
+                         "and are SSP-JKA-1 Boxes with the same number the same culture?",
+        "namespace": "SME-JKA-1",
+        "collision_namespace": "SSP-JKA-1",
+        # Clean long-format history (CLEAN_HISTORY_SHA256): literal labels by year.
+        "history": {
+            "SME-JKA-1.01": {"2020": "Stomolophus meleagris", "2021": "Stomolophus sp.2"},
+            "SME-JKA-1.04": {"2020": "Stomolophus meleagris", "2021": "Stomolophus sp.2",
+                             "2022": "Stomolophus meleagris", "2023": "Stomolophus meleagris"},
+            "SME-JKA-1.05": {"2021": "Stomolophus sp.2", "2022": "Stomolophus meleagris"},
+            "SME-JKA-1.06": {"2022": "Stomolophus meleagris"},
+            "SME-JKA-1.07": {"2022": "Stomolophus meleagris", "2023": "Stomolophus meleagris"},
+            "SME-JKA-1.08": {"2023": "Stomolophus meleagris"},
+            "SME-JKA-1.09": {"2023": "Stomolophus meleagris"},
+            "SME-JKA-1.10": {"2023": "Stomolophus meleagris"},
+            "SSP-JKA-1.08": {"2024": "Stomolophus sp.2"},
+            "SSP-JKA-1.09": {"2024": "Stomolophus sp.2"},
+            "SSP-JKA-1.10": {"2024": "Stomolophus sp.2"},
+        },
+        # Both 2026 workbooks agree: SME-JKA-2 and SSP-JKA-1.011/.012 are correct (2024+).
+        "out_of_scope_namespaces": ("SME-JKA-2", "SME-ACH-1"),
+    },
 }
