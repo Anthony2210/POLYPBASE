@@ -112,6 +112,21 @@ script d'application d'ACL n'est inventé à partir de suppositions.**
   d'import. Cette complétude doit être revue et testée sans connexion DB, sous le
   runtime dédié, sur une installation isolée représentative.
 
+**Production de l'inventaire :** `deploy/scripts/cca_eob_runtime_inventory.py`
+relève sur la VM la fermeture réellement chargée (`trace` sous le runtime dédié,
+sans connexion DB) puis l'inventaire haché et vérifié contre les `RECORD`
+(`collect` sous `polypbase`, jamais root). Il ne modifie aucune ACL et refuse
+tout fichier non classé sans décision explicite du relecteur. Procédure
+opérateur et points d'approbation :
+[`cca-eob-runtime-manifest-procedure.md`](cca-eob-runtime-manifest-procedure.md).
+Le garde ne contrôle que la traversée (`x`) des ancêtres : les répertoires que
+le runtime liste (imports, `site.py`) exigent `r+x`, prouvés par la trace qui les
+relit sous le runtime et s'arrête sinon. `CCA_EOB_RUNTIME_PERMISSIONS_OK` seul ne
+prouve donc pas la complétude de ces droits.
+La trace ne couvre que les imports et données chargés au démarrage de la
+commande : imports paresseux hors `LAZY_MODULES`, fichiers de données lus
+pendant `plan`/`apply` et exécutables externes (`pg_restore`) restent à la revue.
+
 Forme de l'inventaire hors ligne : objet avec exactement `files`, `deny_read`,
 `scope_review`. Chaque entrée `files` contient exactement `path`, `sha256`, `access`,
 `origin`. Les empreintes et chemins doivent provenir de l'inventaire privé revu,
@@ -181,6 +196,8 @@ partie de la revue de release.
   vérifient la transition, pas l'ensemble de la logique scientifique additive.
 - Tests hors ligne de la politique :
   `uv run python -B deploy/scripts/test_cca_eob_runtime_permissions.py`.
+- Tests hors ligne du collecteur (système de fichiers synthétique) :
+  `uv run python -B deploy/scripts/test_cca_eob_runtime_inventory.py`.
 - Régressions du workflow :
   `uv run python -B -m unittest discover -s deploy/tests -v`.
 - Aucun contrôle de permissions effectives Debian/runtime, inventaire live,
