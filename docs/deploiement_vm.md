@@ -17,6 +17,7 @@ de base de données ne doivent jamais être ajoutés au dépôt.
 | PostgreSQL de production | Version 18, cluster `18/main`, port local 5433 |
 | Base active | `polypbase`, rôle local `polypbase`, authentification `peer` |
 | Ancien cluster local | PostgreSQL 17, vide, encore présent sur le port 5432 |
+| Clients PostgreSQL | `/usr/bin/pg_dump`/`pg_restore` = `pg_wrapper` Debian; sans `--cluster`, `/usr/bin/pg_restore --version` sélectionne 17.10. Clients 18 : `/usr/lib/postgresql/18/bin/` (utilisés explicitement par CCA-EOB) |
 | Domaine | `polypbase.org` et `www.polypbase.org` dirigés vers la VM |
 | HTTPS | Actif sur les deux noms, avec redirection HTTP vers HTTPS |
 | Déploiement | Automatisé et contrôlé par `deploy/deploy_vm.ps1` |

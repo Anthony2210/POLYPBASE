@@ -15,6 +15,12 @@ import subprocess
 from pathlib import Path
 
 TIMEOUT_SECONDS = 600
+CLIENT_VERSION_TIMEOUT_SECONDS = 30
+# Debian's /usr/bin entries are pg_wrapper: without --cluster/PG* hints (which
+# _environment strips) it selects a version from local cluster configuration,
+# such as the default-port cluster, never from the archive or target server.
+# Callers needing a specific major pass client_major.
+PG_RESTORE = "/usr/bin/pg_restore"
 _LABEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}\Z")
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 _EVIDENCE_KEYS = {
@@ -66,8 +72,51 @@ def _run(command, environment):
         raise ValueError("PostgreSQL archive command failed or timed out.") from None
 
 
-def verify_archive(archive):
-    """Rehash and check readability, optionally matching recorded size and hash."""
+def require_client(name, major):
+    """Return the versioned Debian client path, refusing anything not root-controlled.
+
+    The binary and every ancestor must be root-owned real files/directories without
+    group/other write access, and ``--version`` must report exactly this major.
+    """
+    if (name not in ("pg_dump", "pg_restore") or type(major) is not int
+            or not 10 <= major <= 99):
+        raise ValueError("Unsupported PostgreSQL client request.")
+    path = f"/usr/lib/postgresql/{major}/bin/{name}"
+    try:
+        parts = path.split("/")
+        for depth in range(1, len(parts)):
+            # lstat never follows a link: a symlinked ancestor is not a directory.
+            info = os.lstat("/".join(parts[:depth]) or "/")
+            if (not stat.S_ISDIR(info.st_mode) or info.st_uid != 0
+                    or info.st_mode & 0o022):
+                raise ValueError
+        info = os.lstat(path)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0
+                or info.st_mode & 0o022 or not info.st_mode & 0o111):
+            raise ValueError
+        output = subprocess.run(
+            [path, "--version"], check=True, env=_environment(),
+            timeout=CLIENT_VERSION_TIMEOUT_SECONDS, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        ).stdout
+        reported = re.fullmatch(
+            rf"{name} \(PostgreSQL\) (\d+)\.\d+(?: \([^\n]*\))?\n?",
+            output.decode("ascii"),
+        )
+        if reported is None or int(reported.group(1)) != major:
+            raise ValueError
+    except (OSError, subprocess.SubprocessError, UnicodeDecodeError, ValueError):
+        raise ValueError(
+            f"PostgreSQL {major} {name} is unavailable, unsafe or reports another version."
+        ) from None
+    return path
+
+
+def verify_archive(archive, *, client_major=None):
+    """Rehash and check readability, optionally matching recorded size and hash.
+
+    Without client_major the historical /usr/bin/pg_restore is used unchanged.
+    """
     if not isinstance(archive, dict) or not isinstance(archive.get("path"), str):
         raise ValueError("Expected an archive dictionary with an absolute path.")
     path = Path(archive["path"])
@@ -79,6 +128,7 @@ def verify_archive(archive):
         type(archive["size_bytes"]) is not int or archive["size_bytes"] <= 0
     ):
         raise ValueError("Archive size must be a positive integer.")
+    pg_restore = PG_RESTORE if client_major is None else require_client("pg_restore", client_major)
     try:
         before = path.lstat()
         if not stat.S_ISREG(before.st_mode) or before.st_size <= 0:
@@ -99,7 +149,7 @@ def verify_archive(archive):
         for key in ("sha256", "size_bytes"):
             if key in archive and archive[key] != result[key]:
                 raise ValueError("Archive checksum or size mismatch.")
-        _run(["/usr/bin/pg_restore", "--list", str(path)], _environment())
+        _run([pg_restore, "--list", str(path)], _environment())
         after = path.lstat()
         if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (
             after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns

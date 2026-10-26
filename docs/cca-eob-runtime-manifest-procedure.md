@@ -149,7 +149,9 @@ sudo -u polypbase less "$W/report.txt"
 Relire **toutes** les sections `REVIEW`/`WARNING` : distributions utilisées et
 non chargées (paresseuses ? `--include-distribution`), extras, alias acceptés,
 fichiers sans hash `RECORD`, bibliothèques natives, sous-processus, caches
-bytecode non root lisibles par le runtime (doivent être 0 ou justifiés),
+bytecode non root lisibles par le runtime (doivent être 0 ou justifiés; la
+trace ne lance jamais `apply`, donc `/usr/lib/postgresql/18/bin/pg_restore`
+n'y figure pas : voir le contrat runtime pour l'exécutable externe),
 répertoires que le runtime doit lister (`r+x`, prouvés listables sous le runtime
 par la trace; vérifier qu'aucun n'est inattendu).
 

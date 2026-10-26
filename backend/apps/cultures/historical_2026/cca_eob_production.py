@@ -33,6 +33,10 @@ TARGET_KEYS = {"schema", "machine_id", "configured_host", "configured_port", "da
 # database_backup.TIMEOUT_SECONDS), so the whole transaction gets that plus a margin.
 # Exceeding it aborts and rolls back; it never terminates another session.
 APPLY_TRANSACTION_TIMEOUT_SECONDS = database_backup.TIMEOUT_SECONDS + 300
+# The attested server is PostgreSQL 18 (require_target). Debian's /usr/bin/pg_restore
+# wrapper may select an older installed client, so the release archive is read with
+# the versioned PostgreSQL 18 client, refused if absent, unsafe or another version.
+CLIENT_MAJOR = 18
 IDENTITY_SQL = """
 SELECT current_database(), d.oid::bigint, session_user::text, current_user::text,
        r.oid::bigint, host(inet_server_addr()), inet_server_port(),
@@ -419,7 +423,7 @@ def _release(document, approved_hash):
         raise ValueError("Root-approved review and full restoration evidence bound to this plan are required. "
                          + str(error)) from error
     with artifacts.protected_file(evidence["archive"]["path"]):
-        database_backup.verify_archive(evidence["archive"])
+        database_backup.verify_archive(evidence["archive"], client_major=CLIENT_MAJOR)
     return evidence
 
 

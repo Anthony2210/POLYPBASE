@@ -556,7 +556,7 @@ class RootDocumentTests(SimpleTestCase):
             self.assertEqual(production._release(document, digest), release)
             root.assert_called_once_with(production.RELEASE_PATH)
             protected.assert_called_once_with(release["archive"]["path"])
-            archive.assert_called_once_with(release["archive"])
+            archive.assert_called_once_with(release["archive"], client_major=18)
             for change in (
                 {"restoration_verified": False}, {"restoration_verified": 1}, {"restoration_verified": "true"},
                 {"plan_hash": "c" * 64}, {"actor_id": 8}, {"target": {}}, {"schema": "other"},
@@ -579,6 +579,16 @@ class RootDocumentTests(SimpleTestCase):
             archive.side_effect = ValueError("Archive digest mismatch")
             with self.assertRaisesMessage(ValueError, "Archive digest mismatch"):
                 production._release(document, digest)
+            # Debian's /usr/bin wrapper may select PostgreSQL 17: the pinned 18 client
+            # is required and its refusal blocks the release instead of falling back.
+            archive.side_effect = ValueError("PostgreSQL 18 pg_restore is unavailable")
+            with self.assertRaisesMessage(ValueError, "PostgreSQL 18 pg_restore is unavailable"):
+                production._release(document, digest)
+            self.assertEqual(archive.call_args.kwargs, {"client_major": 18})
+
+    def test_release_client_major_matches_the_attested_server_range(self):
+        self.assertEqual(production.CLIENT_MAJOR, 18)
+        self.assertEqual(production.CLIENT_MAJOR, socket_target()["server_version_num"] // 10000)
 
 
 class ProductionCommandTests(SimpleTestCase):

@@ -116,6 +116,8 @@ autorisation de production n’en découle.
   `lock_timeout=10s`, `statement_timeout=30s`, transaction bornée à
   `database_backup.TIMEOUT_SECONDS + 300` (actuellement 900 s). Vérification
   archive/checksum et `pg_restore --list` sous verrous, outil externe borné à 600 s.
+  Cet outil est **`/usr/lib/postgresql/18/bin/pg_restore`**, jamais le wrapper
+  Debian `/usr/bin/pg_restore` (voir « Clients PostgreSQL 18 » ci-dessous).
   Cette revérification Python peut dépasser les cinq minutes de l’autorisation
   finale : le writer SQL refuse alors l’apply, ou la consommation atomique échoue
   si l’échéance est franchie pendant les écritures; toute la transaction est annulée.
@@ -352,6 +354,35 @@ provisionnement, ni approbation SQL, ni correction scientifique, ni restauration
    les tables, contraintes/triggers, comptes, PK et valeurs. Conserver digest,
    taille, rapport privé et stratégie de retour arrière exploitable.
    `pg_restore --list` seul ne suffit jamais. Cette répétition complète reste à faire.
+   Dump, liste et restauration utilisent les clients versionnés PostgreSQL 18
+   par chemin absolu, jamais `/usr/bin/pg_dump` ni `/usr/bin/pg_restore`.
+
+   **Clients PostgreSQL 18.** Sur la VM, `/usr/bin/pg_dump` et
+   `/usr/bin/pg_restore` sont le `pg_wrapper` Debian : sans `--cluster`/`PG*`, il
+   choisit la version d'après la configuration locale des clusters (constaté :
+   `/usr/bin/pg_restore --version` sélectionne 17.10, l'ancien cluster 17 occupant
+   le port par défaut 5432), jamais d'après l'archive ou la cible 18 sur 5433. Un
+   client 17 ne peut pas dumper un serveur 18 et n'est pas garanti pour lire une
+   archive 18. Le code CCA-EOB appelle donc `database_backup.verify_archive(...,
+   client_major=18)`, qui exige `/usr/lib/postgresql/18/bin/pg_restore` : fichier
+   régulier non lié, propriétaire root, sans écriture groupe/autres, exécutable,
+   ancêtres répertoires réels root sans écriture groupe/autres, et `--version`
+   rapportant exactement la majeure 18 (sonde bornée à 30 s, environnement sans
+   `PG*`). Tout écart refuse la release, sans repli vers `/usr/bin`. Précontrôle
+   opérateur en lecture seule :
+
+   ```sh
+   /usr/lib/postgresql/18/bin/pg_dump --version
+   /usr/lib/postgresql/18/bin/pg_restore --version
+   namei -l /usr/lib/postgresql/18/bin/pg_restore
+   stat -c '%F %U:%G %a %h %n' /usr/lib/postgresql/18/bin/pg_dump /usr/lib/postgresql/18/bin/pg_restore
+   ```
+
+   Attendu : versions `18.x`, fichiers réguliers `root:root` sans écriture
+   groupe/autres, ancêtres root non inscriptibles. Sinon STOP. Le dump frais est
+   produit avec `/usr/lib/postgresql/18/bin/pg_dump --format=custom` vers le port
+   5433 et vérifié/restauré avec `/usr/lib/postgresql/18/bin/pg_restore`; noter
+   les versions des deux clients dans le rapport privé de restauration.
 5. **Attestation indépendante de cible** : root collecte les vrais champs ci-dessous,
    jamais copiés aveuglément d’un runtime, puis installe le document au chemin fixe.
 6. **Plan frais, revue indépendante de toute la matrice et release root** : suivre
@@ -467,8 +498,8 @@ de la restauration complète.** L’opérateur de confiance doit effectuer les v
 contrôles; les artefacts root protégés et les vérifications Python restent
 obligatoires et inchangés. `true` est une attestation humaine root, jamais à
 déclarer avant restauration.
-Le code revérifie le fichier réel, taille, digest et `pg_restore --list` avant et
-sous verrous, pas le contenu humain du rapport. Dump et ancêtres protégés,
+Le code revérifie le fichier réel, taille, digest et `pg_restore --list` (client
+PostgreSQL 18 versionné, contrôlé comme ci-dessus) avant et sous verrous, pas le contenu humain du rapport. Dump et ancêtres protégés,
 répertoire final privé 0700 root/runtime-owned. La release lie backup, cible,
 acteur et hash et doit être identique à celle importée dans l’approbation SQL.
 Toute dérive impose arrêt, nouveau plan/revue/preuve; pas de sauvegarde ancienne

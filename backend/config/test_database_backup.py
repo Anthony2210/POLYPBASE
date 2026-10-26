@@ -7,6 +7,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -411,6 +412,133 @@ class DatabaseBackupTests(unittest.TestCase):
         self.assertFalse(old.exists())
         self.assertTrue(unrelated.exists())
         self.assertNotIn("--snapshot", self.runner.call_args_list[0].args[0])
+
+
+class PinnedClientTests(unittest.TestCase):
+    """Versioned client checks use a fake filesystem and never execute a binary."""
+
+    CLIENT = "/usr/lib/postgresql/18/bin/pg_restore"
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.path = Path(self.temporary.name).resolve() / "release.dump"
+        self.path.write_bytes(b"archive-content")
+        self.entries = {
+            path: types.SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_uid=0)
+            for path in ("/", "/usr", "/usr/lib", "/usr/lib/postgresql",
+                         "/usr/lib/postgresql/18", "/usr/lib/postgresql/18/bin")
+        }
+        self.entries[self.CLIENT] = types.SimpleNamespace(st_mode=stat.S_IFREG | 0o755, st_uid=0)
+        self.version = b"pg_restore (PostgreSQL) 18.6 (Debian 18.6-1.pgdg13+1)\n"
+        real_lstat = os.lstat
+
+        def lstat(path):
+            if isinstance(path, str) and path in self.entries:
+                if self.entries[path] is None:
+                    raise FileNotFoundError(path)
+                return self.entries[path]
+            if isinstance(path, str) and path.startswith("/usr/lib/postgresql"):
+                raise FileNotFoundError(path)
+            return real_lstat(path)
+
+        self.lstat = patch.object(backup.os, "lstat", side_effect=lstat).start()
+        self.runner = patch.object(backup.subprocess, "run", side_effect=self.run_command).start()
+        self.addCleanup(patch.stopall)
+
+    def run_command(self, command, **kwargs):
+        if command[1:] == ["--version"]:
+            return subprocess.CompletedProcess(command, 0, stdout=self.version)
+        return subprocess.CompletedProcess(command, 0)
+
+    def commands(self):
+        return [call.args[0] for call in self.runner.call_args_list]
+
+    def test_default_verification_keeps_the_historical_wrapper_without_probe(self):
+        backup.verify_archive({"path": str(self.path)})
+        self.assertEqual(self.commands(), [["/usr/bin/pg_restore", "--list", str(self.path)]])
+        self.assertFalse(any(str(call.args[0]).startswith("/usr/lib/postgresql")
+                             for call in self.lstat.call_args_list))
+
+    def test_pinned_client_is_checked_then_used_for_the_listing(self):
+        with patch.dict(os.environ, {"PGCLUSTER": "17/main", "PGPORT": "5432", "KEEP": "1"}):
+            archive = backup.verify_archive({"path": str(self.path)}, client_major=18)
+        self.assertEqual(archive["sha256"], hashlib.sha256(b"archive-content").hexdigest())
+        self.assertEqual(self.commands(), [[self.CLIENT, "--version"],
+                                           [self.CLIENT, "--list", str(self.path)]])
+        probe, listing = self.runner.call_args_list
+        self.assertEqual(probe.kwargs["timeout"], backup.CLIENT_VERSION_TIMEOUT_SECONDS)
+        self.assertEqual(probe.kwargs["stdout"], subprocess.PIPE)
+        self.assertEqual(listing.kwargs["timeout"], backup.TIMEOUT_SECONDS)
+        for call in (probe, listing):
+            self.assertTrue(call.kwargs["check"])
+            self.assertEqual(call.kwargs["env"]["KEEP"], "1")
+            self.assertFalse(any(key.upper().startswith("PG") for key in call.kwargs["env"]))
+        self.assertEqual(backup.require_client("pg_restore", 18), self.CLIENT)
+        self.version = b"pg_restore (PostgreSQL) 18.0\n"
+        self.assertEqual(backup.require_client("pg_restore", 18), self.CLIENT)
+
+    def test_unsafe_missing_or_other_version_clients_fail_closed_before_listing(self):
+        regular, directory = stat.S_IFREG | 0o755, stat.S_IFDIR | 0o755
+        cases = {
+            "missing binary": {self.CLIENT: None},
+            "missing major": {"/usr/lib/postgresql/18": None},
+            "symlinked binary": {self.CLIENT: (stat.S_IFLNK | 0o777, 0)},
+            "binary not root": {self.CLIENT: (regular, 1000)},
+            "binary group writable": {self.CLIENT: (regular | 0o020, 0)},
+            "binary other writable": {self.CLIENT: (regular | 0o002, 0)},
+            "binary not executable": {self.CLIENT: (stat.S_IFREG | 0o644, 0)},
+            "symlinked ancestor": {"/usr/lib/postgresql/18": (stat.S_IFLNK | 0o777, 0)},
+            "ancestor not root": {"/usr/lib/postgresql/18/bin": (directory, 1000)},
+            "ancestor writable": {"/usr/lib/postgresql": (directory | 0o002, 0)},
+            "root writable": {"/": (directory | 0o020, 0)},
+        }
+        for label, changes in cases.items():
+            with self.subTest(label=label):
+                saved = dict(self.entries)
+                for path, value in changes.items():
+                    self.entries[path] = None if value is None else types.SimpleNamespace(
+                        st_mode=value[0], st_uid=value[1])
+                self.runner.reset_mock()
+                with self.assertRaisesMessage("PostgreSQL 18 pg_restore is unavailable"):
+                    backup.verify_archive({"path": str(self.path)}, client_major=18)
+                self.assertEqual(self.commands(), [])
+                self.entries = saved
+        for output in (b"pg_restore (PostgreSQL) 17.10 (Debian 17.10-1.pgdg13+1)\n",
+                       b"pg_restore (PostgreSQL) 180.1\n", b"pg_dump (PostgreSQL) 18.6\n",
+                       b"pg_restore (PostgreSQL) 18.6\nextra\n", b"", b"\xff",
+                       b"pg_restore (PostgreSQL) 18\n"):
+            with self.subTest(output=output):
+                self.version = output
+                self.runner.reset_mock()
+                with self.assertRaisesMessage("PostgreSQL 18 pg_restore is unavailable"):
+                    backup.verify_archive({"path": str(self.path)}, client_major=18)
+                self.assertEqual(self.commands(), [[self.CLIENT, "--version"]])
+        self.version = b"pg_restore (PostgreSQL) 18.6\n"
+        for failure in (subprocess.CalledProcessError(1, ["secret"]),
+                        subprocess.TimeoutExpired(["secret"], 30), PermissionError("secret")):
+            with self.subTest(failure=type(failure).__name__):
+                self.runner.side_effect = failure
+                with self.assertRaisesMessage("PostgreSQL 18 pg_restore is unavailable") as caught:
+                    backup.verify_archive({"path": str(self.path)}, client_major=18)
+                self.assertNotIn("secret", str(caught.exception))
+        self.runner.side_effect = self.run_command
+
+    def test_invalid_client_requests_are_refused_without_io(self):
+        for name, major in (("pg_restore", True), ("pg_restore", "18"), ("pg_restore", 9),
+                            ("pg_restore", 100), ("pg_restore", 18.0), ("psql", 18),
+                            ("../pg_restore", 18)):
+            with self.subTest(name=name, major=major), \
+                    self.assertRaisesMessage("Unsupported PostgreSQL client request"):
+                backup.require_client(name, major)
+        with self.assertRaisesMessage("Unsupported PostgreSQL client request"):
+            backup.verify_archive({"path": str(self.path)}, client_major="18")
+        self.runner.assert_not_called()
+        self.assertFalse(any(str(call.args[0]).startswith("/usr/lib/postgresql")
+                             for call in self.lstat.call_args_list))
+
+    def assertRaisesMessage(self, message):
+        return self.assertRaisesRegex(ValueError, re.escape(message))
 
 
 if __name__ == "__main__":

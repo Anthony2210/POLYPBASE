@@ -126,6 +126,17 @@ prouve donc pas la complétude de ces droits.
 La trace ne couvre que les imports et données chargés au démarrage de la
 commande : imports paresseux hors `LAZY_MODULES`, fichiers de données lus
 pendant `plan`/`apply` et exécutables externes (`pg_restore`) restent à la revue.
+L'unique exécutable externe d'`apply` est `/usr/lib/postgresql/18/bin/pg_restore`
+(`--version`, puis `--list` de l'archive de release), jamais le wrapper
+`/usr/bin/pg_restore`. Le runtime doit pouvoir l'exécuter et charger ses
+bibliothèques partagées (lecture standard des paquets Debian, aucune ACL
+attendue). Il n'est pas inventorié par défaut : le code vérifie à chaque
+`apply` propriétaire root, absence de lien et d'écriture groupe/autres sur le
+binaire et ses ancêtres, et la majeure 18 rapportée, puis refuse sinon. L'ajouter
+au manifeste (`--extra interpreter:rx:/usr/lib/postgresql/18/bin/pg_restore`)
+est une décision de revue séparée : son hash rendrait alors le manifeste obsolète
+à chaque mise à jour mineure PostgreSQL 18 et bloquerait le déploiement jusqu'à
+régénération.
 
 Forme de l'inventaire hors ligne : objet avec exactement `files`, `deny_read`,
 `scope_review`. Chaque entrée `files` contient exactement `path`, `sha256`, `access`,
