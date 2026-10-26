@@ -9,6 +9,10 @@ import hashlib
 import json
 import re
 
+from . import cca_eob_additive
+
+HISTORICAL_PLAN_SHA256 = "7be6a6e8674601e9f0b3429da0d1ec0f748a9443e9b959ab537dba5ff671e7c8"
+
 ROLE = "polypbase_cca_eob"
 SETTINGS = "config.cca_eob_production_settings"
 FUNCTION = "public.cca_eob_lock_v1(bigint)"
@@ -131,7 +135,7 @@ def validate_release(release, document, reviewed_hash):
         raise ValueError("Malformed archive path, SHA-256 or size metadata.")
 
 
-def validate_thermal_exception(witness, correction):
+def validate_thermal_exception(witness, correction, snapshot=None):
     """Authenticate the complete historical document before extracting its V3 plan."""
     if (type(witness) is not dict
             or set(witness) != {"schema", "original_plan_hash", "original_document"}
@@ -146,10 +150,14 @@ def validate_thermal_exception(witness, correction):
             or type(document.get("actor_id")) is not int or document["actor_id"] <= 0
             or type(document.get("plan")) is not dict
             or type(document["plan"].get("correction")) is not dict
-            or type(digest) is not str or not re.fullmatch(r"[0-9a-f]{64}", digest)
+            or type(digest) is not str or digest != HISTORICAL_PLAN_SHA256
             or hashlib.sha256(json.dumps(document, sort_keys=True, default=str).encode()).hexdigest() != digest):
         raise ValueError("Historical document authentication or schema failed.")
     original = document["plan"]["correction"]
+    if snapshot is not None:
+        cca_eob_additive.validate_snapshot(correction, snapshot)
+        if set(correction.get("move_order", [])) & set(snapshot.get("historical_linked_measurement_ids", [])):
+            raise ValueError("A planned measurement has a historical temperature association.")
     # The historical local planner serializes empty histories as lists; the
     # production reader uses booleans. Normalize only this known representation.
     comparable = original
@@ -158,7 +166,10 @@ def validate_thermal_exception(witness, correction):
                 "subculture_events": [], "subculture_allocations": [], "lineages": [], "transfer_items": []}):
         comparable = {**original, "baseline": {**original["baseline"], "histories": {
             "subculture_events": False, "subculture_allocations": False, "lineages": False, "transfer_items": False}}}
-    if (comparable != correction
+    current = correction
+    if comparable != correction:
+        current = cca_eob_additive.project(comparable, correction, snapshot, digest, HISTORICAL_PLAN_SHA256)
+    if (comparable != current
             or original.get("operation") != "cca_eob_v2_20261016_v3"
             or type(original.get("organization_id")) is not int or original["organization_id"] != 1
             or original.get("v2_sha256") != V2_SHA256
@@ -486,6 +497,8 @@ BEGIN
         'incoming_evidence', EXISTS (SELECT 1 FROM public.measurements_biologicalmeasurement
             WHERE box_id NOT IN (SELECT id FROM boxes) AND
                 (duplicate_of_id IN (SELECT id FROM biology) OR environment_source_box_id IN (SELECT id FROM boxes))),
+        'addition_audits', (SELECT coalesce(jsonb_agg(to_jsonb(a) ORDER BY a.id),'[]'::jsonb)
+            FROM public.audit_auditlog a WHERE a.metadata->>'measurement_id' IN ('104688','104689')),
         'historical_readings_exist', EXISTS (SELECT 1 FROM public.measurements_historicaltemperaturereading),
         'historical_linked_measurement_ids', (SELECT coalesce(jsonb_agg(r.biological_measurement_id
             ORDER BY r.biological_measurement_id),'[]'::jsonb)
@@ -521,7 +534,7 @@ DECLARE
     locked_approval public.cca_eob_approval_v1%ROWTYPE;
     doc jsonb; correction jsonb; recipe jsonb; state jsonb; entry jsonb; move jsonb;
     revision jsonb; audit jsonb; raw jsonb; reviewed_raw jsonb; before_source jsonb;
-    historical_plan jsonb;
+    historical_plan jsonb; projected jsonb; addition_time timestamptz;
     actor bigint; pk bigint; box_pk bigint;
     seen bigint[] := ARRAY[]::bigint[]; revised bigint[] := ARRAY[]::bigint[];
     touched bigint; expected_after bigint; changed bigint; move_count integer; i integer;
@@ -571,6 +584,7 @@ BEGIN
     END IF;
     __CCA_TARGET_GUARD__
     __CCA_APPROVAL_GUARD__
+    LOCK TABLE public.audit_auditlog IN SHARE MODE;
     state := public.cca_eob_read_v1(actor);
     IF state IS DISTINCT FROM doc#>'{plan,database_snapshot}'
         OR state->'incoming_evidence' <> 'false'::jsonb
@@ -609,11 +623,18 @@ BEGIN
     -- fingerprint offline; SQL never reserializes JSONB as that historical identity.
     -- SQL independently binds the immutable original evidence and exact 72 moves.
     IF state->'historical_readings_exist' IS DISTINCT FROM 'false'::jsonb THEN
+        IF (doc#>>'{plan,thermal_exception,original_plan_hash}'='__CCA_HISTORICAL_HASH__'
+            AND encode(sha256(convert_to(doc#>>'{plan,historical_document_text}','UTF8')),'hex')='__CCA_HISTORICAL_HASH__'
+            AND (doc#>>'{plan,historical_document_text}')::jsonb=doc#>'{plan,thermal_exception,original_document}') IS NOT TRUE THEN
+            RAISE EXCEPTION 'Complete pinned historical document authentication failed';
+        END IF;
         historical_plan := doc#>'{plan,thermal_exception,original_document,plan,correction}';
         IF historical_plan#>'{baseline,histories}' =
             '{"subculture_events":[],"subculture_allocations":[],"lineages":[],"transfer_items":[]}'::jsonb THEN
             historical_plan := jsonb_set(historical_plan,'{baseline,histories}',state->'histories');
         END IF;
+        __CCA_BASELINE_GUARD__
+        __CCA_ADDITIVE_GUARD__
         IF (move_count=72
             AND doc#>>'{plan,thermal_exception,schema}'='cca_eob_unlinked_72_v2'
             AND doc#>>'{plan,thermal_exception,original_plan_hash}' ~ '^[0-9a-f]{64}$'
@@ -621,7 +642,7 @@ BEGIN
             AND doc#>>'{plan,thermal_exception,original_document,schema}'='cca_eob_production_plan_v2'
             AND jsonb_typeof(doc#>'{plan,thermal_exception,original_document,plan}')='object'
             AND jsonb_typeof(historical_plan)='object'
-            AND historical_plan=correction) IS NOT TRUE THEN
+            AND (historical_plan=correction OR projected=historical_plan)) IS NOT TRUE THEN
             RAISE EXCEPTION 'Authenticated original 72-move thermal exception required';
         END IF;
     END IF;
@@ -774,7 +795,10 @@ def writer_body(role=ROLE):
             .replace("__CCA_RUNTIME_GUARD__", runtime_capability_sql(role))
             .replace("__CCA_TARGET_GUARD__", live_target_guard_sql(role))
                         .replace("__CCA_RELEASE_GUARD__", release_guard_sql())
-                        .replace("__CCA_FINAL_AUTHORIZATION_GUARD__", final_authorization_guard_sql()))
+                        .replace("__CCA_FINAL_AUTHORIZATION_GUARD__", final_authorization_guard_sql())
+                                                .replace("__CCA_ADDITIVE_GUARD__", cca_eob_additive.SQL.replace("__ADDITIVE_HASH__", HISTORICAL_PLAN_SHA256))
+                                                                        .replace("__CCA_BASELINE_GUARD__", cca_eob_additive.baseline_sql())
+                                                                        .replace("__CCA_HISTORICAL_HASH__", HISTORICAL_PLAN_SHA256))
 
 
 def helper_specs(role=ROLE):

@@ -364,6 +364,10 @@ class ThermalExceptionContractTests(SimpleTestCase):
                 "subculture_events", "subculture_allocations", "lineages", "transfer_items")}},
         }
         self.witness = synthetic_historical_witness(self.plan)
+        self.enterContext(patch.object(role_contract, "HISTORICAL_PLAN_SHA256", self.witness["original_plan_hash"]))
+        # These minimal documents test authentication only. Complete snapshot
+        # binding is exercised without mocks by the additive PG18 workflow tests.
+        self.enterContext(patch.object(role_contract.cca_eob_additive, "validate_snapshot"))
 
     def test_exact_original_evidence_is_preserved_and_empty_history_encoding_is_allowed(self):
         original = deepcopy(self.witness)
@@ -422,7 +426,7 @@ class ThermalExceptionContractTests(SimpleTestCase):
         witness["original_plan_hash"] = correction.fingerprint(witness["original_document"])
         current = deepcopy(self.plan)
         current["baseline"]["histories"] = dict.fromkeys(current["baseline"]["histories"], False)
-        with self.assertRaisesMessage(ValueError, "exact current identity"):
+        with self.assertRaisesMessage(ValueError, "Historical document authentication"):
             role_contract.validate_thermal_exception(witness, current)
 
     def test_changed_identity_target_week_provenance_and_zero_fail(self):
@@ -430,14 +434,15 @@ class ThermalExceptionContractTests(SimpleTestCase):
                              ("before", {"id": 1, "box_id": 1836, "polyp_count": None, "ephyrae_count": None})):
             current = deepcopy(self.plan)
             current["entries"][0][field] = value
-            with self.subTest(field=field), self.assertRaisesMessage(ValueError, "exact current identity"):
+            with self.subTest(field=field), self.assertRaisesMessage(ValueError, "Exact authenticated CCA-EOB additions"):
                 role_contract.validate_thermal_exception(self.witness, current)
 
     def test_71_73_duplicate_or_substituted_moves_are_not_the_exception(self):
         for order in (list(range(1, 72)), list(range(1, 74)), [1] * 72, list(range(2, 74))):
             plan = {**self.plan, "move_order": order}
             witness = synthetic_historical_witness(plan)
-            with self.subTest(order=order), self.assertRaisesMessage(ValueError, "72 moves"):
+            with self.subTest(order=order), patch.object(role_contract, "HISTORICAL_PLAN_SHA256", witness["original_plan_hash"]), \
+                    self.assertRaisesMessage(ValueError, "72 moves"):
                 role_contract.validate_thermal_exception(witness, plan)
 
     def test_foreign_organization_source_operation_and_blocked_plan_are_rejected(self):
@@ -471,7 +476,7 @@ class ThermalExceptionContractTests(SimpleTestCase):
             witness = alternative["plan"]["thermal_exception"]
             witness["original_document"]["plan"]["correction"] = deepcopy(alternative["plan"]["correction"])
             witness["original_plan_hash"] = correction.fingerprint(witness["original_document"])
-            with self.assertRaisesMessage(ValueError, "independently authenticated fixed"):
+            with self.assertRaisesMessage(ValueError, "Historical document authentication"):
                 generator(alternative, correction.fingerprint(alternative), synthetic_release(alternative),
                           expiry, historical_plan_hash=fixed_hash)
 
@@ -488,7 +493,7 @@ class ThermalExceptionContractTests(SimpleTestCase):
         expiry = (datetime.now(timezone.utc) + timedelta(minutes=2)).isoformat()
         for generator in (emitter.approval_sql, emitter.final_authorization_sql):
             with self.subTest(generator=generator.__name__), self.assertRaisesMessage(
-                    ValueError, "independently authenticated fixed"):
+                    ValueError, "Historical document authentication"):
                 generator(document, correction.fingerprint(document), synthetic_release(document), expiry,
                           historical_plan_hash=fixed_hash)
 
@@ -1389,6 +1394,8 @@ class ProductionWorkflowTests(CcaEobFixtureMixin, TransactionTestCase):
         original = correction._build_plan(1, workbook_path=self.workbook_path)
         self.assertEqual(len(original["move_order"]), 72)
         self.historical_witness = synthetic_historical_witness(original, actor_id=self.admin.pk)
+        self.enterContext(patch.object(role_contract, "HISTORICAL_PLAN_SHA256", self.historical_witness["original_plan_hash"]))
+        self.install_boundary()
         self.enterContext(patch.object(production, "_root_document", return_value=self.historical_witness))
         self.add_historical_link(unchanged)
         return self.production_plan()
