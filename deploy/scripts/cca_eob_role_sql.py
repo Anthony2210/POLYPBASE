@@ -7,6 +7,7 @@ administrator, after explicit approval. Provision never installs an approval.
 import argparse
 from datetime import datetime, timezone
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -23,10 +24,11 @@ def literal(value):
     return "'" + value.replace("'", "''") + "'"
 
 
-def helper_checks(required=True):
+def helper_checks(required=True, *, specs=None):
     """Check bodies and every execution-relevant metadata/ACL attribute before DDL."""
+    specs = tuple(contract.helper_specs() if specs is None else specs)
     checks = []
-    for signature, source, result, names in contract.helper_specs():
+    for signature, source, result, names in specs:
         config = "ARRAY['search_path=pg_catalog, pg_temp']::text[]"
         if signature != contract.FUNCTION:
             config = "ARRAY['search_path=pg_catalog, pg_temp','TimeZone=UTC','DateStyle=ISO, YMD']::text[]"
@@ -58,7 +60,7 @@ def helper_checks(required=True):
             RAISE EXCEPTION 'STOP: unexpected helper ACL: {signature}'; END IF;
     END IF;
 """)
-    signatures = ",".join(f"to_regprocedure('{s}')" for s, *_ in contract.helper_specs())
+    signatures = ",".join(f"to_regprocedure('{s}')" for s, *_ in specs)
     # IS DISTINCT FROM semantics are needed while some helpers are not yet installed.
     return f"""
 DO $helpers$
@@ -78,9 +80,9 @@ def approval_checks(required=True):
     return "DO $approval$\n" + contract.approval_guard_sql(required=required) + "$approval$;\n"
 
 
-def verification():
+def verification(*, specs=None):
     return ("DO $verify$\n" + contract.runtime_capability_sql() + "$verify$;\n"
-            + helper_checks() + approval_checks())
+            + helper_checks(specs=specs) + approval_checks())
 
 
 PREFLIGHT = """
@@ -122,8 +124,76 @@ END $revoke$;
 """
 
 
+def v2_snapshot():
+    """Load the offline pre-additive contract, never the mutable backend module."""
+    path = Path(__file__).with_name("cca_eob_v2_contract_snapshot.py")
+    fingerprint = hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+    if fingerprint != "0aae8b7b03160fabc83112ec77438572efa12a8f1e6c3f46b878e240375b6974":
+        raise ValueError("The frozen v2 contract snapshot has changed.")
+    spec = importlib.util.spec_from_file_location("cca_eob_v2_contract_snapshot", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def transition_v2_additive():
+    """Authenticate exact v2, replace changed bodies only, preserve all pg_proc metadata."""
+    old = v2_snapshot()
+    before, after = tuple(old.helper_specs()), tuple(contract.helper_specs())
+    if (old.ROLE, old.FUNCTION, old.READER, old.WRITER, old.APPROVAL) != (
+            ROLE, contract.FUNCTION, contract.READER, contract.WRITER, contract.APPROVAL):
+        raise ValueError("Transition requires unchanged role, helper and approval identities.")
+    if len(before) != 3 or len(after) != 3 or before[0] != after[0]:
+        raise ValueError("Transition requires the exact unchanged v2 lock helper.")
+    replacements = []
+    for previous, target in zip(before[1:], after[1:]):
+        signature, source, result, names = target
+        if (signature, result, names) != (previous[0], previous[2], previous[3]):
+            raise ValueError("Transition cannot change helper signatures, arguments or return types.")
+        if source != previous[1]:
+            name, types = signature.split("(", 1)
+            definition = (
+                f"CREATE OR REPLACE FUNCTION {name}({names[0]} {types[:-1]}) RETURNS {result} "
+                "LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp "
+                "SET TimeZone = 'UTC' SET DateStyle = 'ISO, YMD' AS " + literal(source)
+            )
+            replacements.append("EXECUTE " + literal(definition) + ";")
+    if not replacements:
+        raise ValueError("Additive helpers are not ready: refusing a no-op v2 transition.")
+    signatures = ",".join(literal(s) for s, *_ in before)
+    # pg_proc includes the OID, raw ACL array, owner, settings, defaults and flags.
+    # Only prosrc may differ. Do not ALTER OWNER, GRANT, REVOKE, DROP or recreate.
+    catalog = (
+        "SELECT jsonb_agg(to_jsonb(p) - 'prosrc' ORDER BY p.oid) FROM pg_proc p "
+        f"WHERE p.oid IN (SELECT to_regprocedure(s) FROM unnest(ARRAY[{signatures}]) s)"
+    )
+    precheck = ("DO $verify$\n" + old.runtime_capability_sql() + "$verify$;\n"
+                + helper_checks(specs=before)
+                + "DO $approval$\n" + old.approval_guard_sql() + "$approval$;\n")
+    return f"""
+BEGIN;
+{TIMEOUTS}
+DO $transition$
+DECLARE original_metadata jsonb; final_metadata jsonb;
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_stat_activity WHERE usename='{ROLE}') THEN
+        RAISE EXCEPTION 'STOP: correction login has live sessions'; END IF;
+    EXECUTE {literal(precheck)};
+    SELECT ({catalog}) INTO original_metadata;
+    {' '.join(replacements)}
+    EXECUTE {literal(verification())};
+    SELECT ({catalog}) INTO final_metadata;
+    IF final_metadata IS DISTINCT FROM original_metadata THEN
+        RAISE EXCEPTION 'STOP: helper metadata or ACL changed during transition'; END IF;
+END $transition$;
+COMMIT;
+"""
+
+
 def body(action):
     """Reviewed statements without target preflight, for isolated-cluster proofs."""
+    if action == "transition-v2-additive":
+        return transition_v2_additive()
     if action == "verify":
         return f"BEGIN READ ONLY;\n{TIMEOUTS}\n{verification()}\nROLLBACK;\n"
     if action == "rollback":
@@ -236,7 +306,7 @@ def _validate_reviewed_evidence(document, reviewed_hash, release, historical_pla
         raise ValueError("Expected a complete ready fixed-scope plan and deterministic write recipe.")
     if plan["database_snapshot"].get("historical_readings_exist") is not False:
         # Both decisions bind the independent complete-document hash, not an inner plan hash.
-        contract.validate_thermal_exception(plan.get("thermal_exception"), correction)
+        contract.validate_thermal_exception(plan.get("thermal_exception"), correction, snapshot=plan["database_snapshot"])
         if (type(historical_plan_hash) is not str
                 or historical_plan_hash != plan["thermal_exception"]["original_plan_hash"]):
             raise ValueError("The independently authenticated fixed historical fingerprint is required.")
@@ -319,7 +389,7 @@ COMMIT;
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("provision", "verify", "rollback", "approve", "authorize-apply"))
+    parser.add_argument("action", choices=("provision", "verify", "rollback", "transition-v2-additive", "approve", "authorize-apply"))
     parser.add_argument("--document", type=Path)
     parser.add_argument("--release", type=Path)
     parser.add_argument("--reviewed-hash")

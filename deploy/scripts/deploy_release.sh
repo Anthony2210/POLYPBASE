@@ -130,6 +130,15 @@ cd "$APP_DIR"
 uv sync --frozen
 npm --prefix frontend ci --no-audit --no-fund
 
+# A provisioned dedicated runtime requires an independently reviewed exact policy.
+# Never repair access by broadening the checkout, venv, groups or default ACLs.
+CURRENT_STEP="CCA-EOB runtime read permissions"
+CCA_RUNTIME_MANIFEST="/etc/polypbase/cca-eob-runtime-permissions-v1.json"
+if id -u polypbase_cca_eob >/dev/null 2>&1 || [[ -e "$CCA_RUNTIME_MANIFEST" || -L "$CCA_RUNTIME_MANIFEST" ]]; then
+    "$APP_DIR/.venv/bin/python" -B "$APP_DIR/deploy/scripts/cca_eob_runtime_permissions.py" \
+        check --root "$APP_DIR" --manifest "$CCA_RUNTIME_MANIFEST"
+fi
+
 CURRENT_STEP="frontend validation"
 npm --prefix frontend run check:css
 npm --prefix frontend run typecheck

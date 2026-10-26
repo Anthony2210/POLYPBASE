@@ -362,7 +362,7 @@ def _plan(workbook_path, actor):
         # Root pins the independently authenticated original plan, never a runtime
         # reconstruction or a caller-selected hash. Preserve the entire evidence.
         witness = _root_document(HISTORICAL_PLAN_PATH)
-        role_contract.validate_thermal_exception(witness, plan)
+        role_contract.validate_thermal_exception(witness, plan, snapshot=payload)
 
     if plan["v2_sha256"] != correction.V2_SHA256:
         blockers.append("Only the pinned reviewed Excel V2 fingerprint is accepted.")
@@ -371,6 +371,8 @@ def _plan(workbook_path, actor):
         "correction": plan, "deployed_guards": _schema_state(), "database_snapshot": payload,
         "write_recipe": correction.write_recipe(plan, data["measurements"], actor.pk),
         "thermal_exception": witness,
+        "historical_document_text": (json.dumps(witness["original_document"], sort_keys=True, default=str)
+                                     if witness is not None else None),
     })
 
 
@@ -401,7 +403,10 @@ def validate_plan(document, approved_hash):
             or plan["operation"] != correction.OPERATION or plan["v2_sha256"] != correction.V2_SHA256):
         raise ValueError("Only a complete conflict-free CCA-EOB V3 plan may be applied.")
     if document["plan"]["database_snapshot"]["historical_readings_exist"]:
-        role_contract.validate_thermal_exception(document["plan"].get("thermal_exception"), plan)
+        role_contract.validate_thermal_exception(
+            document["plan"].get("thermal_exception"), plan,
+            snapshot=document["plan"]["database_snapshot"],
+        )
     return plan
 
 

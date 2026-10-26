@@ -27,6 +27,7 @@ import tempfile
 import time
 from pathlib import Path
 from unittest import skipUnless
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
@@ -74,6 +75,62 @@ def _invalid_releases(release):
     for key, values in invalid.items():
         for value in values:
             yield f"archive {key}={value!r}", {**release, "archive": {**release["archive"], key: value}}
+
+
+class AdditiveTransitionEmitterTests(SimpleTestCase):
+    def test_checked_in_artifact_matches_exact_emitted_bytes(self):
+        artifact = ROOT / "deploy" / "scripts" / "cca_eob_transition_v2_additive.sql"
+        self.assertEqual(artifact.read_bytes(), _emitter().emit("transition-v2-additive").encode("utf-8"))
+        self.assertNotIn(b"\r", artifact.read_bytes())
+    """The immutable baseline and emitter remain testable before helpers are ready."""
+
+    def test_snapshot_sources_are_frozen_independently_of_backend_changes(self):
+        old = _emitter().v2_snapshot()
+        fingerprint = hashlib.sha256(json.dumps(
+            old.helper_specs(), separators=(",", ":"), ensure_ascii=True).encode()).hexdigest()
+        self.assertEqual(fingerprint, "7264e2b4062e655513ec6d396e2ded22e3ca7e794cbabdf971e7775028b5481c")
+
+    def test_transition_refuses_no_op_and_lock_or_signature_changes(self):
+        emitter = _emitter()
+        before = emitter.v2_snapshot().helper_specs()
+        changed_lock = ((before[0][0], before[0][1] + "-- drift", *before[0][2:]), *before[1:])
+        changed_signature = (before[0], (before[1][0], before[1][1], "text", before[1][3]), before[2])
+        for specs in (before, changed_lock, changed_signature):
+            with self.subTest(specs=specs[0][0]), patch.object(contract, "helper_specs", return_value=specs):
+                with self.assertRaises(ValueError):
+                    emitter.body("transition-v2-additive")
+
+    def test_transition_replaces_only_changed_bodies_without_owner_or_acl_ddl(self):
+        emitter = _emitter()
+        before = emitter.v2_snapshot().helper_specs()
+        for index in (1, 2):
+            specs = list(before)
+            signature, source, result, names = specs[index]
+            specs[index] = (signature, source + "\n-- changed body only\n", result, names)
+            with self.subTest(signature=signature), patch.object(contract, "helper_specs", return_value=tuple(specs)):
+                sql = emitter.body("transition-v2-additive")
+                self.assertEqual(sql.count("CREATE OR REPLACE FUNCTION"), 1)
+                self.assertIn("CREATE OR REPLACE FUNCTION " + signature.split("(")[0], sql)
+                self.assertNotIn("ALTER FUNCTION", sql)
+                self.assertNotIn("GRANT EXECUTE", sql)
+                self.assertNotIn("REVOKE ALL", sql)
+                self.assertNotIn("CREATE TABLE", sql)
+
+    def test_transition_cli_matches_emitter_when_additive_helpers_are_ready(self):
+        emitter = _emitter()
+        if contract.helper_specs() == emitter.v2_snapshot().helper_specs():
+            result = subprocess.run(
+                [sys.executable, "-B", str(ROOT / "deploy/scripts/cca_eob_role_sql.py"), "transition-v2-additive"],
+                capture_output=True, timeout=30)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, b"")
+            self.assertIn(b"refusing a no-op", result.stderr)
+        else:
+            result = subprocess.run(
+                [sys.executable, "-B", str(ROOT / "deploy/scripts/cca_eob_role_sql.py"), "transition-v2-additive"],
+                capture_output=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.decode(), emitter.emit("transition-v2-additive"))
 
 
 class ApprovalEmitterContractTests(SimpleTestCase):
@@ -276,6 +333,84 @@ END $$;""")
 
     def provision(self):
         result = self.run_action("provision")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def install_v2_helpers(self):
+        self.provision()
+        old = self.emitter.v2_snapshot()
+        result = self.sql(old.reader_definition() + old.writer_definition())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = self.sql(self.emitter.helper_checks(specs=old.helper_specs()))
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def helper_catalog(self):
+        return self.value("""SELECT jsonb_agg(to_jsonb(p) ORDER BY p.oid) FROM pg_proc p
+            JOIN pg_namespace n ON n.oid=p.pronamespace
+            WHERE n.nspname='public' AND starts_with(p.proname,'cca_eob_')""")
+
+    def transition_sql(self):
+        specs = contract.helper_specs()
+        self.assertNotEqual(specs, self.emitter.v2_snapshot().helper_specs(),
+                            "Transition proofs require the real new helper bodies.")
+        return self.emitter.body("transition-v2-additive"), specs
+
+    def test_transition_v2_additive_preserves_oid_owner_acl_and_all_other_metadata(self):
+        self.install_v2_helpers()
+        before = json.loads(self.helper_catalog())
+        result = self.sql(f"""INSERT INTO {contract.APPROVAL}
+            (singleton,plan_hash,document,release,expires_at)
+            VALUES (true, repeat('a',64), '{{"original_evidence":true}}', '{{}}', now()+interval '1 hour');""")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        unchanged_catalog = f"""SELECT jsonb_build_object(
+            'role', (SELECT to_jsonb(r) FROM pg_roles r WHERE rolname='{ROLE}'),
+            'relations', (SELECT jsonb_agg(to_jsonb(c) ORDER BY c.oid) FROM pg_class c
+                WHERE c.relnamespace='public'::regnamespace),
+            'triggers', (SELECT jsonb_agg(to_jsonb(t) ORDER BY t.oid) FROM pg_trigger t
+                JOIN pg_class c ON c.oid=t.tgrelid WHERE c.relnamespace='public'::regnamespace),
+            'approval', (SELECT jsonb_agg(to_jsonb(a)) FROM {contract.APPROVAL} a))"""
+        original_boundary = self.value(unchanged_catalog)
+        sql, specs = self.transition_sql()
+        result = self.sql(sql)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        after = json.loads(self.helper_catalog())
+        self.assertEqual(self.value(unchanged_catalog), original_boundary)
+        self.assertEqual(next(p for p in before if p['proname'] == 'cca_eob_lock_v1'),
+                         next(p for p in after if p['proname'] == 'cca_eob_lock_v1'))
+        self.assertEqual([{k: v for k, v in p.items() if k != 'prosrc'} for p in before],
+                         [{k: v for k, v in p.items() if k != 'prosrc'} for p in after])
+        result = self.sql(self.emitter.helper_checks(specs=specs))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertStops(self.sql(sql), "unexpected helper definition/metadata")
+        self.assertEqual(json.loads(self.helper_catalog()), after)
+
+    def test_transition_v2_additive_refuses_wrong_old_definition_metadata_and_acl(self):
+        for signature, _, _, _ in self.emitter.v2_snapshot().helper_specs():
+            for tamper, message in (
+                (f"UPDATE pg_proc SET prosrc=prosrc || E'\\n-- tampered' WHERE oid='{signature}'::regprocedure;",
+                 "unexpected helper definition/metadata"),
+                (f"ALTER FUNCTION {signature} COST 101;", "unexpected helper definition/metadata"),
+                                (f"ALTER FUNCTION {signature} OWNER TO postgres;", "unexpected helper definition/metadata"),
+                                (f"ALTER FUNCTION {signature} SET search_path=public;", "unexpected helper definition/metadata"),
+                (f"GRANT EXECUTE ON FUNCTION {signature} TO PUBLIC;", "unexpected helper ACL"),
+            ):
+                with self.subTest(signature=signature, tamper=tamper):
+                    self.reset_cluster_state()
+                    self.install_v2_helpers()
+                    self.assertEqual(self.sql(tamper).returncode, 0)
+                    before = self.helper_catalog()
+                    sql, _ = self.transition_sql()
+                    self.assertStops(self.sql(sql), message)
+                    self.assertEqual(self.helper_catalog(), before)
+
+    def test_transition_v2_additive_postcheck_failure_rolls_back_both_replacements(self):
+        self.install_v2_helpers()
+        before = self.helper_catalog()
+        with patch.object(self.emitter, "verification", return_value=(
+                "DO $forced$ BEGIN RAISE EXCEPTION 'forced transition postcheck failure'; END $forced$;")):
+            sql, _ = self.transition_sql()
+        self.assertStops(self.sql(sql), "forced transition postcheck failure")
+        self.assertEqual(self.helper_catalog(), before)
+        result = self.sql(self.emitter.helper_checks(specs=self.emitter.v2_snapshot().helper_specs()))
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def assertStops(self, result, message):

@@ -1,5 +1,13 @@
 # CCA-EOB — exception thermique des 72 réattributions non liées
 
+> Complément local du 2026-10-23 : l'égalité scientifique décrite ici admet
+> désormais uniquement le delta nominatif et audité des mesures 104688/104689,
+> selon [le contrat additif](cca-eob-additive-baseline-review.md).
+> L'identité du document historique complet reste inchangée. La transition SQL
+> v2 et les conditions de lecture runtime sont décrites
+> [séparément](cca-eob-v2-additive-transition-runtime.md).
+> Aucun de ces documents n'autorise une exécution en production.
+
 ## Statut et limites
 
 Préparation locale uniquement, **READY FOR INDEPENDENT REVIEW**. Ce document
