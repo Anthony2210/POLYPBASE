@@ -37,6 +37,10 @@ class Command(BaseCommand):
                     )
             self.stdout.write(self.style.WARNING("Dry-run only: nothing was written."))
             self.stdout.write(
+                "Only READY entries can be applied. V2_CONTRADICTION and PENDING_CONFIRMATION "
+                "entries stay blocked, including with a reviewed plan hash."
+            )
+            self.stdout.write(
                 f"Apply with --apply --expected-plan-hash {deactivation.plan_hash(organization, entries)} "
                 "--actor <administrator>."
             )

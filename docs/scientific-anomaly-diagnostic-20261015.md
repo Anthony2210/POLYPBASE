@@ -54,3 +54,21 @@ its `merged_range`, every `blocks` entry with values, and `last_week_with_value`
 3-40 at 10 °C (rows 151-152), so its last source observation is 2026-W40. These are source observations only: they say
 nothing about the persisted Box status, its persisted measurements or whether it may be deactivated.
 `CLA-JKA-1.009` → `CLC-JKA-1.009` is not an approved remap and appears only as `candidate_remap`.
+
+## HS deactivation safety guard
+
+The five known V2 contradictions now share their evidence with the effective HS planner in
+`historical_2026.decisions.HS_V2_CONTRADICTIONS`. They are always classified `V2_CONTRADICTION`,
+never `READY`, regardless of Box presence or status. The diagnostic retains `UNSAFE` and reports
+that same blocking plan classification. Source observations do not establish a persisted status.
+
+The protection covers the original labels and the two approved targets `ATO-JIS-1.001` and
+`PCA-JKA-1.005`, including when original and resolved Boxes coexist. No Box is selected for a
+protected entry. CLA/CLC remains unresolved; the CLC candidate is never selected for deactivation.
+`CTU-CFC-2.007` remains `PENDING_CONFIRMATION`, without approving a CTU-FCF equivalence.
+
+`deactivate_hs_boxes` dry-run prints the blocking classification and source reason. Apply rebuilds
+the plan under the existing organization/Box locks, rejects stale hashes, and independently checks
+every READY target against the protection before any lifecycle call. A matching reviewed hash
+cannot override it. Unrelated entries retain their existing classifications and lifecycle/audit
+behavior; this guard does not establish scientific or operational approval for the other 29 labels.

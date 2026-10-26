@@ -265,7 +265,7 @@ class HsDiagnosticTests(DiagnosticBase):
             entry = entries[listed]
             self.assertTrue(entry["approved_remap"])
             self.assertEqual(entry["resolved_code"], resolved)
-            self.assertEqual(entry["deactivation_plan_status"], "READY")
+            self.assertEqual(entry["deactivation_plan_status"], "V2_CONTRADICTION")
             self.assertEqual(entry["resolved_box"]["pk"], box.pk)
             self.assertEqual(entry["resolved_box"]["status"], "active")
             self.assertEqual(entry["deactivation_safety"], "UNSAFE")
@@ -288,10 +288,10 @@ class HsDiagnosticTests(DiagnosticBase):
         self.assertNotIn("status", evidence)  # source evidence never claims a Box status
         self.assertIn("persisted", evidence["note"])
 
-    def test_labels_with_recent_v2_observations_are_unsafe_even_when_ready(self):
+    def test_labels_with_recent_v2_observations_are_blocked_and_unsafe(self):
         entries, _ = self.hs()
         for listed in ("CAC-JKA-2.004", "OCE-TAI-1.002"):
-            self.assertEqual(entries[listed]["deactivation_plan_status"], "READY")
+            self.assertEqual(entries[listed]["deactivation_plan_status"], "V2_CONTRADICTION")
             self.assertEqual(entries[listed]["deactivation_safety"], "UNSAFE")
             self.assertTrue(entries[listed]["in_urgent_species_set"])
         self.assertEqual(entries["CAC-JKA-2.004"]["source_evidence"]["last_week_with_value"], 41)
@@ -302,8 +302,9 @@ class HsDiagnosticTests(DiagnosticBase):
         entry = entries["CLA-JKA-1.009"]
         self.assertFalse(entry["approved_remap"])
         self.assertEqual(entry["resolved_code"], "CLA-JKA-1.009")
-        self.assertEqual(entry["deactivation_plan_status"], "NOT_FOUND")
-        self.assertEqual(entry["deactivation_safety"], "NOT_APPLICABLE")
+        self.assertEqual(entry["deactivation_plan_status"], "V2_CONTRADICTION")
+        self.assertEqual(entry["deactivation_safety"], "UNSAFE")
+        self.assertIn("CLA/CLC identity is unresolved", entry["deactivation_plan_detail"])
         candidate = entry["candidate_remap"]
         self.assertTrue(candidate["candidate_only"])
         self.assertFalse(candidate["approved"])
@@ -623,7 +624,7 @@ class SourceEvidenceTests(DiagnosticBase):
         self.assertEqual(entry["source_evidence"]["last_iso_week"], "2026-W40")
         latest = entry["listed_box"]["measurements"]["latest"]
         self.assertEqual((latest["iso_week"], latest["polyp_count"], latest["strobila_count"]), (41, 0, 0))
-        self.assertEqual(entry["deactivation_plan_status"], "READY")
+        self.assertEqual(entry["deactivation_plan_status"], "V2_CONTRADICTION")
         self.assertEqual(entry["deactivation_safety"], "UNSAFE")
 
     def test_pca_source_reaches_w40_while_persisted_measurements_stay_separate(self):
