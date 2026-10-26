@@ -573,7 +573,8 @@ class HsDeactivationTests(ImporterBase):
                 deactivation.summarize(entries),
                 {
                     "READY": ["AAA-BBB-1.001"],
-                    "NOT_FOUND": ["AAA-BBB-1.404", "COR-JIS-1.001"],
+                    "NOT_FOUND": ["AAA-BBB-1.404"],
+                    "V2_CONTRADICTION": ["COR-JIS-1.001"],
                     "PENDING_CONFIRMATION": ["CTU-CFC-2.007"],
                 },
             )
@@ -598,6 +599,152 @@ class HsDeactivationTests(ImporterBase):
         with mock.patch("apps.cultures.historical_2026.deactivation.decisions.HS_BOXES", ("FOR-EIG-1.001",)):
             entries = deactivation.build_deactivation_plan(self.org)
         self.assertEqual(entries[0]["status"], deactivation.NOT_FOUND)
+
+    def test_all_five_originals_are_blocked_for_every_status_and_when_missing(self):
+        codes = ("CAC-JKA-2.004", "COR-JIS-1.001", "CLA-JKA-1.009",
+                 "OCE-TAI-1.002", "PCA-CHO-1.005")
+        for status in (None, Box.Status.ACTIVE, Box.Status.INACTIVE, Box.Status.PENDING_REVIEW):
+            if status == Box.Status.ACTIVE:
+                for code in codes:
+                    self.make_box(code)
+            elif status is not None:
+                Box.objects.filter(global_code__in=codes).update(status=status)
+            before = self.counts()
+            entries = {e["listed_code"]: e for e in deactivation.build_deactivation_plan(self.org)}
+            for code in codes:
+                with self.subTest(code=code, status=status):
+                    self.assertEqual(entries[code]["status"], deactivation.V2_CONTRADICTION)
+                    self.assertIn("V2 observations", entries[code]["detail"])
+                    self.assertIsNone(entries[code]["box"])
+            self.assertEqual(self.counts(), before)
+
+    def test_remapped_only_and_coexisting_identities_are_never_deactivated(self):
+        protected = [self.make_box(code) for code in (
+            "CAC-JKA-2.004", "ATO-JIS-1.001", "CLA-JKA-1.009", "OCE-TAI-1.002",
+            "PCA-JKA-1.005", "CLC-JKA-1.009", "CTU-CFC-2.007", "CTU-FCF-2.007",
+        )]
+        self.measurement(protected[0], 41, 0, 0)
+        for coexist in (False, True):
+            if coexist:
+                protected.extend(self.make_box(code) for code in ("COR-JIS-1.001", "PCA-CHO-1.005"))
+            before = list(Box.objects.order_by("pk").values())
+            measurements = list(BiologicalMeasurement.objects.values())
+            audits = list(AuditLog.objects.values())
+            plan = deactivation.build_deactivation_plan(self.org)
+            applied, done = deactivation.apply_deactivations(
+                self.org, actor=self.admin, expected_plan_hash=deactivation.plan_hash(self.org, plan),
+            )
+            self.assertEqual(done, [])
+            self.assertEqual(deactivation.summarize(applied), deactivation.summarize(plan))
+            self.assertEqual(list(Box.objects.order_by("pk").values()), before)
+            self.assertEqual(list(BiologicalMeasurement.objects.values()), measurements)
+            self.assertEqual(list(AuditLog.objects.values()), audits)
+            pending = next(e for e in applied if e["listed_code"] == "CTU-CFC-2.007")
+            self.assertEqual(pending["status"], deactivation.PENDING_CONFIRMATION)
+            self.assertEqual(deactivation.decisions.HS_CODE_CORRECTIONS.get("CLA-JKA-1.009"), None)
+
+    def test_approved_targets_are_blocked_even_if_listed_directly(self):
+        codes = ("ATO-JIS-1.001", "PCA-JKA-1.005")
+        for code in codes:
+            self.make_box(code)
+        with mock.patch.object(deactivation.decisions, "HS_BOXES", codes):
+            plan = deactivation.build_deactivation_plan(self.org)
+            self.assertEqual(deactivation.summarize(plan), {deactivation.V2_CONTRADICTION: list(codes)})
+            _, done = deactivation.apply_deactivations(
+                self.org, actor=self.admin, expected_plan_hash=deactivation.plan_hash(self.org, plan),
+            )
+        self.assertEqual(done, [])
+        self.assertFalse(AuditLog.objects.exists())
+
+    def test_apply_guard_rejects_misclassified_ready_targets_even_with_matching_hash(self):
+        codes = ("CAC-JKA-2.004", "COR-JIS-1.001", "CLA-JKA-1.009", "OCE-TAI-1.002",
+                 "PCA-CHO-1.005", "ATO-JIS-1.001", "PCA-JKA-1.005", "CTU-CFC-2.007")
+        for code in codes:
+            box = self.make_box(code)
+            # A valid entry comes first: preflight must reject before any mutation.
+            plan = [
+                {"listed_code": self.box.global_code, "resolved_code": self.box.global_code,
+                 "status": deactivation.READY, "box": self.box},
+                {"listed_code": code, "resolved_code": code, "status": deactivation.READY, "box": box},
+            ]
+            with self.subTest(code=code), mock.patch.object(deactivation, "build_deactivation_plan", return_value=plan), \
+                    mock.patch.object(deactivation, "deactivate_box") as lifecycle:
+                with self.assertRaises(ValueError):
+                    deactivation.apply_deactivations(
+                        self.org, actor=self.admin, expected_plan_hash=deactivation.plan_hash(self.org, plan),
+                    )
+                lifecycle.assert_not_called()
+        self.assertFalse(AuditLog.objects.exists())
+        self.assertFalse(Box.objects.exclude(status=Box.Status.ACTIVE).exists())
+
+    def test_apply_guard_checks_actual_box_identity_too(self):
+        box = self.make_box("ATO-JIS-1.001")
+        plan = [{"listed_code": "AAL-FGU-1.002", "resolved_code": "AAL-FGU-1.002",
+                 "status": deactivation.READY, "box": box}]
+        with mock.patch.object(deactivation, "build_deactivation_plan", return_value=plan):
+            with self.assertRaisesMessage(ValueError, "HS deactivation blocked"):
+                deactivation.apply_deactivations(
+                    self.org, actor=self.admin, expected_plan_hash=deactivation.plan_hash(self.org, plan),
+                )
+        self.assertFalse(AuditLog.objects.exists())
+        box.refresh_from_db()
+        self.assertEqual(box.status, Box.Status.ACTIVE)
+
+    def test_command_dry_run_and_apply_agree_and_only_unrelated_ready_box_is_changed(self):
+        protected = self.make_box("ATO-JIS-1.001")
+        valid = self.make_box("AAL-FGU-1.002")
+        inactive = self.make_box("AFL-TAI-1.002", status=Box.Status.INACTIVE)
+        pending = self.make_box("AVA-TAI-1.001", status=Box.Status.PENDING_REVIEW)
+        foreign_strain = Strain.objects.create(species=self.species, organization=self.other, code="FOR-EIG-1")
+        foreign = self.make_box("PYU-CNI-1.001", org=self.other, strain=foreign_strain)
+        foreign_protected = self.make_box("PCA-JKA-1.005", org=self.other, strain=foreign_strain)
+        unchanged = [protected, inactive, pending, foreign, foreign_protected]
+        before = {box.pk: Box.objects.filter(pk=box.pk).values().get() for box in unchanged}
+        counts = self.counts()
+        output = StringIO()
+        call_command("deactivate_hs_boxes", organization_id=self.org.pk, stdout=output)
+        self.assertEqual(self.counts(), counts)
+        text = output.getvalue()
+        self.assertIn("V2_CONTRADICTION (5)", text)
+        self.assertIn("PENDING_CONFIRMATION (1): CTU-CFC-2.007", text)
+        self.assertIn("CLA/CLC identity is unresolved", text)
+        self.assertIn("Only READY entries can be applied", text)
+        plan = deactivation.build_deactivation_plan(self.org)
+        digest = deactivation.plan_hash(self.org, plan)
+        self.assertIn(digest, text)
+        call_command("deactivate_hs_boxes", organization_id=self.org.pk, apply=True,
+                     actor=self.admin.username, expected_plan_hash=digest, stdout=StringIO())
+        valid.refresh_from_db()
+        self.assertEqual(valid.status, Box.Status.INACTIVE)
+        for box in unchanged:
+            self.assertEqual(Box.objects.filter(pk=box.pk).values().get(), before[box.pk])
+        self.assertEqual(AuditLog.objects.count(), counts[2] + 1)
+        audit = AuditLog.objects.latest("pk")
+        self.assertEqual((audit.organization_id, audit.object_id), (self.org.pk, valid.global_code))
+        self.assertEqual(audit.metadata["transition"], "active->inactive")
+
+    def test_stale_and_pre_guard_plan_hashes_are_rejected_without_audit(self):
+        self.make_box("CAC-JKA-2.004")
+        plan = deactivation.build_deactivation_plan(self.org)
+        legacy_plan = [dict(e) for e in plan]
+        next(e for e in legacy_plan if e["listed_code"] == "CAC-JKA-2.004")["status"] = deactivation.READY
+        for digest in ("0" * 64, deactivation.plan_hash(self.org, legacy_plan)):
+            with self.subTest(digest=digest), self.assertRaisesMessage(ValueError, "database changed"):
+                deactivation.apply_deactivations(self.org, actor=self.admin, expected_plan_hash=digest)
+        current_hash = deactivation.plan_hash(self.org, plan)
+        self.make_box("AAL-FGU-1.002")
+        with self.assertRaisesMessage(ValueError, "database changed"):
+            deactivation.apply_deactivations(self.org, actor=self.admin, expected_plan_hash=current_hash)
+        self.assertFalse(AuditLog.objects.exists())
+        self.assertFalse(Box.objects.exclude(status=Box.Status.ACTIVE).exists())
+
+    def test_foreign_administrator_cannot_apply_a_current_plan(self):
+        plan = deactivation.build_deactivation_plan(self.org)
+        with self.assertRaises(PermissionDenied):
+            deactivation.apply_deactivations(
+                self.org, actor=self.foreign_admin, expected_plan_hash=deactivation.plan_hash(self.org, plan),
+            )
+        self.assertFalse(AuditLog.objects.exists())
 
 
 class TthCorrectionTests(ImporterBase):

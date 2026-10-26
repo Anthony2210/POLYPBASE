@@ -27,7 +27,7 @@ from apps.taxonomy.models import LocalStrainIdentity, OrganizationSpeciesCode, S
 from apps.taxonomy.scoping import eligible_strains
 
 from . import decisions
-from .deactivation import READY, build_deactivation_plan
+from .deactivation import READY, V2_CONTRADICTION, build_deactivation_plan
 from .source import canonical_box_code
 from .species_correction import LEDGER_SHA256, SPECS, V2_SHA256, build_plan
 
@@ -45,36 +45,7 @@ URGENT_CODES = frozenset(spec[0] for spec in SPECS)
 # Weeks come from each sheet's row-2 header, never from the column index (Hydrozoa
 # has an unlabelled column AR, so there AS is W39 and AT is W40).
 # Blocks without any value are omitted. Rows are 1-based worksheet rows.
-V2_KNOWN_CONTRADICTIONS = {
-    "CAC-JKA-2.004": {
-        "literal": "CAC-JKA-2.04", "cell": "Semaestomeae!B13", "merged_range": "Semaestomeae!B13:B16",
-        "blocks": ({"temperature_c": 15, "rows": "13-14", "first_week": 19, "last_week": 41},),
-        "last_week": 41,
-    },
-    "COR-JIS-1.001": {
-        "literal": "ATO-JIS-1.01", "cell": "Coronatae!B3", "merged_range": "Coronatae!B3:B4",
-        "blocks": ({"temperature_c": 15, "rows": "3-4", "first_week": 1, "last_week": 41},),
-        "last_week": 41,
-    },
-    "CLA-JKA-1.009": {
-        "literal": "CLC-JKA-1.09", "cell": "Semaestomeae!B77", "merged_range": "Semaestomeae!B77:B80",
-        "blocks": ({"temperature_c": 20, "rows": "77-78", "first_week": 1, "last_week": 40},),
-        "last_week": 40,
-    },
-    "OCE-TAI-1.002": {
-        "literal": "OCE-TAI-1.02", "cell": "Hydrozoa!B173", "merged_range": "Hydrozoa!B173:B174",
-        "blocks": ({"temperature_c": 25, "rows": "173-174", "first_week": 1, "last_week": 40},),
-        "last_week": 40,
-    },
-    "PCA-CHO-1.005": {
-        "literal": "PCA-JKA-1.05", "cell": "Semaestomeae!B149", "merged_range": "Semaestomeae!B149:B152",
-        "blocks": (
-            {"temperature_c": 5, "rows": "149-150", "first_week": 1, "last_week": 2},
-            {"temperature_c": 10, "rows": "151-152", "first_week": 3, "last_week": 40},
-        ),
-        "last_week": 40,
-    },
-}
+V2_KNOWN_CONTRADICTIONS = decisions.HS_V2_CONTRADICTIONS
 SOURCE_EVIDENCE_NOTE = (
     "Source observations only. They say nothing about the persisted Box status, its persisted "
     "measurements or whether it may be deactivated."
@@ -485,7 +456,9 @@ def _hs(organization):
                 "code": "IDENTITY_UNDER_URGENT_CORRECTION", "severity": "UNVERIFIED",
                 "message": "This Box belongs to the six reviewed identity corrections; verify its state first.",
             })
-        if item["status"] == READY:
+        if item["status"] == V2_CONTRADICTION:
+            entry["deactivation_safety"] = "UNSAFE"
+        elif item["status"] == READY:
             warnings.append({
                 "code": "HS_LABEL_NOT_VERIFIED_AGAINST_SOURCES", "severity": "UNVERIFIED",
                 "message": "The HS list is not an authorization derived from persisted state; "
@@ -530,5 +503,5 @@ def render_summary(report):
         for entry in hs["entries"]:
             if entry["deactivation_safety"] == "UNSAFE":
                 lines.append(f"  WARNING {entry['listed_code']} -> {entry['resolved_code']}: "
-                             f"plan {entry['deactivation_plan_status']} but UNSAFE (diagnostic only)")
+                             f"plan {entry['deactivation_plan_status']}; UNSAFE (diagnostic only)")
     return "\n".join(lines)

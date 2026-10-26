@@ -25,6 +25,27 @@ PENDING_CONFIRMATION = "PENDING_CONFIRMATION"
 NOT_FOUND = "NOT_FOUND"
 IDENTITY_CORRECTION_PENDING = "IDENTITY_CORRECTION_PENDING"
 NOT_ACTIVE = "NOT_ACTIVE"
+V2_CONTRADICTION = "V2_CONTRADICTION"
+
+
+def deactivation_block_reason(*codes):
+    """Protect exact HS labels and only their explicitly approved remaps."""
+    for listed, evidence in decisions.HS_V2_CONTRADICTIONS.items():
+        resolved = decisions.HS_CODE_CORRECTIONS.get(listed, listed)
+        if listed in codes or resolved in codes:
+            detail = (
+                f"HS deactivation blocked: V2 observations under {evidence['literal']} "
+                f"({evidence['merged_range']}) through 2026-W{evidence['last_week']:02d} "
+                f"contradict the HS label {listed}; human review is required. "
+                "A reviewed plan hash cannot override this protection."
+            )
+            if listed == "CLA-JKA-1.009":
+                detail += " CLA/CLC identity is unresolved; no remap or candidate Box is selected."
+            return detail
+    for code in codes:
+        if code in decisions.HS_PENDING_CONFIRMATION:
+            return decisions.HS_PENDING_CONFIRMATION[code]
+    return ""
 
 
 def build_deactivation_plan(organization, *, lock=False):
@@ -47,6 +68,9 @@ def build_deactivation_plan(organization, *, lock=False):
         if listed in decisions.HS_PENDING_CONFIRMATION:
             entry["status"] = PENDING_CONFIRMATION
             entry["detail"] = decisions.HS_PENDING_CONFIRMATION[listed]
+        elif reason := deactivation_block_reason(listed, resolved):
+            entry["status"] = V2_CONTRADICTION
+            entry["detail"] = reason
         elif resolved in by_code:
             box = by_code[resolved]
             entry["box"] = box
@@ -94,6 +118,15 @@ def apply_deactivations(organization, *, actor, expected_plan_hash):
         entries = build_deactivation_plan(locked, lock=True)
         if plan_hash(locked, entries) != expected_plan_hash:
             raise ValueError("The database changed since the reviewed dry-run.")
+        # Validate every target before any lifecycle call, independently of READY
+        # and the reviewed hash, so a misclassified plan cannot bypass the guard.
+        for entry in entries:
+            if entry["status"] == READY:
+                reason = deactivation_block_reason(
+                    entry["listed_code"], entry["resolved_code"], entry["box"].global_code
+                )
+                if reason:
+                    raise ValueError(reason)
         done = []
         for entry in entries:
             if entry["status"] == READY:

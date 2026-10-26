@@ -163,6 +163,41 @@ HS_CODE_CORRECTIONS = {
     "COR-JIS-1.001": "ATO-JIS-1.001",
     "PCA-CHO-1.005": "PCA-JKA-1.005",
 }
+# Source evidence shared by the deactivation guard and read-only diagnostic.
+# Extracted read-only from the SHA-256-checked V2 workbook (0d5cd16e...b160).
+# Weeks follow worksheet headers, not column indices; zero is an observation.
+# These facts block HS deactivation, never establish a new identity or status.
+HS_V2_CONTRADICTIONS = {
+    "CAC-JKA-2.004": {
+        "literal": "CAC-JKA-2.04", "cell": "Semaestomeae!B13", "merged_range": "Semaestomeae!B13:B16",
+        "blocks": ({"temperature_c": 15, "rows": "13-14", "first_week": 19, "last_week": 41},),
+        "last_week": 41,
+    },
+    "COR-JIS-1.001": {
+        "literal": "ATO-JIS-1.01", "cell": "Coronatae!B3", "merged_range": "Coronatae!B3:B4",
+        "blocks": ({"temperature_c": 15, "rows": "3-4", "first_week": 1, "last_week": 41},),
+        "last_week": 41,
+    },
+    "CLA-JKA-1.009": {
+        "literal": "CLC-JKA-1.09", "cell": "Semaestomeae!B77", "merged_range": "Semaestomeae!B77:B80",
+        "blocks": ({"temperature_c": 20, "rows": "77-78", "first_week": 1, "last_week": 40},),
+        "last_week": 40,
+    },
+    "OCE-TAI-1.002": {
+        "literal": "OCE-TAI-1.02", "cell": "Hydrozoa!B173", "merged_range": "Hydrozoa!B173:B174",
+        "blocks": ({"temperature_c": 25, "rows": "173-174", "first_week": 1, "last_week": 40},),
+        "last_week": 40,
+    },
+    "PCA-CHO-1.005": {
+        "literal": "PCA-JKA-1.05", "cell": "Semaestomeae!B149", "merged_range": "Semaestomeae!B149:B152",
+        "blocks": (
+            {"temperature_c": 5, "rows": "149-150", "first_week": 1, "last_week": 2},
+            {"temperature_c": 10, "rows": "151-152", "first_week": 3, "last_week": 40},
+        ),
+        "last_week": 40,
+    },
+}
+
 # Not approved: left for a human decision and never deactivated automatically.
 HS_PENDING_CONFIRMATION = {
     "CTU-CFC-2.007": "CTU-FCF-2.007 is not approved as the same culture",
