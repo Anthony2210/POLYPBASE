@@ -75,6 +75,77 @@ function translator(catalog) {
 const tFr = translator(fr);
 const tEn = translator(en);
 
+const ccaEobReason = 'CCA-EOB 2026 biological identities corrected against the reviewed V2 workbook. '
+  + "Environmental context now resolves through the target box under Anthony's approved product decision. "
+  + 'No location or movement history is modified.';
+const ccaEobSummary = {
+  action: 'import',
+  object_type: 'historical_correction',
+  object_id: 'cca_eob_v2_20261016_v3',
+  description: ccaEobReason,
+  metadata: { operation: 'cca_eob_v2_20261016_v3', moved: 72, plan_hash: 'unchanged-evidence' },
+};
+const ccaEobEnglish = '72 CCA-EOB measurements reassigned to the correct boxes. Environmental context follows the assigned box. Locations and movement history remain unchanged.';
+const ccaEobFrench = '72 relevés CCA-EOB réaffectés aux bonnes boîtes. Le contexte environnemental suit la boîte attribuée. Les emplacements et l’historique des déplacements restent inchangés.';
+
+test('CCA-EOB V3 summary uses the exact EN message and FR localization without mutating evidence', () => {
+  const before = JSON.stringify(ccaEobSummary);
+  for (const [t, expected] of [[tEn, ccaEobEnglish], [tFr, ccaEobFrench]]) {
+    assert.equal(audit.getAuditDescriptionLabel(ccaEobSummary, t), expected);
+    assert.equal(audit.getAuditBusinessSummary(ccaEobSummary, t), expected);
+    assert.ok(renderBusinessRow(ccaEobSummary, t).includes(expected));
+  }
+  assert.equal(JSON.stringify(ccaEobSummary), before);
+});
+
+test('CCA-EOB V3 personal action summary uses its resource identity without raw metadata', () => {
+  const personalEntry = {
+    action: 'import', description: ccaEobReason,
+    resource: { type: 'historical_correction', identifier: 'cca_eob_v2_20261016_v3' },
+    business_details: { type: 'reference', values: {} },
+  };
+  assert.equal(audit.getAuditBusinessSummary(personalEntry, tEn), ccaEobEnglish);
+  assert.equal(audit.getAuditBusinessSummary(personalEntry, tFr), ccaEobFrench);
+});
+
+test('CCA-EOB individual audits retain source/target boxes and ISO week in both languages', () => {
+  const entry = {
+    action: 'update', object_type: 'box', object_id: 'CCA-EOB-2.005',
+    description: `${ccaEobReason} CCA-EOB-2.004 -> CCA-EOB-2.005; 2026-W08.`,
+    metadata: { operation: 'cca_eob_v2_20261016_v3', measurement_id: 123 },
+  };
+  const before = JSON.stringify(entry);
+  for (const t of [tFr, tEn]) {
+    assert.equal(audit.getAuditDescriptionLabel(entry, t), entry.description);
+    assert.equal(audit.getAuditBusinessSummary(entry, t), entry.description);
+    const html = renderBusinessRow(entry, t);
+    assert.ok(html.includes('CCA-EOB-2.004'));
+    assert.ok(html.includes('CCA-EOB-2.005'));
+    assert.ok(html.includes('2026-W08'));
+  }
+  assert.equal(JSON.stringify(entry), before);
+});
+
+test('other operations and unrelated audits never receive the CCA-EOB V3 summary', () => {
+  const entries = [
+    { ...ccaEobSummary, object_id: 'cca_eob_v2_20261016_v2' },
+    { ...ccaEobSummary, object_id: 'other_historical_correction' },
+    { ...ccaEobSummary, object_id: undefined },
+    { ...ccaEobSummary, object_type: 'box' },
+    { ...ccaEobSummary, action: 'update' },
+    { action: 'import', description: ccaEobReason },
+    { action: 'import', description: 'Unrelated audit', metadata: ccaEobSummary.metadata },
+    { action: 'import', description: ccaEobReason,
+      resource: { type: 'historical_correction', identifier: 'cca_eob_v2_20261016_v2' } },
+  ];
+  for (const entry of entries) {
+    for (const t of [tFr, tEn]) {
+      assert.equal(audit.getAuditDescriptionLabel(entry, t), entry.description);
+      assert.equal(audit.getAuditBusinessSummary(entry, t), entry.description);
+    }
+  }
+});
+
 test('FR measurement creation is readable and distinct from a correction', () => {
   const created = audit.getAuditDescriptionLabel(
     { action: 'entry', description: 'Biological measurement for 2026-09-15' },

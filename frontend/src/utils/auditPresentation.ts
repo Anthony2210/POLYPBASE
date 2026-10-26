@@ -71,7 +71,7 @@ export type AuditEntryLike = {
   action_label?: string;
   description: string;
   family?: AuditFamily;
-  resource?: { type: string };
+  resource?: { type: string; identifier?: string | null };
   object_type?: string;
   object_id?: string;
   account_identity?: ReadableUserIdentity | null;
@@ -645,6 +645,14 @@ function getAccountSummaryLabel(entry: AuditEntryLike, t: Translate): string {
 export function getAuditDescriptionLabel(entry: AuditEntryLike, t: Translate): string {
   if (isAccountAuditEntry(entry)) return getAccountSummaryLabel(entry, t);
   const description = (entry.description || '').trim();
+
+  // Translate only the V3 summary; individual audits retain box and ISO-week evidence.
+  const objectType = entry.object_type ?? entry.resource?.type;
+  const objectId = entry.object_id ?? entry.resource?.identifier;
+  if (entry.action === 'import' && objectType === 'historical_correction'
+    && objectId === 'cca_eob_v2_20261016_v3') {
+    return t('auditDescriptionCcaEobV3Correction');
+  }
 
   if (description.startsWith('Biological measurement edited for ')) {
     return t('auditDescriptionMeasurementCorrected');

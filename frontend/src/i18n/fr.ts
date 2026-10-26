@@ -240,6 +240,7 @@ export const fr = {
   auditDescriptionTransferImported: 'Transfert importé depuis {source}',
   auditDescriptionAlertResolved: 'Alerte résolue : {message}',
   auditDescriptionInventoryInitialized: 'Inventaire historique initialisé pour {organization}',
+  auditDescriptionCcaEobV3Correction: '72 relevés CCA-EOB réaffectés aux bonnes boîtes. Le contexte environnemental suit la boîte attribuée. Les emplacements et l’historique des déplacements restent inchangés.',
   auditDescriptionBoxQualified: 'Boîte historique qualifiée ({status}) : {code}',
   auditDescriptionSpeciesCreated: 'Espèce créée : {name}',
   auditDescriptionSpeciesUpdated: 'Espèce modifiée : {name}',

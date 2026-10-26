@@ -242,6 +242,7 @@ export const en: Record<TranslationKey, string> = {
   auditDescriptionTransferImported: 'Transfer imported from {source}',
   auditDescriptionAlertResolved: 'Alert resolved: {message}',
   auditDescriptionInventoryInitialized: 'Historical inventory initialized for {organization}',
+  auditDescriptionCcaEobV3Correction: '72 CCA-EOB measurements reassigned to the correct boxes. Environmental context follows the assigned box. Locations and movement history remain unchanged.',
   auditDescriptionBoxQualified: 'Historical box qualified ({status}): {code}',
   auditDescriptionSpeciesCreated: 'Species created: {name}',
   auditDescriptionSpeciesUpdated: 'Species updated: {name}',
