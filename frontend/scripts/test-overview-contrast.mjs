@@ -86,7 +86,6 @@ const statusOverrides = {
   warning: soonSelector,
   danger: `${statusSelector}.is-due`,
 };
-const trackBackground = 'color-mix(in srgb, var(--status-color) 14%, var(--color-surface))';
 
 function statusTokens(status) {
   const result = new Map(rule(statusSelector).declarations);
@@ -111,18 +110,23 @@ test('WCAG contrast calculation uses linearized sRGB and known reference pairs',
 });
 
 for (const control of controls) {
-  test(`selected ${control.name} retains ink on status-soft and a dark double selection cue`, () => {
+  test(`selected ${control.name} retains ink on status-soft and its intended selection cue`, () => {
     expectDeclarations(control.selector, {
       border: '1px solid var(--color-line)',
       'border-left': '4px solid var(--status-color)',
     });
-    expectDeclarations(`${control.selector}.is-active`, {
+    const selected = expectDeclarations(`${control.selector}.is-active`, {
       color: 'var(--color-ink)',
       background: 'var(--status-soft)',
       'border-color': 'var(--color-ink)',
-      outline: '1px solid var(--color-ink)',
-      'outline-offset': '-2px',
     });
+    if (control.name === 'summary') {
+      assert.equal(selected.declarations.get('outline'), '1px solid var(--color-ink)');
+      assert.equal(selected.declarations.get('outline-offset'), '-2px');
+    } else {
+      assert.equal(selected.declarations.has('outline'), false);
+      assert.equal(selected.declarations.has('outline-offset'), false);
+    }
   });
 
   for (const status of control.statuses) {
@@ -167,25 +171,17 @@ test('selected zone names, descriptions, counts and totals override their unsele
   }
 });
 
-test('zone progress keeps semantic status fills and the soft track when selected', () => {
-  expectDeclarations('.overview-zone-progress-card i > b', { background: 'var(--status-color)' });
-  const selectedFill = expectDeclarations('.overview-zone-progress-card.is-active b', {
-    background: 'var(--status-color)',
-  });
-  expectLater(selectedFill, rule('.overview-zone-progress-card i > b'));
-  expectDeclarations('.overview-zone-progress-card i', { background: trackBackground });
-  const selectedTrack = expectDeclarations('.overview-zone-progress-card.is-active i', {
-    background: trackBackground,
-  });
-  expectLater(selectedTrack, rule('.overview-zone-progress-card i'));
-  for (const status of controls[1].statuses) {
-    assert.equal(resolveTokens(selectedFill.declarations.get('background'), statusTokens(status)),
-      resolveTokens(`var(--color-${status})`));
-  }
-  assert.match(overviewSource, /<i aria-hidden="true">\s*<b style=\{\{ width: `\$\{Math\.round\(doneRatio \* 100\)\}%` \}\} \/>\s*<\/i>/);
+test('zone cards retain counts and remaining text without a redundant progress bar or its styles', () => {
+  const zoneSection = overviewSource.slice(overviewSource.indexOf('{zoneSummaries.length ?'),
+    overviewSource.indexOf('<section className="overview-filters'));
+  assert.match(zoneSection, /<strong>\{summary\.done\}<\/strong>\s*<span>\/\{summary\.total\}<\/span>/);
+  assert.ok(zoneSection.includes("`${summary.due} ${t('overviewZoneRemaining')}`"));
+  assert.ok(zoneSection.includes("t('overviewZoneUpToDate')"));
+  assert.doesNotMatch(zoneSection, /<i\b|<b\b|doneRatio|role="progressbar"/);
+  assert.equal(rules.some(({ selector }) => /^\.overview-zone-progress-card(?:\.is-active)? i(?: > b)?$|^\.overview-zone-progress-card\.is-active b$/.test(selector)), false);
 });
 
-test('selected focus-visible explicitly wins over the inset active selection outline', () => {
+test('selected and unselected controls preserve explicit keyboard-only focus indicators', () => {
   const focused = expectDeclarations(':is(.overview-summary-actions button, .overview-zone-progress-card).is-active:focus-visible', {
     outline: '2px solid var(--color-primary)',
     'outline-offset': '2px',

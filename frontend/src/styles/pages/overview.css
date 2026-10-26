@@ -197,8 +197,6 @@
   color: var(--color-ink);
   background: var(--status-soft);
   border-color: var(--color-ink);
-  outline: 1px solid var(--color-ink);
-  outline-offset: -2px;
 }
 
 .overview-zone-progress-copy {
@@ -250,31 +248,8 @@
   font-weight: 800;
 }
 
-.overview-zone-progress-card i {
-  grid-column: 1 / -1;
-  height: 3px;
-  overflow: hidden;
-  background: color-mix(in srgb, var(--status-color) 14%, var(--color-surface));
-  border-radius: var(--radius-pill);
-}
-
-.overview-zone-progress-card i > b {
-  display: block;
-  height: 100%;
-  background: var(--status-color);
-  border-radius: inherit;
-}
-
-.overview-zone-progress-card.is-active b {
-  background: var(--status-color);
-}
-
 .overview-zone-progress-card.is-active :is(strong, small, em, span) {
   color: var(--color-ink);
-}
-
-.overview-zone-progress-card.is-active i {
-  background: color-mix(in srgb, var(--status-color) 14%, var(--color-surface));
 }
 
 :is(.overview-summary-actions button, .overview-zone-progress-card).is-active:focus-visible {

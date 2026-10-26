@@ -993,7 +993,7 @@ export default function BoxPage({
                     </StepperButton>
                   </div>
                   <QuickCountButtons
-                    values={[1, 5]}
+                    values={[20, 33]}
                     getAccessibleLabel={(value) => `${t('salinityFull')} +${value.toLocaleString(language)} PSU`}
                     onAdd={(value) => setForm((current) => ({
                       ...current,

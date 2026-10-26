@@ -37,13 +37,13 @@ function salinityControls(value, language = 'en') {
   return { context, elements: descendants(context.tree) };
 }
 for (const [value, increment, expected] of [
-  ['0', 1, '1'], ['0', 5, '5'], ['0.00', 5, '5'], ['32.15', 1, '33.15'], ['32.15', 5, '37.15'],
-  ['', 1, '1'], ['', 5, '5'], ['invalid', 1, 'invalid'], ['32.155', 5, '32.155'],
+  ['0', 20, '20'], ['0', 33, '33'], ['0.00', 33, '33'], ['32.15', 20, '52.15'], ['32.15', 33, '65.15'],
+  ['', 20, '20'], ['', 33, '33'], ['invalid', 20, 'invalid'], ['32.155', 33, '32.155'],
 ]) {
   test(`biological quick increment ${increment} maps ${JSON.stringify(value)} to ${expected}`, () => {
     const { context, elements } = salinityControls(value);
     const quick = elements.find(element => element.type === 'quick');
-    assert.deepEqual(Array.from(quick.props.values), [1, 5]);
+    assert.deepEqual(Array.from(quick.props.values), [20, 33]);
     quick.props.onAdd(increment);
     assert.equal(context.form.salinity, expected);
     assert.equal(quick.props.getAccessibleLabel(increment), `Salinity +${increment} PSU`);
@@ -59,8 +59,8 @@ test('existing tenth handlers and mixed quick increments remain exact, including
   assert.equal(context.form.salinity, '42.15');
   for (let index = 0; index < 100; index++) steps[0].props.onStep();
   assert.equal(context.form.salinity, '32.15');
-  quick.props.onAdd(1); quick.props.onAdd(5); steps[0].props.onStep();
-  assert.equal(context.form.salinity, '38.05');
+  quick.props.onAdd(20); quick.props.onAdd(33); steps[0].props.onStep();
+  assert.equal(context.form.salinity, '85.05');
   context.form.salinity = '0.1'; steps[0].props.onStep();
   assert.equal(context.form.salinity, '0');
   steps[0].props.onStep(); assert.equal(context.form.salinity, '0');
@@ -73,13 +73,13 @@ test('quick buttons expose the salinity accessible label and never submit the fo
     useEffect() {}, triggerHaptic() {}, window: { setTimeout() { return 1; }, clearTimeout() {} } };
   evaluate(quickSource, context);
   const additions = [];
-  const tree = context.QuickCountButtons({ values: [1, 5], getAccessibleLabel: value => `Salinité +${value} PSU`, onAdd: value => additions.push(value) });
+  const tree = context.QuickCountButtons({ values: [20, 33], getAccessibleLabel: value => `Salinité +${value} PSU`, onAdd: value => additions.push(value) });
   for (const button of tree.children) {
     assert.equal(button.props.type, 'button');
-    assert.match(button.props['aria-label'], /^Salinité \+[15] PSU$/);
+    assert.match(button.props['aria-label'], /^Salinité \+(20|33) PSU$/);
     button.props.onClick();
   }
-  assert.deepEqual(additions, [1, 5]);
+  assert.deepEqual(additions, [20, 33]);
 });
 test('tablet composition is non-desktop, container-bounded, and retains phone and narrow fallbacks', () => {
   const tablet = read('../src/styles/responsive/tablet.css');
@@ -106,5 +106,7 @@ test('tablet composition is non-desktop, container-bounded, and retains phone an
   assert.match(boxCss, /quick-counts button\) \{ min-height: 52px/);
   assert.match(boxCss, /quick-counts button\) \{ min-height: 56px/);
   assert.match(boxCss, /\.measurement-form-section \.quick-counts \{\s*display: none/);
-  assert.equal((source.match(/values=\{\[1, 5\]\}/g) ?? []).length, 1);
+  assert.equal((source.match(/values=\{\[20, 33\]\}/g) ?? []).length, 1);
+  assert.match(source, /values=\{\[50, 100\]\}/);
+  assert.match(source, /values=\{\[10, 25\]\}/);
 });

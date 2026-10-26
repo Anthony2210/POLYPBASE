@@ -195,7 +195,6 @@ export default function OverviewView({
             data-layout={zoneSummaries.length > 5 ? 'many' : zoneSummaries.length}
           >
             {zoneSummaries.map((summary) => {
-              const doneRatio = summary.done / Math.max(1, summary.total);
               const isZoneActive = zoneFilter === summary.zoneName;
 
               return (
@@ -218,9 +217,6 @@ export default function OverviewView({
                     <strong>{summary.done}</strong>
                     <span>/{summary.total}</span>
                   </em>
-                  <i aria-hidden="true">
-                    <b style={{ width: `${Math.round(doneRatio * 100)}%` }} />
-                  </i>
                 </button>
               );
             })}
