@@ -129,9 +129,9 @@ test('desktop and tablet create boxes from the shared page header and reused mod
   assert.equal((createBoxSource.match(/<form className="create-box-form"/g) ?? []).length, 1);
   assert.match(createBoxSource, /className="modal-close-button" type="button"[^>]*onClick=\{\(\) => setOpen\(false\)\}/);
   assert.match(createBoxSource, /onMouseDown=\{\(\) => setOpen\(false\)\}/);
-  assert.match(createBoxSource, /isConfirmationOpenRef\.current = true;[\s\S]*?confirmed = await confirmAction[\s\S]*?finally \{\s*isConfirmationOpenRef\.current = false;/);
+  assert.match(createBoxSource, /isConfirmationOpenRef\.current = !intent;[\s\S]*?confirmed = await confirmAction[\s\S]*?finally \{\s*isConfirmationOpenRef\.current = false;/);
   assert.match(createBoxSource, /if \(isQuickStrainOpenRef\.current \|\| isConfirmationOpenRef\.current\) return;/);
-  assert.match(createBoxSource, /onSelectBox\(created\.id\);\s*if \(presentation === 'modal'\) \{[\s\S]*?requestAnimationFrame[\s\S]*?\[data-box-page-focus-target\]/);
+  assert.match(createBoxSource, /onSelectBox\(createdBox\.id\);\s*if \(presentation === 'modal'\) \{[\s\S]*?requestAnimationFrame[\s\S]*?\[data-box-page-focus-target\]/);
   assert.match(readSource('../src/components/BoxPage.tsx'), /<h2 data-box-page-focus-target tabIndex=\{-1\}>\{box\.global_code\}<\/h2>/);
 });
 
@@ -334,13 +334,15 @@ for (const isPhoneLayout of [false, true]) test(`actual create panel forwards re
   assert.equal(panel().props.presentation, isPhoneLayout ? 'inline' : 'modal');
   assert.equal(panel().props.isOpen, isPhoneLayout ? undefined : true);
   assert.equal(panel().props.onOpenChange, isPhoneLayout ? undefined : h.props.onCreateBoxOpenChange);
-  assert.equal(panel().props.isBoxCollectionReady, false);
-  for (const prop of ['boxes', 'exportOptions', 'isOptionsLoading', 'profile', 't', 'onCreateBox',
-    'isOperationCurrent', 'onManageSpeciesCodes', 'onRequestOptions', 'confirmAction', 'onSelectBox', 'onRequestBoxCollection']) {
+  assert.equal(panel().props.isBoxCollectionReady, undefined);
+  assert.equal(panel().props.onRequestBoxCollection, undefined);
+  assert.equal(panel().props.boxes, undefined);
+  for (const prop of ['exportOptions', 'isOptionsLoading', 'profile', 't', 'onCreateBox', 'onResolveBoxCreation',
+    'isOperationCurrent', 'onManageSpeciesCodes', 'onRequestOptions', 'confirmAction', 'onSelectBox']) {
     assert.equal(panel().props[prop], h.props[prop], prop);
   }
   h.view.setProps({ boxCollectionStatus: 'ready' });
-  assert.equal(panel().props.isBoxCollectionReady, true);
+  assert.equal(panel().props.isBoxCollectionReady, undefined);
 });
 
 test('App imports the actual default module once and wires all 24 Pilotage props', () => {
@@ -361,7 +363,7 @@ test('App imports the actual default module once and wires all 24 Pilotage props
   const PilotageView = h.env.load('../src/components/PilotageView.tsx').default;
   const names = ['activeOrganizationId', 'requestBoxCollection', 'requestBoxCollectionRetry', 'findBoxIdByCode',
     'isLoading', 'isCreateBoxOpen', 'isPhoneLayout', 'isExportOptionsLoading', 'search', 'filteredBoxes',
-    'recentBoxes', 'createBox', 'setIsCreateBoxOpen', 'confirmAction', 'setSearch', 'openBox', 't'];
+    'recentBoxes', 'createBox', 'resolveBoxCreation', 'setIsCreateBoxOpen', 'confirmAction', 'setSearch', 'openBox', 't'];
   const bindings = Object.fromEntries(names.map(name => [name, { name }]));
   const calls = [];
   Object.assign(bindings, { PilotageView, data: { boxes: [], exportOptions: {}, profile: {} },
@@ -375,10 +377,10 @@ test('App imports the actual default module once and wires all 24 Pilotage props
   }).outputText, context);
   const result = vm.runInContext('result', context);
   assert.equal(result.type, PilotageView);
-  const mapping = { activeOrganizationId: 'activeOrganizationId', onRequestBoxCollection: 'requestBoxCollection',
+  const mapping = { activeOrganizationId: 'activeOrganizationId',
     onRetryBoxCollection: 'requestBoxCollectionRetry', onResolveBoxCode: 'findBoxIdByCode', isLoading: 'isLoading',
     isCreateBoxOpen: 'isCreateBoxOpen', isPhoneLayout: 'isPhoneLayout', isOptionsLoading: 'isExportOptionsLoading',
-    search: 'search', searchResults: 'filteredBoxes', recentBoxes: 'recentBoxes', onCreateBox: 'createBox',
+    search: 'search', searchResults: 'filteredBoxes', recentBoxes: 'recentBoxes', onCreateBox: 'createBox', onResolveBoxCreation: 'resolveBoxCreation',
     onCreateBoxOpenChange: 'setIsCreateBoxOpen', confirmAction: 'confirmAction', onSearch: 'setSearch', onSelectBox: 'openBox', t: 't' };
   for (const [prop, binding] of Object.entries(mapping)) assert.equal(result.props[prop], bindings[binding], prop);
   for (const prop of ['boxes', 'exportOptions', 'profile']) assert.equal(result.props[prop], bindings.data[prop], prop);

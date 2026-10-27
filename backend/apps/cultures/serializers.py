@@ -3,7 +3,6 @@ from collections.abc import Mapping
 from datetime import date, timedelta
 from decimal import Decimal
 
-from django.db import models, transaction
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
@@ -62,24 +61,6 @@ def _render_salinity(value):
     if value is None:
         return None
     return _SALINITY_FIELD.to_representation(Decimal(str(value)))
-
-
-def _extract_box_number_from_global_code(global_code):
-    match = re.match(r"^.*\.(\d+).*$", global_code)
-    return match.group(1) if match else None
-
-
-def _normalize_box_number(value):
-    normalized = str(value).strip()
-    return str(int(normalized)) if normalized.isdigit() else normalized
-
-
-def _validate_global_code_for_strain(*, global_code, strain):
-    expected_prefix = f"{strain.code}."
-    if not global_code.startswith(expected_prefix):
-        raise serializers.ValidationError(
-            f"Le code boîte doit commencer par {expected_prefix}"
-        )
 
 
 class SpeciesSummarySerializer(serializers.ModelSerializer):
@@ -595,80 +576,6 @@ class BoxDetailSerializer(BoxListSerializer):
                 for lineage in child_lineages
             ],
         }
-
-
-class BoxCreateSerializer(serializers.Serializer):
-    strain = serializers.PrimaryKeyRelatedField(queryset=Strain.objects.none())
-    thermal_zone = serializers.PrimaryKeyRelatedField(
-        queryset=ThermalZone.objects.filter(is_active=True),
-    )
-    global_code = serializers.CharField(max_length=100)
-    local_code = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
-    box_number = serializers.CharField(max_length=80)
-    entered_on = serializers.DateField(default=timezone.localdate)
-    volume_liters = serializers.DecimalField(max_digits=5, decimal_places=2, required=False, allow_null=True)
-    notes = serializers.CharField(required=False, allow_blank=True, default="")
-
-    def get_fields(self):
-        fields = super().get_fields()
-        request = self.context.get("request")
-        organization = get_active_organization_from_request(request) if request else None
-        fields["strain"].queryset = (
-            eligible_strains(organization).select_related("species")
-            if organization is not None else Strain.objects.none()
-        )
-        return fields
-
-    def validate(self, attrs):
-        request = self.context["request"]
-        organization = get_active_organization_from_request(request)
-        thermal_zone = attrs.get("thermal_zone")
-        global_code = attrs["global_code"].strip()
-        box_number = attrs["box_number"].strip()
-
-        if organization is None or not user_can_write_lab_data(request.user, organization):
-            raise serializers.ValidationError("Ce compte ne peut pas créer de boîte pour cette structure.")
-
-        if thermal_zone and thermal_zone.organization_id != organization.id:
-            raise serializers.ValidationError("L’emplacement doit appartenir à la structure de la boîte.")
-
-        if Box.objects.filter(
-            models.Q(global_code=global_code) | models.Q(previous_global_code=global_code),
-        ).exists():
-            raise serializers.ValidationError({"global_code": "Une boîte utilise déjà ce code."})
-
-        try:
-            _validate_global_code_for_strain(global_code=global_code, strain=attrs["strain"])
-        except serializers.ValidationError as exc:
-            raise serializers.ValidationError({"global_code": exc.detail}) from exc
-
-        code_number = _extract_box_number_from_global_code(global_code)
-        if code_number is not None and _normalize_box_number(box_number) != _normalize_box_number(code_number):
-            raise serializers.ValidationError(
-                {"box_number": "Le numéro doit correspondre au numéro présent dans le code boîte."}
-            )
-
-        attrs["global_code"] = global_code
-        attrs["box_number"] = box_number
-        attrs["organization"] = organization
-
-        return attrs
-
-    @transaction.atomic
-    def create(self, validated_data):
-        thermal_zone = validated_data.pop("thermal_zone")
-        box = Box.objects.create(
-            **validated_data,
-            thermal_zone=thermal_zone,
-            status=Box.Status.ACTIVE,
-        )
-        BoxLocation.objects.create(
-            box=box,
-            thermal_zone=thermal_zone,
-            starts_at=timezone.now(),
-            notes="Initial location after manual creation.",
-        )
-        return box
 
 
 class BoxDeactivateSerializer(serializers.Serializer):

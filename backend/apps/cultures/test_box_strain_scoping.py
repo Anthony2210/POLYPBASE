@@ -1,5 +1,6 @@
 """Organization strain eligibility at box creation and subculture boundaries."""
 
+import uuid
 from datetime import date
 
 from django.contrib.auth import get_user_model
@@ -48,14 +49,14 @@ class BoxStrainScopingTests(TestCase):
         )
         self.client.force_login(self.user)
 
-    def create_box_request(self, strain, number="001"):
+    def create_box_request(self, strain):
         return self.client.post(
-            reverse("api_box_list"),
+            reverse("api_box_automatic"),
             data={
                 "strain": strain.pk,
                 "thermal_zone": self.zone.pk,
-                "global_code": f"{strain.code}.{number}",
-                "box_number": number,
+                "entered_on": "2026-08-27",
+                "request_id": str(uuid.uuid4()),
             },
             content_type="application/json",
             HTTP_X_ORGANIZATION_ID=str(self.organization.pk),

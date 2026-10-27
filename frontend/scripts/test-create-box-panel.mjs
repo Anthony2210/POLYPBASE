@@ -8,6 +8,7 @@ const references = (id = 1, code = 'AUR', species = 'Aurelia aurita') => ({
 });
 const box = (code, organization = 1, strain = 1) => ({ global_code: code, organization: { id: organization }, strain: { id: strain } });
 const field = (h, name) => h.panel.field(`create-box-${name}-field`);
+const selectedStrain = h => h.panel.nodes.find(node => node.type === 'select' && node.props['aria-label'] === 'createBoxStrain').props.value;
 const save = h => h.panel.nodes.find(node => node.type === 'button' && node.props.type === 'submit');
 const errors = h => h.panel.nodes.filter(node => node.matches('.inline-error')).map(text);
 async function ready(h = createBoxHarness()) {
@@ -37,7 +38,7 @@ describe('Actual extracted CreateBoxPanel', () => {
     h.panel.click(h.panel.byClass('create-box-toggle'));
     assert.ok(h.panel.form);
     assert.equal(h.optionsRequests, 1);
-    assert.equal(h.boxCollectionRequests, 1);
+    assert.equal(h.boxCollectionRequests, 0);
     assert.equal(h.env.requests[0].path, '/api/taxonomy/references/');
     h.panel.click(h.panel.byClass('create-box-toggle'));
     h.env.requests[0].resolve(references());
@@ -53,7 +54,7 @@ describe('Actual extracted CreateBoxPanel', () => {
     assert.equal(h.env.requests.length, 0);
     h.panel.setProps({ isOpen: true });
     assert.equal(h.optionsRequests, 1);
-    assert.equal(h.boxCollectionRequests, 1);
+    assert.equal(h.boxCollectionRequests, 0);
     assert.equal(h.panel.dialog.props['aria-modal'], 'true');
     assert.equal(h.panel.dialog.props['aria-labelledby'], 'create-box-modal-title');
     assert.equal(h.env.document.activeElement, h.panel.byClass('modal-close-button'));
@@ -95,14 +96,14 @@ describe('Actual extracted CreateBoxPanel', () => {
     const h = createBoxHarness();
     h.env.requests[0].reject(kind === 'api' ? new h.api.ApiError(500, 'Taxonomy unavailable') : new Error('private error'));
     await h.panel.settle();
-    assert.deepEqual(errors(h), [kind === 'api' ? 'Taxonomy unavailable' : 'taxonomyLoadError']);
+    assert.deepEqual(errors(h), [(kind === 'api' ? 'Taxonomy unavailable' : 'taxonomyLoadError') + ' createBoxRetry']);
     assert.equal(save(h).disabled, true);
     h.panel.setProps({ isOpen: false });
     h.panel.setProps({ isOpen: true });
     assert.deepEqual(errors(h), []);
     h.env.requests[1].resolve(references());
     await h.panel.settle();
-    assert.equal(field(h, 'code').props.value, 'AUR.001');
+    assert.equal(selectedStrain(h), 1);
     h.panel.unmount();
   });
 
@@ -115,10 +116,9 @@ describe('Actual extracted CreateBoxPanel', () => {
     await h.panel.settle();
     assert.deepEqual(errors(h), []);
     assert.ok(text(h.panel.value).includes('loading'));
-    assert.equal(field(h, 'code').props.value, '');
     h.env.requests[1].resolve(references(2, 'NEW'));
     await h.panel.settle();
-    assert.equal(field(h, 'code').props.value, 'NEW.001');
+    assert.equal(selectedStrain(h), 2);
     assert.equal(text(h.panel.value).includes('OLD'), false);
     h.panel.unmount();
   });
@@ -134,8 +134,8 @@ describe('Actual extracted CreateBoxPanel', () => {
     h.env.requests[1].reject(new h.api.ApiError(500, 'Stale B failure'));
     await h.panel.settle();
     assert.deepEqual(errors(h), []);
-    assert.equal(field(h, 'code').props.value, 'LATEST.001');
     assert.equal(text(h.panel.value).includes('loading'), false);
+    assert.equal(selectedStrain(h), 3);
     assert.equal(text(h.panel.value).includes('OLD'), false);
     h.panel.unmount();
   });
@@ -149,22 +149,6 @@ describe('Actual extracted CreateBoxPanel', () => {
     assert.equal(h.env.listenerCount(), 0);
   });
 
-  test('code suggestion waits for the complete list, scopes organization/strain, and preserves manual input', async () => {
-    const h = createBoxHarness({ isBoxCollectionReady: false });
-    h.env.requests[0].resolve(references());
-    await h.panel.settle();
-    assert.equal(field(h, 'code').props.value, '');
-    assert.equal(field(h, 'number').props.value, '');
-    h.panel.setProps({ boxes: [box('AUR.0009'), box('AUR.999', 2), box('OTHER.888', 1, 2)], isBoxCollectionReady: true });
-    assert.equal(field(h, 'code').props.value, 'AUR.0010');
-    assert.equal(field(h, 'number').props.value, '0010');
-    edit(h, 'code', ' MANUAL.077 ');
-    edit(h, 'number', ' 077 ');
-    h.panel.setProps({ boxes: [box('AUR.500')] });
-    assert.equal(field(h, 'code').props.value, ' MANUAL.077 ');
-    assert.equal(field(h, 'number').props.value, ' 077 ');
-    h.panel.unmount();
-  });
 
   test('zones are organization scoped and removed zone selection is cleared', async () => {
     const h = await ready(createBoxHarness({ exportOptions: { zones: [
@@ -177,28 +161,20 @@ describe('Actual extracted CreateBoxPanel', () => {
     h.panel.unmount();
   });
 
-  test('strain search retains selected strain, changing strain clears and regenerates code', async () => {
+  test('strain search retains selected strain and allows changing strain', async () => {
     const h = createBoxHarness();
     h.env.requests[0].resolve({ strains: [...references().strains, ...references(2, 'CY', 'Cyanea').strains] });
     await h.panel.settle();
     h.panel.change(h.panel.byClass('create-box-strain-search').querySelectorAll(FOCUSABLE_SELECTOR)[0], '  cyanea  ');
     const select = h.panel.nodes.find(node => node.type === 'select' && node.props['aria-label'] === 'createBoxStrain');
-    assert.equal(select.props.children.length, 2, 'Selected strain remains visible despite filtering');
-    edit(h, 'code', 'MANUAL.099');
+    assert.equal(select.props.children[1].length, 2, 'Selected strain remains visible despite filtering');
     h.panel.change(select, '2');
-    assert.equal(field(h, 'code').props.value, 'CY.001');
-    assert.equal(field(h, 'number').props.value, '001');
+    assert.equal(selectedStrain(h), 2);
     h.panel.unmount();
   });
 
-  test('number mismatch blocks confirmation; cancellation preserves draft', async () => {
+  test('confirmation summarizes the automatic intent; cancellation preserves draft', async () => {
     const h = await ready();
-    edit(h, 'number', '002');
-    await h.panel.submit();
-    h.panel.flush();
-    assert.deepEqual(errors(h), ['createBoxNumberMismatch']);
-    assert.equal(h.confirmations.length, 0);
-    edit(h, 'number', '001');
     edit(h, 'notes', ' draft ');
     const pending = h.panel.submit();
     assert.equal(h.confirmations.length, 1);
@@ -206,7 +182,7 @@ describe('Actual extracted CreateBoxPanel', () => {
     assert.deepEqual(details, {
       title: 'confirmCreateBoxTitle', message: 'confirmCreateBoxMessage', confirmLabel: 'confirmCreateBoxAction', cancelLabel: 'confirmCancel',
       details: [
-        { label: 'confirmDetailBox', value: 'AUR.001' }, { label: 'confirmDetailSpecies', value: 'Aurelia aurita' },
+        { label: 'createBoxEnteredOn', value: field(h, 'date').props.value }, { label: 'confirmDetailSpecies', value: 'Aurelia aurita' },
         { label: 'confirmDetailStrain', value: 'AUR' }, { label: 'confirmDetailOrganization', value: 'Laboratory A' },
         { label: 'confirmDetailLocation', value: 'Zone A' },
       ],
@@ -234,53 +210,6 @@ describe('Actual extracted CreateBoxPanel', () => {
     if (boundary === 'generation') h.panel.unmount();
   });
 
-  test('saving blocks a new rendered submission; success trims payload, resets draft, navigates and defers page focus', async () => {
-    const h = await ready();
-    edit(h, 'code', ' AUR.001 ');
-    edit(h, 'number', ' 001 ');
-    edit(h, 'date', '2026-04-09');
-    h.panel.change(h.panel.nodes.find(node => node.type === 'textarea'), ' notes ');
-    const target = h.env.external('section', { 'data-box-page-focus-target': true, tabIndex: -1 });
-    const { pending } = await beginMutation(h);
-    assert.equal(save(h).disabled, true);
-    assert.equal(text(save(h)), 'saving');
-    await h.panel.submit();
-    assert.equal(h.confirmations.length, 1);
-    assert.equal(h.mutations.length, 1);
-    assert.deepEqual(plain(h.mutations[0].payload), {
-      strain: 1, thermal_zone: 10, global_code: 'AUR.001', local_code: '', box_number: '001',
-      entered_on: '2026-04-09', volume_liters: null, notes: 'notes',
-    });
-    h.mutations[0].resolve({ id: 42 });
-    await pending;
-    h.panel.flush();
-    assert.deepEqual(h.navigations, [42]);
-    assert.equal(field(h, 'code').props.value, '');
-    assert.equal(field(h, 'number').props.value, '');
-    assert.equal(h.panel.nodes.find(node => node.type === 'textarea').props.value, '');
-    assert.equal(field(h, 'date').props.value, '2026-04-09');
-    assert.equal(field(h, 'location').props.value, 10);
-    assert.equal(h.env.frameCount, 1);
-    assert.notEqual(h.env.document.activeElement, target);
-    h.env.flushFrames();
-    assert.equal(h.env.document.activeElement, target);
-    assert.deepEqual(plain(target.focusCalls.at(-1)), { preventScroll: true });
-    h.panel.unmount();
-  });
-
-  test('inline success navigates without scheduling modal page focus', async () => {
-    const h = createBoxHarness({ presentation: 'inline' });
-    h.panel.click(h.panel.byClass('create-box-toggle'));
-    await ready(h);
-    const { pending } = await beginMutation(h);
-    h.mutations[0].resolve({ id: 43 });
-    await pending;
-    h.panel.flush();
-    assert.deepEqual(h.navigations, [43]);
-    assert.equal(h.env.frameCount, 0);
-    assert.ok(h.panel.form);
-    h.panel.unmount();
-  });
 
   for (const boundary of ['generation', 'unmount']) for (const completion of ['resolve', 'reject']) {
     test(`${boundary} during mutation ignores late ${completion} and never navigates`, async () => {
@@ -296,30 +225,11 @@ describe('Actual extracted CreateBoxPanel', () => {
       assert.equal(h.panel.updatesAfterUnmount, 0);
       if (boundary === 'generation') {
         assert.deepEqual(errors(h), []);
-        assert.equal(field(h, 'code').props.value, 'AUR.001');
         h.panel.unmount();
       }
     });
   }
 
-  for (const kind of ['403', 'api', 'generic', 'cancelled']) test(`${kind} mutation failure uses real classes, preserves draft and allows retry`, async () => {
-    const h = await ready();
-    const { pending } = await beginMutation(h);
-    const failure = kind === '403' ? new h.api.ApiError(403, 'Raw refusal')
-      : kind === 'api' ? new h.api.ApiError(400, 'Invalid box')
-        : kind === 'cancelled' ? new h.api.ApiResourceCancelledError() : new Error('Private details');
-    h.mutations[0].reject(failure);
-    await pending;
-    h.panel.flush();
-    assert.deepEqual(errors(h), kind === 'cancelled' ? [] : [kind === '403' ? 'createBoxForbidden' : kind === 'api' ? 'Invalid box' : 'Impossible de joindre l API Django.']);
-    assert.equal(save(h).disabled, false);
-    assert.equal(field(h, 'code').props.value, 'AUR.001');
-    assert.deepEqual(h.navigations, []);
-    const retry = h.panel.submit();
-    h.confirmations[1].resolve(false);
-    await retry;
-    h.panel.unmount();
-  });
 
   test('modal traps Tab/ShiftTab, contains outside focus, Escape closes, and restores connected opener', () => {
     const h = createBoxHarness();
@@ -357,7 +267,7 @@ describe('Actual extracted CreateBoxPanel', () => {
     assert.equal(h.env.listenerCount(), 0);
   });
 
-  test('quick-strain child suppresses underlying keyboard handling and created strain regenerates code', async () => {
+  test('quick-strain child suppresses underlying keyboard handling and selects created strain', async () => {
     const h = await ready();
     h.panel.click(h.panel.byClass('create-box-reference-action'));
     const child = h.panel.nodes.find(node => node.type === 'QuickStrainCreator');
@@ -370,7 +280,8 @@ describe('Actual extracted CreateBoxPanel', () => {
     child.props.onCreated({ id: 7, code: 'NEW', species_id: 107, species_name: 'New species' });
     h.panel.flush();
     assert.equal(h.panel.nodes.some(node => node.type === 'QuickStrainCreator'), false);
-    assert.equal(field(h, 'code').props.value, 'NEW.001');
+    assert.equal(selectedStrain(h), 7);
+    assert.ok(text(h.panel.value).includes('New species - NEW'));
     assert.equal(h.env.key('Escape').defaultPrevented, true);
     h.panel.unmount();
   });
@@ -385,7 +296,7 @@ describe('Actual extracted CreateBoxPanel', () => {
     const h = await ready();
     for (const reject of [false, true]) {
       const pending = h.panel.submit();
-      const checked = reject ? assert.rejects(pending, /Confirmation failure/) : pending;
+      const checked = pending;
       const nested = h.env.external('button');
       nested.focus();
       assert.equal(h.env.key('Escape').defaultPrevented, false);
@@ -407,7 +318,6 @@ describe('Actual extracted CreateBoxPanel', () => {
     assert.equal(h.env.listenerCount(), 1);
     h.env.requests[0].resolve(references(9, 'STALE'));
     await h.panel.settle();
-    assert.equal(field(h, 'code').props.value, '');
     assert.ok(text(h.panel.value).includes('loading'));
     h.env.requests[1].resolve(references());
     await h.panel.settle();
@@ -416,7 +326,7 @@ describe('Actual extracted CreateBoxPanel', () => {
     h.mutations[0].resolve({ id: 77 });
     await pending;
     h.panel.flush();
-    assert.deepEqual(h.navigations, [77]);
+    assert.deepEqual(h.navigations, []);
     h.panel.unmount();
     assert.equal(h.env.listenerCount(), 0);
     assert.equal(h.env.document.activeElement, h.env.opener);
@@ -442,7 +352,7 @@ describe('Actual extracted CreateBoxPanel', () => {
     h.mutations[0].resolve({ id: 88 });
     await first;
     h.panel.flush();
-    assert.deepEqual(h.navigations, [88]);
+    assert.deepEqual(h.navigations, []);
     h.unmount();
   });
 
@@ -486,24 +396,10 @@ describe('Actual extracted CreateBoxPanel', () => {
     h.panel.unmount();
   });
 
-  test('preserved navigation flow: success RAF focuses the box page after panel unmount', async () => {
-    const h = await ready();
-    const target = h.env.external('section', { 'data-box-page-focus-target': true, tabIndex: -1 });
-    const { pending } = await beginMutation(h);
-    h.mutations[0].resolve({ id: 89 });
-    await pending;
-    h.panel.unmount();
-    assert.equal(h.env.document.activeElement, h.env.opener);
-    assert.equal(h.env.frameCount, 1);
-    h.env.flushFrames();
-    assert.equal(h.env.document.activeElement, target);
-  });
 
   for (const phase of ['confirmation', 'mutation']) test(`actual PilotageView organization key remounts/reset panel and guards old ${phase}`, async () => {
     const h = await ready(createPilotageHarness());
     const old = h.panel;
-    edit(h, 'code', 'AUR.077');
-    edit(h, 'number', '077');
     edit(h, 'notes', 'Old notes');
     const pending = old.submit();
     if (phase === 'mutation') {
@@ -524,8 +420,6 @@ describe('Actual extracted CreateBoxPanel', () => {
     const replacementNode = h.parent.nodes.find(candidate => candidate.type === node.type);
     assert.equal(replacementNode.key, 2);
     assert.notEqual(h.panel, old);
-    assert.equal(field(h, 'code').props.value, '');
-    assert.equal(field(h, 'number').props.value, '');
     assert.equal(field(h, 'location').props.value, '');
     assert.equal(h.panel.nodes.find(node => node.type === 'textarea').props.value, '');
     if (phase === 'confirmation') h.confirmations[0].resolve(true);
@@ -537,8 +431,7 @@ describe('Actual extracted CreateBoxPanel', () => {
     assert.equal(h.env.frameCount, 0);
     h.env.requests.at(-1).resolve(references(2, 'B'));
     await h.panel.settle();
-    assert.equal(field(h, 'code').props.value, 'B.001');
-    assert.equal(field(h, 'number').props.value, '001');
+    assert.equal(selectedStrain(h), 2);
     assert.equal(h.env.listenerCount(), 1);
     h.unmount();
   });
@@ -559,15 +452,10 @@ describe('Actual extracted CreateBoxPanel', () => {
     assert.equal(text(save(h)), language === 'fr' ? 'Créer' : 'Create');
     h.env.requests[0].reject(new Error('Private taxonomy error'));
     await h.panel.settle();
-    assert.deepEqual(errors(h), [t('taxonomyLoadError')]);
+    assert.deepEqual(errors(h), [t('taxonomyLoadError') + ' ' + t('createBoxRetry')]);
     h.panel.setProps({ isOpen: false });
     h.panel.setProps({ isOpen: true });
     await ready(h);
-    edit(h, 'number', '002');
-    await h.panel.submit();
-    h.panel.flush();
-    assert.deepEqual(errors(h), [t('createBoxNumberMismatch')]);
-    edit(h, 'number', '001');
     const { pending } = await beginMutation(h);
     assert.equal(h.confirmations[0].details.title, language === 'fr' ? 'Créer cette boîte' : 'Create this box');
     assert.equal(h.confirmations[0].details.confirmLabel, t('confirmCreateBoxAction'));

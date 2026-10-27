@@ -178,10 +178,11 @@ Fichiers principaux :
 Endpoint utilisé :
 
 ```http
-POST /api/boxes/
+POST /api/boxes/automatic/
+POST /api/boxes/automatic/resolve/
 ```
 
-Le formulaire demande la structure, la souche, l'emplacement, le code, le numéro, la date d'entrée et une note.
+Le formulaire demande la souche, l'emplacement, la date d'entrée et une note facultative. L'utilisateur ne choisit ni code ni numéro : Polypbase les génère côté serveur. L'ancien `POST /api/boxes/` à code manuel est retiré (voir `backend/AUTOMATIC_BOX_CREATION.md`).
 
 Avant création, l'application utilise une modale de confirmation interne à Polypbase. Les boîtes de dialogue natives du navigateur ont été remplacées pour garder une interface plus cohérente et plus claire.
 
@@ -917,7 +918,8 @@ Les endpoints sont regroupés dans `backend/config/api_urls.py`.
 | `/api/profile/` | Profil, langue, institution active et préférences. |
 | `/api/dashboard/` | Synthèse, derniers accès, dernières actions. |
 | `/api/overview/active-boxes/` | Données de la vue d'ensemble. |
-| `/api/boxes/` | Liste et création de boîtes. |
+| `/api/boxes/` | Liste des boîtes (lecture seule). |
+| `/api/boxes/automatic/` | Création ordinaire avec code généré par le serveur. |
 | `/api/boxes/<id>/` | Détail d'une boîte. |
 | `/api/boxes/<id>/access/` | Enregistrer un accès récent. |
 | `/api/boxes/<id>/archive/` | Désactiver le suivi d'une boîte. |

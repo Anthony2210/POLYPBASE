@@ -98,6 +98,12 @@ Ne pas déduire une parenté d'une ressemblance de codes.
 - Tester les transitions autorisées et refusées, les objets de deux institutions et les erreurs en milieu d'opération.
 - Pour un changement concurrent, vérifier le comportement sur PostgreSQL QA isolé; SQLite ne suffit pas à conclure sur les verrous.
 
+## Création ordinaire automatique
+
+`POST /api/boxes/automatic/` conserve les droits Admin/technicien et exige institution active, souche éligible, zone active de la même institution et date d'entrée. Le client ne fournit aucun code ni numéro : `allocate_box_codes` réserve dans le namespace existant. Allocation, boîte active, période initiale, audit et reçu d'idempotence sont atomiques. Aucun relevé, mouvement, parentage ou identité biologique n'est inventé. Les utilisateurs ne choisissent jamais le numéro ni le code complet d'une boîte : l'ancien `POST /api/boxes/` à code manuel est retiré (`405` pour tous les comptes) et `/api/boxes/` est en lecture seule. Les flux d'import, transfert, normalisation et repiquage restent distincts et inchangés.
+
+Les reprises utilisent un UUID par intention et par acteur/institution; une intention différente sous la même clé est refusée. La résolution explicite retrouve le résultat engagé ou annule durablement une clé absente, sans autoriser une création tardive sous cette clé. Chaque opération revalide les droits courants. Le détail et les tests de concurrence PostgreSQL isolés sont décrits dans [`../../backend/AUTOMATIC_BOX_CREATION.md`](../../backend/AUTOMATIC_BOX_CREATION.md).
+
 ## Points d'entrée
 
 - Modèles : `backend/apps/cultures/models.py`.

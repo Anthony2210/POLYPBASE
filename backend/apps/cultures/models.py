@@ -127,6 +127,33 @@ class Box(models.Model):
         return f"{self.global_code} - {self.box_number}"
 
 
+class AutomaticBoxCreationRequest(models.Model):
+    organization = models.ForeignKey("organizations.Organization", on_delete=models.PROTECT)
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    request_id = models.UUIDField()
+    intent = models.JSONField(null=True, blank=True)
+    cancelled = models.BooleanField(default=False)
+    box = models.OneToOneField(
+        Box, on_delete=models.PROTECT, related_name="automatic_creation_request", null=True, blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "actor", "request_id"],
+                name="unique_automatic_box_request",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(cancelled=True, box__isnull=True, intent__isnull=True)
+                    | Q(cancelled=False, box__isnull=False, intent__isnull=False)
+                ),
+                name="automatic_box_request_coherent_state",
+            ),
+        ]
+
+
 class BoxLocation(models.Model):
     box = models.ForeignKey(Box, on_delete=models.CASCADE, related_name="locations")
     thermal_zone = models.ForeignKey(ThermalZone, on_delete=models.PROTECT, related_name="box_locations")

@@ -55,6 +55,7 @@ import type {
   BiologicalMeasurement,
   BoxActivatePayload,
   BoxCreatePayload,
+  BoxCreationResolution,
   BoxDeactivatePayload,
   BoxDetail,
   BoxInitialLocationPayload,
@@ -1582,7 +1583,7 @@ export default function App() {
   async function createBox(payload: BoxCreatePayload) {
     const { apiPost, assertCurrent } = getOperationRequests(operationGeneration);
     const commit = beginBoxMutation(true);
-    const detail = await apiPost<BoxDetail>('/api/boxes/', payload);
+    const detail = await apiPost<BoxDetail>('/api/boxes/automatic/', payload);
     assertCurrent();
     const publication = commit(detail.id);
 
@@ -1595,6 +1596,26 @@ export default function App() {
     await publication.reconcile();
     assertCurrent();
     return detail;
+  }
+
+  async function resolveBoxCreation(requestId: string): Promise<BoxCreationResolution> {
+    const { apiPost, assertCurrent } = getOperationRequests(operationGeneration);
+    const commit = beginBoxMutation(true);
+    const result = await apiPost<BoxCreationResolution>('/api/boxes/automatic/resolve/', { request_id: requestId });
+    assertCurrent();
+    if (result.status === 'created') {
+      const detail = result.box;
+      const publication = commit(detail.id);
+      publication.setData((current) => ({
+        ...mergeBoxDetail(current, detail),
+        boxes: upsertBoxes(current.boxes, [detail]),
+        overview: null,
+        exportOptions: null,
+      }));
+      await publication.reconcile();
+      assertCurrent();
+    }
+    return result;
   }
 
   async function updateMeasurement(boxId: number, measurementId: number, payload: MeasurementPayload) {
@@ -2281,7 +2302,6 @@ export default function App() {
                 activeOrganizationId={activeOrganizationId}
                 boxes={data.boxes}
                 boxCollectionStatus={boxCollection.status}
-                onRequestBoxCollection={requestBoxCollection}
                 onRetryBoxCollection={requestBoxCollectionRetry}
                 onResolveBoxCode={findBoxIdByCode}
                 exportOptions={data.exportOptions}
@@ -2294,6 +2314,7 @@ export default function App() {
                 searchResults={filteredBoxes}
                 recentBoxes={recentBoxes}
                 onCreateBox={createBox}
+                onResolveBoxCreation={resolveBoxCreation}
                 isOperationCurrent={() => operationGeneration === organizationRequestGenerationRef.current}
                 onManageSpeciesCodes={isDesktopApp ? () => {
                   setIsCreateBoxOpen(false);

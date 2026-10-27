@@ -306,163 +306,45 @@ class PolypbaseApiTests(TestCase):
             [location["notes"] for location in locations],
         )
 
-    def test_lab_technician_can_create_box_directly(self):
-        self.client.login(username="tech", password="secret")
-
-        response = self.client.post(
-            reverse("api_box_list"),
-            data=json.dumps(
-                {
-                    "strain": self.strain.id,
-                    "thermal_zone": self.zone.id,
-                    "global_code": "1-ATL.002",
-                    "local_code": "",
-                    "box_number": "002",
-                    "entered_on": "2026-07-16",
-                    "volume_liters": "0.30",
-                    "notes": "Création manuelle.",
-                }
-            ),
-            content_type="application/json",
-        )
-
-        self.assertEqual(response.status_code, 201)
-        created_box = Box.objects.get(global_code="1-ATL.002")
-        self.assertEqual(created_box.organization, self.organization)
-        self.assertEqual(created_box.status, Box.Status.ACTIVE)
-        self.assertEqual(created_box.thermal_zone, self.zone)
-        self.assertTrue(BoxLocation.objects.filter(box=created_box, thermal_zone=self.zone).exists())
-        self.assertTrue(
-            AuditLog.objects.filter(
-                organization=self.organization,
-                user=self.user,
-                action=AuditLog.Action.CREATION,
-                object_id=created_box.global_code,
-            ).exists()
-        )
-
-    def test_manual_box_creation_rolls_back_box_and_location_when_audit_fails(self):
-        self.client.force_login(self.user)
-        box_location_count = BoxLocation.objects.count()
-        global_code = "1-ATL.002"
-
-        with patch(
-            "apps.cultures.api_views.AuditLog.objects.create",
-            side_effect=RuntimeError("forced audit failure"),
-        ), self.assertRaises(RuntimeError):
-            self.client.post(
-                reverse("api_box_list"),
-                data=json.dumps(
-                    {
-                        "strain": self.strain.id,
-                        "thermal_zone": self.zone.id,
-                        "global_code": global_code,
-                        "local_code": "",
-                        "box_number": "002",
-                        "entered_on": "2026-07-16",
-                        "volume_liters": "0.30",
-                        "notes": "Création manuelle.",
-                    }
-                ),
-                content_type="application/json",
-            )
-
-        self.assertFalse(Box.objects.filter(global_code=global_code).exists())
-        self.assertEqual(BoxLocation.objects.count(), box_location_count)
-
-    def test_viewer_cannot_create_box_directly(self):
+    def test_box_collection_rejects_manual_creation_for_every_account(self):
         user_model = get_user_model()
-        viewer = user_model.objects.create_user(username="box_viewer", email="box_viewer@example.org",password="secret")
-        OrganizationMembership.objects.create(
-            user=viewer,
-            organization=self.organization,
-            role=OrganizationMembership.Role.VIEWER,
+        accounts = {"lab_technician": self.user}
+        for role in ("admin", "viewer"):
+            account = user_model.objects.create_user(
+                username=f"legacy_{role}", email=f"legacy_{role}@example.org", password="secret",
+            )
+            OrganizationMembership.objects.create(user=account, organization=self.organization, role=role)
+            accounts[role] = account
+        accounts["superuser"] = user_model.objects.create_superuser(
+            username="legacy_root", email="legacy_root@example.org", password="secret",
         )
-        self.client.login(username="box_viewer", password="secret")
+        existing = list(Box.objects.order_by("pk").values_list("pk", "global_code", "box_number", "organization_id"))
+        counts = (BoxLocation.objects.count(), AuditLog.objects.count())
+        payload = json.dumps({
+            "strain": self.strain.id, "thermal_zone": self.zone.id,
+            "global_code": "1-ATL.002", "box_number": "002", "entered_on": "2026-07-16",
+        })
 
-        response = self.client.post(
-            reverse("api_box_list"),
-            data=json.dumps(
-                {
-                    "strain": self.strain.id,
-                    "thermal_zone": self.zone.id,
-                    "global_code": "1-ATL.002",
-                    "box_number": "002",
-                    "entered_on": "2026-07-16",
-                }
-            ),
-            content_type="application/json",
+        for label, account in accounts.items():
+            with self.subTest(account=label):
+                self.client.force_login(account)
+                response = self.client.post(
+                    reverse("api_box_list"), data=payload, content_type="application/json",
+                    HTTP_X_ORGANIZATION_ID=str(self.organization.id),
+                )
+                self.assertEqual(response.status_code, 405)
+                self.assertNotIn("POST", response["Allow"])
+        self.client.logout()
+        anonymous = self.client.post(reverse("api_box_list"), data=payload, content_type="application/json")
+        self.assertIn(anonymous.status_code, (401, 403))
+
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(reverse("api_box_list")).status_code, 200)
+        self.assertEqual(
+            list(Box.objects.order_by("pk").values_list("pk", "global_code", "box_number", "organization_id")),
+            existing,
         )
-
-        self.assertEqual(response.status_code, 400)
-        self.assertFalse(Box.objects.filter(global_code="1-ATL.002").exists())
-
-    def test_create_box_ignores_submitted_organization_and_uses_active_context(self):
-        self.client.login(username="tech", password="secret")
-
-        response = self.client.post(
-            reverse("api_box_list"),
-            data=json.dumps(
-                {
-                    "organization": self.other_organization.id,
-                    "strain": self.strain.id,
-                    "thermal_zone": self.zone.id,
-                    "global_code": "1-ATL.002",
-                    "box_number": "002",
-                    "entered_on": "2026-07-16",
-                }
-            ),
-            content_type="application/json",
-            HTTP_X_ORGANIZATION_ID=str(self.organization.id),
-        )
-
-        self.assertEqual(response.status_code, 201)
-        created_box = Box.objects.get(global_code="1-ATL.002")
-        self.assertEqual(created_box.organization, self.organization)
-
-    def test_create_box_rejects_duplicate_global_code_with_french_error(self):
-        self.client.login(username="tech", password="secret")
-
-        response = self.client.post(
-            reverse("api_box_list"),
-            data=json.dumps(
-                {
-                    "strain": self.strain.id,
-                    "thermal_zone": self.zone.id,
-                    "global_code": self.box.global_code,
-                    "box_number": "001",
-                    "entered_on": "2026-07-16",
-                }
-            ),
-            content_type="application/json",
-        )
-
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("Une boîte utilise déjà ce code.", response.json()["global_code"])
-
-    def test_create_box_rejects_number_that_does_not_match_global_code(self):
-        self.client.login(username="tech", password="secret")
-
-        response = self.client.post(
-            reverse("api_box_list"),
-            data=json.dumps(
-                {
-                    "strain": self.strain.id,
-                    "thermal_zone": self.zone.id,
-                    "global_code": "1-ATL.004",
-                    "box_number": "005",
-                    "entered_on": "2026-07-16",
-                }
-            ),
-            content_type="application/json",
-        )
-
-        self.assertEqual(response.status_code, 400)
-        self.assertIn(
-            "Le numéro doit correspondre au numéro présent dans le code boîte.",
-            response.json()["box_number"],
-        )
-        self.assertFalse(Box.objects.filter(global_code="1-ATL.004").exists())
+        self.assertEqual((BoxLocation.objects.count(), AuditLog.objects.count()), counts)
 
     def test_normalize_box_codes_updates_legacy_prefix_safely(self):
         legacy_box = Box.objects.create(

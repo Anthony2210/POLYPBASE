@@ -66,7 +66,14 @@ export function createBoxEnvironment() {
   }
   const opener = external('button', { children: 'Open' });
   opener.focus();
+  const session = new Map();
   const window = {
+    crypto: { randomUUID: () => crypto.randomUUID() },
+    sessionStorage: {
+      getItem: key => session.get(key) ?? null,
+      setItem: (key, value) => session.set(key, value),
+      removeItem: key => session.delete(key),
+    },
     location: { origin: 'https://polypbase.test' },
     addEventListener(name, fn) {
       if (!listeners.has(name)) listeners.set(name, new Set());
@@ -216,7 +223,7 @@ export function createBoxEnvironment() {
       get controls() { return api.nodes.filter(node => node.matches(FOCUSABLE_SELECTOR)); },
       get updatesAfterUnmount() { return owner.updatesAfterUnmount; },
       byClass(name) { return api.nodes.find(node => node.matches(`.${name}`)); },
-      field(name) { return api.byClass(name)?.querySelectorAll(FOCUSABLE_SELECTOR).find(node => ['input', 'select', 'textarea'].includes(node.type)); },
+      field(name) { const label = api.byClass(name); return api.nodes.find(node => label?.contains(node) && ['input', 'select', 'textarea'].includes(node.type)); },
       setProps(next) { props = { ...props, ...next }; owner.dirty = true; return flush(); },
       change(node, value) { assert.ok(node, 'Missing field'); node.props.onChange({ target: { value } }); flush(); },
       click(node) { assert.ok(node, 'Missing button'); node.props.onClick(); flush(); },
@@ -277,10 +284,10 @@ export function createBoxEnvironment() {
 export function createBoxHarness(initialProps = {}, options = {}) {
   const env = options.environment ?? createBoxEnvironment();
   const confirmationHost = options.realConfirmation ? env.confirmationHost() : null;
-  const confirmations = [], mutations = [], navigations = [], openChanges = [];
+  const confirmations = [], mutations = [], resolutions = [], navigations = [], openChanges = [];
   let generation = 0, boxCollectionRequests = 0, optionsRequests = 0;
   const profile = {
-    active_organization: { id: 1, name: 'Laboratory A' }, is_superuser: false,
+    id: 7, active_organization: { id: 1, name: 'Laboratory A' }, is_superuser: false,
     memberships: [{ organization: { id: 1 }, role: 'admin' }],
   };
   const props = {
@@ -298,6 +305,7 @@ export function createBoxHarness(initialProps = {}, options = {}) {
       return request.promise;
     },
     onCreateBox(payload) { const request = { ...deferred(), payload }; mutations.push(request); return request.promise; },
+    onResolveBoxCreation(requestId) { const request = { ...deferred(), requestId }; resolutions.push(request); return request.promise; },
     onSelectBox(id) { navigations.push(id); },
     ...initialProps,
   };
@@ -317,7 +325,7 @@ export function createBoxHarness(initialProps = {}, options = {}) {
     panel = children.sync();
   } else panel = env.instance(component, props, options);
   return {
-    env, get panel() { return panel; }, parent, props, confirmations, mutations, navigations, openChanges, confirmationHost,
+    env, get panel() { return panel; }, parent, props, confirmations, mutations, resolutions, navigations, openChanges, confirmationHost,
     setParentProps(next) {
       assert.ok(parent, 'This harness was not mounted through PilotageView');
       parent.setProps(next);

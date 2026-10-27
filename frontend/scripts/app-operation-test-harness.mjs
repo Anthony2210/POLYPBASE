@@ -193,7 +193,7 @@ export function appHarness() {
   for (const name of ['invalidateBoxDetail', 'beginBoxMutation', 'getOperationRequests', 'fetchAllPages',
     'publishZoneUpdate', 'beginZoneMutation', 'readZoneCollection', 'refreshZones', 'refreshMovementState', 'correctMovement',
     'mergeBoxDetail', 'upsertThermalZones', 'refreshAfterMutation', 'applyMeasurementResult',
-    'refreshBoxAfterMeasurement', 'createMeasurement', 'updateMeasurement', 'createBox', 'createSubculture', 'moveBox',
+    'refreshBoxAfterMeasurement', 'createMeasurement', 'updateMeasurement', 'createBox', 'resolveBoxCreation', 'createSubculture', 'moveBox',
     'deactivateBox', 'reactivateBox', 'qualifyBox', 'assignBoxInitialLocation', 'qualifyBoxesBatch', 'loadLineageGraph',
     'createThermalZone', 'updateThermalZone', 'recordManualTemperature', 'refreshZoneSalinityCapability',
     'recordManualSalinity', 'updateManualSalinity', 'createProbe', 'createOrganization', 'updateOrganization',

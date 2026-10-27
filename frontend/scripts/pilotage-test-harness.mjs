@@ -14,6 +14,7 @@ export function pilotageHarness(initialProps = {}) {
     onRequestBoxCollection() {}, onRetryBoxCollection() { retries++; },
     onResolveBoxCode(code) { resolved.push(code); return Promise.resolve(null); },
     onCreateBox() { throw new Error('Unexpected box creation'); }, isOperationCurrent: () => true,
+    onResolveBoxCreation() { throw new Error('Unexpected box creation resolution'); },
     onCreateBoxOpenChange() {}, onRequestOptions() {}, confirmAction: async () => false,
     onSearch(value) { searched.push(value); }, onSelectBox(id) { selected.push(id); },
     ...initialProps,

@@ -460,15 +460,17 @@ export type BoxMovePayload = {
   notes: string;
 };
 
+export type BoxCreationResolution =
+  | { status: 'created'; box: BoxDetail }
+  | { status: 'cancelled' };
+
 export type BoxCreatePayload = {
   strain: number;
   thermal_zone: number;
-  global_code: string;
-  local_code: string;
-  box_number: string;
+  request_id: string;
   entered_on: string;
-  volume_liters: string | null;
-  notes: string;
+  volume_liters?: string | null;
+  notes?: string;
 };
 
 export type Probe = {

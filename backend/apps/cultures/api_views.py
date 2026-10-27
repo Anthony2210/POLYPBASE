@@ -81,7 +81,6 @@ from .serializers import (
     BiologicalMeasurementSerializer,
     BoxActivateSerializer,
     BoxBatchQualifySerializer,
-    BoxCreateSerializer,
     BoxDeactivateSerializer,
     BoxDetailSerializer,
     BoxInitialLocationSerializer,
@@ -112,6 +111,7 @@ from .temperature_history import (
     historical_temperature_history_point, temperature_history_point, temperature_support_periods,
 )
 from .box_codes import preview_box_codes
+from .automatic_box_creation import create_automatic_box, resolve_automatic_box_request
 from .polyp_state import current_state_prefetches, current_polyp_total, resolve_current_polyp_state
 from .movement_corrections import (
     BoxMovementConflict,
@@ -627,11 +627,48 @@ class OverviewActiveBoxesAPIView(APIView):
         }
 
 
-class BoxListAPIView(generics.ListCreateAPIView):
-    def get_serializer_class(self):
-        if self.request.method == "POST":
-            return BoxCreateSerializer
-        return BoxListSerializer
+class AutomaticBoxCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        organization = get_required_active_organization_from_request(request)
+        box, created = create_automatic_box(
+            organization=organization, actor=request.user, data=request.data,
+        )
+        # Serialize only after the service's transaction has committed.
+        box = get_object_or_404(
+            box_queryset_for_user(request.user, organization_ids=[organization.pk]), pk=box.pk,
+        )
+        return Response(
+            BoxDetailSerializer(box, context={"request": request}).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
+class AutomaticBoxResolveAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        organization = get_required_active_organization_from_request(request)
+        box = resolve_automatic_box_request(
+            organization=organization, actor=request.user, data=request.data,
+        )
+        if box is None:
+            return Response({"status": "cancelled"})
+        box = get_object_or_404(
+            box_queryset_for_user(request.user, organization_ids=[organization.pk], include_merged=True),
+            pk=box.pk,
+        )
+        return Response({
+            "status": "created",
+            "box": BoxDetailSerializer(box, context={"request": request}).data,
+        })
+
+
+class BoxListAPIView(generics.ListAPIView):
+    # Ordinary creation goes through AutomaticBoxCreateAPIView: users never
+    # choose Box identifiers, so this collection endpoint is read-only.
+    serializer_class = BoxListSerializer
 
     def get_queryset(self):
         queryset = box_list_queryset_for_user(
@@ -664,45 +701,6 @@ class BoxListAPIView(generics.ListCreateAPIView):
         if value.isdigit():
             return queryset.filter(organization_id=int(value))
         return queryset.filter(organization__slug=value)
-
-    @transaction.atomic
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        box = serializer.save()
-        AuditLog.objects.create(
-            organization=box.organization,
-            user=request.user,
-            action=AuditLog.Action.CREATION,
-            object_type="box",
-            object_id=box.global_code,
-            description=f"Box created manually: {box.global_code}",
-            metadata={
-                "box_id": box.id,
-                "valeurs": {
-                    "code_global": box.global_code,
-                    "numero_boite": box.box_number,
-                    "souche": box.strain.code,
-                    "espece": box.strain.species.scientific_name,
-                    "emplacement": box.thermal_zone.name if box.thermal_zone else None,
-                    "date_entree": box.entered_on.isoformat() if box.entered_on else None,
-                    "volume_litres": _json_value(box.volume_liters),
-                    "note": box.notes,
-                },
-            },
-        )
-        created_box = get_object_or_404(
-            box_queryset_for_user(
-                request.user,
-                organization_ids=get_active_organization_ids(request),
-            ),
-            id=box.id,
-        )
-        return Response(
-            BoxDetailSerializer(created_box, context={"request": request}).data,
-            status=status.HTTP_201_CREATED,
-        )
-
 
 class BoxInventoryPagination(LimitOffsetPagination):
     default_limit = 24

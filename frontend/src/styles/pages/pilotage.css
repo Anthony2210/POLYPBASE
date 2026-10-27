@@ -538,9 +538,7 @@
 }
 
 .create-box-location-field { grid-column: span 5; }
-.create-box-code-field { grid-column: span 5; }
-.create-box-number-field { grid-column: span 3; }
-.create-box-date-field { grid-column: span 4; }
+.create-box-date-field { grid-column: 1 / -1; }
 
 .create-box-field-heading {
   display: flex;
@@ -661,6 +659,7 @@
     right: 0;
   }
   .pilotage-create-action { min-height: var(--touch-target); }
+  .create-box-form :is(input, select, button) { min-height: var(--touch-target); }
 
   .pilotage-search-surface .suggestion-row {
     grid-template-columns: minmax(140px, 1.1fr) minmax(150px, 1.2fr) minmax(140px, 1fr) minmax(95px, .7fr) 20px;
@@ -929,8 +928,6 @@
   .create-box-form :is(
     .create-box-strain-field,
     .create-box-location-field,
-    .create-box-code-field,
-    .create-box-number-field,
     .create-box-date-field
   ) {
     grid-column: 1 / -1;

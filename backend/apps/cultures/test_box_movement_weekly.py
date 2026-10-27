@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import date, datetime, timedelta
 from io import StringIO
 
@@ -353,15 +354,16 @@ class LifecycleMovementKindTests(MovementFixtureMixin, TestCase):
     def test_manual_creation_subculture_and_deactivation_create_no_movement(self):
         self.client.force_login(self.technician)
         created = self.client.post(
-            reverse("api_box_list"),
+            reverse("api_box_automatic"),
             data=json.dumps({
-                "strain": self.strain.id, "global_code": "AWK-LAB-1.010", "box_number": "010",
-                "thermal_zone": self.zone_a.id,
+                "strain": self.strain.id, "thermal_zone": self.zone_a.id,
+                "entered_on": "2026-08-27", "request_id": str(uuid.uuid4()),
             }),
             content_type="application/json",
+            HTTP_X_ORGANIZATION_ID=str(self.organization.id),
         )
         self.assertEqual(created.status_code, 201)
-        box = Box.objects.get(global_code="AWK-LAB-1.010")
+        box = Box.objects.get(pk=created.json()["id"])
         self.assertFalse(box.movements.exists())
         self.assertEqual(box.locations.count(), 1)
         self.client.force_login(self.admin)

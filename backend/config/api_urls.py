@@ -20,6 +20,8 @@ from apps.cultures.api_views import (
     AdminBoxInventoryBatchQualifyAPIView,
     AdminBoxInventoryListAPIView,
     AdminBoxInventorySelectionAPIView,
+    AutomaticBoxCreateAPIView,
+    AutomaticBoxResolveAPIView,
     BoxAccessAPIView,
     BoxActivateAPIView,
     BoxDeactivateAPIView,
@@ -120,6 +122,8 @@ urlpatterns = [
         name="api_admin_box_inventory_batch_qualify",
     ),
     path("boxes/", BoxListAPIView.as_view(), name="api_box_list"),
+    path("boxes/automatic/", AutomaticBoxCreateAPIView.as_view(), name="api_box_automatic"),
+    path("boxes/automatic/resolve/", AutomaticBoxResolveAPIView.as_view(), name="api_box_automatic_resolve"),
     path("boxes/<int:pk>/", BoxDetailAPIView.as_view(), name="api_box_detail"),
     path(
         "boxes/<int:box_id>/temperatures/",

@@ -1,4 +1,5 @@
 import json
+import uuid
 from collections import defaultdict
 from datetime import date, timedelta
 from importlib import import_module
@@ -103,26 +104,27 @@ class BoxLifecycleTests(TestCase):
         self.client.login(username=self.technician.username, password="secret")
         payload = {
             "strain": self.strain.id,
-            "global_code": "ALC-LAB-1.002",
-            "box_number": "002",
             "entered_on": "2026-08-27",
+            "request_id": str(uuid.uuid4()),
         }
 
         missing_location = self.client.post(
-            reverse("api_box_list"),
+            reverse("api_box_automatic"),
             data=json.dumps(payload),
             content_type="application/json",
+            HTTP_X_ORGANIZATION_ID=str(self.organization.id),
         )
         self.assertEqual(missing_location.status_code, 400)
 
         payload["thermal_zone"] = self.zone.id
         created = self.client.post(
-            reverse("api_box_list"),
+            reverse("api_box_automatic"),
             data=json.dumps(payload),
             content_type="application/json",
+            HTTP_X_ORGANIZATION_ID=str(self.organization.id),
         )
         self.assertEqual(created.status_code, 201)
-        box = Box.objects.get(global_code=payload["global_code"])
+        box = Box.objects.get(pk=created.json()["id"])
         self.assertEqual(box.status, Box.Status.ACTIVE)
         self.assertEqual(box.thermal_zone, self.zone)
         self.assertTrue(

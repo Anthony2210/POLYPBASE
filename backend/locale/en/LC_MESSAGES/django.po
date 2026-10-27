@@ -11,6 +11,31 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
+#: apps/cultures/automatic_box_creation.py
+msgid "This field is not accepted."
+msgstr "This field is not accepted."
+
+msgid "This request ID was already used for a different box creation."
+msgstr "This request ID was already used for a different box creation."
+
+msgid "This box creation request was cancelled. Use a new request ID to create a box."
+msgstr "This box creation request was cancelled. Use a new request ID to create a box."
+
+msgid "This account cannot create boxes."
+msgstr "This account cannot create boxes."
+
+msgid "This institution is not active."
+msgstr "This institution is not active."
+
+msgid "Select an eligible strain in the active institution."
+msgstr "Select an eligible strain in the active institution."
+
+msgid "Select an active zone in the active institution."
+msgstr "Select an active zone in the active institution."
+
+msgid "This box is outside the active institution."
+msgstr "This box is outside the active institution."
+
 #: apps/cultures/services.py apps/cultures/serializers.py apps/cultures/box_codes.py
 msgid "The current polyp state changed. Refresh the parent box."
 msgstr "The current polyp state changed. Refresh the parent box."
