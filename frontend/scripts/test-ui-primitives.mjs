@@ -352,8 +352,8 @@ test('all six BoxPage stepper consumers retain their count/salinity updater wiri
     ['polypCount', 'incrementCountValue', '3', '4'],
     ['ephyraeCount', 'decrementCountValue', '3', '2'],
     ['ephyraeCount', 'incrementCountValue', '3', '4'],
-    ['salinity', 'stepBiologicalSalinity', '32.15', '32.05'],
-    ['salinity', 'stepBiologicalSalinity', '32.15', '32.25'],
+    ['salinity', 'stepBiologicalSalinity', '32.15', '31.15'],
+    ['salinity', 'stepBiologicalSalinity', '32.15', '33.15'],
   ];
 
   // Use the existing real count helpers; track salinity arguments separately so
@@ -364,7 +364,7 @@ test('all six BoxPage stepper consumers retain their count/salinity updater wiri
     const before = { ...form };
     const calls = [];
     const context = {
-      SALINITY_STEP: 0.1,
+      SALINITY_STEP: 1,
       setForm(update) { form = update(form); },
       [helper](value, increment) {
         calls.push([value, increment]);
@@ -375,7 +375,7 @@ test('all six BoxPage stepper consumers retain their count/salinity updater wiri
     evaluateExpression(expression(elements[i], 'onStep'), context)();
     assert.deepEqual({ ...form }, { ...before, [field]: expected });
     assert.deepEqual(calls, [[initial, helper === 'decrementCountValue' ? undefined
-      : helper === 'incrementCountValue' ? 1 : i === 4 ? -0.1 : 0.1]]);
+      : helper === 'incrementCountValue' ? 1 : i === 4 ? -1 : 1]]);
     assert.match(expression(elements[i], 'aria-label'), new RegExp(i % 2 ? '\\+' : '-'));
   }
 });

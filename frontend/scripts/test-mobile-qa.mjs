@@ -92,7 +92,7 @@ for (const [value, step, expected] of [
     assert.equal(salinityUtility().stepBiologicalSalinity(value, step), expected);
   });
 }
-test('salinity repeated tenth steps never display binary drift or mutate absence passively', () => {
+test('salinity utility repeated fractional steps never display binary drift or mutate absence passively', () => {
   const utility = salinityUtility();
   let value = '32.15';
   for (let index = 0; index < 100; index++) value = utility.stepBiologicalSalinity(value, 0.1);
@@ -100,7 +100,7 @@ test('salinity repeated tenth steps never display binary drift or mutate absence
   for (let index = 0; index < 100; index++) value = utility.stepBiologicalSalinity(value, -0.1);
   assert.equal(value, '32.15');
   assert.equal(utility.formatBiologicalSalinity(''), '');
-  assert.match(app, /const SALINITY_STEP = 0\.1;/);
+  assert.match(app, /const SALINITY_STEP = 1;/);
   assert.match(app, /SALINITY_STEP\.toLocaleString\(language\)/);
 });
 test('metadata shares a responsive grid while desktop keeps the original date location', () => {

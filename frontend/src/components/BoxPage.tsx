@@ -85,12 +85,12 @@ const MeasurementHistoryModal = lazy(() =>
   import('./BoxInsights').then((module) => ({ default: module.MeasurementHistoryModal })),
 );
 
-// Biological controls step by a tenth while preserving the field's hundredths.
+// Biological buttons step by one while preserving the field's hundredths.
 // The field starts on the control
 // salinity of the box's zone -- the environment it is known to sit in -- and the
 // technician overrides it when the refractometer disagrees. It stays empty while
 // the zone has no salinity set, rather than storing a value nobody measured.
-const SALINITY_STEP = 0.1;
+const SALINITY_STEP = 1;
 
 type TFunction = Translator;
 type ConfirmAction = (options: ConfirmActionOptions) => Promise<boolean>;

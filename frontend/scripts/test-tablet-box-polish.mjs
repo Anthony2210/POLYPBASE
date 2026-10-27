@@ -30,7 +30,7 @@ visit(ast);
 assert.ok(field);
 function salinityControls(value, language = 'en') {
   const context = { React, StepperButton: 'step', QuickCountButtons: 'quick', PolypbaseIcon: 'icon',
-    SALINITY_STEP: 0.1, language, t: () => language === 'fr' ? 'Salinité' : 'Salinity',
+    SALINITY_STEP: 1, language, t: () => language === 'fr' ? 'Salinité' : 'Salinity',
     stepBiologicalSalinity, form: { salinity: value },
     setForm: update => { context.form = update(context.form); } };
   evaluate(`const tree = ${field.getText(ast)}; globalThis.tree = tree;`, context);
@@ -49,22 +49,21 @@ for (const [value, increment, expected] of [
     assert.equal(quick.props.getAccessibleLabel(increment), `Salinity +${increment} PSU`);
   });
 }
-test('existing tenth handlers and mixed quick increments remain exact, including zero', () => {
+test('salinity buttons step by one, preserve decimal precision, and clamp at zero', () => {
   const { context, elements } = salinityControls('32.15', 'fr');
   const steps = elements.filter(element => element.type === 'step');
   const quick = elements.find(element => element.type === 'quick');
-  assert.equal(steps[0].props['aria-label'], 'Salinité -0,1');
-  assert.equal(steps[1].props['aria-label'], 'Salinité +0,1');
-  for (let index = 0; index < 100; index++) steps[1].props.onStep();
-  assert.equal(context.form.salinity, '42.15');
-  for (let index = 0; index < 100; index++) steps[0].props.onStep();
-  assert.equal(context.form.salinity, '32.15');
+  assert.equal(steps[0].props['aria-label'], 'Salinité -1');
+  assert.equal(steps[1].props['aria-label'], 'Salinité +1');
+  steps[0].props.onStep(); assert.equal(context.form.salinity, '31.15');
+  steps[1].props.onStep(); assert.equal(context.form.salinity, '32.15');
   quick.props.onAdd(20); quick.props.onAdd(33); steps[0].props.onStep();
-  assert.equal(context.form.salinity, '85.05');
-  context.form.salinity = '0.1'; steps[0].props.onStep();
+  assert.equal(context.form.salinity, '84.15');
+  context.form.salinity = '0'; steps[0].props.onStep();
   assert.equal(context.form.salinity, '0');
-  steps[0].props.onStep(); assert.equal(context.form.salinity, '0');
-  steps[1].props.onStep(); assert.equal(context.form.salinity, '0.1');
+  steps[1].props.onStep(); assert.equal(context.form.salinity, '1');
+  context.form.salinity = '0.5'; steps[0].props.onStep();
+  assert.equal(context.form.salinity, '0');
 });
 test('quick buttons expose the salinity accessible label and never submit the form', () => {
   const quickSource = read('../src/components/QuickCountButtons.tsx')
