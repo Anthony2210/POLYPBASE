@@ -38,16 +38,24 @@ def preview_box_codes(namespace, count):
     return _formatted_box_codes(namespace, _reconciled_high_water(namespace, high_water or 0), count)
 
 
+def _lock_namespace_row(namespace):
+    row, _ = BoxCodeNamespace.objects.get_or_create(namespace=namespace)
+    return BoxCodeNamespace.objects.select_for_update().get(pk=row.pk)
+
+
 def locked_namespace(namespace, *, reconcile=True):
     """Create the unique lock row safely even on concurrent first use.
 
     get_or_create's savepoint/unique-key retry waits for an uncommitted insert.
-    No Box rows are locked here: parent -> namespace is the only lock order.
+    No Box rows are locked here. The approved CLA/CLC pair always locks in
+    sorted order, including when allocation is the first namespace caller.
     """
     if not transaction.get_connection().in_atomic_block:
         raise RuntimeError("Box code allocation requires an atomic transaction.")
-    row, _ = BoxCodeNamespace.objects.get_or_create(namespace=namespace)
-    row = BoxCodeNamespace.objects.select_for_update().get(pk=row.pk)
+    pair = ("CLA-JKA-1", "CLC-JKA-1")
+    namespaces = sorted(pair) if namespace in pair else (namespace,)
+    rows = {name: _lock_namespace_row(name) for name in namespaces}
+    row = rows[namespace]
     if not reconcile:
         return row
     high_water = _reconciled_high_water(namespace, row.high_water)
@@ -55,6 +63,27 @@ def locked_namespace(namespace, *, reconcile=True):
         row.high_water = high_water
         row.save(update_fields=["high_water"])
     return row
+
+
+def reserve_reconciled_box_identity(code):
+    """Serialize the two approved aliases and prevent ordinary resurrection.
+
+    Lock both namespaces in correction order even for target creation. Existing
+    collisions remain inspectable; this guard is only for new or changed codes.
+    """
+    aliases = {
+        "CLA-JKA-1.009": "CLC-JKA-1.009",
+        "CLA-JKA-1.010": "CLC-JKA-1.010",
+        "CLC-JKA-1.009": "CLA-JKA-1.009",
+        "CLC-JKA-1.010": "CLA-JKA-1.010",
+    }
+    target = aliases.get(code)
+    if target is None:
+        return
+    locked_namespace(code.rsplit(".", 1)[0], reconcile=False)
+    # Codes are globally unique. Do not disclose the target or its institution.
+    if Box.objects.filter(global_code=target).exists():
+        raise ValidationError(_("This code is reserved by a historical culture identity."))
 
 
 def register_box_code(code, *, namespace):

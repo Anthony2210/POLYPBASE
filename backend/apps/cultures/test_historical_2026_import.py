@@ -669,8 +669,11 @@ class HsDeactivationTests(ImporterBase):
     def test_remapped_only_and_coexisting_identities_are_never_deactivated(self):
         protected = [self.make_box(code) for code in (
             "CAC-JKA-2.004", "ATO-JIS-1.001", "CLA-JKA-1.009", "OCE-TAI-1.002",
-            "PCA-JKA-1.005", "CLC-JKA-1.009", "CTU-CFC-2.007", "CTU-FCF-2.007",
+            "PCA-JKA-1.005", "CLC-JKA-1.099", "CTU-CFC-2.007", "CTU-FCF-2.007",
         )]
+        # Deliberately reproduce a legacy collision that ordinary saves now refuse.
+        Box._base_manager.filter(pk=protected[5].pk).update(global_code="CLC-JKA-1.009")
+        protected[5].refresh_from_db()
         self.measurement(protected[0], 41, 0, 0)
         for coexist in (False, True):
             if coexist:
@@ -755,7 +758,7 @@ class HsDeactivationTests(ImporterBase):
         text = output.getvalue()
         self.assertIn("V2_CONTRADICTION (5)", text)
         self.assertIn("PENDING_CONFIRMATION (1): CTU-CFC-2.007", text)
-        self.assertIn("CLA/CLC identity is unresolved", text)
+        self.assertIn("identity correction does not authorize deactivation", text)
         self.assertIn("Only READY entries can be applied", text)
         plan = deactivation.build_deactivation_plan(self.org)
         digest = deactivation.plan_hash(self.org, plan)

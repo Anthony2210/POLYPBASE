@@ -29,10 +29,11 @@ V2_CONTRADICTION = "V2_CONTRADICTION"
 
 
 def deactivation_block_reason(*codes):
-    """Protect exact HS labels and only their explicitly approved remaps."""
+    """Protect exact HS labels, approved remaps and the corrected CLC identity."""
     for listed, evidence in decisions.HS_V2_CONTRADICTIONS.items():
         resolved = decisions.HS_CODE_CORRECTIONS.get(listed, listed)
-        if listed in codes or resolved in codes:
+        corrected_clc = listed == "CLA-JKA-1.009" and "CLC-JKA-1.009" in codes
+        if listed in codes or resolved in codes or corrected_clc:
             detail = (
                 f"HS deactivation blocked: V2 observations under {evidence['literal']} "
                 f"({evidence['merged_range']}) through 2026-W{evidence['last_week']:02d} "
@@ -40,7 +41,7 @@ def deactivation_block_reason(*codes):
                 "A reviewed plan hash cannot override this protection."
             )
             if listed == "CLA-JKA-1.009":
-                detail += " CLA/CLC identity is unresolved; no remap or candidate Box is selected."
+                detail += " CLA/CLC identity correction does not authorize deactivation."
             return detail
     for code in codes:
         if code in decisions.HS_PENDING_CONFIRMATION:

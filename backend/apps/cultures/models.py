@@ -84,28 +84,89 @@ class Box(models.Model):
     )
     previous_global_code = models.CharField(max_length=100, blank=True, editable=False)
 
+    _reviewed_identity_codes = frozenset(
+        [f"CLA-JKA-1.{number:03}" for number in range(1, 11)]
+        + [f"SME-JKA-1.{number:03}" for number in (1, 4, 5, 6, 7, 8, 9, 10)]
+        + ["CLC-JKA-1.009", "CLC-JKA-1.010"]
+    )
+
+    @classmethod
+    def from_db(cls, db, field_names, values):
+        instance = super().from_db(db, field_names, values)
+        # Read the loaded dictionary only: deferred descriptors query recursively.
+        if {"global_code", "strain_id"} <= instance.__dict__.keys():
+            instance._loaded_identity = (instance.__dict__["global_code"], instance.__dict__["strain_id"])
+        else:
+            instance._loaded_identity = None
+        return instance
+
+    def refresh_from_db(self, using=None, fields=None, **kwargs):
+        super().refresh_from_db(using=using, fields=fields, **kwargs)
+        if fields is None or ("global_code" in fields and ("strain" in fields or "strain_id" in fields)):
+            if {"global_code", "strain_id"} <= self.__dict__.keys():
+                self._loaded_identity = (self.__dict__["global_code"], self.__dict__["strain_id"])
+
     def save(self, *args, **kwargs):
-        from .box_codes import register_box_code
+        from .box_codes import register_box_code, reserve_reconciled_box_identity
 
         # Recheck retirement after waiting for the same lock as laboratory
         # writers. A stale model instance must never resurrect an alias.
         with transaction.atomic(using=kwargs.get("using")):
-            if not self._state.adding:
-                current = type(self).objects.select_for_update().only("merged_into", "previous_global_code").get(pk=self.pk)
+            current = None
+            if not self._state.adding or self.pk is not None:
+                rows = type(self).objects.select_for_update().only(
+                    "merged_into", "previous_global_code", "global_code", "strain_id",
+                )
+                current = rows.filter(pk=self.pk).first() if self._state.adding else rows.get(pk=self.pk)
+            adding = current is None
+            if not adding:
                 if current.merged_into_id is not None:
                     raise ValidationError(_("A merged identity is read-only."))
                 if current.previous_global_code != self.previous_global_code:
                     raise ValidationError(_("The culture identity changed. Reload the culture."))
             update_fields = kwargs.get("update_fields")
-            if not self._state.adding and update_fields is None:
+            if not adding and update_fields is None:
                 update_fields = {field.name for field in self._meta.concrete_fields
                                  if not field.primary_key and field.name != "polyp_state_revision"}
                 kwargs["update_fields"] = update_fields
-            if self._state.adding or "global_code" in update_fields:
+            identity_fields = {"global_code", "strain", "strain_id"}
+            writes_identity = adding or bool(identity_fields.intersection(update_fields))
+            if not adding and writes_identity:
+                persisted_identity = (current.global_code, current.strain_id)
+                loaded_identity = getattr(self, "_loaded_identity", None)
+                codes = {current.global_code, self.__dict__.get("global_code")}
+                if loaded_identity is not None:
+                    codes.add(loaded_identity[0])
+                if codes.intersection(self._reviewed_identity_codes):
+                    # An object constructed with a PK or missing deferred identity
+                    # has no trusted original: only unchanged identity writes are safe.
+                    if loaded_identity is None:
+                        proposed_identity = (
+                            self.global_code if "global_code" in update_fields else current.global_code,
+                            self.strain_id if {"strain", "strain_id"}.intersection(update_fields) else current.strain_id,
+                        )
+                        changed = proposed_identity != persisted_identity
+                    else:
+                        changed = loaded_identity != persisted_identity
+                    if changed:
+                        raise ValidationError(_("The culture identity changed. Reload the culture."))
+            if adding or "global_code" in update_fields:
+                if adding or self.global_code != current.global_code:
+                    reserve_reconciled_box_identity(self.global_code)
                 register_box_code(self.global_code, namespace=self.strain.code)
                 if type(self).objects.filter(previous_global_code=self.global_code).exclude(pk=self.pk).exists():
                     raise ValidationError(_("This code is reserved by a historical culture identity."))
-            return super().save(*args, **kwargs)
+            result = super().save(*args, **kwargs)
+            if writes_identity:
+                saved_identity = (
+                    self.global_code if adding or "global_code" in update_fields else current.global_code,
+                    self.strain_id if adding or {"strain", "strain_id"}.intersection(update_fields) else current.strain_id,
+                )
+                # A partial write must not bless conflicting unsaved attributes.
+                # Read the dictionary without loading any deferred identity field.
+                instance_identity = (self.__dict__.get("global_code"), self.__dict__.get("strain_id"))
+                self._loaded_identity = saved_identity if instance_identity == saved_identity else None
+            return result
 
     class Meta:
         constraints = [

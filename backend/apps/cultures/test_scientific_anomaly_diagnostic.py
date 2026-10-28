@@ -305,7 +305,7 @@ class HsDiagnosticTests(DiagnosticBase):
         self.assertEqual(entry["resolved_code"], "CLA-JKA-1.009")
         self.assertEqual(entry["deactivation_plan_status"], "V2_CONTRADICTION")
         self.assertEqual(entry["deactivation_safety"], "UNSAFE")
-        self.assertIn("CLA/CLC identity is unresolved", entry["deactivation_plan_detail"])
+        self.assertIn("identity correction does not authorize deactivation", entry["deactivation_plan_detail"])
         candidate = entry["candidate_remap"]
         self.assertTrue(candidate["candidate_only"])
         self.assertFalse(candidate["approved"])
@@ -746,7 +746,9 @@ class IdentityDecisionTests(DiagnosticBase):
         self.assertEqual(entries["CLA-JKA-1.010"]["source_evidence"]["v2_literal"], "CLC-JKA1.10")
         self.assertFalse(entries["CLA-JKA-1.010"]["persisted"][0]["exists"])
         Box.objects.filter(global_code="CLA-JKA-1.009").update(strain=self.clc)
-        self.box("CLC-JKA-1.009", self.clc)
+        # Deliberately reproduce a legacy collision, not an ordinary creation.
+        legacy = self.box("CLC-JKA-1.099", self.clc)
+        Box._base_manager.filter(pk=legacy.pk).update(global_code="CLC-JKA-1.009")
         entry = self.unresolved("D11_CLA_CLC")["CLA-JKA-1.009"]
         self.assertEqual(entry["status"], "BLOCKED_DECISION_REQUIRED")
         self.assertIn("DUPLICATE_IDENTITY", entry["reasons"])

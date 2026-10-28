@@ -68,6 +68,12 @@ D11_SOURCE_IDENTITY_BOXES = frozenset(
     box["code"] for box in decisions.UNRESOLVED_IDENTITIES["D11_CLA_CLC"]["boxes"]
 )
 
+# The sealed manifest keeps the old labels; never recreate a reconciled identity.
+CLA_RECONCILED_CODES = {
+    "CLA-JKA-1.009": "CLC-JKA-1.009",
+    "CLA-JKA-1.010": "CLC-JKA-1.010",
+}
+
 
 class HistoricalImportError(Exception):
     """The import cannot proceed; nothing has been written."""
@@ -254,6 +260,7 @@ def build_plan(manifest, organization, *, lock=False):
     exceptions = manifest["decisions"]["strain_label_exceptions"]
     codes = {spec["code"] for spec in manifest["boxes"]}
     codes |= {item["from_code"] for item in corrections.values()}
+    codes |= {CLA_RECONCILED_CODES[code] for code in codes & CLA_RECONCILED_CODES.keys()}
     queryset = Box.objects.filter(global_code__in=codes).select_related("strain", "strain__species")
     if lock:
         # Match ordinary writers and reviewed correctors: own Boxes by PK first,
@@ -273,6 +280,9 @@ def build_plan(manifest, organization, *, lock=False):
     else:
         by_code = {box.global_code: box for box in queryset}
     plan = Plan(manifest, organization)
+    reserved_cla_codes = set(Box.objects.filter(
+        previous_global_code__in=CLA_RECONCILED_CODES,
+    ).values_list("previous_global_code", flat=True))
 
     strains_by_code = {}
     for strain in Strain.objects.filter(
@@ -285,6 +295,14 @@ def build_plan(manifest, organization, *, lock=False):
         spec = {**spec, "_exception": exceptions.get(spec["strain_code"])}
         existing = by_code.get(code)
         correction = corrections.get(code)
+        if code in CLA_RECONCILED_CODES and (
+            CLA_RECONCILED_CODES[code] in by_code or code in reserved_cla_codes
+        ):
+            # Global collisions block replay without exposing another institution.
+            plan.boxes[code] = _mismatch(
+                spec, "historical identity is corrected or reserved; old-manifest replay is blocked"
+            )
+            continue
         if existing is not None and correction is not None and correction["from_code"] in by_code:
             plan.boxes[code] = _mismatch(
                 spec, f"both {correction['from_code']} and {code} exist: the culture would be duplicated"
