@@ -1029,7 +1029,10 @@ export const fr = {
 
   temperatureOutsideScale: 'Valeur hors de la plage habituelle 0–40 °C : échelle étendue.',
 
-  dailyTemperatureAggregate: 'Moyenne journalière de zone',
+  dailyTemperatureAggregate: 'Température',
+  temperatureMultipleSources: 'Plusieurs sources :',
+  temperatureCombinedSources: 'via import historique et via Polypbase',
+  temperatureHistoricalSource: 'via import historique',
 
   historicalTemperatureWeek: 'Semaine',
   historicalTemperaturePeriod: 'Mesuré pour la période :',

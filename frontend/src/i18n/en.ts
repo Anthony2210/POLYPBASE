@@ -1031,7 +1031,10 @@ export const en: Record<TranslationKey, string> = {
 
   temperatureOutsideScale: 'Value outside the usual 0–40 °C range: expanded scale.',
 
-  dailyTemperatureAggregate: 'Daily zone average',
+  dailyTemperatureAggregate: 'Temperature',
+  temperatureMultipleSources: 'Multiple sources:',
+  temperatureCombinedSources: 'via historical import and via Polypbase',
+  temperatureHistoricalSource: 'via historical import',
 
   historicalTemperatureWeek: 'Week',
   historicalTemperaturePeriod: 'Measured for the period:',

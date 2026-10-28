@@ -107,6 +107,9 @@ type TrendLabels = {
   temperatureOutsideScale?: string;
 
   dailyTemperature?: string;
+  temperatureMultipleSources?: string;
+  temperatureCombinedSources?: string;
+  temperatureHistoricalSource?: string;
   historicalTemperature?: string;
   historicalWeek?: string;
   historicalPeriod?: string;
@@ -365,7 +368,7 @@ export default function BiologicalTrendChart({
     };
     return { detail, measurement, x };
   });
-  const allTemperatureDetails = plottedTemperatures.map((point) => {
+  const rawTemperatureDetails = plottedTemperatures.map((point) => {
     const x = xPosition(point.date);
     const outsideScale = !isTemperatureInScale(point);
     const y = yTemperature(point.average_temperature_c);
@@ -383,8 +386,41 @@ export default function BiologicalTrendChart({
     };
     return { point, detail, x, y, outsideScale };
   });
+  // Share only the presentation of one daily and one historical point at the
+  // same original anchor and exact value. A weekly anchor is not an observed day.
+  // Match before clipping so a narrowed window cannot manufacture a coincidence.
+  type TemperatureDetail = typeof rawTemperatureDetails[number];
+  const originalWeekDates = new Map(temperatures.filter((point) => point.week).map((point) => [point.week!.id, point.date]));
+  const temperatureGroups = new Map<string, { daily: TemperatureDetail[]; historical: TemperatureDetail[] }>();
+  for (const item of rawTemperatureDetails) {
+    const { point } = item;
+    if (!point.week && !isDailyTemperature(point)) continue;
+    const originalDate = point.week ? originalWeekDates.get(point.week.id) : point.date;
+    const key = `${originalDate}:${point.average_temperature_c}`;
+    const group = temperatureGroups.get(key) ?? { daily: [], historical: [] };
+    (point.week ? group.historical : group.daily).push(item);
+    temperatureGroups.set(key, group);
+  }
+  const sharedHistoricalDetails = new Map<string, TemperatureDetail>();
+  for (const { daily, historical } of temperatureGroups.values()) {
+    if (daily.length === 1 && historical.length === 1) {
+      sharedHistoricalDetails.set(daily[0].detail.id, historical[0]);
+    }
+  }
+  const sharedIds = new Set([...sharedHistoricalDetails.values()].map(({ detail }) => detail.id));
+  const allTemperatureDetails = rawTemperatureDetails.filter(({ detail }) => !sharedIds.has(detail.id)).map((item) => {
+    const historical = sharedHistoricalDetails.get(item.detail.id);
+    if (!historical) return { ...item, observations: [item] };
+    return { ...item, observations: [item, historical], detail: { ...item.detail, lines: [
+      ...item.detail.lines,
+      { kind: 'note' as const, label: labels.temperatureMultipleSources ?? '', value: labels.temperatureCombinedSources ?? '' },
+      { kind: 'note' as const, label: labels.temperatureHistoricalSource ?? '', value: historical.detail.title },
+      ...historical.detail.lines.filter((line) => line.kind === 'note' && line.label === (labels.historicalPeriod ?? '')),
+    ] } };
+  });
   const temperatureDetails = temperatureVisible ? allTemperatureDetails : [];
-  const temperatureConnections = buildTemperatureConnections(temperatureDetails.map(({ point }) => point));
+  // Shared interactions retain every source marker and never change the plotted series.
+  const temperatureConnections = buildTemperatureConnections(temperatureVisible ? plottedTemperatures : []);
   const temperatureCountByPosition = new Map<string, number>();
   for (const { x, y } of temperatureDetails) {
     const key = `${x}:${y}`;
@@ -635,7 +671,7 @@ export default function BiologicalTrendChart({
             );
           })}
 
-          {temperatureEnabled && temperatureDetails.map(({ point, detail, x, y, outsideScale }, index) => (
+          {temperatureEnabled && temperatureDetails.map(({ point, detail, x, y, outsideScale, observations }, index) => (
             <g key={detail.id} className={`bio-trend-temperature-point${selectedTemperature?.detail.id === detail.id ? ' is-selected' : ''}`} role="button" tabIndex={0}
               data-temperature-index={index}
               aria-pressed={selectedTemperature?.detail.id === detail.id}
@@ -644,13 +680,17 @@ export default function BiologicalTrendChart({
               onMouseEnter={() => setHoveredDetail(detail)} onMouseLeave={() => setHoveredDetail(null)}
               onFocus={() => setFocusedDetail(detail)} onBlur={() => setFocusedDetail(null)}
               onClick={(event) => selectMeasurement(event, detail)} onKeyDown={(event) => handleMeasurementKey(event, detail, index, 'temperature')}>
-              {point.week ? <line className="bio-trend-week-span" x1={Math.max(padding.left, xPosition(point.week.start))}
-                x2={Math.min(width - padding.right, xPosition(point.week.end))} y1={y} y2={y} /> : null}
-              <rect className={`bio-trend-dot is-temperature${point.week ? ' is-weekly' : ''}`}
-                x={x - (point.average_temperature_c === 0 ? layout.zeroRadius : layout.pointRadius)}
-                y={y - (point.average_temperature_c === 0 ? layout.zeroRadius : layout.pointRadius)}
-                width={(point.average_temperature_c === 0 ? layout.zeroRadius : layout.pointRadius) * 2}
-                height={(point.average_temperature_c === 0 ? layout.zeroRadius : layout.pointRadius) * 2} />
+              {observations.map(({ point, detail: observationDetail, x, y }) => (
+                <g key={observationDetail.id}>
+                  {point.week ? <line className="bio-trend-week-span" x1={Math.max(padding.left, xPosition(point.week.start))}
+                    x2={Math.min(width - padding.right, xPosition(point.week.end))} y1={y} y2={y} /> : null}
+                  <rect className={`bio-trend-dot is-temperature${point.week ? ' is-weekly' : ''}`}
+                    x={x - (point.average_temperature_c === 0 ? layout.zeroRadius : layout.pointRadius)}
+                    y={y - (point.average_temperature_c === 0 ? layout.zeroRadius : layout.pointRadius)}
+                    width={(point.average_temperature_c === 0 ? layout.zeroRadius : layout.pointRadius) * 2}
+                    height={(point.average_temperature_c === 0 ? layout.zeroRadius : layout.pointRadius) * 2} />
+                </g>
+              ))}
               <circle className="bio-trend-temperature-hit" cx={x} cy={y} r={layout.responsive ? 12 : 8} />
             </g>
           ))}

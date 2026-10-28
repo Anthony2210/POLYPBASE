@@ -215,7 +215,7 @@ test('French and English rendered legends and tooltips omit the removed temperat
   }
 });
 
-test('French and English retain daily aggregate and expanded-axis details without connection legend wording', () => {
+test('French and English use the temperature label and retain expanded-axis details without connection legend wording', () => {
   for (const language of ['fr', 'en']) {
     const catalog = compile(readFileSync(new URL(`../src/i18n/${language}.ts`, import.meta.url), 'utf8'))[language];
     const keys = ['dailyTemperatureAggregate', 'temperatureOutsideScale'];
@@ -227,7 +227,7 @@ test('French and English retain daily aggregate and expanded-axis details withou
       assert.ok(catalog[key].trim().length > 0);
       assert.doesNotMatch(catalog[key], /·/);
     }
-    assert.equal(catalog.dailyTemperatureAggregate, language === 'fr' ? 'Moyenne journalière de zone' : 'Daily zone average');
+    assert.equal(catalog.dailyTemperatureAggregate, language === 'fr' ? 'Température' : 'Temperature');
     assert.doesNotMatch(catalog.temperatureOutsideScale, /Outside the displayed scale|hors de l['’]échelle affichée/i);
     assert.match(catalog.temperatureOutsideScale, language === 'fr' ? /(?:élargi|étendu|adapté)/i : /expand/i);
     const view = mountTrendChart({ temperatures: [
@@ -257,7 +257,7 @@ test('French and English retain daily aggregate and expanded-axis details withou
     nodes = view.render();
     assert.ok(nodeText(chartTooltip(nodes)).includes(`${catalog.temperature} (°C)`));
     assert.ok(nodeText(chartTooltip(nodes)).includes('43.000'));
-    assert.ok(!nodeText(chartTooltip(nodes)).includes(catalog.dailyTemperatureAggregate));
+    assert.ok(nodeText(chartTooltip(nodes)).includes(`${catalog.temperature} (°C)`));
   }
   assert.match(css, /\.bio-trend-line\.is-temperature\.is-uncertain\s*\{[^}]*stroke-dasharray:/);
 });
@@ -786,6 +786,175 @@ test('outlier -2/43 temperatures use squares, continuous connections and exact d
     assert.ok(nodeText(chartTooltip(nodes)).includes(note));
     assert.equal(temperatureControls(nodes)[index].props['aria-pressed'], true);
   }
+});
+
+const septemberWeek = (value = 15) => ({
+  date: '2026-09-24', average_temperature_c: value,
+  week: { id: 39, year: 2026, number: 39, start: '2026-09-21', end: '2026-09-27', valueText: String(value) },
+});
+const septemberDaily = (value = 15, date = '2026-09-24') => ({
+  date, average_temperature_c: value, zone_id: 7, zone_name: 'Laboratory',
+});
+const temperatureChoices = nodes => nodes.filter(node => hasClass(node, 'bio-trend-event-choice') && hasClass(node, 'is-temperature'));
+const temperatureLabels = catalog => ({
+  chartTitle: 'Chart', empty: 'Empty', polyps: catalog.polyps, ephyrae: catalog.ephyraeFull,
+  location: 'Location', temperature: catalog.temperature, dailyTemperature: catalog.dailyTemperatureAggregate,
+  historicalWeek: catalog.historicalTemperatureWeek, historicalPeriod: catalog.historicalTemperaturePeriod,
+  temperatureMultipleSources: catalog.temperatureMultipleSources, temperatureCombinedSources: catalog.temperatureCombinedSources,
+  temperatureHistoricalSource: catalog.temperatureHistoricalSource,
+});
+
+test('capture coincidence shares one tooltip value and real sources without any temperature card in FR/EN', () => {
+  for (const language of ['fr', 'en']) {
+    const catalog = compile(readFileSync(new URL(`../src/i18n/${language}.ts`, import.meta.url), 'utf8'))[language];
+    for (const value of [15, 0]) {
+      for (const compact of [false, true]) {
+        const temperatures = [septemberWeek(value), septemberDaily(value)];
+        const original = JSON.stringify(temperatures);
+        const harness = mountTrendChart({ measurements: [], temperatures, compact,
+          startDate: '2026-09-01', endDate: '2026-09-30', labels: temperatureLabels(catalog) });
+        let nodes = harness.render();
+        assert.equal(temperatureControls(nodes).length, 1);
+        assert.equal(temperatureChoices(nodes).length, 0);
+        assert.equal(nodes.filter(node => hasClass(node, 'bio-trend-week-span')).length, 1,
+          'The shared interaction must still draw the historical week extent');
+        const markers = nodes.filter(node => hasClass(node, 'bio-trend-dot') && hasClass(node, 'is-temperature'));
+        assert.equal(markers.length, 2, 'Both source observations remain drawn');
+        assert.equal(markers.filter(node => hasClass(node, 'is-weekly')).length, 1);
+        const geometry = chart.buildGeometry([], [], [], '2026-09-01', '2026-09-30', compact,
+          chart.resolveChartLayout(compact), [], temperatures);
+        const span = nodes.find(node => hasClass(node, 'bio-trend-week-span'));
+        assert.equal(span.props.x1, geometry.xPosition('2026-09-21'));
+        assert.equal(span.props.x2, geometry.xPosition('2026-09-27'));
+        assert.equal(span.props.y1, geometry.yTemperature(value));
+        temperatureControls(nodes)[0].props.onMouseEnter();
+        assert.ok(chartTooltip(harness.render()));
+        temperatureControls(nodes)[0].props.onMouseLeave();
+        assert.equal(chartTooltip(harness.render()), undefined);
+        temperatureControls(nodes)[0].props.onFocus();
+        nodes = harness.render();
+        const tooltip = chartTooltip(nodes);
+        const text = nodeText(tooltip);
+        assert.equal(chartNodes(tooltip).filter(node => node.type === 'span' && hasClass(node, 'is-temperature')).length, 1);
+        assert.ok(text.includes(`${catalog.temperature} (°C)${value}`));
+        assert.ok(text.includes(catalog.temperatureMultipleSources + catalog.temperatureCombinedSources));
+        assert.ok(text.includes(`${catalog.historicalTemperatureWeek} 39, 2026`));
+        for (const date of ['2026-09-24', '2026-09-21', '2026-09-27']) {
+          assert.ok(text.includes(utility('dateFormat').formatDisplayDate(date)));
+        }
+        temperatureControls(nodes)[0].props.onClick(clickEvent());
+        nodes = harness.render();
+        assert.ok(hasClass(chartTooltip(nodes), 'is-pinned'));
+        assert.equal(temperatureChoices(nodes).length, 0, 'No replacement card when pinned');
+        assert.equal(temperatureControls(nodes)[0].props['aria-pressed'], true);
+        assert.ok(selectionGuide(nodes));
+        temperatureControls(nodes)[0].props.onBlur();
+        assert.ok(hasClass(chartTooltip(harness.render()), 'is-pinned'), 'Blur retains the pinned combined detail');
+        temperatureControls(nodes)[0].props.onKeyDown(keyEvent('Escape'));
+        nodes = harness.render();
+        assert.equal(chartTooltip(nodes), undefined);
+        assert.equal(selectionGuide(nodes), undefined);
+        for (const key of ['Enter', ' ']) {
+          temperatureControls(nodes)[0].props.onKeyDown(keyEvent(key));
+          nodes = harness.render();
+          assert.ok(hasClass(chartTooltip(nodes), 'is-pinned'));
+          assert.ok(nodeText(chartTooltip(nodes)).includes(catalog.temperatureCombinedSources));
+          temperatureControls(nodes)[0].props.onKeyDown(keyEvent('Escape'));
+          nodes = harness.render();
+        }
+        temperatureLegend(nodes).props.onClick();
+        nodes = harness.render();
+        assert.equal(temperatureControls(nodes).length, 0);
+        assert.equal(nodes.filter(node => hasClass(node, 'bio-trend-week-span')).length, 0);
+        assert.equal(temperaturePaths(nodes).length, 0);
+        temperatureLegend(nodes).props.onClick();
+        nodes = harness.render();
+        assert.equal(nodes.filter(node => hasClass(node, 'bio-trend-week-span')).length, 1);
+        assert.equal(temperatureChoices(nodes).length, 0);
+        assert.equal(JSON.stringify(temperatures), original, 'Source data is untouched');
+      }
+    }
+  }
+});
+
+test('shared tooltip preserves every original temperature connection and its comparability', () => {
+  for (const compact of [false, true]) {
+    const temperatures = [septemberDaily(16, '2026-09-26'), septemberWeek(),
+      septemberDaily(), septemberDaily(14, '2026-09-22')];
+    const catalog = compile(readFileSync(new URL('../src/i18n/fr.ts', import.meta.url), 'utf8')).fr;
+    const harness = mountTrendChart({ measurements: [], temperatures, compact,
+      startDate: '2026-09-01', endDate: '2026-09-30', labels: temperatureLabels(catalog) });
+    let nodes = harness.render();
+    const geometry = chart.buildGeometry([], [], [], '2026-09-01', '2026-09-30', compact,
+      chart.resolveChartLayout(compact), [], temperatures);
+    const expected = chart.buildTemperatureConnections(geometry.plottedTemperatures)
+      .map(({ from, to, uncertain }) => ({ d: geometry.temperatureLine([from, to]), uncertain }));
+    assert.equal(expected.length, 3);
+    const paths = nodes => temperaturePaths(nodes).map(node => ({ d: node.props.d, uncertain: hasClass(node, 'is-uncertain') }));
+    assert.deepEqual(paths(nodes), Array.from(expected), 'Connections must use all original observations, not shared tooltip entries');
+    assert.equal(temperatureChoices(nodes).length, 0);
+    assert.equal(temperatureControls(nodes).length, 3);
+    assert.equal(nodes.filter(node => hasClass(node, 'bio-trend-dot') && hasClass(node, 'is-temperature')).length, 4);
+    const queries = [];
+    const svg = { querySelector(selector) {
+      queries.push(selector);
+      const target = temperatureControls(harness.render()).find(node => selector === `[data-temperature-index="${node.props['data-temperature-index']}"]`);
+      assert.ok(target, 'Navigation uses shared interactive entries, not raw observations');
+      return { focus() { target.props.onFocus(); } };
+    } };
+    for (const [from, key, to] of [[0, 'ArrowRight', 1], [1, 'End', 2], [2, 'Home', 0], [0, 'ArrowRight', 1]]) {
+      temperatureControls(nodes)[from].props.onKeyDown(keyEvent(key, { currentTarget: { ownerSVGElement: svg } }));
+      nodes = harness.render();
+      assert.equal(queries.at(-1), `[data-temperature-index="${to}"]`);
+      assert.equal(temperatureControls(nodes)[to].props['aria-describedby'], chartTooltip(nodes).props.id);
+      assert.equal(selectionGuide(nodes), undefined, 'Focus alone does not pin');
+    }
+    const combined = temperatureControls(nodes)[1];
+    combined.props.onKeyDown(keyEvent('Enter'));
+    nodes = harness.render();
+    assert.ok(nodeText(chartTooltip(nodes)).includes(catalog.temperatureCombinedSources));
+    assert.deepEqual(paths(nodes), Array.from(expected), 'Selection must not change the series');
+    temperatureLegend(nodes).props.onClick();
+    assert.equal(temperaturePaths(harness.render()).length, 0);
+    temperatureLegend(nodes).props.onClick();
+    assert.deepEqual(paths(harness.render()), Array.from(expected));
+  }
+});
+
+test('different values, distinct days, unknown sources, nulls and single sources are not deduplicated', () => {
+  const cases = [
+    { points: [septemberWeek(15), septemberDaily(16)], count: 2 },
+    { points: [septemberWeek(15.0001), septemberDaily(15.0002)], count: 2 },
+    { points: [septemberWeek(), septemberDaily(15, '2026-09-25')], count: 2 },
+    { points: [septemberDaily(), septemberDaily(15, '2026-09-25')], count: 2 },
+    { points: [septemberWeek()], count: 1 },
+    { points: [septemberDaily()], count: 1 },
+    { points: [septemberWeek(), septemberDaily(null)], count: 1 },
+    { points: [septemberWeek(), { ...septemberDaily(), source_kind: 'unknown' }], count: 2 },
+  ];
+  const catalog = compile(readFileSync(new URL('../src/i18n/fr.ts', import.meta.url), 'utf8')).fr;
+  for (const { points, count } of cases) {
+    const harness = mountTrendChart({ measurements: [], temperatures: points,
+      startDate: '2026-09-01', endDate: '2026-09-30', labels: temperatureLabels(catalog) });
+    let nodes = harness.render();
+    assert.equal(temperatureControls(nodes).length, count);
+    const values = points.filter(point => point.average_temperature_c != null);
+    const displayedValues = [];
+    for (let index = 0; index < count; index++) {
+      temperatureControls(nodes)[index].props.onClick(clickEvent());
+      nodes = harness.render();
+      const text = nodeText(chartTooltip(nodes));
+      const valueNode = chartNodes(chartTooltip(nodes)).find(node => node.type === 'span' && hasClass(node, 'is-temperature'));
+      displayedValues.push(nodeText(chartNodes(valueNode).find(node => node.type === 'strong')));
+      assert.ok(!text.includes(catalog.temperatureMultipleSources));
+    }
+    assert.deepEqual(displayedValues.sort(), values.map(point => String(point.average_temperature_c)).sort());
+  }
+  // Clipping a weekly anchor to a daily point must not create a shared tooltip.
+  const nodes = mountTrendChart({ measurements: [], temperatures: [septemberWeek(), septemberDaily(15, '2026-09-25')],
+    startDate: '2026-09-25', endDate: '2026-09-30', labels: temperatureLabels(catalog) }).render();
+  assert.equal(temperatureControls(nodes).length, 2);
+  assert.equal(temperatureChoices(nodes).length, 2);
 });
 
 test('coincident same-day same-value zones retain separate native temperature buttons and details', () => {
