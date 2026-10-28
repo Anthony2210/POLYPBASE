@@ -103,7 +103,7 @@ test('shared write permission and location errors are imported from neutral real
   const constants = file => nodes(file, node => ts.isVariableDeclaration(node) && node.name.getText() === 'SALINITY_STEP');
   assert.equal(constants(ast).length, 0);
   assert.equal(constants(boxAst).length, 1);
-  assert.equal(constants(boxAst)[0].initializer.getText(), '0.1');
+  assert.equal(constants(boxAst)[0].initializer.getText(), '1');
 });
 
 // Exact expressions from the App invocation, including movement callbacks. This keeps
