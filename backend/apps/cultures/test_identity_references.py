@@ -292,6 +292,64 @@ class IdentityReferenceTests(TestCase):
                 self.assert_blocked(self.plan())
                 species.delete()
 
+    def test_near_lactea_names_block_even_beside_an_unrelated_lacteoides_taxon(self):
+        Species.objects.create(scientific_name="Eirene lacteoides")
+        for name in ("Chrysaora lactée", "Chrysaora lactaea", "Chrysaora lacteus", "Chrysaora cf. lactea",
+                     "C. lactea", "Dactylometra lactea", "Chrysaora lactea Eschscholtz, 1829",
+                     "Dactylometra lacteus", "C. lacteum", "Chrysaora lacteum Eschscholtz 1829"):
+            with self.subTest(name=name):
+                species = Species.objects.create(scientific_name=name)
+                plan = self.plan()
+                self.assertIn("Approximate lactea Species spelling requires separate review.", plan["conflicts"])
+                self.assert_blocked(plan)
+                species.delete()
+
+    def test_unrelated_lacteoides_species_does_not_block_exact_lactea_preparation(self):
+        unrelated = Species.objects.create(scientific_name="Eirene lacteoides", notes="Distinct hydrozoan taxon")
+        unrelated_row = Species.objects.filter(pk=unrelated.pk).values().get()
+        before = self.snapshot()
+        plan = self.plan()
+        self.assertEqual(plan["classification"], "READY", plan["conflicts"])
+        self.assertEqual(plan["conflicts"], [])
+        self.assertNotIn(unrelated.pk, {s["id"] for s in plan["state"]["species"]})
+        self.assertEqual(before, self.snapshot())
+        result = self.apply(plan)
+        target = Strain.objects.get(pk=result["prepared_target_strain_id"])
+        self.assertEqual(target.species.scientific_name, "Chrysaora lactea")
+        self.assertNotEqual(target.species_id, unrelated.pk)
+        self.assertEqual(unrelated_row, Species.objects.filter(pk=unrelated.pk).values().get())
+        self.assertFalse(OrganizationSpeciesCode.objects.filter(species=unrelated).exists())
+        after = self.snapshot()
+        for model in (Box, BiologicalMeasurement):
+            self.assertEqual(before[model._meta.db_table], after[model._meta.db_table])
+        fresh = self.plan(target_strain_id=target.pk)
+        self.assertEqual(fresh["classification"], "ALREADY_PRESENT")
+        self.assertEqual(self.plan()["classification"], "ALREADY_PRESENT")
+
+    def test_lacteoides_taxon_keeps_exact_and_conflicting_classifications(self):
+        Species.objects.create(scientific_name="Eirene lacteoides")
+        exact = Species.objects.create(scientific_name="Chrysaora lactea")
+        plan = self.plan()
+        self.assertEqual(plan["classification"], "READY", plan["conflicts"])
+        species_entry = next(e for e in plan["entries"] if e["reference"] == "target_species")
+        self.assertEqual((species_entry["classification"], species_entry["pk"], species_entry["create"]),
+                         ("ALREADY_PRESENT", exact.pk, False))
+        OrganizationSpeciesCode.objects.create(organization=self.org, species=self.sp2, code="CLC")
+        plan = self.plan()
+        self.assertEqual(next(e for e in plan["entries"] if e["reference"] == "target_assignment")["classification"],
+                         "CONFLICT")
+        self.assert_blocked(plan)
+        Species.objects.create(scientific_name="Chrysaora lacta")
+        self.assertIn("Multiple target Species candidates require separate review.", self.plan()["conflicts"])
+
+    def test_sme_preparation_is_unaffected_by_lactea_like_species(self):
+        reference = self.plan("sme")
+        Species.objects.create(scientific_name="Eirene lacteoides")
+        Species.objects.create(scientific_name="Chrysaora lacta")
+        plan = self.plan("sme")
+        self.assertEqual(references.fingerprint(reference), references.fingerprint(plan))
+        self.assertEqual(plan["classification"], "READY")
+
     def test_existing_exact_species_is_reused_without_any_edit(self):
         species = Species.objects.create(scientific_name="Chrysaora lactea", notes="Keep taxonomy", is_described=False)
         before = list(Species.objects.values())

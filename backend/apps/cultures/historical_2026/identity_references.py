@@ -30,9 +30,12 @@ def _normalized(value):
 
 
 def _lactea_candidate(name):
-    normalized = _normalized(name)
-    return ("lacte" in normalized or SequenceMatcher(
-        None, normalized, "chrysaoralactea").ratio() >= 0.82)
+    # Compare whole words with the epithet, not a "lacte" substring: a distinct
+    # epithet such as "lacteoides" is another taxon, not a lactea spelling.
+    folded = "".join(c for c in unicodedata.normalize("NFKD", name).casefold() if not unicodedata.combining(c))
+    return (SequenceMatcher(None, _normalized(name), "chrysaoralactea").ratio() >= 0.82
+            or any(SequenceMatcher(None, word, "lactea").ratio() >= 0.75
+                   for word in re.split(r"[^a-z0-9]+", folded) if word))
 
 
 def _validate_scope(organization_id, family, source_strain_id, target_strain_id):
