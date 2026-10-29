@@ -2,6 +2,7 @@ import { type CSSProperties, type FormEvent, useEffect, useLayoutEffect, useMemo
 import type { Translator } from '../i18n';
 import type { BoxItem, ThermalZone, UserProfile } from '../types';
 import { ApiError, ApiResourceCancelledError } from '../api/client';
+import useProbeMonitoring from '../hooks/useProbeMonitoring';
 import type {
   ManualSalinityPayload,
   ManualSalinityUpdatePayload,
@@ -9,7 +10,8 @@ import type {
   ProbePayload,
   ThermalZonePayload,
 } from '../types/admin';
-import { formatDisplayDate } from '../utils/dateFormat';
+import { formatDisplayDate, formatDisplayDateTime, getDocumentLocale } from '../utils/dateFormat';
+import { formatProbeReadingTime, getProbeElapsedTime } from '../utils/probeStatus';
 import { getErrorMessage } from '../utils/errors';
 import { buildTemperatureScale } from '../utils/temperatureScale';
 import BoxTrackingPreview from './BoxTrackingPreview';
@@ -17,6 +19,7 @@ import DetailBackButton from './DetailBackButton';
 import ModalPortal from './ModalPortal';
 import PageLoader from './PageLoader';
 import PolypbaseIcon from './PolypbaseIcon';
+import ProbeReadingsModal from './ProbeReadingsModal';
 import { ZoneRecentMovements } from './ZoneMovementHistory';
 
 
@@ -994,6 +997,42 @@ function TemperatureControlPanel({
     maximum: hasTemperatureRange ? maxTemperature : null,
   });
   const [isEditingTemperature, setIsEditingTemperature] = useState(false);
+  const [isProbeReadingsOpen, setIsProbeReadingsOpen] = useState(false);
+  const { monitoring: probeMonitoring, error: monitoringError, revalidate: revalidateMonitoring } = useProbeMonitoring(zone);
+  const hasCollectedProbe = zone.probes.some((probe) => probe.is_collected);
+  const probeReadingsActionRef = useRef<HTMLButtonElement>(null);
+  const restoreProbeFocus = useRef(false);
+  useLayoutEffect(() => {
+    if (!isProbeReadingsOpen && restoreProbeFocus.current) {
+      probeReadingsActionRef.current?.focus({ preventScroll: true });
+      restoreProbeFocus.current = false;
+    }
+  }, [isProbeReadingsOpen]);
+  const usesProbes = probeMonitoring?.has_collected_probes ?? false;
+  const [statusNow, setStatusNow] = useState(Date.now);
+  const lastProbeReading = probeMonitoring?.last_reading_at;
+  useEffect(() => {
+    if (!usesProbes || !lastProbeReading) return;
+    const updateNow = () => setStatusNow(Date.now());
+    updateNow();
+    const timer = globalThis.setInterval(updateNow, 60_000);
+    globalThis.addEventListener('focus', updateNow);
+    document.addEventListener('visibilitychange', updateNow);
+    return () => {
+      globalThis.clearInterval(timer);
+      globalThis.removeEventListener('focus', updateNow);
+      document.removeEventListener('visibilitychange', updateNow);
+    };
+  }, [usesProbes, lastProbeReading]);
+  const elapsed = getProbeElapsedTime(lastProbeReading, statusNow);
+  const elapsedDuration = elapsed
+    ? t(elapsed.unit === 'minute' ? 'probeElapsedMinutes' : elapsed.unit === 'hour' ? 'probeElapsedHours' : 'probeElapsedDays')
+      .replace('{count}', String(elapsed.count))
+    : null;
+  const isProbeSilent = usesProbes && (probeMonitoring?.manual_entry_available ?? false);
+  // The server decides when probes are silent long enough to allow manual entry.
+  const canEnterManually = canRecordManualTemperature
+    && (!usesProbes || (probeMonitoring?.manual_entry_available ?? false));
   const [temperatureDate, setTemperatureDate] = useState(getTodayInputValue);
   const [manualTemperature, setManualTemperature] = useState('');
   const [isSavingTemperature, setIsSavingTemperature] = useState(false);
@@ -1060,13 +1099,13 @@ function TemperatureControlPanel({
               : t('temperatureMissing')}
           </p>
         </div>
-        {canRecordManualTemperature && !isEditingTemperature ? (
+        {canEnterManually && !isEditingTemperature ? (
           <button
             className="icon-button zone-temperature-action"
             ref={temperatureActionRef}
             type="button"
             aria-label={t('manualTemperatureAction')}
-            title={t('manualTemperatureAction')}
+            title={usesProbes ? t('probeManualFallbackAction') : t('manualTemperatureAction')}
             onClick={() => {
               restoreTemperatureFocus.current = true;
               setIsEditingTemperature(true);
@@ -1147,6 +1186,57 @@ function TemperatureControlPanel({
         </div>
       ) : null}
       </div>
+
+      {hasCollectedProbe ? (
+        <div className="zone-probe-status">
+          {usesProbes && probeMonitoring ? (
+            <div className="zone-probe-reading">
+              <div className="zone-probe-reading-heading">
+                <p>
+                  <small>{t('probeLastReading')}</small>
+                  <strong>
+                    {lastProbeReading && elapsedDuration ? (
+                      <>
+                        <time dateTime={lastProbeReading} title={formatDisplayDateTime(lastProbeReading)}>
+                          {formatProbeReadingTime(lastProbeReading, getDocumentLocale())}
+                        </time>
+                        {' — '}{t('probeReadingAgo').replace('{duration}', elapsedDuration)}
+                      </>
+                    ) : t('probeNoReadingYet')}
+                  </strong>
+                </p>
+                {isProbeSilent ? <span className="zone-probe-silent-badge">{t('probeSilentBadge')}</span> : null}
+              </div>
+              {isProbeSilent ? (
+                <p className="zone-probe-silent-description">
+                  {elapsedDuration
+                    ? t('probeSilentDescription').replace('{duration}', elapsedDuration)
+                    : t('probeSilentNoReadingDescription')}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+          {monitoringError ? (
+            <div role="status">
+              <p>{t('probeMonitoringError')}</p>
+              <button className="secondary-button" type="button" onClick={revalidateMonitoring}>{t('probeRetry')}</button>
+            </div>
+          ) : null}
+          <button ref={probeReadingsActionRef} className="secondary-button zone-probe-readings-action" type="button" onClick={() => {
+            restoreProbeFocus.current = true;
+            setIsProbeReadingsOpen(true);
+          }}>
+            {t('probeReadingsAction')}
+          </button>
+        </div>
+      ) : null}
+
+      {isProbeReadingsOpen ? (
+        <ProbeReadingsModal zone={zone} onClose={() => {
+          setIsProbeReadingsOpen(false);
+          revalidateMonitoring();
+        }} t={t} />
+      ) : null}
 
       {isEditingTemperature ? (
         <TemperatureEntryModal
@@ -1318,8 +1408,9 @@ function formatTemperatureTick(value: number) {
 }
 
 function formatTemperatureDelta(value: number) {
-  const sign = value > 0 ? '+' : value < 0 ? '−' : '';
-  return `${sign}${Math.abs(value).toFixed(1)}°C`;
+  const magnitude = Math.abs(value).toFixed(1);
+  const sign = Number(magnitude) === 0 ? '' : value > 0 ? '+' : value < 0 ? '−' : '';
+  return `${sign}${magnitude}°C`;
 }
 
 function parseTemperatureNumber(value: string | number | null | undefined) {

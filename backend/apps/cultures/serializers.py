@@ -29,6 +29,7 @@ from apps.measurements.models import BiologicalMeasurement, Probe, SalinityMeasu
 from apps.measurements.serializers import (
     BiologicalMeasurementCreateSerializer as BiologicalMeasurementCreateSerializer,
 )
+from apps.measurements.probe_readings import zone_probe_monitoring
 from apps.measurements.services import get_active_measurement_role, get_measurement_editability
 from apps.organizations.models import Organization
 from apps.organizations.serializers import OrganizationSummarySerializer
@@ -925,6 +926,7 @@ class ThermalZoneSerializer(serializers.ModelSerializer):
     latest_temperature = serializers.SerializerMethodField()
     latest_salinity = serializers.SerializerMethodField()
     probes = serializers.SerializerMethodField()
+    probe_monitoring = serializers.SerializerMethodField()
     current_polyp_totals = serializers.SerializerMethodField()
 
     def get_current_polyp_totals(self, obj):
@@ -948,6 +950,7 @@ class ThermalZoneSerializer(serializers.ModelSerializer):
             "latest_temperature",
             "latest_salinity",
             "probes",
+            "probe_monitoring",
             "current_polyp_totals",
         ]
 
@@ -963,6 +966,7 @@ class ThermalZoneSerializer(serializers.ModelSerializer):
             "min_temperature_c": temperature.min_temperature_c,
             "max_temperature_c": temperature.max_temperature_c,
             "measurement_count": temperature.measurement_count,
+            "computed_from_probes": temperature.computed_from_probes,
         }
 
     def get_latest_salinity(self, obj):
@@ -984,9 +988,13 @@ class ThermalZoneSerializer(serializers.ModelSerializer):
                 "probe_type": probe.probe_type,
                 "location": probe.location,
                 "is_active": probe.is_active,
+                "is_collected": probe.is_collected,
             }
             for probe in obj.probes.all()
         ]
+
+    def get_probe_monitoring(self, obj):
+        return zone_probe_monitoring(obj)
 
 
 class ThermalZoneCreateSerializer(serializers.ModelSerializer):

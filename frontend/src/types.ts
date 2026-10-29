@@ -518,6 +518,45 @@ export type Probe = {
   probe_type: string;
   location: string;
   is_active: boolean;
+  /** True when Polypbase collects this probe's readings automatically. */
+  is_collected?: boolean;
+};
+
+/** Server-authoritative status of the probes that measure a zone. */
+export type ZoneProbeMonitoring = {
+  has_collected_probes: boolean;
+  last_reading_at: string | null;
+  manual_entry_available: boolean;
+  fallback_after_hours: number;
+};
+
+/** One chart point: epoch milliseconds, average, minimum and maximum (null per minute). */
+export type ProbeReadingPoint = [number, number, number | null, number | null];
+
+/** Storage provenance: bounds (null end for an observation), exact sum, count, extrema, last observation. */
+export type ProbeReadingSource = [number, number | null, string, number, number, number, number];
+
+export type ZoneProbeReadings = {
+  zone_id: number;
+  start: string;
+  end: string;
+  resolution_minutes: number;
+  /** False only for a local cache preview not covering the entire selected window. */
+  coverage_complete?: boolean;
+  target_temperature_c: string | null;
+  first_reading_at: string | null;
+  last_reading_at: string | null;
+  monitoring: ZoneProbeMonitoring;
+  probes: Array<{
+    id: number;
+    code: string;
+    location: string;
+    is_active: boolean;
+    external_channel: number | null;
+    points: ProbeReadingPoint[];
+    /** Parallel to points; optional for older API responses. */
+    point_sources?: ProbeReadingSource[][];
+  }>;
 };
 
 export type ThermalZoneMovementDirection = 'arrival' | 'departure';
@@ -575,9 +614,11 @@ export type ThermalZone = {
     min_temperature_c: number | string | null;
     max_temperature_c: number | string | null;
     measurement_count: number;
+    computed_from_probes?: boolean;
   } | null;
   latest_salinity: ZoneSalinityMeasurement | null;
   probes: Probe[];
+  probe_monitoring?: ZoneProbeMonitoring;
 };
 
 export type Dashboard = {

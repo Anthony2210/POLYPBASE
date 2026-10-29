@@ -222,8 +222,12 @@ class PcaTemperatureStorageTests(TestCase):
 class IntegratedMigrationGraphTests(SimpleTestCase):
     def test_single_measurement_leaf_and_preserved_cultures_dependency(self):
         graph = MigrationLoader(None).graph
-        self.assertEqual(graph.leaf_nodes("measurements"), [("measurements", "0014_measurement_canonical_evidence")])
-        path = graph.forwards_plan(("measurements", "0014_measurement_canonical_evidence"))
+        self.assertEqual(graph.leaf_nodes("measurements"), [("measurements", "0015_iminilide_probe_collection")])
+        path = graph.forwards_plan(("measurements", "0015_iminilide_probe_collection"))
+        self.assertLess(
+            path.index(("measurements", "0014_measurement_canonical_evidence")),
+            path.index(("measurements", "0015_iminilide_probe_collection")),
+        )
         for migration in (
             ("measurements", "0011_historical_temperature_storage"),
             ("measurements", "0012_historical_temperature_guards"),

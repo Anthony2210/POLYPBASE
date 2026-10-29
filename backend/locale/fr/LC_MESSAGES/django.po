@@ -317,3 +317,7 @@ msgstr "Chaque utilisateur peut demander l'accès, la rectification ou la suppre
 msgid "L'application limite l'accès par compte, rôle et organisation. En production, elle doit être servie en HTTPS, avec des sauvegardes régulières et une base de données non exposée directement aux terminaux du laboratoire."
 msgstr "L'application limite l'accès par compte, rôle et organisation. En production, elle doit être servie en HTTPS, avec des sauvegardes régulières et une base de données non exposée directement aux terminaux du laboratoire."
 
+
+
+msgid "A probe with measurements cannot change thermal zone. Use link_iminilide_probe --replace to preserve its history."
+msgstr "Une sonde ayant des mesures ne peut pas changer de zone thermique. Utilisez link_iminilide_probe --replace pour préserver son historique."

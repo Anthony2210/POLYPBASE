@@ -31,6 +31,10 @@ B01_ROWS_SHA256 = "938718e0b044503fd19a48bef9c013ccbd2de4653277f05b9b54aba078c43
 B02_ROWS_SHA256 = "db74004c80933dfc216dd9e4044f277cb4b5bfc892dbbc5b46c454720893ad0e"
 # Same canonical digest for the 320 recorded B03 rows (T121-T440).
 B03_ROWS_SHA256 = "d31e74d3ccfec4bf6eb1e355e6b70ae8e3d41eac39207932c508b13760a4df67"
+# Final B03 cleanup batches B04-B06 (T441-T558) retain their original history.
+B03_FINAL_ROWS_SHA256 = "fb799fbdc052eba3071392c492efd00a1619141d9232a7eaaef890e2e8f2318a"
+# The independent probe batch follows B06; only its batch and entry IDs were renumbered.
+PROBE_ROWS_SHA256 = "6dbf823b88b5fefdeaec8a1449b9b5df33a7e8d98098e86ecca90845c063846d"
 
 
 def rows_digest(rows):
@@ -541,7 +545,7 @@ class RealRegisterTests(unittest.TestCase):
     def test_h_b03_removals_are_paired_and_absent(self):
         rows = reg.load_register()
         b03 = [row for row in rows if row["batch"] == REAL_B03]
-        self.assertEqual(rows[120:440], b03, "B03 rows must directly follow B02")
+        self.assertEqual(rows[120:440], b03, "B03 rows must directly follow B02 and stay contiguous")
         self.assertEqual([b03[0]["entry_id"], b03[-1]["entry_id"]], ["T121", "T440"])
         self.assertEqual(rows_digest(b03), B03_ROWS_SHA256, "B03 history was modified")
         self.assertEqual({row["status"] for row in b03}, {"REMOVED"})
@@ -552,6 +556,36 @@ class RealRegisterTests(unittest.TestCase):
         self.assertEqual(keys["FR"], keys["EN"])
         for language, path in reg.REACT_CATALOGS.items():
             self.assertFalse(keys[language] & set(reg.read_catalog(reg.ROOT / path)))
+
+    def test_h_final_b03_cleanup_is_unchanged(self):
+        rows = reg.load_register()
+        batches = {"B04-2026-10-29", "B05-2026-10-29", "B06-2026-10-29"}
+        cleanup = [row for row in rows if row["batch"] in batches]
+        self.assertEqual(len(cleanup), 118)
+        self.assertEqual(rows[440:558], cleanup, "Final B03 cleanup must directly follow B03")
+        self.assertEqual([cleanup[0]["entry_id"], cleanup[-1]["entry_id"]], ["T441", "T558"])
+        self.assertEqual(rows_digest(cleanup), B03_FINAL_ROWS_SHA256, "Final B03 history was modified")
+        self.assertEqual({row["status"] for row in cleanup}, {"REMOVED"})
+        self.assertEqual(reg.validate(rows), [])
+
+    def test_h_probe_batch_follows_final_cleanup_unchanged(self):
+        rows = reg.load_register()
+        probes = [row for row in rows if row["batch"] == "B07-2026-10-29"]
+        self.assertEqual(len(probes), 58)
+        self.assertEqual(rows[558:616], probes, "Probe rows must directly follow B06 and stay contiguous")
+        self.assertEqual([probes[0]["entry_id"], probes[-1]["entry_id"]], ["T559", "T616"])
+        self.assertEqual(rows_digest(probes), PROBE_ROWS_SHA256, "Probe translation history was modified")
+        self.assertEqual({row["status"] for row in probes}, {"ALREADY_MATCHING"})
+        for language, path in reg.REACT_CATALOGS.items():
+            catalog = reg.read_catalog(reg.ROOT / path)
+            translated = [row for row in probes if row["language"] == language]
+            react = [row for row in translated if row["surface"] == "react"]
+            self.assertEqual(len(translated), 29)
+            self.assertEqual(len(react), 28)
+            for row in react:
+                self.assertEqual(catalog[row["key_or_msgid"]], row["final_value"])
+        self.assertEqual(reg.validate(rows), [])
+        self.assertEqual(reg.check_catalog_parity(), [])
 
     def test_h_corrupted_copy_of_b01_is_rejected(self):
         rows = reg.load_register()
