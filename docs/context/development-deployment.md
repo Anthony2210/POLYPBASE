@@ -210,6 +210,32 @@ uv run python manage.py runserver 127.0.0.1:8000
 
 Dans la session frontend, relancer `npm run dev -- --host 127.0.0.1` et ouvrir `http://127.0.0.1:5173/` sur le PC. Retirer toute autorisation temporaire du pare-feu créée pour la QA LAN. En fin de travail ou après une erreur, appliquer le nettoyage ci-dessus : arrêter les serveurs et quitter les deux sessions enfants jetables, sans toucher aux variables de la session d’origine.
 
+## Contrôles i18n FR/EN
+
+Depuis la racine, sans Django ni accès base :
+
+```powershell
+# Vérifier les MO versionnés avant toute génération
+uv run --frozen python -B scripts/compile_django_messages.py --check
+uv run --frozen python -B docs/translation-review/application/check_register.py
+uv run --frozen python -B scripts/check_i18n.py
+uv run --frozen python -B -m unittest discover -s scripts -p test_compile_django_messages.py
+uv run --frozen python -B -m unittest discover -s scripts -p test_check_i18n.py
+uv run --frozen python -B -m unittest discover -s docs/translation-review/application -p "test_*.py"
+```
+
+Ne pas découvrir tous les `scripts/test_*.py` indistinctement : d'autres scripts QA ont des prérequis PostgreSQL sans rapport avec l'i18n. Les trois suites ci-dessus sont ciblées, sans base et utilisent seulement des fichiers temporaires pour leurs fixtures.
+
+Après modification autorisée des PO, générer localement les MO avec `uv run --frozen python scripts/compile_django_messages.py`, puis relancer `--check`. Le compilateur valide tous les catalogues avant d'écrire ; il refuse explicitement les pluriels, contextes et fuzzy non supportés. La CI ne génère rien et détecte donc un MO absent ou périmé. Le checker affiche séparément les absences brutes et celles explicitement différées : une validation verte n'est pas une couverture linguistique complète.
+
+Depuis `backend/`, les tests runtime FR/EN sans base :
+
+```powershell
+uv run --frozen python manage.py test apps.accounts.test_i18n --settings=config.test_settings
+```
+
+Ils sont également découverts par la suite Django isolée. Depuis `frontend/`, `npm run test:i18n` lance les contrôles AST des catalogues ; le même fichier est automatiquement inclus dans `test:all`. La CI existante exécute ces contrôles et les régressions du registre. Les décisions et exemptions sont décrites dans `docs/translation-review/application/README.md`.
+
 ## Frontend
 
 Exécuter depuis `frontend/`.

@@ -41,7 +41,7 @@ msgid "The current polyp state changed. Refresh the parent box."
 msgstr "The current polyp state changed. Refresh the parent box."
 
 msgid "The parent box is outside the active organization."
-msgstr "The parent box is outside the active organization."
+msgstr "The parent box is outside the active organization. Please contact your administrator."
 
 msgid "This account cannot create subculture events."
 msgstr "This account cannot create transplant events. Please contact your administrator."
@@ -350,3 +350,15 @@ msgstr "Pending"
 #: apps/measurements/models.py
 msgid "Duplicate measurement evidence is read-only."
 msgstr "Duplicate record evidence is read-only."
+
+#: apps/cultures/serializers.py
+msgid "Use YYYY-MM-DD format."
+msgstr "Use YYYY-MM-DD format."
+
+#: apps/cultures/serializers.py
+msgid "End must be on or after start."
+msgstr "End must be on or after start."
+
+#: apps/cultures/serializers.py
+msgid "The date range must not exceed 366 days, inclusive."
+msgstr "The date range must not exceed 366 days, inclusive."

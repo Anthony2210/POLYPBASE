@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_register as reg  # noqa: E402
@@ -119,6 +120,14 @@ class SyntheticHistoryTests(unittest.TestCase):
         ]
         sources = {("react", "recentAccess", "EN"): "Latest access", ("react", "loginIntro", "EN"): "New"}
         self.assertRejected(rows, sources, "dated before")
+
+    def test_c_impossible_calendar_dates_are_rejected(self):
+        for batch in ("B02-2026-99-99", "B02-2026-02-29", "B02-2026-04-31"):
+            with self.subTest(batch=batch):
+                rows = [event(1, batch, "key", "Value", "Value", status="ALREADY_MATCHING")]
+                self.assertRejected(rows, {("react", "key", "EN"): "Value"}, "invalid calendar date")
+        self.assertValid([event(1, "B02-2028-02-29", "key", "Value", "Value", status="ALREADY_MATCHING")],
+                         {("react", "key", "EN"): "Value"})
 
     def test_c_same_batch_number_with_two_ids_is_ambiguous(self):
         rows = [
@@ -255,6 +264,27 @@ class SyntheticHistoryTests(unittest.TestCase):
         self.assertRejected(rows, {("react", "auditDescriptionManualTemperature", "EN"): "Recorded for {code}"},
                             "placeholders differ")
 
+    def test_placeholder_multiplicity_must_be_preserved(self):
+        rows = [event(1, B01, "key", "{count} / {count}", "{count}")]
+        self.assertRejected(rows, {("react", "key", "EN"): "{count}"}, "placeholders differ")
+
+    def test_django_presence_is_independent_of_translation_value(self):
+        row = event(1, B01, "empty", "", "", status="NOT_FOUND", surface="django")
+        # Isolate presence from strict PO validation, which separately rejects empty translations.
+        with patch.object(reg, "read_po", return_value={"empty": ""}):
+            state = reg.read_source_state(row)
+            self.assertEqual(state, reg.SourceState(True, "empty"))
+            self.assertTrue(any("marked NOT_FOUND but present" in error for error in reg.validate([row])))
+        with patch.object(reg, "read_po", return_value={}):
+            self.assertEqual(reg.read_source_state(row), reg.SourceState(False, "empty"))
+            self.assertEqual(reg.validate([row]), [])
+
+    def test_register_reuses_strict_po_parser(self):
+        row = event(1, B01, "key", "Value", "Value", status="DEFERRED", surface="django")
+        with patch.object(reg, "parse_po_file", side_effect=ValueError("invalid PO")):
+            with self.assertRaisesRegex(ValueError, "invalid PO"):
+                reg.read_source_state(row)
+
     def test_japanese_is_not_accepted(self):
         rows = [event(1, B01, "boxes", "箱", "容器", language="JA", source="frontend/src/i18n/ja.ts")]
         self.assertRejected(rows, {("react", "boxes", "JA"): "容器"}, "unsupported language")
@@ -278,15 +308,21 @@ class RealRegisterTests(unittest.TestCase):
         self.assertNotEqual(rows_digest(corrupted[:34]), B01_ROWS_SHA256)
 
     def test_h_valid_b02_can_be_appended_without_touching_b01(self):
-        rows = reg.load_register()
+        rows = [row for row in reg.load_register() if row["batch"] == B01]
+        self.assertEqual(len(rows), 34)
         last = next(row for row in rows if row["key_or_msgid"] == "recentAccess")
         b02 = dict(last, entry_id="T035", batch=B02, initial_value=last["final_value"],
                    final_value=last["final_value"], status="ALREADY_MATCHING", baseline_git_head=HEAD_2)
         appended = rows + [b02]
         self.assertEqual(rows_digest(appended[:34]), B01_ROWS_SHA256)
-        self.assertEqual(reg.validate(appended), [])
+        historical_sources = lambda row: reg.SourceState(True, row["final_value"])
+        self.assertEqual(reg.validate(appended, historical_sources), [])
         broken = dict(b02, initial_value="Recent access")
-        self.assertTrue(any("does not continue" in e for e in reg.validate(rows + [broken])))
+        self.assertTrue(any("does not continue" in e
+                            for e in reg.validate(rows + [broken], historical_sources)))
+        b03 = dict(b02, entry_id="T036", batch="B03-2026-11-06")
+        self.assertEqual(reg.validate(appended + [b03], historical_sources), [])
+        self.assertEqual(rows_digest((appended + [b03])[:34]), B01_ROWS_SHA256)
 
 
 if __name__ == "__main__":

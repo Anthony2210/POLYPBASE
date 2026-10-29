@@ -77,6 +77,23 @@ jobs:
         run: uv sync --frozen
         working-directory: .
 
+      - name: Check committed gettext catalogs before generation
+        working-directory: .
+        run: uv run --frozen python -B scripts/compile_django_messages.py --check
+
+      - name: Check backend i18n coverage and translation history
+        working-directory: .
+        run: |
+          uv run --frozen python -B docs/translation-review/application/check_register.py
+          uv run --frozen python -B scripts/check_i18n.py
+
+      - name: Test i18n tooling and register regressions
+        working-directory: .
+        run: |
+          uv run --frozen python -B -m unittest discover -s scripts -p test_compile_django_messages.py
+          uv run --frozen python -B -m unittest discover -s scripts -p test_check_i18n.py
+          uv run --frozen python -B -m unittest discover -s docs/translation-review/application -p "test_*.py"
+
       - name: Check Django configuration
         run: >-
           uv run --frozen python manage.py check

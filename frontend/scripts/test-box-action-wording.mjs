@@ -51,9 +51,9 @@ const zones = [
 
 const localKeys = ['moveAction', 'confirmMoveTitle', 'confirmMoveAction', 'moveForbidden', 'moveLocationChanged', 'movementEvent', 'movedTo'];
 const localExpected = {
-  fr: ['Déplacer', 'Déplacer cette boîte', 'Déplacer', 'Ce compte ne peut pas déplacer de boîte.',
+  fr: ['Déplacer', 'Déplacer cette boîte', 'Déplacer', 'Ce compte ne peut pas déplacer de boîte. Merci de contacter un administrateur.',
     'L’emplacement de cette boîte a changé. Les informations ont été actualisées : vérifiez-les avant de relancer le déplacement.', 'Déplacement', 'Déplacée vers'],
-  en: ['Move', 'Move this box', 'Move', 'This account cannot move boxes.',
+  en: ['Move', 'Move this box', 'Move', 'This account cannot move boxes. Please contact your administrator.',
     'This box location has changed. Its information has been refreshed: review it before moving the box again.', 'Move', 'Moved to'],
 };
 

@@ -57,4 +57,37 @@ Règles vérifiées par `check_register.py` :
 - **Chronologie explicite** : `batch` suit `Bnn-AAAA-MM-JJ`. Chaque lot forme un bloc contigu ; les blocs se suivent par numéro strictement croissant et date non décroissante ; un numéro ne désigne qu'un seul lot ; `entry_id` (`Tnnn`) croît strictement dans l'ordre du fichier ; un lot déclare un seul `baseline_git_head`. Si l'ordre est invalide ou ambigu, la continuité n'est pas évaluée et le registre est rejeté.
 - **Continuité** : pour deux événements successifs d'une même identité, `initial_value` du nouveau égale `final_value` du précédent. `APPLIED` exige un changement de valeur ; `ALREADY_MATCHING`, `PRESERVED` et `DEFERRED` reportent la valeur sans la changer ; `NOT_FOUND` a des valeurs vides, et l'événement suivant doit partir de l'absence.
 - **État courant** : seul le dernier événement de chaque identité est comparé au code. Un ancien `final_value` peut différer du code actuel si un événement ultérieur l'explique.
-- Statuts, surfaces, langues FR/EN uniquement, empreintes, variables `{x}` conservées, parité des clés et variables FR/EN des catalogues.
+- Statuts, surfaces, langues FR/EN uniquement, empreintes, variables `{x}` conservées avec leur multiplicité, parité des clés et variables FR/EN des catalogues.
+
+## Lot B02 (2026-10-29)
+
+Baseline Git : `947105e605f979017e5915f80820ed356c411e4b`. Les 34 événements B01 restent inchangés, en tête du fichier ; B02 ajoute **86 événements, T035–T120** :
+
+- **21 `ALREADY_MATCHING`** : 18 entrées FR dont le msgid est déjà français, et les trois validations de dates EN. L'entrée était absente, mais gettext affichait déjà le même texte source. La couverture explicite augmente sans changement du texte affiché.
+- **16 `APPLIED`** : invitation à contacter un administrateur sur sept clés React, dans les deux langues, et sur le refus Django `The parent box is outside the active organization.`, dans les deux langues. Aucun msgid ni contrôle de permission modifié.
+- **49 `DEFERRED`** : identités langue/msgid encore absentes, examinées pour les exemptions de couverture exactes. Une reprise d'un report B01 documente ici le nouveau périmètre de contrôle, pas une nouvelle approbation de traduction.
+
+Références d'approbation : demande explicite du writer B02, parties 1A/1B (`B02-safe-identities`), 1C/1D et règle permanente de refus (`B02-permission-refusals`), et exclusion explicite des formulations non approuvées (`B02-scope-deferred`). `sheet_value` reste vide pour tous les événements B02. `baseline_sheet_sha256` conserve uniquement la référence historique figée de B01 : aucune nouvelle lecture, valeur ou approbation de feuille n'est alléguée.
+
+Le message de structure active est un `PermissionDenied` dans `cultures/services.py`. Les événements B02 corrigent cette classification sans réécrire la description historique de T030.
+
+### Couverture et exemptions
+
+Inventaire de production : **88 msgids distincts**. Avant B02 : 51 absences FR et 19 EN. Après B02 : **33 FR et 16 EN**, soit 49 identités manquantes, toutes explicitement exemptées. Ce résultat ne signifie ni traduction intégrale ni conformité de tous les messages utilisateur.
+
+`scripts/check_i18n.py` distingue couverture brute, absences exemptées et erreurs bloquantes. Chaque exemption fixe la langue, le msgid, les chemins source et le nombre d'occurrences, un motif et une référence de décision. Elle exige le dernier événement `DEFERRED` de l'identité exacte (`django`, msgid, langue, fichier PO). Une nouvelle absence, une portée différente, une référence incorrecte ou une exemption devenue inutile bloque le contrôle. Cette liste est technique : le registre reste l'unique historique des décisions et valeurs.
+
+Sont encore différés : FR des trois erreurs de dates ; rôle Django `Lecture seule` / `Viewer` ; choix Django `Armoire`, provenance et Transplant ; gardes d'intégrité sans traduction approuvée ; anciens formulaires scientifiques et choix non exposés par les clients courants. Les métadonnées DRF peuvent toutefois exposer certains choix : l'absence d'affichage React n'établit pas leur inaccessibilité.
+
+Restent également hors correction : `movementErrorForbidden` partagé entre 401 et 403, `csvErrorPermission`, protections de parcours et du dernier responsable actif, `manualTemperatureForbidden` sans usage trouvé, permissions caméra et refus de repiquage non gettext dans les vues API. Aucun de ces cas n'est implicitement approuvé par un contrôle vert.
+
+### Contrôles de B02
+
+- Compilateur PO singulier strict, avec fichier/ligne dans les erreurs, multiligne et échappements UTF-8. Pluriels, contextes, fuzzy, entrées obsolètes et syntaxe inconnue sont explicitement refusés, pas ignorés. Tous les catalogues sont validés avant la première écriture.
+- `--check` recompile seulement en mémoire et compare les octets MO versionnés ; il n'écrit jamais. La CI contrôle les fichiers existants sans les régénérer au préalable.
+- Extraction AST des imports Django `gettext`/`gettext_lazy` et des balises littérales `trans`/`translate` (option `as` prise en charge). Tests, migrations et caches sont exclus de l'inventaire de production. Appels dynamiques, indirections et formes non prises en charge échouent explicitement.
+- Placeholders Django : champs de formatage avec conversion/spécification, paramètres printf nommés ou positionnels et types, multiplicité et échappements. Les pourcentages de prose restent valides ; les flags PO `python-format` et `c-format` activent le contrôle printf strict. Il ne s'agit pas d'un support complet GNU gettext.
+- Frontend : AST TypeScript sans exécution du catalogue, parité, doublons, clés/valeurs vides, espaces périphériques, point médian, variables simples `{name}` et multiplicité, formulations contextuelles protégées et neuf refus classés (sept B02, deux B01).
+- Aucun bannissement global de `Organization`, `Subculture` ou `Measurement`. Les recherches terminologiques générales et la classification de nouveaux refus restent consultatives.
+
+Les commandes de validation sont dans `docs/context/development-deployment.md`. Pour une modification future, vérifier aussi le diff FR/EN contre les nouveaux événements : le checker contrôle les identités enregistrées mais ne prouve pas à lui seul l'exhaustivité du diff. Aucune suppression ou restauration de clé, aucun statut `REMOVED`, aucune synchronisation de feuille ni modification japonaise dans B02.

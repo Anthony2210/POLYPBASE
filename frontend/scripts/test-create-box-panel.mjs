@@ -462,7 +462,9 @@ describe('Actual extracted CreateBoxPanel', () => {
     h.mutations[0].reject(new h.api.ApiError(403, 'Raw refusal'));
     await pending;
     h.panel.flush();
-    assert.deepEqual(errors(h), [language === 'fr' ? 'Ce compte ne peut pas créer de boîte.' : 'This account cannot create boxes.']);
+    assert.deepEqual(errors(h), [language === 'fr'
+      ? 'Ce compte ne peut pas créer de boîte. Merci de contacter un administrateur.'
+      : 'This account cannot create boxes. Please contact your administrator.']);
     h.unmount();
   });
 });

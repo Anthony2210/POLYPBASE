@@ -13,11 +13,15 @@ import ast
 import csv
 import re
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
+from datetime import date
 from pathlib import Path
 from typing import Callable, NamedTuple
 
 ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT / "scripts"))
+from compile_django_messages import parse_po_file  # noqa: E402
+
 REGISTER = Path(__file__).with_name("register.csv")
 COLUMNS = [
     "entry_id", "batch", "surface", "key_or_msgid", "language", "source_file", "initial_value", "final_value",
@@ -62,22 +66,7 @@ def read_catalog(path: Path) -> dict[str, str]:
 
 
 def read_po(path: Path) -> dict[str, str]:
-    messages: dict[str, str] = {}
-    section = msgid = msgstr = None
-    for raw in path.read_text(encoding="utf-8").splitlines() + ["msgid \"\""]:
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("msgid "):
-            if msgid is not None and msgstr is not None:
-                messages[msgid] = msgstr
-            section, msgid, msgstr = "msgid", ast.literal_eval(line[6:]), None
-        elif line.startswith("msgstr "):
-            section, msgstr = "msgstr", ast.literal_eval(line[7:])
-        elif line.startswith('"') and section == "msgid":
-            msgid += ast.literal_eval(line)
-        elif line.startswith('"') and section == "msgstr":
-            msgstr += ast.literal_eval(line)
+    messages = parse_po_file(path)
     messages.pop("", None)
     return messages
 
@@ -92,8 +81,8 @@ def read_source_state(row: dict[str, str]) -> SourceState:
         return SourceState(key in catalog, catalog.get(key))
     if row["surface"] == "django":
         # gettext shows the msgid itself when no non-empty translation exists.
-        msgstr = read_po(path).get(key)
-        return SourceState(bool(msgstr), msgstr or key)
+        messages = read_po(path)
+        return SourceState(key in messages, messages.get(key) or key)
     # Inline strings can only be checked for presence as a quoted literal.
     found = bool(row["final_value"]) and f"'{row['final_value']}'" in path.read_text(encoding="utf-8")
     return SourceState(found, row["final_value"] if found else None)
@@ -131,7 +120,7 @@ def check_row(row: dict[str, str]) -> list[str]:
         errors.append(f"{label}: APPLIED without a change of value")
     if row["status"] != "APPLIED" and initial != final:
         errors.append(f"{label}: {row['status']} must not change the value")
-    if set(PLACEHOLDER.findall(initial)) != set(PLACEHOLDER.findall(final)):
+    if Counter(PLACEHOLDER.findall(initial)) != Counter(PLACEHOLDER.findall(final)):
         errors.append(f"{label}: placeholders differ between initial and final values")
     return errors
 
@@ -150,8 +139,14 @@ def check_chronology(rows: list[dict[str, str]]) -> list[str]:
             if previous_entry is not None and number <= previous_entry:
                 errors.append(f"{describe(row)}: entry_id not strictly increasing in file order")
             previous_entry = number
-        if not BATCH_ID.match(row["batch"]):
+        batch_match = BATCH_ID.match(row["batch"])
+        if not batch_match:
             errors.append(f"{describe(row)}: malformed batch id (expected Bnn-YYYY-MM-DD)")
+            continue
+        try:
+            date.fromisoformat(batch_match.group(2))
+        except ValueError:
+            errors.append(f"{describe(row)}: invalid calendar date in batch")
             continue
         if not blocks or blocks[-1] != row["batch"]:
             if row["batch"] in blocks:
@@ -162,16 +157,16 @@ def check_chronology(rows: list[dict[str, str]]) -> list[str]:
     previous = None
     for batch in dict.fromkeys(blocks):
         match = BATCH_ID.match(batch)
-        number, date = int(match.group(1)), match.group(2)
+        number, batch_date = int(match.group(1)), match.group(2)
         if number in seen_numbers and seen_numbers[number] != batch:
             errors.append(f"batch number {number} is used by {seen_numbers[number]} and {batch}")
         seen_numbers.setdefault(number, batch)
         if previous is not None:
             if number <= previous[0]:
                 errors.append(f"batch {batch} appears after {previous[2]} but is not numbered after it")
-            if date < previous[1]:
+            if batch_date < previous[1]:
                 errors.append(f"batch {batch} is dated before the preceding batch {previous[2]}")
-        previous = (number, date, batch)
+        previous = (number, batch_date, batch)
 
     heads: dict[str, set[str]] = defaultdict(set)
     for row in rows:
@@ -239,7 +234,7 @@ def check_catalog_parity() -> list[str]:
     if set(fr) != set(en):
         errors.append(f"FR/EN catalog keys differ: {sorted(set(fr) ^ set(en))[:10]}")
     for key in sorted(set(fr) & set(en)):
-        if set(PLACEHOLDER.findall(fr[key])) != set(PLACEHOLDER.findall(en[key])):
+        if Counter(PLACEHOLDER.findall(fr[key])) != Counter(PLACEHOLDER.findall(en[key])):
             errors.append(f"catalog placeholders differ for {key}")
     return errors
 
@@ -266,7 +261,11 @@ def main(argv: list[str]) -> int:
                 print({name: row[name] for name in COLUMNS})
         return 0
 
-    errors = validate(rows) + check_catalog_parity()
+    try:
+        errors = validate(rows) + check_catalog_parity()
+    except (ValueError, OSError) as error:
+        print(f"ERROR source validation: {error}")
+        return 1
     for error in errors:
         print(f"ERROR {error}")
     counts: dict[str, int] = defaultdict(int)
