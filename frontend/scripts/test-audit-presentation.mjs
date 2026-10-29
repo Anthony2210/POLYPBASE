@@ -75,6 +75,68 @@ function translator(catalog) {
 const tFr = translator(fr);
 const tEn = translator(en);
 
+test('metadata labels translate only known own keys and preserve the exact unknown fallback', () => {
+  for (const catalog of [fr, en]) {
+    const calls = [];
+    const t = (key) => {
+      assert.ok(Object.prototype.hasOwnProperty.call(catalog, key), `Unknown translation key: ${String(key)}`);
+      calls.push(key);
+      return catalog[key];
+    };
+    assert.equal(audit.getAuditMetadataKeyLabel('polypes', t), catalog.auditMetaPolyps);
+    assert.equal(audit.getAuditMetadataKeyLabel('is_responsable', t), catalog.auditMetaResponsableStatus);
+    assert.deepEqual(calls, ['auditMetaPolyps', 'auditMetaResponsableStatus']);
+    calls.length = 0;
+    for (const key of ['future_backend_field', 'raw__key_', '', 'polyps', 'auditMetaPolyps', 'constructor', 'toString', 'hasOwnProperty', '__proto__']) {
+      assert.equal(audit.getAuditMetadataKeyLabel(key, t), key.replace(/_/g, ' '));
+    }
+    assert.deepEqual(calls, []);
+  }
+});
+
+test('backend-string audit lookups reject prototype properties and keep unknown fallbacks', () => {
+  const unknownValues = [
+    'future_backend_field', 'auditActionEntry', 'polyps', '',
+    ...Object.getOwnPropertyNames(Object.prototype),
+  ];
+  const unexpectedTranslation = (key) => assert.fail(`Unexpected translation: ${String(key)}`);
+  for (const value of unknownValues) {
+    assert.equal(audit.getAuditActionLabel({ action: value }, unexpectedTranslation), value || '-');
+    assert.equal(audit.getAuditActionLabel({ action: value, action_label: 'Backend action label' }, unexpectedTranslation), 'Backend action label');
+    assert.equal(audit.getAuditObjectTypeLabel(value, unexpectedTranslation), value || '-');
+    assert.equal(audit.getAuditValueLabel(value, unexpectedTranslation), value);
+    assert.equal(audit.formatAuditMetadataValue(value, unexpectedTranslation), value || '-');
+    assert.equal(audit.getAuditMetadataKeyLabel(value, unexpectedTranslation), value.replace(/_/g, ' '));
+    const entry = { action: value, description: value };
+    assert.equal(audit.getAuditDescriptionLabel(entry, unexpectedTranslation), value || '-');
+    assert.equal(audit.getAuditBusinessSummary(entry, unexpectedTranslation), value || '-');
+  }
+  assert.equal(audit.getAuditValueLabel('2026-10-29', unexpectedTranslation), '29/10/2026');
+});
+
+test('account summaries reject inherited actions and descriptions while retaining their safe fallback', () => {
+  for (const catalog of [fr, en]) {
+    for (const value of ['future_backend_field', '', ...Object.getOwnPropertyNames(Object.prototype)]) {
+      const calls = [];
+      const t = (key) => {
+        assert.ok(Object.prototype.hasOwnProperty.call(catalog, key), `Unknown translation key: ${String(key)}`);
+        calls.push(key);
+        return catalog[key];
+      };
+      const entry = { object_type: 'account', action: value, description: value };
+      assert.equal(audit.getAuditDescriptionLabel(entry, t), catalog.auditObjectAccount);
+      assert.equal(audit.getAuditBusinessSummary(entry, t), catalog.auditObjectAccount);
+      assert.deepEqual(calls, ['auditObjectAccount', 'auditObjectAccount']);
+      calls.length = 0;
+      assert.equal(audit.getAuditDescriptionLabel({ ...entry, action: 'update' }, t), catalog.auditActionUpdate);
+      assert.deepEqual(calls, ['auditActionUpdate']);
+      calls.length = 0;
+      assert.equal(audit.getAuditDescriptionLabel({ ...entry, description: 'Member access created' }, t), catalog.auditDescriptionMemberCreated);
+      assert.deepEqual(calls, ['auditDescriptionMemberCreated']);
+    }
+  }
+});
+
 const ccaEobReason = 'CCA-EOB 2026 biological identities corrected against the reviewed V2 workbook. '
   + "Environmental context now resolves through the target box under Anthony's approved product decision. "
   + 'No location or movement history is modified.';

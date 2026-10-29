@@ -17,7 +17,7 @@ function load(code, globals = {}) {
   return exports;
 }
 
-const componentCode = compile('../src/components/AdminView.tsx', '\nexport { TransferCreateForm };');
+const componentCode = compile('../src/components/AdminView.tsx', '\nexport { TransferCreateForm, LEGACY_TRANSFER_PREVIEW_LABELS };');
 const qr = load(compile('../src/utils/qrLabels.ts'), { require: () => resourceClient(), URL, window: { location: { origin: 'https://polypbase.test' } } });
 const locales = {
   fr: load(compile('../src/i18n/fr.ts')).fr,
@@ -71,11 +71,12 @@ function harness(language = 'en') {
       },
     },
   });
-  const component = load(componentCode, {
+  const adminModule = load(componentCode, {
     URL,
     window: { location: { origin: 'https://polypbase.test' } },
     require(name) { assert.ok(Object.hasOwn(modules, name), `unexpected dependency: ${name}`); return modules[name]; },
-  }).TransferCreateForm;
+  });
+  const component = adminModule.TransferCreateForm;
   const box = {
     id: 17, global_code: 'ATL-AAU-1.001', local_code: 'AAU-1', status: 'active',
     species: { scientific_name: 'Aurelia aurita', common_name: 'Moon jelly' },
@@ -114,9 +115,30 @@ function harness(language = 'en') {
   }
   async function submit() { await tree.props.onSubmit({ preventDefault() {} }); render(); }
   async function prepare() { render(); fill(); await submit(); assert.ok(nodes().some((node) => node.props?.className === 'transfer-package')); }
-  const h = { render, nodes, text, button, fill, submit, prepare, calls, transfers, box, props, backendError: null };
+  const h = { render, nodes, text, button, fill, submit, prepare, calls, transfers, box, props,
+    legacyPreviewLabels: adminModule.LEGACY_TRANSFER_PREVIEW_LABELS, backendError: null };
   return h;
 }
+
+test('unmounted transfer preview preserves the two existing missing-key fallbacks explicitly', () => {
+  const i18n = load(compile('../src/i18n/index.ts'), {
+    require(name) {
+      if (name === './fr') return { fr: locales.fr };
+      if (name === './en') return { en: locales.en };
+      throw new Error(`Unexpected dependency: ${name}`);
+    },
+  });
+  const labels = harness().legacyPreviewLabels;
+  assert.deepEqual(Object.keys(labels), ['species', 'cultureStatus']);
+  for (const language of ['fr', 'en']) {
+    const t = i18n.createTranslator(language);
+    for (const [key, label] of Object.entries(labels)) {
+      assert.equal(Object.hasOwn(locales[language], key), false);
+      assert.equal(label, key);
+      assert.equal(label, t(key));
+    }
+  }
+});
 
 for (const language of ['fr', 'en']) {
   for (const [reason, key] of Object.entries(failureKeys)) {

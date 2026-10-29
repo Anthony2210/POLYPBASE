@@ -1,3 +1,4 @@
+import type { Translator } from '../i18n';
 import type { BiologicalMeasurement, ReadableUserIdentity } from '../types';
 import type { TrendEvent, TrendMeasurement, TrendPolypState } from '../components/BiologicalTrendChart';
 
@@ -36,7 +37,7 @@ export type BiologicalTimelineLabels = {
   unknown?: string;
 };
 
-export function getBiologicalTimelineLabels(t: (key: string) => string): BiologicalTimelineLabels {
+export function getBiologicalTimelineLabels(t: Translator): BiologicalTimelineLabels {
   const allocatedLabel = t('subcultureAllocatedPolyps');
   return {
     polyps: t('polyps'),

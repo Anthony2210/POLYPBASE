@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { Translator } from '../i18n';
 
 import type { BoxDetail, OverviewBox, OverviewMeasurementPoint } from '../types';
 import { createOverviewHistory, overviewDefaultRange, scopeOverviewTemperatures, type OverviewHistoryState } from '../utils/overviewHistory';
@@ -22,7 +23,6 @@ type OverviewTemperatureLoaders = {
 };
 
 type Language = 'fr' | 'en';
-type TFunction = (key: string) => string;
 
 type WeeklyStatus = 'due' | 'soon' | 'ok';
 type OverviewSortOrder = 'oldest' | 'newest';
@@ -59,7 +59,7 @@ export default function OverviewView({
   language: Language;
   onSelectBox: (id: number) => void;
   onOpenZone: (zoneId: number) => void;
-  t: TFunction;
+  t: Translator;
 }) {
   const [speciesFilter, setSpeciesFilter] = useState('');
   const [zoneFilter, setZoneFilter] = useState('');
@@ -418,7 +418,7 @@ function OverviewMiniChart({
   loadHistory: (boxId: number) => Promise<BoxDetail>;
   temperatureLoaders: OverviewTemperatureLoaders;
   language: Language;
-  t: TFunction;
+  t: Translator;
 }) {
   const recentWindow = useMemo(() => overviewDefaultRange(new Date(`${box.history_end_date}T00:00:00`)), [box]);
   const earliestDate = box.earliest_biological_measurement_on;

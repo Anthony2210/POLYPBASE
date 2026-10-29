@@ -234,7 +234,7 @@ Depuis `backend/`, les tests runtime FR/EN sans base :
 uv run --frozen python manage.py test apps.accounts.test_i18n --settings=config.test_settings
 ```
 
-Ils sont également découverts par la suite Django isolée. Depuis `frontend/`, `npm run test:i18n` lance les contrôles AST des catalogues ; le même fichier est automatiquement inclus dans `test:all`. La CI existante exécute ces contrôles et les régressions du registre. Les décisions et exemptions sont décrites dans `docs/translation-review/application/README.md`.
+Ils sont également découverts par la suite Django isolée. Depuis `frontend/`, `npm run test:i18n` lance les contrôles AST des catalogues et les régressions du détecteur conservateur d'usages ; ces deux fichiers sont automatiquement inclus une seule fois dans `test:all`. `npm run check:i18n-usage` affiche l'inventaire et les clés sans référence source. Le périmètre, les limites et les trois exceptions exactes sont décrits dans [`../frontend-i18n-usage.md`](../frontend-i18n-usage.md). La CI existante exécute ces contrôles et les régressions du registre. Les décisions et exemptions du registre sont décrites dans `docs/translation-review/application/README.md`.
 
 ## Frontend
 

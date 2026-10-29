@@ -39,6 +39,30 @@ const translator = (catalog, language) => (key) => key === 'subcultureAllocatedP
 const labelsFor = (catalog, language) => timeline.getBiologicalTimelineLabels(translator(catalog, language));
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
+test('timeline labels use catalog keys and preserve legacy allocated-label fallbacks', () => {
+  for (const catalog of [fr, en]) {
+    const t = (key) => {
+      assert.ok(Object.prototype.hasOwnProperty.call(catalog, key), `Unknown translation key: ${key}`);
+      return catalog[key];
+    };
+    const expected = {
+      polyps: catalog.polyps,
+      subcultureEvent: catalog.subcultureEvent,
+      allocatedPolyps: catalog.subcultureAllocatedPolyps,
+      parentBox: catalog.confirmDetailParentBox,
+      childBoxes: catalog.confirmDetailChildren,
+      unknown: catalog.subcultureUnknown,
+    };
+    assert.deepEqual(plain(timeline.getBiologicalTimelineLabels(t)), expected);
+    for (const missingLabel of ['', 'subcultureAllocatedPolyps']) {
+      const legacyTranslator = (key) => key === 'subcultureAllocatedPolyps' ? missingLabel : t(key);
+      assert.deepEqual(plain(timeline.getBiologicalTimelineLabels(legacyTranslator)), {
+        ...expected, allocatedPolyps: catalog.polyps,
+      });
+    }
+  }
+});
+
 function chartHarness() {
   const states = [];
   let stateIndex = 0;

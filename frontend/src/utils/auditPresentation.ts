@@ -1,8 +1,7 @@
+import type { TranslationKey, Translator } from '../i18n';
 import type { AuditBusinessDetails, AuditChanges, AuditContext, AuditFamily, AuditValue, AuditValues } from '../types';
 import { getDocumentLocale } from './dateFormat';
 import { formatReadableUserIdentity, type ReadableUserIdentity } from './userIdentity';
-
-type Translate = (key: string) => string;
 
 export type QuantitativeSubcultureDetails = Extract<AuditBusinessDetails, { type: 'subculture' }> & {
   parent_polyp_count_before?: number | null;
@@ -30,7 +29,7 @@ export function getAuditSubcultureChildCodes(details: AuditBusinessDetails | nul
   return allocations.length ? allocations.map((allocation) => allocation.code) : details.child_global_codes ?? [];
 }
 
-export function getAuditAllocatedPolypsLabel(t: Translate) {
+export function getAuditAllocatedPolypsLabel(t: Translator) {
   const label = t('subcultureAllocatedPolyps');
   return label && label !== 'subcultureAllocatedPolyps' ? label : t('polyps');
 }
@@ -51,7 +50,7 @@ export const AUDIT_FAMILIES: readonly AuditFamily[] = [
  * remain unset until the product taxonomy is approved; callers never choose
  * an icon or label directly.
  */
-export const AUDIT_FAMILY_PRESENTATION: Record<AuditFamily, { labelKey: string; icon: null }> = {
+export const AUDIT_FAMILY_PRESENTATION: Record<AuditFamily, { labelKey: TranslationKey; icon: null }> = {
   measurements: { labelKey: 'auditFamilyMeasurements', icon: null },
   transfers: { labelKey: 'auditFamilyTransfers', icon: null },
   subcultures: { labelKey: 'auditFamilySubcultures', icon: null },
@@ -62,7 +61,7 @@ export const AUDIT_FAMILY_PRESENTATION: Record<AuditFamily, { labelKey: string; 
   references: { labelKey: 'auditFamilyReferences', icon: null },
 };
 
-export function getAuditFamilyLabel(family: AuditFamily, t: Translate): string {
+export function getAuditFamilyLabel(family: AuditFamily, t: Translator): string {
   return t(AUDIT_FAMILY_PRESENTATION[family].labelKey);
 }
 
@@ -105,7 +104,11 @@ export type AuditValueChange = {
   after: unknown;
 };
 
-const ACTION_LABEL_KEYS: Record<string, string> = {
+function getOwnAuditMappingValue<T>(mapping: Partial<Record<string, T>>, key: string): T | undefined {
+  return Object.prototype.hasOwnProperty.call(mapping, key) ? mapping[key] : undefined;
+}
+
+const ACTION_LABEL_KEYS: Partial<Record<string, TranslationKey>> = {
   entry: 'auditActionEntry',
   update: 'auditActionUpdate',
   creation: 'auditActionCreation',
@@ -119,7 +122,7 @@ const ACTION_LABEL_KEYS: Record<string, string> = {
   login: 'auditActionLogin',
 };
 
-const OBJECT_TYPE_KEYS: Record<string, string> = {
+const OBJECT_TYPE_KEYS: Partial<Record<string, TranslationKey>> = {
   box: 'auditObjectBox',
   measurement: 'auditObjectMeasurement',
   measurements: 'auditObjectMeasurements',
@@ -134,7 +137,7 @@ const OBJECT_TYPE_KEYS: Record<string, string> = {
   box_inventory_initialization: 'auditObjectBoxInventoryInitialization',
 };
 
-const METADATA_KEY_KEYS: Record<string, string> = {
+const METADATA_KEY_KEYS: Partial<Record<string, TranslationKey>> = {
   acces_actif: 'auditMetaAccessActive',
   actif: 'auditMetaAccessActive',
   active: 'auditMetaActive',
@@ -205,7 +208,7 @@ const METADATA_KEY_KEYS: Record<string, string> = {
   week_count: 'auditMetaWeekCount',
 };
 
-const VALUE_LABEL_KEYS: Record<string, string> = {
+const VALUE_LABEL_KEYS: Partial<Record<string, TranslationKey>> = {
   active: 'auditValueActive',
   inactive: 'auditValueInactive',
   pending_review: 'auditValuePendingReview',
@@ -228,7 +231,7 @@ const VALUE_LABEL_KEYS: Record<string, string> = {
   other: 'auditValueOther',
 };
 
-const DESCRIPTION_EXACT_KEYS: Record<string, string> = {
+const DESCRIPTION_EXACT_KEYS: Partial<Record<string, TranslationKey>> = {
   // Legacy measurement rows carry no date in the description. They are still
   // creations, so they must never fall back to the raw English sentence.
   'Biological measurement recorded': 'auditDescriptionMeasurementCreatedLegacy',
@@ -261,7 +264,7 @@ const ACCOUNT_DESCRIPTIONS = new Set([
   'Password reset from the login page',
 ]);
 
-const BUSINESS_SUMMARY_PREFIX_KEYS: Array<[string, string]> = [
+const BUSINESS_SUMMARY_PREFIX_KEYS: Array<[string, TranslationKey]> = [
   ['Box created manually: ', 'auditSummaryBoxCreated'],
   ['Box opened: ', 'auditSummaryBoxOpened'],
   ['QR scan of ', 'auditSummaryBoxScanned'],
@@ -282,7 +285,7 @@ const BUSINESS_SUMMARY_PREFIX_KEYS: Array<[string, string]> = [
 
 const DESCRIPTION_RULES: Array<{
   prefix: string;
-  render: (rest: string, t: Translate) => string;
+  render: (rest: string, t: Translator) => string;
 }> = [
   { prefix: 'Box created manually: ', render: (rest, t) => fillTemplate(t('auditDescriptionBoxCreated'), { code: rest }) },
   { prefix: 'Box opened: ', render: (rest, t) => fillTemplate(t('auditDescriptionBoxOpened'), { code: rest }) },
@@ -331,9 +334,9 @@ const AUDIT_FIELD_PRIORITY = [
 
 export function getAuditActionLabel(
   entry: Pick<AuditEntryLike, 'action' | 'action_label'>,
-  t: Translate,
+  t: Translator,
 ): string {
-  const key = ACTION_LABEL_KEYS[entry.action];
+  const key = getOwnAuditMappingValue(ACTION_LABEL_KEYS, entry.action);
   if (key) return t(key);
   return entry.action_label || entry.action || '-';
 }
@@ -354,10 +357,10 @@ export function getAuditPreviousZone(details: AuditBusinessDetails | null | unde
   return details.from_zone.trim();
 }
 
-export function getAuditBoxSummaryParts(entry: AuditEntryLike, t: Translate): [string, string] | null {
+export function getAuditBoxSummaryParts(entry: AuditEntryLike, t: Translator): [string, string] | null {
   const details = entry.business_details;
   const description = (entry.description || '').trim();
-  let key: string | null = null;
+  let key: TranslationKey | null = null;
 
   if (details?.type === 'measurement') {
     key = entry.action === 'update' || (details.changes && Object.keys(details.changes).length)
@@ -402,7 +405,7 @@ export function getAuditBoxSummaryParts(entry: AuditEntryLike, t: Translate): [s
 
 export function getAuditInlineBusinessItems(
   details: AuditBusinessDetails | null | undefined,
-  t: Translate,
+  t: Translator,
   description?: string,
   entry?: AuditEntryLike,
 ): AuditInlineBusinessItem[] {
@@ -546,7 +549,7 @@ export function getAuditInlineBusinessItems(
   return [];
 }
 
-export function getAuditBusinessSummary(entry: AuditEntryLike, t: Translate): string {
+export function getAuditBusinessSummary(entry: AuditEntryLike, t: Translator): string {
   const description = (entry.description || '').trim();
   const details = entry.business_details;
   const accountTitle = getAccountActionTitle(entry, t);
@@ -582,7 +585,7 @@ function isSemanticAccountChange(key: string, change: AuditValueChange): boolean
   return false;
 }
 
-function getAccountActionTitle(entry: AuditEntryLike, t: Translate): string {
+function getAccountActionTitle(entry: AuditEntryLike, t: Translator): string {
   if (entry.description !== 'Member access updated' || entry.business_details?.type !== 'account') return '';
   const changes = entry.business_details.changes ?? {};
   const keys = Object.keys(changes);
@@ -596,17 +599,18 @@ function getAccountActionTitle(entry: AuditEntryLike, t: Translate): string {
   return '';
 }
 
-const MANUAL_ENVIRONMENT_DESCRIPTION_KEYS: Record<string, [string, string]> = {
+const MANUAL_ENVIRONMENT_DESCRIPTION_KEYS: Partial<Record<string, [TranslationKey, TranslationKey]>> = {
   'Manual temperature recorded': ['auditDescriptionManualTemperature', 'auditSummaryTemperatureRecorded'],
   'Manual salinity recorded': ['auditDescriptionManualSalinityRecorded', 'auditSummarySalinityRecorded'],
   'Manual salinity updated': ['auditDescriptionManualSalinityUpdated', 'auditSummarySalinityUpdated'],
 };
 
-function getManualEnvironmentDescription(description: string | undefined): { keys: [string, string]; zone: string } | null {
+function getManualEnvironmentDescription(description: string | undefined): { keys: [TranslationKey, TranslationKey]; zone: string } | null {
   const match = /^(Manual temperature recorded|Manual salinity recorded|Manual salinity updated)(?::[ \t]*(.*))?$/.exec(
     (description ?? '').trim(),
   );
-  return match ? { keys: MANUAL_ENVIRONMENT_DESCRIPTION_KEYS[match[1]], zone: (match[2] ?? '').trim() } : null;
+  const keys = match ? getOwnAuditMappingValue(MANUAL_ENVIRONMENT_DESCRIPTION_KEYS, match[1]) : undefined;
+  return match && keys ? { keys, zone: (match[2] ?? '').trim() } : null;
 }
 
 export function hasAuditManualEnvironmentTarget(entry: AuditEntryLike): boolean {
@@ -636,13 +640,16 @@ function isAccountAuditEntry(entry: AuditEntryLike): boolean {
 }
 
 /** Account descriptions can contain legacy usernames; only known labels are displayable. */
-function getAccountSummaryLabel(entry: AuditEntryLike, t: Translate): string {
+function getAccountSummaryLabel(entry: AuditEntryLike, t: Translator): string {
   const description = (entry.description || '').trim();
-  if (ACCOUNT_DESCRIPTIONS.has(description)) return t(DESCRIPTION_EXACT_KEYS[description]);
-  return t(ACTION_LABEL_KEYS[entry.action] ?? 'auditObjectAccount');
+  const descriptionKey = ACCOUNT_DESCRIPTIONS.has(description)
+    ? getOwnAuditMappingValue(DESCRIPTION_EXACT_KEYS, description)
+    : undefined;
+  if (descriptionKey) return t(descriptionKey);
+  return t(getOwnAuditMappingValue(ACTION_LABEL_KEYS, entry.action) ?? 'auditObjectAccount');
 }
 
-export function getAuditDescriptionLabel(entry: AuditEntryLike, t: Translate): string {
+export function getAuditDescriptionLabel(entry: AuditEntryLike, t: Translator): string {
   if (isAccountAuditEntry(entry)) return getAccountSummaryLabel(entry, t);
   const description = (entry.description || '').trim();
 
@@ -673,32 +680,32 @@ export function getAuditDescriptionLabel(entry: AuditEntryLike, t: Translate): s
   const rule = DESCRIPTION_RULES.find((candidate) => description.startsWith(candidate.prefix));
   if (rule) return rule.render(description.slice(rule.prefix.length), t);
 
-  const exactKey = DESCRIPTION_EXACT_KEYS[description];
+  const exactKey = getOwnAuditMappingValue(DESCRIPTION_EXACT_KEYS, description);
   if (exactKey) return t(exactKey);
   return description || '-';
 }
 
-export function getAuditObjectTypeLabel(value: string, t: Translate): string {
-  const key = OBJECT_TYPE_KEYS[value];
+export function getAuditObjectTypeLabel(value: string, t: Translator): string {
+  const key = getOwnAuditMappingValue(OBJECT_TYPE_KEYS, value);
   return key ? t(key) : value || '-';
 }
 
-export function getAuditMetadataKeyLabel(key: string, t: Translate): string {
-  const translationKey = METADATA_KEY_KEYS[key];
+export function getAuditMetadataKeyLabel(key: string, t: Translator): string {
+  const translationKey = getOwnAuditMappingValue(METADATA_KEY_KEYS, key);
   return translationKey ? t(translationKey) : key.replace(/_/g, ' ');
 }
 
-export function getAuditValueLabel(value: string, t: Translate): string {
-  const key = VALUE_LABEL_KEYS[value];
+export function getAuditValueLabel(value: string, t: Translator): string {
+  const key = getOwnAuditMappingValue(VALUE_LABEL_KEYS, value);
   return key ? t(key) : formatTechnicalDate(value);
 }
 
-function formatAuditMeasurementValue(key: string, value: unknown, t: Translate): string {
+function formatAuditMeasurementValue(key: string, value: unknown, t: Translator): string {
   const formatted = formatAuditMetadataValue(value, t);
   return key === 'salinite_psu' ? formatted.replace(/\s*PSU$/i, '') : formatted;
 }
 
-export function formatAuditMetadataValue(value: unknown, t: Translate): string {
+export function formatAuditMetadataValue(value: unknown, t: Translator): string {
   if (value === null || value === undefined || value === '') return '-';
   if (typeof value === 'boolean') return value ? t('auditValueYes') : t('auditValueNo');
   if (typeof value === 'number') return String(value);
@@ -727,7 +734,7 @@ export function getAuditValueChange(value: unknown): AuditValueChange | null {
   };
 }
 
-export function formatAuditChange(value: unknown, t: Translate): string {
+export function formatAuditChange(value: unknown, t: Translator): string {
   const change = getAuditValueChange(value);
   if (!change) return formatAuditMetadataValue(value, t);
   return `${formatAuditMetadataValue(change.before, t)} -> ${formatAuditMetadataValue(change.after, t)}`;
@@ -960,7 +967,7 @@ export function orderAuditFieldEntries(
     .map(({ entry }) => entry);
 }
 
-export function getAuditInitialPolypsLabel(count: number, t: Translate): string {
+export function getAuditInitialPolypsLabel(count: number, t: Translator): string {
   const key = count === 0
     ? 'auditRelationInitialPolypsZero'
     : count === 1
@@ -1006,7 +1013,7 @@ function getReadableTargetLabel(objectType: string | undefined, value: string | 
  * Account targets use only the server-resolved current structured identity.
  * Legacy snapshots and raw object ids may contain arbitrary technical usernames.
  */
-export function getAuditTargetLabel(entry: AuditEntryLike, t?: Translate): string {
+export function getAuditTargetLabel(entry: AuditEntryLike, t?: Translator): string {
   if (entry.object_type === 'account') {
     const details = entry.business_details;
     const values = details?.type === 'account' ? details.values : undefined;

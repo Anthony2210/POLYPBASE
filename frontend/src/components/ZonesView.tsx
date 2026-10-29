@@ -1,4 +1,5 @@
 import { type CSSProperties, type FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { Translator } from '../i18n';
 import type { BoxItem, ThermalZone, UserProfile } from '../types';
 import { ApiError, ApiResourceCancelledError } from '../api/client';
 import type {
@@ -20,7 +21,6 @@ import { ZoneRecentMovements } from './ZoneMovementHistory';
 
 
 type Language = 'fr' | 'en';
-type TFunction = (key: string) => string;
 
 type ZoneOverviewEntry = {
   zone: ThermalZone;
@@ -41,7 +41,7 @@ export function ZonesView({
   isLoading: boolean;
   zones: ThermalZone[];
   onOpenZone: (id: number) => void;
-  t: TFunction;
+  t: Translator;
 }) {
   const zoneEntries = zones.map((zone) => buildZoneOverviewEntry(zone, boxes));
   const sortedEntries = [...zoneEntries].sort((first, second) => {
@@ -161,7 +161,7 @@ function ZoneManagementModal({
   profile: UserProfile | null;
   selectedZone?: ThermalZone | null;
   zones: ThermalZone[];
-  t: TFunction;
+  t: Translator;
 }) {
   const adminOrganizations = useMemo(() => getAdminOrganizations(profile), [profile]);
   const defaultOrganizationId = selectedZone?.organization.id ?? adminOrganizations[0]?.id ?? null;
@@ -420,7 +420,7 @@ export function ZoneDetailPage({
     measurementId: number,
     payload: ManualSalinityUpdatePayload,
   ) => Promise<ThermalZone>;
-  t: TFunction;
+  t: Translator;
 }) {
   const backAction = (
     <DetailBackButton label={t('back')} onBack={onBack} desktopClassName="zone-back-button" />
@@ -511,7 +511,7 @@ function ZoneFunctionalSections({
     payload: ManualSalinityUpdatePayload,
   ) => Promise<ThermalZone>;
   zone: ThermalZone;
-  t: TFunction;
+  t: Translator;
 }) {
   const [editingSalinityId, setEditingSalinityId] = useState<number | null>(null);
   const [isEditingSalinity, setIsEditingSalinity] = useState(false);
@@ -757,7 +757,7 @@ export function ZoneBoxesPage({
   zone: ThermalZone | null;
   onBack: () => void;
   onOpenBox: (id: number) => void;
-  t: TFunction;
+  t: Translator;
 }) {
   const collator = useMemo(
     () => new Intl.Collator(language, { numeric: true, sensitivity: 'base' }),
@@ -973,7 +973,7 @@ function TemperatureControlPanel({
   zone: ThermalZone;
   canRecordManualTemperature: boolean;
   onRecordManualTemperature: (zoneId: number, payload: ManualTemperaturePayload) => Promise<ThermalZone>;
-  t: TFunction;
+  t: Translator;
 }) {
   const targetTemperature = parseTemperatureNumber(zone.target_temperature_c);
   const measuredTemperature = parseTemperatureNumber(zone.latest_temperature?.average_temperature_c);
@@ -1178,7 +1178,7 @@ function TemperatureEntryModal({
   value: string;
   onValueChange: (value: string) => void;
   error: string | null;
-  t: TFunction;
+  t: Translator;
 }) {
   const dialogRef = useRef<HTMLElement>(null);
   const savingRef = useRef(isSaving);
@@ -1283,7 +1283,7 @@ function buildTemperatureSummary({
   measuredTemperature: number | null;
   minTemperature: number | null;
   maxTemperature: number | null;
-  t: TFunction;
+  t: Translator;
 }) {
   const facts = [
     targetTemperature === null ? null : `${t('targetTemperature')} ${formatTemperature(targetTemperature)}`,

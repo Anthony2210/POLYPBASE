@@ -30,7 +30,7 @@ import type {
   ThermalZone,
   UserProfile,
 } from '../types';
-import type { Language } from '../i18n';
+import type { Language, Translator } from '../i18n';
 import type {
   BoxTransferPayload,
   BoxTransferResult,
@@ -78,8 +78,6 @@ import PolypbaseIcon from './PolypbaseIcon';
 import { RowActionMenu } from './RowActionMenu';
 import SkeletonRows from './SkeletonRows';
 import TaxonomyAdminSection from './TaxonomyAdminSection';
-
-type TFunction = (key: string) => string;
 
 export type { EditableMeasurement } from '../types';
 
@@ -317,7 +315,7 @@ function AccountManagementSection({
 }: {
   organizationName: string;
   onResponsableChange: (organizationId: number, isResponsable: boolean) => void;
-  t: TFunction;
+  t: Translator;
 }) {
   const [data, setData] = useState<AccountMembers | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -960,7 +958,7 @@ function ZoneCreateForm({
 }: {
   profile: UserProfile;
   onCreateZone: (payload: ThermalZonePayload) => Promise<void>;
-  t: TFunction;
+  t: Translator;
 }) {
   const adminOrganizations = useMemo(() => {
     const adminOrgIds = getAdminOrganizationIds(profile);
@@ -1090,7 +1088,7 @@ function ProbeCreateForm({
   profile: UserProfile;
   zones: ThermalZone[];
   onCreateProbe: (payload: ProbePayload) => Promise<void>;
-  t: TFunction;
+  t: Translator;
 }) {
   const zoneChoices = useMemo(() => {
     const adminOrgIds = getAdminOrganizationIds(profile);
@@ -1239,7 +1237,7 @@ function ZoneCapacityManager({
   profile: UserProfile;
   zones: ThermalZone[];
   onUpdateZone: (zoneId: number, payload: ThermalZonePayload) => Promise<void>;
-  t: TFunction;
+  t: Translator;
 }) {
   const adminOrgIds = useMemo(() => getAdminOrganizationIds(profile), [profile]);
   const editableZones = useMemo(
@@ -1419,7 +1417,7 @@ function OrganizationCreateForm({
   organizations: Organization[];
   profile: UserProfile;
   onCreateOrganization: (payload: OrganizationPayload) => Promise<void>;
-  t: TFunction;
+  t: Translator;
 }) {
   const [name, setName] = useState('');
   const [country, setCountry] = useState('');
@@ -1609,7 +1607,7 @@ function OrganizationManagementList({
   profile: UserProfile;
   onDeleteOrganization: (organizationId: number) => Promise<void>;
   onUpdateOrganization: (organizationId: number, payload: OrganizationPayload) => Promise<void>;
-  t: TFunction;
+  t: Translator;
 }) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [name, setName] = useState('');
@@ -1899,7 +1897,7 @@ function TransferCreateForm({
   boxes: BoxItem[];
   organizations: Array<{ id: number; name: string }>;
   onCreateTransfer: (payload: BoxTransferPayload) => Promise<BoxTransferResult>;
-  t: TFunction;
+  t: Translator;
 }) {
   const transferableBoxes = useMemo(() => {
     const adminOrgIds = getAdminOrganizationIds(profile);
@@ -2199,11 +2197,18 @@ function groupTransferBoxes(boxes: BoxItem[], noZoneLabel: string) {
 
 type TransferCsvRow = Record<string, string>;
 
+// These absent catalog keys already rendered verbatim in this unmounted form.
+// Keep that legacy fallback until the preview wording is approved.
+const LEGACY_TRANSFER_PREVIEW_LABELS = {
+  species: 'species',
+  cultureStatus: 'cultureStatus',
+} as const;
+
 function TransferImportForm({ profile, zones, boxes, t }: {
   profile: UserProfile;
   zones: ThermalZone[];
   boxes: BoxItem[];
-  t: TFunction;
+  t: Translator;
 }) {
   const adminOrgIds = getAdminOrganizationIds(profile);
   const organizations = profile.organizations.filter(
@@ -2314,12 +2319,12 @@ function TransferImportForm({ profile, zones, boxes, t }: {
           <dl>
             <div><dt>{t('adminTransferTarget')}</dt><dd>{sourceData.target_organization_name || '-'}</dd></div>
             <div><dt>{t('adminOrganizations')}</dt><dd>{sourceData.source_organization_name}</dd></div>
-            <div><dt>{t('species')}</dt><dd>{sourceData.species_scientific_name}</dd></div>
+            <div><dt>{LEGACY_TRANSFER_PREVIEW_LABELS.species}</dt><dd>{sourceData.species_scientific_name}</dd></div>
             <div><dt>{t('boxStrain')}</dt><dd>{sourceData.strain_code}</dd></div>
             <div><dt>{t('adminTransferPolyps')}</dt><dd>{sourceData.transferred_polyp_count}</dd></div>
             <div><dt>{t('adminTargetTemperature')}</dt><dd>{sourceData.target_temperature_c || '-'}</dd></div>
             <div><dt>{t('salinityFull')}</dt><dd>{sourceData.latest_salinity_psu || '-'}</dd></div>
-            <div><dt>{t('cultureStatus')}</dt><dd>{sourceData.latest_culture_status || '-'}</dd></div>
+            <div><dt>{LEGACY_TRANSFER_PREVIEW_LABELS.cultureStatus}</dt><dd>{sourceData.latest_culture_status || '-'}</dd></div>
             <div><dt>{t('parents')}</dt><dd>{sourceData.parent_box_codes || '-'}</dd></div>
             <div><dt>{t('adminTransferNotes')}</dt><dd>{sourceData.transfer_notes || sourceData.latest_notes || '-'}</dd></div>
           </dl>
@@ -2638,7 +2643,7 @@ function AdminFlowNav({
   aquariumName: string;
   isSuperuser: boolean;
   onSelect: (section: AdminSectionKey) => void;
-  t: TFunction;
+  t: Translator;
 }) {
   const aquariumItems = ADMIN_FLOW_ITEMS.filter((item) => item.scope === 'aquarium');
   const sharedItems = ADMIN_FLOW_ITEMS.filter((item) => item.scope === 'shared');
@@ -2700,7 +2705,7 @@ function EnvironmentAdminSection({
   onCreateZone: (payload: ThermalZonePayload) => Promise<void>;
   onCreateProbe: (payload: ProbePayload) => Promise<void>;
   onUpdateZone: (zoneId: number, payload: ThermalZonePayload) => Promise<void>;
-  t: TFunction;
+  t: Translator;
 }) {
   const [activeAction, setActiveAction] = useState<EnvironmentAction | null>(null);
   const adminOrgIds = useMemo(() => getAdminOrganizationIds(profile), [profile]);
@@ -2790,7 +2795,7 @@ function OrganizationsAdminSection({
   onCreateOrganization: (payload: OrganizationPayload) => Promise<void>;
   onDeleteOrganization: (organizationId: number) => Promise<void>;
   onUpdateOrganization: (organizationId: number, payload: OrganizationPayload) => Promise<void>;
-  t: TFunction;
+  t: Translator;
 }) {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const countryCount = useMemo(
@@ -2863,7 +2868,7 @@ function TransfersAdminSection({
   organizations: Array<{ id: number; name: string }>;
   onCreateTransfer: (payload: BoxTransferPayload) => Promise<BoxTransferResult>;
   zones: ThermalZone[];
-  t: TFunction;
+  t: Translator;
 }) {
   const [transferMode, setTransferMode] = useState<'outgoing' | 'incoming'>('outgoing');
   const adminOrgIds = getAdminOrganizationIds(profile);
@@ -3013,7 +3018,7 @@ export default function AdminView({
   onDeactivateBox: (boxId: number, payload: BoxDeactivatePayload) => Promise<void>;
   onQualifyBox: (boxId: number, payload: BoxQualifyPayload) => Promise<void>;
   onReactivateBox: (boxId: number, payload: BoxActivatePayload) => Promise<void>;
-  t: TFunction;
+  t: Translator;
   zones: ThermalZone[];
 }) {
   const displayedSection = DISABLED_ADMIN_SECTIONS.has(activeSection) ? 'accounts' : activeSection;

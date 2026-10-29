@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import type { AccountInvitation } from '../types';
+import type { Translator } from '../i18n';
 import {
   formatInvitationCountdown,
   getInvitationRowClassName,
@@ -10,8 +11,6 @@ import {
   needsExpiryRevalidation,
   runInvitationRevalidation,
 } from '../utils/accountInvitations';
-
-type TFunction = (key: string) => string;
 
 export type { InvitationsSnapshot };
 
@@ -36,7 +35,7 @@ export function AccountInvitationsTable({
   feedback: { id: number; tone: 'positive' | 'negative' } | null;
   getDisplayName: (invitation: AccountInvitation) => string;
   onResend: (invitation: AccountInvitation) => void;
-  t: TFunction;
+  t: Translator;
 }) {
   return (
     <div className="member-table-shell">
@@ -130,7 +129,7 @@ export default function AccountInvitationsPanel({
   onResend: (invitation: AccountInvitation) => void;
   // Resolves true when fresh backend state was applied.
   onRevalidate: () => Promise<boolean>;
-  t: TFunction;
+  t: Translator;
 }) {
   const { invitations, serverTime, receivedAtMs } = snapshot;
   const offsetMs = getServerClockOffset(serverTime, receivedAtMs);
