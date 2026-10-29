@@ -17,7 +17,6 @@ const detailSource = zonesSource.slice(
 const requiredKeys = [
   'cancel',
   'manualTemperatureAction',
-  'manualSalinityAction',
   'manualSalinityDate',
   'manualSalinityValue',
   'manualSalinitySave',
@@ -31,11 +30,9 @@ const requiredKeys = [
 
   'temperatureAverage',
   'temperatureMeasurement',
-  'temperatureMeasurementCount',
   'zoneCapacityMissing',
   'zoneNoProbe',
   'zoneRecentMovementsTitle',
-  'zoneMovementHistoryAction',
   'zoneMovementEntries',
   'zoneMovementExits',
 ];

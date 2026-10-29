@@ -29,6 +29,8 @@ REAL_B03 = "B03-2026-10-29"
 B01_ROWS_SHA256 = "938718e0b044503fd19a48bef9c013ccbd2de4653277f05b9b54aba078c434be"
 # Same canonical digest for the 86 recorded B02 rows (T035-T120).
 B02_ROWS_SHA256 = "db74004c80933dfc216dd9e4044f277cb4b5bfc892dbbc5b46c454720893ad0e"
+# Same canonical digest for the 320 recorded B03 rows (T121-T440).
+B03_ROWS_SHA256 = "d31e74d3ccfec4bf6eb1e355e6b70ae8e3d41eac39207932c508b13760a4df67"
 
 
 def rows_digest(rows):
@@ -539,7 +541,9 @@ class RealRegisterTests(unittest.TestCase):
     def test_h_b03_removals_are_paired_and_absent(self):
         rows = reg.load_register()
         b03 = [row for row in rows if row["batch"] == REAL_B03]
-        self.assertEqual(rows[120:], b03, "B03 rows must directly follow B02")
+        self.assertEqual(rows[120:440], b03, "B03 rows must directly follow B02")
+        self.assertEqual([b03[0]["entry_id"], b03[-1]["entry_id"]], ["T121", "T440"])
+        self.assertEqual(rows_digest(b03), B03_ROWS_SHA256, "B03 history was modified")
         self.assertEqual({row["status"] for row in b03}, {"REMOVED"})
         keys = {language: {row["key_or_msgid"] for row in b03 if row["language"] == language}
                 for language in ("FR", "EN")}

@@ -12,7 +12,6 @@ const enSource = readFileSync(new URL('../src/i18n/en.ts', import.meta.url), 'ut
 const historyKeys = [
   'zoneRecentMovementsTitle',
   'zoneMovementHistoryTitle',
-  'zoneMovementHistoryBack',
   'zoneMovementEntries',
   'zoneMovementExits',
   'zoneMovementAllEntries',

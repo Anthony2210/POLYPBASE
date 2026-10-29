@@ -102,3 +102,91 @@ Baseline Git : `f50765ee07a8e6add7db5b11652f4e141acc194d`. Les 120 événements 
 - Ensemble exact autorisé par la demande du writer B03 (`B03-safe-removal`), revalidé avant suppression par AST TypeScript sur `frontend/src` et `frontend/scripts` : aucune chaîne, aucun identifiant, aucun fragment de template, aucune concaténation ni expression régulière ne désigne ces clés ; les appels de traduction dynamiques et les six chemins de traducteur non typés tirent leurs clés de tables littérales. Les occurrences de `prototype` sont des accès `Object.prototype`.
 - `initial_value` reprend la valeur exacte avant suppression ; `sheet_value` reste vide ; `baseline_sheet_sha256` conserve la référence historique figée de B01, sans nouvelle lecture ni approbation de feuille.
 - Hors périmètre, conservés : les 132 clés `csv*` encore utilisées par `MeasurementImportPanel` et ses tests, `auditSummaryAlertResolved`, `adminTransferText`, `manualTemperatureForbidden`, les candidats utilisés seulement par des tests, les autres candidats réservés à des lots ultérieurs, les entrées gettext Django et les traductions différées de B02. Aucune règle bloquante générale sur les clés inutilisées n'est introduite, et les traducteurs non typés ne sont pas retypés.
+
+## B03 final : trois lots indépendants (2026-10-29)
+
+Baseline vérifié : `dc69aceda71cbd6b802ef5b3090b2ccc4d8d9647`, branche `chore/i18n-b03-final`, worktree initialement propre et identique aux références locales `main` et `origin/main`. Pas de synchronisation réseau de ces références ni de modification d'un autre worktree.
+
+Le schéma existant exige des numéros de lots strictement croissants (`Bnn-AAAA-MM-JJ`) : les noms de travail B03-2, B03-3 et B03-4 sont donc associés respectivement à **B04**, **B05** et **B06**, sans modifier le checker ni l'ancien lot B03.
+
+| Lot de travail | Identifiant du registre | `decision_ref` | Événements | Clés supprimées par langue | Clés restantes FR / EN |
+|---|---|---|---|---:|---:|
+| B03-2 | `B04-2026-10-29` | `B03-2-audit-measurements` | T441–T502 | 31 | 1 162 / 1 162 |
+| B03-3 | `B05-2026-10-29` | `B03-3-box-creation` | T503–T534 | 16 | 1 146 / 1 146 |
+| B03-4 | `B06-2026-10-29` | `B03-4-test-only` | T535–T558 | 12 | 1 134 / 1 134 |
+
+**Total : 59 suppressions par catalogue, 118 nouveaux événements, 558 événements au total.** Chaque paire est enregistrée FR puis EN. Les valeurs initiales sont celles du baseline Git exact ; les valeurs finales et de feuille sont vides. Le hash de feuille est seulement la référence historique B01, pas une nouvelle consultation ou approbation de feuille. L'autorisation est la demande explicite du writer B03 final, conditionnée à la revalidation des usages.
+
+### Revalidation des candidats
+
+Inspection ciblée des composants, hooks, helpers, tests, scripts et composants conservés non montés, puis analyse AST TypeScript de 222 fichiers frontend source/scripts, sans erreur de parsing. Les appels dynamiques, tables littérales, accès directs aux catalogues et six signatures de traducteur non typées ont été inspectés sans les refactoriser. Une revue indépendante a refait la comparaison des catalogues/événements au baseline et l'inspection AST des consommateurs.
+
+**B03-2 — 31 `SAFE_REMOVE`, aucun candidat retenu :**
+
+```text
+auditAccountActive auditAccountDisabled auditDescriptionFromApp
+auditSummarySpeciesCreated auditSummarySpeciesUpdated
+auditSummaryStrainCreated auditSummaryStrainUpdated
+auditDetailOrganization auditDetailType auditDetailDescription
+auditDetailValues auditDetailChanges auditCorrectionMarker
+auditCorrectionDetails auditRelationInitialPolyps
+manualTemperatureSaved weeklyMeasurementRecorded editLastMeasurement
+editLastMeasurementHelp overviewLatestReading overviewNoMeasurement
+overviewTemperature overviewWithEphyrae salinityShort zoneSalinityMissing
+noZoneChart recentMeasurementMissing temperatureManualReading
+temperatureContinuousReading temperatureSamples measuredTemperature
+```
+
+- `auditPresentation.ts` sélectionne les descriptions actuelles, les tables de métadonnées et les libellés de réactivation/désactivation, pas ces anciennes clés de résumé/détail. Les noms d'espèce et codes de souche restent interpolés dans les descriptions actuelles.
+- Les corrections et valeurs avant/après restent affichées par `AuditTimeline`. Les variantes complètes `auditRelationInitialPolypsZero/One/Many` restent utilisées et conservées ; la clé sans suffixe n'est pas construite dynamiquement.
+- `BoxPage`, `OverviewView`, `ZonesView` et leurs helpers utilisent les libellés actuels de relevé, température et salinité. Les états sans donnée, les agrégats et les données historiques ne sont pas modifiés.
+- Les occurrences de `measuredTemperature` sont des propriétés/variables numériques, notamment une assertion de zéro scientifique dans `test-alert-removal.mjs`, pas des demandes de traduction. Elles restent inchangées.
+
+**B03-3 — 16 `SAFE_REMOVE`, aucun candidat retenu :**
+
+```text
+confirmDetailStrain confirmDetailLocation quickStrainSearch
+createBoxGlobalCode createBoxNumber createBoxNumberMismatch createBoxOrigin
+createBoxIdentityShortLocal createBoxIdentityShortSpecies
+createBoxIdentityShortOrigin createBoxIdentityShortNumber
+createBoxIdentityShortFormat createBoxIdentityUnusableShort
+createBoxIdentityUnusable latestMovementEmpty latestMovementUnavailable
+```
+
+- `CreateBoxPanel` ne demande ni code ni numéro modifiable et n'ajoute pas de confirmation. `CreatedBoxIdentifier` affiche le code confirmé par le serveur. Les validations, intentions immuables, reprises et gardes de fraîcheur restent inchangées.
+- `StrainPicker` utilise `createBoxStrainSearch` et filtre les identités inutilisables sans afficher ces anciens libellés de raison. La provenance reste une donnée recherchable.
+- Le composant conservé `QuickStrainCreator` et les helpers/tests de `boxCode` ont aussi été inspectés : ils ne consomment aucune de ces clés. Leur conservation n'est pas remise en cause.
+- `LatestMovementBanner` ne rend pas de bannière pour un historique vide, indisponible ou limité au cycle de vie, sauf feedback de récupération qui emploie d'autres clés. Les tests de ces états et de récupération sont inchangés.
+
+**B03-4 — 12 `TEST_ONLY_SAFE`, aucun arbitrage produit requis :**
+
+Les sept clés suivantes ne servent qu'à des assertions négatives. Leurs assertions sont conservées intégralement et ne nécessitent pas la présence des traductions :
+
+```text
+boxInventorySelectAllFiltered boxInventorySelectVisiblePage quickStrainAdd
+weeklyUpToDate zoneSummaryAlive latestCounts zoneActivityTitle
+```
+
+Les cinq autres dépendances de test ont reçu les seuls ajustements justifiés :
+
+| Clé | Ancien couplage | Ajustement et contrat conservé |
+|---|---|---|
+| `manualSalinityAction` | Liste de présence de `test-zone-detail.mjs` | Retrait de cette entrée uniquement ; actions actuelles de création/correction de salinité et capacités serveur inchangées. |
+| `temperatureMeasurementCount` | Même liste | Retrait de cette entrée uniquement ; nombre de mesures, moyenne/mesure, plage disponible et distinction zéro/absence inchangés. |
+| `zoneMovementHistoryAction` | Même liste | Retrait de cette entrée uniquement ; les entrées actuelles d'historique utilisent les directions entrée/sortie. |
+| `zoneMovementHistoryBack` | Liste de présence de `test-zone-history.mjs` | Retrait de cette entrée uniquement ; le bouton courant utilise `back`, navigation et couverture historique inchangées. |
+| `moveDialogMovedAt` | Liste traduite dynamiquement dans `test-move-box-modal.mjs` | Retrait de la clé et de sa seule attente positive. Les textes de date restent dans la fixture pour vérifier leur absence du formulaire ; absence des champs date et payload exact sans date inchangés. |
+
+Aucun candidat n'est `REFERENCED`, `UNCERTAIN` ou `TEST_ONLY_REQUIRES_DECISION` après revalidation. Les 47 suppressions des deux premiers lots sont fondées sur l'absence prouvée de consommateur ; les 12 du dernier lot sur l'analyse précise de leurs seuls usages de test, pas sur un objectif de compte.
+
+### Intégrité et contrôles locaux
+
+- Les événements **T001–T440 sont inchangés**, comparés au baseline par champs et contenu hors conversion de fins de ligne du checkout. Les empreintes B01/B02 restent intactes ; le test historique B03 borne désormais T121–T440 plutôt que toute la fin du fichier, et ajoute leur empreinte canonique figée au baseline.
+- Comparaison programmatique après chaque lot : ensemble exact des suppressions, parité FR/EN, valeurs et ordre restants identiques, événements en bijection avec les suppressions, valeurs initiales exactes, paires dans leur lot, IDs séquentiels. Checker et 60 tests du registre passent après chacun des trois lots.
+- Les 132 clés `csv*`, `auditSummaryAlertResolved`, `adminTransferText` et `manualTemperatureForbidden` restent identiques. Aucun composant applicatif, gettext Django, japonais, traduction différée B02, règle scientifique, permission ou donnée n'est modifié.
+- Tests frontend ciblés après B03-2 : **511 réussis** ; après B03-3 : **472 réussis** ; après B03-4 : **295 réussis**. Ces ensembles se recouvrent et ne constituent pas un total de tests distincts.
+- Validation finale : `npm run test:i18n` et `npm run build` réussis (CSS, TypeScript, Vite). `npm run test:all` a été lancé mais interrompu par la limite de 300 secondes pendant la suite, après le test 1 130 sans bilan final : **validation complète non acquise**, aucune affirmation de 2 205 tests réussis.
+- Contrôles gettext sans base : compilation MO `--check`, inventaire `check_i18n.py` (0 erreur bloquante), 25 tests compilateur et 20 tests inventaire réussis. Tests runtime `apps.accounts.test_i18n` : **5 réussis**, avec `POSTGRES_DB` vide et `config.test_settings`.
+- Revue indépendante read-only : aucun défaut identifié ; 37 tests des trois fichiers modifiés et 60 tests du registre réussis. Elle confirme aussi les 84 assertions négatives inchangées des six fichiers de test pertinents.
+
+Aucun commit, push, merge, cherry-pick, déploiement, accès Neon ou production, ni modification de feuille. Arrêt pour revue indépendante ; une nouvelle exécution de la suite complète avec un délai supérieur reste à autoriser.
