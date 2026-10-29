@@ -2,10 +2,11 @@ import { type KeyboardEvent, type PointerEvent, useEffect, useId, useMemo, useRe
 import { scaleLinear, scaleTime } from 'd3-scale';
 import { area, line } from 'd3-shape';
 
-import type { ProbeReadingPoint } from '../types';
+import type { ProbeReadingPoint, ProbeReadingSource } from '../types';
 import { formatTemperature } from '../utils/environmentFormat';
 import {
   nearestProbePointIndex,
+  probeCoveragePoints, probeCoverageAt, summarizeProbeCoverage,
   splitProbeSegments,
   summarizeProbePoints,
   type ProbeWindow,
@@ -19,6 +20,12 @@ type ChartLabels = {
   maximum: string;
   noReadings: string;
   latest: string;
+  aggregateAverage?: string;
+  partialCoverage?: string;
+  previewCoverage?: string;
+  aggregateCoverage?: string;
+  measurementCount?: string;
+  rawReading?: string;
   keyboardDescription: string;
   summary: (minimum: string, maximum: string) => string;
 };
@@ -35,11 +42,13 @@ export default function ProbeTemperatureChart({
   cursorTime,
   onCursorTimeChange,
   points,
+  pointSources,
   resolutionMinutes,
   target,
   temperatureDomain,
   window,
   isInitialLoading = false,
+  isPartialPreview = false,
 }: {
   code: string;
   locale: string;
@@ -49,11 +58,13 @@ export default function ProbeTemperatureChart({
   cursorTime: number | null;
   onCursorTimeChange: (time: number | null) => void;
   points: ProbeReadingPoint[];
+  pointSources?: ProbeReadingSource[][];
   resolutionMinutes: number;
   target: number | null;
   temperatureDomain: [number, number] | null;
   window: ProbeWindow;
   isInitialLoading?: boolean;
+  isPartialPreview?: boolean;
 }) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const clipId = useId();
@@ -104,6 +115,10 @@ export default function ProbeTemperatureChart({
     return () => observer.disconnect();
   }, []);
 
+  const coverage = useMemo(() => pointSources ? probeCoveragePoints(points, pointSources, window) : null,
+    [points, pointSources, window.start, window.end]);
+  const rawSources = coverage?.flatMap((entry) => entry.sources.filter((source) => source[1] === null)) ?? [];
+  const intervals = coverage?.flatMap((entry) => entry.sources.filter((source) => source[1] !== null).map((source) => ({ source, partial: source[0] < window.start || source[1]! > window.end }))) ?? [];
   const height = width < 520 ? 240 : 300;
   const geometry = useMemo(() => {
     const chartWidth = Math.max(width, MARGIN.left + MARGIN.right + 1);
@@ -114,7 +129,9 @@ export default function ProbeTemperatureChart({
       .domain(temperatureDomain ?? [0, 1])
       .nice(5)
       .range([height - MARGIN.bottom, MARGIN.top]);
-    const segments = splitProbeSegments(points, resolutionMinutes);
+    const segments = coverage === null ? splitProbeSegments(points, resolutionMinutes)
+      : resolutionMinutes === 1 && coverage.every((entry) => !entry.aggregate)
+        ? splitProbeSegments(rawSources.map((source): ProbeReadingPoint => [source[0], Number(source[2]), null, null]), 1) : [];
     const linePath = line<ProbeReadingPoint>()
       .x((point) => x(point[0]))
       .y((point) => y(point[1]));
@@ -144,18 +161,27 @@ export default function ProbeTemperatureChart({
       bands: hasBand ? segments.map((segment) => bandPath(segment) ?? '') : [],
       isolatedPoints: segments.filter((segment) => segment.length === 1).map((segment) => segment[0]),
     };
-  }, [height, locale, points, resolutionMinutes, temperatureDomain, width, window.end, window.start]);
+  }, [height, locale, points, coverage, resolutionMinutes, temperatureDomain, width, window.end, window.start]);
 
-  const summary = summarizeProbePoints(points);
+  const coverageSummary = coverage ? summarizeProbeCoverage(coverage) : null;
+  const summary = coverage === null ? summarizeProbePoints(points) : coverageSummary;
   const exactFormat = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' });
   const cursorVisible = cursorTime !== null && cursorTime >= window.start && cursorTime <= window.end;
   const nearestIndex = cursorVisible && cursorTime !== null
     ? nearestProbePointIndex(points, cursorTime) : -1;
   const candidate = nearestIndex >= 0 ? points[nearestIndex] : null;
-  const hovered = candidate && cursorTime !== null && Math.abs(candidate[0] - cursorTime) < 1
-    ? candidate : null;
+  const hoveredCoverage = coverage && cursorVisible && cursorTime !== null ? probeCoverageAt(coverage, cursorTime) : null;
+  const hovered = coverage === null
+    ? candidate && cursorTime !== null && Math.abs(candidate[0] - cursorTime) < 1 ? candidate : null
+    : hoveredCoverage?.point ?? null;
 
   function setCursorAt(time: number) {
+    if (coverage !== null) {
+      const raw = rawSources.reduce<ProbeReadingSource | null>((nearest, source) =>
+        !nearest || Math.abs(source[0] - time) < Math.abs(nearest[0] - time) ? source : nearest, null);
+      onCursorTimeChange(raw && Math.abs(raw[0] - time) <= 30000 ? raw[0] : time);
+      return;
+    }
     const index = nearestProbePointIndex(points, time);
     const point = index >= 0 ? points[index] : null;
     const instant = point && Math.abs(point[0] - time) <= resolutionMinutes * 30000 ? point[0] : time;
@@ -249,7 +275,13 @@ export default function ProbeTemperatureChart({
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
       keyboardCursor.current = true;
       event.preventDefault();
-      setCursorAt(probeCursorStep(window, cursorTime, event.key === 'ArrowLeft' ? -1 : 1, resolutionMinutes));
+      if (coverage !== null) {
+        const anchors = [...new Set(coverage.flatMap((entry) => entry.anchors))].sort((a, b) => a - b);
+        const next = event.key === 'ArrowRight'
+          ? anchors.find((time) => cursorTime === null || time > cursorTime)
+          : [...anchors].reverse().find((time) => cursorTime === null || time < cursorTime);
+        if (next !== undefined) onCursorTimeChange(next);
+      } else setCursorAt(probeCursorStep(window, cursorTime, event.key === 'ArrowLeft' ? -1 : 1, resolutionMinutes));
     } else if (event.key === '+' || event.key === '=' || event.key === '-') {
       keyboardCursor.current = true;
       event.preventDefault();
@@ -259,9 +291,13 @@ export default function ProbeTemperatureChart({
     }
   }
 
-  const ariaSummary = summary
-    ? `${code}. ${labels.summary(formatTemperature(summary.minimum), formatTemperature(summary.maximum))}`
-    : `${code}. ${labels.noReadings}`;
+  const coverageWarnings = [coverageSummary?.partial ? labels.partialCoverage : null,
+    isPartialPreview ? labels.previewCoverage : null].filter(Boolean).join(' ');
+  const ariaSummary = `${code}. ${coverageWarnings ? `${coverageWarnings} ` : ''}${summary
+    ? coverageWarnings
+      ? `${labels.minimum} ${formatTemperature(summary.minimum)}, ${labels.maximum} ${formatTemperature(summary.maximum)}`
+      : labels.summary(formatTemperature(summary.minimum), formatTemperature(summary.maximum))
+    : labels.noReadings}`;
   const hoveredX = cursorVisible && cursorTime !== null ? geometry.x(cursorTime) : null;
 
   return (
@@ -271,7 +307,7 @@ export default function ProbeTemperatureChart({
         {summary ? (
           <dl className="probe-chart-facts">
             <div>
-              <dt>{labels.latest}</dt>
+              <dt>{coverageSummary?.latestAggregate ? labels.aggregateAverage : labels.latest}</dt>
               <dd>{formatTemperature(summary.latest[1])}</dd>
             </div>
             <div>
@@ -285,6 +321,7 @@ export default function ProbeTemperatureChart({
           </dl>
         ) : null}
       </header>
+      {coverageWarnings ? <p className="probe-chart-coverage-note">{coverageWarnings}</p> : null}
       <div className="probe-chart-canvas" ref={canvasRef}>
         <svg
           ref={svgRef}
@@ -303,9 +340,11 @@ export default function ProbeTemperatureChart({
           onPointerCancel={(event) => finishPointer(event, true)}
           onLostPointerCapture={(event) => finishPointer(event, true)}
           onPointerLeave={(event) => {
+            const related = event.relatedTarget as Element | null;
+            if (related && typeof related.closest === 'function' && related.closest('.probe-chart-tooltip')) return;
             if (event.pointerType === 'mouse') {
               pointerInside.current = false;
-              if (!gesture.current) onCursorTimeChange(null);
+              if (!gesture.current && !canvasRef.current?.contains?.(event.relatedTarget as Node | null)) onCursorTimeChange(null);
             }
           }}
         >
@@ -338,19 +377,30 @@ export default function ProbeTemperatureChart({
           ) : null}
           <defs><clipPath id={clipId}><rect x={MARGIN.left} y={MARGIN.top} width={Math.max(0, width - MARGIN.left - MARGIN.right)} height={height - MARGIN.top - MARGIN.bottom} /></clipPath></defs>
           <g clipPath={"url(#" + clipId + ")"}>
+            {intervals.map(({ source, partial }, index) => (
+              <g key={`interval-${index}`} className={`probe-chart-interval${partial ? ' is-partial' : ''}`}>
+                <rect className="probe-chart-band" x={geometry.x(source[0])} width={Math.max(0, geometry.x(source[1]!) - geometry.x(source[0]))}
+                  y={geometry.y(source[5])} height={Math.max(1, geometry.y(source[4]) - geometry.y(source[5]))} />
+                <line x1={geometry.x(source[0])} x2={geometry.x(source[1]!)}
+                  y1={geometry.y(Number(source[2]) / source[3])} y2={geometry.y(Number(source[2]) / source[3])} />
+              </g>
+            ))}
+            {rawSources.map((source, index) => (
+              <circle key={`raw-${index}`} className="probe-chart-point" cx={geometry.x(source[0])} cy={geometry.y(Number(source[2]))} r={2.5} />
+            ))}
             {geometry.bands.map((path, index) => (
               <path key={`band-${index}`} className="probe-chart-band" d={path} />
             ))}
             {geometry.lines.map((path, index) => (
               <path key={`line-${index}`} className="probe-chart-line" d={path} />
             ))}
-            {geometry.isolatedPoints.map((point) => (
+            {coverage === null && geometry.isolatedPoints.map((point) => (
               <circle key={point[0]} className="probe-chart-point" cx={geometry.x(point[0])} cy={geometry.y(point[1])} r={2.5} />
             ))}
             {hoveredX !== null ? (
               <g className="probe-chart-hover" aria-hidden="true">
                 <line x1={hoveredX} x2={hoveredX} y1={MARGIN.top} y2={height - MARGIN.bottom} />
-                {hovered ? <circle cx={geometry.x(hovered[0])} cy={geometry.y(hovered[1])} r={4} /> : null}
+                {hovered && !hoveredCoverage?.aggregate ? <circle cx={geometry.x(hoveredCoverage?.sources[0][0] ?? hovered[0])} cy={geometry.y(hoveredCoverage ? Number(hoveredCoverage.sources[0][2]) : hovered[1])} r={4} /> : null}
               </g>
             ) : null}
             {drag && Math.abs(drag.to - drag.from) >= DRAG_THRESHOLD_PX ? (
@@ -369,9 +419,24 @@ export default function ProbeTemperatureChart({
           <div
             className="probe-chart-tooltip"
             style={{ left: Math.min(Math.max(10, hoveredX + 10), Math.max(10, width - 240)) }}
-            aria-hidden="true"
+            aria-hidden={hoveredCoverage ? undefined : 'true'}
+            tabIndex={hoveredCoverage ? 0 : undefined}
+            role={hoveredCoverage ? 'region' : undefined}
+            aria-label={hoveredCoverage ? (hoveredCoverage.aggregate ? labels.aggregateCoverage : labels.rawReading) : undefined}
+            onPointerLeave={(event) => {
+              if (event.pointerType === 'mouse' && !canvasRef.current?.contains?.(event.relatedTarget as Node | null)) onCursorTimeChange(null);
+            }}
           >
-            <small>{exactFormat.format(cursorTime!)}</small>
+            {hoveredCoverage ? <>
+              <small>{hoveredCoverage.aggregate ? labels.aggregateCoverage : labels.rawReading}</small>
+              {hoveredCoverage.sources.map(([start, end], index) => <small key={index}>
+                {exactFormat.format(start)}{end !== null ? ` – ${exactFormat.format(end)}` : ''}
+              </small>)}
+              <span>{labels.measurementCount}: {hoveredCoverage.count}</span>
+              {hoveredCoverage.aggregate ? <span>{labels.aggregateAverage}</span> : null}
+              {hoveredCoverage.partial ? <span>{labels.partialCoverage}</span> : null}
+              {isPartialPreview ? <span>{labels.previewCoverage}</span> : null}
+            </> : <small>{exactFormat.format(cursorTime!)}</small>}
             <strong>{hovered ? formatTemperature(hovered[1]) : labels.noReadings}</strong>
             {hovered && hovered[2] !== null && hovered[3] !== null ? (
               <span>
@@ -383,7 +448,7 @@ export default function ProbeTemperatureChart({
       </div>
       <span className="sr-only" role="status">
         {keyboardCursor.current && cursorVisible && cursorTime !== null
-          ? `${code}. ${exactFormat.format(cursorTime)} — ${hovered ? formatTemperature(hovered[1]) : labels.noReadings}`
+          ? `${code}. ${isPartialPreview ? labels.previewCoverage : ''} ${hoveredCoverage ? `${hoveredCoverage.aggregate ? labels.aggregateAverage : labels.rawReading}. ${hoveredCoverage.sources.map(([start, end]) => `${exactFormat.format(start)}${end === null ? '' : ` – ${exactFormat.format(end)}`}`).join('; ')}. ${labels.measurementCount}: ${hoveredCoverage.count}. ${hoveredCoverage.partial ? labels.partialCoverage : ''}` : exactFormat.format(cursorTime)} — ${hovered ? formatTemperature(hovered[1]) : labels.noReadings}`
           : ''}
       </span>
     </article>

@@ -124,6 +124,49 @@ migration `measurements.0015_iminilide_probe_collection` (additive).
 - Pas d'alerte : l'interface affiche seulement l'heure de la dernière mesure et,
   après 6 h sans mesure, propose de nouveau la saisie manuelle.
 
+## Couverture temporelle des graphiques
+
+La fenêtre demandée est un intervalle demi-ouvert `[start, end)`. Une mesure
+brute n'est sélectionnée que si son instant appartient à cet intervalle. Une
+tranche condensée est sélectionnée si `[period_start, period_start +
+period_minutes)` le chevauche : son début est strictement avant `end` et sa fin
+strictement après `start`. Un simple contact à une borne ne suffit pas. La durée
+utilisée est celle stockée dans chaque tranche, pas la configuration actuelle.
+
+Une tranche partiellement visible conserve **toutes** ses statistiques stockées :
+somme exacte, nombre, minimum, maximum et moyenne pondérée. Elles peuvent inclure
+des observations avant ou après la sélection. Le graphique distingue ces tranches
+par un trait discontinu et un avertissement de portée ; ses résumés signalent
+également cette inclusion. Le chevauchement d'un intervalle stocké ne prouve pas
+qu'une observation existe dans la portion visible. Aucune interpolation,
+proratisation ou reconstruction de mesures individuelles n'est effectuée.
+
+L'API conserve les quadruplets `points` et ajoute, pour chaque sonde, un tableau
+parallèle `point_sources`. Chaque point conserve la liste de ses sources sous la
+forme `[start_ms, end_ms_ou_null, somme_décimale_exacte, nombre, min, max,
+dernier_instant_mesuré_ms]`. Une fin `null` désigne une observation brute à son
+instant réel ; sinon les bornes désignent l'intervalle stocké complet. Le timestamp
+d'un point regroupé reste un repère de regroupement, jamais un instant mesuré
+inventé. La réponse conserve séparément les bornes demandées `start` et `end`.
+
+Aux résolutions 15 et 60 minutes, les sommes et compteurs des sources sont
+combinés pour calculer la moyenne pondérée, jamais une moyenne des moyennes
+arrondies. La liste des sources conserve les intervalles séparés et les trous :
+une plage englobante ne devient pas une preuve de couverture continue. Les
+intervalles sont rendus séparément, avec leurs propres statistiques complètes ;
+le détail du groupe permet d'inspecter ses sources et son compteur. Une moyenne
+d'agrégat est nommée comme telle, pas comme dernière température instantanée.
+Les observations brutes gardent leurs positions réelles et restent distinctes.
+
+Le cache frontend reprojette les sources pour chaque fenêtre : il conserve les
+tranches chevauchantes entières et ne garde que les observations brutes comprises
+dans la sélection. Il recalcule les statistiques du groupe à partir des sommes
+et compteurs, sans compter une tranche deux fois. Un aperçu plus grossier ne vaut
+pas une réponse de résolution plus fine ; un aperçu ne couvrant qu'une partie de
+la sélection est explicitement signalé pendant la récupération des données.
+La condensation étant irréversible, les statistiques exactes d'une sous-partie
+de tranche ne sont pas disponibles.
+
 ## Remplacer une affectation sans déplacer l'historique
 
 Une sonde ayant au moins une mesure minute ou une tranche ne change jamais de

@@ -1,4 +1,4 @@
-import type { ZoneProbeReadings } from '../types';
+import type { ProbeReadingPoint, ProbeReadingSource, ZoneProbeReadings } from '../types';
 import type { ProbeWindow } from './probeChart';
 
 const CACHE_LIMIT = 24;
@@ -13,12 +13,48 @@ export function requestedProbeResolution(window: ProbeWindow) {
   return days <= 2 ? 1 : days <= 31 ? 15 : 60;
 }
 
+function sourceOverlaps([start, end]: ProbeReadingSource, window: ProbeWindow) {
+  return end === null ? start >= window.start && start < window.end : start < window.end && end > window.start;
+}
+
+function sourceSumCents(source: ProbeReadingSource): bigint {
+  const value = source[2];
+  const [whole, fraction = ''] = value.replace(/^-/, '').split('.');
+  const cents = BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0'));
+  return value.startsWith('-') ? -cents : cents;
+}
+
+/** Match the server's decimal HALF_UP rounding without accumulating floating-point sums. */
+function sourceMean(sources: ProbeReadingSource[]) {
+  const total = sources.reduce((sum, source) => sum + sourceSumCents(source), 0n);
+  const count = BigInt(sources.reduce((sum, source) => sum + source[3], 0));
+  const magnitude = total < 0n ? -total : total;
+  const rounded = (magnitude * 2n + count) / (count * 2n);
+  return Number(total < 0n ? -rounded : rounded) / 100;
+}
+
 export function projectProbeReadings(data: ZoneProbeReadings, window: ProbeWindow): ZoneProbeReadings {
+  const originalWindow = { start: Date.parse(data.start), end: Date.parse(data.end) };
   return {
     ...data, start: new Date(window.start).toISOString(), end: new Date(window.end).toISOString(),
-    probes: data.probes.map((probe) => ({
-      ...probe, points: probe.points.filter(([time]) => time >= window.start && time < window.end),
-    })),
+    coverage_complete: data.coverage_complete !== false && covers(originalWindow, window),
+    probes: data.probes.map((probe) => {
+      if (!probe.point_sources) return {
+        ...probe, points: probe.points.filter(([time]) => time >= window.start && time < window.end),
+      };
+      const points: ProbeReadingPoint[] = [];
+      const point_sources: ProbeReadingSource[][] = [];
+      for (const [index, point] of probe.points.entries()) {
+        const sources = (probe.point_sources[index] ?? []).filter((source) => sourceOverlaps(source, window));
+        if (!sources.length) continue;
+        const raw = data.resolution_minutes === 1 && sources.length === 1 && sources[0][1] === null;
+        points.push([point[0], sourceMean(sources),
+          raw ? null : Math.min(...sources.map((source) => source[4])),
+          raw ? null : Math.max(...sources.map((source) => source[5]))]);
+        point_sources.push(sources);
+      }
+      return { ...probe, points, point_sources };
+    }),
   };
 }
 

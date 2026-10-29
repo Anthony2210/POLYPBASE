@@ -6,7 +6,11 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Max, Min, OuterRef, Subquery
+from django.db.models import (
+    DateTimeField, DurationField, ExpressionWrapper, F, IntegerField, Max, Min, OuterRef,
+    Subquery, Value,
+)
+from django.db.models.functions import Cast
 from django.utils import timezone
 
 from apps.cultures.models import ThermalZone
@@ -95,22 +99,41 @@ def _number(value):
     return float(Decimal(value).quantize(TWO_PLACES, rounding=ROUND_HALF_UP))
 
 
-@transaction.atomic
-def probe_series(probe, start, end, resolution_minutes):
-    """Return chart points ``[epoch_ms, average, minimum, maximum]``.
+def overlapping_probe_buckets(start, end):
+    """Select stored intervals intersecting the half-open request, on either DB."""
+    duration = ExpressionWrapper(
+        Cast("period_minutes", IntegerField()) * Value(timedelta(minutes=1)),
+        output_field=DurationField(),
+    )
+    return ProbeTemperatureBucket.objects.alias(
+        period_end=ExpressionWrapper(
+            F("period_start") + duration, output_field=DateTimeField(),
+        ),
+    ).filter(period_start__lt=end, period_end__gt=start)
 
-    Per-minute points carry ``None`` for minimum and maximum. Coarser points
-    combine per-minute readings and condensed buckets of the same period.
+
+def probe_series(probe, start, end, resolution_minutes):
+    """Keep the points-only contract for existing direct callers."""
+    return probe_series_with_sources(probe, start, end, resolution_minutes)[0]
+
+
+@transaction.atomic
+def probe_series_with_sources(probe, start, end, resolution_minutes):
+    """Return legacy points and parallel lists of their exact storage sources.
+
+    Sources are [start_ms, end_ms_or_none, sum_string, count, min, max, last_ms].
+    Raw instants lie in [start, end); buckets intersect it by their full stored
+    interval. Bucket statistics are never prorated or assigned sample instants.
     """
     lock_probe_zone(probe)
     minutes = TemperatureMeasurement.objects.filter(
         probe=probe, measured_at__gte=start, measured_at__lt=end
     ).order_by("measured_at").values_list("measured_at", "temperature_c")
-    buckets = ProbeTemperatureBucket.objects.filter(
-        probe=probe, period_start__gte=start, period_start__lt=end
+    buckets = overlapping_probe_buckets(start, end).filter(
+        probe=probe,
     ).order_by("period_start").values_list(
         "period_start", "min_temperature_c", "temperature_sum_c", "max_temperature_c",
-        "measurement_count", "period_minutes",
+        "measurement_count", "period_minutes", "last_measured_at",
     )
 
     # Direct callers also respect the effective storage resolution. API callers
@@ -118,13 +141,18 @@ def probe_series(probe, start, end, resolution_minutes):
     buckets = list(buckets)
     if buckets:
         resolution_minutes = max(resolution_minutes, max(row[5] for row in buckets))
-    if resolution_minutes == 1:
-        return [
-            [int(measured_at.timestamp() * 1000), _number(value), None, None]
-            for measured_at, value in minutes
-        ]
+    if resolution_minutes == 1 and not buckets:
+        points, point_sources = [], []
+        for measured_at, value in minutes:
+            instant = int(measured_at.timestamp() * 1000)
+            number = _number(value)
+            points.append([instant, number, None, None])
+            point_sources.append([[instant, None, str(value), 1, number, number, instant]])
+        return points, point_sources
 
-    groups = defaultdict(lambda: {"min": None, "max": None, "total": Decimal(0), "count": 0})
+    groups = defaultdict(lambda: {
+        "min": None, "max": None, "total": Decimal(0), "count": 0, "sources": [],
+    })
     for measured_at, value in minutes:
         group = groups[_period_start(measured_at, resolution_minutes)]
         value = Decimal(value)
@@ -132,24 +160,35 @@ def probe_series(probe, start, end, resolution_minutes):
         group["max"] = value if group["max"] is None else max(group["max"], value)
         group["total"] += value
         group["count"] += 1
-    for period_start, minimum, total, maximum, count, _minutes in buckets:
+        instant = int(measured_at.timestamp() * 1000)
+        group["sources"].append([
+            instant, None, str(value), 1, _number(value), _number(value), instant,
+        ])
+    for period_start, minimum, total, maximum, count, stored_minutes, last_measured_at in buckets:
         group = groups[_period_start(period_start, resolution_minutes)]
         minimum, maximum = Decimal(minimum), Decimal(maximum)
         group["min"] = minimum if group["min"] is None else min(group["min"], minimum)
         group["max"] = maximum if group["max"] is None else max(group["max"], maximum)
         group["total"] += Decimal(total)
         group["count"] += count
-
-    return [
-        [
+        group["sources"].append([
             int(period_start.timestamp() * 1000),
-            _number(group["total"] / group["count"]),
-            _number(group["min"]),
-            _number(group["max"]),
-        ]
-        for period_start, group in sorted(groups.items())
-        if group["count"]
-    ]
+            int((period_start + timedelta(minutes=stored_minutes)).timestamp() * 1000),
+            str(total), count, _number(minimum), _number(maximum),
+            int(last_measured_at.timestamp() * 1000),
+        ])
+
+    points, point_sources = [], []
+    for period_start, group in sorted(groups.items()):
+        if group["count"]:
+            points.append([
+                int(period_start.timestamp() * 1000),
+                _number(group["total"] / group["count"]),
+                _number(group["min"]),
+                _number(group["max"]),
+            ])
+            point_sources.append(sorted(group["sources"], key=lambda source: source[0]))
+    return points, point_sources
 
 
 @transaction.atomic

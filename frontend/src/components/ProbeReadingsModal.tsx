@@ -65,7 +65,9 @@ export default function ProbeReadingsModal({ zone, onClose, t }: {
   const temperatureDomain = useMemo(() => {
     const values: number[] = [];
     for (const probe of data?.probes ?? []) {
-      for (const [, average, minimum, maximum] of probe.points) values.push(minimum ?? average, maximum ?? average);
+      if (probe.point_sources) {
+        for (const sources of probe.point_sources) for (const source of sources) values.push(source[4], source[5]);
+      } else for (const [, average, minimum, maximum] of probe.points) values.push(minimum ?? average, maximum ?? average);
     }
     return probeTemperatureDomain(values, target);
   }, [data, target]);
@@ -101,9 +103,11 @@ export default function ProbeReadingsModal({ zone, onClose, t }: {
     target: t('targetTemperature'), minimum: t('minTemperature'), maximum: t('maxTemperature'),
     noReadings: t('probeNoReadings'), latest: t('probeLatestInWindow'),
     keyboardDescription: t('probeChartKeyboardDescription'),
+    aggregateAverage: t('probeAggregateAverage'), partialCoverage: t('probePartialCoverage'), previewCoverage: t('probeCoveragePreview'),
+    aggregateCoverage: t('probeAggregateCoverage'), measurementCount: t('probeMeasurementCount'), rawReading: t('probeRawReading'),
     summary: (minimum: string, maximum: string) => t('probeChartSummary').replace('{min}', minimum).replace('{max}', maximum),
   };
-  const probes = data?.probes ?? zone.probes.filter((probe) => probe.is_collected).map((probe) => ({ ...probe, points: [] }));
+  const probes = data?.probes ?? zone.probes.filter((probe) => probe.is_collected).map((probe) => ({ ...probe, points: [], point_sources: undefined }));
 
   return (
     <ModalPortal>
@@ -145,10 +149,10 @@ export default function ProbeReadingsModal({ zone, onClose, t }: {
           <div className="probe-readings-charts" aria-busy={isLoading}>
             {probes.map((probe) => (
               <ProbeTemperatureChart key={probe.id} code={probe.is_active ? probe.code : `${probe.code} (${t('probeInactive')})`}
-                locale={locale} labels={chartLabels} points={probe.points} resolutionMinutes={data?.resolution_minutes ?? 1}
+                locale={locale} labels={chartLabels} points={probe.points} pointSources={probe.point_sources} resolutionMinutes={data?.resolution_minutes ?? 1}
                 target={target} temperatureDomain={temperatureDomain} window={readings.window}
                 cursorTime={cursorTime} onCursorTimeChange={setCursorTime} onZoom={zoomTo} onResetZoom={resetZoom}
-                isInitialLoading={!data && isLoading} />
+                isInitialLoading={!data && isLoading} isPartialPreview={data?.coverage_complete === false} />
             ))}
             {!isLoading && probes.length === 0 ? <p className="probe-readings-state">{t('probeNoCollectedProbe')}</p> : null}
           </div>

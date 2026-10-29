@@ -1189,6 +1189,12 @@ export const fr = {
   probeLastReading: 'Dernière mesure reçue',
   probeNoReadingYet: 'Aucune mesure reçue pour l’instant',
   probeManualFallbackAction: 'Saisir une température à la main',
+  probeAggregateAverage: 'Moyenne de l’agrégat',
+  probePartialCoverage: 'Tranches partiellement affichées : les statistiques complètes peuvent inclure des mesures hors de la sélection.',
+  probeAggregateCoverage: 'Intervalles stockés et instants mesurés',
+  probeMeasurementCount: 'Nombre de mesures',
+  probeRawReading: 'Mesure instantanée',
+  probeCoveragePreview: 'Aperçu partiel : les statistiques ne couvrent pas toute la sélection.',
 } as const;
 
 export type TranslationKey = keyof typeof fr;

@@ -533,11 +533,16 @@ export type ZoneProbeMonitoring = {
 /** One chart point: epoch milliseconds, average, minimum and maximum (null per minute). */
 export type ProbeReadingPoint = [number, number, number | null, number | null];
 
+/** Storage provenance: bounds (null end for an observation), exact sum, count, extrema, last observation. */
+export type ProbeReadingSource = [number, number | null, string, number, number, number, number];
+
 export type ZoneProbeReadings = {
   zone_id: number;
   start: string;
   end: string;
   resolution_minutes: number;
+  /** False only for a local cache preview not covering the entire selected window. */
+  coverage_complete?: boolean;
   target_temperature_c: string | null;
   first_reading_at: string | null;
   last_reading_at: string | null;
@@ -549,6 +554,8 @@ export type ZoneProbeReadings = {
     is_active: boolean;
     external_channel: number | null;
     points: ProbeReadingPoint[];
+    /** Parallel to points; optional for older API responses. */
+    point_sources?: ProbeReadingSource[][];
   }>;
 };
 

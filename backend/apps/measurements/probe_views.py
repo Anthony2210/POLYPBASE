@@ -12,11 +12,11 @@ from rest_framework.views import APIView
 from apps.accounts.permissions import get_active_organization_ids
 from apps.cultures.models import ThermalZone
 
-from .models import ProbeTemperatureBucket
 from .probe_collection import collected_probes
 from .probe_readings import (
     MAX_SERIES_SPAN,
-    probe_series,
+    overlapping_probe_buckets,
+    probe_series_with_sources,
     series_resolution_minutes,
     zone_probe_monitoring,
     zone_reading_extent,
@@ -65,11 +65,23 @@ class ThermalZoneProbeReadingsAPIView(APIView):
             .filter(thermal_zone=zone, organization_id=zone.organization_id)
             .order_by("external_serial", "external_channel", "code")
         )
-        stored_resolution = ProbeTemperatureBucket.objects.filter(
-            probe_id__in=[probe.id for probe in probes], period_start__gte=start, period_start__lt=end,
+        stored_resolution = overlapping_probe_buckets(start, end).filter(
+            probe_id__in=[probe.id for probe in probes],
         ).aggregate(minutes=Max("period_minutes"))["minutes"]
         resolution = max(resolution, stored_resolution or 1)
         first_reading_at, last_reading_at = zone_reading_extent(zone)
+        probe_data = []
+        for probe in probes:
+            points, point_sources = probe_series_with_sources(probe, start, end, resolution)
+            probe_data.append({
+                "id": probe.id,
+                "code": probe.code,
+                "location": probe.location,
+                "is_active": probe.is_active,
+                "external_channel": probe.external_channel,
+                "points": points,
+                "point_sources": point_sources,
+            })
         return Response(
             {
                 "zone_id": zone.id,
@@ -80,16 +92,6 @@ class ThermalZoneProbeReadingsAPIView(APIView):
                 "first_reading_at": first_reading_at,
                 "last_reading_at": last_reading_at,
                 "monitoring": zone_probe_monitoring(zone),
-                "probes": [
-                    {
-                        "id": probe.id,
-                        "code": probe.code,
-                        "location": probe.location,
-                        "is_active": probe.is_active,
-                        "external_channel": probe.external_channel,
-                        "points": probe_series(probe, start, end, resolution),
-                    }
-                    for probe in probes
-                ],
+                "probes": probe_data,
             }
         )

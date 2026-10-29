@@ -558,6 +558,98 @@ test('actual hook changes zone and organization without exposing old cached read
 });
 
 
+const storageSource = (start, end, sum = '0.00', count = 1, low = 0, high = 0, last = start) =>
+  [start, end, sum, count, low, high, last];
+function coverageData(window, sources, resolution = 15) {
+  const data = readings(window, { resolution, points: [[0, 99, 99, 99]] });
+  data.probes[0].point_sources = [sources];
+  return data;
+}
+
+test('storage overlap projection includes either partial boundary and excludes exact contacts', () => {
+  const { projectProbeReadings } = load('../src/utils/probeReadings.ts', clock());
+  const source = storageSource(0, 15 * MINUTE, '0.00', 2);
+  const data = coverageData(range(-DAY, 2 * DAY), [source]);
+  for (const [start, end, expected] of [[7, 30, 1], [-7, 7, 1], [7, 12, 1], [0, 15, 1], [15, 30, 0], [-15, 0, 0], [20, 30, 0]]) {
+    const projected = projectProbeReadings(data, { start: start * MINUTE, end: end * MINUTE });
+    assert.equal(projected.probes[0].points.length, expected);
+    assert.equal(projected.probes[0].point_sources.length, expected);
+    if (expected) {
+      assert.deepEqual(plain(projected.probes[0].points[0]), [0, 0, 0, 0]);
+      assert.deepEqual(plain(projected.probes[0].point_sources[0]), [source]);
+    }
+  }
+  assert.deepEqual(data.probes[0].points[0], [0, 99, 99, 99], 'Projection must not mutate the source response');
+});
+
+test('hourly projection recomputes exact weighted statistics from selected full buckets and raw instants', () => {
+  const { projectProbeReadings } = load('../src/utils/probeReadings.ts', clock());
+  const sources = [storageSource(0, 15 * MINUTE, '0.02', 3, 0, 0.02),
+    storageSource(30 * MINUTE, 45 * MINUTE, '10.00', 1, 10, 10),
+    storageSource(46 * MINUTE, null, '20.00', 1, 20, 20),
+    storageSource(47 * MINUTE, null, '99.00', 1, 99, 99)];
+  const data = coverageData(range(0, 60 * MINUTE), sources, 60);
+  const projected = projectProbeReadings(data, { start: 7 * MINUTE, end: 47 * MINUTE });
+  assert.deepEqual(plain(projected.probes[0].points), [[0, 6, 0, 20]]);
+  assert.deepEqual(plain(projected.probes[0].point_sources), [sources.slice(0, 3)]);
+  assert.equal(projected.resolution_minutes, 60, 'Coarse preview must not claim finer precision');
+  const gap = projectProbeReadings(data, { start: 15 * MINUTE, end: 30 * MINUTE });
+  assert.deepEqual(plain(gap.probes[0].points), [], 'A group boundary or enclosing range is not data coverage');
+});
+
+test('source mean uses HALF_UP for positive and negative decimal ties without losing zero', () => {
+  const { projectProbeReadings } = load('../src/utils/probeReadings.ts', clock());
+  for (const [sum, expected] of [['0.01', 0.01], ['-0.01', -0.01], ['0.00', 0]]) {
+    const data = coverageData(range(), [storageSource(0, 15 * MINUTE, sum, 2, -1, 1)]);
+    assert.equal(projectProbeReadings(data, range()).probes[0].points[0][1], expected);
+  }
+});
+
+test('raw sources retain actual instants but grouped point timestamps never move to a window boundary', () => {
+  const { projectProbeReadings } = load('../src/utils/probeReadings.ts', clock());
+  const sources = [storageSource(6 * MINUTE, null, '0.00', 1), storageSource(9 * MINUTE, null, '2.00', 1, 2, 2)];
+  const data = coverageData(range(), sources);
+  const result = projectProbeReadings(data, { start: 7 * MINUTE, end: 10 * MINUTE });
+  assert.deepEqual(plain(result.probes[0].points), [[0, 2, 2, 2]]);
+  assert.deepEqual(plain(result.probes[0].point_sources), [[sources[1]]]);
+});
+
+test('cache previews preserve partial buckets and flag incomplete pan coverage, without false fine readiness', () => {
+  const { ProbeReadingsCache } = load('../src/utils/probeReadings.ts', clock());
+  const cache = new ProbeReadingsCache(() => 0);
+  const outer = range(0, 7 * DAY);
+  const source = storageSource(0, 15 * MINUTE);
+  cache.put(outer, coverageData(outer, [source]));
+  const zoom = { start: 7 * MINUTE, end: 30 * MINUTE };
+  assert.equal(cache.preview(zoom).probes[0].point_sources[0][0][0], 0);
+  assert.equal(cache.preview(zoom).coverage_complete, true);
+  assert.equal(cache.ready(zoom), false, '15-minute preview cannot satisfy a finer request');
+  assert.equal(cache.preview({ start: -MINUTE, end: 30 * MINUTE }).coverage_complete, false);
+  assert.equal(cache.ready(outer), true);
+  const covered = { start: 7 * MINUTE, end: 4 * DAY };
+  assert.equal(cache.ready(covered), true, 'Same-resolution covered response can be reprojected');
+  for (let index = 0; index < 3; index++) {
+    const preview = cache.preview(zoom);
+    assert.equal(preview.probes[0].point_sources[0].length, 1, 'Repeated preview must not duplicate a source');
+  }
+});
+
+test('loader reprojects actual API source metadata on receipt and retains bucket previews during finer fetch', async () => {
+  const h = harness(); const outer = range(0, 7 * DAY);
+  h.select(outer);
+  h.calls[0].resolve(coverageData(outer, [storageSource(0, 15 * MINUTE)], 15)); await flush();
+  const zoom = { start: 7 * MINUTE, end: 30 * MINUTE };
+  h.select(zoom);
+  assert.equal(h.loader.read(zoom).isLoading, true);
+  assert.deepEqual(plain(h.loader.read(zoom).data.probes[0].points), [[0, 0, 0, 0]]);
+  h.timers.advance(h.api.PROBE_REQUEST_DEBOUNCE_MS);
+  assert.equal(h.calls.length, 2);
+  h.calls[1].resolve(coverageData(zoom, [storageSource(0, 15 * MINUTE)], 15)); await flush();
+  assert.equal(h.loader.read(zoom).isLoading, false);
+  assert.equal(h.loader.read(zoom).data.probes[0].point_sources[0][0][0], 0);
+  h.loader.dispose();
+});
+
 test('reselecting the same expired window revalidates while preserving curves and deduplicating pending work', async () => {
   const h = harness(); const window = range();
   h.select(window); await h.answer(0);

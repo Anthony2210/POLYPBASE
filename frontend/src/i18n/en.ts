@@ -1189,4 +1189,10 @@ export const en: Record<TranslationKey, string> = {
   probeLastReading: 'Last reading received',
   probeNoReadingYet: 'No reading received yet',
   probeManualFallbackAction: 'Enter a temperature manually',
+  probeAggregateAverage: 'Aggregate average',
+  probePartialCoverage: 'Partially displayed buckets: complete statistics may include observations outside the selection.',
+  probeAggregateCoverage: 'Stored intervals and measured instants',
+  probeMeasurementCount: 'Measurement count',
+  probeRawReading: 'Instantaneous measurement',
+  probeCoveragePreview: 'Partial preview: statistics do not cover the entire selection.',
 };

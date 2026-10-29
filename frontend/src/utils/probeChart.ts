@@ -1,3 +1,5 @@
+import type { ProbeReadingPoint, ProbeReadingSource } from '../types';
+
 export type ProbePeriodId = '24h' | '7d' | '30d' | '90d';
 
 export const PROBE_PERIODS: Array<{ id: ProbePeriodId; hours: number }> = [
@@ -105,6 +107,55 @@ export function summarizeProbePoints(points: ReadonlyArray<readonly [number, num
     maximum = Math.max(maximum, high ?? average);
   }
   return { minimum, maximum, latest: points[points.length - 1] };
+}
+
+export type ProbeCoveragePoint = {
+  point: ProbeReadingPoint;
+  sources: ProbeReadingSource[];
+  aggregate: boolean;
+  partial: boolean;
+  count: number;
+  lastMeasured: number;
+  anchors: number[];
+};
+
+/** Keep source bounds intact; only inspection anchors are clipped to the viewport. */
+export function probeCoveragePoints(
+  points: ProbeReadingPoint[], sources: ProbeReadingSource[][], window: ProbeWindow,
+): ProbeCoveragePoint[] {
+  return points.flatMap((point, index) => {
+    const contributing = sources[index] ?? [];
+    const visible = contributing.filter(([start, end]) => end === null
+      ? start >= window.start && start < window.end
+      : start < window.end && end > window.start);
+    if (!visible.length) return [];
+    return [{
+      point, sources: contributing,
+      aggregate: contributing.length !== 1 || contributing[0][1] !== null,
+      partial: contributing.some(([start, end]) => end !== null && (start < window.start || end > window.end)),
+      count: contributing.reduce((total, source) => total + source[3], 0),
+      lastMeasured: Math.max(...contributing.map((source) => source[6])),
+      anchors: visible.map(([start]) => Math.max(window.start, start)),
+    }];
+  });
+}
+
+/** Unknown gaps are never treated as coverage, including gaps within a group. */
+export function probeCoverageAt(entries: ProbeCoveragePoint[], time: number) {
+  return entries.find((entry) => entry.sources.some(([start, end]) => end === null
+    ? Math.abs(start - time) < 1 : time >= start && time < end)) ?? null;
+}
+
+export function summarizeProbeCoverage(entries: ProbeCoveragePoint[]) {
+  if (!entries.length) return null;
+  const latest = entries.reduce((a, b) => a.lastMeasured >= b.lastMeasured ? a : b);
+  return {
+    minimum: Math.min(...entries.flatMap((entry) => entry.sources.map((source) => source[4]))),
+    maximum: Math.max(...entries.flatMap((entry) => entry.sources.map((source) => source[5]))),
+    latest: latest.point,
+    latestAggregate: latest.aggregate,
+    partial: entries.some((entry) => entry.partial),
+  };
 }
 
 /** A response must never be plotted against another request's time axis. */
