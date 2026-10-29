@@ -22,8 +22,13 @@ HEAD_2 = "2" * 40
 SHEET = "a" * 64
 B01 = "B01-2026-10-28"
 B02 = "B02-2026-11-05"
+B03 = "B03-2026-11-06"
+REAL_B02 = "B02-2026-10-29"
+REAL_B03 = "B03-2026-10-29"
 # Canonical digest of the 34 B01 rows (parsed fields, independent of line endings and of later batches).
 B01_ROWS_SHA256 = "938718e0b044503fd19a48bef9c013ccbd2de4653277f05b9b54aba078c434be"
+# Same canonical digest for the 86 recorded B02 rows (T035-T120).
+B02_ROWS_SHA256 = "db74004c80933dfc216dd9e4044f277cb4b5bfc892dbbc5b46c454720893ad0e"
 
 
 def rows_digest(rows):
@@ -44,6 +49,10 @@ def event(entry, batch, key, initial, final, status="APPLIED", surface="react", 
         "final_value": final, "sheet_value": "", "decision_ref": "test", "status": status,
         "reason": "synthetic", "baseline_git_head": head, "baseline_sheet_sha256": SHEET,
     }
+
+
+def removal(entry, batch, key, initial, language="EN", **overrides):
+    return dict(event(entry, batch, key, initial, "", status="REMOVED", language=language), **overrides)
 
 
 def fake_sources(values):
@@ -290,6 +299,220 @@ class SyntheticHistoryTests(unittest.TestCase):
         self.assertRejected(rows, {("react", "boxes", "JA"): "容器"}, "unsupported language")
 
 
+class RemovedStatusTests(unittest.TestCase):
+    """REMOVED records an intentional React catalog deletion, paired in FR and EN."""
+
+    def errors(self, rows, sources):
+        return reg.validate(roundtrip(rows), fake_sources(sources))
+
+    def assertRejected(self, rows, sources, fragment):
+        errors = self.errors(rows, sources)
+        self.assertTrue(any(fragment in error for error in errors), errors)
+
+    def test_paired_removal_of_absent_keys_is_valid(self):
+        rows = [removal(1, B03, "oldKey", "Ancien", "FR"), removal(2, B03, "oldKey", "Old", "EN")]
+        self.assertEqual(self.errors(rows, {("react", "otherKey", "EN"): "Other"}), [])
+
+    def test_removal_continues_every_previous_value_status(self):
+        for status in ("APPLIED", "ALREADY_MATCHING", "PRESERVED", "DEFERRED"):
+            with self.subTest(status=status):
+                initial = "Before" if status == "APPLIED" else "Old"
+                rows = [
+                    event(1, B01, "oldKey", "Ancien", "Ancien", status="DEFERRED", language="FR"),
+                    event(2, B01, "oldKey", initial, "Old", status=status),
+                    removal(3, B03, "oldKey", "Ancien", "FR"),
+                    removal(4, B03, "oldKey", "Old", "EN"),
+                ]
+                self.assertEqual(self.errors(rows, {}), [])
+                broken = rows[:3] + [removal(4, B03, "oldKey", "Something else", "EN")]
+                self.assertRejected(broken, {}, "does not continue")
+
+    def test_removal_keeps_placeholders_out_of_the_comparison(self):
+        rows = [removal(1, B03, "countKey", "{count} boîtes", "FR"), removal(2, B03, "countKey", "{count} boxes")]
+        self.assertEqual(self.errors(rows, {}), [])
+
+    def test_initial_value_is_required(self):
+        rows = [removal(1, B03, "oldKey", "", "FR"), removal(2, B03, "oldKey", "Old")]
+        self.assertRejected(rows, {}, "REMOVED requires the exact pre-removal value")
+
+    def test_final_value_must_be_empty(self):
+        rows = [removal(1, B03, "oldKey", "Ancien", "FR", final_value="Ancien"), removal(2, B03, "oldKey", "Old")]
+        self.assertRejected(rows, {}, "REMOVED must leave final_value empty")
+
+    def test_sheet_value_is_not_invented(self):
+        rows = [removal(1, B03, "oldKey", "Ancien", "FR", sheet_value="Ancien"), removal(2, B03, "oldKey", "Old")]
+        self.assertRejected(rows, {}, "REMOVED must not carry a sheet_value")
+
+    def test_only_react_surface_is_supported(self):
+        for surface in ("django", "inline"):
+            with self.subTest(surface=surface):
+                rows = [dict(removal(1, B03, "Old", "Ancien", "FR"), surface=surface),
+                        dict(removal(2, B03, "Old", "Old"), surface=surface)]
+                self.assertRejected(rows, {}, "REMOVED is only supported for the React catalog surface")
+
+    def test_source_file_must_be_the_catalog_of_the_language(self):
+        rows = [removal(1, B03, "oldKey", "Ancien", "FR", source_file="frontend/src/i18n/en.ts"),
+                removal(2, B03, "oldKey", "Old")]
+        self.assertRejected(rows, {}, "REMOVED must name the FR React catalog")
+
+    def test_key_still_present_is_rejected(self):
+        rows = [removal(1, B03, "oldKey", "Ancien", "FR"), removal(2, B03, "oldKey", "Old")]
+        self.assertRejected(rows, {("react", "oldKey", "EN"): "Old"}, "marked REMOVED but present")
+
+    def test_removed_key_cannot_silently_reappear_later(self):
+        rows = [removal(1, B03, "oldKey", "Ancien", "FR"), removal(2, B03, "oldKey", "Old")]
+        # Re-added with a new wording but no register event: the latest event is still REMOVED.
+        self.assertRejected(rows, {("react", "oldKey", "FR"): "Nouveau"}, "cannot reappear")
+
+    def test_unpaired_removal_is_rejected(self):
+        self.assertRejected([removal(1, B03, "oldKey", "Old")], {}, "exactly one FR and one EN")
+        self.assertRejected([removal(1, B03, "oldKey", "Ancien", "FR")], {}, "exactly one FR and one EN")
+
+    def test_pair_split_across_batches_is_rejected(self):
+        rows = [removal(1, B03, "oldKey", "Ancien", "FR"), removal(2, "B04-2026-11-07", "oldKey", "Old")]
+        self.assertRejected(rows, {}, "exactly one FR and one EN")
+
+    def test_pair_must_be_the_same_key(self):
+        rows = [removal(1, B03, "oldKey", "Ancien", "FR"), removal(2, B03, "otherKey", "Old")]
+        self.assertRejected(rows, {}, "exactly one FR and one EN")
+
+    def test_duplicate_removal_in_one_batch_is_rejected(self):
+        rows = [removal(1, B03, "oldKey", "Ancien", "FR"), removal(2, B03, "oldKey", "Old"),
+                removal(3, B03, "oldKey", "Old")]
+        self.assertRejected(rows, {}, "duplicate event")
+
+    def test_later_event_contradicting_a_removal_is_rejected(self):
+        b04 = "B04-2026-11-07"
+        base = [removal(1, B03, "oldKey", "Ancien", "FR"), removal(2, B03, "oldKey", "Old")]
+        for status, initial, final in (("APPLIED", "", "Back"), ("APPLIED", "Old", "Back"),
+                                       ("DEFERRED", "Old", "Old"), ("ALREADY_MATCHING", "Old", "Old"),
+                                       ("PRESERVED", "Old", "Old")):
+            with self.subTest(status=status, initial=initial):
+                later = event(3, b04, "oldKey", initial, final, status=status)
+                self.assertRejected(base + [later], {("react", "oldKey", "EN"): final}, "contradicts the removal")
+        again = [removal(3, b04, "oldKey", "Ancien", "FR"), removal(4, b04, "oldKey", "Old")]
+        self.assertRejected(base + again, {}, "contradicts the removal")
+
+    def test_not_found_may_confirm_a_removal(self):
+        rows = [removal(1, B03, "oldKey", "Ancien", "FR"), removal(2, B03, "oldKey", "Old"),
+                event(3, "B04-2026-11-07", "oldKey", "", "", status="NOT_FOUND")]
+        self.assertEqual(self.errors(rows, {}), [])
+        self.assertRejected(rows, {("react", "oldKey", "EN"): "Old"}, "marked NOT_FOUND but present")
+
+    def test_removal_cannot_follow_absence(self):
+        rows = [event(1, B01, "oldKey", "", "", status="NOT_FOUND"),
+                removal(2, B03, "oldKey", "Ancien", "FR"), removal(3, B03, "oldKey", "Old")]
+        self.assertRejected(rows, {}, "does not continue")
+
+    def test_unrelated_parity_and_placeholder_checks_remain(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalogs = root / "frontend/src/i18n"
+            catalogs.mkdir(parents=True)
+            (catalogs / "fr.ts").write_text("export const fr = { a: '{count}', b: 'B' } as const;\n", encoding="utf-8")
+            (catalogs / "en.ts").write_text("export const en = { a: '{zone}' };\n", encoding="utf-8")
+            with patch.object(reg, "ROOT", root):
+                errors = reg.check_catalog_parity()
+        self.assertTrue(any("keys differ" in error for error in errors), errors)
+        self.assertTrue(any("placeholders differ for a" in error for error in errors), errors)
+
+
+class CatalogParserTests(unittest.TestCase):
+    """Presence checks must not be bypassed by catalog formatting: parse exactly or fail closed."""
+
+    def parse(self, body, language="en", header="", suffix=""):
+        return reg.parse_catalog(f"{header}export const {language} = {{\n{body}\n}} as const;\n{suffix}", language)
+
+    def test_real_catalog_shapes_are_accepted(self):
+        text = ("import type { TranslationKey } from './fr';\n\n"
+                "export const en: Record<TranslationKey, string> = {\n  a: 'A',\n    b: \"B\",\n"
+                "  // comment: 'ignored'\n  /* hidden: 'no' */ c: `C`,\n};\n")
+        self.assertEqual(reg.parse_catalog(text, "en"), {"a": "A", "b": "B", "c": "C"})
+        fr = "export const fr = {\n  a: 'A',\n} as const;\n\nexport type TranslationKey = keyof typeof fr;\n"
+        self.assertEqual(reg.parse_catalog(fr, "fr"), {"a": "A"})
+
+    def test_unusual_formatting_is_still_detected(self):
+        cases = {
+            "multiline entry": "oldKey:\n    'Old',",
+            "two entries on one line": "a: 'A', oldKey: 'Old',",
+            "quoted key": "'oldKey': 'Old',",
+            "double-quoted key": "\"oldKey\": \"Old\"",
+            "escaped key": "'old\\u004bey': 'Old'",
+            "no trailing comma": "a: 'A', oldKey: 'Old'",
+            "comment between tokens": "oldKey /* why */ : // value\n 'Old',",
+            "template value": "oldKey: `Old`,",
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                self.assertEqual(self.parse(body).get("oldKey"), "Old")
+
+    def test_escapes_and_zero_are_decoded(self):
+        values = self.parse("zero: '0', quote: 'l\\'aquarium', nl: 'a\\nb', hex: '\\x41', u: '\\u00e9\\u{1F600}'")
+        self.assertEqual(values, {"zero": "0", "quote": "l'aquarium", "nl": "a\nb", "hex": "A", "u": "é\U0001F600"})
+
+    def test_unsupported_constructs_fail_closed(self):
+        cases = {
+            "spread": "...other, a: 'A'",
+            "computed key": "['oldKey']: 'Old'",
+            "numeric key": "0: 'Zero'",
+            "identifier value": "oldKey: other",
+            "number value": "oldKey: 0",
+            "template substitution": "oldKey: `Old ${x}`",
+            "concatenation": "oldKey: 'O' + 'ld'",
+            "shorthand": "oldKey",
+            "method": "oldKey() { return 'Old'; }",
+            "duplicate key": "oldKey: 'One', 'oldKey': 'Two'",
+            "empty key": "'': 'Empty'",
+            "missing comma": "a: 'A' oldKey: 'Old'",
+            "unicode escape in identifier": "old\\u004bey: 'Old'",
+            "legacy octal escape": "oldKey: '\\1'",
+            "unterminated string": "oldKey: 'Old",
+        }
+        for label, body in cases.items():
+            with self.subTest(label=label):
+                with self.assertRaises(reg.CatalogFormatError):
+                    self.parse(body)
+
+    def test_code_outside_the_catalog_fails_closed(self):
+        cases = {
+            "late assignment": ("", "Object.assign(en, { oldKey: 'Old' });\n"),
+            "second export": ("", "export const extra = { oldKey: 'Old' };\n"),
+            "value import": ("import { other } from './other';\n", ""),
+            "statement before": ("const x = 'oldKey';\n", ""),
+        }
+        for label, (header, suffix) in cases.items():
+            with self.subTest(label=label):
+                with self.assertRaises(reg.CatalogFormatError):
+                    self.parse("a: 'A'", header=header, suffix=suffix)
+        with self.assertRaises(reg.CatalogFormatError):
+            reg.parse_catalog("export const fr = ({ a: 'A' });", "fr")
+        with self.assertRaises(reg.CatalogFormatError):
+            reg.parse_catalog("export let en = { a: 'A' };", "en")
+        with self.assertRaises(reg.CatalogFormatError):
+            reg.parse_catalog("export const fr = { a: 'A' };", "en")
+
+    def test_removed_presence_uses_the_strict_parser(self):
+        rows = [removal(1, B03, "oldKey", "Ancien", "FR"), removal(2, B03, "oldKey", "Old")]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalogs = root / "frontend/src/i18n"
+            catalogs.mkdir(parents=True)
+            (catalogs / "fr.ts").write_text("export const fr = { a: 'A' } as const;\n", encoding="utf-8")
+            with patch.object(reg, "ROOT", root):
+                for label, entry in (("plain", "  oldKey: 'Old',"), ("multiline", "  oldKey:\n    'Old',"),
+                                     ("same line", "  b: 'B', oldKey: 'Old',"), ("quoted", "  \"oldKey\": 'Old',")):
+                    with self.subTest(label=label):
+                        (catalogs / "en.ts").write_text(f"export const en = {{\n  a: 'A',\n{entry}\n}};\n",
+                                                        encoding="utf-8")
+                        self.assertTrue(any("marked REMOVED but present" in error
+                                            for error in reg.validate(roundtrip(rows))))
+                (catalogs / "en.ts").write_text("export const en = { a: 'A' };\n", encoding="utf-8")
+                self.assertEqual(reg.validate(roundtrip(rows)), [])
+                (catalogs / "en.ts").write_text("export const en = { a: 'A', ...extra };\n", encoding="utf-8")
+                with self.assertRaises(reg.CatalogFormatError):
+                    reg.validate(roundtrip(rows))
+
+
 class RealRegisterTests(unittest.TestCase):
     def test_h_b01_register_is_unchanged_and_valid(self):
         rows = reg.load_register()
@@ -299,6 +522,32 @@ class RealRegisterTests(unittest.TestCase):
         self.assertEqual(rows_digest(b01), B01_ROWS_SHA256, "B01 history was modified")
         self.assertEqual(reg.validate(rows), [])
         self.assertEqual(reg.check_catalog_parity(), [])
+
+    def test_h_b02_register_is_unchanged(self):
+        rows = reg.load_register()
+        b02 = [row for row in rows if row["batch"] == REAL_B02]
+        self.assertEqual(len(b02), 86)
+        self.assertEqual(rows[34:120], b02, "B02 rows must directly follow B01 and stay contiguous")
+        self.assertEqual([b02[0]["entry_id"], b02[-1]["entry_id"]], ["T035", "T120"])
+        self.assertEqual(rows_digest(b02), B02_ROWS_SHA256, "B02 history was modified")
+
+    def test_h_corrupted_copy_of_b02_is_detected(self):
+        b02 = [dict(row) for row in reg.load_register() if row["batch"] == REAL_B02]
+        b02[-1]["reason"] += " edited"
+        self.assertNotEqual(rows_digest(b02), B02_ROWS_SHA256)
+
+    def test_h_b03_removals_are_paired_and_absent(self):
+        rows = reg.load_register()
+        b03 = [row for row in rows if row["batch"] == REAL_B03]
+        self.assertEqual(rows[120:], b03, "B03 rows must directly follow B02")
+        self.assertEqual({row["status"] for row in b03}, {"REMOVED"})
+        keys = {language: {row["key_or_msgid"] for row in b03 if row["language"] == language}
+                for language in ("FR", "EN")}
+        self.assertEqual(len(b03), 320)
+        self.assertEqual(len(keys["FR"]), 160)
+        self.assertEqual(keys["FR"], keys["EN"])
+        for language, path in reg.REACT_CATALOGS.items():
+            self.assertFalse(keys[language] & set(reg.read_catalog(reg.ROOT / path)))
 
     def test_h_corrupted_copy_of_b01_is_rejected(self):
         rows = reg.load_register()

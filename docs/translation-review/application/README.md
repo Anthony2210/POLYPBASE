@@ -30,6 +30,7 @@ Statuts :
 - `PRESERVED` : la valeur diffère de la feuille et est volontairement conservée par décision.
 - `DEFERRED` : examiné, non modifié faute d'approbation applicative ou d'usage réel ; à reprendre.
 - `NOT_FOUND` : la clé ou le msgid n'existe pas dans la source indiquée. `initial_value` et `final_value` restent vides (la chaîne vide représente l'absence). Restriction temporaire : `NOT_FOUND` est refusé pour `surface=inline`, car le vérificateur ne sait pas prouver de façon fiable qu'une chaîne inline est absente d'un fichier. Il reste vérifié pour `react` (clé absente du catalogue) et `django` (aucune entrée dans le `.po`). Cette restriction sera levée seulement avec une détection de présence fiable au niveau source.
+- `REMOVED` (depuis B03) : la clé a été volontairement supprimée d'un catalogue React. Réservé à `surface=react`, avec le catalogue de la langue (`frontend/src/i18n/fr.ts` ou `en.ts`). `initial_value` est la valeur exacte avant suppression, non vide ; `final_value` est vide et signifie que l'identité est absente ; `sheet_value` reste vide. La suppression FR et la suppression EN d'une même clé forment une paire dans le même lot. Seul `NOT_FOUND` peut suivre un `REMOVED` : tout autre événement, y compris un second `REMOVED`, contredit la suppression. Une clé dont le dernier événement est `REMOVED` et qui réapparaît dans le catalogue est rejetée. Restaurer une clé demandera un nouveau statut explicite.
 
 ## Lot B01 (2026-10-28) en bref
 
@@ -48,14 +49,15 @@ Statuts :
 
 ## Historique en ajout seul
 
-Le registre est un journal d'événements. Les lignes d'un lot déjà enregistré (dont les 34 lignes de B01 et leurs références de décision) ne sont jamais modifiées, réordonnées ni supprimées. Une erreur se corrige par un nouvel événement dans un lot suivant. Le test `test_h_b01_register_is_unchanged_and_valid` fige une empreinte canonique des 34 lignes B01 (valeurs des champs, indépendante des fins de ligne et des lots ajoutés ensuite) et vérifie qu'elles restent en tête du fichier. Ajouter un lot ne demande donc pas de toucher ce test ; modifier B01 le fait échouer.
+Le registre est un journal d'événements. Les lignes d'un lot déjà enregistré (dont les 34 lignes de B01 et leurs références de décision) ne sont jamais modifiées, réordonnées ni supprimées. Une erreur se corrige par un nouvel événement dans un lot suivant. Le test `test_h_b01_register_is_unchanged_and_valid` fige une empreinte canonique des 34 lignes B01 (valeurs des champs, indépendante des fins de ligne et des lots ajoutés ensuite) et vérifie qu'elles restent en tête du fichier. Ajouter un lot ne demande donc pas de toucher ce test ; modifier B01 le fait échouer. `test_h_b02_register_is_unchanged` fige de la même façon les 86 lignes B02 (T035–T120), juste après B01.
 
 Règles vérifiées par `check_register.py` :
 
 - **Identité** d'un événement : `surface` + `key_or_msgid` + `language` + `source_file`. Une même clé sur deux surfaces ou dans deux langues forme deux historiques indépendants.
 - **Un seul événement par identité et par lot**, même identique : un doublon ou une contradiction dans un lot est rejeté et ne peut pas masquer l'événement précédent.
 - **Chronologie explicite** : `batch` suit `Bnn-AAAA-MM-JJ`. Chaque lot forme un bloc contigu ; les blocs se suivent par numéro strictement croissant et date non décroissante ; un numéro ne désigne qu'un seul lot ; `entry_id` (`Tnnn`) croît strictement dans l'ordre du fichier ; un lot déclare un seul `baseline_git_head`. Si l'ordre est invalide ou ambigu, la continuité n'est pas évaluée et le registre est rejeté.
-- **Continuité** : pour deux événements successifs d'une même identité, `initial_value` du nouveau égale `final_value` du précédent. `APPLIED` exige un changement de valeur ; `ALREADY_MATCHING`, `PRESERVED` et `DEFERRED` reportent la valeur sans la changer ; `NOT_FOUND` a des valeurs vides, et l'événement suivant doit partir de l'absence.
+- **Continuité** : pour deux événements successifs d'une même identité, `initial_value` du nouveau égale `final_value` du précédent. `APPLIED` exige un changement de valeur ; `ALREADY_MATCHING`, `PRESERVED` et `DEFERRED` reportent la valeur sans la changer ; `NOT_FOUND` a des valeurs vides, et l'événement suivant doit partir de l'absence ; `REMOVED` part de la dernière valeur connue et ne peut être suivi que d'un `NOT_FOUND`.
+- **Lecture des catalogues React** : analyse lexicale stricte, sans exécution. Seule la forme réelle des catalogues est acceptée (imports de types, un unique `export const` d'objet littéral, clés identifiants ou chaînes, valeurs chaînes, commentaires). Toute autre construction (spread, clé calculée, valeur non littérale, interpolation, code hors de l'objet) fait échouer le contrôle : une mise en forme inhabituelle ne peut pas faire passer une clé présente pour absente.
 - **État courant** : seul le dernier événement de chaque identité est comparé au code. Un ancien `final_value` peut différer du code actuel si un événement ultérieur l'explique.
 - Statuts, surfaces, langues FR/EN uniquement, empreintes, variables `{x}` conservées avec leur multiplicité, parité des clés et variables FR/EN des catalogues.
 
@@ -91,3 +93,12 @@ Restent également hors correction : `movementErrorForbidden` partagé entre 401
 - Aucun bannissement global de `Organization`, `Subculture` ou `Measurement`. Les recherches terminologiques générales et la classification de nouveaux refus restent consultatives.
 
 Les commandes de validation sont dans `docs/context/development-deployment.md`. Pour une modification future, vérifier aussi le diff FR/EN contre les nouveaux événements : le checker contrôle les identités enregistrées mais ne prouve pas à lui seul l'exhaustivité du diff. Aucune suppression ou restauration de clé, aucun statut `REMOVED`, aucune synchronisation de feuille ni modification japonaise dans B02.
+
+## Lot B03 (2026-10-29)
+
+Baseline Git : `f50765ee07a8e6add7db5b11652f4e141acc194d`. Les 120 événements B01/B02 restent inchangés ; B03 ajoute **320 événements `REMOVED`, T121–T440**, un par clé et par langue, FR puis EN pour chaque clé.
+
+- Suppression de **160 clés React inutilisées** dans `fr.ts` et `en.ts` : 1 353 → 1 193 clés par langue. Les autres paires clé/valeur, leur ordre et leur formulation sont inchangés ; aucun composant applicatif n'est modifié.
+- Ensemble exact autorisé par la demande du writer B03 (`B03-safe-removal`), revalidé avant suppression par AST TypeScript sur `frontend/src` et `frontend/scripts` : aucune chaîne, aucun identifiant, aucun fragment de template, aucune concaténation ni expression régulière ne désigne ces clés ; les appels de traduction dynamiques et les six chemins de traducteur non typés tirent leurs clés de tables littérales. Les occurrences de `prototype` sont des accès `Object.prototype`.
+- `initial_value` reprend la valeur exacte avant suppression ; `sheet_value` reste vide ; `baseline_sheet_sha256` conserve la référence historique figée de B01, sans nouvelle lecture ni approbation de feuille.
+- Hors périmètre, conservés : les 132 clés `csv*` encore utilisées par `MeasurementImportPanel` et ses tests, `auditSummaryAlertResolved`, `adminTransferText`, `manualTemperatureForbidden`, les candidats utilisés seulement par des tests, les autres candidats réservés à des lots ultérieurs, les entrées gettext Django et les traductions différées de B02. Aucune règle bloquante générale sur les clés inutilisées n'est introduite, et les traducteurs non typés ne sont pas retypés.
