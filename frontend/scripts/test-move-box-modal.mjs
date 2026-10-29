@@ -107,7 +107,7 @@ const originalLabels = {
     'Ex. changement de température, rangement, manipulation', 'Historique des emplacements', 'actuel',
     'date de fin inconnue', 'Aucun historique d’emplacement pour cette boîte.', 'Annuler', 'Déplacer',
     'Enregistrement...', 'Sans emplacement'],
-  en: ['Move box', 'Current zone', 'New zone', 'Movement date', 'Note',
+  en: ['Move box', 'Current location', 'New zone', 'Movement date', 'Note',
     'For example, temperature change, storage, handling', 'Location history', 'current',
     'end date unknown', 'No location history for this box.', 'Cancel', 'Move', 'Saving...', 'No zone'],
 };

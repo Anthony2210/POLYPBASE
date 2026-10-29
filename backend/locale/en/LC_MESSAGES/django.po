@@ -44,7 +44,7 @@ msgid "The parent box is outside the active organization."
 msgstr "The parent box is outside the active organization."
 
 msgid "This account cannot create subculture events."
-msgstr "This account cannot create subculture events."
+msgstr "This account cannot create transplant events. Please contact your administrator."
 
 msgid "Only an active box can be subcultured."
 msgstr "Only an active box can be subcultured."
@@ -97,6 +97,14 @@ msgstr "My profile"
 
 msgid "Utilisateur :"
 msgstr "User:"
+
+#: apps/accounts/templates/accounts/account_settings.html
+msgid "Nom :"
+msgstr "Name:"
+
+#: apps/accounts/templates/accounts/account_settings.html
+msgid "Email :"
+msgstr "Email:"
 
 msgid "Préférences"
 msgstr "Preferences"
@@ -334,3 +342,11 @@ msgstr "Mortality"
 
 msgid "Saisie manuelle"
 msgstr "Manual entry"
+
+#: apps/cultures/models.py
+msgid "À vérifier"
+msgstr "Pending"
+
+#: apps/measurements/models.py
+msgid "Duplicate measurement evidence is read-only."
+msgstr "Duplicate record evidence is read-only."

@@ -282,7 +282,7 @@ test('raw is_responsable wording never reaches the interface', () => {
   const keyLabel = audit.getAuditMetadataKeyLabel('is_responsable', tFr);
   assert.equal(keyLabel, 'Statut Responsable');
   assert.equal(keyLabel.includes('is_responsable'), false);
-  assert.equal(audit.getAuditMetadataKeyLabel('is_responsable', tEn), 'Responsable status');
+  assert.equal(audit.getAuditMetadataKeyLabel('is_responsable', tEn), 'Manager status');
   assert.equal(audit.formatAuditMetadataValue(true, tFr), 'Oui');
 });
 

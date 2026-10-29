@@ -41,10 +41,10 @@ msgid "The current polyp state changed. Refresh the parent box."
 msgstr "Le nombre actuel de polypes a changé. Rechargez la boîte parent."
 
 msgid "The parent box is outside the active organization."
-msgstr "La boîte parent n'appartient pas à l'institution active."
+msgstr "La boîte parent n'appartient pas à la structure active."
 
 msgid "This account cannot create subculture events."
-msgstr "Ce compte ne peut pas effectuer de repiquage."
+msgstr "Ce compte ne peut pas effectuer de repiquage. Merci de contacter un administrateur."
 
 msgid "Only an active box can be subcultured."
 msgstr "Seule une boîte active peut être repiquée."

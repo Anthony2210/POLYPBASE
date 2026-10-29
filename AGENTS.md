@@ -34,6 +34,7 @@ Ne jamais lire tous les fichiers de `docs/context/` par défaut. Une tâche tran
 - **Administration est desktop-only.** Sur tablette, son entrée est absente et toute URL `/administration...` redirige vers `/` sans rendre d'UI ou de message intermédiaire. Ce garde UX ne remplace jamais les permissions backend. Ne pas rendre Administration responsive sans décision produit explicite.
 - Préserver les états loading, empty, error, disabled et focus, l'accès clavier/tactile et la distinction entre vide et zéro.
 - Le texte utilisateur passe par l'i18n française et anglaise. Ne pas utiliser le point médian dans l'interface.
+- Pour tout texte visible, traduction ou terme métier, suivre [`docs/context/terminology-i18n.md`](docs/context/terminology-i18n.md). Le japonais validé n'est jamais écrasé.
 
 ## Git et multi-agent
 

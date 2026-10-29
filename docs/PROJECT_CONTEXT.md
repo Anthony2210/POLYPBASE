@@ -37,6 +37,7 @@ Le code décrit ce qui existe, mais un comportement observé n'est pas automatiq
 | Inventaire, qualification, sélection groupée | [`inventory.md`](context/inventory.md) | Cycle de vie des boîtes |
 | Import, export, CSV, normalisation ou reprise de données | [`imports-exports.md`](context/imports-exports.md) | Mesures ou organisations |
 | React, responsive, routage, i18n, accessibilité | [`frontend-ux.md`](context/frontend-ux.md) | Domaine métier touché |
+| Texte visible, traduction FR/EN/JA, terminologie métier | [`terminology-i18n.md`](context/terminology-i18n.md) | Frontend + domaine métier touché |
 | Migration Django, tests, Git, QA, production | [`development-deployment.md`](context/development-deployment.md) | Domaine fonctionnel touché |
 | Audit d'une mutation | Domaine métier concerné | Organisations + intégrité |
 | Refonte multi-institution transversale | Organisations + architecture | Tous les domaines réellement touchés |
