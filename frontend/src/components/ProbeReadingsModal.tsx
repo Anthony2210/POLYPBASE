@@ -98,6 +98,12 @@ export default function ProbeReadingsModal({ zone, onClose, t }: {
     setViewWindow((current) => shiftProbeWindow(current, direction, Date.now()));
   }
 
+  const periodLabels: Record<ProbePeriodId, string> = {
+    '24h': t('probePeriod_24h'),
+    '7d': t('probePeriod_7d'),
+    '30d': t('probePeriod_30d'),
+    '90d': t('probePeriod_90d'),
+  };
   const format = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' });
   const chartLabels = {
     target: t('targetTemperature'), minimum: t('minTemperature'), maximum: t('maxTemperature'),
@@ -126,7 +132,7 @@ export default function ProbeReadingsModal({ zone, onClose, t }: {
               {PROBE_PERIODS.map((entry) => (
                 <button key={entry.id} type="button" className={!isZoomed && period === entry.id ? 'is-active' : ''}
                   aria-pressed={!isZoomed && period === entry.id} onClick={() => choosePeriod(entry.id)}>
-                  {t(`probePeriod_${entry.id}`)}
+                  {periodLabels[entry.id]}
                 </button>
               ))}
             </div>
