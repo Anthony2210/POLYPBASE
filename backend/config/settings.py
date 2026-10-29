@@ -318,3 +318,21 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
     "PAGE_SIZE": 50,
 }
+
+# iMinilide cloud collection. Credentials come only from the environment of the
+# collection service (never from the repository). Without them the collection
+# command refuses to run and the rest of the application is unaffected.
+IMINILIDE_BASE_URL = os.getenv("IMINILIDE_BASE_URL", "https://iminilide.com").rstrip("/")
+IMINILIDE_EMAIL = os.getenv("IMINILIDE_EMAIL", "")
+IMINILIDE_PASSWORD = os.getenv("IMINILIDE_PASSWORD", "")
+# Local time zone of the timestamps returned by the cloud.
+IMINILIDE_TIME_ZONE = os.getenv("IMINILIDE_TIME_ZONE", "Europe/Paris")
+IMINILIDE_TIMEOUT_SECONDS = int(os.getenv("IMINILIDE_TIMEOUT_SECONDS", "20"))
+# The cloud keeps about ten days of readings; never ask for more.
+IMINILIDE_MAX_LOOKBACK_DAYS = int(os.getenv("IMINILIDE_MAX_LOOKBACK_DAYS", "10"))
+# Per-minute probe readings older than this are condensed into buckets.
+PROBE_READING_RETENTION_DAYS = int(os.getenv("PROBE_READING_RETENTION_DAYS", "14"))
+PROBE_BUCKET_MINUTES = int(os.getenv("PROBE_BUCKET_MINUTES", "15"))
+# Without any probe reading for this long, manual temperature entry is offered
+# again on zones whose temperature normally comes from probes.
+PROBE_MANUAL_FALLBACK_HOURS = int(os.getenv("PROBE_MANUAL_FALLBACK_HOURS", "6"))

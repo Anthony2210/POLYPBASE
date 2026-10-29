@@ -1,0 +1,12 @@
+[Unit]
+Description=Collect iMinilide probe readings every 10 minutes
+
+[Timer]
+OnBootSec=2min
+OnCalendar=*:0/10
+RandomizedDelaySec=60
+Persistent=true
+Unit=polypbase-iminilide.service
+
+[Install]
+WantedBy=timers.target

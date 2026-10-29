@@ -185,6 +185,64 @@ Moyenne, minimum, maximum et compteur doivent représenter toutes les saisies ac
 
 Les modèles acceptent plusieurs types de sondes. Leur présence ne prouve pas qu'une ingestion automatique connectée fonctionne; vérifier les routes et services. Les documents de [`../sondes/`](../sondes/) décrivent des explorations et plans possibles, pas nécessairement le produit actif.
 
+### Sondes iMinilide collectées (décision du 29 octobre 2026)
+
+Seule l'ingestion iMinilide est implémentée : une `Probe` de type `iminilide` avec `external_serial` et `external_channel` renseignés est collectée depuis le cloud iminilide.com par `collect_iminilide` (service `probe_collection.py`, client `iminilide.py`). Procédure d'exploitation : [`../sondes/collecte_iminilide.md`](../sondes/collecte_iminilide.md).
+
+- Chaque mesure minute est un `TemperatureMeasurement` (`source="iminilide"`), sans doublon grâce à l'unicité sonde/horodatage. Une valeur absente est ignorée, jamais convertie en `0`; `0` reste une mesure. Une valeur hors de la plage du fabricant (-100 à 250 °C) est ignorée et comptée.
+- Les horodatages du cloud sont en heure locale sans décalage; l'heure répétée du passage à l'heure d'hiver est levée par l'ordre de la réponse. Les horodatages ambigus sans retour arrière observable sont écartés et comptés, jamais devinés.
+- `DailyTemperature.computed_from_probes = True` marque un jour recalculé à partir de toutes les mesures des sondes collectées de la zone (G et D confondues). Un jour contenant une valeur manuelle ou historique (`False`) n'est jamais réécrit par la collecte. Une saisie manuelle sur un jour issu des sondes le repasse à `False` et le fige. Le recalcul verrouille la zone puis le jour, dans le même ordre que la saisie manuelle.
+- Au-delà de `PROBE_READING_RETENTION_DAYS` (14 j), les mesures minute sont condensées en `ProbeTemperatureBucket` (min, moyenne, max, nombre et somme exacte, par 15 min) puis supprimées. Cette condensation est volontaire et irréversible; les agrégats journaliers tiennent compte des tranches. Le champ obligatoire `last_measured_at` conserve le maximum exact des instants mesurés, y compris lors des fusions; le début ou la fin théorique de tranche ne remplace jamais cet instant.
+- Une zone avec une sonde collectée active masque la saisie manuelle. L'API refuse la saisie (409) tant que la dernière mesure date de moins de `PROBE_MANUAL_FALLBACK_HOURS` (6 h); au-delà, la saisie redevient possible. `ThermalZoneSerializer.probe_monitoring` expose cet état.
+- `GET /api/thermal-zones/<id>/probe-readings/?start=&end=` renvoie les séries par sonde de l'organisation active : minute jusqu'à 2 jours, 15 min jusqu'à 31 jours, heure au-delà (366 jours maximum).
+- La collecte automatique ne crée pas d'entrée `AuditLog` par mesure; la liaison d'une sonde (`link_iminilide_probe`) est auditée.
+
+#### Affectation historique et remplacement
+
+Une `Probe` ayant au moins un `TemperatureMeasurement` ou un
+`ProbeTemperatureBucket` ne peut plus changer de zone thermique : `clean()`,
+`save()` et la commande de liaison refusent ce déplacement. Code, emplacement
+et état actif restent modifiables. Une sonde sans historique peut encore changer
+de zone. Ne pas contourner ces validations par une écriture bulk ou SQL.
+
+L'unicité d'une voie externe porte seulement sur sa sonde active; plusieurs
+versions inactives peuvent coexister. L'unicité du code par organisation vaut
+pour toutes les sondes, actives ou non. La contrainte DB refuse de réactiver une
+ancienne version tant qu'une autre est active sur la voie.
+
+`link_iminilide_probe --replace` désactive l'ancienne sonde active et crée une
+nouvelle sonde avec un nouveau code unique dans la même organisation. Les minutes,
+tranches et agrégats historiques restent dans l'ancienne zone, sans copie ni
+réattribution. Les audits `UPDATE` de l'ancienne (`replacement_probe_id`) et
+`CREATION` de la nouvelle (`replaced_probe_id`) partagent la transaction de
+remplacement : un échec d'audit ou une collision de code annule tout.
+
+Sans active, `--replace` prend la dernière inactive comme prédécesseur. Le mode normal
+ne réactive pas une inactive ayant un historique pour la déplacer : il crée une
+nouvelle sonde. Ni une voie d'une autre organisation, même inactive, ni une zone
+étrangère ne peuvent être reprises par la commande.
+
+#### Barrière de reprise par voie
+
+`collection_start()` utilise le maximum des minutes et des `last_measured_at`
+des tranches de toute la voie, anciennes sondes comprises, dans la fenêtre de
+rattrapage cloud. Le retour en arrière nécessaire au passage à l'heure d'hiver
+ne vaut jamais autorisation de réimporter l'historique dans une autre sonde.
+`store_readings()` exclut strictement tout instant inférieur ou égal au maximum
+historique des **autres** sondes de la voie, indépendamment de la fenêtre demandée
+ou du contenu renvoyé par le cloud. Les doublons propres à la sonde gardent leur
+traitement habituel, notamment la réparation d'un agrégat journalier incomplet.
+
+La barrière reste exacte après condensation, plusieurs remplacements ou une
+désactivation suivie d'une création manuelle sur la même voie. La minute suivant
+le dernier instant peut être reçue dans la nouvelle zone même avant la fin de
+l'ancienne tranche. Une dernière température `0` est une mesure réelle et établit
+la même barrière; les autres voies ne participent pas à ce maximum.
+
+Les régressions de modèle, commande, audits, rollback, reprise stricte et
+condensation sont dans `backend/apps/measurements/test_probe_replacement.py`;
+les tests PostgreSQL de concurrence restent dans leur module dédié.
+
 ## Présentation factuelle et abandon des alertes
 
 Les Alertes ne sont plus actives. Les comptages, températures, agrégats et écarts à une consigne restent des faits mesurés ou calculés, sans avertissement opérationnel ou biologique inféré. Une baisse de polypes, une valeur zéro, une salinité absente ou un écart de température ne déclenche pas d'alerte. Une consigne n'est pas un seuil d'alerte.

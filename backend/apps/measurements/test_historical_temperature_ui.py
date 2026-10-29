@@ -324,7 +324,12 @@ class MigrationOrderTests(SimpleTestCase):
     def test_historical_migrations_remain_in_order_before_canonical_extension(self):
         graph = MigrationLoader(None, load=True).graph
         names = [name for app, name in graph.leaf_nodes("measurements")]
-        self.assertEqual(names, ["0014_measurement_canonical_evidence"])
+        # Later additive migrations may follow; the historical chain stays before them.
+        self.assertEqual(names, ["0015_iminilide_probe_collection"])
+        self.assertIn(
+            ("measurements", "0014_measurement_canonical_evidence"),
+            graph.forwards_plan(("measurements", "0015_iminilide_probe_collection")),
+        )
         chain = graph.forwards_plan(("measurements", "0014_measurement_canonical_evidence"))
         expected = [node for node in chain if node in ui.EXPECTED_PENDING]
         self.assertEqual(set(expected), set(ui.EXPECTED_PENDING))

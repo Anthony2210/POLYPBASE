@@ -1,0 +1,22 @@
+[Unit]
+Description=Polypbase iMinilide probe collection
+After=network-online.target postgresql.service
+Wants=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=polypbase
+Group=polypbase
+WorkingDirectory=/srv/polypbase/app/backend
+EnvironmentFile=/srv/polypbase/app/backend/.env
+# iMinilide account, readable only by root and polypbase; never in the repository.
+EnvironmentFile=/etc/polypbase/iminilide.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/srv/polypbase/app/.venv/bin/python manage.py collect_iminilide
+TimeoutStartSec=15min
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+NoNewPrivileges=true
+RestrictSUIDSGID=true
+UMask=0077

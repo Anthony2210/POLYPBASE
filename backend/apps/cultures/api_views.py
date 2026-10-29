@@ -48,8 +48,11 @@ from apps.audit.models import AuditLog
 from apps.measurements.models import (
     BiologicalMeasurement,
     DailyTemperature,
+    Probe,
     SalinityMeasurement,
+    TemperatureMeasurement,
 )
+from apps.measurements.probe_readings import zone_probe_monitoring
 from apps.measurements.services import (
     MeasurementNotFound,
     MeasurementWeekConflict,
@@ -398,7 +401,17 @@ def thermal_zone_summary_queryset(queryset):
                 .order_by("-measured_on", "-id")
             ),
         ),
-        "probes",
+        Prefetch(
+            "probes",
+            # Latest reading per probe: one backward step on the (probe, measured_at) index.
+            queryset=Probe.objects.filter(organization_id=F("thermal_zone__organization_id")).annotate(
+                latest_reading_at=Subquery(
+                    TemperatureMeasurement.objects.filter(probe_id=OuterRef("pk"))
+                    .order_by("-measured_at")
+                    .values("measured_at")[:1]
+                )
+            ),
+        ),
     ).annotate(
         box_count=Count("boxes", filter=Q(boxes__status=Box.Status.ACTIVE))
     )
@@ -1859,6 +1872,15 @@ class ThermalZoneDetailAPIView(generics.RetrieveUpdateAPIView):
         )
 
 
+class ProbeTemperatureEntryConflict(APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = (
+        "La température de cet emplacement provient de ses sondes, qui transmettent "
+        "encore des mesures récentes."
+    )
+    default_code = "probe_temperature_active"
+
+
 class ThermalZoneManualTemperatureAPIView(APIView):
     @transaction.atomic
     def post(self, request, pk):
@@ -1871,6 +1893,8 @@ class ThermalZoneManualTemperatureAPIView(APIView):
         )
         if not user_can_write_lab_data(request.user, zone.organization):
             raise PermissionDenied("Ce compte ne peut pas saisir de température pour cet emplacement.")
+        if not zone_probe_monitoring(zone)["manual_entry_available"]:
+            raise ProbeTemperatureEntryConflict()
 
         serializer = ManualTemperatureCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -1913,12 +1937,15 @@ class ThermalZoneManualTemperatureAPIView(APIView):
                 if value is not None
             )
             daily_temperature.measurement_count = next_count
+            # A day that received a manual value is never recomputed from probes.
+            daily_temperature.computed_from_probes = False
             daily_temperature.save(
                 update_fields=[
                     "min_temperature_c",
                     "average_temperature_c",
                     "max_temperature_c",
                     "measurement_count",
+                    "computed_from_probes",
                 ]
             )
         AuditLog.objects.create(

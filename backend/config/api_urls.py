@@ -15,6 +15,7 @@ from apps.accounts.api_views import (
     SessionLogoutAPIView,
     UserProfileAPIView,
 )
+from apps.measurements.probe_views import ThermalZoneProbeReadingsAPIView
 from apps.cultures.api_views import (
     AdminBoxInitialLocationAPIView,
     AdminBoxInventoryBatchQualifyAPIView,
@@ -221,6 +222,11 @@ urlpatterns = [
         "thermal-zones/<int:pk>/temperature/",
         ThermalZoneManualTemperatureAPIView.as_view(),
         name="api_thermal_zone_manual_temperature",
+    ),
+    path(
+        "thermal-zones/<int:pk>/probe-readings/",
+        ThermalZoneProbeReadingsAPIView.as_view(),
+        name="api_thermal_zone_probe_readings",
     ),
     path(
         "thermal-zones/<int:pk>/salinity/",

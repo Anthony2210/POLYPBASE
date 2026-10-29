@@ -365,3 +365,6 @@ msgstr "End must be on or after start."
 #: apps/cultures/serializers.py
 msgid "The date range must not exceed 366 days, inclusive."
 msgstr "The date range must not exceed 366 days, inclusive."
+
+msgid "A probe with measurements cannot change thermal zone. Use link_iminilide_probe --replace to preserve its history."
+msgstr "A probe with measurements cannot change thermal zone. Use link_iminilide_probe --replace to preserve its history."

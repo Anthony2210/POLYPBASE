@@ -358,17 +358,74 @@ class Probe(models.Model):
     location = models.CharField(max_length=180, blank=True)
     is_active = models.BooleanField(default=True)
     notes = models.TextField(blank=True)
+    # Identifies the remote channel collected for this probe, e.g. one channel of
+    # an iMinilide data logger. Both are empty for probes that are not collected.
+    external_serial = models.CharField(max_length=40, blank=True)
+    external_channel = models.PositiveSmallIntegerField(null=True, blank=True)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
                 fields=["organization", "code"],
                 name="unique_probe_per_organization",
-            )
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(external_serial="", external_channel__isnull=True)
+                    | (~models.Q(external_serial="") & models.Q(external_channel__isnull=False))
+                ),
+                name="probe_external_channel_complete",
+            ),
+            models.UniqueConstraint(
+                fields=["probe_type", "external_serial", "external_channel"],
+                condition=~models.Q(external_serial="") & models.Q(is_active=True),
+                name="unique_probe_external_channel",
+            ),
         ]
+
+    def _validate_historical_zone(self, using, previous):
+        if previous is not None and previous.thermal_zone_id != self.thermal_zone_id:
+            has_history = (
+                TemperatureMeasurement.objects.using(using).filter(probe_id=self.pk).exists()
+                or ProbeTemperatureBucket.objects.using(using).filter(probe_id=self.pk).exists()
+            )
+            if has_history:
+                raise ValidationError({
+                    "thermal_zone": _(
+                        "A probe with measurements cannot change thermal zone. "
+                        "Use link_iminilide_probe --replace to preserve its history."
+                    ),
+                })
+
+    def clean(self):
+        super().clean()
+        using = self._state.db or router.db_for_read(type(self), instance=self)
+        previous = type(self).objects.using(using).filter(pk=self.pk).first() if self.pk else None
+        self._validate_historical_zone(using, previous)
+
+    def save(self, *args, **kwargs):
+        using = kwargs.get("using") or router.db_for_write(type(self), instance=self)
+        with transaction.atomic(using=using):
+            previous = type(self).objects.using(using).filter(pk=self.pk).first() if self.pk else None
+            # Writers share the zone -> probe order with collection and replacement.
+            from apps.cultures.models import ThermalZone
+            zone_ids = {self.thermal_zone_id}
+            if previous is not None:
+                zone_ids.add(previous.thermal_zone_id)
+            list(ThermalZone.objects.using(using).select_for_update().filter(
+                pk__in=zone_ids,
+            ).order_by("pk"))
+            if previous is not None:
+                previous = type(self).objects.using(using).select_for_update().get(pk=self.pk)
+            self._validate_historical_zone(using, previous)
+            return super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.code} - {self.thermal_zone}"
+
+    @property
+    def is_collected(self):
+        return bool(self.external_serial) and self.external_channel is not None
 
 
 class TemperatureMeasurement(models.Model):
@@ -396,6 +453,42 @@ class TemperatureMeasurement(models.Model):
         return f"{self.probe} - {self.measured_at:%Y-%m-%d %H:%M}"
 
 
+class ProbeTemperatureBucket(models.Model):
+    """Condensed probe readings once per-minute rows age out.
+
+    One bucket keeps the minimum, mean and maximum of the readings of one
+    probe within a fixed period starting at ``period_start``.
+    """
+
+    probe = models.ForeignKey(Probe, on_delete=models.CASCADE, related_name="temperature_buckets")
+    period_start = models.DateTimeField()
+    period_minutes = models.PositiveSmallIntegerField()
+    last_measured_at = models.DateTimeField()
+    min_temperature_c = models.DecimalField(max_digits=5, decimal_places=2)
+    average_temperature_c = models.DecimalField(max_digits=5, decimal_places=2)
+    max_temperature_c = models.DecimalField(max_digits=5, decimal_places=2)
+    measurement_count = models.PositiveIntegerField()
+    # Keep the exact sum: the rounded mean cannot reconstruct it.
+    temperature_sum_c = models.DecimalField(max_digits=18, decimal_places=2)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["period_start"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["probe", "period_start"],
+                name="unique_temperature_bucket_per_probe_period",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(measurement_count__gt=0) & models.Q(period_minutes__gt=0),
+                name="temperature_bucket_not_empty",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.probe} - {self.period_start:%Y-%m-%d %H:%M}"
+
+
 class DailyTemperature(models.Model):
     thermal_zone = models.ForeignKey(
         "cultures.ThermalZone",
@@ -407,6 +500,10 @@ class DailyTemperature(models.Model):
     average_temperature_c = models.DecimalField(max_digits=5, decimal_places=2)
     max_temperature_c = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     measurement_count = models.PositiveIntegerField(default=0)
+    # True only while the whole day is recomputed from collected probe readings.
+    # A day holding any manual or historical value keeps False and is never
+    # overwritten by probe collection.
+    computed_from_probes = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["-date"]

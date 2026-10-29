@@ -67,7 +67,10 @@ function views(isDesktopApp) {
   const zones = load(zonesSource, {
     ...common,
     '../api/client': {},
-    '../utils/dateFormat': { formatDisplayDate: (value) => value },
+    '../hooks/useProbeMonitoring': { default: (zone) => ({ monitoring: zone.probe_monitoring, error: null, revalidate() {} }) },
+    './ProbeReadingsModal': { default: Placeholder },
+    '../utils/dateFormat': { formatDisplayDate: (value) => value, formatDisplayDateTime: (value) => value, getDocumentLocale: () => 'en' },
+    '../utils/probeStatus': { formatProbeReadingTime: (value) => value, getProbeElapsedTime: () => null },
     '../utils/temperatureScale': {},
     './ModalPortal': { default: Placeholder },
     './PolypbaseIcon': { default: Placeholder },
