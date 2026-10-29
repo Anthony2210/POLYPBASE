@@ -28,10 +28,20 @@ from apps.measurements.models import (
     TemperatureMeasurement,
 )
 from apps.organizations.models import Organization, PartnerInstitution, SharingAgreement
-from apps.taxonomy.models import Origin, Species, Strain, Taxon
+from apps.taxonomy.models import Origin, Species, Strain, StrainTranslation, Taxon
 
 
 DEMO_PASSWORD = "polypbase-demo"
+DEMO_CREATION_STRAIN_CODE = "AAU-DMO-1"
+# Shown by the existing localized strain name so the fixture reads as fictitious in the UI.
+DEMO_CREATION_STRAIN_NAMES = {
+    "fr": "Souche de démonstration fictive",
+    "en": "Fictitious demonstration strain",
+}
+DEMO_CREATION_STRAIN_NOTES = (
+    "Synthetic demonstration strain for box creation. Its code only follows the "
+    "AAA-BBB-X format; it has no verified biological provenance."
+)
 
 
 class Command(BaseCommand):
@@ -277,6 +287,9 @@ class Command(BaseCommand):
             "aurelia_med": (partner, species["aurelia"], "3-MED", 3, "MED", donation_origin),
             "chrysaora_pac": (paris, species["chrysaora"], "2-PAC", 2, "PAC", donation_origin),
             "cassiopea_lab": (paris, species["cassiopea"], "1-LAB", 1, "LAB", reproduction_origin),
+            # Synthetic AAA-BBB-X strain so ordinary creation can be exercised on a fresh
+            # demo. "DMO" is a placeholder origin code, not a recorded biological provenance.
+            "aurelia_demo": (paris, species["aurelia"], DEMO_CREATION_STRAIN_CODE, 1, "DMO", None),
         }
 
         strains = {}
@@ -293,10 +306,15 @@ class Command(BaseCommand):
                     "number": number,
                     "origin_code": origin_code,
                     "origin": origin,
-                    "notes": "Demo strain.",
+                    "notes": DEMO_CREATION_STRAIN_NOTES if code == DEMO_CREATION_STRAIN_CODE else "Demo strain.",
                 },
             )
             strains[key] = strain
+            if code == DEMO_CREATION_STRAIN_CODE:
+                for language_code, name in DEMO_CREATION_STRAIN_NAMES.items():
+                    StrainTranslation.objects.update_or_create(
+                        strain=strain, language_code=language_code, defaults={"name": name},
+                    )
 
         return strains
 

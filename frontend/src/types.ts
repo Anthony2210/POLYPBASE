@@ -464,6 +464,43 @@ export type BoxCreationResolution =
   | { status: 'created'; box: BoxDetail }
   | { status: 'cancelled' };
 
+export type BoxCreationInspection = BoxCreationResolution | { status: 'unknown' | 'pending' };
+
+export type BoxCreationIntentResult = BoxCreationResolution
+  | { status: 'pending' }
+  | { status: 'rejected'; errors: Record<string, unknown> };
+
+export type BoxStrainIdentityIssue =
+  | 'code_format'
+  | 'number_mismatch'
+  | 'origin_mismatch'
+  | 'species_code_mismatch'
+  | 'local_identity_mismatch';
+
+// Read by Django from the saved Strain code and checked against recorded reference
+// fields; "usable" is not a biological certification. The Box number (YYY) is never
+// part of this contract.
+export type BoxStrainIdentity =
+  | {
+    status: 'usable';
+    prefix: string;
+    species_code: string;
+    origin_code: string;
+    strain_number: string;
+    // Optional reference metadata recorded by the active institution.
+    recorded_provenance_name: string | null;
+  }
+  | { status: 'unusable'; reason: BoxStrainIdentityIssue };
+
+export type BoxStrainOption = {
+  id: number;
+  species: { id: number; scientific_name: string };
+  name: string;
+  code: string;
+  active_box_count: number;
+  identity: BoxStrainIdentity;
+};
+
 export type BoxCreatePayload = {
   strain: number;
   thermal_zone: number;
@@ -472,6 +509,8 @@ export type BoxCreatePayload = {
   volume_liters?: string | null;
   notes?: string;
 };
+
+export type BoxCreationIntent = BoxCreatePayload & { resume_token: string };
 
 export type Probe = {
   id: number;

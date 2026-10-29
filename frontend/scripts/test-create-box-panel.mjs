@@ -3,17 +3,34 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { createBoxEnvironment, createBoxHarness, createPilotageHarness, FOCUSABLE_SELECTOR, plain, submitEvent, text } from './create-box-harness.mjs';
 
-const references = (id = 1, code = 'AUR', species = 'Aurelia aurita') => ({
-  strains: [{ id, code, species: 100 + id, species_scientific_name: species }],
+const complete = (prefix, number = '1', origin = 'ATL', provenanceName = null) => ({
+  status: 'usable', prefix, species_code: prefix.slice(0, 3), origin_code: origin, strain_number: number, recorded_provenance_name: provenanceName,
 });
+const strainOption = (id = 1, overrides = {}) => ({
+  id, species: { id: 101, scientific_name: 'Aurelia aurita' }, name: '', code: 'AUR-ATL-1',
+  active_box_count: 0, identity: complete('AUR-ATL-1'), ...overrides,
+});
+const references = (id = 1, code = 'AUR-ATL-1', species = 'Aurelia aurita') => [
+  strainOption(id, { code, species: { id: 100 + id, scientific_name: species }, identity: complete(code) }),
+];
 const box = (code, organization = 1, strain = 1) => ({ global_code: code, organization: { id: organization }, strain: { id: strain } });
 const field = (h, name) => h.panel.field(`create-box-${name}-field`);
-const selectedStrain = h => h.panel.nodes.find(node => node.type === 'select' && node.props['aria-label'] === 'createBoxStrain').props.value;
-const save = h => h.panel.nodes.find(node => node.type === 'button' && node.props.type === 'submit');
+const options = h => h.panel.nodes.filter(node => node.props.role === 'option');
+const option = (h, id) => options(h).find(node => node.props.id === `create-box-strain-option-${id}`);
+const selectedStrain = h => {
+  const selected = options(h).find(node => node.props['aria-selected'] === true);
+  return selected ? Number(selected.props.id.split('-').at(-1)) : null;
+};
+const search = h => h.panel.nodes.find(node => node.props.role === 'combobox');
+const save = h => h.panel.byClass('create-box-submit');
+
+const created = (code = 'AUR-ATL-1.007') => ({ id: 42, global_code: code, strain: { id: 1 } });
 const errors = h => h.panel.nodes.filter(node => node.matches('.inline-error')).map(text);
-async function ready(h = createBoxHarness()) {
-  h.env.requests.at(-1).resolve(references());
+const panelText = h => h.panel.nodes.map(n => [].concat(n.props.children ?? []).filter(c => typeof c === 'string' || typeof c === 'number').join('')).join(' ');
+async function ready(h = createBoxHarness(), strains = references()) {
+  h.env.requests.at(-1).resolve(strains);
   await h.panel.settle();
+  h.panel.click(options(h)[0]);
   h.panel.change(field(h, 'location'), '10');
   assert.equal(save(h).disabled, false);
   return h;
@@ -23,13 +40,18 @@ function edit(h, name, value) {
 }
 async function beginMutation(h) {
   const pending = h.panel.submit();
-  h.confirmations.at(-1).resolve(true);
   await h.panel.settle();
   assert.equal(h.mutations.length, 1);
   return { pending };
 }
+function key(h, name) {
+  const event = { key: name, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
+  search(h).props.onKeyDown(event);
+  h.panel.flush();
+  return event;
+}
 describe('Actual extracted CreateBoxPanel', () => {
-  test('inline starts closed, requests options/list only on open, and ignores controlled isOpen', async () => {
+  test('inline starts closed, requests options/strains only on open, and ignores controlled isOpen', async () => {
     const h = createBoxHarness({ presentation: 'inline', isOpen: true, exportOptions: null });
     assert.equal(h.panel.form, undefined);
     assert.equal(h.env.requests.length, 0);
@@ -39,7 +61,7 @@ describe('Actual extracted CreateBoxPanel', () => {
     assert.ok(h.panel.form);
     assert.equal(h.optionsRequests, 1);
     assert.equal(h.boxCollectionRequests, 0);
-    assert.equal(h.env.requests[0].path, '/api/taxonomy/references/');
+    assert.equal(h.env.requests[0].path, '/api/boxes/automatic/strains/');
     h.panel.click(h.panel.byClass('create-box-toggle'));
     h.env.requests[0].resolve(references());
     await h.panel.settle();
@@ -69,78 +91,77 @@ describe('Actual extracted CreateBoxPanel', () => {
     h.panel.unmount();
   });
 
-  test('no organization means no taxonomy request and no submission', async () => {
+  test('no organization means no strain request and no submission', async () => {
     const h = createBoxHarness({ profile: null });
     assert.equal(h.env.requests.length, 0);
     assert.equal(save(h).disabled, true);
     const event = submitEvent();
     await h.panel.submit(event);
     assert.equal(event.defaultPrevented, true);
-    assert.equal(h.confirmations.length, 0);
+    assert.equal(h.mutations.length, 0);
     h.panel.unmount();
   });
 
-  test('deferred taxonomy displays loading, disables save, then exposes the empty state', async () => {
+  test('deferred strains display loading, disable save, then expose the empty state', async () => {
     const h = createBoxHarness();
-    assert.ok(text(h.panel.value).includes('loading'));
+    assert.ok(panelText(h).includes('loading'));
     assert.equal(save(h).disabled, true);
-    h.env.requests[0].resolve({ strains: [] });
+    h.env.requests[0].resolve([]);
     await h.panel.settle();
-    assert.ok(text(h.panel.value).includes('createBoxNoOptions'));
-    assert.equal(text(h.panel.value).includes('loading'), false);
+    assert.ok(panelText(h).includes('createBoxNoOptions'));
+    assert.equal(panelText(h).includes('loading'), false);
     assert.equal(save(h).disabled, true);
     h.panel.unmount();
   });
 
-  for (const kind of ['api', 'generic']) test(`taxonomy ${kind} failure shows real error mapping and retries after reopen`, async () => {
+  for (const kind of ['api', 'generic']) test(`strain ${kind} failure shows real error mapping and retries after reopen`, async () => {
     const h = createBoxHarness();
-    h.env.requests[0].reject(kind === 'api' ? new h.api.ApiError(500, 'Taxonomy unavailable') : new Error('private error'));
+    h.env.requests[0].reject(kind === 'api' ? new h.api.ApiError(500, 'Strains unavailable') : new Error('private error'));
     await h.panel.settle();
-    assert.deepEqual(errors(h), [(kind === 'api' ? 'Taxonomy unavailable' : 'taxonomyLoadError') + ' createBoxRetry']);
+    assert.deepEqual(errors(h), [(kind === 'api' ? 'Strains unavailable' : 'taxonomyLoadError') + ' createBoxRetry']);
     assert.equal(save(h).disabled, true);
     h.panel.setProps({ isOpen: false });
     h.panel.setProps({ isOpen: true });
     assert.deepEqual(errors(h), []);
     h.env.requests[1].resolve(references());
     await h.panel.settle();
-    assert.equal(selectedStrain(h), 1);
+    assert.equal(options(h).length, 1);
     h.panel.unmount();
   });
 
-  for (const completion of ['resolve', 'reject']) test(`taxonomy stale ${completion} cannot replace newer organization data or clear loading`, async () => {
+  for (const completion of ['resolve', 'reject']) test(`strain stale ${completion} cannot replace newer organization data or clear loading`, async () => {
     const h = createBoxHarness();
     const old = h.env.requests[0];
     h.panel.setProps({ profile: { ...h.props.profile, active_organization: { id: 2, name: 'B' } } });
     assert.equal(h.env.requests.length, 2);
-    old[completion](completion === 'resolve' ? references(9, 'OLD') : new h.api.ApiError(500, 'Old failure'));
+    old[completion](completion === 'resolve' ? references(9, 'OLD-OLD-9') : new h.api.ApiError(500, 'Old failure'));
     await h.panel.settle();
     assert.deepEqual(errors(h), []);
-    assert.ok(text(h.panel.value).includes('loading'));
-    h.env.requests[1].resolve(references(2, 'NEW'));
+    assert.ok(panelText(h).includes('loading'));
+    h.env.requests[1].resolve(references(2, 'NEW-NEW-2'));
     await h.panel.settle();
-    assert.equal(selectedStrain(h), 2);
-    assert.equal(text(h.panel.value).includes('OLD'), false);
+    assert.ok(option(h, 2));
+    assert.equal(panelText(h).includes('OLD-OLD-9'), false);
     h.panel.unmount();
   });
 
-  test('rapid A -> B -> A taxonomy generations ignore both older requests after latest success', async () => {
+  test('rapid A -> B -> A strain generations ignore both older requests after latest success', async () => {
     const h = createBoxHarness();
     h.panel.setProps({ profile: { ...h.props.profile, active_organization: { id: 2, name: 'B' } } });
     h.panel.setProps({ profile: h.props.profile });
     assert.equal(h.env.requests.length, 3);
-    h.env.requests[2].resolve(references(3, 'LATEST'));
+    h.env.requests[2].resolve(references(3, 'LAT-EST-3'));
     await h.panel.settle();
-    h.env.requests[0].resolve(references(1, 'OLD'));
+    h.env.requests[0].resolve(references(1, 'OLD-OLD-1'));
     h.env.requests[1].reject(new h.api.ApiError(500, 'Stale B failure'));
     await h.panel.settle();
     assert.deepEqual(errors(h), []);
-    assert.equal(text(h.panel.value).includes('loading'), false);
-    assert.equal(selectedStrain(h), 3);
-    assert.equal(text(h.panel.value).includes('OLD'), false);
+    assert.equal(panelText(h).includes('loading'), false);
+    assert.deepEqual(options(h).map(node => node.props.id), ['create-box-strain-option-3']);
     h.panel.unmount();
   });
 
-  for (const completion of ['resolve', 'reject']) test(`taxonomy ${completion} after unmount performs no state updates`, async () => {
+  for (const completion of ['resolve', 'reject']) test(`strain ${completion} after unmount performs no state updates`, async () => {
     const h = createBoxHarness();
     h.panel.unmount();
     h.env.requests[0][completion](completion === 'resolve' ? references() : new Error('Late'));
@@ -148,7 +169,6 @@ describe('Actual extracted CreateBoxPanel', () => {
     assert.equal(h.panel.updatesAfterUnmount, 0);
     assert.equal(h.env.listenerCount(), 0);
   });
-
 
   test('zones are organization scoped and removed zone selection is cleared', async () => {
     const h = await ready(createBoxHarness({ exportOptions: { zones: [
@@ -158,58 +178,103 @@ describe('Actual extracted CreateBoxPanel', () => {
     h.panel.setProps({ exportOptions: { zones: [] } });
     assert.equal(field(h, 'location').props.value, '');
     assert.equal(save(h).disabled, true);
+    assert.ok(panelText(h).includes('createBoxNoLocations'));
     h.panel.unmount();
   });
 
-  test('strain search retains selected strain and allows changing strain', async () => {
+  test('strains are grouped under their species; multiple strains of one species stay distinguishable', async () => {
     const h = createBoxHarness();
-    h.env.requests[0].resolve({ strains: [...references().strains, ...references(2, 'CY', 'Cyanea').strains] });
+    h.env.requests[0].resolve([
+      strainOption(1, { active_box_count: 3 }),
+      strainOption(2, { code: 'AUR-MED-2', identity: complete('AUR-MED-2', '2', 'MED', 'Mediterranean population'), name: 'Lagoon line' }),
+      strainOption(3, { code: '1-LAB', identity: { status: 'unusable', reason: 'code_format' } }),
+      strainOption(4, { species: { id: 202, scientific_name: 'Cassiopea andromeda' }, code: 'CAN-LAB-1', identity: complete('CAN-LAB-1', '1', 'LAB') }),
+    ]);
     await h.panel.settle();
-    h.panel.change(h.panel.byClass('create-box-strain-search').querySelectorAll(FOCUSABLE_SELECTOR)[0], '  cyanea  ');
-    const select = h.panel.nodes.find(node => node.type === 'select' && node.props['aria-label'] === 'createBoxStrain');
-    assert.equal(select.props.children[1].length, 2, 'Selected strain remains visible despite filtering');
-    h.panel.change(select, '2');
+    const headings = h.panel.nodes.filter(node => node.matches('.strain-picker-species')).map(text);
+    assert.deepEqual(headings, ['Aurelia aurita', 'Cassiopea andromeda']);
+    assert.deepEqual(options(h).map(node => node.props.id.split('-').at(-1)), ['1', '2', '4'], 'Only usable identities can be selected');
+    assert.ok(text(option(h, 1)).includes('createBoxStrainLabel 1'));
+    assert.ok(text(option(h, 1)).includes('AUR-ATL-1'));
+    assert.ok(text(option(h, 1)).includes('3 createBoxActiveBoxes'));
+    assert.ok(text(option(h, 2)).includes('createBoxStrainLabel 2'));
+    assert.ok(text(option(h, 2)).includes('AUR-MED-2'));
+    assert.ok(text(option(h, 2)).includes('0 createBoxActiveBoxes'));
+    assert.equal(option(h, 3), undefined);
+    assert.equal(panelText(h).includes('1-LAB'), false);
+    h.panel.unmount();
+  });
+
+  test('search filters by species, origin, strain number or code, accent and case insensitive', async () => {
+    const h = createBoxHarness();
+    h.env.requests[0].resolve([
+      strainOption(1),
+      strainOption(2, { species: { id: 202, scientific_name: 'Cyanea capillata' }, code: 'CYA-NOR-2', identity: complete('CYA-NOR-2', '2', 'NOR', 'Norvège') }),
+    ]);
+    await h.panel.settle();
+    h.panel.change(search(h), '  CYANEA ');
+    assert.deepEqual(options(h).map(node => node.props.id), ['create-box-strain-option-2']);
+    h.panel.change(search(h), 'norvege');
+    assert.deepEqual(options(h).map(node => node.props.id), ['create-box-strain-option-2']);
+    h.panel.change(search(h), 'aurelia atl');
+    assert.deepEqual(options(h).map(node => node.props.id), ['create-box-strain-option-1']);
+    h.panel.change(search(h), 'nothing');
+    assert.equal(options(h).length, 0);
+    assert.ok(panelText(h).includes('createBoxStrainNoMatch'));
+    h.panel.change(search(h), '');
+    h.panel.click(option(h, 2));
     assert.equal(selectedStrain(h), 2);
     h.panel.unmount();
   });
 
-  test('confirmation summarizes the automatic intent; cancellation preserves draft', async () => {
-    const h = await ready();
-    edit(h, 'notes', ' draft ');
-    const pending = h.panel.submit();
-    assert.equal(h.confirmations.length, 1);
-    const details = plain(h.confirmations[0].details);
-    assert.deepEqual(details, {
-      title: 'confirmCreateBoxTitle', message: 'confirmCreateBoxMessage', confirmLabel: 'confirmCreateBoxAction', cancelLabel: 'confirmCancel',
-      details: [
-        { label: 'createBoxEnteredOn', value: field(h, 'date').props.value }, { label: 'confirmDetailSpecies', value: 'Aurelia aurita' },
-        { label: 'confirmDetailStrain', value: 'AUR' }, { label: 'confirmDetailOrganization', value: 'Laboratory A' },
-        { label: 'confirmDetailLocation', value: 'Zone A' },
-      ],
-    });
-    h.confirmations[0].resolve(false);
-    await pending;
-    h.panel.flush();
+  test('keyboard: arrows move the active option, Enter selects without submitting', async () => {
+    const h = createBoxHarness();
+    h.env.requests[0].resolve([strainOption(1), strainOption(2, { code: 'AUR-ATL-2', identity: complete('AUR-ATL-2', '2') })]);
+    await h.panel.settle();
+    h.panel.change(field(h, 'location'), '10');
+    assert.equal(search(h).props['aria-controls'], 'create-box-strain-listbox');
+    assert.equal(key(h, 'ArrowDown').defaultPrevented, true);
+    assert.equal(search(h).props['aria-activedescendant'], 'create-box-strain-option-1');
+    key(h, 'ArrowDown');
+    key(h, 'ArrowDown');
+    assert.equal(search(h).props['aria-activedescendant'], 'create-box-strain-option-2');
+    assert.equal(key(h, 'Enter').defaultPrevented, true);
+    assert.equal(selectedStrain(h), 2);
     assert.equal(h.mutations.length, 0);
-
-    assert.equal(h.panel.nodes.find(node => node.type === 'textarea').props.value, ' draft ');
+    key(h, 'ArrowUp');
+    key(h, 'Enter');
+    assert.equal(selectedStrain(h), 1);
     h.panel.unmount();
   });
 
-  for (const boundary of ['generation', 'unmount']) test(`${boundary} during confirmation prevents mutation`, async () => {
+  test('draft creation no longer requests or renders a next identifier', async () => {
     const h = await ready();
-    const pending = h.panel.submit();
-    if (boundary === 'generation') h.invalidateOperation();
-    else h.panel.unmount();
-    h.confirmations[0].resolve(true);
-    await pending;
-    await h.panel.settle();
-    assert.equal(h.mutations.length, 0);
-    assert.deepEqual(h.navigations, []);
-    assert.equal(h.panel.updatesAfterUnmount, 0);
-    if (boundary === 'generation') h.panel.unmount();
+    assert.equal(h.panel.byClass('created-box-identifier'), undefined);
+    assert.equal(h.env.requests.length, 1, 'Only the Strain list is fetched');
+
+    h.unmount();
   });
 
+  test('successful creation still shows only the server-confirmed Box code', async () => {
+    const h = await ready();
+    assert.equal(h.panel.byClass('created-box-identifier'), undefined);
+    const { pending } = await beginMutation(h);
+    h.mutations[0].resolve(created('AUR-ATL-1.009'));
+    await pending;
+    h.panel.flush();
+    assert.equal(text(h.panel.byClass('created-box-identifier-code')), 'AUR-ATL-1.009');
+
+    assert.equal(h.panel.byClass('create-box-open-created').disabled, false);
+    h.unmount();
+  });
+
+  test('no strain-creation action is offered from box creation', async () => {
+    const h = await ready();
+    assert.equal(h.panel.byClass('create-box-reference-action'), undefined);
+    assert.equal(h.panel.nodes.some(node => node.type === 'QuickStrainCreator'), false);
+    assert.equal(panelText(h).includes('quickStrainAdd'), false);
+    h.panel.unmount();
+  });
 
   for (const boundary of ['generation', 'unmount']) for (const completion of ['resolve', 'reject']) {
     test(`${boundary} during mutation ignores late ${completion} and never navigates`, async () => {
@@ -222,6 +287,7 @@ describe('Actual extracted CreateBoxPanel', () => {
       await h.panel.settle();
       assert.deepEqual(h.navigations, []);
       assert.equal(h.env.frameCount, 0);
+      assert.equal(h.resolutions.length, 0);
       assert.equal(h.panel.updatesAfterUnmount, 0);
       if (boundary === 'generation') {
         assert.deepEqual(errors(h), []);
@@ -229,7 +295,6 @@ describe('Actual extracted CreateBoxPanel', () => {
       }
     });
   }
-
 
   test('modal traps Tab/ShiftTab, contains outside focus, Escape closes, and restores connected opener', () => {
     const h = createBoxHarness();
@@ -258,6 +323,18 @@ describe('Actual extracted CreateBoxPanel', () => {
     h.panel.unmount();
   });
 
+  test('closing during creation keeps it running; reopening shows the result', async () => {
+    const h = await ready();
+    const { pending } = await beginMutation(h);
+    h.panel.click(h.panel.byClass('modal-close-button'));
+    h.panel.setProps({ isOpen: false });
+    h.mutations[0].resolve({ id: 5, global_code: 'AUR-ATL-1.005', box_number: '005', strain: { id: 1 }, species: { scientific_name: 'Aurelia aurita' } });
+    await pending;
+    h.panel.setProps({ isOpen: true });
+    assert.ok(panelText(h).includes('AUR-ATL-1.005'));
+    h.panel.unmount();
+  });
+
   test('unmount does not try restoring a disconnected opener', () => {
     const h = createBoxHarness();
     h.env.opener.isConnected = false;
@@ -265,65 +342,23 @@ describe('Actual extracted CreateBoxPanel', () => {
     h.panel.unmount();
     assert.equal(h.env.opener.focusCalls.length, calls);
     assert.equal(h.env.listenerCount(), 0);
+    assert.equal(h.env.windowListenerCount('online'), 0);
   });
 
-  test('quick-strain child suppresses underlying keyboard handling and selects created strain', async () => {
-    const h = await ready();
-    h.panel.click(h.panel.byClass('create-box-reference-action'));
-    const child = h.panel.nodes.find(node => node.type === 'QuickStrainCreator');
-    assert.ok(child);
-    const nested = h.env.external('button');
-    nested.focus();
-    assert.equal(h.env.key('Escape').defaultPrevented, false);
-    assert.deepEqual(h.openChanges, []);
-    assert.equal(h.env.key('Tab').defaultPrevented, false);
-    child.props.onCreated({ id: 7, code: 'NEW', species_id: 107, species_name: 'New species' });
-    h.panel.flush();
-    assert.equal(h.panel.nodes.some(node => node.type === 'QuickStrainCreator'), false);
-    assert.equal(selectedStrain(h), 7);
-    assert.ok(text(h.panel.value).includes('New species - NEW'));
-    assert.equal(h.env.key('Escape').defaultPrevented, true);
-    h.panel.unmount();
-  });
-
-  test('non-admin active organization hides quick-strain action even with an admin membership elsewhere', () => {
-    const h = createBoxHarness({ profile: { active_organization: { id: 2 }, memberships: [{ organization: { id: 1 }, role: 'admin' }] } });
-    assert.equal(h.panel.byClass('create-box-reference-action'), undefined);
-    h.panel.unmount();
-  });
-
-  test('confirmation guard suppresses underlying Escape/Tab and resets after cancel or rejection', async () => {
-    const h = await ready();
-    for (const reject of [false, true]) {
-      const pending = h.panel.submit();
-      const checked = pending;
-      const nested = h.env.external('button');
-      nested.focus();
-      assert.equal(h.env.key('Escape').defaultPrevented, false);
-      assert.equal(h.env.key('Tab').defaultPrevented, false);
-      assert.deepEqual(h.openChanges, []);
-      if (reject) h.confirmations.at(-1).reject(new Error('Confirmation failure'));
-      else h.confirmations.at(-1).resolve(false);
-      await checked;
-      assert.equal(h.env.key('Escape').defaultPrevented, true);
-      h.openChanges.length = 0;
-    }
-    assert.equal(h.mutations.length, 0);
-    h.panel.unmount();
-  });
-
-  test('StrictMode effect replay abandons first taxonomy request, keeps one listener and restores operation lifetime', async () => {
+  test('StrictMode effect replay abandons first strain request, keeps one listener and restores operation lifetime', async () => {
     const h = createBoxHarness({}, { strictMode: true });
     assert.equal(h.env.requests.length, 2);
     assert.equal(h.env.listenerCount(), 1);
-    h.env.requests[0].resolve(references(9, 'STALE'));
+    assert.equal(h.env.windowListenerCount('online'), 1);
+    h.env.requests[0].resolve(references(9, 'STA-LEE-9'));
     await h.panel.settle();
-    assert.ok(text(h.panel.value).includes('loading'));
+    assert.ok(panelText(h).includes('loading'));
     h.env.requests[1].resolve(references());
     await h.panel.settle();
+    h.panel.click(options(h)[0]);
     edit(h, 'location', '10');
     const { pending } = await beginMutation(h);
-    h.mutations[0].resolve({ id: 77 });
+    h.mutations[0].resolve({ id: 77, global_code: 'AUR-ATL-1.001', box_number: '001', strain: { id: 1 }, species: { scientific_name: 'Aurelia aurita' } });
     await pending;
     h.panel.flush();
     assert.deepEqual(h.navigations, []);
@@ -332,83 +367,18 @@ describe('Actual extracted CreateBoxPanel', () => {
     assert.equal(h.env.document.activeElement, h.env.opener);
   });
 
-  test('actual useConfirmAction declines concurrent submissions without duplicate mutations', async () => {
-    const h = await ready(createBoxHarness({}, { realConfirmation: true }));
-    const first = h.panel.submit();
-    const modal = h.confirmationHost.modal;
-    assert.ok(modal.dialog);
-    const second = h.panel.submit();
-    await second;
-    h.confirmationHost.flush();
-    assert.equal(h.confirmationHost.modal, modal, 'The first confirmation remains owned and mounted');
-    assert.equal(h.mutations.length, 0);
-    modal.click(modal.byClass('confirm-action-submit'));
-    h.confirmationHost.flush();
-    await h.panel.settle();
-    assert.equal(h.mutations.length, 1);
-    assert.equal(h.confirmationHost.modal, null);
-    await h.panel.submit();
-    assert.equal(h.mutations.length, 1, 'Saving also blocks a subsequent submission');
-    h.mutations[0].resolve({ id: 88 });
-    await first;
-    h.panel.flush();
-    assert.deepEqual(h.navigations, []);
-    h.unmount();
-  });
-
-  test('real nested confirmation traps Tab/ShiftTab, cancels on Escape and restores its opener', async () => {
-    const h = await ready(createBoxHarness({}, { realConfirmation: true }));
-    const opener = save(h);
-    opener.focus();
-    const pending = h.panel.submit();
-    const modal = h.confirmationHost.modal;
-    assert.equal(h.env.listenerCount(), 2);
-    const controls = modal.dialog.querySelectorAll(FOCUSABLE_SELECTOR);
-    assert.equal(h.env.document.activeElement, controls[0]);
-    controls.at(-1).focus();
-    assert.equal(h.env.key('Tab').defaultPrevented, true);
-    assert.equal(h.env.document.activeElement, controls[0]);
-    assert.equal(h.env.key('Tab', true).defaultPrevented, true);
-    assert.equal(h.env.document.activeElement, controls.at(-1));
-    assert.deepEqual(h.openChanges, []);
-    h.env.key('Escape');
-    h.confirmationHost.flush();
-    await pending;
-    h.panel.flush();
-    assert.equal(h.confirmationHost.modal, null);
-    assert.equal(h.env.document.activeElement, opener);
-    assert.deepEqual(h.openChanges, [], 'Escape cancelled only the nested dialog');
-    assert.equal(h.mutations.length, 0);
-    assert.equal(h.env.listenerCount(), 1);
-    h.env.key('Escape');
-    assert.deepEqual(h.openChanges, [false]);
-    h.unmount();
-  });
-
-  test('actual confirmation hook unmount cancels its pending request and cannot start a mutation', async () => {
-    const h = await ready(createBoxHarness({}, { realConfirmation: true }));
-    const pending = h.panel.submit();
-    h.confirmationHost.unmount();
-    await pending;
-    h.panel.flush();
-    assert.equal(h.mutations.length, 0);
-    assert.deepEqual(h.navigations, []);
-    h.panel.unmount();
-  });
-
-
-  for (const phase of ['confirmation', 'mutation']) test(`actual PilotageView organization key remounts/reset panel and guards old ${phase}`, async () => {
+  for (const phase of ['draft', 'mutation']) test(`actual PilotageView organization key remounts/reset panel and guards old ${phase}`, async () => {
     const h = await ready(createPilotageHarness());
     const old = h.panel;
     edit(h, 'notes', 'Old notes');
-    const pending = old.submit();
+    let pending = Promise.resolve();
     if (phase === 'mutation') {
-      h.confirmations[0].resolve(true);
+      pending = old.submit();
       await old.settle();
       assert.equal(h.mutations.length, 1);
     }
     const node = h.parent.nodes.find(node => node.type === h.env.load('../src/components/CreateBoxPanel.tsx').default);
-    assert.equal(node.key, 1);
+    assert.equal(node.key, '7:1');
     h.setParentProps({ isOptionsLoading: true });
     assert.equal(h.panel, old, 'Same parent key preserves the child instance');
     h.setParentProps({
@@ -418,20 +388,20 @@ describe('Actual extracted CreateBoxPanel', () => {
       isOptionsLoading: false,
     });
     const replacementNode = h.parent.nodes.find(candidate => candidate.type === node.type);
-    assert.equal(replacementNode.key, 2);
+    assert.equal(replacementNode.key, '7:2');
     assert.notEqual(h.panel, old);
     assert.equal(field(h, 'location').props.value, '');
     assert.equal(h.panel.nodes.find(node => node.type === 'textarea').props.value, '');
-    if (phase === 'confirmation') h.confirmations[0].resolve(true);
-    else h.mutations[0].resolve({ id: 99 });
+    if (phase === 'mutation') h.mutations[0].resolve({ id: 99 });
     await pending;
     assert.equal(old.updatesAfterUnmount, 0);
-    assert.equal(h.mutations.length, phase === 'confirmation' ? 0 : 1);
+    assert.equal(h.mutations.length, phase === 'draft' ? 0 : 1);
     assert.deepEqual(h.navigations, []);
     assert.equal(h.env.frameCount, 0);
-    h.env.requests.at(-1).resolve(references(2, 'B'));
+    h.env.requests.at(-1).resolve(references(2, 'BBB-BBB-2'));
     await h.panel.settle();
-    assert.equal(selectedStrain(h), 2);
+    assert.ok(option(h, 2));
+    assert.equal(selectedStrain(h), null, 'No strain is chosen on behalf of the researcher');
     assert.equal(h.env.listenerCount(), 1);
     h.unmount();
   });
@@ -439,26 +409,27 @@ describe('Actual extracted CreateBoxPanel', () => {
   test('actual PilotageView uses the none key without an active organization', () => {
     const h = createPilotageHarness({ profile: { active_organization: null, is_superuser: true, memberships: [] } });
     const node = h.parent.nodes.find(node => node.type === h.env.load('../src/components/CreateBoxPanel.tsx').default);
-    assert.equal(node.key, 'none');
+    assert.equal(node.key, 'none:none');
     assert.equal(h.env.requests.length, 0);
     h.unmount();
   });
 
-  for (const language of ['fr', 'en']) test(`actual ${language} translator renders labels and confirmation/error copy`, async () => {
+  for (const language of ['fr', 'en']) test(`actual ${language} translator renders labels, picker and error copy`, async () => {
     const env = createBoxEnvironment();
     const t = env.load('../src/i18n/index.ts').createTranslator(language);
     const h = createBoxHarness({ t }, { environment: env });
-    assert.equal(text(h.panel.nodes.find(node => node.type === 'h2')), language === 'fr' ? 'Créer une boîte' : 'Create a box');
-    assert.equal(text(save(h)), language === 'fr' ? 'Créer' : 'Create');
-    h.env.requests[0].reject(new Error('Private taxonomy error'));
+    assert.equal(text(h.panel.nodes.find(node => node.type === 'h2')), language === 'fr' ? 'Nouvelle boîte' : 'New box');
+    assert.equal(text(save(h)), language === 'fr' ? 'Créer la boîte' : 'Create box');
+    h.env.requests[0].reject(new Error('Private strain error'));
     await h.panel.settle();
     assert.deepEqual(errors(h), [t('taxonomyLoadError') + ' ' + t('createBoxRetry')]);
     h.panel.setProps({ isOpen: false });
     h.panel.setProps({ isOpen: true });
     await ready(h);
+    assert.equal(search(h).props.placeholder, language === 'fr' ? 'Rechercher une espèce, une souche ou un code' : 'Search a species, strain or code');
+    assert.ok(text(options(h)[0]).includes(language === 'fr' ? 'Souche 1' : 'Strain 1'));
     const { pending } = await beginMutation(h);
-    assert.equal(h.confirmations[0].details.title, language === 'fr' ? 'Créer cette boîte' : 'Create this box');
-    assert.equal(h.confirmations[0].details.confirmLabel, t('confirmCreateBoxAction'));
+    assert.equal(h.confirmations.length, 0);
     h.mutations[0].reject(new h.api.ApiError(403, 'Raw refusal'));
     await pending;
     h.panel.flush();

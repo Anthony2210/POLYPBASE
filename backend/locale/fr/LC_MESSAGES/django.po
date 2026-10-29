@@ -21,6 +21,9 @@ msgstr "Cet identifiant de requête a déjà servi à une autre création de bo�
 msgid "This box creation request was cancelled. Use a new request ID to create a box."
 msgstr "Cette demande de création de boîte a été annulée. Utilisez un nouvel identifiant de requête pour créer une boîte."
 
+msgid "The recorded code of this strain cannot be used to number an AAA-BBB-X box."
+msgstr "Le code enregistré de cette souche ne permet pas de numéroter une boîte AAA-BBB-X."
+
 msgid "This account cannot create boxes."
 msgstr "Ce compte ne peut pas créer de boîtes."
 

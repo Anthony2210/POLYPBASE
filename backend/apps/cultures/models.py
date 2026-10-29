@@ -193,6 +193,8 @@ class AutomaticBoxCreationRequest(models.Model):
     actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
     request_id = models.UUIDField()
     intent = models.JSONField(null=True, blank=True)
+    resume_token_hash = models.CharField(max_length=64, unique=True, null=True, blank=True)
+    failure = models.JSONField(null=True, blank=True)
     cancelled = models.BooleanField(default=False)
     box = models.OneToOneField(
         Box, on_delete=models.PROTECT, related_name="automatic_creation_request", null=True, blank=True,
@@ -207,8 +209,14 @@ class AutomaticBoxCreationRequest(models.Model):
             ),
             models.CheckConstraint(
                 condition=(
-                    Q(cancelled=True, box__isnull=True, intent__isnull=True)
-                    | Q(cancelled=False, box__isnull=False, intent__isnull=False)
+                    (Q(resume_token_hash__isnull=True, failure__isnull=True) & (
+                        Q(cancelled=True, box__isnull=True, intent__isnull=True)
+                        | Q(cancelled=False, box__isnull=False, intent__isnull=False)
+                    ))
+                    | (Q(resume_token_hash__isnull=False, intent__isnull=False) & (
+                        Q(cancelled=False, failure__isnull=True)
+                        | Q(cancelled=True, box__isnull=True)
+                    ))
                 ),
                 name="automatic_box_request_coherent_state",
             ),

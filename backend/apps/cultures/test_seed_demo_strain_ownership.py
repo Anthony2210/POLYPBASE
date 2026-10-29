@@ -15,12 +15,12 @@ class DemoStrainOwnershipTests(TestCase):
 
     def test_seed_assigns_strains_to_box_organizations_and_is_idempotent(self):
         self.seed()
-        self.assertEqual(Strain.objects.count(), 4)
+        self.assertEqual(Strain.objects.count(), 5)
         self.assertEqual(Box.objects.count(), 6)
         for box in Box.objects.select_related("strain"):
             self.assertEqual(box.strain.organization_id, box.organization_id)
         self.seed()
-        self.assertEqual(Strain.objects.count(), 4)
+        self.assertEqual(Strain.objects.count(), 5)
         self.assertEqual(Box.objects.count(), 6)
 
     def test_foreign_strain_collision_does_not_reassign_or_mutate_it(self):

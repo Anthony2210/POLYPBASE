@@ -1,11 +1,10 @@
 import { type KeyboardEvent, useState } from 'react';
 
 import type { Translator } from '../i18n';
-import type { BoxCreatePayload, BoxCreationResolution, BoxDetail, BoxItem, ExportOptions, UserProfile } from '../types';
+import type { BoxCreationIntent, BoxCreationResolution, BoxDetail, BoxItem, ExportOptions, UserProfile } from '../types';
 import type { BoxCollectionState } from '../utils/boxCollection';
 import { userCanCreateBoxes } from '../utils/profilePermissions';
 import BoxSearchStatus from './BoxSearchStatus';
-import type { ConfirmActionOptions } from './ConfirmActionModal';
 import CreateBoxPanel from './CreateBoxPanel';
 import PageLoader from './PageLoader';
 import RecentAccessList from './RecentAccessList';
@@ -35,9 +34,7 @@ export default function PilotageView({
   onResolveBoxCreation,
   isOperationCurrent,
   onCreateBoxOpenChange,
-  onManageSpeciesCodes,
   onRequestOptions,
-  confirmAction,
   t,
   onSearch,
   onSelectBox,
@@ -56,13 +53,11 @@ export default function PilotageView({
   recentBoxes: BoxItem[];
   search: string;
   searchResults: BoxItem[];
-  onCreateBox: (payload: BoxCreatePayload) => Promise<BoxDetail>;
+  onCreateBox: (payload: BoxCreationIntent) => Promise<BoxDetail>;
   onResolveBoxCreation: (requestId: string) => Promise<BoxCreationResolution>;
   isOperationCurrent: () => boolean;
   onCreateBoxOpenChange: (isOpen: boolean) => void;
-  onManageSpeciesCodes?: () => void;
   onRequestOptions: () => void;
-  confirmAction: (options: ConfirmActionOptions) => Promise<boolean>;
   t: Translator;
   onSearch: (value: string) => void;
   onSelectBox: (id: number) => void;
@@ -248,7 +243,7 @@ export default function PilotageView({
 
         {canCreateBox ? (
           <CreateBoxPanel
-            key={activeOrganizationId ?? 'none'}
+            key={`${profile?.id ?? 'none'}:${activeOrganizationId ?? 'none'}`}
             exportOptions={exportOptions}
             isOpen={isPhoneLayout ? undefined : isCreateBoxOpen}
             isOptionsLoading={isOptionsLoading}
@@ -258,10 +253,8 @@ export default function PilotageView({
             onCreateBox={onCreateBox}
             onResolveBoxCreation={onResolveBoxCreation}
             isOperationCurrent={isOperationCurrent}
-            onManageSpeciesCodes={onManageSpeciesCodes}
             onOpenChange={isPhoneLayout ? undefined : onCreateBoxOpenChange}
             onRequestOptions={onRequestOptions}
-            confirmAction={confirmAction}
             onSelectBox={onSelectBox}
           />
         ) : null}

@@ -19,7 +19,8 @@ from apps.organizations.models import Organization
 from apps.taxonomy.models import Strain
 
 from .automatic_box_creation import (
-    AutomaticBoxCreationCancelled, AutomaticBoxCreationConflict, resolve_automatic_box_request,
+    AutomaticBoxCreationCancelled, AutomaticBoxCreationConflict, inspect_automatic_box_request,
+    execute_automatic_box_intent, register_automatic_box_intent, resolve_automatic_box_request,
 )
 from .models import AutomaticBoxCreationRequest, Box, BoxCodeNamespace, ThermalZone
 from .polyp_state import resolve_current_polyp_state
@@ -134,6 +135,26 @@ class AutomaticBoxConcurrencyTests(AutomaticBoxFixture, TransactionTestCase):
         self.assertEqual(AuditLog.objects.count(), 1)
         self.assertEqual(AutomaticBoxCreationRequest.objects.count(), 1)
 
+    def registered_execution(self):
+        data = {**self.payload, "resume_token": str(uuid.uuid4())}
+        register_automatic_box_intent(organization=self.org, actor=self.user, data=data)
+        return lambda: execute_automatic_box_intent(
+            organization=self.org, actor=self.user,
+            data={key: data[key] for key in ("request_id", "resume_token")},
+        )
+
+    def test_registered_execution_then_subculture_shares_namespace(self):
+        first, second = self.ordered(self.registered_execution(), self.subculture)
+        self.assertEqual(first.box.global_code, "AUT-LAB-1.011")
+        self.assertEqual(second[1][0].global_code, "AUT-LAB-1.012")
+        self.assertEqual(BoxCodeNamespace.objects.get().high_water, 12)
+
+    def test_subculture_then_registered_execution_shares_namespace(self):
+        first, second = self.ordered(self.subculture, self.registered_execution())
+        self.assertEqual(first[1][0].global_code, "AUT-LAB-1.011")
+        self.assertEqual(second.box.global_code, "AUT-LAB-1.012")
+        self.assertEqual(BoxCodeNamespace.objects.get().high_water, 12)
+
     def test_ordinary_then_subculture_shares_namespace_without_deadlock(self):
         first, second = self.ordered(self.service, self.subculture)
         self.assertEqual(first[0].global_code, "AUT-LAB-1.011")
@@ -169,6 +190,45 @@ class AutomaticBoxConcurrencyTests(AutomaticBoxFixture, TransactionTestCase):
             if fail:
                 raise RuntimeError("Injected resolution rollback")
             return result
+
+    def inspect(self, request_id):
+        return inspect_automatic_box_request(
+            organization=self.org, actor=self.user, data={"request_id": request_id},
+        )
+
+    def test_recovery_of_a_cannot_cancel_delayed_independent_b(self):
+        other_strain = Strain.objects.create(organization=self.org, species=self.species, code="AUT-LAB-2")
+        b = {**self.payload, "request_id": str(uuid.uuid4()), "strain": other_strain.pk}
+
+        def recovering(barrier):
+            with transaction.atomic():
+                # Corrupted storage supplied A and independent B: neither is trusted.
+                self.assertEqual(self.inspect(self.payload["request_id"]), ("unknown", None))
+                self.assertEqual(self.inspect(b["request_id"]), ("unknown", None))
+                barrier()  # B's legitimate creation waits on this institution lock.
+
+        _, created = self.ordered(recovering, lambda: self.service(b), audit_barrier=False)
+        self.assertTrue(created[1])
+        self.assertEqual(created[0].strain_id, other_strain.pk)
+        receipt_b = AutomaticBoxCreationRequest.objects.get(request_id=b["request_id"])
+        self.assertFalse(receipt_b.cancelled)
+        self.assertEqual(receipt_b.box_id, created[0].pk)
+        self.assertFalse(AutomaticBoxCreationRequest.objects.filter(request_id=self.payload["request_id"]).exists())
+        self.assertFalse(self.service(b)[1])
+        self.assertEqual(AuditLog.objects.count(), 1)
+
+    def test_inspection_waits_for_independent_inflight_creation_without_cancelling(self):
+        a = str(uuid.uuid4())
+
+        def recovery():
+            self.assertEqual(self.inspect(a), ("unknown", None))
+            return self.inspect(self.payload["request_id"])
+
+        created, observed = self.ordered(self.service, recovery)
+        self.assertEqual(observed[0], "created")
+        self.assertEqual(observed[1].pk, created[0].pk)
+        self.assertFalse(AutomaticBoxCreationRequest.objects.filter(request_id=a).exists())
+        self.assertFalse(AutomaticBoxCreationRequest.objects.filter(cancelled=True).exists())
 
     def test_create_commits_then_resolution_returns_created_box(self):
         first, second = self.ordered(self.service, self.resolve)

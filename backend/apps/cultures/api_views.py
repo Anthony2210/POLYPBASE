@@ -111,7 +111,15 @@ from .temperature_history import (
     historical_temperature_history_point, temperature_history_point, temperature_support_periods,
 )
 from .box_codes import preview_box_codes
-from .automatic_box_creation import create_automatic_box, resolve_automatic_box_request
+from .automatic_box_creation import (
+    automatic_box_strain_options,
+    cancel_automatic_box_intent,
+    create_automatic_box,
+    execute_automatic_box_intent,
+    register_automatic_box_intent,
+    inspect_automatic_box_request,
+    resolve_automatic_box_request,
+)
 from .polyp_state import current_state_prefetches, current_polyp_total, resolve_current_polyp_state
 from .movement_corrections import (
     BoxMovementConflict,
@@ -627,6 +635,33 @@ class OverviewActiveBoxesAPIView(APIView):
         }
 
 
+@method_decorator(never_cache, name="dispatch")
+class AutomaticBoxIntentAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+    operation = staticmethod(register_automatic_box_intent)
+
+    def post(self, request):
+        organization = get_required_active_organization_from_request(request)
+        receipt = self.operation(organization=organization, actor=request.user, data=request.data)
+        if receipt.box_id is not None:
+            box = get_object_or_404(
+                box_queryset_for_user(request.user, organization_ids=[organization.pk], include_merged=True),
+                pk=receipt.box_id,
+            )
+            return Response({"status": "created", "box": BoxDetailSerializer(box, context={"request": request}).data})
+        if receipt.failure is not None:
+            return Response({"status": "rejected", "errors": receipt.failure})
+        return Response({"status": "cancelled" if receipt.cancelled else "pending"})
+
+
+class AutomaticBoxIntentExecuteAPIView(AutomaticBoxIntentAPIView):
+    operation = staticmethod(execute_automatic_box_intent)
+
+
+class AutomaticBoxIntentCancelAPIView(AutomaticBoxIntentAPIView):
+    operation = staticmethod(cancel_automatic_box_intent)
+
+
 class AutomaticBoxCreateAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -645,8 +680,35 @@ class AutomaticBoxCreateAPIView(APIView):
         )
 
 
+
+@method_decorator(never_cache, name="dispatch")
+class AutomaticBoxStrainOptionsAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        organization = get_required_active_organization_from_request(request)
+        return Response(automatic_box_strain_options(organization=organization, actor=request.user))
+
+
+@method_decorator(never_cache, name="dispatch")
 class AutomaticBoxResolveAPIView(APIView):
     permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        organization = get_required_active_organization_from_request(request)
+        outcome, box = inspect_automatic_box_request(
+            organization=organization, actor=request.user, data=request.query_params.dict(),
+        )
+        if box is None:
+            return Response({"status": outcome})
+        box = get_object_or_404(
+            box_queryset_for_user(request.user, organization_ids=[organization.pk], include_merged=True),
+            pk=box.pk,
+        )
+        return Response({
+            "status": "created",
+            "box": BoxDetailSerializer(box, context={"request": request}).data,
+        })
 
     def post(self, request):
         organization = get_required_active_organization_from_request(request)

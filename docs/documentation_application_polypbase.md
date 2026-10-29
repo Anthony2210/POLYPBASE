@@ -170,21 +170,22 @@ La création d'une boîte est disponible depuis la page Suivi pour les utilisate
 
 Fichiers principaux :
 
-- `frontend/src/App.tsx`
-- `frontend/src/components/ConfirmActionModal.tsx`
+- `frontend/src/components/CreateBoxPanel.tsx`, `StrainPicker.tsx`, `CreatedBoxIdentifier.tsx`
+- `frontend/src/utils/boxCreationRecovery.ts`
+- `backend/apps/cultures/automatic_box_creation.py`, `box_identity.py`
 - `backend/apps/cultures/api_views.py`
-- `backend/apps/cultures/serializers.py`
 
 Endpoint utilisé :
 
 ```http
-POST /api/boxes/automatic/
-POST /api/boxes/automatic/resolve/
+GET /api/boxes/automatic/strains/
+POST /api/boxes/automatic/intents/
+POST /api/boxes/automatic/intents/execute/
 ```
 
 Le formulaire demande la souche, l'emplacement, la date d'entrée et une note facultative. L'utilisateur ne choisit ni code ni numéro : Polypbase les génère côté serveur. L'ancien `POST /api/boxes/` à code manuel est retiré (voir `backend/AUTOMATIC_BOX_CREATION.md`).
 
-Avant création, l'application utilise une modale de confirmation interne à Polypbase. Les boîtes de dialogue natives du navigateur ont été remplacées pour garder une interface plus cohérente et plus claire.
+Le sélecteur présente seulement les souches utilisables, groupées par espèce, avec leur libellé compact, leur code et le nombre de boîtes actives. Le code définitif est affiché après confirmation de la création par le serveur. L'inscription et l'exécution de l'intention durable conservent leurs garanties de reprise.
 
 Le code global est la référence principale de la boîte. Les anciennes notions de code local ont été réduites dans l'interface pour éviter de multiplier les identifiants visibles.
 
@@ -920,6 +921,7 @@ Les endpoints sont regroupés dans `backend/config/api_urls.py`.
 | `/api/overview/active-boxes/` | Données de la vue d'ensemble. |
 | `/api/boxes/` | Liste des boîtes (lecture seule). |
 | `/api/boxes/automatic/` | Création ordinaire avec code généré par le serveur. |
+| `/api/boxes/automatic/strains/` | Souches éligibles et cohérence de leur code AAA-BBB-X pour la création (lecture seule). |
 | `/api/boxes/<id>/` | Détail d'une boîte. |
 | `/api/boxes/<id>/access/` | Enregistrer un accès récent. |
 | `/api/boxes/<id>/archive/` | Désactiver le suivi d'une boîte. |

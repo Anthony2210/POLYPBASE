@@ -54,7 +54,8 @@ import { useRecentBoxLimit } from './hooks/useRecentBoxLimit';
 import type {
   BiologicalMeasurement,
   BoxActivatePayload,
-  BoxCreatePayload,
+  BoxCreationIntent,
+  BoxCreationIntentResult,
   BoxCreationResolution,
   BoxDeactivatePayload,
   BoxDetail,
@@ -1580,11 +1581,24 @@ export default function App() {
     }
   }
 
-  async function createBox(payload: BoxCreatePayload) {
+  async function createBox(payload: BoxCreationIntent) {
     const { apiPost, assertCurrent } = getOperationRequests(operationGeneration);
     const commit = beginBoxMutation(true);
-    const detail = await apiPost<BoxDetail>('/api/boxes/automatic/', payload);
+    let result = await apiPost<BoxCreationIntentResult>('/api/boxes/automatic/intents/', payload);
     assertCurrent();
+    if (result.status === 'pending') {
+      result = await apiPost<BoxCreationIntentResult>('/api/boxes/automatic/intents/execute/', {
+        request_id: payload.request_id, resume_token: payload.resume_token,
+      });
+      assertCurrent();
+    }
+    if (result.status === 'rejected' || result.status === 'cancelled') {
+      const errors = result.status === 'rejected' ? result.errors : {};
+      const message = Object.values(errors).flat().find((value): value is string => typeof value === 'string') ?? '';
+      throw new ApiError(422, message, { ...errors, code: 'box_creation_intent_settled' });
+    }
+    if (result.status !== 'created') throw new TypeError('Unexpected box creation outcome');
+    const detail = result.box;
     const publication = commit(detail.id);
 
     publication.setData((current) => ({
@@ -2316,13 +2330,8 @@ export default function App() {
                 onCreateBox={createBox}
                 onResolveBoxCreation={resolveBoxCreation}
                 isOperationCurrent={() => operationGeneration === organizationRequestGenerationRef.current}
-                onManageSpeciesCodes={isDesktopApp ? () => {
-                  setIsCreateBoxOpen(false);
-                  openAdminSection('references');
-                } : undefined}
                 onCreateBoxOpenChange={setIsCreateBoxOpen}
                 onRequestOptions={() => setExportOptionsRequested(true)}
-                confirmAction={confirmAction}
                 onSearch={setSearch}
                 onSelectBox={openBox}
                 t={t}

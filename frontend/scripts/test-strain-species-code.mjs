@@ -58,9 +58,8 @@ test('organization switching remounts code availability and shared-reference nav
   const pilotage = source('../src/components/PilotageView.tsx');
   const admin = source('../src/components/AdminView.tsx');
   const taxonomy = source('../src/components/TaxonomyAdminSection.tsx');
-  assert.match(pilotage, /<CreateBoxPanel\s+key=\{activeOrganizationId \?\? 'none'\}/);
+  assert.match(pilotage, /<CreateBoxPanel\s+key=\{`\$\{profile\?\.id \?\? 'none'\}:\$\{activeOrganizationId \?\? 'none'\}`\}/);
   assert.match(admin, /key=\{activeOrganizationId\}/);
-  assert.match(app, /openAdminSection\('references'\)/);
   assert.match(app, /references: '\/administration\/reference-data'/);
   assert.match(taxonomy, /setCodeForm\(selected\)/);
 });

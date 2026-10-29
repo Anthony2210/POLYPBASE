@@ -246,7 +246,7 @@ class AutomaticBoxCreationTests(AutomaticBoxFixture, TestCase):
         self.client.force_login(other_user)
         self.assertEqual(self.post().status_code, 201)
         OrganizationMembership.objects.create(user=other_user, organization=self.other_org, role="admin")
-        strain = Strain.objects.create(organization=self.other_org, species=self.species, code="AUT-OTHER-1")
+        strain = Strain.objects.create(organization=self.other_org, species=self.species, code="AUT-OTH-1")
         zone = ThermalZone.objects.create(organization=self.other_org, name="Other zone")
         response = self.post({**self.payload, "strain": strain.pk, "thermal_zone": zone.pk}, organization=self.other_org)
         self.assertEqual(response.status_code, 201, response.content)

@@ -21,7 +21,11 @@ from apps.cultures.api_views import (
     AdminBoxInventoryListAPIView,
     AdminBoxInventorySelectionAPIView,
     AutomaticBoxCreateAPIView,
+    AutomaticBoxIntentAPIView,
+    AutomaticBoxIntentExecuteAPIView,
+    AutomaticBoxIntentCancelAPIView,
     AutomaticBoxResolveAPIView,
+    AutomaticBoxStrainOptionsAPIView,
     BoxAccessAPIView,
     BoxActivateAPIView,
     BoxDeactivateAPIView,
@@ -124,6 +128,11 @@ urlpatterns = [
     path("boxes/", BoxListAPIView.as_view(), name="api_box_list"),
     path("boxes/automatic/", AutomaticBoxCreateAPIView.as_view(), name="api_box_automatic"),
     path("boxes/automatic/resolve/", AutomaticBoxResolveAPIView.as_view(), name="api_box_automatic_resolve"),
+
+    path("boxes/automatic/strains/", AutomaticBoxStrainOptionsAPIView.as_view(), name="api_box_automatic_strains"),
+    path("boxes/automatic/intents/", AutomaticBoxIntentAPIView.as_view(), name="api_box_automatic_intent"),
+    path("boxes/automatic/intents/execute/", AutomaticBoxIntentExecuteAPIView.as_view(), name="api_box_automatic_intent_execute"),
+    path("boxes/automatic/intents/cancel/", AutomaticBoxIntentCancelAPIView.as_view(), name="api_box_automatic_intent_cancel"),
     path("boxes/<int:pk>/", BoxDetailAPIView.as_view(), name="api_box_detail"),
     path(
         "boxes/<int:box_id>/temperatures/",

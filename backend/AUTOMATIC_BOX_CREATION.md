@@ -1,6 +1,6 @@
 # Automatic ordinary Box creation
 
-## Frontend/API contract
+## Legacy direct API contract
 
 `POST /api/boxes/automatic/` uses the existing authenticated session and CSRF
 protection. `X-Organization-Id` is required; it must identify an active institution
@@ -43,57 +43,70 @@ accessible to the actor. No institution is silently selected for this endpoint.
   `403`: missing/unauthorized institution or insufficient current authority
   (unauthenticated responses follow existing authentication configuration).
 
-Generate one UUID per confirmed creation intent. Keep that UUID and payload when
-retrying a timeout or lost response, including after a page reload if persisted by
-the client. A deliberate second creation requires a new UUID. Do not clear an
-unresolved UUID simply because a retry returns 400: an earlier request may already
-have committed. Use the resolution endpoint below before offering edit/start again.
-Codes must only be displayed as authoritative after a successful server response.
+## Durable homepage lifecycle
 
-### Resolve before editing or starting again
+The homepage now uses separate durable registration and execution, with an
+immutable normalized intent and an independent recovery token. A complete scoped
+envelope can resume even when registration never reached Django. Bare or divergent
+stored UUIDs remain inspection-only and never acquire cancellation authority.
 
-`POST /api/boxes/automatic/resolve/` requires the same authenticated session, CSRF
-protection, explicit institution header, and current creation authority as creation.
-Its body accepts **only** a required UUID:
+See [Durable ordinary Box creation intents](AUTOMATIC_BOX_INTENT_LIFECYCLE.md) for
+the API contracts, states, locking, rollback, migration, compatibility and QA gates.
 
-```json
-{"request_id": "655cda25-058b-46b5-a71f-1962edb30132"}
-```
+The direct creation contract above remains available to legacy clients. Legacy
+POST resolution accepts only a request UUID and can durably cancel an absent
+legacy key; it must never probe corrupted storage. Protected pending or terminal
+non-created intents refuse UUID-only mutation (409). GET resolution remains
+read-only, returning unknown, pending, cancelled, or the authorized committed Box.
+An unknown or pending read never permits draft replacement.
 
-Both successful outcomes return **200 OK**:
+## AAA-BBB-X consistency and strain options
 
-- A committed receipt: `{"status": "created", "box": <BoxDetailSerializer>}`.
-  The Box must still belong to the active institution. Resolution does not require
-  its former strain or zone to remain eligible/active. It returns the current Box
-  detail, including `id` and committed `global_code`, without recreating anything
-  or replacing the original creation audit. Retired/merged owned Box identities
-  remain resolvable using the existing detail representation.
-- An absent key: atomically persists a cancellation tombstone and returns
-  `{"status": "cancelled"}` (no `box` field). A repeated resolve of that tombstone
-  returns the same result. No Box, code reservation, location or creation audit is
-  written for cancellation.
+A Box identifier has the approved structure `AAA-BBB-X.YYY` (species code,
+biological origin code, strain number, Box number). The namespace used by ordinary
+creation, subculture and Transfer v1 remains the established `Strain.code`; this
+workflow never rebuilds or rewrites it (`apps/cultures/box_identity.py`).
 
-Keys remain scoped by institution + actor + UUID. Resolving another actor's UUID
-cannot reveal or cancel that actor's request. Both outcomes reload current account,
-institution and membership authority, including when the key is already cancelled.
-Viewers, inactive accounts/institutions/memberships and unauthorized actors are
-refused. A known receipt whose Box has been reassigned is refused, not cancelled.
-Malformed UUIDs, missing UUIDs and extra body fields return 400; permission failures
-return 403 under the existing authentication configuration.
+A new allocation is accepted only when `Strain.code` fully matches
+`^[A-Z]{3}-[A-Z]{3}-[0-9]+$` (the historical importer's strict shape) and no
+recorded reference field contradicts it: `Strain.number` (X), `Strain.origin_code`
+(BBB), the active institution's `OrganizationSpeciesCode` (AAA) and the strain's
+`LocalStrainIdentity` species/provenance assignments. Missing records are not
+contradictions. "usable" therefore means *saved code well formed and not
+contradicted*, not independent biological corroboration.
 
-Creation and resolution serialize on the same institution lock:
+Local code assignments are evidence only for the institution that owns them. A
+`LocalStrainIdentity` is treated as a contradiction (`local_identity_mismatch`)
+when the strain is not owned by the active institution, when either assignment
+belongs to another institution (even with the same literal code), or when the
+species assignment is for another species. Its provenance name is then never
+returned. Records are not modified.
 
-1. If creation commits first, resolution returns the committed Box.
-2. If creation rolls back, resolution can cancel the now-absent key.
-3. If resolution cancels first, every late create for that key is rejected with
-   `409 box_creation_request_cancelled`, regardless of intent.
-4. If cancellation rolls back, no tombstone remains and creation can proceed.
+Otherwise creation answers `400` on `strain` (codes
+`strain_identity_<reason>`), before any namespace, Box, audit or receipt write. A
+replay of an already committed receipt is not re-checked: it allocates nothing.
 
-Frontend action: keep the old UUID until resolution succeeds. For `created`, show
-or open the returned Box rather than silently issuing a replacement creation. For
-`cancelled`, it is safe to discard that pending intent, allow edits and use a **new**
-UUID for the next confirmed creation. If resolution times out or fails, retry
-resolution with the same UUID and institution; do not assume it was cancelled.
+`GET /api/boxes/automatic/strains/` (same authority and explicit institution as
+creation, read-only, `no-cache`) lists `eligible_strains` with species, recorded
+strain name, `code`, active Box count in the institution and `identity`:
+`{"status": "usable", "prefix", "species_code", "origin_code", "strain_number",
+"recorded_provenance_name"}` or `{"status": "unusable", "reason"}`. The components
+are read from the saved code. `recorded_provenance_name` is optional reference
+metadata: only the name of a `BiologicalProvenance` recorded through the active
+institution's own assignment; a provider, place or acquisition event is never
+presented as BBB. The next Box number is never returned or reserved.
+
+`seed_demo_data` adds one synthetic Paris strain, `AAU-DMO-1` (number 1, origin
+code `DMO`, no `Origin`, no local identity, notes stating it has no verified
+provenance, localized name "Souche de démonstration fictive" / "Fictitious
+demonstration strain"), so a freshly seeded demo can exercise this workflow. The
+picker uses the compact localized Strain N label, recorded code and active Box
+count; the synthetic name and notes remain saved but are not repeated there.
+
+Legacy demo codes
+(`1-ATL`, `3-MED`, `2-PAC`, `1-LAB`) stay unchanged and unusable. Existing demo
+databases are not modified; re-run the command only on a fresh disposable one.
+
 
 ## Authority, normalization and persistence
 
@@ -178,7 +191,7 @@ its timestamp remains the current server time, as for legacy ordinary creation.
 All backend commands must disable dotenv loading and use `config.test_settings`:
 
 ```sh
-PYTHON_DOTENV_DISABLED=1 POSTGRES_DB='' DJANGO_DEBUG=1 uv run python manage.py test apps.cultures.test_automatic_box_creation apps.cultures.test_automatic_box_resolution apps.cultures.test_automatic_box_concurrency --settings=config.test_settings --noinput
+PYTHON_DOTENV_DISABLED=1 POSTGRES_DB='' DJANGO_DEBUG=1 uv run python manage.py test apps.cultures.test_automatic_box_creation apps.cultures.test_automatic_box_resolution apps.cultures.test_automatic_box_identity apps.cultures.test_seed_demo_box_creation apps.cultures.test_automatic_box_concurrency --settings=config.test_settings --noinput
 ```
 
 SQLite exercises validation, API shape, durable replay, permissions, organization

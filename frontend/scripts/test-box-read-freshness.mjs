@@ -67,6 +67,9 @@ function harness({ seed = true } = {}) {
         organization: options.headers.get('X-Organization-Id'),
         payload: options.body == null ? null : JSON.parse(options.body),
         respond(body, status = 200) {
+          // Generic mutation fixtures are Box details. Registration can return an
+          // already committed Box; envelope it at this transport-only boundary.
+          if (path === '/api/boxes/automatic/intents/' && body?.id != null) body = { status: 'created', box: body };
           pending.resolve({ ok: status >= 200 && status < 300, status,
             headers: new Headers({ 'content-type': 'application/json' }),
             json: async () => structuredClone(body) });
@@ -211,7 +214,7 @@ const fullMutations = [
   ['deactivateBox', [7, {}], '/api/boxes/7/deactivate/', { status: 'inactive', thermal_zone: null }],
   ['reactivateBox', [7, {}], '/api/boxes/7/activate/', { status: 'active' }],
   ['qualifyBox', [7, {}], '/api/boxes/7/qualify/', { status: 'inactive' }],
-  ['createBox', [{}], '/api/boxes/automatic/', { status: 'active' }],
+  ['createBox', [{}], '/api/boxes/automatic/intents/', { status: 'active' }],
   ['moveBox', [7, {}], '/api/boxes/7/move/', { thermal_zone: 2 }],
   ['assignBoxInitialLocation', [7, {}], '/api/admin/box-inventory/7/assign-location/', { thermal_zone: 2 }],
 ];
@@ -520,7 +523,7 @@ for (const [name, args, path, extra] of [
   ['reactivateBox', [7, {}], '/api/boxes/7/activate/', { status: 'active' }],
   ['qualifyBox', [7, {}], '/api/boxes/7/qualify/', { status: 'inactive' }],
   ['assignBoxInitialLocation', [7, {}], '/api/admin/box-inventory/7/assign-location/', { thermal_zone: 2 }],
-  ['createBox', [{}], '/api/boxes/automatic/', { status: 'active' }],
+  ['createBox', [{}], '/api/boxes/automatic/intents/', { status: 'active' }],
 ]) {
   test(`${name}: returned detail invalidates the actual old detail fetch`, async () => {
     const h = harness();
@@ -1087,7 +1090,7 @@ for (const overlap of [false, true]) {
     assert.equal((await lifecycle).error, undefined);
     const before = h.state.data;
     const created = box(8, 4, { notes: 'creation snapshot' });
-    h.request('POST', '/api/boxes/automatic/').respond(created);
+    h.request('POST', '/api/boxes/automatic/intents/').respond(created);
     await tick();
     if (overlap) {
       assert.equal(h.state.data, before, 'unknown ID must use the dispatch-time revision snapshot');
@@ -1108,7 +1111,7 @@ test('create unknown result ID with an existing dispatch revision can publish wh
   h.state.data.boxes = h.state.data.boxes.filter(item => item.id !== 8);
   const create = observed(h.context.createBox({}));
   const created = box(8, 4);
-  h.request('POST', '/api/boxes/automatic/').respond(created);
+  h.request('POST', '/api/boxes/automatic/intents/').respond(created);
   assert.equal((await create).error, undefined);
   assertBox(h, created);
   assert.equal(h.fetches.filter(item => item.method === 'GET').length, 0);
@@ -1505,7 +1508,7 @@ test('revision cleanup: actual bootstrap effect clears at entry and its cleanup 
 
 for (const [name, args, path] of [
   ['deactivateBox', [7, {}], '/api/boxes/7/deactivate/'],
-  ['createBox', [{}], '/api/boxes/automatic/'],
+  ['createBox', [{}], '/api/boxes/automatic/intents/'],
   ['createSubculture', [7, {}], '/api/boxes/7/subcultures/'],
   ['qualifyBoxesBatch', [{ box_ids: [7, 8] }], '/api/admin/box-inventory/batch-qualify/'],
 ]) {
@@ -1582,7 +1585,7 @@ for (const changed of [false, true]) {
     h.request('POST', `/api/boxes/${otherId}/deactivate/`).respond(authoritative);
     assert.equal((await other).error, undefined);
     const before = h.state.data;
-    h.request('POST', '/api/boxes/automatic/').respond(created);
+    h.request('POST', '/api/boxes/automatic/intents/').respond(created);
     await tick();
     if (changed) {
       assert.equal(h.state.data, before, 'existing revision newer than dispatch prevents publication');

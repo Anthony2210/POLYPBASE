@@ -129,9 +129,9 @@ test('desktop and tablet create boxes from the shared page header and reused mod
   assert.equal((createBoxSource.match(/<form className="create-box-form"/g) ?? []).length, 1);
   assert.match(createBoxSource, /className="modal-close-button" type="button"[^>]*onClick=\{\(\) => setOpen\(false\)\}/);
   assert.match(createBoxSource, /onMouseDown=\{\(\) => setOpen\(false\)\}/);
-  assert.match(createBoxSource, /isConfirmationOpenRef\.current = !intent;[\s\S]*?confirmed = await confirmAction[\s\S]*?finally \{\s*isConfirmationOpenRef\.current = false;/);
-  assert.match(createBoxSource, /if \(isQuickStrainOpenRef\.current \|\| isConfirmationOpenRef\.current\) return;/);
-  assert.match(createBoxSource, /onSelectBox\(createdBox\.id\);\s*if \(presentation === 'modal'\) \{[\s\S]*?requestAnimationFrame[\s\S]*?\[data-box-page-focus-target\]/);
+  // The live identifier preview replaces the confirmation step; no strain is created from this form.
+  assert.doesNotMatch(createBoxSource, /confirmAction|isConfirmationOpenRef|QuickStrainCreator|isQuickStrainOpen/);
+  assert.match(createBoxSource, /onSelectBox\(box\.id\);\s*if \(presentation === 'modal'\) \{[\s\S]*?requestAnimationFrame[\s\S]*?\[data-box-page-focus-target\]/);
   assert.match(readSource('../src/components/BoxPage.tsx'), /<h2 data-box-page-focus-target tabIndex=\{-1\}>\{box\.global_code\}<\/h2>/);
 });
 
@@ -175,7 +175,7 @@ test('Pilotage retains the shared page frame and the phone workflow branch', () 
   assert.match(pilotageSource, /<TabletQrScanner[\s\S]*?onSelectBox=\{onSelectBox\}/);
   assert.match(pilotageCss, /@media \(max-width: 759px\), \(max-width: 900px\) and \(orientation: portrait\)/);
   assert.match(createBoxSource, /presentation === 'inline' \? \(\s*<button\s*className="create-box-toggle"/s);
-  assert.match(pilotageCss, /\.create-box-panel:has\(\.create-box-form\)\s*\{[^}]*position:\s*fixed/s);
+  assert.match(pilotageCss, /\.create-box-panel:not\(\.is-modal\):has\(\.create-box-form\)\s*\{[^}]*position:\s*fixed/s);
   assert.match(pilotageCss, /\.create-box-toggle > span\s*\{[^}]*border-radius:\s*50%/s);
 });
 
@@ -327,10 +327,9 @@ test('actual create permission retains active-membership and superuser semantics
 for (const isPhoneLayout of [false, true]) test(`actual create panel forwards readiness and callbacks for phone=${isPhoneLayout}`, () => {
   const h = pilotageHarness({ isPhoneLayout, activeOrganizationId: 7, isCreateBoxOpen: true,
     isOptionsLoading: true, boxCollectionStatus: 'loading', profile: { is_superuser: true },
-    onManageSpeciesCodes() {},
   });
   const panel = () => h.nodes.find(node => node.type === h.env.load('../src/components/CreateBoxPanel.tsx').default);
-  assert.equal(panel().key, 7);
+  assert.equal(panel().key, 'none:7');
   assert.equal(panel().props.presentation, isPhoneLayout ? 'inline' : 'modal');
   assert.equal(panel().props.isOpen, isPhoneLayout ? undefined : true);
   assert.equal(panel().props.onOpenChange, isPhoneLayout ? undefined : h.props.onCreateBoxOpenChange);
@@ -338,14 +337,15 @@ for (const isPhoneLayout of [false, true]) test(`actual create panel forwards re
   assert.equal(panel().props.onRequestBoxCollection, undefined);
   assert.equal(panel().props.boxes, undefined);
   for (const prop of ['exportOptions', 'isOptionsLoading', 'profile', 't', 'onCreateBox', 'onResolveBoxCreation',
-    'isOperationCurrent', 'onManageSpeciesCodes', 'onRequestOptions', 'confirmAction', 'onSelectBox']) {
+    'isOperationCurrent', 'onRequestOptions', 'onSelectBox']) {
     assert.equal(panel().props[prop], h.props[prop], prop);
   }
+  for (const prop of ['confirmAction', 'onManageSpeciesCodes']) assert.equal(panel().props[prop], undefined, prop);
   h.view.setProps({ boxCollectionStatus: 'ready' });
   assert.equal(panel().props.isBoxCollectionReady, undefined);
 });
 
-test('App imports the actual default module once and wires all 24 Pilotage props', () => {
+test('App imports the actual default module once and wires all 22 Pilotage props', () => {
   const imports = ast.statements.filter(node => ts.isImportDeclaration(node)
     && node.moduleSpecifier.text === './components/PilotageView');
   assert.equal(imports.length, 1);
@@ -358,12 +358,12 @@ test('App imports the actual default module once and wires all 24 Pilotage props
   }
   visit(ast);
   assert.equal(elements.length, 1);
-  assert.equal(elements[0].attributes.properties.length, 24);
+  assert.equal(elements[0].attributes.properties.length, 22);
   const h = pilotageHarness();
   const PilotageView = h.env.load('../src/components/PilotageView.tsx').default;
   const names = ['activeOrganizationId', 'requestBoxCollection', 'requestBoxCollectionRetry', 'findBoxIdByCode',
     'isLoading', 'isCreateBoxOpen', 'isPhoneLayout', 'isExportOptionsLoading', 'search', 'filteredBoxes',
-    'recentBoxes', 'createBox', 'resolveBoxCreation', 'setIsCreateBoxOpen', 'confirmAction', 'setSearch', 'openBox', 't'];
+    'recentBoxes', 'createBox', 'resolveBoxCreation', 'setIsCreateBoxOpen', 'setSearch', 'openBox', 't'];
   const bindings = Object.fromEntries(names.map(name => [name, { name }]));
   const calls = [];
   Object.assign(bindings, { PilotageView, data: { boxes: [], exportOptions: {}, profile: {} },
@@ -381,19 +381,14 @@ test('App imports the actual default module once and wires all 24 Pilotage props
     onRetryBoxCollection: 'requestBoxCollectionRetry', onResolveBoxCode: 'findBoxIdByCode', isLoading: 'isLoading',
     isCreateBoxOpen: 'isCreateBoxOpen', isPhoneLayout: 'isPhoneLayout', isOptionsLoading: 'isExportOptionsLoading',
     search: 'search', searchResults: 'filteredBoxes', recentBoxes: 'recentBoxes', onCreateBox: 'createBox', onResolveBoxCreation: 'resolveBoxCreation',
-    onCreateBoxOpenChange: 'setIsCreateBoxOpen', confirmAction: 'confirmAction', onSearch: 'setSearch', onSelectBox: 'openBox', t: 't' };
+    onCreateBoxOpenChange: 'setIsCreateBoxOpen', onSearch: 'setSearch', onSelectBox: 'openBox', t: 't' };
   for (const [prop, binding] of Object.entries(mapping)) assert.equal(result.props[prop], bindings[binding], prop);
   for (const prop of ['boxes', 'exportOptions', 'profile']) assert.equal(result.props[prop], bindings.data[prop], prop);
   assert.equal(result.props.boxCollectionStatus, 'ready');
   assert.equal(result.props.isOperationCurrent(), true);
   bindings.organizationRequestGenerationRef.current++;
   assert.equal(result.props.isOperationCurrent(), false);
-  result.props.onManageSpeciesCodes();
   result.props.onRequestOptions();
-  assert.deepEqual(calls, [['open', false], ['admin', 'references'], ['options', true]]);
-  context.isDesktopApp = false;
-  vm.runInContext(ts.transpileModule(`const phoneResult = (${elements[0].getText(ast)});`, {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React },
-  }).outputText, context);
-  assert.equal(vm.runInContext('phoneResult.props.onManageSpeciesCodes', context), undefined);
+  assert.deepEqual(calls, [['options', true]]);
+  for (const prop of ['confirmAction', 'onManageSpeciesCodes']) assert.equal(result.props[prop], undefined, prop);
 });

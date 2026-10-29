@@ -7,7 +7,7 @@ import { appHarness, tick as operationTick,
   createHistoryFixture, installAppRouting } from './app-operation-test-harness.mjs';
 import { createBoxHarness, text } from './create-box-harness.mjs';
 
-for (const gap of ['before confirmation', 'after mutation success']) {
+for (const gap of ['before submission', 'after mutation success']) {
   test(`create-box caller cannot navigate after organization replacement ${gap}`, async () => {
     const h = appHarness();
     const box = createBoxHarness({
@@ -15,16 +15,16 @@ for (const gap of ['before confirmation', 'after mutation success']) {
       isOperationCurrent: () => h.context.organizationRequestGenerationRef.current === 0,
     });
     box.panel.click(box.panel.byClass('create-box-toggle'));
-    box.env.requests[0].resolve({ strains: [{ id: 2, code: 'BOX', species: 1, species_scientific_name: 'Aurelia' }] });
+    box.env.requests[0].resolve([{
+      id: 2, species: { id: 1, scientific_name: 'Aurelia' }, name: '', code: 'AUR-BOX-2', active_box_count: 0,
+      identity: { status: 'usable', prefix: 'AUR-BOX-2', species_code: 'AUR', origin_code: 'BOX', strain_number: '2', recorded_provenance_name: null },
+    }]);
     await box.panel.settle();
+    box.panel.click(box.panel.nodes.find(node => node.props.role === 'option'));
     box.panel.change(box.panel.field('create-box-location-field'), '10');
+    if (gap === 'before submission') h.switchOrganization();
     const pending = box.panel.submit();
-    const confirmation = box.confirmations[0];
-    if (gap === 'before confirmation') {
-      h.switchOrganization();
-      confirmation.resolve(true);
-    } else {
-      confirmation.resolve(true);
+    if (gap === 'after mutation success') {
       await operationTick();
       box.mutations[0].resolve({ id: 7 });
       h.switchOrganization();
@@ -33,7 +33,7 @@ for (const gap of ['before confirmation', 'after mutation success']) {
     await box.panel.settle();
     assert.deepEqual(box.navigations, []);
     assert.deepEqual(box.panel.nodes.filter(node => node.matches('.inline-error')).map(text), []);
-    assert.equal(box.mutations.length, gap === 'before confirmation' ? 0 : 1);
+    assert.equal(box.mutations.length, gap === 'before submission' ? 0 : 1);
     box.unmount();
   });
 }
@@ -102,7 +102,7 @@ test('queued mutation state update is rechecked when React applies it', async ()
   const h = appHarness();
   h.queueUpdates();
   const pending = h.context.createBox({});
-  h.requests[0].resolve({ id: 7 });
+  h.requests[0].resolve({ status: 'created', box: { id: 7 } });
   await pending;
   h.switchOrganization();
   const replacement = { boxes: [{ id: 9 }], boxDetails: {} };

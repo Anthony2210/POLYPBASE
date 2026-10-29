@@ -21,6 +21,9 @@ msgstr "This request ID was already used for a different box creation."
 msgid "This box creation request was cancelled. Use a new request ID to create a box."
 msgstr "This box creation request was cancelled. Use a new request ID to create a box."
 
+msgid "The recorded code of this strain cannot be used to number an AAA-BBB-X box."
+msgstr "The recorded code of this strain cannot be used to number an AAA-BBB-X box."
+
 msgid "This account cannot create boxes."
 msgstr "This account cannot create boxes."
 

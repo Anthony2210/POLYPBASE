@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
@@ -27,14 +28,15 @@ export function submitEvent() {
 const sameDeps = (a, b) => a && b && a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
 
 export function createBoxEnvironment() {
-  const roots = [], listeners = new Map(), frames = new Map(), requests = [];
-  let nextFrame = 0, current;
+  const roots = [], listeners = new Map(), frames = new Map(), timers = new Map(), requests = [];
+  let nextFrame = 0, nextTimer = 0, current;
   const document = {
     activeElement: null,
     querySelectorAll(selector) {
       return roots.flatMap(root => [...(root.matches(selector) ? [root] : []), ...root.querySelectorAll(selector)]);
     },
     querySelector(selector) { return this.querySelectorAll(selector)[0] ?? null; },
+    getElementById(id) { return roots.flatMap(root => [root, ...root.querySelectorAll('*')]).find(node => node.props?.id === id) ?? null; },
   };
   class Element {
     constructor(type, props = {}) {
@@ -51,6 +53,7 @@ export function createBoxEnvironment() {
         || (this.type === 'a' && Boolean(this.props.href)) || (this.props.tabIndex != null && this.props.tabIndex !== -1);
       if (selector.startsWith('.')) return (this.props.className ?? '').split(/\s+/).includes(selector.slice(1));
       if (selector === '[data-box-page-focus-target]') return 'data-box-page-focus-target' in this.props;
+      if (selector === '*') return true;
       throw new Error(`Unsupported DOM selector: ${selector}`);
     }
     querySelectorAll(selector) {
@@ -68,7 +71,11 @@ export function createBoxEnvironment() {
   opener.focus();
   const session = new Map();
   const window = {
-    crypto: { randomUUID: () => crypto.randomUUID() },
+    crypto: {
+      randomUUID: () => crypto.randomUUID(),
+      // Same SHA-256 as Web Crypto, settled deterministically within the hook harness.
+      subtle: { digest: async (_algorithm, data) => Uint8Array.from(createHash('sha256').update(data).digest()).buffer },
+    },
     sessionStorage: {
       getItem: key => session.get(key) ?? null,
       setItem: (key, value) => session.set(key, value),
@@ -82,6 +89,8 @@ export function createBoxEnvironment() {
     removeEventListener(name, fn) { listeners.get(name)?.delete(fn); },
     requestAnimationFrame(fn) { const id = ++nextFrame; frames.set(id, fn); return id; },
     cancelAnimationFrame(id) { frames.delete(id); },
+    setTimeout(fn, delay = 0) { const id = ++nextTimer; timers.set(id, { fn, delay }); return id; },
+    clearTimeout(id) { timers.delete(id); },
   };
   function key(key, shiftKey = false) {
     const event = { key, shiftKey, ...submitEvent() };
@@ -121,6 +130,8 @@ export function createBoxEnvironment() {
     const index = current.cursor++;
     if (!sameDeps(current.slots[index]?.deps, deps)) current.effects[phase].push({ index, fn, deps });
   }
+  // Real leaf components rendered inside their parent instance, each with its own hooks.
+  const nestedComponents = new Set();
   const modules = new Map();
   function load(path) {
     const url = new URL(path, import.meta.url);
@@ -148,12 +159,12 @@ export function createBoxEnvironment() {
       throw new Error(`Unexpected module import: ${name}`);
     };
     vm.runInNewContext(compiled.get(url.href), {
-      exports, require, document, window, HTMLElement: Element, Error, URL, AbortController,
+      exports, require, document, window, HTMLElement: Element, Error, URL, AbortController, TextEncoder,
       __API_PROXY_ORIGIN__: null,
       fetch() { throw new Error('Network is forbidden in the create-box harness'); },
     }, { filename: url.pathname });
-    if (url.pathname.endsWith('/api/client.ts')) exports.apiGet = path => {
-      const request = { ...deferred(), path };
+    if (url.pathname.endsWith('/api/client.ts')) exports.apiGet = (path, options) => {
+      const request = { ...deferred(), path, options };
       requests.push(request);
       return request.promise;
     };
@@ -162,12 +173,37 @@ export function createBoxEnvironment() {
   function instance(component, initialProps, { strictMode = false } = {}) {
     const owner = { slots: [], cursor: 0, dirty: true, mounted: true, updatesAfterUnmount: 0, effects: { layout: [], passive: [] } };
     const container = external('test-root');
-    let props = initialProps, elements = new Map(), value;
+    let props = initialProps, elements = new Map(), value, nested = new Map();
+    function nestedOwner(type) {
+      return {
+        type, slots: [], cursor: 0, effects: { layout: [], passive: [] },
+        get mounted() { return owner.mounted; },
+        get dirty() { return false; },
+        set dirty(value) { if (value) owner.dirty = true; },
+        get updatesAfterUnmount() { return owner.updatesAfterUnmount; },
+        set updatesAfterUnmount(value) { owner.updatesAfterUnmount = value; },
+      };
+    }
+    function cleanupOwner(target) {
+      for (const phase of ['layout', 'passive']) for (const slot of target.slots) if (slot?.phase === phase) slot.cleanup?.();
+    }
     function reconcile(tree) {
-      const next = new Map();
+      const next = new Map(), seen = new Map();
       function build(node, parent, path) {
         if (Array.isArray(node)) { node.forEach((child, i) => build(child, parent, `${path}/${child?.key ?? i}`)); return; }
         if (!node || typeof node !== 'object') return;
+        if (nestedComponents.has(node.type)) {
+          let child = nested.get(path);
+          if (child?.type !== node.type) child = nestedOwner(node.type);
+          seen.set(path, child);
+          const previous = current;
+          current = child;
+          child.cursor = 0;
+          let output;
+          try { output = node.type(node.props); } finally { current = previous; }
+          build(output, parent, `${path}/rendered`);
+          return;
+        }
         const element = elements.get(path)?.type === node.type ? elements.get(path) : new Element(node.type);
         Object.assign(element, { props: node.props, key: node.key, children: [], parent, isConnected: true });
         parent.children.push(element);
@@ -177,6 +213,8 @@ export function createBoxEnvironment() {
       }
       container.children = [];
       build(tree, container, 'root');
+      for (const [path, child] of nested) if (seen.get(path) !== child) cleanupOwner(child);
+      nested = seen;
       for (const [path, element] of elements) if (next.get(path) !== element) {
         element.isConnected = false;
         if (element.props.ref && element.props.ref.current === element) element.props.ref.current = null;
@@ -191,12 +229,12 @@ export function createBoxEnvironment() {
       current = owner;
       try { value = component(props); } finally { current = null; }
       reconcile(value);
-      for (const phase of ['layout', 'passive']) {
-        const pending = owner.effects[phase];
-        owner.effects[phase] = [];
+      for (const phase of ['layout', 'passive']) for (const target of [...nested.values(), owner]) {
+        const pending = target.effects[phase];
+        target.effects[phase] = [];
         for (const { index, fn, deps } of pending) {
-          owner.slots[index]?.cleanup?.();
-          owner.slots[index] = { deps, phase, fn, cleanup: fn() };
+          target.slots[index]?.cleanup?.();
+          target.slots[index] = { deps, phase, fn, cleanup: fn() };
         }
       }
       return value;
@@ -234,6 +272,7 @@ export function createBoxEnvironment() {
         for (const element of elements.values()) { element.isConnected = false; if (element.props.ref) element.props.ref.current = null; }
         if (container.contains(document.activeElement)) document.activeElement = document.body;
         roots.splice(roots.indexOf(container), 1);
+        for (const child of nested.values()) cleanupOwner(child);
         for (const phase of ['layout', 'passive']) for (const slot of owner.slots) if (slot?.phase === phase) slot.cleanup?.();
       },
     };
@@ -273,9 +312,14 @@ export function createBoxEnvironment() {
       unmount() { child.unmount(); owner.unmount(); },
     };
   }
+  function renderNested(path) { nestedComponents.add(load(path).default); }
   return {
-    document, window, opener, requests, key, load, instance, external, keyedChild, confirmationHost,
+    document, window, opener, requests, key, load, instance, external, keyedChild, confirmationHost, renderNested,
     listenerCount: () => listeners.get('keydown')?.size ?? 0,
+    windowListenerCount: name => listeners.get(name)?.size ?? 0,
+    dispatch(name) { for (const listener of [...(listeners.get(name) ?? [])]) listener({ type: name }); },
+    get timerDelays() { return [...timers.values()].map(timer => timer.delay); },
+    runTimers() { const pending = [...timers.values()]; timers.clear(); pending.forEach(timer => timer.fn()); return pending.length; },
     get frameCount() { return frames.size; },
     flushFrames() { const pending = [...frames.values()]; frames.clear(); pending.forEach(fn => fn(0)); },
   };
@@ -310,6 +354,8 @@ export function createBoxHarness(initialProps = {}, options = {}) {
     ...initialProps,
   };
   const component = env.load('../src/components/CreateBoxPanel.tsx').default;
+  env.renderNested('../src/components/StrainPicker.tsx');
+  env.renderNested('../src/components/CreatedBoxIdentifier.tsx');
   let panel, parent = null, children = null;
   if (options.pilotage) {
     const PilotageView = env.load('../src/components/PilotageView.tsx').default;

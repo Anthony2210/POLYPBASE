@@ -45,6 +45,89 @@ class AutomaticBoxResolutionTests(AutomaticBoxFixture, TestCase):
             organization=self.org, actor=self.user, data={"request_id": self.payload["request_id"]},
         )
 
+    def inspect(self, request_id=None, organization=None, **extra):
+        return self.client.get(
+            reverse("api_box_automatic_resolve"),
+            {"request_id": request_id or self.payload["request_id"], **extra},
+            HTTP_X_ORGANIZATION_ID=str((organization or self.org).pk),
+        )
+
+    def test_inspecting_independent_same_actor_requests_never_cancels_either(self):
+        other_strain = Strain.objects.create(organization=self.org, species=self.species, code="AUT-LAB-2")
+        other = {**self.payload, "request_id": str(uuid.uuid4()), "strain": other_strain.pk}
+        # Recovery sees A and unrelated B before either delayed request arrives.
+        for key in (self.payload["request_id"], other["request_id"]):
+            response = self.inspect(key)
+            self.assertEqual(response.json(), {"status": "unknown"})
+            self.assertIn("no-store", response["Cache-Control"])
+        self.assertFalse(AutomaticBoxCreationRequest.objects.exists())
+        a = self.create()
+        self.assertEqual(a.status_code, 201)
+        self.assertEqual(self.inspect().json()["box"]["id"], a.json()["id"])
+        self.assertEqual(self.inspect(other["request_id"]).json(), {"status": "unknown"})
+        self.assertFalse(AutomaticBoxCreationRequest.objects.filter(request_id=other["request_id"]).exists())
+        # B still commits, with its own strain; neither inspection cancelled it.
+        b = self.create(other)
+        self.assertEqual(b.status_code, 201, b.content)
+        self.assertNotEqual(a.json()["id"], b.json()["id"])
+        self.assertEqual(b.json()["strain"]["id"], other_strain.pk)
+        for payload, expected in ((self.payload, a), (other, b)):
+            self.assertEqual(self.inspect(payload["request_id"]).json()["box"]["id"], expected.json()["id"])
+            self.assertEqual(self.create(payload).json()["id"], expected.json()["id"])
+        self.assertEqual((Box.objects.count(), AuditLog.objects.count()), (2, 2))
+        self.assertFalse(AutomaticBoxCreationRequest.objects.filter(cancelled=True).exists())
+
+    def test_inspection_reads_existing_cancellation_without_new_tombstone(self):
+        self.resolve()
+        self.assertEqual(self.inspect().json(), {"status": "cancelled"})
+        self.assertEqual(self.inspect(str(uuid.uuid4())).json(), {"status": "unknown"})
+        self.assertEqual(AutomaticBoxCreationRequest.objects.count(), 1)
+
+    def test_inspection_enforces_authority_and_strict_input(self):
+        for data in ({}, {"request_id": "bad"}, {"request_id": self.payload["request_id"], "strain": 1}):
+            response = self.client.get(reverse("api_box_automatic_resolve"), data, HTTP_X_ORGANIZATION_ID=str(self.org.pk))
+            self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.client.get(reverse("api_box_automatic_resolve"), {"request_id": self.payload["request_id"]}).status_code, 403)
+        self.assertEqual(self.inspect(organization=self.other_org).status_code, 403)
+        for changes in ({"role": "viewer"}, {"is_active": False}):
+            OrganizationMembership.objects.filter(pk=self.membership.pk).update(**changes)
+            self.assertEqual(self.inspect().status_code, 403)
+            OrganizationMembership.objects.filter(pk=self.membership.pk).update(role="lab_technician", is_active=True)
+        self.client.logout()
+        self.assertIn(self.inspect().status_code, (401, 403))
+        self.assertFalse(AutomaticBoxCreationRequest.objects.exists())
+
+    def test_inspection_revalidates_inactive_actor_and_institution(self):
+        self.service()
+        get_user_model().objects.filter(pk=self.user.pk).update(is_active=False)
+        self.assertIn(self.inspect().status_code, (401, 403))
+        get_user_model().objects.filter(pk=self.user.pk).update(is_active=True)
+        Organization.objects.filter(pk=self.org.pk).update(is_active=False)
+        self.assertEqual(self.inspect().status_code, 403)
+        self.assertEqual(AutomaticBoxCreationRequest.objects.count(), 1)
+        self.assertFalse(AutomaticBoxCreationRequest.objects.get().cancelled)
+
+    def test_inspection_recovers_committed_box_after_strain_and_zone_become_invalid(self):
+        box, _ = self.service()
+        Strain.objects.filter(pk=self.strain.pk).update(organization=self.other_org)
+        ThermalZone.objects.filter(pk=self.zone.pk).update(is_active=False)
+        self.assertEqual(self.inspect().json()["box"]["id"], box.pk)
+        self.assertEqual((Box.objects.count(), AuditLog.objects.count()), (1, 1))
+
+    def test_inspection_never_discloses_other_actor_or_institution_receipt(self):
+        box, _ = self.service()
+        other_user = get_user_model().objects.create_user(username="inspection-other", email="inspect@example.org")
+        OrganizationMembership.objects.create(organization=self.org, user=other_user, role="admin")
+        self.client.force_login(other_user)
+        self.assertEqual(self.inspect().json(), {"status": "unknown"})
+        self.client.force_login(self.user)
+        OrganizationMembership.objects.create(organization=self.other_org, user=self.user, role="admin")
+        self.assertEqual(self.inspect(organization=self.other_org).json(), {"status": "unknown"})
+        Box.objects.filter(pk=box.pk).update(organization=self.other_org)
+        self.assertEqual(self.inspect().status_code, 403)
+        self.assertEqual(AutomaticBoxCreationRequest.objects.count(), 1)
+        self.assertFalse(AutomaticBoxCreationRequest.objects.get().cancelled)
+
     def test_absent_key_is_durably_cancelled_and_resolution_is_idempotent(self):
         for _ in range(2):
             response = self.resolve()
@@ -188,7 +271,7 @@ class AutomaticBoxResolutionTests(AutomaticBoxFixture, TestCase):
     def test_tombstone_scope_does_not_cancel_creation_in_another_institution(self):
         self.resolve()
         OrganizationMembership.objects.create(organization=self.other_org, user=self.user, role="admin")
-        strain = Strain.objects.create(organization=self.other_org, species=self.species, code="AUT-OTHER-1")
+        strain = Strain.objects.create(organization=self.other_org, species=self.species, code="AUT-OTH-1")
         zone = ThermalZone.objects.create(organization=self.other_org, name="Other zone")
         box, created = create_automatic_box(
             organization=self.other_org, actor=self.user,
