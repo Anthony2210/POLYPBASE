@@ -54,10 +54,13 @@ membres, le diff runtime et les résultats Linux 3.13. Les valeurs attendues ne
 proviennent pas d'un fichier de checksums produit sur le live par `polypbase`.
 
 Empreintes des sources **LF** du présent correctif (à retrouver dans les blobs
-Git de TARGET; toute différence exige nouvelle revue et nouvelles empreintes) :
+Git de TARGET; toute différence exige nouvelle revue et nouvelles empreintes).
+Le lanceur ci-dessous inclut le refus de `--app` hors trace : cette révision est
+une candidate en attente de revue de sécurité indépendante, pas un artefact
+approuvé pour la production. Les empreintes des deux outils restent inchangées :
 
 ```text
-b79faa5d4292e62205c7c4c77fe7725c8e5558fb931e21be5042d1122307c15d  backend/cca_eob_runtime.py
+0d125888059a97a7e8641f041ee10422aebec91258e43306ebd135b5f2daea42  backend/cca_eob_runtime.py
 aba1abdc0b2dd8d41f424ba4e3a295f272334804a55a37da947a3fc43d1a9653  deploy/scripts/cca_eob_runtime_inventory.py
 831d9ef85b2e4a26266a0ba07bc556e0428cf393e85f17f0968af3dbbd637ac5  deploy/scripts/cca_eob_runtime_permissions.py
 ```
