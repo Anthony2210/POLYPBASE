@@ -137,6 +137,9 @@ def main():
     if len(sys.argv) < 2 or sys.argv[1] not in ("trace", "plan", "apply"):
         raise RuntimeStop("STOP: expected trace, plan or apply")
     action = sys.argv[1]
+    if action in ("plan", "apply") and any(
+            argument.split("=", 1)[0] == "--app" for argument in sys.argv[2:]):
+        raise RuntimeStop("STOP: --app is only permitted for trace")
     backend = os.path.dirname(os.path.abspath(__file__))
     app = os.path.dirname(backend)
     # Initial evidence may use an independently reviewed bootstrap outside the

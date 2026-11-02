@@ -45,14 +45,16 @@ jobs:
             exit 1
           fi
 
-          # Only QA configuration and the modern-uv startup test adaptation may differ.
+          # Exact exceptions for QA and the candidate runtime guard pending security review.
           git diff --exit-code "${BASE_SHA}" HEAD -- . \
             ':(exclude).github/workflows/cca-eob-linux-qa.yml' \
             ':(exclude).github/workflows/cca_eob_linux_qa/Dockerfile' \
             ':(exclude).github/workflows/cca_eob_linux_qa/run_tests.py' \
-            ':(exclude)deploy/scripts/test_cca_eob_runtime_startup.py'
-          echo "PASS: Runtime implementation and all non-allowlisted sources match 6afc30ff."
-          echo "Startup test may differ solely for modern uv compatibility; review its diff."
+            ':(exclude)deploy/scripts/test_cca_eob_runtime_startup.py' \
+            ':(exclude)backend/cca_eob_runtime.py' \
+            ':(exclude)docs/cca-eob-runtime-manifest-procedure.md'
+          echo "PASS: Non-allowlisted sources, backend business code and dependencies match 6afc30ff."
+          echo "Candidate launcher guard, startup tests and documented digest differ; independent security review is required."
 
           # Enforce an exact allowlist, not a directory-wide exception.
           echo "Auditing modified files against base commit..."
@@ -62,8 +64,8 @@ jobs:
             echo "${changed_files}"
             while IFS= read -r file; do
               case "${file}" in
-                .github/workflows/cca-eob-linux-qa.yml|.github/workflows/cca_eob_linux_qa/Dockerfile|.github/workflows/cca_eob_linux_qa/run_tests.py|deploy/scripts/test_cca_eob_runtime_startup.py)
-                  echo "Allowed QA configuration: ${file}"
+                .github/workflows/cca-eob-linux-qa.yml|.github/workflows/cca_eob_linux_qa/Dockerfile|.github/workflows/cca_eob_linux_qa/run_tests.py|deploy/scripts/test_cca_eob_runtime_startup.py|backend/cca_eob_runtime.py|docs/cca-eob-runtime-manifest-procedure.md)
+                  echo "Allowed QA / candidate security-review path: ${file}"
                   ;;
                 *)
                   echo "ERROR: Modification outside the exact QA allowlist: ${file}" >&2

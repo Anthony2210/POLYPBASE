@@ -255,11 +255,18 @@ print('DISPATCHED')
 
     @unittest.skipUnless(sys.platform == "linux", "staged bootstrap requires Linux")
     def test_external_reviewed_bootstrap_uses_live_venv_and_trace_only_app_override(self):
-        executable, _ = self.make_launcher_app()
+        executable, backend = self.make_launcher_app()
         staging = self.root / "reviewed-bootstrap"
         staging.mkdir()
         bootstrap = staging / BOOTSTRAP.name
         shutil.copyfile(BOOTSTRAP, bootstrap)
+        # Keep Django available at the external launcher's effective backend too.
+        shutil.copytree(backend / "django", staging / "django")
+        dispatcher = staging / "django/core/management/__init__.py"
+        dispatcher.write_text(
+            "def execute_from_command_line(argv):\n"
+            " print('SYNTHETIC_DJANGO_DISPATCH', argv[2])\n", encoding="utf-8")
+        shutil.copyfile(dispatcher, backend / "django/core/management/__init__.py")
         code = ("import sys,json; print(json.dumps({'startup':sys._cca_eob_runtime['evidence'](),"
                 "'argv':sys.argv,'bootstrap':sys.modules['__main__'].__file__}))")
         result = subprocess.run([str(executable), *FLAGS, str(bootstrap), "trace", "--app", str(self.root)],
@@ -269,11 +276,39 @@ print('DISPATCHED')
         self.assertEqual(document["argv"], ["<cca-eob-trace>", "trace", "--app", str(self.root)])
         self.assertEqual(document["bootstrap"], str(bootstrap))
         self.assertTrue(document["startup"]["site_initialized"])
+        self.assertNotIn("SYNTHETIC_DJANGO_DISPATCH", result.stdout)
+        # Positive controls prove that an unavailable Django cannot mask a missing guard.
+        # Plan/apply controls use the normal launcher; the external launcher is trace-only.
         for action in ("plan", "apply"):
-            result = subprocess.run([str(executable), *FLAGS, str(bootstrap), action, "--app", str(self.root)],
-                                    text=True, capture_output=True, timeout=30)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("STOP:", result.stderr)
+            with self.subTest(control=action):
+                result = subprocess.run([str(executable), *FLAGS, str(backend / BOOTSTRAP.name), action],
+                                        text=True, capture_output=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("SYNTHETIC_DJANGO_DISPATCH " + action, result.stdout)
+
+        site = self.root / ".venv/lib/python3.13/site-packages"
+        (site / "site-initialization-probe.pth").write_text(
+            "import sys; sys.stderr.write('SITE_INITIALIZED\\n')\n", encoding="utf-8")
+        result = subprocess.run([str(executable), *FLAGS, str(bootstrap), "trace", "--app", str(self.root)],
+                                input=code, text=True, capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("SITE_INITIALIZED", result.stderr)
+        self.assertTrue(json.loads(result.stdout)["startup"]["site_initialized"])
+        for launcher in (bootstrap, backend / BOOTSTRAP.name):
+            for action in ("plan", "apply"):
+                for override in (["--app", str(self.root)], ["--app=" + str(self.root)]):
+                    for preceding in ([], ["--production", "--organization-id", "1"]):
+                        with self.subTest(launcher=launcher, action=action,
+                                          override=override, preceding=preceding):
+                            result = subprocess.run(
+                                [str(executable), *FLAGS, str(launcher), action, *preceding, *override],
+                                text=True, capture_output=True, timeout=30)
+                            self.assertEqual(result.returncode, 4, result.stderr)
+                            self.assertIn("STOP: --app is only permitted for trace", result.stderr)
+                            self.assertNotIn("SITE_INITIALIZED", result.stdout + result.stderr)
+                            self.assertNotIn("SYNTHETIC_DJANGO_DISPATCH", result.stdout + result.stderr)
+                            self.assertNotIn("cca_eob_production", result.stdout)
+                            self.assertNotIn("ModuleNotFoundError", result.stderr)
 
 
 class ProjectVenvTests(unittest.TestCase):
