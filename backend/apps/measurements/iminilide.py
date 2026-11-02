@@ -52,7 +52,7 @@ class IminilideAuthenticationError(IminilideError):
 
 
 class IminilideResponseError(IminilideError):
-    """The cloud answered with something that is not a list of readings."""
+    """The cloud answer does not contain a recognizable reading schema."""
 
 
 @dataclass(frozen=True)
@@ -117,23 +117,27 @@ def parse_readings(payload, time_zone=None):
 
     Accept both occurrences only when the response contains the strict backwards
     jump. Otherwise count ambiguous rows as invalid. Missing values participate
-    in detecting the jump; zero remains a real measurement.
+    in detecting the jump; zero remains a real measurement. A nonempty answer
+    with only malformed rows is a response error, not an empty collection.
     """
     if not isinstance(payload, list):
         raise IminilideResponseError("The cloud answer is not a list of readings.")
     zone = ZoneInfo(time_zone or settings.IMINILIDE_TIME_ZONE)
     result = ParsedReadings(readings=[])
     rows = []
+    malformed_rows = 0
     rollbacks = defaultdict(list)
     previous = None
     for index, row in enumerate(payload):
         if not isinstance(row, (list, tuple)) or len(row) < 2 or not isinstance(row[0], str):
             result.invalid_rows += 1
+            malformed_rows += 1
             continue
         try:
             naive = datetime.strptime(row[0].strip(), TIMESTAMP_FORMAT)
         except ValueError:
             result.invalid_rows += 1
+            malformed_rows += 1
             continue
         instants = _possible_instants(naive, zone)
         if len(instants) == 2 and previous is not None:
@@ -143,6 +147,13 @@ def parse_readings(payload, time_zone=None):
         previous = naive, instants
         rows.append((index, naive, instants, row[1]))
     for index, naive, instants, raw_value in rows:
+        # Validate schema separately from whether the local time is usable.
+        try:
+            value = _parse_value(raw_value)
+        except ValueError:
+            result.invalid_rows += 1
+            malformed_rows += 1
+            continue
         if not instants:
             result.invalid_rows += 1
             continue
@@ -154,11 +165,6 @@ def parse_readings(payload, time_zone=None):
             instant = instants[1 if index >= jumps[0] else 0]
         else:
             instant = instants[0]
-        try:
-            value = _parse_value(raw_value)
-        except ValueError:
-            result.invalid_rows += 1
-            continue
         if value is None:
             result.missing_values += 1
             continue
@@ -166,6 +172,10 @@ def parse_readings(payload, time_zone=None):
             result.out_of_range_values += 1
             continue
         result.readings.append(Reading(measured_at=instant.astimezone(zone), temperature_c=value))
+    if payload and malformed_rows == len(payload):
+        raise IminilideResponseError(
+            "The cloud answer contains only malformed reading rows; no readings were stored."
+        )
     return result
 
 

@@ -121,6 +121,15 @@ migration `measurements.0015_iminilide_probe_collection` (additive).
 - La moyenne journalière d'une zone combine ses deux sondes. Un jour déjà saisi à
   la main n'est jamais réécrit par les sondes.
 - Une valeur absente n'est jamais transformée en `0`.
+- Une réponse vide reste une collecte réussie sans nouvelle mesure. Une réponse
+  non vide composée uniquement de lignes malformées (structure, date illisible
+  ou valeur non numérique/non finie) fait échouer explicitement la voie, sans
+  enregistrer sa réponse. Les autres voies continuent normalement et la commande
+  termine en erreur si au moins une voie a échoué.
+- Une réponse partiellement valide conserve ses mesures exploitables et compte
+  les lignes illisibles. Les valeurs explicitement absentes, hors plage fabricant
+  et les heures locales ambiguës ou inexistantes ne constituent pas, à elles
+  seules, une erreur de schéma : leur traitement scientifique reste inchangé.
 - Pas d'alerte : l'interface affiche seulement l'heure de la dernière mesure et,
   après 6 h sans mesure, propose de nouveau la saisie manuelle.
 
