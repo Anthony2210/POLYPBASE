@@ -28,7 +28,10 @@ import struct
 import sys
 from types import SimpleNamespace
 
-TRACE_SCHEMA = "cca_eob_runtime_trace_v1"
+TRACE_SCHEMA = "cca_eob_runtime_trace_v2"
+STARTUP = {"contract": "cca_eob_source_only_v1", "isolated": 1, "no_site": 1,
+           "dont_write_bytecode": True, "pycache_prefix": "/dev/null",
+           "site_initialized": True, "implementation": "cpython", "version": [3, 13]}
 RUNTIME = "polypbase_cca_eob"
 COMMAND = "cca_eob_production"
 SETTINGS = "config.cca_eob_production_settings"
@@ -51,7 +54,13 @@ def trace(app, deny_read):
         raise SystemExit(f"trace must run as {RUNTIME}")
     if not deny_read:
         raise SystemExit("trace requires at least one --deny-read private file probe")
-    opened, listed, executed = set(), set(), set()
+    runtime = getattr(sys, "_cca_eob_runtime", None)
+    if runtime is None or runtime["evidence"]() != STARTUP:
+        raise SystemExit("STOP: trace requires the dedicated source-only bootstrap")
+    # Include site/.pth activity captured before this collector was compiled.
+    opened = {os.path.abspath(os.fsdecode(path)) for path in runtime["events"]["opened"]}
+    listed = {os.path.abspath(os.fsdecode(path)) for path in runtime["events"]["listed"]}
+    executed = set(runtime["events"]["executed"])
 
     def hook(event, args):
         path = os.fspath(args[0]) if args and isinstance(args[0], os.PathLike) else args[0] if args else None
@@ -109,7 +118,7 @@ def trace(app, deny_read):
             directory_access[path] = "denied" if isinstance(error, PermissionError) else "error"
     document = {
         "schema": TRACE_SCHEMA, "runtime": RUNTIME, "uid": os.getuid(), "app": app,
-        "no_new_privs": no_new_privs,
+        "no_new_privs": no_new_privs, "startup": runtime["evidence"](),
         "python": {"executable": sys.executable, "prefix": sys.prefix, "base_prefix": sys.base_prefix,
                    "version": sys.version,
                    "stdlib": sorted({sysconfig.get_path("stdlib"), sysconfig.get_path("platstdlib")}),
@@ -238,6 +247,8 @@ def collect(fs, document, app, tracked, safe_path, scope_review, *, extras=(), e
         raise ValueError("The trace was produced for another checkout.")
     if not document.get("no_new_privs"):
         raise ValueError("The trace must run with NoNewPrivs=1, like the runtime command.")
+    if document.get("startup") != STARTUP:
+        raise ValueError("STOP: missing or different enforced Python startup contract.")
     if not scope_review.strip():
         raise ValueError("A non-empty scope review reference is required.")
     probes = document.get("deny_read") or {}
@@ -284,10 +295,9 @@ def collect(fs, document, app, tracked, safe_path, scope_review, *, extras=(), e
 
     excludes, accept_aliases = set(excludes), set(accept_aliases)
     files, notes = {}, {key: [] for key in (
-        "ignored", "absent", "bytecode", "aliases", "excluded", "unverified", "native")}
-    # Root-owned caches cannot be rewritten by the service; others bypass the hashes.
-    notes["writable_bytecode"] = sorted(path for path in document["readable_bytecode"]
-                                        if fs.lstat(path).uid != 0)
+        "ignored", "absent", "aliases", "excluded", "unverified", "native")}
+    if document.get("readable_bytecode"):
+        raise ValueError("STOP: source-only runtime attempted readable bytecode.")
     errors = []
     for path, source in sorted(raw.items()):
         if path.startswith(PSEUDO):
@@ -303,8 +313,8 @@ def collect(fs, document, app, tracked, safe_path, scope_review, *, extras=(), e
             continue
         if kind == "dir":
             continue
-        if "__pycache__" in PurePosixPath(real).parts or real.endswith(".pyc"):
-            notes["bytecode"].append(real)
+        if "__pycache__" in PurePosixPath(real).parts or real.endswith((".pyc", ".zip", ".egg")):
+            errors.append(f"unsupported bytecode or ZIP runtime path: {real}")
             continue
         if kind != "file":
             errors.append(f"not a regular file: {path}")
@@ -395,6 +405,7 @@ def report(document, inventory, notes, coverage, distributions, interpreter, loa
         "CCA-EOB runtime inventory review (no permission was changed)",
         f"python: {document['python']['version'].split()[0]} executable={document['python']['executable']}",
         f"interpreter: {interpreter}", f"loader: {loader}",
+        f"enforced startup: {json.dumps(document['startup'], sort_keys=True)}",
         f"files by origin (tracked backend sources are added by build): {json.dumps(counts, sort_keys=True)}",
         f"deny_read probes refused to the runtime: {inventory['deny_read']}",
         f"scope_review: {inventory['scope_review']}",
@@ -410,12 +421,7 @@ def report(document, inventory, notes, coverage, distributions, interpreter, loa
         ("REVIEW: dependency files without a RECORD hash", notes["unverified"]),
         ("REVIEW: native system libraries mapped into the interpreter", notes["native"]),
         ("REVIEW: subprocesses started during the trace (not inventoried)", document["executed"]),
-        ("WARNING: non-root bytecode caches the runtime can read (not covered by hashes)",
-         notes["writable_bytecode"]),
-        ("INFO: root-owned bytecode caches the runtime can read",
-         sorted(set(document["readable_bytecode"]) - set(notes["writable_bytecode"]))),
         ("INFO: excluded by the reviewer", notes["excluded"]),
-        ("INFO: bytecode caches attempted (not inventoried)", notes["bytecode"]),
         ("REVIEW: directories the runtime must list (r+x), verified listable as the runtime;"
          " CCA_EOB_RUNTIME_PERMISSIONS_OK checks x only",
          sorted(path for path, state in document["directory_access"].items() if state == "listable")),
