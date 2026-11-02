@@ -31,10 +31,10 @@ test('elapsed time uses completed minutes, hours and days, never the fallback th
   assert.equal(status.getProbeElapsedTime(new Date(now + 60000).toISOString(), now).count, 0);
 });
 
-test('short reading dates omit the year in both UI languages', () => {
+test('reading dates display full weekday and month without the year in both UI languages', () => {
   const date = new Date(2026, 9, 29, 3, 38).toISOString();
-  assert.match(status.formatProbeReadingTime(date, 'fr-FR'), /29 oct.*03:38/);
-  assert.match(status.formatProbeReadingTime(date, 'en-GB'), /29 Oct.*03:38/);
+  assert.match(status.formatProbeReadingTime(date, 'fr-FR'), /jeudi 29 octobre, à 03:38/);
+  assert.match(status.formatProbeReadingTime(date, 'en-GB'), /Thursday 29 October.*03:38/);
   assert.doesNotMatch(status.formatProbeReadingTime(date, 'fr-FR'), /2026/);
 });
 
@@ -99,7 +99,7 @@ const monitoring = (manual = true, last = new Date(now - 9 * 3600000).toISOStrin
 
 test('silent status is compact, factual and translated without a provenance label or probe icon', () => {
   const view = panel(monitoring());
-  assert.match(view.text(), / — il y a 9 h/);
+  assert.match(view.text(), /\(il y a 9 h\)/);
   assert.match(view.text(), /Sondes silencieuses/);
   assert.match(view.text(), /Aucune mesure reçue depuis 9 h. Vous pouvez saisir la température à la main en attendant./);
   assert.doesNotMatch(view.text(), /6 h|Moyenne du jour|·/);
@@ -107,7 +107,7 @@ test('silent status is compact, factual and translated without a provenance labe
   const button = view.find((node) => node.props.className === 'secondary-button zone-probe-readings-action')[0];
   assert.equal(typeof button.props.children, 'string');
   assert.equal(view.find((node) => node.type === 'time')[0].props.dateTime, monitoring().last_reading_at);
-  assert.match(panel(monitoring(), true, 'en').text(), /9 h ago.*Silent probes.*No reading received for 9 h/);
+  assert.match(panel(monitoring(), true, 'en').text(), /\(9 h ago\).*Silent probes.*No reading received for 9 h/);
 });
 
 test('server status and user permission remain authoritative, including missing and inactive probes', () => {

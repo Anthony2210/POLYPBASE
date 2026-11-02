@@ -1200,7 +1200,7 @@ function TemperatureControlPanel({
                         <time dateTime={lastProbeReading} title={formatDisplayDateTime(lastProbeReading)}>
                           {formatProbeReadingTime(lastProbeReading, getDocumentLocale())}
                         </time>
-                        {' — '}{t('probeReadingAgo').replace('{duration}', elapsedDuration)}
+                        {` (${t('probeReadingAgo').replace('{duration}', elapsedDuration)})`}
                       </>
                     ) : t('probeNoReadingYet')}
                   </strong>

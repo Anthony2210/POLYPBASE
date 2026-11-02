@@ -9,10 +9,12 @@ export function getProbeElapsedTime(value: string | null | undefined, now = Date
 }
 
 export function formatProbeReadingTime(value: string, locale: string) {
-  return new Intl.DateTimeFormat(locale, {
+  const formatted = new Intl.DateTimeFormat(locale, {
+    weekday: 'long',
     day: 'numeric',
-    month: 'short',
+    month: 'long',
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(value));
+  return locale.startsWith('fr') ? formatted.replace(' à ', ', à ') : formatted;
 }
