@@ -233,8 +233,8 @@ test('EN measurement creation is readable and distinct from a correction', () =>
     tEn,
   );
 
-  assert.equal(created, 'Biological measurement recorded');
-  assert.equal(corrected, 'Biological measurement corrected');
+  assert.equal(created, 'Biological record saved');
+  assert.equal(corrected, 'Biological record corrected');
   assert.notEqual(created, corrected);
 });
 
@@ -263,7 +263,7 @@ test('the legacy measurement creation description is translated in EN', () => {
     tEn,
   );
 
-  assert.equal(label, 'Biological measurement recorded');
+  assert.equal(label, 'Biological record saved');
   assert.notEqual(label, tEn('auditDescriptionMeasurementCorrected'));
 });
 
@@ -286,17 +286,17 @@ test('Responsable events render readable FR and EN wording', () => {
     [
       'Institution Responsable granted by platform',
       'Statut Responsable accordé par la plateforme',
-      'Responsable status granted by the platform',
+      'Manager status granted by the platform',
     ],
     [
       'Institution Responsable revoked by platform',
       'Statut Responsable retiré par la plateforme',
-      'Responsable status revoked by the platform',
+      'Manager status revoked by the platform',
     ],
     [
       'Institution Responsable relinquished',
       'Statut Responsable abandonné',
-      'Responsable status relinquished',
+      'Manager status relinquished',
     ],
   ];
 
@@ -335,7 +335,7 @@ test('member role and activation changes are readable', () => {
   assert.equal(audit.getAuditMetadataKeyLabel('role', tEn), 'Role');
   assert.equal(audit.getAuditMetadataKeyLabel('acces_actif', tEn), 'Access active');
   assert.equal(audit.getAuditValueLabel('lab_technician', tFr), 'Technicien');
-  assert.equal(audit.getAuditValueLabel('viewer', tEn), 'Viewer');
+  assert.equal(audit.getAuditValueLabel('viewer', tEn), 'Read-only mode');
   assert.equal(audit.formatAuditMetadataValue(true, tFr), 'Oui');
   assert.equal(audit.formatAuditMetadataValue(false, tEn), 'No');
 });
@@ -423,14 +423,14 @@ test('subculture summaries name all children and the parent in FR and EN', () =>
   };
 
   assert.equal(audit.getAuditBusinessSummary(oneChild, tFr), 'SF.002 créée via repiquage de SF.001');
-  assert.equal(audit.getAuditBusinessSummary(oneChild, tEn), 'SF.002 created by subculturing SF.001');
+  assert.equal(audit.getAuditBusinessSummary(oneChild, tEn), 'SF.002 created by transplanting SF.001');
   assert.equal(
     audit.getAuditBusinessSummary(manyChildren, tFr),
     'SF.002, SF.003, SF.004 créées via repiquage de SF.001',
   );
   assert.equal(
     audit.getAuditBusinessSummary(manyChildren, tEn),
-    'SF.002, SF.003, SF.004 created by subculturing SF.001',
+    'SF.002, SF.003, SF.004 created by transplanting SF.001',
   );
   // The rich child+parent summary replaces the parent presentation, so no
   // second parent reference is rendered.
@@ -456,7 +456,7 @@ test('a legacy subculture without usable children keeps the parent box visible',
   );
   assert.equal(
     JSON.stringify(audit.getAuditBoxSummaryParts(legacy, tEn)),
-    JSON.stringify(['Subculture from ', '']),
+    JSON.stringify(['Transplant from ', '']),
   );
 });
 
@@ -737,7 +737,7 @@ test('raw audit object ids are never rendered as history targets', () => {
 
 test('action and object type labels are translated', () => {
   assert.equal(audit.getAuditActionLabel({ action: 'entry' }, tFr), 'Nouvelle donnée enregistrée');
-  assert.equal(audit.getAuditActionLabel({ action: 'update' }, tEn), 'Change recorded');
+  assert.equal(audit.getAuditActionLabel({ action: 'update' }, tEn), 'Change saved');
   assert.equal(audit.getAuditActionLabel({ action: 'unknown', action_label: 'Custom' }, tFr), 'Custom');
   assert.equal(audit.getAuditObjectTypeLabel('account', tFr), 'Compte');
   assert.equal(audit.getAuditObjectTypeLabel('box', tEn), 'Box');
@@ -920,7 +920,7 @@ test('long notes stay complete in markup while the shared timeline preview is cl
 test('salinity summaries and immutable values are readable in both timelines', () => {
   for (const [t, recorded, updated] of [
     [tFr, 'Salinité manuelle de Zone 15.0°C enregistrée', 'Salinité manuelle de Zone 15.0°C corrigée'],
-    [tEn, 'Manual salinity for Zone 15.0°C recorded', 'Manual salinity for Zone 15.0°C corrected'],
+    [tEn, 'Manual salinity for Zone 15.0°C saved', 'Manual salinity for Zone 15.0°C corrected'],
   ]) {
     for (const [action, description, expected] of [
       ['creation', 'Manual salinity recorded: Zone 15.0°C', recorded],
@@ -1371,7 +1371,7 @@ test('all eight audit families use the central FR/EN presentation registry', () 
   const expected = [
     ['measurements', 'Mesures', 'Measurements'],
     ['transfers', 'Transferts', 'Transfers'],
-    ['subcultures', 'Repiquages', 'Subcultures'],
+    ['subcultures', 'Repiquages', 'Transplants'],
     ['boxes', 'Boîtes', 'Boxes'],
     ['exports', 'Exports', 'Exports'],
     ['environment', 'Emplacements & sondes', 'Locations & probes'],

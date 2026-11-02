@@ -136,7 +136,7 @@ function harness(overrides = {}, previewCodes = []) {
 for (const language of ['fr', 'en']) {
   test(`${language}: compact parent identity and honest advisory child identity`, () => {
     const h = harness({ language });
-    assert.equal(text(h.nodes.find((node) => node.type === 'h2')), language === 'fr' ? 'Repiquer' : 'Subculture');
+    assert.equal(text(h.nodes.find((node) => node.type === 'h2')), language === 'fr' ? 'Repiquer' : 'Transplanting');
     const identity = text(h.byClass('quantitative-subculture-parent'));
     assert.equal(identity, `LEGACY-PARENTAurelia aurita${language === 'fr' ? 'Disponible12 Polypes' : 'Available12 Polyps'}`);
         assert.equal(h.byClass('quantitative-subculture-parent').parent, h.byClass('quantitative-subculture-body'));
@@ -159,7 +159,7 @@ for (const language of ['fr', 'en']) {
         assert.equal(h.field('children.0.notes'), undefined);
         assert.equal(h.nodes.filter(node => node.type === 'textarea').length, 1);
         assert.equal(h.field('notes').props.required, undefined);
-        assert.equal(text(h.field('notes').parent.props.children[0]), language === 'fr' ? 'Note du repiquage (facultatif)' : 'Subculture note (optional)');
+        assert.equal(text(h.field('notes').parent.props.children[0]), language === 'fr' ? 'Note du repiquage (facultatif)' : 'Transplant note (optional)');
     h.unmount();
   });
 }

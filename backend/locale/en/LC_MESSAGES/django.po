@@ -44,19 +44,19 @@ msgid "The current polyp state changed. Refresh the parent box."
 msgstr "The current polyp state changed. Refresh the parent box."
 
 msgid "The parent box is outside the active organization."
-msgstr "The parent box is outside the active organization. Please contact your administrator."
+msgstr "The parent box is outside the active institution. Please contact your administrator."
 
 msgid "This account cannot create subculture events."
 msgstr "This account cannot create transplant events. Please contact your administrator."
 
 msgid "Only an active box can be subcultured."
-msgstr "Only an active box can be subcultured."
+msgstr "Only an active box can be transplanted."
 
 msgid "The parent strain is not eligible for its organization."
-msgstr "The parent strain is not eligible for its organization."
+msgstr "The parent strain is not eligible for its institution."
 
 msgid "The parent polyp count is unknown."
-msgstr "The parent polyp count is unknown."
+msgstr "The polyp count in the parent box is unknown."
 
 msgid "Provide between one and twenty children."
 msgstr "Provide between one and twenty children."
@@ -68,13 +68,13 @@ msgid "The allocation exceeds the current parent count."
 msgstr "The allocation exceeds the current parent count."
 
 msgid "Each child requires an active zone in the parent organization."
-msgstr "Each child requires an active zone in the parent organization."
+msgstr "Each child box requires an active location in the parent institution."
 
 msgid "This field is not accepted for quantitative subculture."
-msgstr "This field is not accepted for quantitative subculture."
+msgstr "This field is not accepted for quantitative transplant."
 
 msgid "A nonnegative integer is required."
-msgstr "A nonnegative integer is required."
+msgstr "A non-negative integer is required."
 
 msgid "The server records the actual occurrence time."
 msgstr "The server records the actual occurrence time."
@@ -227,10 +227,10 @@ msgid "Données collectées"
 msgstr "Collected data"
 
 msgid "Identité de compte : nom complet, adresse email, rôle et organisation."
-msgstr "Account identity: full name, email address, role, and organization."
+msgstr "Account identity: full name, email address, role, and institution."
 
 msgid "Données métier : boîtes, espèces, souches, relevés biologiques, salinités, températures et mouvements."
-msgstr "Business data: boxes, species, strains, biological measurements, salinity, temperature, and movements."
+msgstr "Business data: boxes, species, strains, biological records, salinity, temperature, and movements."
 
 msgid "Traçabilité : date, utilisateur et description des créations, modifications, imports, exports et scans."
 msgstr "Traceability: date, user, and description of creations, updates, imports, exports, and scans."
@@ -245,7 +245,7 @@ msgid "Droits des utilisateurs"
 msgstr "User rights"
 
 msgid "Chaque utilisateur peut demander l'accès, la rectification ou la suppression de ses données de compte auprès de l'administrateur de son organisation. Les données scientifiques déjà associées à un historique de laboratoire peuvent être anonymisées lorsque leur suppression compromettrait la traçabilité de la collection."
-msgstr "Each user can request access, correction, or deletion of account data from the administrator of their organization. Scientific data already linked to laboratory history may be anonymized when deletion would compromise collection traceability."
+msgstr "Each user can request access, correction, or deletion of account data from the administrator of their institution. Scientific data already linked to laboratory history may be anonymized when deletion would compromise collection traceability."
 
 msgid "Sécurité"
 msgstr "Security"
@@ -278,13 +278,13 @@ msgid "Administrateur"
 msgstr "Administrator"
 
 msgid "Technicien laboratoire"
-msgstr "Lab technician"
+msgstr "Laboratory technician"
 
 msgid "Lecture seule"
 msgstr "Viewer"
 
 msgid "Armoire"
-msgstr "Cabinet"
+msgstr "Rack"
 
 msgid "Étuve"
 msgstr "Incubator"
@@ -302,13 +302,13 @@ msgid "Arrêtée"
 msgstr "Stopped"
 
 msgid "Repiquage"
-msgstr "Subculture"
+msgstr "Transplanting"
 
 msgid "Reproduction sexuée"
 msgstr "Sexual reproduction"
 
 msgid "Import historique"
-msgstr "Historical import"
+msgstr "Historical data import"
 
 msgid "Prévu"
 msgstr "Planned"
@@ -338,7 +338,7 @@ msgid "Générale"
 msgstr "General"
 
 msgid "Repiquage à prévoir"
-msgstr "Subculture needed"
+msgstr "Transplanting needed"
 
 msgid "Mortalité"
 msgstr "Mortality"
@@ -368,3 +368,23 @@ msgstr "The date range must not exceed 366 days, inclusive."
 
 msgid "A probe with measurements cannot change thermal zone. Use link_iminilide_probe --replace to preserve its history."
 msgstr "A probe with measurements cannot change thermal zone. Use link_iminilide_probe --replace to preserve its history."
+
+#: apps/cultures/models.py
+msgid "Déplacement"
+msgstr "Movement"
+
+#: apps/cultures/models.py
+msgid "Premier emplacement"
+msgstr "First location"
+
+#: apps/cultures/models.py
+msgid "Réactivation"
+msgstr "Reactivation"
+
+#: apps/measurements/admin.py apps/measurements/models.py
+msgid "Duplicate measurement evidence cannot be deleted."
+msgstr "Duplicate record evidence cannot be deleted."
+
+#: apps/cultures/box_codes.py apps/cultures/models.py
+msgid "This code is reserved by a historical culture identity."
+msgstr "This code is reserved by a historical box identity."

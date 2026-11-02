@@ -144,14 +144,17 @@ class CatalogTests(unittest.TestCase):
             exceptions=(self.exception(), self.exception()), decision_events=self.decisions()).errors))
 
     def test_main_identity_guard_exemptions_require_exact_occurrences(self):
+        # The EN reserved-code entry was approved in B09; only FR stays exempted.
         scopes = {
             "The culture identity changed. Reload the culture.": (
-                "backend/apps/cultures/models.py", "backend/apps/cultures/models.py"),
+                ("backend/apps/cultures/models.py", "backend/apps/cultures/models.py"),
+                gate.LANGUAGES),
             "This code is reserved by a historical culture identity.": (
-                "backend/apps/cultures/models.py", "backend/apps/cultures/box_codes.py"),
+                ("backend/apps/cultures/models.py", "backend/apps/cultures/box_codes.py"),
+                ("fr",)),
         }
-        for msgid, expected in scopes.items():
-            for language in gate.LANGUAGES:
+        for msgid, (expected, languages) in scopes.items():
+            for language in languages:
                 with self.subTest(msgid=msgid, language=language):
                     exceptions = tuple(exception for exception in gate.COVERAGE_EXCEPTIONS
                                        if (exception.language, exception.msgid) == (language, msgid))

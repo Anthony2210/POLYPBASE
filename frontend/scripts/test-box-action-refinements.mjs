@@ -105,7 +105,7 @@ for (const language of ['fr', 'en']) {
     const buttons = nodes(context.renderHeader()).filter(node => node.type === 'button'
       && node.props.className.includes('box-compact-action--labeled'));
     assert.deepEqual(buttons.map(button => button.props['aria-label']), language === 'fr'
-      ? ['Déplacer', 'Repiquer'] : ['Move', 'Subculture']);
+      ? ['Déplacer', 'Repiquer'] : ['Move', 'Transplanting']);
     const calls = [];
     context.setIsMoveOpen = value => calls.push(['move', value]);
     context.setSubcultureError = value => calls.push(['error', value]);

@@ -214,7 +214,7 @@ function environment() {
 
 const cases = [
   { name: 'MoveBoxModal', titles: { en: 'Move box', fr: 'Déplacer la boîte' }, initialType: 'select', saves: { en: 'Move', fr: 'Déplacer' }, saving: { en: 'Saving...', fr: 'Enregistrement...' } },
-  { name: 'SubcultureModal', titles: { en: 'Subculture', fr: 'Repiquer' }, initialType: 'input', saves: { en: 'Subculture', fr: 'Repiquer' }, saving: { en: 'Creating...', fr: 'Création...' } },
+  { name: 'SubcultureModal', titles: { en: 'Transplanting', fr: 'Repiquer' }, initialType: 'input', saves: { en: 'Transplanting', fr: 'Repiquer' }, saving: { en: 'Creating...', fr: 'Création...' } },
 ];
 function fixture(spec, overrides = {}, env = environment()) {
   let closed = 0;
@@ -638,7 +638,7 @@ for (const currentZone of [{ id: 2, name: 'Current zone' }, null]) {
     });
     const destination = h.modal.fields.find((field) => field.type === 'select');
     assert.deepEqual(destination.children.map((option) => option.props.value), currentZone ? [3] : [2, 3]);
-    assert.ok(text(byClass(h.modal, 'move-current-zone')).includes(currentZone ? 'Current zone' : 'No zone'));
+    assert.ok(text(byClass(h.modal, 'move-current-zone')).includes(currentZone ? 'Current zone' : 'No location'));
     assert.equal(h.modal.nodes.filter((node) => hasClass(node, 'move-location-row')).length, 7);
     const historyNode = byClass(h.modal, 'move-location-history');
     assert.equal(historyNode.type, 'details');

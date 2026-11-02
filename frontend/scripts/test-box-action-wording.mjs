@@ -165,11 +165,14 @@ function selectedLiteralKeys(source, keys) {
   return result;
 }
 for (const language of ['fr', 'en']) {
-  test(`specific inter-institution ${language} transfer keys are unchanged from HEAD`, () => {
+  test(`specific inter-institution ${language} transfer keys match HEAD except approved wording`, () => {
     const original = selectedLiteralKeys(head(`frontend/src/i18n/${language}.ts`), transferKeys);
     for (const key of transferKeys) {
       assert.equal(typeof original[key], 'string', `Missing HEAD key ${key}`);
-      assert.equal(catalogues[language][key], original[key], `Inter-institution wording changed: ${language}.${key}`);
+      // Explicit product approval: Fait workbook row 1081, registered as T843.
+      const expected = language === 'fr' && key === 'adminTransferTarget'
+        ? 'Structure destinataire' : original[key];
+      assert.equal(catalogues[language][key], expected, `Inter-institution wording changed: ${language}.${key}`);
     }
   });
 }

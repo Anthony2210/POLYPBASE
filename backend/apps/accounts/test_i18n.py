@@ -14,7 +14,7 @@ from apps.cultures.serializers import BoxTemperatureHistoryQuerySerializer
 
 IDENTITIES = {
     "Administrateur": "Administrator",
-    "Technicien laboratoire": "Lab technician",
+    "Technicien laboratoire": "Laboratory technician",
     "Étuve": "Incubator",
     "Autre": "Other",
     "Bon": "Good",
@@ -46,7 +46,7 @@ PERMISSIONS = {
     },
     "The parent box is outside the active organization.": {
         "fr": "La boîte parent n'appartient pas à la structure active. Merci de contacter un administrateur.",
-        "en": "The parent box is outside the active organization. Please contact your administrator.",
+        "en": "The parent box is outside the active institution. Please contact your administrator.",
     },
 }
 
@@ -73,7 +73,7 @@ class BackendI18nTests(SimpleTestCase):
             "Duplicate measurement evidence is read-only.": {"en": "Duplicate record evidence is read-only."},
             "Only an active box can be subcultured.": {
                 "fr": "Seule une boîte active peut être repiquée.",
-                "en": "Only an active box can be subcultured.",
+                "en": "Only an active box can be transplanted.",
             },
         }
         for msgid, values in cases.items():
