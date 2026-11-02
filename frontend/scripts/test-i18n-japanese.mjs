@@ -223,7 +223,7 @@ test('local presentation tables keep FR/EN and use validated Japanese with Engli
   for (const row of local) {
     const [location, member] = row.identity.slice('local:frontend/'.length).split('#');
     const property = member.split('.')[1];
-    const source = read(`../${location}`);
+    const source = read(`../${location}`).replace(/\r\n/g, '\n');
     const block = source.slice(source.search(/\n {2}ja: \{\n|\nconst japaneseStatusLabels/));
     const entry = new RegExp(`\\n {2,4}${property}: '([^'\\n]*)',`).exec(block);
     if (row.status === 'REUSED') assert.equal(entry?.[1], row.ja_validated, row.identity);
