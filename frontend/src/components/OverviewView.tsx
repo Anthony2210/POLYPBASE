@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Translator } from '../i18n';
+import type { Language, Translator } from '../i18n';
 
 import type { BoxDetail, OverviewBox, OverviewMeasurementPoint } from '../types';
 import { createOverviewHistory, overviewDefaultRange, scopeOverviewTemperatures, type OverviewHistoryState } from '../utils/overviewHistory';
@@ -21,8 +21,6 @@ type OverviewTemperatureLoaders = {
   daily: typeof loadTemperatureHistory;
   historical: typeof loadHistoricalTemperatures;
 };
-
-type Language = 'fr' | 'en';
 
 type WeeklyStatus = 'due' | 'soon' | 'ok';
 type OverviewSortOrder = 'oldest' | 'newest';

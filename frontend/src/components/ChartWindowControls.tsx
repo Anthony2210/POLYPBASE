@@ -1,6 +1,6 @@
 import { useRef, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 
-import { translations, type Language } from '../i18n';
+import { getLanguageLocale, translations, type Language } from '../i18n';
 import {
   buildScrubberRange,
   chartDayString,
@@ -41,7 +41,7 @@ export default function ChartWindowControls({
   const dragRef = useRef<Drag | null>(null);
   const range = buildScrubberRange(extentStart, extentEnd, startDate, endDate);
   const text = translations[language];
-  const formatter = new Intl.DateTimeFormat(language === 'fr' ? 'fr-FR' : 'en-GB', {
+  const formatter = new Intl.DateTimeFormat(getLanguageLocale(language), {
     day: 'numeric', month: 'short', year: 'numeric',
   });
   const formatDay = (day: number) => formatter.format(new Date(`${chartDayString(day)}T00:00:00`));

@@ -130,7 +130,7 @@ function environment() {
       // Portals are represented in document order; icons have no interactive DOM.
       if (name === './ModalPortal' || name === './PolypbaseIcon') return { default: name };
       if (name === '../i18n') return load(new URL('../i18n/index.ts', url).href);
-      if (url.pathname.includes('/i18n/') && (name === './fr' || name === './en')) return load(new URL(`${name}.ts`, url).href);
+      if (url.pathname.includes('/i18n/') && (name === './fr' || name === './en' || name === './ja')) return load(new URL(`${name}.ts`, url).href);
       if (name === '../hooks/useSubcultureCodePreview') return { default: () => [] };
             if (name.startsWith('../hooks/') || name.startsWith('../utils/')) return load(new URL(`${name}.ts`, url).href);
       throw new Error(`Unexpected import: ${name}`);

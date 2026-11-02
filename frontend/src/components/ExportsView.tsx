@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 
 import { apiDownload, apiGet, getOrganizationResourceSignal } from '../api/client';
 import type { BoxDetail, ExportOptions } from '../types';
-import { translations } from '../i18n';
+import { getLanguageLocale, selectLocalCopy, translations, type Language } from '../i18n';
 import {
   addChartMonths,
   buildChartWindow,
@@ -19,7 +19,6 @@ import HistoricalTemperatureStatus from './HistoricalTemperatureStatus';
 import PageLoader from './PageLoader';
 import PolypbaseIcon from './PolypbaseIcon';
 
-type Language = 'fr' | 'en';
 type FilterKey = 'species' | 'strains' | 'boxes' | 'zones';
 
 type ExportFilters = Record<FilterKey, number[]> & {
@@ -203,6 +202,67 @@ const copy = {
     zoneScopeLabel: 'Also include measurements recorded in other locations',
     zoneScopeHelp: 'Otherwise, only measurements recorded in the selected locations are kept.',
   },
+  ja: {
+    all: 'すべて',
+    filtersTitle: 'フィルター',
+    periodTitle: '期間',
+    selectedMeasurementsTitle: '測定記録の確認',
+    allHistory: '全履歴',
+    boxes: '容器',
+    boxesFound: '容器',
+    boxPreviewHelp: 'エクスポート対象期間における、1つの容器の記録を詳しく確認できます。',
+    clear: 'クリア',
+    dateFrom: '開始日',
+    dateRangeSeparator: '～',
+    dateTo: '終了日',
+    download: 'CSVをダウンロード',
+    downloading: '準備中…',
+    empty: '利用できる値がありません',
+    error: 'ファイルを生成できませんでした。',
+    format: '週次CSV',
+    formatHelp: '各容器のポリプ数、エフィラ数、水温。',
+    invalidPeriod: '終了日は開始日より後の日付にしてください。',
+    eligibilityError: 'フィルターに該当する測定記録を確認できません。',
+    noBoxes: 'これらのフィルターに該当する容器はありません。',
+    noLocation: '場所未設定',
+    noPreviewBox: '容器が見つかりません',
+    optionCount: '値',
+    previewEmpty: 'この容器の指定期間には、表示できる測定記録がありません。',
+    previewEmptyHint: '期間を変更するか、別の容器を確認してください。',
+    previewEmptyTitle: 'この期間の測定記録はありません',
+    previewError: 'この容器の測定記録を読み込めませんでした。',
+    previewLoading: '測定記録を読み込み中…',
+    previewMeasurements: '測定記録',
+    previewPagination: '容器一覧のページ',
+    previewPaginationNext: '次のページ',
+    previewPaginationPage: 'ページ',
+    previewPaginationPrevious: '前のページ',
+    previewPeriod: '分析期間',
+    previewReading: '閲覧中の測定記録',
+    previewTitle: '測定値の推移',
+    previewZone: '現在の設置場所',
+    previousBox: '前の容器',
+    nextBox: '次の容器',
+    reset: 'すべてリセット',
+    searchBoxes: '容器を検索',
+    searchBoxesPlaceholder: 'グローバルコード、ローカルコード、種、または系統',
+    searchPreviewBoxPlaceholder: 'コード、種、系統、または設置場所',
+    searchSpecies: '種を検索',
+    searchSpeciesPlaceholder: '学名または一般名',
+    searchStrains: '系統を検索',
+    searchStrainsPlaceholder: '系統コードまたは種',
+    selected: '選択中',
+    selectPreviewBox: '分析対象の容器',
+    selectPreviewBoxPlaceholder: '容器を選択',
+    species: '種',
+    speciesFound: '種',
+    strains: '系統',
+    temperature: '水温',
+    success: 'ファイルをダウンロードしました',
+    zones: '温度管理設備',
+    zoneScopeLabel: '他の設置場所での測定記録も含める',
+    zoneScopeHelp: 'それ以外の場合は、選択した設置場所での測定記録のみが対象になります。',
+  },
 };
 
 export default function ExportsView({
@@ -234,7 +294,7 @@ export default function ExportsView({
   const previewPanelElementRef = useRef<HTMLDivElement | null>(null);
   const previewMinimumHeightRef = useRef<number | null>(null);
   const previewScrollPositionRef = useRef<number | null>(null);
-  const labels = copy[language];
+  const labels = selectLocalCopy(language, copy);
   const invalidPeriod = Boolean(
     filters.dateFrom && filters.dateTo && filters.dateFrom > filters.dateTo,
   );
@@ -1414,7 +1474,7 @@ function isAbortError(error: unknown) {
 }
 
 function formatPeriod(dateFrom: string, dateTo: string, language: Language) {
-  const formatter = new Intl.DateTimeFormat(language === 'fr' ? 'fr-FR' : 'en-GB', {
+  const formatter = new Intl.DateTimeFormat(getLanguageLocale(language), {
     day: 'numeric',
     month: 'short',
     year: 'numeric',

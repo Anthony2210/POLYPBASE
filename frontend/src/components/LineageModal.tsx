@@ -1,11 +1,9 @@
 import { getBoxStatusPresentation } from '../boxStatus';
-import { createTranslator } from '../i18n';
+import { createTranslator, getLanguageLocale, selectLocalCopy, type Language } from '../i18n';
 import { formatReadableUserIdentity } from '../utils/userIdentity';
 import type { BoxLineage, LineageGraph } from '../types';
 import InteractiveLineageGraph from './InteractiveLineageGraph';
 import ModalPortal from './ModalPortal';
-
-type Language = 'fr' | 'en';
 
 type Props = {
   lineage: BoxLineage;
@@ -55,7 +53,7 @@ export default function LineageModal({
   onClose,
   onSelectBox,
 }: Props) {
-  const text = labels[language];
+  const text = selectLocalCopy(language, labels);
 
   return (
     <ModalPortal>
@@ -178,7 +176,7 @@ function LineageGroup({
 }
 
 function formatEventDate(value: string, language: Language) {
-  return new Intl.DateTimeFormat(language === 'fr' ? 'fr-FR' : 'en-GB', {
+  return new Intl.DateTimeFormat(getLanguageLocale(language), {
     day: 'numeric',
     month: 'short',
     year: 'numeric',

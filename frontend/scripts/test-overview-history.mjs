@@ -1530,7 +1530,10 @@ function scrubberControlsHarness(initialProps) {
   const dependencies = {
     react: { useRef(initial) { const index = cursor++; return refs[index] ??= { current: initial }; } },
     'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: Symbol('Fragment') },
-    '../i18n': { translations: { en: text, fr: text } },
+    '../i18n': {
+      translations: { en: text, fr: text },
+      getLanguageLocale: (language) => ({ fr: 'fr-FR', en: 'en-GB', ja: 'ja-JP' })[language],
+    },
     '../utils/chartScrubber': scrubber,
   };
   const exports = {};

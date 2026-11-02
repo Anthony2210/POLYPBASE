@@ -1,12 +1,15 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 
+import { getStoredInterfaceLanguage, resolveLanguage, selectLocalCopy, type Language } from '../i18n';
+
 /**
  * Catches render errors so a single broken component never leaves the user in
  * front of a blank page (which is exactly what happened when a referenced
  * variable was deleted: every box page crashed silently).
  *
  * It sits above <App/>, so it cannot read the user's language preference from
- * the profile: we fall back to the browser language.
+ * the profile: it uses the interface language last stored by the app, then the
+ * browser language.
  */
 
 type Props = {
@@ -30,10 +33,16 @@ const copy = {
     reload: 'Reload the page',
     details: 'Technical details',
   },
+  ja: {
+    title: 'エラーが発生しました',
+    text: '予期しないエラーが発生しました。保存済みのデータは失われていません。',
+    reload: 'ページを再読み込み',
+    details: 'エラーの詳細',
+  },
 };
 
-function getLanguage(): keyof typeof copy {
-  return navigator.language?.toLowerCase().startsWith('en') ? 'en' : 'fr';
+function getLanguage(): Language {
+  return getStoredInterfaceLanguage() ?? resolveLanguage(navigator.language);
 }
 
 export default class ErrorBoundary extends Component<Props, State> {
@@ -54,7 +63,7 @@ export default class ErrorBoundary extends Component<Props, State> {
     const { error } = this.state;
     if (!error) return this.props.children;
 
-    const labels = copy[getLanguage()];
+    const labels = selectLocalCopy(getLanguage(), copy);
 
     return (
       <main className="error-boundary" role="alert">

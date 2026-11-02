@@ -1,5 +1,5 @@
 import { type CSSProperties, type FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { Translator } from '../i18n';
+import type { Language, Translator } from '../i18n';
 import type { BoxItem, ThermalZone, UserProfile } from '../types';
 import { ApiError, ApiResourceCancelledError } from '../api/client';
 import useProbeMonitoring from '../hooks/useProbeMonitoring';
@@ -22,8 +22,6 @@ import PolypbaseIcon from './PolypbaseIcon';
 import ProbeReadingsModal from './ProbeReadingsModal';
 import { ZoneRecentMovements } from './ZoneMovementHistory';
 
-
-type Language = 'fr' | 'en';
 
 type ZoneOverviewEntry = {
   zone: ThermalZone;

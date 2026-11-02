@@ -29,7 +29,9 @@ const catalogs = {
   fr: loadModule('../src/i18n/fr.ts').fr,
   en: loadModule('../src/i18n/en.ts').en,
 };
-const i18n = loadModule('../src/i18n/index.ts', { './fr': { fr: catalogs.fr }, './en': { en: catalogs.en } });
+const i18n = loadModule('../src/i18n/index.ts', {
+  './fr': { fr: catalogs.fr }, './en': { en: catalogs.en }, './ja': loadModule('../src/i18n/ja.ts'),
+});
 const biologicalTimeline = loadModule('../src/utils/biologicalTimeline.ts');
 function text(node) {
   if (node == null || typeof node === 'boolean') return '';

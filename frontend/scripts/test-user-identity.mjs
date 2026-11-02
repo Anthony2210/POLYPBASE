@@ -102,6 +102,7 @@ const admin = functions('../src/components/AdminAuditSection.tsx', ['AdminAuditR
 const personal = functions('../src/components/ProfileActionsSection.tsx', ['ProfileActionRow'], rowGlobals);
 const lineage = functions('../src/components/LineageModal.tsx', ['LineageGroup', 'formatEventDate'], {
   ...identity, createTranslator, getBoxStatusPresentation: () => ({ tone: 'active', label: 'Active' }),
+  getLanguageLocale: (language) => ({ fr: 'fr-FR', en: 'en-GB', ja: 'ja-JP' })[language],
 });
 for (const language of ['fr', 'en']) {
   const t = createTranslator(language);

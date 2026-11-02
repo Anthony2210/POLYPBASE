@@ -1,0 +1,250 @@
+surface,identity,sheet_row,sheet_section
+react,confirmDetailStrain,16,Application et navigation
+react,confirmDetailLocation,17,Application et navigation
+react,confirmCreateBoxTitle,131,Création de boîtes
+react,confirmCreateBoxMessage,132,Création de boîtes
+react,confirmCreateBoxAction,133,Création de boîtes
+react,createBoxNoZone,140,Création de boîtes
+react,createBoxGlobalCode,141,Création de boîtes
+react,createBoxNumber,142,Création de boîtes
+react,createBoxNumberMismatch,148,Création de boîtes
+react,historicalTemperatureSeries,198,"Fiche boîte, relevés et graphiques"
+react,zoneMovementSourceNote,403,"Emplacements, température et salinité"
+react,adminReferences,979,DIFFÉRÉ — Taxonomie et références
+react,quickStrainAdd,981,DIFFÉRÉ — Taxonomie et références
+react,quickStrainSearch,983,DIFFÉRÉ — Taxonomie et références
+react,taxonomyCreated,1032,DIFFÉRÉ — Taxonomie et références
+react,adminEnvironment,1040,DIFFÉRÉ — Configuration du laboratoire
+react,adminZoneBoxes,1052,DIFFÉRÉ — Configuration du laboratoire
+react,adminProbeApiUrl,1056,DIFFÉRÉ — Configuration du laboratoire
+react,adminKeepTransferDate,1077,DIFFÉRÉ — Transferts
+react,adminTransferImportNumber,1095,DIFFÉRÉ — Transferts
+react,adminConfirmDeleteOrganization,1109,DIFFÉRÉ — Gestion des institutions
+react,adminOrganizationsText,1113,DIFFÉRÉ — Gestion des institutions
+react,backToPilotage,1132,EXCLU — Clés sans référence littérale actuelle
+react,adminOpenDjango,1133,EXCLU — Clés sans référence littérale actuelle
+react,adminUsers,1134,EXCLU — Clés sans référence littérale actuelle
+react,adminRights,1135,EXCLU — Clés sans référence littérale actuelle
+react,adminAccountsTitle,1136,EXCLU — Clés sans référence littérale actuelle
+react,adminAccountsText,1137,EXCLU — Clés sans référence littérale actuelle
+react,adminNewUser,1138,EXCLU — Clés sans référence littérale actuelle
+react,adminRoleAdmin,1139,EXCLU — Clés sans référence littérale actuelle
+react,adminRoleTechnician,1140,EXCLU — Clés sans référence littérale actuelle
+react,adminRoleViewer,1141,EXCLU — Clés sans référence littérale actuelle
+react,adminUserColumn,1142,EXCLU — Clés sans référence littérale actuelle
+react,adminRoleColumn,1143,EXCLU — Clés sans référence littérale actuelle
+react,adminEmailColumn,1144,EXCLU — Clés sans référence littérale actuelle
+react,adminLastLoginColumn,1145,EXCLU — Clés sans référence littérale actuelle
+react,adminActionsColumn,1146,EXCLU — Clés sans référence littérale actuelle
+react,adminAuditDate,1147,EXCLU — Clés sans référence littérale actuelle
+react,adminAuditUser,1148,EXCLU — Clés sans référence littérale actuelle
+react,adminAuditAction,1149,EXCLU — Clés sans référence littérale actuelle
+react,adminAuditObject,1150,EXCLU — Clés sans référence littérale actuelle
+react,adminAuditShow,1151,EXCLU — Clés sans référence littérale actuelle
+react,adminAuditHide,1152,EXCLU — Clés sans référence littérale actuelle
+react,adminAuditShowAll,1153,EXCLU — Clés sans référence littérale actuelle
+react,adminAuditShowLess,1154,EXCLU — Clés sans référence littérale actuelle
+react,adminAuditLatest,1155,EXCLU — Clés sans référence littérale actuelle
+react,adminAuditOpen,1156,EXCLU — Clés sans référence littérale actuelle
+react,adminAuditDialogTitle,1157,EXCLU — Clés sans référence littérale actuelle
+react,adminAuditDialogText,1158,EXCLU — Clés sans référence littérale actuelle
+react,adminAuditFilterAction,1159,EXCLU — Clés sans référence littérale actuelle
+react,adminAuditAllActions,1160,EXCLU — Clés sans référence littérale actuelle
+react,adminAuditDetails,1161,EXCLU — Clés sans référence littérale actuelle
+react,auditAccountActive,1162,EXCLU — Clés sans référence littérale actuelle
+react,auditAccountDisabled,1163,EXCLU — Clés sans référence littérale actuelle
+react,auditDescriptionFromApp,1164,EXCLU — Clés sans référence littérale actuelle
+react,auditSummarySpeciesCreated,1166,EXCLU — Clés sans référence littérale actuelle
+react,auditSummarySpeciesUpdated,1167,EXCLU — Clés sans référence littérale actuelle
+react,auditSummaryStrainCreated,1168,EXCLU — Clés sans référence littérale actuelle
+react,auditSummaryStrainUpdated,1169,EXCLU — Clés sans référence littérale actuelle
+react,auditDetailOrganization,1170,EXCLU — Clés sans référence littérale actuelle
+react,auditDetailType,1171,EXCLU — Clés sans référence littérale actuelle
+react,auditDetailDescription,1172,EXCLU — Clés sans référence littérale actuelle
+react,auditDetailValues,1173,EXCLU — Clés sans référence littérale actuelle
+react,auditDetailChanges,1174,EXCLU — Clés sans référence littérale actuelle
+react,auditCorrectionMarker,1175,EXCLU — Clés sans référence littérale actuelle
+react,auditCorrectionDetails,1176,EXCLU — Clés sans référence littérale actuelle
+react,auditRelationInitialPolyps,1177,EXCLU — Clés sans référence littérale actuelle
+react,profileActionsDetails,1178,EXCLU — Clés sans référence littérale actuelle
+react,profileActionsHideDetails,1179,EXCLU — Clés sans référence littérale actuelle
+react,confirmArchiveBoxTitle,1180,EXCLU — Clés sans référence littérale actuelle
+react,confirmArchiveBoxMessage,1181,EXCLU — Clés sans référence littérale actuelle
+react,confirmArchiveBoxAction,1182,EXCLU — Clés sans référence littérale actuelle
+react,confirmActivateBoxTitle,1183,EXCLU — Clés sans référence littérale actuelle
+react,confirmActivateBoxMessage,1184,EXCLU — Clés sans référence littérale actuelle
+react,confirmActivateBoxAction,1185,EXCLU — Clés sans référence littérale actuelle
+react,adminActiveAquarium,1186,EXCLU — Clés sans référence littérale actuelle
+react,adminAquariumNavigation,1187,EXCLU — Clés sans référence littérale actuelle
+react,adminAquariumScope,1188,EXCLU — Clés sans référence littérale actuelle
+react,boxInventorySubtitle,1189,EXCLU — Clés sans référence littérale actuelle
+react,boxInventoryPendingWithoutLocation,1190,EXCLU — Clés sans référence littérale actuelle
+react,boxInventorySpecies,1191,EXCLU — Clés sans référence littérale actuelle
+react,boxInventoryLastLocation,1192,EXCLU — Clés sans référence littérale actuelle
+react,boxInventoryQualify,1193,EXCLU — Clés sans référence littérale actuelle
+react,boxInventoryDeactivate,1194,EXCLU — Clés sans référence littérale actuelle
+react,boxInventoryReactivate,1195,EXCLU — Clés sans référence littérale actuelle
+react,boxInventoryEligibleSelected,1196,EXCLU — Clés sans référence littérale actuelle
+react,boxInventoryIneligibleSkipped,1197,EXCLU — Clés sans référence littérale actuelle
+react,boxInventoryFilteredSelected,1198,EXCLU — Clés sans référence littérale actuelle
+react,boxInventoryPreselectCandidates,1199,EXCLU — Clés sans référence littérale actuelle
+react,boxInventorySelectAllFiltered,1200,EXCLU — Clés sans référence littérale actuelle
+react,boxInventoryEligiblePending,1201,EXCLU — Clés sans référence littérale actuelle
+react,boxInventoryBatchSelectPage,1202,EXCLU — Clés sans référence littérale actuelle
+react,boxInventorySelectVisiblePage,1203,EXCLU — Clés sans référence littérale actuelle
+react,boxInventoryBatchPendingOnPage,1204,EXCLU — Clés sans référence littérale actuelle
+react,boxLifecycleKicker,1205,EXCLU — Clés sans référence littérale actuelle
+react,boxArchiveConfirm,1206,EXCLU — Clés sans référence littérale actuelle
+react,boxActivateConfirm,1207,EXCLU — Clés sans référence littérale actuelle
+react,moveConfirm,1208,EXCLU — Clés sans référence littérale actuelle
+react,subcultureConfirm,1209,EXCLU — Clés sans référence littérale actuelle
+react,createBoxText,1210,EXCLU — Clés sans référence littérale actuelle
+react,createBoxOrganization,1211,EXCLU — Clés sans référence littérale actuelle
+react,createBoxConfirm,1212,EXCLU — Clés sans référence littérale actuelle
+react,adminCurrentSession,1213,EXCLU — Clés sans référence littérale actuelle
+react,adminChangeRole,1214,EXCLU — Clés sans référence littérale actuelle
+react,adminRemoveAccess,1215,EXCLU — Clés sans référence littérale actuelle
+react,adminNotConnected,1216,EXCLU — Clés sans référence littérale actuelle
+react,manualSalinityAction,1217,EXCLU — Clés sans référence littérale actuelle
+react,manualTemperatureSaved,1218,EXCLU — Clés sans référence littérale actuelle
+react,adminDjangoHint,1220,EXCLU — Clés sans référence littérale actuelle
+react,adminPrintLabelsAction,1221,EXCLU — Clés sans référence littérale actuelle
+react,adminPrintLabelsClear,1222,EXCLU — Clés sans référence littérale actuelle
+react,adminPrintLabelsHelp,1223,EXCLU — Clés sans référence littérale actuelle
+react,adminPrintLabelsSearch,1224,EXCLU — Clés sans référence littérale actuelle
+react,adminPrintLabelsSelectAll,1225,EXCLU — Clés sans référence littérale actuelle
+react,adminPrintLabelsTitle,1226,EXCLU — Clés sans référence littérale actuelle
+react,profileRoles,1227,EXCLU — Clés sans référence littérale actuelle
+react,profileLabelsMobileText,1228,EXCLU — Clés sans référence littérale actuelle
+react,manageAccountsSubtitle,1229,EXCLU — Clés sans référence littérale actuelle
+react,manageAddSubtitle,1230,EXCLU — Clés sans référence littérale actuelle
+react,manageSearchPlaceholder,1231,EXCLU — Clés sans référence littérale actuelle
+react,manageRoleAll,1232,EXCLU — Clés sans référence littérale actuelle
+react,manageStatusAll,1233,EXCLU — Clés sans référence littérale actuelle
+react,manageFieldPassword,1234,EXCLU — Clés sans référence littérale actuelle
+react,manageFieldOrganization,1235,EXCLU — Clés sans référence littérale actuelle
+react,historyCountLabel,1236,EXCLU — Clés sans référence littérale actuelle
+react,boxLocalCode,1237,EXCLU — Clés sans référence littérale actuelle
+react,lineageAction,1238,EXCLU — Clés sans référence littérale actuelle
+react,weeklyMeasurementRecorded,1239,EXCLU — Clés sans référence littérale actuelle
+react,editLastMeasurement,1240,EXCLU — Clés sans référence littérale actuelle
+react,editLastMeasurementHelp,1241,EXCLU — Clés sans référence littérale actuelle
+react,moveDialogMovedAt,1242,EXCLU — Clés sans référence littérale actuelle
+react,latestMovementEmpty,1244,EXCLU — Clés sans référence littérale actuelle
+react,latestMovementUnavailable,1245,EXCLU — Clés sans référence littérale actuelle
+react,overviewSubtitle,1258,EXCLU — Clés sans référence littérale actuelle
+react,overviewActiveBoxes,1259,EXCLU — Clés sans référence littérale actuelle
+react,overviewBoxColumn,1260,EXCLU — Clés sans référence littérale actuelle
+react,overviewLatestReading,1261,EXCLU — Clés sans référence littérale actuelle
+react,overviewLocationColumn,1262,EXCLU — Clés sans référence littérale actuelle
+react,overviewNoMeasurement,1263,EXCLU — Clés sans référence littérale actuelle
+react,overviewOpenBox,1264,EXCLU — Clés sans référence littérale actuelle
+react,overviewTemperature,1265,EXCLU — Clés sans référence littérale actuelle
+react,overviewThermalZone,1266,EXCLU — Clés sans référence littérale actuelle
+react,overviewShowChart,1267,EXCLU — Clés sans référence littérale actuelle
+react,overviewHideChart,1268,EXCLU — Clés sans référence littérale actuelle
+react,overviewFilterAllZones,1269,EXCLU — Clés sans référence littérale actuelle
+react,overviewFilteredBoxes,1270,EXCLU — Clés sans référence littérale actuelle
+react,overviewNoZoneMetric,1271,EXCLU — Clés sans référence littérale actuelle
+react,overviewWithEphyrae,1272,EXCLU — Clés sans référence littérale actuelle
+react,overviewPriorityBoxes,1273,EXCLU — Clés sans référence littérale actuelle
+react,overviewTrackedBoxes,1274,EXCLU — Clés sans référence littérale actuelle
+react,overviewFilterHint,1275,EXCLU — Clés sans référence littérale actuelle
+react,overviewClearFilter,1276,EXCLU — Clés sans référence littérale actuelle
+react,overviewZoneDone,1277,EXCLU — Clés sans référence littérale actuelle
+react,weeklyUpToDate,1278,EXCLU — Clés sans référence littérale actuelle
+react,weeklyDayShort,1279,EXCLU — Clés sans référence littérale actuelle
+react,prototype,1280,EXCLU — Clés sans référence littérale actuelle
+react,qrLabelAllFilter,1281,EXCLU — Clés sans référence littérale actuelle
+react,qrLabelAvailableCount,1282,EXCLU — Clés sans référence littérale actuelle
+react,qrLabelColumns,1283,EXCLU — Clés sans référence littérale actuelle
+react,qrLabelEligibleRule,1284,EXCLU — Clés sans référence littérale actuelle
+react,qrLabelExcludedCount,1285,EXCLU — Clés sans référence littérale actuelle
+react,qrLabelFont,1286,EXCLU — Clés sans référence littérale actuelle
+react,qrLabelHeight,1287,EXCLU — Clés sans référence littérale actuelle
+react,qrLabelLandscape,1288,EXCLU — Clés sans référence littérale actuelle
+react,qrLabelOptimize,1289,EXCLU — Clés sans référence littérale actuelle
+react,qrLabelOrientation,1290,EXCLU — Clés sans référence littérale actuelle
+react,qrLabelPortrait,1291,EXCLU — Clés sans référence littérale actuelle
+react,qrLabelPrintSelection,1292,EXCLU — Clés sans référence littérale actuelle
+react,qrLabelQrSize,1293,EXCLU — Clés sans référence littérale actuelle
+react,qrLabelSelectionAll,1294,EXCLU — Clés sans référence littérale actuelle
+react,qrLabelSelectionOnlySelected,1295,EXCLU — Clés sans référence littérale actuelle
+react,qrLabelSelectionOnlyToAdd,1296,EXCLU — Clés sans référence littérale actuelle
+react,qrLabelSelectionSearch,1297,EXCLU — Clés sans référence littérale actuelle
+react,qrLabelSelectedFilter,1298,EXCLU — Clés sans référence littérale actuelle
+react,qrLabelSelectedTitle,1299,EXCLU — Clés sans référence littérale actuelle
+react,qrLabelShowSpecies,1300,EXCLU — Clés sans référence littérale actuelle
+react,qrLabelSpeciesSize,1301,EXCLU — Clés sans référence littérale actuelle
+react,qrLabelTextSize,1302,EXCLU — Clés sans référence littérale actuelle
+react,qrLabelToAddFilter,1303,EXCLU — Clés sans référence littérale actuelle
+react,qrLabelWidth,1304,EXCLU — Clés sans référence littérale actuelle
+react,qrDownload,1305,EXCLU — Clés sans référence littérale actuelle
+react,qrScanHint,1306,EXCLU — Clés sans référence littérale actuelle
+react,subcultureOptional,1307,EXCLU — Clés sans référence littérale actuelle
+react,subcultureCreationCountOne,1308,EXCLU — Clés sans référence littérale actuelle
+react,subcultureCreationCount,1309,EXCLU — Clés sans référence littérale actuelle
+react,salinityShort,1310,EXCLU — Clés sans référence littérale actuelle
+react,allPeriod,1311,EXCLU — Clés sans référence littérale actuelle
+react,aliveBoxes,1312,EXCLU — Clés sans référence littérale actuelle
+react,backToZones,1313,EXCLU — Clés sans référence littérale actuelle
+react,zoneActivityTitle,1314,EXCLU — Clés sans référence littérale actuelle
+react,zoneFilterLiving,1315,EXCLU — Clés sans référence littérale actuelle
+react,zoneOverviewSortLocation,1316,EXCLU — Clés sans référence littérale actuelle
+react,zoneOverviewThermalGap,1317,EXCLU — Clés sans référence littérale actuelle
+react,zoneAddAction,1318,EXCLU — Clés sans référence littérale actuelle
+react,zoneAddProbeAction,1319,EXCLU — Clés sans référence littérale actuelle
+react,zoneEditCapacityAction,1320,EXCLU — Clés sans référence littérale actuelle
+react,zoneCapacity,1321,EXCLU — Clés sans référence littérale actuelle
+react,zoneSalinityMissing,1322,EXCLU — Clés sans référence littérale actuelle
+react,zoneMovementHistoryAction,1323,EXCLU — Clés sans référence littérale actuelle
+react,zoneMovementHistoryBack,1324,EXCLU — Clés sans référence littérale actuelle
+react,zoneMovementArrival,1325,EXCLU — Clés sans référence littérale actuelle
+react,zoneMovementDeparture,1326,EXCLU — Clés sans référence littérale actuelle
+react,zoneNoRecentActivity,1327,EXCLU — Clés sans référence littérale actuelle
+react,zoneSummaryAlive,1328,EXCLU — Clés sans référence littérale actuelle
+react,deadBoxes,1329,EXCLU — Clés sans référence littérale actuelle
+react,emptyZone,1330,EXCLU — Clés sans référence littérale actuelle
+react,latestCounts,1331,EXCLU — Clés sans référence littérale actuelle
+react,measuredTemperature,1332,EXCLU — Clés sans référence littérale actuelle
+react,noZoneChart,1333,EXCLU — Clés sans référence littérale actuelle
+react,recentMeasurementMissing,1334,EXCLU — Clés sans référence littérale actuelle
+react,temperatureMeasurementCount,1335,EXCLU — Clés sans référence littérale actuelle
+react,temperatureManualReading,1336,EXCLU — Clés sans référence littérale actuelle
+react,temperatureContinuousReading,1337,EXCLU — Clés sans référence littérale actuelle
+react,temperatureSamples,1338,EXCLU — Clés sans référence littérale actuelle
+react,zoneBoxesTitle,1339,EXCLU — Clés sans référence littérale actuelle
+react,zoneBoxesDirectoryBack,1340,EXCLU — Clés sans référence littérale actuelle
+react,zoneBoxesDirectoryInactive,1341,EXCLU — Clés sans référence littérale actuelle
+django,django:gettext:Ajouter un relevé,1342,EXCLU — Django historique non routé
+django,django:gettext:Ajouter un relevé pour,1343,EXCLU — Django historique non routé
+django,django:gettext:Archivée,1344,EXCLU — Django historique non routé
+django,django:gettext:Arrêtée,1345,EXCLU — Django historique non routé
+django,django:gettext:Aucun relevé biologique pour cette boîte.,1346,EXCLU — Django historique non routé
+django,django:gettext:Aucune boîte enregistrée.,1347,EXCLU — Django historique non routé
+django,django:gettext:Boîtes POLYPBASE,1348,EXCLU — Django historique non routé
+django,django:gettext:Code local :,1349,EXCLU — Django historique non routé
+django,django:gettext:Commentaire :,1351,EXCLU — Django historique non routé
+django,django:gettext:Date :,1353,EXCLU — Django historique non routé
+django,django:gettext:Enregistrer le relevé,1355,EXCLU — Django historique non routé
+django,django:gettext:Espèce :,1356,EXCLU — Django historique non routé
+django,django:gettext:Fiche boîte :,1357,EXCLU — Django historique non routé
+django,django:gettext:Français,1358,EXCLU — Django historique non routé
+django,django:gettext:Historique des relevés,1359,EXCLU — Django historique non routé
+django,django:gettext:Numéro boîte :,1361,EXCLU — Django historique non routé
+django,django:gettext:POLYPBASE - Boîtes,1362,EXCLU — Django historique non routé
+django,django:gettext:Perdue,1364,EXCLU — Django historique non routé
+django,django:gettext:Polypes :,1366,EXCLU — Django historique non routé
+django,django:gettext:Retour à la fiche boîte,1367,EXCLU — Django historique non routé
+django,django:gettext:Saisi par :,1368,EXCLU — Django historique non routé
+django,django:gettext:Souche :,1371,EXCLU — Django historique non routé
+django,django:gettext:Statut :,1372,EXCLU — Django historique non routé
+django,django:gettext:Strobiles :,1374,EXCLU — Django historique non routé
+django,django:gettext:Utilisateur :,1375,EXCLU — Django historique non routé
+django,django:gettext:Vigilance :,1377,EXCLU — Django historique non routé
+django,django:gettext:Voir la fiche boîte,1378,EXCLU — Django historique non routé
+django,django:gettext:Zone :,1379,EXCLU — Django historique non routé
+django,django:gettext:non,1380,EXCLU — Django historique non routé
+django,django:gettext:oui,1381,EXCLU — Django historique non routé
+django,django:gettext:Éphyrules :,1383,EXCLU — Django historique non routé
+django,django:gettext:État :,1384,EXCLU — Django historique non routé

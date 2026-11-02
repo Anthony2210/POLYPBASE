@@ -13,6 +13,11 @@ from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 LOCALE_DIR = ROOT_DIR / "backend" / "locale"
+# Partial interface languages. Their PO holds validated translations only. Their MO
+# is compiled from an effective catalog holding every application msgid, so Django
+# never reaches its LANGUAGE_CODE (French) fallback for application text and no
+# runtime fallback code is needed.
+ENGLISH_FALLBACK_LANGUAGES = ("ja",)
 
 
 class PoError(ValueError):
@@ -354,6 +359,41 @@ def compile_messages(messages: dict[str, str]) -> bytes:
     return b"".join(output)
 
 
+def effective_catalog(validated: dict[str, str], english: dict[str, str],
+                      source_msgids) -> dict[str, str]:
+    """Return the runtime catalog of a partial language.
+
+    Each application msgid maps to its validated translation, else to the approved
+    English msgstr, else to the msgid itself (the source text, as English shows it).
+    The PO header comes from the validated catalog.
+    """
+    msgids = set(source_msgids) | set(english) | set(validated)
+    msgids.discard("")
+    catalog = {"": validated.get("", "")}
+    for msgid in sorted(msgids):
+        catalog[msgid] = validated.get(msgid) or english.get(msgid) or msgid
+    return catalog
+
+
+def source_msgids(locale_dir: Path) -> tuple[str, ...]:
+    """Active gettext msgids of the backend that owns ``locale_dir``."""
+    try:
+        from . import check_i18n
+    except ImportError:
+        import check_i18n
+    return tuple(check_i18n.discover_sources(locale_dir.parents[1]))
+
+
+def runtime_messages(po_file: Path, messages: dict[str, str]) -> dict[str, str]:
+    """Messages compiled into the MO next to ``po_file``."""
+    language = po_file.parents[1].name
+    if language not in ENGLISH_FALLBACK_LANGUAGES:
+        return messages
+    locale_dir = po_file.parents[2]
+    english = parse_po_file(locale_dir / "en" / "LC_MESSAGES" / "django.po")
+    return effective_catalog(messages, english, source_msgids(locale_dir))
+
+
 def write_mo_file(messages: dict[str, str], path: Path) -> None:
     path.write_bytes(compile_messages(messages))
 
@@ -370,7 +410,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     for po_file in po_files:
         try:
-            catalogs.append((po_file, compile_messages(parse_po_file(po_file))))
+            catalogs.append((po_file, compile_messages(runtime_messages(po_file, parse_po_file(po_file)))))
         except (ValueError, OSError) as exc:
             errors.append(str(exc))
     if errors:

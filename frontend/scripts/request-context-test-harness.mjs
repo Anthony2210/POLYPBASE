@@ -117,7 +117,13 @@ export function createRequestContextHarness(componentName, initialProps) {
         return { jsx, jsxs: jsx, Fragment: 'Fragment' };
       }
       if (name === '../api/client' || name === './client') return api;
-      if (name === '../i18n') return { translations };
+      if (name === '../i18n') {
+        return {
+          translations,
+          getLanguageLocale: (language) => ({ fr: 'fr-FR', en: 'en-GB', ja: 'ja-JP' })[language],
+          selectLocalCopy: (language, copy) => (language === 'ja' ? { ...copy.en, ...copy.ja } : copy[language]),
+        };
+      }
       if (name === '../boxStatus') {
         return { getBoxStatusPresentation: (status) => ({ tone: status, label: status }) };
       }

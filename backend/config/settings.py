@@ -247,10 +247,12 @@ LANGUAGE_CODE = "fr-fr"
 LANGUAGES = [
     ("fr", "Français"),
     ("en", "English"),
+    ("ja", "日本語"),
 ]
 
-# Localized biological content follows every interface language. Japanese can
-# already be prepared before the complete Japanese interface is available.
+# Localized biological content follows every interface language. Japanese was a
+# content language before it became a (partial) interface language; the content
+# languages are unchanged: fr, en, ja.
 CONTENT_LANGUAGES = list(dict([*LANGUAGES, ("ja", "日本語")]).items())
 
 TIME_ZONE = "Europe/Paris"

@@ -27,7 +27,10 @@ function load(source, imports = {}, globals = {}) {
   return exports;
 }
 const catalogues = Object.fromEntries(['fr', 'en'].map(language => [language, load(read(`../src/i18n/${language}.ts`))[language]]));
-const i18n = load(read('../src/i18n/index.ts'), Object.fromEntries(['fr', 'en'].map(language => [`./${language}`, { [language]: catalogues[language] }])));
+const i18n = load(read('../src/i18n/index.ts'), {
+  ...Object.fromEntries(['fr', 'en'].map(language => [`./${language}`, { [language]: catalogues[language] }])),
+  './ja': load(read('../src/i18n/ja.ts')),
+});
 const translator = language => key => {
   assert.equal(typeof catalogues[language][key], 'string', `Missing ${language} key ${key}`);
   return catalogues[language][key];

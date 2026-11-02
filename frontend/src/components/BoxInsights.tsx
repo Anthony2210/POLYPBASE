@@ -18,7 +18,7 @@ import type {
   BoxTemperaturePoint,
   LineageGraph,
 } from '../types';
-import { createTranslator } from '../i18n';
+import { createTranslator, type Language } from '../i18n';
 import { formatReadableUserIdentity } from '../utils/userIdentity';
 import { getBiologicalTimelineLabels, type BiologicalTimelineEntry } from '../utils/biologicalTimeline';
 import { formatDisplayDate, formatDisplayDateTime } from '../utils/dateFormat';
@@ -29,8 +29,6 @@ import ModalPortal from './ModalPortal';
 const InteractiveLineageGraph = lazy(() => import('./InteractiveLineageGraph'));
 
 export type BoxInsightTab = 'measurements' | 'movements' | 'lineage';
-
-type Language = 'fr' | 'en';
 
 type BoxInsightsLabels = {
   chartEmpty: string;

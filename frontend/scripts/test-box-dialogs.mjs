@@ -55,7 +55,10 @@ const common = {
   }) },
 };
 const catalogues = Object.fromEntries(['fr', 'en'].map(language => [language, load(`i18n/${language}.ts`)[language]]));
-const i18n = load('i18n/index.ts', Object.fromEntries(['fr', 'en'].map(language => [`./${language}`, { [language]: catalogues[language] }])));
+const i18n = load('i18n/index.ts', {
+  ...Object.fromEntries(['fr', 'en'].map(language => [`./${language}`, { [language]: catalogues[language] }])),
+  './ja': load('i18n/ja.ts'),
+});
 const components = {
   qr: load('components/QrLabelModal.tsx', {
     ...common, '../utils/qrLabels': qrLabels, './QrLabel': { default: QrLabel },
@@ -268,9 +271,10 @@ for (const language of ['fr', 'en']) {
 // Lifecycle baseline changes only by the explicitly requested kicker span removal.
 // QR remains unchanged. These dialogs are otherwise frozen for this presentation pass.
 // Keep exact source preservation in addition to the behavioral QR/lifecycle tests.
+// MoveBoxModal digest updated only for the shared Language type (fr/en/ja) and its date locale.
 for (const [component, digest] of [
   ['QrLabelModal', 'd5d94aeaedad258a3d4d8c5415ebada00d3210c60958fcbd62eae1a960ce7db9'],
-  ['MoveBoxModal', 'c28c4df5a40824b86950af1f016f9435b4287fccf8483a2866debf1c869a85b5'],
+  ['MoveBoxModal', 'a12f4fd7a8fefd9d9cb78591a4dfe92cc6dfb9b95f0011b891c49d55ae6a003c'],
   ['BoxLifecycleModal', 'b7aae51037ba180a93838a9379f1868e9afbb08cb827fe2cb8a8b485d20ef4e8'],
 ]) {
   test(`${component}: frozen utility/deactivation implementation remains exactly preserved`, () => {

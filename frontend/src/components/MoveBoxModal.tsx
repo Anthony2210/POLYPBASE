@@ -1,13 +1,11 @@
 import { type FormEvent, useMemo, useState } from 'react';
 
 import type { BoxDetail, BoxItem, BoxLocation, BoxMovePayload, ThermalZone } from '../types';
-import { createTranslator } from '../i18n';
+import { createTranslator, getLanguageLocale, type Language } from '../i18n';
 import useMutationDialog from '../hooks/useMutationDialog';
 import ModalPortal from './ModalPortal';
 import PolypbaseIcon from './PolypbaseIcon';
 import './box-utility-dialogs.css';
-
-type Language = 'fr' | 'en';
 
 type Props = {
   box: BoxItem | BoxDetail;
@@ -186,7 +184,7 @@ function getBoxLocations(box: BoxItem | BoxDetail): BoxLocation[] {
 
 
 function formatDateTime(value: string, language: Language) {
-  return new Intl.DateTimeFormat(language === 'fr' ? 'fr-FR' : 'en-GB', {
+  return new Intl.DateTimeFormat(getLanguageLocale(language), {
     day: 'numeric',
     month: 'short',
     year: 'numeric',

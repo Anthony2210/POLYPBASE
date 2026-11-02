@@ -23,9 +23,17 @@ except ImportError:
 
 ROOT = Path(__file__).resolve().parents[1]
 LANGUAGES = ("fr", "en")
+# Partial catalogs hold only validated translations, so no coverage is required.
+# Their MO is the compiler's effective catalog: a missing msgid shows the approved
+# English msgstr, else the source msgid (compile_django_messages.effective_catalog).
+PARTIAL_LANGUAGES = compiler.ENGLISH_FALLBACK_LANGUAGES
 ADMIN_INVITATIONS = {
     "fr": "Merci de contacter un administrateur.",
     "en": "Please contact your administrator.",
+}
+# Administrator invitations found in validated Japanese permission refusals.
+PARTIAL_ADMIN_INVITATIONS = {
+    "ja": re.compile("管理者に(?:お問い合わせください|連絡してください)"),
 }
 # These are authorization refusals, not a lexical classification of validation.
 PERMISSION_MSGIDS = (
@@ -309,6 +317,7 @@ class Report:
     raw_missing: dict[str, list[str]] = field(default_factory=dict)
     exempted: dict[str, list[str]] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
+    partial: dict[str, int] = field(default_factory=dict)
 
 
 def check_catalogs(sources, catalogs, *, exceptions=(), decision_events=None,
@@ -376,6 +385,30 @@ def check_catalogs(sources, catalogs, *, exceptions=(), decision_events=None,
     return report
 
 
+def check_partial_catalog(language, sources, messages, *, permission_msgids=PERMISSION_MSGIDS) -> list[str]:
+    """Validate a partial catalog: active msgids only, never empty, same placeholders."""
+    errors = []
+    for msgid, value in messages.items():
+        if not msgid:  # PO metadata, not a user-facing translation.
+            continue
+        if msgid not in sources:
+            errors.append(f"{language}: obsolete msgid {msgid!r} is not an active source")
+        if not value.strip() or value != value.strip():
+            errors.append(f"{language}: empty/edge whitespace msgstr for {msgid!r}")
+        if "·" in value:
+            errors.append(f"{language}: middle dot in msgstr for {msgid!r}")
+        if value == msgid:
+            errors.append(f"{language}: msgstr copies the msgid for {msgid!r}; leave it to the English fallback")
+        try:
+            if compiler.placeholder_signature(msgid) != compiler.placeholder_signature(value):
+                errors.append(f"{language}: placeholder mismatch for {msgid!r}")
+        except ValueError as error:
+            errors.append(f"{language}: invalid placeholders for {msgid!r}: {error}")
+        if msgid in permission_msgids and not PARTIAL_ADMIN_INVITATIONS[language].search(value):
+            errors.append(f"{language}: permission refusal without administrator invitation for {msgid!r}")
+    return errors
+
+
 def load_register_events(root: Path) -> dict[tuple[str, str, str, str], RegisterEvent]:
     """Read append-only register events; the last row for each exact identity wins.
 
@@ -421,6 +454,20 @@ def check_tree(root: Path = ROOT) -> Report:
         errors.append(f"decision register: {error}")
     report = check_catalogs(sources, catalogs, exceptions=COVERAGE_EXCEPTIONS,
                             decision_events=events)
+    for language in PARTIAL_LANGUAGES:
+        po = root / "backend/locale" / language / "LC_MESSAGES/django.po"
+        if not po.exists():
+            continue
+        try:
+            messages = compiler.parse_po_file(po)
+            effective = compiler.effective_catalog(messages, catalogs.get("en", {}), sources)
+            if po.with_suffix(".mo").read_bytes() != compiler.compile_messages(effective):
+                errors.append(f"{language}: MO bytes differ from the effective catalog compilation")
+        except (ValueError, OSError) as error:
+            errors.append(f"{language}: catalog error: {error}")
+            continue
+        errors.extend(check_partial_catalog(language, sources, messages))
+        report.partial[language] = len([msgid for msgid in messages if msgid])
     report.errors[:0] = errors
     return report
 
@@ -434,6 +481,9 @@ def main() -> int:
         print(f"{language}: raw coverage {report.total - len(missing)}/{report.total}; "
               f"raw gaps {len(missing)}; exempted {len(exempted)}; "
               f"blocking coverage gaps {len(missing) - len(exempted)}")
+    for language, count in report.partial.items():
+        print(f"{language}: partial catalog {count}/{report.total}; "
+              f"{report.total - count} msgids use the English fallback")
     for error in report.errors:
         print(f"ERROR: {error}")
     print(f"Blocking errors: {len(report.errors)}")

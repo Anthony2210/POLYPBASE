@@ -55,7 +55,7 @@ Les graphiques distinguent `movement` enregistré et `location_change` dérivé.
 
 ## Internationalisation
 
-L'interface utilise `frontend/src/i18n/` avec le français par défaut et l'anglais. Le catalogue français définit les clés; TypeScript vérifie la parité du catalogue anglais. Tout nouveau texte visible doit être ajouté dans les deux langues, sans chaîne parallèle codée directement dans le JSX.
+L'interface utilise `frontend/src/i18n/` avec le français par défaut, l'anglais et le japonais. Le catalogue français définit les clés; TypeScript vérifie la parité du catalogue anglais. Tout nouveau texte visible doit être ajouté en FR et en EN, sans chaîne parallèle codée directement dans le JSX. `ja.ts` est partiel et généré (`docs/translation-review/japanese/build_ja_catalogs.py`) : une clé sans japonais validé affiche l'anglais; ne jamais y ajouter d'anglais ni de japonais non validé. Les tables locales passent par `selectLocalCopy` et les dates par `getLanguageLocale`. Côté Django, le MO effectif `ja` est compilé avec repli anglais (`scripts/compile_django_messages.py`) ; le PO conserve uniquement le japonais validé, et l'activation Django reste standard.
 
 Les contenus taxonomiques ont leurs propres langues configurées par `CONTENT_LANGUAGES`, actuellement français, anglais et japonais. Ne pas confondre langue de l'interface et langue du contenu scientifique.
 

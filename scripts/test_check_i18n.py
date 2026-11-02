@@ -301,6 +301,47 @@ class TreeTests(unittest.TestCase):
                 'from django.utils.translation import gettext as _\n_(dynamic)', encoding="utf-8")
             self.assertTrue(any("source extraction" in e for e in gate.check_tree(root).errors))
 
+    def test_tree_checks_effective_japanese_mo_not_only_the_validated_po(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(gate, "COVERAGE_EXCEPTIONS", ()):
+            root = Path(directory)
+            self.make_tree(root)
+            po = root / "backend/locale/ja/LC_MESSAGES/django.po"
+            po.parent.mkdir(parents=True)
+            messages = {"": "Content-Type: text/plain; charset=UTF-8\nLanguage: ja\n",
+                        "Hello": "こんにちは"}
+            po.write_text('\n\n'.join(f'msgid {json.dumps(key, ensure_ascii=False)}\nmsgstr {json.dumps(value, ensure_ascii=False)}'
+                                      for key, value in messages.items()) + '\n', encoding="utf-8")
+            source = root / "backend/source.py"
+            source.write_text(source.read_text(encoding="utf-8") + '\n_("Source only")', encoding="utf-8")
+            english = gate.compiler.parse_po_file(root / "backend/locale/en/LC_MESSAGES/django.po")
+            effective = gate.compiler.effective_catalog(messages, english, gate.discover_sources(root))
+            po.with_suffix(".mo").write_bytes(gate.compiler.compile_messages(effective))
+            self.assertEqual(gate.check_tree(root).partial, {"ja": 1})
+            self.assertFalse(any(error.startswith("ja:") for error in gate.check_tree(root).errors))
+            po.with_suffix(".mo").write_bytes(gate.compiler.compile_messages(messages))
+            self.assertIn("ja: MO bytes differ from the effective catalog compilation", gate.check_tree(root).errors)
+            po.with_suffix(".mo").unlink()
+            self.assertTrue(any(error.startswith("ja: catalog error:") for error in gate.check_tree(root).errors))
+
+    def test_partial_japanese_catalog_rules(self):
+        sources = {"Hello {name}": ("a.py",), "Refused.": ("b.py",)}
+        check = lambda messages: gate.check_partial_catalog(  # noqa: E731
+            "ja", sources, {"": "header", **messages}, permission_msgids=("Refused.",))
+        self.assertEqual(check({}), [])
+        self.assertEqual(check({"Hello {name}": "{name}さん、こんにちは",
+                                "Refused.": "できません。管理者に連絡してください。"}), [])
+        cases = {
+            "obsolete msgid": {"Gone": "消えた"},
+            "empty/edge whitespace": {"Hello {name}": " {name} "},
+            "middle dot": {"Hello {name}": "{name}·さん"},
+            "copies the msgid": {"Hello {name}": "Hello {name}"},
+            "placeholder mismatch": {"Hello {name}": "こんにちは"},
+            "without administrator invitation": {"Refused.": "できません。"},
+        }
+        for expected, messages in cases.items():
+            with self.subTest(expected=expected):
+                self.assertTrue(any(expected in error for error in check(messages)), check(messages))
+
     def test_cli_nonzero_and_separate_counts(self):
         report = gate.Report(1, {"fr": ["Hello"], "en": []}, {"fr": ["Hello"], "en": []}, ["broken"])
         output = io.StringIO()

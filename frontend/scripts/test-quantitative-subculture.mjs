@@ -80,7 +80,7 @@ function harness(overrides = {}, previewCodes = []) {
                 if (name === '../hooks/useSubcultureCodePreview') return { default: () => previewCodes };
         if (name === '../utils/subculture') return load('utils/subculture.ts');
         if (name === '../i18n') return load('i18n/index.ts');
-        if (name === './fr' || name === './en') return load(`i18n/${name.slice(2)}.ts`);
+        if (name === './fr' || name === './en' || name === './ja') return load(`i18n/${name.slice(2)}.ts`);
         if (name === './ModalPortal' || name === './PolypbaseIcon') return { default: name };
         if (name === './quantitative-subculture.css') return {};
         throw new Error(`Unexpected import: ${name}`);

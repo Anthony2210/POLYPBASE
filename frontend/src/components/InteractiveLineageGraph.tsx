@@ -12,9 +12,8 @@ import {
 } from '@xyflow/react';
 
 import { getBoxStatusPresentation } from '../boxStatus';
+import { selectLocalCopy, type Language } from '../i18n';
 import type { LineageGraph, LineageGraphEdge, LineageGraphNode } from '../types';
-
-type Language = 'fr' | 'en';
 
 type Props = {
   graph: LineageGraph;
@@ -43,6 +42,9 @@ const labels = {
     current: 'Current box',
     truncated: 'This family is very large. Only the first 250 items are displayed.',
   },
+  ja: {
+    current: '現在の容器',
+  },
 };
 
 export default function InteractiveLineageGraph({
@@ -50,7 +52,7 @@ export default function InteractiveLineageGraph({
   language,
   onSelectBox,
 }: Props) {
-  const text = labels[language];
+  const text = selectLocalCopy(language, labels);
   const { nodes, edges } = useMemo(
     () => createFlowElements(graph, text.current, language),
     [graph, language, text.current],

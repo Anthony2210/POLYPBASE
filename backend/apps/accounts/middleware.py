@@ -15,10 +15,32 @@ class UserInterfaceLanguageMiddleware:
         translation.activate(language)
         request.LANGUAGE_CODE = language
 
-        response = self.get_response(request)
-        response.set_cookie(settings.LANGUAGE_COOKIE_NAME, language, samesite="Lax")
-        translation.deactivate()
-        return response
+        try:
+            response = self.get_response(request)
+            response.set_cookie(
+                settings.LANGUAGE_COOKIE_NAME,
+                self._response_language(request, language),
+                samesite="Lax",
+            )
+            return response
+        finally:
+            translation.deactivate()
+
+    @staticmethod
+    def _response_language(request, language):
+        """Language active at the end of this request.
+
+        Login and preference updates activate the new language inside the view (on
+        a DRF request wrapper, so request.LANGUAGE_CODE is not visible here). The
+        active language is context-local, never shared with another request.
+        """
+        if not request.user.is_authenticated:
+            # Logout flushes the session without activating the anonymous default.
+            session_language = request.session.get("interface_language")
+            return (session_language if session_language in dict(settings.LANGUAGES)
+                    else settings.LANGUAGE_CODE.split("-")[0])
+        final_language = translation.get_language()
+        return final_language if final_language in dict(settings.LANGUAGES) else language
 
     def _get_language(self, request):
         if request.user.is_authenticated and request.path in {

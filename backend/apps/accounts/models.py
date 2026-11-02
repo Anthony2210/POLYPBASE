@@ -90,6 +90,7 @@ class UserPreference(models.Model):
     class InterfaceLanguage(models.TextChoices):
         FRENCH = "fr", "Français"
         ENGLISH = "en", _("Anglais")
+        JAPANESE = "ja", "日本語"
 
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,

@@ -54,7 +54,10 @@ function harness(overrides = {}) {
     return exports;
   }
   const catalogues = Object.fromEntries(['fr', 'en'].map(language => [language, load(`i18n/${language}.ts`)[language]]));
-  const i18n = load('i18n/index.ts', Object.fromEntries(['fr', 'en'].map(language => [`./${language}`, { [language]: catalogues[language] }])));
+  const i18n = load('i18n/index.ts', {
+    ...Object.fromEntries(['fr', 'en'].map(language => [`./${language}`, { [language]: catalogues[language] }])),
+    './ja': load('i18n/ja.ts'),
+  });
   const useMutationDialog = load('hooks/useMutationDialog.ts').default;
   const Modal = load('components/MoveBoxModal.tsx', {
     '../i18n': i18n,

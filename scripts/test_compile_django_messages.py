@@ -232,7 +232,11 @@ class CompilationTests(unittest.TestCase):
                     legacy[key] = value
                 messages = compiler.parse_po_file(path)
                 self.assertEqual(messages, legacy)
-                self.assertEqual(compiler.compile_messages(messages), path.with_suffix(".mo").read_bytes())
+                # Partial languages compile their effective catalog; FR/EN compile the PO as-is.
+                runtime = compiler.runtime_messages(path, messages)
+                if path.parents[1].name not in compiler.ENGLISH_FALLBACK_LANGUAGES:
+                    self.assertIs(runtime, messages)
+                self.assertEqual(compiler.compile_messages(runtime), path.with_suffix(".mo").read_bytes())
 
 
 class CommandTests(unittest.TestCase):
@@ -292,6 +296,39 @@ class CommandTests(unittest.TestCase):
         for path in paths:
             self.assertEqual(path.with_suffix(".mo").read_bytes(),
                              compiler.compile_messages(messages(path.parent.parent.name)))
+
+    def test_partial_language_compiles_effective_catalog(self):
+        project = self.root
+        self.root = project / "backend" / "locale"
+        patch.object(compiler, "LOCALE_DIR", self.root).start()
+        source = project / "backend" / "example.py"
+        source.parent.mkdir(parents=True)
+        source.write_text(
+            'from django.utils.translation import gettext as _\n'
+            '_("Bonjour")\n_("Au revoir")\n_("Merci")\n', encoding="utf-8")
+        en = self.catalog("en", entry("Bonjour", "Hello") + "\n" + entry("Au revoir", "Goodbye"))
+        fr = self.catalog("fr", entry("Merci", "Merci traduit"))
+        ja = self.catalog("ja", entry("Bonjour", "こんにちは"))
+        originals = {path: path.read_bytes() for path in (en, fr, ja)}
+        self.assertEqual(compiler.main([]), 0)
+        output = ja.with_suffix(".mo").read_bytes()
+        catalog = gettext.GNUTranslations(io.BytesIO(output))
+        self.assertEqual([catalog.gettext(m) for m in ("Bonjour", "Au revoir", "Merci")],
+                         ["こんにちは", "Goodbye", "Merci"])
+        for path, original in originals.items():
+            self.assertEqual(path.read_bytes(), original)
+        for path in (en, fr):
+            self.assertEqual(path.with_suffix(".mo").read_bytes(),
+                             compiler.compile_messages(compiler.parse_po_file(path)))
+        self.assertEqual(compiler.main(["--check"]), 0)
+        self.assertEqual(compiler.main([]), 0)
+        self.assertEqual(ja.with_suffix(".mo").read_bytes(), output)
+        # A MO compiled from the validated PO alone misses the approved fallback.
+        ja.with_suffix(".mo").write_bytes(compiler.compile_messages(compiler.parse_po_file(ja)))
+        self.assertEqual(compiler.main(["--check"]), 1)
+        self.assertIn("generated MO bytes differ", self.stderr.getvalue())
+        self.assertEqual(compiler.main([]), 0)
+        self.assertEqual(ja.with_suffix(".mo").read_bytes(), output)
 
     def test_empty_catalog_discovery_fails(self):
         with patch.object(Path, "write_bytes", side_effect=AssertionError("write attempted")):

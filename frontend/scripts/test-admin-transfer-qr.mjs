@@ -125,6 +125,7 @@ test('unmounted transfer preview preserves the two existing missing-key fallback
     require(name) {
       if (name === './fr') return { fr: locales.fr };
       if (name === './en') return { en: locales.en };
+      if (name === './ja') return load(compile('../src/i18n/ja.ts'));
       throw new Error(`Unexpected dependency: ${name}`);
     },
   });

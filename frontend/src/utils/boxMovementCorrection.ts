@@ -64,7 +64,7 @@ export function resolveParisMovementTime(value: string, original: string): Paris
 }
 
 export function formatMovementTimestamp(value: string, language: Language): string {
-  const locale = language === 'fr' ? 'fr-FR' : 'en-GB';
+  const locale = language === 'fr' ? 'fr-FR' : language === 'ja' ? 'ja-JP' : 'en-GB';
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     const date = new Date(`${value}T00:00:00Z`);
     return Number.isFinite(date.getTime())
