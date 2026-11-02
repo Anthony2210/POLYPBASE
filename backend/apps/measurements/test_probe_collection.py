@@ -23,6 +23,7 @@ from .iminilide import (
     IminilideClient,
     IminilideConfigurationError,
     IminilideError,
+    IminilideResponseError,
     format_since,
     parse_readings,
 )
@@ -32,6 +33,7 @@ from .probe_collection import (
     collection_start,
     condense_probe_readings,
     recompute_daily_temperature,
+    store_readings,
 )
 from .probe_readings import zone_probe_monitoring
 
@@ -107,6 +109,46 @@ class ParseReadingsTests(TestCase):
         with self.assertRaises(IminilideError):
             parse_readings({"error": "login"})
 
+    def test_rejects_nonempty_responses_with_only_malformed_rows(self):
+        bad_rows = [
+            "garbage", None, {}, [], ["2026/10/28 00:00:00"], [123, 25],
+            ["not a date", 25], ["2026/02/30 00:00:00", 25],
+            ["2026/10/28 00:00:00", "abc"],
+            ["2026/10/28 00:00:00", {}],
+            ["2026/10/28 00:00:00", "NaN"],
+            ["2026/10/28 00:00:00", "Infinity"],
+            ["2026/10/25 02:10:00", "abc"],
+        ]
+        for payload in [[row] for row in bad_rows] + [bad_rows]:
+            with self.subTest(payload=payload), self.assertRaisesRegex(
+                IminilideResponseError, "only malformed reading rows",
+            ):
+                parse_readings(payload, time_zone="Europe/Paris")
+
+    def test_empty_response_is_not_a_schema_failure(self):
+        parsed = parse_readings([])
+        self.assertEqual(parsed.readings, [])
+        self.assertEqual((parsed.missing_values, parsed.out_of_range_values, parsed.invalid_rows), (0, 0, 0))
+
+    def test_unusable_readings_are_not_mistaken_for_malformed_schema(self):
+        cases = [
+            (["2026/10/28 00:00:00", None], (1, 0, 1)),
+            (["2026/10/28 00:00:00", ""], (1, 0, 1)),
+            (["2026/10/28 00:00:00", "  "], (1, 0, 1)),
+            (["2026/10/28 00:00:00", False], (1, 0, 1)),
+            (["2026/10/28 00:00:00", -101], (0, 1, 1)),
+            (["2026/10/28 00:00:00", 251], (0, 1, 1)),
+            (["2026/10/25 02:10:00", 0], (0, 0, 2)),
+            (["2026/03/29 02:10:00", 0], (0, 0, 2)),
+        ]
+        for row, expected in cases:
+            with self.subTest(row=row):
+                parsed = parse_readings(["garbage", row], time_zone="Europe/Paris")
+                self.assertEqual(parsed.readings, [])
+                self.assertEqual(
+                    (parsed.missing_values, parsed.out_of_range_values, parsed.invalid_rows), expected,
+                )
+
     def test_since_is_formatted_in_local_time(self):
         self.assertEqual(format_since(datetime(2026, 10, 28, 23, 0, tzinfo=UTC), "Europe/Paris"), "20261029000000")
 
@@ -148,6 +190,13 @@ class IminilideClientTests(TestCase):
         )
         self.assertEqual(readings.full_url, "https://cloud.test/en/mesuresjson_1162040825_12_20261028000000")
         self.assertEqual(len(parsed.readings), 1)
+
+    def test_malformed_readings_raise_response_error_without_authentication_retry(self):
+        opener = FakeOpener([b"ok", json.dumps([{"date": "2026/10/28", "value": 25}]).encode()])
+        client = IminilideClient(email="lab@example.org", password="synthetic", opener=opener)
+        with self.assertRaises(IminilideResponseError):
+            client.fetch_readings(serial="1162040825", channel=1, since=paris(2026, 10, 28))
+        self.assertEqual(len(opener.requests), 2)
 
     def test_retries_sign_in_once_then_reports_refused_session(self):
         opener = FakeOpener([b"<html></html>", b"<html>login</html>", b"<html></html>", b"<html>login</html>"])
@@ -279,6 +328,59 @@ class CollectionTests(ProbeFixtureMixin, TestCase):
         result = collect_iminilide(client=FakeClient(self.payloads(), failing_channels={12}), now=NOW)
         self.assertEqual(len(result.failed), 1)
         self.assertEqual(TemperatureMeasurement.objects.filter(probe=self.right).count(), 2)
+
+    def test_malformed_channel_fails_before_storage_and_next_channel_is_collected(self):
+        client = FakeClient({11: ["garbage"], 12: [["2026/10/28 10:00:00", 0]]})
+        with patch("apps.measurements.probe_collection.store_readings", wraps=store_readings) as store:
+            result = collect_iminilide(client=client, now=NOW)
+        self.assertEqual([call[1] for call in client.calls], [11, 12])
+        self.assertEqual(len(result.failed), 1)
+        self.assertEqual(result.failed[0].probe_code, self.right.code)
+        self.assertIn("only malformed reading rows", result.failed[0].error)
+        store.assert_called_once()
+        self.assertEqual(store.call_args.args[0].pk, self.left.pk)
+        self.assertFalse(TemperatureMeasurement.objects.filter(probe=self.right).exists())
+        self.assertEqual(TemperatureMeasurement.objects.get(probe=self.left).temperature_c, 0)
+        daily = DailyTemperature.objects.get(thermal_zone=self.zone)
+        self.assertEqual((daily.measurement_count, daily.average_temperature_c), (1, 0))
+
+    def test_empty_and_unusable_channels_remain_successful_without_new_readings(self):
+        for payload in (
+            [], [["2026/10/28 10:00:00", None]], [["2026/10/28 10:00:00", 999]],
+            [["2026/10/25 02:10:00", 0]], [["2026/03/29 02:10:00", 0]],
+        ):
+            with self.subTest(payload=payload):
+                result = collect_iminilide(client=FakeClient({11: payload}), now=NOW)
+                self.assertEqual(result.failed, [])
+                self.assertEqual(result.created, 0)
+                self.assertFalse(TemperatureMeasurement.objects.exists())
+                self.assertFalse(DailyTemperature.objects.exists())
+
+    def test_partially_valid_response_keeps_zero_and_deduplication(self):
+        client = FakeClient({12: ["garbage", ["2026/10/28 10:00:00", 0]]})
+        first = collect_iminilide(client=client, now=NOW)
+        second = collect_iminilide(client=client, now=NOW)
+        self.assertEqual(first.failed, [])
+        self.assertEqual(second.failed, [])
+        self.assertEqual((first.created, second.created), (1, 0))
+        self.assertEqual(second.probes[1].skipped_existing, 1)
+        self.assertEqual(second.probes[1].invalid_rows, 1)
+        self.assertEqual(TemperatureMeasurement.objects.get().temperature_c, 0)
+        self.assertEqual(DailyTemperature.objects.get().measurement_count, 1)
+
+    def test_command_reports_malformed_channel_as_failed_but_collects_the_next(self):
+        with patch(
+            "apps.measurements.probe_collection.IminilideClient",
+            return_value=FakeClient({11: ["garbage"], 12: [["2026/10/28 10:00:00", 0]]}),
+        ):
+            out, err = io.StringIO(), io.StringIO()
+            with self.assertRaisesRegex(CommandError, r"1 probe\(s\) could not be collected"):
+                call_command("collect_iminilide", skip_condense=True, stdout=out, stderr=err)
+        self.assertIn("ETUVE 25 D: FAILED", err.getvalue())
+        self.assertIn("only malformed reading rows", err.getvalue())
+        self.assertNotIn("ETUVE 25 D: 0 new", out.getvalue())
+        self.assertIn("ETUVE 25 G: 1 new", out.getvalue())
+        self.assertEqual(TemperatureMeasurement.objects.get().temperature_c, 0)
 
     def test_inactive_and_non_collected_probes_are_not_requested(self):
         self.right.is_active = False
