@@ -1,0 +1,107 @@
+name: CCA-EOB Linux CPython 3.13 QA
+
+on:
+  push:
+    branches:
+      - test/cca-eob-linux-313
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cca-eob-linux-qa-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cca-eob-linux-qa:
+    name: Linux CPython 3.13 Isolated QA
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Audit source integrity against base commit 6afc30ff
+        shell: bash
+        env:
+          BASE_SHA: "6afc30ff5aae04a6030258ffdee3dd3d8a6f4751"
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          echo "======================================================================"
+          echo " SOURCE INTEGRITY AUDIT"
+          echo "======================================================================"
+          echo "Base Commit Expected: ${BASE_SHA}"
+          echo "QA Workflow HEAD SHA: ${actual_sha}"
+          echo "Ref:                  ${GITHUB_REF}"
+
+          # Ensure base commit exists in fetched history
+          if ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            echo "ERROR: Base commit ${BASE_SHA} not found in history." >&2
+            exit 1
+          fi
+
+          # Verify that backend, deployment scripts, docs, and locked dependencies are byte-for-byte identical to the base commit
+          echo "Checking diff for backend/, deploy/, docs/, pyproject.toml, uv.lock..."
+          git diff --exit-code "${BASE_SHA}" HEAD -- backend deploy docs pyproject.toml uv.lock
+          echo "PASS: Application sources and deployment code match base commit 6afc30ff exactly."
+
+          # Verify that any commits on this branch modified only temporary QA configuration under .github/workflows/
+          echo "Auditing modified files against base commit..."
+          changed_files="$(git diff --name-only "${BASE_SHA}" HEAD)"
+          if [ -n "${changed_files}" ]; then
+            echo "Files changed relative to base commit:"
+            echo "${changed_files}"
+            while IFS= read -r file; do
+              case "${file}" in
+                .github/workflows/*)
+                  echo "Allowed QA configuration: ${file}"
+                  ;;
+                *)
+                  echo "ERROR: Disallowed modification outside .github/workflows/: ${file}" >&2
+                  exit 1
+                  ;;
+              esac
+            done <<< "${changed_files}"
+          else
+            echo "Tree is identical to base commit."
+          fi
+          echo "PASS: Source integrity audit passed successfully."
+
+      - name: Build disposable Linux QA image from tracked sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "======================================================================"
+          echo " DOCKER IMAGE BUILD (PREPARATION PHASE)"
+          echo "======================================================================"
+          git archive --format=tar HEAD | docker build \
+            --file .github/workflows/cca_eob_linux_qa/Dockerfile \
+            --tag polypbase-cca-eob-linux-qa:latest -
+
+          echo "======================================================================"
+          echo " DOCKER IMAGE PROVENANCE & IDENTITY"
+          echo "======================================================================"
+          docker images --digests polypbase-cca-eob-linux-qa:latest
+          docker inspect --format='Image ID: {{.Id}} | Created: {{.Created}} | OS/Arch: {{.Os}}/{{.Architecture}}' polypbase-cca-eob-linux-qa:latest
+
+      - name: Run isolated QA under Docker with --network none
+        run: >-
+          docker run
+          --name polypbase-cca-eob-linux-qa
+          --network none
+          --rm
+          --read-only
+          --tmpfs /tmp:rw,exec,nosuid,nodev,size=256m,mode=1777
+          --tmpfs /home/qa-runner:rw,size=64m
+          --cap-drop=ALL
+          --security-opt=no-new-privileges:true
+          polypbase-cca-eob-linux-qa:latest
+
+      - name: Ensure container cleanup on cancellation
+        if: always()
+        run: docker rm --force polypbase-cca-eob-linux-qa 2>/dev/null || true
