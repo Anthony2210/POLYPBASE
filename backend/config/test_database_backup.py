@@ -8,6 +8,7 @@ import io
 import json
 import os
 import re
+import shutil
 import stat
 import subprocess
 import sys
@@ -37,7 +38,7 @@ class DatabaseBackupTests(unittest.TestCase):
         self.addCleanup(patch.stopall)
 
     def run_command(self, command, **kwargs):
-        if command[0] == "/usr/bin/pg_dump":
+        if command[0].endswith("/pg_dump"):
             Path(command[command.index("--file") + 1]).write_bytes(b"archive-content")
         return subprocess.CompletedProcess(command, 0)
 
@@ -403,6 +404,7 @@ class DatabaseBackupTests(unittest.TestCase):
         with patch.dict(sys.modules, {"django": fake_django, "django.conf": fake_conf}), \
                 patch.object(module, "parse_args", return_value=types.SimpleNamespace(
                     output_dir=self.directory, label="normal", retention_days=14)), \
+                patch.object(backup, "require_client", side_effect=lambda name, major: f"/usr/lib/postgresql/{major}/bin/{name}"), \
                 patch.object(module.os, "umask"), patch.dict(os.environ), \
                 patch.object(sys, "path", list(sys.path)), redirect_stdout(output):
             module.main()
@@ -412,6 +414,35 @@ class DatabaseBackupTests(unittest.TestCase):
         self.assertFalse(old.exists())
         self.assertTrue(unrelated.exists())
         self.assertNotIn("--snapshot", self.runner.call_args_list[0].args[0])
+        self.assertEqual(self.runner.call_args_list[0].args[0][0], "/usr/lib/postgresql/18/bin/pg_dump")
+        self.assertEqual(self.runner.call_args_list[1].args[0][0], "/usr/lib/postgresql/18/bin/pg_restore")
+
+    def test_script_failure_has_no_success_marker_or_retention(self):
+        script = Path(__file__).resolve().parents[2] / "deploy/scripts/backup_database.py"
+        spec = importlib.util.spec_from_file_location("backup_script_failure_test", script)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        old = self.directory / "normal-20000101T000000Z.dump"
+        old.write_bytes(b"old")
+        os.utime(old, (1, 1))
+        fake_django = types.ModuleType("django")
+        fake_django.setup = lambda: None
+        fake_conf = types.ModuleType("django.conf")
+        fake_conf.settings = types.SimpleNamespace(DATABASES={"default": self.database})
+        for failure in ("PostgreSQL 18 pg_dump is unavailable", "archive command failed or timed out"):
+            with self.subTest(failure=failure):
+                output = io.StringIO()
+                with patch.dict(sys.modules, {"django": fake_django, "django.conf": fake_conf}), \
+                        patch.object(module, "parse_args", return_value=types.SimpleNamespace(
+                            output_dir=self.directory, label="normal", retention_days=14)), \
+                        patch.object(backup, "create_archive", side_effect=ValueError(failure)) as create, \
+                        patch.object(module.os, "umask"), patch.dict(os.environ), \
+                        patch.object(sys, "path", list(sys.path)), redirect_stdout(output):
+                    with self.assertRaisesRegex(ValueError, failure):
+                        module.main()
+                create.assert_called_once_with(self.database, self.directory, "normal", client_major=18)
+                self.assertEqual(output.getvalue(), "")
+                self.assertEqual(old.read_bytes(), b"old")
 
 
 class PinnedClientTests(unittest.TestCase):
@@ -429,7 +460,9 @@ class PinnedClientTests(unittest.TestCase):
             for path in ("/", "/usr", "/usr/lib", "/usr/lib/postgresql",
                          "/usr/lib/postgresql/18", "/usr/lib/postgresql/18/bin")
         }
-        self.entries[self.CLIENT] = types.SimpleNamespace(st_mode=stat.S_IFREG | 0o755, st_uid=0)
+        self.dump_client = "/usr/lib/postgresql/18/bin/pg_dump"
+        for client in (self.CLIENT, self.dump_client):
+            self.entries[client] = types.SimpleNamespace(st_mode=stat.S_IFREG | 0o755, st_uid=0)
         self.version = b"pg_restore (PostgreSQL) 18.6 (Debian 18.6-1.pgdg13+1)\n"
         real_lstat = os.lstat
 
@@ -448,7 +481,10 @@ class PinnedClientTests(unittest.TestCase):
 
     def run_command(self, command, **kwargs):
         if command[1:] == ["--version"]:
-            return subprocess.CompletedProcess(command, 0, stdout=self.version)
+            output = self.version.replace(b"pg_restore", b"pg_dump") if command[0] == self.dump_client else self.version
+            return subprocess.CompletedProcess(command, 0, stdout=output)
+        if command[0] == self.dump_client:
+            Path(command[command.index("--file") + 1]).write_bytes(b"archive-content")
         return subprocess.CompletedProcess(command, 0)
 
     def commands(self):
@@ -523,6 +559,111 @@ class PinnedClientTests(unittest.TestCase):
                     backup.verify_archive({"path": str(self.path)}, client_major=18)
                 self.assertNotIn("secret", str(caught.exception))
         self.runner.side_effect = self.run_command
+
+    def test_release_bootstrap_loads_target_helper_not_old_checkout(self):
+        import config
+
+        root = Path(__file__).resolve().parents[2]
+        source = (root / "deploy/scripts/deploy_release.sh").read_text(encoding="utf-8")
+        bootstrap = source.split("<<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
+        stage = self.path.parent
+        shutil.copyfile(root / "backend/config/database_backup.py", stage / "database_backup.py")
+        shutil.copyfile(root / "deploy/scripts/backup_database.py", stage / "backup_database.py")
+        fake_django = types.ModuleType("django")
+        fake_django.setup = lambda: None
+        fake_conf = types.ModuleType("django.conf")
+        fake_conf.settings = types.SimpleNamespace(DATABASES={"default": self.database()})
+        output = io.StringIO()
+        # Fresh processes have not imported the old checkout's archive helper.
+        # Make the same package state here, then restore the existing test module.
+        old_helper = config.__dict__.pop("database_backup", None)
+        try:
+            with patch.dict(sys.modules, {"django": fake_django, "django.conf": fake_conf}), \
+                    patch.object(sys, "argv", ["-", str(stage), "--output-dir", str(stage), "--label", "pre-test"]), \
+                    patch.object(sys, "path", list(sys.path)), patch.object(os, "umask"), \
+                    patch.dict(os.environ), redirect_stdout(output):
+                exec(compile(bootstrap, "release-bootstrap", "exec"), {})
+                loaded = sys.modules["config.database_backup"]
+                self.assertEqual(Path(loaded.__file__), stage / "database_backup.py")
+                self.assertIsNot(loaded, backup)
+        finally:
+            if old_helper is not None:
+                config.database_backup = old_helper
+        self.assertRegex(output.getvalue(), r"^BACKUP_OK pre-test-.* 15 bytes sha256=[a-f0-9]{64}\n$")
+        self.assertEqual(self.commands()[0], [self.dump_client, "--version"])
+        self.assertEqual(self.commands()[-1][0:2], [self.CLIENT, "--list"])
+
+    def database(self):
+        return {"ENGINE": "django.db.backends.postgresql", "HOST": "/var/run/postgresql",
+                "PORT": "5433", "USER": "test-user", "NAME": "test-db",
+                "OPTIONS": {"sslmode": "disable", "passfile": "/dev/null"}}
+
+    def test_creation_pins_both_clients_and_keeps_database_identity(self):
+        directory = self.path.parent / "new"
+        with patch.dict(os.environ, {"PGCLUSTER": "17/main", "PGPORT": "5432"}):
+            archive = backup.create_archive(self.database(), directory, "release", client_major=18)
+        commands = self.commands()
+        self.assertEqual(commands[:2], [[self.dump_client, "--version"], [self.CLIENT, "--version"]])
+        self.assertEqual(commands[2][0], self.dump_client)
+        self.assertEqual(commands[3:], [[self.CLIENT, "--version"],
+                                       [self.CLIENT, "--list", archive["path"]]])
+        for flag, value in (("--host", "/var/run/postgresql"), ("--port", "5433"),
+                            ("--username", "test-user"), ("--dbname", "test-db")):
+            self.assertEqual(commands[2][commands[2].index(flag) + 1], value)
+        self.assertEqual(archive["sha256"], hashlib.sha256(b"archive-content").hexdigest())
+        self.assertEqual(archive["size_bytes"], 15)
+        dump = self.runner.call_args_list[2]
+        self.assertEqual(dump.kwargs["timeout"], 600)
+        self.assertEqual(dump.kwargs["env"]["PGPASSFILE"], "/dev/null")
+        self.assertNotIn("PGCLUSTER", dump.kwargs["env"])
+        self.assertNotIn("PGPORT", dump.kwargs["env"])
+        if os.name != "nt":
+            self.assertEqual(stat.S_IMODE(Path(archive["path"]).stat().st_mode), 0o600)
+            self.assertEqual(stat.S_IMODE(directory.stat().st_mode), 0o700)
+
+    def test_creation_refuses_missing_unsafe_or_wrong_clients_before_files(self):
+        for client in (self.dump_client, self.CLIENT):
+            for entry in (None, types.SimpleNamespace(st_mode=stat.S_IFLNK | 0o777, st_uid=0),
+                          types.SimpleNamespace(st_mode=stat.S_IFREG | 0o777, st_uid=0),
+                          types.SimpleNamespace(st_mode=stat.S_IFREG | 0o755, st_uid=1000)):
+                with self.subTest(client=client, entry=entry):
+                    saved = self.entries[client]
+                    self.entries[client] = entry
+                    self.runner.reset_mock()
+                    with self.assertRaises(ValueError):
+                        backup.create_archive(self.database(), self.path.parent / "new", "release", client_major=18)
+                    self.assertFalse((self.path.parent / "new").exists())
+                    self.assertTrue(all(command[1:] == ["--version"] for command in self.commands()))
+                    self.entries[client] = saved
+            for failure in (b"pg_restore (PostgreSQL) 17.10\n", b"", b"invalid"):
+                with self.subTest(client=client, version=failure):
+                    def wrong_version(command, **kwargs):
+                        if command == [client, "--version"]:
+                            return subprocess.CompletedProcess(command, 0, stdout=failure.replace(b"pg_restore", Path(client).name.encode()))
+                        return self.run_command(command, **kwargs)
+                    self.runner.side_effect = wrong_version
+                    with self.assertRaises(ValueError):
+                        backup.create_archive(self.database(), self.path.parent / "new", "release", client_major=18)
+                    self.assertFalse((self.path.parent / "new").exists())
+            self.runner.side_effect = self.run_command
+
+    def test_pinned_command_failures_remove_archive_without_fallback(self):
+        for stage in ("pg_dump", "pg_restore"):
+            for failure in (OSError("secret"), subprocess.TimeoutExpired(["secret"], 600),
+                            subprocess.CalledProcessError(1, ["secret"])):
+                with self.subTest(stage=stage, failure=type(failure).__name__):
+                    def fail(command, **kwargs):
+                        if command[1:] != ["--version"] and command[0].endswith(stage):
+                            raise failure
+                        return self.run_command(command, **kwargs)
+                    self.runner.side_effect = fail
+                    self.runner.reset_mock()
+                    with self.assertRaisesRegex(ValueError, "archive command failed or timed out") as caught:
+                        backup.create_archive(self.database(), self.path.parent, "release", client_major=18)
+                    self.assertNotIn("secret", str(caught.exception))
+                    self.assertEqual(list(self.path.parent.glob("release-*.dump")), [])
+                    self.assertTrue(all(command[0].startswith("/usr/lib/postgresql/18/bin/")
+                                        for command in self.commands()))
 
     def test_invalid_client_requests_are_refused_without_io(self):
         for name, major in (("pg_restore", True), ("pg_restore", "18"), ("pg_restore", 9),

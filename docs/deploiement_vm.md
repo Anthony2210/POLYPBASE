@@ -78,6 +78,17 @@ réservés au compte `polypbase` :
 Le minuteur `polypbase-backup.timer` exécute une sauvegarde vérifiée chaque nuit
 vers 2 h 30 et conserve 14 jours de sauvegardes portant le préfixe `polypbase`.
 
+Le script d'exploitation `deploy/scripts/backup_database.py` exige désormais
+`/usr/lib/postgresql/18/bin/pg_dump` et `pg_restore`, sans repli vers `pg_wrapper`.
+Les deux clients et leurs répertoires parents doivent appartenir à root, ne pas
+être des liens symboliques ni être modifiables par le groupe ou les autres ; les
+binaires doivent être exécutables et annoncer PostgreSQL 18. Tout refus arrête
+la sauvegarde avant la création de l'archive et sans appliquer la rétention.
+L'unité systemd existante utilise ce comportement dès la mise à jour du script,
+sans modification de son `ExecStart`. Confirmer sur la VM la présence et les
+droits des deux clients avant cette mise à jour. Les helpers PCA conservent
+leurs clients par défaut historiques ; ce changement ne modifie pas leur contrat.
+
 ```bash
 systemctl status polypbase-backup.timer --no-pager
 systemctl list-timers polypbase-backup.timer --no-pager
@@ -159,6 +170,15 @@ La commande effectue elle-même les opérations suivantes :
 9. plan de migration, migrations, fichiers statiques et contrôles Django ;
 10. publication du frontend, redémarrage de Gunicorn et validation de Nginx ;
 11. contrôles de santé, des routes React, de HTTPS et du commit réellement servi.
+
+Pour la sauvegarde avant mise à jour, l'exécuteur extrait les deux fichiers
+`backend/config/database_backup.py` et `deploy/scripts/backup_database.py` du
+commit cible déjà récupéré et contrôlé, dans le dossier de release. Il utilise
+ce code avec la configuration Django de la copie encore en place : la première
+release bénéficie donc des clients 18 sans avancer Git avant la sauvegarde.
+Le second contrôle d'archive utilise également le helper extrait, avec
+`client_major=18`, ses contrôles de provenance et son délai maximal. Ces
+contrôles de lisibilité ne remplacent pas un test de restauration.
 
 Le script s’arrête au premier échec. Il ne restaure jamais la base et n’annule
 jamais une migration automatiquement. Le journal distant, la sauvegarde et

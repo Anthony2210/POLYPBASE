@@ -66,7 +66,6 @@ fi
 [[ -d "$APP_DIR/.git" ]] || fail "application repository not found at $APP_DIR"
 [[ -x "$APP_DIR/.venv/bin/python" ]] || fail "Python virtual environment is missing"
 [[ -f "$APP_DIR/frontend/package-lock.json" ]] || fail "frontend lock file is missing"
-[[ -x /usr/bin/pg_restore ]] || fail "pg_restore is unavailable"
 
 for command in git uv npm flock tee awk tail grep mv mkdir date df sha256sum; do
     command -v "$command" >/dev/null 2>&1 || fail "required command is unavailable: $command"
@@ -106,19 +105,44 @@ AVAILABLE_KB="$(df -Pk "$APP_DIR" | awk 'NR == 2 {print $4}')"
 (( AVAILABLE_KB >= 1048576 )) || fail "less than 1 GiB is available on the application disk"
 
 CURRENT_STEP="database backup"
+# The checkout is still the previous release. Use the target's reviewed backup
+# code without updating it (or changing its Django settings) before the backup.
+git -C "$APP_DIR" show "$TARGET_COMMIT:backend/config/database_backup.py" >"$RELEASE_DIR/database_backup.py"
+git -C "$APP_DIR" show "$TARGET_COMMIT:deploy/scripts/backup_database.py" >"$RELEASE_DIR/backup_database.py"
 cd "$APP_DIR/backend"
 BACKUP_OUTPUT="$(
-    "$APP_DIR/.venv/bin/python" \
-        "$APP_DIR/deploy/scripts/backup_database.py" \
+    "$APP_DIR/.venv/bin/python" - "$RELEASE_DIR" \
         --output-dir "$BACKUP_DIR" \
-        --label "pre-${SHORT_COMMIT}"
+        --label "pre-${SHORT_COMMIT}" <<'PY'
+import importlib.util
+from pathlib import Path
+import runpy
+import sys
+
+release = Path(sys.argv.pop(1))
+spec = importlib.util.spec_from_file_location("config.database_backup", release / "database_backup.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+sys.modules[spec.name] = module
+runpy.run_path(str(release / "backup_database.py"), run_name="__main__")
+PY
 )"
 printf '%s\n' "$BACKUP_OUTPUT"
 BACKUP_NAME="$(printf '%s\n' "$BACKUP_OUTPUT" | awk '/^BACKUP_OK / {print $2}' | tail -n 1)"
 [[ -n "$BACKUP_NAME" ]] || fail "backup script did not return BACKUP_OK"
 BACKUP_PATH="$BACKUP_DIR/$BACKUP_NAME"
 [[ -s "$BACKUP_PATH" ]] || fail "backup file is missing or empty"
-/usr/bin/pg_restore --list "$BACKUP_PATH" >/dev/null
+# Reuse the strict helper for the independent readability check, with its
+# provenance/version checks, sanitized environment and bounded subprocess.
+"$APP_DIR/.venv/bin/python" - "$RELEASE_DIR/database_backup.py" "$BACKUP_PATH" <<'PY'
+import importlib.util
+import sys
+
+spec = importlib.util.spec_from_file_location("release_database_backup", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module.verify_archive({"path": sys.argv[2]}, client_major=18)
+PY
 
 CURRENT_STEP="fast-forward update"
 git -C "$APP_DIR" merge --ff-only "$TARGET_COMMIT"

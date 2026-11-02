@@ -266,12 +266,13 @@ aucune antidatation ni prolongation au-delà d'une heure.
 `restoration_tested: true` est une **attestation root de restauration indépendante
 réussie**, jamais un résultat déduit de `pg_restore --list`. Après accord sauvegarde,
 produire une sauvegarde fraîche de la cible attestée ; conserver provenance, date
-UTC, SHA-256 et taille. Attention : `deploy/scripts/backup_database.py` appelle
-actuellement `create_archive`, qui utilise `/usr/bin/pg_dump` et le wrapper de
-`pg_restore`, sans épinglage de version 18. Ne pas présenter ce script seul comme
-preuve de création/vérification avec les clients 18. Pour ce checkpoint ponctuel
-hors workflow de release, après accord sauvegarde distinct et validation du peer
-local, utiliser explicitement `/usr/lib/postgresql/18/bin/pg_dump` et `pg_restore`.
+UTC, SHA-256 et taille. `deploy/scripts/backup_database.py` exige désormais les
+clients 18 validés pour la création et la vérification ; une copie antérieure à
+cette correction peut encore utiliser les wrappers `/usr/bin`. Confirmer la
+version du code installé, sans déduire de ce script une preuve de restauration.
+Pour ce checkpoint ponctuel hors workflow de release, après accord sauvegarde
+distinct et validation du peer local, utiliser explicitement
+`/usr/lib/postgresql/18/bin/pg_dump` et `pg_restore`.
 Ce checkpoint ne remplace aucune sauvegarde orchestrée par `deploy/deploy_vm.ps1`.
 
 Gabarit futur, non exécuté, avec chemin absolu privé unique à remplacer pour chaque

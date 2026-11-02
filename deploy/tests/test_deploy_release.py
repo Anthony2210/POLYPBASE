@@ -150,12 +150,62 @@ class MigrationGuardTests(unittest.TestCase):
         capture = self.source.index('tee "$RELEASE_DIR/migrate-plan.txt"')
         guard = self.source.index('check_migration_plan "$RELEASE_DIR/migrate-plan.txt"')
         migrate = self.source.index('"$PYTHON" backend/manage.py migrate --noinput')
-        backup = self.source.index('/usr/bin/pg_restore --list "$BACKUP_PATH"')
+        backup = self.source.index('module.verify_archive({"path": sys.argv[2]}, client_major=18)')
         update = self.source.index('merge --ff-only "$TARGET_COMMIT"')
         self.assertLess(backup, update)
         self.assertLess(update, capture)
         self.assertLess(capture, guard)
         self.assertLess(guard, migrate)
+
+    def test_release_stages_target_backup_code_before_update(self):
+        for path in ("backend/config/database_backup.py", "deploy/scripts/backup_database.py"):
+            stage = self.source.index(f'git -C "$APP_DIR" show "$TARGET_COMMIT:{path}"')
+            self.assertLess(stage, self.source.index('BACKUP_OUTPUT="$('))
+        self.assertIn('sys.modules[spec.name] = module', self.source)
+        self.assertIn('runpy.run_path(str(release / "backup_database.py"), run_name="__main__")', self.source)
+        self.assertNotIn("/usr/bin/pg_restore", self.source)
+        self.assertNotIn("/usr/bin/pg_dump", self.source)
+
+    def test_backup_or_verification_failure_stops_before_update(self):
+        # Execute only the real backup section, with fake Git/Python commands.
+        # No Python payload, archive tool, database or deployment can run.
+        section = self.source.split('CURRENT_STEP="database backup"', 1)[1].split('CURRENT_STEP="fast-forward update"', 1)[0]
+        for failure in ("none", "stage", "backup", "verify"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+                Path(directory, "backend").mkdir()
+                command = '''set -Eeuo pipefail
+fail() { echo "$*" >&2; exit 1; }
+APP_DIR=.
+RELEASE_DIR=.
+BACKUP_DIR=.
+TARGET_COMMIT=unused
+SHORT_COMMIT=unused
+git() { [[ "$TEST_FAILURE" != stage ]] || return 7; }
+python_mock() {
+    cat >/dev/null
+    if [[ "$1" == - && "$2" == . ]]; then
+        [[ "$TEST_FAILURE" != backup ]] || return 8
+        printf x > fake.dump
+        echo 'BACKUP_OK fake.dump 1 bytes sha256=unused'
+    else
+        [[ "$TEST_FAILURE" != verify ]] || return 9
+    fi
+}
+'''
+                # Substitute only the executable, retaining arguments/heredocs and set -e.
+                command += section.replace('"$APP_DIR/.venv/bin/python"', 'python_mock')
+                command += '\nprintf "UPDATE_REACHED\\n"\n'
+                result = subprocess.run(
+                    [self.bash, "--noprofile", "--norc", "-c", command],
+                    cwd=directory, env={**os.environ, "TEST_FAILURE": failure},
+                    capture_output=True, text=True, timeout=10,
+                )
+                if failure == "none":
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("UPDATE_REACHED", result.stdout)
+                else:
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertNotIn("UPDATE_REACHED", result.stdout)
 
     def test_shell_syntax(self):
         result = subprocess.run(

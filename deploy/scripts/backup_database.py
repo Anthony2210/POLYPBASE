@@ -1,4 +1,4 @@
-"""Create and verify a PostgreSQL custom-format backup from Django settings."""
+"""Back up the deployment database with strictly validated PostgreSQL 18 clients."""
 
 import argparse
 import datetime
@@ -41,7 +41,7 @@ def main():
     if database["ENGINE"] != "django.db.backends.postgresql":
         raise SystemExit("The configured database is not PostgreSQL.")
 
-    archive = create_archive(database, args.output_dir, args.label)
+    archive = create_archive(database, args.output_dir, args.label, client_major=18)
     target = Path(archive["path"])
     print(
         f"BACKUP_OK {target.name} {archive['size_bytes']} bytes "
