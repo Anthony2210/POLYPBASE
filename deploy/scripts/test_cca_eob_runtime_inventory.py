@@ -98,7 +98,7 @@ class InventoryCollectorTests(unittest.TestCase):
         self.links = {f"{APP}/.venv/bin/python": "python3", f"{APP}/.venv/bin/python3": "/usr/bin/python3.13"}
         self.document = {
             "schema": INVENTORY.TRACE_SCHEMA, "runtime": INVENTORY.RUNTIME, "uid": 998, "app": APP,
-            "no_new_privs": True,
+            "no_new_privs": True, "startup": dict(INVENTORY.STARTUP),
             "python": {"executable": f"{APP}/.venv/bin/python", "prefix": f"{APP}/.venv",
                        "base_prefix": "/usr", "version": "3.13.5 (main)",
                        "stdlib": [f"{APP}/.venv/lib/python3.13", "/usr/lib/python3.13"],
@@ -108,7 +108,7 @@ class InventoryCollectorTests(unittest.TestCase):
             "opened": [f"{SITE}/django/conf/locale/fr/LC_MESSAGES/django.mo",
                        f"{APP}/backend/locale/fr/LC_MESSAGES/django.mo",
                        f"{APP}/backend/locale/en/LC_MESSAGES/django.mo",
-                       f"{APP}/backend/__pycache__/manage.cpython-313.pyc", "/proc/self/maps"],
+                       "/proc/self/maps"],
             "mapped": ["/usr/bin/python3.13", LOADER, "/usr/lib/x86_64-linux-gnu/libz.so.1"],
             "listed_directories": [SITE, f"{APP}/backend/missing"], "executed": [],
             "directory_access": {SITE: "listable", f"{APP}/backend/missing": "absent"},
@@ -140,7 +140,7 @@ class InventoryCollectorTests(unittest.TestCase):
         })
         self.assertEqual(inventory["deny_read"], [f"{APP}/backend/.env"])
         self.assertIn("trace_sha256=", inventory["scope_review"])
-        for needle in ("django: 2/4", "sqlparse", "manage.cpython-313.pyc",
+        for needle in ("django: 2/4", "sqlparse", "enforced startup:",
                        "backend/locale/en/LC_MESSAGES/django.mo", f"{SITE}/_virtualenv.pth"):
             self.assertIn(needle, text)
         with patch.object(POLICY, "tracked_sources", return_value=["backend/manage.py"]), \
@@ -150,14 +150,21 @@ class InventoryCollectorTests(unittest.TestCase):
             manifest = POLICY.build(Path("."), APP, json.loads(json.dumps(inventory)))
         self.assertEqual(len(manifest["files"]), len(inventory["files"]) + 1)
 
-    def test_only_non_root_readable_bytecode_is_a_warning(self):
+    def test_bytecode_is_a_stop_regardless_of_owner_or_exclusion(self):
         cache = f"{APP}/backend/__pycache__/manage.cpython-313.pyc"
-        document = dict(self.document, readable_bytecode=[cache])
-        _, text = self.collect(document)
-        self.assertIn("WARNING: non-root bytecode caches the runtime can read (not covered by hashes): 0", text)
-        _, text = self.collect(document, owners={cache: 1000})
-        self.assertIn("WARNING: non-root bytecode caches the runtime can read (not covered by hashes): 1\n"
-                      f"  {cache}", text)
+        for uid in (0, 1000):
+            with self.subTest(uid=uid), self.assertRaisesRegex(ValueError, "attempted readable bytecode"):
+                self.collect(dict(self.document, readable_bytecode=[cache]), owners={cache: uid})
+        document = dict(self.document, opened=[cache])
+        with self.assertRaisesRegex(ValueError, "unsupported bytecode"):
+            self.collect(document, excludes=[cache])
+
+    def test_effective_startup_contract_is_mandatory(self):
+        for startup in (None, {}, dict(INVENTORY.STARTUP, pycache_prefix=None),
+                        dict(INVENTORY.STARTUP, no_site=0),
+                        dict(INVENTORY.STARTUP, site_initialized=False)):
+            with self.subTest(startup=startup), self.assertRaisesRegex(ValueError, "startup contract"):
+                self.collect(dict(self.document, startup=startup))
 
     def test_output_is_deterministic(self):
         self.assertEqual(self.collect(), self.collect())

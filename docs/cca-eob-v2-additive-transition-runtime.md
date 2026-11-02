@@ -195,6 +195,133 @@ et le sync, comme tout échec de validation prépublication; aucun service n'est
 redémarré par ce contrôle. Cette modification du garde de déploiement doit faire
 partie de la revue de release.
 
+## Protection bytecode du runtime CCA
+
+### Cause et contrat
+
+`-B` empêche l'écriture des caches, **pas leur lecture**; `-I` ne change pas cela.
+Une source hachée peut donc être contournée par un cache timestamp valide ou
+hash-based, même sans modification de cette source. Le collecteur historique
+ignorait ces fichiers. Ce défaut H1 est distinct de H2 : le compte de service et
+de déploiement `polypbase` peut modifier le checkout partagé. Le manifeste vérifie
+un instant, pas l'intégrité continue; le correctif ne défend pas un checkout ou
+un venv devenu hostile après vérification.
+
+Le lanceur **CCA uniquement** `backend/cca_eob_runtime.py` exige CPython 3.13 et
+`-I -S -B -X pycache_prefix=/dev/null`. Il est exécuté directement comme source,
+jamais via `-m`. Sur Linux, `/dev/null` doit être le périphérique caractère réel
+root, majeure/mineure 1:3. Aucun cache ne peut exister sous ce non-répertoire.
+Le préfixe agit dès l'initialisation CPython, avant les imports antérieurs au
+script. Un répertoire de cache inaccessible aurait demandé un nouveau chemin,
+une politique de propriété/ACL et une garantie permanente d'inaccessibilité;
+il n'a pas été retenu. Le préfixe seul ne bloque pas les imports sourceless/ZIP.
+
+`-S` diffère site et les `.pth`. Avant de les exécuter, le lanceur :
+
+- compile les sources directement via le chargeur source CPython, sans ouvrir
+  leurs caches, y compris pour les imports paresseux ultérieurs;
+- refuse chargeurs sourceless, ZIP (sources comprises), sous-classes source et
+  chargeurs d'import non pris en charge avant leur exécution;
+- refuse `marshal.load/loads`, sauf l'appel interne exact chargeant les données
+  gelées intégrées à l'interpréteur, sans buffer externe;
+- fait remonter les refus hors des gestionnaires `Exception` de `site.py`,
+  mémorise les violations et refuse une politique modifiée;
+- appelle explicitement `site.main()` : sous 3.13, cette étape initialise le venv
+  que `-S` n'a pas résolu. Vérifie son préfixe et l'absence de user-site, puis
+  ajoute explicitement `backend` à `sys.path` (omis volontairement par `-I`).
+
+Trace, plan et apply utilisent ce même démarrage. Le lanceur refuse aussi les
+abréviations des options Django `--settings` et `--pythonpath`, pas seulement
+leurs formes complètes. Les settings CCA refusent l'ancien point d'entrée. La trace v2 relève les événements avant `site.main()`
+(dont `.pth`), vérifie/rapporte le contrat effectif et l'initialisation achevée.
+Le collecteur refuse contrat absent/différent et bytecode observé; le manifeste
+refuse les fichiers `.pyc`, `.pyo`, `.zip`, `.egg`. Aucun cache partagé n'est
+supprimé ou ajouté à la politique. Le garde de déploiement utilise maintenant le
+Python système isolé, sans site et avec préfixe non-répertoire : il ne démarre
+plus le venv applicatif avant sa vérification. Django/Gunicorn ordinaires,
+`manage.py`, venv, SQL, autorisations et orchestration restent inchangés.
+
+### Limites de couverture et STOP
+
+L'interpréteur, sa stdlib initiale, les extensions natives et les bibliothèques
+partagées restent de confiance, inventoriés/revus. Les imports d'encodage
+antérieurs au script ne sont pas auditables rétroactivement : le préfixe protège
+leurs caches standards, pas un interpréteur ou une archive stdlib hostile.
+**STOP** si une archive de démarrage existe sur le chemin initial (le lanceur
+la refuse), si un import initial sort de l'installation système de confiance,
+ou si cette provenance n'est pas vérifiable. Ne pas qualifier cette vérification
+postérieure de protection rétroactive contre une archive exécutée au démarrage.
+
+Les `.pth`, `sitecustomize` et `_virtualenv.py` sont du **code de confiance**,
+pas des données rendues sûres par la politique. Inventaire exact et revue de
+source/provenance obligatoires; une absence de hash `RECORD` demande une preuve
+indépendante, pas une acceptation automatique. **STOP** si ce code exécute un
+loader arbitraire, remplace les mécanismes d'import, lance un enfant Python,
+charge du code depuis des données ou n'est pas vérifiable. Le filtrage des specs
+ne sandboxe pas le code d'un finder personnalisé pendant `find_spec()` ni les
+appels directs à des méthodes personnalisées. Un tel chemin nécessaire exige
+une décision et des tests spécifiques avant utilisation. Les imports standards
+par ces hooks restent source-only; leurs chargeurs non pris en charge refusent.
+
+Les extensions natives approuvées restent exécutables. Un processus Python
+enfant ne reçoit pas automatiquement cette politique : **STOP** avant son ajout
+au chemin CCA. L'inventaire des ressources et imports paresseux demeure une revue
+explicite; ne pas inclure tous les packages installés. Une trace sans connexion
+DB ne prouve ni toute la fermeture d'apply, ni les accès effectifs Debian.
+
+### Reproduction isolée Linux / CI
+
+Dans une copie locale jetable du patch complet (nouveaux fichiers compris),
+sans `.env`, réseau ni base partagée, avec un **CPython 3.13 Linux déjà installé**,
+`venv`, `uv` approuvé et les wheels de `uv.lock` déjà disponibles hors réseau,
+depuis la racine du dépôt :
+
+```sh
+UV_PYTHON_DOWNLOADS=never uv sync --offline --frozen --python python3.13
+.venv/bin/python -I -B -c 'import sys; assert sys.platform == "linux" and sys.implementation.name == "cpython" and sys.version_info[:2] == (3, 13); print(sys.version)'
+.venv/bin/python -I -B deploy/scripts/test_cca_eob_runtime_startup.py -v
+.venv/bin/python -I -B deploy/scripts/test_cca_eob_runtime_inventory.py -v
+.venv/bin/python -I -B deploy/scripts/test_cca_eob_runtime_permissions.py -v
+.venv/bin/python -B -m unittest discover -s deploy/tests -p test_deploy_release.py -v
+git diff --check
+```
+
+Arrêter si le cache offline ou l'interpréteur manque; ne pas autoriser de
+téléchargement implicite. Le venv doit être créé par uv et contenir son vrai
+`_virtualenv.pth`/`_virtualenv.py`, Django, psycopg et les dépendances verrouillées.
+Les tests ne créent pas de compte Linux ni d'ACL; aucune identité de production
+n'est nécessaire. Le test Django utilise les settings CCA avec un environnement
+minimal, interdit `socket.connect`, `socket.getaddrinfo` et `sqlite3.connect`,
+charge le backend PostgreSQL sans connexion et vérifie le hook `_virtualenv`.
+Une absence de ce test/venv ou un skip Linux n'est pas un résultat d'acceptation.
+
+Les fixtures créent un venv sans pip ni téléchargement, sources/caches inoffensifs,
+`.pth`, ZIP et chargeurs synthétiques. Le test Linux complet compare les contrats
+trace/plan/apply avec un **Django synthétique sans DB**, vérifie `/dev/null` réel
+et la résolution du venv. Un second test Linux exécute le lanceur depuis un
+bundle externe avec `trace --app` et refuse cette substitution pour plan/apply.
+Le contrôle de données de la procédure bridge/candidate est lui aussi exercé
+avec sources/clones synthétiques et altérations refusées. Ce n'est pas une preuve
+des ACL ni de l'identité sur
+la VM. Exiger zéro échec et aucun skip des tests de démarrage sous Linux 3.13.
+Les tests du workflow peuvent nécessiter ses dépendances locales habituelles.
+Une QA représentative Django/venv/ACL sous le compte dédié, NoNewPrivs et sondes
+privées reste une condition séparée de validation opérateur, sans données live.
+
+La validation locale du correctif et de sa clôture utilise Windows CPython
+3.13.3/3.13.5. Lors de la clôture, les appels WSL ont expiré et le moteur Docker
+Linux était indisponible; aucun environnement Linux 3.13 de confiance n'a pu être
+validé. L'ancien relevé WSL 3.14.4 n'est pas une preuve 3.13. Un succès Windows
+ne vaut pas preuve Linux. Les contrôles Linux non exécutés restent bloquants
+pour l'approbation runtime.
+
+La reprise depuis `4866520e`, avec ancien manifeste actif et lanceur absent,
+est détaillée dans la [procédure opérateur](cca-eob-runtime-manifest-procedure.md) :
+bundle TARGET authentifié, lanceur externe root, trace v2, bridge vérifiable sur
+le live, candidate vérifiable sur les sources TARGET, publication atomique après
+accord manifeste, puis seulement orchestration et accords release/migrations.
+Le garde n'est ni déplacé ni désactivé.
+
 ## Validation locale
 
 - Tests PG18 exécutables dans `backend/apps/cultures/test_cca_eob_role_provisioning.py`

@@ -437,8 +437,18 @@ applicatif (`runuser -u polypbase_cca_eob -- setpriv --no-new-privs -- ...`).
 pas des arguments réels connus; sorties exclusives dans un répertoire privé 0700.
 
 ```text
-setpriv --no-new-privs -- ../.venv/bin/python manage.py cca_eob_production plan --production --settings=config.cca_eob_production_settings --organization-id 1 --actor-id ACTOR --target /etc/polypbase/cca-eob-production-target.json --workbook WORKBOOK --plan-file PLAN
+setpriv --no-new-privs -- env -i ../.venv/bin/python -I -S -B -X pycache_prefix=/dev/null cca_eob_runtime.py plan --production --organization-id 1 --actor-id ACTOR --target /etc/polypbase/cca-eob-production-target.json --workbook WORKBOOK --plan-file PLAN
 ```
+
+Ces invocations exigent le correctif bytecode intégré et sa preuve Linux 3.13
+indépendamment revue. Ne pas revenir à `manage.py` ni retirer `-S` en cas de
+refus : voir le [contrat source-only et ses STOP](cca-eob-v2-additive-transition-runtime.md#protection-bytecode-du-runtime-cca)
+et la [régénération du manifeste](cca-eob-runtime-manifest-procedure.md).
+Le lanceur fixe les settings CCA et le chemin backend; aucune option `--settings`
+ou `--pythonpath` n'est autorisée, y compris leurs abréviations Django. Les garanties UID/NoNewPrivs, sondes privées,
+ACL, hashes et SQL restent obligatoires. Le checkout partagé reste modifiable
+par `polypbase` : cette protection contre les caches n'atteste pas sa résistance
+à un compte de service compromis.
 
 Le stdout donne hash/résumé; PLAN contient matrice entière, cellules, baseline,
 recette et gardes. Un plan bloqué est conservé mais la commande échoue. Faire
@@ -577,7 +587,7 @@ ou réinstallation, même expirée. Conserver la preuve et l’échéance instal
 **Seulement après cette installation finale distincte**, comme runtime :
 
 ```text
-setpriv --no-new-privs -- ../.venv/bin/python manage.py cca_eob_production apply --production --settings=config.cca_eob_production_settings --organization-id 1 --actor-id ACTOR --target /etc/polypbase/cca-eob-production-target.json --workbook WORKBOOK --plan-file PLAN --expected-plan-hash HASH --authorization APPLY_CCA_EOB_ORGANIZATION_1:HASH
+setpriv --no-new-privs -- env -i ../.venv/bin/python -I -S -B -X pycache_prefix=/dev/null cca_eob_runtime.py apply --production --organization-id 1 --actor-id ACTOR --target /etc/polypbase/cca-eob-production-target.json --workbook WORKBOOK --plan-file PLAN --expected-plan-hash HASH --authorization APPLY_CCA_EOB_ORGANIZATION_1:HASH
 ```
 
 Le token CLI n’est ni secret ni autorité : approbation SQL du plan **et décision

@@ -1,8 +1,15 @@
 """CLI-only CCA-EOB peer login. Never read the application .env or alter its service."""
 
+import sys
+
+_runtime = getattr(sys, "_cca_eob_runtime", None)
+if _runtime is None:
+    raise RuntimeError("STOP: use the dedicated cca_eob_runtime.py source-only launcher")
+if not _runtime["evidence"]()["site_initialized"]:
+    raise RuntimeError("STOP: the dedicated runtime must complete site initialization")
+
 import os
 import secrets
-import sys
 
 from django.core.exceptions import ImproperlyConfigured
 
