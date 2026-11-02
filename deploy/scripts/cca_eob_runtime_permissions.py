@@ -25,6 +25,8 @@ def safe_path(value):
     path = PurePosixPath(value)
     if str(path) != value or any(part in (".", "..") for part in value.split("/")):
         raise ValueError("Non-canonical paths are forbidden.")
+    if path.suffix in (".pyc", ".pyo", ".zip", ".egg"):
+        raise ValueError("Bytecode and ZIP runtime files are forbidden.")
     if any(part in FORBIDDEN or part.startswith(".env") for part in path.parts):
         raise ValueError("Secret or mixed private paths cannot receive runtime permissions.")
     return path
