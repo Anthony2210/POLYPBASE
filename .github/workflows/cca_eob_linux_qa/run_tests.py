@@ -7,8 +7,10 @@ Validates environment invariants, network isolation, uv virtual environment,
 mandatory CCA-EOB runtime tests, and deployment preflight guards.
 """
 
+import importlib
 import os
 import platform
+import shutil
 import socket
 import stat
 import subprocess
@@ -30,6 +32,43 @@ def print_banner(title: str) -> None:
     print("\n" + "=" * 78)
     print(f" {title}")
     print("=" * 78, flush=True)
+
+
+def validate_venv_layout(venv: Path) -> None:
+    config = venv / "pyvenv.cfg"
+    values = dict(line.split("=", 1) for line in config.read_text().splitlines() if "=" in line)
+    values = {key.strip().lower(): value.strip() for key, value in values.items()}
+    if (
+        not values.get("home")
+        or not Path(values["home"]).is_dir()
+        or values.get("include-system-site-packages", "").lower() != "false"
+        or not values.get("version_info", values.get("version", "")).startswith("3.13.")
+    ):
+        raise RuntimeError("STOP: Invalid Python 3.13 pyvenv.cfg")
+    site_packages = venv / "lib/python3.13/site-packages"
+    if not site_packages.is_dir():
+        raise RuntimeError(f"STOP: Expected site-packages directory missing: {site_packages}")
+    hook = site_packages / "_virtualenv.py"
+    pth = site_packages / "_virtualenv.pth"
+    if os.path.lexists(hook) or os.path.lexists(pth):
+        if not (hook.is_file() and pth.is_file()):
+            raise RuntimeError("STOP: Incomplete legacy virtualenv startup-hook pair")
+        if pth.read_text().strip() != "import _virtualenv":
+            raise RuntimeError("STOP: Unexpected legacy virtualenv .pth content")
+        compile(hook.read_text(), str(hook), "exec")
+        module = importlib.import_module("_virtualenv")
+        if Path(module.__file__).resolve() != hook.resolve():
+            raise RuntimeError("STOP: Legacy virtualenv hook loaded from unexpected location")
+        if not any(type(finder).__module__ == "_virtualenv" for finder in sys.meta_path):
+            raise RuntimeError("STOP: Legacy virtualenv patch finder is not active")
+        print("Legacy virtualenv hook pair present; effective patch is checked by ProjectVenvTests.")
+    else:
+        if "_virtualenv" in sys.modules:
+            raise RuntimeError("STOP: Unexpected virtualenv startup hook loaded")
+        print("Hook-free virtualenv (documented uv >= 0.13 behavior on Python >= 3.10).")
+    unexpected = {path.name for path in site_packages.glob("*.pth")} - {"_virtualenv.pth"}
+    if unexpected:
+        raise RuntimeError(f"STOP: Unreviewed startup .pth files: {sorted(unexpected)}")
 
 
 def audit_environment() -> None:
@@ -57,6 +96,8 @@ def audit_environment() -> None:
             "STOP: Linux CPython 3.13 is mandatory"
         )
 
+    if APP_DIR != Path("/app") or Path(sys.executable) != Path("/app/.venv/bin/python"):
+        raise RuntimeError("STOP: Expected /app/.venv/bin/python interpreter")
     if Path(sys.prefix) != APP_DIR / ".venv":
         raise RuntimeError(
             "STOP: expected uv virtual environment is not active"
@@ -68,11 +109,11 @@ def audit_environment() -> None:
         )
     # Log and verify uv version
     try:
-        proc = subprocess.run(["uv", "--version"], capture_output=True, text=True, check=True)
+        proc = subprocess.run(["uv", "--version"], capture_output=True, text=True, check=True, timeout=10)
         uv_version = proc.stdout.strip()
         print(f"uv Version:           {uv_version}")
-        if not uv_version:
-            raise RuntimeError("STOP: uv version output is empty")
+        if uv_version.split()[:2] != ["uv", "0.13.6"]:
+            raise RuntimeError(f"STOP: Expected uv 0.13.6, received {uv_version!r}")
     except subprocess.CalledProcessError as exc:
         raise RuntimeError(f"STOP: uv version check failed (exit={exc.returncode}): {exc.stderr.strip()}")
     except FileNotFoundError:
@@ -99,21 +140,14 @@ def audit_environment() -> None:
         raise RuntimeError(f"STOP: Virtualenv python missing at {venv_python}")
     print(f"Virtualenv Python:    {venv_python} (exists=True)")
 
-    site_packages_dirs = list((APP_DIR / ".venv/lib").glob("python3.*/site-packages")) if os.name != "nt" else [APP_DIR / ".venv/Lib/site-packages"]
-    if not site_packages_dirs:
-        raise RuntimeError("STOP: No Python 3.x site-packages directory found in virtualenv!")
-    site_packages = site_packages_dirs[0]
-    if not site_packages.is_dir():
-        raise RuntimeError(f"STOP: Expected site-packages directory not found or not a directory: {site_packages}")
-    print(f"site-packages:        {site_packages}")
-
-    v_py = site_packages / "_virtualenv.py"
-    v_pth = site_packages / "_virtualenv.pth"
-    print(f"_virtualenv.py:       {v_py.is_file()}")
-    print(f"_virtualenv.pth:      {v_pth.is_file()}")
-    if not (v_py.is_file() and v_pth.is_file()):
-        raise RuntimeError("STOP: uv virtualenv startup hooks (_virtualenv.py/.pth) not found in site-packages!")
-    print("PASS: uv virtualenv hooks verified.")
+    validate_venv_layout(APP_DIR / ".venv")
+    for name in ("django", "dotenv", "psycopg"):
+        module = importlib.import_module(name)
+        if not Path(module.__file__).resolve().is_relative_to(APP_DIR / ".venv"):
+            raise RuntimeError(f"STOP: Dependency outside expected venv: {name}")
+    for executable in ("bash", "grep", "sha256sum"):
+        if shutil.which(executable) is None:
+            raise RuntimeError(f"STOP: Required executable missing: {executable}")
 
     # Verify effective network isolation
     print_banner("2. EFFECTIVE NETWORK ISOLATION VERIFICATION")
@@ -135,7 +169,7 @@ def audit_environment() -> None:
             raise RuntimeError("STOP: Network access is available! Container is NOT isolated.")
         print("NOTICE: Network is reachable (expected during local preparation outside container).")
     else:
-        print("PASS: Network isolation verified (--network none confirmed).")
+        print("Outbound probe failed; this alone does not prove isolation. Docker --network none is required.")
 
 
 def run_suite_in_subprocess(
@@ -170,8 +204,8 @@ loader = unittest.defaultTestLoader
 if test_class:
     # Load specific test class from the module
     # Convert start_dir to module path (e.g., 'deploy/tests' -> 'deploy.tests')
-    module_path = start_dir.replace('/', '.').replace('\\', '.')
-    module_name = f"{module_path}.{pattern[:-3]}"
+    module_path = '.'.join(Path(start_dir).parts)
+    module_name = module_path + '.' + pattern[:-3]
     module = __import__(module_name, fromlist=[test_class])
     test_class_obj = getattr(module, test_class)
     suite = loader.loadTestsFromTestCase(test_class_obj)
@@ -180,7 +214,7 @@ else:
 count = suite.countTestCases()
 print(f"Discovered test cases: {{count}}", flush=True)
 
-if expected_count is not None and count != expected_count:
+if count <= 0 or (expected_count is not None and count != expected_count):
     print(f"ERROR: Expected {{expected_count}} tests, but discovered {{count}}", file=sys.stderr)
     sys.exit(3)
 
@@ -192,7 +226,7 @@ duration = time.time() - start_time
 print("-" * 78)
 print(f"RESULT SUMMARY: {{count}} tests | run={{result.testsRun}} failures={{len(result.failures)}} errors={{len(result.errors)}} skipped={{len(result.skipped)}} duration={{duration:.2f}}s")
 
-if not result.wasSuccessful():
+if result.testsRun <= 0 or result.testsRun != count or not result.wasSuccessful():
     print("STATUS: FAILED (failures or errors encountered)", file=sys.stderr)
     sys.exit(1)
 
@@ -206,6 +240,7 @@ print("STATUS: PASSED", flush=True)
 sys.exit(0)
 """
 
+    compile(runner_code, "<qa-suite-runner>", "exec")
     python_bin = sys.executable
     cmd = [python_bin, "-B", "-c", runner_code]
     print(f"Executing: {' '.join(cmd[:3])} '<runner_code>'", flush=True)

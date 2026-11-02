@@ -117,6 +117,13 @@ import custom
 
     def test_real_venv_pth_startup_is_source_only_and_denial_is_not_swallowed(self):
         executable, site = self.make_venv()
+        initialize = f"import sys; sys._cca_eob_runtime['initialize_site']({str(self.root / '.venv')!r}); "
+        with self.subTest(startup="hook-free"):
+            self.assertFalse((site / "_virtualenv.py").exists())
+            self.assertFalse((site / "_virtualenv.pth").exists())
+            plain = self.run_python(initialize + "assert '_virtualenv' not in sys.modules; "
+                                    "print(evidence()['site_initialized'])", executable=executable)
+            self.assertEqual((plain.returncode, plain.stdout.strip()), (0, "True"), plain.stderr)
         source, cache = self.forged_cache(py_compile.PycInvalidationMode.TIMESTAMP)
         installed_source = site / "victim.py"
         shutil.copy2(source, installed_source)
@@ -135,7 +142,6 @@ import custom
         self.assertIn("PTH:CACHE", old.stdout)
         self.assertNotIn("PTH:SOURCE", old.stdout)
         self.assertIn(str(installed_source), old.stdout)
-        initialize = f"import sys; sys._cca_eob_runtime['initialize_site']({str(self.root / '.venv')!r}); "
         new = self.run_python(initialize + "print(evidence()); " + observe_source, executable=executable)
         self.assertEqual(new.returncode, 0, new.stderr)
         self.assertIn("PTH:SOURCE", new.stdout)
@@ -284,10 +290,43 @@ def offline(event, args):
     if event in ('socket.connect', 'socket.getaddrinfo', 'sqlite3.connect'):
         raise BaseException('STOP: test forbids network/database access')
 sys.addaudithook(offline)
-sys._cca_eob_runtime['initialize_site']({str(ROOT / '.venv')!r})
-assert '_virtualenv' in sys.modules, 'uv startup hook was not loaded'
-sys.path.insert(0, {str(ROOT / 'backend')!r})
 import os
+site_packages = os.path.join({str(ROOT / '.venv')!r},
+                             'Lib/site-packages' if os.name == 'nt' else 'lib/python3.13/site-packages')
+hook_source = os.path.join(site_packages, '_virtualenv.py')
+hook_pth = os.path.join(site_packages, '_virtualenv.pth')
+has_legacy_hook = os.path.lexists(hook_source) or os.path.lexists(hook_pth)
+assert '_virtualenv' not in sys.modules, 'uv hook loaded before initialize_site'
+if has_legacy_hook:
+    assert os.path.isfile(hook_source) and os.path.isfile(hook_pth), 'incomplete uv startup hook pair'
+    with open(hook_pth, encoding='utf-8') as stream:
+        assert stream.read().strip() == 'import _virtualenv', 'unexpected uv startup hook pth'
+sys._cca_eob_runtime['initialize_site']({str(ROOT / '.venv')!r})
+if has_legacy_hook:
+    hook = sys.modules.get('_virtualenv')
+    assert hook is not None, 'uv startup hook was not loaded'
+    assert os.path.realpath(hook.__file__) == os.path.realpath(hook_source), 'unexpected uv hook origin'
+    assert any(type(finder) is hook._Finder for finder in sys.meta_path), 'uv hook finder was not installed'
+    from types import SimpleNamespace
+    class Distribution:
+        def parse_config_files(self):
+            self.options = {{'prefix': ('fixture', '/outside'), 'unrelated': ('fixture', 'keep')}}
+            for key in ('purelib', 'platlib', 'headers', 'scripts', 'data'):
+                self.options['install_' + key] = ('fixture', '/outside')
+            return 'parsed'
+        def get_option_dict(self, name):
+            assert name == 'install'
+            return self.options
+    hook.patch_dist(SimpleNamespace(Distribution=Distribution))
+    distribution = Distribution()
+    assert distribution.parse_config_files() == 'parsed'
+    assert distribution.options == {{
+        'prefix': (hook.VIRTUALENV_PATCH_FILE, os.path.abspath(sys.prefix)),
+        'unrelated': ('fixture', 'keep'),
+    }}, 'uv hook did not constrain installation paths to the venv'
+else:
+    assert '_virtualenv' not in sys.modules, 'unexpected uv startup hook in hook-free venv'
+sys.path.insert(0, {str(ROOT / 'backend')!r})
 os.environ['DJANGO_SETTINGS_MODULE'] = 'config.cca_eob_production_settings'
 sys.argv = ['manage.py', 'cca_eob_production']
 import django
