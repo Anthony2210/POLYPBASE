@@ -160,8 +160,12 @@ def verify_archive(archive, *, client_major=None):
         raise ValueError("Archive is missing or inaccessible.") from None
 
 
-def create_archive(database, output_dir, label, *, snapshot=None, hostaddr=None):
-    """Create an exclusively owned, private custom-format PostgreSQL archive."""
+def create_archive(database, output_dir, label, *, snapshot=None, hostaddr=None,
+                   client_major=None):
+    """Create a private custom archive, optionally requiring versioned clients.
+
+    Without client_major the historical wrapper clients are used unchanged.
+    """
     if not isinstance(label, str) or not _LABEL.fullmatch(label):
         raise ValueError("Unsafe backup label.")
     if database.get("ENGINE") != "django.db.backends.postgresql":
@@ -184,6 +188,11 @@ def create_archive(database, output_dir, label, *, snapshot=None, hostaddr=None)
     # libpq otherwise interprets the name as a connection string overriding flags.
     if "=" in name or name.startswith(("postgresql://", "postgres://")):
         raise ValueError("Database name must not be a connection string.")
+    # Refuse either unavailable client before creating a directory or dumping data.
+    pg_dump = "/usr/bin/pg_dump"
+    if client_major is not None:
+        pg_dump = require_client("pg_dump", client_major)
+        require_client("pg_restore", client_major)
     directory = Path(output_dir).resolve()
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     timestamp = datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -192,7 +201,7 @@ def create_archive(database, output_dir, label, *, snapshot=None, hostaddr=None)
     os.close(descriptor)
     try:
         command = [
-            "/usr/bin/pg_dump", "--format=custom", "--no-owner", "--no-acl",
+            pg_dump, "--format=custom", "--no-owner", "--no-acl",
             "--no-password", "--file", str(path), "--host", str(database["HOST"]),
             "--port", str(database["PORT"]), "--username", str(database["USER"]),
             "--dbname", name,
@@ -201,7 +210,9 @@ def create_archive(database, output_dir, label, *, snapshot=None, hostaddr=None)
             command.extend(["--snapshot", snapshot])
         # Pin the address without changing the hostname used for TLS verification.
         _run(command, _environment(database, hostaddr=hostaddr))
-        return verify_archive({"path": str(path)})
+        if client_major is None:
+            return verify_archive({"path": str(path)})
+        return verify_archive({"path": str(path)}, client_major=client_major)
     except BaseException:
         path.unlink(missing_ok=True)
         raise
