@@ -239,6 +239,53 @@ class ClassificationTests(ImporterBase):
         self.assertEqual(self.classes(self.plan(manifest)), {("NEW-QA-1.001", 1): importer.IDENTITY_MISMATCH})
 
 
+class SharedStrainCodeTests(ImporterBase):
+    """A legacy and an institutional Strain share one code under two Species,
+    as after the reviewed variant-Species reference preparation."""
+
+    def setUp(self):
+        super().setUp()
+        self.striped = Species.objects.create(scientific_name='Chrysaora test "pink striped"')
+        self.pink = Species.objects.create(scientific_name='Chrysaora test "pink"')
+        self.legacy = Strain.objects.create(species=self.striped, code="CCT-ACH-2")
+        self.owned = Strain.objects.create(species=self.pink, organization=self.org, code="CCT-ACH-2")
+        self.kept = self.make_box("CCT-ACH-2.003", strain=self.legacy, local="CCT-ACH-2.03", number="03")
+        self.moved = self.make_box("CCT-ACH-2.001", strain=self.owned, local="CCT-ACH-2.01", number="01")
+        self.specs = {
+            number: box_spec(f"CCT-ACH-2.00{number}", species='Chrysaora test "pink"', number=f"0{number}")
+            for number in (1, 2, 3)
+        }
+
+    def test_missing_box_is_never_attached_to_either_same_code_strain(self):
+        manifest = make_manifest([self.specs[2]], [item("CCT-ACH-2.002", 1, 0, 0)])
+        plan = self.plan(manifest)
+        self.assertEqual(plan.boxes["CCT-ACH-2.002"]["detail"], "several strains share this code")
+        self.assertEqual(self.classes(plan), {("CCT-ACH-2.002", 1): importer.IDENTITY_MISMATCH})
+        before = self.counts()
+        with self.assertRaises(importer.HistoricalImportBlocked):
+            self.apply(manifest, plan_hash=plan.plan_hash)
+        self.assertEqual(self.counts(), before)
+        self.assertFalse(Box.objects.filter(global_code="CCT-ACH-2.002").exists())
+
+    def test_present_boxes_keep_their_own_strain_and_species(self):
+        manifest = make_manifest([self.specs[1], self.specs[3]],
+                                 [item("CCT-ACH-2.001", 1, 0, 0), item("CCT-ACH-2.003", 1, 4, 0)])
+        plan = self.plan(manifest)
+        self.assertEqual({code: state["state"] for code, state in plan.boxes.items()},
+                         {"CCT-ACH-2.001": importer.BOX_PRESENT, "CCT-ACH-2.003": importer.BOX_PRESENT})
+        # Only the uncorrected Box is reported; it is never refiled under the source label.
+        self.assertEqual(plan.informational["species_label_differences"], [
+            {"box": "CCT-ACH-2.003", "database": self.striped.scientific_name, "source": self.pink.scientific_name},
+        ])
+        self.apply(manifest)
+        self.assertEqual(Box.objects.get(pk=self.moved.pk).strain_id, self.owned.pk)
+        self.assertEqual(Box.objects.get(pk=self.kept.pk).strain_id, self.legacy.pk)
+        self.assertEqual(BiologicalMeasurement.objects.get(box=self.moved).polyp_count, 0)
+        self.assertEqual(list(Strain.objects.filter(pk__in=[self.legacy.pk, self.owned.pk])
+                              .order_by("pk").values_list("species_id", flat=True)),
+                         [self.striped.pk, self.pink.pk])
+
+
 class ApplyTests(ImporterBase):
     def test_apply_creates_rows_with_null_strobila_unknown_observer_and_keeps_zero(self):
         manifest = self.standard(item("AAA-BBB-1.001", 1, 0, 0), item("AAA-BBB-1.001", 2, 4, 1))
