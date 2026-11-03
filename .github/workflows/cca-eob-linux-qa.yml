@@ -1,0 +1,74 @@
+name: CCA-EOB TARGET 5461e7a isolated Linux QA
+
+on:
+  push:
+    branches:
+      - test/cca-eob-target-linux-5461e7a
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cca-eob-target-qa-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  isolated-installation:
+    if: github.ref == 'refs/heads/test/cca-eob-target-linux-5461e7a'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout dedicated QA branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Materialize exact Git blob bytes in the fresh disposable checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          # TARGET declares CRLF for *.ps1, even on Linux. Export to a new path,
+          # suppressing only checkout conversion, never modifying tracked blobs.
+          test ! -e /tmp/cca-eob-canonical
+          mkdir -p .git/info
+          printf '* -text\n' > .git/info/attributes
+          git -c core.autocrlf=false checkout-index --all --prefix=/tmp/cca-eob-canonical/
+          cp -a .git /tmp/cca-eob-canonical/.git
+
+      - name: Validate QA evidence protocol, discovery and corrected collector regression
+        working-directory: /tmp/cca-eob-canonical
+        run: python3 -B -m unittest discover -s .github/workflows/cca_eob_linux_qa -p test_qa.py
+
+      - name: Verify exact non-QA TARGET bytes and prepare authenticated build context
+        working-directory: /tmp/cca-eob-canonical
+        run: python3 .github/workflows/cca_eob_linux_qa/prepare.py --output /tmp/cca-eob-target-context
+
+      - name: Prepare fresh complete locked Linux installation
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir /tmp/cca-eob-build-evidence
+          cp /tmp/cca-eob-target-context/source-integrity.json /tmp/cca-eob-build-evidence/
+          docker build --platform linux/amd64 --no-cache --progress plain \
+            --file /tmp/cca-eob-target-context/Dockerfile \
+            --tag cca-eob-target:5461e7a /tmp/cca-eob-target-context \
+            2>&1 | tee /tmp/cca-eob-build-evidence/build.log
+
+      - name: Execute with no network, credentials, sockets or host mounts
+        working-directory: /tmp/cca-eob-canonical
+        run: >-
+          python3 .github/workflows/cca_eob_linux_qa/run_container.py
+          --image cca-eob-target:5461e7a --output /tmp/cca-eob-execution-evidence
+
+      - name: Preserve QA-only evidence even on refusal
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cca-eob-5461e7a-qa-only-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /tmp/cca-eob-build-evidence/
+            /tmp/cca-eob-execution-evidence/
+          if-no-files-found: error
+          retention-days: 14
