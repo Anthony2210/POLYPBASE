@@ -193,6 +193,138 @@ class VenvLockSecurityTests(unittest.TestCase):
         self.assertNotIn('chown', dockerfile)
 
 
+class ReviewedSystemResourceTests(unittest.TestCase):
+    def setUp(self):
+        self.fixture = load_file('qa_system_inventory_fixture',
+                                 ROOT / 'deploy/scripts/test_cca_eob_runtime_inventory.py')
+        self.sample = self.fixture.InventoryCollectorTests('test_output_is_deterministic')
+        self.sample.setUp()
+        self.trace = json.loads(json.dumps(self.sample.document))
+        self.files = dict(self.sample.files)
+        for item in PROOF.REVIEWED_SYSTEM_RESOURCES:
+            self.trace[item['event']].append(item['path'])
+            self.files[item['path']] = ('synthetic system data: ' + item['path']).encode()
+        self.extras = list(PROOF.REVIEWED_SYSTEM_EXTRAS)
+
+    def collect(self, **kwargs):
+        return self.sample.collect(self.trace, files=self.files, extras=self.extras, **kwargs)
+
+    def test_scope_contains_exactly_three_observed_read_only_interpreter_decisions(self):
+        expected = [
+            ('/usr/lib/locale/C.utf8/LC_CTYPE', 'mapped'),
+            ('/usr/lib/x86_64-linux-gnu/gconv/gconv-modules.cache', 'mapped'),
+            ('/usr/share/zoneinfo/Europe/Paris', 'opened'),
+        ]
+        self.assertEqual([(item['path'], item['event']) for item in PROOF.REVIEWED_SYSTEM_RESOURCES], expected)
+        scope = PROOF.reviewed_system_scope(self.trace, self.extras)
+        self.assertIs(scope['qa_only'], True)
+        self.assertEqual(scope['evidence_run'], '41611871224')
+        self.assertIn('Bookworm', scope['environment'])
+        for decision in scope['resources']:
+            self.assertEqual((decision['origin'], decision['access'], decision['observed']),
+                             ('interpreter', 'r', True))
+            self.assertTrue(decision['purpose'])
+            self.assertTrue(decision['expected_package'])
+
+    def test_unreviewed_fourth_extra_duplicates_missing_or_widened_scope_are_refused(self):
+        for extras in ([], self.extras[:-1], self.extras + [self.extras[0]],
+                       self.extras + ['interpreter:r:/usr/share/zoneinfo/Europe/London'],
+                       [self.extras[0].replace(':r:', ':rx:'), *self.extras[1:]],
+                       [self.extras[0].replace('C.utf8/', 'C.utf8/../C.utf8/'), *self.extras[1:]]):
+            with self.subTest(extras=extras), self.assertRaisesRegex(RuntimeError, 'exactly the three'):
+                PROOF.reviewed_system_scope(self.trace, extras)
+
+    def test_missing_observed_event_is_not_silently_accepted(self):
+        for item in PROOF.REVIEWED_SYSTEM_RESOURCES:
+            trace = json.loads(json.dumps(self.trace))
+            trace[item['event']].remove(item['path'])
+            with self.subTest(path=item['path']), self.assertRaisesRegex(RuntimeError, 'event missing'):
+                PROOF.reviewed_system_scope(trace, self.extras)
+
+    def test_runner_passes_exact_reviewed_extras_to_the_proof(self):
+        tree = ast.parse((QA / 'run_tests.py').read_text(encoding='utf-8'))
+        main = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'main')
+        calls = [node for node in ast.walk(main) if isinstance(node, ast.Call)
+                 and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name)
+                 and node.func.value.id == 'subprocess' and node.func.attr == 'run']
+        self.assertEqual(len(calls), 1)
+        values = [node.value for node in calls[0].args[0].elts
+                  if isinstance(node, ast.Constant) and isinstance(node.value, str)]
+        proof_index = values.index('/qa/prove_installation.py')
+        self.assertEqual(values[proof_index + 1:],
+                         [value for extra in self.extras for value in ('--extra', extra)])
+
+    def test_authentic_collector_refuses_all_three_without_scope(self):
+        with self.assertRaises(ValueError) as refused:
+            self.sample.collect(self.trace, files=self.files)
+        self.assertEqual(str(refused.exception).count('unclassified runtime file needs --extra or --exclude:'), 3)
+        for item in PROOF.REVIEWED_SYSTEM_RESOURCES:
+            self.assertIn(item['path'] + ' (' + item['event'] + ')', str(refused.exception))
+
+    def test_authentic_collector_hashes_entries_and_build_preserves_closure(self):
+        before = json.loads(json.dumps(self.trace))
+        inventory, report = self.collect()
+        self.assertEqual(self.trace, before)
+        files = PROOF.entries(inventory)
+        PROOF.validate_reviewed_system_entries(files)
+        for item in PROOF.REVIEWED_SYSTEM_RESOURCES:
+            self.assertEqual(files[item['path']], {
+                'path': item['path'], 'origin': 'interpreter', 'access': 'r',
+                'sha256': hashlib.sha256(self.files[item['path']]).hexdigest(),
+            })
+            self.assertIn('interpreter:r:' + item['path'], report)
+        _, baseline_report = self.sample.collect()
+        # Fixture has a real missing-RECORD warning; the OS data must not hide it.
+        line = lambda text: next(line for line in text.splitlines()
+                                 if line.startswith('REVIEW: dependency files without a RECORD hash:'))
+        self.assertEqual(line(report), line(baseline_report))
+        with patch.object(self.fixture.POLICY, 'tracked_sources', return_value=['backend/manage.py']), \
+                patch.object(self.fixture.POLICY.Path, 'read_bytes', return_value=b'# manage\n'), \
+                patch.object(self.fixture.POLICY.Path, 'is_file', return_value=True), \
+                patch.object(self.fixture.POLICY.Path, 'is_symlink', return_value=False):
+            manifest = self.fixture.POLICY.build(Path('.'), self.fixture.APP, inventory)
+        self.assertEqual([entry for entry in manifest['files'] if entry['origin'] != 'tracked_code'],
+                         inventory['files'])
+
+    def test_authentic_collector_still_refuses_an_unexpected_fourth_resource(self):
+        for path, event in (('/usr/lib/locale/C.utf8/LC_TIME', 'mapped'),
+                            ('/usr/lib/x86_64-linux-gnu/gconv/future.cache', 'mapped'),
+                            ('/usr/share/zoneinfo/Europe/London', 'opened')):
+            trace = json.loads(json.dumps(self.trace))
+            trace[event].append(path)
+            files = dict(self.files, **{path: b'unknown non-ELF system data'})
+            with self.subTest(path=path), self.assertRaisesRegex(ValueError, 'unclassified runtime file') as refused:
+                self.sample.collect(trace, files=files, extras=self.extras)
+            self.assertIn(path, str(refused.exception))
+
+    def test_authentic_collector_still_requires_real_regular_extra_files(self):
+        for item in PROOF.REVIEWED_SYSTEM_RESOURCES:
+            path = item['path']
+            files = dict(self.files)
+            del files[path]
+            with self.subTest(path=path, case='missing'), self.assertRaisesRegex(ValueError, 'real regular file'):
+                self.sample.collect(self.trace, files=files, extras=self.extras)
+            target = '/opt/qa/system-data'
+            files[target] = b'synthetic alias target'
+            links = dict(self.sample.links, **{path: target})
+            with self.subTest(path=path, case='alias'), self.assertRaisesRegex(ValueError, 'real regular file'):
+                self.sample.collect(self.trace, files=files, links=links, extras=self.extras)
+
+    def test_proof_rejects_missing_or_reclassified_system_inventory_entries(self):
+        inventory, _ = self.collect()
+        entries = PROOF.entries(inventory)
+        for item in PROOF.REVIEWED_SYSTEM_RESOURCES:
+            for change in (None, {'origin': 'resource'}, {'access': 'rx'}):
+                altered = dict(entries)
+                if change is None:
+                    del altered[item['path']]
+                else:
+                    altered[item['path']] = dict(altered[item['path']], **change)
+                with self.subTest(path=item['path'], change=change), \
+                        self.assertRaisesRegex(RuntimeError, 'missing or reclassified'):
+                    PROOF.validate_reviewed_system_entries(altered)
+
+
 class SuccessValidationTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()

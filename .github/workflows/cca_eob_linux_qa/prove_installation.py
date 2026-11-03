@@ -1,7 +1,10 @@
 """Fail-closed, QA-only installation evidence for the fixed CCA-EOB target.
 
 Run with a trusted CPython 3.13 outside the tracked /app tree, for example:
-  python -I -S -B -X pycache_prefix=/dev/null /qa/prove_installation.py
+  python -I -S -B -X pycache_prefix=/dev/null /qa/prove_installation.py \
+    --extra interpreter:r:/usr/lib/locale/C.utf8/LC_CTYPE \
+    --extra interpreter:r:/usr/lib/x86_64-linux-gnu/gconv/gconv-modules.cache \
+    --extra interpreter:r:/usr/share/zoneinfo/Europe/Paris
 
 Dockerfile/runner contract (this script never installs or repairs anything):
 * /app is the exact TARGET checkout, including an image-build-populated .git;
@@ -16,9 +19,9 @@ Dockerfile/runner contract (this script never installs or repairs anything):
   target, uv_version, uv_lock_sha256, fresh_venv=true, and command (argv list of
   the successful build-time uv sync --locked invocation). Record the real argv;
   do not manufacture a receipt after a failed/non-locked installation.
-* Any required aliases/extras beyond the explicit venv Python entry point need
-  reviewed --accept-alias PATH / --extra ORIGIN:r|rx:PATH arguments. No retries
-  that automatically exclude files or include entire distributions are made.
+* The three reviewed Bookworm system-data files require exact --extra arguments;
+  all other extra arguments are refused. Aliases beyond the explicit venv Python
+  entry point still need review. No automatic exclusions, scope expansion or retries.
 
 Outputs are exclusively new files under /tmp/cca-eob-evidence. A generated
 manifest is NOT root protected and is NEVER installed at an active policy path.
@@ -45,6 +48,19 @@ TOOLS = APP / "deploy/scripts"
 PYTHON = APP / ".venv/bin/python"
 FLAGS = ["-I", "-S", "-B", "-X", "pycache_prefix=/dev/null"]
 PROBES = ["/app/backend/.env", "/private/probe"]
+# Exact data-file scope observed in CI 41611871224, not a directory trust grant.
+REVIEWED_SYSTEM_RESOURCES = (
+    {'path': '/usr/lib/locale/C.utf8/LC_CTYPE', 'event': 'mapped',
+     'purpose': 'glibc character classification and multibyte locale data',
+     'expected_package': 'Debian Bookworm libc-bin'},
+    {'path': '/usr/lib/x86_64-linux-gnu/gconv/gconv-modules.cache', 'event': 'mapped',
+     'purpose': 'glibc character-conversion configuration cache, not executable modules',
+     'expected_package': 'Debian Bookworm libc6'},
+    {'path': '/usr/share/zoneinfo/Europe/Paris', 'event': 'opened',
+     'purpose': 'system timezone transitions for the configured Europe/Paris timezone',
+     'expected_package': 'Debian Bookworm tzdata'},
+)
+REVIEWED_SYSTEM_EXTRAS = tuple('interpreter:r:' + item['path'] for item in REVIEWED_SYSTEM_RESOURCES)
 ENV = {"PATH": "/usr/local/bin:/usr/bin:/bin", "LC_ALL": "C.UTF-8",
        "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "safe.directory",
        "GIT_CONFIG_VALUE_0": "/app", "GIT_OPTIONAL_LOCKS": "0"}
@@ -266,6 +282,27 @@ def entries(document):
     return result
 
 
+def reviewed_system_scope(trace, extras):
+    """Require exactly the reviewed inputs and retain their original trace events."""
+    require(len(extras) == len(REVIEWED_SYSTEM_EXTRAS)
+            and set(extras) == set(REVIEWED_SYSTEM_EXTRAS),
+            'QA extras must be exactly the three reviewed system-data paths')
+    decisions = []
+    for item in REVIEWED_SYSTEM_RESOURCES:
+        require(item['path'] in trace[item['event']],
+                'Reviewed system-data event missing: ' + item['path'])
+        decisions.append({**item, 'origin': 'interpreter', 'access': 'r', 'observed': True})
+    return {'qa_only': True, 'environment': 'disposable Debian Bookworm Linux amd64 image',
+            'evidence_run': '41611871224', 'resources': decisions}
+
+
+def validate_reviewed_system_entries(dependencies):
+    for item in REVIEWED_SYSTEM_RESOURCES:
+        entry = dependencies.get(item['path'])
+        require(entry is not None and entry['origin'] == 'interpreter' and entry['access'] == 'r',
+                'Reviewed system data missing or reclassified: ' + item['path'])
+
+
 def prove(args, summary):
     expected = preflight(summary)
     collector = TOOLS / "cca_eob_runtime_inventory.py"
@@ -307,10 +344,12 @@ def prove(args, summary):
                "--report", str(EVIDENCE / "report.txt"), "--scope-review", review]
     for alias in aliases:
         collect.extend(["--accept-alias", alias])
+    system_scope = reviewed_system_scope(trace, args.extra)
     for extra in args.extra:
         collect.extend(["--extra", extra])
     save("explicit-scope-decisions.json", {"accept_alias": aliases, "extra": args.extra,
-                                          "exclude": [], "include_distribution": []})
+                                          "exclude": [], "include_distribution": [],
+                                          "reviewed_system_data": system_scope})
     command("collect", collect)
     manifest_bytes = command("manifest-build", [sys.executable, *FLAGS, str(policy), "build",
                               "--root", "/app", "--app", "/app", "--inventory",
@@ -324,6 +363,7 @@ def prove(args, summary):
             and manifest["runtime"] == "polypbase_cca_eob" and manifest["app"] == "/app",
             "Manifest identity differs")
     actual, dependencies = entries(manifest), entries(inventory)
+    validate_reviewed_system_entries(dependencies)
     config = '/app/.venv/pyvenv.cfg'
     require(config in trace['opened'], 'Real site initialization did not observe pyvenv.cfg')
     require(dependencies.get(config) == {
@@ -360,6 +400,7 @@ print('QA_ONLY_AUTHENTIC_CONTENT_ACL_CHECK_OK')
     require("REVIEW: dependency files without a RECORD hash: 0" in report,
             "Dependency file lacks RECORD provenance; separate review required")
     require("INFO: excluded by the reviewer: 0" in report, "Unexpected exclusion")
+    require("REVIEW: explicit extras: 3" in report, 'Reviewed system extras are not fully reported')
     summary.update(status="passed", independent_source_hash_comparison="passed",
                    authentic_content_acl_check="passed", production_protected_manifest_gate="not run",
                    offline_audit=audit, trace_sha256=trace_hash, manifest_files=len(actual),

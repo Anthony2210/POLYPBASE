@@ -319,6 +319,9 @@ def main() -> int:
     proof = subprocess.run([
         sys.executable, '-I', '-S', '-B', '-X', 'pycache_prefix=/dev/null',
         '/qa/prove_installation.py',
+        '--extra', 'interpreter:r:/usr/lib/locale/C.utf8/LC_CTYPE',
+        '--extra', 'interpreter:r:/usr/lib/x86_64-linux-gnu/gconv/gconv-modules.cache',
+        '--extra', 'interpreter:r:/usr/share/zoneinfo/Europe/Paris',
     ], cwd='/', env={}, timeout=600, check=False)
     results.append(('Full isolated installation evidence', proof.returncode == 0))
     total_duration = time.time() - overall_start

@@ -12,7 +12,8 @@ reported to remain at `4866520`; this task did not inspect or contact it. Main C
 and historical 62/62 at another commit do not prove this installation.
 
 **Previous pyvenv.cfg blocker: resolved in the corrected TARGET collector at the
-source/synthetic regression level; complete Linux trace/collection is still pending.**
+source/synthetic regression level; the subsequent CI trace v2 succeeded, while
+complete inventory/closure validation remains pending.**
 The expected `APP/.venv/pyvenv.cfg` is classified as interpreter startup, read-only,
 whether observed in `opened` or not. The offline QA verifies identical file
 inventories, the exact config hash and preservation of the original trace and
@@ -75,8 +76,9 @@ root build stage, the Dockerfile:
 
 No ownership is changed: unexpected non-root ownership must still fail the proof.
 There is no recursive permission adjustment, lock deletion, exemption, runtime
-repair or grant of runtime write access. `prove_installation.py`, including
-`controlled()` and its traversal of **all** venv paths/ancestors, is unchanged.
+repair or grant of runtime write access. That lock-only correction left the proof
+unchanged. `controlled()` and its traversal of **all** venv paths/ancestors remain
+unchanged by the later reviewed-resource decisions below.
 The proof, source provenance, trace, inventory, closure, RECORD, manifest checks,
 private probes and evidence protocol remain mandatory. The 74 tests and their
 zero-skip requirement are unchanged.
@@ -88,9 +90,96 @@ effective runtime write access despite safe mode bits, symlinks and unsafe
 ancestors. A Dockerfile regression checks the precise path and ordering after
 sync/before non-root execution. These tests are not a real Linux chmod/ACL proof.
 
-**READY for targeted correction review; complete installation acceptance remains
-BLOCKED pending a new actual CI execution of this correction.** Further proof
-stages may expose additional failures and must not be bypassed.
+The follow-up CI run `41611871224` at QA commit `2f393db` resolved this lock
+refusal and completed trace v2, according to the operator-verified evidence. Its
+next three collector refusals are assessed together below; this does not amount
+to complete installation acceptance.
+
+## Reviewed QA-only system-data scope: three exact files
+
+Baseline QA HEAD: `2f393db4fdcec66ea69a558f401ef0af75796c7b`.
+[Actions run 41611871224](https://github.com/Anthony2210/POLYPBASE/actions/runs/41611871224)
+passed all **74** mandatory tests with zero skips, completed the locked CPython
+3.13 installation and trace v2, then failed collection on exactly the paths below,
+as established by the operator-verified preserved trace. The fetched public
+summary independently confirms that QA commit, failure and the artifact
+`cca-eob-5461e7a-qa-only-41611871224-1`; detailed logs/artifact contents require
+sign-in and were not independently downloaded here.
+
+| Exact file | Observed event | Purpose / expected Bookworm package | Decision |
+| --- | --- | --- | --- |
+| `/usr/lib/locale/C.utf8/LC_CTYPE` | `mapped` | glibc character classification and multibyte locale data; `libc-bin` | `interpreter:r` |
+| `/usr/lib/x86_64-linux-gnu/gconv/gconv-modules.cache` | `mapped` | glibc character-conversion configuration cache; `libc6` | `interpreter:r` |
+| `/usr/share/zoneinfo/Europe/Paris` | `opened` | compiled timezone transitions for configured `Europe/Paris`; `tzdata` | `interpreter:r` |
+
+Package/path provenance is supported by the public Debian Bookworm file lists for
+[libc-bin](https://packages.debian.org/bookworm/amd64/libc-bin/filelist),
+[libc6](https://packages.debian.org/bookworm/amd64/libc6/filelist) and
+[tzdata](https://packages.debian.org/bookworm/all/tzdata/filelist). These are
+expected origins, not assertions of installed package versions or independent
+authentication of the failed image's bytes. Each real image must still provide
+its measured content hashes, identity/build provenance and effective-access proof.
+
+These are trusted **OS interpreter-runtime data**, outside both backend sources
+and Python wheel/stdlib trees. Mapping data does not justify executable access.
+The conversion cache is security-relevant because it influences module selection;
+reviewing it does not approve every referenced conversion module. Locale data
+influences character handling, and timezone data influences timestamp meaning.
+Each exact file is therefore inventoried rather than excluded. `resource` would
+be incorrect in this manifest contract: it is restricted to backend application
+resources. `interpreter:r` is supported for system runtime inputs, with no `rx`
+or write grant and no directory-wide trust.
+
+### Exact invocation and evidence
+
+The unchanged runner security flags invoke the proof with only these new options:
+
+```sh
+--extra interpreter:r:/usr/lib/locale/C.utf8/LC_CTYPE
+--extra interpreter:r:/usr/lib/x86_64-linux-gnu/gconv/gconv-modules.cache
+--extra interpreter:r:/usr/share/zoneinfo/Europe/Paris
+```
+
+`run_tests.py` passes all three explicitly. The proof's fixed review registry
+requires exactly that set (no duplicates, missing entries, alternate spellings,
+`rx` or fourth extra) and requires each original `mapped`/`opened` event to be
+present. No trace event is rewritten. A future unclassified fourth trace path
+still fails the authentic collector; the proof never derives extras from errors,
+retries with more trust, excludes files or scans a whole resource directory.
+
+The existing `explicit-scope-decisions.json` records the exact arguments, empty
+exclusions/distribution inclusions, CI evidence reference, disposable Bookworm
+scope, per-file purpose, expected package, observed event and `interpreter:r`
+decision. `collect.command.json` preserves the actual collector argv. The authentic
+report must enumerate exactly three extras; inventory and QA-only manifest carry
+the measured SHA-256 of every file, including these three. Existing evidence
+streaming, artifact hashes and host validation remain in place.
+
+### Subsequent proof stages and remaining boundaries
+
+No predictable downstream schema/RECORD mismatch from these entries was found:
+
+- The authentic collector still requires canonical safe real regular files and
+  rejects aliases for extras. No new `--accept-alias` decision is added.
+- Authentic build/validation accepts `interpreter:r` outside backend. The proof
+  additionally requires all three entries to retain that exact origin/access;
+  all non-source manifest entries must equal the inventory, with no substitution.
+- OS data are not wheel dependencies: they do not require wheel RECORD entries.
+  This is not a RECORD exemption for dependencies; the existing zero-unverified
+  dependency requirement remains unchanged. Synthetic tests preserve a fixture's
+  pre-existing missing-RECORD warning rather than hiding it.
+- Every real file and ancestor still passes `controlled()`; all hashes are
+  independently rechecked, then the authentic permission API verifies effective
+  read-only ACLs and traversable, non-writable ancestors. Private probes remain
+  denied. Unsafe metadata, aliases, content drift or unclassified files stay fatal.
+
+The decisions apply only to this disposable Debian **12 Bookworm**, Linux amd64
+image and the observed trace. They do not establish Debian 13 production paths,
+package contents, hook provenance or ACL compliance. No production procedure or
+active manifest is changed. All 74 mandatory tests, source-only startup, no-network
+execution, non-root identity, NoNewPrivs and immutable application are preserved.
+The complete corrected Linux proof still requires CI execution and independent
+review; successful offline fixtures do not establish real image permissions.
 
 ## Files and lineage
 
@@ -305,22 +394,30 @@ client but fails to connect to `dockerDesktopLinuxEngine` (named pipe absent).
 The corrected image could not be built or executed locally.
 
 - `python -B -m unittest discover -s .github/workflows/cca_eob_linux_qa -p test_qa.py -v`:
-  **30/30 passed, zero skips**, including the seven new lock security/build-order
-  tests, all existing evidence-protocol checks, canonical TARGET hashes and actual
-  discovery of **54 + 6 + 14 = 74** mandatory core cases.
+  **39/39 passed, zero skips**, including nine new exact-resource scope/collector
+  regressions, seven existing lock security/build-order tests, evidence-protocol
+  checks, canonical TARGET hashes and actual discovery of **54 + 6 + 14 = 74**
+  mandatory core cases. The new tests reproduce all three refusals without extras,
+  accept only the reviewed entries with real hashes, preserve inventory/build
+  closure and RECORD warnings, and reject unexpected fourth resources.
+- Authentic TARGET collector suite: **25/25 passed, zero skips**, using its
+  existing synthetic filesystem; no application imports or database access.
 - AST syntax passed for all five QA Python files. `git diff --check` passed.
 - The source identity test still verifies the canonical export of **841** TARGET
   blobs and the unchanged pinned tar/tool/dependency hashes above. No application
   source or tracked dependency content was changed. The strict Windows checkout
   audit is not replaced by this canonical-blob check and is not claimed to pass.
-- Only `Dockerfile`, `test_qa.py` and this README are changed by the correction.
-  The production/application paths and the entire proof/runner protocol remain
-  unchanged from baseline QA HEAD `0d0428132f09b86159baaa252b3b6b91100c0e7d`.
+- Only `prove_installation.py`, `run_tests.py`, `test_qa.py` and this README are
+  changed by this resource-scope correction. TARGET application/dependencies,
+  collector, permission tool, production procedure, Dockerfile, container
+  isolation and evidence transport are unchanged from QA baseline
+  `2f393db4fdcec66ea69a558f401ef0af75796c7b`.
 
-The earlier CI run's **74/74 Linux core result** is operator-supplied evidence for
-that baseline, not a rerun of the corrected image. Its complete installation
-proof failed at the lock check. No successful corrected Linux proof, trace v2,
-inventory/permission closure, RECORD or manifest validation is claimed here.
+CI run `41611871224` supplies the verified **74/74 Linux core result**, resolved
+lock check and successful trace v2 for baseline `2f393db`, not for this local
+scope correction. That run failed collection on the three assessed system files.
+No new corrected Linux execution, successful inventory/permission closure, RECORD
+or manifest validation is claimed here.
 
 **READY for targeted review; BLOCKED for full installation acceptance until the
 corrected image is actually executed and its complete evidence independently
