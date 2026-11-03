@@ -9,11 +9,13 @@ import io
 import json
 from pathlib import Path
 import socket
+import stat
 import subprocess
 import sys
 import tarfile
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 
@@ -30,6 +32,7 @@ def load_file(name, path):
 
 CONTAINER = load_file("qa_container_under_test", QA / "run_container.py")
 PREPARE = load_file("qa_prepare_under_test", QA / "prepare.py")
+PROOF = load_file("qa_proof_under_test", QA / "prove_installation.py")
 REQUIRED_ARTIFACTS = (
     "trace-v2.json", "inventory.json", "report.txt", "qa-only-manifest.json",
     "offline-audit.json", "independent-tracked-sources.json",
@@ -126,6 +129,68 @@ class EvidenceFrameTests(unittest.TestCase):
         with self.assertRaises(FileExistsError):
             CONTAINER.unpack_evidence(frame([("core-tests.json", b"new", tarfile.REGTYPE)]), self.output)
         self.assertEqual(path.read_bytes(), b"original")
+
+
+class VenvLockSecurityTests(unittest.TestCase):
+    def check_lock(self, *, uid=0, mode=0o644, kind=stat.S_IFREG,
+                   writable=False, ancestor_uid=0, ancestor_mode=0o755):
+        # Model Linux metadata independently of the Windows host's ownership/ACLs.
+        path = Path('/app/.venv/.lock')
+
+        def metadata(candidate):
+            if candidate == path:
+                return SimpleNamespace(st_uid=uid, st_mode=kind | mode)
+            return SimpleNamespace(st_uid=ancestor_uid, st_mode=stat.S_IFDIR | ancestor_mode)
+
+        with patch.object(type(path), 'lstat', autospec=True, side_effect=metadata), \
+                patch.object(PROOF.os, 'access', return_value=writable) as access:
+            PROOF.controlled(path, regular=True)
+        return path, access
+
+    def test_root_owned_nonwritable_lock_and_all_ancestors_are_checked(self):
+        path, access = self.check_lock()
+        self.assertEqual([call.args for call in access.call_args_list],
+                         [(candidate, PROOF.os.W_OK) for candidate in (path, *path.parents)])
+
+    def test_non_root_lock_is_rejected_even_with_safe_permissions(self):
+        for mode in (0o644, 0o666):
+            with self.subTest(mode=oct(mode)), self.assertRaisesRegex(RuntimeError, 'Not root controlled'):
+                self.check_lock(uid=10001, mode=mode)
+
+    def test_group_or_world_writable_lock_is_rejected_even_on_read_only_filesystem(self):
+        for mode in (0o666, 0o664, 0o646, 0o620, 0o602):
+            with self.subTest(mode=oct(mode)), self.assertRaisesRegex(RuntimeError, 'Not root controlled'):
+                self.check_lock(mode=mode, writable=False)
+
+    def test_effectively_writable_lock_is_rejected_despite_safe_mode(self):
+        with self.assertRaisesRegex(RuntimeError, 'Runtime-writable'):
+            self.check_lock(mode=0o644, writable=True)
+
+    def test_symlinked_lock_is_rejected(self):
+        with self.assertRaisesRegex(RuntimeError, 'Unexpected alias'):
+            self.check_lock(kind=stat.S_IFLNK)
+
+    def test_unsafe_lock_ancestor_is_rejected(self):
+        for uid, mode in ((10001, 0o755), (0, 0o775), (0, 0o777)):
+            with self.subTest(uid=uid, mode=oct(mode)), self.assertRaisesRegex(RuntimeError, 'Not root controlled'):
+                self.check_lock(ancestor_uid=uid, ancestor_mode=mode)
+
+    def test_image_corrects_only_the_regular_lock_after_installation(self):
+        dockerfile = (QA / 'Dockerfile').read_text(encoding='utf-8')
+        sync = dockerfile.index('&& UV_OFFLINE=0 uv sync --locked')
+        regular = dockerfile.index('&& test -f /app/.venv/.lock && test ! -L /app/.venv/.lock')
+        before = dockerfile.index("&& stat -c 'QA venv lock before: uid=%u gid=%g mode=%a'")
+        correction = dockerfile.index('&& chmod 0644 /app/.venv/.lock')
+        after = dockerfile.index("&& stat -c 'QA venv lock after: uid=%u gid=%g mode=%a'")
+        runtime = dockerfile.index('USER 10001:10001')
+        self.assertLess(sync, regular)
+        self.assertLess(regular, before)
+        self.assertLess(before, correction)
+        self.assertLess(correction, after)
+        self.assertLess(after, runtime)
+        self.assertEqual(dockerfile.count('chmod 0644'), 1)
+        self.assertNotIn('chmod -R', dockerfile)
+        self.assertNotIn('chown', dockerfile)
 
 
 class SuccessValidationTests(unittest.TestCase):

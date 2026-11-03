@@ -12,7 +12,7 @@ reported to remain at `4866520`; this task did not inspect or contact it. Main C
 and historical 62/62 at another commit do not prove this installation.
 
 **Previous pyvenv.cfg blocker: resolved in the corrected TARGET collector at the
-source/synthetic regression level, not yet proved by a real Linux installation.**
+source/synthetic regression level; complete Linux trace/collection is still pending.**
 The expected `APP/.venv/pyvenv.cfg` is classified as interpreter startup, read-only,
 whether observed in `opened` or not. The offline QA verifies identical file
 inventories, the exact config hash and preservation of the original trace and
@@ -26,6 +26,71 @@ its exact hash with `origin=interpreter`, `access=r`. It must fail on any refuse
 collection or incomplete evidence, even if all **74** mandatory core tests pass.
 Linux execution may reveal additional blockers. The old target is superseded;
 no historical pass is an acceptance result for this TARGET.
+
+## Targeted QA image correction: `.venv/.lock`
+
+Baseline QA HEAD: `0d0428132f09b86159baaa252b3b6b91100c0e7d`.
+Existing [Actions run 41608492102](https://github.com/Anthony2210/POLYPBASE/actions/runs/41608492102)
+failed during the installation proof. The public summary confirms the failed run
+at that QA commit and its evidence artifact; detailed logs require sign-in and
+were not independently retrieved here. The operator supplied these CI results:
+
+- Linux CPython 3.13 locked installation and container isolation checks completed.
+- **54 runtime + 6 preflight + 14 migration guard = 74 tests passed, zero skips.**
+- `installation/failure.txt` reports `Not root controlled: /app/.venv/.lock` from
+  the unchanged `controlled()` check, before the complete trace/inventory proof.
+
+That failure proves the lock failed `uid == 0 and (mode & 0022) == 0`. It does
+**not** distinguish non-root ownership from group/world-write bits, or prove the
+observed UID/GID/mode; the supplied error contains no stat metadata.
+
+### Source-supported explanation, not a fabricated CI stat
+
+The pinned uv `0.13.6` tag resolves to upstream commit
+`329bf9448afd9f9088d14a4d57fbc61eb454f117`.
+[`Interpreter::lock`](https://github.com/astral-sh/uv/blob/329bf9448afd9f9088d14a4d57fbc61eb454f117/crates/uv-python-interpreter/src/interpreter.rs)
+selects `sys_prefix/.lock` for a virtual environment during synchronization.
+[`LockedFile::create`](https://github.com/astral-sh/uv/blob/329bf9448afd9f9088d14a4d57fbc61eb454f117/crates/uv-fs/src/locked_file.rs)
+sets newly created Unix locks to `DESIRED_MODE = 0o666` using `set_permissions`
+**after creation to override the umask**, then persists the file. It does not
+change ownership or remove the lock on unlock. Reopening an existing lock can
+preserve its prior permissions.
+
+This Dockerfile creates a fresh venv and synchronizes it as root, before the
+`USER 10001:10001` switch. A root-owned `0666` environment lock is consequently
+the source-supported expected explanation: its write bits violate the proof.
+It is not an observed stat from the failed CI image. Changing umask alone would
+not address uv's explicit permission reset. This lock is installation metadata,
+not the tracked dependency file `/app/uv.lock`.
+
+### Minimal correction and preserved refusal
+
+Immediately after dependency installation, still inside the disposable image's
+root build stage, the Dockerfile:
+
+1. Requires the exact `/app/.venv/.lock` to exist as a regular non-symlink file.
+2. Logs UID, GID and mode with `stat` before correction.
+3. Applies **only** `chmod 0644 /app/.venv/.lock`.
+4. Logs the same metadata afterward, retained in the existing build log artifact.
+
+No ownership is changed: unexpected non-root ownership must still fail the proof.
+There is no recursive permission adjustment, lock deletion, exemption, runtime
+repair or grant of runtime write access. `prove_installation.py`, including
+`controlled()` and its traversal of **all** venv paths/ancestors, is unchanged.
+The proof, source provenance, trace, inventory, closure, RECORD, manifest checks,
+private probes and evidence protocol remain mandatory. The 74 tests and their
+zero-skip requirement are unchanged.
+
+Focused offline tests model Linux metadata on the Windows host. They verify
+root-owned `0644` acceptance and continued refusal of wrong ownership, `0666`
+and other unsafe modes even with effective writes denied by a read-only mount,
+effective runtime write access despite safe mode bits, symlinks and unsafe
+ancestors. A Dockerfile regression checks the precise path and ordering after
+sync/before non-root execution. These tests are not a real Linux chmod/ACL proof.
+
+**READY for targeted correction review; complete installation acceptance remains
+BLOCKED pending a new actual CI execution of this correction.** Further proof
+stages may expose additional failures and must not be bypassed.
 
 ## Files and lineage
 
@@ -50,10 +115,11 @@ are unmodified by this QA realignment.
 
 ## Safe reproduction on an independent Linux Docker host
 
-No push/commit is performed here. The GitHub workflow cannot have a result until
-an authorized operator commits, pushes, and executes it. It is restricted to the
-named QA branch and uses pinned checkout/upload actions with read-only contents
-permission and no persisted Git credentials.
+No push/commit is performed here. The baseline has the failed CI result recorded
+above; this local correction has no CI result until an authorized operator
+commits, pushes and executes it. The workflow is restricted to the named QA
+branch and uses pinned checkout/upload actions with read-only contents permission
+and no persisted Git credentials.
 
 Run from a fresh dedicated checkout containing exact Git blob bytes, with fresh
 output paths outside the checkout. `prepare.py` intentionally refuses Windows
@@ -233,41 +299,31 @@ unlock acceptance. Currently **no successful inventory/closure proof is claimed*
 
 ## Local validation record
 
-Host: Windows, CPython 3.13.3; no local dependency installation was attempted.
-Docker availability queries timed out (15 seconds for the initial command group,
-then a bounded retry); no usable Linux engine was established. No image build or
-Linux container execution occurred, and no Docker/WSL/VM service was started.
+This correction was validated on Windows with CPython 3.13.3; no dependency
+installation or service startup was attempted. `docker version` finds the Windows
+client but fails to connect to `dockerDesktopLinuxEngine` (named pipe absent).
+The corrected image could not be built or executed locally.
 
-Offline validation for this TARGET:
+- `python -B -m unittest discover -s .github/workflows/cca_eob_linux_qa -p test_qa.py -v`:
+  **30/30 passed, zero skips**, including the seven new lock security/build-order
+  tests, all existing evidence-protocol checks, canonical TARGET hashes and actual
+  discovery of **54 + 6 + 14 = 74** mandatory core cases.
+- AST syntax passed for all five QA Python files. `git diff --check` passed.
+- The source identity test still verifies the canonical export of **841** TARGET
+  blobs and the unchanged pinned tar/tool/dependency hashes above. No application
+  source or tracked dependency content was changed. The strict Windows checkout
+  audit is not replaced by this canonical-blob check and is not claimed to pass.
+- Only `Dockerfile`, `test_qa.py` and this README are changed by the correction.
+  The production/application paths and the entire proof/runner protocol remain
+  unchanged from baseline QA HEAD `0d0428132f09b86159baaa252b3b6b91100c0e7d`.
 
-- **23/23 QA infrastructure tests passed, zero skips**, including actual unittest
-  discovery of **54 runtime + 6 preflight + 14 MigrationGuard = 74** mandatory
-  cases, canonical source identities, the corrected config observation and the
-  preserved mapped-config refusal. Old 44/6/14 result summaries are rejected.
-- Authentic collector tests: **25/25**, zero skips; permission tests: **11/11**,
-  zero skips; Bash MigrationGuard tests on this Windows host: **14/14**, zero skips.
-- Syntax validation covers the five QA Python files and workflow YAML. Whitespace
-  validation covers all eight uncommitted QA files, plus `git diff --check`.
-- HEAD is exactly TARGET and all tracked paths remain unchanged. The canonical
-  export verifies the Git identity of all **841** file blobs and the pinned tar
-  hash above. Tool/source pins match canonical Git data and the current procedure.
-- The strict checkout command `python -B .github/workflows/cca_eob_linux_qa/prepare.py`
-  exited 1 at `.agents/skills/polypbase-deploy/SKILL.md` for byte-for-byte mismatch
-  from Windows checkout line endings. The guard was not bypassed or weakened and
-  no existing source was rewritten. A successful canonical export is not a
-  byte-integrity pass for the Windows checkout; the CI materialization is required
-  before building. No local prepared context is claimed.
+The earlier CI run's **74/74 Linux core result** is operator-supplied evidence for
+that baseline, not a rerun of the corrected image. Its complete installation
+proof failed at the lock check. No successful corrected Linux proof, trace v2,
+inventory/permission closure, RECORD or manifest validation is claimed here.
 
-The 74 Linux core cases have been **discovered, not executed together on Linux**.
-No local real Django startup/preflight success, real trace v2, installed dependency
-inventory, permission closure or private-file denial/NoNewPrivs result is claimed.
-The preserved full-installation proof still gates success and rejects every
-mandatory skip, missing artifact, stale target or failed collection. No actionlint,
-Docker build or GitHub Actions result is claimed.
-
-**BLOCKED for actual Linux execution and installation acceptance**, despite the
-previous collector blocker being resolved in offline regressions. An independent
-review must inspect the infrastructure and then the complete executed Linux
-proof. QA cannot establish production hook provenance, live ACL compliance,
+**READY for targeted review; BLOCKED for full installation acceptance until the
+corrected image is actually executed and its complete evidence independently
+reviewed.** QA cannot establish production hook provenance, live ACL compliance,
 protected-policy compliance, lazy apply/restore closure or database behavior.
 No active production manifest, bootstrap, ACL or release approval is produced.

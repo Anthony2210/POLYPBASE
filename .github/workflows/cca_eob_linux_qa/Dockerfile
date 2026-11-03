@@ -22,6 +22,7 @@ RUN apt-get update \
 ADD target.tar /app/
 COPY target.pack source-integrity.json /qa/
 WORKDIR /app
+# uv creates Unix locks with mode 0666; harden only that file after synchronization.
 RUN git init --quiet \
     && git index-pack --stdin < /qa/target.pack \
     && git update-ref refs/heads/qa-target 5461e7a5c07cf8893c2db78953316df78c9243a8 \
@@ -30,6 +31,10 @@ RUN git init --quiet \
     && test ! -e /app/.venv \
     && uv venv /app/.venv --python /usr/local/bin/python3.13 \
     && UV_OFFLINE=0 uv sync --locked --no-install-project --no-default-groups --python /usr/local/bin/python3.13 \
+    && test -f /app/.venv/.lock && test ! -L /app/.venv/.lock \
+    && stat -c 'QA venv lock before: uid=%u gid=%g mode=%a' /app/.venv/.lock \
+    && chmod 0644 /app/.venv/.lock \
+    && stat -c 'QA venv lock after: uid=%u gid=%g mode=%a' /app/.venv/.lock \
     && python -I -S -B -c "import hashlib,json,pathlib; p=pathlib.Path('/qa/install-receipt.json'); p.write_text(json.dumps({'target':'5461e7a5c07cf8893c2db78953316df78c9243a8','uv_version':'0.13.6','uv_lock_sha256':hashlib.sha256(pathlib.Path('/app/uv.lock').read_bytes()).hexdigest(),'fresh_venv':True,'command':['uv','sync','--locked','--no-install-project','--no-default-groups','--python','/usr/local/bin/python3.13']},sort_keys=True)+'\n')" \
     && printf 'SYNTHETIC QA ONLY - NOT A SECRET\n' > /app/backend/.env \
     && printf 'SYNTHETIC QA ONLY - NOT A SECRET\n' > /private/probe \
