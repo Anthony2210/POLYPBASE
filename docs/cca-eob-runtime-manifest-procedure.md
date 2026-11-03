@@ -57,11 +57,29 @@ Empreintes des sources **LF** du présent correctif (à retrouver dans les blobs
 Git de TARGET; toute différence exige nouvelle revue et nouvelles empreintes).
 Le lanceur ci-dessous inclut le refus de `--app` hors trace : cette révision est
 une candidate en attente de revue de sécurité indépendante, pas un artefact
-approuvé pour la production. Les empreintes des deux outils restent inchangées :
+approuvé pour la production. L'empreinte du collecteur inclut la correction de
+classification du seul `APP/.venv/pyvenv.cfg` attendu : son observation en ouverture
+pendant `site.main()` ne change pas son rôle de démarrage (`interpreter`, lecture
+seule), et son absence de la liste `opened` conserve le même inventaire.
+
+Le collecteur exige que `python.prefix` soit exactement `APP/.venv`, dérivé de
+l'APP autorisée et validée par `safe_path`, différent de `base_prefix`. Il refuse
+les valeurs absentes, mal formées, non canoniques et les alias, sans normaliser
+le préfixe fourni. Le répertoire attendu et ses ancêtres doivent être réels, sans
+symlink, même avec `--accept-alias`.
+
+Avant de fusionner les classifications, le collecteur examine la liste originale
+`mapped` issue de `/proc/self/maps` : toute entrée résolue vers le fichier attendu
+est un STOP, même si celui-ci figure aussi dans `opened` ou `modules`, ou si un
+alias est utilisé. Ni `--extra` ni `--exclude` ne contournent ce refus. La résolution
+sert seulement à comparer les chemins; aucun événement de trace n'est réécrit,
+normalisé ou retiré par ces contrôles. Les autres contrôles de chemins, liens,
+provenance, RECORD, propriété et permissions restent requis.
+Les empreintes du lanceur et de l'outil de permissions restent inchangées :
 
 ```text
 0d125888059a97a7e8641f041ee10422aebec91258e43306ebd135b5f2daea42  backend/cca_eob_runtime.py
-aba1abdc0b2dd8d41f424ba4e3a295f272334804a55a37da947a3fc43d1a9653  deploy/scripts/cca_eob_runtime_inventory.py
+bf9f59d689036b38d47f5688a32d8faa903efab37b139f3c92c76ba6f1f517e4  deploy/scripts/cca_eob_runtime_inventory.py
 831d9ef85b2e4a26266a0ba07bc556e0428cf393e85f17f0968af3dbbd637ac5  deploy/scripts/cca_eob_runtime_permissions.py
 ```
 

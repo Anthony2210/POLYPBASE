@@ -157,6 +157,17 @@ import custom
         self.assertIn("STOP:", blocked.stderr)
         self.assertNotIn("DISPATCHED", blocked.stdout)
 
+    def test_site_startup_keeps_expected_pyvenv_config_open_event(self):
+        executable, _ = self.make_venv()
+        config = str(self.root / ".venv/pyvenv.cfg")
+        result = self.run_python(
+            f"import sys, os; sys._cca_eob_runtime['initialize_site']({str(self.root / '.venv')!r}); "
+            "opened = {os.path.abspath(os.fsdecode(path)) "
+            "for path in sys._cca_eob_runtime['events']['opened']}; "
+            f"assert {config!r} in opened, opened; print(evidence()['site_initialized'])",
+            executable=executable)
+        self.assertEqual((result.returncode, result.stdout.strip()), (0, "True"), result.stderr)
+
     def test_source_loader_never_requests_cache_even_without_prefix_defense(self):
         source, _ = self.forged_cache(py_compile.PycInvalidationMode.TIMESTAMP)
         code = f"""
