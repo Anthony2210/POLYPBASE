@@ -14,11 +14,38 @@ n'est fourni. Contrat et limites :
 - checkout `4866520eae2b30f676ab96365fd806486948e832`, release arrêtée au garde
   `CCA-EOB runtime read permissions`, ancien manifeste encore actif;
 - candidat archivé de 951 entrées pour l'ancien contrat, **non admissible** ici;
-- nouveau lanceur absent; `measurements.0015` non appliquée.
+- nouveau lanceur absent; deux migrations de production en attente, non
+  appliquées : `accounts.0008_interface_language_japanese` et
+  `measurements.0015_iminilide_probe_collection`.
 
 Les preuves anciennes `-I -B` ne prouvent pas l'absence de consommation des
 caches. Ne pas réinstaller le candidat 951 entrées, supprimer les caches, enlever
 le compte dédié, désactiver le garde ou poursuivre les étapes de release à la main.
+
+### Revue Debian 13 de production et défaut des ressources TARGET
+
+Preuves **rapportées par l'opérateur** pour la tentative précédente (outil de
+permissions `831d9ef8…`), ancien manifeste actif inchangé : trace v2 validée,
+inventaire de 706 entrées, bridge de 951 entrées avec contrôle ACL live réussi,
+candidate de 953 entrées, contrôle de données candidate réussi, 14/14
+bibliothèques natives contrôlées. Ce candidate **n'est pas approuvé** et ne doit
+jamais être installé.
+
+Défaut bloquant : le collecteur classe les fichiers non `.py` de `APP/backend`
+en `resource` et les hache sur le **live**; l'ancien `build` recopiait ces
+entrées telles quelles. Le candidate portait donc le hash LIVE de
+`backend/locale/fr/LC_MESSAGES/django.mo`, alors que TARGET contient d'autres
+octets : le garde de release, exécuté après fast-forward et `uv sync`, avant
+migrations, aurait refusé TARGET. L'ancien contrôle de données exigeait ces
+entrées égales à l'inventaire et ne pouvait pas détecter le défaut.
+
+Correction : `build` dérive désormais le hash de chaque ressource inventoriée des
+octets suivis par Git dans `--root` (étape 4). Comme TARGET change, tout l'ancien
+jeu de preuves (trace, inventaire, bridge, candidate) reste archivé mais n'est
+pas réutilisé : nouvelle séquence complète depuis l'étape 0 avec le nouveau
+TARGET, le nouveau bundle et la nouvelle empreinte de l'outil de permissions.
+Ne jamais corriger un hash à la main dans un manifeste : un manifeste édité
+manuellement n'est jamais une solution de contournement acceptable.
 
 ### Pourquoi la séquence n'est pas circulaire
 
@@ -28,9 +55,10 @@ le compte dédié, désactiver le garde ou poursuivre les étapes de release à 
 2. Ce lanceur produit une trace v2 avec le venv live, sans DB. Un manifeste frais
    **bridge**, construit avec les sources live, vérifie maintenant les dépendances,
    ACL et sondes privées. Il n'est jamais installé comme manifeste actif cible.
-3. Le manifeste **candidate** utilise les sources exactes de la cible et exactement
-   le même inventaire de dépendances. Ses sources sont vérifiées contre le bundle
-   indépendant, pas contre des fichiers futurs inexistants sur le live.
+3. Le manifeste **candidate** utilise les sources et ressources backend exactes de
+   la cible et exactement le même inventaire externe (dépendances, interpréteur,
+   stdlib). Ses sources et ressources sont vérifiées contre le bundle indépendant,
+   pas contre des fichiers futurs inexistants sur le live.
 4. Après revue/autorisation, seul candidate remplace la politique active. Le garde
    de release reste au même emplacement : après checkout/sync, avant Django et
    migrations. Il doit vérifier les vrais fichiers cibles et leurs ACL.
@@ -46,12 +74,19 @@ fins de ligne Linux, sans `.env`, `.git` ou données live :
 ```sh
 git archive --format=tar --output=cca-eob-reviewed.tar TARGET backend deploy/scripts/cca_eob_runtime_inventory.py deploy/scripts/cca_eob_runtime_permissions.py
 sha256sum cca-eob-reviewed.tar
+git archive --format=tar --output=cca-eob-live-backend.tar 4866520eae2b30f676ab96365fd806486948e832 backend
+sha256sum cca-eob-live-backend.tar
 ```
 
 `TARGET` dans cette commande est à remplacer par le vrai SHA de 40 caractères.
-Le relecteur indépendant conserve ce SHA, le SHA-256 de l'archive, sa liste de
-membres, le diff runtime et les résultats Linux 3.13. Les valeurs attendues ne
-proviennent pas d'un fichier de checksums produit sur le live par `polypbase`.
+Le second bundle contient le `backend` du commit live rapporté; il sert seulement
+de référence **LIVE authentifiée** pour les octets des ressources du bridge
+(étape 5). Si le HEAD live constaté à l'étape 1 diffère de `4866520e`, STOP :
+nouvelle revue et nouveau bundle LIVE.
+Le relecteur indépendant conserve ces SHA, les SHA-256 des deux archives, leurs
+listes de membres, le diff runtime et les résultats Linux 3.13. Les valeurs
+attendues ne proviennent pas d'un fichier de checksums produit sur le live par
+`polypbase`.
 
 Empreintes des sources **LF** du présent correctif (à retrouver dans les blobs
 Git de TARGET; toute différence exige nouvelle revue et nouvelles empreintes).
@@ -75,19 +110,83 @@ alias est utilisé. Ni `--extra` ni `--exclude` ne contournent ce refus. La rés
 sert seulement à comparer les chemins; aucun événement de trace n'est réécrit,
 normalisé ou retiré par ces contrôles. Les autres contrôles de chemins, liens,
 provenance, RECORD, propriété et permissions restent requis.
-Les empreintes du lanceur et de l'outil de permissions restent inchangées :
+
+Les empreintes du lanceur et du collecteur restent inchangées. L'outil de
+permissions change : son `build` hache désormais les ressources depuis `--root`.
+L'ancienne empreinte `831d9ef85b2e4a26266a0ba07bc556e0428cf393e85f17f0968af3dbbd637ac5`
+est **révoquée** pour toute nouvelle construction; un bridge ou candidate produit
+par elle n'est pas admissible.
 
 ```text
 0d125888059a97a7e8641f041ee10422aebec91258e43306ebd135b5f2daea42  backend/cca_eob_runtime.py
 bf9f59d689036b38d47f5688a32d8faa903efab37b139f3c92c76ba6f1f517e4  deploy/scripts/cca_eob_runtime_inventory.py
-831d9ef85b2e4a26266a0ba07bc556e0428cf393e85f17f0968af3dbbd637ac5  deploy/scripts/cca_eob_runtime_permissions.py
+8ce7fcb443978a8b32ddfdff4fa8b383f262ce2d89b41f2971c7dc2b86cd30c4  deploy/scripts/cca_eob_runtime_permissions.py
 ```
 
-**STOP** sauf si le diff runtime depuis `4866520e` se limite au nouveau lanceur
-et au garde de `backend/config/cca_eob_production_settings.py`. Les tests/docs
-peuvent changer, pas le reste de la fermeture runtime. `pyproject.toml`, `uv.lock`
-et les sources métier doivent être identiques. Sinon produire d'abord une preuve
-sur une installation isolée complète de TARGET; ne pas extrapoler la trace live.
+Procédure d'empreinte de l'outil de permissions : hors production, depuis le
+clone propre où TARGET a été relevé, calculer l'empreinte du **blob Git** (LF),
+jamais celle d'une copie de travail Windows (CRLF) :
+
+```sh
+git show TARGET:deploy/scripts/cca_eob_runtime_permissions.py | sha256sum
+tar -xOf cca-eob-reviewed.tar deploy/scripts/cca_eob_runtime_permissions.py | sha256sum
+```
+
+Les deux valeurs doivent être égales entre elles et à la ligne ci-dessus; à
+l'étape 2, la copie publiée dans B doit avoir la même empreinte, avant et après
+usage. Toute différence = STOP, nouvelle revue et nouvelle empreinte consignée
+dans ce document par un correctif revu, jamais par édition sur la VM.
+
+**Diff runtime depuis `4866520e` — STOP par défaut.** Le relecteur établit hors
+production `git diff --name-status 4866520e TARGET -- backend pyproject.toml uv.lock`
+et classe chaque fichier. STOP sauf si **toutes** ces conditions sont réunies :
+
+1. `pyproject.toml` et `uv.lock` sont identiques : l'inventaire externe
+   (`dependency`, `interpreter`, `stdlib`) collecté sur le live est réutilisé
+   sans aucune modification par bridge et candidate.
+2. Chaque source `.py` modifiée ou ajoutée est une entrée `tracked_code` hachée
+   depuis TARGET; chaque fichier non `.py` modifié **et présent dans l'inventaire**
+   est une entrée `resource` hachée depuis TARGET (étape 4) et apparaît dans la
+   sortie `CHANGED_RESOURCE` du contrôle de l'étape 5. Aucune autre ressource
+   n'est ajoutée.
+3. La fermeture runtime de TARGET (modules, ressources et bibliothèques chargés
+   par `cca_eob_production`) est la même que celle tracée sur le live, ou la
+   différence est couverte par la preuve d'installation TARGET ci-dessous. La
+   trace live exécute les sources live : elle ne voit ni un nouvel import, ni une
+   nouvelle ressource, ni une nouvelle bibliothèque de TARGET. Ne pas extrapoler.
+
+Au relevé de ce correctif, le diff runtime depuis `4866520e` dépasse le lanceur
+et le garde des settings : sources `accounts` (middleware, modèle, migration
+`0008_interface_language_japanese`), `measurements` (`iminilide.py`, migration
+`0015_iminilide_probe_collection`), `config/settings.py`,
+`config/database_backup.py`, catalogues `locale` `en`/`fr` modifiés et `ja`
+ajouté. `pyproject.toml` et `uv.lock` sont inchangés. À revalider sur le TARGET
+réel. Dans l'inventaire live examiné, la seule ressource backend modifiée connue
+est `backend/locale/fr/LC_MESSAGES/django.mo` (langue `LANGUAGE_CODE` du runtime);
+sa différence est **attendue** et doit être vérifiée indépendamment (étape 5).
+
+**Preuve d'installation TARGET authentifiée indépendamment**, exigée pour la
+condition 3. Elle doit :
+
+- provenir d'une installation isolée complète construite depuis le bundle TARGET
+  authentifié (même SHA-256), avec le même `uv.lock` et `uv sync --frozen`, sans
+  donnée live, `.env`, Neon ou production;
+- exécuter le même lanceur, les mêmes drapeaux, le compte dédié non root,
+  NoNewPrivs et le contrat `cca_eob_source_only_v1`, puis le même collecteur;
+- être conservée avec ses hashes, l'OS et la version Python, et revue par un
+  relecteur distinct de son auteur;
+- établir que les chemins `resource` (relatifs à APP), les fichiers de
+  distributions du venv et les modules stdlib chargés par TARGET sont ceux de
+  l'inventaire live; toute ressource, tout module ou toute distribution
+  supplémentaire = STOP et nouvelle décision.
+
+Limites : une QA isolée Debian 12 ne reproduit pas le runtime de production
+Debian 13 complet (paquets et chemins de l'interpréteur système, stdlib, loader
+et bibliothèques natives, ACL, comptes et ancêtres réels). Elle peut seulement
+étayer la forme de la fermeture côté backend et venv; elle ne fournit **aucun**
+hash `interpreter`, `stdlib` ou bibliothèque native, qui proviennent uniquement
+de la trace et de la collecte Debian 13. Les preuves de QA et de clôture
+connues sont résumées dans « Limite de confiance et critères de clôture ».
 
 ## 1. Préconditions live — inspection séparément autorisée
 
@@ -127,7 +226,9 @@ pas rétroactivement du code exécuté. STOP si cette confiance est indisponible
 Après accord explicite pour cette seule écriture de fichiers opérateur : fournir
 l'archive par un canal opérateur approuvé, comparer son digest au digest indépendant
 de l'étape 0, puis examiner ses membres (aucun chemin absolu, `..`, lien ou fichier
-inattendu) et l'extraire comme **données** dans `R/source`. Ne jamais exécuter de
+inattendu) et l'extraire comme **données** dans `R/source`. Traiter de même le
+bundle LIVE de l'étape 0, extrait comme données dans `R/live-source`; il n'est
+jamais publié dans B ni exécuté. Ne jamais exécuter de
 backend, venv ou script non vérifié en root. R et ses ancêtres restent root-only.
 
 Les seules copies exécutables Python à publier dans B sont :
@@ -236,6 +337,29 @@ source-only sur les sources actuelles, pas le candidat archivé de 951 entrées.
 Candidate contient les sources de TARGET, dont le nouveau lanceur et les settings
 modifiés. Il ne doit pas être contrôlé comme s'il correspondait déjà au live ancien.
 
+Dérivation des entrées par `build` (outil à l'empreinte de l'étape 0) :
+
+- `tracked_code` : toutes les sources `.py` suivies sous `backend` de `--root`,
+  hachées depuis `--root` (inchangé).
+- `resource` : **seulement** les entrées déjà présentes dans l'inventaire revu,
+  dans le même ordre. Pour chacune, `build` valide le chemin absolu canonique
+  (`safe_path`), exige qu'il soit strictement sous `APP/backend`, en dérive le
+  chemin relatif, exige qu'il soit suivi par Git dans `--root` comme blob
+  régulier (mode `100644`/`100755`, ni lien symbolique ni gitlink), refuse tout
+  lien symbolique sur chaque composant et tout chemin réel sortant de `--root`,
+  exige un fichier régulier, puis calcule le SHA-256 des octets de `--root`.
+  Chemin, accès et origine de l'inventaire sont conservés; seul le hash vient de
+  `--root`. Ressource absente, non suivie, liée, irrégulière ou illisible : échec,
+  aucun manifeste.
+- `dependency`, `interpreter`, `stdlib` : recopiées **exactement** depuis
+  l'inventaire (chemin, hash, origine, accès). Aucun joker, aucune découverte de
+  dépendance, aucune exception automatique, aucune ACL.
+
+Ainsi bridge (`--root "$APP"`) porte le hash LIVE de chaque ressource et
+candidate (`--root "$W/src"`) le hash TARGET. Une différence entre les deux
+est attendue seulement pour une ressource modifiée entre live et TARGET, et
+doit être prouvée à l'étape 5. L'inventaire et la trace ne sont pas modifiés.
+
 ## 5. Vérification indépendante — APPROBATION PREUVES, pas installation active
 
 Copier trace, inventory, report, bridge et candidate dans R sous root:root 0600
@@ -246,8 +370,9 @@ Ne pas exécuter de code backend en root pour vérifier ces documents.
 
 Le relecteur indépendant exige :
 
-1. Hashes du bundle et des trois outils égaux aux preuves de l'étape 0; clone
-   TARGET égal aux sources authentifiées; delta runtime limité à l'étape 0.
+1. Hashes des deux bundles et des trois outils égaux aux preuves de l'étape 0;
+   clone TARGET égal aux sources authentifiées; delta runtime classé et admis
+   selon l'étape 0, avec sa preuve d'installation TARGET si requise.
 2. JSON bien formés, aucun doublon de chemin, schéma/identité/app attendus,
    `scope_review` référençant TARGET et le hash canonique de trace v2, `deny_read`
    exacts. `build` du nouvel outil a validé la structure des deux manifestes.
@@ -255,9 +380,27 @@ Le relecteur indépendant exige :
    composants de chemin commençant par `test`, égal aux entrées `tracked_code`
    de candidate; SHA-256 de chaque fichier égal aux octets LF indépendants.
    L'entrée `APP/backend/cca_eob_runtime.py` porte le hash du lanceur ci-dessus.
-4. Entrées non `tracked_code` de bridge et candidate **identiques**, chemin,
-   hash, origine et accès; exactement celles d'inventory. Aucune substitution
-   de dépendance, de `deny_read` ou d'accès entre les deux builds.
+4. Invariant bridge/candidate :
+   - A. entrées `dependency`, `interpreter` et `stdlib` **identiques** (chemin,
+     hash, origine, accès) dans inventory, bridge et candidate;
+   - B. ensemble des chemins `resource`, avec accès et origine, identique dans
+     inventory, bridge et candidate; aucune ressource ajoutée ou retirée;
+   - C. hash de chaque ressource de bridge (et d'inventory) égal aux octets du
+     bundle LIVE authentifié;
+   - D. hash de chaque ressource de candidate égal aux octets du bundle TARGET
+     authentifié, y compris pour chaque ressource modifiée;
+   - E. clone TARGET ayant servi au build identique au bundle TARGET authentifié,
+     sources et ressources;
+   - F. `deny_read`, `scope_review` et lien au hash de trace v2 identiques.
+   Seuls les hashes des ressources modifiées entre LIVE et TARGET peuvent
+   différer entre bridge et candidate. Chaque ligne `CHANGED_RESOURCE` doit
+   correspondre à un fichier du diff runtime revu à l'étape 0, introduit par un
+   commit intégré et revu entre `4866520e` et TARGET (`git log 4866520e..TARGET --
+   CHEMIN`), dont la revue explique ce changement LIVE vers TARGET. Une ressource
+   modifiée sans cette provenance = STOP. Pour un catalogue `.mo`, la cohérence
+   avec son `.po` et la provenance de sa compilation sont des points de revue
+   distincts : un `.mo` peut être recompilé depuis un `.po` inchangé, et un `.po`
+   modifié ne prouve pas à lui seul que le `.mo` a été compilé correctement.
 5. Rapport entier : démarrage effectif, sources chargées, `.pth`, fichiers sans
    RECORD, alias, modules paresseux/non chargés, ressources, bibliothèques natives,
    subprocessus et répertoires listables. La trace n'exécute jamais apply;
@@ -265,11 +408,12 @@ Le relecteur indépendant exige :
 
 Le contrôle suivant est exécuté par le **relecteur privilégié**, avec le Python
 système de confiance, sur R figé. Il n'importe aucun module de R, B, W ou APP;
-il traite les sources comme octets. Il est indépendant du résultat de build.
-`W` est fourni seulement pour comparer les sources du clone ayant servi au build.
+il traite sources et ressources comme octets. Il est indépendant du résultat de
+build. `W` est fourni seulement pour comparer le clone ayant servi au build;
+`R/live-source` est le bundle LIVE authentifié de l'étape 0, extrait à l'étape 2.
 
 ```sh
-sudo /usr/bin/python3 -I -S -B -X pycache_prefix=/dev/null - "$R/source" "$R" "$TARGET" "$W/src" <<'PY'
+sudo /usr/bin/python3 -I -S -B -X pycache_prefix=/dev/null - "$R/source" "$R" "$TARGET" "$W/src" "$R/live-source" <<'PY'
 # CCA_EOB_CANDIDATE_DATA_CHECK
 import hashlib
 import json
@@ -299,7 +443,23 @@ def entries(document):
     return result
 
 
+def read_regular(root, relative):
+    """Bytes of root/relative, refusing aliases on every path component."""
+    current = root
+    for part in relative.split("/"):
+        assert part not in ("", ".", ".."), "Non-canonical resource path: " + relative
+        current = current / part
+        assert not current.is_symlink(), "Symlink in compared tree: " + relative
+    assert current.is_file(), "Missing regular file: " + relative
+    return current.read_bytes()
+
+
+def sha256(data):
+    return hashlib.sha256(data).hexdigest()
+
+
 source, evidence, target, clone = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], Path(sys.argv[4])
+live = Path(sys.argv[5])
 assert len(target) == 40 and all(c in "0123456789abcdef" for c in target)
 trace = load(evidence / "trace-v2.json")
 inventory = load(evidence / "inventory.json")
@@ -318,16 +478,44 @@ assert inventory["deny_read"] == sorted(trace["deny_read"])
 trace_hash = hashlib.sha256(json.dumps(trace, sort_keys=True).encode()).hexdigest()
 assert "trace_sha256=" + trace_hash in inventory["scope_review"]
 assert "target=" + target in inventory["scope_review"]
-dependencies = entries(inventory)
-assert all(e["origin"] != "tracked_code" for e in dependencies.values())
-for manifest in (bridge, candidate):
+EXTERNAL = ("dependency", "interpreter", "stdlib")
+reviewed = entries(inventory)
+assert all(e["origin"] in EXTERNAL + ("resource",) for e in reviewed.values())
+external = {p: e for p, e in reviewed.items() if e["origin"] in EXTERNAL}
+resources = {p: e for p, e in reviewed.items() if e["origin"] == "resource"}
+shape = {p: (e["access"], e["origin"]) for p, e in resources.items()}
+built = {}
+for name, manifest in (("bridge", bridge), ("candidate", candidate)):
     assert set(manifest) == {"schema", "runtime", "app", "files", "deny_read", "scope_review"}
     assert manifest["schema"] == "cca_eob_runtime_permissions_v1"
     assert manifest["runtime"] == "polypbase_cca_eob" and manifest["app"] == app
+    # F: private probes and trace linkage are carried unchanged.
     assert manifest["deny_read"] == inventory["deny_read"]
     assert manifest["scope_review"] == inventory["scope_review"]
     actual = entries(manifest)
-    assert {p: e for p, e in actual.items() if e["origin"] != "tracked_code"} == dependencies
+    assert all(e["origin"] in EXTERNAL + ("resource", "tracked_code") for e in actual.values())
+    # A: external entries are exactly the reviewed inventory.
+    assert {p: e for p, e in actual.items() if e["origin"] in EXTERNAL} == external, name + ": external drift"
+    # B: same resource paths, access and origin; nothing added or removed.
+    assert {p: (e["access"], e["origin"]) for p, e in actual.items()
+            if e["origin"] == "resource"} == shape, name + ": resource set drift"
+    built[name] = actual
+changed = []
+for path in sorted(resources):
+    assert path.startswith(app + "/backend/"), "Resource outside backend: " + path
+    relative = path[len(app) + 1:]
+    live_hash = sha256(read_regular(live, relative))
+    target_bytes = read_regular(source, relative)
+    target_hash = sha256(target_bytes)
+    # C: bridge (and the collected inventory) carry authenticated LIVE bytes.
+    assert resources[path]["sha256"] == live_hash, "Inventory resource differs from LIVE: " + relative
+    assert built["bridge"][path]["sha256"] == live_hash, "Bridge resource differs from LIVE: " + relative
+    # D: candidate carries authenticated TARGET bytes, changed resources included.
+    assert built["candidate"][path]["sha256"] == target_hash, "Candidate resource differs from TARGET: " + relative
+    # E: the clone used by build is the authenticated TARGET bundle.
+    assert read_regular(clone, relative) == target_bytes, "Clone differs from authenticated source: " + relative
+    if live_hash != target_hash:
+        changed.append("CHANGED_RESOURCE " + relative + " live=" + live_hash + " target=" + target_hash)
 expected = {}
 for path in (source / "backend").rglob("*.py"):
     relative = path.relative_to(source)
@@ -342,13 +530,19 @@ for path in (source / "backend").rglob("*.py"):
                       "access": "r", "origin": "tracked_code"}
 assert app + "/backend/cca_eob_runtime.py" in expected
 assert {p: e for p, e in entries(candidate).items() if e["origin"] == "tracked_code"} == expected
-print("CCA_EOB_CANDIDATE_DATA_OK")
+print("\n".join(changed + ["CCA_EOB_CANDIDATE_DATA_OK"]))
 PY
 ```
 
 Exiger ce marqueur **et code 0**, puis conserver le résultat et les hashes revus.
+Chaque ligne `CHANGED_RESOURCE` doit avoir la provenance exigée au point 4; avec
+l'inventaire live examiné, au moins `backend/locale/fr/LC_MESSAGES/django.mo`
+est attendue. Une ligne inattendue, ou l'absence d'une ressource modifiée
+attendue dans le diff runtime, = STOP. Un candidate dont une ressource porte
+encore le hash LIVE alors que TARGET diffère est refusé (défaut corrigé).
 Ce contrôle de données ne remplace ni la provenance du bundle ni le contrôle
-live/ACL suivant. Un échec ne se résout pas en modifiant le script de vérification.
+live/ACL suivant. Un échec ne se résout pas en modifiant le script de vérification
+ni en éditant un hash du manifeste.
 
 Puis publier **bridge seulement comme preuve temporaire** dans `B/bridge.json`,
 root:polypbase 0640, SHA approuvé, mêmes contrôles d'ancêtres/ACL sans écriture.
@@ -360,8 +554,8 @@ sudo -u polypbase env -i /usr/bin/python3 -I -S -B -X pycache_prefix=/dev/null \
   "$B/cca_eob_runtime_permissions.py" check --root "$APP" --manifest "$B/bridge.json"
 ```
 
-Exiger `CCA_EOB_RUNTIME_PERMISSIONS_OK` et code 0 : sources **live** exactes,
-dépendances exactes, ACL effectives, refus de propriété runtime, traversée sans
+Exiger `CCA_EOB_RUNTIME_PERMISSIONS_OK` et code 0 : sources et ressources
+**live** exactes, dépendances exactes, ACL effectives, refus de propriété runtime, traversée sans
 écriture, sondes privées refusées et politique root protégée. Ce contrôle
 n'importe ni l'application ni DB et ne répare rien. Il ne prouve pas encore les
 ACL du futur lanceur sous APP. Toute erreur = STOP, décision nominative séparée,
@@ -404,7 +598,10 @@ refuser** les anciennes sources : c'est attendu, pas une raison de l'affaiblir.
 Avant la reprise, obtenir les validations Linux 3.13 isolées, vérifier à nouveau
 TARGET = `origin/main`, CI officielle réussie sur ce SHA exact, état live propre,
 absence de concurrence et dépendances inchangées. Faire revoir la release et
-son plan de migrations, **dont `measurements.0015` encore non appliquée**. Un
+son plan de migrations, **dont les deux migrations encore non appliquées
+`accounts.0008_interface_language_japanese` et
+`measurements.0015_iminilide_probe_collection`**. Ce document les consigne
+seulement; il ne les implémente ni ne les autorise. Un
 succès du garde autorise le script à continuer vers les étapes ordinaires de
 migration : **ne pas relancer tant que cette poursuite n'est pas explicitement
 autorisée**. L'accord manifeste ne vaut pas accord release/migration ou SQL CCA.
@@ -417,7 +614,8 @@ n'est exécutée par la préparation de ce document.
 
 Le script fait son fast-forward vers TARGET et son sync verrouillé, puis le
 **même garde strict** contrôle candidate contre les vrais fichiers. Il passe
-uniquement si sources, dépendances, chemins et ACL correspondent tous. Un hash
+uniquement si sources, ressources, dépendances, chemins et ACL correspondent
+tous. Un hash
 ou une permission manquante reste un échec avant migrations/redémarrage.
 
 ### Échecs et reprise sans contournement
@@ -462,6 +660,24 @@ Le compte `polypbase` contrôle toujours checkout et venv. Ces vérifications
 ponctuelles ne protègent pas contre sa compromission ni contre une modification
 concurrente après contrôle. Le bundle root authentifie les outils d'amorçage,
 pas l'immuabilité de l'ensemble applicatif. Aucune protection H2 n'est revendiquée.
+
+Preuves de QA et de clôture existantes, et leurs limites :
+
+- Tests hors ligne des outils (`deploy/scripts/test_cca_eob_runtime_*.py`),
+  dont dérivation des ressources depuis `--root` avec de vrais dépôts Git
+  temporaires et ce contrôle de données sur bundles synthétiques. Ils ne
+  prouvent ni les ACL, ni l'identité, ni la fermeture réelle sur la VM.
+- Validation locale Windows CPython 3.13 décrite dans
+  [la note runtime](cca-eob-v2-additive-transition-runtime.md#protection-bytecode-du-runtime-cca) :
+  un succès Windows ne vaut pas preuve Linux.
+- QA isolée Debian 12 : preuve hors dépôt, à présenter avec ses hashes au
+  relecteur. Elle ne reproduit pas le runtime Debian 13 complet de production
+  (voir les limites de l'étape 0) et ne remplace ni la trace ni la collecte
+  Debian 13.
+- Revue Debian 13 de production rapportée par l'opérateur (« Revue Debian 13 de
+  production » ci-dessus) : obtenue avec l'outil révoqué `831d9ef8…`, elle a
+  révélé le défaut des ressources TARGET; elle n'est pas une preuve pour le
+  nouvel outil ni pour le nouveau TARGET.
 
 Clôture du blocage documentaire : source/hash, publication root et droits effectifs,
 trace v2, bridge live, candidate TARGET, revue, autorisations et échecs sont

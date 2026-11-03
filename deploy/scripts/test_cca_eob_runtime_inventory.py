@@ -144,12 +144,22 @@ class InventoryCollectorTests(unittest.TestCase):
         for needle in ("django: 2/4", "sqlparse", "enforced startup:",
                        "backend/locale/en/LC_MESSAGES/django.mo", f"{SITE}/_virtualenv.pth"):
             self.assertIn(needle, text)
+        # Resource bytes come from the build root (covered by the permissions tests);
+        # here only the collector output must satisfy build's reviewed contract.
+        root_digest = "b" * 64
         with patch.object(POLICY, "tracked_sources", return_value=["backend/manage.py"]), \
+                patch.object(POLICY, "tracked_files", return_value={"backend/locale/fr/LC_MESSAGES/django.mo"}), \
+                patch.object(POLICY, "resource_sha256", return_value=root_digest) as resource, \
                 patch.object(POLICY.Path, "read_bytes", return_value=b"# manage\n"), \
                 patch.object(POLICY.Path, "is_file", return_value=True), \
                 patch.object(POLICY.Path, "is_symlink", return_value=False):
             manifest = POLICY.build(Path("."), APP, json.loads(json.dumps(inventory)))
         self.assertEqual(len(manifest["files"]), len(inventory["files"]) + 1)
+        self.assertEqual(resource.call_count, 1)
+        built = {entry["path"]: entry for entry in manifest["files"]}
+        for entry in inventory["files"]:
+            expected = dict(entry, sha256=root_digest) if entry["origin"] == "resource" else entry
+            self.assertEqual(built[entry["path"]], expected)
 
     def test_expected_pyvenv_config_is_startup_whether_observed_or_not(self):
         path = f"{APP}/.venv/pyvenv.cfg"

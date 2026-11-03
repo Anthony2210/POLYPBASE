@@ -40,6 +40,59 @@ def tracked_sources(root):
                   and not any(part.startswith("test") for part in PurePosixPath(path).parts))
 
 
+def tracked_files(root):
+    """Git-tracked regular blobs under backend in root (no symlink or gitlink entries)."""
+    result = subprocess.run(
+        ["git", "--no-pager", "ls-files", "-s", "-z", "--", "backend"], cwd=root,
+        capture_output=True, check=True, timeout=30)
+    tracked = set()
+    for record in result.stdout.decode().split("\0"):
+        if record:
+            metadata, path = record.split("\t", 1)
+            if metadata.split(" ", 1)[0] in ("100644", "100755"):
+                tracked.add(path)
+    return tracked
+
+
+def resource_sha256(root, app, entry, tracked):
+    """Hash a reviewed backend resource from root's own tracked bytes, never from APP.
+
+    The inventory names the resource (path, access); only its content comes from
+    root, so a candidate built from TARGET carries TARGET bytes. Fails closed.
+    """
+    if not isinstance(entry, dict) or set(entry) != {"path", "sha256", "access", "origin"}:
+        raise ValueError("Unexpected manifest file fields.")
+    path = safe_path(entry["path"])
+    backend = app / "backend"
+    if path == backend or not path.is_relative_to(backend):
+        raise ValueError(f"Resources must be strictly inside the application backend: {path}")
+    relative = path.relative_to(app)
+    if relative.as_posix() not in tracked:
+        raise ValueError(f"Resource is not tracked by Git in the build root: {relative}")
+    real_root = Path(os.path.realpath(root))
+    current = real_root
+    # Refuse a symlink on every component: an alias must never select the bytes.
+    for part in relative.parts:
+        current = current / part
+        try:
+            info = current.lstat()
+        except OSError as error:
+            raise ValueError(f"Resource is missing or unreadable in the build root: {relative}") from error
+        if stat.S_ISLNK(info.st_mode):
+            raise ValueError(f"Resource path crosses a symlink in the build root: {relative}")
+    if not stat.S_ISREG(info.st_mode) or Path(os.path.realpath(current)) != current:
+        raise ValueError(f"Resource must be a regular file inside the build root: {relative}")
+    try:
+        descriptor = os.open(current, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0))
+    except OSError as error:
+        raise ValueError(f"Resource is missing or unreadable in the build root: {relative}") from error
+    with os.fdopen(descriptor, "rb") as handle:
+        opened = os.fstat(handle.fileno())
+        if not stat.S_ISREG(opened.st_mode) or (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino):
+            raise ValueError(f"Resource changed while being hashed: {relative}")
+        return hashlib.sha256(handle.read()).hexdigest()
+
+
 def build(root, app, inventory):
     """Build locally from tracked code and a separately reviewed deployment inventory."""
     app = safe_path(app)
@@ -54,7 +107,17 @@ def build(root, app, inventory):
                       "access": "r", "origin": "tracked_code"})
     # Include every real interpreter/library/package/resource target explicitly.
     # No implicit wildcard, directory read grant or dependency discovery is used.
-    files.extend(inventory["files"])
+    # External entries are copied exactly; backend resources keep their reviewed
+    # path/access/origin but take their content hash from root (bridge: APP,
+    # candidate: the TARGET clone). No resource is added beyond the inventory.
+    tracked = None
+    for entry in inventory["files"]:
+        if isinstance(entry, dict) and entry.get("origin") == "resource":
+            if tracked is None:
+                tracked = tracked_files(root)
+            entry = {"path": entry["path"], "sha256": resource_sha256(root, app, entry, tracked),
+                     "access": entry["access"], "origin": "resource"}
+        files.append(entry)
     manifest = {"schema": SCHEMA, "runtime": RUNTIME, "app": str(app), "files": files,
                 "deny_read": inventory["deny_read"], "scope_review": inventory["scope_review"]}
     validate(manifest)
