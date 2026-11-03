@@ -419,7 +419,12 @@ class SuccessValidationTests(unittest.TestCase):
                                 "qa_only": True, "production": False,
                         "active_manifest_installed": False, "resource_closure": "passed",
                         "startup_delta": "passed", "tracked_runtime_sources": 249,
-                        "manifest_files": 955, "expected_manifest_files": 955,
+                        "manifest_files": 971, "expected_manifest_files": 971,
+                        "inventory_files": 722,
+                        "inventory_counts_by_origin": {"dependency": 465, "interpreter": 19,
+                                                       "stdlib": 237, "resource": 1},
+                        "manifest_counts_by_origin": {"dependency": 465, "interpreter": 19,
+                                                      "stdlib": 237, "resource": 1, "tracked_code": 249},
                         "changed_resources": [FR_MO], "artifact_sha256": {}}
 
     def write_json(self, name, value):
@@ -480,9 +485,24 @@ class SuccessValidationTests(unittest.TestCase):
         for change in ({"status": "failed"}, {"target": "0" * 40}, {"qa_only": False},
                        {"production": True}, {"active_manifest_installed": True},
                        {"resource_closure": "failed"}, {"startup_delta": "failed"},
-                                              {"tracked_runtime_sources": 247}, {"manifest_files": 953},
-                                              {"expected_manifest_files": 953}, {"changed_resources": []},
+                       {"tracked_runtime_sources": 247}, {"manifest_files": 969},
+                       {"expected_manifest_files": 969}, {"changed_resources": []},
                        {"changed_resources": [FR_MO, EN_MO]}):
+            self.write_json("installation/summary.json", dict(self.summary, **change))
+            with self.subTest(change=change), self.assertRaisesRegex(RuntimeError, "installation proof"):
+                CONTAINER.validate_success(self.output)
+
+    def test_production_counts_and_same_total_origin_drift_are_refused(self):
+        self.complete_proof()
+        for change in (
+            {"manifest_files": 955, "expected_manifest_files": 955, "inventory_files": 706},
+            {"expected_manifest_files": 955}, {"inventory_files": 706},
+            {"inventory_counts_by_origin": {**self.summary["inventory_counts_by_origin"],
+                                            "dependency": 464, "stdlib": 238}},
+            {"manifest_counts_by_origin": {**self.summary["manifest_counts_by_origin"],
+                                           "dependency": 464, "stdlib": 238}},
+            {"inventory_counts_by_origin": {}}, {"manifest_counts_by_origin": {}},
+        ):
             self.write_json("installation/summary.json", dict(self.summary, **change))
             with self.subTest(change=change), self.assertRaisesRegex(RuntimeError, "installation proof"):
                 CONTAINER.validate_success(self.output)
@@ -493,6 +513,44 @@ class SuccessValidationTests(unittest.TestCase):
         self.write_json("installation/summary.json", self.summary)
         with self.assertRaisesRegex(RuntimeError, "integrity failure"):
             CONTAINER.validate_success(self.output)
+
+
+class QaEnvironmentCountTests(unittest.TestCase):
+    def documents(self):
+        counts = {"dependency": 465, "interpreter": 19, "stdlib": 237, "resource": 1}
+        inventory = {f"/{origin}/{number}": {"origin": origin}
+                     for origin, count in counts.items() for number in range(count)}
+        manifest = {**inventory, **{f"/tracked/{number}": {"origin": "tracked_code"}
+                                  for number in range(249)}}
+        return inventory, manifest
+
+    def test_observed_bookworm_counts_are_accepted_and_match_host_pins(self):
+        inventory, manifest = self.documents()
+        inventory_counts, manifest_counts = PROOF.verify_qa_counts(inventory, manifest)
+        self.assertEqual((len(inventory), len(manifest)), (722, 971))
+        self.assertEqual(inventory_counts, CONTAINER.QA_INVENTORY_COUNTS)
+        self.assertEqual(manifest_counts, CONTAINER.QA_MANIFEST_COUNTS)
+        self.assertEqual(sum(inventory_counts.values()), PROOF.QA_INVENTORY_FILES)
+        self.assertEqual(sum(manifest_counts.values()), PROOF.QA_MANIFEST_FILES)
+
+    def test_production_sized_documents_are_not_qa_evidence(self):
+        inventory, manifest = self.documents()
+        for number in range(16):
+            inventory.pop(f"/dependency/{number}")
+            manifest.pop(f"/dependency/{number}")
+        self.assertEqual((len(inventory), len(manifest)), (706, 955))
+        with self.assertRaisesRegex(RuntimeError, "Debian 12 QA inventory"):
+            PROOF.verify_qa_counts(inventory, manifest)
+        with self.assertRaisesRegex(RuntimeError, "Debian 12 QA manifest"):
+            PROOF.verify_qa_counts(self.documents()[0], manifest)
+
+    def test_same_total_origin_drift_and_unknown_origins_are_refused(self):
+        for document in (0, 1):
+            for origin in ("stdlib", "unreviewed"):
+                documents = self.documents()
+                documents[document]["/dependency/0"] = {"origin": origin}
+                with self.subTest(document=document, origin=origin), self.assertRaisesRegex(RuntimeError, "count/origin"):
+                    PROOF.verify_qa_counts(*documents)
 
 
 class SourceAndDiscoveryTests(unittest.TestCase):
@@ -507,7 +565,9 @@ class SourceAndDiscoveryTests(unittest.TestCase):
         delta = PREPARE.target_delta()
         self.assertEqual(delta["tracked_code"], 249)
         self.assertEqual(delta["previous_tracked_code"], 247)
-        self.assertEqual(delta["expected_candidate_entries"], 955)
+        self.assertEqual(delta["expected_production_candidate_entries"], 955)
+        self.assertEqual(delta["conditional_on_unchanged_debian13_inventory_entries"], 706)
+        self.assertNotIn("expected_candidate_entries", delta)
         self.assertEqual(delta["changes"], PREPARE.EXPECTED_DELTA)
         self.assertEqual(delta["additional_eligible_sources"], sorted(PROOF.UNEXPECTED_STARTUP_SOURCES))
 

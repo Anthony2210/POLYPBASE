@@ -32,6 +32,7 @@ The resulting evidence is not a production deployment or an apply-path proof.
 """
 
 import argparse
+from collections import Counter
 import hashlib
 import json
 import os
@@ -57,6 +58,11 @@ UNEXPECTED_STARTUP_SOURCES = (
     "backend/apps/cultures/management/commands/correct_variant_species.py",
 )
 EXTERNAL = ("dependency", "interpreter", "stdlib")
+# Observed Bookworm QA closure in run 41666652749, not Debian 13 production.
+QA_INVENTORY_COUNTS = {"dependency": 465, "interpreter": 19, "stdlib": 237, "resource": 1}
+QA_MANIFEST_COUNTS = {**QA_INVENTORY_COUNTS, "tracked_code": 249}
+QA_INVENTORY_FILES = 722
+QA_MANIFEST_FILES = 971
 APP = Path("/app")
 EVIDENCE = Path("/tmp/cca-eob-evidence")
 TOOLS = APP / "deploy/scripts"
@@ -305,6 +311,17 @@ def entries(document):
     return result
 
 
+def verify_qa_counts(inventory, manifest):
+    """Pin the isolated Debian 12 closure, independently of production counts."""
+    inventory_counts = dict(Counter(entry["origin"] for entry in inventory.values()))
+    manifest_counts = dict(Counter(entry["origin"] for entry in manifest.values()))
+    require(len(inventory) == QA_INVENTORY_FILES and inventory_counts == QA_INVENTORY_COUNTS,
+            "Debian 12 QA inventory count/origin mismatch: " + repr(inventory_counts))
+    require(len(manifest) == QA_MANIFEST_FILES and manifest_counts == QA_MANIFEST_COUNTS,
+            "Debian 12 QA manifest count/origin mismatch: " + repr(manifest_counts))
+    return inventory_counts, manifest_counts
+
+
 def reviewed_system_scope(trace, extras):
     """Require exactly the reviewed inputs and retain their original trace events."""
     require(len(extras) == len(REVIEWED_SYSTEM_EXTRAS)
@@ -468,7 +485,7 @@ def prove(args, summary):
             and manifest["runtime"] == "polypbase_cca_eob" and manifest["app"] == "/app",
             "Manifest identity differs")
     actual, dependencies = entries(manifest), entries(inventory)
-    require(len(actual) == 955, "Expected 955 candidate-equivalent entries; observed " + str(len(actual)))
+    inventory_counts, manifest_counts = verify_qa_counts(dependencies, actual)
     validate_reviewed_system_entries(dependencies)
     config = '/app/.venv/pyvenv.cfg'
     require(config in trace['opened'], 'Real site initialization did not observe pyvenv.cfg')
@@ -511,7 +528,9 @@ print('QA_ONLY_AUTHENTIC_CONTENT_ACL_CHECK_OK')
                    authentic_content_acl_check="passed", production_protected_manifest_gate="not run",
                    offline_audit=audit, trace_sha256=trace_hash, manifest_files=len(actual),
                    resource_closure="passed", changed_resources=closure["changed_resources"],
-                   startup_delta="passed", expected_manifest_files=955,
+                   startup_delta="passed", expected_manifest_files=QA_MANIFEST_FILES,
+                   inventory_files=len(dependencies), inventory_counts_by_origin=inventory_counts,
+                   manifest_counts_by_origin=manifest_counts,
                    scope="QA-only observed source startup closure, not lazy apply/restore closure",
                    legacy_uv_hooks="actual absent pair; not synthesized")
 

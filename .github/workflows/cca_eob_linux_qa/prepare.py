@@ -98,7 +98,8 @@ def target_delta():
     return {"previous_target": PREVIOUS_TARGET, "target": TARGET, "changes": changes,
             "additional_eligible_sources": sorted(current - previous), "tracked_code": len(current),
             "previous_tracked_code": len(previous), "resources_dependencies_settings_migrations": "unchanged",
-            "expected_candidate_entries": 955}
+            "expected_production_candidate_entries": 955,
+            "conditional_on_unchanged_debian13_inventory_entries": 706}
 
 
 def live_reference():

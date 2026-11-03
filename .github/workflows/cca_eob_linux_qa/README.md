@@ -1,6 +1,6 @@
 # CCA-EOB TARGET cb07a2c — isolated installation QA
 
-## Status: READY FOR INDEPENDENT REVIEW; Linux execution pending
+## Status: READY FOR NARROW DELTA REVIEW; corrected Linux rerun pending
 
 - TARGET: `cb07a2cea43e4af0bc9a8a61ed33abaa23eef1cc`
   (`fix: prepare targeted species corrections`).
@@ -56,11 +56,48 @@ CCA-EOB startup. The authentic Linux trace is checked for both paths in `modules
 check and is mandatory evidence. Local negative tests exercise all six source/event
 combinations; they do **not** establish the actual Linux startup closure.
 
-Expected TARGET candidate-equivalent manifest: **955 entries**, including **249
-tracked_code**. The Linux proof and host acceptance require these exact counts;
-any mismatch fails, never auto-updates the expectation. The 955 total is **not yet
-observed for this TARGET**. External closure still needs the actual installation
-and trace results; a total alone is not proof of closure equivalence.
+## Environment-specific counts and failure evidence
+
+The operator-provided evidence from
+[failed run 41666652749](https://github.com/Anthony2210/POLYPBASE/actions/runs/41666652749)
+reports that the QA protocol and all **79 core tests passed on Linux with zero
+skips**. The isolated installation then failed at the harness assertion:
+`Expected 955 candidate-equivalent entries; observed 971`.
+This diagnosis is supplied evidence, not a fresh local Linux execution.
+
+The harness incorrectly applied the Debian 13 production inventory total to the
+Debian 12 Bookworm QA environment. These environments must remain distinct:
+
+| Environment | Inventory | TARGET tracked_code | Manifest total |
+| --- | ---: | ---: | ---: |
+| Production Debian 13, conditional on unchanged LIVE inventory | 706 | 249 | **955** |
+| Isolated Debian 12 QA, observed in run 41666652749 | 722 | 249 | **971** |
+
+The previous successful QA had **969 entries with 247 tracked sources**. The new
+QA adds exactly two tracked sources, giving **971**, not the production count.
+Production **955 remains unchanged**, conditional on an independently verified,
+unchanged Debian 13 inventory of **706**. `source-integrity.json` labels these as
+`expected_production_candidate_entries` and
+`conditional_on_unchanged_debian13_inventory_entries`; they are not QA acceptance
+counts and are not proof of production closure equivalence.
+
+The isolated installation proof and host acceptance now require **722 inventory
+entries and 971 manifest entries**, with exact per-origin counts:
+
+| Origin | QA inventory | QA manifest |
+| --- | ---: | ---: |
+| dependency | 465 | 465 |
+| interpreter | 19 | 19 |
+| stdlib | 237 | 237 |
+| resource | 1 | 1 |
+| tracked_code | absent | 249 |
+
+`summary.json` records actual inventory/manifest totals and per-origin counts;
+`expected_manifest_files` is **971 for this QA environment only**. Unknown origins,
+missing entries, changed counts or reclassification with an unchanged total fail
+closed. These checks supplement, never replace, exact source hashes, inventory
+entry equality and independent resource closure checks. The corrected full Linux
+installation proof still requires a successful rerun.
 
 ## Canonical identities
 
@@ -116,11 +153,13 @@ AST counts and unittest discovery agree, without executing test bodies:
 | `deploy/tests/test_preflight_settings.py` | 6 | 6 |
 | `deploy/tests/test_deploy_release.py::MigrationGuardTests` | 14 | 14 |
 | Linux core total, strict zero skips | 79 | 79 |
-| Host QA protocol tests | 56 | 59 |
+| Host QA protocol tests | 56 | 63 |
 
-The three added harness tests cover the exact delta, unexpected delta refusal and
-startup-source rejection. No species-correction Django/PostgreSQL tests are added
-to this harness. In particular, the new PostgreSQL 18 tests are a **separate
+The original three added harness tests cover the exact delta, unexpected delta
+refusal and startup-source rejection. Four count-regression tests additionally
+cover the observed QA distribution, production/QA count confusion in proof and
+host acceptance, same-total origin drift and unknown origins. No species-correction
+Django/PostgreSQL tests are added to this harness. In particular, the new PostgreSQL 18 tests are a **separate
 release-quality gate**: not run here, not reported as passing or skipped-success.
 
 ## Unchanged isolation and evidence guarantees
@@ -148,8 +187,18 @@ release-quality gate**: not run here, not reported as passing or skipped-success
 
 ## Local validation: Windows, CPython 3.13.3
 
+For this count-only correction:
+
 - `python -B .github/workflows/cca_eob_linux_qa/test_qa.py`:
-  **59 discovered; 52 passed; 7 Linux-only skipped; 0 failures/errors**.
+  **63 discovered; 56 passed; 7 Linux-only skipped; 0 failures/errors**.
+  Includes canonical TARGET/tool hashes, real-Git resource build tests, exact
+  delta and actual core-suite discovery. No database access.
+- In-memory compilation of harness Python files and `git diff --check`: passed.
+- No Linux installation or core-suite execution was repeated for this correction.
+  A successful full corrected workflow is still required.
+
+Prior adaptation's local results (not rerun for this count-only correction):
+
 - `python -B -m unittest discover -s deploy/scripts -p 'test_cca_eob_runtime_*.py' -v`:
   **59 discovered; 55 passed; 4 skipped; 0 failures/errors**. Missing platform/venv
   prerequisites: real resource symlink, staged bootstrap, full launcher and project venv.
@@ -163,8 +212,7 @@ release-quality gate**: not run here, not reported as passing or skipped-success
   passed the unmodified preparation path: **845 authenticated non-QA files, eight
   QA files**, exact delta, canonical archive and TARGET-only object pack generated.
   The temporary copy/build context was removed. No actual image installation ran.
-- `git diff --check` and explicit whitespace/compile checks of the untracked harness
-  are local checks, not substitutes for Linux execution.
+- Whitespace/compile checks are local checks, not substitutes for Linux execution.
 
 ## Reproduction on GitHub Linux
 
@@ -181,10 +229,11 @@ python3 .github/workflows/cca_eob_linux_qa/run_container.py --image cca-eob-targ
 ## Remaining gates; no deployment approval
 
 1. Independent review of these eight files and their source/closure expectations.
-2. A later authorized GitHub Actions run on the dedicated branch: all 59 host and
+2. A corrected GitHub Actions rerun on the dedicated branch: all 63 host and
    79 core tests with **zero skips**, fresh locked install, authentic trace with
-   neither new source imported/read, 249 tracked sources and 955 manifest entries,
-   complete hash-verified target-specific installation/closure evidence.
+   neither new source imported/read, 249 tracked sources, 722 QA inventory entries
+   and 971 QA manifest entries with the exact per-origin counts above, plus complete
+   hash-verified target-specific installation/closure evidence.
 3. Separate successful PostgreSQL 18 species-correction release-quality tests.
 4. Procedure-required review of TARGET evidence against the actual Debian 13 LIVE
    inventory, including dependencies, stdlib and native libraries. Bookworm QA is

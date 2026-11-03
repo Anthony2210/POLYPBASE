@@ -13,6 +13,9 @@ import uuid
 
 TARGET = "cb07a2cea43e4af0bc9a8a61ed33abaa23eef1cc"
 MARKER = b"CCA_EOB_QA_EVIDENCE_V1:"
+# Independently pinned host acceptance for the Debian 12 QA image (run 41666652749).
+QA_INVENTORY_COUNTS = {"dependency": 465, "interpreter": 19, "stdlib": 237, "resource": 1}
+QA_MANIFEST_COUNTS = {**QA_INVENTORY_COUNTS, "tracked_code": 249}
 
 
 def docker(*args, check=True, timeout=120):
@@ -62,9 +65,12 @@ def validate_success(output):
                 and summary["qa_only"] is True
             and summary["production"] is False and summary["active_manifest_installed"] is False
             and summary.get("resource_closure") == "passed"
-                        and summary.get("startup_delta") == "passed"
-                        and summary.get("tracked_runtime_sources") == 249
-                        and summary.get("manifest_files") == summary.get("expected_manifest_files") == 955
+            and summary.get("startup_delta") == "passed"
+            and summary.get("tracked_runtime_sources") == 249
+            and summary.get("manifest_files") == summary.get("expected_manifest_files") == 971
+            and summary.get("inventory_files") == 722
+            and summary.get("inventory_counts_by_origin") == QA_INVENTORY_COUNTS
+            and summary.get("manifest_counts_by_origin") == QA_MANIFEST_COUNTS
             and summary.get("changed_resources") == ["backend/locale/fr/LC_MESSAGES/django.mo"],
             "Complete installation proof missing/failed")
     for name in ("trace-v2.json", "inventory.json", "report.txt", "qa-only-manifest.json",
