@@ -265,6 +265,19 @@ def collect(fs, document, app, tracked, safe_path, scope_review, *, extras=(), e
         raise ValueError(f"STOP: the runtime cannot list required directories (r+x): {unlistable}")
     runtime_uid, app = document["uid"], safe_path(app)
     backend, python = app / "backend", document["python"]
+    expected_prefix = str(app / ".venv")
+    # Compare exact spelling: normalizing or resolving a supplied prefix would
+    # let an alias choose which startup file receives interpreter provenance.
+    if python.get("prefix") != expected_prefix or python.get("base_prefix") == expected_prefix:
+        raise ValueError("STOP: Python prefix must be the application's exact isolated .venv.")
+    if resolve(fs, expected_prefix) != (expected_prefix, []) or fs.lstat(expected_prefix).kind != "dir":
+        raise ValueError("STOP: Python prefix must be a real directory without symlinked ancestors.")
+    pyvenv_config = posixpath.join(expected_prefix, "pyvenv.cfg")
+    config_real = resolve(fs, pyvenv_config)[0]
+    # /proc/self/maps evidence must not disappear behind opened/module precedence
+    # or the startup classification. Resolve only for comparison, not trace rewriting.
+    if any(resolve(fs, path)[0] == config_real for path in document["mapped"]):
+        raise ValueError("STOP: runtime mapped the expected pyvenv.cfg startup file.")
     # Debian reports absent dist-packages and a venv-local platstdlib: keep real
     # site directories only, and never treat the application tree as stdlib.
     sites = [real for real in (resolve(fs, path)[0] for path in python["site_packages"])
@@ -282,8 +295,7 @@ def collect(fs, document, app, tracked, safe_path, scope_review, *, extras=(), e
     raw.update({path: "opened" for path in document["opened"] if path not in raw})
     raw.update({path: "mapped" for path in document["mapped"] if path not in raw})
     raw.setdefault(python["executable"], "interpreter")
-    if python["prefix"] != python["base_prefix"]:
-        raw.setdefault(posixpath.join(python["prefix"], "pyvenv.cfg"), "startup")
+    raw[pyvenv_config] = "startup"
     for site in sites:  # site.py reads every .pth file at each interpreter start.
         raw.update({posixpath.join(site, name): "startup" for name in fs.listdir(site)
                     if name.endswith(".pth") and posixpath.join(site, name) not in raw})
@@ -343,7 +355,7 @@ def collect(fs, document, app, tracked, safe_path, scope_review, *, extras=(), e
             continue  # build adds and hashes every tracked backend source itself.
         elif under(real, backend):
             origin, access = "resource", "r"
-        elif relative is not None and real != posixpath.join(python["prefix"], "pyvenv.cfg"):
+        elif relative is not None and real != pyvenv_config:
             errors.append(f"application path outside backend and site-packages: {real}")
             continue
         elif any(under(real, directory) for directory in stdlibs):

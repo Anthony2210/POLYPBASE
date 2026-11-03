@@ -125,6 +125,7 @@ class InventoryCollectorTests(unittest.TestCase):
         return {entry["path"]: (entry["origin"], entry["access"]) for entry in inventory["files"]}
 
     def test_classifies_exact_closure_and_feeds_the_existing_build_contract(self):
+        self.document["opened"].append(f"{APP}/.venv/pyvenv.cfg")
         inventory, text = self.collect()
         self.assertEqual(self.entries(inventory), {
             "/usr/bin/python3.13": ("interpreter", "rx"),
@@ -149,6 +150,136 @@ class InventoryCollectorTests(unittest.TestCase):
                 patch.object(POLICY.Path, "is_symlink", return_value=False):
             manifest = POLICY.build(Path("."), APP, json.loads(json.dumps(inventory)))
         self.assertEqual(len(manifest["files"]), len(inventory["files"]) + 1)
+
+    def test_expected_pyvenv_config_is_startup_whether_observed_or_not(self):
+        path = f"{APP}/.venv/pyvenv.cfg"
+        expected, _ = self.collect()
+        for observed in (False, True):
+            with self.subTest(observed=observed):
+                document = json.loads(json.dumps(self.document))
+                if observed:
+                    document["opened"].append(path)  # Captured by the bootstrap during site.main().
+                before = json.loads(json.dumps(document))
+                inventory, _ = self.collect(document)
+                self.assertEqual(document, before)
+                self.assertEqual(inventory["files"], expected["files"])
+                entry = next(entry for entry in inventory["files"] if entry["path"] == path)
+                self.assertEqual(entry, {"path": path, "origin": "interpreter", "access": "r",
+                                         "sha256": hashlib.sha256(self.files[path]).hexdigest()})
+                trace_hash = hashlib.sha256(json.dumps(document, sort_keys=True).encode()).hexdigest()
+                self.assertIn(f"trace_sha256={trace_hash}", inventory["scope_review"])
+
+    def test_forged_external_prefix_is_refused(self):
+        document = json.loads(json.dumps(self.document))
+        document["python"]["prefix"] = "/opt/other"
+        path = "/opt/other/pyvenv.cfg"
+        # Without an opened event, the forged prefix alone used to admit this file.
+        with self.assertRaisesRegex(ValueError, "Python prefix"):
+            self.collect(document, files=dict(self.files, **{path: b"home = /usr/bin\n"}))
+
+    def test_mapped_pyvenv_config_is_refused_before_event_classification_collapses(self):
+        path = f"{APP}/.venv/pyvenv.cfg"
+        for other_events in ((), ("opened",), ("modules",), ("opened", "modules")):
+            for options in ({}, {"excludes": [path]}, {"extras": [f"interpreter:r:{path}"]}):
+                with self.subTest(other_events=other_events, options=options):
+                    document = json.loads(json.dumps(self.document))
+                    document["mapped"].append(path)
+                    for field in other_events:
+                        document[field].append(path)
+                    before = json.loads(json.dumps(document))
+                    with self.assertRaisesRegex(ValueError, "mapped.*pyvenv.cfg"):
+                        self.collect(document, **options)
+                    self.assertEqual(document, before)
+
+    def test_invalid_python_prefixes_are_refused_without_normalizing(self):
+        expected = f"{APP}/.venv"
+        for prefix in (None, 42, [], {}, "", ".venv", expected + "/", expected + "/.",
+                       expected + "/../.venv", f"{APP}//.venv", "//srv/polypbase/app/.venv",
+                       expected.replace("/", "\\"), "/usr", f"{APP}/venv-alias"):
+            with self.subTest(prefix=prefix):
+                document = json.loads(json.dumps(self.document))
+                document["python"]["prefix"] = prefix
+                links = dict(self.links, **{f"{APP}/venv-alias": expected})
+                with self.assertRaises(ValueError):
+                    self.collect(document, links=links)
+        document = json.loads(json.dumps(self.document))
+        del document["python"]["prefix"]
+        with self.assertRaises(ValueError):
+            self.collect(document)
+        document = json.loads(json.dumps(self.document))
+        document["python"]["base_prefix"] = expected
+        with self.assertRaisesRegex(ValueError, "Python prefix"):
+            self.collect(document)
+
+    def test_expected_python_prefix_cannot_be_a_symlink_even_if_reviewed(self):
+        prefix, target = f"{APP}/.venv", "/opt/environment"
+        files = {path.replace(prefix, target): data for path, data in self.files.items()}
+        links = {path.replace(prefix, target): value for path, value in self.links.items()}
+        links[prefix] = target
+        with self.assertRaisesRegex(ValueError, "Python prefix"):
+            self.collect(files=files, links=links,
+                         accept_aliases=[f"{prefix}/bin/python", f"{prefix}/pyvenv.cfg"])
+
+    def test_mapped_alias_to_expected_pyvenv_config_is_refused(self):
+        path, alias = f"{APP}/.venv/pyvenv.cfg", "/opt/runtime/pyvenv.cfg"
+        document = json.loads(json.dumps(self.document))
+        document["opened"].append(path)
+        document["mapped"].append(alias)
+        with self.assertRaisesRegex(ValueError, "mapped.*pyvenv.cfg"):
+            self.collect(document, links=dict(self.links, **{alias: path}),
+                         accept_aliases=[f"{APP}/.venv/bin/python", alias], excludes=[alias])
+
+    def test_unrelated_unclassified_mapped_file_is_still_refused(self):
+        path = "/opt/runtime/unclassified.dat"
+        for opened in (False, True):
+            with self.subTest(opened=opened):
+                document = json.loads(json.dumps(self.document))
+                document["opened"].append(f"{APP}/.venv/pyvenv.cfg")
+                document["mapped"].append(path)
+                if opened:
+                    document["opened"].append(path)
+                with self.assertRaisesRegex(ValueError, "unclassified runtime file"):
+                    self.collect(document, files=dict(self.files, **{path: b"not ELF"}))
+
+    def test_observed_pyvenv_config_does_not_allow_unexpected_files(self):
+        for path, message in (
+            (f"{APP}/.venv/bin/pyvenv.cfg", "outside backend and site-packages"),
+            (f"{APP}/other/pyvenv.cfg", "outside backend and site-packages"),
+            ("/opt/other/pyvenv.cfg", "unclassified runtime file"),
+            ("/opt/other/runtime.dat", "unclassified runtime file"),
+        ):
+            with self.subTest(path=path):
+                document = json.loads(json.dumps(self.document))
+                document["opened"].extend([f"{APP}/.venv/pyvenv.cfg", path])
+                with self.assertRaisesRegex(ValueError, message):
+                    self.collect(document, files=dict(self.files, **{path: b"unexpected"}))
+
+    def test_observed_pyvenv_config_keeps_symlink_restrictions(self):
+        path = f"{APP}/.venv/pyvenv.cfg"
+        document = json.loads(json.dumps(self.document))
+        document["opened"].append(path)
+        for target, owners, aliases, message in (
+            ("/opt/runtime/pyvenv.cfg", {}, [], "needs --accept-alias"),
+            ("/opt/runtime/pyvenv.cfg", {path: 998}, [path], "runtime owns a symlink"),
+            ("/opt/runtime/pyvenv.cfg", {f"{APP}/.venv": 998}, [path], "runtime owns a symlink"),
+            (f"{APP}/backend/.env", {}, [path], "private or mixed path"),
+            (f"{APP}/other/pyvenv.cfg", {}, [path], "outside backend and site-packages"),
+            ("/opt/runtime/startup.pyc", {}, [path], "unsupported bytecode or ZIP"),
+            ("/opt/runtime/startup.zip", {}, [path], "unsupported bytecode or ZIP"),
+        ):
+            with self.subTest(target=target, owners=owners):
+                files = dict(self.files)
+                del files[path]
+                files[target] = b"synthetic startup"
+                links = dict(self.links, **{path: target})
+                with self.assertRaisesRegex(ValueError, message):
+                    self.collect(document, files=files, links=links, owners=owners,
+                                 accept_aliases=[f"{APP}/.venv/bin/python", *aliases])
+        alias = "/opt/runtime/pyvenv.cfg"
+        document["opened"].append(alias)
+        with self.assertRaisesRegex(ValueError, "unclassified runtime file"):
+            self.collect(document, links=dict(self.links, **{alias: path}),
+                         accept_aliases=[f"{APP}/.venv/bin/python", alias])
 
     def test_bytecode_is_a_stop_regardless_of_owner_or_exclusion(self):
         cache = f"{APP}/backend/__pycache__/manage.cpython-313.pyc"
