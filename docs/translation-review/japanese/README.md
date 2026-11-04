@@ -1,6 +1,6 @@
-# Interface japonaise : réutilisation du japonais validé
+# Interface japonaise : provenance humaine et revue IA
 
-Ce dossier trace quelles traductions japonaises validées par Takeru sont affichées dans l'interface, et pourquoi les autres clés affichent l'anglais. Il ne concerne ni les contenus scientifiques japonais (`CONTENT_LANGUAGES`), ni le registre FR/EN (`../application/register.csv`, limité au FR/EN par son contrat).
+Ce dossier distingue le japonais historique validé par Takeru des ajouts React relus indépendamment par IA, et trace pourquoi les autres clés affichent l'anglais. Une revue IA n'est jamais une validation humaine ou une approbation de Takeru. Il ne concerne ni les contenus scientifiques japonais (`CONTENT_LANGUAGES`), ni le registre FR/EN (`../application/register.csv`, limité au FR/EN par son contrat).
 
 ## Référence
 
@@ -12,11 +12,14 @@ Ce dossier trace quelles traductions japonaises validées par Takeru sont affich
 
 | Fichier | Rôle |
 |---|---|
-| `build_ja_catalogs.py` | Recalcule tout depuis le classeur ; `--check` n'écrit rien et échoue si une sortie diffère. Contient chaque décision sémantique, avec sa raison. |
-| `ja-manifest.csv` | Une ligne par identité actuelle (React, gettext Django, tables locales, ternaires inline) : statut, raison, valeurs FR/EN actuelles et du classeur, japonais validé. |
+| `build_ja_catalogs.py` | Recalcule depuis le classeur figé et les deux CSV IA verrouillés par SHA-256 ; `--check` n'écrit rien et échoue si une sortie diffère. Contient chaque décision sémantique, avec sa raison. Seules les sorties différentes sont écrites. |
+| `ja-manifest.csv` | Une ligne par identité actuelle (React, gettext Django, tables locales, ternaires inline) : statut, raison, valeurs FR/EN actuelles et du classeur, `ja_validated` historique et `ja_ai_reviewed` séparé. |
 | `ja-takeru-review.csv` | Les 43 identités différées à soumettre à Takeru, dont 8 questions ouvertes. Le japonais original est conservé, mais jamais affiché avant validation. Aucune proposition japonaise. |
 | `ja-obsolete-workbook-keys.csv` | Les 249 clés du classeur absentes du code actuel (217 React, dont les suppressions B03-B06, et 32 msgids Django). Ignorées, jamais restaurées. |
-| `test_ja_manifest.py` | Contrôle, sans le classeur, que les catalogues générés sont exactement les lignes `REUSED` du manifeste. |
+| `test_ja_manifest.py`, `test_ai_review.py` | Contrôlent les appartenances exactes, les provenances, les invariants historiques, les refus de sources périmées et la génération reproductible. |
+| `POLYPBASE_JA_59_candidates_revisees.csv` | Source de 52 `ACCEPT` et 7 `REVISE`, `human_approved=NO`. Seule la colonne `ja_reviewed_candidate` est intégrée. Copie octet pour octet de l'entrée relue. |
+| `POLYPBASE_JA_6_blocked.csv` | Six `BLOCK` exclus ; aucune formulation japonaise finale autorisée. Copie octet pour octet. |
+| `AI_REVIEWED_59.md` | Baseline, empreintes, inventaires complets des ajouts et replis, validations et limites de cette intégration locale. |
 | `../../../frontend/src/i18n/ja.ts`, `../../../backend/locale/ja/LC_MESSAGES/django.po` | Catalogues générés. Ne pas les modifier à la main. |
 
 ```sh
@@ -31,18 +34,29 @@ Une identité actuelle réutilise le japonais seulement si le japonais est « Fa
 Statuts :
 
 - `REUSED` : japonais validé affiché. `reason_code` vaut `EXACT_MATCH`, ou décrit un écart sans changement de sens (`EN_TYPO_ONLY`, `PUNCTUATION_ONLY`, `EN_FORM_ONLY`, `JA_MATCHES_CURRENT`, `GLOSSARY_MATCH`…), sans question terminologique ouverte.
-- `FALLBACK_EN` : clé absente du classeur ; l'anglais est affiché.
+- `AI_REVIEWED` : ajout React explicitement autorisé par la revue IA indépendante (`AI_ACCEPT` ou `AI_REVISE`). Texte uniquement dans `ja_ai_reviewed` ; `ja_validated` et les références au classeur restent vides. Ce statut n'est jamais `REUSED` et ne signifie aucune approbation de Takeru.
+- `FALLBACK_EN` : clé absente du classeur et sans ajout IA autorisé ; l'anglais est affiché.
 - `FALLBACK_EN_REVIEW` : japonais validé mais incompatible ou incertain avec le FR/EN actuel ; l'anglais est affiché jusqu'à décision de Takeru.
 - `FALLBACK_EN_INLINE` : chaîne inline `language === 'fr' ? … : …` ; non branchée sur le japonais (refactorisation séparée), l'anglais est affiché.
 
+## Ajouts IA indépendamment relus (2026-11-04)
+
+L'autorisation produit de cette tâche permet seulement les 59 valeurs relues du CSV fourni, pas une nouvelle approbation humaine. Le générateur classe d'abord le classeur selon les gardes historiques inchangés, puis valide toute la couche IA avant de l'appliquer aux seules clés React `ABSENT_FROM_WORKBOOK`. Toute tentative de remplacer un japonais historique ou différé échoue. Les six clés bloquées restent en anglais.
+
+Les empreintes exactes des deux CSV sont verrouillées dans `AI_INPUT_SHA256` ; les attributs Git préservent leurs octets. Modifier ou ajouter une entrée ne suffit pas à l'autoriser : une nouvelle revue explicite et une mise à jour examinée du verrou sont nécessaires. Ce verrou est un contrôle d'intégrité, pas une signature du relecteur. Le rapport de passation reste externe ; son empreinte et ses réserves sont tracées dans `AI_REVIEWED_59.md`.
+
+Le FR/EN est comparé exactement au texte relu, sans normalisation silencieuse. Toute divergence arrête la génération entière avant écriture : aucun ajout périmé n'est généré. Le catalogue déjà présent n'est pas supprimé par une commande échouée ; une modification future du FR/EN exige donc de résoudre la revue avant de livrer le catalogue. Les gardes glossaire, invitation administrative, placeholders et sémantique scientifique s'appliquent aussi aux ajouts. Django, les tables locales, les questions Takeru et le classeur ne reçoivent aucun ajout IA.
+
 ## Résultat
 
-| Surface | Réutilisées | Absentes du classeur | Différées (revue) | Inline non branchées | Total |
-|---|---:|---:|---:|---:|---:|
-| Catalogues React | 930 | 202 | 36 | – | 1 168 |
-| gettext Django (msgids actifs) | 81 | 11 | 6 | – | 98 |
-| Tables locales (`ErrorBoundary`, `InteractiveLineageGraph`, `boxStatus`, `ExportsView`) | 67 | – | 1 | – | 68 |
-| Ternaires inline | – | – | – | 14 | 14 |
+| Surface | Humain réutilisé | IA relue | Absentes sans JA | Différées (revue) | Inline non branchées | Total |
+|---|---:|---:|---:|---:|---:|---:|
+| Catalogues React | 930 | 59 | 143 | 36 | – | 1 168 |
+| gettext Django (msgids actifs) | 81 | – | 11 | 6 | – | 98 |
+| Tables locales (`ErrorBoundary`, `InteractiveLineageGraph`, `boxStatus`, `ExportsView`) | 67 | – | – | 1 | – | 68 |
+| Ternaires inline | – | – | – | – | 14 | 14 |
+
+React : 989 clés japonaises affichées. Les 179 replis anglais se décomposent en 143 absences (dont les six `BLOCK`) et les 36 différées historiques inchangées. Les 202 absences initiales se décomposent en 59 ajouts et 143 absences restantes.
 
 React réutilisées : 903 correspondances exactes et 27 écarts compatibles. Les 8 questions ouvertes (`auditActionTransfer`, `auditObjectOrganization`, `auditMetaMembershipId`, `boxInventoryLastKnownLocation`, `boxLifecycleLastKnownLocation`, `adminTransferText`, `movementErrorProvenance`, `zoneMovementExits`) affichent l'anglais actuel jusqu'à validation de Takeru. Django : 66 exactes, 15 écarts compatibles.
 

@@ -1,3 +1,6 @@
 *.sh text eol=lf
 *.ps1 text eol=crlf
 /deploy/scripts/cca_eob_transition_v2_additive.sql -text -whitespace
+# Keep the independently reviewed Japanese CSV evidence byte-exact across platforms.
+/docs/translation-review/japanese/POLYPBASE_JA_59_candidates_revisees.csv -text
+/docs/translation-review/japanese/POLYPBASE_JA_6_blocked.csv -text

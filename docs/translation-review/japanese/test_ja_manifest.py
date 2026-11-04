@@ -38,7 +38,8 @@ class JapaneseManifestTests(unittest.TestCase):
 
     def test_exact_counts(self):
         self.assertEqual(Counter((r["surface"], r["status"]) for r in self.manifest), Counter({
-            ("react", "REUSED"): 930, ("react", "FALLBACK_EN"): 202, ("react", "FALLBACK_EN_REVIEW"): 36,
+            ("react", "REUSED"): 930, ("react", "AI_REVIEWED"): 59,
+                        ("react", "FALLBACK_EN"): 143, ("react", "FALLBACK_EN_REVIEW"): 36,
             ("django", "REUSED"): 81, ("django", "FALLBACK_EN"): 11, ("django", "FALLBACK_EN_REVIEW"): 6,
             ("local", "REUSED"): 67, ("local", "FALLBACK_EN_REVIEW"): 1, ("inline", "FALLBACK_EN_INLINE"): 14,
         }))
@@ -52,8 +53,9 @@ class JapaneseManifestTests(unittest.TestCase):
         self.assertEqual({r["identity"] for r in self.by("django")},
                          {f"django:gettext:{msgid}" for msgid in self.sources})
 
-    def test_catalogs_equal_reused_rows(self):
-        self.assertEqual(self.ja_ts, {r["identity"]: r["ja_validated"] for r in self.by("react") if r["status"] == "REUSED"})
+    def test_catalogs_equal_their_authorized_provenance_rows(self):
+        self.assertEqual(self.ja_ts, {r["identity"]: r["ja_validated"] if r["status"] == "REUSED" else r["ja_ai_reviewed"]
+                                             for r in self.by("react") if r["status"] in {"REUSED", "AI_REVIEWED"}})
         self.assertEqual(self.ja_po, {r["identity"].removeprefix("django:gettext:"): r["ja_validated"]
                                       for r in self.by("django") if r["status"] == "REUSED"})
         self.assertTrue(set(self.ja_po) <= set(self.sources))

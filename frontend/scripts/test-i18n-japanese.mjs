@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 
 import ts from 'typescript';
 
-// Japanese interface: validated subset, English fallback, unchanged FR/EN.
+// Japanese interface: historical and AI-reviewed subsets, English fallback, unchanged FR/EN.
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
+const sha256 = value => createHash('sha256').update(value).digest('hex');
 
 function load(path, imports = {}, globals = {}) {
   const { outputText } = ts.transpileModule(read(path), {
@@ -24,6 +26,7 @@ function load(path, imports = {}, globals = {}) {
 }
 
 function parseCsv(text) {
+  text = text.replace(/^\uFEFF/, '');
   const rows = [];
   let row = [];
   let field = '';
@@ -67,6 +70,10 @@ const jaEntries = catalogEntries('../src/i18n/ja.ts', 'ja');
 const manifest = parseCsv(read('../../docs/translation-review/japanese/ja-manifest.csv'));
 const obsolete = parseCsv(read('../../docs/translation-review/japanese/ja-obsolete-workbook-keys.csv'));
 const register = parseCsv(read('../../docs/translation-review/application/register.csv').replace(/^﻿/, ''));
+const reviewedPath = '../../docs/translation-review/japanese/POLYPBASE_JA_59_candidates_revisees.csv';
+const blockedPath = '../../docs/translation-review/japanese/POLYPBASE_JA_6_blocked.csv';
+const reviewed = parseCsv(read(reviewedPath));
+const blocked = parseCsv(read(blockedPath));
 
 function storage(initial = {}) {
   const values = new Map(Object.entries(initial));
@@ -114,17 +121,141 @@ test('deleted and obsolete keys are never restored in Japanese', () => {
   }
 });
 
-test('ja catalog is exactly the REUSED rows of the key-level manifest', () => {
+test('ja catalog is exactly the historical and AI-reviewed manifest union', () => {
   const react = manifest.filter(row => row.surface === 'react');
-  assert.equal(react.length, Object.keys(fr).length);
-  const reused = Object.fromEntries(react.filter(row => row.status === 'REUSED').map(row => [row.identity, row.ja_validated]));
-  assert.deepEqual(Object.fromEntries(jaEntries), reused);
-  for (const row of react.filter(row => row.status !== 'REUSED')) {
+  assert.deepEqual(react.map(row => row.identity), Object.keys(fr), 'one row per key in canonical FR order');
+  const included = react.filter(row => ['REUSED', 'AI_REVIEWED'].includes(row.status));
+  const expected = included.map(row => [row.identity,
+    row.status === 'REUSED' ? row.ja_validated : row.ja_ai_reviewed]);
+  assert.deepEqual(jaEntries, expected);
+  for (const row of react.filter(row => !['REUSED', 'AI_REVIEWED'].includes(row.status))) {
     assert.match(row.status, /^FALLBACK_EN/);
     assert.equal(Object.hasOwn(ja, row.identity), false, `${row.identity}: ${row.reason_code} must use English`);
   }
   const counts = react.reduce((total, row) => ({ ...total, [row.status]: (total[row.status] ?? 0) + 1 }), {});
-  assert.deepEqual(counts, { REUSED: 930, FALLBACK_EN: 202, FALLBACK_EN_REVIEW: 36 });
+  assert.deepEqual(counts, { REUSED: 930, FALLBACK_EN: 143, FALLBACK_EN_REVIEW: 36, AI_REVIEWED: 59 });
+});
+
+test('original review inputs retain their byte-exact SHA256 hashes', () => {
+  for (const [path, digest] of [
+    [reviewedPath, 'b82de81f74ce4e7171c5a54e948ee3b9b809f3dceac3de08a95d1406f830b4b7'],
+    [blockedPath, 'b118377aa744faf4d04b4aced2436b347c20594d66dea66d0edf55c7c7ad8cd6'],
+  ]) {
+    assert.equal(sha256(readFileSync(new URL(path, import.meta.url))), digest, path);
+  }
+});
+
+test('AI-reviewed runtime membership and provenance match exactly the 59 reviewed CSV rows', () => {
+  assert.equal(reviewed.length, 59);
+  assert.equal(new Set(reviewed.map(row => row.key)).size, 59, 'unique reviewed keys');
+  const aiRows = manifest.filter(row => row.status === 'AI_REVIEWED');
+  assert.deepEqual(aiRows.map(row => row.identity).sort(), reviewed.map(row => row.key).sort());
+  const byKey = new Map(aiRows.map(row => [row.identity, row]));
+  const translate = loadI18n().createTranslator('ja');
+  for (const candidate of reviewed) {
+    const key = candidate.key;
+    const row = byKey.get(key);
+    assert.equal(candidate.human_approved, 'NO', `${key}: AI review is not human approval`);
+    assert.ok(['ACCEPT', 'REVISE'].includes(candidate.review_decision), key);
+    assert.equal(candidate.fr_current, fr[key], `${key}: current FR source`);
+    assert.equal(candidate.en_current, en[key], `${key}: current EN source`);
+    assert.equal(row.surface, 'react', key);
+    assert.equal(row.reason_code, `AI_${candidate.review_decision}`, key);
+    assert.equal(row.current_fr, candidate.fr_current, key);
+    assert.equal(row.current_en, candidate.en_current, key);
+    assert.equal(row.ja_validated, '', `${key}: never promoted to human-validated Japanese`);
+    assert.equal(row.ja_ai_reviewed, candidate.ja_reviewed_candidate, key);
+    assert.ok(candidate.ja_reviewed_candidate.trim(), `${key}: non-empty reviewed value`);
+    assert.equal(ja[key], candidate.ja_reviewed_candidate, `${key}: exact catalog value`);
+    assert.equal(translate(key), candidate.ja_reviewed_candidate, `${key}: exact runtime value`);
+    if (candidate.review_decision === 'ACCEPT') {
+      assert.equal(candidate.ja_reviewed_candidate, candidate.ja_first_proposal, `${key}: accepted draft`);
+    }
+  }
+});
+
+test('all seven REVISE corrections are exact reviewed values, never the original drafts', () => {
+  const corrections = {
+    createBoxActiveBox: '個の有効な容器',
+    createBoxActiveBoxes: '個の有効な容器',
+    boxLifecycleQualifySubmit: '状態の設定を確定',
+    temperatureCombinedSources: '過去データのインポートおよびPolypbase',
+    temperatureHistoricalSource: '過去データのインポート：',
+    probeSilentBadge: '測定値未受信',
+    probeAggregateAverage: '集計対象の測定値の平均',
+  };
+  const revised = reviewed.filter(row => row.review_decision === 'REVISE');
+  assert.equal(revised.length, 7);
+  assert.deepEqual(revised.map(row => row.key).sort(), Object.keys(corrections).sort());
+  const translate = loadI18n().createTranslator('ja');
+  for (const row of revised) {
+    const expected = corrections[row.key];
+    assert.equal(row.ja_reviewed_candidate, expected, row.key);
+    assert.equal(ja[row.key], expected, row.key);
+    assert.equal(translate(row.key), expected, row.key);
+    assert.notEqual(row.ja_first_proposal, expected, `${row.key}: correction differs from draft`);
+    assert.notEqual(translate(row.key), row.ja_first_proposal, `${row.key}: draft must not ship`);
+  }
+});
+
+test('all six BLOCK rows remain absent from Japanese and use English at runtime', () => {
+  assert.equal(blocked.length, 6);
+  assert.equal(new Set(blocked.map(row => row.key)).size, 6, 'unique blocked keys');
+  assert.deepEqual(blocked.map(row => row.key).sort(), [
+    'createBoxConnectionPending', 'createBoxRecoveryUnavailable', 'createBoxNotCreated',
+    'probeSilentDescription', 'probeSilentNoReadingDescription', 'probeNoCollectedProbe',
+  ].sort());
+  const react = new Map(manifest.filter(row => row.surface === 'react').map(row => [row.identity, row]));
+  const reviewedKeys = new Set(reviewed.map(row => row.key));
+  const translate = loadI18n().createTranslator('ja');
+  for (const candidate of blocked) {
+    const key = candidate.key;
+    assert.equal(candidate.review_decision, 'BLOCK', key);
+    assert.equal(candidate.human_approved, 'NO', key);
+    assert.equal(candidate.ja_reviewed_candidate, '', key);
+    assert.equal(candidate.fr_current, fr[key], key);
+    assert.equal(candidate.en_current, en[key], key);
+    assert.equal(reviewedKeys.has(key), false, `${key}: blocked and reviewed sets are disjoint`);
+    assert.equal(react.get(key)?.status, 'FALLBACK_EN', key);
+    assert.equal(react.get(key)?.ja_validated, '', key);
+    assert.equal(react.get(key)?.ja_ai_reviewed, '', key);
+    assert.equal(Object.hasOwn(ja, key), false, `${key}: rejected draft must not ship`);
+    assert.equal(translate(key), en[key], `${key}: current English fallback`);
+    assert.notEqual(translate(key), candidate.ja_first_proposal, key);
+  }
+});
+
+test('historical human translations are immutable and separate from AI-reviewed values', () => {
+  const historical = manifest.filter(row => row.surface === 'react' && row.status === 'REUSED');
+  const byKey = new Map(historical.map(row => [row.identity, row.ja_validated]));
+  const ordered = Object.keys(fr).filter(key => byKey.has(key)).map(key => [key, byKey.get(key)]);
+  assert.equal(ordered.length, 930);
+  assert.equal(sha256(JSON.stringify(ordered)),
+    'ab1705b630daaf621bcf152b1af3e6a7cdb098d342c5282fc2ec79ccb2330939');
+  for (const row of manifest) {
+    assert.ok(Object.hasOwn(row, 'ja_ai_reviewed'), 'manifest has a separate AI-reviewed column');
+    if (row.status !== 'AI_REVIEWED') assert.equal(row.ja_ai_reviewed, '', row.identity);
+  }
+});
+
+test('FR and EN source files remain frozen regardless of Git line endings', () => {
+  for (const [language, digest] of [
+    ['fr', '1b3486aaea5eea3f8628e96bc88dac9835d3a89da88668ca020ea9119ee757dc'],
+    ['en', '62989721d2528126ab48704fe783597dba0d484d2f24ce05a7391e0e9bdbfa27'],
+  ]) {
+    assert.equal(sha256(read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n')), digest, language);
+  }
+});
+
+test('all 36 deferred React translations use current English at runtime', () => {
+  const deferred = manifest.filter(row => row.surface === 'react' && row.status === 'FALLBACK_EN_REVIEW');
+  assert.equal(deferred.length, 36);
+  const translate = loadI18n().createTranslator('ja');
+  for (const row of deferred) {
+    assert.equal(row.ja_ai_reviewed, '', row.identity);
+    assert.equal(Object.hasOwn(ja, row.identity), false, row.identity);
+    assert.equal(translate(row.identity), en[row.identity], row.identity);
+  }
 });
 
 test('all eight open Japanese questions use current English until validation', () => {
@@ -150,8 +281,11 @@ test('ja values are real, non-empty Japanese with the same placeholders', () => 
     assert.deepEqual(placeholders(value), placeholders(fr[key]), `${key}: FR placeholders`);
     assert.deepEqual(placeholders(value), placeholders(en[key]), `${key}: EN placeholders`);
     if (NEUTRAL_VALUES.has(key)) continue;
-    assert.notEqual(value, en[key], `${key}: English copied as Japanese`);
-    assert.notEqual(value, fr[key], `${key}: French copied as Japanese`);
+    // These reviewed Japanese units can match a source while still containing Japanese text.
+    if (!['probeElapsedMinutes', 'probeElapsedHours', 'probeElapsedDays'].includes(key)) {
+      assert.notEqual(value, en[key], `${key}: English copied as Japanese`);
+      assert.notEqual(value, fr[key], `${key}: French copied as Japanese`);
+    }
     assert.match(value, japaneseCharacter, `${key}: no Japanese text`);
   }
 });
@@ -189,6 +323,51 @@ test('FR and EN translators are unchanged and Japanese falls back to English per
   assert.equal(translators.ja('boxActivateForbidden'), en.boxActivateForbidden);
   assert.equal(translators.ja('back'), '戻る');
   assert.equal(translators.ja('missingKeyForTest'), 'missingKeyForTest');
+});
+
+test('Japanese create-box count composition preserves zero and singular/plural selection', () => {
+  const translate = loadI18n().createTranslator('ja');
+  for (const count of [0, 1, 2, 12]) {
+    const key = count === 1 ? 'createBoxActiveBox' : 'createBoxActiveBoxes';
+    assert.ok(Object.hasOwn(ja, key), `${key}: reviewed Japanese count label`);
+    const details = `${count} ${translate(key)}`;
+    assert.equal(details, `${count} 個の有効な容器`);
+    assert.match(details, new RegExp(`^${count} `));
+    assert.match(details, japaneseCharacter);
+    assert.equal(details.includes('{count}'), false, 'count is composed by StrainPicker, not a label placeholder');
+  }
+});
+
+test('Japanese probe interpolation preserves zero, durations and scientific units', () => {
+  const translate = loadI18n().createTranslator('ja');
+  for (const [key, unit] of [
+    ['probeElapsedMinutes', '分'], ['probeElapsedHours', '時間'], ['probeElapsedDays', '日'],
+  ]) {
+    assert.ok(Object.hasOwn(ja, key), key);
+    for (const count of [0, 1, 24]) {
+      const duration = translate(key).replace('{count}', String(count));
+      assert.ok(duration.includes(String(count)), `${key}: preserve ${count}`);
+      assert.ok(duration.includes(unit), `${key}: preserve the Japanese unit`);
+      assert.deepEqual(placeholders(duration), []);
+      const readingAgo = translate('probeReadingAgo').replace('{duration}', duration);
+      assert.equal(readingAgo, `${duration}前`, 'preserve the full Japanese duration including zero');
+      assert.deepEqual(placeholders(readingAgo), []);
+      assert.equal(Object.hasOwn(ja, 'probeSilentDescription'), false, 'blocked description stays English');
+      const silent = translate('probeSilentDescription').replace('{duration}', duration);
+      assert.equal(silent, en.probeSilentDescription.replace('{duration}', duration));
+      assert.ok(silent.includes(duration), 'English fallback preserves the interpolated Japanese duration');
+      assert.deepEqual(placeholders(silent), []);
+    }
+  }
+  assert.ok(Object.hasOwn(ja, 'probeChartSummary'));
+  for (const [minimum, maximum] of [['0 °C', '24.5 °C'], ['-1.25 °C', '0 °C']]) {
+    const summary = translate('probeChartSummary').replace('{min}', minimum).replace('{max}', maximum);
+    assert.ok(summary.includes(minimum), 'preserve minimum and its unit');
+    assert.ok(summary.includes(maximum), 'preserve maximum and its unit');
+    assert.equal(summary.match(/°C/g)?.length, 2, 'both scientific units survive interpolation');
+    assert.deepEqual(placeholders(summary), []);
+    assert.match(summary, japaneseCharacter);
+  }
 });
 
 test('Japanese is selectable and persisted; unknown values keep the French default', () => {

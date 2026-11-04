@@ -5,7 +5,7 @@ import { ja } from './ja';
 type Catalog = Readonly<Record<TranslationKey, string>>;
 
 // Displayed catalogs. FR and EN are complete. The Japanese catalog is partial:
-// any key without validated Japanese shows the English text instead.
+// keys without historical human-approved or independently AI-reviewed Japanese use English.
 export const translations: { readonly fr: Catalog; readonly en: Catalog; readonly ja: Catalog } = {
   fr,
   en,

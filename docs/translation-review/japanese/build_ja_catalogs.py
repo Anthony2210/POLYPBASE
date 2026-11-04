@@ -13,7 +13,9 @@ Read-only for the workbook. Writes, under the repository root:
 Only Japanese validated "Fait" by Takeru is reused, and only for a current key whose
 FR/EN still match the workbook, or whose difference has an explicit reviewed
 decision in SEMANTIC_DECISIONS below. Everything else is left to the runtime
-English fallback. No Japanese text is generated here.
+English fallback. A separate, hash-locked React-only AI review can add translations
+for keys absent from the workbook. AI_REVIEWED never means Takeru approval and
+never overrides historical Japanese. No Japanese text is generated here.
 """
 from __future__ import annotations
 
@@ -48,6 +50,14 @@ OBSOLETE = ROOT / "docs/translation-review/japanese/ja-obsolete-workbook-keys.cs
 TAKERU = ROOT / "docs/translation-review/japanese/ja-takeru-review.csv"
 JA_TS = ROOT / "frontend/src/i18n/ja.ts"
 JA_PO = ROOT / "backend/locale/ja/LC_MESSAGES/django.po"
+AI_REVIEW = MANIFEST.with_name("POLYPBASE_JA_59_candidates_revisees.csv")
+AI_BLOCKED = MANIFEST.with_name("POLYPBASE_JA_6_blocked.csv")
+# Exact independently reviewed inputs authorized for this local integration.
+# Updating a CSV alone must never authorize another AI entry or formulation.
+AI_INPUT_SHA256 = {
+    AI_REVIEW.name: "b82de81f74ce4e7171c5a54e948ee3b9b809f3dceac3de08a95d1406f830b4b7",
+    AI_BLOCKED.name: "b118377aa744faf4d04b4aced2436b347c20594d66dea66d0edf55c7c7ad8cd6",
+}
 
 # Frontend permission refusals that must invite the user to contact an administrator
 # (same reviewed list as frontend/scripts/test-i18n-catalogs.mjs).
@@ -246,7 +256,7 @@ def guard_issues(key: str, cur_fr: str, cur_en: str, ja: str) -> list[str]:
 def classify(identity: str, cur_fr: str, cur_en: str, entry: dict | None, surface: str) -> dict:
     record = {"surface": surface, "identity": identity, "current_fr": cur_fr, "current_en": cur_en,
               "sheet_row": "", "sheet_section": "", "sheet_fr": "", "sheet_en": "", "ja_validated": "",
-              "status": "", "reason_code": "", "note": "", "takeru_review": "no"}
+              "status": "", "reason_code": "", "note": "", "takeru_review": "no", "ja_ai_reviewed": ""}
     if entry is None:
         record.update(status="FALLBACK_EN", reason_code="ABSENT_FROM_WORKBOOK",
                       note="Current key added or not tracked in the workbook.")
@@ -330,7 +340,78 @@ def inline_record(identity: str, entry: dict) -> dict:
             "reason_code": "INLINE_NOT_INTEGRATED",
             "note": ("FR/EN found unchanged" if unchanged else "FR/EN wording differs in source")
             + "; inline FR/EN ternary, English shown; integrating needs a separate refactor.",
-            "takeru_review": "no"}
+            "takeru_review": "no", "ja_ai_reviewed": ""}
+
+
+def read_ai_csv(path: Path) -> list[dict]:
+    data = path.read_bytes()
+    if hashlib.sha256(data).hexdigest() != AI_INPUT_SHA256[path.name]:
+        raise SystemExit(f"{path.name}: not the authorized independently reviewed input")
+    return list(csv.DictReader(io.StringIO(data.decode("utf-8-sig"))))
+
+
+def validate_ai_review(records: list[dict], fr: dict, en: dict,
+                       reviewed: list[dict], blocked: list[dict]) -> dict[str, dict]:
+    """Validate the entire overlay before any record or output can be changed."""
+    react = {r["identity"]: r for r in records if r["surface"] == "react"}
+    candidates = {}
+    blocked_keys = [r["key"] for r in blocked]
+    if len(blocked_keys) != len(set(blocked_keys)):
+        raise SystemExit("duplicate blocked AI key")
+    for row in blocked:
+        key = row["key"]
+        if (row["review_decision"] != "BLOCK" or row["human_approved"] != "NO"
+                or row["ja_reviewed_candidate"]):
+            raise SystemExit(f"{key}: invalid blocked review provenance")
+        if key not in react or react[key]["status"] != "FALLBACK_EN":
+            raise SystemExit(f"{key}: blocked AI key must retain English fallback")
+    for row in reviewed:
+        key = row["key"]
+        if key in candidates or key in blocked_keys:
+            raise SystemExit(f"{key}: duplicate or blocked AI key")
+        if key not in fr or key not in en or key not in react:
+            raise SystemExit(f"{key}: AI key is not current React FR/EN")
+        base = react[key]
+        if (base["status"] != "FALLBACK_EN" or base["reason_code"] != "ABSENT_FROM_WORKBOOK"
+                or base["sheet_row"] or base["ja_validated"]):
+            raise SystemExit(f"{key}: AI review cannot replace historical or deferred Japanese")
+        if row["fr_current"] != fr[key] or row["en_current"] != en[key]:
+            raise SystemExit(f"{key}: reviewed FR/EN source mismatch; retain English and obtain a new review")
+        decision, ja = row["review_decision"], row["ja_reviewed_candidate"]
+        if (decision not in {"ACCEPT", "REVISE"} or row["human_approved"] != "NO"
+                or not row["review_comment"].strip()):
+            raise SystemExit(f"{key}: missing independent AI review provenance")
+        if not ja or ja != ja.strip() or norm(ja) != ja or "·" in ja:
+            raise SystemExit(f"{key}: invalid reviewed Japanese text")
+        if decision == "ACCEPT" and ja != row["ja_first_proposal"]:
+            raise SystemExit(f"{key}: ACCEPT does not match its reviewed draft")
+        if decision == "REVISE" and ja == row["ja_first_proposal"]:
+            raise SystemExit(f"{key}: REVISE still uses the original draft")
+        issues = guard_issues(key, fr[key], en[key], ja)
+        if placeholders(ja) != placeholders(fr[key]) or placeholders(ja) != placeholders(en[key]):
+            issues.append("FR/EN/JA placeholders differ")
+        if "継代" in ja:
+            issues.append("G18 forbids 継代")
+        if re.search(r"salinity measurement", en[key], re.I) and "測定記録" in ja:
+            issues.append("environmental Measurement is not a biological Record")
+        if key == "auditDescriptionCcaEobV3Correction" and "測定記録72件" not in ja:
+            issues.append("CCA-EOB correction must preserve 72 biological records")
+        if issues:
+            raise SystemExit(f"{key}: AI review contradicts guards {issues}")
+        candidates[key] = row
+    return candidates
+
+
+def apply_ai_review(records: list[dict], fr: dict, en: dict) -> None:
+    candidates = validate_ai_review(records, fr, en, read_ai_csv(AI_REVIEW), read_ai_csv(AI_BLOCKED))
+    for record in records:
+        if record["surface"] != "react" or record["identity"] not in candidates:
+            continue
+        row = candidates[record["identity"]]
+        record.update(status="AI_REVIEWED", reason_code=f"AI_{row['review_decision']}",
+                      ja_ai_reviewed=row["ja_reviewed_candidate"],
+                      note=f"Independent AI review; not human-approved or validated by Takeru. "
+                           f"Source: {AI_REVIEW.name}. {row['review_comment']}")
 
 
 def build(workbook: Path) -> dict[Path, str]:
@@ -362,6 +443,7 @@ def build(workbook: Path) -> dict[Path, str]:
                 for k, e in entries.items()
                 if not k.startswith(("local:", "inline:")) and k not in react_keys and k not in django_keys]
 
+    apply_ai_review(records, fr, en)
     review = [{name: r[name] for name in ("identity", "status", "reason_code", "note", "current_fr", "current_en",
                                           "sheet_row", "sheet_fr", "sheet_en", "ja_validated")}
               for r in records if r["takeru_review"] == "yes"]
@@ -384,18 +466,20 @@ def js_string(value: str) -> str:
 
 
 def render_ts(records: list[dict], order: dict[str, str]) -> str:
-    reused = {r["identity"]: r["ja_validated"] for r in records if r["surface"] == "react" and r["status"] == "REUSED"}
+    japanese = {r["identity"]: r["ja_validated"] if r["status"] == "REUSED" else r["ja_ai_reviewed"]
+                for r in records if r["surface"] == "react" and r["status"] in {"REUSED", "AI_REVIEWED"}}
     lines = [
         "import type { TranslationKey } from './fr';",
         "",
-        "// Japanese validated by Takeru in the frozen translation workbook",
-        "// (SHA-256 e80b409f...), reused only where current FR/EN still match it.",
+        "// Partial Japanese: historical Takeru-approved values plus independently",
+        "// AI-reviewed additions (NOT human-approved). ja-manifest.csv distinguishes",
+        "// REUSED / ja_validated from AI_REVIEWED / ja_ai_reviewed per key.",
         "// Partial by design: a missing key falls back to English at runtime.",
         "// Generated by docs/translation-review/japanese/build_ja_catalogs.py; never add",
         "// English or unreviewed Japanese here. See ja-manifest.csv for every key.",
         "export const ja: Partial<Record<TranslationKey, string>> = {",
     ]
-    lines += [f"  {key}: {js_string(reused[key])}," for key in order if key in reused]
+    lines += [f"  {key}: {js_string(japanese[key])}," for key in order if key in japanese]
     lines.append("};")
     return "\n".join(lines) + "\n"
 
@@ -439,10 +523,10 @@ def main(argv: list[str] | None = None) -> int:
         for path in changed:
             print(f"out of date: {path.relative_to(ROOT).as_posix()}")
         return int(bool(changed))
-    for path, text in outputs.items():
+    for path in changed:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8", newline="\n")
-    print("written:", ", ".join(p.relative_to(ROOT).as_posix() for p in outputs))
+        path.write_text(outputs[path], encoding="utf-8", newline="\n")
+    print("written:", ", ".join(p.relative_to(ROOT).as_posix() for p in changed))
     return 0
 
 
