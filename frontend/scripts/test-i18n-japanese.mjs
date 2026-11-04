@@ -124,7 +124,7 @@ test('ja catalog is exactly the REUSED rows of the key-level manifest', () => {
     assert.equal(Object.hasOwn(ja, row.identity), false, `${row.identity}: ${row.reason_code} must use English`);
   }
   const counts = react.reduce((total, row) => ({ ...total, [row.status]: (total[row.status] ?? 0) + 1 }), {});
-  assert.deepEqual(counts, { REUSED: 927, FALLBACK_EN: 202, FALLBACK_EN_REVIEW: 39 });
+  assert.deepEqual(counts, { REUSED: 930, FALLBACK_EN: 202, FALLBACK_EN_REVIEW: 36 });
 });
 
 test('all eight open Japanese questions use current English until validation', () => {
@@ -185,7 +185,7 @@ test('FR and EN translators are unchanged and Japanese falls back to English per
   }
   assert.equal(i18n.translations.fr, fr);
   assert.equal(i18n.translations.en, en);
-  assert.equal(translators.ja('createBoxTitle'), 'New box');
+  assert.equal(translators.ja('createBoxTitle'), '容器を作成');
   assert.equal(translators.ja('boxActivateForbidden'), en.boxActivateForbidden);
   assert.equal(translators.ja('back'), '戻る');
   assert.equal(translators.ja('missingKeyForTest'), 'missingKeyForTest');

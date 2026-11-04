@@ -415,7 +415,7 @@ react,boxInventoryLocationAll,Tous les emplacements,All locations,624,Administra
 react,boxInventoryWithoutLocation,Sans emplacement,No location,625,Administration — inventaire,Sans emplacement,No location,場所未設定,REUSED,EXACT_MATCH,,no
 react,boxInventoryCreationYear,Année de création,Year created,626,Administration — inventaire,Année de création,Year created,作成年,REUSED,EXACT_MATCH,,no
 react,boxInventoryAllYears,Toutes les années,All years,627,Administration — inventaire,Toutes les années,All years,全期間,REUSED,EXACT_MATCH,,no
-react,boxInventoryQualificationAid,Aide à la qualification,Qualification support,628,Administration — inventaire,Aide à la qualification,Classification help,状態設定のヒント,FALLBACK_EN_REVIEW,TERMINOLOGY_OPEN,Qualification versus classification wording remains open.,yes
+react,boxInventoryQualificationAid,Aide à la qualification,Qualification support,628,Administration — inventaire,Aide à la qualification,Classification help,状態設定のヒント,REUSED,JA_MATCHES_CURRENT,"FR unchanged; EN Classification help -> Qualification support. JA 状態設定 is already the reused JA for qualification (auditSummaryBoxQualified, movementKindQualification).",no
 react,boxInventoryAgeSuggestions,Afficher les suggestions d’inactivation,Show deactivation suggestions,629,Administration — inventaire,Afficher les suggestions d’inactivation,Show deactivation suggestions,無効化の提案を表示,REUSED,EXACT_MATCH,,no
 react,boxInventoryNoMeasurementFilter,Sans relevé,No records,630,Administration — inventaire,Sans relevé,No records,測定記録なし,REUSED,EXACT_MATCH,,no
 react,boxInventoryAgeThreshold,Ancienneté minimale,Minimum age,631,Administration — inventaire,Ancienneté minimale,Minimum age,最小経過期間,REUSED,EXACT_MATCH,,no
@@ -504,7 +504,7 @@ react,boxArchiveAction,Désactiver le suivi,Disable tracking,236,Cycle de vie de
 react,boxArchiveForbidden,Seul un administrateur peut désactiver le suivi de cette boîte. Merci de contacter un administrateur.,Only an administrator can disable tracking for this box. Please contact your administrator.,237,Cycle de vie des boîtes,Seul un administrateur peut désactiver le suivi de cette boîte. Merci de contacter un administrateur,Only an administrator can disable tracking for this box. Please contact your administrator.,この容器の管理を無効化できるのは管理者のみです。管理者にお問い合わせください。,REUSED,PUNCTUATION_ONLY,FR final period; JA contains the administrator invitation.,no
 react,boxActivateAction,Réactiver le suivi,Enable tracking,238,Cycle de vie des boîtes,Réactiver le suivi,Enable tracking,管理を再有効化,REUSED,EXACT_MATCH,,no
 react,boxActivateForbidden,Seul un administrateur peut réactiver le suivi de cette boîte. Merci de contacter un administrateur.,Only an administrator can enable tracking for this box. Please contact your administrator.,239,Cycle de vie des boîtes,Seul un administrateur peut réactiver le suivi de cette boîte.,Only an administrator can enable tracking for this box.,この容器の管理を再有効化できるのは管理者のみです。,FALLBACK_EN_REVIEW,PERMISSION_INVITATION_MISSING,FR/EN gained the administrator invitation; JA lacks it. Guards: permission refusal without the administrator invitation.,yes
-react,createBoxTitle,Nouvelle boîte,New box,134,Création de boîtes,Créer une boîte,Create a box,容器を作成,FALLBACK_EN_REVIEW,FEATURE_REDESIGN,Box creation redesign: Create a box -> New box.,yes
+react,createBoxTitle,Nouvelle boîte,New box,134,Création de boîtes,Créer une boîte,Create a box,容器を作成,REUSED,SAME_ACTION,Box creation dialog heading: Create a box -> New box; same action as the reused createBoxOpen (容器を作成).,no
 react,createBoxOpen,Créer une boîte,Create a box,135,Création de boîtes,Créer une boîte,Create a box,容器を作成,REUSED,EXACT_MATCH,,no
 react,createBoxNew,Nouvelle boîte,New box,136,Création de boîtes,Nouvelle boîte,New box,新しい容器,REUSED,EXACT_MATCH,,no
 react,createBoxClose,Fermer,Close,137,Création de boîtes,Fermer,Close,閉じる,REUSED,EXACT_MATCH,,no
@@ -512,7 +512,7 @@ react,createBoxStrain,Souche,Strain,138,Création de boîtes,Souche,Strain,系�
 react,createBoxZone,Emplacement,Location,139,Création de boîtes,Emplacement,Location,設置場所,REUSED,EXACT_MATCH,,no
 react,createBoxEnteredOn,Date d’entrée,Entry date,143,Création de boîtes,Date d’entrée,Entry date,登録日,REUSED,EXACT_MATCH,,no
 react,createBoxNotes,Note (facultatif),Note (optional),144,Création de boîtes,Note,Note,メモ,FALLBACK_EN_REVIEW,FEATURE_REDESIGN,Box creation redesign: Note -> Note (optional); JA lacks optional.,yes
-react,createBoxSubmit,Créer la boîte,Create box,145,Création de boîtes,Créer,Create,作成,FALLBACK_EN_REVIEW,FEATURE_REDESIGN,Box creation redesign: Create -> Create box.,yes
+react,createBoxSubmit,Créer la boîte,Create box,145,Création de boîtes,Créer,Create,作成,REUSED,SAME_ACTION,Box creation submit button: Create -> Create box; same action. createBoxNotes stays deferred (optional is lost).,no
 react,createBoxRetry,Réessayer,Retry,,,,,,FALLBACK_EN,ABSENT_FROM_WORKBOOK,Current key added or not tracked in the workbook.,no
 react,createBoxNoLocations,Aucun emplacement disponible pour créer une boîte.,No location available to create a box.,,,,,,FALLBACK_EN,ABSENT_FROM_WORKBOOK,Current key added or not tracked in the workbook.,no
 react,createBoxSuccess,Boîte créée,Box created,,,,,,FALLBACK_EN,ABSENT_FROM_WORKBOOK,Current key added or not tracked in the workbook.,no

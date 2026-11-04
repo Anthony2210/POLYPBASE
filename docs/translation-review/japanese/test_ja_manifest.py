@@ -38,7 +38,7 @@ class JapaneseManifestTests(unittest.TestCase):
 
     def test_exact_counts(self):
         self.assertEqual(Counter((r["surface"], r["status"]) for r in self.manifest), Counter({
-            ("react", "REUSED"): 927, ("react", "FALLBACK_EN"): 202, ("react", "FALLBACK_EN_REVIEW"): 39,
+            ("react", "REUSED"): 930, ("react", "FALLBACK_EN"): 202, ("react", "FALLBACK_EN_REVIEW"): 36,
             ("django", "REUSED"): 81, ("django", "FALLBACK_EN"): 11, ("django", "FALLBACK_EN_REVIEW"): 6,
             ("local", "REUSED"): 67, ("local", "FALLBACK_EN_REVIEW"): 1, ("inline", "FALLBACK_EN_INLINE"): 14,
         }))
@@ -78,7 +78,7 @@ class JapaneseManifestTests(unittest.TestCase):
         review = rows("ja-takeru-review.csv")
         expected = [r["identity"] for r in self.manifest if r["takeru_review"] == "yes"]
         self.assertEqual([r["identity"] for r in review], expected)
-        self.assertEqual(len(review), 46)
+        self.assertEqual(len(review), 43)
         for row in review:
             with self.subTest(identity=row["identity"]):
                 self.assertTrue(row["note"].strip())
