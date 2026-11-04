@@ -2,6 +2,11 @@
 
 ## Statut, responsabilité et sources
 
+**Restriction du 2026-11-03 : ne pas utiliser la séquence CLA de dix Box pour la
+seule Box 1902.** Voir [`cla-box-1902-correction.md`](cla-box-1902-correction.md).
+Son opération distincte exige une autorisation root distincte et une séquence
+spécifique revue ; aucune exécution n'est autorisée ici.
+
 **Ce document n'autorise aucune exécution sur des données réelles.** Aucun accès
 à la VM, à Neon ou à une base partagée, aucune application opérationnelle,
 sauvegarde de production, restauration opérationnelle ou release n'a été effectué.

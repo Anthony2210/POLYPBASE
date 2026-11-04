@@ -2,6 +2,11 @@
 
 ## Statut et périmètre
 
+**Demande ciblée du 2026-11-03 : seule la Box 1902 est autorisée.** Le lot CLA de
+ce document traite dix Box et n'est pas autorisé pour cette demande. Le chemin
+séparé, ses références additives et le blocage conservé du futur lot complet sont
+décrits dans [`cla-box-1902-correction.md`](cla-box-1902-correction.md).
+
 Preuves sources établies sur la baseline `a78c1046be9e5cb1658ce467ba6f0a8bc7d29545`, puis contrat de l'implémentation locale actuelle compatible PostgreSQL : `identity_execution.py`, `identity_references.py`, `identity_reconciliation.py` et leurs commandes. La restriction initiale à SQLite en mémoire est dépassée ; SQLite reste un chemin de tests isolés, pas la seule frontière implémentée. Statut : **prêt pour revue indépendante, pas prêt pour exploitation**. Les faits opérationnels et résultats de tests communiqués par l'utilisateur sont attribués comme tels ci-dessous ; cette mise à jour documentaire ne les présente pas comme des vérifications de l'agent.
 
 **Ce document n'autorise aucune opération en production, sur Neon ou sur une base persistante, même en lecture seule.** Aucun accès à une base n'a été effectué pour établir les correspondances ci-dessous. Cette mise à jour ne rouvre pas les classeurs ni le dépôt compagnon et ne lance ni Django, ni SQL, ni tests, ni accès VM. La procédure destinée à un opérateur humain, après accords distincts, est décrite dans [`cla-sme-postgresql-operations.md`](cla-sme-postgresql-operations.md). Code compatible production ne signifie pas prêt pour exploitation : release revue, documents root, sauvegardes réellement restaurées et préflight réel restent requis.

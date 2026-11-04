@@ -79,9 +79,9 @@ class BoundaryTests(SimpleTestCase):
             item.start()
             self.addCleanup(item.stop)
 
-    def _authorization(self, *, operation=execution.OPERATION, target_strain_id=2):
+    def _authorization(self, *, operation=execution.OPERATION, target_strain_id=2, family="CLA"):
         now = dt.datetime.now(dt.UTC)
-        self.scope = {"organization_id": 1, "family": "CLA", "target_strain_id": target_strain_id,
+        self.scope = {"organization_id": 1, "family": family, "target_strain_id": target_strain_id,
                       "actor_id": 3, "plan_hash": "b" * 64}
         return {"schema": execution.AUTHORIZATION_SCHEMA, "operation": operation,
                 **self.scope, "target_hash": execution.fingerprint(self.target),
@@ -180,7 +180,7 @@ class BoundaryTests(SimpleTestCase):
         self.db.cursor.assert_not_called()
 
     def _session_patches(self, *, apply=False, changed=False,
-                         operation=execution.OPERATION, target_strain_id=2):
+                         operation=execution.OPERATION, target_strain_id=2, family="CLA"):
         events = self.stack
 
         @contextmanager
@@ -201,7 +201,7 @@ class BoundaryTests(SimpleTestCase):
                 events.append("commit")
 
         self.db.cursor.return_value.__enter__.return_value.execute.side_effect = lambda sql: events.append(sql)
-        doc = self._authorization(operation=operation, target_strain_id=target_strain_id)
+        doc = self._authorization(operation=operation, target_strain_id=target_strain_id, family=family)
         other = copy.deepcopy(doc)
         if changed:
             other["expires_at"] = dt.datetime.now(dt.UTC).isoformat()
@@ -214,7 +214,7 @@ class BoundaryTests(SimpleTestCase):
         for item in patches:
             item.start()
             self.addCleanup(item.stop)
-        return dict(apply=apply, organization_id=1, family="CLA", target_strain_id=target_strain_id,
+        return dict(apply=apply, organization_id=1, family=family, target_strain_id=target_strain_id,
                     actor_id=3, expected_plan_hash="b" * 64, operation=operation)
 
     def test_plan_sets_read_only_before_any_identity_and_guard_closes_before_commit(self):
@@ -238,6 +238,124 @@ class BoundaryTests(SimpleTestCase):
             self.assertEqual(call.kwargs, {"operation": execution.PREPARATION_OPERATION})
             self.assertIsNone(call.args[1]["target_strain_id"])
         self.assertEqual(self.stack[-1], "commit")
+
+    def test_box_1902_wrong_organization_or_family_fails_before_configuration_or_db(self):
+        options = dict(apply=True, operation=execution.BOX_1902_OPERATION, organization_id=1,
+                       family="cla-box-1902", target_strain_id=2, actor_id=3,
+                       expected_plan_hash="b" * 64)
+        with patch.object(execution, "require_database") as require_database, \
+                patch.object(execution, "_target") as target, \
+                patch.object(execution, "_authorization") as authorization, \
+                patch.object(execution.transaction, "atomic") as atomic:
+            for changes in ({"organization_id": 2}, {"organization_id": None},
+                            {"family": "CLA"}, {"family": "cla"}, {"family": ""}, {"family": None}):
+                with self.subTest(changes=changes), self.assertRaisesMessage(ValueError, "dedicated scope"):
+                    with execution.session(**{**options, **changes}):
+                        self.fail("Wrong Box 1902 scope must not yield")
+            require_database.assert_not_called()
+            target.assert_not_called()
+            authorization.assert_not_called()
+            atomic.assert_not_called()
+        self.db.ensure_connection.assert_not_called()
+        self.db.cursor.assert_not_called()
+
+    def test_box_1902_requires_nonnull_positive_target_before_authorization_or_sql(self):
+        options = self._session_patches(apply=True, operation=execution.BOX_1902_OPERATION,
+                                        family="cla-box-1902")
+        for target in (None, False, 0, -1):
+            with self.subTest(target=target), self.assertRaisesMessage(ValueError, "explicit scope"):
+                with execution.session(**{**options, "target_strain_id": target}):
+                    self.fail("Box 1902 cannot use preparation's null-target exception")
+        execution._authorization.assert_not_called()
+        self.db.cursor.assert_not_called()
+        self.assertEqual(self.stack, [])
+
+    def test_box_1902_rejects_full_and_preparation_approvals_before_transaction(self):
+        authorize = execution._authorization
+        options = self._session_patches(apply=True, operation=execution.BOX_1902_OPERATION,
+                                        family="cla-box-1902")
+        for operation in (execution.OPERATION, execution.PREPARATION_OPERATION):
+            document = self._authorization(operation=operation, family="cla-box-1902")
+            with self.subTest(operation=operation), \
+                    patch.object(execution, "_authorization", wraps=authorize) as authorization, \
+                    patch.object(execution, "_root_document", return_value=document), \
+                    patch.object(execution.artifacts, "protected_file") as protected, \
+                    patch.object(execution.database_backup, "verify_archive") as archive:
+                with self.assertRaisesMessage(ValueError, "exact plan, target and scope"):
+                    with execution.session(**options):
+                        self.fail("Another operation's approval must not authorize Box 1902")
+                authorization.assert_called_once_with(
+                    self.target, self.scope, operation=execution.BOX_1902_OPERATION,
+                )
+                protected.assert_not_called()
+                archive.assert_not_called()
+                self.assertEqual(self.stack, [])
+        self.db.cursor.assert_not_called()
+
+    def test_box_1902_checks_guarded_backup_and_revalidates_before_commit(self):
+        authorize = execution._authorization
+        options = self._session_patches(apply=True, operation=execution.BOX_1902_OPERATION,
+                                        family="cla-box-1902")
+        document = self._authorization(operation=execution.BOX_1902_OPERATION, family="cla-box-1902")
+
+        @contextmanager
+        def protected(path):
+            self.assertEqual(path, document["backup"]["archive"]["path"])
+            self.stack.append("backup-enter")
+            yield
+            self.stack.append("backup-exit")
+
+        def verify_archive(archive, *, client_major):
+            self.assertEqual(archive, document["backup"]["archive"])
+            self.assertEqual(client_major, 18)
+            self.assertEqual(self.stack[-1], "backup-enter")
+            self.stack.append("backup-verified")
+
+        with patch.object(execution, "_authorization", wraps=authorize) as authorization, \
+                patch.object(execution, "_root_document", side_effect=[document, document, self.target] * 2) as root, \
+                patch.object(execution.artifacts, "protected_file", side_effect=protected), \
+                patch.object(execution.database_backup, "verify_archive", side_effect=verify_archive) as archive:
+            with execution.session(**options) as binding:
+                self.assertEqual(binding, {"mode": "production", "target_hash": execution.fingerprint(self.target)})
+                self.stack.append("business-write")
+            self.assertEqual(authorization.call_count, 2)
+            for call in authorization.call_args_list:
+                self.assertEqual(call.args, (self.target, self.scope))
+                self.assertEqual(call.kwargs, {"operation": execution.BOX_1902_OPERATION})
+            self.assertEqual([call.args[0] for call in root.call_args_list],
+                             [execution.AUTHORIZATION_PATH, execution.AUTHORIZATION_PATH, execution.TARGET_PATH] * 2)
+            self.assertEqual(archive.call_count, 2)
+        self.assertEqual(execution._target.call_count, 2)
+        self.assertEqual(execution._verify_production.call_count, 2)
+        self.assertEqual(execution.require_database.call_count, 2)
+        self.assertLess(self.stack.index("backup-verified"), self.stack.index("begin"))
+        self.assertEqual(self.stack[self.stack.index("business-write") + 1:],
+                         ["identity", "backup-enter", "backup-verified", "backup-exit", "socket-exit", "commit"])
+
+    def test_box_1902_changed_final_authorization_rolls_back(self):
+        options = self._session_patches(apply=True, changed=True,
+                                        operation=execution.BOX_1902_OPERATION, family="cla-box-1902")
+        with self.assertRaisesMessage(ValueError, "authorization changed"):
+            with execution.session(**options):
+                self.stack.append("business-write")
+        self.assertEqual(execution._authorization.call_count, 2)
+        for call in execution._authorization.call_args_list:
+            self.assertEqual(call.kwargs, {"operation": execution.BOX_1902_OPERATION})
+        self.assertEqual(self.stack[-1], "rollback")
+        self.assertNotIn("commit", self.stack)
+
+    def test_box_1902_changed_final_target_rolls_back_before_commit(self):
+        options = self._session_patches(apply=True, operation=execution.BOX_1902_OPERATION,
+                                        family="cla-box-1902")
+        changed = {**self.target, "database_oid": self.target["database_oid"] + 1}
+        with patch.object(execution, "_target", side_effect=[self.target, changed]) as target:
+            with self.assertRaisesMessage(ValueError, "Root target changed"):
+                with execution.session(**options):
+                    self.stack.append("business-write")
+        self.assertEqual(target.call_count, 2)
+        self.assertEqual(execution._authorization.call_count, 1)
+        self.assertEqual(self.stack[-1], "rollback")
+        self.assertNotIn("commit", self.stack)
 
     def test_identity_still_requires_target_and_preparation_still_requires_actor_and_family(self):
         kwargs = self._session_patches(apply=True)

@@ -29,6 +29,7 @@ TARGET_SCHEMA = "cla_sme_target_v1"
 AUTHORIZATION_SCHEMA = "cla_sme_authorization_v1"
 OPERATION = "cla_sme_identity_20261027_v2"
 PREPARATION_OPERATION = "cla_sme_references_20261027_v1"
+BOX_1902_OPERATION = "cla_box_1902_identity_20261103_v1"
 AUTHORIZATION_KEYS = {
     "schema", "operation", "organization_id", "family", "target_strain_id",
     "actor_id", "plan_hash", "target_hash", "authorized_at", "expires_at", "backup",
@@ -264,8 +265,8 @@ def _read_only(execute, sql, params, many, context):
 
 
 def _require_operation(operation):
-    if type(operation) is not str or operation not in (OPERATION, PREPARATION_OPERATION):
-        raise ValueError("Only the exact CLA/SME identity or reference preparation operation is supported.")
+    if type(operation) is not str or operation not in (OPERATION, PREPARATION_OPERATION, BOX_1902_OPERATION):
+        raise ValueError("Only the exact CLA/SME identity, Box 1902 or reference preparation operation is supported.")
 
 
 @contextmanager
@@ -280,6 +281,8 @@ def session(*, apply=False, organization_id=None, family=None, target_strain_id=
     the production boundary requires a positive actor ID for either operation.
     """
     _require_operation(operation)
+    if apply and operation == BOX_1902_OPERATION and (organization_id != 1 or family != "cla-box-1902"):
+        raise ValueError("The Box 1902 operation requires its exact institution and dedicated scope.")
     mode = require_database()
     if mode == "sqlite":
         binding = {"mode": mode, "target_hash": fingerprint({"database": "isolated_test_sqlite_v1"})}
