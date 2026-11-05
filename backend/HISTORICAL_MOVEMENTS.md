@@ -429,10 +429,14 @@ not historical records. The joined user fetch avoids per-audit user queries.
 The synthetic query-plan regression uses 4,004 audits, including 4,000 unrelated
 rows. Old/new results match: one numeric row, four fetched identity/code rows and
 three retained projection rows. Before indexing, the tested SQLite plans searched
-by organization only. Afterward, plans use all numeric-index keys and all code-
-index keys, followed by outer primary-key lookup. A separate regression confirms
-one audit query for the combined projection and unchanged planner results and
-fingerprints. This is plan/selectivity evidence, not a measured latency claim.
+by organization only. Afterward, the regression checks all numeric-index keys,
+indexed organization searches in both UNION branches, and outer primary-key
+lookup, with no full audit-table or branch scans. The migrated definitions of both
+composite indexes are checked independently of the planner's choice: SQLite may
+use either the code index or an organization index for the code branch. A separate
+regression confirms one audit query for the combined projection and unchanged
+planner results and fingerprints. Indexed organization access does not guarantee
+code-branch selectivity or performance; no latency claim is made.
 PostgreSQL SQL and index DDL compile without connecting, but PostgreSQL plans,
 latency and write/index-maintenance costs remain unverified. No verified disposable
 PostgreSQL environment was used.
