@@ -492,3 +492,128 @@ SQLite write contention is not evidence of PostgreSQL lock safety.
 These findings are ready for targeted independent re-review. This is not an
 institutional acceptance or deployment verdict. All pre-existing uncommitted
 implementation remains intact.
+
+## Dedicated GitHub Actions PostgreSQL validation
+
+`.github/workflows/historical-movements-postgres.yml` runs on pushes to
+`feat/historical-movements`. It does not depend on a workflow already being on
+main, a pull request or a local Docker installation. No run has been executed or
+reported successful as part of this local workflow implementation.
+
+### CI boundary
+
+- GitHub-hosted `ubuntu-latest`, 20-minute job timeout, `contents: read` only,
+  checkout without persistent credentials, actions pinned to commit SHAs.
+- PostgreSQL `18`, matching the major used by the existing PCA Unix QA. The image
+  tracks PostgreSQL 18 patch releases; the actual server version is recorded.
+- Fresh service database/role `historical_movements_ci`, mapped to loopback
+  client endpoint `127.0.0.1:55439`; Django tests create
+  `test_historical_movements_ci`. PostgreSQL data lives in a tmpfs mount under
+  `/var/lib/postgresql`. No host/persistent volume is configured.
+- Trust authentication is deliberately confined to this disposable hosted runner;
+  there are no institutional credentials, repository secrets or reusable password.
+  This is not a pattern for a shared runner or production database.
+- `config.historical_movements_ci_settings` requires the dedicated GitHub/Linux
+  gates, refuses backend/.env and external libpq/database URL configuration, and
+  uses a fixed PostgreSQL engine/endpoint/database/role. There is no SQLite fallback.
+- The read-only preflight checks configuration and PostgreSQL 18 identity, then
+  refuses unexpected schemas, public relations, routines/types or extensions.
+  It never flushes an unexpected database. A failed preflight prevents migrations.
+- The historical acceptance service and command are unchanged and remain disabled
+  on PostgreSQL. No positive acceptance test or direct historical-row insertion is
+  used to evade that guard. The known deadlock is not exercised, fixed or enabled.
+
+### Checks and evidence
+
+The job installs application dependencies from `uv.lock` using Python 3.12 and
+`uv sync --frozen`. The independent offline workflow/settings tests use pinned
+PyYAML as a transient test-tool dependency; it is not added to production packages.
+
+After preflight, CI runs Django checks/drift detection, applies the entire current
+migration graph, captures SQL for cultures `0018` and audit `0004`, and verifies
+applied migrations, exact historical columns, CHECK/unique/FK constraints and the
+two valid/ready B-tree audit indexes in PostgreSQL catalogs. Schema checks also
+require the historical reconstruction table to remain empty.
+
+The selected Django modules are:
+
+- `apps.cultures.test_historical_movements_postgres_ci`: seven PostgreSQL-only
+  tests for deterministic W/W+1 planning, read-only API, permissions/institution
+  isolation, real PostgreSQL guard refusal, schema and lookup evidence.
+- `apps.cultures.test_history_audit_lookup`: existing identity/equivalence,
+  snapshot reuse and query-count regressions. Its SQLite plan test is explicitly
+  skipped on PostgreSQL; it is not used as PostgreSQL performance evidence.
+- `apps.cultures.test_box_detail_organization_scoping`: detail authorization.
+
+The full SQLite-oriented reconstruction test module is deliberately not selected:
+its positive acceptance cases are incompatible with the PostgreSQL refusal guard.
+Its synthetic setup helper is reused without discovering or running those tests.
+No unrelated full backend suite or frontend build is added to this job.
+
+The lookup test generates 1,000 / 10,000 / 50,000 unrelated synthetic audits,
+split equally across the scoped and another institution. At each volume it checks
+numeric, legacy-current, legacy-previous and combined retrieval against the old
+query formulation. It captures 12 observations with unforced
+`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)`, actual index choices, row counts,
+planning/execution times, basic ORM timing and index sizes. It verifies equal
+results, typed identities, no duplicated evidence, one query and no user N+1.
+
+Plans are deliberately not forced and no latency threshold is asserted. An
+optimizer-chosen sequential scan is reported for review, not hidden or made into
+a correctness failure. Measurements are single warm executions on a shared CI
+runner inside a test transaction, not production benchmarks. The old and new
+formulations both use the migrated indexes. Index storage is reported; this job
+does not benchmark concurrent write overhead or production index-build locks.
+
+Every run attaches `historical-movements-postgres-<run-id>-<attempt>` for seven
+days, including the tested SHA, migration plan/logs/SQL, schema findings, test log
+and `historical-movements-postgres-lookup.json`. Failure logs are retained where
+available. Artifacts and the job summary alone do not imply a successful job;
+inspect all step conclusions and the test summary.
+
+### Local review and first GitHub run
+
+Local checks do not start Docker or connect to PostgreSQL:
+
+```text
+uv run --frozen --with pyyaml==6.0.3 python -B -m unittest discover -s scripts -p test_historical_movements_ci.py -v
+```
+
+Use `config.test_settings` with `POSTGRES_DB=''` and
+`POLYPBASE_TEST_POSTGRES=0` for local Django import/regression checks. The seven
+new PostgreSQL tests skip locally; a skip is not a PostgreSQL pass. Do not spoof
+the GitHub gates or redirect these settings to an existing database.
+
+After independent review, Anthony can run the following from the repository root.
+These commands are instructions only; the writer did not execute them:
+
+```text
+git status --short
+git diff --check
+git add .github/workflows/historical-movements-postgres.yml backend/config/historical_movements_ci_settings.py backend/apps/cultures/test_historical_movements_postgres_ci.py scripts/validate_historical_movements_ci.py scripts/test_historical_movements_ci.py backend/HISTORICAL_MOVEMENTS.md
+git diff --cached --stat
+git commit -m "Add isolated PostgreSQL history CI"
+git push origin feat/historical-movements
+```
+
+In GitHub, open Actions -> Historical movements PostgreSQL -> the run for the
+pushed SHA. Verify the preflight, graph/catalog checks and tests, then download the
+artifact to inspect all twelve lookup observations, actual index choices and
+limitations. If Actions requires approval/enabling in the repository, resolve that
+in GitHub; no deployment environment or production secret should be configured.
+
+Local validation of this workflow addition: all eight offline settings/workflow
+unit tests passed with pinned PyYAML; 82 Django tests completed under isolated
+SQLite settings (75 passed, seven new PostgreSQL-only tests skipped). Django
+system checks, migration drift and whitespace checks passed. YAML was parsed and
+its trigger, service, permissions, steps and pinned actions were asserted;
+`actionlint` was not available. An initial invocation with system Python failed
+because that interpreter lacked Django; the documented `uv run` invocation passed.
+No Docker command, PostgreSQL connection or GitHub run was executed locally.
+Actual service startup, migrations/catalog SQL and PostgreSQL test/EXPLAIN results
+remain unverified until the first successful Actions run.
+
+A green run is PostgreSQL integration evidence for this commit and synthetic
+workload only. It is neither production deployment approval nor authorization to
+activate historical acceptance. The documented concurrency blocker and separate
+institutional authorization remain mandatory.
