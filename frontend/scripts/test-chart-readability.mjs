@@ -1007,7 +1007,8 @@ test('location changes use the shared movement translation in every chart entry 
   const exportSource = readFileSync(new URL('../src/components/ExportsView.tsx', import.meta.url), 'utf8');
   const overviewSource = readFileSync(new URL('../src/components/OverviewView.tsx', import.meta.url), 'utf8');
   assert.match(trackingSource, /movement: createTranslator\(language\)\('movementEvent'\)/);
-  assert.match(exportSource, /title: translations\[language\]\.movementEvent/);
+  assert.match(exportSource, /events=\{historyProjection\.events\}/);
+  assert.match(exportSource, /projectBoxHistory\(/);
   assert.match(exportSource, /movement: translations\[language\]\.movementEvent/);
   assert.match(overviewSource, /movement: t\('movementEvent'\)/);
   for (const source of [chartSource, trackingSource, exportSource]) {
@@ -1178,6 +1179,22 @@ test('responsive CSS contracts keep text readable, canvas fitted, and shape/colo
   assert.doesNotMatch(chartSource, /chartId\}-location-/);
 });
 
+test('generic derived period markers are not rendered, even when recorded markers are masked', () => {
+  const view = mountTrendChart({ events: [], temperatures: [], locations: [
+    { id: 1, name: 'A', startsAt: '2026-01-01', endsAt: '2026-01-10T08:00:00Z' },
+    { id: 2, name: 'B', startsAt: '2026-01-10T09:00:00Z', endsAt: null },
+  ] });
+  const nodes = view.render();
+  assert.equal(nodes.filter(node => hasClass(node, 'bio-trend-event')).length, 0);
+  assert.equal(nodes.filter(node => hasClass(node, 'bio-trend-event-choice')).length, 0);
+  assert.equal(nodes.filter(node => hasClass(node, 'bio-trend-event-line')).length, 0);
+  const bands = chart.buildGeometry(readings, [
+    { id: 1, name: 'A', startsAt: '2026-01-01', endsAt: '2026-01-10T08:00:00Z' },
+    { id: 2, name: 'B', startsAt: '2026-01-10T09:00:00Z', endsAt: null },
+  ], [], '2026-01-01', '2026-01-31', false).locationBands;
+  assert.deepEqual(Array.from(bands, band => band.name), ['A', 'B']);
+});
+
 test('persisted movements and derived period changes stay distinct, exact and deduplicated', () => {
   const periods = [
     { id: 1, name: 'A', startsAt: '2026-01-01T08:00:00Z', endsAt: '2026-03-01T10:00:00Z' },
@@ -1335,6 +1352,7 @@ const tracking = compile(`${readFileSync(new URL('../src/components/BoxTrackingC
   './BiologicalTrendChart': chart, './ChartWindowControls': {},
   '../hooks/useTemperatureHistory': {}, './TemperatureHistoryStatus': {},
   '../hooks/useHistoricalTemperatures': {}, './HistoricalTemperatureStatus': {}, '../utils/historicalTemperature': {},
+  '../hooks/useBoxHistory': {}, '../utils/boxHistory': utility('boxHistory'), './BoxHistoryStatus': {},
 });
 
 function withParisCalendar(callback) {

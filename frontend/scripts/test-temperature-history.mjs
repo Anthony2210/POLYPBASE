@@ -324,6 +324,9 @@ function trackingChartHarness() {
     './HistoricalTemperatureStatus': { default: () => null },
     '../hooks/useHistoricalTemperatures': { useHistoricalTemperatures: () => ({ points: [], loading: false, failed: false, retry() {} }) },
     '../utils/historicalTemperature': { weeklyTrendTemperatures: () => [] },
+    '../hooks/useBoxHistory': { useBoxHistory: () => ({ events: [], candidates: [], assessments: [], loading: false, failed: false, retry() {} }) },
+    '../utils/boxHistory': load('../src/utils/boxHistory.ts', {}),
+    './BoxHistoryStatus': { default: () => null },
   }).default;
   function find(tree, type) {
     if (Array.isArray(tree)) return tree.flatMap(node => find(node, type));

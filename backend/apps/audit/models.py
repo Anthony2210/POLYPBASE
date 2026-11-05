@@ -1,6 +1,8 @@
 from django.conf import settings
 from django.db import models
 
+from .expressions import AuditBoxId
+
 
 class Alert(models.Model):
     class AlertType(models.TextChoices):
@@ -107,6 +109,8 @@ class AuditLog(models.Model):
         indexes = [
             models.Index(fields=["organization", "created_at"]),
             models.Index(fields=["action", "created_at"]),
+            models.Index("organization", "object_type", AuditBoxId("metadata"), name="audit_box_numeric_idx"),
+            models.Index(fields=["organization", "object_type", "object_id"], name="audit_box_code_idx"),
         ]
 
     def __str__(self):

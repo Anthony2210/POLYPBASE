@@ -68,6 +68,7 @@ const jaModule = load('../src/i18n/ja.ts');
 const ja = jaModule.ja;
 const jaEntries = catalogEntries('../src/i18n/ja.ts', 'ja');
 const manifest = parseCsv(read('../../docs/translation-review/japanese/ja-manifest.csv'));
+const historicalMovementKeys = JSON.parse(read('../../docs/translation-review/japanese/historical-movement-keys.json'));
 const obsolete = parseCsv(read('../../docs/translation-review/japanese/ja-obsolete-workbook-keys.csv'));
 const register = parseCsv(read('../../docs/translation-review/application/register.csv').replace(/^﻿/, ''));
 const reviewedPath = '../../docs/translation-review/japanese/POLYPBASE_JA_59_candidates_revisees.csv';
@@ -133,7 +134,7 @@ test('ja catalog is exactly the historical and AI-reviewed manifest union', () =
     assert.equal(Object.hasOwn(ja, row.identity), false, `${row.identity}: ${row.reason_code} must use English`);
   }
   const counts = react.reduce((total, row) => ({ ...total, [row.status]: (total[row.status] ?? 0) + 1 }), {});
-  assert.deepEqual(counts, { REUSED: 930, FALLBACK_EN: 143, FALLBACK_EN_REVIEW: 36, AI_REVIEWED: 59 });
+  assert.deepEqual(counts, { REUSED: 930, FALLBACK_EN: 187, FALLBACK_EN_REVIEW: 36, AI_REVIEWED: 59 });
 });
 
 test('original review inputs retain their byte-exact SHA256 hashes', () => {
@@ -238,12 +239,43 @@ test('historical human translations are immutable and separate from AI-reviewed 
   }
 });
 
-test('FR and EN source files remain frozen regardless of Git line endings', () => {
+test('original FR and EN source content remains frozen regardless of Git line endings', () => {
   for (const [language, digest] of [
     ['fr', '1b3486aaea5eea3f8628e96bc88dac9835d3a89da88668ca020ea9119ee757dc'],
     ['en', '62989721d2528126ab48704fe783597dba0d484d2f24ce05a7391e0e9bdbfa27'],
   ]) {
-    assert.equal(sha256(read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n')), digest, language);
+    // Exclude only this explicit additive batch, never reset the historical digest.
+    const source = read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n');
+    const removed = [];
+    const original = source.split('\n').filter(line => {
+      const key = /^  (\w+): /.exec(line)?.[1];
+      if (!historicalMovementKeys.includes(key)) return true;
+      removed.push(key);
+      return false;
+    }).join('\n');
+    assert.deepEqual(removed, historicalMovementKeys, `${language}: exact additive properties`);
+    assert.equal(sha256(original), digest, language);
+  }
+});
+
+test('all 44 historical movement additions have exact FR/EN provenance and English fallback', () => {
+  assert.equal(historicalMovementKeys.length, 44);
+  assert.equal(new Set(historicalMovementKeys).size, 44);
+  const rows = manifest.filter(row => row.surface === 'react' && historicalMovementKeys.includes(row.identity));
+  assert.deepEqual(rows.map(row => row.identity), historicalMovementKeys);
+  const translate = loadI18n().createTranslator('ja');
+  for (const row of rows) {
+    const key = row.identity;
+    assert.equal(row.current_fr, fr[key], `${key}: exact current FR`);
+    assert.equal(row.current_en, en[key], `${key}: exact current EN`);
+    assert.equal(row.status, 'FALLBACK_EN', key);
+    assert.equal(row.reason_code, 'ABSENT_FROM_WORKBOOK', key);
+    assert.equal(row.takeru_review, 'no', key);
+    for (const column of ['sheet_row', 'sheet_section', 'sheet_fr', 'sheet_en', 'ja_validated', 'ja_ai_reviewed']) {
+      assert.equal(row[column], '', `${key}: no historical or reviewed provenance`);
+    }
+    assert.equal(Object.hasOwn(ja, key), false, key);
+    assert.equal(translate(key), en[key], `${key}: English runtime fallback`);
   }
 });
 

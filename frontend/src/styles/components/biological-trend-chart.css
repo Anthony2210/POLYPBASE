@@ -473,10 +473,10 @@
 }
 
 .bio-trend-event.is-movement .bio-trend-event-line {
-  stroke: var(--color-danger);
+  stroke: rgb(0 0 0);
   stroke-width: 1.35;
   stroke-dasharray: 4 3;
-  opacity: .88;
+  opacity: 1;
 }
 
 .bio-trend-event.is-location-change .bio-trend-event-line {
@@ -488,8 +488,20 @@
 
 .bio-trend-event.is-location-change .bio-trend-event-label { fill: var(--color-muted); }
 
+.bio-trend-event.is-deactivation .bio-trend-event-line { stroke: var(--color-danger); }
+.bio-trend-event.is-reactivation .bio-trend-event-line { stroke: var(--color-success); }
+.bio-trend-event.is-deactivation .bio-trend-event-label { fill: var(--color-danger); }
+.bio-trend-event.is-reactivation .bio-trend-event-label { fill: var(--color-success); }
+.bio-trend-event.is-historical_reconstruction .bio-trend-event-line { stroke: none; }
+.bio-trend-event-interval {
+  fill: rgb(0 0 0 / 4%);
+  stroke: rgb(0 0 0);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
 .bio-trend-event-label {
-  fill: var(--color-danger);
+  fill: var(--color-ink);
   stroke: var(--color-surface);
   stroke-width: 2.4;
   paint-order: stroke fill;

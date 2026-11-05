@@ -219,6 +219,9 @@ test('Box tracking forwards daily and weekly readings independently of biology a
           points: failedSource === 'weekly' ? [] : [weekly], failed: failedSource === 'weekly', loading: false,
         }) },
         '../utils/historicalTemperature': historical,
+        '../hooks/useBoxHistory': { useBoxHistory: () => ({ events: [], candidates: [], assessments: [], loading: false, failed: false, retry() {} }) },
+        '../utils/boxHistory': compile(read('../src/utils/boxHistory.ts')),
+        './BoxHistoryStatus': { default: () => null },
         './TemperatureHistoryStatus': { default: () => null },
         './HistoricalTemperatureStatus': { default: () => null },
       }).default;

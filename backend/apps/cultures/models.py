@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
-from django.db.models import Q
+from django.db.models import F, Q
 from django.db.models.functions import Cast, TruncWeek
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -252,6 +252,67 @@ class BoxLocation(models.Model):
 
     def __str__(self):
         return f"{self.box} in {self.thermal_zone}"
+
+
+class HistoricalBoxMovementQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("Historical movement reconstructions are read-only.")
+
+    def delete(self):
+        raise ValidationError("Historical movement reconstructions cannot be deleted.")
+
+
+class HistoricalBoxMovement(models.Model):
+    """Reviewed week-only reconstruction, never an exact physical timestamp."""
+
+    box = models.ForeignKey(Box, on_delete=models.PROTECT, related_name="historical_movements")
+    iso_year = models.PositiveSmallIntegerField()
+    iso_week = models.PositiveSmallIntegerField()
+    from_thermal_zone = models.ForeignKey(ThermalZone, on_delete=models.PROTECT, related_name="historical_departures")
+    to_thermal_zone = models.ForeignKey(ThermalZone, on_delete=models.PROTECT, related_name="historical_arrivals")
+    origin_location = models.ForeignKey(BoxLocation, on_delete=models.PROTECT, related_name="historical_departures")
+    destination_location = models.ForeignKey(BoxLocation, on_delete=models.PROTECT, related_name="historical_arrivals")
+    candidate_key = models.CharField(max_length=64, unique=True, editable=False)
+    plan_fingerprint = models.CharField(max_length=64, editable=False)
+    evidence = models.JSONField(default=dict, editable=False)
+    accepted_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, editable=False)
+    accepted_at = models.DateTimeField(auto_now_add=True)
+    notes = models.TextField(blank=True)
+
+    objects = HistoricalBoxMovementQuerySet.as_manager()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["box", "iso_year", "iso_week"], name="unique_historical_box_movement_week"),
+            models.CheckConstraint(condition=Q(iso_year__gte=1, iso_year__lte=9999), name="historical_movement_year_valid"),
+            models.CheckConstraint(condition=Q(iso_week__gte=1, iso_week__lte=53), name="historical_movement_week_valid"),
+            models.CheckConstraint(condition=~Q(from_thermal_zone=F("to_thermal_zone")), name="historical_movement_distinct_zones"),
+        ]
+
+    def clean(self):
+        from datetime import date
+
+        super().clean()
+        try:
+            date.fromisocalendar(self.iso_year, self.iso_week, 1)
+        except (ValueError, TypeError) as exc:
+            raise ValidationError("A valid ISO week is required.") from exc
+        for zone in (self.from_thermal_zone, self.to_thermal_zone):
+            if zone.organization_id != self.box.organization_id:
+                raise ValidationError("Historical movement zones must belong to the box institution.")
+        for location, zone_id in ((self.origin_location, self.from_thermal_zone_id), (self.destination_location, self.to_thermal_zone_id)):
+            if location.box_id != self.box_id or location.thermal_zone_id != zone_id:
+                raise ValidationError("Historical movement period evidence does not match.")
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("Historical movement reconstructions are read-only.")
+        self.full_clean()
+        kwargs["force_insert"] = True
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Historical movement reconstructions cannot be deleted.")
 
 
 class BoxInventoryInitialization(models.Model):

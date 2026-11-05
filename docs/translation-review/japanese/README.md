@@ -6,13 +6,14 @@ Ce dossier distingue le japonais historique validé par Takeru des ajouts React 
 
 - Baseline Git : `d3b3e2b1b06843a93fad1f2983021ceec01a9f52` (`i18n: apply approved French and English translations`).
 - Classeur figé, lu sans modification : `Traduction Polypbase(4).xlsx`, SHA-256 `e80b409fbea485d97fbccf66d06da83eb46374883d1e3343f50e51e656b8c307`, feuille « Traductions i18n », lignes identifiées par clé exacte (colonne `Keys`), jamais par numéro de ligne. 1 384 clés, toutes avec un japonais « Fait » ; aucune clé en double, aucune formule.
-- Catalogues actuels : 1 168 clés FR et 1 168 clés EN identiques ; 98 msgids Django actifs (inventaire de `scripts/check_i18n.py`).
+- Catalogues actuels : 1 212 clés FR et 1 212 clés EN identiques ; 98 msgids Django actifs (inventaire de `scripts/check_i18n.py`).
 
 ## Fichiers
 
 | Fichier | Rôle |
 |---|---|
 | `build_ja_catalogs.py` | Recalcule depuis le classeur figé et les deux CSV IA verrouillés par SHA-256 ; `--check` n'écrit rien et échoue si une sortie diffère. Contient chaque décision sémantique, avec sa raison. Seules les sorties différentes sont écrites. |
+| `historical-movement-keys.json` | Liste explicite des 44 clés FR/EN ajoutées pour les mouvements historiques, sans japonais ; délimite l'extension additive dans les tests des empreintes historiques. |
 | `ja-manifest.csv` | Une ligne par identité actuelle (React, gettext Django, tables locales, ternaires inline) : statut, raison, valeurs FR/EN actuelles et du classeur, `ja_validated` historique et `ja_ai_reviewed` séparé. |
 | `ja-takeru-review.csv` | Les 43 identités différées à soumettre à Takeru, dont 8 questions ouvertes. Le japonais original est conservé, mais jamais affiché avant validation. Aucune proposition japonaise. |
 | `ja-obsolete-workbook-keys.csv` | Les 249 clés du classeur absentes du code actuel (217 React, dont les suppressions B03-B06, et 32 msgids Django). Ignorées, jamais restaurées. |
@@ -51,12 +52,12 @@ Le FR/EN est comparé exactement au texte relu, sans normalisation silencieuse. 
 
 | Surface | Humain réutilisé | IA relue | Absentes sans JA | Différées (revue) | Inline non branchées | Total |
 |---|---:|---:|---:|---:|---:|---:|
-| Catalogues React | 930 | 59 | 143 | 36 | – | 1 168 |
+| Catalogues React | 930 | 59 | 187 | 36 | – | 1 212 |
 | gettext Django (msgids actifs) | 81 | – | 11 | 6 | – | 98 |
 | Tables locales (`ErrorBoundary`, `InteractiveLineageGraph`, `boxStatus`, `ExportsView`) | 67 | – | – | 1 | – | 68 |
 | Ternaires inline | – | – | – | – | 14 | 14 |
 
-React : 989 clés japonaises affichées. Les 179 replis anglais se décomposent en 143 absences (dont les six `BLOCK`) et les 36 différées historiques inchangées. Les 202 absences initiales se décomposent en 59 ajouts et 143 absences restantes.
+React : 989 clés japonaises affichées. Les 223 replis anglais se décomposent en 187 absences (dont les six `BLOCK`) et les 36 différées historiques inchangées. Avant l'extension des mouvements historiques, les 202 absences initiales se décomposaient en 59 ajouts IA et 143 absences restantes.
 
 React réutilisées : 903 correspondances exactes et 27 écarts compatibles. Les 8 questions ouvertes (`auditActionTransfer`, `auditObjectOrganization`, `auditMetaMembershipId`, `boxInventoryLastKnownLocation`, `boxLifecycleLastKnownLocation`, `adminTransferText`, `movementErrorProvenance`, `zoneMovementExits`) affichent l'anglais actuel jusqu'à validation de Takeru. Django : 66 exactes, 15 écarts compatibles.
 
@@ -65,6 +66,14 @@ React réutilisées : 903 correspondances exactes et 27 écarts compatibles. Les
 Entre `4866520` et `d3b3e2b`, 153 identités FR/EN ont changé : 133 valent maintenant exactement le texte du classeur, 20 sont des adaptations contextuelles. Le rapport `fr-en-sync-recovery.md` comptait 132 correspondances : l'écart est `adminTransferTarget` FR, rétabli à « Structure destinataire » par B11/B12 après ce rapport. Pour ces 133 identités, le FR/EN actuel est celui que Takeru a traduit : leur japonais est réutilisé. Les 20 adaptations sont classées une par une dans le manifeste (9 réutilisées, 11 différées).
 
 Avant la synchronisation, 158 clés React avaient un EN différent du classeur. Il en reste 50 : 24 réutilisées pour un écart sans changement de sens, 26 différées.
+
+## Maintenance additive des mouvements historiques (2026-11-04)
+
+Les 44 nouvelles clés sont identifiées par comparaison de l'AST FR avec le manifeste existant et vérifiées contre le diff FR/EN. Elles sont insérées dans l'ordre canonique FR avec les valeurs FR/EN actuelles exactes, `FALLBACK_EN` / `ABSENT_FROM_WORKBOOK`, sans valeur japonaise, référence au classeur ou nouvelle revue. `historical-movement-keys.json` fixe explicitement ce lot ; ce n'est pas une liste dynamique de toutes les clés inconnues. Toutes les lignes préexistantes du manifeste restent inchangées.
+
+Le classeur figé étant absent du dépôt, aucune lecture externe privée ni régénération réelle depuis le classeur (y compris `--check`) n'a été exécutée pour cette maintenance. Le classement indique ici un ajout absent du manifeste de référence, conformément à la règle de repli ; il ne prétend pas à une nouvelle vérification du classeur. Le test de génération utilise uniquement les faits historiques déjà présents dans les CSV et un lecteur de classeur simulé ; il ne remplace pas le contrôle réel du classeur et de son SHA-256.
+
+Les tests retirent uniquement ce lot explicite avant de vérifier les empreintes FR/EN originales et celle du manifeste historique ; aucune empreinte historique n'est remplacée. Les 930 valeurs humaines, les 59 ajouts IA, les 36 clés React différées et les empreintes octet pour octet des CSV de revue restent verrouillés. Les catalogues japonais React et Django ainsi que les CSV de revue ne sont pas modifiés. Toute évolution future hors de ce lot exige une maintenance explicitement examinée, pas une remise à zéro des snapshots.
 
 ## Repli et exceptions
 

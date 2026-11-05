@@ -5,6 +5,7 @@ from .models import (
     BoxLineage,
     BoxLocation,
     BoxMovement,
+    HistoricalBoxMovement,
     BoxTransfer,
     BoxTransferImport,
     IdentificationTag,
@@ -51,6 +52,11 @@ class LocationHistoryReadOnlyAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(HistoricalBoxMovement)
+class HistoricalBoxMovementAdmin(LocationHistoryReadOnlyAdmin):
+    list_display = ("box", "iso_year", "iso_week", "accepted_at")
 
 
 @admin.register(BoxLocation)

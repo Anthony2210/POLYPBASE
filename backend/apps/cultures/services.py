@@ -134,13 +134,14 @@ def qualify_pending_box(
 
     before_values = _status_values(box)
     closed_location_ids = []
+    qualification_movement = None
     if target_status == Box.Status.ACTIVE:
         if box.thermal_zone_id is not None and thermal_zone is not None:
             raise ValidationError(
                 "A pending box that already has a location cannot be moved during qualification."
             )
         if thermal_zone is not None:
-            move_box_to_thermal_zone(
+            qualification_movement = move_box_to_thermal_zone(
                 box=box,
                 thermal_zone=thermal_zone,
                 moved_at=timezone.now(),
@@ -196,6 +197,7 @@ def qualify_pending_box(
             "before": before_values,
             "after": after_values,
             "closed_location_ids": closed_location_ids,
+            **({"movement_id": qualification_movement.pk} if qualification_movement else {}),
         },
     )
     return box

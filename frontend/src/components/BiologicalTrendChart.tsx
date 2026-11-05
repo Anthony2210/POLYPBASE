@@ -81,7 +81,9 @@ export type TrendEvent = {
   detail?: string;
   detailLines?: Array<{ label: string; value: string }>;
   // 'movement' is a persisted BoxMovement; 'location_change' is a derived location period boundary.
-  kind?: 'movement' | 'subculture' | 'location_change';
+  kind?: 'movement' | 'subculture' | 'location_change' | 'historical_reconstruction' | 'deactivation' | 'reactivation';
+  intervalEnd?: string;
+  temporalLabel?: string;
   // Full timestamp, used for exact coincidence checks and event identification.
   instant?: string;
 };
@@ -610,6 +612,9 @@ export default function BiologicalTrendChart({
                   x2={0}
                   y2={chartAreaHeight}
                 />
+                {event.intervalEnd ? <rect className="bio-trend-event-interval" x={0} y={0}
+                  width={Math.max(2, xPosition(event.intervalEnd > end ? end : event.intervalEnd) - x)}
+                  height={chartAreaHeight} /> : null}
                 <line
                   className="bio-trend-event-line"
                   x1={0}
@@ -975,7 +980,8 @@ export function buildGeometry(
     .filter((point) => point.date >= startText && point.date <= endText)
     .sort((left, right) => left.date.localeCompare(right.date) || (left.timelineOrder ?? 0) - (right.timelineOrder ?? 0));
   const plottedEvents = [...events]
-    .filter((event) => isChartEventInRange(event.date, startText, endText))
+    .filter((event) => event.intervalEnd ? event.date <= endText && event.intervalEnd >= startText
+      : isChartEventInRange(event.instant ?? event.date, startText, endText))
     .sort((left, right) => left.date.localeCompare(right.date));
   const xScale = scaleTime().domain([start, end]).range([padding.left, width - padding.right]);
   const xPosition = (date: string) => xScale(normalizeDate(date));
@@ -1024,7 +1030,7 @@ export function buildGeometry(
   // Persisted movements sit at their own date; they are never snapped to a period boundary.
   const explicitEventPoints = plottedEvents.map((event) => ({
     event,
-    x: xPosition(event.date),
+    x: xPosition(event.intervalEnd && event.date < startText ? startText : event.instant ?? event.date),
     coincidesWithBoundary: event.kind === 'movement'
       && transitions.some((transition) => isSameInstant(event.instant ?? event.date, transition.startsAt)),
   }));
@@ -1159,6 +1165,7 @@ function buildZoneTransitions(locationBands: LocationBand[]) {
 }
 
 export function formatEventDate(event: TrendEvent) {
+  if (event.temporalLabel) return event.temporalLabel;
   const instant = event.instant ?? event.date;
   if (instant.length <= 10 || Number.isNaN(Date.parse(instant))) return formatDisplayDate(event.date);
   // Keep the localized date convention and show the exact UTC time, including supplied precision.
@@ -1185,7 +1192,11 @@ export function isChartEventInRange(value: string, startDate: string, endDate: s
 }
 
 function normalizeDate(value: string) {
-  return new Date(`${value.slice(0, 10)}T00:00:00`);
+  if (value.length > 10) {
+    const instant = new Date(value);
+    return new Date(instant.getFullYear(), instant.getMonth(), instant.getDate());
+  }
+  return new Date(`${value}T00:00:00`);
 }
 
 function addDays(date: Date, days: number) {

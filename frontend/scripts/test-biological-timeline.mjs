@@ -21,6 +21,11 @@ function load(path, dependencies = {}) {
 }
 const timeline = load('../src/utils/biologicalTimeline.ts');
 const utility = (name) => load(`../src/utils/${name}.ts`);
+const historyDependencies = {
+  '../hooks/useBoxHistory': { useBoxHistory: () => ({ events: [], candidates: [], assessments: [], loading: false, failed: false, retry() {} }) },
+  '../utils/boxHistory': utility('boxHistory'),
+  './BoxHistoryStatus': { default: () => null },
+};
 const fr = load('../src/i18n/fr.ts').fr;
 const en = load('../src/i18n/en.ts').en;
 const reading = (id, date, polyps, ephyrae = 0) => ({ id, measured_on: date, polyp_count: polyps, ephyrae_count: ephyrae, salinity_psu: null, notes: '', user: 'Scientist' });
@@ -203,6 +208,7 @@ for (const [language, catalog] of [['fr', fr], ['en', en]]) {
       average_temperature_c: point.id === 45 ? 10 : 15,
       zone_name: point.id === 45 ? 'CHO 10 C' : 'CHO 15 C', zone_id: point.id === 45 ? 101 : 100 }));
     const tracking = load('../src/components/BoxTrackingChart.tsx', {
+      ...historyDependencies,
       react: { useMemo: fn => fn(), useState: initial => [initial, () => {}] }, 'react/jsx-runtime': jsxRuntime,
       '../utils/chartWindow': utility('chartWindow'), '../utils/biologicalTimeline': timeline,
       './BiologicalTrendChart': { ...chartHarness().chart, default: () => null }, './ChartWindowControls': { default: () => null },
@@ -401,6 +407,7 @@ test('hiding polyps removes unmeasured event targets instead of blocking ephyrae
 
 test('tracking window prefers the latest quantitative state over an older ordinary measurement', () => {
   const tracking = load('../src/components/BoxTrackingChart.tsx', {
+    ...historyDependencies,
     react: { useMemo: (fn) => fn(), useState: (initial) => [initial, () => {}] }, 'react/jsx-runtime': jsxRuntime,
     '../utils/chartWindow': utility('chartWindow'), '../utils/biologicalTimeline': timeline,
     './BiologicalTrendChart': { ...chartHarness().chart, default: () => null }, './ChartWindowControls': { default: () => null },
@@ -427,6 +434,7 @@ test('tracking window prefers the latest quantitative state over an older ordina
 
 test('lifecycle grouping and preview integration use one event per parent operation', () => {
   const tracking = load('../src/components/BoxTrackingChart.tsx', {
+    ...historyDependencies,
     react: {}, 'react/jsx-runtime': jsxRuntime,
     '../utils/chartWindow': utility('chartWindow'), '../utils/biologicalTimeline': timeline,
     './BiologicalTrendChart': {}, './ChartWindowControls': {},

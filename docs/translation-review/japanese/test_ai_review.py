@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import build_ja_catalogs as builder
-from test_ja_manifest import ROOT, rows
+from test_ja_manifest import HISTORICAL_MOVEMENT_KEYS, ROOT, rows
 
 
 def digest(value):
@@ -36,7 +36,9 @@ class AiReviewTests(unittest.TestCase):
 
     def test_entire_historical_manifest_is_unchanged(self):
         # Baseline a841519: includes all human values, all deferred rows and Django.
-        self.assertEqual(digest(self.historical()),
+        original = [r for r in self.historical()
+                    if not (r["surface"] == "react" and r["identity"] in HISTORICAL_MOVEMENT_KEYS)]
+        self.assertEqual(digest(original),
                          "bc098900a872d90cda3df08707409192dc8641b6a48a5425f1ba7a9a11294453")
         pairs = [[r["identity"], r["ja_validated"]] for r in self.manifest
                  if r["surface"] == "react" and r["status"] == "REUSED"]
@@ -61,13 +63,23 @@ class AiReviewTests(unittest.TestCase):
             if row["status"] != "AI_REVIEWED":
                 self.assertEqual(row["ja_ai_reviewed"], "")
 
-    def test_frozen_fr_en_bytes(self):
+    def test_original_fr_en_bytes_remain_frozen(self):
         for lang, expected in {
             "fr": "1b3486aaea5eea3f8628e96bc88dac9835d3a89da88668ca020ea9119ee757dc",
             "en": "62989721d2528126ab48704fe783597dba0d484d2f24ce05a7391e0e9bdbfa27",
         }.items():
             source = (ROOT / f"frontend/src/i18n/{lang}.ts").read_text(encoding="utf-8")
-            self.assertEqual(hashlib.sha256(source.encode()).hexdigest(), expected)
+            # Remove only the explicit single-line additions; retain the original hash.
+            removed = []
+            original = []
+            for line in source.splitlines(keepends=True):
+                key = line.removeprefix("  ").split(": ", 1)[0]
+                if key in HISTORICAL_MOVEMENT_KEYS and line.startswith("  "):
+                    removed.append(key)
+                else:
+                    original.append(line)
+            self.assertEqual(removed, HISTORICAL_MOVEMENT_KEYS)
+            self.assertEqual(hashlib.sha256("".join(original).encode()).hexdigest(), expected)
 
     def test_authorized_files_reject_any_unreviewed_change(self):
         for source in (builder.AI_REVIEW, builder.AI_BLOCKED):
@@ -169,7 +181,7 @@ class AiReviewTests(unittest.TestCase):
         deferred = {k for k, r in react.items() if r["status"] == "FALLBACK_EN_REVIEW"}
         self.assertTrue(blocked <= absent)
         self.assertFalse(blocked & deferred)
-        self.assertEqual(len(absent - blocked), 137)
+        self.assertEqual(len(absent - blocked), 181)
         for key in react:
             if key.startswith("csv"):
                 self.assertEqual(react[key]["status"], "FALLBACK_EN", key)

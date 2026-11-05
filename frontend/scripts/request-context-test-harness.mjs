@@ -8,6 +8,7 @@ export function createRequestContextHarness(componentName, initialProps) {
   const slots = [];
   const timers = new Map();
   const requests = [];
+  const historyRequests = [];
   const downloads = [];
   let organizationController = new AbortController();
   let cursor = 0;
@@ -75,6 +76,11 @@ export function createRequestContextHarness(componentName, initialProps) {
       requests.push(request);
       return request.promise;
     },
+    apiGetResource(url, config) {
+      const request = deferredRequest(url, config);
+      historyRequests.push(request);
+      return request.promise.then(data => JSON.stringify(data));
+    },
     apiDownload(url) {
       const request = deferredRequest(url);
       downloads.push(request);
@@ -120,6 +126,7 @@ export function createRequestContextHarness(componentName, initialProps) {
       if (name === '../i18n') {
         return {
           translations,
+          createTranslator: language => key => translations[language]?.[key] ?? key,
           getLanguageLocale: (language) => ({ fr: 'fr-FR', en: 'en-GB', ja: 'ja-JP' })[language],
           selectLocalCopy: (language, copy) => (language === 'ja' ? { ...copy.en, ...copy.ja } : copy[language]),
         };
@@ -182,7 +189,7 @@ export function createRequestContextHarness(componentName, initialProps) {
     callbacks.forEach((callback) => callback());
   }
   return {
-    requests, downloads, ApiError, render, commit, flush, settle, runTimers,
+    requests, historyRequests, downloads, ApiError, render, commit, flush, settle, runTimers,
     get tree() { return tree; },
     setProps(next) { props = { ...props, ...next }; dirty = true; },
     holdDeferred(value) { holdDeferred = value; dirty = true; },

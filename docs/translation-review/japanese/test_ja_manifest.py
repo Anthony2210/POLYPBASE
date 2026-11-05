@@ -4,6 +4,7 @@ Run from the repository root:
     python -m unittest discover -s docs/translation-review/japanese -p "test_*.py"
 """
 import csv
+import json
 import sys
 import unittest
 from collections import Counter
@@ -11,6 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
+HISTORICAL_MOVEMENT_KEYS = json.loads((HERE / "historical-movement-keys.json").read_text(encoding="utf-8"))
 sys.path.insert(0, str(ROOT / "docs/translation-review/application"))
 sys.path.insert(0, str(ROOT / "scripts"))
 import check_i18n  # noqa: E402
@@ -39,7 +41,7 @@ class JapaneseManifestTests(unittest.TestCase):
     def test_exact_counts(self):
         self.assertEqual(Counter((r["surface"], r["status"]) for r in self.manifest), Counter({
             ("react", "REUSED"): 930, ("react", "AI_REVIEWED"): 59,
-                        ("react", "FALLBACK_EN"): 143, ("react", "FALLBACK_EN_REVIEW"): 36,
+                        ("react", "FALLBACK_EN"): 187, ("react", "FALLBACK_EN_REVIEW"): 36,
             ("django", "REUSED"): 81, ("django", "FALLBACK_EN"): 11, ("django", "FALLBACK_EN_REVIEW"): 6,
             ("local", "REUSED"): 67, ("local", "FALLBACK_EN_REVIEW"): 1, ("inline", "FALLBACK_EN_INLINE"): 14,
         }))
@@ -52,6 +54,24 @@ class JapaneseManifestTests(unittest.TestCase):
         self.assertEqual([r["identity"] for r in self.by("react")], list(self.fr))
         self.assertEqual({r["identity"] for r in self.by("django")},
                          {f"django:gettext:{msgid}" for msgid in self.sources})
+
+    def test_historical_movement_additions_are_exact_untranslated_sources(self):
+        self.assertEqual(len(HISTORICAL_MOVEMENT_KEYS), 44)
+        self.assertEqual(len(set(HISTORICAL_MOVEMENT_KEYS)), 44)
+        en = check_register.read_catalog(ROOT / "frontend/src/i18n/en.ts")
+        added = [r for r in self.by("react") if r["identity"] in HISTORICAL_MOVEMENT_KEYS]
+        self.assertEqual([r["identity"] for r in added], HISTORICAL_MOVEMENT_KEYS)
+        for row in added:
+            key = row["identity"]
+            with self.subTest(key=key):
+                self.assertEqual(row["current_fr"], self.fr[key])
+                self.assertEqual(row["current_en"], en[key])
+                self.assertEqual(row["status"], "FALLBACK_EN")
+                self.assertEqual(row["reason_code"], "ABSENT_FROM_WORKBOOK")
+                self.assertEqual(row["takeru_review"], "no")
+                for column in ("sheet_row", "sheet_section", "sheet_fr", "sheet_en", "ja_validated", "ja_ai_reviewed"):
+                    self.assertEqual(row[column], "")
+                self.assertNotIn(key, self.ja_ts)
 
     def test_catalogs_equal_their_authorized_provenance_rows(self):
         self.assertEqual(self.ja_ts, {r["identity"]: r["ja_validated"] if r["status"] == "REUSED" else r["ja_ai_reviewed"]

@@ -15,6 +15,7 @@ from apps.accounts.api_views import (
     SessionLogoutAPIView,
     UserProfileAPIView,
 )
+from apps.cultures.history_api import BoxHistoryAPIView
 from apps.measurements.probe_views import ThermalZoneProbeReadingsAPIView
 from apps.cultures.api_views import (
     AdminBoxInitialLocationAPIView,
@@ -135,6 +136,7 @@ urlpatterns = [
     path("boxes/automatic/intents/execute/", AutomaticBoxIntentExecuteAPIView.as_view(), name="api_box_automatic_intent_execute"),
     path("boxes/automatic/intents/cancel/", AutomaticBoxIntentCancelAPIView.as_view(), name="api_box_automatic_intent_cancel"),
     path("boxes/<int:pk>/", BoxDetailAPIView.as_view(), name="api_box_detail"),
+    path("boxes/<int:box_id>/history/", BoxHistoryAPIView.as_view(), name="api_box_history"),
     path(
         "boxes/<int:box_id>/temperatures/",
         BoxTemperatureHistoryAPIView.as_view(),
