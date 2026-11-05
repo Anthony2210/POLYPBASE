@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import build_ja_catalogs as builder
-from test_ja_manifest import ROOT, rows
+from test_ja_manifest import ROOT, post_baseline_react_keys, rows
 
 
 def digest(value):
@@ -31,11 +31,12 @@ LATER_FALLBACK_KEYS = frozenset({
 
 def historical_source(source):
     lines = source.replace("\r\n", "\n").split("\n")
-    for key in LATER_FALLBACK_KEYS:
-        if sum(line.startswith(f"  {key}: '") for line in lines) != 1:
-            raise AssertionError(f"{key}: expected one additive line")
-    return "\n".join(line for line in lines
-                     if not any(line.startswith(f"  {key}: '") for key in LATER_FALLBACK_KEYS))
+    prefixes = {f"  {key}: '" for key in LATER_FALLBACK_KEYS}
+    additive = [line for line in lines if line.partition(": '")[0] + ": '" in prefixes]
+    for prefix in prefixes:
+        if sum(line.startswith(prefix) for line in additive) != 1:
+            raise AssertionError(f"{prefix}: expected one additive line")
+    return "\n".join(line for line in lines if line.partition(": '")[0] + ": '" not in prefixes)
 
 
 class AiReviewTests(unittest.TestCase):
@@ -48,8 +49,11 @@ class AiReviewTests(unittest.TestCase):
         cls.blocked = builder.read_ai_csv(builder.AI_BLOCKED)
 
     def historical(self):
-        # Keys added after the AI integration are excluded by exact identity.
-        records = [row for row in copy.deepcopy(self.manifest) if row["identity"] not in LATER_FALLBACK_KEYS]
+        # Independently frozen thermal and lab additions are not baseline history.
+        added = post_baseline_react_keys()
+        self.assertEqual(set(added), LATER_FALLBACK_KEYS)
+        records = [row for row in copy.deepcopy(self.manifest)
+                   if not (row["surface"] == "react" and row["identity"] in added)]
         for row in records:
             row.pop("ja_ai_reviewed")
             if row["status"] == "AI_REVIEWED":
@@ -93,12 +97,21 @@ class AiReviewTests(unittest.TestCase):
                 self.assertEqual(row["ja_ai_reviewed"], "")
 
     def test_frozen_fr_en_bytes(self):
+        # Removing exactly the registered post-baseline key lines must restore
+        # the frozen baseline bytes; any other FR/EN change still fails.
+        added = post_baseline_react_keys()
         for lang, expected in {
             "fr": "1b3486aaea5eea3f8628e96bc88dac9835d3a89da88668ca020ea9119ee757dc",
             "en": "62989721d2528126ab48704fe783597dba0d484d2f24ce05a7391e0e9bdbfa27",
         }.items():
             source = (ROOT / f"frontend/src/i18n/{lang}.ts").read_text(encoding="utf-8")
+            self.assertEqual(set(added), LATER_FALLBACK_KEYS)
             self.assertEqual(hashlib.sha256(historical_source(source).encode()).hexdigest(), expected)
+            for key, values in added.items():
+                line = f"  {key}: '{values[lang.upper()]}',\n"
+                self.assertEqual(source.count(line), 1, line)
+                source = source.replace(line, "")
+            self.assertEqual(hashlib.sha256(source.encode()).hexdigest(), expected)
 
     def test_source_fingerprint_scope_rejects_each_historical_value_change(self):
         for lang in ("fr", "en"):
@@ -113,6 +126,7 @@ class AiReviewTests(unittest.TestCase):
                 self.assertEqual(actual == fingerprint, key in LATER_FALLBACK_KEYS, f"{lang}.{key}")
             unknown = source.replace("\n}", "\n  unapprovedAddition: 'Value',\n}", 1)
             self.assertNotEqual(hashlib.sha256(historical_source(unknown).encode()).hexdigest(), fingerprint)
+
 
     def test_authorized_files_reject_any_unreviewed_change(self):
         for source in (builder.AI_REVIEW, builder.AI_BLOCKED):
@@ -216,6 +230,10 @@ class AiReviewTests(unittest.TestCase):
         self.assertFalse(blocked & deferred)
         # 137 at the AI integration, plus 7 thermal and 14 Laboratory configuration keys.
         self.assertEqual(len(absent - blocked), 158)
+        added = set(post_baseline_react_keys())
+        self.assertEqual(added, LATER_FALLBACK_KEYS)
+        self.assertTrue(added <= absent)
+        self.assertEqual(len(absent - blocked - added), 137)
         for key in react:
             if key.startswith("csv"):
                 self.assertEqual(react[key]["status"], "FALLBACK_EN", key)

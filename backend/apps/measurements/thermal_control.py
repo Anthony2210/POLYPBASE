@@ -3,7 +3,7 @@
 from datetime import timedelta
 from decimal import Decimal
 
-from django.db.models import Case, Count, F, Max, Min, OuterRef, Subquery, When
+from django.db.models import Case, Count, F, Max, Min, OuterRef, Subquery, Value, When
 from django.utils import timezone
 
 from .models import Probe, ProbeTemperatureBucket, TemperatureMeasurement
@@ -26,9 +26,12 @@ def thermal_control_probes(zone):
     ).order_by("-last_measured_at").values("last_measured_at")[:1]
     # Both the latest lookup and the exact-instant tie lookup use the composite
     # (probe, last_measured_at) index; never group the probe's full history.
+    # The probe is already fixed, so aggregate the tied rows with no GROUP BY:
+    # a constant values() key emits none, and a redundant GROUP BY probe_id
+    # makes SQLite 3.50 fall back to the single-column foreign-key index.
     buckets = bucket_scope.filter(
         probe_id=OuterRef("pk"), last_measured_at=Subquery(latest_for_ties),
-    ).order_by().values("probe_id").annotate(
+    ).order_by().values(single=Value(1)).annotate(
         total=Count("pk"), known=Count("last_temperature_c"),
         minimum=Min("last_temperature_c"), maximum=Max("last_temperature_c"),
     ).annotate(

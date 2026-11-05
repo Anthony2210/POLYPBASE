@@ -38,6 +38,8 @@ function createView(latestSalinity, canRecordManualSalinity = true, operations =
     '../utils/errors': { getErrorMessage: (error) => { presentedErrors.push(error); return error.message; } },
     '../utils/temperatureScale': {},
     '../hooks/useProbeMonitoring': { default: () => ({ monitoring: null, error: null, revalidate() {} }) },
+    // ZoneFunctionalSections does not render the thermal panel; fail if it ever runs here.
+    '../hooks/useThermalControl': { default: () => assert.fail('Salinity sections must not run thermal control') },
     './ProbeReadingsModal': { default: () => null },
     './BoxTrackingPreview': { default: () => null },
     './DetailBackButton': { default: () => null },

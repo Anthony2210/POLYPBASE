@@ -222,12 +222,21 @@ class PcaTemperatureStorageTests(TestCase):
 class IntegratedMigrationGraphTests(SimpleTestCase):
     def test_single_measurement_leaf_and_preserved_cultures_dependency(self):
         graph = MigrationLoader(None).graph
-        self.assertEqual(graph.leaf_nodes("measurements"), [("measurements", "0015_iminilide_probe_collection")])
-        path = graph.forwards_plan(("measurements", "0015_iminilide_probe_collection"))
+        leaves = graph.leaf_nodes("measurements")
+        self.assertEqual(len(leaves), 1, leaves)
+        path = graph.forwards_plan(leaves[0])
         self.assertLess(
             path.index(("measurements", "0014_measurement_canonical_evidence")),
             path.index(("measurements", "0015_iminilide_probe_collection")),
         )
+        # Every later measurements migration extends one linear chain from
+        # 0015: no branch or merge can reorder the historical prefix.
+        later = [node for node in path[path.index(("measurements", "0015_iminilide_probe_collection")):]
+                 if node[0] == "measurements"]
+        self.assertEqual(later[-1], leaves[0])
+        for previous, node in zip(later, later[1:]):
+            parents = {p.key for p in graph.node_map[node].parents if p.key[0] == "measurements"}
+            self.assertEqual(parents, {previous}, node)
         for migration in (
             ("measurements", "0011_historical_temperature_storage"),
             ("measurements", "0012_historical_temperature_guards"),
