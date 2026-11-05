@@ -16,11 +16,49 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import check_i18n  # noqa: E402
 import check_register  # noqa: E402
 import compile_django_messages  # noqa: E402
+from test_check_register import (  # noqa: E402
+    B13_POSITION, LAB_POSITION, b13_integrity_errors, lab_integrity_errors,
+)
 
 
 def rows(name):
     with (HERE / name).open(encoding="utf-8", newline="") as stream:
         return list(csv.DictReader(stream))
+
+
+# Commit whose FR/EN bytes and manifest the historical fingerprints freeze.
+FROZEN_BASELINE = "c857a592e170ae6933969098c90fed95d0eb3ea5"
+
+
+def post_baseline_react_keys(register=None):
+    """React keys registered as new FR/EN pairs after the frozen baseline.
+
+    Only pure additions qualify: any other registered change since the
+    baseline fails here instead of being silently excluded from history.
+    Thermal and lab events share B13 and the baseline but have independent
+    fingerprints; neither can redefine what is excluded by a coordinated edit.
+    """
+    register = check_register.load_register() if register is None else register
+    integrity = b13_integrity_errors(register) + lab_integrity_errors(register)
+    if integrity:
+        raise AssertionError("; ".join(integrity))
+    entries = [r for r in register if r["baseline_git_head"] == FROZEN_BASELINE]
+    expected = register[B13_POSITION] + register[LAB_POSITION]
+    if entries != expected or [r for r in register if r["batch"] == "B13-2026-11-04"] != expected:
+        raise AssertionError("only the frozen thermal and lab events may use B13 or the frozen baseline")
+    languages = {}
+    for entry in entries:
+        thermal = entry in register[B13_POSITION]
+        expected_status = "ALREADY_MATCHING" if thermal or entry["key_or_msgid"] == "adminLabReferenceSalinity" else "DEFERRED"
+        reason = "New key added" if thermal else "New Administration > Laboratory configuration key"
+        if (entry["surface"] != "react" or entry["status"] != expected_status
+                or entry["initial_value"] != entry["final_value"] or reason not in entry["reason"]):
+            raise AssertionError(f"{entry['entry_id']}: not a registered new React key")
+        languages.setdefault(entry["key_or_msgid"], []).append(entry["language"])
+    for key, found in languages.items():
+        if sorted(found) != ["EN", "FR"]:
+            raise AssertionError(f"{key}: expected exactly one FR and one EN registration, got {found}")
+    return {key: {e["language"]: e["final_value"] for e in entries if e["key_or_msgid"] == key} for key in languages}
 
 
 class JapaneseManifestTests(unittest.TestCase):
@@ -36,10 +74,58 @@ class JapaneseManifestTests(unittest.TestCase):
     def by(self, surface):
         return [row for row in self.manifest if row["surface"] == surface]
 
+    def test_rewritten_b13_events_cannot_redefine_the_reconstruction(self):
+        original = check_register.load_register()
+        self.assertEqual(post_baseline_react_keys(original)["temperatureDailyMean"]["EN"], "Daily mean")
+        rewritten = [dict(row) for row in original]
+        t856 = next(row for row in rewritten if row["entry_id"] == "T856")
+        t856.update(initial_value="Daily average", final_value="Daily average")
+        with self.assertRaisesRegex(AssertionError, "B13 history was modified"):
+            post_baseline_react_keys(rewritten)
+        extra = dict(original[-1], entry_id="T887", batch="B14-2026-11-05")
+        with self.assertRaisesRegex(AssertionError, "only the frozen thermal and lab events"):
+            post_baseline_react_keys(original + [extra])
+
+    def test_lab_history_cannot_be_omitted_reordered_or_promoted_to_approval(self):
+        original = check_register.load_register()
+        self.assertEqual(len(post_baseline_react_keys(original)), 21)
+        variants = {
+            "deleted lab": original[:858],
+            "missing FR": original[:858] + original[859:],
+            "reordered": original[:858] + [original[859], original[858]] + original[860:],
+            "duplicate": original + [dict(original[-1])],
+        }
+        for field, value in {
+            "status": "ALREADY_MATCHING", "decision_ref": "invented-approval",
+            "reason": "New key added; approved", "baseline_git_head": "2" * 40,
+            "initial_value": "changed", "final_value": "changed",
+        }.items():
+            changed = [dict(row) for row in original]
+            changed[858][field] = value
+            variants[field] = changed
+        for label, register in variants.items():
+            with self.subTest(label=label), self.assertRaises(AssertionError):
+                post_baseline_react_keys(register)
+
+    def test_post_baseline_keys_fall_back_to_english_without_japanese(self):
+        added = post_baseline_react_keys()
+        self.assertEqual(len(added), 21)
+        en = check_register.read_catalog(ROOT / "frontend/src/i18n/en.ts")
+        react = {r["identity"]: r for r in self.by("react")}
+        for key, values in added.items():
+            with self.subTest(key=key):
+                self.assertEqual((self.fr[key], en[key]), (values["FR"], values["EN"]))
+                self.assertEqual((react[key]["current_fr"], react[key]["current_en"]), (values["FR"], values["EN"]))
+                row = react[key]
+                self.assertEqual((row["status"], row["reason_code"]), ("FALLBACK_EN", "ABSENT_FROM_WORKBOOK"))
+                self.assertEqual((row["sheet_row"], row["ja_validated"], row["ja_ai_reviewed"]), ("", "", ""))
+                self.assertNotIn(key, self.ja_ts)
+
     def test_exact_counts(self):
+        # Historical counts are frozen; only registered post-baseline keys are added.
         self.assertEqual(Counter((r["surface"], r["status"]) for r in self.manifest), Counter({
             ("react", "REUSED"): 930, ("react", "AI_REVIEWED"): 59,
-                        ("react", "FALLBACK_EN"): 164, ("react", "FALLBACK_EN_REVIEW"): 36,
+            ("react", "FALLBACK_EN"): 164, ("react", "FALLBACK_EN_REVIEW"): 36,
             ("django", "REUSED"): 81, ("django", "FALLBACK_EN"): 11, ("django", "FALLBACK_EN_REVIEW"): 6,
             ("local", "REUSED"): 67, ("local", "FALLBACK_EN_REVIEW"): 1, ("inline", "FALLBACK_EN_INLINE"): 14,
         }))

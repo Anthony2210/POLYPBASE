@@ -11,6 +11,7 @@ import json
 import sys
 import tempfile
 import unittest
+from collections import Counter
 from pathlib import Path
 from unittest.mock import patch
 
@@ -35,11 +36,45 @@ B03_ROWS_SHA256 = "d31e74d3ccfec4bf6eb1e355e6b70ae8e3d41eac39207932c508b13760a4d
 B03_FINAL_ROWS_SHA256 = "fb799fbdc052eba3071392c492efd00a1619141d9232a7eaaef890e2e8f2318a"
 # The independent probe batch follows B06; only its batch and entry IDs were renumbered.
 PROBE_ROWS_SHA256 = "6dbf823b88b5fefdeaec8a1449b9b5df33a7e8d98098e86ecca90845c063846d"
+# Thermal-control batch B13 (T845-T858), computed from the original rows of commit
+# cbc513f (where B13 first appears). Corrections must be appended as new events.
+B13 = "B13-2026-11-04"
+B13_POSITION = slice(844, 858)
+B13_ENTRY_IDS = [f"T{number}" for number in range(845, 859)]
+B13_ROWS_SHA256 = "ab96099e1e94d0b1c17ddf7547605960a6c46d6c3c6e44e2184d6c6cae49452b"
+# Independent lab events from 5fcc2ea share B13 and its baseline, not its thermal freeze.
+LAB_POSITION = slice(858, 886)
+LAB_ENTRY_IDS = [f"T{number}" for number in range(859, 887)]
+LAB_ROWS_SHA256 = "12474e0f6376a9e3da896e68022f45a954401cce630aff263385c4fc06e5365b"
 
 
 def rows_digest(rows):
     canonical = json.dumps([[row[name] for name in reg.COLUMNS] for row in rows], ensure_ascii=False)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def b13_integrity_errors(rows):
+    """Errors if the original B13 events moved, changed, vanished or gained a member."""
+    b13 = [row for row in rows if row["batch"] == B13 and row["entry_id"] not in LAB_ENTRY_IDS]
+    errors = []
+    if rows[B13_POSITION] != b13:
+        errors.append("B13 rows are not exactly the contiguous register rows 845-858")
+    if [row["entry_id"] for row in b13] != B13_ENTRY_IDS:
+        errors.append("B13 entry IDs are not exactly T845-T858 in order")
+    if rows_digest(b13) != B13_ROWS_SHA256:
+        errors.append("B13 history was modified")
+    return errors
+
+
+def lab_integrity_errors(rows):
+    """Preserve all lab event fields, including deferred decisions and their reasons."""
+    lab = [row for row in rows if row["entry_id"] in LAB_ENTRY_IDS]
+    errors = []
+    if rows[LAB_POSITION] != lab or [row["entry_id"] for row in lab] != LAB_ENTRY_IDS:
+        errors.append("Lab events are not exactly the contiguous register rows 859-886")
+    if rows_digest(lab) != LAB_ROWS_SHA256:
+        errors.append("Lab history was modified")
+    return errors
 
 
 def event(entry, batch, key, initial, final, status="APPLIED", surface="react", language="EN", source=None):
@@ -586,6 +621,108 @@ class RealRegisterTests(unittest.TestCase):
                 self.assertEqual(catalog[row["key_or_msgid"]], row["final_value"])
         self.assertEqual(reg.validate(rows), [])
         self.assertEqual(reg.check_catalog_parity(), [])
+
+    def test_h_b13_thermal_batch_is_unchanged(self):
+        rows = reg.load_register()
+        self.assertEqual(b13_integrity_errors(rows), [])
+        b13 = rows[B13_POSITION]
+        self.assertEqual({(row["surface"], row["status"]) for row in b13}, {("react", "ALREADY_MATCHING")})
+        keys = {language: [row["key_or_msgid"] for row in b13 if row["language"] == language]
+                for language in ("FR", "EN")}
+        self.assertEqual(len(keys["FR"]), 7)
+        self.assertEqual(keys["FR"], keys["EN"])
+        for language, path in reg.REACT_CATALOGS.items():
+            catalog = reg.read_catalog(reg.ROOT / path)
+            for row in b13:
+                if row["language"] == language:
+                    self.assertEqual(catalog[row["key_or_msgid"]], row["final_value"], row["entry_id"])
+
+    def coordinated(self, rows, overrides):
+        """Real sources, except catalog values changed together with the register."""
+        def state(row):
+            value = overrides.get((row["surface"], row["key_or_msgid"], row["language"]))
+            return reg.SourceState(True, value) if value is not None else reg.read_source_state(row)
+        return reg.validate(rows, state)
+
+    def test_h_coordinated_b13_register_and_catalog_edit_is_rejected(self):
+        # Reported scenario: rewrite T856 (EN temperatureDailyMean) and the EN catalog together.
+        rows = [dict(row) for row in reg.load_register()]
+        t856 = next(row for row in rows if row["entry_id"] == "T856")
+        self.assertEqual((t856["key_or_msgid"], t856["language"], t856["final_value"]),
+                         ("temperatureDailyMean", "EN", "Daily mean"))
+        t856.update(initial_value="Daily average", final_value="Daily average")
+        # The other register checks accept the coordinated edit...
+        self.assertEqual(self.coordinated(rows, {("react", "temperatureDailyMean", "EN"): "Daily average"}), [])
+        # ...and so does the historical reconstruction, which removes the edited line itself.
+        en = (reg.ROOT / "frontend/src/i18n/en.ts").read_text(encoding="utf-8")
+        edited = en.replace("  temperatureDailyMean: 'Daily mean',\n", "  temperatureDailyMean: 'Daily average',\n")
+        self.assertNotEqual(edited, en)
+        baseline = edited.replace("  temperatureDailyMean: 'Daily average',\n", "")
+        for key in [row["key_or_msgid"] for row in rows[844:886] if row["language"] == "EN"]:
+            if key != "temperatureDailyMean":
+                value = next(r["final_value"] for r in rows[844:886]
+                             if r["language"] == "EN" and r["key_or_msgid"] == key)
+                baseline = baseline.replace(f"  {key}: '{value}',\n", "")
+        self.assertEqual(hashlib.sha256(baseline.encode()).hexdigest(),
+                         "62989721d2528126ab48704fe783597dba0d484d2f24ce05a7391e0e9bdbfa27")
+        # Only the independent B13 fingerprint detects the rewrite.
+        self.assertIn("B13 history was modified", b13_integrity_errors(rows))
+
+    def test_h_lab_provenance_is_independent_of_the_thermal_freeze(self):
+        rows = reg.load_register()
+        self.assertEqual(lab_integrity_errors(rows), [])
+        self.assertEqual(rows_digest(rows[B13_POSITION]), B13_ROWS_SHA256)
+        self.assertEqual(Counter(row["status"] for row in rows[LAB_POSITION]),
+                         Counter({"DEFERRED": 26, "ALREADY_MATCHING": 2}))
+        for index in range(LAB_POSITION.start, LAB_POSITION.stop):
+            for name in reg.COLUMNS:
+                with self.subTest(entry=rows[index]["entry_id"], field=name):
+                    changed = [dict(row) for row in rows]
+                    changed[index][name] += "x"
+                    self.assertTrue(lab_integrity_errors(changed))
+        self.assertTrue(lab_integrity_errors(rows[:858]))
+        self.assertTrue(lab_integrity_errors(rows[:858] + rows[859:]))
+        self.assertTrue(lab_integrity_errors(rows[:858] + [rows[859], rows[858]] + rows[860:]))
+        self.assertTrue(lab_integrity_errors(rows + [dict(rows[-1])]))
+
+    def test_h_every_b13_field_edit_is_rejected(self):
+        original = reg.load_register()
+        for index in range(B13_POSITION.start, B13_POSITION.stop):
+            for name in reg.COLUMNS:
+                with self.subTest(entry=original[index]["entry_id"], field=name):
+                    rows = [dict(row) for row in original]
+                    rows[index][name] += "x"
+                    self.assertTrue(b13_integrity_errors(rows))
+
+    def test_h_b13_deletion_insertion_replacement_and_reordering_are_rejected(self):
+        original = reg.load_register()
+        b13 = original[B13_POSITION]
+        later = dict(b13[-1], entry_id="T859", batch="B14-2026-11-05")
+        inserted = dict(b13[0], entry_id="T845b")
+        replacement = dict(b13[3], key_or_msgid="temperatureOther")
+        variants = {
+            "deleted": original[:844] + b13[1:],
+            "deleted last": original[:857],
+            "inserted inside": original[:845] + [inserted] + original[845:],
+            "row before B13": original[:844] + [later] + original[844:],
+            "replaced": original[:847] + [replacement] + original[848:],
+            "reordered": original[:844] + [b13[1], b13[0]] + b13[2:],
+            "renumbered": original[:844] + [dict(row, entry_id=f"T{900 + i}") for i, row in enumerate(b13)],
+            "moved to another batch": original[:844] + [dict(row, batch="B14-2026-11-05") for row in b13],
+        }
+        for label, rows in variants.items():
+            with self.subTest(label):
+                self.assertTrue(b13_integrity_errors(rows))
+
+    def test_h_corrections_after_b13_are_appended_events(self):
+        rows = reg.load_register()
+        t856 = rows[855]
+        correction = dict(t856, entry_id="T887", batch="B14-2026-11-05", initial_value="Daily mean",
+                          final_value="Daily average", status="APPLIED", decision_ref="synthetic",
+                          baseline_git_head=HEAD_2)
+        appended = rows + [correction]
+        self.assertEqual(b13_integrity_errors(appended), [])
+        self.assertEqual(self.coordinated(appended, {("react", "temperatureDailyMean", "EN"): "Daily average"}), [])
 
     def test_h_corrupted_copy_of_b01_is_rejected(self):
         rows = reg.load_register()
