@@ -46,6 +46,21 @@ class HarnessTests(unittest.TestCase):
         self.process.assert_not_called()
         self.connect.assert_not_called()
 
+    def test_native_file_proofs_drop_privileges_before_cluster_setup(self):
+        self.process.side_effect = None
+        with patch.object(provision, "preflight", return_value=POSTGRES), \
+                patch.object(os, "umask"), \
+                patch.object(provision, "machine_id", side_effect=RuntimeError("Stop before cluster setup")), \
+                patch.dict(os.environ, {"PGPASSWORD": "inherited", "TOKEN": "inherited"}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "Stop before cluster setup"):
+                provision.main()
+        self.process.assert_called_once_with(
+            ["setpriv", "--reuid=10001", "--regid=10001", "--clear-groups", "--no-new-privs",
+             "--bounding-set=-all", "--inh-caps=-all", "--ambient-caps=-all",
+             "/opt/venv/bin/python", "-B", "/opt/pca/scripts/pca_unix_ci/test_protected_file.py"],
+            check=True, timeout=60, cwd=provision.ROOT, env=provision.clean_environment())
+        self.connect.assert_not_called()
+
     def test_clean_environment_and_root_commands_do_not_inherit_secrets(self):
         inherited = {"PGPASSWORD": "secret", "PGDATA": "/host", "POSTGRES_PASSWORD": "secret",
                      "AWS_SECRET_ACCESS_KEY": "secret", "PYTHONPATH": "/host", "TOKEN": "secret"}

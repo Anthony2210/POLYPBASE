@@ -179,48 +179,66 @@ def _dependencies(box_ids, *, organization_id, lock=False):
     Also cover incoming measurement/event references. Nothing is reassigned.
     Ordinary laboratory writers serialize through the Box lock.
     """
-    result = {}
+    box_ids = set(box_ids)
+    # Discover only identities and FK edges before deciding what can be serialized.
+    # Foreign scientific contents must never enter a plan, even through descendants.
+    models = sorted(apps.get_models(include_auto_created=True), key=lambda m: (
+        m._meta.model_name != "boxmovement", m._meta.label_lower))
+    relations = {model: [f for f in model._meta.concrete_fields if f.is_relation] for model in models}
+
+    def edges(model, query):
+        return list(model._base_manager.filter(query).values("pk", *(f.attname for f in relations[model])))
+
+    own_boxes = set(Box.objects.filter(pk__in=box_ids, organization_id=organization_id).values_list("pk", flat=True))
+    foreign_root = own_boxes != box_ids
     # A child can reference an event whose parent is outside the selected batch.
     event_ids = set(BoxLineage.objects.filter(
-        Q(parent_box_id__in=box_ids) | Q(child_box_id__in=box_ids)
+        Q(parent_box_id__in=own_boxes) | Q(child_box_id__in=own_boxes)
     ).exclude(subculture_event_id=None).values_list("subculture_event_id", flat=True))
-    event_rows = _rows(SubcultureEvent.objects.filter(pk__in=event_ids), lock)
-    if event_rows:
-        result[SubcultureEvent._meta.label_lower] = event_rows
-    frontier = {Box: set(box_ids), SubcultureEvent: event_ids}
-    seen = {Box, SubcultureEvent}
+    event_rows = edges(SubcultureEvent, Q(pk__in=event_ids))
+    discovered = {SubcultureEvent: {r["pk"]: r for r in event_rows}} if event_rows else {}
+    frontier = {Box: own_boxes, SubcultureEvent: event_ids}
+    seen = {model: set(ids) for model, ids in frontier.items()}
     while frontier:
         following = {}
-        for model in sorted(apps.get_models(include_auto_created=True), key=lambda m: (
-                m._meta.model_name != "boxmovement", m._meta.label_lower)):
+        for model in models:
             query = Q(pk__in=[])
-            for field in model._meta.concrete_fields:
-                if field.is_relation and field.remote_field.model in frontier:
+            for field in relations[model]:
+                if field.remote_field.model in frontier:
                     query |= Q(**{f"{field.attname}__in": frontier[field.remote_field.model]})
-            rows = _rows(model._base_manager.filter(query), lock)
+            rows = edges(model, query)
             if rows:
-                existing = {r["id"]: r for r in result.get(model._meta.label_lower, [])}
-                existing.update({r["id"]: r for r in rows})
-                result[model._meta.label_lower] = sorted(existing.values(), key=lambda r: r["id"])
-                if model not in seen:
-                    following[model] = {r["id"] for r in rows}
-                    seen.add(model)
+                discovered.setdefault(model, {}).update({r["pk"]: r for r in rows})
+                new_ids = {r["pk"] for r in rows} - seen.setdefault(model, set())
+                if new_ids:
+                    following[model] = new_ids
+                    seen[model].update(new_ids)
         frontier = following
-    # A relationship is evidence, not authorization to disclose foreign rows.
-    # Invalid cross-institution links block the batch without exporting contents.
-    for label, rows in list(result.items()):
-        model = apps.get_model(label)
-        safe = []
-        for row in rows:
-            foreign = row.get("organization_id", organization_id) != organization_id
-            for field in model._meta.concrete_fields:
-                if field.is_relation and field.remote_field.model is Box and row[field.attname] is not None:
-                    foreign |= Box.objects.filter(pk=row[field.attname]).exclude(organization_id=organization_id).exists()
-            if foreign:
-                result["foreign_reference_blocked"] = True
-            else:
-                safe.append(row)
-        result[label] = safe
+
+    box_references = {row[f.attname] for model, rows in discovered.items() for row in rows.values()
+                      for f in relations[model] if f.remote_field.model is Box and row[f.attname] is not None}
+    allowed_boxes = set(Box.objects.filter(pk__in=box_references, organization_id=organization_id).values_list("pk", flat=True))
+    blocked = set()
+    for model, rows in discovered.items():
+        for pk, row in rows.items():
+            if (row.get("organization_id", organization_id) != organization_id
+                    or any(f.remote_field.model is Box and row[f.attname] is not None
+                           and row[f.attname] not in allowed_boxes for f in relations[model])):
+                blocked.add((model, pk))
+    # Propagate redaction to a fixed point: a row without its own institution/Box
+    # can still disclose a foreign event or measurement through an indirect FK.
+    while True:
+        descendants = {(model, pk) for model, rows in discovered.items() for pk, row in rows.items()
+                       if any((f.remote_field.model, row[f.attname]) in blocked for f in relations[model])}
+        new_blocked = descendants - blocked
+        if not new_blocked:
+            break
+        blocked.update(new_blocked)
+    result = {model._meta.label_lower: _rows(model._base_manager.filter(
+        pk__in=[pk for pk in rows if (model, pk) not in blocked]), lock)
+        for model, rows in discovered.items()}
+    if foreign_root or blocked:
+        result["foreign_reference_blocked"] = True
     return result
 
 

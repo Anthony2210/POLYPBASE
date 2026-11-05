@@ -28,7 +28,7 @@ from .historical_2026 import identity_reconciliation as reconciliation
 from .historical_2026 import identity_references as references
 from .models import (
     Box, BoxCodeNamespace, BoxLineage, BoxLocation, BoxMovement, BoxTransfer,
-    SubcultureEvent, ThermalZone,
+    SubcultureAllocation, SubcultureEvent, ThermalZone,
 )
 from .qr import box_scan_url, sync_box_qr_tag
 
@@ -200,7 +200,7 @@ class ClaBox1902Fixture:
         )
 
 
-class ClaBox1902Tests(ClaBox1902Fixture, TestCase):
+class ClaBox1902DependencyRegressions:
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
@@ -219,6 +219,88 @@ class ClaBox1902Tests(ClaBox1902Fixture, TestCase):
         self.assertEqual(self.snapshot(), before)
         self.assertIsNone(self.source.organization_id)
 
+    def test_transitive_same_model_dependencies_bind_measurements_to_review(self):
+        first, second = self.sentinels[:2]
+        measurement = BiologicalMeasurement.objects.create(
+            box=second, measured_on=date(2026, 10, 12), polyp_count=0,
+            strobila_count=None, notes="Transitive scientific history",
+        )
+        Box._base_manager.filter(pk=first.pk).update(merged_into_id=1902, status=Box.Status.INACTIVE)
+        Box._base_manager.filter(pk=second.pk).update(merged_into_id=first.pk, status=Box.Status.INACTIVE)
+        before = self.snapshot()
+        plan = self.plan()
+        self.assert_classification(plan, "READY")
+        self.assertEqual(self.snapshot(), before)
+        self.assertIn(second.pk, [r["id"] for r in plan["dependencies"]["cultures.box"]])
+        self.assertIn(measurement.pk, [r["id"] for r in plan["dependencies"]["measurements.biologicalmeasurement"]])
+        BiologicalMeasurement.objects.filter(pk=measurement.pk).update(polyp_count=1)
+        self.assertNotEqual(correction.fingerprint(self.plan()), correction.fingerprint(plan))
+        after_change = self.snapshot()
+        with self.assertRaisesMessage(ValueError, "changed since review"):
+            self.apply(plan=plan)
+        self.assertEqual(self.snapshot(), after_change)
+
+    def test_foreign_event_descendants_are_redacted_and_block_apply(self):
+        secret = "Foreign allocation contents must not enter a plan"
+        event = SubcultureEvent.objects.create(parent_box=self.foreign_box, notes=secret)
+        BoxLineage.objects.create(parent_box=self.foreign_box, child_box=self.box, subculture_event=event)
+        allocation = SubcultureAllocation.objects.create(
+            event=event, child_box=self.sentinels[1], position=1, allocated_polyps=0,
+            child_global_code=secret,
+        )
+        before = self.snapshot()
+        serialize = reconciliation.snapshot
+
+        def scoped_snapshot(row):
+            if ((isinstance(row, SubcultureEvent) and row.pk == event.pk)
+                    or (isinstance(row, SubcultureAllocation) and row.pk == allocation.pk)):
+                self.fail("Foreign contents must be excluded before serialization")
+            return serialize(row)
+
+        with patch.object(reconciliation, "snapshot", side_effect=scoped_snapshot):
+            plan = self.plan()
+        self.assert_classification(plan, "BLOCKED")
+        self.assertTrue(plan["dependencies"]["foreign_reference_blocked"])
+        self.assertNotIn(secret, json.dumps(plan))
+        self.assertNotIn(secret, json.dumps(correction.summary(plan)))
+        self.assertNotIn(allocation.pk, [r["id"] for r in plan["dependencies"]["cultures.subcultureallocation"]])
+        with self.assertRaises(ValueError):
+            self.apply(plan=plan)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_dependency_cycles_terminate_with_each_instance_once(self):
+        first, second = self.sentinels[:2]
+        Box._base_manager.filter(pk=first.pk).update(merged_into_id=second.pk, status=Box.Status.INACTIVE)
+        Box._base_manager.filter(pk=second.pk).update(merged_into_id=first.pk, status=Box.Status.INACTIVE)
+        before = self.snapshot()
+        with execution.session():
+            result = reconciliation._dependencies([first.pk], organization_id=1)
+            self.assertEqual(reconciliation._dependencies([first.pk], organization_id=1), result)
+        self.assertEqual([row["id"] for row in result["cultures.box"]], sorted([first.pk, second.pk]))
+        self.assertEqual(self.snapshot(), before)
+
+    def test_foreign_dependency_root_is_only_a_redacted_blocker(self):
+        before = self.snapshot()
+        with execution.session():
+            result = reconciliation._dependencies([self.foreign_box.pk], organization_id=1)
+        self.assertEqual(result, {"foreign_reference_blocked": True})
+        self.assertEqual(self.snapshot(), before)
+
+    def test_nine_source_witnesses_remain_eligible_after_only_1902_changes(self):
+        from apps.taxonomy.scoping import eligible_strains
+
+        witnesses = Box.objects.filter(organization=self.org, strain_id=213).exclude(pk=1902)
+        self.assertEqual(witnesses.count(), 9)
+        before = list(witnesses.order_by("pk").values())
+        source = list(Strain.objects.filter(pk=213).values())
+        self.apply()
+        self.assertEqual(list(witnesses.order_by("pk").values()), before)
+        self.assertEqual(list(Strain.objects.filter(pk=213).values()), source)
+        self.assertTrue(eligible_strains(self.org).filter(pk=213).exists())
+        self.assert_classification(self.plan(), "ALREADY_CORRECT")
+
+
+class ClaBox1902Tests(ClaBox1902DependencyRegressions, ClaBox1902Fixture, TestCase):
     def test_apply_changes_exactly_two_fields_on_exactly_one_box(self):
         plan = self.plan()
         before = self.snapshot()
