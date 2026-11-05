@@ -168,12 +168,13 @@ test('saving refreshes only the zone collection and sends partial updates', () =
   }
   assert.match(create, /return \{ id: created\.id \};/);
   assert.match(update, /payload: ThermalZoneUpdatePayload/);
-  assert.match(section, /getChangedLabLocationValues\(zone, result\.values\)/);
+  assert.match(section, /const payload = getChangedLabLocationValues\(zone, values\);/);
 });
 
 test('the editor has explicit cancel, guarded close while saving and no-change save', () => {
   assert.match(section, /function closeUnlessSaving\(\) \{\s*if \(!isSaving\) onCancel\(\);/);
-  assert.match(section, /disabled=\{isSaving \|\| !draft\.name\.trim\(\) \|\| !hasChanges\}/);
+  assert.match(section, /disabled=\{isSaving \|\| !draft\.name\.trim\(\) \|\| !form\.hasChanges\}/);
+  assert.match(section, /disabled=\{isSaving \|\| !draft\.name\.trim\(\)\}/);
   assert.match(section, /className="secondary-button" type="button" disabled=\{isSaving\} onClick=\{onCancel\}/);
   assert.match(section, /requestError instanceof ApiResourceCancelledError/);
 });

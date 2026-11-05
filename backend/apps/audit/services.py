@@ -23,6 +23,7 @@ IMPACTFUL_AUDIT_ACTIONS = (
     AuditLog.Action.CREATION,
     AuditLog.Action.UPDATE,
     AuditLog.Action.ARCHIVE,
+    AuditLog.Action.DELETION,
     AuditLog.Action.ENTRY,
     AuditLog.Action.SUBCULTURE,
     AuditLog.Action.TRANSFER,

@@ -1,5 +1,6 @@
 from datetime import date
 
+from django.db import transaction
 from django.db.models import Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
@@ -195,29 +196,36 @@ class WeeklyMeasurementCSVExportAPIView(APIView):
             .values_list("organization_id", flat=True)
             .distinct()
         )
-        for organization_id in exported_organization_ids:
-            DataExport.objects.create(
-                organization_id=organization_id,
-                export_type=DataExport.ExportType.MEASUREMENTS,
-                file_format=DataExport.FileFormat.CSV,
-                filters=recorded_filters,
-                file_name=filename,
-                user=request.user,
-            )
-            AuditLog.objects.create(
-                organization_id=organization_id,
-                user=request.user,
-                action=AuditLog.Action.EXPORT,
-                object_type="measurements",
-                object_id=filename,
-                description="Weekly biological measurement CSV export",
-                metadata={
-                    **recorded_filters,
-                    "box_count": metadata["box_count"],
-                    "measurement_count": metadata["measurement_count"],
-                    "week_count": metadata["week_count"],
-                },
-            )
+        # The export record and its audit entry commit together, and only while
+        # the locations they name are locked (see _lock_recorded_export_zones).
+        with transaction.atomic():
+            recorded_zone_ids = _lock_recorded_export_zones(filters["zones"], exported_organization_ids)
+            for organization_id in exported_organization_ids:
+                organization_filters = dict(recorded_filters)
+                if filters["zones"]:
+                    organization_filters["zones"] = recorded_zone_ids.get(organization_id, [])
+                DataExport.objects.create(
+                    organization_id=organization_id,
+                    export_type=DataExport.ExportType.MEASUREMENTS,
+                    file_format=DataExport.FileFormat.CSV,
+                    filters=organization_filters,
+                    file_name=filename,
+                    user=request.user,
+                )
+                AuditLog.objects.create(
+                    organization_id=organization_id,
+                    user=request.user,
+                    action=AuditLog.Action.EXPORT,
+                    object_type="measurements",
+                    object_id=filename,
+                    description="Weekly biological measurement CSV export",
+                    metadata={
+                        **organization_filters,
+                        "box_count": metadata["box_count"],
+                        "measurement_count": metadata["measurement_count"],
+                        "week_count": metadata["week_count"],
+                    },
+                )
 
         response = HttpResponse(
             f"\ufeff{csv_content}",
@@ -281,6 +289,35 @@ class MeasurementExportEligibleBoxesAPIView(APIView):
                 "latest_measurement_on_by_box": latest_measurement_on_by_box,
             }
         )
+
+
+def _lock_recorded_export_zones(zone_ids, organization_ids):
+    """Selected location ids that may be recorded, per exported institution.
+
+    A recorded export that names a location is part of that location's history:
+    permanent location deletion refuses it. The named locations are locked
+    FOR NO KEY UPDATE (the mode box creation and intents use), in id order,
+    until the record and its audit commit. This conflicts with the deletion's
+    FOR UPDATE lock, so a location being deleted
+    is either still present here (and its deletion then refused) or already
+    gone. An id that names no location of the institution is not recorded; it
+    selected no measurement, so the exported file is unchanged.
+    """
+    if not zone_ids:
+        return {}
+    zones = (
+        ThermalZone.objects.select_for_update(no_key=True)
+        .filter(pk__in=zone_ids, organization_id__in=organization_ids)
+        .order_by("pk")
+        .values_list("pk", "organization_id")
+    )
+    organization_by_zone = dict(zones)
+    recorded = {}
+    for zone_id in zone_ids:
+        organization_id = organization_by_zone.get(zone_id)
+        if organization_id is not None:
+            recorded.setdefault(organization_id, []).append(zone_id)
+    return recorded
 
 
 def _get_validated_export_filters(request):

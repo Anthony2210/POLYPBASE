@@ -77,6 +77,12 @@ const iconPaths = {
       <path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
     </>
   ),
+  delete: (
+    <>
+      <path d="M4 7h16M9 7V4h6v3" />
+      <path d="M6 7l1 13a1 1 0 001 1h8a1 1 0 001-1l1-13M10 11v6M14 11v6" />
+    </>
+  ),
   archive: (
     <>
       <rect x="3" y="4" width="18" height="4" rx="1" />
@@ -166,7 +172,7 @@ const genericIconNames = new Set<PolypbaseIconName>([
   'chevron-left', 'chevron-right', 'chevron-up', 'chevron-down',
   'chevrons-left', 'chevrons-right', 'close', 'plus', 'minus',
   'search', 'reset-filter', 'check', 'info', 'download', 'print',
-  'edit', 'archive', 'restore', 'logout', 'overview', 'export-data',
+  'edit', 'delete', 'archive', 'restore', 'logout', 'overview', 'export-data',
   'settings', 'user',
 ]);
 

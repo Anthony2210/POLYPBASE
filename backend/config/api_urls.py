@@ -53,6 +53,7 @@ from apps.cultures.api_views import (
     HealthAPIView,
     OverviewActiveBoxesAPIView,
     ProbeCreateAPIView,
+    ThermalZoneDeletionAPIView,
     ThermalZoneDetailAPIView,
     ThermalZoneListCreateAPIView,
     ThermalZoneManualSalinityAPIView,
@@ -213,6 +214,11 @@ urlpatterns = [
     ),
     path("thermal-zones/", ThermalZoneListCreateAPIView.as_view(), name="api_thermal_zone_list"),
     path("thermal-zones/<int:pk>/", ThermalZoneDetailAPIView.as_view(), name="api_thermal_zone_detail"),
+    path(
+        "thermal-zones/<int:pk>/deletion/",
+        ThermalZoneDeletionAPIView.as_view(),
+        name="api_thermal_zone_deletion",
+    ),
     path(
         "thermal-zones/<int:pk>/history/",
         ThermalZoneMovementHistoryAPIView.as_view(),

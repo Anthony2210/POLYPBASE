@@ -89,6 +89,7 @@ import type {
   ManualTemperaturePayload,
   OrganizationPayload,
   ProbePayload,
+  ThermalZoneDeletionEligibility,
   ThermalZonePayload,
   ThermalZoneUpdatePayload,
 } from './types/admin';
@@ -1902,6 +1903,27 @@ export default function App() {
     assertCurrent();
   }
 
+  async function getThermalZoneDeletion(zoneId: number) {
+    const { apiGet, assertCurrent } = getOperationRequests(operationGeneration);
+    const eligibility = await apiGet<ThermalZoneDeletionEligibility>(`/api/thermal-zones/${zoneId}/deletion/`);
+    assertCurrent();
+    return eligibility;
+  }
+
+  async function deleteThermalZone(zoneId: number) {
+    const { apiDelete, assertCurrent } = getOperationRequests(operationGeneration);
+    // The server deletes only a never-used location; a refusal is thrown as is.
+    await apiDelete<void>(`/api/thermal-zones/${zoneId}/`);
+    assertCurrent();
+    zoneCollectionRevisionRef.current += 1;
+    await refreshAfterMutation(async () => {
+      assertCurrent();
+      await refreshZones();
+      assertCurrent();
+    }, assertCurrent);
+    assertCurrent();
+  }
+
   async function recordManualTemperature(zoneId: number, payload: ManualTemperaturePayload) {
     const { apiPost, setData, assertCurrent } = getOperationRequests(operationGeneration);
     const commit = beginZoneMutation(zoneId);
@@ -2435,6 +2457,8 @@ export default function App() {
                 onRequestOptions={() => setExportOptionsRequested(true)}
                 onCreateZone={createThermalZone}
                 onUpdateZone={updateThermalZone}
+                onLoadZoneDeletion={getThermalZoneDeletion}
+                onDeleteZone={deleteThermalZone}
                 onCreateOrganization={createOrganization}
                 onUpdateOrganization={updateOrganization}
                 onDeleteOrganization={deleteOrganization}

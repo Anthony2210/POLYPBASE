@@ -61,6 +61,19 @@ Règles vérifiées par `check_register.py` :
 - **État courant** : seul le dernier événement de chaque identité est comparé au code. Un ancien `final_value` peut différer du code actuel si un événement ultérieur l'explique.
 - Statuts, surfaces, langues FR/EN uniquement, empreintes, variables `{x}` conservées avec leur multiplicité, parité des clés et variables FR/EN des catalogues.
 
+## Intégration laboratoire du 2026-11-05
+
+Les 32 événements FR/EN entrants de `8f7cf04` (suppression d'emplacements et audit du laboratoire) entraient en collision avec les événements de mouvements historiques déjà présents sur `main`. L'intégration conserve `T001–T974` octet pour octet, notamment les événements thermiques `T845–T858`, laboratoire `T859–T886` et historiques `T887–T974`.
+
+Les événements entrants sont ajoutés à la fin, dans leur ordre d'origine :
+
+- Lot `B14-2026-11-05` → `B17-2026-11-05` (date inchangée).
+- Identifiants `T887–T918` → `T975–T1006`, inclusivement : chaque `Tn` devient `T(n + 88)`.
+- Seuls `entry_id` et `batch` changent. Les valeurs FR/EN, sources, décisions, motifs, statuts et empreintes de baseline restent identiques à l'entrée. La référence `B14-lab-config-inline-actions-pending-review` reste volontairement inchangée : c'est une référence de provenance, pas le numéro du lot intégré.
+- Les 32 événements restent `DEFERRED` : aucune approbation de formulation ni traduction japonaise n'est ajoutée.
+
+L'empreinte canonique de tous les champs des 32 événements renumérotés est `c9e9c5d39cb1f27fc2bceddd7e40436cc2d79fdc31125ceb17f06d9d48b11134` (même calcul que `rows_digest` dans `test_check_register.py`). Elle protège ce lot indépendamment des empreintes thermiques, laboratoire initial et historiques, qui restent inchangées. Le registre intégré compte 1 006 événements dans 17 lots. Une correction ultérieure s'ajoute après cet historique ; elle ne réécrit aucun événement existant.
+
 ## Lot B02 (2026-10-29)
 
 Baseline Git : `947105e605f979017e5915f80820ed356c411e4b`. Les 34 événements B01 restent inchangés, en tête du fichier ; B02 ajoute **86 événements, T035–T120** :

@@ -34,6 +34,11 @@ FROZEN_BASELINE = "c857a592e170ae6933969098c90fed95d0eb3ea5"
 HISTORICAL_POSITION = slice(886, 974)
 HISTORICAL_ENTRY_IDS = [f"T{number}" for number in range(887, 975)]
 HISTORICAL_ROWS_SHA256 = "df3d1228fa718616598ea8bf5c87f2a600007cc94a7514db773abc150960b5c7"
+# Incoming 8f7cf04 events: only IDs and batch are renumbered after main history.
+LAB_REFINEMENT_POSITION = slice(974, 1006)
+LAB_REFINEMENT_ENTRY_IDS = [f"T{number}" for number in range(975, 1007)]
+LAB_REFINEMENT_BATCH = "B17-2026-11-05"
+LAB_REFINEMENT_ROWS_SHA256 = "c9e9c5d39cb1f27fc2bceddd7e40436cc2d79fdc31125ceb17f06d9d48b11134"
 
 
 def post_baseline_react_keys(register=None):
@@ -43,7 +48,8 @@ def post_baseline_react_keys(register=None):
     baseline fails here instead of being silently excluded from history.
     Thermal and lab events share B13 and the baseline but have independent
     fingerprints; neither can redefine what is excluded by a coordinated edit.
-    The explicit 44 historical keys have a separate frozen event history.
+    The explicit 44 historical keys and 16 lab-refinement keys each have
+    separate frozen event histories.
     """
     register = check_register.load_register() if register is None else register
     if any(list(row) != check_register.COLUMNS for row in register):
@@ -56,11 +62,17 @@ def post_baseline_react_keys(register=None):
             or [r["entry_id"] for r in historical] != HISTORICAL_ENTRY_IDS
             or rows_digest(historical) != HISTORICAL_ROWS_SHA256):
         raise AssertionError("historical movement history was modified")
+    refinement = [r for r in register if r["entry_id"] in LAB_REFINEMENT_ENTRY_IDS]
+    if (refinement != register[LAB_REFINEMENT_POSITION]
+            or [r["entry_id"] for r in refinement] != LAB_REFINEMENT_ENTRY_IDS
+            or rows_digest(refinement) != LAB_REFINEMENT_ROWS_SHA256
+            or [r for r in register if r["batch"] == LAB_REFINEMENT_BATCH] != refinement):
+        raise AssertionError("lab refinement history was modified")
     entries = [r for r in register if r["baseline_git_head"] == FROZEN_BASELINE]
     thermal_lab = register[B13_POSITION] + register[LAB_POSITION]
-    if (entries != thermal_lab + historical
+    if (entries != thermal_lab + historical + refinement
             or [r for r in register if r["batch"] == "B13-2026-11-04"] != thermal_lab):
-        raise AssertionError("only the frozen thermal, lab and historical events may use the frozen baseline; B13 is thermal/lab only")
+        raise AssertionError("only the frozen thermal, lab, historical and refinement events may use the frozen baseline; B13 is thermal/lab only")
     historical_keys = list(dict.fromkeys(r["key_or_msgid"] for r in historical))
     if (set(historical_keys) != set(HISTORICAL_MOVEMENT_KEYS)
                 or len(historical_keys) != 44 or len(HISTORICAL_MOVEMENT_KEYS) != 44):
@@ -102,13 +114,13 @@ class JapaneseManifestTests(unittest.TestCase):
         t856.update(initial_value="Daily average", final_value="Daily average")
         with self.assertRaisesRegex(AssertionError, "B13 history was modified"):
             post_baseline_react_keys(rewritten)
-        extra = dict(original[858], entry_id="T975", batch="B17-2026-11-05")
-        with self.assertRaisesRegex(AssertionError, "only the frozen thermal, lab and historical events"):
+        extra = dict(original[858], entry_id="T1007", batch="B18-2026-11-05")
+        with self.assertRaisesRegex(AssertionError, "only the frozen thermal, lab, historical and refinement events"):
             post_baseline_react_keys(original + [extra])
 
     def test_lab_history_cannot_be_omitted_reordered_or_promoted_to_approval(self):
         original = check_register.load_register()
-        self.assertEqual(len(post_baseline_react_keys(original)), 65)
+        self.assertEqual(len(post_baseline_react_keys(original)), 81)
         variants = {
             "deleted lab": original[:858],
             "missing FR": original[:858] + original[859:],
@@ -138,7 +150,7 @@ class JapaneseManifestTests(unittest.TestCase):
         variants = [original[:886], original[:887] + original[888:],
                     original[:886] + [original[887], original[886]] + original[888:],
                     original + [dict(original[-1])]]
-        for index in (0, 844, 858, 886):
+        for index in (0, 844, 858, 886, 974):
             extra = [dict(row) for row in original]
             extra[index]["unknown_column"] = "unapproved"
             variants.append(extra)
@@ -149,14 +161,31 @@ class JapaneseManifestTests(unittest.TestCase):
             with self.assertRaises(AssertionError):
                 post_baseline_react_keys(register)
         # Appended corrections do not rewrite original events or expand exclusions.
-        correction = dict(original[855], entry_id="T975", batch="B17-2026-11-05",
+        correction = dict(original[855], entry_id="T1007", batch="B18-2026-11-05",
                           initial_value="Daily mean", final_value="Daily average",
                           status="APPLIED", baseline_git_head="2" * 40)
         self.assertEqual(post_baseline_react_keys(original + [correction]), post_baseline_react_keys(original))
 
+    def test_lab_refinement_history_cannot_redefine_the_reconstruction(self):
+        original = check_register.load_register()
+        for index in range(LAB_REFINEMENT_POSITION.start, LAB_REFINEMENT_POSITION.stop):
+            for field in check_register.COLUMNS:
+                changed = [dict(row) for row in original]
+                changed[index][field] += "x"
+                with self.subTest(entry=original[index]["entry_id"], field=field), self.assertRaises(AssertionError):
+                    post_baseline_react_keys(changed)
+        for register in (
+            original[:974], original[:975] + original[976:],
+            original[:974] + [original[975], original[974]] + original[976:],
+            original + [dict(original[-1])],
+            original + [dict(original[-1], entry_id="T1007")],
+        ):
+            with self.assertRaises(AssertionError):
+                post_baseline_react_keys(register)
+
     def test_post_baseline_keys_fall_back_to_english_without_japanese(self):
         added = post_baseline_react_keys()
-        self.assertEqual(len(added), 65)
+        self.assertEqual(len(added), 81)
         en = check_register.read_catalog(ROOT / "frontend/src/i18n/en.ts")
         react = {r["identity"]: r for r in self.by("react")}
         for key, values in added.items():
@@ -172,7 +201,7 @@ class JapaneseManifestTests(unittest.TestCase):
         # Historical counts are frozen; only registered post-baseline keys are added.
         self.assertEqual(Counter((r["surface"], r["status"]) for r in self.manifest), Counter({
             ("react", "REUSED"): 930, ("react", "AI_REVIEWED"): 59,
-            ("react", "FALLBACK_EN"): 208, ("react", "FALLBACK_EN_REVIEW"): 36,
+            ("react", "FALLBACK_EN"): 224, ("react", "FALLBACK_EN_REVIEW"): 36,
             ("django", "REUSED"): 81, ("django", "FALLBACK_EN"): 11, ("django", "FALLBACK_EN_REVIEW"): 6,
             ("local", "REUSED"): 67, ("local", "FALLBACK_EN_REVIEW"): 1, ("inline", "FALLBACK_EN_INLINE"): 14,
         }))

@@ -17,7 +17,8 @@ def digest(value):
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
 
 
-# Additions only: cbc513f thermal control, bb40685 Laboratory configuration and historical movements.
+# Additions only: thermal control, Laboratory configuration, historical movements
+# and the Laboratory inline-actions refinement.
 # Preserve the original AI-integration source and historical-manifest fingerprints.
 LATER_FALLBACK_KEYS = frozenset({
     "temperatureRecentMean", "temperatureNoRecent", "temperatureRecentPeriod", "temperatureRecentError",
@@ -27,6 +28,13 @@ LATER_FALLBACK_KEYS = frozenset({
     "adminLabInactive",
     "adminLabNoLocations", "adminLabSaved", "adminLabCapacityInvalid", "adminLabTemperatureInvalid",
     "adminLabSalinityInvalid",
+
+    "adminLabDeleteLocation", "adminLabDeleteTitle", "adminLabDeleteNoBoxes",
+    "adminLabDeleteOneBox", "adminLabDeleteBoxCount",
+    "adminLabDeleteChecking", "adminLabDeleteCheckError", "adminLabDeleteNeverUsed",
+    "adminLabDeleteOccupied", "adminLabDeleteHistory", "adminLabDeleteChanged",
+    "adminLabDeleting", "adminLabDeleted", "auditActionDeletion",
+    "auditDescriptionZoneDeleted", "auditSummaryLocationDeleted",
 }) | frozenset(HISTORICAL_MOVEMENT_KEYS)
 
 
@@ -65,7 +73,7 @@ class AiReviewTests(unittest.TestCase):
 
     def test_historical_reconstruction_requires_exact_registered_provenance(self):
         original = builder.check_register.load_register()
-        for entry_id in ("T856", "T859", "T887"):
+        for entry_id in ("T856", "T859", "T887", "T975"):
             changed = copy.deepcopy(original)
             next(row for row in changed if row["entry_id"] == entry_id)["reason"] += " changed"
             with self.subTest(entry=entry_id):
@@ -247,12 +255,13 @@ class AiReviewTests(unittest.TestCase):
         deferred = {k for k, r in react.items() if r["status"] == "FALLBACK_EN_REVIEW"}
         self.assertTrue(blocked <= absent)
         self.assertFalse(blocked & deferred)
-        # 137 original, plus 7 thermal, 14 Laboratory configuration and 44 historical keys.
-        self.assertEqual(len(absent - blocked), 202)
+        # 137 original, plus 7 thermal, 30 laboratory and 44 historical keys.
+        self.assertEqual(len(absent - blocked), 218)
         added = set(post_baseline_react_keys())
         self.assertEqual(added, LATER_FALLBACK_KEYS)
         self.assertTrue(added <= absent)
         self.assertEqual(len(absent - blocked - added), 137)
+
         for key in react:
             if key.startswith("csv"):
                 self.assertEqual(react[key]["status"], "FALLBACK_EN", key)

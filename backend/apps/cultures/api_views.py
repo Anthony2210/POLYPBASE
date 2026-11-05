@@ -29,7 +29,7 @@ from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import never_cache
 from rest_framework import generics, status
-from rest_framework.exceptions import APIException, PermissionDenied
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -70,6 +70,13 @@ from apps.measurements.services import (
 )
 from apps.organizations.serializers import OrganizationSummarySerializer
 
+from .location_deletion import (
+    ThermalZoneChanged,
+    ThermalZoneDeletionForbidden,
+    ThermalZoneInUse,
+    delete_unused_thermal_zone,
+    thermal_zone_usage_reasons,
+)
 from .models import (
     Box,
     BoxLineage,
@@ -1860,7 +1867,7 @@ class ThermalZoneListCreateAPIView(generics.ListCreateAPIView):
         )
 
 
-class ThermalZoneDetailAPIView(generics.RetrieveUpdateAPIView):
+class ThermalZoneDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = ThermalZoneCreateSerializer
 
     def get_queryset(self):
@@ -1897,6 +1904,69 @@ class ThermalZoneDetailAPIView(generics.RetrieveUpdateAPIView):
                 "modifications": _changed_values(before_values, after_values),
             },
         )
+
+    def destroy(self, request, *args, **kwargs):
+        # Outside the active institution the location is not found at all.
+        zone = self.get_object()
+        if zone.organization_id not in get_active_admin_organization_ids(request):
+            raise PermissionDenied("Ce compte ne peut pas supprimer cet emplacement.")
+        try:
+            delete_unused_thermal_zone(
+                zone.pk,
+                organization_id=zone.organization_id,
+                actor=request.user,
+                audit_values=_thermal_zone_audit_values,
+            )
+        except ThermalZoneDeletionForbidden as error:
+            # Membership changed after the request started: refused under lock.
+            raise PermissionDenied("Ce compte ne peut pas supprimer cet emplacement.") from error
+        except ThermalZone.DoesNotExist as error:
+            raise NotFound() from error
+        except ThermalZoneInUse as error:
+            return _thermal_zone_in_use_response(error.reasons)
+        except ThermalZoneChanged:
+            return Response(
+                {
+                    "code": "thermal_zone_changed",
+                    "detail": "Cet emplacement a changé pendant la suppression. Rien n’a été supprimé.",
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+def _thermal_zone_in_use_response(reasons):
+    return Response(
+        {
+            "code": "thermal_zone_in_use",
+            "detail": "Cet emplacement a déjà été utilisé ou a des données associées. Il est conservé.",
+            "reasons": reasons,
+        },
+        status=status.HTTP_409_CONFLICT,
+    )
+
+
+class ThermalZoneDeletionAPIView(APIView):
+    """Read-only deletion eligibility for the confirmation dialog.
+
+    Informative only: the DELETE request re-checks everything under a lock.
+    """
+
+    def get(self, request, pk):
+        zone = ThermalZone.objects.filter(
+            pk=pk, organization_id__in=get_active_organization_ids(request),
+        ).first()
+        if zone is None:
+            raise NotFound()
+        if zone.organization_id not in get_active_admin_organization_ids(request):
+            raise PermissionDenied("Ce compte ne peut pas supprimer cet emplacement.")
+        reasons = thermal_zone_usage_reasons(zone)
+        return Response({
+            "thermal_zone_id": zone.id,
+            "deletable": not reasons,
+            "reasons": reasons,
+            "box_count": zone.boxes.filter(status=Box.Status.ACTIVE).count(),
+        })
 
 
 class ProbeTemperatureEntryConflict(APIException):

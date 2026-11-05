@@ -71,6 +71,7 @@ class AuditLog(models.Model):
         CREATION = "creation", "Creation"
         UPDATE = "update", "Update"
         ARCHIVE = "archive", "Archive"
+        DELETION = "deletion", "Deletion"
         ENTRY = "entry", "Entry"
         SUBCULTURE = "subculture", "Subculture"
         TRANSFER = "transfer", "Transfer"

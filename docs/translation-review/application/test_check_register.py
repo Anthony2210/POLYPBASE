@@ -673,6 +673,18 @@ class RealRegisterTests(unittest.TestCase):
             line = f"  {key}: '{value}',\n"
             self.assertEqual(baseline.count(line), 1, key)
             baseline = baseline.replace(line, "")
+        # Exclude only the independently frozen incoming lab additions, not arbitrary later events.
+        refinement = rows[974:1006]
+        self.assertEqual([row["entry_id"] for row in refinement],
+                         [f"T{number}" for number in range(975, 1007)])
+        self.assertEqual([row for row in rows if row["batch"] == "B17-2026-11-05"], refinement)
+        self.assertEqual(rows_digest(refinement),
+                         "c9e9c5d39cb1f27fc2bceddd7e40436cc2d79fdc31125ceb17f06d9d48b11134")
+        for row in refinement:
+            if row["language"] == "EN":
+                line = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
+                self.assertEqual(baseline.count(line), 1, row["entry_id"])
+                baseline = baseline.replace(line, "")
         self.assertEqual(hashlib.sha256(baseline.encode()).hexdigest(),
                          "62989721d2528126ab48704fe783597dba0d484d2f24ce05a7391e0e9bdbfa27")
         # Only the independent B13 fingerprint detects the rewrite.
@@ -727,7 +739,7 @@ class RealRegisterTests(unittest.TestCase):
     def test_h_corrections_after_b13_are_appended_events(self):
         rows = reg.load_register()
         t856 = rows[855]
-        correction = dict(t856, entry_id="T975", batch="B17-2026-11-05", initial_value="Daily mean",
+        correction = dict(t856, entry_id="T1007", batch="B18-2026-11-05", initial_value="Daily mean",
                           final_value="Daily average", status="APPLIED", decision_ref="synthetic",
                           baseline_git_head=HEAD_2)
         appended = rows + [correction]

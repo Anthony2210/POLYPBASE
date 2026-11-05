@@ -296,6 +296,30 @@ def create_automatic_box(*, organization, actor, data, _registered_receipt=None)
     return box, True
 
 
+def _location_id(value):
+    """The location id a stored parameter would name, or None."""
+    if type(value) is int:
+        return value if value > 0 else None
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip()) or None
+    return None
+
+
+def _locked_intent_zone(organization, value):
+    """Lock the named location of this institution before an intent may name it.
+
+    Same lock order as creation (authority first, then the zone) and the same
+    row lock that location deletion takes FOR UPDATE: an intent and a deletion
+    of its location are serialized, so neither can commit against the other.
+    """
+    zone_id = _location_id(value)
+    if zone_id is None:
+        return None
+    return ThermalZone.objects.select_for_update(no_key=True).filter(
+        pk=zone_id, organization=organization,
+    ).first()
+
+
 @transaction.atomic
 def register_automatic_box_intent(*, organization, actor, data):
     """Bind a recoverable intention before execution, without allocating a Box.
@@ -313,12 +337,24 @@ def register_automatic_box_intent(*, organization, actor, data):
     failure = None
     if serializer.is_valid():
         intent = _normalized_intent(serializer.validated_data)
+        zone = _locked_intent_zone(organization, intent["thermal_zone"])
+        if zone is None or not zone.is_active:
+            # Same refusal as execution, made durable now; an id that names no
+            # location of this institution is never stored.
+            if zone is None:
+                intent["thermal_zone"] = None
+            failure = {"thermal_zone": [str(_("Select an active zone in the active institution."))]}
     else:
         # Invalid parameters cannot execute, but their rejection must also survive
         # a lost response. Preserve them immutably without retaining the raw token.
-        intent = {"invalid_parameters": json.loads(json.dumps({
+        parameters = json.loads(json.dumps({
             name: value for name, value in data.items() if name not in ("request_id", "resume_token")
-        }, cls=DjangoJSONEncoder))}
+        }, cls=DjangoJSONEncoder))
+        if _location_id(parameters.get("thermal_zone")) is not None and _locked_intent_zone(
+            organization, parameters["thermal_zone"],
+        ) is None:
+            parameters["thermal_zone"] = None
+        intent = {"invalid_parameters": parameters}
         failure = json.loads(json.dumps(serializer.errors))
     previous = AutomaticBoxCreationRequest.objects.filter(
         organization=organization, actor=actor, request_id=key.validated_data["request_id"],

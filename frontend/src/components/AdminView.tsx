@@ -35,6 +35,7 @@ import type {
   BoxTransferResult,
   OrganizationPayload,
   ThermalZonePayload,
+  ThermalZoneDeletionEligibility,
   ThermalZoneUpdatePayload,
 } from '../types/admin';
 import {
@@ -2381,6 +2382,8 @@ export default function AdminView({
   onRequestOptions,
   onCreateZone,
   onUpdateZone,
+  onLoadZoneDeletion,
+  onDeleteZone,
   onCreateOrganization,
   onDeleteOrganization,
   onUpdateOrganization,
@@ -2413,6 +2416,8 @@ export default function AdminView({
   onRequestOptions: () => void;
   onCreateZone: (payload: ThermalZonePayload) => Promise<{ id: number }>;
   onUpdateZone: (zoneId: number, payload: ThermalZoneUpdatePayload) => Promise<void>;
+  onLoadZoneDeletion: (zoneId: number) => Promise<ThermalZoneDeletionEligibility>;
+  onDeleteZone: (zoneId: number) => Promise<void>;
   onCreateOrganization: (payload: OrganizationPayload) => Promise<void>;
   onDeleteOrganization: (organizationId: number) => Promise<void>;
   onUpdateOrganization: (organizationId: number, payload: OrganizationPayload) => Promise<void>;
@@ -2511,6 +2516,8 @@ export default function AdminView({
               zones={zones}
               onCreateZone={onCreateZone}
               onUpdateZone={onUpdateZone}
+              onLoadZoneDeletion={onLoadZoneDeletion}
+              onDeleteZone={onDeleteZone}
               onOpenZone={onOpenZone}
               t={t}
             />

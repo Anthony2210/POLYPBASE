@@ -5,7 +5,7 @@
  * "0" is a real configured value and is always sent as 0.
  */
 
-import { formatBiologicalSalinity, stepBiologicalSalinity } from './biologicalSalinity';
+import { formatBiologicalSalinity } from './biologicalSalinity';
 
 export type LabLocationSource = {
   name: string;
@@ -155,27 +155,32 @@ export function compareLabLocations(first: LabLocationSource, second: LabLocatio
   return first.name.localeCompare(second.name, 'fr-FR', { numeric: true });
 }
 
-/**
- * Capacity -/+ buttons: whole boxes, never below zero. An unreadable entry is
- * left untouched so its validation message stays visible.
- */
-export function stepLabCapacity(value: string, increment: number) {
-  const trimmed = value.trim();
-  if (!trimmed) return String(Math.max(increment, 0));
-  if (!CAPACITY_PATTERN.test(trimmed)) return value;
-  return String(Math.max(Number(trimmed) + increment, 0));
-}
-
-/**
- * Salinity -/+ buttons keep the two stored decimals (32.25 + 5 = 37.25), using
- * the same integer-hundredths stepping as the box measurement editor.
- */
-export function stepLabSalinity(value: string, increment: number) {
-  return stepBiologicalSalinity(value.trim().replace(',', '.'), increment);
-}
-
 /** Configured salinity as stored, without rounding: "32.25", "32.5", "0"; null shows "-". */
 export function formatLabSalinity(value: string | number | null | undefined) {
   if (value === null || value === undefined || value === '') return '-';
   return formatBiologicalSalinity(String(value));
+}
+
+export type LabLocationDeletionReason = 'occupied' | 'history';
+
+export type LabLocationDeletionRefusal =
+  | { code: 'in_use'; reasons: LabLocationDeletionReason[] }
+  | { code: 'changed' };
+
+/**
+ * Reads the server refusal of a location deletion. Unknown reasons are kept
+ * as "history" so a refusal is never shown as an available deletion.
+ */
+export function getLabLocationDeletionRefusal(data: unknown): LabLocationDeletionRefusal | null {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  const { code, reasons } = data as { code?: unknown; reasons?: unknown };
+  if (code === 'thermal_zone_changed') return { code: 'changed' };
+  if (code !== 'thermal_zone_in_use') return null;
+  const listed = Array.isArray(reasons) ? reasons : [];
+  const known: LabLocationDeletionReason[] = [];
+  if (listed.includes('occupied')) known.push('occupied');
+  if (listed.includes('history') || !known.length || listed.some((reason) => reason !== 'occupied')) {
+    known.push('history');
+  }
+  return { code: 'in_use', reasons: known };
 }
