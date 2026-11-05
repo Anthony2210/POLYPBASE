@@ -34,7 +34,7 @@ migration ni une roadmap produit. État courant :
 | **SOUCHE** (id_souche, code_souche, nom_souche) | `taxonomy.Strain` | id→id, code_souche→`code` ; **nom_souche absent** (only `code`/`number`) | 🟠 |
 | **BOITE** (id_boite, global_id, code_local, date_creation, statut_boite) | `cultures.Box` | id→id, global_id→`global_code`, code_local→`local_code`, date_creation→`created_on`, statut_boite→`status` | ✅ |
 | **ZONE_THERMIQUE** (id_zone, nom_zone, type_zone, temperature_cible) | `cultures.ThermalZone` | id→id, nom_zone→`name`, type_zone→`zone_type`, temperature_cible→`target_temperature_c` | ✅ |
-| **SONDE_TEMPERATURE** (id, nom_sonde, numero_serie, url_api) | `measurements.Probe` | id→id, nom_sonde→`code` ; **numero_serie absent**, **url_api absent** | 🟠 |
+| **SONDE_TEMPERATURE** (id, nom_sonde, numero_serie, url_api) | `measurements.Probe` | id→id, nom_sonde→`code`, numero_serie→`external_serial`, voie→`external_channel` (migration `0015_iminilide_probe_collection`) ; pas de champ `url_api` par sonde : le client iMinilide construit l'URL à partir de la configuration commune, de la série et de la voie | 🟠 URL du MCD représentée autrement; collecte iMinilide implémentée, activation réelle non vérifiée ici |
 
 ## 2. Associations
 
@@ -44,7 +44,7 @@ migration ni une roadmap produit. État courant :
 | **POSSEDER_SOUCHE** (ESPECE 0,N — SOUCHE 1,1) | `Strain.species` (FK PROTECT) | ✅ |
 | **CONTENIR** (SOUCHE 0,N — BOITE 1,1) | `Box.strain` (FK PROTECT) | ✅ |
 | **AVOIR_PROVENANCE** (SOUCHE 0,1 — STRUCTURE 0,N : type_provenance, lieu, commentaire) | `taxonomy.Origin` (source_type, description, latitude/longitude, **partner_institution** → `organizations.PartnerInstitution`) relié par `Strain.origin` | 🟠 provenance reliée à `PartnerInstitution`, pas à `STRUCTURE` ; `lieu` éclaté en lat/long + nom institution |
-| **SAISIR_RELEVE** (UTILISATEUR — BOITE : date_releve, nb_polypes, nb_ephyrules, type_observation, commentaire) | `measurements.BiologicalMeasurement` (measured_on, week_start, temporal_precision, counts, notes, user, original_observer, observer_status, origin, imported_by) **+** `Observation` (observation_type) | 🟠 observation séparée; unicité boîte/semaine, acteur/observateur/origine distincts; `measured_on` reste obligatoire, pas de semaine seule persistée |
+| **SAISIR_RELEVE** (UTILISATEUR — BOITE : date_releve, nb_polypes, nb_ephyrules, type_observation, commentaire) | `measurements.BiologicalMeasurement` (measured_on, week_start, temporal_precision, counts, notes, user, original_observer, observer_status, origin, imported_by) **+** `Observation` (observation_type) | 🟠 observation séparée; unicité canonique boîte/semaine (`duplicate_of IS NULL`), preuves doublons conservées en lecture seule, acteur/observateur/origine distincts; `measured_on` reste obligatoire, pas de semaine seule persistée |
 | **EFFECTUER_REPIQUAGE** (UTILISATEUR + BOITE parent + BOITE enfant : date_repiquage, motif, nb_polypes_preleves) | `SubcultureEvent` (event_date, occurred_at, reason, user, parent_polyp_count_before, allocated_polyp_count, parent_polyp_count_after, parent_state_snapshot) **+** `SubcultureAllocation` (child_box, allocated_polyps) **+** `BoxLineage` | ✅ quantités/snapshot implémentés; total/après NULL en saisie partielle, allocation enfant zéro distincte d'inconnue; legacy conservé |
 | **RANGE** (UTILISATEUR + BOITE + ZONE : date_entree, date_sortie, motif) | `BoxLocation` (starts_at, ends_at, notes) **+** `BoxMovement` (from/to zone, moved_at, user, kind, iso_week_start, revision, origin/destination_location) | 🟠 périodes et événements distincts; auteur original et corrections auditées; un ordinary/semaine Paris; legacy non reclassé |
 | **AFFECTER_SONDE** (SONDE 0,N — ZONE 0,N : date_debut, date_fin) | `Probe.thermal_zone` (FK simple) | ❌ **non historisé** : pas de date_debut/date_fin, une sonde = une zone courante |
@@ -59,8 +59,11 @@ migration ni une roadmap produit. État courant :
 
 Par ordre d'impact pour le besoin métier :
 
-1. **SONDE_TEMPERATURE : `numero_serie` + `url_api`** (`measurements.Probe`) — important
-   pour la récupération **automatique** des mesures. → ajouter 2 champs.
+1. **SONDE_TEMPERATURE : série/voie implémentées** — `Probe.external_serial` et
+   `external_channel` existent (migration `0015_iminilide_probe_collection`). La
+   collecte iMinilide utilise ces identifiants et le client/configuration communs;
+   l'absence d'un champ `url_api` par sonde ne constitue pas un besoin établi
+   d'ajout. Ne pas confondre capacité implémentée et activation réelle non vérifiée.
 2. **AFFECTER_SONDE non historisé** — si l'historique sonde↔zone est requis,
    créer un modèle `ProbeAssignment` (probe, zone, date_debut, date_fin). Sinon
    documenter le choix « zone courante uniquement ».
@@ -107,6 +110,15 @@ opérationnel ou biologique inféré.
 
 ### Extensions intégrées depuis les MCD initiaux
 
+- Relevés : UNIQUE `(box, week_start)` seulement lorsque `duplicate_of IS NULL`
+  (migration `0014_measurement_canonical_evidence`). Les doublons référencent un
+  relevé canonique et restent des preuves conservées, en lecture seule dans les
+  parcours ordinaires, pas des mesures supplémentaires à compter. Les managers
+  ordinaires les exposent; les lectures scientifiques utilisent `.canonical()`, y
+  compris `box.biological_measurements.canonical()` via le manager inverse. Une
+  semaine canonique occupée reste un conflit `409 measurement_week_conflict` en
+  création ordinaire, même pour `0/0` : zéro est une mesure réelle. Preuves :
+  `backend/apps/measurements/models.py`, `services.py`, `test_canonical_evidence.py`.
 - `Organization.portable_id`, `GlobalStrainIdentity`, AAA/BBB institutionnels,
   `LocalStrainIdentity`, cardinalité canonique et compteur X interne : identité
   technique/biologique distincte des permissions, sans backfill inféré.

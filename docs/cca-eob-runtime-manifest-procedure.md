@@ -1,5 +1,16 @@
 # CCA-EOB — reprise gardée et manifeste source-only
 
+> **Procédure close — runtime dédié retiré le 2026-11-04 (rapporté par l'opérateur).**
+> Compte et groupe Linux dédiés supprimés, ACL dédiées retirées, manifeste actif
+> archivé; garde de déploiement rapporté `CCA_EOB_DEPLOY_GUARD_CLEAR`. Tout le
+> contenu ci-dessous, y compris les états « rapportés », les consignes de conserver
+> le compte dédié ou le garde et les étapes de reprise, est **historique** et
+> n'est plus une procédure à exécuter. **Ne jamais recréer le compte dédié ni le
+> manifeste simplement pour satisfaire le garde de déploiement** : leur réapparition
+> réactive le contrôle et bloque la release. État courant et limites :
+> [`POLYPBASE_CURRENT_STATE.md`](../POLYPBASE_CURRENT_STATE.md); garde :
+> [`deploiement_vm.md`](deploiement_vm.md#garde-cca-eob-du-runtime-dédié).
+
 ## Statut et périmètre
 
 **Procédure opérateur future, non autorisée et non exécutée par ce correctif.**

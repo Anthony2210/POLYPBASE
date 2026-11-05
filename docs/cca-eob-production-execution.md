@@ -1,5 +1,14 @@
 # CCA-EOB V3 — procédure de production gardée, non autorisée
 
+> **Clôture datée — 2026-11-04 (rapporté par l'opérateur).** Le rôle PostgreSQL
+> dédié, la table d'approbation et les trois fonctions dédiées ont été retirés
+> (cinq postchecks SQL vrais), ainsi que le compte/groupe Linux et les ACL dédiés.
+> Cette procédure, ses autorisations d'origine et ses résultats sont conservés
+> comme **historique**; elle n'est plus un runbook actif. Ce retrait technique
+> n'établit ni l'application ni une validation scientifique complète de la
+> correction V3 en production. État courant :
+> [`POLYPBASE_CURRENT_STATE.md`](../POLYPBASE_CURRENT_STATE.md).
+
 Cette procédure prépare une opération future. Elle **n’autorise ni accès VM, ni
 mutation de production, ni déploiement**. Aucun provisionnement, import
 d’approbation ou apply ne doit partir automatiquement. La commande QA

@@ -1,7 +1,7 @@
 # Déploiement de Polypbase sur la VM
 
 Ce document décrit l’état vérifié du serveur Polypbase au 24 août 2026 et les
-opérations restantes. Les mots de passe, clés SSH, clés Django et identifiants
+opérations restantes. Les compléments ultérieurs sont datés dans leur section. Les mots de passe, clés SSH, clés Django et identifiants
 de base de données ne doivent jamais être ajoutés au dépôt.
 
 ## État actuel
@@ -17,7 +17,7 @@ de base de données ne doivent jamais être ajoutés au dépôt.
 | PostgreSQL de production | Version 18, cluster `18/main`, port local 5433 |
 | Base active | `polypbase`, rôle local `polypbase`, authentification `peer` |
 | Ancien cluster local | PostgreSQL 17, vide, encore présent sur le port 5432 |
-| Clients PostgreSQL | `/usr/bin/pg_dump`/`pg_restore` = `pg_wrapper` Debian; sans `--cluster`, `/usr/bin/pg_restore --version` sélectionne 17.10. Clients 18 : `/usr/lib/postgresql/18/bin/` (utilisés explicitement par CCA-EOB) |
+| Clients PostgreSQL | `/usr/bin/pg_dump`/`pg_restore` = `pg_wrapper` Debian; sans `--cluster`, `/usr/bin/pg_restore --version` sélectionne 17.10. Clients 18 : `/usr/lib/postgresql/18/bin/` (exigés explicitement par `backup_database.py` et le contrôle d'archive de release; CCA-EOB, retiré, les utilisait aussi) |
 | Domaine | `polypbase.org` et `www.polypbase.org` dirigés vers la VM |
 | HTTPS | Actif sur les deux noms, avec redirection HTTP vers HTTPS |
 | Déploiement | Automatisé et contrôlé par `deploy/deploy_vm.ps1` |
@@ -147,6 +147,18 @@ EMAIL_USE_SSL=0
 EMAIL_TIMEOUT=10
 ```
 
+**Écart HSTS non résolu (2026-11-04).** La clôture CCA-EOB du 2026-11-03 rapporte
+`HSTS_SECONDS=0` / `security.W004` en production, alors que la valeur attendue
+ci-dessus et la valeur par défaut du code (`backend/config/settings.py`) sont
+`86400`. Le gabarit `deploy/nginx/polypbase.conf` contient aussi
+`add_header Strict-Transport-Security "max-age=86400" always;`. L'avertissement
+Django décrit le réglage Django : il ne permet pas de conclure que l'en-tête HSTS
+est absent de la réponse HTTPS publique, car Nginx peut l'ajouter. La configuration
+HTTPS active et les en-têtes effectivement servis n'ont pas été revérifiés ici ;
+le gabarit ne prouve pas leur état réel. Cause et décision non établies : aucune
+modification de configuration n'est décidée ici. `check --deploy` le signale comme
+avertissement, sans arrêter la release.
+
 ## Déploiement automatisé
 
 Le déploiement normal se lance depuis PowerShell, à la racine d’une copie locale
@@ -179,6 +191,30 @@ release bénéficie donc des clients 18 sans avancer Git avant la sauvegarde.
 Le second contrôle d'archive utilise également le helper extrait, avec
 `client_major=18`, ses contrôles de provenance et son délai maximal. Ces
 contrôles de lisibilité ne remplacent pas un test de restauration.
+
+### Garde CCA-EOB du runtime dédié
+
+Après le fast-forward et la synchronisation des dépendances verrouillées, avant
+le build frontend, les contrôles Django et les migrations,
+`deploy/scripts/deploy_release.sh` exécute l'étape `CCA-EOB runtime read
+permissions`. Elle est active **uniquement si** l'une de ces conditions est vraie :
+
+- le compte Linux `polypbase_cca_eob` existe (`id -u polypbase_cca_eob`);
+- le chemin `/etc/polypbase/cca-eob-runtime-permissions-v1.json` existe, y
+  compris sous forme de lien symbolique.
+
+Elle lance alors `deploy/scripts/cca_eob_runtime_permissions.py check`, qui
+exige un manifeste protégé et les droits exacts, ne modifie aucune ACL et arrête
+la release en cas d'échec (dépôt déjà avancé, migrations non appliquées).
+
+Le runtime dédié a été retiré le 2026-11-04 (rapporté par l'opérateur : compte
+et groupe supprimés, manifeste actif archivé, `CCA_EOB_DEPLOY_GUARD_CLEAR`).
+Les deux conditions étant absentes, l'étape est sautée et ne bloque plus la
+release. Si le compte ou le manifeste réapparaît, le contrôle redevient actif et
+échoue sans manifeste revu valide. **Ne jamais recréer le compte ou le manifeste,
+ni modifier ce garde, pour faire passer un déploiement** : arrêter et analyser.
+Historique : [`cca-eob-runtime-manifest-procedure.md`](cca-eob-runtime-manifest-procedure.md);
+état courant : [`POLYPBASE_CURRENT_STATE.md`](../POLYPBASE_CURRENT_STATE.md).
 
 Le script s’arrête au premier échec. Il ne restaure jamais la base et n’annule
 jamais une migration automatiquement. Le journal distant, la sauvegarde et
@@ -216,9 +252,10 @@ redémarrage, santé).
 `-ReviewedMigrationApproval` n'est nécessaire que si le plan l'exige.
 `-UseVerifiedGitHubCi -PreflightOnly` vérifie la CI sans modifier la VM.
 
-La clé PuTTY est cherchée dans la variable `POLYPBASE_SSH_KEY`, puis dans le
-chemin local historique d’Anthony. Un autre chemin peut être fourni avec
-`-SshKeyPath`. La clé et son contenu ne sont jamais copiés dans le dépôt.
+Le chemin de clé SSH doit être fourni avec `-SshKeyPath` ou, si ce paramètre
+est absent ou vide, avec `POLYPBASE_SSH_KEY`. Sans l'un de ces deux réglages,
+`deploy/deploy_vm.ps1` s'arrête avec une erreur : aucun chemin personnel de secours
+n'est utilisé. La clé et son contenu ne sont jamais copiés dans le dépôt.
 
 ### Approbation explicite d'un plan de migration revu
 
@@ -283,30 +320,21 @@ et les blocs PowerShell avec un transport factice. Bash est nécessaire ; sous
 Windows, PowerShell 5.1 et PowerShell 7 sont vérifiés s'ils sont disponibles.
 Les interpréteurs absents sont signalés comme tests ignorés.
 
-## Procédure manuelle de secours
+## Arrêt et reprise après échec
 
-Après un push validé sur `main` :
+La procédure officielle reste `deploy/deploy_vm.ps1` et son exécuteur versionné
+`deploy/scripts/deploy_release.sh`, décrits ci-dessus. Ne pas reconstruire une
+séquence manuelle de pull, build, migration et redémarrage : elle contournerait
+les gardes de commit, de sauvegarde, de plan de migration et de santé.
 
-```bash
-sudo -u polypbase git -C /srv/polypbase/app status -sb
-sudo -u polypbase git -C /srv/polypbase/app pull --ff-only
-
-cd /srv/polypbase/app
-sudo -u polypbase uv sync --frozen
-sudo -u polypbase npm --prefix frontend ci
-sudo -u polypbase npm --prefix frontend run build
-sudo -u polypbase .venv/bin/python backend/manage.py migrate --plan
-sudo -u polypbase .venv/bin/python backend/manage.py migrate
-sudo -u polypbase .venv/bin/python backend/manage.py collectstatic --noinput
-sudo -u polypbase .venv/bin/python backend/manage.py check --deploy
-
-systemctl restart polypbase
-nginx -t
-systemctl reload nginx
-```
-
-Toujours créer une sauvegarde avant une migration Django qui modifie le schéma.
-Ne jamais éditer le code directement dans la copie de production.
+Au premier échec, arrêter et conserver le journal, le commit atteint, le plan de
+migration et les références de sauvegarde sans exposer de secrets. Diagnostiquer
+l'étape et l'état intermédiaire en lecture seule avant toute proposition de
+reprise. Une reprise par la procédure gardée exige une nouvelle autorisation
+explicite ; ne pas relâcher une protection pour la faire passer. Ce document ne
+fournit aucune recette d'urgence alternative. Une restauration, un rollback ou
+une intervention hors déploiement exige sa propre procédure revue et son accord
+explicite. Ne jamais éditer le code directement dans la copie de production.
 
 Après l'activation de Certbot, ne pas écraser directement la configuration
 Nginx active avec le gabarit HTTP du dépôt : reporter les nouvelles directives
@@ -372,5 +400,15 @@ Après activation du DNS et de HTTPS :
 - les fichiers statiques de l’administration sont présents
 - un QR code ouvre la bonne fiche sur téléphone
 - le scanner obtient l’autorisation de la caméra
-- un relevé de contrôle est écrit dans PostgreSQL local puis supprimé proprement
+- un relevé existant de l'organisation autorisée est consulté en lecture seule,
+  avec contrôle des valeurs (dont zéro et absence), de la date et de l'auteur,
+  sans créer, modifier ou supprimer de donnée scientifique
 - une sauvegarde automatique est créée et une restauration de test est validée
+  uniquement dans un environnement distinct, isolé et explicitement autorisé
+
+Le smoke test de production utilise uniquement des données existantes dont la
+consultation est autorisée. Une éventuelle écriture scientifique exceptionnelle
+n'appartient ni à ce smoke test ni à l'accord de déploiement : elle exige une
+décision distincte, une autorisation explicite immédiatement avant l'opération
+et une procédure revue couvrant périmètre, audit, vérification et devenir des
+données. Aucune écriture suivie d'une suppression de test n'est autorisée ici.

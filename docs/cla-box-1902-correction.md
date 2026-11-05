@@ -2,7 +2,14 @@
 
 ## Statut et décision
 
-**READY FOR INDEPENDENT REVIEW — aucune autorisation d'exploitation.**
+**Mise à jour 2026-11-04 : code intégré à `main` au commit `a841519`, pas encore
+déployé (dernière release rapportée : `cb07a2c`) ; correction non appliquée en
+production.** Aucune revue indépendante de `a841519` n'est attestée dans le dépôt.
+Un futur déploiement du code n'autorise pas `--apply` : l'application exige son
+propre plan revu, sa sauvegarde et un accord explicite.
+
+Statut de préparation d'origine, conservé : **READY FOR INDEPENDENT REVIEW — aucune
+autorisation d'exploitation.**
 Aucun accès production, VM, Neon ou base partagée. Aucun commit, push ou déploiement.
 Les faits de départ ci-dessous sont ceux communiqués dans la demande, pas un nouveau
 constat de production. Les validations utilisent exclusivement des données synthétiques.

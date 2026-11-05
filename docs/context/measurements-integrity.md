@@ -8,11 +8,11 @@ saisie interactive. La migration `0010_measurement_import_receipt` autorise NULL
 pour `culture_status`, `needs_attention` et `notes` afin de conserver les inconnus
 importés; elle ne réécrit pas les lignes existantes. Les valeurs par défaut et
 le refus de NULL explicite en saisie courante sont préservés. Source, états
-canoniques, plan 1.2, résultat et audits sont conservés dans un reçu privé immuable,
+canoniques, plan 1.3, résultat et audits sont conservés dans un reçu privé immuable,
 dans la même transaction. `user` est l'acteur d'import, l'observateur original
 reste NULL/not_recorded. Aucune persistance iso_week ni conversion de précision.
 Contrat courant : [`../measurement-csv-diagnostics.md`](../measurement-csv-diagnostics.md).
-Les mentions « futur applicateur » ci-dessous décrivent les fondations antérieures.
+Le plan courant ajoute `duplicate_of_id` et `environment_source_box_id` aux baselines des mesures, en plus des champs de précision et de provenance introduits par la version 1.2. Le planner reste read-only; l'applicateur séparé est limité aux dates exactes. Les mentions « futur applicateur » et les versions 1.1/1.2 dans les fondations ci-dessous décrivent leurs étapes antérieures, pas une absence actuelle de cette acceptation restreinte.
 
 ## Invariant zéro
 
@@ -26,14 +26,16 @@ Un relevé `0/0` existe donc réellement et reste distinct de « aucun relevé �
 
 `BiologicalMeasurement` associe une boîte et une date à des nombres de polypes, d'éphyrules et de strobiles, une salinité facultative, un état de culture, un indicateur d'attention, des notes et un auteur.
 
-La base garantit au plus une ligne par boîte et semaine ISO. Le POST interactif suit le comportement métier suivant :
+La base garantit au plus une **mesure canonique** par boîte et semaine ISO : la contrainte `unique_biological_measurement_per_box_week` sur `(box, week_start)` s'applique uniquement aux lignes où `duplicate_of IS NULL` (migration `0014_measurement_canonical_evidence`). Les preuves doublons, liées par `duplicate_of`, sont conservées en lecture seule et ne sont pas une seconde mesure canonique. Les managers par défaut, de base et inverses les conservent : les lecteurs scientifiques doivent sélectionner `.canonical()`, y compris via `box.biological_measurements.canonical()`, avant calcul, sélection du dernier relevé ou export. Ce filtrage ne doit pas masquer les preuves dans les audits et opérations revues.
+
+Le POST interactif suit le comportement métier suivant :
 
 1. ouvrir une transaction et verrouiller la boîte;
-2. créer le relevé et répondre `201` si la semaine est libre;
-3. répondre `409 measurement_week_conflict` sans mutation si un relevé existe déjà dans la semaine, y compris à la même date;
+2. créer le relevé canonique et répondre `201` si le créneau canonique de la semaine est libre;
+3. répondre `409 measurement_week_conflict` sans mutation si une mesure canonique existe déjà dans la semaine, y compris à la même date ou pour `0/0`;
 4. écrire l'audit dans la même transaction, sans génération ni synchronisation d'alertes.
 
-Deux créations concurrentes sont ainsi sérialisées selon la même règle que deux opérations séquentielles : une seule ligne finale et un conflit pour la seconde. La contrainte DB sur `(box, week_start)` reste la défense finale contre les doublons. Le `save()` calcule la clé depuis la date; il n'existe pas encore de CHECK dédié lundi/date pour les chemins bulk/SQL qui le contournent. Ces chemins ne garantissent ni permission, ni audit, ni cohérence scientifique de la clé. Toute correction d'un relevé existant passe exclusivement par le PATCH prévu.
+Deux créations concurrentes sont ainsi sérialisées selon la même règle que deux opérations séquentielles : une seule mesure canonique finale et un conflit pour la seconde. La contrainte DB conditionnelle sur `(box, week_start)` reste la défense finale contre deux mesures canoniques; la conservation de preuves doublons ne l'affaiblit pas. Le `save()` calcule la clé depuis la date; il n'existe pas encore de CHECK dédié lundi/date pour les chemins bulk/SQL qui le contournent. Ces chemins ne garantissent ni permission, ni audit, ni cohérence scientifique de la clé. Toute correction d'un relevé existant passe exclusivement par le PATCH prévu.
 
 Une boîte inactive refuse un nouveau relevé. Un relevé historique déjà présent peut être corrigé par un utilisateur autorisé. Vérifier le statut sous verrou au moment de l'écriture, pas seulement dans l'interface.
 
@@ -74,7 +76,7 @@ La migration additive `0009_temporal_precision`, après `0008_observer_origin`, 
 
 Le POST ordinaire exige toujours `measured_on` et établit `exact_date` côté serveur. Le champ n'est pas dans l'allowlist d'écriture; les valeurs client sont ignorées comme pour les champs de provenance. Le PATCH partiel, vide ou corrigeant explicitement la date conserve la précision existante, l'observateur et l'origine. **Question produit ouverte :** une correction explicite de date legacy suffit-elle à établir une observation exacte, et sous quelles preuves/permissions ? Aucun changement de précision implicite ni endpoint de conversion n'est ajouté.
 
-`measured_on` reste NOT NULL; `week_start`, l'unicité `(box, week_start)`, le calcul ISO dans `save()`, les tris scientifiques, la priorité du résolveur et les audits restent inchangés. La contrainte `measurement_temporal_precision_supported` n'autorise que les deux valeurs ci-dessus, y compris hors validation Python : `iso_week` est refusé même accompagné d'un lundi fabriqué. Cette phase conserve l'interprétation runtime historique des dates legacy; elle ne résout pas rétroactivement leur incertitude.
+`measured_on` reste NOT NULL; cette fondation ne modifie ni `week_start`, ni le calcul ISO dans `save()`, ni les tris scientifiques, la priorité du résolveur ou les audits. L'unicité actuelle `(box, week_start)` est conditionnelle aux mesures canoniques, comme précisé plus haut. La contrainte `measurement_temporal_precision_supported` n'autorise que les deux valeurs ci-dessus, y compris hors validation Python : `iso_week` est refusé même accompagné d'un lundi fabriqué. Cette phase conserve l'interprétation runtime historique des dates legacy; elle ne résout pas rétroactivement leur incertitude.
 
 ### Première tranche de compatibilité des lectures temporelles
 
@@ -82,7 +84,7 @@ Le contrat partagé `cultures.BiologicalMeasurementSerializer` expose désormais
 
 La représentation du serializer accepte déjà un objet non persisté avec `measured_on=None` : un relevé reste un objet avec ID/valeurs/clé de semaine, distinct de `latest_measurement=null` (absence de relevé). Cela ne change **pas** sa validation d'entrée : le POST et le PATCH continuent à refuser une date explicitement nulle. Le fixture `iso_week` de test n'est jamais enregistré.
 
-Les lectures par boîte (préchargements liste/détail/inventaire, GET des relevés, fallbacks des serializers et dernière salinité biologique renseignée) trient par `-week_start`, puis `-created_at`, puis `-pk`. L'unicité `(box, week_start)` et le calcul actuel de la clé garantissent le même dernier relevé pour les données valides actuelles, y compris aux frontières d'année ISO. Les clés techniques ne prétendent pas établir une chronologie d'observation. Les sources de `current_polyp_state`, leurs priorités et les snapshots ne sont pas modifiés.
+Les lectures par boîte (préchargements liste/détail/inventaire, GET des relevés, fallbacks des serializers et dernière salinité biologique renseignée) trient par `-week_start`, puis `-created_at`, puis `-pk`. Sur les lecteurs filtrés avec `.canonical()`, l'unicité canonique `(box, week_start)` et le calcul actuel de la clé garantissent le même dernier relevé pour les données valides actuelles, y compris aux frontières d'année ISO. Les clés techniques ne prétendent pas établir une chronologie d'observation. Les sources de `current_polyp_state`, leurs priorités et les snapshots ne sont pas modifiés.
 
 Le filtre d'inventaire « sans relevé », partagé avec la sélection groupée, utilise un `Exists` corrélé à la boîte et non la nullité de la date du dernier relevé. Zéro reste présent; une strobile inconnue reste `null`. Les règles d'ancienneté et de création historique restent basées sur les dates existantes, sans seuil nouveau ni lundi de remplacement.
 
@@ -193,7 +195,7 @@ Seule l'ingestion iMinilide est implémentée : une `Probe` de type `iminilide` 
 - Les horodatages du cloud sont en heure locale sans décalage; l'heure répétée du passage à l'heure d'hiver est levée par l'ordre de la réponse. Les horodatages ambigus sans retour arrière observable sont écartés et comptés, jamais devinés.
 - `DailyTemperature.computed_from_probes = True` marque un jour recalculé à partir de toutes les mesures des sondes collectées de la zone (G et D confondues). Un jour contenant une valeur manuelle ou historique (`False`) n'est jamais réécrit par la collecte. Une saisie manuelle sur un jour issu des sondes le repasse à `False` et le fige. Le recalcul verrouille la zone puis le jour, dans le même ordre que la saisie manuelle.
 - Au-delà de `PROBE_READING_RETENTION_DAYS` (14 j), les mesures minute sont condensées en `ProbeTemperatureBucket` (min, moyenne, max, nombre et somme exacte, par 15 min) puis supprimées. Cette condensation est volontaire et irréversible; les agrégats journaliers tiennent compte des tranches. Le champ obligatoire `last_measured_at` conserve le maximum exact des instants mesurés, y compris lors des fusions; le début ou la fin théorique de tranche ne remplace jamais cet instant.
-- Une zone avec une sonde collectée active masque la saisie manuelle. L'API refuse la saisie (409) tant que la dernière mesure date de moins de `PROBE_MANUAL_FALLBACK_HOURS` (6 h); au-delà, la saisie redevient possible. `ThermalZoneSerializer.probe_monitoring` expose cet état.
+- Une zone avec une sonde collectée active bloque la saisie manuelle uniquement lorsqu'une dernière mesure existe et que son âge est inférieur ou égal à `PROBE_MANUAL_FALLBACK_HOURS` (6 h par défaut). Sans mesure enregistrée, ou après dépassement strict du seuil, le repli manuel est disponible sous permissions. L'API revérifie cet état sous verrou de zone après contrôle des permissions et répond `409` lorsque la saisie manuelle est indisponible. `ThermalZoneSerializer.probe_monitoring` expose cet état.
 - `GET /api/thermal-zones/<id>/probe-readings/?start=&end=` renvoie les séries par sonde de l'organisation active : minute jusqu'à 2 jours, 15 min jusqu'à 31 jours, heure au-delà (366 jours maximum).
 - La collecte automatique ne crée pas d'entrée `AuditLog` par mesure; la liaison d'une sonde (`link_iminilide_probe`) est auditée.
 

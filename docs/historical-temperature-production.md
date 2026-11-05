@@ -3,12 +3,29 @@
 ## Statut et limites
 
 Workflow intégré à `main` au commit `761cd02`, avec revue indépendante verte
-communiquée pour cette intégration ; déploiement non réalisé. Les corrections
-locales de fiabilisation décrites ici restent à relire et intégrer. Ce document
-n'est **pas une autorisation de production**. Aucun accès VM, production, Neon ou
-base partagée pendant cette reprise ; aucun import réel, commit, push ou déploiement.
-Chaque phase opérateur exige son accord propre. Ne jamais exécuter les corrections
-non intégrées sur la VM.
+communiquée pour cette intégration. **Fiabilisation intégrée** au commit
+`23bf6e7` : le commit de livraison `239a7ca` est patch-équivalent, pas un correctif
+restant à intégrer. Vérification locale documentaire du 2026-11-05 : les deux
+commits ont le même patch-id stable `105f29875051728871f5e925fd8cb7a43308b9e3` ;
+`23bf6e7` est un ancêtre de `cb07a2c`, lui-même ancêtre du HEAD local. Le blob de
+`backend/apps/measurements/historical_temperature_target.py` est identique aux
+quatre révisions (`6516246cbb7a7cccebdccb512e64171ba42b711f`). Le code courant
+contrôle les gardes UPDATE et les budgets des deux sessions de sauvegarde ;
+les détails et résultats de validation historiques sont conservés ci-dessous.
+
+Le **déploiement de `cb07a2c` est rapporté par l'opérateur** (2026-11-03), sans
+revérification de la VM ici : le code du workflow et sa fiabilisation sont donc
+déployés selon ce rapport. Cela ne prouve ni la préparation effective de
+l'infrastructure (rôles, peer, ACL, attestation, fonction et triggers, timeouts,
+clients PostgreSQL compatibles), ni l'exécution de l'import, ni sa validation
+scientifique. **Aucune exécution de l'import ni validation scientifique de son
+résultat en production n'est établie ici.** Un nouveau plan réel et sa revue
+restent nécessaires ; les résultats QA historiques ne les remplacent pas.
+
+Ce document n'est **pas une autorisation de production**. Aucun accès VM,
+production, Neon ou base partagée pendant cette reprise documentaire ; aucun
+import réel, commit, push ou déploiement. Chaque phase opérateur exige son accord
+propre. Ne jamais exécuter de corrections non intégrées sur la VM.
 
 L'état PCA communiqué pour préparer ce contrat est : organisation 1, boîte
 canonique 2135, boîte retirée 2141, 92 mesures déplacées, 18 doublons conservés,
@@ -460,6 +477,24 @@ Un plan généré mais bloqué est écrit pour inspection et la commande échoue
 
 ### E. Sauvegarde — accord séparé d'écriture d'artefacts
 
+**STOP — compatibilité des clients non vérifiée sur la cible réelle.** Avant
+cette commande de backup et avant toute validation de preuve autorisant `apply`,
+faire établir séparément la compatibilité effective des clients avec le serveur
+et l'archive. `config.database_backup.create_evidence()` appelle `create_archive()`
+sans `client_major` ; `validate_evidence()` appelle également `verify_archive()`
+sans ce paramètre. Ces chemins conservent donc les défauts `/usr/bin/pg_dump` et
+`/usr/bin/pg_restore` (wrappers Debian). Le diagnostic opérateur rapporte PostgreSQL
+18 et un `pg_restore --version` sans sélection de cluster à 17.10 : c'est un risque
+concret, pas une vérification de tous les appels réels. Le pinning `client_major=18`
+de la sauvegarde et du contrôle d'archive de **release** ne corrige pas ce workflow.
+Les commandes `--version` du précontrôle ne prouvent pas à elles seules la
+compatibilité du dump et de la lecture d'archive dans leur contexte effectif.
+Ne pas lancer backup/apply tant que ce prérequis n'est pas établi et consigné ;
+aucune substitution automatique de client, modification de wrapper, d'environnement
+ou de garde n'est autorisée par cette procédure. Un écart nécessite une correction
+revue et une autorisation séparée, pas un contournement. Cela ne signifie pas que
+tous les workflows de sauvegarde sont cassés.
+
 ```sh
 /usr/bin/env -i PATH=/usr/bin:/bin LANG=C.UTF-8 DJANGO_SETTINGS_MODULE=config.settings DJANGO_DEBUG=0 POSTGRES_DB=polypbase POSTGRES_USER=polypbase_hist_import POSTGRES_PASSWORD= POSTGRES_HOST=/var/run/postgresql POSTGRES_PORT=5433 POSTGRES_SSLMODE=disable /usr/bin/setpriv --no-new-privs -- ../.venv/bin/python manage.py historical_temperature_production backup --production \
   --organization-id 1 --actor-id ACTOR_PK \
@@ -582,7 +617,10 @@ six triggers restent requises avant préparation réelle. Si les timeouts effect
 sont trop courts, une décision opérateur de configuration limitée aux sessions
 concernées est nécessaire ; aucun relâchement automatique n'est prévu. Les seuils
 finis ne rendent pas bornés le hashing/recompute ; toute expiration reste bloquante.
-Aucun commit, push, déploiement, import réel ou accès VM/Neon/production.
+Lors de cette validation historique, aucun commit, push, déploiement, import réel
+ou accès VM/Neon/production n'avait été effectué. L'intégration ultérieure et le
+déploiement rapporté sont distingués en tête de document ; ils ne lèvent pas les
+prérequis d'infrastructure ni ne valident scientifiquement un import réel.
 
 ## Validation précédente de la séparation des identités
 

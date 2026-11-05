@@ -253,7 +253,9 @@ Endpoint utilisé :
 POST /api/boxes/<box_id>/measurements/
 ```
 
-Le POST utilise le service partagé de création : au plus un relevé par boîte et semaine ISO, clé `week_start`. Une semaine libre crée la ligne; une semaine occupée, même à date identique ou avec `0/0`, répond `409 measurement_week_conflict` sans mutation. La correction passe exclusivement par PATCH. La date exacte reste obligatoire; les fondations `temporal_precision` et intervalle ISO n'activent pas encore la persistance semaine seule.
+Le POST utilise le service partagé de création : au plus un relevé biologique **canonique** par boîte et semaine ISO, clé `week_start`. La contrainte UNIQUE `(box, week_start)` est conditionnelle à `duplicate_of IS NULL` (migration `0014_measurement_canonical_evidence`). Une semaine sans relevé canonique crée la ligne; une semaine déjà occupée par un relevé canonique, même à date identique ou avec `0/0`, répond `409 measurement_week_conflict` sans mutation. `0` est une mesure réelle, jamais une semaine libre. La correction passe exclusivement par PATCH. La date exacte reste obligatoire; les fondations `temporal_precision` et intervalle ISO n'activent pas encore la persistance semaine seule.
+
+Les lignes marquées `duplicate_of` sont conservées comme preuves, en lecture seule dans les parcours ordinaires, et exclues des lectures scientifiques. Les managers ordinaires les conservent : utiliser `.canonical()` pour les requêtes scientifiques, y compris `box.biological_measurements.canonical()` via le manager inverse. Cette conservation n'autorise pas une seconde saisie canonique dans une semaine occupée. Contrat vérifié dans `backend/apps/measurements/models.py`, `services.py` et `test_canonical_evidence.py`.
 
 Le bouton d'enregistrement a une animation de maintien. L'utilisateur doit maintenir le bouton pour valider. Ce choix limite les validations accidentelles sur tablette et téléphone. Sur mobile, le retour haptique est déclenché quand le navigateur le permet.
 
@@ -480,9 +482,9 @@ La fiche d'un emplacement contient :
 - les sondes associées ;
 - l'activité récente.
 
-Le graphique de contrôle thermique présente la température relevée et la température cible comme des informations distinctes. Les écarts et les agrégats restent factuels, sans avertissement opérationnel ou biologique inféré; la consigne n'est pas un seuil d'alerte. Le système est prévu pour accepter plus tard des valeurs venant d'une sonde connectée en continu.
+Le graphique de contrôle thermique présente la température relevée et la température cible comme des informations distinctes. Les écarts et les agrégats restent factuels, sans avertissement opérationnel ou biologique inféré; la consigne n'est pas un seuil d'alerte. La collecte iMinilide est implémentée : `collect_iminilide`, le client `iminilide.py` et le service `probe_collection.py` alimentent les mesures horodatées et les agrégats journaliers; `probe_readings.py` et l'API exposent le suivi et les séries. Cette capacité du code ne prouve ni la configuration des sondes, ni la planification de la collecte, ni son activation effective dans un environnement donné; aucune activation réelle n'est vérifiée ici. Les autres types de sondes ne prouvent pas l'existence d'une ingestion correspondante.
 
-La saisie manuelle de température reste disponible pour les cas où l'API de sonde n'est pas encore branchée ou pour saisir une mesure ponctuelle.
+La saisie manuelle dépend de l'état serveur `probe_monitoring.manual_entry_available`, pas de la simple présence d'une sonde. Sans sonde iMinilide collectée active de la même institution (série `external_serial` et voie `external_channel` renseignées), elle reste disponible sous permissions. Avec de telles sondes, la dernière mesure de la zone est recherchée parmi leurs minutes et les instants exacts `last_measured_at` des tranches condensées. Sans mesure, ou si son âge dépasse strictement `PROBE_MANUAL_FALLBACK_HOURS` (6 h par défaut), le repli manuel est disponible. À un âge inférieur ou égal au seuil, le formulaire est masqué et le POST manuel répond `409` (`ProbeTemperatureEntryConflict`, code DRF `probe_temperature_active`), y compris pour une date historique demandée : la garde porte sur la fraîcheur actuelle de la zone, pas sur la date saisie. L'API revérifie cet état sous verrou de zone après contrôle des permissions. Une température `0` reste une mesure réelle, pas une absence. Preuves : `backend/apps/measurements/probe_readings.py`, `test_probe_collection.py` et `backend/apps/cultures/api_views.py`.
 
 La capacité compte les boîtes actives dans l'emplacement. Les boîtes désactivées restent dans l'historique de localisation, mais elles ne doivent pas fausser la capacité actuelle.
 
@@ -1085,8 +1087,16 @@ isolé et des données synthétiques représentatives, pas la production. Les ca
 
 Le scan QR code doit être testé sur les vrais supports utilisés par l'Aquarium de Paris. Le comportement dépend du navigateur, des autorisations caméra et du HTTPS.
 
-CSV canonique/planner sont des fondations sans applicateur générique; les importeurs
-historiques ont leurs contrats distincts. La section transfert v1 est désactivée;
+Le CSV canonique/planner dispose désormais d'un applicateur restreint exact-date
+(`backend/apps/measurements/import_apply.py`) : confirmation explicite, application
+atomique des plans valides `CREATE` exact-date / `ALREADY_MATCHES` / `IGNORED`,
+revalidation sous verrous, source privée conservée et reçu idempotent. L'API existe,
+mais les composants `MeasurementImportEntry` / `MeasurementImportPanel` ne sont pas
+montés dans l'interface React active : ne pas confondre implémentation et écran
+accessible. Ce n'est pas un import générique sans restrictions : créations semaine seule et observateurs
+nommés restent bloqués; correction de masse et onboarding génériques restent absents.
+Voir [`measurement-csv-diagnostics.md`](measurement-csv-diagnostics.md).
+Les importeurs historiques ont leurs contrats distincts. La section transfert v1 est désactivée;
 v2 n'a pas d'acceptation destination. Les futurs tests utilisent des fixtures
 synthétiques isolées et une revue de contrat, pas des données de production.
 

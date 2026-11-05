@@ -99,10 +99,17 @@ boxes or measurements. It creates three local users for development only:
 ## Interface Languages
 
 The interface is French by default. Users can change their interface language
-from `accounts/profile/`. For now, Polypbase supports:
+from `accounts/profile/`. Polypbase supports:
 
 - French (`fr`)
 - English (`en`)
+- Partial Japanese (`ja`), with English fallback for untranslated or deferred keys.
+
+Historical Japanese translations validated by Takeru are preserved and reused
+only where compatible with current FR/EN. The 59 independently AI-reviewed
+React additions have separate `AI_REVIEWED` / `ja_ai_reviewed` provenance:
+they are not human-approved or Takeru-validated and replace no historical
+Japanese. See the [Japanese provenance and fallback contract](docs/translation-review/japanese/README.md).
 
 The React interface catalog is centralized in `frontend/src/i18n/`. French is
 the reference catalog, and TypeScript verifies that the English catalog has
@@ -136,6 +143,7 @@ Translation files live in:
 ```txt
 backend/locale/fr/LC_MESSAGES/django.po
 backend/locale/en/LC_MESSAGES/django.po
+backend/locale/ja/LC_MESSAGES/django.po
 ```
 
 After editing a `.po` file, compile the messages:
@@ -146,7 +154,10 @@ uv run python ..\scripts\compile_django_messages.py
 ```
 
 The script exists because the official Django `compilemessages` command needs
-GNU gettext, which is not always installed on Windows.
+GNU gettext, which is not always installed on Windows. It also builds the
+effective Japanese MO using validated Japanese, then approved English, then
+the source msgid when English is unavailable; the generated JA PO retains
+Japanese provenance only. Do not edit the generated Japanese catalogs by hand.
 
 Target apps:
 
@@ -217,9 +228,28 @@ cover provenance/temporal precision, quantitative subculture, weekly movements a
 portable transfer foundations. Do not recreate a database containing scientific
 history or rewrite migrations to match an old setup guide.
 
-Canonical CSV preparation and planner 1.1 are read-only foundations, not a generic
-import UI/applicator. `measured_on` is still required; week-only persistence is
-not enabled. Transfer v2 has internal foundations through Phase 5, not destination
+Canonical CSV preparation and the Python planner remain read-only stages.
+The current plan schema is **1.3**; its measurement baseline includes
+`duplicate_of_id` and `environment_source_box_id`. Versions 1.1/1.2 in dated
+milestones describe earlier contracts, not the current schema.
+
+A restricted, atomic exact-date import API and explicit-confirmation components
+are implemented, but the workflow is **not mounted in the active React UI**:
+`MeasurementImportPanel` is used only by `MeasurementImportEntry`, which has no
+consumer in `frontend/src/`; neither is wired into `App.tsx`.
+The applicator accepts only unblocked `CREATE`, `ALREADY_MATCHES` and
+`IGNORED` rows, with source bytes, durable receipt, idempotent
+replay and locked plan revalidation. This is not a generic correction/onboarding
+applicator: no overwrite, Box creation or identity guessing is enabled. Week-only
+`CREATE` and named observers remain blocked; a matching week-only row can be
+accepted as an unchanged `ALREADY_MATCHES` no-op. New records still require a
+real `measured_on`; week-only persistence is not enabled. See
+[`docs/measurement-import-planner.md`](docs/measurement-import-planner.md) and
+[`docs/measurement-csv-diagnostics.md`](docs/measurement-csv-diagnostics.md) for
+contracts; older local-only status statements there are historical, not deployment
+evidence.
+
+Transfer v2 has internal foundations through Phase 5, not destination
 acceptance. References, Environment, Transfers and Organizations sections are
 currently disabled in React Administration; Accounts/Team, Inventory and History
 remain active. Backend endpoints still enforce their permissions. See the

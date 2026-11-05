@@ -81,6 +81,7 @@ erDiagram
     BiologicalMeasurement {
         int id PK
         int box_id FK
+        int duplicate_of_id FK
         date measured_on
         date week_start
         string temporal_precision
@@ -207,6 +208,8 @@ erDiagram
         int thermal_zone_id FK
         string code
         string probe_type
+        string external_serial
+        int external_channel
         string location
     }
     TemperatureMeasurement {
@@ -352,11 +355,26 @@ erDiagram
 
 ## Contraintes scientifiques et extensions non dessinées
 
-- `BiologicalMeasurement` : UNIQUE `(box, week_start)`. `measured_on` et la clé
-  restent non NULL; précisions persistées `legacy_unverified` / `exact_date`.
-  **Pas de persistance `iso_week`**, malgré les objets de préparation semaine seule.
-  `user` est le dernier acteur legacy, pas l'observateur original. Strobiles et
-  salinité peuvent être NULL; zéro reste connu.
+- `BiologicalMeasurement` : UNIQUE conditionnelle `(box, week_start)` lorsque
+  `duplicate_of IS NULL` (migration `0014_measurement_canonical_evidence`) : au
+  plus un relevé canonique par boîte/semaine ISO, pas une seule ligne physique.
+  Les lignes `duplicate_of` référencent un relevé canonique et conservent les
+  preuves doublons en lecture seule dans les parcours ordinaires. Les managers
+  ordinaires les gardent; les lectures scientifiques utilisent `.canonical()`,
+  y compris `box.biological_measurements.canonical()` via le manager inverse.
+  Un POST ordinaire dans une semaine canonique occupée reste un
+  `409 measurement_week_conflict`, même à date identique ou avec `0/0`.
+  `measured_on` et la clé restent non NULL; précisions persistées
+  `legacy_unverified` / `exact_date`. **Pas de persistance `iso_week`**, malgré
+  les objets de préparation semaine seule. `user` est le dernier acteur legacy,
+  pas l'observateur original. Strobiles et salinité peuvent être NULL; zéro reste
+  une mesure réelle, jamais une absence. Preuves :
+  `backend/apps/measurements/models.py`, `services.py`, `test_canonical_evidence.py`.
+- `Probe` : `external_serial` et `external_channel` existent depuis la migration
+  `0015_iminilide_probe_collection` et identifient la série/voie externe collectée.
+  Le client iMinilide construit les URL à partir de ces identifiants et de la
+  configuration commune; aucun besoin d'URL stockée par sonde n'en découle.
+  La collecte est implémentée, son activation réelle n'est pas vérifiée ici.
 - Repiquage : les champs quantitatifs d'un événement legacy restent NULL. Pour
   une nouvelle saisie partielle, avant connu, total/après NULL. Allocation enfant
   NULL = inconnue, zéro = connue. Snapshots/allocations acceptés ne sont pas

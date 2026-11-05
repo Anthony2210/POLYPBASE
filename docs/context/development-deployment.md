@@ -15,19 +15,32 @@ Préserver tout changement existant. Ne pas lancer automatiquement une migration
 
 ## Backend isolé
 
-Exécuter depuis `backend/`. `config.test_settings` force une base SQLite en mémoire et évite la base configurée dans l'environnement local.
+`config.test_settings` utilise SQLite en mémoire par défaut, mais sélectionne un endpoint PostgreSQL QA local fixe si `POLYPBASE_TEST_POSTGRES=1`. Ce n'est donc pas une isolation SQLite inconditionnelle. Les settings applicatifs importés chargent `backend/.env` avec dotenv : une variable absente peut être réintroduite par ce fichier. Sous Windows PowerShell 5.1, affecter une chaîne vide à `POSTGRES_DB` peut supprimer la variable; ce seul geste ne protège pas les commandes utilisant les settings par défaut.
+
+Pour les tests SQLite ordinaires, ouvrir une **session PowerShell enfant jetable** avec `powershell -NoProfile`, puis exécuter depuis `backend/` dans cette session uniquement :
 
 ```powershell
-# Remplacer le module par le test du domaine modifié
+# Valeur non vide : dotenv ne peut pas réactiver l'opt-in PostgreSQL.
+$env:POLYPBASE_TEST_POSTGRES = '0'
+$env:DJANGO_DEBUG = '1'
+
+# Remplacer le module par le test du domaine modifié.
 uv run python manage.py test apps.cultures.test_box_inventory_api --settings=config.test_settings
+if ($LASTEXITCODE -ne 0) { throw 'Targeted SQLite tests failed' }
 
-# Suite backend isolée
-uv run python manage.py test --settings=config.test_settings
 
-# Configuration et dérive de migrations
-uv run python manage.py check --settings=config.test_settings
-uv run python manage.py makemigrations --check --dry-run --settings=config.test_settings
+# Override final SQLite inconditionnel, même si l'opt-in PostgreSQL est hérité.
+uv run python manage.py check --settings=config.preflight_settings
+if ($LASTEXITCODE -ne 0) { throw 'Django configuration check failed' }
+uv run python manage.py makemigrations --check --dry-run --settings=config.preflight_settings
+if ($LASTEXITCODE -ne 0) { throw 'Migration drift check failed' }
 ```
+
+`config.preflight_settings` remplace explicitement `DATABASES` par SQLite en mémoire après l'import de `config.test_settings`. Cette garantie concerne la sélection de base Django; elle ne signifie pas que dotenv n'est pas lu, ni qu'un test lançant son propre harnais PostgreSQL est un test SQLite. Fermer la session enfant après les contrôles, et immédiatement après un échec; ne pas modifier les profils ou fichiers d'environnement.
+
+La découverte complète (`uv run python manage.py test --settings=config.test_settings`) n'est pas exclusivement SQLite : certains tests lancent leur propre harnais PostgreSQL jetable selon l'environnement. Par exemple, `test_cca_eob_role_provisioning.py` active ce harnais lorsque `POLYPBASE_PG18_BIN` est non vide, indépendamment de `POLYPBASE_TEST_POSTGRES`; une valeur `"0"` l'activerait aussi. Vérifier les opt-ins hérités ou fournis par dotenv et le périmètre des harnais avant cette découverte. Le harnais inspecté crée un cluster temporaire sur loopback; ce constat ne démontre aucun accès à la production ou à une base partagée.
+
+**Runner QA à corriger séparément :** `.agents/skills/polypbase-qa/scripts/run_checks.ps1` vide seulement `POSTGRES_DB`, lance `check` et `makemigrations` sans settings explicites et hérite de l'opt-in PostgreSQL pour les tests. Ne pas le lancer dans un environnement non vérifié. Sa correction de code doit imposer les settings isolés et neutraliser explicitement cet opt-in; elle n'est pas réalisée par cette mise à jour documentaire. Les settings en mémoire ne sont pas une base persistante pour la QA navigateur.
 
 Utiliser les tests ciblés en premier. Élargir à la suite complète lorsqu'une règle partagée, une permission, une transaction ou un contrat API transversal change. La liste détaillée des tests existants est dans [`../tests_backend.md`](../tests_backend.md).
 

@@ -1,5 +1,54 @@
 # POLYPBASE current state
 
+## CCA-EOB runtime retirement and release state — 2026-11-04
+
+This dated update is added above the 2026-11-03 closeout. Its operational facts and verification limits are preserved; exact private archive metadata is omitted for publication. Production facts below are **operator-reported**; this documentation update performed no production, VM, SQL, Neon or shared-database access and reran no check.
+
+### CCA-EOB dedicated runtime retired — operator-reported
+
+- **PostgreSQL:** dedicated role, approval table and the three dedicated functions removed; five SQL postchecks returned true.
+- **Linux:** 367 dedicated ACL entries removed; 11 historical filesystem entries retained and assigned to root; dedicated Linux user and group removed; active runtime permissions manifest archived (no longer at its active path).
+- **Deployment guard:** the operator check reported `CCA_EOB_DEPLOY_GUARD_CLEAR`. Verified in code: the release executor runs the CCA-EOB permissions check only when the dedicated Linux user exists or the active manifest path exists (`deploy/scripts/deploy_release.sh`, step “CCA-EOB runtime read permissions”). With both absent, the step is skipped; it is no longer a release blocker. If either reappears, the check runs again and fails closed. Never recreate the account or manifest to satisfy it. Details: [`docs/deploiement_vm.md`](docs/deploiement_vm.md#garde-cca-eob-du-runtime-dédié).
+- **Evidence:** four private evidence archives transferred off the VM, with matching SHA-256 checksums before and after transfer. Their location, contents and checksums are intentionally not recorded in Git.
+- **Limits:** this is a technical retirement of runtime capabilities. It does **not** establish an independent full scientific post-retirement validation, and it says nothing about whether the CCA-EOB V3 scientific correction was applied in production; that remains unestablished here. Historical CCA-EOB procedures are closed and kept as evidence: [`docs/cca-eob-runtime-manifest-procedure.md`](docs/cca-eob-runtime-manifest-procedure.md), [`docs/cca-eob-production-execution.md`](docs/cca-eob-production-execution.md).
+- The CCA-EOB code is no longer local-only: `5a7f1dd` (V3 corrector) and `f06ac75` (production executor) are ancestors of `main` and of the reported release `cb07a2c` (verified by Git ancestry). This supersedes the “uncommitted and not integrated” wording of the 2026-10-18 milestone below, without rewriting it. The dormant CCA-EOB code, scripts and guard remain in the repository; any removal is a separate decision.
+
+### Release state — verified in Git unless stated
+
+- **Last deployed release — operator-reported:** `cb07a2c` (2026-11-03 closeout below).
+- **Current `main`:** `c857a59`. Commits not yet deployed: `c68708e` (three reused validated Japanese translations), `a841519` (guarded Box 1902 CLA/CLC correction code and documentation), `c857a59` (59 reviewed Japanese translations). `git diff --name-only cb07a2c..c857a59` contains **no migration file**; the actual production migration plan must still be checked by the guarded deployment workflow.
+- **Deployment of current `main` has not occurred.** No fetch, CI query or preflight was run for this documentation update.
+- **Box 1902:** code integrated in `main` (`a841519`), **not deployed and not applied in production**. Deploying the code does not authorize `correct_cla_box_1902 --apply`; application needs its own reviewed plan, backup and explicit authorization ([`docs/cla-box-1902-correction.md`](docs/cla-box-1902-correction.md)). No independent review of `a841519` is evidenced in the repository.
+
+### Unresolved items relevant to the next release
+
+- **HSTS:** the 2026-11-03 closeout reports `HSTS_SECONDS=0` / `security.W004` in production, while [`docs/deploiement_vm.md`](docs/deploiement_vm.md) documents an expected `DJANGO_SECURE_HSTS_SECONDS=86400` (also the code default). The discrepancy and its cause are unresolved; `check --deploy` reports it as a warning, not a release failure. No configuration change is decided here.
+- The skip path of the CCA-EOB guard has no dedicated deployment regression test.
+- Probe connectivity and the iMinilide timer's production state remain separate operational tasks, not established by these facts.
+
+
+## CCA-EOB runtime/release technical closeout — 2026-11-03
+
+**Technically closed on operator-reported production evidence** for release `cb07a2cea43e4af0bc9a8a61ed33abaa23eef1cc` (`cb07a2c`). The 2026-10-14 snapshot below is historical and preserved unchanged; its old production status, including “Production remains H”, is superseded for this release by this dated milestone, not by independent production access.
+
+- **Production — operator-reported:** official deployment completed successfully; `accounts.0008_interface_language_japanese` and `measurements.0015_iminilide_probe_collection` were applied and the migration graph was complete. API/frontend checks passed, HTTPS redirect was verified, four required services were active and the pre-release database backup succeeded.
+- **Active runtime policy — operator-reported:** 955 manifest entries; the exact SHA-256 is omitted from this document. The target permissions gate passed following 11 targeted read-only ACL changes.
+- **Post-release evidence — operator-reported:** trace executed through the delivered `backend/cca_eob_runtime.py`; startup contract passed, with 713 modules, 694 open paths, no recorded subprocess and the configured private `.env` read-denial probe passed. The collected inventory's 706 entries matched all 706 active non-`tracked_code` manifest entries, including hashes, origins and access. Tracked backend Python sources are checked separately by the permissions gate; these counts describe distinct populations.
+- **Independent review — supplied Gemini conclusion:** **READY FOR DOCUMENTED CLOSEOUT**, with no substantiated blocking Critical, High, Medium or Low findings. Local source code/contracts were independently reviewed; production execution, actual server permissions, live database state, archived bytes and archive integrity were not independently accessed or verified. This documentation update records supplied results, not rerun checks.
+
+### Archived evidence — operator-reported
+
+The operator reported that the post-release trace, inventory and report were archived privately. Exact archive locations and SHA-256 references are intentionally omitted from this document.
+
+The operator reported successful hash checks before and after archiving, directory ownership/mode `root:root 0700` and archived files `root:root 0600`. These are reported observations, not independent verification of the private archive.
+
+### Limits and separate follow-up
+
+- Closure covers runtime/release acceptance only: no continuous-integrity/H2 guarantee, no general Python/native-code sandbox guarantee, no exhaustive coverage of unexercised `apply` paths, no proof of scientific data application and no confirmation of physical probe connectivity.
+- `HSTS_SECONDS=0` / `security.W004` remains an independent, nonblocking security-hardening follow-up.
+- A separate correction is tracked in another conversation; this milestone makes no claim about its content, status or authorization. Probe connectivity will be handled afterward as a separately validated operational task.
+- This entry authorizes no further mutation, deployment or cleanup of archived/temporary evidence. No production, Neon or shared database access was performed for this local documentation update.
+
 ## Snapshot and evidence scope — 2026-10-14
 
 This is the living project summary. Durable contracts belong in [`docs/context/`](docs/context/); [`AGENTS.md`](AGENTS.md) remains authoritative for invariants. This refresh replaces the **2026-10-06** snapshot in this file. The four conversations used an older **2026-10-03** copy; those dates describe different snapshots, not conflicting current HEADs.

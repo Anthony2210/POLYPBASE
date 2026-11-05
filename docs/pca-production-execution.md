@@ -333,6 +333,23 @@ request is not apply authorization.
 
 ### 2. Fresh, target-bound backup
 
+**STOP — actual live client compatibility is unverified.** Before this backup
+command or any evidence validation authorizing apply, separately establish and
+record that the effective clients support the target server and archive.
+`config.database_backup.create_evidence()` calls `create_archive()` without
+`client_major`, and `validate_evidence()` calls `verify_archive()` without it.
+These paths retain the defaults `/usr/bin/pg_dump` and `/usr/bin/pg_restore`
+(Debian wrappers). The operator-reported environment has PostgreSQL 18 and an
+unqualified `pg_restore --version` selecting 17.10: this is a concrete compatibility
+risk, not proof of the clients selected by every actual invocation. The release
+backup and release archive check explicitly pin `client_major=18`; that pinning
+does **not** fix the PCA backup/evidence workflow. Version output alone does not
+establish dump and archive-read compatibility in the effective execution context.
+Do not proceed with backup/apply until this prerequisite is established. This
+procedure authorizes no automatic client substitution or wrapper, environment or
+guard changes; any necessary correction requires separate review and approval.
+This is not a claim that every backup workflow is broken.
+
 ```sh
 setpriv --no-new-privs -- ../.venv/bin/python manage.py pca_production backup --production \
   --organization-id 1 --actor-id ACTOR_PK \
@@ -353,9 +370,11 @@ pinned to the verified numeric endpoint while retaining the configured host for
 TLS verification. Inherited libpq overrides are scrubbed. Any command failure
 stops the workflow; failed archive creation removes its incomplete file.
 
-`config.database_backup` is shared with the existing
-`deploy/scripts/backup_database.py`; normal deployment backup output and retention
-remain compatible. The PCA action adds a private evidence manifest containing:
+`config.database_backup` is shared with
+`deploy/scripts/backup_database.py`, but the release caller explicitly selects
+PostgreSQL 18 clients while PCA retains the defaults described in the STOP above.
+Shared archive output and retention do not establish live client compatibility.
+The PCA action adds a private evidence manifest containing:
 
 - verified target identity and exact approved production plan hash;
 - archive absolute path, size and streaming SHA-256;

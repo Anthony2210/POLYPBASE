@@ -51,12 +51,14 @@ Exemples :
 | Clé | Langue | Valeur à conserver | Ne pas faire |
 |---|---|---|---|
 | `overviewEmpty` | EN | No living box to display. | remplacer Living par Active |
-| `movementKindUnclassified` | EN | Origin unknown (feuille) | remplacer par Provenance not established |
+| `movementKindUnclassified` | EN | Provenance not established (application actuelle protégée) | remplacer automatiquement par Origin unknown (feuille historique) |
 | `adminZoneTypeCabinet` | FR / EN | Emplacement / Rack | harmoniser avec Armoire, Location ou Cabinet |
 | `historicalTemperaturePeriod` | FR / EN | Mesuré pour la période : / Measured for the period: | utiliser « Période disponible » / « Available date range » (retiré) : la clé précède la semaine d'une température historique |
-| `auditValuePendingReview` | EN | To be checked (feuille) | remplacer par Pending : libellé partagé entre le statut de boîte et le statut des températures historiques |
+| `auditValuePendingReview` | EN | Needs review (application actuelle protégée) | remplacer par To be checked (feuille historique) ou Pending : libellé partagé entre le statut de boîte et le statut des températures historiques |
 | G36 Lecteurs | EN / JA | Read-only mode / 閲覧専用 | proposer Viewer ou 閲覧者 |
 | Autres « À vérifier » | toutes | selon le contexte | aligner sur Pending : `auditMetaNeedsAttention` (attention d'un relevé) et les actions de vérification sont d'autres concepts |
+
+Les valeurs actuelles `Provenance not established` et `Needs review` sont préservées par le registre (T019/T022, puis T764/T763) et protégées dans `frontend/scripts/test-i18n-catalogs.mjs`. `Origin unknown` et `To be checked` décrivent la feuille historique, pas une décision de remplacement dans l'application. Tout alignement exige une nouvelle décision explicite.
 
 Les catalogues applicatifs ne sont jamais réécrits automatiquement à partir du classeur historique. Les écarts identifiés lors du nettoyage sont conservés dans les archives privées hors dépôt. Les décisions et modifications réellement examinées dans l'application sont tracées dans docs/translation-review/application/register.csv. Les écarts non arbitrés ne doivent pas être corrigés automatiquement. adminZoneTypeCabinet a été aligné sur Emplacement / Rack dans l'application par décision explicite d'Anthony (2026-10-28).
 
@@ -72,7 +74,9 @@ Ne pas les traiter comme normatifs. Réutiliser la valeur actuelle validée et s
 
 ## Suivi d'implémentation séparé
 
-Vérifier, dans une tâche dédiée, tous les messages visibles de refus de permission (catalogues frontend et messages Django renvoyés par l'API) selon la règle de la section A. Candidats repérés dans la feuille, sans invitation aujourd'hui : `boxActivateForbidden`, `manageErrorResponsableRequired`, `manualTemperatureForbidden` (section EXCLU). Distinguer chaque cas d'une erreur de validation ou de règle métier avant de modifier le texte.
+L'invitation à contacter un administrateur est déjà appliquée en FR/EN à `boxActivateForbidden` et `manageErrorResponsableRequired` depuis B02 (registre T058/T065 et T062/T069); le libellé EN Manager de la seconde a ensuite été ajusté par B09 (T707), sans retirer l'invitation. Les catalogues actuels et `frontend/scripts/test-i18n-catalogs.mjs` couvrent ces refus : ne pas les présenter comme restant à corriger.
+
+L'audit global des messages visibles de refus de permission (frontend et messages Django renvoyés par l'API) reste incomplet; B02 ne vaut pas conformité exhaustive. `manualTemperatureForbidden` (section EXCLU de la feuille) reste un candidat à examiner dans une tâche dédiée. Distinguer chaque cas d'une erreur de validation ou de règle métier avant de modifier le texte.
 
 ## Nouveau terme ou terme ambigu
 

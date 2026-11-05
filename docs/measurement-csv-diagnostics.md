@@ -1,15 +1,21 @@
 # Historical biological-measurement CSV import — exact dates
 
-## Local implementation
+## Implementation and delivery evidence
 
-The laboratory CSV panel now supports a complete acceptance workflow outside
-Administration: select bounded UTF-8 CSV, inspect headers, explicitly map every
-column, confirm mapping, review diagnostics, explicitly confirm import, and
-receive a durable receipt. No partial acceptance, correction, Box creation or
-identity guessing is available.
+The restricted acceptance API and the `MeasurementImportEntry` /
+`MeasurementImportPanel` components are implemented. The components support
+selection of bounded UTF-8 CSV, header inspection, explicit column mapping,
+diagnostics, import confirmation and a durable receipt outside Administration,
+but the entry is **not mounted in the active React UI**. Backend availability is
+not proof of an accessible laboratory screen. No partial acceptance, correction,
+Box creation or identity guessing is available.
 
-The local base is `ce70fc1`, which includes diagnostics commit `2b4382a`.
-This implementation has not been committed, deployed or independently reviewed.
+The original delivery baseline was `ce70fc1`, including diagnostics commit
+`2b4382a`; its uncommitted and pending-review status was historical. The applicator
+is now committed in `main` (`de75a3b`, retained by `37587da`). This local Git evidence
+establishes neither production deployment nor execution, independent acceptance
+or scientific validation. The test results below describe the original delivery,
+not checks rerun during this documentation update.
 
 ## Scientific contract
 
@@ -85,11 +91,17 @@ codes, not source contents or database exception messages.
 
 The server reparses actual bytes, recomputes their interpretation and locks all
 resolved Boxes in PK order. It reloads authority, rebuilds the complete plan and
-compares its fingerprint before any scientific write. Plan 1.2 includes Box
-identity/status/revision, occupancy, all measurement payload fields, date,
-precision, sequence, latest writer, original observer, origin and importer.
-Ordinary creation/correction uses the same Box-lock protocol; weekly uniqueness
-remains the final database constraint. Existing subculture snapshots, consumption,
+compares its fingerprint before any scientific write. The current plan has
+`schema_version: "1.3"` and includes Box identity/status/revision, canonical
+occupancy, all measurement payload fields, date, precision, sequence, latest
+writer, observer status, original observer, origin, import format and importer,
+plus `duplicate_of_id` and `environment_source_box_id`. The provenance/precision
+fields were introduced in 1.2; 1.3 retains the duplicate/environment-source
+baseline explicitly. Preserved duplicate evidence is not a second canonical
+observation and is never silently rewritten by acceptance.
+Ordinary creation/correction uses the same Box-lock protocol; uniqueness of
+canonical measurements (`duplicate_of IS NULL`) per Box/week remains the final
+database constraint. Existing subculture snapshots, consumption,
 movements and audits are not rewritten. New measurements allocate normal source
 sequences through the existing model save behavior.
 

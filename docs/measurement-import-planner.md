@@ -1,14 +1,18 @@
 # Institution-scoped measurement import planning
 
-## Exact-date acceptance update (plan 1.2)
+## Current exact-date acceptance contract (plan 1.3)
 
 The planner itself remains read-only. Its local consumer now implements atomic
 exact-date acceptance; see [the current workflow contract](measurement-csv-diagnostics.md).
-Version 1.2 adds temporal precision, observer status, original observer, origin,
-import format and importer to measurement baselines/fingerprints. The legacy
-`observer_id` field still denotes the latest writer (`user_id`). The earlier
-phase descriptions below document the original 1.1 diagnostic boundary, not the
-current availability of the separate applicator. Week-only CREATE and named
+The current `schema_version` is **1.3**. Version 1.2 introduced temporal precision,
+observer status, original observer, origin, import format and importer in
+measurement baselines/fingerprints; 1.3 additionally includes `duplicate_of_id`
+and `environment_source_box_id`. Scientific occupancy selects canonical
+measurements (`duplicate_of IS NULL`), without discarding preserved duplicate
+evidence or environmental-source context. The legacy `observer_id` field still
+denotes the latest writer (`user_id`). The earlier phase descriptions below
+document the original 1.1 diagnostic boundary and its then-missing baseline fields,
+not the current availability of the separate applicator or its 1.3 schema. Week-only CREATE and named
 observer references remain blocked. No week-only persistence is enabled.
 
 ## Boundary and API

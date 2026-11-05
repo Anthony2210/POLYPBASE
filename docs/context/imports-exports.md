@@ -1,8 +1,8 @@
 # Imports et exports
 
-## Import scientifique générique : fondations intégrées au 2026-10-14
+## Import scientifique : fondations et acceptation exact-date
 
-La préparation canonique/CSV (`measurements/canonical.py`, `csv_import.py`, contrat 1.0) et le planner Python en lecture seule (`import_planner.py`, plan 1.1) sont intégrés. Ce ne sont ni une interface d'import, ni un upload persistant, ni un applicateur. L'acteur Admin/technicien actif et l'institution sélectionnée sont validés; les boîtes sont résolues par code exact dans cette institution.
+Au jalon historique du 2026-10-14, la préparation canonique/CSV (`measurements/canonical.py`, `csv_import.py`, contrat 1.0) et le planner Python en lecture seule (`import_planner.py`, plan 1.1) étaient intégrés sans applicateur. Le planner courant reste read-only, en version **1.3**; un applicateur séparé ajoute l'acceptation restreinte exact-date décrite ci-dessous, pas les fonctions génériques de correction de masse ou d'onboarding. L'acteur Admin/technicien actif et l'institution sélectionnée sont validés; les boîtes sont résolues par code exact dans cette institution.
 
 - Statuts : `IGNORED`, `INVALID`, `UNKNOWN_BOX`, `CREATE`, `ALREADY_MATCHES`, `CONFLICT`, `BLOCKED`. Une ligne sans valeurs scientifiques est ignorée et comptée; dès qu'un payload existe, les deux comptes requis doivent être valides. Les champs facultatifs conservent absent/vide/NULL/zéro selon leur contrat.
 - Tout doublon source boîte/semaine bloque, même identique. `ALREADY_MATCHES` ne réécrit ni valeur, ni date, ni précision, ni provenance. Un plan/hash n'est ni une réservation, ni une permission d'appliquer, ni un snapshot transactionnel.
@@ -11,7 +11,7 @@ La préparation canonique/CSV (`measurements/canonical.py`, `csv_import.py`, con
 
 La cible approuvée sépare applicateurs de saisie, correction de masse (ancienne valeur attendue + audit) et onboarding, après préparation/revue commune. La saisie/import laboratoire reste hors Administration; correction de masse/onboarding restent administratifs. L'applicateur local exact-date ajoute source originale privée en base, plan durable, idempotence/reçus et revalidation sous verrous. Les sources acceptées, y compris les lots sans création, sont conservées sans expiration ni suppression automatique. Inspection et aperçu ne conservent aucune source.
 
-Le panneau existant propose désormais confirmation explicite et application atomique des plans valides CREATE exact-date / ALREADY_MATCHES / IGNORED. Le serveur reparse la source et le mapping, vérifie les empreintes et les permissions, verrouille les boîtes puis revalide le plan 1.2 complet. `application_available` reflète la readiness du plan, jamais une réservation. Des endpoints autorisés permettent de relire le reçu et télécharger la source privée. Les semaines seules CREATE et observateurs nommés restent bloqués. Périmètre, stockage, limites et preuves de validation : [`../measurement-csv-diagnostics.md`](../measurement-csv-diagnostics.md).
+L'API d'application et les composants `MeasurementImportEntry` / `MeasurementImportPanel` implémentent confirmation explicite et application atomique des plans valides CREATE exact-date / ALREADY_MATCHES / IGNORED. Ces composants ne sont pas montés dans l'interface React active; leur présence ne prouve pas un parcours utilisateur accessible. Le serveur reparse la source et le mapping, vérifie les empreintes et les permissions, verrouille les boîtes puis revalide le plan **1.3** complet. Ses baselines incluent `duplicate_of_id` et `environment_source_box_id`, en plus des champs de précision et de provenance introduits par la version 1.2; l'occupation scientifique est filtrée sur les mesures canoniques, sans supprimer les preuves doublons. `application_available` reflète la readiness du plan, jamais une réservation. Des endpoints autorisés permettent de relire le reçu et télécharger la source privée. Les semaines seules CREATE et observateurs nommés restent bloqués. Périmètre, stockage, limites et preuves de validation : [`../measurement-csv-diagnostics.md`](../measurement-csv-diagnostics.md).
 
 Contrats détaillés : [`../canonical-measurement-csv.md`](../canonical-measurement-csv.md), [`../measurement-import-planner.md`](../measurement-import-planner.md). Ne pas généraliser ces garanties aux importeurs historiques ci-dessous.
 
@@ -68,8 +68,11 @@ et `postcheck`, avec organisation 1, administrateur actif, cible attestée, plan
 post-fusion PCA recalculé, sauvegarde vérifiée et autorisation liée au hash exact.
 Il réutilise le pipeline scientifique existant et exclut les associations ambiguës;
 il ne réutilise ni le snapshot QA ni son ancien plan de 40 291 associations.
-Les températures/preuves, reçu et audit sont atomiques. Ce travail local n'est
-ni une intégration ni une autorisation de production. Procédure opérateur,
+Les températures/preuves, reçu et audit sont atomiques. Le workflow `761cd02` et
+sa fiabilisation `23bf6e7` sont intégrés à `main` et ancêtres de `cb07a2c`, dont le
+déploiement est rapporté par l'opérateur. Cette intégration et ce déploiement
+rapporté ne prouvent ni la préparation réelle de l'infrastructure, ni l'exécution
+d'un import ou sa validation scientifique, et ne valent aucune autorisation. Procédure opérateur,
 verrous globaux, limites de sauvegarde/replay et résultats de tests :
 [`historical-temperature-production.md`](../historical-temperature-production.md).
 
@@ -83,13 +86,15 @@ La présence d'historiques, de fins inconnues, de liens legacy absents ou de zon
 
 L'opération utilise `OPERATION = cca_eob_v2_20261016_v3`, la politique de baseline `target_box_context_preserve_location_history_v2` et la métadonnée explicite `product_decision` dans le plan et chaque audit individuel/de lot. **Toutes les anciennes empreintes de plan sont invalides.** L'empreinte V3 `2b08dddd35a5a85cac04b02c9dc7b241238444e348f9e37f8d96347175041571` a été appliquée sur la seule copie locale de test et ne vaut pas autorisation ailleurs. Les identifiants de source ne sont pas des empreintes de plan. La commande, ses options et la configuration dédiée restent inchangées, sauf son résumé précisant l'effet de contexte : local read-only par défaut; production, Neon et référence immuable refusés. Procédure, limites et historique de validation : [`../cca-eob-v2-correction.md`](../cca-eob-v2-correction.md). Tests synthétiques V3 validés sur SQLite et sur PostgreSQL 17.4 natif isolé (verrous, y compris l'ordre boîtes, organisation, membership face au PATCH des droits). Les 72 réattributions ont été appliquées uniquement sur la copie locale de test, après sauvegarde restaurée et comparaison exhaustive; aucune application sur la référence immuable, la production ou Neon. L'implémentation seule ne vaut pas autorisation d'application.
 
+**Runtime de production dédié retiré le 2026-11-04 (rapporté par l'opérateur)** : rôle PostgreSQL, table d'approbation et fonctions dédiées, compte Linux et manifeste actif retirés. Ce retrait des capacités d'exécution n'est pas une application scientifique et n'établit ni l'application en production de la correction V3, ni sa validation scientifique complète. État et limites : [`POLYPBASE_CURRENT_STATE.md`](../../POLYPBASE_CURRENT_STATE.md).
+
 ## Précision temporelle : limite actuelle de persistance
 
 La fondation `0009_temporal_precision` conserve toutes les dates et clés ISO existantes. Les lundis conventionnels des imports CSV normalisés et `historical_2026` restent `legacy_unverified`, y compris pour de nouvelles créations via ces chemins; aucune date n'est automatiquement certifiée ou convertie. Observateur/origine Phase 4A et comportements d'import restent inchangés.
 
-La préparation canonique sait représenter `iso_week` sans `measured_on`, mais le planner Phase 3 reste en lecture seule : une semaine libre peut être classée `CREATE` avec l'issue bloquante `week_precision_persistence_required` (`ready=False`). Le nouveau champ n'active pas la persistance semaine seule : `measured_on` est toujours NOT NULL et la contrainte de précision refuse `iso_week`. Le contrat de baseline et les classifications du planner sont inchangés.
+La préparation canonique sait représenter `iso_week` sans `measured_on`, mais le planner Phase 3 reste en lecture seule : une semaine libre peut être classée `CREATE` avec l'issue bloquante `week_precision_persistence_required` (`ready=False`). Le nouveau champ n'active pas la persistance semaine seule : `measured_on` est toujours NOT NULL et la contrainte de précision refuse `iso_week`. Cette fondation n'activait aucun nouveau contrat d'écriture; le plan courant 1.3 et ses baselines sont décrits en tête de ce document.
 
-Une première tranche backend de lecture expose désormais `week_start` (date ISO du lundi, clé seulement) séparément de `measured_on`, prépare les tris latest par boîte et distingue l'existence d'un relevé de la disponibilité de son jour exact dans le filtre d'inventaire. Elle n'active aucune écriture semaine seule et ne modifie ni baseline/fingerprint 1.1, ni classification, ni readiness du planner. La timeline mixte, les tris inter-boîtes, la fraîcheur, le frontend et les exports restent à adapter avant activation.
+Une première tranche backend de lecture expose désormais `week_start` (date ISO du lundi, clé seulement) séparément de `measured_on`, prépare les tris latest par boîte et distingue l'existence d'un relevé de la disponibilité de son jour exact dans le filtre d'inventaire. Au jalon de cette première tranche, elle n'activait aucune écriture semaine seule et ne modifiait ni baseline/fingerprint 1.1, ni classification, ni readiness du planner; ce 1.1 est un repère historique, pas la version courante. La timeline mixte, les tris inter-boîtes, la fraîcheur, le frontend et les exports restent à adapter avant activation.
 
 Les prérequis de schéma, résolution scientifique, contrats d'import/correction et consommateurs sont détaillés dans [`measurements-integrity.md`](measurements-integrity.md#prérequis-exacts-pour-une-future-activation-semaine-seule). Une future clé ISO du lundi ne devra jamais être présentée comme un jour d'observation réel.
 

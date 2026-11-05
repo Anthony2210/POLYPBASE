@@ -30,11 +30,16 @@ changements globaux de navigation, de colonnes et de dimensions tactiles. Une
 feuille de page peut conserver une adaptation locale lorsque son composant
 change reellement de structure, sans recreer les styles du composant.
 
-- Bureau : a partir de `1024px`, navigation laterale et outils de gestion.
-- Tablette : principalement de `760px` a `1023px`, navigation haute et saisie
-  tactile en paysage.
-- Telephone : sous `760px` ou en portrait etroit, une colonne et navigation
-  basse.
+- Bureau : capacite applicative a partir de `1024px` avec `hover: hover` et
+  `pointer: fine` (`useIsDesktopApp.ts`), pas la largeur seule. Administration
+  reste desktop-only : entree absente et URL `/administration...` redirigee vers
+  `/` avant rendu sur les autres supports; les permissions backend restent requises.
+- Tablette : de `760px` a `1023px`, ou jusqu'a `1180px` avec `pointer: coarse`,
+  hors layout telephone (`useIsTabletLayout.ts`). Navigation par rail lateral
+  permanent de `88px` (`.app-shell.is-tablet-rail`), saisie tactile en paysage,
+  pas de navigation haute.
+- Telephone : sous `760px`, ou en portrait jusqu'a `900px`
+  (`useIsPhoneLayout.ts`), une colonne et navigation basse.
 
 Les nouveaux seuils doivent reprendre ces valeurs communes. Un seuil local
 supplementaire doit correspondre a une contrainte mesurable du composant.
