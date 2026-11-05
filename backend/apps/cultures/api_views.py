@@ -4,7 +4,7 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import DatabaseError, connection, transaction
+from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.db.models import (
     Case,
     CharField,
@@ -102,6 +102,7 @@ from .serializers import (
     SubcultureCodePreviewQuerySerializer,
     SubcultureCreateSerializer,
     SubcultureEventSerializer,
+    THERMAL_ZONE_DUPLICATE_NAME_MESSAGE,
     ThermalZoneCreateSerializer,
     ThermalZoneMovementEventSerializer,
     ThermalZoneMovementHistoryQuerySerializer,
@@ -1806,6 +1807,23 @@ class ThermalZoneMovementHistorySummaryAPIView(APIView):
         )
 
 
+def _save_thermal_zone(serializer, **kwargs):
+    """Save a zone, reporting a name taken concurrently as a validation error."""
+    instance = serializer.instance
+    organization = kwargs.get("organization") or serializer.validated_data.get("organization")
+    name = serializer.validated_data.get("name", getattr(instance, "name", None))
+    try:
+        with transaction.atomic():
+            return serializer.save(**kwargs)
+    except IntegrityError:
+        duplicates = ThermalZone.objects.filter(organization=organization, name=name)
+        if instance is not None:
+            duplicates = duplicates.exclude(pk=instance.pk)
+        if not duplicates.exists():
+            raise
+        raise DRFValidationError({"name": [THERMAL_ZONE_DUPLICATE_NAME_MESSAGE]})
+
+
 class ThermalZoneListCreateAPIView(generics.ListCreateAPIView):
     def get_serializer_class(self):
         if self.request.method == "POST":
@@ -1827,7 +1845,7 @@ class ThermalZoneListCreateAPIView(generics.ListCreateAPIView):
         organization = serializer.validated_data["organization"]
         if organization.id not in get_active_admin_organization_ids(self.request):
             raise PermissionDenied("Ce compte ne peut pas créer de zone pour cette structure.")
-        zone = serializer.save()
+        zone = _save_thermal_zone(serializer)
         AuditLog.objects.create(
             organization=zone.organization,
             user=self.request.user,
@@ -1847,15 +1865,24 @@ class ThermalZoneDetailAPIView(generics.RetrieveUpdateAPIView):
 
     def get_queryset(self):
         organization_ids = get_active_organization_ids(self.request)
-        return ThermalZone.objects.filter(organization_id__in=organization_ids)
+        queryset = ThermalZone.objects.filter(organization_id__in=organization_ids)
+        if self.request.method in ("PUT", "PATCH"):
+            # The serializer saves every column of the instance it read, so the
+            # row stays locked from read to audit: a concurrent edit cannot be
+            # overwritten silently, and the audit "before" values stay exact.
+            queryset = queryset.select_for_update()
+        return queryset
 
     @transaction.atomic
+    def update(self, request, *args, **kwargs):
+        return super().update(request, *args, **kwargs)
+
     def perform_update(self, serializer):
-        zone = self.get_object()
+        zone = serializer.instance
         if zone.organization_id not in get_active_admin_organization_ids(self.request):
             raise PermissionDenied("Ce compte ne peut pas modifier cette zone.")
         before_values = _thermal_zone_audit_values(zone)
-        zone = serializer.save(organization=zone.organization)
+        zone = _save_thermal_zone(serializer, organization=zone.organization)
         after_values = _thermal_zone_audit_values(zone)
         AuditLog.objects.create(
             organization=zone.organization,

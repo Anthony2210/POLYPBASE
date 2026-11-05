@@ -2057,6 +2057,84 @@ button.account-overview-card:focus-visible {
   margin-left: auto;
 }
 
+/* Laboratory configuration: the Team table with location columns. */
+.lab-configuration {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.lab-location-table th:first-child { width: 25%; }
+.lab-location-table th:nth-child(2) { width: 12%; }
+.lab-location-table th:nth-child(3) { width: 15%; }
+.lab-location-table th:nth-child(4) { width: 16%; }
+.lab-location-table th:nth-child(5) { width: 20%; }
+.lab-location-table th:last-child { width: 12%; }
+
+.lab-location-table .member-identity a {
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.lab-location-table .member-identity a:is(:hover, :focus-visible) strong {
+  color: var(--color-primary-hover);
+  text-decoration: underline;
+}
+
+.lab-location-number {
+  color: var(--color-ink);
+  font-size: .8rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.lab-location-edit {
+  min-height: 34px;
+  padding-inline: var(--space-3);
+  font-size: .78rem;
+}
+
+.lab-location-form {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.admin-action-panel .lab-location-form .member-add-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* The fieldset only groups the fields so they can be disabled together. */
+.lab-location-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.lab-location-field {
+  display: grid;
+  gap: var(--space-1);
+  align-content: start;
+  min-width: 0;
+}
+
+/* Same value weight as Team form fields, whose inputs inherit it from their label. */
+.lab-location-field input {
+  font-weight: 750;
+}
+
+.lab-location-form .zone-step-field input {
+  min-width: 0;
+}
+
+.lab-location-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-line);
+}
+
 .account-invitations {
   display: grid;
   gap: var(--space-4);

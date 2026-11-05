@@ -1,11 +1,15 @@
 export type ThermalZonePayload = {
   organization: number;
   name: string;
-  zone_type: string;
+  // Omitted by Laboratory configuration: the server keeps its model default.
+  zone_type?: string;
   target_temperature_c: string | null;
   capacity: number | null;
   salinity_psu: string | null;
 };
+
+/** Partial update: only the fields sent are changed; the institution never is. */
+export type ThermalZoneUpdatePayload = Partial<Omit<ThermalZonePayload, 'organization'>>;
 
 export type ProbePayload = {
   thermal_zone: number;

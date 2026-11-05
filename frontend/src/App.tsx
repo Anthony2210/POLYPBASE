@@ -90,6 +90,7 @@ import type {
   OrganizationPayload,
   ProbePayload,
   ThermalZonePayload,
+  ThermalZoneUpdatePayload,
 } from './types/admin';
 import { getAccountMemberRoleLabel } from './utils/accountMembers';
 import { userCanCreateBoxes, userCanWriteLabData, userHasAdminRole } from './utils/profilePermissions';
@@ -1875,7 +1876,7 @@ export default function App() {
 
   async function createThermalZone(payload: ThermalZonePayload) {
     const { apiPost, assertCurrent } = getOperationRequests(operationGeneration);
-    await apiPost<ThermalZone>('/api/thermal-zones/', payload);
+    const created = await apiPost<Pick<ThermalZone, 'id'>>('/api/thermal-zones/', payload);
     assertCurrent();
     zoneCollectionRevisionRef.current += 1;
     await refreshAfterMutation(async () => {
@@ -1884,9 +1885,10 @@ export default function App() {
       assertCurrent();
     }, assertCurrent);
     assertCurrent();
+    return { id: created.id };
   }
 
-  async function updateThermalZone(zoneId: number, payload: ThermalZonePayload) {
+  async function updateThermalZone(zoneId: number, payload: ThermalZoneUpdatePayload) {
     const { apiPatch, assertCurrent } = getOperationRequests(operationGeneration);
     const commit = beginZoneMutation(zoneId);
     await apiPatch<ThermalZone>(`/api/thermal-zones/${zoneId}/`, payload);
@@ -2433,7 +2435,6 @@ export default function App() {
                 onRequestOptions={() => setExportOptionsRequested(true)}
                 onCreateZone={createThermalZone}
                 onUpdateZone={updateThermalZone}
-                onCreateProbe={createProbe}
                 onCreateOrganization={createOrganization}
                 onUpdateOrganization={updateOrganization}
                 onDeleteOrganization={deleteOrganization}

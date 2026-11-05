@@ -1003,6 +1003,9 @@ class ThermalZoneSerializer(serializers.ModelSerializer):
         return zone_thermal_control(obj)
 
 
+THERMAL_ZONE_DUPLICATE_NAME_MESSAGE = "Une zone porte déjà ce nom dans cette structure."
+
+
 class ThermalZoneCreateSerializer(serializers.ModelSerializer):
     """Write serializer used by organization admins to create a thermal zone."""
 
@@ -1038,6 +1041,10 @@ class ThermalZoneCreateSerializer(serializers.ModelSerializer):
             "capacity",
             "salinity_psu",
         ]
+        # The generic unique-together validator would answer before validate()
+        # with a non-field message; validate() reports the duplicate on "name",
+        # and the view maps a concurrent duplicate to the same error.
+        validators = []
 
     def validate_name(self, value):
         value = value.strip()
@@ -1054,9 +1061,7 @@ class ThermalZoneCreateSerializer(serializers.ModelSerializer):
         if self.instance is not None:
             queryset = queryset.exclude(pk=self.instance.pk)
         if queryset.exists():
-            raise serializers.ValidationError(
-                {"name": "Une zone porte déjà ce nom dans cette structure."}
-            )
+            raise serializers.ValidationError({"name": THERMAL_ZONE_DUPLICATE_NAME_MESSAGE})
         return attrs
 
 

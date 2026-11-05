@@ -141,6 +141,19 @@ test('repository traversal includes unmounted components but not catalogs or tes
   }
 });
 
+test('thermal retention is exact and does not exempt other unused temperature keys', () => {
+  const retained = ['temperatureAverage', 'temperatureGap', 'temperatureMeasurement', 'temperatureMissing'];
+  const result = analyze([...retained, 'temperatureUnreviewed'], 'export {};',
+    Object.fromEntries(retained.map(key => [key, usageExceptions[key]])));
+  assert.equal(result.errors.length, 1);
+  assert.match(result.errors[0], /^temperatureUnreviewed: no exact literal/);
+  for (const key of retained) {
+    assert.match(usageExceptions[key], /cbc513f.*explicit i18n removal decision/);
+    assert.match(analyze([key], `t('${key}')`, { [key]: usageExceptions[key] }).errors.join('\n'), /stale exception/);
+    assert.match(analyze([], 'export {};', { [key]: usageExceptions[key] }).errors.join('\n'), /stale exception/);
+  }
+});
+
 test('real source has no unreviewed orphans or stale exceptions', () => {
   const result = checkRepository();
   assert.deepEqual(result.errors, [], result.errors.join('\n'));

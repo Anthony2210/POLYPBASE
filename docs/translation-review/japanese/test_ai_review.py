@@ -16,6 +16,28 @@ def digest(value):
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
 
 
+# Additions only: cbc513f thermal control and bb40685 Laboratory configuration.
+# Preserve the original AI-integration source and historical-manifest fingerprints.
+LATER_FALLBACK_KEYS = frozenset({
+    "temperatureRecentMean", "temperatureNoRecent", "temperatureRecentPeriod", "temperatureRecentError",
+    "temperatureDailyPeriod", "temperatureDailyMean", "temperatureDailyGap",
+    "adminLabLocationsTitle", "adminLabAddLocation", "adminLabEditLocation", "adminLabEditTitle",
+    "adminLabActiveBoxes", "adminLabMaxCapacity", "adminLabTargetTemperatureField", "adminLabReferenceSalinity",
+    "adminLabInactive",
+    "adminLabNoLocations", "adminLabSaved", "adminLabCapacityInvalid", "adminLabTemperatureInvalid",
+    "adminLabSalinityInvalid",
+})
+
+
+def historical_source(source):
+    lines = source.replace("\r\n", "\n").split("\n")
+    for key in LATER_FALLBACK_KEYS:
+        if sum(line.startswith(f"  {key}: '") for line in lines) != 1:
+            raise AssertionError(f"{key}: expected one additive line")
+    return "\n".join(line for line in lines
+                     if not any(line.startswith(f"  {key}: '") for key in LATER_FALLBACK_KEYS))
+
+
 class AiReviewTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -26,7 +48,8 @@ class AiReviewTests(unittest.TestCase):
         cls.blocked = builder.read_ai_csv(builder.AI_BLOCKED)
 
     def historical(self):
-        records = copy.deepcopy(self.manifest)
+        # Keys added after the AI integration are excluded by exact identity.
+        records = [row for row in copy.deepcopy(self.manifest) if row["identity"] not in LATER_FALLBACK_KEYS]
         for row in records:
             row.pop("ja_ai_reviewed")
             if row["status"] == "AI_REVIEWED":
@@ -41,6 +64,14 @@ class AiReviewTests(unittest.TestCase):
         pairs = [[r["identity"], r["ja_validated"]] for r in self.manifest
                  if r["surface"] == "react" and r["status"] == "REUSED"]
         self.assertEqual(digest(pairs), "ab1705b630daaf621bcf152b1af3e6a7cdb098d342c5282fc2ec79ccb2330939")
+
+    def test_later_keys_are_plain_english_fallbacks(self):
+        later = [row for row in self.manifest if row["identity"] in LATER_FALLBACK_KEYS]
+        self.assertEqual({row["identity"] for row in later}, LATER_FALLBACK_KEYS)
+        for row in later:
+            self.assertEqual((row["surface"], row["status"], row["reason_code"]),
+                             ("react", "FALLBACK_EN", "ABSENT_FROM_WORKBOOK"), row["identity"])
+            self.assertEqual((row["ja_validated"], row["ja_ai_reviewed"]), ("", ""), row["identity"])
 
     def test_exact_membership_and_separate_provenance(self):
         expected = {r["key"]: r for r in self.reviewed}
@@ -67,7 +98,21 @@ class AiReviewTests(unittest.TestCase):
             "en": "62989721d2528126ab48704fe783597dba0d484d2f24ce05a7391e0e9bdbfa27",
         }.items():
             source = (ROOT / f"frontend/src/i18n/{lang}.ts").read_text(encoding="utf-8")
-            self.assertEqual(hashlib.sha256(source.encode()).hexdigest(), expected)
+            self.assertEqual(hashlib.sha256(historical_source(source).encode()).hexdigest(), expected)
+
+    def test_source_fingerprint_scope_rejects_each_historical_value_change(self):
+        for lang in ("fr", "en"):
+            source = (ROOT / f"frontend/src/i18n/{lang}.ts").read_text(encoding="utf-8")
+            fingerprint = hashlib.sha256(historical_source(source).encode()).hexdigest()
+            for key in getattr(self, lang):
+                line = next(line for line in source.split("\n") if line.lstrip().startswith(f"{key}: "))
+                mutated = line.replace(": '", ": 'changed ", 1).replace(': "', ': "changed ', 1)
+                self.assertNotEqual(mutated, line, f"{lang}.{key}: mutation must change the value")
+                changed = source.replace(line, mutated, 1)
+                actual = hashlib.sha256(historical_source(changed).encode()).hexdigest()
+                self.assertEqual(actual == fingerprint, key in LATER_FALLBACK_KEYS, f"{lang}.{key}")
+            unknown = source.replace("\n}", "\n  unapprovedAddition: 'Value',\n}", 1)
+            self.assertNotEqual(hashlib.sha256(historical_source(unknown).encode()).hexdigest(), fingerprint)
 
     def test_authorized_files_reject_any_unreviewed_change(self):
         for source in (builder.AI_REVIEW, builder.AI_BLOCKED):
@@ -169,7 +214,8 @@ class AiReviewTests(unittest.TestCase):
         deferred = {k for k, r in react.items() if r["status"] == "FALLBACK_EN_REVIEW"}
         self.assertTrue(blocked <= absent)
         self.assertFalse(blocked & deferred)
-        self.assertEqual(len(absent - blocked), 137)
+        # 137 at the AI integration, plus 7 thermal and 14 Laboratory configuration keys.
+        self.assertEqual(len(absent - blocked), 158)
         for key in react:
             if key.startswith("csv"):
                 self.assertEqual(react[key]["status"], "FALLBACK_EN", key)

@@ -133,7 +133,8 @@ test('ja catalog is exactly the historical and AI-reviewed manifest union', () =
     assert.equal(Object.hasOwn(ja, row.identity), false, `${row.identity}: ${row.reason_code} must use English`);
   }
   const counts = react.reduce((total, row) => ({ ...total, [row.status]: (total[row.status] ?? 0) + 1 }), {});
-  assert.deepEqual(counts, { REUSED: 930, FALLBACK_EN: 143, FALLBACK_EN_REVIEW: 36, AI_REVIEWED: 59 });
+  // 143 original fallbacks, plus 7 thermal and 14 Laboratory configuration keys.
+  assert.deepEqual(counts, { REUSED: 930, FALLBACK_EN: 164, FALLBACK_EN_REVIEW: 36, AI_REVIEWED: 59 });
 });
 
 test('original review inputs retain their byte-exact SHA256 hashes', () => {
@@ -238,12 +239,63 @@ test('historical human translations are immutable and separate from AI-reviewed 
   }
 });
 
+// Additions only: cbc513f thermal control and bb40685 Laboratory configuration.
+// Excluding these exact identities preserves the original AI-integration source hashes.
+const LATER_FALLBACK_KEYS = [
+  'temperatureRecentMean', 'temperatureNoRecent', 'temperatureRecentPeriod', 'temperatureRecentError',
+  'temperatureDailyPeriod', 'temperatureDailyMean', 'temperatureDailyGap',
+  'adminLabLocationsTitle', 'adminLabAddLocation', 'adminLabEditLocation', 'adminLabEditTitle',
+  'adminLabActiveBoxes', 'adminLabMaxCapacity', 'adminLabTargetTemperatureField', 'adminLabReferenceSalinity',
+  'adminLabInactive',
+  'adminLabNoLocations', 'adminLabSaved', 'adminLabCapacityInvalid', 'adminLabTemperatureInvalid',
+  'adminLabSalinityInvalid',
+];
+
+function historicalSource(source) {
+  const lines = source.replace(/\r\n/g, '\n').split('\n');
+  for (const key of LATER_FALLBACK_KEYS) {
+    assert.equal(lines.filter(line => line.startsWith(`  ${key}: '`)).length, 1, `${key}: one additive line`);
+  }
+  return lines.filter(line => !LATER_FALLBACK_KEYS.some(key => line.startsWith(`  ${key}: '`))).join('\n');
+}
+
 test('FR and EN source files remain frozen regardless of Git line endings', () => {
   for (const [language, digest] of [
     ['fr', '1b3486aaea5eea3f8628e96bc88dac9835d3a89da88668ca020ea9119ee757dc'],
     ['en', '62989721d2528126ab48704fe783597dba0d484d2f24ce05a7391e0e9bdbfa27'],
   ]) {
-    assert.equal(sha256(read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n')), digest, language);
+    const source = read(`../src/i18n/${language}.ts`);
+    assert.equal(sha256(historicalSource(source)), digest, language);
+  }
+});
+
+test('additive keys stay English fallbacks without Japanese approval or provenance', () => {
+  const translate = loadI18n().createTranslator('ja');
+  for (const key of LATER_FALLBACK_KEYS) {
+    const rows = manifest.filter(row => row.identity === key);
+    assert.equal(rows.length, 1, key);
+    const row = rows[0];
+    assert.deepEqual([row.surface, row.status, row.reason_code], ['react', 'FALLBACK_EN', 'ABSENT_FROM_WORKBOOK']);
+    for (const field of ['ja_validated', 'ja_ai_reviewed', 'sheet_row', 'sheet_fr', 'sheet_en']) assert.equal(row[field], '', `${key}.${field}`);
+    assert.equal(row.takeru_review, 'no', key);
+    assert.equal(translate(key), en[key], key);
+  }
+});
+
+test('source fingerprints accept the scoped additions but reject every historical value change', () => {
+  for (const language of ['fr', 'en']) {
+    const source = read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n');
+    const digest = sha256(historicalSource(source));
+    for (const key of Object.keys(fr)) {
+      const line = source.split('\n').find(line => line.trimStart().startsWith(`${key}: `));
+      assert.ok(line, `${language}.${key}: source line exists`);
+      const mutated = line.replace(/(: ['"])/, '$1changed ');
+      assert.notEqual(mutated, line, `${language}.${key}: mutation must change the value`);
+      const changed = source.replace(line, mutated);
+      assert.equal(sha256(historicalSource(changed)) === digest, LATER_FALLBACK_KEYS.includes(key), `${language}.${key}`);
+    }
+    const unknown = source.replace('\n}', "\n  unapprovedAddition: 'Value',\n}");
+    assert.notEqual(sha256(historicalSource(unknown)), digest, 'unknown additions are not exempt');
   }
 });
 

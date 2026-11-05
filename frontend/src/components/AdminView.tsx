@@ -25,7 +25,6 @@ import type {
   MembershipRole,
   NewMemberPayload,
   Organization,
-  Probe,
   ResponsableRelinquishResponse,
   ThermalZone,
   UserProfile,
@@ -35,8 +34,8 @@ import type {
   BoxTransferPayload,
   BoxTransferResult,
   OrganizationPayload,
-  ProbePayload,
   ThermalZonePayload,
+  ThermalZoneUpdatePayload,
 } from '../types/admin';
 import {
   filterMembersByRole,
@@ -66,13 +65,12 @@ import {
   printQrLabels,
   type QrLabelPreparationResult,
 } from '../utils/qrLabels';
-import { decrementDecimalValue, incrementDecimalValue } from '../utils/stepValue';
-import { getZoneOccupancyLevel } from '../utils/zoneOccupancy';
 import AccountInvitationsPanel, { type InvitationsSnapshot } from './AccountInvitationsPanel';
 import AdminActionPanel from './AdminActionPanel';
 import AdminAuditSection from './AdminAuditSection';
 import BoxInventoryAdminSection from './BoxInventoryAdminSection';
 import { useConfirmAction } from './ConfirmActionModal';
+import LabConfigurationAdminSection from './LabConfigurationAdminSection';
 import PageLoader from './PageLoader';
 import PolypbaseIcon from './PolypbaseIcon';
 import { RowActionMenu } from './RowActionMenu';
@@ -95,7 +93,6 @@ export type AdminSectionKey = (typeof ADMIN_FLOW_ITEMS)[number]['key'];
 
 const DISABLED_ADMIN_SECTIONS: ReadonlySet<AdminSectionKey> = new Set([
   'references',
-  'environment',
   'transfers',
   'organizations',
 ]);
@@ -110,12 +107,6 @@ function userHasAdminRole(profile: UserProfile | null) {
   );
 }
 
-
-// Zone capacity is added a rack at a time, and salinity is read off a
-// refractometer that lands on round values, so the -/+ buttons move in the
-// steps the technicians actually work in. Typing stays free (see ZoneStepField).
-const ZONE_CAPACITY_STEP = 10;
-const ZONE_SALINITY_STEP = 5;
 
 const INVITATIONS_PATH = '/api/accounts/invitations/';
 
@@ -903,13 +894,6 @@ function AccountManagementSection({
   );
 }
 
-const PROBE_TYPE_OPTIONS = [
-  { value: 'lorawan', label: 'LoRaWAN' },
-  { value: 'iminilide', label: 'iMinilide' },
-  { value: 'manual', label: 'Manuel / Manual' },
-  { value: 'other', label: 'Autre / Other' },
-];
-
 function getAdminOrganizationIds(profile: UserProfile): Set<number> | null {
   // null means "all organizations" (superuser).
   if (profile.is_superuser) return null;
@@ -922,490 +906,6 @@ function getAdminOrganizationIds(profile: UserProfile): Set<number> | null {
   return canAdministerActiveOrganization
     ? new Set([activeOrganizationId])
     : new Set();
-}
-
-function sortAdminZones(a: ThermalZone, b: ThermalZone) {
-  const aTemperature = Number.parseFloat(a.target_temperature_c ?? '');
-  const bTemperature = Number.parseFloat(b.target_temperature_c ?? '');
-  const aRank = Number.isFinite(aTemperature) ? aTemperature : Number.POSITIVE_INFINITY;
-  const bRank = Number.isFinite(bTemperature) ? bTemperature : Number.POSITIVE_INFINITY;
-  if (aRank !== bRank) return aRank - bRank;
-  return a.name.localeCompare(b.name, 'fr-FR');
-}
-
-function formatZoneTemperature(value: string | number | null | undefined) {
-  if (value === null || value === undefined || value === '') return '-';
-  const numericValue = typeof value === 'number' ? value : Number.parseFloat(value);
-  if (!Number.isFinite(numericValue)) return `${value}`;
-  return `${numericValue.toFixed(1)}°C`;
-}
-
-function formatZoneSalinity(value: string | number | null | undefined) {
-  if (value === null || value === undefined || value === '') return '-';
-  const numericValue = typeof value === 'number' ? value : Number.parseFloat(value);
-  if (!Number.isFinite(numericValue)) return `${value}`;
-  return Number.isInteger(numericValue) ? `${numericValue}` : numericValue.toFixed(1);
-}
-
-function getProbeTypeLabel(probeType: string) {
-  return PROBE_TYPE_OPTIONS.find((option) => option.value === probeType)?.label ?? probeType;
-}
-
-function ZoneCreateForm({
-  profile,
-  onCreateZone,
-  t,
-}: {
-  profile: UserProfile;
-  onCreateZone: (payload: ThermalZonePayload) => Promise<void>;
-  t: Translator;
-}) {
-  const adminOrganizations = useMemo(() => {
-    const adminOrgIds = getAdminOrganizationIds(profile);
-    if (adminOrgIds === null) return profile.organizations;
-    return profile.organizations.filter((organization) => adminOrgIds.has(organization.id));
-  }, [profile]);
-
-  const [organizationId, setOrganizationId] = useState<number | null>(
-    adminOrganizations[0]?.id ?? null,
-  );
-  const [name, setName] = useState('');
-  const [zoneType, setZoneType] = useState('cabinet');
-  const [targetTemperature, setTargetTemperature] = useState('');
-  const [capacity, setCapacity] = useState('');
-  const [salinity, setSalinity] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  if (!adminOrganizations.length) {
-    return <p className="muted compact-text">{t('adminZoneNoOrganization')}</p>;
-  }
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (isSaving || organizationId == null) return;
-
-    setIsSaving(true);
-    setError(null);
-
-    try {
-      await onCreateZone({
-        organization: organizationId,
-        name: name.trim(),
-        zone_type: zoneType,
-        target_temperature_c: targetTemperature.trim() || null,
-        capacity: capacity ? Number(capacity) : null,
-        salinity_psu: salinity.trim() || null,
-      });
-      setName('');
-      setTargetTemperature('');
-      setCapacity('');
-      setSalinity('');
-    } catch (requestError) {
-      setError(getErrorMessage(requestError));
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  return (
-    <form className="admin-form" onSubmit={handleSubmit}>
-      {adminOrganizations.length > 1 ? (
-        <label>
-          <span>{t('adminZoneOrganization')}</span>
-          <select
-            value={organizationId ?? ''}
-            onChange={(event) => setOrganizationId(Number(event.target.value))}
-          >
-            {adminOrganizations.map((organization) => (
-              <option key={organization.id} value={organization.id}>
-                {organization.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
-      <label>
-        <span>{t('adminZoneName')}</span>
-        <input
-          required
-          placeholder="Étuve 13"
-          type="text"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-        />
-      </label>
-      <label>
-        <span>{t('adminZoneType')}</span>
-        <select value={zoneType} onChange={(event) => setZoneType(event.target.value)}>
-          <option value="cabinet">{t('adminZoneTypeCabinet')}</option>
-          <option value="incubator">{t('adminZoneTypeIncubator')}</option>
-        </select>
-      </label>
-      <label>
-        <span>{t('adminTargetTemperature')}</span>
-        <input
-          placeholder="15.0"
-          type="number"
-          step="0.1"
-          value={targetTemperature}
-          onChange={(event) => setTargetTemperature(event.target.value)}
-        />
-      </label>
-      <label>
-        <span>{t('adminZoneCapacity')}</span>
-        <ZoneStepField
-          ariaPrefix={t('adminZoneCapacity')}
-          step={ZONE_CAPACITY_STEP}
-          value={capacity}
-          onChange={setCapacity}
-        />
-      </label>
-      <label>
-        <span>{t('adminZoneSalinity')}</span>
-        <ZoneStepField
-          ariaPrefix={t('adminZoneSalinity')}
-          step={ZONE_SALINITY_STEP}
-          value={salinity}
-          onChange={setSalinity}
-          placeholder="35"
-        />
-      </label>
-      <button type="submit" disabled={isSaving || !name.trim()}>
-        {isSaving ? t('saving') : t('adminCreateZone')}
-      </button>
-      {error ? <p className="inline-error">{error}</p> : null}
-    </form>
-  );
-}
-
-function ProbeCreateForm({
-  profile,
-  zones,
-  onCreateProbe,
-  t,
-}: {
-  profile: UserProfile;
-  zones: ThermalZone[];
-  onCreateProbe: (payload: ProbePayload) => Promise<void>;
-  t: Translator;
-}) {
-  const zoneChoices = useMemo(() => {
-    const adminOrgIds = getAdminOrganizationIds(profile);
-    return zones.filter(
-      (zone) => zone.is_active && (adminOrgIds === null || adminOrgIds.has(zone.organization.id)),
-    );
-  }, [profile, zones]);
-
-  const [zoneId, setZoneId] = useState<number | null>(zoneChoices[0]?.id ?? null);
-  const [code, setCode] = useState('');
-  const [probeType, setProbeType] = useState('lorawan');
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  if (!zoneChoices.length) {
-    return <p className="muted compact-text">{t('adminProbeNoZone')}</p>;
-  }
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (isSaving || zoneId == null) return;
-
-    setIsSaving(true);
-    setError(null);
-
-    try {
-      await onCreateProbe({
-        thermal_zone: zoneId,
-        code: code.trim(),
-        probe_type: probeType,
-        location: '',
-      });
-      setCode('');
-    } catch (requestError) {
-      setError(getErrorMessage(requestError));
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  return (
-    <form className="admin-form probe-create-form" onSubmit={handleSubmit}>
-      <label>
-        <span>{t('adminProbeCode')}</span>
-        <input
-          required
-          placeholder="SONDE-15-01"
-          type="text"
-          value={code}
-          onChange={(event) => setCode(event.target.value)}
-        />
-      </label>
-      <label>
-        <span>{t('adminProbeType')}</span>
-        <select value={probeType} onChange={(event) => setProbeType(event.target.value)}>
-          {PROBE_TYPE_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
-          ))}
-        </select>
-      </label>
-      <label>
-        <span>{t('adminProbeZone')}</span>
-        <select
-          value={zoneId ?? ''}
-          onChange={(event) => setZoneId(Number(event.target.value))}
-        >
-          {zoneChoices.map((zone) => (
-            <option key={zone.id} value={zone.id}>{zone.name}</option>
-          ))}
-        </select>
-      </label>
-      <button type="submit" disabled={isSaving || !code.trim()}>
-        {isSaving ? t('saving') : t('adminAddProbe')}
-      </button>
-      {error ? <p className="inline-error">{error}</p> : null}
-    </form>
-  );
-}
-
-/** Editable values of a zone row: kept as strings so an emptied field clears it. */
-/**
- * Number field whose -/+ buttons move by `step` while typing stays free.
- *
- * The input deliberately carries no `step` attribute: browsers count valid
- * values from `min` and reject anything off-step, which would refuse a capacity
- * of 45 or a salinity read at 32. The buttons provide the increment instead.
- */
-function ZoneStepField({
-  ariaPrefix,
-  step,
-  value,
-  onChange,
-  placeholder,
-}: {
-  ariaPrefix: string;
-  step: number;
-  value: string;
-  onChange: (next: string) => void;
-  placeholder?: string;
-}) {
-  return (
-    <div className="zone-step-field">
-      <button
-        type="button"
-        aria-label={`${ariaPrefix} -${step}`}
-        onClick={() => onChange(decrementDecimalValue(value, step))}
-      >
-        -
-      </button>
-      <input
-        min="0"
-        type="number"
-        inputMode="decimal"
-        placeholder={placeholder}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
-      <button
-        type="button"
-        aria-label={`${ariaPrefix} +${step}`}
-        onClick={() => onChange(incrementDecimalValue(value, step))}
-      >
-        +
-      </button>
-    </div>
-  );
-}
-
-type ZoneDraft = { capacity: string; salinity: string };
-
-function buildZoneDrafts(zones: ThermalZone[]): Record<number, ZoneDraft> {
-  return Object.fromEntries(
-    zones.map((zone) => [
-      zone.id,
-      { capacity: zone.capacity?.toString() ?? '', salinity: zone.salinity_psu ?? '' },
-    ]),
-  );
-}
-
-function ZoneCapacityManager({
-  profile,
-  zones,
-  onUpdateZone,
-  t,
-}: {
-  profile: UserProfile;
-  zones: ThermalZone[];
-  onUpdateZone: (zoneId: number, payload: ThermalZonePayload) => Promise<void>;
-  t: Translator;
-}) {
-  const adminOrgIds = useMemo(() => getAdminOrganizationIds(profile), [profile]);
-  const editableZones = useMemo(
-    () =>
-      zones
-        .filter((zone) => adminOrgIds === null || adminOrgIds.has(zone.organization.id))
-        .sort(sortAdminZones),
-    [adminOrgIds, zones],
-  );
-  const [drafts, setDrafts] = useState<Record<number, ZoneDraft>>(() => buildZoneDrafts(editableZones));
-  const [busyZoneId, setBusyZoneId] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [zoneSearch, setZoneSearch] = useState('');
-
-  useEffect(() => {
-    setDrafts(buildZoneDrafts(editableZones));
-  }, [editableZones]);
-
-  const normalizedZoneSearch = zoneSearch.trim().toLocaleLowerCase('fr-FR');
-  const visibleZones = editableZones.filter((zone) => {
-    if (!normalizedZoneSearch) return true;
-    return [
-      zone.name,
-      zone.organization.name,
-      zone.zone_type,
-      zone.target_temperature_c ?? '',
-      `${zone.target_temperature_c ?? ''}°C`,
-    ].some((value) => value.toLocaleLowerCase('fr-FR').includes(normalizedZoneSearch));
-  });
-
-  if (!editableZones.length) return null;
-
-  function updateDraft(zoneId: number, field: keyof ZoneDraft, value: string) {
-    setDrafts((current) => ({
-      ...current,
-      [zoneId]: { ...current[zoneId], [field]: value },
-    }));
-  }
-
-  async function saveZone(zone: ThermalZone) {
-    const draft = drafts[zone.id] ?? { capacity: '', salinity: '' };
-    const capacityValue = draft.capacity.trim();
-    const salinityValue = draft.salinity.trim();
-    setBusyZoneId(zone.id);
-    setError(null);
-
-    try {
-      await onUpdateZone(zone.id, {
-        organization: zone.organization.id,
-        name: zone.name,
-        zone_type: zone.zone_type,
-        target_temperature_c: zone.target_temperature_c,
-        capacity: capacityValue ? Number(capacityValue) : null,
-        // An emptied field clears the value rather than keeping the old one.
-        salinity_psu: salinityValue || null,
-      });
-    } catch (requestError) {
-      setError(getErrorMessage(requestError));
-    } finally {
-      setBusyZoneId(null);
-    }
-  }
-
-  return (
-    <div className="zone-capacity-manager environment-directory">
-      <div className="environment-directory-toolbar">
-        <label className="environment-search-field">
-          <span>{t('manageSearchLabel')}</span>
-          <input
-            type="search"
-            value={zoneSearch}
-            placeholder={t('adminEnvironmentSearchPlaceholder')}
-            onChange={(event) => setZoneSearch(event.target.value)}
-          />
-        </label>
-        <span className="environment-visible-count">
-          {visibleZones.length} / {editableZones.length}
-        </span>
-      </div>
-
-      {visibleZones.length ? (
-        <div className="environment-zone-grid">
-          {visibleZones.map((zone) => {
-          // Orange when fewer than 10 slots remain, red once full.
-          const occupancy = getZoneOccupancyLevel(zone.box_count, zone.capacity);
-          const probeCount = zone.probes?.length ?? 0;
-          return (
-            <article className="environment-zone-editor" key={zone.id}>
-              <header className="environment-zone-editor-head">
-                <div>
-                  <span className="environment-zone-type">
-                    {zone.zone_type === 'incubator' ? t('adminZoneTypeIncubator') : t('adminZoneTypeCabinet')}
-                  </span>
-                  <h4>{zone.name}</h4>
-                  <p>{zone.organization.name}</p>
-                </div>
-                <span className={`zone-occupancy is-${occupancy}`}>
-                  {zone.box_count}{zone.capacity ? ` / ${zone.capacity}` : ''}
-                </span>
-              </header>
-
-              <dl className="environment-zone-metrics">
-                <div>
-                  <dt>{t('adminTargetTemperature')}</dt>
-                  <dd>{formatZoneTemperature(zone.target_temperature_c)}</dd>
-                </div>
-                <div>
-                  <dt>{t('adminZoneSalinity')}</dt>
-                  <dd>{formatZoneSalinity(zone.salinity_psu)}</dd>
-                </div>
-                <div>
-                  <dt>{t('adminZoneProbes')}</dt>
-                  <dd>{probeCount}</dd>
-                </div>
-              </dl>
-
-              <div className="environment-probe-list" aria-label={t('adminZoneProbes')}>
-                {probeCount ? (
-                  zone.probes.map((probe) => (
-                    <span key={probe.id} className={probe.is_active ? 'probe-chip' : 'probe-chip is-inactive'}>
-                      <strong>{probe.code}</strong>
-                      <small>{getProbeTypeLabel(probe.probe_type)}</small>
-                    </span>
-                  ))
-                ) : (
-                  <span className="probe-chip is-empty">{t('adminEnvironmentNoProbe')}</span>
-                )}
-              </div>
-
-              <div className="environment-zone-edit-fields">
-                <label>
-                  <small>{t('adminZoneCapacity')}</small>
-                  <ZoneStepField
-                    ariaPrefix={`${zone.name} ${t('adminZoneCapacity')}`}
-                    step={ZONE_CAPACITY_STEP}
-                    value={drafts[zone.id]?.capacity ?? ''}
-                    onChange={(next) => updateDraft(zone.id, 'capacity', next)}
-                  />
-                </label>
-                <label>
-                  <small>{t('adminZoneSalinity')}</small>
-                  <ZoneStepField
-                    ariaPrefix={`${zone.name} ${t('adminZoneSalinity')}`}
-                    step={ZONE_SALINITY_STEP}
-                    value={drafts[zone.id]?.salinity ?? ''}
-                    onChange={(next) => updateDraft(zone.id, 'salinity', next)}
-                    placeholder="35"
-                  />
-                </label>
-                <button
-                  type="button"
-                  className="environment-zone-save"
-                  disabled={busyZoneId === zone.id}
-                  onClick={() => void saveZone(zone)}
-                >
-                  {busyZoneId === zone.id ? t('saving') : t('adminSaveZone')}
-                </button>
-              </div>
-            </article>
-          );
-        })}
-        </div>
-      ) : (
-        <p className="empty-state environment-empty-state">{t('adminEnvironmentNoZoneResults')}</p>
-      )}
-      {error ? <p className="inline-error">{error}</p> : null}
-    </div>
-  );
 }
 
 function OrganizationCreateForm({
@@ -2690,98 +2190,6 @@ function AdminFlowNav({
   );
 }
 
-type EnvironmentAction = 'zone' | 'probe';
-
-function EnvironmentAdminSection({
-  profile,
-  zones,
-  onCreateZone,
-  onCreateProbe,
-  onUpdateZone,
-  t,
-}: {
-  profile: UserProfile;
-  zones: ThermalZone[];
-  onCreateZone: (payload: ThermalZonePayload) => Promise<void>;
-  onCreateProbe: (payload: ProbePayload) => Promise<void>;
-  onUpdateZone: (zoneId: number, payload: ThermalZonePayload) => Promise<void>;
-  t: Translator;
-}) {
-  const [activeAction, setActiveAction] = useState<EnvironmentAction | null>(null);
-  const adminOrgIds = useMemo(() => getAdminOrganizationIds(profile), [profile]);
-  const adminEditableZones = useMemo(
-    () =>
-      zones
-        .filter((zone) => zone.is_active && (adminOrgIds === null || adminOrgIds.has(zone.organization.id)))
-        .sort(sortAdminZones),
-    [adminOrgIds, zones],
-  );
-  const adminProbeCount = adminEditableZones.reduce(
-    (total, zone) => total + (zone.probes?.length ?? 0),
-    0,
-  );
-  const activeBoxCount = adminEditableZones.reduce((total, zone) => total + zone.box_count, 0);
-  const capacityCount = adminEditableZones.reduce((total, zone) => total + (zone.capacity ?? 0), 0);
-
-  return (
-    <section className="admin-section admin-environment-section" id="admin-environment">
-      <div className="admin-environment-topbar">
-        <div>
-          <h2>{t('adminZonesProbesTitle')}</h2>
-        </div>
-        <div className="admin-heading-actions">
-          <button className="admin-secondary-action" type="button" onClick={() => setActiveAction('probe')}>
-            <PolypbaseIcon name="probe" size={18} />
-            {t('adminEnvironmentProbePanel')}
-          </button>
-          <button className="admin-primary-action" type="button" onClick={() => setActiveAction('zone')}>
-            <PolypbaseIcon name="plus" size={18} />
-            {t('adminEnvironmentZonePanel')}
-          </button>
-        </div>
-      </div>
-
-      <div className="admin-environment-summary" aria-label={t('adminZonesProbesTitle')}>
-        <span>
-          <strong>{adminEditableZones.length}</strong>
-          {t('adminEnvironmentZonesCount')}
-        </span>
-        <span>
-          <strong>{adminProbeCount}</strong>
-          {t('adminEnvironmentProbesCount')}
-        </span>
-        <span>
-          <strong>{capacityCount ? `${activeBoxCount} / ${capacityCount}` : activeBoxCount}</strong>
-          {t('adminEnvironmentCapacityCount')}
-        </span>
-      </div>
-
-      {activeAction ? (
-        <AdminActionPanel
-          title={t(activeAction === 'zone' ? 'adminEnvironmentZonePanel' : 'adminEnvironmentProbePanel')}
-          closeLabel={t('close')}
-          onClose={() => setActiveAction(null)}
-        >
-          {activeAction === 'zone' ? (
-            <ZoneCreateForm profile={profile} onCreateZone={onCreateZone} t={t} />
-          ) : (
-            <ProbeCreateForm profile={profile} zones={zones} onCreateProbe={onCreateProbe} t={t} />
-          )}
-        </AdminActionPanel>
-      ) : null}
-
-      <div className="admin-environment-workspace">
-        <section className="environment-settings-panel" aria-labelledby="environment-settings-title">
-          <div className="environment-settings-heading">
-            <h3 id="environment-settings-title">{t('adminEnvironmentSettingsPanel')}</h3>
-          </div>
-          <ZoneCapacityManager profile={profile} zones={zones} onUpdateZone={onUpdateZone} t={t} />
-        </section>
-      </div>
-    </section>
-  );
-}
-
 function OrganizationsAdminSection({
   organizations,
   profile,
@@ -2973,7 +2381,6 @@ export default function AdminView({
   onRequestOptions,
   onCreateZone,
   onUpdateZone,
-  onCreateProbe,
   onCreateOrganization,
   onDeleteOrganization,
   onUpdateOrganization,
@@ -3004,9 +2411,8 @@ export default function AdminView({
   onResponsableChange: (organizationId: number, isResponsable: boolean) => void;
   onSelectSection: (section: AdminSectionKey) => void;
   onRequestOptions: () => void;
-  onCreateZone: (payload: ThermalZonePayload) => Promise<void>;
-  onUpdateZone: (zoneId: number, payload: ThermalZonePayload) => Promise<void>;
-  onCreateProbe: (payload: ProbePayload) => Promise<void>;
+  onCreateZone: (payload: ThermalZonePayload) => Promise<{ id: number }>;
+  onUpdateZone: (zoneId: number, payload: ThermalZoneUpdatePayload) => Promise<void>;
   onCreateOrganization: (payload: OrganizationPayload) => Promise<void>;
   onDeleteOrganization: (organizationId: number) => Promise<void>;
   onUpdateOrganization: (organizationId: number, payload: OrganizationPayload) => Promise<void>;
@@ -3098,13 +2504,14 @@ export default function AdminView({
             />
           ) : null}
 
-          {displayedSection === 'environment' ? (
-            <EnvironmentAdminSection
-              profile={profile}
+          {displayedSection === 'environment' && activeOrganizationId != null ? (
+            <LabConfigurationAdminSection
+              key={activeOrganizationId}
+              organizationId={activeOrganizationId}
               zones={zones}
               onCreateZone={onCreateZone}
-              onCreateProbe={onCreateProbe}
               onUpdateZone={onUpdateZone}
+              onOpenZone={onOpenZone}
               t={t}
             />
           ) : null}

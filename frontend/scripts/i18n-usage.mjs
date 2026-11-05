@@ -5,9 +5,19 @@ import ts from 'typescript';
 
 // Exact keys only. These are retention decisions, not evidence of source use.
 export const usageExceptions = Object.freeze({
+  temperatureAverage: 'cbc513f replaced the daily marker average/measurement labels with temperatureRecentMean and temperatureDailyMean; retain historical FR/EN/JA pending an explicit i18n removal decision.',
+  temperatureMeasurement: 'cbc513f removed the single-measurement marker variant in favor of temperatureRecentMean; retain historical FR/EN/JA pending an explicit i18n removal decision.',
+  temperatureGap: 'cbc513f replaced the daily delta label with temperatureDailyGap to distinguish daily mean from recent probes; retain historical FR/EN/JA pending an explicit i18n removal decision.',
+  temperatureMissing: 'cbc513f replaced the generic missing-temperature heading and ruler message with recent measurement context (temperatureNoRecent); retain historical FR/EN/JA pending an explicit i18n removal decision.',
   auditSummaryAlertResolved: 'B03/B06 preservation decision: retain the legacy alert summary; current audit rendering uses auditDescriptionAlertResolved.',
   adminTransferText: 'B01 deferred transfer introduction (register T012); B03/B06 explicitly preserve it pending a transfer-screen decision.',
   manualTemperatureForbidden: 'B02 deferred legacy temperature refusal with no source usage; B03/B06 explicitly preserve it pending permission-copy review.',
+  ...Object.fromEntries([
+    'adminEnvironmentCapacityCount', 'adminEnvironmentNoProbe', 'adminEnvironmentNoZoneResults',
+    'adminEnvironmentProbePanel', 'adminEnvironmentProbesCount', 'adminEnvironmentSearchPlaceholder',
+    'adminEnvironmentSettingsPanel', 'adminEnvironmentZonePanel', 'adminEnvironmentZonesCount',
+    'adminProbeNoZone', 'adminZoneNoOrganization', 'adminZoneProbes', 'adminZonesProbesTitle',
+  ].map(key => [key, 'Former disabled Administration environment workspace, replaced by Laboratory configuration (2026-11-04); retained until an explicit i18n removal batch decides its keys, including probe labels for the deferred probe phase.'])),
 });
 
 export function isUsageSource(filename) {
