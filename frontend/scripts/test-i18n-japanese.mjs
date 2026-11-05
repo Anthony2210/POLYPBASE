@@ -76,6 +76,87 @@ const blockedPath = '../../docs/translation-review/japanese/POLYPBASE_JA_6_block
 const reviewed = parseCsv(read(reviewedPath));
 const blocked = parseCsv(read(blockedPath));
 
+// Commit whose FR/EN bytes and manifest counts the historical checks freeze.
+const FROZEN_BASELINE = 'c857a592e170ae6933969098c90fed95d0eb3ea5';
+// Immutable thermal-control batch B13 (T845-T858): same canonical digest as
+// B13_ROWS_SHA256 in docs/translation-review/application/test_check_register.py,
+// computed from the original rows of commit cbc513f. Corrections are appended later.
+const REGISTER_COLUMNS = ['entry_id', 'batch', 'surface', 'key_or_msgid', 'language', 'source_file',
+  'initial_value', 'final_value', 'sheet_value', 'decision_ref', 'status', 'reason', 'baseline_git_head',
+  'baseline_sheet_sha256'];
+const B13 = 'B13-2026-11-04';
+const B13_START = 844;
+const B13_ENTRY_IDS = Array.from({ length: 14 }, (_, index) => `T${845 + index}`);
+const B13_ROWS_SHA256 = 'ab96099e1e94d0b1c17ddf7547605960a6c46d6c3c6e44e2184d6c6cae49452b';
+// Full lab provenance from 5fcc2ea, independently of the original thermal freeze.
+const LAB_START = 858;
+const LAB_ENTRY_IDS = Array.from({ length: 28 }, (_, index) => `T${859 + index}`);
+const LAB_ROWS_SHA256 = '12474e0f6376a9e3da896e68022f45a954401cce630aff263385c4fc06e5365b';
+// Explicit historical additions as renumbered in 7c8ce24, frozen separately.
+const HISTORICAL_START = 886;
+const HISTORICAL_ENTRY_IDS = Array.from({ length: 88 }, (_, index) => `T${887 + index}`);
+const HISTORICAL_ROWS_SHA256 = 'df3d1228fa718616598ea8bf5c87f2a600007cc94a7514db773abc150960b5c7';
+// Python json.dumps(..., ensure_ascii=False) over the rows' column values.
+const registerRowsDigest = rows => sha256(`[${rows.map(row =>
+  `[${REGISTER_COLUMNS.map(name => JSON.stringify(row[name])).join(', ')}]`).join(', ')}]`);
+function b13IntegrityErrors(rows) {
+  const b13 = rows.filter(row => row.batch === B13 && !LAB_ENTRY_IDS.includes(row.entry_id));
+  const errors = [];
+  const slice = rows.slice(B13_START, B13_START + B13_ENTRY_IDS.length);
+  if (slice.length !== b13.length || slice.some((row, index) => row !== b13[index])) {
+    errors.push('B13 rows are not exactly the contiguous register rows 845-858');
+  }
+  if (JSON.stringify(b13.map(row => row.entry_id)) !== JSON.stringify(B13_ENTRY_IDS)) {
+    errors.push('B13 entry IDs are not exactly T845-T858 in order');
+  }
+  if (registerRowsDigest(b13) !== B13_ROWS_SHA256) errors.push('B13 history was modified');
+  return errors;
+}
+function labIntegrityErrors(rows) {
+  const lab = rows.filter(row => LAB_ENTRY_IDS.includes(row.entry_id));
+  const errors = [];
+  const slice = rows.slice(LAB_START, LAB_START + LAB_ENTRY_IDS.length);
+  if (slice.length !== lab.length || slice.some((row, index) => row !== lab[index])
+    || JSON.stringify(lab.map(row => row.entry_id)) !== JSON.stringify(LAB_ENTRY_IDS)) {
+    errors.push('Lab events are not exactly the contiguous register rows 859-886');
+  }
+  if (registerRowsDigest(lab) !== LAB_ROWS_SHA256) errors.push('Lab history was modified');
+  return errors;
+}
+// Only these independently frozen thermal, lab and historical additions are excluded.
+// DEFERRED lab wording is not an approval, despite sharing B13 and its baseline.
+function postBaselineReactKeys(rows = register) {
+  for (const row of rows) assert.deepEqual(Object.keys(row), REGISTER_COLUMNS);
+  assert.deepEqual(b13IntegrityErrors(rows), []);
+  assert.deepEqual(labIntegrityErrors(rows), []);
+  const historical = rows.filter(row => HISTORICAL_ENTRY_IDS.includes(row.entry_id));
+  assert.deepEqual(historical, rows.slice(HISTORICAL_START, HISTORICAL_START + HISTORICAL_ENTRY_IDS.length));
+  assert.deepEqual(historical.map(row => row.entry_id), HISTORICAL_ENTRY_IDS);
+  assert.equal(registerRowsDigest(historical), HISTORICAL_ROWS_SHA256, 'historical movement history was modified');
+  assert.equal(historicalMovementKeys.length, 44);
+  assert.deepEqual([...new Set(historical.map(row => row.key_or_msgid))].sort(), [...historicalMovementKeys].sort());
+  const entries = rows.filter(row => row.baseline_git_head === FROZEN_BASELINE);
+  const thermalLab = rows.slice(B13_START, LAB_START + LAB_ENTRY_IDS.length);
+  assert.deepEqual(entries, [...thermalLab, ...historical], 'only frozen thermal, lab and historical events may use the frozen baseline');
+  assert.deepEqual(rows.filter(row => row.batch === B13), thermalLab, 'only frozen thermal and lab events may use B13');
+  const added = new Map();
+  for (const row of entries) {
+    const thermal = B13_ENTRY_IDS.includes(row.entry_id);
+    const movement = HISTORICAL_ENTRY_IDS.includes(row.entry_id);
+    const status = thermal || movement || row.key_or_msgid === 'adminLabReferenceSalinity' ? 'ALREADY_MATCHING' : 'DEFERRED';
+    const reason = movement ? 'New FR/EN' : thermal ? 'New key added' : 'New Administration > Laboratory configuration key';
+    assert.ok(row.surface === 'react' && row.status === status
+      && row.initial_value === row.final_value && row.reason.includes(reason),
+    `${row.entry_id}: not a registered new React key`);
+    const values = added.get(row.key_or_msgid) ?? {};
+    assert.equal(Object.hasOwn(values, row.language), false, `${row.key_or_msgid}: duplicate ${row.language}`);
+    added.set(row.key_or_msgid, { ...values, [row.language]: row.final_value });
+  }
+  for (const [key, values] of added) assert.deepEqual(Object.keys(values).sort(), ['EN', 'FR'], key);
+  return added;
+}
+const postBaseline = postBaselineReactKeys();
+
 function storage(initial = {}) {
   const values = new Map(Object.entries(initial));
   return {
@@ -134,8 +215,116 @@ test('ja catalog is exactly the historical and AI-reviewed manifest union', () =
     assert.equal(Object.hasOwn(ja, row.identity), false, `${row.identity}: ${row.reason_code} must use English`);
   }
   const counts = react.reduce((total, row) => ({ ...total, [row.status]: (total[row.status] ?? 0) + 1 }), {});
-  // 143 original fallbacks, plus 7 thermal, 14 Laboratory configuration and 44 historical keys.
+  // 143 original fallbacks, plus 7 thermal, 14 lab and 44 historical keys.
+  assert.equal(postBaseline.size, 65);
   assert.deepEqual(counts, { REUSED: 930, FALLBACK_EN: 208, FALLBACK_EN_REVIEW: 36, AI_REVIEWED: 59 });
+  assert.equal(counts.FALLBACK_EN, 143 + postBaseline.size);
+});
+
+test('B13 thermal register events are immutable, even under a coordinated catalog edit', () => {
+  assert.deepEqual(b13IntegrityErrors(register), []);
+  // Reported scenario: rewrite T856 (EN temperatureDailyMean) together with the EN catalog.
+  const rewritten = register.map(row => ({ ...row }));
+  const t856 = rewritten.find(row => row.entry_id === 'T856');
+  assert.deepEqual([t856.key_or_msgid, t856.language, t856.final_value], ['temperatureDailyMean', 'EN', 'Daily mean']);
+  Object.assign(t856, { initial_value: 'Daily average', final_value: 'Daily average' });
+  // Without the B13 guard the reconstruction would accept it: removing the edited
+  // line from an equally edited catalog still restores the frozen EN bytes.
+  const edited = read('../src/i18n/en.ts').replace(/\r\n/g, '\n')
+    .replace("  temperatureDailyMean: 'Daily mean',\n", "  temperatureDailyMean: 'Daily average',\n");
+  let baseline = edited;
+  for (const row of rewritten.slice(B13_START, HISTORICAL_START + 88).filter(row => row.language === 'EN')) {
+    baseline = baseline.replace(`  ${row.key_or_msgid}: '${row.final_value}',\n`, '');
+  }
+  assert.equal(sha256(baseline), '62989721d2528126ab48704fe783597dba0d484d2f24ce05a7391e0e9bdbfa27');
+  assert.ok(b13IntegrityErrors(rewritten).includes('B13 history was modified'));
+  assert.throws(() => postBaselineReactKeys(rewritten));
+
+  for (let index = B13_START; index < B13_START + 14; index += 1) {
+    for (const name of REGISTER_COLUMNS) {
+      const rows = register.map(row => ({ ...row }));
+      rows[index][name] += 'x';
+      assert.ok(b13IntegrityErrors(rows).length, `${rows[index].entry_id}.${name}`);
+    }
+  }
+  const b13 = register.slice(B13_START, B13_START + 14);
+  const before = register.slice(0, B13_START);
+  const later = { ...b13[13], entry_id: 'T859', batch: 'B14-2026-11-05' };
+  for (const [label, rows] of Object.entries({
+    deleted: [...before, ...b13.slice(1)],
+    'inserted inside': [...before, b13[0], { ...b13[0], entry_id: 'T845b' }, ...b13.slice(1)],
+    'row before B13': [...before, later, ...b13],
+    replaced: [...before, ...b13.slice(0, 3), { ...b13[3], key_or_msgid: 'temperatureOther' }, ...b13.slice(4)],
+    reordered: [...before, b13[1], b13[0], ...b13.slice(2)],
+  })) assert.ok(b13IntegrityErrors(rows).length, label);
+  // A later correction is a new appended event and leaves B13 intact.
+  const correction = { ...b13[11], entry_id: 'T975', batch: 'B17-2026-11-05', initial_value: 'Daily mean',
+    final_value: 'Daily average', status: 'APPLIED', baseline_git_head: '2'.repeat(40) };
+  assert.deepEqual(b13IntegrityErrors([...register, correction]), []);
+  assert.deepEqual(postBaselineReactKeys([...register, correction]), postBaseline);
+});
+
+test('lab provenance rejects omissions, field edits, fake approvals and baseline extensions', () => {
+  assert.deepEqual(labIntegrityErrors(register), []);
+  assert.deepEqual(register.slice(LAB_START, LAB_START + 28).reduce((counts, row) =>
+    ({ ...counts, [row.status]: (counts[row.status] ?? 0) + 1 }), {}), { DEFERRED: 26, ALREADY_MATCHING: 2 });
+  for (let index = LAB_START; index < LAB_START + 28; index += 1) {
+    for (const field of REGISTER_COLUMNS) {
+      const changed = register.map(row => ({ ...row }));
+      changed[index][field] += 'x';
+      assert.ok(labIntegrityErrors(changed).length, `${register[index].entry_id}.${field}`);
+      assert.throws(() => postBaselineReactKeys(changed));
+    }
+  }
+  const approved = register.map(row => ({ ...row }));
+  approved[LAB_START].status = 'ALREADY_MATCHING';
+  for (const rows of [
+    register.slice(0, LAB_START),
+    [...register.slice(0, LAB_START), ...register.slice(LAB_START + 1)],
+    [...register.slice(0, LAB_START), register[859], register[858], ...register.slice(860)],
+    [...register, { ...register[858] }], approved,
+    [...register, { ...register[858], entry_id: 'T975', batch: 'B17-2026-11-05' }],
+    [...register, { ...register[858], entry_id: 'T975', baseline_git_head: '2'.repeat(40) }],
+  ]) assert.throws(() => postBaselineReactKeys(rows));
+});
+
+test('historical register events and full schemas cannot redefine the reconstruction', () => {
+  for (let index = HISTORICAL_START; index < HISTORICAL_START + 88; index += 1) {
+    for (const field of REGISTER_COLUMNS) {
+      const changed = register.map(row => ({ ...row }));
+      changed[index][field] += 'x';
+      assert.throws(() => postBaselineReactKeys(changed), `${register[index].entry_id}.${field}`);
+    }
+  }
+  for (const rows of [
+    register.slice(0, HISTORICAL_START),
+    [...register.slice(0, 887), ...register.slice(888)],
+    [...register.slice(0, 886), register[887], register[886], ...register.slice(888)],
+    [...register, { ...register[973] }],
+  ]) assert.throws(() => postBaselineReactKeys(rows));
+  for (const index of [0, B13_START, LAB_START, HISTORICAL_START]) {
+    const extra = register.map(row => ({ ...row }));
+    extra[index].unknown_column = 'unapproved';
+    assert.throws(() => postBaselineReactKeys(extra));
+    const missing = register.map(row => ({ ...row }));
+    delete missing[index].sheet_value;
+    assert.throws(() => postBaselineReactKeys(missing));
+  }
+});
+
+test('registered post-baseline keys fall back to English without any Japanese', () => {
+  assert.equal(postBaseline.size, 65);
+  const react = new Map(manifest.filter(row => row.surface === 'react').map(row => [row.identity, row]));
+  const translate = loadI18n().createTranslator('ja');
+  for (const [key, values] of postBaseline) {
+    assert.deepEqual([fr[key], en[key]], [values.FR, values.EN], key);
+    const row = react.get(key);
+    assert.deepEqual([row.current_fr, row.current_en], [values.FR, values.EN], key);
+    assert.deepEqual([row.status, row.reason_code, row.sheet_row, row.ja_validated, row.ja_ai_reviewed],
+      ['FALLBACK_EN', 'ABSENT_FROM_WORKBOOK', '', '', ''], key);
+    assert.equal(Object.hasOwn(ja, key), false, key);
+    assert.equal(translate(key), en[key], key);
+  }
 });
 
 test('original review inputs retain their byte-exact SHA256 hashes', () => {
@@ -255,19 +444,30 @@ const LATER_FALLBACK_KEYS = [
 
 function historicalSource(source) {
   const lines = source.replace(/\r\n/g, '\n').split('\n');
+  const prefixes = new Set(LATER_FALLBACK_KEYS.map(key => `  ${key}: '`));
+  const isAdditive = line => prefixes.has(`${line.split(": '", 1)[0]}: '`);
+  const additive = lines.filter(isAdditive);
   for (const key of LATER_FALLBACK_KEYS) {
-    assert.equal(lines.filter(line => line.startsWith(`  ${key}: '`)).length, 1, `${key}: one additive line`);
+    assert.equal(additive.filter(line => line.startsWith(`  ${key}: '`)).length, 1, `${key}: one additive line`);
   }
-  return lines.filter(line => !LATER_FALLBACK_KEYS.some(key => line.startsWith(`  ${key}: '`))).join('\n');
+  return lines.filter(line => !isAdditive(line)).join('\n');
 }
 
 test('original FR and EN source content remains frozen regardless of Git line endings', () => {
+  // Removing exact registered additions must restore the original frozen bytes.
   for (const [language, digest] of [
     ['fr', '1b3486aaea5eea3f8628e96bc88dac9835d3a89da88668ca020ea9119ee757dc'],
     ['en', '62989721d2528126ab48704fe783597dba0d484d2f24ce05a7391e0e9bdbfa27'],
   ]) {
-    const source = read(`../src/i18n/${language}.ts`);
+    let source = read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n');
+    assert.deepEqual([...postBaseline.keys()].sort(), [...LATER_FALLBACK_KEYS].sort());
     assert.equal(sha256(historicalSource(source)), digest, language);
+    for (const [key, values] of postBaseline) {
+      const line = `  ${key}: '${values[language.toUpperCase()]}',\n`;
+      assert.equal(source.split(line).length - 1, 1, line);
+      source = source.replace(line, '');
+    }
+    assert.equal(sha256(source), digest, language);
   }
 });
 
@@ -298,6 +498,7 @@ test('source fingerprints accept the scoped additions but reject every historica
     }
     const unknown = source.replace('\n}', "\n  unapprovedAddition: 'Value',\n}");
     assert.notEqual(sha256(historicalSource(unknown)), digest, 'unknown additions are not exempt');
+
   }
 });
 

@@ -18,11 +18,67 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import check_i18n  # noqa: E402
 import check_register  # noqa: E402
 import compile_django_messages  # noqa: E402
+from test_check_register import (  # noqa: E402
+    B13_POSITION, LAB_POSITION, b13_integrity_errors, lab_integrity_errors, rows_digest,
+)
 
 
 def rows(name):
     with (HERE / name).open(encoding="utf-8", newline="") as stream:
         return list(csv.DictReader(stream))
+
+
+# Commit whose FR/EN bytes and manifest the historical fingerprints freeze.
+FROZEN_BASELINE = "c857a592e170ae6933969098c90fed95d0eb3ea5"
+# Historical additions as renumbered in 7c8ce24, independent of thermal and lab.
+HISTORICAL_POSITION = slice(886, 974)
+HISTORICAL_ENTRY_IDS = [f"T{number}" for number in range(887, 975)]
+HISTORICAL_ROWS_SHA256 = "df3d1228fa718616598ea8bf5c87f2a600007cc94a7514db773abc150960b5c7"
+
+
+def post_baseline_react_keys(register=None):
+    """React keys registered as new FR/EN pairs after the frozen baseline.
+
+    Only pure additions qualify: any other registered change since the
+    baseline fails here instead of being silently excluded from history.
+    Thermal and lab events share B13 and the baseline but have independent
+    fingerprints; neither can redefine what is excluded by a coordinated edit.
+    The explicit 44 historical keys have a separate frozen event history.
+    """
+    register = check_register.load_register() if register is None else register
+    if any(list(row) != check_register.COLUMNS for row in register):
+        raise AssertionError("unexpected register schema")
+    integrity = b13_integrity_errors(register) + lab_integrity_errors(register)
+    if integrity:
+        raise AssertionError("; ".join(integrity))
+    historical = [r for r in register if r["entry_id"] in HISTORICAL_ENTRY_IDS]
+    if (historical != register[HISTORICAL_POSITION]
+            or [r["entry_id"] for r in historical] != HISTORICAL_ENTRY_IDS
+            or rows_digest(historical) != HISTORICAL_ROWS_SHA256):
+        raise AssertionError("historical movement history was modified")
+    entries = [r for r in register if r["baseline_git_head"] == FROZEN_BASELINE]
+    thermal_lab = register[B13_POSITION] + register[LAB_POSITION]
+    if (entries != thermal_lab + historical
+            or [r for r in register if r["batch"] == "B13-2026-11-04"] != thermal_lab):
+        raise AssertionError("only the frozen thermal, lab and historical events may use the frozen baseline; B13 is thermal/lab only")
+    historical_keys = list(dict.fromkeys(r["key_or_msgid"] for r in historical))
+    if (set(historical_keys) != set(HISTORICAL_MOVEMENT_KEYS)
+                or len(historical_keys) != 44 or len(HISTORICAL_MOVEMENT_KEYS) != 44):
+        raise AssertionError("expected exactly the explicit 44 historical movement keys")
+    languages = {}
+    for entry in entries:
+        thermal = entry in register[B13_POSITION]
+        movement = entry in historical
+        expected_status = "ALREADY_MATCHING" if thermal or movement or entry["key_or_msgid"] == "adminLabReferenceSalinity" else "DEFERRED"
+        reason = "New FR/EN" if movement else "New key added" if thermal else "New Administration > Laboratory configuration key"
+        if (entry["surface"] != "react" or entry["status"] != expected_status
+                or entry["initial_value"] != entry["final_value"] or reason not in entry["reason"]):
+            raise AssertionError(f"{entry['entry_id']}: not a registered new React key")
+        languages.setdefault(entry["key_or_msgid"], []).append(entry["language"])
+    for key, found in languages.items():
+        if sorted(found) != ["EN", "FR"]:
+            raise AssertionError(f"{key}: expected exactly one FR and one EN registration, got {found}")
+    return {key: {e["language"]: e["final_value"] for e in entries if e["key_or_msgid"] == key} for key in languages}
 
 
 class JapaneseManifestTests(unittest.TestCase):
@@ -38,7 +94,82 @@ class JapaneseManifestTests(unittest.TestCase):
     def by(self, surface):
         return [row for row in self.manifest if row["surface"] == surface]
 
+    def test_rewritten_b13_events_cannot_redefine_the_reconstruction(self):
+        original = check_register.load_register()
+        self.assertEqual(post_baseline_react_keys(original)["temperatureDailyMean"]["EN"], "Daily mean")
+        rewritten = [dict(row) for row in original]
+        t856 = next(row for row in rewritten if row["entry_id"] == "T856")
+        t856.update(initial_value="Daily average", final_value="Daily average")
+        with self.assertRaisesRegex(AssertionError, "B13 history was modified"):
+            post_baseline_react_keys(rewritten)
+        extra = dict(original[858], entry_id="T975", batch="B17-2026-11-05")
+        with self.assertRaisesRegex(AssertionError, "only the frozen thermal, lab and historical events"):
+            post_baseline_react_keys(original + [extra])
+
+    def test_lab_history_cannot_be_omitted_reordered_or_promoted_to_approval(self):
+        original = check_register.load_register()
+        self.assertEqual(len(post_baseline_react_keys(original)), 65)
+        variants = {
+            "deleted lab": original[:858],
+            "missing FR": original[:858] + original[859:],
+            "reordered": original[:858] + [original[859], original[858]] + original[860:],
+            "duplicate": original + [dict(original[858])],
+        }
+        for field, value in {
+            "status": "ALREADY_MATCHING", "decision_ref": "invented-approval",
+            "reason": "New key added; approved", "baseline_git_head": "2" * 40,
+            "initial_value": "changed", "final_value": "changed",
+        }.items():
+            changed = [dict(row) for row in original]
+            changed[858][field] = value
+            variants[field] = changed
+        for label, register in variants.items():
+            with self.subTest(label=label), self.assertRaises(AssertionError):
+                post_baseline_react_keys(register)
+
+    def test_historical_events_and_full_schema_cannot_redefine_the_reconstruction(self):
+        original = check_register.load_register()
+        for index in range(HISTORICAL_POSITION.start, HISTORICAL_POSITION.stop):
+            for field in check_register.COLUMNS:
+                changed = [dict(row) for row in original]
+                changed[index][field] += "x"
+                with self.subTest(entry=original[index]["entry_id"], field=field), self.assertRaises(AssertionError):
+                    post_baseline_react_keys(changed)
+        variants = [original[:886], original[:887] + original[888:],
+                    original[:886] + [original[887], original[886]] + original[888:],
+                    original + [dict(original[-1])]]
+        for index in (0, 844, 858, 886):
+            extra = [dict(row) for row in original]
+            extra[index]["unknown_column"] = "unapproved"
+            variants.append(extra)
+            missing = [dict(row) for row in original]
+            missing[index].pop("sheet_value")
+            variants.append(missing)
+        for register in variants:
+            with self.assertRaises(AssertionError):
+                post_baseline_react_keys(register)
+        # Appended corrections do not rewrite original events or expand exclusions.
+        correction = dict(original[855], entry_id="T975", batch="B17-2026-11-05",
+                          initial_value="Daily mean", final_value="Daily average",
+                          status="APPLIED", baseline_git_head="2" * 40)
+        self.assertEqual(post_baseline_react_keys(original + [correction]), post_baseline_react_keys(original))
+
+    def test_post_baseline_keys_fall_back_to_english_without_japanese(self):
+        added = post_baseline_react_keys()
+        self.assertEqual(len(added), 65)
+        en = check_register.read_catalog(ROOT / "frontend/src/i18n/en.ts")
+        react = {r["identity"]: r for r in self.by("react")}
+        for key, values in added.items():
+            with self.subTest(key=key):
+                self.assertEqual((self.fr[key], en[key]), (values["FR"], values["EN"]))
+                self.assertEqual((react[key]["current_fr"], react[key]["current_en"]), (values["FR"], values["EN"]))
+                row = react[key]
+                self.assertEqual((row["status"], row["reason_code"]), ("FALLBACK_EN", "ABSENT_FROM_WORKBOOK"))
+                self.assertEqual((row["sheet_row"], row["ja_validated"], row["ja_ai_reviewed"]), ("", "", ""))
+                self.assertNotIn(key, self.ja_ts)
+
     def test_exact_counts(self):
+        # Historical counts are frozen; only registered post-baseline keys are added.
         self.assertEqual(Counter((r["surface"], r["status"]) for r in self.manifest), Counter({
             ("react", "REUSED"): 930, ("react", "AI_REVIEWED"): 59,
             ("react", "FALLBACK_EN"): 208, ("react", "FALLBACK_EN_REVIEW"): 36,

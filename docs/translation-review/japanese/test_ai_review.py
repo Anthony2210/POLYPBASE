@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import build_ja_catalogs as builder
-from test_ja_manifest import HISTORICAL_MOVEMENT_KEYS, ROOT, rows
+from test_ja_manifest import HISTORICAL_MOVEMENT_KEYS, ROOT, post_baseline_react_keys, rows
 
 
 def digest(value):
@@ -51,14 +51,31 @@ class AiReviewTests(unittest.TestCase):
         cls.blocked = builder.read_ai_csv(builder.AI_BLOCKED)
 
     def historical(self):
-        # Keys added after the AI integration are excluded by exact identity.
-        records = [row for row in copy.deepcopy(self.manifest) if row["identity"] not in LATER_FALLBACK_KEYS]
+        # Independently frozen thermal, lab and historical additions are not baseline history.
+        added = post_baseline_react_keys()
+        self.assertEqual(set(added), LATER_FALLBACK_KEYS)
+        records = [row for row in copy.deepcopy(self.manifest)
+                   if not (row["surface"] == "react" and row["identity"] in added)]
         for row in records:
             row.pop("ja_ai_reviewed")
             if row["status"] == "AI_REVIEWED":
                 row.update(status="FALLBACK_EN", reason_code="ABSENT_FROM_WORKBOOK",
                            note="Current key added or not tracked in the workbook.")
         return records
+
+    def test_historical_reconstruction_requires_exact_registered_provenance(self):
+        original = builder.check_register.load_register()
+        for entry_id in ("T856", "T859", "T887"):
+            changed = copy.deepcopy(original)
+            next(row for row in changed if row["entry_id"] == entry_id)["reason"] += " changed"
+            with self.subTest(entry=entry_id):
+                with patch.object(builder.check_register, "load_register", return_value=changed):
+                    with self.assertRaisesRegex(AssertionError, "history was modified"):
+                        self.historical()
+        incomplete = {key: {} for key in LATER_FALLBACK_KEYS if key != HISTORICAL_MOVEMENT_KEYS[0]}
+        with patch(__name__ + ".post_baseline_react_keys", return_value=incomplete):
+            with self.assertRaises(AssertionError):
+                self.historical()
 
     def test_entire_historical_manifest_is_unchanged(self):
         # Baseline a841519: includes all human values, all deferred rows and Django.
@@ -100,12 +117,20 @@ class AiReviewTests(unittest.TestCase):
                 self.assertEqual(row["ja_ai_reviewed"], "")
 
     def test_original_fr_en_bytes_remain_frozen(self):
+        # Remove only exact values from the independently frozen addition events.
+        added = post_baseline_react_keys()
         for lang, expected in {
             "fr": "1b3486aaea5eea3f8628e96bc88dac9835d3a89da88668ca020ea9119ee757dc",
             "en": "62989721d2528126ab48704fe783597dba0d484d2f24ce05a7391e0e9bdbfa27",
         }.items():
             source = (ROOT / f"frontend/src/i18n/{lang}.ts").read_text(encoding="utf-8")
+            self.assertEqual(set(added), LATER_FALLBACK_KEYS)
             self.assertEqual(hashlib.sha256(historical_source(source).encode()).hexdigest(), expected)
+            for key, values in added.items():
+                line = f"  {key}: '{values[lang.upper()]}',\n"
+                self.assertEqual(source.count(line), 1, line)
+                source = source.replace(line, "")
+            self.assertEqual(hashlib.sha256(source.encode()).hexdigest(), expected)
 
     def test_source_fingerprint_scope_rejects_each_historical_value_change(self):
         for lang in ("fr", "en"):
@@ -224,6 +249,10 @@ class AiReviewTests(unittest.TestCase):
         self.assertFalse(blocked & deferred)
         # 137 original, plus 7 thermal, 14 Laboratory configuration and 44 historical keys.
         self.assertEqual(len(absent - blocked), 202)
+        added = set(post_baseline_react_keys())
+        self.assertEqual(added, LATER_FALLBACK_KEYS)
+        self.assertTrue(added <= absent)
+        self.assertEqual(len(absent - blocked - added), 137)
         for key in react:
             if key.startswith("csv"):
                 self.assertEqual(react[key]["status"], "FALLBACK_EN", key)
