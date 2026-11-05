@@ -5,18 +5,19 @@ import hashlib
 import json
 import tempfile
 import unittest
+from collections import Counter
 from pathlib import Path
 from unittest.mock import patch
 
 import build_ja_catalogs as builder
-from test_ja_manifest import ROOT, rows
+from test_ja_manifest import HISTORICAL_MOVEMENT_KEYS, ROOT, rows
 
 
 def digest(value):
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
 
 
-# Additions only: cbc513f thermal control and bb40685 Laboratory configuration.
+# Additions only: cbc513f thermal control, bb40685 Laboratory configuration and historical movements.
 # Preserve the original AI-integration source and historical-manifest fingerprints.
 LATER_FALLBACK_KEYS = frozenset({
     "temperatureRecentMean", "temperatureNoRecent", "temperatureRecentPeriod", "temperatureRecentError",
@@ -26,16 +27,18 @@ LATER_FALLBACK_KEYS = frozenset({
     "adminLabInactive",
     "adminLabNoLocations", "adminLabSaved", "adminLabCapacityInvalid", "adminLabTemperatureInvalid",
     "adminLabSalinityInvalid",
-})
+}) | frozenset(HISTORICAL_MOVEMENT_KEYS)
 
 
 def historical_source(source):
     lines = source.replace("\r\n", "\n").split("\n")
+    keys = [line[2:].split(": '", 1)[0] if line.startswith("  ") and ": '" in line else None
+            for line in lines]
+    counts = Counter(keys)
     for key in LATER_FALLBACK_KEYS:
-        if sum(line.startswith(f"  {key}: '") for line in lines) != 1:
+        if counts[key] != 1:
             raise AssertionError(f"{key}: expected one additive line")
-    return "\n".join(line for line in lines
-                     if not any(line.startswith(f"  {key}: '") for key in LATER_FALLBACK_KEYS))
+    return "\n".join(line for line, key in zip(lines, keys) if key not in LATER_FALLBACK_KEYS)
 
 
 class AiReviewTests(unittest.TestCase):
@@ -71,7 +74,11 @@ class AiReviewTests(unittest.TestCase):
         for row in later:
             self.assertEqual((row["surface"], row["status"], row["reason_code"]),
                              ("react", "FALLBACK_EN", "ABSENT_FROM_WORKBOOK"), row["identity"])
-            self.assertEqual((row["ja_validated"], row["ja_ai_reviewed"]), ("", ""), row["identity"])
+            self.assertEqual(row["current_fr"], self.fr[row["identity"]])
+            self.assertEqual(row["current_en"], self.en[row["identity"]])
+            self.assertEqual(row["takeru_review"], "no")
+            for column in ("sheet_row", "sheet_section", "sheet_fr", "sheet_en", "ja_validated", "ja_ai_reviewed"):
+                self.assertEqual(row[column], "", f"{row['identity']}.{column}")
 
     def test_exact_membership_and_separate_provenance(self):
         expected = {r["key"]: r for r in self.reviewed}
@@ -92,7 +99,7 @@ class AiReviewTests(unittest.TestCase):
             if row["status"] != "AI_REVIEWED":
                 self.assertEqual(row["ja_ai_reviewed"], "")
 
-    def test_frozen_fr_en_bytes(self):
+    def test_original_fr_en_bytes_remain_frozen(self):
         for lang, expected in {
             "fr": "1b3486aaea5eea3f8628e96bc88dac9835d3a89da88668ca020ea9119ee757dc",
             "en": "62989721d2528126ab48704fe783597dba0d484d2f24ce05a7391e0e9bdbfa27",
@@ -113,6 +120,7 @@ class AiReviewTests(unittest.TestCase):
                 self.assertEqual(actual == fingerprint, key in LATER_FALLBACK_KEYS, f"{lang}.{key}")
             unknown = source.replace("\n}", "\n  unapprovedAddition: 'Value',\n}", 1)
             self.assertNotEqual(hashlib.sha256(historical_source(unknown).encode()).hexdigest(), fingerprint)
+
 
     def test_authorized_files_reject_any_unreviewed_change(self):
         for source in (builder.AI_REVIEW, builder.AI_BLOCKED):
@@ -214,8 +222,8 @@ class AiReviewTests(unittest.TestCase):
         deferred = {k for k, r in react.items() if r["status"] == "FALLBACK_EN_REVIEW"}
         self.assertTrue(blocked <= absent)
         self.assertFalse(blocked & deferred)
-        # 137 at the AI integration, plus 7 thermal and 14 Laboratory configuration keys.
-        self.assertEqual(len(absent - blocked), 158)
+        # 137 original, plus 7 thermal, 14 Laboratory configuration and 44 historical keys.
+        self.assertEqual(len(absent - blocked), 202)
         for key in react:
             if key.startswith("csv"):
                 self.assertEqual(react[key]["status"], "FALLBACK_EN", key)

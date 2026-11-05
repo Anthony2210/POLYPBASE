@@ -1,0 +1,161 @@
+name: Historical movements PostgreSQL
+
+on:
+  push:
+    branches: [feat/historical-movements]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: historical-movements-postgres-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  historical-movements-postgres:
+    name: Synthetic history validation on PostgreSQL 18
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      DJANGO_SETTINGS_MODULE: config.historical_movements_ci_settings
+      DJANGO_DEBUG: "0"
+      DJANGO_SECRET_KEY: ci-only-historical-movements-key-never-used-outside-actions
+      EMAIL_BACKEND: django.core.mail.backends.locmem.EmailBackend
+      EMAIL_DELIVERY_ENABLED: "0"
+      POSTGRES_DB: ""
+      POLYPBASE_TEST_POSTGRES: "0"
+      HM_CI_POSTGRES: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+    services:
+      postgres:
+        # Same major as the existing isolated PCA Unix QA; never a host database.
+        image: postgres:18
+        env:
+          POSTGRES_DB: historical_movements_ci
+          POSTGRES_USER: historical_movements_ci
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 55439:5432
+        options: >-
+          --tmpfs /var/lib/postgresql:rw,nosuid
+          --health-cmd "pg_isready -h 127.0.0.1 -U historical_movements_ci -d historical_movements_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Initialize validation evidence directory
+        run: |
+          set -euo pipefail
+          evidence_dir="$RUNNER_TEMP/historical-movements-evidence"
+          mkdir -p "$evidence_dir"
+          printf 'HISTORICAL_MOVEMENTS_EVIDENCE_DIR=%s\n' "$evidence_dir" >> "$GITHUB_ENV"
+
+      - name: Checkout the pushed commit without persistent credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify tested commit and dotenv-free checkout
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HISTORICAL_MOVEMENTS_EVIDENCE_DIR"
+          git rev-parse HEAD | tee "$HISTORICAL_MOVEMENTS_EVIDENCE_DIR/commit.txt"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          if test -e backend/.env; then
+            echo "Refusing a dotenv-configured checkout; use the fresh Actions service only." >&2
+            exit 1
+          fi
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          python-version: "3.12"
+
+      - name: Install locked backend dependencies
+        run: uv sync --frozen
+
+      - name: Test CI settings guards and workflow syntax without a database
+        run: >-
+          uv run --frozen --with pyyaml==6.0.3 python -B -m unittest
+          discover -s scripts -p test_historical_movements_ci.py -v
+
+      - name: Verify isolated PostgreSQL identity and empty database
+        run: |
+          set -euo pipefail
+          uv run --frozen python -B scripts/validate_historical_movements_ci.py preflight \
+            2>&1 | tee "$HISTORICAL_MOVEMENTS_EVIDENCE_DIR/preflight.log"
+
+      - name: Check Django and migration drift
+        run: |
+          set -euo pipefail
+          uv run --frozen python -B backend/manage.py check \
+            --settings=config.historical_movements_ci_settings \
+            2>&1 | tee "$HISTORICAL_MOVEMENTS_EVIDENCE_DIR/django-check.log"
+          uv run --frozen python -B backend/manage.py makemigrations --check --dry-run \
+            --settings=config.historical_movements_ci_settings \
+            2>&1 | tee "$HISTORICAL_MOVEMENTS_EVIDENCE_DIR/migration-drift.log"
+
+      - name: Apply the full migration graph to the empty service database
+        run: |
+          set -euo pipefail
+          uv run --frozen python -B backend/manage.py migrate --plan \
+            --settings=config.historical_movements_ci_settings \
+            2>&1 | tee "$HISTORICAL_MOVEMENTS_EVIDENCE_DIR/migration-plan.log"
+          uv run --frozen python -B backend/manage.py migrate --noinput \
+            --settings=config.historical_movements_ci_settings \
+            2>&1 | tee "$HISTORICAL_MOVEMENTS_EVIDENCE_DIR/migrate.log"
+          uv run --frozen python -B backend/manage.py migrate --check \
+            --settings=config.historical_movements_ci_settings
+
+      - name: Capture feature migration SQL and verify installed catalogs
+        run: |
+          set -euo pipefail
+          uv run --frozen python -B backend/manage.py sqlmigrate cultures 0018 \
+            --settings=config.historical_movements_ci_settings \
+            2>&1 | tee "$HISTORICAL_MOVEMENTS_EVIDENCE_DIR/cultures-0018.sql"
+          uv run --frozen python -B backend/manage.py sqlmigrate audit 0004 \
+            --settings=config.historical_movements_ci_settings \
+            2>&1 | tee "$HISTORICAL_MOVEMENTS_EVIDENCE_DIR/audit-0004.sql"
+          uv run --frozen python -B scripts/validate_historical_movements_ci.py schema \
+            2>&1 | tee "$HISTORICAL_MOVEMENTS_EVIDENCE_DIR/schema.log"
+
+      - name: Run PostgreSQL-compatible history, lookup and isolation tests
+        run: |
+          set -euo pipefail
+          # Do not run SQLite-only positive acceptance tests or bypass its guard.
+          uv run --frozen python -B backend/manage.py test \
+            apps.cultures.test_historical_movements_postgres_ci \
+            apps.cultures.test_history_audit_lookup \
+            apps.cultures.test_box_detail_organization_scoping \
+            --settings=config.historical_movements_ci_settings --noinput --verbosity 2 \
+            2>&1 | tee "$HISTORICAL_MOVEMENTS_EVIDENCE_DIR/postgres-tests.log"
+
+      - name: Publish the validation boundary
+        if: always()
+        run: |
+          {
+            echo '## Historical movement PostgreSQL validation'
+            echo 'Exact source SHA, migration SQL/catalog checks and synthetic EXPLAIN evidence are attached as artifacts.'
+            echo 'Lookup observations cover numeric identity, current/previous codes and combined retrieval at 1,000 / 10,000 / 50,000 unrelated audits.'
+            echo 'Inspect postgres-tests.log and historical-movements-postgres-lookup.json for actual timings and index choices; plans are not forced.'
+            echo 'A sequential scan is evidence to review, not automatically a correctness failure. Timings are not a production benchmark.'
+            echo '**Historical acceptance remains disabled on PostgreSQL. This job neither validates nor fixes the documented acceptance deadlock.**'
+            echo 'Use step conclusions above; an artifact or this summary alone is not a successful validation result.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload synthetic validation evidence even after failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: historical-movements-postgres-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/historical-movements-evidence/
+          if-no-files-found: warn
+          retention-days: 7

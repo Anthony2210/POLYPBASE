@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 
 import { apiDownload, apiGet, getOrganizationResourceSignal } from '../api/client';
 import type { BoxDetail, ExportOptions } from '../types';
-import { getLanguageLocale, selectLocalCopy, translations, type Language } from '../i18n';
+import { createTranslator, getLanguageLocale, selectLocalCopy, translations, type Language } from '../i18n';
 import {
   addChartMonths,
   buildChartWindow,
@@ -16,6 +16,9 @@ import { weeklyTrendTemperatures } from '../utils/historicalTemperature';
 import BiologicalTrendChart from './BiologicalTrendChart';
 import TemperatureHistoryStatus from './TemperatureHistoryStatus';
 import HistoricalTemperatureStatus from './HistoricalTemperatureStatus';
+import { useBoxHistory } from '../hooks/useBoxHistory';
+import { projectBoxHistory } from '../utils/boxHistory';
+import BoxHistoryStatus from './BoxHistoryStatus';
 import PageLoader from './PageLoader';
 import PolypbaseIcon from './PolypbaseIcon';
 
@@ -446,6 +449,11 @@ export default function ExportsView({
   );
   const temperatureBoxId = selectedPreviewOption && selectedPreviewDetail && !previewError
     ? selectedPreviewOption.id : undefined;
+  const boxHistory = useBoxHistory(temperatureBoxId, selectedPreviewDetail);
+  const historyProjection = useMemo(() => projectBoxHistory(boxHistory.events,
+    selectedPreviewDetail?.locations ?? [],
+    selectedPreviewDetail?.biological_measurements.map(point => point.measured_on) ?? [],
+    createTranslator(language)), [boxHistory.events, selectedPreviewDetail, language]);
   const temperatureHistory = useTemperatureHistory(
     temperatureBoxId, previewWindow.startDate, previewWindow.endDate, temperatureScope,
   );
@@ -893,6 +901,7 @@ export default function ExportsView({
                 </div>
               </dl>
             </section>
+              <BoxHistoryStatus history={boxHistory} language={language} />
               <BiologicalTrendChart
                 temperatures={chartTemperatures}
                 temperatureStatus={<>
@@ -910,23 +919,8 @@ export default function ExportsView({
                   user_identity: measurement.user_identity,
                   note: measurement.notes,
                 }))}
-                locations={selectedPreviewDetail.locations.map((location) => ({
-                  id: location.id,
-                  name: location.thermal_zone.name,
-                  startsAt: location.starts_at,
-                  endsAt: location.ends_at,
-                  endDateUnknown: location.end_date_unknown,
-                }))}
-                events={selectedPreviewDetail.movements.map((movement) => ({
-                  id: `movement-${movement.id}`,
-                  date: movement.moved_at,
-                  title: translations[language].movementEvent,
-                  detail: movement.from_thermal_zone
-                    ? `${movement.from_thermal_zone.name} -> ${movement.to_thermal_zone.name}`
-                    : movement.to_thermal_zone.name,
-                  instant: movement.moved_at,
-                  kind: 'movement' as const,
-                }))}
+                locations={historyProjection.locations}
+                events={historyProjection.events}
                 selectionScope={selectedPreviewDetail.id}
                 labels={{
                   chartTitle: labels.previewTitle,

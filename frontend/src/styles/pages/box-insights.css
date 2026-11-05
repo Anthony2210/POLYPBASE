@@ -200,6 +200,10 @@
 .chart-legend .is-missing::before { height: 0; background: transparent; border-top: 2px dashed currentColor; }
 
 .movement-timeline { display: grid; min-width: 0; margin: 0; padding: 0; list-style: none; }
+.movement-evidence { min-width: 0; }
+.movement-evidence summary { padding-block: var(--space-2); cursor: pointer; }
+.movement-evidence pre { max-width: 100%; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.movement-evidence summary:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 
 .movement-timeline li {
   position: relative;

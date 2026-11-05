@@ -25,6 +25,9 @@ import { formatDisplayDate, formatDisplayDateTime } from '../utils/dateFormat';
 import PolypbaseIcon from './PolypbaseIcon';
 import BoxTrackingChart, { buildLifecycleEvents } from './BoxTrackingChart';
 import ModalPortal from './ModalPortal';
+import { useBoxHistory } from '../hooks/useBoxHistory';
+import { historyKindLabel, historyWeekLabel, historyTimelineEntries, historyBlockerLabel, type HistoryAssessment, type HistoryCandidate, type HistoryEvent } from '../utils/boxHistory';
+import BoxHistoryStatus from './BoxHistoryStatus';
 
 const InteractiveLineageGraph = lazy(() => import('./InteractiveLineageGraph'));
 
@@ -119,6 +122,7 @@ export default function BoxInsights({
   onSelectBox: (boxId: number, globalCode: string) => void;
   onSelectTab: (tab: BoxInsightTab) => void;
 }) {
+  const history = useBoxHistory(boxId, historicalTemperatureRefreshKey ?? movements);
   const tabs: Array<{ id: BoxInsightTab; label: string }> = [
     { id: 'measurements', label: labels.measurementsTab },
     { id: 'movements', label: labels.movementsTab },
@@ -163,6 +167,7 @@ export default function BoxInsights({
         <div ref={insightPanelRef} className="insight-panel" style={insightPanelStyle}>
           <BoxTrackingChart
             boxId={boxId}
+            history={history}
             biologicalTimeline={biologicalTimeline}
             events={lifecycleEvents}
             labels={labels}
@@ -181,7 +186,8 @@ export default function BoxInsights({
           <div className="insight-heading">
             <h2>{labels.movementHistoryTitle}</h2>
           </div>
-          <MovementTimeline movements={movements} labels={labels} language={language}
+          <BoxHistoryStatus history={history} language={language} />
+          <MovementTimeline events={history.events} candidates={history.candidates} assessments={history.assessments} locations={locations} loading={history.loading || history.failed} labels={labels} language={language}
             correctableMovementId={correctableMovementId} correctMovementLabel={correctMovementLabel}
             onCorrectMovement={onCorrectMovement} />
         </div>
@@ -223,34 +229,45 @@ export default function BoxInsights({
 
 function MovementTimeline({
   labels,
-  movements,
+  events,
+  candidates = [],
+  assessments = [],
+  locations,
+  loading,
   language,
   correctableMovementId,
   correctMovementLabel,
   onCorrectMovement,
 }: {
   labels: BoxInsightsLabels;
-  movements: BoxMovement[];
+  events: HistoryEvent[];
+  candidates?: HistoryCandidate[];
+  assessments?: HistoryAssessment[];
+  locations: BoxLocation[];
+  loading: boolean;
   language: Language;
   correctableMovementId?: number | null;
   correctMovementLabel?: string;
   onCorrectMovement?: (movementId: number) => void;
 }) {
   const t = createTranslator(language);
-  const sortedMovements = [...movements]
-    .sort((left, right) => right.moved_at.localeCompare(left.moved_at));
+  const sortedMovements = historyTimelineEntries(events, candidates, locations, assessments);
 
   if (!sortedMovements.length) {
-    return <p className="muted compact-text movement-empty">{labels.noMovementHistory}</p>;
+    return loading ? null : <p className="muted compact-text movement-empty">{labels.noMovementHistory}</p>;
   }
 
   return (
     <ol className="movement-timeline" role="list">
       {sortedMovements.map((movement) => (
         <li key={movement.id}>
-          <time dateTime={movement.moved_at}>{formatDisplayDateTime(movement.moved_at)}</time>
+          {movement.temporal_precision === 'exact' && movement.occurred_at
+            ? <time dateTime={movement.occurred_at}>{formatDisplayDateTime(movement.occurred_at)}</time>
+            : <span>{movement.temporal_precision === 'iso_week'
+              ? historyWeekLabel(movement, t) : t('historyUnresolved')}</span>}
           <div className="movement-detail">
-            <span className="movement-event">{labels.movementEvent}</span>
+            <span className="movement-event">{movement.provenance === 'transition_candidate' ? t('historyCandidate')
+                          : movement.provenance === 'transition_assessment' ? t('historyAssessment') : historyKindLabel(movement, t)}</span>
             <strong className="movement-locations">
               {movement.from_thermal_zone ? (
                 <>
@@ -258,21 +275,42 @@ function MovementTimeline({
                   {' '}
                   <span className="movement-arrow">→</span>
                   {' '}
-                  <span>{movement.to_thermal_zone.name}</span>
+                  <span>{movement.to_thermal_zone?.name ?? t('historyNoDestination')}</span>
                 </>
               ) : (
                 <>
                   <span className="movement-destination-label">{labels.movedTo}</span>
                   {' '}
-                  <span>{movement.to_thermal_zone.name}</span>
+                  <span>{movement.to_thermal_zone?.name ?? t('historyNoDestination')}</span>
                 </>
               )}
             </strong>
-            <small>{formatReadableUserIdentity(movement.user_identity) || t('historicalUser')}</small>
+            <small>{formatReadableUserIdentity(movement.actor) || t('historyActorUnknown')}</small>
+            {movement.temporal_precision === 'iso_week' ? <small>{t('historyWeekOnly')}</small> : null}
+            {movement.temporal_precision === 'unresolved' ? <small>{t('historyEvidenceUnresolved')}</small> : null}
+            {movement.kind === 'historical_reconstruction' ? <small>{t(
+              movement.reconciliation_status === 'accepted' ? 'historyAcceptedReconstruction' : 'historyReconstructionUnresolved',
+            )}</small> : null}
+            {['transition_candidate', 'transition_assessment'].includes(movement.provenance) ? <>
+              {typeof movement.evidence.proposed_iso_year === 'number' && typeof movement.evidence.proposed_iso_week === 'number'
+                ? <small>{t('historyProposedWeek').replace('{week}', historyWeekLabel({
+                  iso_year: movement.evidence.proposed_iso_year, iso_week: movement.evidence.proposed_iso_week,
+                }, t))}</small> : null}
+              {['blocked', 'review_required'].includes(movement.reconciliation_status)
+                ? <small>{t('historyReconciliation')}: {t(movement.reconciliation_status === 'blocked' ? 'historyBlocked' : 'historyReviewRequired')}</small> : null}
+              <ul>{(movement.evidence.blockers as string[]).map(reason => <li key={reason}>{historyBlockerLabel(reason, t)}</li>)}</ul>
+            </> : null}
             {movement.notes ? <p>{movement.notes}</p> : null}
-            {onCorrectMovement && movement.id === correctableMovementId ? (
+            <details className="movement-evidence">
+              <summary>{t('historyEvidence')}</summary>
+              <p>{t('historyProvenance')}: {movement.provenance}</p>
+              <p>{t('historyReconciliation')}: {movement.reconciliation_status}</p>
+              <pre>{JSON.stringify(movement.evidence, null, 2)}</pre>
+            </details>
+            {onCorrectMovement && movement.can_correct && movement.recorded_movement_id != null
+              && movement.recorded_movement_id === correctableMovementId ? (
               <button type="button" className="secondary-button movement-correct-button"
-                onClick={() => onCorrectMovement(movement.id)}>{correctMovementLabel}</button>
+                onClick={() => onCorrectMovement(movement.recorded_movement_id!)}>{correctMovementLabel}</button>
             ) : null}
           </div>
         </li>

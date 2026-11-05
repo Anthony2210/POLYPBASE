@@ -90,6 +90,15 @@ function createInsights(overrides = {}) {
     '../utils/userIdentity': loadModule('../src/utils/userIdentity.ts'),
     '../i18n': i18n,
     '../utils/biologicalTimeline': biologicalTimeline,
+    '../utils/boxHistory': loadModule('../src/utils/boxHistory.ts'),
+    '../hooks/useBoxHistory': { useBoxHistory: () => ({
+      events: props.historyEvents ?? [...props.movements].sort((a, b) => b.moved_at.localeCompare(a.moved_at)).map(row => ({
+        ...row, id: `movement:${row.id}`, recorded_movement_id: row.id, kind: row.kind ?? 'ordinary',
+        occurred_at: row.moved_at, temporal_precision: 'exact', actor: row.user_identity,
+        provenance: 'box_movement', evidence: {}, reconciliation_status: 'recorded', can_correct: false,
+      })), candidates: props.historyCandidates, assessments: props.historyAssessments, loading: props.historyLoading ?? false, failed: props.historyFailed ?? false, retry() {},
+    }) },
+    './BoxHistoryStatus': { default: () => null },
     './PolypbaseIcon': { default: () => null },
     './BoxTrackingChart': {
       buildLifecycleEvents: () => [],
@@ -149,6 +158,97 @@ for (const language of ['fr', 'en']) {
   });
 }
 
+test('unified history keeps week precision, unresolved evidence, notes and backend correction gates', () => {
+  const historical = { id: 'historical:1', kind: 'historical_reconstruction', temporal_precision: 'iso_week',
+    occurred_at: null, iso_year: 2026, iso_week: 1, actor: null, evidence: { accepted_by: { first_name: 'Reviewer' } },
+    provenance: 'reviewed_week_reconstruction', reconciliation_status: 'accepted', recorded_movement_id: null,
+    can_correct: false, notes: 'Reviewed source', from_thermal_zone: null, to_thermal_zone: null };
+  const ordinary = { ...historical, id: 'movement:2', kind: 'ordinary', temporal_precision: 'exact',
+    occurred_at: '2026-01-01T08:00:00Z', can_correct: true, recorded_movement_id: 2 };
+  for (const language of ['fr', 'en']) {
+    let corrected;
+    const h = createInsights({ language, labels: labelsFor(language),
+      historyEvents: [historical, ordinary, { ...historical, id: 'location:3:start', kind: 'location_evidence', temporal_precision: 'unresolved' }],
+      correctableMovementId: 2, correctMovementLabel: 'Correct', onCorrectMovement: id => { corrected = id; } });
+    assert.equal(h.rows().length, 3);
+    assert.equal(h.find(node => node.type === 'time').length, 1);
+    assert.match(h.html, language === 'fr' ? /Semaine 1 de 2026/ : /Week 1 of 2026/);
+    assert.match(h.html, new RegExp(catalogs[language].historyUnresolved));
+    const buttons = h.find(node => node.props.className?.includes('movement-correct-button'));
+    assert.equal(buttons.length, 1);
+    buttons[0].props.onClick();
+    assert.equal(corrected, 2);
+    const denied = createInsights({ historyEvents: [{ ...ordinary, can_correct: false }], correctableMovementId: 2,
+      onCorrectMovement() {} });
+    assert.equal(denied.find(node => node.type === 'button' && node.props.className?.includes('movement-correct-button')).length, 0);
+  }
+});
+
+test('blocked candidates show localized transition reasons and evidence, and unresolved persisted rows never claim acceptance', () => {
+  for (const language of ['fr', 'en']) {
+    const historical = { id: 'historical:1', kind: 'historical_reconstruction', temporal_precision: 'unresolved',
+      occurred_at: null, iso_year: null, iso_week: null, actor: null,
+      provenance: 'unverified_week_reconstruction', reconciliation_status: 'unresolved',
+      evidence: { accepted_by: { first_name: 'Reviewer' }, stored_iso_year: 2026, stored_iso_week: 1 },
+      recorded_movement_id: null, can_correct: false, notes: '', from_thermal_zone: null, to_thermal_zone: null };
+    const candidate = { id: 'c1', box_id: 1, iso_year: 2026, iso_week: 2,
+      from_thermal_zone_id: 2, to_thermal_zone_id: 3, reconciliation_status: 'blocked',
+      blockers: ['source_location_provenance_unresolved', 'adjacent_measurement_evidence_missing', 'new_backend_reason'],
+      evidence: { physical_occurrence_proven: false, measurement_ids: [0, 1] } };
+    const h = createInsights({ language, labels: labelsFor(language), historyEvents: [historical], historyCandidates: [candidate],
+      locations: [{ thermal_zone: { id: 2, name: 'Origin' } }, { thermal_zone: { id: 3, name: 'Destination' } }] });
+    assert.match(h.html, new RegExp(catalogs[language].historyCandidate));
+    for (const key of ['historyBlocked', 'historyReasonSource', 'historyReasonRecords', 'historyReasonUnknown', 'historyReconstructionUnresolved'])
+      assert.ok(h.html.includes(catalogs[language][key]), key);
+    assert.equal(h.html.includes(catalogs[language].historyAcceptedReconstruction), false);
+    assert.equal(h.find(node => node.type === 'time').length, 0);
+    assert.ok(h.html.includes('physical_occurrence_proven'));
+    assert.ok(h.find(node => node.props.className === 'movement-locations').map(text).includes('Origin → Destination'));
+    assert.equal(h.find(node => node.props.className?.includes('movement-correct-button')).length, 0);
+  }
+});
+
+test('final contract renders only actionable candidate diagnostics, marks proposed weeks, and preserves missing-week assessments', () => {
+  for (const language of ['fr', 'en']) {
+    const base = { box_id: 7, iso_year: 2026, iso_week: 1, from_thermal_zone_id: 2, to_thermal_zone_id: 3,
+      blockers: [], evidence: { attributed_week_start: '2025-12-29', destination_week_start: '2026-01-05' } };
+    const h = createInsights({ language, labels: labelsFor(language),
+      movements: [movement()],
+      historyCandidates: [
+        { ...base, id: 'accepted', classification: 'accepted', reconciliation_status: 'accepted' },
+        { ...base, id: 'recorded', classification: 'already_represented', reconciliation_status: 'already_represented' },
+        { ...base, id: 'review', classification: 'eligible', reconciliation_status: 'review_required' },
+        { ...base, id: 'blocked', classification: 'ambiguous', reconciliation_status: 'blocked', blockers: ['measurement_week_inconsistent'] },
+      ],
+      historyAssessments: [{ ...base, id: 'missing-week', classification: 'insufficient_evidence', reconciliation_status: 'blocked',
+        blockers: ['adjacent_measurement_evidence_missing'] },
+      { id: 'missing-location', box_id: 7, classification: 'insufficient_evidence', reconciliation_status: 'blocked',
+        blockers: ['location_history_missing'], evidence: {} }],
+    });
+    assert.equal(h.find(node => node.props.className === 'movement-event').length, 5);
+    const titles = h.find(node => node.props.className === 'movement-event').map(text);
+    assert.equal(titles.filter(title => title === catalogs[language].historyCandidate).length, 2);
+    assert.equal(titles.filter(title => title === catalogs[language].historyAssessment).length, 2);
+    assert.equal(titles.includes(catalogs[language].historyReconstruction), false);
+    assert.equal(h.find(node => node.type === 'time').length, 1);
+    assert.equal(h.html.includes(catalogs[language].historyWeekOnly), false);
+    assert.equal(h.html.includes(catalogs[language].historyAcceptedReconstruction), false);
+    const proposal = catalogs[language].historyProposedWeek.replace('{week}', catalogs[language].historyIsoWeek
+      .replace('{week}', '1').replace('{year}', '2026'));
+    assert.ok(h.find(node => node.type === 'small').some(node => text(node) === proposal));
+    for (const key of ['historyReasonRecordWeek', 'historyReasonRecords', 'historyReasonMissingLocations', 'historyUnresolved'])
+      assert.ok(h.html.includes(catalogs[language][key]), key);
+    assert.ok(h.html.includes('insufficient_evidence'));
+  }
+});
+
+test('loading and failed history never claim that the history is empty', () => {
+  for (const overrides of [{ historyLoading: true }, { historyFailed: true }]) {
+    const h = createInsights(overrides);
+    assert.equal(h.find(node => node.props.className?.includes('movement-empty')).length, 0);
+  }
+});
+
 test('empty movement history is compact and contains no invented events', () => {
   const h = createInsights();
   assert.equal(h.rows().length, 0);
@@ -178,7 +278,7 @@ for (const language of ['fr', 'en']) {
   test(`${language}: historical movement authors ignore arbitrary raw usernames`, () => {
     for (const user of ['internal_opaque', 'legacy.tech', 'raw@example.org']) {
       const h = createInsights({ language, labels: labelsFor(language), movements: [movement({ user, user_identity: null })] });
-      assert.equal(text(h.find(node => node.type === 'small')[0]), catalogs[language].historicalUser);
+      assert.equal(text(h.find(node => node.type === 'small')[0]), catalogs[language].historyActorUnknown);
       assert.equal(h.html.includes(user), false);
     }
   });
@@ -202,8 +302,9 @@ test('missing origin does not invent a previous place, author or note', () => {
   const locations = h.find(node => node.props.className === 'movement-locations')[0];
   assert.deepEqual(h.find(node => node.type === 'span', locations).map(text), [catalogs.fr.movedTo, 'Destination']);
   assert.equal(h.find(node => node.props.className === 'movement-arrow').length, 0);
-  assert.equal(text(h.find(node => node.type === 'small')[0]), catalogs.fr.historicalUser);
-    assert.equal(h.find(node => node.type === 'p').length, 0);
+  assert.equal(text(h.find(node => node.type === 'small')[0]), catalogs.fr.historyActorUnknown);
+  const detail = h.find(node => node.props.className === 'movement-detail')[0];
+  assert.equal(detail.props.children.filter(node => React.isValidElement(node) && node.type === 'p').length, 0);
 });
 
 test('long locations are rendered in full, with no directional color contract', () => {

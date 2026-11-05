@@ -227,6 +227,68 @@ class LaboratoryConfigurationApiTests(TestCase):
         self.assertEqual(log.metadata["modifications"]["capacite"], {"avant": 2, "apres": 40})
         self.assertEqual(log.metadata["modifications"]["nom"], {"avant": "Armoire 15", "apres": "Armoire 16"})
 
+    def test_admin_puts_configuration_with_exact_before_after_audit(self):
+        self.client.force_login(self.admin)
+        response = self.client.put(
+            reverse("api_thermal_zone_detail", args=[self.zone.id]),
+            data=json.dumps({
+                "name": "Armoire 16", "zone_type": ThermalZone.ZoneType.INCUBATOR,
+                "capacity": 0, "target_temperature_c": "16.0", "salinity_psu": "0.00",
+            }),
+            content_type="application/json", **self.headers(),
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.zone.refresh_from_db()
+        self.assertEqual(self.zone.organization, self.organization)
+        self.assertEqual(
+            (self.zone.name, self.zone.zone_type, self.zone.capacity,
+             str(self.zone.target_temperature_c), str(self.zone.salinity_psu)),
+            ("Armoire 16", ThermalZone.ZoneType.INCUBATOR, 0, "16.0", "0.00"),
+        )
+        log = AuditLog.objects.get(action=AuditLog.Action.UPDATE, object_type="thermal_zone")
+        self.assertEqual((log.organization, log.user, log.object_id),
+                         (self.organization, self.admin, "Armoire 16"))
+        self.assertEqual(log.metadata, {
+            "thermal_zone_id": self.zone.id,
+            "valeurs": {
+                "nom": "Armoire 16", "type": "incubator", "temperature_consigne": "16.0",
+                "capacite": 0, "salinite_psu": "0.00", "active": True,
+            },
+            "modifications": {
+                "nom": {"avant": "Armoire 15", "apres": "Armoire 16"},
+                "type": {"avant": "cabinet", "apres": "incubator"},
+                "temperature_consigne": {"avant": "15.0", "apres": "16.0"},
+                "capacite": {"avant": 2, "apres": 0},
+                "salinite_psu": {"avant": "32.00", "apres": "0.00"},
+            },
+        })
+
+    def test_put_and_patch_handle_duplicate_name_after_validation_without_mutation(self):
+        self.client.force_login(self.admin)
+        for method in (self.client.put, self.client.patch):
+            with self.subTest(method=method.__name__):
+                # Reach the database constraint as if a rival committed after validation.
+                with patch.object(ThermalZoneCreateSerializer, "validate", lambda serializer, attrs: attrs):
+                    response = method(
+                        reverse("api_thermal_zone_detail", args=[self.empty_zone.id]),
+                        data=json.dumps({
+                            "name": self.zone.name, "capacity": 99,
+                            "target_temperature_c": "25.0", "salinity_psu": "0.00",
+                        }),
+                        content_type="application/json", **self.headers(),
+                    )
+
+                self.assertEqual(response.status_code, 400, response.content)
+                self.assertEqual(response.json(), {"name": ["Une zone porte déjà ce nom dans cette structure."]})
+                self.empty_zone.refresh_from_db()
+                self.assertEqual(self.empty_zone.name, "Armoire 20")
+                self.assertEqual(self.empty_zone.organization, self.organization)
+                self.assertIsNone(self.empty_zone.capacity)
+                self.assertIsNone(self.empty_zone.target_temperature_c)
+                self.assertIsNone(self.empty_zone.salinity_psu)
+                self.assertFalse(AuditLog.objects.filter(object_type="thermal_zone").exists())
+
     def test_admin_clears_capacity_and_sets_zero_distinctly(self):
         response = self.update_zone(self.zone, {"capacity": None})
         self.assertEqual(response.status_code, 200)

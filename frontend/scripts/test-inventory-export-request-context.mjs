@@ -476,13 +476,26 @@ test('exports forwards selected calendar bounds and complete movement timestamps
     biological_measurements: [{ id: 1, measured_on: '2026-10-03', polyp_count: 0, ephyrae_count: 0 }],
   });
   await harness.settle();
+  assert.equal(harness.historyRequests.length, 1);
+  assert.equal(harness.historyRequests[0].url, '/api/boxes/1/history/');
+  harness.historyRequests[0].resolve({ events: timestamps.map((occurred_at, index) => ({
+    id: `movement:${101 + index}`, kind: 'ordinary', temporal_precision: 'exact', occurred_at,
+    from_thermal_zone: { id: 1, name: 'A' }, to_thermal_zone: { id: 2, name: 'B' },
+    recorded_movement_id: 101 + index, evidence: {}, provenance: 'box_movement', reconciliation_status: 'recorded',
+  })), candidates: [], assessments: [] });
+  await harness.settle();
   const chart = named(harness.tree, 'BiologicalTrendChart')[0];
   assert.ok(chart);
   assert.equal(chart.props.startDate, '2026-10-02');
   assert.equal(chart.props.endDate, '2026-10-03');
-  assert.deepEqual(Array.from(chart.props.events, (event) => event.date), timestamps);
+  const localDays = timestamps.map(value => {
+    const date = new Date(value);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  });
+  assert.deepEqual(Array.from(chart.props.events, (event) => event.date), localDays);
   assert.deepEqual(Array.from(chart.props.events, (event) => event.instant), timestamps);
-  assert.deepEqual(Array.from(chart.props.events, (event) => event.id), ['movement-1', 'movement-2']);
+  assert.deepEqual(Array.from(chart.props.events, (event) => event.id), ['movement:101', 'movement:102']);
+  assert.ok(chart.props.events.every(event => event.kind === 'movement'), 'History ordinary events remain recorded movements');
 });
 
 const temperatureRequests = (harness) => harness.requests.filter((request) => /\/(?:historical-)?temperatures\//.test(request.url));

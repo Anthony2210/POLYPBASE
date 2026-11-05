@@ -68,6 +68,7 @@ const jaModule = load('../src/i18n/ja.ts');
 const ja = jaModule.ja;
 const jaEntries = catalogEntries('../src/i18n/ja.ts', 'ja');
 const manifest = parseCsv(read('../../docs/translation-review/japanese/ja-manifest.csv'));
+const historicalMovementKeys = JSON.parse(read('../../docs/translation-review/japanese/historical-movement-keys.json'));
 const obsolete = parseCsv(read('../../docs/translation-review/japanese/ja-obsolete-workbook-keys.csv'));
 const register = parseCsv(read('../../docs/translation-review/application/register.csv').replace(/^﻿/, ''));
 const reviewedPath = '../../docs/translation-review/japanese/POLYPBASE_JA_59_candidates_revisees.csv';
@@ -133,8 +134,8 @@ test('ja catalog is exactly the historical and AI-reviewed manifest union', () =
     assert.equal(Object.hasOwn(ja, row.identity), false, `${row.identity}: ${row.reason_code} must use English`);
   }
   const counts = react.reduce((total, row) => ({ ...total, [row.status]: (total[row.status] ?? 0) + 1 }), {});
-  // 143 original fallbacks, plus 7 thermal and 14 Laboratory configuration keys.
-  assert.deepEqual(counts, { REUSED: 930, FALLBACK_EN: 164, FALLBACK_EN_REVIEW: 36, AI_REVIEWED: 59 });
+  // 143 original fallbacks, plus 7 thermal, 14 Laboratory configuration and 44 historical keys.
+  assert.deepEqual(counts, { REUSED: 930, FALLBACK_EN: 208, FALLBACK_EN_REVIEW: 36, AI_REVIEWED: 59 });
 });
 
 test('original review inputs retain their byte-exact SHA256 hashes', () => {
@@ -239,7 +240,7 @@ test('historical human translations are immutable and separate from AI-reviewed 
   }
 });
 
-// Additions only: cbc513f thermal control and bb40685 Laboratory configuration.
+// Additions only: cbc513f thermal control, bb40685 Laboratory configuration and historical movements.
 // Excluding these exact identities preserves the original AI-integration source hashes.
 const LATER_FALLBACK_KEYS = [
   'temperatureRecentMean', 'temperatureNoRecent', 'temperatureRecentPeriod', 'temperatureRecentError',
@@ -249,6 +250,7 @@ const LATER_FALLBACK_KEYS = [
   'adminLabInactive',
   'adminLabNoLocations', 'adminLabSaved', 'adminLabCapacityInvalid', 'adminLabTemperatureInvalid',
   'adminLabSalinityInvalid',
+  ...historicalMovementKeys,
 ];
 
 function historicalSource(source) {
@@ -259,7 +261,7 @@ function historicalSource(source) {
   return lines.filter(line => !LATER_FALLBACK_KEYS.some(key => line.startsWith(`  ${key}: '`))).join('\n');
 }
 
-test('FR and EN source files remain frozen regardless of Git line endings', () => {
+test('original FR and EN source content remains frozen regardless of Git line endings', () => {
   for (const [language, digest] of [
     ['fr', '1b3486aaea5eea3f8628e96bc88dac9835d3a89da88668ca020ea9119ee757dc'],
     ['en', '62989721d2528126ab48704fe783597dba0d484d2f24ce05a7391e0e9bdbfa27'],
@@ -296,6 +298,27 @@ test('source fingerprints accept the scoped additions but reject every historica
     }
     const unknown = source.replace('\n}', "\n  unapprovedAddition: 'Value',\n}");
     assert.notEqual(sha256(historicalSource(unknown)), digest, 'unknown additions are not exempt');
+  }
+});
+
+test('all 44 historical movement additions have exact FR/EN provenance and English fallback', () => {
+  assert.equal(historicalMovementKeys.length, 44);
+  assert.equal(new Set(historicalMovementKeys).size, 44);
+  const rows = manifest.filter(row => row.surface === 'react' && historicalMovementKeys.includes(row.identity));
+  assert.deepEqual(rows.map(row => row.identity), historicalMovementKeys);
+  const translate = loadI18n().createTranslator('ja');
+  for (const row of rows) {
+    const key = row.identity;
+    assert.equal(row.current_fr, fr[key], `${key}: exact current FR`);
+    assert.equal(row.current_en, en[key], `${key}: exact current EN`);
+    assert.equal(row.status, 'FALLBACK_EN', key);
+    assert.equal(row.reason_code, 'ABSENT_FROM_WORKBOOK', key);
+    assert.equal(row.takeru_review, 'no', key);
+    for (const column of ['sheet_row', 'sheet_section', 'sheet_fr', 'sheet_en', 'ja_validated', 'ja_ai_reviewed']) {
+      assert.equal(row[column], '', `${key}: no historical or reviewed provenance`);
+    }
+    assert.equal(Object.hasOwn(ja, key), false, key);
+    assert.equal(translate(key), en[key], `${key}: English runtime fallback`);
   }
 });
 

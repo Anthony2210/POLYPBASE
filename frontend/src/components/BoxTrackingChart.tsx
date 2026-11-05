@@ -11,6 +11,9 @@ import TemperatureHistoryStatus from './TemperatureHistoryStatus';
 import HistoricalTemperatureStatus from './HistoricalTemperatureStatus';
 import { useHistoricalTemperatures } from '../hooks/useHistoricalTemperatures';
 import { weeklyTrendTemperatures } from '../utils/historicalTemperature';
+import { useBoxHistory, type BoxHistoryState } from '../hooks/useBoxHistory';
+import { projectBoxHistory } from '../utils/boxHistory';
+import BoxHistoryStatus from './BoxHistoryStatus';
 
 export type BoxTrackingChartLabels = {
   chartEmpty: string;
@@ -41,6 +44,7 @@ type LifecycleEvent = {
 export default function BoxTrackingChart({
   compact = false,
   boxId,
+  history: suppliedHistory,
   initialWindowOffset,
   biologicalTimeline,
   events,
@@ -54,6 +58,7 @@ export default function BoxTrackingChart({
 }: {
   compact?: boolean;
   boxId?: number;
+  history?: BoxHistoryState;
   initialWindowOffset?: number;
   biologicalTimeline?: readonly BiologicalTimelineEntry[];
   events: LifecycleEvent[];
@@ -65,6 +70,11 @@ export default function BoxTrackingChart({
   historicalTemperatureRefreshKey?: unknown;
   onOpenHistory?: () => void;
 }) {
+  const loadedHistory = useBoxHistory(suppliedHistory ? undefined : boxId, historicalTemperatureRefreshKey ?? measurements);
+  const history = suppliedHistory ?? loadedHistory;
+  const historyProjection = useMemo(() => projectBoxHistory(history.events, locations,
+    [...measurements.map(point => point.measured_on), ...(biologicalTimeline ?? []).map(point => point.effective_date)],
+    createTranslator(language)), [history.events, locations, measurements, biologicalTimeline, language]);
   const timelineLabels = useMemo(() => getBiologicalTimelineLabels(createTranslator(language)), [language]);
   const biologicalData = useMemo(() => prepareBiologicalChartData(measurements, biologicalTimeline, {
     polyps: labels.polyps,
@@ -76,10 +86,10 @@ export default function BoxTrackingChart({
   const chartEvents = useMemo(() => {
     const timelineEventIds = new Set(biologicalData.events.map((event) => event.subcultureEventId));
     const legacyEvents: TrendEvent[] = events
-      .filter((event) => event.subcultureEventId == null || !timelineEventIds.has(event.subcultureEventId))
+      .filter((event) => event.type === 'subculture' && (event.subcultureEventId == null || !timelineEventIds.has(event.subcultureEventId)))
       .map((event) => ({ ...event, kind: event.type }));
-    return [...legacyEvents, ...biologicalData.events];
-  }, [biologicalData.events, events]);
+    return [...legacyEvents, ...biologicalData.events, ...historyProjection.events];
+  }, [biologicalData.events, events, historyProjection]);
   const timelineKey = useMemo(
     () => [
       boxId ?? '',
@@ -149,8 +159,9 @@ export default function BoxTrackingChart({
     [boxId, temperatureHistory.points, temperatures, weeklyTemperatures],
   );
   const preparedData = useMemo(
-    () => prepareSharedChartData(biologicalData, locations, chartEvents, startDate, endDate),
-    [biologicalData, chartEvents, locations, startDate, endDate],
+    () => ({ ...prepareSharedChartData(biologicalData, locations, chartEvents, startDate, endDate),
+      locations: historyProjection.locations }),
+    [biologicalData, chartEvents, locations, historyProjection, startDate, endDate],
   );
 
   return (
@@ -171,6 +182,7 @@ export default function BoxTrackingChart({
         title={compact ? undefined : labels.chartTitle}
       />
 
+      <BoxHistoryStatus history={history} language={language} />
       <div className="chart-window-viewport">
         <div className="chart-window-content">
           <BiologicalTrendChart
@@ -241,7 +253,8 @@ function prepareSharedChartData(
     endsAt: location.ends_at,
     endDateUnknown: location.end_date_unknown,
   }));
-  const sharedEvents = events.filter((event) => isChartEventInRange(event.date, startText, endText));
+  const sharedEvents = events.filter((event) => event.intervalEnd
+    ? event.date <= endText && event.intervalEnd >= startText : isChartEventInRange(event.instant ?? event.date, startText, endText));
 
   return {
     startDate: startText,
@@ -277,7 +290,7 @@ export function buildLifecycleEvents(
   const events = new Map<string, LifecycleEvent>();
 
   movements.forEach((movement) => {
-    const date = movement.moved_at.slice(0, 10);
+    const date = movement.moved_at;
     events.set(`move-${movement.id}`, {
       id: `move-${movement.id}`,
       date,

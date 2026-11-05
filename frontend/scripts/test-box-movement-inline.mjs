@@ -512,7 +512,8 @@ test('history correction requests honour the unchanged eligibility rules', () =>
   assert.equal(helpers.correctableLifecycleMovement(box({ movements: [movement({ id: 99, kind: 'unclassified', revision: undefined })] })), null);
   // The history lists the shortcut only for the correctable entry and passes the id back.
   const source = read('components/BoxInsights.tsx');
-  assert.match(source, /movement\.id === correctableMovementId/);
+  assert.match(source, /movement\.can_correct && movement\.recorded_movement_id != null\s*&& movement\.recorded_movement_id === correctableMovementId/);
+  assert.match(source, /onCorrectMovement\(movement\.recorded_movement_id!\)/);
   assert.match(read('components/BoxPage.tsx'), /correctableLifecycleMovement\(box\)/);
   assert.match(read('components/BoxPage.tsx'), /canWriteLabData \? correctableLifecycleMovement/);
 });
