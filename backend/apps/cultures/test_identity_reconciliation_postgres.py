@@ -27,6 +27,7 @@ from .historical_2026 import identity_reconciliation as reconciliation
 from .historical_2026 import identity_references as references
 from .models import Box, BoxCodeNamespace
 from .qr import box_scan_url, sync_box_qr_tag
+from . import test_identity_execution as boundary_tests
 
 
 FAMILIES = {
@@ -185,6 +186,13 @@ class PostgreSQLFixture:
             self.assertEqual(sqlstate(error), "55P03")
         else:
             self.assertRegex(str(error).lower(), "busy|lock|concurrent|maintenance|changed|review|stale")
+
+
+@skipUnless(connection.vendor == "postgresql", "Requires the disposable native PostgreSQL cluster.")
+class GuardedBackupPostgreSQLTests(PostgreSQLFixture, boundary_tests.GuardedBackupTransactionTests):
+    def setUp(self):
+        TransactionTestCase.setUp(self)
+        self.assertEqual(execution.require_database(), "disposable")
 
 
 @skipUnless(connection.vendor == "postgresql", "Requires the disposable native PostgreSQL cluster.")

@@ -394,6 +394,20 @@ class SimulatedLinuxArtifactTests(unittest.TestCase):
             with artifacts.protected_file(path):
                 self.fs.nodes[path].st_mtime_ns += 1
 
+    def test_protected_file_rejects_rewrite_even_with_content_and_mtime_restored(self):
+        path = "/srv/pca/plan.json"
+        node = self.fs.nodes[path]
+        original = copy.copy(node)
+        with self.assertRaisesRegex(artifacts.ArtifactSecurityError, "File changed"):
+            with artifacts.protected_file(path):
+                # Linux ctime changes on writes and cannot be restored by utime.
+                node.data = b'{"zero": 1}'
+                node.st_ctime_ns += 1
+                node.data = original.data
+                node.st_mtime_ns = original.st_mtime_ns
+                self.assertEqual(node.st_size, original.st_size)
+        self.assertEqual(self.fs.handles, {})
+
     def test_protected_directory_safe_creation_body(self):
         with artifacts.protected_directory("/srv/pca"):
             self.assertEqual({handle[0] for handle in self.fs.handles.values()}, {"/", "/srv", "/srv/pca"})
