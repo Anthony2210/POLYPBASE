@@ -13,6 +13,7 @@ from apps.accounts.permissions import get_active_organization_ids
 from apps.cultures.models import ThermalZone
 
 from .probe_collection import collected_probes
+from .thermal_control import zone_thermal_control
 from .probe_readings import (
     MAX_SERIES_SPAN,
     overlapping_probe_buckets,
@@ -35,6 +36,18 @@ def _parse_instant(value, name):
     if timezone.is_naive(moment):
         moment = timezone.make_aware(moment)
     return moment
+
+
+class ThermalZoneThermalControlAPIView(APIView):
+    """Compact current summary scoped to the active organization."""
+
+    def get(self, request, pk):
+        zone = get_object_or_404(
+            ThermalZone.objects,
+            pk=pk,
+            organization_id__in=get_active_organization_ids(request),
+        )
+        return Response(zone_thermal_control(zone), headers={"Cache-Control": "no-store"})
 
 
 class ThermalZoneProbeReadingsAPIView(APIView):

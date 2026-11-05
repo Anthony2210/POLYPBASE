@@ -339,11 +339,14 @@ def _condense_batch(probe, start, end, bucket_minutes, result):
         if not rows:
             return
         groups = defaultdict(list)
-        last_instants = {}
+        last_readings = {}
         for _, measured_at, value in rows:
             period = _bucket_start(measured_at, bucket_minutes)
             groups[period].append(Decimal(value))
-            last_instants[period] = max(last_instants.get(period, measured_at), measured_at)
+            if period not in last_readings or measured_at > last_readings[period][0]:
+                last_readings[period] = (measured_at, Decimal(value))
+            elif measured_at == last_readings[period][0] and Decimal(value) != last_readings[period][1]:
+                last_readings[period] = (measured_at, None)
         existing = {
             bucket.period_start.astimezone(datetime_timezone.utc): bucket
             for bucket in ProbeTemperatureBucket.objects.select_for_update().filter(
@@ -353,6 +356,7 @@ def _condense_batch(probe, start, end, bucket_minutes, result):
         new_buckets = []
         for period_start, values in groups.items():
             total = sum(values, Decimal(0))
+            last_measured_at, last_temperature_c = last_readings[period_start]
             bucket = existing.get(period_start)
             if bucket is None:
                 new_buckets.append(
@@ -360,7 +364,8 @@ def _condense_batch(probe, start, end, bucket_minutes, result):
                         probe_id=probe_id,
                         period_start=period_start,
                         period_minutes=bucket_minutes,
-                        last_measured_at=last_instants[period_start],
+                        last_measured_at=last_measured_at,
+                        last_temperature_c=last_temperature_c,
                         min_temperature_c=min(values),
                         average_temperature_c=_round(total / len(values)),
                         max_temperature_c=max(values),
@@ -377,7 +382,12 @@ def _condense_batch(probe, start, end, bucket_minutes, result):
             bucket.average_temperature_c = _round(merged_total / count)
             bucket.measurement_count = count
             bucket.temperature_sum_c = merged_total
-            bucket.last_measured_at = max(bucket.last_measured_at, last_instants[period_start])
+            if last_measured_at > bucket.last_measured_at:
+                bucket.last_measured_at = last_measured_at
+                bucket.last_temperature_c = last_temperature_c
+            elif last_measured_at == bucket.last_measured_at and last_temperature_c != bucket.last_temperature_c:
+                # Conflicting or incomplete evidence at the same instant is unknown.
+                bucket.last_temperature_c = None
             bucket.save(
                 update_fields=[
                     "min_temperature_c",
@@ -386,6 +396,7 @@ def _condense_batch(probe, start, end, bucket_minutes, result):
                     "measurement_count",
                     "temperature_sum_c",
                     "last_measured_at",
+                    "last_temperature_c",
                 ]
             )
             result.buckets_merged += 1

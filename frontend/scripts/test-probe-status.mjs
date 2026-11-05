@@ -59,6 +59,7 @@ function panel(monitoring, canRecord = true, language = 'fr') {
   const { TemperatureControlPanel, formatTemperatureDelta } = load('../src/components/ZonesView.tsx', {
     react: hooks, 'react/jsx-runtime': jsxRuntime,
     '../hooks/useProbeMonitoring': { default: () => ({ monitoring, error: null, revalidate() {} }) },
+    '../hooks/useThermalControl': { default: () => ({ summary: undefined, error: null }) },
     '../utils/probeStatus': status,
     '../utils/dateFormat': { formatDisplayDate: (value) => value, formatDisplayDateTime: (value) => value, getDocumentLocale: () => language === 'fr' ? 'fr-FR' : 'en-GB' },
     '../utils/temperatureScale': { buildTemperatureScale: () => null },

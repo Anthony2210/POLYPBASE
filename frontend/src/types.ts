@@ -596,6 +596,21 @@ export type ZoneSalinityMeasurement = {
   editable_until: string;
 };
 
+export type ThermalControlSummary = {
+  evaluated_at: string;
+  temperature_c: number | null;
+  included_probe_count: number;
+  oldest_measured_at: string | null;
+  newest_measured_at: string | null;
+  expires_at: string | null;
+  eligible_probe_count: number;
+  no_reading_probe_count: number;
+  stale_probe_count: number;
+  unavailable_probe_count: number;
+  future_probe_count: number;
+  invalid_interval_probe_count: number;
+};
+
 export type ThermalZone = {
   id: number;
   name: string;
@@ -619,6 +634,7 @@ export type ThermalZone = {
   latest_salinity: ZoneSalinityMeasurement | null;
   probes: Probe[];
   probe_monitoring?: ZoneProbeMonitoring;
+  thermal_control?: ThermalControlSummary;
 };
 
 export type Dashboard = {

@@ -3,6 +3,7 @@ import uuid
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
 from django.db import models, router, transaction
 from django.db.models.deletion import ProtectedError
 from django.utils import timezone
@@ -362,12 +363,21 @@ class Probe(models.Model):
     # an iMinilide data logger. Both are empty for probes that are not collected.
     external_serial = models.CharField(max_length=40, blank=True)
     external_channel = models.PositiveSmallIntegerField(null=True, blank=True)
+    sampling_interval_seconds = models.PositiveSmallIntegerField(
+        default=60,
+        choices=[(60, "60"), (600, "600"), (900, "900")],
+        validators=[MinValueValidator(1)],
+    )
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
                 fields=["organization", "code"],
                 name="unique_probe_per_organization",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(sampling_interval_seconds__in=[60, 600, 900]),
+                name="probe_sampling_interval_allowed",
             ),
             models.CheckConstraint(
                 condition=(
@@ -464,6 +474,8 @@ class ProbeTemperatureBucket(models.Model):
     period_start = models.DateTimeField()
     period_minutes = models.PositiveSmallIntegerField()
     last_measured_at = models.DateTimeField()
+    # Historical buckets cannot reconstruct the value at their latest instant.
+    last_temperature_c = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     min_temperature_c = models.DecimalField(max_digits=5, decimal_places=2)
     average_temperature_c = models.DecimalField(max_digits=5, decimal_places=2)
     max_temperature_c = models.DecimalField(max_digits=5, decimal_places=2)
@@ -474,6 +486,9 @@ class ProbeTemperatureBucket(models.Model):
 
     class Meta:
         ordering = ["period_start"]
+        indexes = [
+            models.Index(fields=["probe", "last_measured_at"], name="bucket_probe_last_measured_idx"),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["probe", "period_start"],

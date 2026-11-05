@@ -30,6 +30,7 @@ from apps.measurements.serializers import (
     BiologicalMeasurementCreateSerializer as BiologicalMeasurementCreateSerializer,
 )
 from apps.measurements.probe_readings import zone_probe_monitoring
+from apps.measurements.thermal_control import zone_thermal_control
 from apps.measurements.services import get_active_measurement_role, get_measurement_editability
 from apps.organizations.models import Organization
 from apps.organizations.serializers import OrganizationSummarySerializer
@@ -927,6 +928,7 @@ class ThermalZoneSerializer(serializers.ModelSerializer):
     latest_salinity = serializers.SerializerMethodField()
     probes = serializers.SerializerMethodField()
     probe_monitoring = serializers.SerializerMethodField()
+    thermal_control = serializers.SerializerMethodField()
     current_polyp_totals = serializers.SerializerMethodField()
 
     def get_current_polyp_totals(self, obj):
@@ -951,6 +953,7 @@ class ThermalZoneSerializer(serializers.ModelSerializer):
             "latest_salinity",
             "probes",
             "probe_monitoring",
+            "thermal_control",
             "current_polyp_totals",
         ]
 
@@ -995,6 +998,9 @@ class ThermalZoneSerializer(serializers.ModelSerializer):
 
     def get_probe_monitoring(self, obj):
         return zone_probe_monitoring(obj)
+
+    def get_thermal_control(self, obj):
+        return zone_thermal_control(obj)
 
 
 class ThermalZoneCreateSerializer(serializers.ModelSerializer):

@@ -3,6 +3,7 @@ import type { Language, Translator } from '../i18n';
 import type { BoxItem, ThermalZone, UserProfile } from '../types';
 import { ApiError, ApiResourceCancelledError } from '../api/client';
 import useProbeMonitoring from '../hooks/useProbeMonitoring';
+import useThermalControl from '../hooks/useThermalControl';
 import type {
   ManualSalinityPayload,
   ManualSalinityUpdatePayload,
@@ -988,9 +989,26 @@ function TemperatureControlPanel({
   const delta = measuredTemperature !== null && targetTemperature !== null
     ? measuredTemperature - targetTemperature
     : null;
+  const { summary: thermalControl, error: thermalControlError } = useThermalControl(zone);
+  const recentTemperature = parseTemperatureNumber(thermalControl?.temperature_c);
+  const recentPeriod = thermalControl?.oldest_measured_at && thermalControl.newest_measured_at
+    ? thermalControl.oldest_measured_at === thermalControl.newest_measured_at
+      ? formatDisplayDateTime(thermalControl.newest_measured_at)
+      : `${formatDisplayDateTime(thermalControl.oldest_measured_at)} — ${formatDisplayDateTime(thermalControl.newest_measured_at)}`
+    : null;
+  const recentContext = thermalControlError
+    ? t('temperatureRecentError')
+    : !thermalControl
+      ? t('loading')
+      : recentPeriod
+        ? t('temperatureRecentPeriod').replace('{count}', String(thermalControl.included_probe_count)).replace('{period}', recentPeriod)
+        : t('temperatureNoRecent');
+  const dailyContext = zone.latest_temperature
+    ? t('temperatureDailyPeriod').replace('{date}', formatDisplayDate(zone.latest_temperature.date))
+    : null;
   const scale = buildTemperatureScale({
     target: targetTemperature,
-    average: measuredTemperature,
+    average: recentTemperature,
     minimum: hasTemperatureRange ? minTemperature : null,
     maximum: hasTemperatureRange ? maxTemperature : null,
   });
@@ -1044,7 +1062,7 @@ function TemperatureControlPanel({
     }
   }, [isEditingTemperature]);
   const targetPosition = scale && targetTemperature !== null ? scale.project(targetTemperature) : null;
-  const measuredPosition = scale && measuredTemperature !== null ? scale.project(measuredTemperature) : null;
+  const measuredPosition = scale && recentTemperature !== null ? scale.project(recentTemperature) : null;
   const minPosition = scale && hasTemperatureRange && minTemperature !== null
     ? scale.project(minTemperature)
     : null;
@@ -1054,6 +1072,9 @@ function TemperatureControlPanel({
   const temperatureSummary = buildTemperatureSummary({
     targetTemperature,
     measuredTemperature,
+    recentTemperature,
+    recentContext,
+    dailyContext,
     minTemperature: hasTemperatureRange ? minTemperature : null,
     maxTemperature: hasTemperatureRange ? maxTemperature : null,
     t,
@@ -1091,11 +1112,7 @@ function TemperatureControlPanel({
       <div className="zone-temperature-heading">
         <div>
           <h2>{t('temperatureControl')}</h2>
-          <p>
-            {zone.latest_temperature
-              ? formatDisplayDate(zone.latest_temperature.date)
-              : t('temperatureMissing')}
-          </p>
+          <p role={thermalControlError ? 'status' : undefined} aria-busy={!thermalControl && !thermalControlError}>{recentContext}</p>
         </div>
         {canEnterManually && !isEditingTemperature ? (
           <button
@@ -1158,21 +1175,25 @@ function TemperatureControlPanel({
             >
               <i />
               <b>
-                {measurementCount === 1 ? t('temperatureMeasurement') : t('temperatureAverage')}
-                {' '}{formatTemperature(measuredTemperature ?? undefined)}
+                {t('temperatureRecentMean')}
+                {' '}{formatTemperature(recentTemperature ?? undefined)}
               </b>
             </span>
           ) : null}
         </div>
       ) : (
-        <p className="muted compact-text">{t('temperatureMissing')}</p>
+        null
       )}
 
-      {delta !== null || hasTemperatureRange ? (
-        <div className="temperature-summary" aria-label={t('temperatureControl')}>
+      {dailyContext ? <p className="temperature-daily-period">{dailyContext}</p> : null}
+      {measuredTemperature !== null || delta !== null || hasTemperatureRange ? (
+        <div className="temperature-summary" aria-label={dailyContext ?? t('temperatureControl')}>
           <div className="temperature-facts">
+            {measuredTemperature !== null ? (
+              <span><small>{t('temperatureDailyMean')}</small><strong>{formatTemperature(measuredTemperature)}</strong></span>
+            ) : null}
             {delta !== null ? (
-              <span><small>{t('temperatureGap')}</small><strong>{formatTemperatureDelta(delta)}</strong></span>
+              <span><small>{t('temperatureDailyGap')}</small><strong>{formatTemperatureDelta(delta)}</strong></span>
             ) : null}
           </div>
           {hasTemperatureRange ? (
@@ -1363,19 +1384,27 @@ function TemperatureEntryModal({
 function buildTemperatureSummary({
   targetTemperature,
   measuredTemperature,
+  recentTemperature,
+  recentContext,
+  dailyContext,
   minTemperature,
   maxTemperature,
   t,
 }: {
   targetTemperature: number | null;
   measuredTemperature: number | null;
+  recentTemperature: number | null;
+  recentContext: string;
+  dailyContext: string | null;
   minTemperature: number | null;
   maxTemperature: number | null;
   t: Translator;
 }) {
   const facts = [
     targetTemperature === null ? null : `${t('targetTemperature')} ${formatTemperature(targetTemperature)}`,
-    measuredTemperature === null ? null : `${t('temperatureAverage')} ${formatTemperature(measuredTemperature)}`,
+    recentTemperature === null ? recentContext : `${t('temperatureRecentMean')} ${formatTemperature(recentTemperature)}, ${recentContext}`,
+    dailyContext,
+    measuredTemperature === null ? null : `${t('temperatureDailyMean')} ${formatTemperature(measuredTemperature)}`,
     minTemperature === null ? null : `${t('minTemperature')} ${formatTemperature(minTemperature)}`,
     maxTemperature === null ? null : `${t('maxTemperature')} ${formatTemperature(maxTemperature)}`,
   ].filter((fact): fact is string => Boolean(fact));

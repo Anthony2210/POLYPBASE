@@ -28,8 +28,13 @@ const requiredKeys = [
   'zoneSalinityEditTitle',
   'zoneSalinityNotes',
 
-  'temperatureAverage',
-  'temperatureMeasurement',
+  'temperatureRecentMean',
+  'temperatureNoRecent',
+  'temperatureRecentPeriod',
+  'temperatureRecentError',
+  'temperatureDailyPeriod',
+  'temperatureDailyMean',
+  'temperatureDailyGap',
   'zoneCapacityMissing',
   'zoneNoProbe',
   'zoneRecentMovementsTitle',
@@ -57,7 +62,7 @@ test('zone detail removes biological summary and activity components', () => {
   assert.doesNotMatch(detailSource, /latestCounts|zoneActivityTitle/);
 });
 
-test('thermal summary shows only gap and available range, while the ruler keeps its facts', () => {
+test('thermal ruler uses recent observations while daily mean, gap and range stay separate', () => {
   const temperaturePanel = zonesSource.slice(
     zonesSource.indexOf('function TemperatureControlPanel'),
     zonesSource.indexOf('function buildTemperatureSummary'),
@@ -72,16 +77,32 @@ test('thermal summary shows only gap and available range, while the ruler keeps 
   );
   assert.doesNotMatch(temperaturePanel, /temperatureOk|temperatureWatch|absoluteDelta|safe-band/);
   assert.match(ruler, /<b>\{t\('targetTemperature'\)\} \{formatTemperature\(targetTemperature/);
-  assert.match(ruler, /measurementCount === 1 \? t\('temperatureMeasurement'\) : t\('temperatureAverage'\)/);
+  assert.match(ruler, /t\('temperatureRecentMean'\)/);
+  assert.match(ruler, /formatTemperature\(recentTemperature \?\? undefined\)/);
+  assert.doesNotMatch(ruler, /temperatureAverage|temperatureMeasurement|formatTemperature\(measuredTemperature/);
+  assert.match(temperaturePanel, /const \{ summary: thermalControl, error: thermalControlError \} = useThermalControl\(zone\)/);
+  assert.match(temperaturePanel, /const recentTemperature = parseTemperatureNumber\(thermalControl\?\.temperature_c\)/);
+  assert.match(temperaturePanel, /average: recentTemperature/);
+  assert.match(temperaturePanel, /const measuredPosition = scale && recentTemperature !== null \? scale\.project\(recentTemperature\) : null/);
+  assert.match(temperaturePanel, /const delta = measuredTemperature !== null && targetTemperature !== null\s*\? measuredTemperature - targetTemperature/);
+  assert.match(temperaturePanel, /thermalControl\.oldest_measured_at === thermalControl\.newest_measured_at/);
+  assert.match(temperaturePanel, /formatDisplayDateTime\(thermalControl\.oldest_measured_at\)/);
+  assert.match(temperaturePanel, /formatDisplayDateTime\(thermalControl\.newest_measured_at\)/);
+  assert.match(temperaturePanel, /t\('temperatureNoRecent'\)/);
+  assert.match(temperaturePanel, /const recentContext = thermalControlError\s*\? t\('temperatureRecentError'\)\s*:\s*!thermalControl\s*\? t\('loading'\)\s*:\s*recentPeriod/);
+  assert.match(temperaturePanel, /<p role=\{thermalControlError \? 'status' : undefined\} aria-busy=\{!thermalControl && !thermalControlError\}>\{recentContext\}<\/p>/);
   assert.match(temperaturePanel, /const measurementCount = zone\.latest_temperature\?\.measurement_count \?\? 0/);
   assert.match(temperaturePanel, /const hasTemperatureRange = measurementCount > 1/);
   assert.match(temperaturePanel, /hasTemperatureRange && minPosition !== null && maxPosition !== null/);
   assert.match(temperaturePanel, /const temperatureSummary = buildTemperatureSummary/);
-  assert.match(temperaturePanel, /\{delta !== null \|\| hasTemperatureRange \? \(/);
-  assert.match(summary, /<small>\{t\('temperatureGap'\)\}<\/small><strong>\{formatTemperatureDelta\(delta\)\}/);
+  assert.match(temperaturePanel, /\{measuredTemperature !== null \|\| delta !== null \|\| hasTemperatureRange \? \(/);
+  assert.match(temperaturePanel, /className="temperature-daily-period">\{dailyContext\}/);
+  assert.match(summary, /aria-label=\{dailyContext \?\? t\('temperatureControl'\)\}/);
+  assert.match(summary, /<small>\{t\('temperatureDailyMean'\)\}<\/small><strong>\{formatTemperature\(measuredTemperature\)\}/);
+  assert.match(summary, /<small>\{t\('temperatureDailyGap'\)\}<\/small><strong>\{formatTemperatureDelta\(delta\)\}/);
   assert.match(summary, /<small>\{t\('minTemperature'\)\}/);
   assert.match(summary, /<small>\{t\('maxTemperature'\)\}/);
-  assert.doesNotMatch(summary, /targetTemperature|temperatureAverage|temperatureMeasurement|measurementCount/);
+  assert.doesNotMatch(summary, /targetTemperature|temperatureAverage|temperatureMeasurement|measurementCount|temperatureRecentMean|recentTemperature/);
 });
 
 test('manual temperature editor is progressive and supports cancel', () => {
@@ -244,10 +265,14 @@ test('zone detail uses one aligned instrument and compact operational sections',
     zonesSource.indexOf('function buildTemperatureSummary'),
   );
   assert.match(temperaturePanel, /<b>\{t\('targetTemperature'\)\} \{formatTemperature\(targetTemperature/);
-  assert.match(temperaturePanel, /measurementCount === 1 \? t\('temperatureMeasurement'\) : t\('temperatureAverage'\)/);
+  assert.match(temperaturePanel, /t\('temperatureRecentMean'\)/);
+  assert.match(temperaturePanel, /formatTemperature\(recentTemperature \?\? undefined\)/);
+  assert.match(temperaturePanel, /t\('temperatureDailyMean'\)/);
+  assert.match(temperaturePanel, /t\('temperatureDailyGap'\)/);
   assert.match(stylesSource, /\.zone-temperature-heading \{[^}]*width: 100%/s);
   assert.match(stylesSource, /\.temperature-instrument \{[^}]*width: 100%/s);
-  assert.match(stylesSource, /\.temperature-summary \{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/s);
+  assert.match(stylesSource, /\.temperature-summary \{[^}]*grid-template-columns: repeat\(auto-fit, minmax\(100px, 1fr\)\)/s);
+  assert.match(stylesSource, /\.temperature-facts,\s*\.temperature-range-values \{\s*display: contents;/s);
   assert.doesNotMatch(stylesSource, /\.temperature-summary \.is-primary/);
   assert.match(stylesSource, /\.temperature-summary \{\s*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/s);
   assert.match(stylesSource, /\.zone-salinity-section\.has-edit-capability > div:first-child,\s*\.zone-salinity-section\.has-edit-capability \.last-reading-comment \{\s*padding-inline-end: 0/s);
