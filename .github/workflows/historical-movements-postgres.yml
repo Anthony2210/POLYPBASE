@@ -30,7 +30,6 @@ jobs:
       HM_CI_POSTGRES: "1"
       PYTHONDONTWRITEBYTECODE: "1"
       PYTHONUNBUFFERED: "1"
-      HISTORICAL_MOVEMENTS_EVIDENCE_DIR: ${{ runner.temp }}/historical-movements-evidence
     services:
       postgres:
         # Same major as the existing isolated PCA Unix QA; never a host database.
@@ -48,6 +47,13 @@ jobs:
           --health-timeout 5s
           --health-retries 12
     steps:
+      - name: Initialize validation evidence directory
+        run: |
+          set -euo pipefail
+          evidence_dir="$RUNNER_TEMP/historical-movements-evidence"
+          mkdir -p "$evidence_dir"
+          printf 'HISTORICAL_MOVEMENTS_EVIDENCE_DIR=%s\n' "$evidence_dir" >> "$GITHUB_ENV"
+
       - name: Checkout the pushed commit without persistent credentials
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

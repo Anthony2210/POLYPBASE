@@ -3,7 +3,11 @@
 import importlib.util
 import os
 from pathlib import Path
+import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import types
 import unittest
 from unittest.mock import patch
@@ -105,6 +109,57 @@ class WorkflowTests(unittest.TestCase):
         # BaseLoader keeps YAML 1.1's `on` key from becoming the boolean True.
         self.workflow = yaml.load(WORKFLOW_PATH.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
         self.job = self.workflow["jobs"]["historical-movements-postgres"]
+
+    def assert_job_env_contexts(self, environment):
+        # GitHub's context-availability table excludes runner/job/steps/env here:
+        # https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#context-availability
+        allowed = {"github", "needs", "strategy", "matrix", "vars", "secrets", "inputs"}
+        for key, value in environment.items():
+            for expression in re.findall(r"\$\{\{(.*?)\}\}", value, flags=re.DOTALL):
+                roots = set(re.findall(r"(?<![\w.])([a-zA-Z_]\w*)\s*(?:\.|\[)", expression))
+                self.assertLessEqual(roots, allowed, f"Unavailable job env context in {key}: {expression}")
+
+    def test_job_environment_uses_only_available_expression_contexts(self):
+        self.assert_job_env_contexts(self.job["env"])
+        self.assert_job_env_contexts({"CI_SHA": "${{ github.event.after }}"})
+        for reference in ("runner.temp", "runner['temp']"):
+            with self.subTest(reference=reference), self.assertRaises(AssertionError):
+                self.assert_job_env_contexts({
+                    "HISTORICAL_MOVEMENTS_EVIDENCE_DIR": "${{ " + reference + " }}/historical-movements-evidence",
+                })
+
+    def test_evidence_directory_is_exported_before_first_use_and_survives_failure(self):
+        variable = "HISTORICAL_MOVEMENTS_EVIDENCE_DIR"
+        self.assertNotIn(variable, self.job["env"])
+        steps = self.job["steps"]
+        initializer = steps[0]["run"]
+        self.assertIn('$RUNNER_TEMP/historical-movements-evidence', initializer)
+        self.assertIn('>> "$GITHUB_ENV"', initializer)
+        # Windows' bash.exe may launch WSL; use Git's Bash beside sh.exe instead.
+        shell = str(Path(shutil.which("sh")).with_name("bash.exe")) if os.name == "nt" else "bash"
+        with tempfile.TemporaryDirectory(prefix="hm-ci-") as directory:
+            temporary = Path(directory)
+            environment_file = temporary / "github-env"
+            environment_file.touch()
+            environment = {**os.environ, "RUNNER_TEMP": temporary.as_posix(), "GITHUB_ENV": environment_file.as_posix()}
+            environment.pop(variable, None)
+            subprocess.run([shell, "-euo", "pipefail", "-c", initializer], env=environment,
+                           check=True, capture_output=True, text=True, timeout=10)
+            expected = temporary / "historical-movements-evidence"
+            self.assertTrue(expected.is_dir())
+            self.assertEqual(environment_file.read_text(encoding="utf-8"), f"{variable}={expected.as_posix()}\n")
+            # GITHUB_ENV exports apply to subsequent steps, even after a failure.
+            environment[variable] = expected.as_posix()
+            failed_step = subprocess.run(
+                [shell, "-euo", "pipefail", "-c", f'test -d "${variable}"; echo synthetic > "${variable}/failure.log"; exit 1'],
+                env=environment, check=False, capture_output=True, timeout=10,
+            )
+            self.assertEqual(failed_step.returncode, 1)
+            self.assertEqual((expected / "failure.log").read_text(encoding="utf-8"), "synthetic\n")
+        upload = next(step for step in steps if step.get("uses", "").startswith("actions/upload-artifact@"))
+        self.assertEqual(upload["if"], "always()")
+        # runner is supported in steps.with, and this fallback does not depend on initialization succeeding.
+        self.assertEqual(upload["with"]["path"], "${{ runner.temp }}/historical-movements-evidence/")
 
     def test_push_trigger_permissions_service_and_timeout(self):
         self.assertEqual(self.workflow["on"], {"push": {"branches": ["feat/historical-movements"]}})
