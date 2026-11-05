@@ -68,6 +68,8 @@ function views(isDesktopApp) {
     ...common,
     '../api/client': {},
     '../hooks/useProbeMonitoring': { default: (zone) => ({ monitoring: zone.probe_monitoring, error: null, revalidate() {} }) },
+    // Shallow page renders keep TemperatureControlPanel as an element; fail if its hook runs.
+    '../hooks/useThermalControl': { default: () => assert.fail('Shallow page renders must not run thermal control') },
     './ProbeReadingsModal': { default: Placeholder },
     '../utils/dateFormat': { formatDisplayDate: (value) => value, formatDisplayDateTime: (value) => value, getDocumentLocale: () => 'en' },
     '../utils/probeStatus': { formatProbeReadingTime: (value) => value, getProbeElapsedTime: () => null },

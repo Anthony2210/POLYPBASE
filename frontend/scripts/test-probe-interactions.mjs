@@ -260,6 +260,12 @@ function panelView(zone) {
   const view = harness('../src/components/ZonesView.tsx', {
     '../api/client': { ApiResourceCancelledError, ApiError: Error },
     '../hooks/useProbeMonitoring': { default: (value) => ({ monitoring: value.probe_monitoring, error: null, revalidate() { refreshes++; } }) },
+    // Probe status is independent of the thermal summary; keep the hook in its
+    // pending state (no summary, no error). Its lifecycle has dedicated tests.
+    '../hooks/useThermalControl': { default: (value) => {
+      assert.equal(value, zone, 'Thermal control reads the rendered zone');
+      return { summary: undefined, error: null };
+    } },
     '../utils/dateFormat': { formatDisplayDate: (date) => date, formatDisplayDateTime: (date) => date, getDocumentLocale: () => 'en' },
     '../utils/probeStatus': probeStatus,
     '../utils/errors': errors, '../utils/temperatureScale': { buildTemperatureScale: () => null },
