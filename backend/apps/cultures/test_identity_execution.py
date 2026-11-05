@@ -3,16 +3,22 @@
 import copy
 import datetime as dt
 import os
-from contextlib import contextmanager
+import hashlib
+import tempfile
+import time
+from pathlib import Path
+from contextlib import contextmanager, nullcontext
 from unittest import skipUnless
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from django.db import connection
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, TransactionTestCase
 
 from apps.cultures.historical_2026 import identity_execution as execution
 from apps.cultures.models import Box
+from apps.audit.models import AuditLog
+from apps.organizations.models import Organization
 
 
 class SQLiteExecutionTests(TestCase):
@@ -50,6 +56,145 @@ class SQLiteExecutionTests(TestCase):
         with connection.cursor() as cursor:
             cursor.execute("CREATE TEMP TABLE identity_execution_test (id integer)")
             cursor.execute("DROP TABLE identity_execution_test")
+
+
+class GuardedBackupTransactionTests(TransactionTestCase):
+    """Real atomicity; production OS/identity attestation is simulated, never bypassed live."""
+
+    def test_pinned_backup_and_final_validation_for_each_operation(self):
+        operations = (
+            (execution.PREPARATION_OPERATION, "cla", None),
+            (execution.BOX_1902_OPERATION, "cla-box-1902", 214),
+            (execution.OPERATION, "cla", 214),
+        )
+        failures = (None, "checksum", "archive_write", "archive_replace", "authorization",
+                    "target", "expired", "stale", "guard")
+        for operation, family, strain in operations:
+            for failure in failures:
+                with self.subTest(operation=operation, failure=failure), tempfile.TemporaryDirectory() as directory:
+                    archive_path = Path(directory) / "backup.dump"
+                    archive_path.write_bytes(b"synthetic archive")
+                    target = {"synthetic_target": "local-only"}
+                    scope = dict(organization_id=1, actor_id=3, family=family,
+                                 target_strain_id=strain, plan_hash="b" * 64)
+                    now = dt.datetime.now(dt.UTC)
+                    document = dict(schema=execution.AUTHORIZATION_SCHEMA, operation=operation,
+                                    **scope, target_hash=execution.fingerprint(target),
+                                    authorized_at=(now - dt.timedelta(minutes=1)).isoformat(),
+                                    expires_at=(now + dt.timedelta(minutes=30)).isoformat(),
+                                    backup=dict(created_at=now.isoformat(), restoration_tested=True,
+                                                archive=dict(path=str(archive_path), size_bytes=17,
+                                                             sha256=hashlib.sha256(b"synthetic archive").hexdigest())))
+                    if failure == "stale":
+                        document["backup"]["created_at"] = (now - dt.timedelta(minutes=58)).isoformat()
+                    initial = copy.deepcopy(document)
+                    live_target = copy.deepcopy(target)
+                    events = []
+                    clock = [now]
+
+                    class Clock(dt.datetime):
+                        @classmethod
+                        def now(cls, tz=None):
+                            return clock[0]
+
+                    @contextmanager
+                    def protected(path):
+                        # Portable stand-in for the Linux FD/ancestor guard. Its real
+                        # signature comparison includes ctime and is tested separately.
+                        signature = execution.artifacts._signature(archive_path.stat())
+                        events.append("pin")
+                        yield
+                        events.append("unpin")
+                        if (failure == "guard" or
+                                execution.artifacts._signature(archive_path.stat()) != signature):
+                            raise ValueError("Archive changed or was replaced")
+
+                    real_verify = execution.database_backup.verify_archive
+
+                    def verify(*args, **kwargs):
+                        self.assertFalse(connection.in_atomic_block)
+                        self.assertTrue(connection.get_autocommit())
+                        # Exceed a short PostgreSQL session idle timeout while no SQL
+                        # transaction exists; also simulate >60 seconds of wall time.
+                        time.sleep(0.15)
+                        clock[0] += dt.timedelta(seconds=61)
+                        events.append("verified")
+                        return real_verify(*args, **kwargs)
+
+                    def sql_guard(execute, sql, params, many, context):
+                        if connection.vendor == "sqlite" and sql.startswith("SET "):
+                            return None
+                        return execute(sql, params, many, context)
+
+                    organization = Organization.objects.create(name="Before", slug="backup-boundary")
+                    before_audits = list(AuditLog.objects.order_by("pk").values())
+                    if connection.vendor == "postgresql":
+                        # This connection comes only from the verified disposable launcher.
+                        self.assertEqual(execution.require_database(), "disposable")
+                        with connection.cursor() as cursor:
+                            cursor.execute("SET idle_in_transaction_session_timeout = '100ms'")
+                    try:
+                        with patch.object(execution, "require_database", return_value="production"), \
+                                patch.object(execution, "_target", side_effect=lambda: copy.deepcopy(live_target)), \
+                                patch.object(execution, "_root_document", side_effect=lambda p: copy.deepcopy(document)), \
+                                patch.object(execution, "socket_guard", side_effect=lambda t: nullcontext()), \
+                                patch.object(execution, "_verify_production"), \
+                                patch.object(execution.artifacts, "protected_file", side_effect=protected), \
+                                patch.object(execution.database_backup, "verify_archive", side_effect=verify) as verifier, \
+                                patch.object(execution.database_backup, "require_client", return_value="synthetic-pg-restore"), \
+                                patch.object(execution.database_backup, "_run"), \
+                                patch.object(execution, "dt", SimpleNamespace(datetime=Clock, UTC=dt.UTC, timedelta=dt.timedelta)), \
+                                                                connection.execute_wrapper(sql_guard):
+                            if failure == "checksum":
+                                archive_path.write_bytes(b"corrupted archive")
+
+                            def apply():
+                                options = {key: value for key, value in scope.items() if key != "plan_hash"}
+                                with execution.session(apply=True, operation=operation,
+                                                       expected_plan_hash=scope["plan_hash"], **options):
+                                    self.assertTrue(connection.in_atomic_block)
+                                    events.append("write")
+                                    Organization.objects.filter(pk=organization.pk).update(name="After")
+                                    AuditLog.objects.create(organization=organization, action="update",
+                                                            object_type="synthetic", object_id="1",
+                                                            description="Synthetic boundary test")
+                                    if failure == "archive_write":
+                                        archive_path.write_bytes(b"altered archive of another size")
+                                    elif failure == "archive_replace":
+                                        replacement = archive_path.with_suffix(".new")
+                                        replacement.write_bytes(b"synthetic archive")
+                                        os.replace(replacement, archive_path)
+                                    elif failure == "authorization":
+                                        document["actor_id"] = 99
+                                    elif failure == "target":
+                                        live_target["synthetic_target"] = "changed"
+                                    elif failure == "expired":
+                                        clock[0] = dt.datetime.fromisoformat(initial["expires_at"])
+                                    elif failure == "stale":
+                                        clock[0] += dt.timedelta(seconds=60)
+
+                            if failure is None:
+                                apply()
+                            else:
+                                with self.assertRaises(ValueError):
+                                    apply()
+                            self.assertEqual(verifier.call_count, 1)
+                        organization.refresh_from_db()
+                        self.assertEqual(organization.name, "After" if failure is None else "Before")
+                        if failure is not None:
+                            self.assertEqual(list(AuditLog.objects.order_by("pk").values()), before_audits)
+                        self.assertFalse(connection.in_atomic_block)
+                        self.assertFalse(connection.needs_rollback)
+                        if failure != "checksum":
+                            self.assertLess(events.index("verified"), events.index("write"))
+                        if failure is None:
+                            self.assertEqual(events, ["pin", "verified", "write", "unpin"])
+                    finally:
+                        if connection.vendor == "postgresql":
+                            with connection.cursor() as cursor:
+                                cursor.execute("RESET idle_in_transaction_session_timeout")
+                        AuditLog.objects.filter(organization=organization).delete()
+                        organization.delete()
 
 
 class BoundaryTests(SimpleTestCase):
@@ -149,11 +294,49 @@ class BoundaryTests(SimpleTestCase):
             yield
             events.append("exit")
 
-        with patch.object(execution, "_root_document", side_effect=[doc, doc, self.target]), \
+        with patch.object(execution, "_root_document", side_effect=[doc, doc]), \
+                patch.object(execution, "_target", return_value=self.target), \
                 patch.object(execution.artifacts, "protected_file", side_effect=protected), \
                 patch.object(execution.database_backup, "verify_archive", side_effect=lambda *a, **k: events.append(k)):
-            self.assertEqual(execution._authorization(self.target, self.scope), doc)
+            with execution._verified_authorization(self.target, self.scope, operation=execution.OPERATION) as approved:
+                self.assertEqual(approved, doc)
         self.assertEqual(events, ["enter", {"client_major": 18}, "exit"])
+
+    def test_verification_rejects_documents_changed_before_begin(self):
+        for change in ("authorization", "target"):
+            document = self._authorization()
+            other = {**document, "expires_at": (dt.datetime.now(dt.UTC) + dt.timedelta(minutes=20)).isoformat()}
+            with self.subTest(change=change), \
+                    patch.object(execution, "_root_document", side_effect=[document, other if change == "authorization" else document]), \
+                    patch.object(execution, "_target", return_value={**self.target, "database_oid": 999}), \
+                    patch.object(execution.artifacts, "protected_file", side_effect=lambda p: nullcontext()), \
+                    patch.object(execution.database_backup, "verify_archive"):
+                with self.assertRaisesMessage(ValueError, "documents changed"):
+                    with execution._verified_authorization(self.target, self.scope, operation=execution.OPERATION):
+                        self.fail("Changed documents must not authorize a transaction")
+        self.db.cursor.assert_not_called()
+
+    def test_authorization_or_backup_expiring_during_hashing_fails_before_begin(self):
+        for expires in ("authorization", "backup"):
+            document = self._authorization()
+            instant = dt.datetime.now(dt.UTC)
+            if expires == "authorization":
+                document["expires_at"] = (instant + dt.timedelta(seconds=30)).isoformat()
+            else:
+                document["backup"]["created_at"] = (instant - dt.timedelta(minutes=59)).isoformat()
+            clock = MagicMock()
+            clock.datetime.now.side_effect = [instant, instant + dt.timedelta(minutes=2)]
+            clock.datetime.fromisoformat = dt.datetime.fromisoformat
+            clock.UTC, clock.timedelta = dt.UTC, dt.timedelta
+            with self.subTest(expires=expires), patch.object(execution, "dt", clock), \
+                    patch.object(execution, "_root_document", return_value=document), \
+                    patch.object(execution.artifacts, "protected_file", side_effect=lambda p: nullcontext()), \
+                    patch.object(execution.database_backup, "verify_archive") as verify:
+                with self.assertRaises(ValueError):
+                    with execution._verified_authorization(self.target, self.scope, operation=execution.OPERATION):
+                        self.fail("Expired evidence must not authorize a transaction")
+                verify.assert_called_once()
+        self.db.cursor.assert_not_called()
 
     def test_authorization_rejects_wrong_scope_hash_times_restore_and_extra_keys(self):
         original = self._authorization()
@@ -163,6 +346,11 @@ class BoundaryTests(SimpleTestCase):
             {**original, "authorized_at": "2026-10-27T10:00:00"},
             {**original, "expires_at": (dt.datetime.now(dt.UTC) + dt.timedelta(hours=2)).isoformat()},
             {**original, "backup": {**original["backup"], "restoration_tested": False}},
+            {**original, "expires_at": (dt.datetime.now(dt.UTC) - dt.timedelta(seconds=1)).isoformat()},
+            {**original, "backup": {**original["backup"], "created_at":
+                                   (dt.datetime.now(dt.UTC) - dt.timedelta(hours=2)).isoformat()}},
+            {**original, "backup": {**original["backup"], "created_at":
+                                   (dt.datetime.now(dt.UTC) + dt.timedelta(minutes=1)).isoformat()}},
             {**original, "extra": True},
         ]
         for doc in invalid:
@@ -210,7 +398,9 @@ class BoundaryTests(SimpleTestCase):
                    patch.object(execution, "_verify_production", side_effect=lambda t: events.append("identity")),
                    patch.object(execution, "socket_guard", side_effect=guard),
                    patch.object(execution.transaction, "atomic", side_effect=atomic),
-                   patch.object(execution, "_authorization", side_effect=[doc, other])]
+                   patch.object(execution.artifacts, "protected_file", side_effect=lambda p: nullcontext()),
+                   patch.object(execution.database_backup, "verify_archive"),
+                   patch.object(execution, "_authorization", side_effect=[doc, doc, other])]
         for item in patches:
             item.start()
             self.addCleanup(item.stop)
@@ -228,12 +418,12 @@ class BoundaryTests(SimpleTestCase):
         self.assertEqual(self.stack[-2:], ["socket-exit", "commit"])
         self.assertFalse(any("FOR UPDATE" in s for s in self.stack))
 
-    def test_preparation_allows_missing_target_and_binds_operation_on_both_checks(self):
+    def test_preparation_allows_missing_target_and_binds_operation_on_all_checks(self):
         kwargs = self._session_patches(apply=True, operation=execution.PREPARATION_OPERATION,
                                        target_strain_id=None)
         with execution.session(**kwargs) as binding:
             self.assertEqual(binding["target_hash"], execution.fingerprint(self.target))
-        self.assertEqual(execution._authorization.call_count, 2)
+        self.assertEqual(execution._authorization.call_count, 3)
         for call in execution._authorization.call_args_list:
             self.assertEqual(call.kwargs, {"operation": execution.PREPARATION_OPERATION})
             self.assertIsNone(call.args[1]["target_strain_id"])
@@ -312,25 +502,25 @@ class BoundaryTests(SimpleTestCase):
             self.stack.append("backup-verified")
 
         with patch.object(execution, "_authorization", wraps=authorize) as authorization, \
-                patch.object(execution, "_root_document", side_effect=[document, document, self.target] * 2) as root, \
+                patch.object(execution, "_root_document", return_value=document) as root, \
                 patch.object(execution.artifacts, "protected_file", side_effect=protected), \
                 patch.object(execution.database_backup, "verify_archive", side_effect=verify_archive) as archive:
             with execution.session(**options) as binding:
                 self.assertEqual(binding, {"mode": "production", "target_hash": execution.fingerprint(self.target)})
                 self.stack.append("business-write")
-            self.assertEqual(authorization.call_count, 2)
+            self.assertEqual(authorization.call_count, 3)
             for call in authorization.call_args_list:
                 self.assertEqual(call.args, (self.target, self.scope))
                 self.assertEqual(call.kwargs, {"operation": execution.BOX_1902_OPERATION})
             self.assertEqual([call.args[0] for call in root.call_args_list],
-                             [execution.AUTHORIZATION_PATH, execution.AUTHORIZATION_PATH, execution.TARGET_PATH] * 2)
-            self.assertEqual(archive.call_count, 2)
-        self.assertEqual(execution._target.call_count, 2)
+                             [execution.AUTHORIZATION_PATH] * 3)
+            self.assertEqual(archive.call_count, 1)
+        self.assertEqual(execution._target.call_count, 3)
         self.assertEqual(execution._verify_production.call_count, 2)
         self.assertEqual(execution.require_database.call_count, 2)
         self.assertLess(self.stack.index("backup-verified"), self.stack.index("begin"))
         self.assertEqual(self.stack[self.stack.index("business-write") + 1:],
-                         ["identity", "backup-enter", "backup-verified", "backup-exit", "socket-exit", "commit"])
+                         ["identity", "socket-exit", "backup-exit", "commit"])
 
     def test_box_1902_changed_final_authorization_rolls_back(self):
         options = self._session_patches(apply=True, changed=True,
@@ -338,7 +528,7 @@ class BoundaryTests(SimpleTestCase):
         with self.assertRaisesMessage(ValueError, "authorization changed"):
             with execution.session(**options):
                 self.stack.append("business-write")
-        self.assertEqual(execution._authorization.call_count, 2)
+        self.assertEqual(execution._authorization.call_count, 3)
         for call in execution._authorization.call_args_list:
             self.assertEqual(call.kwargs, {"operation": execution.BOX_1902_OPERATION})
         self.assertEqual(self.stack[-1], "rollback")
@@ -348,12 +538,12 @@ class BoundaryTests(SimpleTestCase):
         options = self._session_patches(apply=True, operation=execution.BOX_1902_OPERATION,
                                         family="cla-box-1902")
         changed = {**self.target, "database_oid": self.target["database_oid"] + 1}
-        with patch.object(execution, "_target", side_effect=[self.target, changed]) as target:
+        with patch.object(execution, "_target", side_effect=[self.target, self.target, changed]) as target:
             with self.assertRaisesMessage(ValueError, "Root target changed"):
                 with execution.session(**options):
                     self.stack.append("business-write")
-        self.assertEqual(target.call_count, 2)
-        self.assertEqual(execution._authorization.call_count, 1)
+        self.assertEqual(target.call_count, 3)
+        self.assertEqual(execution._authorization.call_count, 2)
         self.assertEqual(self.stack[-1], "rollback")
         self.assertNotIn("commit", self.stack)
 

@@ -168,6 +168,7 @@ def _utc(value):
 
 
 def _authorization(target, scope, *, operation=OPERATION):
+    """Check root approval and freshness; archive integrity needs the held guard."""
     _require_operation(operation)
     document = _root_document(AUTHORIZATION_PATH)
     if (type(document) is not dict or set(document) != AUTHORIZATION_KEYS
@@ -191,17 +192,25 @@ def _authorization(target, scope, *, operation=OPERATION):
             or not isinstance(archive["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", archive["sha256"])
             or type(archive["size_bytes"]) is not int or archive["size_bytes"] <= 0):
         raise ValueError("Complete archive metadata is required.")
-    with artifacts.protected_file(archive["path"]):
-        database_backup.verify_archive(archive, client_major=18)
-    # External archive verification can consume most of the approval lifetime.
-    now = dt.datetime.now(dt.UTC)
-    if (not authorized <= now < expires or now - authorized > hour
-            or not dt.timedelta(0) <= now - _utc(backup["created_at"]) <= hour):
-        raise ValueError("Authorization or backup expired during archive verification.")
-    if (_root_document(AUTHORIZATION_PATH) != document
-            or _root_document(TARGET_PATH) != target):
-        raise ValueError("Root execution documents changed during archive verification.")
     return document
+
+
+@contextmanager
+def _verified_authorization(target, scope, *, operation):
+    """Verify outside SQL, then pin the archive through the pre-commit guard exit.
+
+    The held file/ancestor descriptors detect replacement and metadata changes,
+    including ctime, even if content or mtime is restored. They must close inside
+    the owned atomic block so a failed final check rolls back all writes.
+    """
+    document = _authorization(target, scope, operation=operation)
+    with artifacts.protected_file(document["backup"]["archive"]["path"]):
+        database_backup.verify_archive(document["backup"]["archive"], client_major=18)
+        # Hashing and pg_restore may outlast approval or backup freshness.
+        if (_authorization(target, scope, operation=operation) != document
+                or _target() != target):
+            raise ValueError("Root execution documents changed during archive verification.")
+        yield document
 
 
 def _verify_production(target):
@@ -303,10 +312,12 @@ def session(*, apply=False, organization_id=None, family=None, target_strain_id=
                 or not isinstance(family, str) or not family.strip()
                 or not isinstance(expected_plan_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_plan_hash)):
             raise ValueError("Apply requires explicit scope and an approved plan SHA256.")
-        authorization = _authorization(target, scope, operation=operation)
     guard = socket_guard(target) if mode == "production" else nullcontext()
     with ExitStack() as guards:
-        # Acquire before atomic can open a connection, but close before commit.
+        # Slow archive work precedes BEGIN. All held guards close before commit,
+        # not after it; their final filesystem checks can still force rollback.
+        if mode == "production" and apply:
+            authorization = guards.enter_context(_verified_authorization(target, scope, operation=operation))
         guards.enter_context(guard)
         with cast(AbstractContextManager, transaction.atomic(using="default")), guards:
             with connection.cursor() as cursor:

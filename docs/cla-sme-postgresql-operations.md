@@ -305,11 +305,31 @@ avant toute écriture. Aucun script
 CLA/SME ne fait cette restauration pour l'opérateur. Si le délai d'une heure ne peut
 être tenu, arrêter et refaire un checkpoint complet ; ne pas antidater les champs.
 
-L'application revérifie le fichier protégé, sa taille et son SHA-256, puis sa
+L'application vérifie le fichier protégé, sa taille et son SHA-256, puis sa
 lisibilité avec le client root contrôlé **`/usr/lib/postgresql/18/bin/pg_restore`**
-(`client_major=18`). Le wrapper Debian par défaut peut sélectionner 17 : ne pas
-l'utiliser comme preuve 18. Une archive lisible seule n'est pas une sauvegarde
-restaurée. L'archive demeure sous `protected_file`, ancêtres conservés et vérifiés.
+(`client_major=18`), **avant d'ouvrir la transaction SQL**. Le wrapper Debian par
+défaut peut sélectionner 17 : ne pas l'utiliser comme preuve 18. Une archive
+lisible seule n'est pas une sauvegarde restaurée.
+
+Le garde `protected_file` reste ouvert sans interruption depuis cette vérification
+jusqu'au contrôle final **dans la transaction, avant commit**. Il conserve les
+descripteurs du fichier et de ses ancêtres et compare leurs identités et métadonnées
+(dont `ctime` pour le fichier) avec les entrées de chemins. Une écriture, un
+remplacement, une modification des droits ou un échec du garde entraîne le rollback
+des données et audits. Restaurer la taille, le contenu ou `mtime` ne restaure pas
+`ctime` sous Linux. Ne pas modifier, déplacer ou faire tourner cette archive pendant
+l'opération. Les contrôles root, de portée et de fraîcheur sont répétés après la
+vérification externe puis avant commit ; le hash et `pg_restore --list` ne sont
+pas relancés dans la transaction.
+
+Cela vaut pour la préparation, le lot historique et la correction dédiée Box 1902.
+Les timeouts locaux SQL restent inchangés, notamment 60 secondes d'inactivité et
+900 secondes de transaction. Un hash lent ne garde donc aucune transaction ouverte ;
+une approbation ou une sauvegarde périmée à son retour provoque un refus, sans
+mutation. Aucun schéma JSON, hash de plan ou périmètre d'autorisation ne change.
+Le garde détecte les modifications observables ; comme auparavant, il ne protège
+pas contre un root hostile ou une écriture du même UID après le dernier contrôle.
+L'isolation opérationnelle et les vérifications d'ACL restent nécessaires.
 
 Après revue du plan et accord humain immédiat sur cette seule application,
 l'opérateur indépendant installe le JSON d'autorisation root, mode 0644, mêmes

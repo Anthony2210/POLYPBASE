@@ -16,12 +16,12 @@ from .historical_2026 import cla_box_1902 as correction
 from .historical_2026 import identity_execution as execution
 from .models import Box, BoxCodeNamespace
 from .qr import box_scan_url
-from .test_cla_box_1902 import ClaBox1902Fixture, NEW_CODE, OPERATION, OLD_CODE
+from .test_cla_box_1902 import ClaBox1902DependencyRegressions, ClaBox1902Fixture, NEW_CODE, OPERATION, OLD_CODE
 from .test_identity_reconciliation_postgres import PostgreSQLFixture, WAIT_SECONDS, sqlstate
 
 
 @skipUnless(connection.vendor == "postgresql", "Requires the disposable native PostgreSQL cluster.")
-class ClaBox1902PostgreSQLTests(ClaBox1902Fixture, PostgreSQLFixture, TransactionTestCase):
+class ClaBox1902PostgreSQLTests(ClaBox1902DependencyRegressions, ClaBox1902Fixture, PostgreSQLFixture, TransactionTestCase):
     reset_sequences = True
 
     def setUp(self):

@@ -115,6 +115,50 @@ Une future réconciliation complète nécessitera une revue et une implémentati
 de reconnaissance de ce prédécesseur exact, ou une autre décision métier autorisée.
 Ne jamais contourner le blocage ni fabriquer de reçu du lot de dix.
 
+## Durcissement des dépendances et preuve Linux — préparation locale
+
+La traversée partagée de `identity_reconciliation._dependencies` suit désormais
+chaque **instance**, y compris lorsqu'un modèle déjà rencontré réapparaît plus
+loin. Une chaîne de Box historiques via `merged_into` et les mesures de ses
+extrémités entrent donc dans le plan ; une modification de ces mesures invalide
+le hash. Les cycles terminent sans doublon. Ce changement ne réalise aucune fusion
+et n'autorise aucune mutation de ces dépendances.
+
+La découverte ne lit que PK et clés étrangères. Avant toute sérialisation du contenu,
+les lignes étrangères et leurs descendants indirects sont exclus à point fixe.
+Un événement d'une autre institution ne peut pas faire apparaître ses allocations
+via un enfant institutionnel. Le seul signal conservé est le blocage expurgé ;
+l'application reste refusée, sans modification des données ou audits étrangers.
+Les références de transfert sortant légitimes restent décrites dans leur portée
+institutionnelle existante, sans donner accès aux données de destination.
+
+Les **neuf autres Box institutionnelles liées à 213** sont un fait communiqué pour
+cette préparation, pas une nouvelle observation de production. Elles restent
+strictement inchangées et maintiennent l'éligibilité de la souche source partagée
+après la correction de 1902. Aucun nouveau critère scientifique n'est ajouté pour
+le cas hypothétique d'une souche privée de son dernier témoin institutionnel.
+
+La correction M4 reste inchangée : vérification lente de sauvegarde avant SQL,
+garde d'archive maintenu jusqu'avant commit, revalidation root/fraîcheur/identité,
+rollback intégral en cas d'échec. Refaire les dry-runs et revoir leurs hashes après
+ces changements ; aucun plan antérieur n'est une autorisation de les appliquer.
+
+La CI existante `.github/workflows/pca-unix.yml` construit uniquement les fichiers
+suivis et exécute un conteneur jetable sans réseau ni montage hôte. Son provisionneur
+lance maintenant `scripts/pca_unix_ci/test_protected_file.py` **avant tout cluster
+SQL**, avec UID/GID 10001, groupes et capacités supprimés, `NoNewPrivs=1`. Ces tests
+utilisent les vrais appels système Linux, sans mocks de fichiers : archive stable,
+remplacement à contenu identique, réécriture avec contenu/taille/mtime restaurés,
+remplacement ou droits modifiés d'un ancêtre, symlink et rollback avant commit
+sur une base SQLite en mémoire. Ils vérifient aussi la fermeture des descripteurs.
+Leur exécution directe refuse un environnement non Linux ; une exécution unittest
+sur Windows les ignore explicitement et ne constitue pas une preuve Linux.
+
+Aucun workflow n'est déclenché par cette préparation locale. Une exécution réussie
+du job isolé au **commit exact revu** reste nécessaire pour obtenir la preuve native
+Linux manquante ; la présence du test ne vaut pas résultat d'exécution ni accord
+de production.
+
 ## Validation synthétique
 
 Les tests `test_cla_box_1902` et `test_identity_execution` couvrent l'état exact,

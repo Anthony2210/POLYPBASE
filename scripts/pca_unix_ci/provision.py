@@ -286,6 +286,12 @@ def main():
     os.environ.clear()
     os.environ.update(clean_environment())
     os.umask(0o022)
+    # Native file proofs run without SQL, credentials or filesystem mocks, under
+    # the same nonprivileged identity used by the production artifact guards.
+    run(["setpriv", f"--reuid={RUNTIME_UID}", f"--regid={RUNTIME_GID}",
+         "--clear-groups", "--no-new-privs", "--bounding-set=-all",
+         "--inh-caps=-all", "--ambient-caps=-all",
+         "/opt/venv/bin/python", "-B", "/opt/pca/scripts/pca_unix_ci/test_protected_file.py"], timeout=60)
     identity = machine_id()
     for signum in (signal.SIGTERM, signal.SIGINT):
         signal.signal(signum, interrupted)
