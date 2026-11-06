@@ -1,6 +1,8 @@
 """Exact, reviewed correction of one physical Box; never a CLA batch receipt."""
 
 
+from django.db import connection
+
 from apps.audit.models import AuditLog
 from apps.cultures.box_codes import register_box_code
 from apps.cultures.box_identity import strain_box_identity, USABLE
@@ -107,6 +109,14 @@ def _build_plan(target_strain_id, binding):
     dependencies = reconciliation._dependencies([1902] if box else [], organization_id=1)
     if dependencies.get("foreign_reference_blocked"):
         errors.append("Foreign operational dependency requires separate review; contents withheld.")
+    # PostgreSQL invalidates associations by the biology's owning Box, not by
+    # other Box references or transitive dependency membership.
+    biology_ids = {row["id"] for row in dependencies.get("measurements.biologicalmeasurement", [])
+                   if row["box_id"] == 1902}
+    temperature_invalidations = [row["id"] for row in dependencies.get("measurements.historicaltemperaturereading", [])
+                                 if connection.vendor == "postgresql"
+                                 and row["biological_measurement_id"] in biology_ids
+                                 and row["association_status"] == "confirmed"]
     references = [s for s in (source, target) if s]
     provenances = reconciliation._rows(OrganizationProvenanceCode.objects.filter(organization_id=1))
     return {"operation": OPERATION, "execution": dict(binding), "schema_hash": reconciliation._schema_state(),
@@ -124,6 +134,7 @@ def _build_plan(target_strain_id, binding):
             "local_identities": reconciliation._rows(LocalStrainIdentity.objects.filter(strain_id__in=[s.pk for s in references])),
             "boxes": reconciliation._rows(Box.objects.filter(organization_id=1)),
             "dependencies": dependencies,
+            "temperature_association_invalidations": temperature_invalidations,
             "audits": reconciliation._rows(AuditLog.objects.filter(organization_id=1)),
             "namespaces": reconciliation._rows(BoxCodeNamespace.objects.filter(namespace__in=("CLA-JKA-1", "CLC-JKA-1"))),
             "collision": collision, "reservation": reservation}
@@ -163,6 +174,10 @@ def apply_plan(organization_id, *, box_id, source_strain_id, source_species_id, 
         for row in expected_dependencies.get("cultures.box", []):
             if row["id"] == 1902:
                 row.update(plan["proposed"])
+        invalidations = set(plan["temperature_association_invalidations"])
+        for row in expected_dependencies.get("measurements.historicaltemperaturereading", []):
+            if row["id"] in invalidations:
+                row["association_status"] = "pending_review"
         if (reconciliation._rows(Box.objects.filter(organization_id=1)) != expected_boxes
                 or reconciliation._dependencies([1902], organization_id=1) != expected_dependencies):
             raise ValueError("Scientific or historical state changed during correction.")
