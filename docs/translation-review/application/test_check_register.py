@@ -46,6 +46,14 @@ B13_ROWS_SHA256 = "ab96099e1e94d0b1c17ddf7547605960a6c46d6c3c6e44e2184d6c6cae494
 LAB_POSITION = slice(858, 886)
 LAB_ENTRY_IDS = [f"T{number}" for number in range(859, 887)]
 LAB_ROWS_SHA256 = "12474e0f6376a9e3da896e68022f45a954401cce630aff263385c4fc06e5365b"
+# Canonical digests of all fields from commit 6d9951f39c34c516fc182f4e2e4f28b7e1d8caaa.
+# These corrections may be superseded only by appended events, never rewritten.
+MOVEMENT_CORRECTION_FREEZES = (
+    ("B18-2026-11-06", slice(1006, 1008), ["T1007", "T1008"],
+     "6b21145767adf20561f5168c1d193f99b21c6788a793cf606af96aa5fe3a7ecf"),
+    ("B19-2026-11-06", slice(1008, 1010), ["T1009", "T1010"],
+     "b816cfc5a006286a5f8e65b829a1464d9d974d5e0f31d5280f1c26b4c724dd9c"),
+)
 
 
 def rows_digest(rows):
@@ -74,6 +82,22 @@ def lab_integrity_errors(rows):
         errors.append("Lab events are not exactly the contiguous register rows 859-886")
     if rows_digest(lab) != LAB_ROWS_SHA256:
         errors.append("Lab history was modified")
+    return errors
+
+
+def movement_correction_integrity_errors(rows):
+    """Freeze B18/B19 independently of current catalogs and later corrections."""
+    errors = []
+    for batch, position, entry_ids, digest in MOVEMENT_CORRECTION_FREEZES:
+        members = [row for row in rows if row["batch"] == batch or row["entry_id"] in entry_ids]
+        if rows[position] != members:
+            errors.append(f"{batch}: original events moved or gained a member")
+        if [row["entry_id"] for row in members] != entry_ids:
+            errors.append(f"{batch}: original event identities or order changed")
+        if any(row["batch"] != batch for row in members):
+            errors.append(f"{batch}: original batch membership changed")
+        if rows_digest(members) != digest:
+            errors.append(f"{batch}: history was modified")
     return errors
 
 
@@ -644,9 +668,62 @@ class RealRegisterTests(unittest.TestCase):
             return reg.SourceState(True, value) if value is not None else reg.read_source_state(row)
         return reg.validate(rows, state)
 
+    def test_h_b18_b19_every_original_field_is_frozen(self):
+        original = reg.load_register()
+        self.assertEqual(movement_correction_integrity_errors(original), [])
+        for batch, position, _, _ in MOVEMENT_CORRECTION_FREEZES:
+            for index in range(position.start, position.stop):
+                for name in reg.COLUMNS:
+                    with self.subTest(entry=original[index]["entry_id"], field=name):
+                        changed = [dict(row) for row in original]
+                        changed[index][name] += " altered"
+                        self.assertIn(f"{batch}: history was modified", movement_correction_integrity_errors(changed))
+
+    def test_h_b18_b19_identity_position_order_and_membership_are_frozen(self):
+        original = reg.load_register()
+        for batch, position, _, _ in MOVEMENT_CORRECTION_FREEZES:
+            index = position.start
+            variants = {
+                "deleted": original[:index] + original[index + 1:],
+                "duplicated": original + [dict(original[index])],
+                "reordered": original[:index] + [original[index + 1], original[index]] + original[index + 2:],
+                "renumbered": original[:index] + [dict(original[index], entry_id="T9999")] + original[index + 1:],
+                "moved batch": original[:index] + [dict(original[index], batch="B99-2026-11-07")] + original[index + 1:],
+                "extra member": original + [dict(original[index], entry_id="T9999")],
+                "shifted": original[:index] + [dict(original[0])] + original[index:],
+            }
+            for label, changed in variants.items():
+                with self.subTest(batch=batch, case=label):
+                    errors = movement_correction_integrity_errors(changed)
+                    self.assertTrue(any(error.startswith(f"{batch}:") for error in errors), errors)
+
+    def test_h_coordinated_b18_b19_edits_are_rejected_before_catalog_reconstruction(self):
+        original = reg.load_register()
+        for batch, position, _, _ in MOVEMENT_CORRECTION_FREEZES:
+            for index in range(position.start, position.stop):
+                with self.subTest(entry=original[index]["entry_id"]):
+                    changed = [dict(row) for row in original]
+                    row = changed[index]
+                    row["final_value"] += " altered"
+                    overrides = {(row["surface"], row["key_or_msgid"], row["language"]): row["final_value"]}
+                    self.assertEqual(self.coordinated(changed, overrides), [],
+                                     "Coordinated source changes bypass ordinary continuity/current-value checks")
+                    self.assertIn(f"{batch}: history was modified", movement_correction_integrity_errors(changed))
+                    # Exercise the real regression path: the freeze must fail before any catalog read/reversal.
+                    with patch.object(reg, "load_register", return_value=changed), patch.object(
+                        Path, "read_text", side_effect=AssertionError("Catalog read before frozen checks"),
+                    ):
+                        with self.assertRaisesRegex(AssertionError, f"{batch}: history was modified"):
+                            self.test_h_coordinated_b13_register_and_catalog_edit_is_rejected()
+
     def test_h_coordinated_b13_register_and_catalog_edit_is_rejected(self):
         # Reported scenario: rewrite T856 (EN temperatureDailyMean) and the EN catalog together.
         rows = [dict(row) for row in reg.load_register()]
+        self.assertEqual(movement_correction_integrity_errors(rows), [])
+        self.assertEqual(reg.validate(rows), [], "Current corrections must continue history and match FR/EN sources")
+        self.assertEqual(lab_integrity_errors(rows), [])
+        self.assertEqual(rows_digest(rows[886:974]),
+                         "df3d1228fa718616598ea8bf5c87f2a600007cc94a7514db773abc150960b5c7")
         t856 = next(row for row in rows if row["entry_id"] == "T856")
         self.assertEqual((t856["key_or_msgid"], t856["language"], t856["final_value"]),
                          ("temperatureDailyMean", "EN", "Daily mean"))
@@ -657,6 +734,14 @@ class RealRegisterTests(unittest.TestCase):
         en = (reg.ROOT / "frontend/src/i18n/en.ts").read_text(encoding="utf-8")
         edited = en.replace("  temperatureDailyMean: 'Daily mean',\n", "  temperatureDailyMean: 'Daily average',\n")
         self.assertNotEqual(edited, en)
+        # Undo later recorded value changes before removing the frozen additions.
+        # Reverse order preserves continuity if the same key is corrected more than once.
+        for row in reversed(rows[1006:]):
+            if row["surface"] == "react" and row["language"] == "EN" and row["status"] == "APPLIED":
+                current = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
+                previous = f"  {row['key_or_msgid']}: '{row['initial_value']}',\n"
+                self.assertEqual(edited.count(current), 1, row["entry_id"])
+                edited = edited.replace(current, previous)
         baseline = edited.replace("  temperatureDailyMean: 'Daily average',\n", "")
         for key in [row["key_or_msgid"] for row in rows[844:886] if row["language"] == "EN"]:
             if key != "temperatureDailyMean":
@@ -739,12 +824,35 @@ class RealRegisterTests(unittest.TestCase):
     def test_h_corrections_after_b13_are_appended_events(self):
         rows = reg.load_register()
         t856 = rows[855]
-        correction = dict(t856, entry_id="T1007", batch="B18-2026-11-05", initial_value="Daily mean",
+        next_entry = max(int(row["entry_id"][1:]) for row in rows) + 1
+        batches = [reg.BATCH_ID.fullmatch(row["batch"]) for row in rows]
+        next_batch = max(int(batch.group(1)) for batch in batches) + 1
+        batch_date = max(batch.group(2) for batch in batches)
+        correction = dict(t856, entry_id=f"T{next_entry:03d}", batch=f"B{next_batch:02d}-{batch_date}", initial_value="Daily mean",
                           final_value="Daily average", status="APPLIED", decision_ref="synthetic",
                           baseline_git_head=HEAD_2)
         appended = rows + [correction]
         self.assertEqual(b13_integrity_errors(appended), [])
+        self.assertEqual(movement_correction_integrity_errors(appended), [])
         self.assertEqual(self.coordinated(appended, {("react", "temperatureDailyMean", "EN"): "Daily average"}), [])
+        for _, position, _, _ in MOVEMENT_CORRECTION_FREEZES:
+            for protected in rows[position]:
+                with self.subTest(appended_correction=protected["entry_id"]):
+                    latest = next(row for row in reversed(rows) if reg.identity(row) == reg.identity(protected))
+                    later = dict(protected, entry_id=correction["entry_id"], batch=correction["batch"],
+                                 initial_value=latest["final_value"], final_value=latest["final_value"] + " corrected",
+                                 baseline_git_head=HEAD_2)
+                    self.assertEqual(movement_correction_integrity_errors(rows + [later]), [])
+                    overrides = {(later["surface"], later["key_or_msgid"], later["language"]): later["final_value"]}
+                    self.assertEqual(self.coordinated(rows + [later], overrides), [])
+        for label, (invalid, reason) in {
+            "duplicate": (appended + [correction], "duplicate entry_id"),
+            "reordered": (rows[:-1] + [correction, rows[-1]], "entry_id not strictly increasing in file order"),
+            "contradictory": (rows + [dict(correction, initial_value="Not the previous value")], "does not continue"),
+        }.items():
+            with self.subTest(label):
+                errors = self.coordinated(invalid, {("react", "temperatureDailyMean", "EN"): "Daily average"})
+                self.assertTrue(any(reason in error for error in errors), errors)
 
     def test_h_corrupted_copy_of_b01_is_rejected(self):
         rows = reg.load_register()
