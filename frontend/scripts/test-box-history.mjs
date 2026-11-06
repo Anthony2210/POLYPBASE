@@ -124,11 +124,45 @@ test('week reconstructions remain intervals across ISO year rollover, with no fa
     reconciliation_status: 'accepted', can_correct: false,
   });
   const plotted = project([historical]).events[0];
-  assert.equal(plotted.date, '2025-12-29');
+  assert.equal(plotted.date, '2026-01-01');
+  assert.equal(plotted.intervalStart, '2025-12-29');
+  assert.equal(plotted.title, 'Movement');
+  assert.equal(historical.occurred_at, null);
   assert.equal(plotted.intervalEnd, '2026-01-04');
   assert.equal(plotted.instant, undefined);
   assert.equal(plotted.temporalLabel, 'Week 1 of 2026');
   assert.equal(history.historyWeekLabel(historical, key => fr[key]), 'Semaine 1 de 2026');
+});
+
+test('reconstruction notes use real ISO week bounds in both locales, including month and year changes', () => {
+  for (const [year, week, frRange, enRange] of [
+    [2026, 38, '14 au 20 septembre 2026', '14 to 20 September 2026'],
+    [2026, 40, '28 septembre au 4 octobre 2026', '28 September to 4 October 2026'],
+    [2026, 1, '29 décembre 2025 au 4 janvier 2026', '29 December 2025 to 4 January 2026'],
+  ]) {
+    const source = event('historical', 'historical_reconstruction', null, {}, {
+      temporal_precision: 'iso_week', reconciliation_status: 'accepted', iso_year: year, iso_week: week,
+    });
+    for (const [language, catalog, range] of [['fr', fr, frRange], ['en', en, enRange]]) {
+      assert.equal(history.historyReconstructionNote(source, language, key => catalog[key]),
+        `${catalog.historyAcceptedReconstruction} ${range}.`);
+    }
+    assert.equal(source.occurred_at, null);
+  }
+});
+
+test('invalid ISO weeks and stored or proposed weeks never establish a historical chart date', () => {
+  for (const patch of [
+    { iso_year: null }, { iso_week: null }, { iso_week: 0 }, { iso_week: 54 }, { iso_week: 1.5 },
+    { iso_year: 2025, iso_week: 53 }, { reconciliation_status: 'blocked' }, { reconciliation_status: 'unresolved' },
+    { temporal_precision: 'unresolved' },
+  ]) {
+    const source = event('historical', 'historical_reconstruction', null,
+      { stored_iso_year: 2026, stored_iso_week: 1, proposed_iso_year: 2026, proposed_iso_week: 1 },
+      { temporal_precision: 'iso_week', reconciliation_status: 'accepted', iso_year: 2026, iso_week: 1, ...patch });
+    assert.equal(project([source]).events.length, 0);
+    assert.equal(history.historyReconstructionNote(source, 'en', t), en.historyReconstructionUnresolved);
+  }
 });
 
 test('unresolved persisted reconstructions never become accepted chart intervals', () => {
@@ -141,7 +175,7 @@ test('unresolved persisted reconstructions never become accepted chart intervals
 
 test('history groups interleave weeks and exact events chronologically without assigning week instants', () => {
   const weekly = (id, week) => event(id, 'historical_reconstruction', null, {}, {
-    temporal_precision: 'iso_week', iso_year: 2026, iso_week: week,
+    temporal_precision: 'iso_week', iso_year: 2026, iso_week: week, reconciliation_status: 'accepted',
   });
   const rows = [event('old', 'ordinary', '2025-12-25T10:00:00Z'), weekly('week2', 2),
     event('new', 'ordinary', '2026-01-12T10:00:00Z'), weekly('week1', 1),
@@ -160,6 +194,25 @@ const candidate = (id, status, extra = {}) => ({ id, box_id: 7, iso_year: 2026, 
   classification: status === 'review_required' ? 'eligible' : status,
   blockers: status === 'blocked' ? ['measurement_week_inconsistent'] : [],
   evidence: { attributed_week_start: '2025-12-29', destination_week_start: '2026-01-05' }, ...extra });
+
+test('pending transition labels require explicit provenance and never certify a proposed week or duplicate a recorded movement', () => {
+  const pending = candidate('pending', 'blocked', { evidence: { origin_location_id: 3, destination_location_id: 4, represented_movement_ids: [] } });
+  const rows = history.historyTimelineEntries([], [pending], [location, { ...location, thermal_zone: origin }]);
+  assert.equal(rows.length, 1);
+  assert.equal(history.isUnconfirmedHistoryTransition(rows[0]), true);
+  assert.equal(rows[0].temporal_precision, 'unresolved');
+  assert.equal(rows[0].occurred_at, null);
+  assert.equal(rows[0].iso_week, null);
+  assert.equal(project(rows).events.length, 0);
+  const assessment = { ...rows[0], provenance: 'transition_assessment' };
+  assert.equal(history.isUnconfirmedHistoryTransition(assessment), true);
+  for (const patch of [
+    { provenance: 'box_location' }, { kind: 'qualification', provenance: 'box_movement' },
+    { evidence: {} }, { evidence: { represented_movement_ids: [1] } },
+    { evidence: { ...assessment.evidence, classification: 'initial_assignment' }, provenance: 'transition_assessment' },
+    { evidence: { represented_movement_ids: [] }, provenance: 'transition_assessment' },
+  ]) assert.equal(history.isUnconfirmedHistoryTransition({ ...assessment, ...patch }), false);
+});
 
 test('accepted and already represented candidates do not duplicate persisted events or invent reconstruction rows', () => {
   const events = [event('historical:1', 'historical_reconstruction', null, {}, {
@@ -437,7 +490,11 @@ test('week intervals overlap and clip at a chart window without changing their e
   const geometry = chart.buildGeometry([], [], events, '2026-01-01', '2026-01-10', false);
   assert.equal(geometry.eventPoints.length, 1);
   assert.equal(geometry.eventPoints[0].x, geometry.xPosition('2026-01-01'));
-  assert.equal(geometry.eventPoints[0].event.date, '2025-12-29');
+  assert.equal(geometry.eventPoints[0].event.date, '2026-01-01');
+  assert.equal(geometry.eventPoints[0].event.intervalStart, '2025-12-29');
+  const partial = chart.buildGeometry([], [], events, '2025-12-29', '2025-12-30', false);
+  assert.equal(partial.eventPoints.length, 1, 'week remains visible even when its midpoint is outside the window');
+  assert.equal(partial.eventPoints[0].x, partial.xPosition('2025-12-30'));
   assert.equal(chart.formatEventDate(events[0]), 'Week 1 of 2026');
 });
 
@@ -516,6 +573,35 @@ test('partial history status includes missing-week assessments and pending candi
     assert.equal(Status({ language, history: { ...state, assessments: [{ classification: 'initial_assignment' }] } }), null);
     assert.equal(Status({ language, history: { ...state, candidates: [candidate('accepted', 'accepted')] } }), null);
     assert.ok(Status({ language, history: { ...state, candidates: [candidate('blocked', 'blocked')] } }));
+  }
+});
+
+test('chart status omits partial evidence without reserving a panel and preserves loading, errors and retry', () => {
+  const jsx = (type, props) => ({ type, props });
+  const Status = load('components/BoxHistoryStatus.tsx', {
+    'react/jsx-runtime': { jsx, jsxs: jsx },
+    '../i18n': { createTranslator: language => key => (language === 'fr' ? fr : en)[key] },
+  }).default;
+  for (const language of ['fr', 'en']) {
+    const catalog = language === 'fr' ? fr : en;
+    let retries = 0;
+    const state = { events: [event('unknown', 'location_evidence', null)],
+      candidates: [candidate('blocked', 'blocked')], assessments: [{ classification: 'insufficient_evidence' }],
+      loading: false, failed: false, retry() { retries++; } };
+    const before = JSON.stringify(state);
+    assert.equal(Status({ language, history: state, showPartial: false }), null);
+    assert.equal(JSON.stringify(state), before, 'evidence remains available to movement history');
+    assert.ok(Status({ language, history: state }), 'other history consumers retain their partial status');
+    const loading = Status({ language, history: { ...state, loading: true }, showPartial: false });
+    assert.equal(loading.props.children[0].props.children, catalog.historyLoading);
+    const failed = Status({ language, history: { ...state, failed: true }, showPartial: false });
+    assert.equal(failed.props.role, 'status');
+    assert.equal(failed.props.children[0].props.children, catalog.historyFailed);
+    const retry = failed.props.children[1];
+    assert.equal(retry.props.children, catalog.reloadAction);
+    assert.equal(retry.props.type, 'button');
+    retry.props.onClick();
+    assert.equal(retries, 1);
   }
 });
 

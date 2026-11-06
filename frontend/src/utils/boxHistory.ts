@@ -1,4 +1,4 @@
-import type { Translator } from '../i18n';
+import type { Language, Translator } from '../i18n';
 import type { BoxLocation, ReadableUserIdentity } from '../types';
 import type { TrendEvent, TrendLocation } from '../components/BiologicalTrendChart';
 
@@ -22,7 +22,7 @@ export type HistoryEvent = {
 
 export function historyKindLabel(event: HistoryEvent, t: Translator): string {
   const keys = {
-    ordinary: 'movementKindOrdinary', historical_reconstruction: 'historyReconstruction',
+    ordinary: 'movementKindOrdinary', historical_reconstruction: 'movementKindOrdinary',
     deactivation: 'historyDeactivation', reactivation: 'movementKindReactivation',
     initial_location: 'movementKindInitialLocation', qualification: 'movementKindQualification',
     unclassified: 'movementKindUnclassified', location_evidence: 'historyLocationEvidence',
@@ -41,6 +41,41 @@ export function historyWeekInterval(year: number, week: number) {
   const sunday = new Date(monday);
   sunday.setUTCDate(sunday.getUTCDate() + 6);
   return { start: monday.toISOString().slice(0, 10), end: sunday.toISOString().slice(0, 10) };
+}
+
+export function establishedHistoryWeek(event: HistoryEvent) {
+  const year = event.iso_year, week = event.iso_week;
+  if (event.kind !== 'historical_reconstruction' || event.reconciliation_status !== 'accepted'
+    || event.temporal_precision !== 'iso_week' || !Number.isInteger(year) || !Number.isInteger(week)
+    || year == null || week == null || year < 100 || year > 9998 || week < 1 || week > 53) return null;
+  const interval = historyWeekInterval(year, week);
+  if (interval.start >= historyWeekInterval(year + 1, 1).start) return null;
+  return interval;
+}
+
+export function historyReconstructionNote(event: HistoryEvent, language: Language, t: Translator) {
+  const interval = establishedHistoryWeek(event);
+  if (!interval) return t('historyReconstructionUnresolved');
+  const start = new Date(`${interval.start}T00:00:00Z`), end = new Date(`${interval.end}T00:00:00Z`);
+  const sameYear = start.getUTCFullYear() === end.getUTCFullYear();
+  const sameMonth = sameYear && start.getUTCMonth() === end.getUTCMonth();
+  const locale = language === 'fr' ? 'fr-FR' : language === 'ja' ? 'ja-JP' : 'en-GB';
+  const format = (date: Date, month: boolean, year: boolean) => new Intl.DateTimeFormat(locale, {
+    timeZone: 'UTC', day: 'numeric', ...(month ? { month: 'long' as const } : {}), ...(year ? { year: 'numeric' as const } : {}),
+  }).format(date);
+  const range = `${format(start, !sameMonth, !sameYear)} ${language === 'fr' ? 'au' : 'to'} ${format(end, true, true)}`;
+  return `${t('historyAcceptedReconstruction')} ${range}.`;
+}
+
+export function isUnconfirmedHistoryTransition(event: HistoryEvent) {
+  if (!['blocked', 'review_required'].includes(event.reconciliation_status)) return false;
+  const ids = event.evidence.represented_movement_ids;
+  if (!Array.isArray(ids) || ids.length > 0) return false;
+  if (event.provenance === 'transition_candidate') return true;
+  const origin = event.evidence.origin_location_id, destination = event.evidence.destination_location_id;
+  return event.provenance === 'transition_assessment' && event.evidence.classification !== 'initial_assignment'
+    && typeof origin === 'number' && Number.isSafeInteger(origin) && origin > 0
+    && typeof destination === 'number' && Number.isSafeInteger(destination) && destination > 0 && origin !== destination;
 }
 
 export function localHistoryDay(value: string) {
@@ -184,6 +219,7 @@ export function historyTimelineEntries(
   // Group by the movement calendar's ISO week (Paris). A week-only row is a
   // group-level item, not an event occurring at its Monday boundary.
   const group = (event: HistoryEvent) => {
+    if (event.kind === 'historical_reconstruction') return establishedHistoryWeek(event)?.start ?? '';
     if (event.temporal_precision === 'iso_week' && event.iso_year != null && event.iso_week != null)
       return historyWeekInterval(event.iso_year, event.iso_week).start;
     if (!Number.isFinite(exactInstant(event))) return '';
@@ -256,12 +292,15 @@ export function projectBoxHistory(
     const event = lifecyclePresentation(source, pairs);
     const detail = [event.from_thermal_zone?.name, event.to_thermal_zone?.name].filter(Boolean).join(' → ');
     const title = historyKindLabel(event, t);
-    if (event.kind === 'historical_reconstruction' && event.reconciliation_status === 'accepted' && event.temporal_precision === 'iso_week'
-      && event.iso_year != null && event.iso_week != null) {
-      const interval = historyWeekInterval(event.iso_year, event.iso_week);
-      chartEvents.push({ id: event.id, kind: 'historical_reconstruction', date: interval.start,
-        intervalEnd: interval.end, temporalLabel: historyWeekLabel(event, t), title, detail,
-        detailLines: [{ label: historyWeekLabel(event, t), value: detail },
+    const interval = establishedHistoryWeek(event);
+    if (interval) {
+      // Thursday is only the visual centre of the ISO week, never an occurrence date.
+      const midpoint = new Date(`${interval.start}T00:00:00Z`);
+      midpoint.setUTCDate(midpoint.getUTCDate() + 3);
+      chartEvents.push({ id: event.id, kind: 'historical_reconstruction', date: midpoint.toISOString().slice(0, 10),
+        intervalStart: interval.start, intervalEnd: interval.end, temporalLabel: historyWeekLabel(event, t), title, detail,
+        detailLines: [{ label: t('movementKindOrdinary'), value: detail },
+          { label: t('historyReconstruction'), value: historyWeekLabel(event, t) },
           { label: t('historyPrecision'), value: t('historyWeekOnly') }] });
     } else if (['ordinary', 'deactivation', 'reactivation'].includes(event.kind) && Number.isFinite(exactInstant(event))) {
 

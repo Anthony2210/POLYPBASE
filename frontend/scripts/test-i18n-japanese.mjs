@@ -242,7 +242,7 @@ test('B13 thermal register events are immutable, even under a coordinated catalo
   // line from an equally edited catalog still restores the frozen EN bytes.
   const edited = read('../src/i18n/en.ts').replace(/\r\n/g, '\n')
     .replace("  temperatureDailyMean: 'Daily mean',\n", "  temperatureDailyMean: 'Daily average',\n");
-  let baseline = edited;
+  let baseline = beforeMovementLabelChange(edited, 'en');
   for (const row of rewritten.slice(B13_START, LAB_REFINEMENT_START + 32).filter(row => row.language === 'EN')) {
     baseline = baseline.replace(`  ${row.key_or_msgid}: '${row.final_value}',\n`, '');
   }
@@ -344,7 +344,10 @@ test('registered post-baseline keys fall back to English without any Japanese', 
   const react = new Map(manifest.filter(row => row.surface === 'react').map(row => [row.identity, row]));
   const translate = loadI18n().createTranslator('ja');
   for (const [key, values] of postBaseline) {
-    assert.deepEqual([fr[key], en[key]], [values.FR, values.EN], key);
+    const current = key === 'historyAcceptedReconstruction'
+      ? ['T1009', 'T1010'].map(id => register.find(entry => entry.entry_id === id).final_value)
+      : [values.FR, values.EN];
+    assert.deepEqual([fr[key], en[key]], current, key);
     const row = react.get(key);
     assert.deepEqual([row.current_fr, row.current_en], [values.FR, values.EN], key);
     assert.deepEqual([row.status, row.reason_code, row.sheet_row, row.ja_validated, row.ja_ai_reviewed],
@@ -487,13 +490,33 @@ function historicalSource(source) {
   return lines.filter(line => !isAdditive(line)).join('\n');
 }
 
-test('original FR and EN source content remains frozen regardless of Git line endings', () => {
+function beforeMovementLabelChange(source, language) {
+  const [initial, final, entryId] = language === 'fr'
+    ? ['Déplacement ordinaire', 'Déplacement', 'T1007']
+    : ['Ordinary movement', 'Movement', 'T1008'];
+  const row = register.find(entry => entry.entry_id === entryId);
+  assert.deepEqual([row?.key_or_msgid, row?.language, row?.initial_value, row?.final_value, row?.status],
+    ['movementKindOrdinary', language.toUpperCase(), initial, final, 'APPLIED']);
+  const line = `  movementKindOrdinary: '${final}',\n`;
+  assert.equal(source.split(line).length - 1, 1, 'only the explicitly approved movement label changes');
+  source = source.replace(line, `  movementKindOrdinary: '${initial}',\n`);
+  const reconstruction = register.find(entry => entry.entry_id === (language === 'fr' ? 'T1009' : 'T1010'));
+  assert.equal(reconstruction?.key_or_msgid, 'historyAcceptedReconstruction');
+  assert.equal(reconstruction?.status, 'APPLIED');
+  const original = postBaseline.get('historyAcceptedReconstruction')[language.toUpperCase()];
+  assert.equal(reconstruction.initial_value, original);
+  const reconstructionLine = `  historyAcceptedReconstruction: '${reconstruction.final_value}',\n`;
+  assert.equal(source.split(reconstructionLine).length - 1, 1);
+  return source.replace(reconstructionLine, `  historyAcceptedReconstruction: '${original}',\n`);
+}
+
+test('original FR and EN source content remains frozen apart from the registered movement label change', () => {
   // Removing exact registered additions must restore the original frozen bytes.
   for (const [language, digest] of [
     ['fr', '1b3486aaea5eea3f8628e96bc88dac9835d3a89da88668ca020ea9119ee757dc'],
     ['en', '62989721d2528126ab48704fe783597dba0d484d2f24ce05a7391e0e9bdbfa27'],
   ]) {
-    let source = read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n');
+    let source = beforeMovementLabelChange(read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n'), language);
     assert.deepEqual([...postBaseline.keys()].sort(), [...LATER_FALLBACK_KEYS].sort());
     assert.equal(sha256(historicalSource(source)), digest, language);
     for (const [key, values] of postBaseline) {
@@ -544,8 +567,9 @@ test('all 44 historical movement additions have exact FR/EN provenance and Engli
   const translate = loadI18n().createTranslator('ja');
   for (const row of rows) {
     const key = row.identity;
-    assert.equal(row.current_fr, fr[key], `${key}: exact current FR`);
-    assert.equal(row.current_en, en[key], `${key}: exact current EN`);
+    const original = key === 'historyAcceptedReconstruction' ? postBaseline.get(key) : { FR: fr[key], EN: en[key] };
+    assert.equal(row.current_fr, original.FR, `${key}: original FR provenance`);
+    assert.equal(row.current_en, original.EN, `${key}: original EN provenance`);
     assert.equal(row.status, 'FALLBACK_EN', key);
     assert.equal(row.reason_code, 'ABSENT_FROM_WORKBOOK', key);
     assert.equal(row.takeru_review, 'no', key);

@@ -26,7 +26,7 @@ import PolypbaseIcon from './PolypbaseIcon';
 import BoxTrackingChart, { buildLifecycleEvents } from './BoxTrackingChart';
 import ModalPortal from './ModalPortal';
 import { useBoxHistory } from '../hooks/useBoxHistory';
-import { historyKindLabel, historyWeekLabel, historyTimelineEntries, historyBlockerLabel, type HistoryAssessment, type HistoryCandidate, type HistoryEvent } from '../utils/boxHistory';
+import { historyKindLabel, historyWeekLabel, historyTimelineEntries, establishedHistoryWeek, historyReconstructionNote, isUnconfirmedHistoryTransition, type HistoryAssessment, type HistoryCandidate, type HistoryEvent } from '../utils/boxHistory';
 import BoxHistoryStatus from './BoxHistoryStatus';
 
 const InteractiveLineageGraph = lazy(() => import('./InteractiveLineageGraph'));
@@ -263,11 +263,15 @@ function MovementTimeline({
         <li key={movement.id}>
           {movement.temporal_precision === 'exact' && movement.occurred_at
             ? <time dateTime={movement.occurred_at}>{formatDisplayDateTime(movement.occurred_at)}</time>
-            : <span>{movement.temporal_precision === 'iso_week'
+            : <span>{(movement.kind === 'historical_reconstruction' ? establishedHistoryWeek(movement) : movement.temporal_precision === 'iso_week')
               ? historyWeekLabel(movement, t) : t('historyUnresolved')}</span>}
           <div className="movement-detail">
-            <span className="movement-event">{movement.provenance === 'transition_candidate' ? t('historyCandidate')
-                          : movement.provenance === 'transition_assessment' ? t('historyAssessment') : historyKindLabel(movement, t)}</span>
+            {(!['qualification', 'location_evidence'].includes(movement.kind)
+              || ['transition_candidate', 'transition_assessment'].includes(movement.provenance)) ? (
+              <span className="movement-event">{isUnconfirmedHistoryTransition(movement) ? t('movementKindOrdinary')
+                : movement.provenance === 'transition_candidate' ? t('historyCandidate')
+                : movement.provenance === 'transition_assessment' ? t('historyAssessment') : historyKindLabel(movement, t)}</span>
+            ) : null}
             <strong className="movement-locations">
               {movement.from_thermal_zone ? (
                 <>
@@ -286,23 +290,14 @@ function MovementTimeline({
               )}
             </strong>
             <small>{formatReadableUserIdentity(movement.actor) || t('historyActorUnknown')}</small>
-            {movement.temporal_precision === 'iso_week' ? <small>{t('historyWeekOnly')}</small> : null}
-            {movement.temporal_precision === 'unresolved' ? <small>{t('historyEvidenceUnresolved')}</small> : null}
-            {movement.kind === 'historical_reconstruction' ? <small>{t(
-              movement.reconciliation_status === 'accepted' ? 'historyAcceptedReconstruction' : 'historyReconstructionUnresolved',
-            )}</small> : null}
-            {['transition_candidate', 'transition_assessment'].includes(movement.provenance) ? <>
-              {typeof movement.evidence.proposed_iso_year === 'number' && typeof movement.evidence.proposed_iso_week === 'number'
-                ? <small>{t('historyProposedWeek').replace('{week}', historyWeekLabel({
-                  iso_year: movement.evidence.proposed_iso_year, iso_week: movement.evidence.proposed_iso_week,
-                }, t))}</small> : null}
-              {['blocked', 'review_required'].includes(movement.reconciliation_status)
-                ? <small>{t('historyReconciliation')}: {t(movement.reconciliation_status === 'blocked' ? 'historyBlocked' : 'historyReviewRequired')}</small> : null}
-              <ul>{(movement.evidence.blockers as string[]).map(reason => <li key={reason}>{historyBlockerLabel(reason, t)}</li>)}</ul>
-            </> : null}
+            {movement.kind === 'historical_reconstruction' ? (
+              <small><em>{historyReconstructionNote(movement, language, t)}</em></small>
+            ) : isUnconfirmedHistoryTransition(movement) ? (
+              <small><em>{t('historyReconstructionUnresolved')}</em></small>
+            ) : movement.temporal_precision === 'iso_week' ? <small>{t('historyWeekOnly')}</small> : null}
             {movement.notes ? <p>{movement.notes}</p> : null}
             <details className="movement-evidence">
-              <summary>{t('historyEvidence')}</summary>
+              <summary>{t('historyProvenance')}</summary>
               <p>{t('historyProvenance')}: {movement.provenance}</p>
               <p>{t('historyReconciliation')}: {movement.reconciliation_status}</p>
               <pre>{JSON.stringify(movement.evidence, null, 2)}</pre>

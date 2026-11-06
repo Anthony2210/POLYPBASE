@@ -182,7 +182,7 @@ export default function BoxTrackingChart({
         title={compact ? undefined : labels.chartTitle}
       />
 
-      <BoxHistoryStatus history={history} language={language} />
+      <BoxHistoryStatus history={history} language={language} showPartial={false} />
       <div className="chart-window-viewport">
         <div className="chart-window-content">
           <BiologicalTrendChart
@@ -254,7 +254,7 @@ function prepareSharedChartData(
     endDateUnknown: location.end_date_unknown,
   }));
   const sharedEvents = events.filter((event) => event.intervalEnd
-    ? event.date <= endText && event.intervalEnd >= startText : isChartEventInRange(event.instant ?? event.date, startText, endText));
+    ? (event.intervalStart ?? event.date) <= endText && event.intervalEnd >= startText : isChartEventInRange(event.instant ?? event.date, startText, endText));
 
   return {
     startDate: startText,
@@ -273,7 +273,7 @@ function getSharedChartSourceDates(
   polypStates: TrendPolypState[] = [],
 ) {
   const measurementDates = measurements.map((measurement) => measurement.measured_on);
-  const eventDates = events.map((event) => event.date);
+  const eventDates = events.flatMap((event) => [event.intervalStart ?? event.date, event.intervalEnd ?? event.date]);
   const locationDates = locations.flatMap((location) => [
     location.starts_at.slice(0, 10),
     location.ends_at?.slice(0, 10),

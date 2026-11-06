@@ -16,6 +16,10 @@ export const usageExceptions = Object.freeze({
     'adminProbeNoZone', 'adminZoneNoOrganization', 'adminZoneProbes', 'adminZonesProbesTitle',
   ].map(key => [key, 'Former disabled Administration environment workspace, replaced by Laboratory configuration (2026-11-04); retained until an explicit i18n removal batch decides its keys, including probe labels for the deferred probe phase.'])),
 
+  ...Object.fromEntries([
+    'historyBlocked', 'historyEvidence', 'historyEvidenceUnresolved', 'historyProposedWeek', 'historyReviewRequired',
+  ].map(key => [key, 'Tracking cleanup (2026-11-06): explicitly removed from the movement UI; retain the historical catalogs and Japanese review provenance rather than expanding this frontend patch into an i18n deletion batch.'])),
+
   temperatureAverage: 'B13 thermal-control relabel (cbc513f) superseded it with temperatureRecentMean/temperatureDailyMean; retained with Takeru-validated JA (manifest REUSED) pending an explicit i18n removal decision.',
   temperatureGap: 'B13 thermal-control relabel (cbc513f) superseded it with temperatureDailyGap; retained with Takeru-validated JA (manifest REUSED) pending an explicit i18n removal decision.',
   temperatureMeasurement: 'B13 thermal-control relabel (cbc513f) superseded it with temperatureRecentMean; retained with Takeru-validated JA (manifest REUSED) pending an explicit i18n removal decision.',

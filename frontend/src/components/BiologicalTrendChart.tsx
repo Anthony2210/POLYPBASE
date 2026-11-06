@@ -82,6 +82,7 @@ export type TrendEvent = {
   detailLines?: Array<{ label: string; value: string }>;
   // 'movement' is a persisted BoxMovement; 'location_change' is a derived location period boundary.
   kind?: 'movement' | 'subculture' | 'location_change' | 'historical_reconstruction' | 'deactivation' | 'reactivation';
+  intervalStart?: string;
   intervalEnd?: string;
   temporalLabel?: string;
   // Full timestamp, used for exact coincidence checks and event identification.
@@ -332,7 +333,7 @@ export default function BiologicalTrendChart({
     temperatureTicks,
     yTemperature,
   } = geometry;
-  const eventDetails = eventPoints.filter(({ event }) => event.kind !== 'location_change').map(({ event, x }) => {
+  const eventDetails = eventPoints.filter(({ event }) => !['location_change', 'deactivation', 'reactivation'].includes(event.kind ?? '')).map(({ event, x }) => {
     const isDerived = event.kind === 'location_change';
     const eventTitle = isDerived ? labels.locationChange : event.title || labels.movement;
     // The movement tooltip stays light: title and location only, no exact time or boundary note.
@@ -351,7 +352,8 @@ export default function BiologicalTrendChart({
   // Equivalent HTML controls avoid SVG paint-order collisions without changing chart coordinates.
   const eventCountByX = new Map<number, number>();
   for (const { x } of eventDetails) eventCountByX.set(x, (eventCountByX.get(x) ?? 0) + 1);
-  const overlappingEvents = eventDetails.filter(({ x }) => eventCountByX.get(x)! > 1);
+  const overlappingEvents = eventDetails.filter(({ x }) => eventCountByX.get(x)! > 1
+    || plottedMeasurements.some(point => xPosition(point.date) === x));
   const visiblePoints = plottedMeasurements.filter((point) => visibleSeries.polyps || !('kind' in point));
   const pointHitAreas = buildMeasurementHitAreas(visiblePoints.map((point) => xPosition(point.date)), padding.left, width - padding.right, layout.responsive);
   const plottedReadingDetails = visiblePoints.map((measurement) => {
@@ -612,8 +614,10 @@ export default function BiologicalTrendChart({
                   x2={0}
                   y2={chartAreaHeight}
                 />
-                {event.intervalEnd ? <rect className="bio-trend-event-interval" x={0} y={0}
-                  width={Math.max(2, xPosition(event.intervalEnd > end ? end : event.intervalEnd) - x)}
+                {event.intervalEnd ? <rect className="bio-trend-event-interval"
+                  x={xPosition((event.intervalStart ?? event.date) < start ? start : event.intervalStart ?? event.date) - x} y={0}
+                  width={Math.max(2, xPosition(event.intervalEnd > end ? end : event.intervalEnd)
+                    - xPosition((event.intervalStart ?? event.date) < start ? start : event.intervalStart ?? event.date))}
                   height={chartAreaHeight} /> : null}
                 <line
                   className="bio-trend-event-line"
@@ -980,7 +984,7 @@ export function buildGeometry(
     .filter((point) => point.date >= startText && point.date <= endText)
     .sort((left, right) => left.date.localeCompare(right.date) || (left.timelineOrder ?? 0) - (right.timelineOrder ?? 0));
   const plottedEvents = [...events]
-    .filter((event) => event.intervalEnd ? event.date <= endText && event.intervalEnd >= startText
+    .filter((event) => event.intervalEnd ? (event.intervalStart ?? event.date) <= endText && event.intervalEnd >= startText
       : isChartEventInRange(event.instant ?? event.date, startText, endText))
     .sort((left, right) => left.date.localeCompare(right.date));
   const xScale = scaleTime().domain([start, end]).range([padding.left, width - padding.right]);
@@ -1030,7 +1034,9 @@ export function buildGeometry(
   // Persisted movements sit at their own date; they are never snapped to a period boundary.
   const explicitEventPoints = plottedEvents.map((event) => ({
     event,
-    x: xPosition(event.intervalEnd && event.date < startText ? startText : event.instant ?? event.date),
+    x: xPosition(event.intervalEnd
+      ? event.date < startText ? startText : event.date > endText ? endText : event.date
+      : event.instant ?? event.date),
     coincidesWithBoundary: event.kind === 'movement'
       && transitions.some((transition) => isSameInstant(event.instant ?? event.date, transition.startsAt)),
   }));

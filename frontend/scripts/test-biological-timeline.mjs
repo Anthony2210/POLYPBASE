@@ -219,11 +219,20 @@ for (const [language, catalog] of [['fr', fr], ['en', en]]) {
       '../utils/historicalTemperature': { weeklyTrendTemperatures: () => [] },
       '../i18n': { createTranslator: lang => translator(lang === 'fr' ? fr : en, lang) },
     });
-    const tree = tracking.default({ measurements: raw.filter(point => point.id !== 42),
+    const partialHistory = { events: [{ id: 'undated', temporal_precision: 'unresolved', kind: 'location_evidence', evidence: {} }],
+      candidates: [], assessments: [{ classification: 'insufficient_evidence' }], loading: false, failed: false, retry() {} };
+    const tree = tracking.default({ history: partialHistory, measurements: raw.filter(point => point.id !== 42),
       biologicalTimeline: [{ kind: 'measurement', id: 42, effective_date: raw[1].measured_on, measurement: raw[1] }],
       locations: canonicalLocations, temperatures, events: [], language,
       labels: { polyps: catalog.polyps, ephyraeFull: catalog.ephyraeFull, chartTitle: catalog.chartTitle, chartEmpty: catalog.chartEmpty },
     });
+    const status = allNodes(tree).find(node => node.props?.history === partialHistory);
+    assert.equal(status.props.showPartial, false);
+    const Status = load('../src/components/BoxHistoryStatus.tsx', {
+      'react/jsx-runtime': jsxRuntime,
+      '../i18n': { createTranslator: () => key => catalog[key] },
+    }).default;
+    assert.equal(Status(status.props), null, 'no panel, partial message or spacer before the chart');
     const trend = allNodes(tree).find(node => node.props?.polypStates);
     assert.equal(trend.props.labels.temperature, catalog.temperature);
     assert.equal(trend.props.labels.sourceLocation, catalog.recordedOriginalLocation);
@@ -374,6 +383,93 @@ for (const [language, catalog] of [['fr', fr], ['en', en]]) {
     assert.doesNotMatch(renderToStaticMarkup(harness.render(props)), /bio-trend-tooltip/);
   });
 }
+
+for (const [language, catalog, movementLabel] of [['fr', fr, 'Déplacement'], ['en', en, 'Movement']]) {
+  test(`${language}: ordinary movement markers and hover, focus and pinned details keep exact evidence with a simple label`, () => {
+    const source = [{ id: 'movement:1', kind: 'ordinary', occurred_at: '2026-09-16T08:12:34Z',
+      temporal_precision: 'exact', evidence: {}, reconciliation_status: 'recorded',
+      from_thermal_zone: { id: 1, name: 'Origin' }, to_thermal_zone: { id: 2, name: 'Destination' } }];
+    const before = JSON.stringify(source);
+    const projection = utility('boxHistory').projectBoxHistory(source, [], [], key => catalog[key]);
+    assert.equal(projection.events.length, 1);
+    assert.equal(projection.events[0].kind, 'movement');
+    assert.equal(projection.events[0].title, movementLabel);
+    assert.equal(projection.events[0].instant, source[0].occurred_at);
+    assert.equal(JSON.stringify(source), before);
+    const harness = chartHarness();
+    const props = { measurements: [{ id: 1, date: '2026-09-15', polypCount: 0, ephyraeCount: 2 }],
+      events: projection.events, locations: [], startDate: '2026-09-01', endDate: '2026-09-30',
+      labels: { ...chartLabels(catalog), movement: catalog.movementEvent } };
+    const initial = harness.render(props);
+    const marker = allNodes(initial).find(node => node.props?.className === 'bio-trend-event is-movement');
+    assert.ok(marker, 'ordinary movement marker remains selectable');
+    assert.match(marker.props['aria-label'], new RegExp(movementLabel));
+    assert.match(marker.props['aria-label'], /08:12:34 UTC/);
+    assert.equal(projection.events[0].detail, 'Origin → Destination');
+    for (const action of ['onMouseEnter', 'onFocus', 'onClick']) {
+      marker.props[action]({ stopPropagation() {} });
+      const markup = renderToStaticMarkup(harness.render(props));
+      assert.match(markup, /bio-trend-tooltip/);
+      assert.match(markup, new RegExp(movementLabel));
+      assert.match(markup, /Origin → Destination/);
+      assert.doesNotMatch(markup, /Déplacement ordinaire|Ordinary movement/);
+      if (action === 'onClick') assert.match(markup, /bio-trend-tooltip is-pinned/);
+    }
+    const paths = tree => allNodes(tree).filter(node => node.type === 'path').map(node => node.props.d);
+    assert.deepEqual(paths(harness.render(props)), paths(initial), 'scientific curves are unchanged by event details');
+  });
+}
+
+for (const [language, catalog] of [['fr', fr], ['en', en]]) {
+  for (const measuredOn of ['2026-09-15', '2026-09-17']) {
+    test(`${language}: record and reconstructed movement in the same week remain visible and accessible (${measuredOn})`, () => {
+      const source = { id: 'historical:1', kind: 'historical_reconstruction', occurred_at: null,
+        temporal_precision: 'iso_week', iso_year: 2026, iso_week: 38, reconciliation_status: 'accepted', evidence: {},
+        from_thermal_zone: { id: 1, name: 'Origin' }, to_thermal_zone: { id: 2, name: 'Destination' } };
+      const before = JSON.stringify(source);
+      const events = utility('boxHistory').projectBoxHistory([source], [], [measuredOn], key => catalog[key]).events;
+      assert.equal(events.length, 1);
+      assert.equal(events[0].date, '2026-09-17', 'visual midpoint, not an occurrence');
+      assert.equal(events[0].instant, undefined);
+      const harness = chartHarness();
+      const props = { measurements: [{ id: 0, date: measuredOn, polypCount: 0, ephyraeCount: 0 }],
+        events: [...events, ...['deactivation', 'reactivation'].map(kind => ({ id: kind, kind, date: measuredOn, title: kind }))],
+        locations: [], startDate: '2026-09-01', endDate: '2026-09-30', labels: { ...chartLabels(catalog), movement: catalog.movementEvent } };
+      const tree = harness.render(props);
+      const nodes = allNodes(tree);
+      assert.equal(nodes.filter(node => node.props?.className === 'bio-trend-event is-historical_reconstruction').length, 1);
+      assert.equal(nodes.filter(node => node.props?.className?.startsWith('bio-trend-measurement')).length, 1);
+      assert.equal(nodes.filter(node => /bio-trend-event is-(deactivation|reactivation)/.test(node.props?.className ?? '')).length, 0);
+      const choice = nodes.find(node => node.props?.className === 'bio-trend-event-choice is-historical_reconstruction');
+      assert.equal(Boolean(choice), measuredOn === '2026-09-17', 'coincident record has a separate HTML movement control');
+      const marker = choice ?? nodes.find(node => node.props?.className === 'bio-trend-event is-historical_reconstruction');
+      assert.match(marker.props['aria-label'], new RegExp(catalog.movementKindOrdinary));
+      assert.match(marker.props['aria-label'], new RegExp(language === 'fr' ? 'Semaine 38' : 'Week 38'));
+      marker.props.onFocus();
+      let markup = renderToStaticMarkup(harness.render(props));
+      assert.match(markup, /bio-trend-tooltip/);
+      assert.ok(markup.includes(catalog.historyReconstruction));
+      assert.ok(markup.includes(catalog.historyWeekOnly));
+      assert.match(markup, /Origin → Destination/);
+      const record = nodes.find(node => node.props?.className?.startsWith('bio-trend-measurement'));
+      record.props.onFocus();
+      markup = renderToStaticMarkup(harness.render(props));
+      assert.match(markup, /bio-trend-tooltip/);
+      const geometry = harness.chart.buildGeometry(props.measurements, [], events, props.startDate, props.endDate, false);
+      assert.equal(geometry.plottedMeasurements[0].polypCount, 0);
+      assert.equal(geometry.plottedMeasurements[0].ephyraeCount, 0);
+      assert.equal(geometry.eventPoints.filter(point => point.event.id === source.id).length, 1);
+      assert.equal(JSON.stringify(source), before);
+      assert.equal(source.occurred_at, null);
+    });
+  }
+}
+
+test('movement chart lines and labels use the existing red token for exact and reconstructed events', () => {
+  const css = readFileSync(new URL('../src/styles/components/biological-trend-chart.css', import.meta.url), 'utf8');
+  assert.match(css, /\.bio-trend-event\.is-movement \.bio-trend-event-line,\s*\.bio-trend-event\.is-historical_reconstruction \.bio-trend-event-line\s*\{\s*stroke: var\(--color-danger\)/);
+  assert.match(css, /\.bio-trend-event\.is-historical_reconstruction \.bio-trend-event-label\s*\{ fill: var\(--color-danger-hover\)/);
+});
 
 test('timeline points respect gaps and chart windows without changing overflow behavior', () => {
   const { chart } = chartHarness();

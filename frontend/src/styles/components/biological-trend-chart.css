@@ -472,8 +472,9 @@
   border-radius: 0;
 }
 
-.bio-trend-event.is-movement .bio-trend-event-line {
-  stroke: rgb(0 0 0);
+.bio-trend-event.is-movement .bio-trend-event-line,
+.bio-trend-event.is-historical_reconstruction .bio-trend-event-line {
+  stroke: var(--color-danger);
   stroke-width: 1.35;
   stroke-dasharray: 4 3;
   opacity: 1;
@@ -492,10 +493,13 @@
 .bio-trend-event.is-reactivation .bio-trend-event-line { stroke: var(--color-success); }
 .bio-trend-event.is-deactivation .bio-trend-event-label { fill: var(--color-danger); }
 .bio-trend-event.is-reactivation .bio-trend-event-label { fill: var(--color-success); }
-.bio-trend-event.is-historical_reconstruction .bio-trend-event-line { stroke: none; }
+.bio-trend-event.is-movement .bio-trend-event-label,
+.bio-trend-event.is-historical_reconstruction .bio-trend-event-label { fill: var(--color-danger-hover); }
+.bio-trend-event-choice.is-movement,
+.bio-trend-event-choice.is-historical_reconstruction { color: var(--color-danger-hover); border-inline-start-color: var(--color-danger); }
 .bio-trend-event-interval {
   fill: rgb(0 0 0 / 4%);
-  stroke: rgb(0 0 0);
+  stroke: var(--color-danger);
   stroke-width: 1;
   stroke-dasharray: 3 3;
 }
