@@ -111,6 +111,7 @@ function createView(kind = 'history', overrides = {}) {
     'react/jsx-runtime': jsxRuntime,
     'lucide-react': { ArrowDownToLine: () => null, ArrowUpFromLine: () => null },
     '../api/client': api,
+    '../utils/boxHistory': { zoneHistoricalIntervalLabel: () => 'interval' },
     '../utils/errors': errors,
     '../utils/dateFormat': dateFormat,
     './BoxTrackingPreview': { default: ({ code }) => React.createElement('span', null, code) },

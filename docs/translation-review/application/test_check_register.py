@@ -770,6 +770,12 @@ class RealRegisterTests(unittest.TestCase):
                 line = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
                 self.assertEqual(baseline.count(line), 1, row["entry_id"])
                 baseline = baseline.replace(line, "")
+        # B20 and B21 only add these exact registered lines after the frozen baseline.
+        for row in rows:
+            if row["batch"] in ("B20-2026-11-09", "B21-2026-11-09") and row["language"] == "EN":
+                line = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
+                self.assertEqual(baseline.count(line), 1, row["entry_id"])
+                baseline = baseline.replace(line, "")
         self.assertEqual(hashlib.sha256(baseline.encode()).hexdigest(),
                          "62989721d2528126ab48704fe783597dba0d484d2f24ce05a7391e0e9bdbfa27")
         # Only the independent B13 fingerprint detects the rewrite.

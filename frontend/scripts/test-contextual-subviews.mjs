@@ -85,6 +85,7 @@ function views(isDesktopApp) {
       getStoredActiveOrganizationId: () => 'test',
       apiGet: () => assert.fail('Focused render tests must not make API requests'),
     },
+    '../utils/boxHistory': { zoneHistoricalIntervalLabel: () => 'interval' },
     '../utils/dateFormat': { formatDisplayDateTime: (value) => value },
     './SkeletonRows': { default: Placeholder },
   });

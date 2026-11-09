@@ -77,6 +77,8 @@ from .location_deletion import (
     delete_unused_thermal_zone,
     thermal_zone_usage_reasons,
 )
+from .historical_location_transitions import merge_zone_history, rule_applies, zone_history_rows
+from .location_history_diagnostics import _read_only_snapshot
 from .models import (
     Box,
     BoxLineage,
@@ -1709,6 +1711,13 @@ def _thermal_zone_event_querysets(zone):
     return arrivals, departures
 
 
+def _historical_zone_rows(zone, direction):
+    if not rule_applies(zone.organization_id):
+        return []
+    with _read_only_snapshot():
+        return zone_history_rows(zone=zone, direction=direction)
+
+
 class ThermalZoneMovementHistoryAPIView(generics.ListAPIView):
     serializer_class = ThermalZoneMovementEventSerializer
     pagination_class = ThermalZoneHistoryPagination
@@ -1723,14 +1732,17 @@ class ThermalZoneMovementHistoryAPIView(generics.ListAPIView):
 
         arrivals, departures = _thermal_zone_event_querysets(zone)
         if direction == "arrival":
-            return arrivals.order_by("-occurred_at", "-id")
-        if direction == "departure":
-            return departures.order_by("-occurred_at", "-id")
-        return arrivals.union(departures, all=True).order_by(
-            "-occurred_at",
-            "-id",
-            "event_type",
-        )
+            operational = arrivals.order_by("-occurred_at", "-id")
+        elif direction == "departure":
+            operational = departures.order_by("-occurred_at", "-id")
+        else:
+            operational = arrivals.union(departures, all=True).order_by(
+                "-occurred_at",
+                "-id",
+                "event_type",
+            )
+        historical = _historical_zone_rows(zone, direction)
+        return merge_zone_history(operational, historical) if historical else operational
 
 
 class ThermalZoneMovementHistorySummaryAPIView(APIView):
@@ -1740,8 +1752,17 @@ class ThermalZoneMovementHistorySummaryAPIView(APIView):
     def get(self, request, pk):
         zone = _thermal_zone_for_history(request, pk)
         arrivals, departures = _thermal_zone_event_querysets(zone)
-        recent_arrivals = arrivals.order_by("-occurred_at", "-id")[: self.recent_limit]
-        recent_departures = departures.order_by("-occurred_at", "-id")[: self.recent_limit]
+        historical = _historical_zone_rows(zone, None)
+        historical_arrivals = [row for row in historical if row["event_type"] == "arrival"]
+        historical_departures = [row for row in historical if row["event_type"] == "departure"]
+        recent_arrivals = merge_zone_history(
+            arrivals.order_by("-occurred_at", "-id")[: self.recent_limit],
+            historical_arrivals,
+        )[: self.recent_limit]
+        recent_departures = merge_zone_history(
+            departures.order_by("-occurred_at", "-id")[: self.recent_limit],
+            historical_departures,
+        )[: self.recent_limit]
 
         current_timezone = timezone.get_current_timezone()
         current_date = timezone.localdate()
@@ -1810,6 +1831,11 @@ class ThermalZoneMovementHistorySummaryAPIView(APIView):
                     many=True,
                 ).data,
                 "weeks": weeks,
+                # Intervals have no single week, so they stay out of the weekly buckets.
+                "historical_counts": {
+                    "entry_count": len(historical_arrivals),
+                    "exit_count": len(historical_departures),
+                },
             }
         )
 

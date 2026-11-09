@@ -201,7 +201,7 @@ class JapaneseManifestTests(unittest.TestCase):
         # Historical counts are frozen; only registered post-baseline keys are added.
         self.assertEqual(Counter((r["surface"], r["status"]) for r in self.manifest), Counter({
             ("react", "REUSED"): 930, ("react", "AI_REVIEWED"): 59,
-            ("react", "FALLBACK_EN"): 224, ("react", "FALLBACK_EN_REVIEW"): 36,
+            ("react", "FALLBACK_EN"): 237, ("react", "FALLBACK_EN_REVIEW"): 36,
             ("django", "REUSED"): 81, ("django", "FALLBACK_EN"): 11, ("django", "FALLBACK_EN_REVIEW"): 6,
             ("local", "REUSED"): 67, ("local", "FALLBACK_EN_REVIEW"): 1, ("inline", "FALLBACK_EN_INLINE"): 14,
         }))

@@ -96,9 +96,11 @@ function createInsights(overrides = {}) {
         ...row, id: `movement:${row.id}`, recorded_movement_id: row.id, kind: row.kind ?? 'ordinary',
         occurred_at: row.moved_at, temporal_precision: 'exact', actor: row.user_identity,
         provenance: 'box_movement', evidence: {}, reconciliation_status: 'recorded', can_correct: false,
-      })), candidates: props.historyCandidates, assessments: props.historyAssessments, loading: props.historyLoading ?? false, failed: props.historyFailed ?? false, retry() {},
+      })), candidates: props.historyCandidates, assessments: props.historyAssessments, historicalTransitions: props.historyTransitions, loading: props.historyLoading ?? false, failed: props.historyFailed ?? false, retry() {},
     }) },
-    './BoxHistoryStatus': { default: () => null },
+    './BoxHistoryStatus': loadModule('../src/components/BoxHistoryStatus.tsx', {
+      'react/jsx-runtime': jsxRuntime, '../i18n': i18n,
+    }),
     './PolypbaseIcon': { default: () => null },
     './BoxTrackingChart': {
       buildLifecycleEvents: () => [],
@@ -158,7 +160,7 @@ for (const language of ['fr', 'en']) {
   });
 }
 
-test('unified history keeps week precision, unresolved evidence, notes and backend correction gates', () => {
+test('unified history keeps persisted week precision, notes and correction gates but hides technical evidence', () => {
   const historical = { id: 'historical:1', kind: 'historical_reconstruction', temporal_precision: 'iso_week',
     occurred_at: null, iso_year: 2026, iso_week: 1, actor: null, evidence: { accepted_by: { first_name: 'Reviewer' } },
     provenance: 'reviewed_week_reconstruction', reconciliation_status: 'accepted', recorded_movement_id: null,
@@ -170,7 +172,7 @@ test('unified history keeps week precision, unresolved evidence, notes and backe
     const h = createInsights({ language, labels: labelsFor(language),
       historyEvents: [historical, ordinary, { ...historical, id: 'location:3:start', kind: 'location_evidence', temporal_precision: 'unresolved' }],
       correctableMovementId: 2, correctMovementLabel: 'Correct', onCorrectMovement: id => { corrected = id; } });
-    assert.equal(h.rows().length, 3);
+    assert.equal(h.rows().length, 2);
     const ordinaryRow = h.rows().find(row => h.find(node => node.props.className === 'movement-event', row)
       .some(node => text(node) === (language === 'fr' ? 'Déplacement' : 'Movement')));
     assert.ok(ordinaryRow);
@@ -183,7 +185,7 @@ test('unified history keeps week precision, unresolved evidence, notes and backe
     assert.ok(h.html.includes('Reviewed source'));
     assert.equal(h.find(node => node.type === 'time').length, 1);
     assert.match(h.html, language === 'fr' ? /Semaine 1 de 2026/ : /Week 1 of 2026/);
-    assert.match(h.html, new RegExp(catalogs[language].historyUnresolved));
+    assert.equal(h.html.includes(catalogs[language].historyUnresolved), false);
     const buttons = h.find(node => node.props.className?.includes('movement-correct-button'));
     assert.equal(buttons.length, 1);
     buttons[0].props.onClick();
@@ -194,7 +196,7 @@ test('unified history keeps week precision, unresolved evidence, notes and backe
   }
 });
 
-test('blocked candidates retain provenance without verbose diagnostics, and unresolved persisted rows never claim acceptance', () => {
+test('orphan candidates stay hidden while unresolved persisted receipts remain without claiming acceptance', () => {
   for (const language of ['fr', 'en']) {
     const historical = { id: 'historical:1', kind: 'historical_reconstruction', temporal_precision: 'unresolved',
       occurred_at: null, iso_year: null, iso_week: null, actor: null,
@@ -207,21 +209,25 @@ test('blocked candidates retain provenance without verbose diagnostics, and unre
       evidence: { physical_occurrence_proven: false, measurement_ids: [0, 1] } };
     const h = createInsights({ language, labels: labelsFor(language), historyEvents: [historical], historyCandidates: [candidate],
       locations: [{ thermal_zone: { id: 2, name: 'Origin' } }, { thermal_zone: { id: 3, name: 'Destination' } }] });
-    assert.match(h.html, new RegExp(catalogs[language].historyCandidate));
+    assert.equal(h.rows().length, 1);
+    assert.equal(h.html.includes(catalogs[language].historyCandidate), false);
     for (const key of ['historyBlocked', 'historyReasonSource', 'historyReasonRecords', 'historyReasonUnknown', 'historyEvidenceUnresolved', 'historyEvidence'])
       assert.equal(h.html.includes(catalogs[language][key]), false, key);
     assert.ok(h.html.includes(catalogs[language].historyReconstructionUnresolved));
     assert.ok(h.find(node => node.type === 'summary').every(node => text(node) === catalogs[language].historyProvenance));
-    assert.ok(h.html.includes('source_location_provenance_unresolved'));
+    assert.equal(h.html.includes('source_location_provenance_unresolved'), false);
     assert.equal(h.html.includes(catalogs[language].historyAcceptedReconstruction), false);
     assert.equal(h.find(node => node.type === 'time').length, 0);
-    assert.ok(h.html.includes('physical_occurrence_proven'));
-    assert.ok(h.find(node => node.props.className === 'movement-locations').map(text).includes('Origin → Destination'));
+    assert.equal(h.html.includes('physical_occurrence_proven'), false);
+    assert.equal(h.find(node => node.props.className === 'movement-locations').map(text).includes('Origin → Destination'), false);
+    assert.ok(h.html.includes('accepted_by'));
+    assert.ok(h.html.includes('Reviewer'));
+    assert.equal(h.find(node => node.props.role === 'status').length, 0);
     assert.equal(h.find(node => node.props.className?.includes('movement-correct-button')).length, 0);
   }
 });
 
-test('candidate and assessment sources remain consultable without proposed dates or reconciliation explanations', () => {
+test('standalone candidates and assessments do not add rows, provenance or a partial banner', () => {
   for (const language of ['fr', 'en']) {
     const base = { box_id: 7, iso_year: 2026, iso_week: 1, from_thermal_zone_id: 2, to_thermal_zone_id: 3,
       blockers: [], evidence: { attributed_week_start: '2025-12-29', destination_week_start: '2026-01-05' } };
@@ -238,10 +244,10 @@ test('candidate and assessment sources remain consultable without proposed dates
       { id: 'missing-location', box_id: 7, classification: 'insufficient_evidence', reconciliation_status: 'blocked',
         blockers: ['location_history_missing'], evidence: {} }],
     });
-    assert.equal(h.find(node => node.props.className === 'movement-event').length, 5);
+    assert.equal(h.find(node => node.props.className === 'movement-event').length, 1);
     const titles = h.find(node => node.props.className === 'movement-event').map(text);
-    assert.equal(titles.filter(title => title === catalogs[language].historyCandidate).length, 2);
-    assert.equal(titles.filter(title => title === catalogs[language].historyAssessment).length, 2);
+    assert.equal(titles.filter(title => title === catalogs[language].historyCandidate).length, 0);
+    assert.equal(titles.filter(title => title === catalogs[language].historyAssessment).length, 0);
     assert.equal(titles.includes(catalogs[language].historyReconstruction), false);
     assert.equal(h.find(node => node.type === 'time').length, 1);
     assert.equal(h.html.includes(catalogs[language].historyWeekOnly), false);
@@ -251,14 +257,14 @@ test('candidate and assessment sources remain consultable without proposed dates
     assert.equal(h.find(node => node.type === 'small').some(node => text(node) === proposal), false);
     for (const key of ['historyReasonRecordWeek', 'historyReasonRecords', 'historyReasonMissingLocations'])
       assert.equal(h.html.includes(catalogs[language][key]), false, key);
-    assert.ok(h.html.includes(catalogs[language].historyUnresolved));
-    assert.ok(h.html.includes('proposed_iso_week'));
-    assert.ok(h.html.includes('measurement_week_inconsistent'));
-    assert.ok(h.html.includes('insufficient_evidence'));
+    assert.equal(h.html.includes(catalogs[language].historyUnresolved), false);
+    for (const proof of ['proposed_iso_week', 'measurement_week_inconsistent', 'insufficient_evidence'])
+      assert.equal(h.html.includes(proof), false, proof);
+    assert.equal(h.find(node => node.props.role === 'status').length, 0);
   }
 });
 
-test('qualification and period evidence keep their rows and exact dates without the removed labels', () => {
+test('recorded qualification and lifecycle rows keep exact dates while technical period evidence is hidden', () => {
   for (const language of ['fr', 'en']) {
     const events = ['qualification', 'location_evidence', 'reactivation'].map((kind, index) => ({
       id: `source:${index}`, kind, temporal_precision: index === 1 ? 'unresolved' : 'exact',
@@ -270,21 +276,21 @@ test('qualification and period evidence keep their rows and exact dates without 
     }));
     const before = JSON.stringify(events);
     const h = createInsights({ language, labels: labelsFor(language), historyEvents: events });
-    assert.equal(h.rows().length, 3);
-    assert.equal(h.find(node => node.type === 'details').length, 3);
+    assert.equal(h.rows().length, 2);
+    assert.equal(h.find(node => node.type === 'details').length, 2);
     assert.equal(h.find(node => node.type === 'time').length, 2);
     assert.ok(h.find(node => node.type === 'time').every(node => node.props.dateTime === events[0].occurred_at));
     for (const key of ['movementKindQualification', 'historyLocationEvidence', 'historyEvidenceUnresolved', 'historyEvidence'])
       assert.equal(h.html.includes(catalogs[language][key]), false, key);
     assert.ok(h.html.includes(catalogs[language].movementKindReactivation));
-    assert.ok(h.html.includes('box_location'));
+    assert.equal(h.html.includes('box_location'), false);
     assert.ok(h.html.includes('source_id'));
     assert.ok(h.html.includes('Source note'));
     assert.equal(JSON.stringify(events), before);
   }
 });
 
-test('exact, reconstructed and unconfirmed movements share a title without certifying proposed weeks', () => {
+test('exact and persisted reconstructed movements remain visible without standalone unconfirmed movements', () => {
   for (const language of ['fr', 'en']) {
     const exact = { id: 'move:1', kind: 'ordinary', temporal_precision: 'exact', occurred_at: '2026-09-17T08:12:34Z',
       iso_year: null, iso_week: null, from_thermal_zone: { id: 2, name: 'Origin' }, to_thermal_zone: { id: 3, name: 'Destination' },
@@ -301,15 +307,126 @@ test('exact, reconstructed and unconfirmed movements share a title without certi
     const before = JSON.stringify(input);
     const h = createInsights({ ...input, language, labels: labelsFor(language),
       locations: [{ thermal_zone: exact.from_thermal_zone }, { thermal_zone: exact.to_thermal_zone }] });
-    assert.equal(h.rows().length, 4);
-    assert.deepEqual(h.find(node => node.props.className === 'movement-event').map(text), Array(4).fill(catalogs[language].movementKindOrdinary));
+    assert.equal(h.rows().length, 3);
+    assert.deepEqual(h.find(node => node.props.className === 'movement-event').map(text),
+      Array(3).fill(catalogs[language].movementKindOrdinary));
     assert.equal(h.find(node => node.type === 'time').length, 1);
     assert.equal(h.find(node => node.type === 'time')[0].props.dateTime, exact.occurred_at);
-    assert.equal(h.find(node => node.type === 'details').length, 4);
-    assert.equal(h.find(node => node.type === 'em').filter(node => text(node) === catalogs[language].historyReconstructionUnresolved).length, 2);
+    assert.equal(h.find(node => node.type === 'details').length, 3);
+    assert.equal(h.find(node => node.type === 'em').filter(node => text(node) === catalogs[language].historyReconstructionUnresolved).length, 1);
+    assert.equal(h.find(node => node.type === 'em').filter(node => text(node) === catalogs[language].historyPotentialUnordered).length, 0);
     assert.ok(h.find(node => node.type === 'em').some(node => text(node).includes(language === 'fr' ? '14 au 20 septembre 2026' : '14 to 20 September 2026')));
     assert.equal(h.find(node => node.type === 'span').some(node => /Semaine 42|Week 42/.test(text(node))), false);
     assert.equal(JSON.stringify(input), before);
+  }
+});
+
+test('potential movements remain hidden even when an origin record and both zones are known', () => {
+  const zones = { from: { id: 2, name: 'Zone 15.0°C' }, to: { id: 3, name: 'Zone 10.0°C' } };
+  const locations = [{ id: 10, starts_at: '2026-01-05T00:00:00+01:00', thermal_zone: zones.from },
+    { id: 11, starts_at: '2026-02-16T00:00:00+01:00', thermal_zone: zones.to }];
+  const evidence = { origin_location_id: 10, destination_location_id: 11, represented_movement_ids: [],
+    attributed_week_start: '2026-02-09', measurement_weeks: ['2026-02-09', '2026-02-16'], measurement_ids: [0, 1] };
+  const candidate = { id: 'c', box_id: 7, iso_year: 2026, iso_week: 7, from_thermal_zone_id: 2, to_thermal_zone_id: 3,
+    reconciliation_status: 'review_required', classification: 'eligible', blockers: [], evidence };
+  const before = JSON.stringify([candidate, locations]);
+  for (const language of ['fr', 'en']) {
+    const h = createInsights({ language, labels: labelsFor(language), historyCandidates: [candidate], locations });
+    assert.equal(h.rows().length, 0);
+    assert.equal(h.find(node => node.type === 'em').length, 0);
+    assert.equal(h.find(node => node.type === 'time').length, 0);
+    assert.equal(h.find(node => node.type === 'details').length, 0);
+    assert.equal(h.find(node => node.props.role === 'status').length, 0);
+    assert.equal(h.html.includes(catalogs[language].historyPotentialMovement), false);
+    assert.equal(JSON.stringify([candidate, locations]), before);
+  }
+});
+
+const observation = (year, week, value, start) => ({ reading_id: week, biological_measurement_id: week, iso_year: year, iso_week: week,
+  week_start: start, environment_temperature_c: value, association_status: 'confirmed',
+  sources: [{ source_file: 'Suivi.xlsx', temperature_cell: `C${week}`, source_box: 'BOX-1.01' }] });
+const sourceTransition = (status, extra = {}) => ({ id: `historical-transition:${status}`, box_id: 1, status, from_environment_c: '15', to_environment_c: '10',
+  from_thermal_zone: { id: 2, name: 'Zone 15.0°C' }, to_thermal_zone: { id: 3, name: 'Zone 10.0°C' },
+  origin_observation: observation(2026, 7, '15', '2026-02-09'), destination_observation: observation(2026, 8, '10', '2026-02-16'),
+  representation: null, blockers: [], planner_candidate_ids: [], adds_location_history: true, ...extra });
+
+test('established source transitions read as historical movements between observation weeks', () => {
+  const expected = {
+    fr: 'Réalisé entre les relevés des semaines 7 et 8 de 2026 (d’après les données historiques).',
+    en: 'Carried out between the records from weeks 7 and 8 of 2026 (based on historical data).',
+  };
+  for (const language of ['fr', 'en']) {
+    const h = createInsights({ language, labels: labelsFor(language), historyEvents: [], historyTransitions: [sourceTransition('established')], locations: [] });
+    assert.deepEqual(h.find(node => node.props.className === 'movement-event').map(text), [catalogs[language].historyHistoricalMovement]);
+    assert.deepEqual(h.find(node => node.props.className === 'movement-locations').map(text), ['Zone 15.0°C → Zone 10.0°C']);
+    assert.deepEqual(h.find(node => node.type === 'em').map(text), [expected[language]]);
+    assert.equal(h.html.includes(catalogs[language].historyUnresolved), false);
+    assert.equal(h.html.includes(catalogs[language].historyPotentialMovement), false);
+    assert.equal(h.html.includes(catalogs[language].historyActorUnknown), false);
+    assert.equal(h.find(node => node.type === 'time').length, 0);
+    assert.deepEqual(h.find(node => node.type === 'summary').map(text), [catalogs[language].historyProvenance]);
+    assert.equal(h.find(node => node.type === 'pre').length, 1);
+    assert.equal(h.find(node => node.type === 'details').length, 1);
+    assert.ok(h.html.includes('temperature_cell'));
+  }
+});
+
+test('source transition interval names both ISO years at a boundary', () => {
+  const crossing = sourceTransition('established', { origin_observation: observation(2025, 52, '15', '2025-12-22'),
+    destination_observation: observation(2026, 1, '10', '2025-12-29') });
+  const h = createInsights({ language: 'fr', labels: labelsFor('fr'), historyEvents: [], historyTransitions: [crossing], locations: [] });
+  assert.deepEqual(h.find(node => node.type === 'em').map(text),
+    ['Réalisé entre le relevé de la semaine 52 de 2025 et celui de la semaine 1 de 2026 (d’après les données historiques).']);
+});
+
+test('unresolved, missing-zone, blocked and orphan represented transitions produce no row or banner', () => {
+  const transitions = [
+    sourceTransition('environment_only', { from_thermal_zone: null, to_thermal_zone: null, adds_location_history: false, blockers: ['location_mapping_unavailable'] }),
+    sourceTransition('review', { adds_location_history: false, blockers: ['conflicting_recorded_movement'] }),
+    sourceTransition('established', { from_thermal_zone: null }),
+    sourceTransition('established', { to_thermal_zone: null }),
+    sourceTransition('established', { blockers: ['conflicting_recorded_movement'] }),
+    sourceTransition('already_represented', { representation: { kind: 'box_movement', event_id: 'missing' } }),
+  ];
+  const before = JSON.stringify(transitions);
+  for (const language of ['fr', 'en']) {
+    for (const transition of transitions) {
+      const h = createInsights({ language, labels: labelsFor(language), historyEvents: [], historyTransitions: [transition] });
+      assert.equal(h.rows().length, 0, JSON.stringify(transition));
+      assert.equal(h.find(node => node.type === 'details').length, 0);
+      assert.equal(h.find(node => node.props.role === 'status').length, 0);
+      assert.equal(h.html.includes(catalogs[language].historyHistoricalMovement), false);
+    }
+  }
+  assert.equal(JSON.stringify(transitions), before);
+});
+
+test('a recorded movement stays exact and only gains the source evidence in provenance', () => {
+  const recorded = { id: 'movement:9', kind: 'ordinary', temporal_precision: 'exact', occurred_at: '2026-02-17T08:12:34Z', iso_year: 2026, iso_week: 8,
+    from_thermal_zone: { id: 2, name: 'Zone 15.0°C' }, to_thermal_zone: { id: 3, name: 'Zone 10.0°C' }, actor: { first_name: 'Original', last_name: 'Author' },
+    provenance: 'box_movement', reconciliation_status: 'recorded', evidence: { revision: 1 }, recorded_movement_id: 9, can_correct: true, notes: 'kept' };
+  const transition = sourceTransition('already_represented', { adds_location_history: false, representation: { kind: 'box_movement', event_id: 'movement:9' } });
+  const transitions = [transition, sourceTransition('review'),
+    sourceTransition('established', { from_thermal_zone: null }),
+    sourceTransition('established', { blockers: ['conflicting_recorded_movement'] })];
+  const before = JSON.stringify([recorded, transitions]);
+  for (const language of ['fr', 'en']) {
+    let corrected;
+    const h = createInsights({ language, labels: labelsFor(language), historyEvents: [recorded], historyTransitions: transitions,
+      locations: [], correctableMovementId: 9, correctMovementLabel: 'Correct', onCorrectMovement: id => { corrected = id; } });
+    assert.equal(h.rows().length, 1);
+    assert.equal(h.find(node => node.type === 'time')[0].props.dateTime, recorded.occurred_at);
+    assert.deepEqual(h.find(node => node.props.className === 'movement-event').map(text), [catalogs[language].movementKindOrdinary]);
+    assert.ok(h.html.includes('Original'));
+    assert.ok(h.html.includes('kept'));
+    assert.ok(h.html.includes('historical_source_transitions'));
+    assert.equal(h.html.includes(catalogs[language].historyHistoricalMovement), false);
+    assert.equal(h.find(node => node.props.role === 'status').length, 0);
+    const buttons = h.find(node => node.props.className?.includes('movement-correct-button'));
+    assert.equal(buttons.length, 1);
+    buttons[0].props.onClick();
+    assert.equal(corrected, 9);
+    assert.equal(JSON.stringify([recorded, transitions]), before);
   }
 });
 

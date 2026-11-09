@@ -1073,14 +1073,19 @@ class ThermalZoneMovementHistoryQuerySerializer(serializers.Serializer):
 
 
 class ThermalZoneMovementEventSerializer(serializers.Serializer):
-    location_id = serializers.IntegerField(source="id")
+    # Historical sides have neither a stored period nor a known occurrence.
+    location_id = serializers.IntegerField(source="id", allow_null=True)
     event_type = serializers.ChoiceField(choices=["arrival", "departure"])
-    occurred_at = serializers.DateTimeField()
+    occurred_at = serializers.DateTimeField(allow_null=True)
     box_id = serializers.IntegerField()
     box_code = serializers.CharField()
     box_status = serializers.CharField()
     related_zone_id = serializers.IntegerField(allow_null=True)
     related_zone_name = serializers.CharField(allow_null=True)
+    temporal_precision = serializers.CharField(required=False)
+    transition_id = serializers.CharField(required=False)
+    historical_interval = serializers.DictField(required=False)
+    provenance = serializers.DictField(required=False)
 
 
 class ManualTemperatureCreateSerializer(serializers.Serializer):

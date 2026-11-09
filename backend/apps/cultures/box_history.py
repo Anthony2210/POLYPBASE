@@ -12,6 +12,7 @@ from apps.audit.box_lookup import box_audits, numeric_box_audit_values
 from apps.audit.models import AuditLog
 from apps.measurements.models import BiologicalMeasurement
 
+from .historical_location_transitions import project_historical_transitions
 from .historical_movements import PROVENANCE, _plan
 from .location_history_diagnostics import _read_only_snapshot
 from .models import MOVEMENT_WEEK_TIME_ZONE, BoxMovement, ThermalZone
@@ -157,7 +158,18 @@ def _box_history(*, box, user):
                                 status="paired" if reliable or lifecycle_reliable else "unresolved", notes=period.notes))
 
     events.sort(key=lambda e: (e["occurred_at"] or "", e["iso_year"] or 0, e["iso_week"] or 0, e["id"]), reverse=True)
-    return {"events": events, "candidates": plan["candidates"], "assessments": plan["assessments"]}
+    transitions = project_historical_transitions(organization_id=organization_id, box_ids=[box.pk])
+    for transition in transitions:
+        linked = transition["representation"] or {}
+        # Exact period identities, never zone names or nearby weeks.
+        transition["planner_candidate_ids"] = [
+            row["id"] for row in [*plan["candidates"], *plan["assessments"]]
+            if linked.get("kind") == "location_periods"
+            and row["evidence"].get("origin_location_id") == linked["origin_location_id"]
+            and row["evidence"].get("destination_location_id") == linked["destination_location_id"]
+        ]
+    return {"events": events, "candidates": plan["candidates"], "assessments": plan["assessments"],
+            "historical_transitions": transitions}
 
 
 def _measurement_overlap_possible(measurements, start, end):

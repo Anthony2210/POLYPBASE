@@ -1222,6 +1222,7 @@
 }
 
 .zone-movement-related,
+.zone-movement-interval,
 .zone-movement-row time {
   color: var(--color-muted);
   font-size: 0.75rem;

@@ -4,8 +4,8 @@ import type { TrendEvent, TrendLocation } from '../components/BiologicalTrendCha
 
 export type HistoryEvent = {
   id: string;
-  kind: 'ordinary' | 'historical_reconstruction' | 'deactivation' | 'reactivation' | 'initial_location' | 'qualification' | 'unclassified' | 'location_evidence';
-  temporal_precision: 'exact' | 'iso_week' | 'unresolved';
+  kind: 'ordinary' | 'historical_reconstruction' | 'deactivation' | 'reactivation' | 'initial_location' | 'qualification' | 'unclassified' | 'location_evidence' | 'historical_transition';
+  temporal_precision: 'exact' | 'iso_week' | 'unresolved' | 'observation_interval';
   occurred_at: string | null;
   iso_year: number | null;
   iso_week: number | null;
@@ -26,6 +26,7 @@ export function historyKindLabel(event: HistoryEvent, t: Translator): string {
     deactivation: 'historyDeactivation', reactivation: 'movementKindReactivation',
     initial_location: 'movementKindInitialLocation', qualification: 'movementKindQualification',
     unclassified: 'movementKindUnclassified', location_evidence: 'historyLocationEvidence',
+    historical_transition: 'historyHistoricalMovement',
   } as const;
   return t(keys[event.kind]);
 }
@@ -43,14 +44,17 @@ export function historyWeekInterval(year: number, week: number) {
   return { start: monday.toISOString().slice(0, 10), end: sunday.toISOString().slice(0, 10) };
 }
 
-export function establishedHistoryWeek(event: HistoryEvent) {
-  const year = event.iso_year, week = event.iso_week;
-  if (event.kind !== 'historical_reconstruction' || event.reconciliation_status !== 'accepted'
-    || event.temporal_precision !== 'iso_week' || !Number.isInteger(year) || !Number.isInteger(week)
-    || year == null || week == null || year < 100 || year > 9998 || week < 1 || week > 53) return null;
+function validHistoryWeekInterval(year: unknown, week: unknown) {
+  if (typeof year !== 'number' || typeof week !== 'number' || !Number.isInteger(year) || !Number.isInteger(week)
+    || year < 100 || year > 9998 || week < 1 || week > 53) return null;
   const interval = historyWeekInterval(year, week);
-  if (interval.start >= historyWeekInterval(year + 1, 1).start) return null;
-  return interval;
+  return interval.start < historyWeekInterval(year + 1, 1).start ? interval : null;
+}
+
+export function establishedHistoryWeek(event: HistoryEvent) {
+  if (event.kind !== 'historical_reconstruction' || event.reconciliation_status !== 'accepted'
+    || event.temporal_precision !== 'iso_week') return null;
+  return validHistoryWeekInterval(event.iso_year, event.iso_week);
 }
 
 export function historyReconstructionNote(event: HistoryEvent, language: Language, t: Translator) {
@@ -71,11 +75,46 @@ export function isUnconfirmedHistoryTransition(event: HistoryEvent) {
   if (!['blocked', 'review_required'].includes(event.reconciliation_status)) return false;
   const ids = event.evidence.represented_movement_ids;
   if (!Array.isArray(ids) || ids.length > 0) return false;
+  // A recorded movement linked to these periods may be this very transition.
+  const mismatched = event.evidence.mismatched_movement_ids;
+  if (Array.isArray(mismatched) && mismatched.length > 0) return false;
   if (event.provenance === 'transition_candidate') return true;
   const origin = event.evidence.origin_location_id, destination = event.evidence.destination_location_id;
   return event.provenance === 'transition_assessment' && event.evidence.classification !== 'initial_assignment'
     && typeof origin === 'number' && Number.isSafeInteger(origin) && origin > 0
     && typeof destination === 'number' && Number.isSafeInteger(destination) && destination > 0 && origin !== destination;
+}
+
+// Backend blockers that leave the origin record and its precedence over the
+// stored boundary intact. Any other or unknown blocker removes the order claim.
+const ORIGIN_RECORD_PRESERVING_BLOCKERS = new Set<unknown>([
+  'adjacent_measurement_evidence_missing', 'whole_week_period_evidence_required',
+  'destination_period_does_not_cover_week', 'recorded_event_in_week', 'lifecycle_event_in_week',
+]);
+
+function parisDateTime(value: string) {
+  return new Date(value).toLocaleString('sv-SE', { timeZone: 'Europe/Paris', hourCycle: 'h23' });
+}
+
+// attributed_week_start alone is not proof: the backend also sets it when the
+// origin record is missing. Only measurement_weeks shows that the record exists.
+export function potentialTransitionOriginWeek(event: HistoryEvent, locations: readonly BoxLocation[]) {
+  const { proposed_iso_year: year, proposed_iso_week: week, attributed_week_start: weekStart,
+    measurement_weeks: weeks, blockers, origin_location_id: originId } = event.evidence;
+  const interval = validHistoryWeekInterval(year, week);
+  if (!interval || weekStart !== interval.start || !Array.isArray(weeks) || !weeks.includes(weekStart)
+    || !Array.isArray(blockers) || !blockers.every(reason => ORIGIN_RECORD_PRESERVING_BLOCKERS.has(reason))) return null;
+  // The record only belongs to the origin if that period covers its whole week.
+  const origins = locations.filter(location => location.id === originId);
+  if (origins.length !== 1 || !(parisDateTime(origins[0].starts_at) <= `${interval.start} 00:00:00`)) return null;
+  return { year: year as number, week: week as number };
+}
+
+export function potentialTransitionNote(event: HistoryEvent, locations: readonly BoxLocation[], t: Translator) {
+  const origin = potentialTransitionOriginWeek(event, locations);
+  return origin
+    ? t('historyPotentialAfterRecord').replace('{week}', String(origin.week)).replace('{year}', String(origin.year))
+    : t('historyPotentialUnordered');
 }
 
 export function localHistoryDay(value: string) {
@@ -126,6 +165,47 @@ export type HistoryAssessment = {
   iso_year?: number; iso_week?: number;
   from_thermal_zone_id?: number | null; to_thermal_zone_id?: number | null;
 };
+
+export type HistoricalObservation = {
+  reading_id: number; biological_measurement_id: number; iso_year: number; iso_week: number; week_start: string;
+  environment_temperature_c: string; association_status: string; sources: Record<string, unknown>[];
+};
+
+export type HistoricalTransition = {
+  id: string; box_id: number; status: 'established' | 'environment_only' | 'already_represented' | 'review';
+  from_environment_c: string; to_environment_c: string;
+  from_thermal_zone: { id: number; name: string } | null; to_thermal_zone: { id: number; name: string } | null;
+  origin_observation: HistoricalObservation; destination_observation: HistoricalObservation;
+  representation: { kind: string; event_id?: string } | null; blockers: string[];
+  planner_candidate_ids?: string[]; adds_location_history: boolean;
+};
+
+export function historicalTransitionOf(event: HistoryEvent) {
+  return event.kind === 'historical_transition' ? event.evidence.transition as HistoricalTransition : null;
+}
+
+export function historicalTransitionTitle(transition: HistoricalTransition, t: Translator) {
+  return t(['established', 'environment_only'].includes(transition.status) ? 'historyHistoricalMovement' : 'historyCandidate');
+}
+
+export type HistoricalWeekInterval = { from_iso_year: number; from_iso_week: number; to_iso_year: number; to_iso_week: number };
+
+function fillInterval(template: string, interval: HistoricalWeekInterval) {
+  return template.replace('{from}', String(interval.from_iso_week)).replace('{to}', String(interval.to_iso_week))
+    .replace('{year}', String(interval.to_iso_year)).replace('{fromYear}', String(interval.from_iso_year))
+    .replace('{toYear}', String(interval.to_iso_year));
+}
+
+// Weeks come from the two source observations; the movement itself has no known date.
+export function historicalTransitionInterval(transition: HistoricalTransition, t: Translator) {
+  const interval = { from_iso_year: transition.origin_observation.iso_year, from_iso_week: transition.origin_observation.iso_week,
+    to_iso_year: transition.destination_observation.iso_year, to_iso_week: transition.destination_observation.iso_week };
+  return fillInterval(t(interval.from_iso_year === interval.to_iso_year ? 'historyBetweenRecords' : 'historyBetweenRecordsAcrossYears'), interval);
+}
+
+export function zoneHistoricalIntervalLabel(interval: HistoricalWeekInterval, t: Translator) {
+  return fillInterval(t(interval.from_iso_year === interval.to_iso_year ? 'zoneMovementInterval' : 'zoneMovementIntervalAcrossYears'), interval);
+}
 
 export function historyBlockerLabel(reason: string, t: Translator) {
   const keys = {
@@ -180,14 +260,15 @@ function lifecyclePresentation(event: HistoryEvent, pairs: Map<HistoryEvent, His
 
 export function historyTimelineEntries(
   events: readonly HistoryEvent[], candidates: readonly HistoryCandidate[], locations: readonly BoxLocation[],
-  assessments: readonly HistoryAssessment[] = [],
+  assessments: readonly HistoryAssessment[] = [], transitions: readonly HistoricalTransition[] = [],
 ) {
   const zone = (id: number | null | undefined) => locations.find(location => location.thermal_zone.id === id)?.thermal_zone ?? null;
   const pairs = uniqueLifecyclePairs(events);
   const pairedAudits = new Map([...pairs].map(([audit, movement]) => [movement, audit]));
   // Collapse only a unique explicit pair; preserve the recorded movement and
   // the full audit source, including correction capabilities and evidence.
-  const rows: HistoryEvent[] = events.filter(event => !pairs.has(event)).map(event => {
+  const rows: HistoryEvent[] = events.filter(event => !pairs.has(event) && event.kind !== 'location_evidence'
+      && !['transition_candidate', 'transition_assessment'].includes(event.provenance)).map(event => {
     const audit = pairedAudits.get(event);
     return audit ? { ...event, evidence: { ...event.evidence, paired_lifecycle_events: [audit] } }
       : lifecyclePresentation(event, pairs);
@@ -200,10 +281,42 @@ export function historyTimelineEntries(
       classification: item.classification, proposed_iso_year: item.iso_year ?? null, proposed_iso_week: item.iso_week ?? null },
     reconciliation_status: item.reconciliation_status, recorded_movement_id: null, can_correct: false, notes: '',
   });
+  const attach = (index: number, field: 'reconciliation_diagnostics' | 'historical_source_transitions', value: unknown) => {
+    const attached = rows[index].evidence[field];
+    rows[index] = { ...rows[index], evidence: { ...rows[index].evidence, [field]: [...(Array.isArray(attached) ? attached : []), value] } };
+  };
+  // Exact period links supplied by the server: the planner row is the same transition.
+  const plannerOwners = new Map<string, string>();
+  for (const transition of transitions) {
+    const owner = transition.status === 'already_represented'
+      ? rows.findIndex(row => row.id === transition.representation?.event_id) : -1;
+    if (owner !== -1) { attach(owner, 'historical_source_transitions', transition); continue; }
+    // Uncertain source evidence remains in the API, never as a physical movement row.
+    if (transition.status !== 'established' || !transition.from_thermal_zone || !transition.to_thermal_zone
+      || transition.blockers.length !== 0) continue;
+    rows.push({ id: transition.id, kind: 'historical_transition', temporal_precision: 'observation_interval', occurred_at: null,
+      iso_year: null, iso_week: null, from_thermal_zone: transition.from_thermal_zone, to_thermal_zone: transition.to_thermal_zone,
+      actor: null, provenance: 'historical_tracking', evidence: { transition }, reconciliation_status: transition.status,
+      recorded_movement_id: null, can_correct: false, notes: '' });
+    for (const id of transition.planner_candidate_ids ?? []) plannerOwners.set(id, transition.id);
+  }
+  // A transition already persisted keeps one row: its diagnostic moves to that
+  // row's provenance instead of reading as a second movement.
+  const place = (entry: HistoryEvent, sourceId: string) => {
+    const planned = plannerOwners.get(sourceId);
+    if (planned) { attach(rows.findIndex(row => row.id === planned), 'reconciliation_diagnostics', entry); return; }
+    const { represented_movement_ids: ids, origin_location_id: origin, destination_location_id: destination } = entry.evidence;
+    const represents = (row: HistoryEvent) => (row.provenance === 'box_movement' && Array.isArray(ids)
+        && ids.includes(row.recorded_movement_id))
+      || (row.kind === 'historical_reconstruction' && typeof origin === 'number' && typeof destination === 'number'
+        && row.evidence.origin_location_id === origin && row.evidence.destination_location_id === destination);
+    if (!rows.some(represents)) return;
+    rows.forEach((row, index) => { if (represents(row)) attach(index, 'reconciliation_diagnostics', entry); });
+  };
   // Candidates describe reconciliation work, never an additional physical event.
   for (const candidate of candidates) {
     if (['review_required', 'blocked'].includes(candidate.reconciliation_status))
-      rows.push(diagnostic(candidate, 'transition_candidate'));
+      place(diagnostic(candidate, 'transition_candidate'), candidate.id);
   }
   for (const assessment of assessments) {
     if (assessment.classification === 'initial_assignment') {
@@ -214,11 +327,13 @@ export function historyTimelineEntries(
         continue;
       }
     }
-    rows.push(diagnostic(assessment, 'transition_assessment'));
+    place(diagnostic(assessment, 'transition_assessment'), assessment.id);
   }
   // Group by the movement calendar's ISO week (Paris). A week-only row is a
   // group-level item, not an event occurring at its Monday boundary.
   const group = (event: HistoryEvent) => {
+    const transition = historicalTransitionOf(event);
+    if (transition) return transition.destination_observation.week_start;
     if (event.kind === 'historical_reconstruction') return establishedHistoryWeek(event)?.start ?? '';
     if (event.temporal_precision === 'iso_week' && event.iso_year != null && event.iso_week != null)
       return historyWeekInterval(event.iso_year, event.iso_week).start;

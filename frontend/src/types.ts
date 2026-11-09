@@ -562,9 +562,14 @@ export type ZoneProbeReadings = {
 export type ThermalZoneMovementDirection = 'arrival' | 'departure';
 
 export type ThermalZoneMovementEvent = {
-  location_id: number;
+  // Historical sides have neither a stored period nor a known occurrence.
+  location_id: number | null;
   event_type: ThermalZoneMovementDirection;
-  occurred_at: string;
+  occurred_at: string | null;
+  temporal_precision?: 'observation_interval';
+  transition_id?: string;
+  historical_interval?: { from_iso_year: number; from_iso_week: number; to_iso_year: number; to_iso_week: number };
+  provenance?: Record<string, unknown>;
   box_id: number;
   box_code: string;
   box_status: string;
@@ -584,6 +589,7 @@ export type ThermalZoneMovementSummary = {
   recent_arrivals: ThermalZoneMovementEvent[];
   recent_departures: ThermalZoneMovementEvent[];
   weeks: ThermalZoneMovementWeek[];
+  historical_counts?: { entry_count: number; exit_count: number };
 };
 
 export type ZoneSalinityMeasurement = {

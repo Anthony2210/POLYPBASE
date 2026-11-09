@@ -12,6 +12,7 @@ import type {
 } from '../types';
 import { formatDisplayDateTime } from '../utils/dateFormat';
 import { getErrorMessage } from '../utils/errors';
+import { zoneHistoricalIntervalLabel } from '../utils/boxHistory';
 import BoxTrackingPreview from './BoxTrackingPreview';
 import DetailBackButton from './DetailBackButton';
 import PageLoader from './PageLoader';
@@ -154,9 +155,10 @@ function MovementRows({
               ? t('zoneMovementFrom').replace('{zone}', movement.related_zone_name)
               : t('zoneMovementTo').replace('{zone}', movement.related_zone_name))
           : null;
+        const interval = movement.historical_interval ? zoneHistoricalIntervalLabel(movement.historical_interval, t) : null;
 
         return (
-          <div className={`zone-movement-row is-${direction}`} key={`${movement.event_type}-${movement.location_id}`}>
+          <div className={`zone-movement-row is-${direction}`} key={`${movement.event_type}-${movement.transition_id ?? movement.location_id}`}>
             <DirectionIcon className="zone-movement-direction-icon" size={17} strokeWidth={1.8} aria-hidden="true" />
             <div className="box-inventory-identity zone-movement-identity">
               <BoxTrackingPreview
@@ -166,15 +168,23 @@ function MovementRows({
                 onOpenBox={(boxId) => onOpenBox(boxId)}
                 t={t}
               />
+              {interval ? <span className="zone-movement-related">{t(direction === 'arrival' ? 'zoneMovementHistoricalEntry' : 'zoneMovementHistoricalExit')}</span> : null}
               {showRelatedZone && relatedZone ? <span className="zone-movement-related">{relatedZone}</span> : null}
+              {showRelatedZone && movement.provenance ? (
+                <details className="movement-evidence">
+                  <summary>{t('historyProvenance')}</summary>
+                  <pre>{JSON.stringify({ transition_id: movement.transition_id, ...movement.provenance }, null, 2)}</pre>
+                </details>
+              ) : null}
             </div>
             <button
               className="zone-movement-open"
               type="button"
-              aria-label={`${directionLabel}, ${movement.box_code}, ${formatDisplayDateTime(movement.occurred_at)}`}
+              aria-label={`${directionLabel}, ${movement.box_code}, ${interval ?? formatDisplayDateTime(movement.occurred_at!)}`}
               onClick={() => onOpenBox(movement.box_id)}
             >
-              <time dateTime={movement.occurred_at}>{formatDisplayDateTime(movement.occurred_at)}</time>
+              {interval ? <span className="zone-movement-interval">{interval}</span>
+                : <time dateTime={movement.occurred_at!}>{formatDisplayDateTime(movement.occurred_at!)}</time>}
             </button>
           </div>
         );
@@ -338,6 +348,13 @@ export function ZoneRecentMovements({
           ) : (
             <p className="muted compact-text">{t('zoneMovementEmpty')}</p>
           )}
+          {summary.historical_counts && summary.historical_counts.entry_count + summary.historical_counts.exit_count > 0 ? (
+            <p className="muted compact-text">
+              {t('zoneMovementHistoricalTotals')
+                .replace('{entries}', String(summary.historical_counts.entry_count))
+                .replace('{exits}', String(summary.historical_counts.exit_count))}
+            </p>
+          ) : null}
           <div className="zone-recent-movement-columns">
             <RecentMovementColumn
               direction="arrival"

@@ -26,7 +26,7 @@ import PolypbaseIcon from './PolypbaseIcon';
 import BoxTrackingChart, { buildLifecycleEvents } from './BoxTrackingChart';
 import ModalPortal from './ModalPortal';
 import { useBoxHistory } from '../hooks/useBoxHistory';
-import { historyKindLabel, historyWeekLabel, historyTimelineEntries, establishedHistoryWeek, historyReconstructionNote, isUnconfirmedHistoryTransition, type HistoryAssessment, type HistoryCandidate, type HistoryEvent } from '../utils/boxHistory';
+import { historyKindLabel, historyWeekLabel, historyTimelineEntries, establishedHistoryWeek, historyReconstructionNote, isUnconfirmedHistoryTransition, potentialTransitionNote, potentialTransitionOriginWeek, historicalTransitionOf, historicalTransitionTitle, historicalTransitionInterval, type HistoricalTransition, type HistoryAssessment, type HistoryCandidate, type HistoryEvent } from '../utils/boxHistory';
 import BoxHistoryStatus from './BoxHistoryStatus';
 
 const InteractiveLineageGraph = lazy(() => import('./InteractiveLineageGraph'));
@@ -187,7 +187,7 @@ export default function BoxInsights({
             <h2>{labels.movementHistoryTitle}</h2>
           </div>
           <BoxHistoryStatus history={history} language={language} />
-          <MovementTimeline events={history.events} candidates={history.candidates} assessments={history.assessments} locations={locations} loading={history.loading || history.failed} labels={labels} language={language}
+          <MovementTimeline events={history.events} candidates={history.candidates} assessments={history.assessments} historicalTransitions={history.historicalTransitions} locations={locations} loading={history.loading || history.failed} labels={labels} language={language}
             correctableMovementId={correctableMovementId} correctMovementLabel={correctMovementLabel}
             onCorrectMovement={onCorrectMovement} />
         </div>
@@ -232,6 +232,7 @@ function MovementTimeline({
   events,
   candidates = [],
   assessments = [],
+  historicalTransitions = [],
   locations,
   loading,
   language,
@@ -243,6 +244,7 @@ function MovementTimeline({
   events: HistoryEvent[];
   candidates?: HistoryCandidate[];
   assessments?: HistoryAssessment[];
+  historicalTransitions?: HistoricalTransition[];
   locations: BoxLocation[];
   loading: boolean;
   language: Language;
@@ -251,7 +253,7 @@ function MovementTimeline({
   onCorrectMovement?: (movementId: number) => void;
 }) {
   const t = createTranslator(language);
-  const sortedMovements = historyTimelineEntries(events, candidates, locations, assessments);
+  const sortedMovements = historyTimelineEntries(events, candidates, locations, assessments, historicalTransitions);
 
   if (!sortedMovements.length) {
     return loading ? null : <p className="muted compact-text movement-empty">{labels.noMovementHistory}</p>;
@@ -259,21 +261,35 @@ function MovementTimeline({
 
   return (
     <ol className="movement-timeline" role="list">
-      {sortedMovements.map((movement) => (
+      {sortedMovements.map((movement) => {
+        const transition = historicalTransitionOf(movement);
+        // The note below already states these weeks: no competing "date unknown" label.
+        const noteStatesWeeks = (transition && transition.status !== 'review')
+          || (isUnconfirmedHistoryTransition(movement) && potentialTransitionOriginWeek(movement, locations) !== null);
+        return (
         <li key={movement.id}>
           {movement.temporal_precision === 'exact' && movement.occurred_at
             ? <time dateTime={movement.occurred_at}>{formatDisplayDateTime(movement.occurred_at)}</time>
-            : <span>{(movement.kind === 'historical_reconstruction' ? establishedHistoryWeek(movement) : movement.temporal_precision === 'iso_week')
+            : <span>{noteStatesWeeks ? null : (movement.kind === 'historical_reconstruction' ? establishedHistoryWeek(movement) : movement.temporal_precision === 'iso_week')
               ? historyWeekLabel(movement, t) : t('historyUnresolved')}</span>}
           <div className="movement-detail">
-            {(!['qualification', 'location_evidence'].includes(movement.kind)
+            {transition ? <span className="movement-event">{historicalTransitionTitle(transition, t)}</span>
+              : (!['qualification', 'location_evidence'].includes(movement.kind)
               || ['transition_candidate', 'transition_assessment'].includes(movement.provenance)) ? (
-              <span className="movement-event">{isUnconfirmedHistoryTransition(movement) ? t('movementKindOrdinary')
+              <span className="movement-event">{isUnconfirmedHistoryTransition(movement) ? t('historyPotentialMovement')
                 : movement.provenance === 'transition_candidate' ? t('historyCandidate')
                 : movement.provenance === 'transition_assessment' ? t('historyAssessment') : historyKindLabel(movement, t)}</span>
             ) : null}
             <strong className="movement-locations">
-              {movement.from_thermal_zone ? (
+              {transition && !(movement.from_thermal_zone && movement.to_thermal_zone) ? (
+                <>
+                  <span>{transition.from_environment_c} °C</span>
+                  {' '}
+                  <span className="movement-arrow">→</span>
+                  {' '}
+                  <span>{transition.to_environment_c} °C</span>
+                </>
+              ) : movement.from_thermal_zone ? (
                 <>
                   <span>{movement.from_thermal_zone.name}</span>
                   {' '}
@@ -289,12 +305,17 @@ function MovementTimeline({
                 </>
               )}
             </strong>
-            <small>{formatReadableUserIdentity(movement.actor) || t('historyActorUnknown')}</small>
-            {movement.kind === 'historical_reconstruction' ? (
+            {transition || isUnconfirmedHistoryTransition(movement) ? null
+              : <small>{formatReadableUserIdentity(movement.actor) || t('historyActorUnknown')}</small>}
+            {transition ? (
+              <small><em>{transition.status === 'review' || transition.status === 'already_represented'
+                ? t('historyTransitionReview') : historicalTransitionInterval(transition, t)}</em></small>
+            ) : movement.kind === 'historical_reconstruction' ? (
               <small><em>{historyReconstructionNote(movement, language, t)}</em></small>
             ) : isUnconfirmedHistoryTransition(movement) ? (
-              <small><em>{t('historyReconstructionUnresolved')}</em></small>
+              <small><em>{potentialTransitionNote(movement, locations, t)}</em></small>
             ) : movement.temporal_precision === 'iso_week' ? <small>{t('historyWeekOnly')}</small> : null}
+            {transition?.status === 'environment_only' ? <small>{t('historyEnvironmentOnly')}</small> : null}
             {movement.notes ? <p>{movement.notes}</p> : null}
             <details className="movement-evidence">
               <summary>{t('historyProvenance')}</summary>
@@ -309,7 +330,8 @@ function MovementTimeline({
             ) : null}
           </div>
         </li>
-      ))}
+        );
+      })}
     </ol>
   );
 }

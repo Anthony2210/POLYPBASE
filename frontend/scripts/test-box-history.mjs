@@ -182,7 +182,7 @@ test('history groups interleave weeks and exact events chronologically without a
     event('week2-exact', 'ordinary', '2026-01-06T10:00:00Z'), event('unknown', 'location_evidence', null)];
   const before = JSON.stringify(rows);
   const result = history.historyTimelineEntries(rows, [], []);
-  assert.deepEqual(Array.from(result, row => row.id), ['new', 'week2', 'week2-exact', 'week1', 'old', 'unknown']);
+  assert.deepEqual(Array.from(result, row => row.id), ['new', 'week2', 'week2-exact', 'week1', 'old']);
   assert.equal(result[1].occurred_at, null);
   assert.equal(JSON.stringify(rows), before);
   assert.deepEqual(Array.from(history.historyTimelineEntries([...rows].reverse(), [], []), row => row.id),
@@ -195,23 +195,183 @@ const candidate = (id, status, extra = {}) => ({ id, box_id: 7, iso_year: 2026, 
   blockers: status === 'blocked' ? ['measurement_week_inconsistent'] : [],
   evidence: { attributed_week_start: '2025-12-29', destination_week_start: '2026-01-05' }, ...extra });
 
-test('pending transition labels require explicit provenance and never certify a proposed week or duplicate a recorded movement', () => {
+const diagnosticEvent = (item, provenance = 'transition_candidate') => event(`${provenance}:${item.id}`, 'location_evidence', null,
+  { ...item.evidence, blockers: item.blockers, classification: item.classification,
+    proposed_iso_year: item.iso_year ?? null, proposed_iso_week: item.iso_week ?? null },
+  { provenance, reconciliation_status: item.reconciliation_status });
+
+test('pending transition helpers require explicit provenance without making standalone timeline rows', () => {
   const pending = candidate('pending', 'blocked', { evidence: { origin_location_id: 3, destination_location_id: 4, represented_movement_ids: [] } });
   const rows = history.historyTimelineEntries([], [pending], [location, { ...location, thermal_zone: origin }]);
-  assert.equal(rows.length, 1);
-  assert.equal(history.isUnconfirmedHistoryTransition(rows[0]), true);
-  assert.equal(rows[0].temporal_precision, 'unresolved');
-  assert.equal(rows[0].occurred_at, null);
-  assert.equal(rows[0].iso_week, null);
-  assert.equal(project(rows).events.length, 0);
-  const assessment = { ...rows[0], provenance: 'transition_assessment' };
+  assert.equal(rows.length, 0);
+  const diagnostic = diagnosticEvent(pending);
+  assert.equal(history.isUnconfirmedHistoryTransition(diagnostic), true);
+  assert.equal(diagnostic.temporal_precision, 'unresolved');
+  assert.equal(diagnostic.occurred_at, null);
+  assert.equal(diagnostic.iso_week, null);
+  assert.equal(project([diagnostic]).events.length, 0);
+  const assessment = { ...diagnostic, provenance: 'transition_assessment' };
   assert.equal(history.isUnconfirmedHistoryTransition(assessment), true);
   for (const patch of [
     { provenance: 'box_location' }, { kind: 'qualification', provenance: 'box_movement' },
     { evidence: {} }, { evidence: { represented_movement_ids: [1] } },
+    { evidence: { ...assessment.evidence, mismatched_movement_ids: [9] } },
     { evidence: { ...assessment.evidence, classification: 'initial_assignment' }, provenance: 'transition_assessment' },
     { evidence: { represented_movement_ids: [] }, provenance: 'transition_assessment' },
   ]) assert.equal(history.isUnconfirmedHistoryTransition({ ...assessment, ...patch }), false);
+});
+
+const originPeriod = { ...location, id: 3, starts_at: '2025-12-29T00:00:00+01:00', thermal_zone: origin };
+const provenRecord = { origin_location_id: 3, destination_location_id: 4, represented_movement_ids: [],
+  attributed_week_start: '2025-12-29', destination_week_start: '2026-01-05',
+  measurement_weeks: ['2025-12-29', '2026-01-05'], measurement_ids: [0, 1] };
+const potentialRow = (evidence = provenRecord, blockers = []) => diagnosticEvent(
+  candidate('potential', 'blocked', { evidence, blockers }));
+const originWeek = (row, periods = [originPeriod, location]) => {
+  const week = history.potentialTransitionOriginWeek(row, periods);
+  return week && { ...week };
+};
+
+test('the origin record week is cited only when the record itself is proven', () => {
+  assert.deepEqual(originWeek(potentialRow()), { year: 2026, week: 1 });
+  assert.equal(history.potentialTransitionNote(potentialRow(), [originPeriod, location], t),
+    en.historyPotentialAfterRecord.replace('{week}', '1').replace('{year}', '2026'));
+  // The destination record may be missing without weakening the origin record.
+  assert.deepEqual(originWeek(potentialRow({ ...provenRecord, measurement_weeks: ['2025-12-29'], measurement_ids: [0] },
+    ['adjacent_measurement_evidence_missing'])), { year: 2026, week: 1 });
+  // A mid-week boundary is still after the origin record once the origin period covers its week.
+  assert.deepEqual(originWeek(potentialRow(provenRecord, ['whole_week_period_evidence_required'])), { year: 2026, week: 1 });
+});
+
+test('unproven origin records fall back to a sentence without chronological order', () => {
+  const unproven = [
+    // The backend sets attributed_week_start even when the origin record is absent.
+    potentialRow({ ...provenRecord, measurement_weeks: ['2026-01-05'], measurement_ids: [1] }, ['adjacent_measurement_evidence_missing']),
+    potentialRow({ ...provenRecord, measurement_weeks: [], measurement_ids: [] }, ['adjacent_measurement_evidence_missing']),
+    potentialRow({ ...provenRecord, attributed_week_start: undefined }),
+    potentialRow({ ...provenRecord, attributed_week_start: '2026-01-05' }),
+    ...['measurement_week_inconsistent', 'measurement_environment_attribution_unresolved', 'period_continuity_unresolved',
+      'multiple_period_transitions_in_week', 'future_period_boundary', 'invalid_or_foreign_period', 'new_backend_reason']
+      .map(reason => potentialRow(provenRecord, [reason])),
+  ];
+  for (const row of unproven) {
+    assert.equal(originWeek(row), null);
+    assert.equal(history.potentialTransitionNote(row, [originPeriod, location], t), en.historyPotentialUnordered);
+  }
+  assert.equal(originWeek(potentialRow(), [location]), null);
+  // The origin period must already cover the whole record week.
+  assert.equal(originWeek(potentialRow(), [{ ...originPeriod, starts_at: '2025-12-31T00:00:00+01:00' }, location]), null);
+  assert.equal(originWeek(potentialRow(), [{ ...originPeriod, starts_at: '2025-12-29T00:00:01+01:00' }, location]), null);
+  assert.equal(originWeek({ ...potentialRow(), evidence: { ...potentialRow().evidence, proposed_iso_week: 54 } }), null);
+});
+
+test('a persisted movement or receipt absorbs its diagnostic instead of showing a second movement', () => {
+  const recorded = event('movement:7', 'ordinary', '2026-01-05T00:00:00+01:00', {}, { recorded_movement_id: 7 });
+  const blocked = candidate('represented', 'blocked', { evidence: { ...provenRecord, represented_movement_ids: [7] } });
+  const missing = candidate('assessment', 'blocked', { classification: 'ambiguous', iso_week: 2,
+    evidence: { ...provenRecord, represented_movement_ids: [7], measurement_weeks: [] } });
+  const before = JSON.stringify([recorded, blocked, missing]);
+  const rows = history.historyTimelineEntries([recorded], [blocked], [originPeriod, location], [missing]);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, recorded.id);
+  assert.equal(rows[0].recorded_movement_id, 7);
+  assert.deepEqual([...rows[0].evidence.reconciliation_diagnostics].map(row => row.id),
+    ['transition_candidate:represented', 'transition_assessment:assessment']);
+  assert.deepEqual([...rows[0].evidence.reconciliation_diagnostics[0].evidence.blockers], ['measurement_week_inconsistent']);
+  assert.equal(JSON.stringify([recorded, blocked, missing]), before);
+
+  const receipt = event('historical:1', 'historical_reconstruction', null,
+    { origin_location_id: 3, destination_location_id: 4 }, { reconciliation_status: 'unresolved' });
+  const receiptRows = history.historyTimelineEntries([receipt], [candidate('changed', 'blocked', { evidence: provenRecord })], [originPeriod, location]);
+  assert.equal(receiptRows.length, 1);
+  assert.equal(receiptRows[0].id, receipt.id);
+  assert.equal(receiptRows[0].evidence.reconciliation_diagnostics.length, 1);
+
+  // Without a persisted target, diagnostics must not invent timeline rows.
+  const orphan = history.historyTimelineEntries([], [blocked], [originPeriod, location], [missing]);
+  assert.equal(orphan.length, 0);
+});
+
+const sourceObservation = (year, week, start) => ({ reading_id: week, biological_measurement_id: week, iso_year: year, iso_week: week,
+  week_start: start, environment_temperature_c: '15', association_status: 'confirmed', sources: [] });
+const sourceTransition = (status, extra = {}) => ({ id: `historical-transition:${status}`, box_id: 7, status, from_environment_c: '15', to_environment_c: '10',
+  from_thermal_zone: origin, to_thermal_zone: destination, origin_observation: sourceObservation(2026, 7, '2026-02-09'),
+  destination_observation: sourceObservation(2026, 8, '2026-02-16'), representation: null, blockers: [], planner_candidate_ids: [], adds_location_history: true, ...extra });
+
+test('an established source transition replaces its exact planner candidate and keeps it in provenance', () => {
+  const planned = candidate('linked', 'blocked', { evidence: provenRecord });
+  const unrelated = candidate('unrelated', 'blocked', { evidence: { ...provenRecord, origin_location_id: 99 } });
+  const transition = sourceTransition('established', { planner_candidate_ids: ['linked'], representation: { kind: 'location_periods' } });
+  const rows = history.historyTimelineEntries([], [planned, unrelated], [originPeriod, location], [], [transition]);
+  assert.deepEqual([...rows].map(row => row.id), ['historical-transition:established']);
+  const row = [...rows].find(item => item.kind === 'historical_transition');
+  assert.equal(row.occurred_at, null);
+  assert.equal(row.temporal_precision, 'observation_interval');
+  assert.deepEqual([...row.evidence.reconciliation_diagnostics].map(item => item.id), ['transition_candidate:linked']);
+  assert.equal(project(rows, []).events.length, 0, 'no exact chart marker is derived from an observation interval');
+});
+
+test('an already represented source transition attaches to its target or emits no row when missing', () => {
+  const recorded = event('movement:7', 'ordinary', '2026-02-17T09:00:00+01:00', {}, { recorded_movement_id: 7 });
+  const transition = sourceTransition('already_represented', { representation: { kind: 'box_movement', event_id: 'movement:7' }, adds_location_history: false });
+  const rows = history.historyTimelineEntries([recorded], [], [], [], [transition]);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].occurred_at, recorded.occurred_at);
+  assert.equal(rows[0].evidence.historical_source_transitions.length, 1);
+  assert.equal(history.historyTimelineEntries([], [], [], [], [transition]).length, 0);
+});
+
+test('only established source transitions with both zones and no blockers can add timeline rows', () => {
+  const transitions = [
+    sourceTransition('environment_only'), sourceTransition('review'),
+    sourceTransition('established', { from_thermal_zone: null }),
+    sourceTransition('established', { to_thermal_zone: null }),
+    sourceTransition('established', { from_thermal_zone: null, to_thermal_zone: null }),
+    sourceTransition('established', { blockers: ['conflicting_recorded_movement'] }),
+    sourceTransition('already_represented', { representation: { kind: 'box_movement', event_id: 'missing' } }),
+    sourceTransition('already_represented'),
+  ];
+  const before = JSON.stringify(transitions);
+  for (const transition of transitions)
+    assert.equal(history.historyTimelineEntries([], [], [], [], [transition]).length, 0, JSON.stringify(transition));
+  assert.equal(JSON.stringify(transitions), before);
+  assert.equal(history.historyTimelineEntries([], [], [], [], [sourceTransition('established')]).length, 1);
+});
+
+test('hiding technical evidence preserves every recorded kind, unresolved receipts and correction data without mutation', () => {
+  const recorded = ['ordinary', 'initial_location', 'qualification', 'unclassified', 'deactivation', 'reactivation']
+    .map((kind, index) => event(`movement:${index + 1}`, kind, '2026-02-17T09:00:00+01:00',
+      { revision: 3, original: { kept: true } }, { recorded_movement_id: index + 1, can_correct: true,
+        actor: { first_name: 'Original', last_name: 'Author' }, notes: 'Correction preserved' }));
+  const receipt = event('historical:unresolved', 'historical_reconstruction', null,
+    { accepted_at: '2026-01-05T09:00:00Z', accepted_by: { first_name: 'Reviewer' },
+      origin_location_id: 3, destination_location_id: 4 }, { reconciliation_status: 'unresolved' });
+  const events = [...recorded, receipt, ...boundaries];
+  const candidates = [candidate('linked', 'blocked', { evidence: { ...provenRecord, represented_movement_ids: [1] } }),
+    candidate('orphan', 'review_required')];
+  const assessments = [candidate('assessment', 'blocked', { evidence: { represented_movement_ids: [1] } })];
+  const transitions = [sourceTransition('review'), sourceTransition('established', { to_thermal_zone: null })];
+  const periods = [originPeriod, location];
+  const inputs = [events, candidates, periods, assessments, transitions];
+  const before = JSON.stringify(inputs);
+  freezeEvidence(inputs);
+  const rows = history.historyTimelineEntries(events, candidates, periods, assessments, transitions);
+  assert.deepEqual([...rows].map(row => row.id).sort(), [...recorded, receipt].map(row => row.id).sort());
+  for (const source of recorded) {
+    const row = rows.find(item => item.id === source.id);
+    for (const field of ['kind', 'occurred_at', 'recorded_movement_id', 'can_correct', 'notes', 'actor'])
+      assert.deepEqual(row[field], source[field]);
+    assert.equal(row.evidence.revision, 3);
+    assert.equal(row.evidence.original.kept, true);
+  }
+  assert.equal(rows.find(row => row.id === recorded[0].id).evidence.reconciliation_diagnostics.length, 2);
+  assert.deepEqual(rows.find(row => row.id === receipt.id).evidence.accepted_by, receipt.evidence.accepted_by);
+  assert.equal(JSON.stringify(inputs), before);
+});
+
+test('interval labels use observation weeks only, including across ISO years', () => {
+  assert.equal(history.zoneHistoricalIntervalLabel({ from_iso_year: 2026, from_iso_week: 7, to_iso_year: 2026, to_iso_week: 8 }, t), 'Between weeks 7 and 8 of 2026');
+  assert.equal(history.zoneHistoricalIntervalLabel({ from_iso_year: 2025, from_iso_week: 52, to_iso_year: 2026, to_iso_week: 1 }, t), 'Between week 52 of 2025 and week 1 of 2026');
 });
 
 test('accepted and already represented candidates do not duplicate persisted events or invent reconstruction rows', () => {
@@ -223,52 +383,33 @@ test('accepted and already represented candidates do not duplicate persisted eve
   assert.equal(history.historyTimelineEntries([], candidates, []).length, 0);
 });
 
-test('only blocked and review-required candidates become unresolved diagnostics with explicitly proposed origin weeks', () => {
+test('planner candidates of every status remain hidden without a represented timeline row', () => {
   const candidates = ['blocked', 'review_required', 'accepted', 'already_represented', 'unknown'].map(status => candidate(status, status));
   const rows = history.historyTimelineEntries([], candidates, []);
-  assert.equal(rows.length, 2);
-  for (const row of rows) {
-    assert.equal(row.kind, 'location_evidence');
-    assert.equal(row.temporal_precision, 'unresolved');
-    assert.equal(row.iso_year, null);
-    assert.equal(row.iso_week, null);
-    assert.equal(row.occurred_at, null);
-    assert.equal(row.evidence.proposed_iso_week, 1);
-    assert.equal(row.evidence.attributed_week_start, '2025-12-29');
-    assert.equal(row.can_correct, false);
-  }
+  assert.equal(rows.length, 0);
   assert.equal(project(rows, []).events.length, 0);
 });
 
-test('missing-week transitions and missing location history assessments remain unresolved diagnostic rows', () => {
+test('missing-week and missing-location assessments never become standalone timeline rows', () => {
   const assessments = [candidate('missing-week', 'blocked', { classification: 'insufficient_evidence',
     blockers: ['adjacent_measurement_evidence_missing'] }),
   { id: 'no-locations', box_id: 7, classification: 'insufficient_evidence', reconciliation_status: 'blocked',
     blockers: ['location_history_missing'], evidence: {} }];
   const before = JSON.stringify(assessments);
   const rows = history.historyTimelineEntries([], [], [], assessments);
-  assert.equal(rows.length, 2);
-  for (const row of rows) {
-    assert.equal(row.provenance, 'transition_assessment');
-    assert.equal(row.temporal_precision, 'unresolved');
-    assert.equal(row.evidence.classification, 'insufficient_evidence');
-  }
+  assert.equal(rows.length, 0);
   assert.equal(project(rows, []).events.length, 0);
   assert.equal(JSON.stringify(assessments), before);
 });
 
-test('initial assignment assessment enriches existing period evidence without adding an event or mutating sources', () => {
+test('initial assignment assessments and all technical period rows stay hidden without mutating sources', () => {
   const initial = { id: 'initial', box_id: 7, classification: 'initial_assignment', reconciliation_status: 'not_applicable',
     blockers: [], evidence: { location_id: 4, stored_start: location.starts_at, physical_occurrence_proven: false } };
-  const before = JSON.stringify(boundaries);
+  const before = JSON.stringify([boundaries, location, initial]);
   const rows = history.historyTimelineEntries(boundaries, [], [location], [initial]);
-  assert.equal(rows.length, 2);
-  assert.equal(rows.find(row => row.id === 'location:4:start').evidence.assessment.classification, 'initial_assignment');
-  assert.equal(JSON.stringify(boundaries), before);
-  const standalone = history.historyTimelineEntries([], [], [location], [initial]);
-  assert.equal(standalone.length, 1);
-  assert.equal(standalone[0].temporal_precision, 'unresolved');
-  assert.equal(standalone[0].evidence.classification, 'initial_assignment');
+  assert.equal(rows.length, 0);
+  assert.equal(JSON.stringify([boundaries, location, initial]), before);
+  assert.equal(history.historyTimelineEntries([], [], [location], [initial]).length, 0);
 });
 
 test('all final backend blockers have localized labels with a conservative unknown-code fallback', () => {
@@ -560,7 +701,7 @@ test('malformed assessments fail conservatively rather than silently discarding 
   assert.equal(h.value.assessments.length, 0);
 });
 
-test('partial history status includes missing-week assessments and pending candidates, not represented candidates or initial assignment alone', () => {
+test('history status never shows a partial banner for evidence, candidates, assessments or transitions', () => {
   const jsx = (type, props) => ({ type, props });
   const Status = load('components/BoxHistoryStatus.tsx', {
     'react/jsx-runtime': { jsx, jsxs: jsx },
@@ -569,14 +710,18 @@ test('partial history status includes missing-week assessments and pending candi
   const state = { events: [], loading: false, failed: false, retry() {} };
   for (const language of ['fr', 'en']) {
     const status = Status({ language, history: { ...state, assessments: [{ classification: 'insufficient_evidence' }] } });
-    assert.equal(status.props.role, 'status');
+    assert.equal(status, null);
     assert.equal(Status({ language, history: { ...state, assessments: [{ classification: 'initial_assignment' }] } }), null);
     assert.equal(Status({ language, history: { ...state, candidates: [candidate('accepted', 'accepted')] } }), null);
-    assert.ok(Status({ language, history: { ...state, candidates: [candidate('blocked', 'blocked')] } }));
+    assert.equal(Status({ language, history: { ...state, candidates: [candidate('blocked', 'blocked')] } }), null);
+    const absorbed = sourceTransition('established', { planner_candidate_ids: ['blocked'] });
+    assert.equal(Status({ language, history: { ...state, candidates: [candidate('blocked', 'blocked')], historicalTransitions: [absorbed] } }), null);
+    assert.equal(Status({ language, history: { ...state, historicalTransitions: [sourceTransition('review')] } }), null);
+    assert.equal(Status({ language, history: { ...state, events: [event('receipt', 'historical_reconstruction', null)] } }), null);
   }
 });
 
-test('chart status omits partial evidence without reserving a panel and preserves loading, errors and retry', () => {
+test('showPartial is ignored while loading, errors and retry remain available', () => {
   const jsx = (type, props) => ({ type, props });
   const Status = load('components/BoxHistoryStatus.tsx', {
     'react/jsx-runtime': { jsx, jsxs: jsx },
@@ -591,17 +736,21 @@ test('chart status omits partial evidence without reserving a panel and preserve
     const before = JSON.stringify(state);
     assert.equal(Status({ language, history: state, showPartial: false }), null);
     assert.equal(JSON.stringify(state), before, 'evidence remains available to movement history');
-    assert.ok(Status({ language, history: state }), 'other history consumers retain their partial status');
-    const loading = Status({ language, history: { ...state, loading: true }, showPartial: false });
-    assert.equal(loading.props.children[0].props.children, catalog.historyLoading);
-    const failed = Status({ language, history: { ...state, failed: true }, showPartial: false });
-    assert.equal(failed.props.role, 'status');
-    assert.equal(failed.props.children[0].props.children, catalog.historyFailed);
-    const retry = failed.props.children[1];
-    assert.equal(retry.props.children, catalog.reloadAction);
-    assert.equal(retry.props.type, 'button');
-    retry.props.onClick();
-    assert.equal(retries, 1);
+    assert.equal(Status({ language, history: state }), null);
+    assert.equal(Status({ language, history: state, showPartial: true }), null);
+    for (const showPartial of [undefined, false, true]) {
+      const loading = Status({ language, history: { ...state, loading: true }, showPartial });
+      assert.equal(loading.props.role, 'status');
+      assert.equal(loading.props.children[0].props.children, catalog.historyLoading);
+      const failed = Status({ language, history: { ...state, failed: true }, showPartial });
+      assert.equal(failed.props.role, 'status');
+      assert.equal(failed.props.children[0].props.children, catalog.historyFailed);
+      const retry = failed.props.children[1];
+      assert.equal(retry.props.children, catalog.reloadAction);
+      assert.equal(retry.props.type, 'button');
+      retry.props.onClick();
+    }
+    assert.equal(retries, 3);
   }
 });
 

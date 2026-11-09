@@ -13,6 +13,13 @@ import build_ja_catalogs as builder
 from test_ja_manifest import HISTORICAL_MOVEMENT_KEYS, ROOT, post_baseline_react_keys, rows
 
 
+# B20 and B21 additions postdate the frozen baseline and remain plain English fallbacks.
+POTENTIAL_MOVEMENT_KEYS = frozenset({
+    "historyPotentialMovement", "historyPotentialAfterRecord", "historyPotentialUnordered",
+    "historyHistoricalMovement", "historyBetweenRecords", "historyBetweenRecordsAcrossYears", "historyEnvironmentOnly", "historyTransitionReview", "zoneMovementHistoricalEntry", "zoneMovementHistoricalExit", "zoneMovementInterval", "zoneMovementIntervalAcrossYears", "zoneMovementHistoricalTotals",
+})
+
+
 def digest(value):
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
 
@@ -63,7 +70,8 @@ class AiReviewTests(unittest.TestCase):
         added = post_baseline_react_keys()
         self.assertEqual(set(added), LATER_FALLBACK_KEYS)
         records = [row for row in copy.deepcopy(self.manifest)
-                   if not (row["surface"] == "react" and row["identity"] in added)]
+                   if not (row["surface"] == "react" and (row["identity"] in added
+                                                          or row["identity"] in POTENTIAL_MOVEMENT_KEYS))]
         for row in records:
             row.pop("ja_ai_reviewed")
             if row["status"] == "AI_REVIEWED":
@@ -255,6 +263,8 @@ class AiReviewTests(unittest.TestCase):
         deferred = {k for k, r in react.items() if r["status"] == "FALLBACK_EN_REVIEW"}
         self.assertTrue(blocked <= absent)
         self.assertFalse(blocked & deferred)
+        self.assertTrue(POTENTIAL_MOVEMENT_KEYS <= absent)
+        absent -= POTENTIAL_MOVEMENT_KEYS
         # 137 original, plus 7 thermal, 30 laboratory and 44 historical keys.
         self.assertEqual(len(absent - blocked), 218)
         added = set(post_baseline_react_keys())

@@ -225,10 +225,10 @@ test('ja catalog is exactly the historical and AI-reviewed manifest union', () =
     assert.equal(Object.hasOwn(ja, row.identity), false, `${row.identity}: ${row.reason_code} must use English`);
   }
   const counts = react.reduce((total, row) => ({ ...total, [row.status]: (total[row.status] ?? 0) + 1 }), {});
-  // 143 original fallbacks, plus 7 thermal, 30 lab and 44 historical keys.
+  // 143 original fallbacks, plus 7 thermal, 30 lab, 44 historical and 13 later movement keys.
   assert.equal(postBaseline.size, 81);
-  assert.deepEqual(counts, { REUSED: 930, FALLBACK_EN: 224, FALLBACK_EN_REVIEW: 36, AI_REVIEWED: 59 });
-  assert.equal(counts.FALLBACK_EN, 143 + postBaseline.size);
+  assert.deepEqual(counts, { REUSED: 930, FALLBACK_EN: 237, FALLBACK_EN_REVIEW: 36, AI_REVIEWED: 59 });
+  assert.equal(counts.FALLBACK_EN, 143 + postBaseline.size + 13);
 });
 
 test('B13 thermal register events are immutable, even under a coordinated catalog edit', () => {
@@ -507,7 +507,17 @@ function beforeMovementLabelChange(source, language) {
   assert.equal(reconstruction.initial_value, original);
   const reconstructionLine = `  historyAcceptedReconstruction: '${reconstruction.final_value}',\n`;
   assert.equal(source.split(reconstructionLine).length - 1, 1);
-  return source.replace(reconstructionLine, `  historyAcceptedReconstruction: '${original}',\n`);
+  source = source.replace(reconstructionLine, `  historyAcceptedReconstruction: '${original}',\n`);
+  // B20 and B21 only add these exact registered lines; every older line stays frozen.
+  const potential = register.filter(entry => ['B20-2026-11-09', 'B21-2026-11-09'].includes(entry.batch) && entry.language === language.toUpperCase());
+  assert.deepEqual(potential.map(entry => entry.key_or_msgid),
+    ['historyPotentialMovement', 'historyPotentialAfterRecord', 'historyPotentialUnordered', 'historyHistoricalMovement', 'historyBetweenRecords', 'historyBetweenRecordsAcrossYears', 'historyEnvironmentOnly', 'historyTransitionReview', 'zoneMovementHistoricalEntry', 'zoneMovementHistoricalExit', 'zoneMovementInterval', 'zoneMovementIntervalAcrossYears', 'zoneMovementHistoricalTotals']);
+  for (const entry of potential) {
+    const line = `  ${entry.key_or_msgid}: '${entry.final_value}',\n`;
+    assert.equal(source.split(line).length - 1, 1, line);
+    source = source.replace(line, '');
+  }
+  return source;
 }
 
 test('original FR and EN source content remains frozen apart from the registered movement label change', () => {
