@@ -225,10 +225,10 @@ test('ja catalog is exactly the historical and AI-reviewed manifest union', () =
     assert.equal(Object.hasOwn(ja, row.identity), false, `${row.identity}: ${row.reason_code} must use English`);
   }
   const counts = react.reduce((total, row) => ({ ...total, [row.status]: (total[row.status] ?? 0) + 1 }), {});
-  // 143 original fallbacks, plus 7 thermal, 30 lab, 44 historical and 13 later movement keys.
+  // Original fallbacks and registered additions, less the four explicit B23 retirements.
   assert.equal(postBaseline.size, 81);
-  assert.deepEqual(counts, { REUSED: 930, FALLBACK_EN: 237, FALLBACK_EN_REVIEW: 36, AI_REVIEWED: 59 });
-  assert.equal(counts.FALLBACK_EN, 143 + postBaseline.size + 13);
+  assert.deepEqual(counts, { REUSED: 930, FALLBACK_EN: 238, FALLBACK_EN_REVIEW: 36, AI_REVIEWED: 59 });
+  assert.equal(counts.FALLBACK_EN, 143 + postBaseline.size + 13 - 4 + 2 + 3);
 });
 
 test('B13 thermal register events are immutable, even under a coordinated catalog edit', () => {
@@ -344,6 +344,11 @@ test('registered post-baseline keys fall back to English without any Japanese', 
   const react = new Map(manifest.filter(row => row.surface === 'react').map(row => [row.identity, row]));
   const translate = loadI18n().createTranslator('ja');
   for (const [key, values] of postBaseline) {
+    if (B23_RETIRED_KEYS.includes(key)) {
+      for (const catalog of [fr, en, ja]) assert.equal(Object.hasOwn(catalog, key), false, key);
+      assert.equal(react.has(key), false, key);
+      continue;
+    }
     const current = key === 'historyAcceptedReconstruction'
       ? ['T1009', 'T1010'].map(id => register.find(entry => entry.entry_id === id).final_value)
       : [values.FR, values.EN];
@@ -479,18 +484,160 @@ const LATER_FALLBACK_KEYS = [
   'auditDescriptionZoneDeleted', 'auditSummaryLocationDeleted',
 ];
 
-function historicalSource(source) {
+const B23_RETIRED_KEYS = ['historyEnvironmentOnly', 'historyTransitionReview', 'historyProvenance', 'historyReconciliation'];
+const B23_ADDED_KEYS = ['historyRecordedViaPolypbase', 'historyStartingLocation'];
+const B24_ADDED_KEYS = ['historyReactivation', 'historyLocationExit', 'historyLocationEntry'];
+
+function b24Events(rows = register) {
+  const events = rows.filter(row => row.batch === 'B24-2026-11-10');
+  assert.deepEqual(events, rows.slice(1054, 1060));
+  assert.deepEqual(events.map(row => row.entry_id), Array.from({ length: 6 }, (_, i) => `T${1055 + i}`));
+  for (const entry of events) assert.deepEqual(Object.keys(entry), REGISTER_COLUMNS);
+  assert.equal(registerRowsDigest(events), '0f7e33f3574c1c177669ecadf5a708b66b2c2a789b0c53c72f71eced5819864c');
+  return events;
+}
+
+function beforeB24(source, language, rows = register) {
+  for (const entry of b24Events(rows).filter(row => row.language === language.toUpperCase())) {
+    const line = `  ${entry.key_or_msgid}: '${entry.final_value}',\n`;
+    assert.equal(source.split(line).length - 1, 1, entry.key_or_msgid);
+    source = source.replace(line, '');
+  }
+  return source;
+}
+
+test('B24 additions require exact append-only events and source values', () => {
+  assert.deepEqual([...new Set(b24Events().map(row => row.key_or_msgid))], B24_ADDED_KEYS);
+  for (const language of ['fr', 'en']) {
+    const source = read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n');
+    assert.doesNotThrow(() => beforeB24(source, language));
+    for (const entry of b24Events()) {
+      assert.throws(() => beforeB24(source, language, register.filter(row => row !== entry)));
+      for (const field of REGISTER_COLUMNS) {
+        const changed = register.map(row => row === entry ? { ...row, [field]: `${row[field]} changed` } : row);
+        assert.throws(() => beforeB24(source, language, changed), `${entry.entry_id}.${field}`);
+      }
+      if (entry.language !== language.toUpperCase()) continue;
+      const line = `  ${entry.key_or_msgid}: '${entry.final_value}',\n`;
+      for (const replacement of ['', line + line, line.replace(": '", ": 'changed ")]) {
+        assert.throws(() => beforeB24(source.replace(line, replacement), language));
+      }
+    }
+    const reordered = register.slice();
+    [reordered[1054], reordered[1055]] = [reordered[1055], reordered[1054]];
+    assert.throws(() => beforeB24(source, language, reordered));
+    assert.throws(() => beforeB24(source, language, [...register, { ...register[1054], entry_id: 'T1061' }]));
+    for (const field of ['unknown_column', 'sheet_value']) {
+      const changed = register.map(row => ({ ...row }));
+      if (field === 'unknown_column') changed[1054][field] = 'unapproved';
+      else delete changed[1054][field];
+      assert.throws(() => beforeB24(source, language, changed));
+    }
+  }
+});
+
+test('B24 labels preserve exact FR/EN values and zone interpolation in Japanese fallback', () => {
+  const translate = loadI18n().createTranslator('ja');
+  const expected = {
+    historyReactivation: ['Réactivation', 'Reactivation'],
+    historyLocationExit: ['Sortie de {zone}', 'Exit from {zone}'],
+    historyLocationEntry: ['Entrée en {zone}', 'Entry into {zone}'],
+  };
+  for (const key of B24_ADDED_KEYS) {
+    assert.deepEqual([fr[key], en[key]], expected[key]);
+    assert.equal(translate(key), en[key]);
+    assert.equal(translate(key).replace('{zone}', 'Zone 0'), en[key].replace('{zone}', 'Zone 0'));
+    const row = manifest.find(row => row.identity === key);
+    assert.deepEqual([row.current_fr, row.current_en], expected[key]);
+  }
+});
+
+function beforeB23(source, language, rows = register) {
+  const events = rows.filter(row => row.batch === 'B23-2026-11-10');
+  assert.deepEqual(events, rows.slice(1042, 1054));
+  assert.deepEqual(events.map(row => row.entry_id), Array.from({ length: 12 }, (_, i) => `T${1043 + i}`));
+  assert.equal(registerRowsDigest(events), 'e923b831b624a2367b92bcfd9ba3b55eec575f1ec9241333d632920dc14b8423');
+  const entries = events.filter(row => row.language === language.toUpperCase());
+  for (const entry of entries) {
+    if (entry.status === 'REMOVED') {
+      assert.equal(source.split('\n').some(line => line.startsWith(`  ${entry.key_or_msgid}: `)), false, entry.key_or_msgid);
+    } else {
+      const line = `  ${entry.key_or_msgid}: '${entry.final_value}',\n`;
+      assert.equal(source.split(line).length - 1, 1, line);
+      source = source.replace(line, '');
+    }
+  }
+  // Restore exact original positions before applying the older frozen-source checks.
+  for (const [keys, anchor] of [
+    [B23_RETIRED_KEYS.slice(0, 2), 'historyReconstructionUnresolved'],
+    [B23_RETIRED_KEYS.slice(2), 'historyLoading'],
+  ]) {
+    const prefix = `  ${anchor}: `;
+    assert.equal(source.split(prefix).length - 1, 1, anchor);
+    const restored = keys.map(key => {
+      const entry = entries.find(row => row.key_or_msgid === key);
+      return `  ${key}: '${entry.initial_value}',\n`;
+    }).join('');
+    source = source.replace(prefix, restored + prefix);
+  }
+  return source;
+}
+
+test('B23 reconstruction requires exact append-only events, additions and retirements', () => {
+  for (const language of ['fr', 'en']) {
+    const source = read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n');
+    assert.doesNotThrow(() => beforeB23(source, language));
+    for (const key of B23_RETIRED_KEYS) {
+      assert.throws(() => beforeB23(source.replace('\n}', `\n  ${key}: 'Restored',\n}`), language));
+    }
+    for (const key of B23_ADDED_KEYS) {
+      const line = source.split('\n').find(line => line.startsWith(`  ${key}: `));
+      assert.throws(() => beforeB23(source.replace(line, ''), language));
+      assert.throws(() => beforeB23(source.replace(line, line.replace(": '", ": 'changed ")), language));
+    }
+    for (const entry of register.filter(row => row.batch === 'B23-2026-11-10')) {
+      assert.throws(() => beforeB23(source, language, register.filter(row => row !== entry)));
+      for (const field of REGISTER_COLUMNS) {
+        const changed = register.map(row => row === entry ? { ...row, [field]: `${row[field]} changed` } : row);
+        assert.throws(() => beforeB23(source, language, changed), `${entry.entry_id}.${field}`);
+      }
+    }
+    const reordered = register.slice();
+    [reordered[1042], reordered[1043]] = [reordered[1043], reordered[1042]];
+    assert.throws(() => beforeB23(source, language, reordered));
+    assert.throws(() => beforeB23(source, language, [...register, { ...register[1042], entry_id: 'T1055' }]));
+  }
+});
+
+function historicalSource(source, current = false, language) {
+  if (current) source = beforeB24(source, language);
   const lines = source.replace(/\r\n/g, '\n').split('\n');
-  const prefixes = new Set(LATER_FALLBACK_KEYS.map(key => `  ${key}: '`));
+  const keys = current
+    ? [...LATER_FALLBACK_KEYS.filter(key => !B23_RETIRED_KEYS.includes(key)), ...B23_ADDED_KEYS]
+    : LATER_FALLBACK_KEYS;
+  if (current) for (const key of B23_RETIRED_KEYS) {
+    assert.equal(lines.some(line => line.startsWith(`  ${key}: `)), false, key);
+  }
+  const prefixes = new Set(keys.map(key => `  ${key}: '`));
   const isAdditive = line => prefixes.has(`${line.split(": '", 1)[0]}: '`);
   const additive = lines.filter(isAdditive);
-  for (const key of LATER_FALLBACK_KEYS) {
+  for (const key of keys) {
     assert.equal(additive.filter(line => line.startsWith(`  ${key}: '`)).length, 1, `${key}: one additive line`);
   }
   return lines.filter(line => !isAdditive(line)).join('\n');
 }
 
 function beforeMovementLabelChange(source, language) {
+  source = beforeB23(beforeB24(source, language), language);
+  // B22 only rewords the reconstructed historical movement title and interval, registered as APPLIED.
+  const renamed = register.filter(entry => entry.batch === 'B22-2026-11-10' && entry.language === language.toUpperCase());
+  assert.deepEqual(renamed.map(entry => [entry.key_or_msgid, entry.status]), [['historyHistoricalMovement', 'APPLIED'],
+    ['historyBetweenRecords', 'APPLIED'], ['historyBetweenRecordsAcrossYears', 'APPLIED']]);
+  for (const entry of renamed) {
+    const line = `  ${entry.key_or_msgid}: '${entry.final_value}',\n`;
+    assert.equal(source.split(line).length - 1, 1, line);
+    source = source.replace(line, `  ${entry.key_or_msgid}: '${entry.initial_value}',\n`);
+  }
   const [initial, final, entryId] = language === 'fr'
     ? ['Déplacement ordinaire', 'Déplacement', 'T1007']
     : ['Ordinary movement', 'Movement', 'T1008'];
@@ -540,12 +687,12 @@ test('original FR and EN source content remains frozen apart from the registered
 
 test('additive keys stay English fallbacks without Japanese approval or provenance', () => {
   const translate = loadI18n().createTranslator('ja');
-  for (const key of LATER_FALLBACK_KEYS) {
+  for (const key of [...LATER_FALLBACK_KEYS.filter(key => !B23_RETIRED_KEYS.includes(key)), ...B23_ADDED_KEYS, ...B24_ADDED_KEYS]) {
     const rows = manifest.filter(row => row.identity === key);
     assert.equal(rows.length, 1, key);
     const row = rows[0];
     assert.deepEqual([row.surface, row.status, row.reason_code], ['react', 'FALLBACK_EN', 'ABSENT_FROM_WORKBOOK']);
-    for (const field of ['ja_validated', 'ja_ai_reviewed', 'sheet_row', 'sheet_fr', 'sheet_en']) assert.equal(row[field], '', `${key}.${field}`);
+    for (const field of ['ja_validated', 'ja_ai_reviewed', 'sheet_row', 'sheet_section', 'sheet_fr', 'sheet_en']) assert.equal(row[field], '', `${key}.${field}`);
     assert.equal(row.takeru_review, 'no', key);
     assert.equal(translate(key), en[key], key);
   }
@@ -554,17 +701,21 @@ test('additive keys stay English fallbacks without Japanese approval or provenan
 test('source fingerprints accept the scoped additions but reject every historical value change', () => {
   for (const language of ['fr', 'en']) {
     const source = read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n');
-    const digest = sha256(historicalSource(source));
+    const digest = sha256(historicalSource(source, true, language));
     for (const key of Object.keys(fr)) {
       const line = source.split('\n').find(line => line.trimStart().startsWith(`${key}: `));
       assert.ok(line, `${language}.${key}: source line exists`);
       const mutated = line.replace(/(: ['"])/, '$1changed ');
       assert.notEqual(mutated, line, `${language}.${key}: mutation must change the value`);
       const changed = source.replace(line, mutated);
-      assert.equal(sha256(historicalSource(changed)) === digest, LATER_FALLBACK_KEYS.includes(key), `${language}.${key}`);
+      if (B24_ADDED_KEYS.includes(key)) {
+        assert.throws(() => historicalSource(changed, true, language), `${language}.${key}`);
+        continue;
+      }
+      assert.equal(sha256(historicalSource(changed, true, language)) === digest, [...LATER_FALLBACK_KEYS, ...B23_ADDED_KEYS].includes(key), `${language}.${key}`);
     }
     const unknown = source.replace('\n}', "\n  unapprovedAddition: 'Value',\n}");
-    assert.notEqual(sha256(historicalSource(unknown)), digest, 'unknown additions are not exempt');
+    assert.notEqual(sha256(historicalSource(unknown, true, language)), digest, 'unknown additions are not exempt');
 
   }
 });
@@ -573,7 +724,7 @@ test('all 44 historical movement additions have exact FR/EN provenance and Engli
   assert.equal(historicalMovementKeys.length, 44);
   assert.equal(new Set(historicalMovementKeys).size, 44);
   const rows = manifest.filter(row => row.surface === 'react' && historicalMovementKeys.includes(row.identity));
-  assert.deepEqual(rows.map(row => row.identity), historicalMovementKeys);
+  assert.deepEqual(rows.map(row => row.identity), historicalMovementKeys.filter(key => !B23_RETIRED_KEYS.includes(key)));
   const translate = loadI18n().createTranslator('ja');
   for (const row of rows) {
     const key = row.identity;

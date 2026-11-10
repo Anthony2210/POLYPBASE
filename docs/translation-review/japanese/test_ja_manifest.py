@@ -19,8 +19,19 @@ import check_i18n  # noqa: E402
 import check_register  # noqa: E402
 import compile_django_messages  # noqa: E402
 from test_check_register import (  # noqa: E402
-    B13_POSITION, LAB_POSITION, b13_integrity_errors, lab_integrity_errors, rows_digest,
+    B13_POSITION, LAB_POSITION, b13_integrity_errors, b24_events, lab_integrity_errors, rows_digest,
 )
+
+
+B23_RETIRED_KEYS = frozenset({
+    "historyEnvironmentOnly", "historyTransitionReview", "historyProvenance", "historyReconciliation",
+})
+B23_ADDED_KEYS = frozenset({
+    "historyRecordedViaPolypbase", "historyStartingLocation",
+})
+B24_ADDED_KEYS = frozenset({
+    "historyReactivation", "historyLocationExit", "historyLocationEntry",
+})
 
 
 def rows(name):
@@ -190,6 +201,10 @@ class JapaneseManifestTests(unittest.TestCase):
         react = {r["identity"]: r for r in self.by("react")}
         for key, values in added.items():
             with self.subTest(key=key):
+                if key in B23_RETIRED_KEYS:
+                    for catalog in (self.fr, en, self.ja_ts, react):
+                        self.assertNotIn(key, catalog)
+                    continue
                 self.assertEqual((self.fr[key], en[key]), (values["FR"], values["EN"]))
                 self.assertEqual((react[key]["current_fr"], react[key]["current_en"]), (values["FR"], values["EN"]))
                 row = react[key]
@@ -197,11 +212,57 @@ class JapaneseManifestTests(unittest.TestCase):
                 self.assertEqual((row["sheet_row"], row["ja_validated"], row["ja_ai_reviewed"]), ("", "", ""))
                 self.assertNotIn(key, self.ja_ts)
 
+    def test_b23_retirements_and_additions_have_exact_provenance(self):
+        register = check_register.load_register()
+        events = [row for row in register if row["batch"] == "B23-2026-11-10"]
+        self.assertEqual(events, register[1042:1054])
+        self.assertEqual([row["entry_id"] for row in events], [f"T{i}" for i in range(1043, 1055)])
+        self.assertEqual(rows_digest(events),
+                         "e923b831b624a2367b92bcfd9ba3b55eec575f1ec9241333d632920dc14b8423")
+        en = check_register.read_catalog(ROOT / "frontend/src/i18n/en.ts")
+        react = {row["identity"]: row for row in self.by("react")}
+        self.assertEqual({row["key_or_msgid"] for row in events if row["status"] == "REMOVED"}, B23_RETIRED_KEYS)
+        self.assertEqual({row["key_or_msgid"] for row in events if row["status"] == "ALREADY_MATCHING"}, B23_ADDED_KEYS)
+        for key in B23_RETIRED_KEYS:
+            for catalog in (self.fr, en, self.ja_ts, react):
+                self.assertNotIn(key, catalog)
+        for event in events:
+            key = event["key_or_msgid"]
+            if key not in B23_ADDED_KEYS:
+                continue
+            row = react[key]
+            language = event["language"].lower()
+            self.assertEqual((self.fr if language == "fr" else en)[key], event["final_value"])
+            self.assertEqual(row[f"current_{language}"], event["final_value"])
+            self.assertEqual((row["status"], row["reason_code"], row["takeru_review"]),
+                             ("FALLBACK_EN", "ABSENT_FROM_WORKBOOK", "no"))
+            for field in ("sheet_row", "sheet_section", "sheet_fr", "sheet_en", "ja_validated", "ja_ai_reviewed"):
+                self.assertEqual(row[field], "")
+            self.assertNotIn(key, self.ja_ts)
+
+    def test_b24_additions_have_exact_provenance(self):
+        events = b24_events(check_register.load_register())
+        self.assertEqual({row["key_or_msgid"] for row in events}, B24_ADDED_KEYS)
+        self.assertEqual({row["status"] for row in events}, {"ALREADY_MATCHING"})
+        en = check_register.read_catalog(ROOT / "frontend/src/i18n/en.ts")
+        react = {row["identity"]: row for row in self.by("react")}
+        for event in events:
+            key = event["key_or_msgid"]
+            row = react[key]
+            language = event["language"].lower()
+            self.assertEqual((self.fr if language == "fr" else en)[key], event["final_value"])
+            self.assertEqual(row[f"current_{language}"], event["final_value"])
+            self.assertEqual((row["surface"], row["status"], row["reason_code"], row["takeru_review"]),
+                             ("react", "FALLBACK_EN", "ABSENT_FROM_WORKBOOK", "no"))
+            for field in ("sheet_row", "sheet_section", "sheet_fr", "sheet_en", "ja_validated", "ja_ai_reviewed"):
+                self.assertEqual(row[field], "")
+            self.assertNotIn(key, self.ja_ts)
+
     def test_exact_counts(self):
         # Historical counts are frozen; only registered post-baseline keys are added.
         self.assertEqual(Counter((r["surface"], r["status"]) for r in self.manifest), Counter({
             ("react", "REUSED"): 930, ("react", "AI_REVIEWED"): 59,
-            ("react", "FALLBACK_EN"): 237, ("react", "FALLBACK_EN_REVIEW"): 36,
+            ("react", "FALLBACK_EN"): 238, ("react", "FALLBACK_EN_REVIEW"): 36,
             ("django", "REUSED"): 81, ("django", "FALLBACK_EN"): 11, ("django", "FALLBACK_EN_REVIEW"): 6,
             ("local", "REUSED"): 67, ("local", "FALLBACK_EN_REVIEW"): 1, ("inline", "FALLBACK_EN_INLINE"): 14,
         }))
@@ -220,7 +281,8 @@ class JapaneseManifestTests(unittest.TestCase):
         self.assertEqual(len(set(HISTORICAL_MOVEMENT_KEYS)), 44)
         en = check_register.read_catalog(ROOT / "frontend/src/i18n/en.ts")
         added = [r for r in self.by("react") if r["identity"] in HISTORICAL_MOVEMENT_KEYS]
-        self.assertEqual([r["identity"] for r in added], HISTORICAL_MOVEMENT_KEYS)
+        self.assertEqual([r["identity"] for r in added],
+                         [key for key in HISTORICAL_MOVEMENT_KEYS if key not in B23_RETIRED_KEYS])
         for row in added:
             key = row["identity"]
             with self.subTest(key=key):

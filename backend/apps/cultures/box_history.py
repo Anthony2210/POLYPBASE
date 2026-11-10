@@ -1,5 +1,6 @@
 """Authorized callers project facts without rewriting or deduplicating sources."""
 
+from collections import Counter
 from datetime import datetime, time, timedelta
 
 from django.db.models import Q
@@ -12,7 +13,7 @@ from apps.audit.box_lookup import box_audits, numeric_box_audit_values
 from apps.audit.models import AuditLog
 from apps.measurements.models import BiologicalMeasurement
 
-from .historical_location_transitions import project_historical_transitions
+from .historical_location_transitions import project_historical_transitions, project_starting_location
 from .historical_movements import PROVENANCE, _plan
 from .location_history_diagnostics import _read_only_snapshot
 from .models import MOVEMENT_WEEK_TIME_ZONE, BoxMovement, ThermalZone
@@ -31,6 +32,10 @@ def _box_history(*, box, user):
     by_period = {p.pk: p for p in periods if p.thermal_zone_id in zones}
     movements = list(box.movements.select_related("user").order_by("moved_at", "pk"))
     by_movement = {m.pk: m for m in movements}
+    codes = [code for code in (box.global_code, box.previous_global_code) if code]
+    audits = list(box_audits(organization_id=organization_id, box_ids=[box.pk], codes=codes)
+                  .select_related("user").order_by("created_at", "pk"))
+    recorded_movement_ids = _service_recorded_movement_ids(box=box, audits=audits, by_movement=by_movement, zones=zones, codes=codes)
     events = []
     writable = user.is_active and user_can_write_lab_data(user, box.organization)
 
@@ -42,7 +47,7 @@ def _box_history(*, box, user):
         return {"id": event_id, "kind": kind, "temporal_precision": "exact" if occurred_at else "iso_week" if year else "unresolved",
                 "occurred_at": occurred_at.isoformat() if occurred_at else None, "iso_year": year, "iso_week": week,
                 "from_thermal_zone": zones.get(origin), "to_thermal_zone": zones.get(destination), "actor": identity(actor),
-                "provenance": provenance, "evidence": evidence or {}, "reconciliation_status": status,
+                "provenance": provenance, "evidence": {"recorded_via_polypbase": False, **(evidence or {})}, "reconciliation_status": status,
                 "recorded_movement_id": movement_id, "can_correct": bool(can_correct), "notes": notes}
 
     for movement in movements:
@@ -55,15 +60,13 @@ def _box_history(*, box, user):
         events.append(event(f"movement:{movement.pk}", movement.kind, occurred_at=movement.moved_at, year=year, week=week,
                             origin=movement.from_thermal_zone_id, destination=movement.to_thermal_zone_id, actor=movement.user,
                             provenance="box_movement", evidence={"revision": movement.revision,
+                            "recorded_via_polypbase": movement.pk in recorded_movement_ids,
                             "origin_location_id": origin.pk if origin_matches else None,
                             "destination_location_id": destination.pk if destination_matches else None,
                             "period_pairing_reliable": reliable,
                             "has_origin_link": origin_matches, "has_destination_link": destination_matches},
                             movement_id=movement.pk, can_correct=writable, notes=movement.notes))
 
-    codes = [code for code in (box.global_code, box.previous_global_code) if code]
-    audits = list(box_audits(organization_id=organization_id, box_ids=[box.pk], codes=codes)
-                  .select_related("user").order_by("created_at", "pk"))
     plan = _plan(organization_id=organization_id, box_ids=[box.pk],
                  audit_rows=numeric_box_audit_values(audits))
     candidates_by_id = {candidate["id"]: candidate for candidate in plan["candidates"]}
@@ -86,6 +89,17 @@ def _box_history(*, box, user):
     # Numeric identity establishes lifecycle facts; legacy codes remain barriers.
     audits = [audit for audit in audits if not isinstance(audit.metadata, dict)
               or audit.metadata.get("box_id", box.pk) == box.pk]
+    movement_claims = Counter(
+        audit.metadata["movement_id"] for audit in audits
+        if isinstance(audit.metadata, dict) and "transition" in audit.metadata
+        and type(audit.metadata.get("movement_id")) is int
+    )
+    closure_claims = Counter(
+        location_id for audit in audits
+        if isinstance(audit.metadata, dict) and "transition" in audit.metadata
+        and isinstance(audit.metadata.get("closed_location_ids"), list)
+        for location_id in audit.metadata["closed_location_ids"] if type(location_id) is int
+    )
     lifecycle_period_pairs = {}
     for audit in audits:
         metadata = audit.metadata
@@ -100,10 +114,18 @@ def _box_history(*, box, user):
             continue
         movement_id = metadata.get("movement_id")
         movement = by_movement.get(movement_id) if type(movement_id) is int else None
-        paired = bool(movement and movement.kind == kind and movement.user_id == audit.user_id)
+        paired = bool(
+            movement and movement.kind == kind and movement.user_id == audit.user_id
+            and audit.action == AuditLog.Action.UPDATE
+            and transition in ("inactive->active", "pending_review->active")
+            and movement_claims[movement.pk] == 1 and movement.pk in recorded_movement_ids
+            and movement.to_thermal_zone_id in zones
+            and (movement.from_thermal_zone_id is None or movement.from_thermal_zone_id in zones)
+        )
         closed = []
         changed_at = None
-        if kind == "deactivation" and isinstance(metadata.get("changed_at"), str):
+        if (kind == "deactivation" and audit.action == AuditLog.Action.UPDATE
+                and isinstance(metadata.get("changed_at"), str)):
             try:
                 changed_at = parse_datetime(metadata["changed_at"])
             except ValueError:
@@ -114,7 +136,8 @@ def _box_history(*, box, user):
             if isinstance(values, list) and all(type(value) is int for value in values):
                 closed = [p for p in by_period.values() if p.pk in values and changed_at is not None
                           and p.ends_at == changed_at and p.starts_at < changed_at and not p.end_date_unknown]
-                if len(closed) != len(values) or len(set(values)) != len(values):
+                if (len(closed) != len(values) or len(set(values)) != len(values)
+                        or any(closure_claims[value] != 1 for value in values)):
                     closed = []
         if len(closed) == 1:
             lifecycle_period_pairs.setdefault(closed[0].pk, []).append((audit.pk, changed_at))
@@ -169,7 +192,134 @@ def _box_history(*, box, user):
             and row["evidence"].get("destination_location_id") == linked["destination_location_id"]
         ]
     return {"events": events, "candidates": plan["candidates"], "assessments": plan["assessments"],
-            "historical_transitions": transitions}
+            "historical_transitions": transitions,
+            "starting_location": project_starting_location(box=box, periods=periods, zones=zones)}
+
+
+def _aware_audit_datetime(value):
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = parse_datetime(value)
+    except ValueError:
+        return None
+    return parsed if parsed is not None and parsed.utcoffset() is not None else None
+
+
+def _audit_movement_state(values, *, kind, zones):
+    """Compare stable identities, not historical zone display names."""
+    if not isinstance(values, dict):
+        return None
+    at = _aware_audit_datetime(values.get("moved_at"))
+    origin, destination = values.get("from_thermal_zone"), values.get("to_thermal_zone")
+    if (at is None or not isinstance(values.get("notes"), str)
+            or not isinstance(destination, dict) or type(destination.get("id")) is not int
+            or destination["id"] not in zones):
+        return None
+    if origin is not None and (not isinstance(origin, dict) or type(origin.get("id")) is not int or origin["id"] not in zones):
+        return None
+    if "from_thermal_zone" not in values:
+        return None
+    week = BoxMovement.week_start_for(at).isoformat() if kind == BoxMovement.Kind.ORDINARY else None
+    if "iso_week_start" not in values or values["iso_week_start"] != week:
+        return None
+    return {"moved_at": at, "from_thermal_zone": origin["id"] if origin else None,
+            "to_thermal_zone": destination["id"], "iso_week_start": week, "notes": values["notes"]}
+
+
+def _original_movement_state(*, movement, original, corrections, box, zones):
+    """Walk every revision back to the original receipt; gaps never certify provenance."""
+    state = {"moved_at": movement.moved_at, "from_thermal_zone": movement.from_thermal_zone_id,
+             "to_thermal_zone": movement.to_thermal_zone_id,
+             "iso_week_start": movement.iso_week_start.isoformat() if movement.iso_week_start else None,
+             "notes": movement.notes}
+    if len(corrections) != movement.revision:
+        return None
+    by_revision = {}
+    for audit in corrections:
+        metadata = audit.metadata
+        revision = metadata.get("revision")
+        if (type(metadata.get("box_id")) is not int or metadata["box_id"] != box.pk
+                or metadata.get("movement_kind") != movement.kind
+                or type(metadata.get("original_author_id")) is not int or metadata["original_author_id"] != movement.user_id
+                or audit.user_id is None or _aware_audit_datetime(metadata.get("corrected_at")) is None
+                or not isinstance(revision, dict) or type(revision.get("before")) is not int
+                or type(revision.get("after")) is not int or revision["after"] != revision["before"] + 1
+                or revision["after"] in by_revision):
+            return None
+        by_revision[revision["after"]] = audit
+    following_order = None
+    for revision in range(movement.revision, 0, -1):
+        audit = by_revision.get(revision)
+        if audit is None:
+            return None
+        order = (audit.created_at, audit.pk)
+        if order <= (original.created_at, original.pk) or (following_order is not None and order >= following_order):
+            return None
+        following_order = order
+        metadata = audit.metadata
+        before = _audit_movement_state(metadata.get("movement_before"), kind=movement.kind, zones=zones)
+        after = _audit_movement_state(metadata.get("movement_after"), kind=movement.kind, zones=zones)
+        fields = metadata.get("changed_fields")
+        if (before is None or after != state or not isinstance(fields, list)
+                or not fields or not all(isinstance(field, str) for field in fields)
+                or len(set(fields)) != len(fields) or not set(fields) <= {"moved_at", "to_thermal_zone", "notes"}):
+            return None
+        changed = {key for key in before if before[key] != after[key]}
+        if (changed != set(fields) or before["from_thermal_zone"] != after["from_thermal_zone"]
+                or ("moved_at" in changed and movement.kind != BoxMovement.Kind.ORDINARY)):
+            return None
+        state = before
+    return state
+
+
+def _service_recorded_movement_ids(*, box, audits, by_movement, zones, codes):
+    """Match original receipts and complete correction chains using loaded audits."""
+    originals, corrections = {}, {}
+    for audit in audits:
+        metadata = audit.metadata
+        if (audit.organization_id != box.organization_id or audit.object_type != "box"
+                or audit.action != AuditLog.Action.UPDATE or not isinstance(metadata, dict)):
+            continue
+        if "box_id" in metadata:
+            if type(metadata["box_id"]) is not int or metadata["box_id"] != box.pk:
+                continue
+        elif audit.object_id not in codes:
+            continue
+        movement_id = metadata.get("movement_id")
+        if type(movement_id) is not int or movement_id not in by_movement:
+            continue
+        if metadata.get("event") == "box_movement_correction":
+            corrections.setdefault(movement_id, []).append(audit)
+        elif metadata.get("event") is None and metadata.get("transition") is None:
+            originals.setdefault(movement_id, []).append(audit)
+    recorded = set()
+    for movement_id, receipts in originals.items():
+        movement = by_movement[movement_id]
+        if (len(receipts) != 1 or movement.box_id != box.pk or movement.user_id is None
+                or movement.user_id != receipts[0].user_id or movement.to_thermal_zone_id not in zones
+                or (movement.from_thermal_zone_id is not None and movement.from_thermal_zone_id not in zones)):
+            continue
+        state = _original_movement_state(movement=movement, original=receipts[0], corrections=corrections.get(movement_id, []), box=box, zones=zones)
+        if state is None:
+            continue
+        metadata = receipts[0].metadata
+        # Legacy receipts lack kind and period IDs, but still prove these exact facts.
+        if any(key not in metadata or type(metadata[key]) is not type(value) or metadata[key] != value
+               for key, value in (("from_thermal_zone_id", state["from_thermal_zone"]),
+                                  ("to_thermal_zone_id", state["to_thermal_zone"]))):
+            continue
+        if "note" in metadata and metadata["note"] != state["notes"]:
+            continue
+        expected = {"movement_kind": movement.kind, "iso_week_start": state["iso_week_start"],
+                    "origin_location_id": movement.origin_location_id,
+                    "destination_location_id": movement.destination_location_id}
+        if any(key in metadata and (type(metadata[key]) is not type(value) or metadata[key] != value)
+               for key, value in expected.items()):
+            continue
+        if _aware_audit_datetime(metadata.get("moved_at")) == state["moved_at"]:
+            recorded.add(movement_id)
+    return recorded
 
 
 def _measurement_overlap_possible(measurements, start, end):

@@ -170,12 +170,6 @@ function MovementRows({
               />
               {interval ? <span className="zone-movement-related">{t(direction === 'arrival' ? 'zoneMovementHistoricalEntry' : 'zoneMovementHistoricalExit')}</span> : null}
               {showRelatedZone && relatedZone ? <span className="zone-movement-related">{relatedZone}</span> : null}
-              {showRelatedZone && movement.provenance ? (
-                <details className="movement-evidence">
-                  <summary>{t('historyProvenance')}</summary>
-                  <pre>{JSON.stringify({ transition_id: movement.transition_id, ...movement.provenance }, null, 2)}</pre>
-                </details>
-              ) : null}
             </div>
             <button
               className="zone-movement-open"

@@ -424,13 +424,9 @@
   cursor: pointer;
 }
 
-.bio-trend-event-choice.is-location-change { border-inline-start: 3px dotted var(--color-muted); }
-.bio-trend-event-choice.is-subculture { border-inline-start-color: var(--color-primary); }
 .bio-trend-event-choice small { color: var(--color-muted); }
 .bio-trend-event-choice:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .bio-trend-event-choice[aria-pressed="true"] { background: var(--color-surface-subtle); }
-.bio-trend-event[data-overlapping] { pointer-events: none; }
-.bio-trend-event[data-overlapping] .bio-trend-event-hit-area { pointer-events: none; }
 
 .bio-trend-event { cursor: pointer; }
 .bio-trend-event:focus { outline: none; }
@@ -473,7 +469,8 @@
 }
 
 .bio-trend-event.is-movement .bio-trend-event-line,
-.bio-trend-event.is-historical_reconstruction .bio-trend-event-line {
+.bio-trend-event.is-historical_reconstruction .bio-trend-event-line,
+.bio-trend-event.is-historical_movement .bio-trend-event-line {
   stroke: var(--color-danger);
   stroke-width: 1.35;
   stroke-dasharray: 4 3;
@@ -494,9 +491,8 @@
 .bio-trend-event.is-deactivation .bio-trend-event-label { fill: var(--color-danger); }
 .bio-trend-event.is-reactivation .bio-trend-event-label { fill: var(--color-success); }
 .bio-trend-event.is-movement .bio-trend-event-label,
-.bio-trend-event.is-historical_reconstruction .bio-trend-event-label { fill: var(--color-danger-hover); }
-.bio-trend-event-choice.is-movement,
-.bio-trend-event-choice.is-historical_reconstruction { color: var(--color-danger-hover); border-inline-start-color: var(--color-danger); }
+.bio-trend-event.is-historical_reconstruction .bio-trend-event-label,
+.bio-trend-event.is-historical_movement .bio-trend-event-label { fill: var(--color-danger-hover); }
 .bio-trend-event-interval {
   fill: rgb(0 0 0 / 4%);
   stroke: var(--color-danger);

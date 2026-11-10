@@ -57,6 +57,28 @@ function inactiveGap(start = location.starts_at, end = location.ends_at) {
 const gap = inactiveGap();
 const gapProject = (events = gap.events, locations = gap.locations, dates = []) => project(events, locations, dates);
 
+test('an exact unclassified BoxMovement survives unresolved periods without changing source data', () => {
+  const recorded = event('movement:105', 'unclassified', '2026-10-05T15:36:00+02:00',
+    { period_pairing_reliable: false, recorded_via_polypbase: true },
+    { recorded_movement_id: 105, can_correct: true, notes: 'Original note',
+      actor: { first_name: 'Jules', last_name: 'Poncet' } });
+  const before = JSON.stringify(recorded);
+  const events = project([recorded, { ...recorded, id: 'duplicate:105' }], []).events;
+  assert.equal(events.length, 1);
+  assert.equal(events[0].kind, 'movement');
+  assert.equal(events[0].instant, recorded.occurred_at);
+  assert.equal(events[0].title, en.movementKindOrdinary);
+  assert.equal(events[0].detail, 'Origin → Destination');
+  assert.equal(events[0].temperatureStep, undefined, 'no inferred temperature correspondence');
+  assert.equal(history.historyKindLabel(recorded, t), 'Carried out via POLYPBASE');
+  assert.equal(history.historyKindLabel({ ...recorded, evidence: {} }, t), en.movementKindUnclassified);
+  assert.equal(history.historyKindLabel({ ...recorded, provenance: 'other' }, t), en.movementKindUnclassified);
+  assert.equal(project([{ ...recorded, occurred_at: null, temporal_precision: 'unresolved' }], []).events.length, 0);
+  assert.equal(project([{ ...recorded, provenance: 'other' }], []).events.length, 0);
+  assert.equal(JSON.stringify(recorded), before);
+});
+
+
 test('short active stays and ordinary move markers are never masked', () => {
   const before = JSON.stringify(evidence);
   assert.equal(project().locations.length, 1);
@@ -65,13 +87,14 @@ test('short active stays and ordinary move markers are never masked', () => {
   assert.equal(JSON.stringify(evidence), before);
 });
 
-test('only reciprocal explicit inactive evidence hides both lifecycle markers and their movement, never bands or history', () => {
+test('even reciprocal short-gap masking evidence retains real lifecycle markers and location periods', () => {
   const before = JSON.stringify(gap);
-  assert.equal(gapProject().events.length, 0);
+  assert.deepEqual(Array.from(gapProject().events, row => row.kind), ['deactivation', 'reactivation']);
+  assert.deepEqual(Array.from(gapProject().events, row => row.instant), [gap.events[0].occurred_at, gap.events[2].occurred_at]);
   assert.equal(gapProject().locations.length, 2);
   assert.equal(gapProject().maskedLocationIds.size, 0);
   assert.equal(JSON.stringify(gap), before);
-  assert.equal(gapProject([...gap.events].reverse()).events.length, 0);
+  assert.equal(gapProject([...gap.events].reverse()).events.length, 2);
   for (const changed of [
     gap.events.filter(row => row.id !== 'lifecycle:2'),
     gap.events.map(row => row.id !== 'lifecycle:2' ? row : { ...row, reconciliation_status: 'unresolved' }),
@@ -91,30 +114,56 @@ test('only reciprocal explicit inactive evidence hides both lifecycle markers an
   assert.ok(gapProject(gap.events, gap.locations.map(row => ({ ...row, end_date_unknown: true }))).events.length > 0);
 });
 
-test('boundary and uncertain records including zero/zero retain markers; backend precision veto is authoritative', () => {
+test('boundary and uncertain records including zero/zero never affect lifecycle marker visibility', () => {
   for (const date of ['2026-07-06', '2026-07-06T08:30:00Z', location.starts_at, location.ends_at, 'invalid']) {
     const record = { measured_on: date, polyp_count: 0, ephyrae_count: 0 };
     assert.equal(gapProject(gap.events, gap.locations, [record.measured_on]).events.length, 2);
     assert.equal(record.polyp_count, 0);
     assert.equal(record.ephyrae_count, 0);
   }
-  assert.equal(gapProject(gap.events, gap.locations, ['2026-07-07']).events.length, 0);
+  assert.equal(gapProject(gap.events, gap.locations, ['2026-07-07']).events.length, 2);
   // A legacy-unverified record can cover the whole week, even outside its displayed day.
   const legacy = gap.events.map(row => ({ ...row, evidence: { ...row.evidence,
     inactive_interval: { ...gap.interval, measurement_overlap_possible: true, masking_eligible: false } } }));
   assert.equal(gapProject(legacy, gap.locations, ['2026-07-05']).events.length, 2);
 });
 
-test('elapsed seconds govern 24h and DST boundaries, not wall-clock dates', () => {
-  for (const [start, end, masked] of [
-    ['2026-07-06T08:00:00Z', '2026-07-07T08:00:00Z', false],
-    ['2026-07-06T08:00:00Z', '2026-07-07T07:59:59Z', true],
-    ['2026-03-28T12:00:00+01:00', '2026-03-29T12:00:00+02:00', true],
-    ['2026-10-24T12:00:00+02:00', '2026-10-25T12:00:00+01:00', false],
-    ['2026-07-06T08:00:00Z', '2026-07-06T08:00:00Z', false],
+test('lifecycle markers survive one-second, zero-length, 24h and DST gaps in the same zone', () => {
+  for (const [start, end] of [
+    ['2026-07-06T08:00:00Z', '2026-07-06T08:00:01Z'],
+    ['2026-07-06T08:00:00Z', '2026-07-07T08:00:00Z'],
+    ['2026-07-06T08:00:00Z', '2026-07-07T07:59:59Z'],
+    ['2026-03-28T12:00:00+01:00', '2026-03-29T12:00:00+02:00'],
+    ['2026-10-24T12:00:00+02:00', '2026-10-25T12:00:00+01:00'],
+    ['2026-07-06T08:00:00Z', '2026-07-06T08:00:00Z'],
   ]) {
     const fixture = inactiveGap(start, end);
-    assert.equal(gapProject(fixture.events, fixture.locations).events.length === 0, masked);
+    const projected = gapProject(fixture.events, fixture.locations);
+    assert.equal(projected.events.length, 2);
+    assert.deepEqual(Array.from(projected.events, row => row.instant), [start, end]);
+    assert.equal(projected.locations[0].endsAt, start);
+    assert.equal(projected.locations[1].startsAt, end);
+  }
+});
+
+test('lifecycle titles and location labels take precedence over provenance without inventing a transfer', () => {
+  for (const [catalog, exit, entry, reactivation] of [
+    [fr, 'Sortie de Origin', 'Entrée en Destination', 'Réactivation'],
+    [en, 'Exit from Origin', 'Entry into Destination', 'Reactivation'],
+  ]) {
+    const translate = key => catalog[key];
+    const stopped = event('stop', 'deactivation', location.starts_at, { recorded_via_polypbase: true });
+    const resumed = event('resume', 'reactivation', location.ends_at, { recorded_via_polypbase: true });
+    assert.equal(history.historyKindLabel(stopped, translate), catalog.historyDeactivation);
+    assert.equal(history.historyKindLabel(resumed, translate), reactivation);
+    assert.equal(history.historyLocationLabel(stopped, translate), exit);
+    assert.equal(history.historyLocationLabel(resumed, translate), entry);
+    assert.equal(history.historyLocationLabel({ ...stopped, from_thermal_zone: null }, translate), '');
+    assert.equal(history.historyLocationLabel({ ...resumed, to_thermal_zone: null }, translate), '');
+    assert.equal(history.historyLocationLabel(event('move', 'ordinary', location.starts_at), translate), 'Origin → Destination');
+    const markers = history.projectBoxHistory([stopped, resumed], [], [], translate).events;
+    assert.deepEqual(Array.from(markers, row => row.detail), [exit, entry]);
+    assert.deepEqual(Array.from(markers, row => row.title), [catalog.historyDeactivation, reactivation]);
   }
 });
 
@@ -321,21 +370,123 @@ test('an already represented source transition attaches to its target or emits n
   assert.equal(history.historyTimelineEntries([], [], [], [], [transition]).length, 0);
 });
 
-test('only established source transitions with both zones and no blockers can add timeline rows', () => {
-  const transitions = [
-    sourceTransition('environment_only'), sourceTransition('review'),
-    sourceTransition('established', { from_thermal_zone: null }),
-    sourceTransition('established', { to_thermal_zone: null }),
-    sourceTransition('established', { from_thermal_zone: null, to_thermal_zone: null }),
-    sourceTransition('established', { blockers: ['conflicting_recorded_movement'] }),
+test('each displayed temperature change adds one reconstructed row unless a recorded movement covers it', () => {
+  const shown = [
+    sourceTransition('established'), sourceTransition('environment_only', { from_thermal_zone: null, to_thermal_zone: null }),
+    sourceTransition('review', { blockers: ['source_not_validated'] }),
+    sourceTransition('review', { blockers: ['location_period_conflict'] }),
+  ];
+  const hidden = [
+    sourceTransition('review', { representation: { kind: 'box_movement', event_id: 'movement:9' }, blockers: ['source_not_validated'] }),
+    ...['observation_environment_from_other_box', 'source_box_identity_mismatch', 'source_box_identity_unavailable',
+      'observation_week_inconsistent', 'observations_conflict_in_week'].map(reason => sourceTransition('review', { blockers: [reason] })),
+    sourceTransition('review', { blockers: ['conflicting_recorded_movement'] }),
+    sourceTransition('review', { blockers: ['multiple_recorded_candidates'] }),
+    sourceTransition('review', { from_thermal_zone: null, to_thermal_zone: null,
+      blockers: ['location_mapping_unavailable', 'recorded_location_data_not_comparable'] }),
+    sourceTransition('review', { from_thermal_zone: null, to_thermal_zone: null,
+      blockers: ['location_mapping_ambiguous', 'source_not_validated', 'recorded_location_data_not_comparable'] }),
+    sourceTransition('review', { blockers: ['observation_measurement_not_canonical'] }),
+    sourceTransition('review', { origin_observation: { ...sourceObservation(2026, 7, '2026-02-09'), association_status: 'pending_review' } }),
     sourceTransition('already_represented', { representation: { kind: 'box_movement', event_id: 'missing' } }),
     sourceTransition('already_represented'),
   ];
-  const before = JSON.stringify(transitions);
-  for (const transition of transitions)
+  const before = JSON.stringify([shown, hidden]);
+  for (const transition of shown)
+    assert.equal(history.historyTimelineEntries([], [], [], [], [transition]).length, 1, JSON.stringify(transition));
+  for (const transition of hidden)
     assert.equal(history.historyTimelineEntries([], [], [], [], [transition]).length, 0, JSON.stringify(transition));
-  assert.equal(JSON.stringify(transitions), before);
-  assert.equal(history.historyTimelineEntries([], [], [], [], [sourceTransition('established')]).length, 1);
+  assert.deepEqual([...history.reconstructedHistoricalMovements([...shown, ...hidden])].map(item => shown.indexOf(item)), [0, 1, 2, 3]);
+  assert.equal(JSON.stringify([shown, hidden]), before);
+});
+
+test('the chart marks each reconstructed movement between its weeks and steps the temperature there', () => {
+  const transition = sourceTransition('established');
+  const { events } = history.projectBoxHistory([], [], [], t, [transition]);
+  assert.equal(events.length, 1);
+  const [marker] = events;
+  assert.equal(marker.kind, 'historical_movement');
+  assert.equal(marker.title, en.movementEvent);
+  // After the origin week (9-15 Feb) and before the destination week starts: never inside a temperature week.
+  assert.equal(marker.date, '2026-02-16');
+  assert.equal(marker.instant, undefined);
+  assert.deepEqual({ ...marker.temperatureStep }, { fromReadingId: 7, toReadingId: 8 });
+  assert.equal(marker.detail, 'Origin → Destination');
+  assert.equal(marker.temporalLabel, 'Carried out between the records from weeks 7 and 8 of 2026.');
+  // A gap between observations puts the marker in the middle of the unobserved weeks.
+  const gap = sourceTransition('established', { destination_observation: sourceObservation(2026, 11, '2026-03-09') });
+  assert.equal(history.projectBoxHistory([], [], [], t, [gap]).events[0].date, '2026-02-26');
+  // Unresolved locations keep the temperature categories as the route.
+  const categories = sourceTransition('environment_only', { from_thermal_zone: null, to_thermal_zone: null });
+  assert.equal(history.projectBoxHistory([], [], [], t, [categories]).events[0].detail, '15 °C → 10 °C');
+  for (const hidden of [sourceTransition('review', { blockers: ['conflicting_recorded_movement'] }), sourceTransition('already_represented')])
+    assert.equal(history.projectBoxHistory([], [], [], t, [hidden]).events.length, 0);
+});
+
+test('a recorded movement representing a temperature change carries its step without a second marker', () => {
+  const recorded = event('movement:7', 'ordinary', '2026-02-17T09:00:00+01:00', {}, { recorded_movement_id: 7 });
+  const transition = sourceTransition('already_represented', { representation: { kind: 'box_movement', event_id: 'movement:7' } });
+  const before = JSON.stringify([recorded, transition]);
+  const { events } = history.projectBoxHistory([recorded], [], [], t, [transition]);
+  assert.deepEqual([...events].map(item => `${item.id}|${item.kind}`), ['movement:7|movement']);
+  assert.equal(events[0].instant, recorded.occurred_at);
+  assert.deepEqual({ ...events[0].temperatureStep }, { fromReadingId: 7, toReadingId: 8 });
+  assert.equal(JSON.stringify([recorded, transition]), before);
+});
+
+test('explicit recorded representations retain safe steps during source validation review', () => {
+  const recorded = event('movement:7', 'ordinary', '2026-02-20T09:00:00+01:00', {}, { recorded_movement_id: 7 });
+  for (const status of ['already_represented', 'review']) {
+    for (const blockers of [[], ['source_not_validated']]) {
+      const transition = sourceTransition(status, { blockers,
+        representation: { kind: 'box_movement', event_id: recorded.id } });
+      const input = freezeEvidence([recorded, transition]);
+      const before = JSON.stringify(input);
+      const markers = history.projectBoxHistory([recorded], [], [], t, [transition]).events;
+      assert.equal(markers.length, 1, 'no second movement is reconstructed');
+      assert.equal(markers[0].id, recorded.id);
+      assert.equal(markers[0].instant, recorded.occurred_at);
+      assert.deepEqual({ ...markers[0].temperatureStep }, { fromReadingId: 7, toReadingId: 8 });
+      assert.equal(JSON.stringify(input), before);
+    }
+  }
+});
+
+test('represented steps reject unsafe observations, ambiguous claims and inferred owners without hiding the event', () => {
+  const recorded = event('movement:7', 'ordinary', '2026-02-20T09:00:00+01:00', {}, { recorded_movement_id: 7 });
+  const base = sourceTransition('review', { representation: { kind: 'box_movement', event_id: recorded.id } });
+  const unsafe = [
+    ...['observation_environment_from_other_box', 'source_box_identity_mismatch', 'source_box_identity_unavailable',
+      'observation_week_inconsistent', 'observations_conflict_in_week', 'observation_measurement_not_canonical',
+      'observation_association_not_confirmed', 'observation_temperature_invalid', 'observation_source_value_conflict',
+      'conflicting_recorded_movement', 'multiple_recorded_candidates', 'recorded_location_data_not_comparable',
+      'location_mapping_ambiguous', 'new_backend_blocker'].map(reason => ({ ...base, blockers: ['source_not_validated', reason] })),
+    ...['origin_observation', 'destination_observation'].flatMap(side => [
+      { ...base, [side]: null },
+      ...[{ association_status: 'pending_review' }, { reading_id: 0 }, { biological_measurement_id: null },
+        { week_start: '2026-02-10' }, { iso_week: 54 }, { environment_temperature_c: '' }]
+        .map(patch => ({ ...base, [side]: { ...base[side], ...patch } })),
+    ]),
+    { ...base, destination_observation: base.origin_observation },
+    { ...base, origin_observation: base.destination_observation, destination_observation: base.origin_observation },
+    { ...base, representation: { kind: 'box_movement', event_id: 'missing' } },
+    { ...base, representation: { kind: 'location_periods', event_id: recorded.id } },
+  ];
+  for (const transition of unsafe) {
+    const markers = history.projectBoxHistory([recorded], [], [], t, [transition]).events;
+    assert.equal(markers.length, 1);
+    assert.equal(markers[0].id, recorded.id);
+    assert.equal(markers[0].temperatureStep, undefined, JSON.stringify(transition));
+  }
+  const ambiguous = history.projectBoxHistory([recorded], [], [], t, [base, { ...base, id: 'rival' }]).events;
+  assert.equal(ambiguous[0].temperatureStep, undefined);
+  const duplicateOwners = history.projectBoxHistory([recorded, { ...recorded, recorded_movement_id: 8 }], [], [], t, [base]).events;
+  assert.equal(duplicateOwners.length, 2);
+  assert.ok(duplicateOwners.every(marker => marker.temperatureStep === undefined));
+  const sameTime = { ...recorded, id: 'movement:8', recorded_movement_id: 8 };
+  const linked = history.projectBoxHistory([sameTime, recorded], [], [], t, [base]).events;
+  assert.equal(linked[0].temperatureStep, undefined, 'time coincidence never links a representation');
+  assert.deepEqual({ ...linked[1].temperatureStep }, { fromReadingId: 7, toReadingId: 8 });
 });
 
 test('hiding technical evidence preserves every recorded kind, unresolved receipts and correction data without mutation', () => {
@@ -350,7 +501,8 @@ test('hiding technical evidence preserves every recorded kind, unresolved receip
   const candidates = [candidate('linked', 'blocked', { evidence: { ...provenRecord, represented_movement_ids: [1] } }),
     candidate('orphan', 'review_required')];
   const assessments = [candidate('assessment', 'blocked', { evidence: { represented_movement_ids: [1] } })];
-  const transitions = [sourceTransition('review'), sourceTransition('established', { to_thermal_zone: null })];
+  const transitions = [sourceTransition('review', { blockers: ['conflicting_recorded_movement'] }),
+    sourceTransition('already_represented', { representation: { kind: 'box_movement', event_id: 'missing' } })];
   const periods = [originPeriod, location];
   const inputs = [events, candidates, periods, assessments, transitions];
   const before = JSON.stringify(inputs);
@@ -596,7 +748,7 @@ test('a contradictory competing claim blocks a valid-looking pair before time or
   }
 });
 
-test('ambiguous reactivation pairing vetoes otherwise reciprocal under-24h masking without losing bands or sources', () => {
+test('ambiguous reactivation pairing preserves recorded events, gaps and unresolved audit sources', () => {
   for (const rival of [
     { ...gap.events[1], id: 'lifecycle:competing' },
     { ...gap.events[1], id: 'lifecycle:contradictory', occurred_at: '2026-07-06T10:00:00Z' },
@@ -663,13 +815,66 @@ function hookHarness() {
         slots[i] = deps; pending.push(() => { cleanups[i]?.(); cleanups[i] = fn(); });
       } },
   };
-  const { useBoxHistory } = load('hooks/useBoxHistory.ts', { react, '../api/client': client });
+  const { useBoxHistory } = load('hooks/useBoxHistory.ts', { react, '../api/client': client, '../utils/boxHistory': history });
   const render = () => { cursor = 0; value = useBoxHistory(props.boxId, props.key); pending.splice(0).forEach(fn => fn()); return value; };
   return { requests, client, render, set: next => { props = { ...props, ...next }; return render(); }, get value() { return value; } };
 }
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 const respond = (request, events = movements, status = 200, candidates, assessments) => request.resolve({ ok: status === 200, status,
   text: async () => JSON.stringify({ events, candidates, assessments }) });
+
+test('starting location follows the authorized history scope and clears on errors or legacy responses', async () => {
+  const h = hookHarness();
+  const initial = { observed_on: '2024-04-01', thermal_zone: { id: 10, name: 'Zone 10.0°C' } };
+  h.render();
+  h.requests[0].resolve({ ok: true, status: 200, text: async () => JSON.stringify({ events: [], starting_location: initial }) });
+  await tick();
+  assert.equal(JSON.stringify(h.render().startingLocation), JSON.stringify(initial));
+  h.set({ boxId: 8 });
+  assert.equal(h.value.startingLocation, null);
+  respond(h.requests[1], [], 503); await tick();
+  assert.equal(h.render().startingLocation, null);
+  h.value.retry(); h.render();
+  respond(h.requests[2], []); await tick();
+  assert.equal(h.render().startingLocation, null);
+  h.set({ key: {} });
+  h.requests[3].resolve({ ok: true, status: 200, text: async () => JSON.stringify({ events: [], starting_location: { invalid: true } }) });
+  await tick();
+  assert.equal(h.render().failed, true);
+});
+
+test('week-precision starting location is retained without synthesizing an observation day', async () => {
+  const h = hookHarness();
+  const initial = { observed_on: null, temporal_precision: 'iso_week', iso_year: 2026, iso_week: 7,
+    thermal_zone: { id: 15, name: 'Zone 15.0°C' }, represented_movement_id: null };
+  h.render();
+  h.requests[0].resolve({ ok: true, status: 200, text: async () => JSON.stringify({ events: movements, starting_location: initial }) });
+  await tick();
+  const result = h.render();
+  assert.equal(result.failed, false);
+  assert.equal(JSON.stringify(result.startingLocation), JSON.stringify(initial));
+  assert.equal(result.events.length, movements.length);
+  h.set({ boxId: 8 });
+  assert.equal(h.value.startingLocation, null);
+});
+
+test('malformed starting weeks cannot create an exact date or silently discard movement failures', async () => {
+  const week = { observed_on: null, temporal_precision: 'iso_week', iso_year: 2026, iso_week: 7,
+    thermal_zone: { id: 15, name: 'Zone 15.0°C' } };
+  for (const invalid of [
+    { ...week, iso_week: 0 }, { ...week, iso_year: 2021, iso_week: 53 },
+    { ...week, iso_week: 7.5 }, { ...week, iso_year: '2026' },
+    { ...week, observed_on: '2026-02-09' }, { ...week, temporal_precision: 'legacy_unverified' },
+    { ...week, represented_movement_id: -1 }, { ...week, thermal_zone: { id: 0, name: 'Unknown' } },
+  ]) {
+    const h = hookHarness();
+    h.render();
+    h.requests[0].resolve({ ok: true, status: 200, text: async () => JSON.stringify({ events: movements, starting_location: invalid }) });
+    await tick();
+    assert.equal(h.render().failed, true, JSON.stringify(invalid));
+    assert.equal(h.value.startingLocation, null);
+  }
+});
 
 test('optional candidates and assessments are retained and cleared on scope changes, failure and legacy responses', async () => {
   const h = hookHarness();

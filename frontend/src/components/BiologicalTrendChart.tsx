@@ -81,7 +81,10 @@ export type TrendEvent = {
   detail?: string;
   detailLines?: Array<{ label: string; value: string }>;
   // 'movement' is a persisted BoxMovement; 'location_change' is a derived location period boundary.
-  kind?: 'movement' | 'subculture' | 'location_change' | 'historical_reconstruction' | 'deactivation' | 'reactivation';
+  // 'historical_movement' is a location change reconstructed from historical temperatures.
+  kind?: 'movement' | 'subculture' | 'location_change' | 'historical_reconstruction' | 'historical_movement' | 'deactivation' | 'reactivation';
+  // Historical weekly readings around this movement: the plotted temperature changes at the marker.
+  temperatureStep?: { fromReadingId: number; toReadingId: number };
   intervalStart?: string;
   intervalEnd?: string;
   temporalLabel?: string;
@@ -182,15 +185,54 @@ function isDailyTemperature(point: TrendTemperature) {
 }
 
 // The input is in display order. These are visual connectors, never extra samples.
-export function buildTemperatureConnections(points: readonly TrendTemperature[]) {
-  return points.slice(1).map((to, index) => {
+export function buildTemperatureConnections(
+  points: readonly TrendTemperature[],
+  steps: ReadonlyMap<string, number> = new Map(),
+  locations: readonly TrendLocation[] = [],
+  events: readonly TrendEvent[] = [],
+) {
+  const instant = (value: string) => new Date(value.length === 10 ? `${value}T00:00:00` : value).getTime();
+  const orderedLocations = [...locations].sort((a, b) => instant(a.startsAt) - instant(b.startsAt));
+  const periods = orderedLocations.map((location, index) => ({
+    start: instant(location.startsAt),
+    // Unknown ends do not establish gaps or erase a later explicitly closed period.
+    end: location.endDateUnknown
+      ? orderedLocations[index + 1] ? instant(orderedLocations[index + 1].startsAt) : Infinity
+      : location.endsAt ? instant(location.endsAt) : Infinity,
+  })).filter(period => Number.isFinite(period.start) && period.end >= period.start)
+    .sort((a, b) => a.start - b.start);
+  const covered: Array<{ start: number; end: number }> = [];
+  for (const period of periods) {
+    const previous = covered[covered.length - 1];
+    if (previous && period.start <= previous.end) previous.end = Math.max(previous.end, period.end);
+    else covered.push({ ...period });
+  }
+  const gaps = covered.filter(period => Number.isFinite(period.end)).map(period => ({
+    start: period.end, end: covered.find(next => next.start > period.end)?.start ?? Infinity,
+  }));
+  // Lifecycle evidence also preserves gaps when location periods are unavailable.
+  for (const stopped of events.filter(event => event.kind === 'deactivation')) {
+    const start = instant(stopped.instant ?? stopped.date);
+    const end = Math.min(...events.filter(event => event.kind === 'reactivation')
+      .map(event => instant(event.instant ?? event.date)).filter(time => time >= start));
+    if (Number.isFinite(start) && end > start) gaps.push({ start, end });
+  }
+  return points.slice(1).flatMap((to, index) => {
     const from = points[index];
+    // Date-only and weekly samples cannot establish an instant within a gap day.
+    const start = instant(from.week?.start ?? from.date);
+    const endDate = to.week?.end ?? to.date;
+    const end = endDate.length === 10 ? addDays(new Date(`${endDate}T00:00:00`), 1).getTime() : instant(endDate);
+    if (gaps.some(gap => gap.start < end && gap.end > start)) return [];
+    // A movement between two historical readings: keep the origin value up to its marker.
+    const stepX = from.week && to.week ? steps.get(`${from.week.id}:${to.week.id}`) : undefined;
+    if (stepX != null) return [{ from, to, uncertain: true, stepX }];
 
     // Historical payloads establish neither zone nor probe equivalence. Their
     // midpoint ordering is conventional, even across distinct ISO weeks.
     const comparable = isDailyTemperature(from) && isDailyTemperature(to) && from.date < to.date
       && from.zone_id != null && from.zone_id === to.zone_id;
-    return { from, to, uncertain: !comparable };
+    return [{ from, to, uncertain: !comparable, stepX: undefined as number | undefined }];
   });
 }
 
@@ -226,6 +268,7 @@ export default function BiologicalTrendChart({
   const canvasRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
+  const eventMarkerRefs = useRef(new Map<string, SVGGElement>());
   const [visibleSeries, setVisibleSeries] = useState({ polyps: true, ephyrae: true });
   const [temperatureVisible, setTemperatureVisible] = useState(true);
 
@@ -333,7 +376,7 @@ export default function BiologicalTrendChart({
     temperatureTicks,
     yTemperature,
   } = geometry;
-  const eventDetails = eventPoints.filter(({ event }) => !['location_change', 'deactivation', 'reactivation'].includes(event.kind ?? '')).map(({ event, x }) => {
+  const eventDetails = eventPoints.filter(({ event }) => event.kind !== 'location_change').map(({ event, x }) => {
     const isDerived = event.kind === 'location_change';
     const eventTitle = isDerived ? labels.locationChange : event.title || labels.movement;
     // The movement tooltip stays light: title and location only, no exact time or boundary note.
@@ -349,11 +392,35 @@ export default function BiologicalTrendChart({
     };
     return { event, x, detail, isDerived, eventTitle };
   });
-  // Equivalent HTML controls avoid SVG paint-order collisions without changing chart coordinates.
-  const eventCountByX = new Map<number, number>();
-  for (const { x } of eventDetails) eventCountByX.set(x, (eventCountByX.get(x) ?? 0) + 1);
-  const overlappingEvents = eventDetails.filter(({ x }) => eventCountByX.get(x)! > 1
-    || plottedMeasurements.some(point => xPosition(point.date) === x));
+  const eventsByX = new Map<number, ActiveDetail[]>();
+  for (const { x, detail } of eventDetails) {
+    const group = eventsByX.get(x) ?? [];
+    group.push(detail);
+    eventsByX.set(x, group);
+  }
+  function selectEvent(clickEvent: MouseEvent<SVGGElement>, x: number, detail: ActiveDetail) {
+    const group = eventsByX.get(x)!;
+    if (group.length === 1) {
+      stopAndToggle(clickEvent, detail);
+      return;
+    }
+    clickEvent.stopPropagation();
+    const index = group.findIndex((item) => item.id === pinnedDetail?.id);
+    const next = group[(index + 1) % group.length];
+    // Keep DOM focus and its exact accessible name aligned with the cycled detail.
+    eventMarkerRefs.current.get(next.id)?.focus();
+    setFocusedDetail(next);
+    setHoveredDetail(next);
+    setPinnedDetail(next);
+  }
+  // Every marker stays its own SVG control; only the first label at a shared position is drawn.
+  const labelledEventIds = new Set<string>();
+  const labelledX = new Set<number>();
+  for (const { x, detail } of eventDetails) {
+    if (labelledX.has(x)) continue;
+    labelledX.add(x);
+    labelledEventIds.add(detail.id);
+  }
   const visiblePoints = plottedMeasurements.filter((point) => visibleSeries.polyps || !('kind' in point));
   const pointHitAreas = buildMeasurementHitAreas(visiblePoints.map((point) => xPosition(point.date)), padding.left, width - padding.right, layout.responsive);
   const plottedReadingDetails = visiblePoints.map((measurement) => {
@@ -424,7 +491,13 @@ export default function BiologicalTrendChart({
   });
   const temperatureDetails = temperatureVisible ? allTemperatureDetails : [];
   // Shared interactions retain every source marker and never change the plotted series.
-  const temperatureConnections = buildTemperatureConnections(temperatureVisible ? plottedTemperatures : []);
+  const temperatureSteps = new Map<string, number>();
+  // Semantic owners survive zoom even when their markers are outside the viewport.
+  for (const event of events) {
+    if (event.temperatureStep) temperatureSteps.set(`${event.temperatureStep.fromReadingId}:${event.temperatureStep.toReadingId}`,
+      xPosition(event.instant ?? event.date));
+  }
+  const temperatureConnections = buildTemperatureConnections(temperatureVisible ? plottedTemperatures : [], temperatureSteps, locations, events);
   const temperatureCountByPosition = new Map<string, number>();
   for (const { x, y } of temperatureDetails) {
     const key = `${x}:${y}`;
@@ -532,6 +605,11 @@ export default function BiologicalTrendChart({
           aria-label={labels.chartTitle}
           onClick={() => setPinnedDetail(null)}
         >
+          <defs>
+            <clipPath id={`${chartId}-temperature-plot`}>
+              <rect x={padding.left} y={plotTop} width={width - padding.right - padding.left} height={plotHeight} />
+            </clipPath>
+          </defs>
           {temperatureEnabled ? (
             <g className="bio-trend-temperature-axis" aria-label={`${labels.temperature} (°C)`}>
               <line className="bio-trend-axis" x1={width - padding.right} x2={width - padding.right} y1={plotTop} y2={countHeight - padding.bottom} />
@@ -582,64 +660,23 @@ export default function BiologicalTrendChart({
             <path key={`ephyrae-${index}`} className="bio-trend-line is-ephyrae" d={countLine((point) => point.ephyraeCount)(segment) ?? ''} />
           ))}
 
-          {temperatureEnabled && temperatureConnections.map(({ from, to, uncertain }, index) => (
-            <path key={index} className={`bio-trend-line is-temperature${uncertain ? ' is-uncertain' : ''}`}
-              d={temperatureLine([from, to]) ?? ''} />
-          ))}
-
-          {eventDetails.map(({ event, x, detail, isDerived, eventTitle }) => {
-            const isSubculture = event.kind === 'subculture';
-            const overlaps = overlappingEvents.some((item) => item.detail.id === detail.id);
-            return (
-              <g
-                key={event.id}
-                className={`bio-trend-event is-${isDerived ? 'location-change' : event.kind ?? 'movement'}`}
-                role={overlaps ? undefined : 'button'}
-                tabIndex={overlaps ? undefined : 0}
-                aria-hidden={overlaps || undefined}
-                data-overlapping={overlaps || undefined}
-                aria-label={overlaps ? undefined : detail.accessibleTitle ?? detail.title}
-                transform={`translate(${x} ${padding.top})`}
-                onClick={(clickEvent) => stopAndToggle(clickEvent, detail)}
-                onKeyDown={(keyEvent) => handleDetailKey(keyEvent, detail)}
-                onMouseEnter={() => setHoveredDetail(detail)}
-                onMouseLeave={() => setHoveredDetail(null)}
-                onFocus={() => setFocusedDetail(detail)}
-                onBlur={() => setFocusedDetail(null)}
-              >
-                <line
-                  className="bio-trend-event-hit-area"
-                  x1={0}
-                  y1={isSubculture ? plotTop - padding.top : 0}
-                  x2={0}
-                  y2={chartAreaHeight}
-                />
-                {event.intervalEnd ? <rect className="bio-trend-event-interval"
-                  x={xPosition((event.intervalStart ?? event.date) < start ? start : event.intervalStart ?? event.date) - x} y={0}
-                  width={Math.max(2, xPosition(event.intervalEnd > end ? end : event.intervalEnd)
-                    - xPosition((event.intervalStart ?? event.date) < start ? start : event.intervalStart ?? event.date))}
-                  height={chartAreaHeight} /> : null}
-                <line
-                  className="bio-trend-event-line"
-                  x1={0}
-                  y1={isSubculture ? plotTop - padding.top : 0}
-                  x2={0}
-                  y2={chartAreaHeight}
-                />
-                {isSubculture ? <path d="M0 0 L6 6 L0 12 L-6 6 Z" /> : null}
-                {!isSubculture && !overlaps ? (
-                  <text
-                    className="bio-trend-event-label"
-                    x={-chartAreaHeight / 2}
-                    y={-8}
-                    textAnchor="middle"
-                    transform="rotate(-90)"
-                  >
-                    {eventTitle.toLocaleUpperCase('fr-FR')}
-                  </text>
-                ) : null}
-              </g>
-            );
+          {temperatureEnabled && temperatureConnections.map(({ from, to, uncertain, stepX }, index) => {
+            const previous = temperatureConnections[index - 1], next = temperatureConnections[index + 1];
+            const previousStep = previous?.to === from ? previous.stepX : undefined;
+            const nextStep = next?.from === to ? next.stepX : undefined;
+            const fromX = Math.max(xPosition(from.date), previousStep ?? -Infinity);
+            const toX = Math.min(xPosition(to.date), nextStep ?? Infinity);
+            const fromY = yTemperature(from.average_temperature_c), toY = yTemperature(to.average_temperature_c);
+            // Weekly anchors are conventional, not observed instants. Extend the
+            // connector to its owner and bound neighboring connectors there too,
+            // without moving samples or drawing a backwards scientific sequence.
+            if (stepX == null && fromX > toX
+              || stepX != null && (previousStep != null && previousStep > stepX || nextStep != null && nextStep < stepX)) return null;
+            const d = stepX == null
+              ? previousStep == null && nextStep == null ? temperatureLine([from, to]) ?? '' : `M${fromX},${fromY}L${toX},${toY}`
+              : `M${Math.min(fromX, stepX)},${fromY}H${stepX}V${toY}H${Math.max(toX, stepX)}`;
+            return <path key={index} className={`bio-trend-line is-temperature${uncertain ? ' is-uncertain' : ''}`}
+              clipPath={`url(#${chartId}-temperature-plot)`} d={d} />;
           })}
 
           {plottedReadingDetails.map(({ detail, measurement, x }, measurementIndex) => {
@@ -679,6 +716,78 @@ export default function BiologicalTrendChart({
               </g>
             );
           })}
+
+          {/* Event targets must paint above full-height record targets at the same date. */}
+          {eventDetails.map(({ event, x, detail, isDerived, eventTitle }) => {
+            const isSubculture = event.kind === 'subculture';
+            return (
+              <g
+                key={event.id}
+                ref={(marker) => {
+                  if (marker) eventMarkerRefs.current.set(detail.id, marker);
+                  else eventMarkerRefs.current.delete(detail.id);
+                }}
+                className={`bio-trend-event is-${isDerived ? 'location-change' : event.kind ?? 'movement'}`}
+                role="button"
+                tabIndex={0}
+                aria-label={detail.accessibleTitle ?? detail.title}
+                transform={`translate(${x} ${padding.top})`}
+                onPointerDown={(pointerEvent) => {
+                  // Do not let the topmost sibling steal focus and reset the cycle before click.
+                  if (eventsByX.get(x)!.length > 1) pointerEvent.preventDefault();
+                }}
+                onClick={(clickEvent) => selectEvent(clickEvent, x, detail)}
+                onKeyDown={(keyEvent) => {
+                  if (keyEvent.key === 'Escape') {
+                    keyEvent.preventDefault();
+                    setPinnedDetail(null);
+                    setHoveredDetail(null);
+                    setFocusedDetail(null);
+                  } else handleDetailKey(keyEvent, detail);
+                }}
+                onMouseEnter={() => setHoveredDetail(eventsByX.get(x)?.find((item) => item.id === pinnedDetail?.id) ?? detail)}
+                onMouseLeave={() => setHoveredDetail(null)}
+                onFocus={() => {
+                  setPinnedDetail(null);
+                  setFocusedDetail(detail);
+                }}
+                onBlur={() => setFocusedDetail(null)}
+              >
+                <line
+                  className="bio-trend-event-hit-area"
+                  x1={0}
+                  y1={isSubculture ? plotTop - padding.top : 0}
+                  x2={0}
+                  y2={chartAreaHeight}
+                />
+                {event.intervalEnd ? <rect className="bio-trend-event-interval" pointerEvents="none"
+                  x={xPosition((event.intervalStart ?? event.date) < start ? start : event.intervalStart ?? event.date) - x} y={0}
+                  width={Math.max(2, xPosition(event.intervalEnd > end ? end : event.intervalEnd)
+                    - xPosition((event.intervalStart ?? event.date) < start ? start : event.intervalStart ?? event.date))}
+                  height={chartAreaHeight} /> : null}
+                <line
+                  className="bio-trend-event-line"
+                  x1={0}
+                  y1={isSubculture ? plotTop - padding.top : 0}
+                  x2={0}
+                  y2={chartAreaHeight}
+                />
+                {isSubculture ? <path d="M0 0 L6 6 L0 12 L-6 6 Z" /> : null}
+                {!isSubculture && labelledEventIds.has(detail.id) ? (
+                  <text
+                    className="bio-trend-event-label"
+                    x={-chartAreaHeight / 2}
+                    y={-8}
+                    textAnchor="middle"
+                    transform="rotate(-90)"
+                  >
+                    {eventTitle.toLocaleUpperCase('fr-FR')}
+                  </text>
+                ) : null}
+              </g>
+            );
+          })}
+
 
           {temperatureEnabled && temperatureDetails.map(({ point, detail, x, y, outsideScale, observations }, index) => (
             <g key={detail.id} className={`bio-trend-temperature-point${selectedTemperature?.detail.id === detail.id ? ' is-selected' : ''}`} role="button" tabIndex={0}
@@ -723,36 +832,6 @@ export default function BiologicalTrendChart({
         </svg>
 
       </div>
-
-      {overlappingEvents.length > 0 ? (
-        <div className="bio-trend-event-list" role="group" aria-label={labels.chartTitle}>
-          {overlappingEvents.map(({ event, detail, isDerived }) => (
-            <button
-              key={event.id}
-              type="button"
-              className={`bio-trend-event-choice is-${isDerived ? 'location-change' : event.kind ?? 'movement'}`}
-              aria-label={`${detail.accessibleTitle ?? detail.title}${event.detail ? `, ${event.detail}` : ''}`}
-              aria-pressed={pinnedVisibleDetail?.id === detail.id}
-              aria-describedby={visibleDetail?.id === detail.id ? `${chartId}-event-detail` : undefined}
-              onClick={() => toggleDetail(detail)}
-              onMouseEnter={() => setHoveredDetail(detail)}
-              onMouseLeave={() => setHoveredDetail(null)}
-              onFocus={() => setFocusedDetail(detail)}
-              onBlur={() => setFocusedDetail(null)}
-              onKeyDown={(keyEvent) => {
-                if (keyEvent.key === 'Escape') {
-                  setPinnedDetail(null);
-                  setFocusedDetail(null);
-                  setHoveredDetail(null);
-                }
-              }}
-            >
-              <span>{detail.title}</span>
-              {event.detail ? <small>{event.detail}</small> : null}
-            </button>
-          ))}
-        </div>
-      ) : null}
 
       {visibleDetail ? (
         <div id={`${chartId}-event-detail`} ref={tooltipRef} className={`bio-trend-tooltip${pinnedVisibleDetail?.id === visibleDetail.id ? ' is-pinned' : ''}`} role="group" aria-label={visibleDetail.accessibleTitle ?? visibleDetail.title}>

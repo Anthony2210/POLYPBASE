@@ -1,11 +1,11 @@
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 from django.db import connection, models
 from django.db.models import signals
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
@@ -19,6 +19,7 @@ from apps.taxonomy.models import Species, Strain
 from . import historical_location_transitions as projection
 from .historical_location_transitions import HISTORICAL_CUTOFF, project_historical_transitions
 from .models import MOVEMENT_WEEK_TIME_ZONE, Box, BoxLocation, BoxMovement, HistoricalBoxMovement, ThermalZone
+from .services import qualify_pending_box
 
 SOURCE_FILE = "Suivi_2026_actualisé_v2.xlsx"
 SOURCE_SHA = SOURCES[SOURCE_FILE][1]
@@ -26,6 +27,180 @@ SOURCE_SHA = SOURCES[SOURCE_FILE][1]
 
 def paris(year, month, day, hour=0):
     return datetime(year, month, day, hour, tzinfo=MOVEMENT_WEEK_TIME_ZONE)
+
+
+class StartingObservationSelectionTests(SimpleTestCase):
+    """Synthetic groups exercise ambiguity without relaxing canonical DB uniqueness."""
+
+    def setUp(self):
+        self.readings, self.evidences = [], {}
+
+    def observe(self, reading_id, temperature, *, week=7, year=2026, day=1, exact=False):
+        monday = date.fromisocalendar(year, week, 1)
+        reading = {
+            "id": reading_id, "biological_measurement_id": reading_id,
+            "association_status": "confirmed", "iso_year": year, "iso_week": week, "temperature_c": temperature,
+            "biological_measurement__box_id": 1, "biological_measurement__week_start": monday,
+            "biological_measurement__measured_on": monday + timedelta(days=day - 1),
+            "biological_measurement__duplicate_of_id": None, "biological_measurement__environment_source_box_id": None,
+            "biological_measurement__temporal_precision": (
+                BiologicalMeasurement.TemporalPrecision.EXACT_DATE if exact
+                else BiologicalMeasurement.TemporalPrecision.LEGACY_UNVERIFIED),
+        }
+        self.readings.append(reading)
+        self.evidences[reading_id] = [{
+            "id": reading_id, "source_file": SOURCE_FILE, "source_sha256": SOURCE_SHA,
+            "source_box": "TRS-LAB-1.001", "source_value": temperature,
+            "source_iso_year": year, "source_iso_week": week,
+        }]
+        return reading
+
+    def select(self, *, approved_evidence_ids=frozenset()):
+        return projection._starting_observation(self.readings, self.evidences, "TRS-LAB-1.001",
+                                                approved_evidence_ids=approved_evidence_ids)
+
+    def test_consistent_week_lexemes_form_one_anchor_independent_of_pk(self):
+        self.observe(90, "15", day=6)
+        self.observe(2, "15.0", day=1)
+        self.observe(5, "1.5e1", day=3)
+        self.observe(1, "10", week=8)
+        for readings in (self.readings[:], list(reversed(self.readings))):
+            self.readings = readings
+            selected = self.select()
+            self.assertEqual((selected["iso_week"], projection._temperature(selected["temperature_c"])), (7, Decimal("15")))
+            self.assertEqual(selected["biological_measurement__temporal_precision"], "legacy_unverified")
+
+    def test_conflicting_first_week_never_chooses_pk_or_substitutes_later_week(self):
+        self.observe(90, "15", day=1)
+        self.observe(2, "10", day=6)
+        self.observe(1, "20", week=8, exact=True)
+        for readings in (self.readings[:], list(reversed(self.readings))):
+            self.readings = readings
+            self.assertIsNone(self.select())
+        first = next(reading for reading in self.readings if reading["temperature_c"] == "15")
+        second = next(reading for reading in self.readings if reading["temperature_c"] == "10")
+        first["id"], second["id"] = 2, 90
+        self.evidences[2], self.evidences[90] = self.evidences[90], self.evidences[2]
+        self.assertIsNone(self.select())
+
+    def test_all_exact_dates_use_chronology_not_pk(self):
+        self.observe(1, "10", day=6, exact=True)
+        first = self.observe(90, "15", day=2, exact=True)
+        self.observe(2, "20", week=8, exact=True)
+        self.assertIs(self.select(), first)
+        self.readings.reverse()
+        self.assertIs(self.select(), first)
+
+    def test_conflicting_same_earliest_exact_day_is_ambiguous(self):
+        self.observe(90, "15", day=2, exact=True)
+        self.observe(1, "10", day=2, exact=True)
+        self.observe(2, "20", day=6, exact=True)
+        self.observe(3, "15", week=8, exact=True)
+        self.assertIsNone(self.select())
+        self.readings.reverse()
+        self.assertIsNone(self.select())
+
+    def test_consistent_earliest_exact_day_survives_later_day_conflicts(self):
+        first = self.observe(90, "15", day=2, exact=True)
+        self.observe(1, "1.5e1", day=2, exact=True)
+        self.observe(2, "10", day=6, exact=True)
+        self.observe(3, "20", day=6, exact=True)
+        self.assertIs(self.select(), first)
+
+    def test_mixed_precision_different_setpoints_cannot_establish_precedence(self):
+        week_only = self.observe(90, "15", day=6)
+        exact = self.observe(1, "10", day=2, exact=True)
+        self.observe(2, "20", week=8, exact=True)
+        self.assertIsNone(self.select())
+        week_only["biological_measurement__measured_on"], exact["biological_measurement__measured_on"] = (
+            exact["biological_measurement__measured_on"], week_only["biological_measurement__measured_on"])
+        self.readings.reverse()
+        self.assertIsNone(self.select())
+
+    def test_mixed_precision_same_setpoint_retains_week_precision(self):
+        self.observe(1, "15.0", day=2, exact=True)
+        week_only = self.observe(90, "1.5e1", day=6)
+        self.assertIs(self.select(), week_only)
+        self.readings.reverse()
+        self.assertIs(self.select(), week_only)
+
+    def test_zero_is_an_admissible_setpoint_not_missing_data(self):
+        first = self.observe(90, "0", exact=True)
+        self.observe(1, "0.0", exact=True)
+        self.observe(2, "15", week=8)
+        self.assertIs(self.select(), first)
+        self.assertEqual(projection._temperature(self.select()["temperature_c"]), Decimal("0"))
+
+    def test_first_group_is_based_on_individual_admissibility(self):
+        for target, field, value in (
+            ("reading", "association_status", "pending_review"),
+            ("reading", "temperature_c", "invalid"),
+            ("reading", "biological_measurement__duplicate_of_id", 99),
+            ("reading", "biological_measurement__environment_source_box_id", 99),
+            ("reading", "biological_measurement__week_start", date(2026, 2, 2)),
+            ("evidence", "source_file", "unknown.xlsx"),
+            ("evidence", "source_sha256", "0" * 64),
+            ("evidence", "source_box", "TRS-LAB-1.099"),
+            ("evidence", "source_value", "20"),
+            ("evidence", "source_iso_week", 6),
+        ):
+            with self.subTest(target=target, field=field):
+                self.readings, self.evidences = [], {}
+                invalid = self.observe(1, "15")
+                row = invalid if target == "reading" else self.evidences[1][0]
+                row[field] = value
+                first = self.observe(90, "10", week=8)
+                self.observe(2, "20", week=9)
+                self.assertIs(self.select(), first)
+        self.evidences[90] = []
+        self.assertEqual(self.select()["iso_week"], 9)
+
+    def test_invalid_week_only_source_does_not_poison_valid_exact_chronology(self):
+        self.observe(1, "20")
+        self.evidences[1][0]["source_box"] = "TRS-LAB-1.099"
+        first = self.observe(90, "15", day=2, exact=True)
+        self.observe(2, "10", day=6, exact=True)
+        self.assertIs(self.select(), first)
+
+    def test_invalid_exact_source_cannot_waive_valid_week_conflicts(self):
+        self.observe(90, "15")
+        self.observe(2, "10")
+        self.observe(1, "20", exact=True)
+        self.evidences[1][0]["source_file"] = "unknown.xlsx"
+        self.observe(3, "20", week=8)
+        self.assertIsNone(self.select())
+
+    def test_approved_identity_participates_in_conflict_without_bypassing_other_guards(self):
+        self.observe(90, "15")
+        other = self.observe(1, "10")
+        self.evidences[1][0]["source_box"] = "CLA-JKA-1.09"
+        self.assertEqual(self.select()["temperature_c"], "15")
+        self.assertIsNone(self.select(approved_evidence_ids={1}))
+        self.evidences[1][0]["source_sha256"] = "0" * 64
+        self.assertEqual(self.select(approved_evidence_ids={1})["temperature_c"], "15")
+        self.evidences[1][0]["source_sha256"] = SOURCE_SHA
+        other["biological_measurement__duplicate_of_id"] = 99
+        self.assertEqual(self.select(approved_evidence_ids={1})["temperature_c"], "15")
+
+    def test_default_transition_observations_retain_week_conflicts_and_identity_guard(self):
+        self.observe(90, "15", day=2, exact=True)
+        self.observe(1, "10", day=6, exact=True)
+        self.assertIsNotNone(self.select())
+        observations = projection._observations(self.readings, self.evidences, "TRS-LAB-1.001")
+        self.assertEqual([row["reading"]["id"] for row in observations], [1, 90])
+        self.assertTrue(all("observations_conflict_in_week" in row["blockers"] for row in observations))
+        self.evidences[90][0]["source_box"] = "CLA-JKA-1.09"
+        observations = projection._observations(self.readings, self.evidences, "TRS-LAB-1.001")
+        self.assertIn("source_box_identity_mismatch", observations[1]["blockers"])
+
+    def test_temporal_group_uses_iso_year_and_excludes_cutoff(self):
+        self.observe(1, "10", week=2)
+        first = self.observe(90, "15", week=1, day=3)
+        self.assertEqual(first["biological_measurement__measured_on"], date(2025, 12, 31))
+        self.assertIs(self.select(), first)
+        self.readings, self.evidences = [], {}
+        self.observe(1, "15", week=41)
+        self.assertIsNone(self.select())
 
 
 class HistoricalLocationTransitionTests(TestCase):
@@ -591,6 +766,830 @@ class HistoricalLocationTransitionTests(TestCase):
         expected = [row["id"] for row in rows if row["evidence"].get("origin_location_id") == origin.pk]
         self.assertEqual(len(expected), 1)
         self.assertEqual(payload["historical_transitions"][0]["planner_candidate_ids"], expected)
+
+    def box_history(self):
+        response = self.client.get(f"/api/boxes/{self.box.pk}/history/", **self.login())
+        self.assertEqual(response.status_code, 200, response.content)
+        return response.json()
+
+    def observe_exact_day(self, *args, **kwargs):
+        reading = self.observe(*args, **kwargs)
+        BiologicalMeasurement.objects.filter(pk=reading.biological_measurement_id).update(
+            temporal_precision=BiologicalMeasurement.TemporalPrecision.EXACT_DATE,
+        )
+        return reading
+
+    def test_starting_api_uses_earliest_eligible_zero_week_not_pk_and_preserves_records(self):
+        self.observe(9, "20")
+        first = self.observe(8, "0")
+        self.observe(7, "15", source_file="unknown.xlsx")
+        BiologicalMeasurement.objects.create(box=self.box, measured_on=date(2026, 1, 14), polyp_count=0)
+        zero = ThermalZone.objects.create(organization=self.org, name="Zero setpoint", target_temperature_c=Decimal("0"))
+        ThermalZone.objects.create(organization=self.other, name="Foreign zero", target_temperature_c=Decimal("0"))
+        sibling = self.make_box("TRS-LAB-1.002", "002")
+        self.observe(2, "15", box=sibling)
+        domain = (Box, BoxLocation, BoxMovement, HistoricalBoxMovement, ThermalZone, BiologicalMeasurement,
+                  HistoricalTemperatureReading, HistoricalTemperatureEvidence, AuditLog)
+        before = [list(model.objects.order_by("pk").values()) for model in domain]
+        for _ in range(2):
+            self.assertEqual(self.box_history()["starting_location"], {
+                "observed_on": None, "temporal_precision": "iso_week", "iso_year": 2026, "iso_week": 8,
+                "thermal_zone": {"id": zero.pk, "name": zero.name}, "represented_movement_id": None,
+            })
+        self.assertEqual(before, [list(model.objects.order_by("pk").values()) for model in domain])
+        first.biological_measurement.refresh_from_db()
+        self.assertEqual((first.biological_measurement.polyp_count, first.biological_measurement.ephyrae_count), (0, 0))
+        competing = ThermalZone.objects.create(organization=self.org, name="Another zero", target_temperature_c=Decimal("0"))
+        self.assertIsNone(self.box_history()["starting_location"])
+        ThermalZone.objects.filter(pk__in=[zero.pk, competing.pk]).update(target_temperature_c=None)
+        self.assertIsNone(self.box_history()["starting_location"])
+
+    def test_starting_api_temporal_groups_preserve_precision_transitions_and_snapshots(self):
+        first = self.observe(7, "15")
+        self.observe_exact_day(8, "10")
+        period = BoxLocation.objects.create(box=self.box, thermal_zone=self.zone10, starts_at=paris(2026, 2, 1))
+        BoxMovement.objects.create(
+            box=self.box, kind=BoxMovement.Kind.INITIAL_LOCATION, to_thermal_zone=self.zone10,
+            destination_location=period, moved_at=period.starts_at,
+        )
+        selector = projection._starting_observation
+        domain = (Box, BoxLocation, BoxMovement, HistoricalBoxMovement, ThermalZone, BiologicalMeasurement,
+                  HistoricalTemperatureReading, HistoricalTemperatureEvidence, AuditLog)
+        # Competing canonical rows cannot be persisted in one Box/week. Inject only
+        # the pure selector's input, leaving the API, transitions and DB guards real.
+        for exact, competing_exact, temperature, day, expected_precision in (
+            (False, False, "1.5e1", 5, "iso_week"),
+            (False, False, "10", 5, None),
+            (True, True, "10", 5, "exact"),
+            (True, True, "15.0", 3, "exact"),
+            (True, True, "10", 3, None),
+            (True, False, "15.0", 5, "iso_week"),
+            (True, False, "10", 5, None),
+            (False, True, "10", 1, None),
+        ):
+            precision = (BiologicalMeasurement.TemporalPrecision.EXACT_DATE if exact
+                         else BiologicalMeasurement.TemporalPrecision.LEGACY_UNVERIFIED)
+            BiologicalMeasurement.objects.filter(pk=first.biological_measurement_id).update(
+                measured_on=date(2026, 2, 11), temporal_precision=precision,
+            )
+            reference = self.box_history()
+            before = [list(model.objects.order_by("pk").values()) for model in domain]
+            for competing_id in (-first.pk, first.pk + 10000):
+                with self.subTest(exact=exact, competing_exact=competing_exact, temperature=temperature,
+                                  day=day, competing_id=competing_id):
+                    def select_group(readings, evidences, global_code, **kwargs):
+                        original = next(reading for reading in readings if reading["id"] == first.pk)
+                        competing = {**original, "id": competing_id, "temperature_c": temperature,
+                                     "biological_measurement__measured_on": date(2026, 2, 8 + day),
+                                     "biological_measurement__temporal_precision": (
+                                         BiologicalMeasurement.TemporalPrecision.EXACT_DATE if competing_exact
+                                         else BiologicalMeasurement.TemporalPrecision.LEGACY_UNVERIFIED)}
+                        sources = [{**evidence, "id": evidence["id"] + 10000, "source_value": temperature}
+                                   for evidence in evidences[first.pk]]
+                        return selector([*readings, competing], {**evidences, competing_id: sources}, global_code, **kwargs)
+
+                    expected = None
+                    if expected_precision:
+                        expected = {"observed_on": "2026-02-11", "thermal_zone": {"id": self.zone15.pk, "name": self.zone15.name},
+                                    "represented_movement_id": None}
+                        if expected_precision == "iso_week":
+                            expected.update(observed_on=None, temporal_precision="iso_week", iso_year=2026, iso_week=7)
+                    with patch.object(projection, "_starting_observation", side_effect=select_group) as select:
+                        history = self.box_history()
+                        select.assert_called_once()
+                    self.assertEqual(history["starting_location"], expected)
+                    self.assertEqual(history["events"], reference["events"])
+                    self.assertEqual(history["historical_transitions"], reference["historical_transitions"])
+                    self.assertEqual(before, [list(model.objects.order_by("pk").values()) for model in domain])
+
+    def test_starting_location_precedes_first_transition_after_stable_weeks(self):
+        first = self.observe_exact_day(3, "15")
+        BiologicalMeasurement.objects.filter(pk=first.biological_measurement_id).update(measured_on=date(2026, 1, 14))
+        self.observe(4, "15.0")
+        self.observe(7, "15")
+        self.observe(8, "10")
+        Box.objects.filter(pk=self.box.pk).update(thermal_zone=self.zone10)
+        history = self.box_history()
+        self.assertEqual(history["starting_location"], {
+            "observed_on": "2026-01-14", "thermal_zone": {"id": self.zone15.pk, "name": self.zone15.name},
+            "represented_movement_id": None,
+        })
+        self.assertEqual(len(history["historical_transitions"]), 1)
+        self.assertEqual(history["historical_transitions"][0]["origin_observation"]["iso_week"], 7)
+        self.assertFalse(any(e["kind"] == "initial_location" for e in history["events"]))
+
+    def test_starting_location_needs_no_transition_or_second_reading(self):
+        self.assertIsNone(self.box_history()["starting_location"])
+        self.observe_exact_day(7, "15")
+        history = self.box_history()
+        self.assertEqual(history["historical_transitions"], [])
+        self.assertEqual(history["starting_location"], {
+            "observed_on": "2026-02-09", "thermal_zone": {"id": self.zone15.pk, "name": self.zone15.name},
+            "represented_movement_id": None,
+        })
+
+    def test_starting_location_represents_only_explicit_initial_period_movement(self):
+        self.observe_exact_day(7, "15")
+        period = BoxLocation.objects.create(box=self.box, thermal_zone=self.zone15, starts_at=paris(2026, 2, 8, 12))
+        movement = BoxMovement.objects.create(
+            box=self.box, kind=BoxMovement.Kind.INITIAL_LOCATION, from_thermal_zone=None,
+            to_thermal_zone=self.zone15, destination_location=period, moved_at=period.starts_at,
+        )
+        models_to_check = (Box, BoxLocation, BoxMovement, HistoricalBoxMovement, BiologicalMeasurement,
+                           HistoricalTemperatureReading, HistoricalTemperatureEvidence, AuditLog)
+        before = [list(model.objects.order_by("pk").values()) for model in models_to_check]
+        for _ in range(2):
+            history = self.box_history()
+            self.assertEqual(history["starting_location"], {
+                "observed_on": "2026-02-09", "thermal_zone": {"id": self.zone15.pk, "name": self.zone15.name},
+                "represented_movement_id": movement.pk,
+            })
+            self.assertTrue(any(row["recorded_movement_id"] == movement.pk for row in history["events"]))
+        self.assertEqual(before, [list(model.objects.order_by("pk").values()) for model in models_to_check])
+
+    def test_starting_period_fallback_can_represent_explicit_initial_movement(self):
+        BiologicalMeasurement.objects.create(
+            box=self.box, measured_on=date(2026, 2, 11), polyp_count=0,
+            temporal_precision=BiologicalMeasurement.TemporalPrecision.EXACT_DATE,
+        )
+        period = BoxLocation.objects.create(box=self.box, thermal_zone=self.zone15, starts_at=paris(2026, 2, 10))
+        movement = BoxMovement.objects.create(
+            box=self.box, kind=BoxMovement.Kind.INITIAL_LOCATION, to_thermal_zone=self.zone15,
+            destination_location=period, moved_at=period.starts_at,
+        )
+        self.assertEqual(self.box_history()["starting_location"], {
+            "observed_on": "2026-02-11", "thermal_zone": {"id": self.zone15.pk, "name": self.zone15.name},
+            "represented_movement_id": movement.pk,
+        })
+
+    def test_historical_starting_location_never_represents_later_initial_assignment(self):
+        self.observe_exact_day(7, "15")
+        for at in (paris(2026, 2, 9, 12), paris(2026, 2, 12)):
+            with self.subTest(at=at):
+                period = BoxLocation.objects.create(box=self.box, thermal_zone=self.zone15, starts_at=at)
+                movement = BoxMovement.objects.create(
+                    box=self.box, kind=BoxMovement.Kind.INITIAL_LOCATION, to_thermal_zone=self.zone15,
+                    destination_location=period, moved_at=at,
+                )
+                history = self.box_history()
+                self.assertEqual(history["starting_location"], {
+                    "observed_on": "2026-02-09", "thermal_zone": {"id": self.zone15.pk, "name": self.zone15.name},
+                    "represented_movement_id": None,
+                })
+                self.assertTrue(any(row["recorded_movement_id"] == movement.pk for row in history["events"]))
+                movement.delete()
+                period.delete()
+
+    def test_starting_movement_representation_requires_every_explicit_link(self):
+        self.observe_exact_day(7, "15")
+        period = BoxLocation.objects.create(box=self.box, thermal_zone=self.zone15, starts_at=paris(2026, 2, 8))
+        later = BoxLocation.objects.create(box=self.box, thermal_zone=self.zone15, starts_at=paris(2026, 2, 12))
+        other_box = self.make_box("TRS-LAB-1.002", "002")
+        original = {"box": self.box, "kind": BoxMovement.Kind.INITIAL_LOCATION, "from_thermal_zone": None,
+                    "to_thermal_zone": self.zone15, "destination_location": period, "moved_at": period.starts_at}
+        cases = [
+            {"destination_location": None}, {"destination_location": later},
+            {"moved_at": period.starts_at + timedelta(hours=1)}, {"to_thermal_zone": self.zone10},
+            {"from_thermal_zone": self.zone10}, {"box": other_box},
+            *({"kind": kind} for kind in BoxMovement.Kind.values if kind != BoxMovement.Kind.INITIAL_LOCATION),
+        ]
+        for changes in cases:
+            with self.subTest(changes=changes):
+                movement = BoxMovement.objects.create(**{**original, **changes})
+                self.assertIsNone(self.box_history()["starting_location"]["represented_movement_id"])
+                movement.delete()
+
+    def test_ambiguous_starting_initial_period_pairs_are_not_represented(self):
+        self.observe_exact_day(7, "15")
+        for _ in range(2):
+            period = BoxLocation.objects.create(box=self.box, thermal_zone=self.zone15, starts_at=paris(2026, 2, 8))
+            BoxMovement.objects.create(
+                box=self.box, kind=BoxMovement.Kind.INITIAL_LOCATION, to_thermal_zone=self.zone15,
+                destination_location=period, moved_at=period.starts_at,
+            )
+        self.assertIsNone(self.box_history()["starting_location"]["represented_movement_id"])
+
+    def test_ambiguous_or_unknown_starting_period_never_represents_movement(self):
+        self.observe_exact_day(7, "15")
+        period = BoxLocation.objects.create(box=self.box, thermal_zone=self.zone15, starts_at=paris(2026, 2, 8))
+        BoxMovement.objects.create(
+            box=self.box, kind=BoxMovement.Kind.INITIAL_LOCATION, to_thermal_zone=self.zone15,
+            destination_location=period, moved_at=period.starts_at,
+        )
+        overlap = BoxLocation.objects.create(box=self.box, thermal_zone=self.zone15, starts_at=paris(2026, 2, 8))
+        self.assertIsNone(self.box_history()["starting_location"]["represented_movement_id"])
+        overlap.delete()
+        BoxLocation.objects.filter(pk=period.pk).update(end_date_unknown=True)
+        self.assertIsNone(self.box_history()["starting_location"]["represented_movement_id"])
+
+    def test_starting_location_skips_biology_without_temperature(self):
+        BiologicalMeasurement.objects.create(box=self.box, measured_on=date(2026, 1, 14), polyp_count=0)
+        self.observe(7, "15")
+        self.observe(8, "10")
+        self.assertEqual(self.box_history()["starting_location"], {
+            "observed_on": None, "temporal_precision": "iso_week", "iso_year": 2026, "iso_week": 7,
+            "thermal_zone": {"id": self.zone15.pk, "name": self.zone15.name}, "represented_movement_id": None,
+        })
+
+    def test_invalid_temperature_proof_is_skipped_for_earliest_eligible_reading(self):
+        for invalid in ({"evidence": False}, {"source_box": "TRS-LAB-1.099"},
+                        {"source_file": "unknown.xlsx"}, {"source_value": "20"}):
+            with self.subTest(invalid=invalid):
+                self.box = self.make_box(f"TRS-LAB-1.{100 + Box.objects.count():03d}", str(100 + Box.objects.count()))
+                self.observe_exact_day(7, "15", **invalid)
+                self.observe_exact_day(8, "10")
+                self.observe_exact_day(9, "20")
+                self.assertEqual(self.box_history()["starting_location"], {
+                    "observed_on": "2026-02-16", "thermal_zone": {"id": self.zone10.pk, "name": self.zone10.name},
+                    "represented_movement_id": None,
+                })
+
+    def test_unconfirmed_invalid_or_inconsistent_first_reading_is_not_proof(self):
+        for field, value in (("association_status", "pending_review"), ("temperature_c", "invalid"),
+                             ("iso_week", 6)):
+            with self.subTest(field=field):
+                self.box = self.make_box(f"TRS-LAB-1.{100 + Box.objects.count():03d}", str(100 + Box.objects.count()))
+                reading = self.observe_exact_day(7, "15")
+                self.observe(8, "10")
+                # Reproduce invalid stored evidence without invoking immutable model saves.
+                table = HistoricalTemperatureReading._meta.db_table
+                with connection.cursor() as cursor:
+                    cursor.execute(f"UPDATE {table} SET {field}=%s WHERE id=%s", [value, reading.pk])
+                self.assertEqual(self.box_history()["starting_location"], {
+                    "observed_on": None, "temporal_precision": "iso_week", "iso_year": 2026, "iso_week": 8,
+                    "thermal_zone": {"id": self.zone10.pk, "name": self.zone10.name}, "represented_movement_id": None,
+                })
+
+    def test_ambiguous_first_temperature_mapping_does_not_use_later_zone(self):
+        self.observe_exact_day(4, "20", evidence=False)
+        self.observe_exact_day(7, "15")
+        self.observe(8, "10")
+        BoxLocation.objects.create(box=self.box, thermal_zone=self.zone10, starts_at=paris(2026, 1, 1))
+        ThermalZone.objects.create(organization=self.org, name="Another 15", target_temperature_c=Decimal("15"))
+        self.assertIsNone(self.box_history()["starting_location"])
+        self.zone15.target_temperature_c = None
+        self.zone15.save()
+        ThermalZone.objects.filter(organization=self.org, name="Another 15").update(target_temperature_c=None)
+        self.assertIsNone(self.box_history()["starting_location"])
+
+    def test_first_observation_ignores_duplicate_measurement_evidence(self):
+        first = self.observe_exact_day(7, "15")
+        BiologicalMeasurement.objects.filter(pk=first.biological_measurement_id).update(measured_on=date(2026, 2, 11))
+        duplicate = BiologicalMeasurement(
+            box=self.box, measured_on=date(2026, 2, 9), week_start=date(2026, 2, 9),
+            duplicate_of_id=first.biological_measurement_id, polyp_count=0,
+        )
+        models.Model.save(duplicate, force_insert=True)
+        duplicate_reading = HistoricalTemperatureReading(
+            biological_measurement=duplicate, iso_year=2026, iso_week=7, temperature_c="20",
+        )
+        models.Model.save(duplicate_reading, force_insert=True)
+        evidence = first.evidences.get()
+        evidence.pk = None
+        evidence.reading = duplicate_reading
+        evidence.source_value = "20"
+        models.Model.save(evidence, force_insert=True)
+        self.assertEqual(self.box_history()["starting_location"], {
+            "observed_on": "2026-02-11", "thermal_zone": {"id": self.zone15.pk, "name": self.zone15.name},
+            "represented_movement_id": None,
+        })
+
+    def test_first_observation_with_foreign_environment_is_not_location_proof(self):
+        first = self.observe_exact_day(7, "15")
+        self.observe(8, "10")
+        foreign_strain = Strain.objects.create(species=self.species, code="TRS-OTH-1", organization=self.other, number=1, origin_code="OTH")
+        foreign_box = self.make_box("TRS-OTH-1.001", "001", organization=self.other, strain=foreign_strain)
+        for source in (self.make_box("TRS-LAB-1.002", "002"), foreign_box):
+            with self.subTest(source=source.pk):
+                BiologicalMeasurement.objects.filter(pk=first.biological_measurement_id).update(environment_source_box=source)
+                self.assertEqual(self.box_history()["starting_location"], {
+                    "observed_on": None, "temporal_precision": "iso_week", "iso_year": 2026, "iso_week": 8,
+                    "thermal_zone": {"id": self.zone10.pk, "name": self.zone10.name}, "represented_movement_id": None,
+                })
+        BiologicalMeasurement.objects.filter(pk=first.biological_measurement_id).update(environment_source_box=self.box)
+        self.assertEqual(self.box_history()["starting_location"]["thermal_zone"]["id"], self.zone15.pk)
+
+    def test_starting_temperature_rule_respects_institution_and_cutoff(self):
+        self.observe_exact_day(41, "15")
+        self.observe(42, "10")
+        self.assertIsNone(self.box_history()["starting_location"])
+        foreign_strain = Strain.objects.create(species=self.species, code="TRS-OTH-1", organization=self.other, number=1, origin_code="OTH")
+        foreign_box = self.make_box("TRS-OTH-1.001", "001", organization=self.other, strain=foreign_strain)
+        self.observe_exact_day(7, "15", box=foreign_box)
+        history = self.client.get(f"/api/boxes/{foreign_box.pk}/history/", **self.login(self.outsider, self.other)).json()
+        self.assertIsNone(history["starting_location"])
+
+    def test_period_fallback_requires_one_period_covering_first_whole_day(self):
+        BiologicalMeasurement.objects.create(box=self.box, measured_on=date(2026, 2, 11), polyp_count=0,
+                                             temporal_precision=BiologicalMeasurement.TemporalPrecision.EXACT_DATE)
+        for start, end, unknown, expected in (
+            (paris(2026, 2, 11), paris(2026, 2, 12), False, True),
+            (paris(2026, 2, 10), None, False, True),
+            (paris(2026, 2, 11, 12), None, False, False),
+            (paris(2026, 2, 10), paris(2026, 2, 11, 12), False, False),
+            (paris(2026, 2, 12), None, False, False),
+            (paris(2026, 2, 10), None, True, False),
+        ):
+            with self.subTest(start=start, end=end, unknown=unknown):
+                period = BoxLocation.objects.create(box=self.box, thermal_zone=self.zone15, starts_at=start, ends_at=end, end_date_unknown=unknown)
+                result = self.box_history()["starting_location"]
+                self.assertEqual(result, {"observed_on": "2026-02-11", "thermal_zone": {"id": self.zone15.pk, "name": self.zone15.name},
+                                          "represented_movement_id": None} if expected else None)
+                period.delete()
+
+    def test_period_fallback_rejects_overlaps_and_foreign_zones(self):
+        BiologicalMeasurement.objects.create(box=self.box, measured_on=date(2026, 2, 11), polyp_count=0,
+                                             temporal_precision=BiologicalMeasurement.TemporalPrecision.EXACT_DATE)
+        period = BoxLocation.objects.create(box=self.box, thermal_zone=self.zone15, starts_at=paris(2026, 2, 10))
+        overlap = BoxLocation.objects.create(box=self.box, thermal_zone=self.zone10, starts_at=paris(2026, 2, 11, 12))
+        self.assertIsNone(self.box_history()["starting_location"])
+        overlap.delete()
+        foreign_zone = ThermalZone.objects.create(organization=self.other, name="Private foreign zone")
+        BoxLocation.objects.filter(pk=period.pk).update(thermal_zone=foreign_zone)
+        self.assertIsNone(self.box_history()["starting_location"])
+
+    def test_current_zone_and_later_qualification_never_prove_first_location(self):
+        BiologicalMeasurement.objects.create(box=self.box, measured_on=date(2026, 2, 11), polyp_count=0,
+                                             temporal_precision=BiologicalMeasurement.TemporalPrecision.EXACT_DATE)
+        Box.objects.filter(pk=self.box.pk).update(thermal_zone=self.zone10)
+        BoxMovement.objects.create(box=self.box, to_thermal_zone=self.zone10, moved_at=paris(2026, 2, 12), kind=BoxMovement.Kind.QUALIFICATION)
+        BoxLocation.objects.create(box=self.box, thermal_zone=self.zone10, starts_at=paris(2026, 2, 12))
+        self.assertIsNone(self.box_history()["starting_location"])
+
+    def test_legacy_starting_location_uses_source_week_without_certifying_stored_day(self):
+        first = self.observe(7, "15")
+        BiologicalMeasurement.objects.filter(pk=first.biological_measurement_id).update(measured_on=date(2026, 2, 11))
+        self.observe_exact_day(8, "10")
+        expected = {
+            "observed_on": None, "temporal_precision": "iso_week", "iso_year": 2026, "iso_week": 7,
+            "thermal_zone": {"id": self.zone15.pk, "name": self.zone15.name}, "represented_movement_id": None,
+        }
+        self.assertEqual(self.box_history()["starting_location"], expected)
+        period = BoxLocation.objects.create(box=self.box, thermal_zone=self.zone15, starts_at=paris(2026, 2, 1))
+        BoxMovement.objects.create(
+            box=self.box, kind=BoxMovement.Kind.INITIAL_LOCATION, to_thermal_zone=self.zone15,
+            destination_location=period, moved_at=period.starts_at,
+        )
+        self.assertEqual(self.box_history()["starting_location"], expected)
+        BiologicalMeasurement.objects.filter(pk=first.biological_measurement_id).update(
+            temporal_precision=BiologicalMeasurement.TemporalPrecision.EXACT_DATE,
+        )
+        self.assertEqual(self.box_history()["starting_location"]["observed_on"], "2026-02-11")
+
+    def test_starting_location_setpoint_overrides_conflicting_period(self):
+        self.observe_exact_day(7, "15")
+        self.observe_exact_day(8, "10")
+        period = BoxLocation.objects.create(box=self.box, thermal_zone=self.zone10, starts_at=paris(2026, 2, 1))
+        movement = BoxMovement.objects.create(
+            box=self.box, kind=BoxMovement.Kind.INITIAL_LOCATION, to_thermal_zone=self.zone10,
+            destination_location=period, moved_at=period.starts_at,
+        )
+        expected = {
+            "observed_on": "2026-02-09", "thermal_zone": {"id": self.zone15.pk, "name": self.zone15.name},
+            "represented_movement_id": None,
+        }
+        self.assertEqual(self.box_history()["starting_location"], expected)
+        BoxLocation.objects.filter(pk=period.pk).update(thermal_zone=self.zone15)
+        self.assertEqual(self.box_history()["starting_location"], expected)
+        BoxMovement.objects.filter(pk=movement.pk).update(to_thermal_zone=self.zone15)
+        self.assertEqual(self.box_history()["starting_location"], {**expected, "represented_movement_id": movement.pk})
+
+    def test_starting_location_preserves_first_exact_observation_and_all_records(self):
+        self.observe_exact_day(3, "15")
+        self.observe_exact_day(4, "15")
+        self.observe_exact_day(7, "15")
+        self.observe_exact_day(8, "10")
+        models_to_check = (Box, BoxLocation, BoxMovement, HistoricalBoxMovement, BiologicalMeasurement,
+                           HistoricalTemperatureReading, HistoricalTemperatureEvidence, AuditLog)
+        before = [list(model.objects.order_by("pk").values()) for model in models_to_check]
+        for _ in range(2):
+            history = self.box_history()
+            self.assertEqual(history["starting_location"], {
+                "observed_on": "2026-01-12", "thermal_zone": {"id": self.zone15.pk, "name": self.zone15.name},
+                "represented_movement_id": None,
+            })
+            self.assertEqual(history["historical_transitions"][0]["origin_observation"]["iso_week"], 7)
+        self.assertEqual(before, [list(model.objects.order_by("pk").values()) for model in models_to_check])
+
+    def test_legacy_starting_week_survives_unlocated_qualification(self):
+        self.observe(7, "15")
+        self.observe_exact_day(8, "10")
+        Box.objects.filter(pk=self.box.pk).update(status=Box.Status.PENDING_REVIEW)
+        qualify_pending_box(box=self.box, user=self.user, target_status=Box.Status.ACTIVE)
+        history = self.box_history()
+        self.assertEqual(history["starting_location"], {
+            "observed_on": None, "temporal_precision": "iso_week", "iso_year": 2026, "iso_week": 7,
+            "thermal_zone": {"id": self.zone15.pk, "name": self.zone15.name}, "represented_movement_id": None,
+        })
+        self.assertFalse(self.box.locations.exists())
+        self.assertFalse(self.box.movements.exists())
+        event = next(row for row in history["events"] if row["provenance"] == "lifecycle_audit")
+        self.assertEqual(event["kind"], "qualification")
+        self.assertEqual(event["temporal_precision"], "unresolved")
+        self.assertIsNone(event["to_thermal_zone"])
+
+    def test_legacy_earliest_eligible_mapping_gap_never_uses_later_reading_or_period(self):
+        self.observe(4, "20", evidence=False)
+        first = self.observe(7, "15")
+        BiologicalMeasurement.objects.filter(pk=first.biological_measurement_id).update(measured_on=date(2026, 2, 11))
+        self.observe_exact_day(8, "10")
+        period = BoxLocation.objects.create(box=self.box, thermal_zone=self.zone10, starts_at=paris(2026, 1, 1))
+        BoxMovement.objects.create(
+            box=self.box, kind=BoxMovement.Kind.INITIAL_LOCATION, to_thermal_zone=self.zone10,
+            destination_location=period, moved_at=period.starts_at,
+        )
+        competing = ThermalZone.objects.create(organization=self.org, name="Another 15", target_temperature_c=Decimal("15"))
+        self.assertIsNone(self.box_history()["starting_location"])
+        ThermalZone.objects.filter(pk__in=[competing.pk, self.zone15.pk]).update(target_temperature_c=None)
+        self.assertIsNone(self.box_history()["starting_location"])
+
+    def test_invalid_historical_source_never_falls_back_to_period(self):
+        for invalid in ({"evidence": False}, {"source_box": "TRS-LAB-1.099"},
+                        {"source_file": "unknown.xlsx"}, {"sha": "0" * 64}, {"source_value": "20"}):
+            with self.subTest(invalid=invalid):
+                self.box = self.make_box(f"TRS-LAB-1.{100 + Box.objects.count():03d}", str(100 + Box.objects.count()))
+                self.observe_exact_day(7, "15", **invalid)
+                BoxLocation.objects.create(box=self.box, thermal_zone=self.zone10, starts_at=paris(2026, 2, 1))
+                self.assertIsNone(self.box_history()["starting_location"])
+
+    def test_ineligible_historical_association_never_falls_back_to_period(self):
+        other_box = self.make_box("TRS-LAB-1.002", "002")
+        for field, value in (("association_status", "pending_review"), ("temperature_c", "invalid"), ("iso_week", 6)):
+            with self.subTest(field=field):
+                self.box = self.make_box(f"TRS-LAB-1.{100 + Box.objects.count():03d}", str(100 + Box.objects.count()))
+                reading = self.observe_exact_day(7, "15")
+                BoxLocation.objects.create(box=self.box, thermal_zone=self.zone10, starts_at=paris(2026, 2, 1))
+                with connection.cursor() as cursor:
+                    cursor.execute(f"UPDATE {HistoricalTemperatureReading._meta.db_table} SET {field}=%s WHERE id=%s", [value, reading.pk])
+                self.assertIsNone(self.box_history()["starting_location"])
+        self.box = other_box
+        reading = self.observe_exact_day(7, "15")
+        BiologicalMeasurement.objects.filter(pk=reading.biological_measurement_id).update(environment_source_box=self.make_box("TRS-LAB-1.003", "003"))
+        BoxLocation.objects.create(box=self.box, thermal_zone=self.zone10, starts_at=paris(2026, 2, 1))
+        self.assertIsNone(self.box_history()["starting_location"])
+
+    def test_inconsistent_historical_dates_never_fall_back_to_period(self):
+        for week_start in (date(2026, 2, 9), date(2026, 10, 5)):
+            with self.subTest(week_start=week_start):
+                self.box = self.make_box(f"TRS-LAB-1.{100 + Box.objects.count():03d}", str(100 + Box.objects.count()))
+                first = self.observe_exact_day(7, "15")
+                BiologicalMeasurement.objects.filter(pk=first.biological_measurement_id).update(
+                    measured_on=date(2026, 10, 7), week_start=week_start,
+                )
+                BoxLocation.objects.create(box=self.box, thermal_zone=self.zone20, starts_at=paris(2026, 1, 1))
+                self.assertIsNone(self.box_history()["starting_location"])
+                self.observe_exact_day(8, "10")
+                self.assertEqual(self.box_history()["starting_location"], {
+                    "observed_on": "2026-02-16", "thermal_zone": {"id": self.zone10.pk, "name": self.zone10.name},
+                    "represented_movement_id": None,
+                })
+
+    def test_source_week_or_digest_mismatch_is_skipped_not_used_as_start(self):
+        for field, value in (("source_iso_week", 6), ("source_iso_year", 2025), ("source_sha256", "0" * 64)):
+            with self.subTest(field=field):
+                self.box = self.make_box(f"TRS-LAB-1.{100 + Box.objects.count():03d}", str(100 + Box.objects.count()))
+                first = self.observe_exact_day(7, "15")
+                evidence = first.evidences.get()
+                setattr(evidence, field, value)
+                models.Model.save(evidence, update_fields=[field])
+                self.observe(8, "10")
+                self.assertEqual(self.box_history()["starting_location"], {
+                    "observed_on": None, "temporal_precision": "iso_week", "iso_year": 2026, "iso_week": 8,
+                    "thermal_zone": {"id": self.zone10.pk, "name": self.zone10.name}, "represented_movement_id": None,
+                })
+
+    def test_starting_reading_and_mapping_are_scoped_to_exact_box_and_organization(self):
+        sibling = self.make_box("TRS-LAB-1.002", "002")
+        self.observe_exact_day(3, "20", box=sibling)
+        foreign_strain = Strain.objects.create(species=self.species, code="TRS-OTH-1", organization=self.other, number=1, origin_code="OTH")
+        foreign_box = self.make_box("TRS-OTH-1.001", "001", organization=self.other, strain=foreign_strain)
+        self.observe_exact_day(2, "10", box=foreign_box)
+        foreign_zone = ThermalZone.objects.create(organization=self.other, name="Private 15", target_temperature_c=Decimal("15"))
+        self.observe_exact_day(7, "15", source_box=foreign_box.global_code)
+        self.observe_exact_day(8, "15")
+        expected = {"observed_on": "2026-02-16", "thermal_zone": {"id": self.zone15.pk, "name": self.zone15.name},
+                    "represented_movement_id": None}
+        self.assertEqual(self.box_history()["starting_location"], expected)
+        ThermalZone.objects.filter(pk=self.zone15.pk).update(target_temperature_c=None)
+        self.assertIsNone(self.box_history()["starting_location"])
+        self.assertNotEqual(foreign_zone.pk, expected["thermal_zone"]["id"])
+        response = self.client.get(f"/api/boxes/{self.box.pk}/history/", **self.login(self.outsider, self.other))
+        self.assertEqual(response.status_code, 404)
+
+    def test_legacy_starting_week_keeps_iso_year_across_calendar_year_boundary(self):
+        first = self.observe(1, "15")
+        BiologicalMeasurement.objects.filter(pk=first.biological_measurement_id).update(measured_on=date(2025, 12, 31))
+        self.assertEqual(self.box_history()["starting_location"], {
+            "observed_on": None, "temporal_precision": "iso_week", "iso_year": 2026, "iso_week": 1,
+            "thermal_zone": {"id": self.zone15.pk, "name": self.zone15.name}, "represented_movement_id": None,
+        })
+
+    def test_unverified_day_without_historical_reading_never_gets_period_fallback(self):
+        BiologicalMeasurement.objects.create(box=self.box, measured_on=date(2026, 2, 11), polyp_count=0)
+        BoxLocation.objects.create(box=self.box, thermal_zone=self.zone15, starts_at=paris(2026, 2, 1))
+        self.assertIsNone(self.box_history()["starting_location"])
+
+    def test_nonhistorical_exact_day_retains_period_fallback(self):
+        self.observe_exact_day(41, "15")
+        BoxLocation.objects.create(box=self.box, thermal_zone=self.zone10, starts_at=paris(2026, 10, 1))
+        self.assertEqual(self.box_history()["starting_location"], {
+            "observed_on": "2026-10-05", "thermal_zone": {"id": self.zone10.pk, "name": self.zone10.name},
+            "represented_movement_id": None,
+        })
+        foreign_strain = Strain.objects.create(species=self.species, code="TRS-OTH-1", organization=self.other, number=1, origin_code="OTH")
+        foreign_box = self.make_box("TRS-OTH-1.001", "001", organization=self.other, strain=foreign_strain)
+        self.observe_exact_day(7, "15", box=foreign_box)
+        foreign_zone = ThermalZone.objects.create(organization=self.other, name="Other zone")
+        BoxLocation.objects.create(box=foreign_box, thermal_zone=foreign_zone, starts_at=paris(2026, 2, 1))
+        response = self.client.get(f"/api/boxes/{foreign_box.pk}/history/", **self.login(self.outsider, self.other))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["starting_location"], {
+            "observed_on": "2026-02-09", "thermal_zone": {"id": foreign_zone.pk, "name": foreign_zone.name},
+            "represented_movement_id": None,
+        })
+
+    def test_starting_anchor_survives_conflicting_periods_and_unlinked_recorded_movement_without_writes(self):
+        for precision in BiologicalMeasurement.TemporalPrecision.values:
+            with self.subTest(precision=precision):
+                self.box = self.make_box(f"TRS-LAB-1.{100 + Box.objects.count():03d}", str(100 + Box.objects.count()))
+                first = self.observe(7, "15")
+                BiologicalMeasurement.objects.filter(pk=first.biological_measurement_id).update(
+                    measured_on=date(2026, 2, 11), temporal_precision=precision,
+                )
+                self.observe(8, "10")
+                period = BoxLocation.objects.create(box=self.box, thermal_zone=self.zone20, starts_at=paris(2026, 2, 1))
+                initial = BoxMovement.objects.create(
+                    box=self.box, kind=BoxMovement.Kind.INITIAL_LOCATION, to_thermal_zone=self.zone20,
+                    destination_location=period, moved_at=period.starts_at,
+                )
+                movement = BoxMovement.objects.create(
+                    box=self.box, from_thermal_zone=self.zone20, to_thermal_zone=self.zone10, moved_at=paris(2026, 2, 12),
+                )
+                self.assertEqual(movement.kind, BoxMovement.Kind.UNCLASSIFIED)
+                self.assertIsNone(movement.origin_location_id)
+                self.assertIsNone(movement.destination_location_id)
+                models_to_check = (Box, BoxLocation, BoxMovement, HistoricalBoxMovement, ThermalZone, BiologicalMeasurement,
+                                   HistoricalTemperatureReading, HistoricalTemperatureEvidence, AuditLog)
+                before = [list(model.objects.order_by("pk").values()) for model in models_to_check]
+                expected = {"observed_on": "2026-02-11", "thermal_zone": {"id": self.zone15.pk, "name": self.zone15.name},
+                            "represented_movement_id": None}
+                if precision == BiologicalMeasurement.TemporalPrecision.LEGACY_UNVERIFIED:
+                    expected.update(observed_on=None, temporal_precision="iso_week", iso_year=2026, iso_week=7)
+                for _ in range(2):
+                    history = self.box_history()
+                    self.assertEqual(history["starting_location"], expected)
+                    event = next(row for row in history["events"] if row["recorded_movement_id"] == movement.pk)
+                    self.assertEqual(event["kind"], "unclassified")
+                    self.assertEqual(event["from_thermal_zone"]["id"], self.zone20.pk)
+                    self.assertEqual(event["to_thermal_zone"]["id"], self.zone10.pk)
+                    self.assertFalse(event["evidence"]["has_origin_link"])
+                    self.assertFalse(event["evidence"]["has_destination_link"])
+                    self.assertTrue(any(row["recorded_movement_id"] == initial.pk for row in history["events"]))
+                    self.assertEqual(history["historical_transitions"][0]["status"], "review")
+                    self.assertIn("conflicting_recorded_movement", history["historical_transitions"][0]["blockers"])
+                self.assertEqual(before, [list(model.objects.order_by("pk").values()) for model in models_to_check])
+
+    def test_starting_anchor_survives_incomplete_or_foreign_periods(self):
+        self.observe_exact_day(7, "15")
+        foreign_zone = ThermalZone.objects.create(organization=self.other, name="Private foreign zone")
+        for zone, start, end, unknown in (
+            (self.zone10, paris(2026, 2, 9, 12), None, False),
+            (self.zone10, paris(2026, 2, 1), paris(2026, 2, 9, 12), False),
+            (self.zone10, paris(2026, 2, 1), None, True),
+            (foreign_zone, paris(2026, 2, 1), None, False),
+        ):
+            with self.subTest(zone=zone.pk, start=start, end=end, unknown=unknown):
+                period = BoxLocation.objects.create(box=self.box, thermal_zone=zone, starts_at=start, ends_at=end, end_date_unknown=unknown)
+                self.assertEqual(self.box_history()["starting_location"], {
+                    "observed_on": "2026-02-09", "thermal_zone": {"id": self.zone15.pk, "name": self.zone15.name},
+                    "represented_movement_id": None,
+                })
+                period.delete()
+
+    def test_merged_box_never_gets_starting_anchor(self):
+        self.observe_exact_day(7, "15")
+        target = self.make_box("TRS-LAB-1.002", "002")
+        Box.objects.filter(pk=self.box.pk).update(merged_into=target)
+        self.box.refresh_from_db()
+        self.assertIsNone(projection.project_starting_location(box=self.box, periods=[], zones={}))
+
+    def preserved_starting_evidence(self):
+        Box.objects.filter(pk=self.box.pk).update(global_code="CLC-JKA-1.009")
+        self.box.refresh_from_db()
+        first = self.observe(7, "15", source_box="CLA-JKA-1.09")
+        BiologicalMeasurement.objects.filter(pk=first.biological_measurement_id).update(measured_on=date(2026, 2, 11))
+        self.observe(8, "10")
+        return first.evidences.get()
+
+    def test_starting_identity_correction_is_not_a_generic_sqlite_alias(self):
+        self.preserved_starting_evidence()
+        self.assertEqual(self.box_history()["starting_location"], {
+            "observed_on": None, "temporal_precision": "iso_week", "iso_year": 2026, "iso_week": 8,
+            "thermal_zone": {"id": self.zone10.pk, "name": self.zone10.name}, "represented_movement_id": None,
+        })
+        self.box = self.make_box("CLC-JKA-1.010", "010")
+        self.observe(7, "15", source_box="CLA-JKA-1.10")
+        self.assertIsNone(self.box_history()["starting_location"])
+
+    def test_starting_identity_proof_helper_never_queries_sqlite_or_empty_ids(self):
+        self.assertEqual(connection.vendor, "sqlite")
+        with patch.object(connection, "cursor", side_effect=AssertionError("SQLite must not query correction proof")):
+            self.assertEqual(projection._approved_starting_evidence_ids({4, 8}, using=connection.alias), set())
+        with patch.object(projection, "connections", {}):
+            self.assertEqual(projection._approved_starting_evidence_ids(set(), using="unused"), set())
+
+    def test_starting_identity_proof_helper_batches_only_requested_ids_on_selected_alias(self):
+        database = MagicMock(vendor="postgresql")
+        cursor = database.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = [(4,), (999,)]
+        with patch.object(projection, "connections", {"proof_reader": database}):
+            self.assertEqual(projection._approved_starting_evidence_ids({8, 4}, using="proof_reader"), {4})
+            database.cursor.assert_called_once_with()
+            cursor.execute.assert_called_once_with(
+                "SELECT evidence_id FROM unnest(%s::bigint[]) AS scoped(evidence_id) "
+                "WHERE public.box_1902_evidence_valid_v2(evidence_id)", [[4, 8]],
+            )
+            cursor.fetchall.return_value = []
+            self.assertEqual(projection._approved_starting_evidence_ids({4, 8}, using="proof_reader"), set())
+
+    def test_starting_approved_identity_restores_only_exact_persisted_evidence_without_writes(self):
+        evidence = self.preserved_starting_evidence()
+        earlier = self.observe(6, "15", source_box="CLA-JKA-1.09").evidences.get()
+        domain = (Box, BoxLocation, BoxMovement, HistoricalBoxMovement, ThermalZone, BiologicalMeasurement,
+                  HistoricalTemperatureReading, HistoricalTemperatureEvidence, AuditLog)
+        before = [list(model.objects.order_by("pk").values()) for model in domain]
+        expected = {"observed_on": None, "temporal_precision": "iso_week", "iso_year": 2026, "iso_week": 7,
+                    "thermal_zone": {"id": self.zone15.pk, "name": self.zone15.name}, "represented_movement_id": None}
+        with patch.object(projection, "_approved_starting_evidence_ids", return_value={evidence.pk}) as proof:
+            with patch.object(HistoricalTemperatureEvidence, "full_clean", side_effect=AssertionError("Projection must not validate model instances")):
+                for _ in range(2):
+                    history = self.box_history()
+                    self.assertEqual(history["starting_location"], expected)
+                    proof.assert_called_with({earlier.pk, evidence.pk}, using=evidence._state.db)
+                    transition = history["historical_transitions"][0]
+                    self.assertEqual(transition["status"], "review")
+                    self.assertIn("source_box_identity_mismatch", transition["blockers"])
+                    self.assertEqual(set(transition["origin_observation"]["sources"][0]), set(projection._EVIDENCE_FIELDS))
+            self.assertEqual(before, [list(model.objects.order_by("pk").values()) for model in domain])
+            BiologicalMeasurement.objects.filter(pk=evidence.reading.biological_measurement_id).update(
+                temporal_precision=BiologicalMeasurement.TemporalPrecision.EXACT_DATE,
+            )
+            self.assertEqual(self.box_history()["starting_location"], {
+                "observed_on": "2026-02-11", "thermal_zone": expected["thermal_zone"], "represented_movement_id": None,
+            })
+            proof.return_value = set()
+            self.assertEqual(self.box_history()["starting_location"]["iso_week"], 8)
+
+    def test_starting_approved_identity_does_not_authorize_another_evidence_on_same_reading(self):
+        evidence = self.preserved_starting_evidence()
+        extra = HistoricalTemperatureEvidence.objects.get(pk=evidence.pk)
+        extra.pk = None
+        extra.source_box = "CLA-JKA-1.08"
+        extra.polyp_cell, extra.ephyrae_cell, extra.week_cell = "G9", "G10", "G2"
+        models.Model.save(extra, force_insert=True)
+        with patch.object(projection, "_approved_starting_evidence_ids", return_value={evidence.pk}) as proof:
+            self.assertEqual(self.box_history()["starting_location"]["iso_week"], 8)
+            proof.assert_called_once_with({evidence.pk, extra.pk}, using=evidence._state.db)
+
+    def test_starting_approved_identity_keeps_source_value_week_and_association_guards(self):
+        source = self.make_box("TRS-LAB-1.002", "002")
+        for target, field, value in (
+            ("evidence", "source_file", "unknown.xlsx"), ("evidence", "source_sha256", "0" * 64),
+            ("evidence", "source_value", "20"), ("evidence", "source_iso_week", 6),
+            ("evidence", "source_iso_year", 2025), ("reading", "association_status", "pending_review"),
+            ("reading", "temperature_c", "invalid"), ("reading", "iso_week", 6),
+            ("biology", "measured_on", date(2026, 2, 2)), ("biology", "week_start", date(2026, 2, 2)),
+            ("biology", "environment_source_box_id", source.pk),
+        ):
+            with self.subTest(target=target, field=field):
+                number = str(100 + Box.objects.count())
+                self.box = self.make_box(f"TRS-LAB-1.{number}", number)
+                first = self.observe(7, "15", source_box="CLA-JKA-1.09")
+                evidence = first.evidences.get()
+                if target == "biology":
+                    BiologicalMeasurement.objects.filter(pk=first.biological_measurement_id).update(**{field: value})
+                else:
+                    row = evidence if target == "evidence" else first
+                    setattr(row, field, value)
+                    models.Model.save(row, update_fields=[field])
+                self.observe(8, "10")
+                with patch.object(projection, "_approved_starting_evidence_ids", return_value={evidence.pk}):
+                    self.assertEqual(self.box_history()["starting_location"], {
+                        "observed_on": None, "temporal_precision": "iso_week", "iso_year": 2026, "iso_week": 8,
+                        "thermal_zone": {"id": self.zone10.pk, "name": self.zone10.name}, "represented_movement_id": None,
+                    })
+
+    def test_starting_identity_proof_is_scoped_to_canonical_box_and_organization_evidence(self):
+        evidence = self.preserved_starting_evidence()
+        sibling = self.make_box("CLC-JKA-1.010", "010")
+        other_evidence = self.observe(4, "20", box=sibling, source_box="CLA-JKA-1.09").evidences.get()
+        foreign_strain = Strain.objects.create(species=self.species, code="TRS-OTH-1", organization=self.other, number=1, origin_code="OTH")
+        foreign_box = self.make_box("CLC-JKA-1.011", "011", organization=self.other, strain=foreign_strain)
+        foreign_evidence = self.observe(3, "20", box=foreign_box, source_box="CLA-JKA-1.09").evidences.get()
+        duplicate = BiologicalMeasurement(
+            box=self.box, measured_on=date(2026, 2, 9), week_start=date(2026, 2, 9),
+            duplicate_of_id=evidence.reading.biological_measurement_id, polyp_count=0,
+        )
+        models.Model.save(duplicate, force_insert=True)
+        duplicate_reading = HistoricalTemperatureReading(
+            biological_measurement=duplicate, iso_year=2026, iso_week=7, temperature_c="15",
+        )
+        models.Model.save(duplicate_reading, force_insert=True)
+        duplicate_evidence = HistoricalTemperatureEvidence.objects.get(pk=evidence.pk)
+        duplicate_evidence.pk = None
+        duplicate_evidence.reading = duplicate_reading
+        models.Model.save(duplicate_evidence, force_insert=True)
+        with patch.object(projection, "_approved_starting_evidence_ids", return_value={
+            other_evidence.pk, foreign_evidence.pk, duplicate_evidence.pk,
+        }) as proof:
+            self.assertEqual(self.box_history()["starting_location"]["iso_week"], 8)
+            proof.assert_called_once_with({evidence.pk}, using=evidence._state.db)
+            self.assertIsNone(projection.project_starting_location(box=foreign_box, periods=[], zones={}))
+            proof.assert_called_once()
+
+    def test_starting_approved_identity_never_skips_earliest_mapping_gap(self):
+        evidence = self.preserved_starting_evidence()
+        with patch.object(projection, "_approved_starting_evidence_ids", return_value={evidence.pk}):
+            ThermalZone.objects.create(organization=self.org, name="Another 15", target_temperature_c=Decimal("15"))
+            self.assertIsNone(self.box_history()["starting_location"])
+            ThermalZone.objects.filter(organization=self.org, target_temperature_c=Decimal("15")).update(target_temperature_c=None)
+            self.assertIsNone(self.box_history()["starting_location"])
+
+    def test_review_transition_keeps_recorded_representation_without_upgrading(self):
+        self.observe(7, "15", evidence=False)
+        self.observe(8, "10")
+        movement = BoxMovement.objects.create(box=self.box, from_thermal_zone=self.zone15,
+                                             to_thermal_zone=self.zone10, moved_at=paris(2026, 2, 10))
+        row = self.only()
+        self.assertEqual(row["status"], "review")
+        self.assertIn("source_box_identity_unavailable", row["blockers"])
+        self.assertEqual(row["representation"], {"kind": "box_movement", "event_id": f"movement:{movement.pk}", "movement_id": movement.pk})
+        self.assertFalse(row["adds_location_history"])
+        self.assertFalse(row["physical_occurrence_known"])
+        self.assertEqual(self.box_history()["historical_transitions"][0]["representation"], row["representation"])
+
+    def test_review_transition_retains_conflicts_without_guessing_representation(self):
+        self.observe(7, "15", evidence=False)
+        self.observe(8, "10")
+        movement = BoxMovement.objects.create(box=self.box, from_thermal_zone=self.zone20,
+                                             to_thermal_zone=self.zone10, moved_at=paris(2026, 2, 10))
+        row = self.only()
+        self.assertEqual(row["status"], "review")
+        self.assertEqual(set(row["blockers"]), {"source_box_identity_unavailable", "conflicting_recorded_movement"})
+        self.assertIsNone(row["representation"])
+        self.assertFalse(row["adds_location_history"])
+        movement.delete()
+        for day in (10, 11):
+            BoxMovement.objects.create(box=self.box, from_thermal_zone=self.zone15,
+                                       to_thermal_zone=self.zone10, moved_at=paris(2026, 2, day))
+        row = self.only()
+        self.assertEqual(set(row["blockers"]), {"source_box_identity_unavailable", "multiple_recorded_candidates"})
+        self.assertIsNone(row["representation"])
+        self.assertEqual(row["status"], "review")
+
+    def test_review_transition_keeps_period_representation(self):
+        self.observe(7, "15", evidence=False)
+        self.observe(8, "10")
+        origin = BoxLocation.objects.create(box=self.box, thermal_zone=self.zone15,
+                                            starts_at=paris(2026, 2, 1), ends_at=paris(2026, 2, 10))
+        destination = BoxLocation.objects.create(box=self.box, thermal_zone=self.zone10, starts_at=paris(2026, 2, 10))
+        row = self.only()
+        self.assertEqual(row["representation"], {"kind": "location_periods", "origin_location_id": origin.pk, "destination_location_id": destination.pk})
+        self.assertEqual(row["status"], "review")
+        self.assertFalse(row["adds_location_history"])
+
+    def assert_mapping_gap_retains_recorded_conflict_with_invalid_source(self, mapping_gap):
+        self.observe(7, "15", source_file="unknown.xlsx")
+        self.observe(8, "10")
+        movement = BoxMovement.objects.create(box=self.box, from_thermal_zone=self.zone15,
+                                             to_thermal_zone=self.zone10, moved_at=paris(2026, 2, 10))
+        expected = {"source_not_validated", mapping_gap, "recorded_location_data_not_comparable"}
+        for record_kind in ("movement", "period"):
+            with self.subTest(record_kind=record_kind):
+                row = self.only()
+                self.assertEqual(set(row["blockers"]), expected)
+                self.assertEqual(row["status"], "review")
+                self.assertIsNone(row["representation"])
+                self.assertFalse(row["adds_location_history"])
+                self.assertFalse(row["physical_occurrence_known"])
+                self.assertEqual(row["origin_observation"]["sources"][0]["source_file"], "unknown.xlsx")
+                self.assertEqual((row["from_environment_c"], row["to_environment_c"]), ("15", "10"))
+                self.assertEqual(set(self.box_history()["historical_transitions"][0]["blockers"]), expected)
+                if record_kind == "movement":
+                    movement.delete()
+                    period = BoxLocation.objects.create(box=self.box, thermal_zone=self.zone10, starts_at=paris(2026, 2, 10))
+        period.delete()
+        row = self.only()
+        self.assertEqual(set(row["blockers"]), {"source_not_validated", mapping_gap})
+        self.assertEqual(row["status"], "review")
+
+    def test_missing_mapping_with_invalid_source_keeps_recorded_conflict(self):
+        ThermalZone.objects.filter(pk=self.zone15.pk).update(target_temperature_c=None)
+        self.assert_mapping_gap_retains_recorded_conflict_with_invalid_source("location_mapping_unavailable")
+
+    def test_ambiguous_mapping_with_invalid_source_keeps_recorded_conflict(self):
+        ThermalZone.objects.create(organization=self.org, name="Another 15", target_temperature_c=Decimal("15"))
+        self.assert_mapping_gap_retains_recorded_conflict_with_invalid_source("location_mapping_ambiguous")
 
     def test_gap_in_time_is_not_an_invented_instant(self):
         self.observe(7, "15")

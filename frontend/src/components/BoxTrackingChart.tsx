@@ -74,7 +74,8 @@ export default function BoxTrackingChart({
   const history = suppliedHistory ?? loadedHistory;
   const historyProjection = useMemo(() => projectBoxHistory(history.events, locations,
     [...measurements.map(point => point.measured_on), ...(biologicalTimeline ?? []).map(point => point.effective_date)],
-    createTranslator(language)), [history.events, locations, measurements, biologicalTimeline, language]);
+    createTranslator(language), history.historicalTransitions),
+  [history.events, history.historicalTransitions, locations, measurements, biologicalTimeline, language]);
   const timelineLabels = useMemo(() => getBiologicalTimelineLabels(createTranslator(language)), [language]);
   const biologicalData = useMemo(() => prepareBiologicalChartData(measurements, biologicalTimeline, {
     polyps: labels.polyps,
@@ -182,7 +183,7 @@ export default function BoxTrackingChart({
         title={compact ? undefined : labels.chartTitle}
       />
 
-      <BoxHistoryStatus history={history} language={language} showPartial={false} />
+      <BoxHistoryStatus history={history} language={language} showPartial={false} showLoading={false} />
       <div className="chart-window-viewport">
         <div className="chart-window-content">
           <BiologicalTrendChart
@@ -253,8 +254,11 @@ function prepareSharedChartData(
     endsAt: location.ends_at,
     endDateUnknown: location.end_date_unknown,
   }));
-  const sharedEvents = events.filter((event) => event.intervalEnd
-    ? (event.intervalStart ?? event.date) <= endText && event.intervalEnd >= startText : isChartEventInRange(event.instant ?? event.date, startText, endText));
+  // Keep semantic temperature and inactive-period evidence beyond the viewport.
+  // BiologicalTrendChart geometry alone decides which markers are visible.
+  const sharedEvents = events.filter((event) => event.temperatureStep || event.kind === 'deactivation' || event.kind === 'reactivation'
+    || (event.intervalEnd
+      ? (event.intervalStart ?? event.date) <= endText && event.intervalEnd >= startText : isChartEventInRange(event.instant ?? event.date, startText, endText)));
 
   return {
     startDate: startText,

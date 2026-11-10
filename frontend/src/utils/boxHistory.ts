@@ -23,12 +23,43 @@ export type HistoryEvent = {
 export function historyKindLabel(event: HistoryEvent, t: Translator): string {
   const keys = {
     ordinary: 'movementKindOrdinary', historical_reconstruction: 'movementKindOrdinary',
-    deactivation: 'historyDeactivation', reactivation: 'movementKindReactivation',
+    deactivation: 'historyDeactivation', reactivation: 'historyReactivation',
     initial_location: 'movementKindInitialLocation', qualification: 'movementKindQualification',
     unclassified: 'movementKindUnclassified', location_evidence: 'historyLocationEvidence',
     historical_transition: 'historyHistoricalMovement',
   } as const;
-  return t(keys[event.kind]);
+  if (event.kind === 'deactivation' || event.kind === 'reactivation') return t(keys[event.kind]);
+  return event.provenance === 'box_movement' && event.evidence.recorded_via_polypbase === true
+    ? t('historyRecordedViaPolypbase') : t(keys[event.kind]);
+}
+
+export function historyLocationLabel(event: HistoryEvent, t: Translator): string {
+  if (event.kind === 'deactivation') return event.from_thermal_zone
+    ? t('historyLocationExit').replace('{zone}', event.from_thermal_zone.name) : '';
+  if (event.kind === 'reactivation') return event.to_thermal_zone
+    ? t('historyLocationEntry').replace('{zone}', event.to_thermal_zone.name) : '';
+  return [event.from_thermal_zone?.name, event.to_thermal_zone?.name].filter(Boolean).join(' → ');
+}
+
+export type StartingLocation = {
+  thermal_zone: { id: number; name: string };
+  represented_movement_id?: number | null;
+} & (
+  | { observed_on: string; temporal_precision?: 'exact_date' }
+  | { observed_on: null; temporal_precision: 'iso_week'; iso_year: number; iso_week: number }
+);
+
+export function isStartingLocation(value: unknown): value is StartingLocation {
+  if (value == null || typeof value !== 'object') return false;
+  const initial = value as Partial<StartingLocation>;
+  const exact = typeof initial.observed_on === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(initial.observed_on)
+    && (initial.temporal_precision == null || initial.temporal_precision === 'exact_date');
+  const week = initial.observed_on === null && initial.temporal_precision === 'iso_week'
+    && validHistoryWeekInterval(initial.iso_year, initial.iso_week) !== null;
+  return (exact || week) && initial.thermal_zone != null && Number.isSafeInteger(initial.thermal_zone.id)
+    && initial.thermal_zone.id > 0 && typeof initial.thermal_zone.name === 'string'
+    && (initial.represented_movement_id == null || Number.isSafeInteger(initial.represented_movement_id)
+      && initial.represented_movement_id > 0);
 }
 
 export function historyWeekLabel(event: Pick<HistoryEvent, 'iso_year' | 'iso_week'>, t: Translator) {
@@ -131,26 +162,6 @@ function exactInstant(event: HistoryEvent) {
   return event.temporal_precision === 'exact' ? zonedInstant(event.occurred_at) : NaN;
 }
 
-type InactiveInterval = {
-  deactivation_event_id: string; reactivation_event_id: string;
-  previous_location_id: number; next_location_id: number; reactivation_movement_id: number;
-  starts_at: string; ends_at: string; duration_seconds: number;
-  measurement_overlap_possible: false; masking_eligible: true;
-};
-
-function inactiveInterval(event: HistoryEvent): InactiveInterval | null {
-  const value = event.evidence.inactive_interval as Partial<InactiveInterval> | null;
-  if (event.provenance !== 'lifecycle_audit' || !['recorded', 'paired'].includes(event.reconciliation_status)
-      || event.evidence.inactive_pairing_reliable !== true
-    || !value || typeof value !== 'object' || value.masking_eligible !== true
-    || value.measurement_overlap_possible !== false
-    || typeof value.deactivation_event_id !== 'string' || typeof value.reactivation_event_id !== 'string'
-    || ![value.previous_location_id, value.next_location_id, value.reactivation_movement_id]
-      .every(id => typeof id === 'number' && Number.isSafeInteger(id) && id > 0)
-    || typeof value.duration_seconds !== 'number' || !Number.isFinite(value.duration_seconds)
-    || !Number.isFinite(zonedInstant(value.starts_at)) || !Number.isFinite(zonedInstant(value.ends_at))) return null;
-  return value as InactiveInterval;
-}
 
 export type HistoryCandidate = {
   id: string; box_id: number; iso_year: number; iso_week: number;
@@ -184,8 +195,53 @@ export function historicalTransitionOf(event: HistoryEvent) {
   return event.kind === 'historical_transition' ? event.evidence.transition as HistoricalTransition : null;
 }
 
-export function historicalTransitionTitle(transition: HistoricalTransition, t: Translator) {
-  return t(['established', 'environment_only'].includes(transition.status) ? 'historyHistoricalMovement' : 'historyCandidate');
+// Aquarium de Paris rule: a historical temperature change is a location change.
+// A recorded movement that represents it, or that lies in the same interval with
+// another route, stays the only movement shown. Readings outside the confirmed
+// canonical series are not plotted, so they add no reconstructed movement.
+const RECORDED_MOVEMENT_BLOCKERS = new Set(['conflicting_recorded_movement', 'multiple_recorded_candidates', 'recorded_location_data_not_comparable']);
+const INVALID_MOVEMENT_IDENTITY = new Set(['observation_environment_from_other_box', 'source_box_identity_mismatch',
+  'source_box_identity_unavailable', 'observation_week_inconsistent', 'observations_conflict_in_week']);
+
+export function reconstructedHistoricalMovements(transitions: readonly HistoricalTransition[]) {
+  return transitions.filter(transition => transition.status !== 'already_represented'
+    && !transition.representation?.event_id
+    && transition.origin_observation?.association_status === 'confirmed'
+    && transition.destination_observation?.association_status === 'confirmed'
+    && !transition.blockers.some(reason => RECORDED_MOVEMENT_BLOCKERS.has(reason) || INVALID_MOVEMENT_IDENTITY.has(reason)
+          || reason === 'observation_measurement_not_canonical'));
+}
+
+function supportsRepresentedTemperatureStep(transition: HistoricalTransition) {
+  // An explicit owner can survive source validation review, but not unresolved
+  // identity, environment, canonicality or a blocker we do not understand.
+  if (!transition.blockers.every(reason => reason === 'source_not_validated')) return false;
+  const observations = [transition.origin_observation, transition.destination_observation];
+  if (![transition.from_environment_c, transition.to_environment_c, ...observations.map(item => item?.environment_temperature_c)]
+    .every(value => typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value)))) return false;
+  if (!observations.every(observation => observation?.association_status === 'confirmed'
+    && Number.isSafeInteger(observation.reading_id) && observation.reading_id > 0
+    && Number.isSafeInteger(observation.biological_measurement_id) && observation.biological_measurement_id > 0
+    && validHistoryWeekInterval(observation.iso_year, observation.iso_week)?.start === observation.week_start)) return false;
+  return observations[0].reading_id !== observations[1].reading_id
+    && observations[0].biological_measurement_id !== observations[1].biological_measurement_id
+    && observations[0].week_start < observations[1].week_start;
+}
+
+export function historicalTransitionRoute(transition: HistoricalTransition) {
+  return transition.from_thermal_zone && transition.to_thermal_zone
+    ? `${transition.from_thermal_zone.name} → ${transition.to_thermal_zone.name}`
+    : `${transition.from_environment_c} °C → ${transition.to_environment_c} °C`;
+}
+
+// Chart position only: between the origin week and the destination week, so the
+// plotted temperature changes after the marker. Never displayed as a date.
+export function historicalMovementMarkerDate(transition: HistoricalTransition) {
+  const day = (value: string) => Date.parse(`${value}T00:00:00Z`);
+  const originEnd = day(transition.origin_observation.week_start) + 7 * 86400000;
+  const destination = day(transition.destination_observation.week_start);
+  const days = Math.max(0, Math.floor((destination - originEnd) / 86400000 / 2));
+  return new Date(originEnd + days * 86400000).toISOString().slice(0, 10);
 }
 
 export type HistoricalWeekInterval = { from_iso_year: number; from_iso_week: number; to_iso_year: number; to_iso_week: number };
@@ -287,13 +343,12 @@ export function historyTimelineEntries(
   };
   // Exact period links supplied by the server: the planner row is the same transition.
   const plannerOwners = new Map<string, string>();
+  const displayed = new Set(reconstructedHistoricalMovements(transitions));
   for (const transition of transitions) {
-    const owner = transition.status === 'already_represented'
+    const owner = transition.representation?.event_id
       ? rows.findIndex(row => row.id === transition.representation?.event_id) : -1;
     if (owner !== -1) { attach(owner, 'historical_source_transitions', transition); continue; }
-    // Uncertain source evidence remains in the API, never as a physical movement row.
-    if (transition.status !== 'established' || !transition.from_thermal_zone || !transition.to_thermal_zone
-      || transition.blockers.length !== 0) continue;
+    if (!displayed.has(transition)) continue;
     rows.push({ id: transition.id, kind: 'historical_transition', temporal_precision: 'observation_interval', occurred_at: null,
       iso_year: null, iso_week: null, from_thermal_zone: transition.from_thermal_zone, to_thermal_zone: transition.to_thermal_zone,
       actor: null, provenance: 'historical_tracking', evidence: { transition }, reconciliation_status: transition.status,
@@ -351,61 +406,20 @@ export function historyTimelineEntries(
     || a.id.localeCompare(b.id));
 }
 
-function measurementCouldOverlap(date: string, start: number, end: number) {
-  if (date.length !== 10) {
-    const instant = Date.parse(date);
-    return !Number.isFinite(instant) || (instant >= start && instant <= end);
-  }
-  // Biological records only prove a day, not an instant. Include either possible
-  // UTC or browser-local day instead of assuming a midnight measurement.
-  const localStart = new Date(`${date}T00:00:00`).getTime();
-  const localEnd = new Date(`${date}T00:00:00`);
-  localEnd.setDate(localEnd.getDate() + 1);
-  const utcStart = Date.parse(`${date}T00:00:00Z`);
-  return !Number.isFinite(localStart) || (Math.min(localStart, utcStart) <= end
-    && Math.max(localEnd.getTime(), utcStart + 86400000) > start);
-}
 
 export function projectBoxHistory(
   events: readonly HistoryEvent[], locations: readonly BoxLocation[],
-  measurementDates: readonly string[], t: Translator,
+  _measurementDates: readonly string[], t: Translator, transitions: readonly HistoricalTransition[] = [],
 ): { events: TrendEvent[]; locations: TrendLocation[]; maskedLocationIds: Set<number> } {
   // Active location bands are scientific history, never a masking target.
   const maskedLocationIds = new Set<number>();
-  const maskedEventIds = new Set<string>();
   const pairs = uniqueLifecyclePairs(events);
-  for (const stopped of events) {
-    const interval = inactiveInterval(stopped);
-    if (stopped.kind !== 'deactivation' || !interval || stopped.id !== interval.deactivation_event_id) continue;
-    const resumedMatches = events.filter(event => event.id === interval.reactivation_event_id);
-    if (events.filter(event => event.id === stopped.id).length !== 1 || resumedMatches.length !== 1) continue;
-    const resumed = resumedMatches[0];
-    const reciprocal = inactiveInterval(resumed);
-    if (resumed.kind !== 'reactivation' || !reciprocal
-      || Object.keys(interval).some(key => interval[key as keyof InactiveInterval] !== reciprocal[key as keyof InactiveInterval])) continue;
-    const start = zonedInstant(interval.starts_at), end = zonedInstant(interval.ends_at);
-    if (!(end > start && end - start < 86400000)
-      || interval.duration_seconds !== (end - start) / 1000
-      || exactInstant(stopped) !== start || exactInstant(resumed) !== end) continue;
-    const previous = locations.filter(location => location.id === interval.previous_location_id);
-    const next = locations.filter(location => location.id === interval.next_location_id);
-    if (previous.length !== 1 || next.length !== 1 || previous[0].end_date_unknown || next[0].end_date_unknown
-      || zonedInstant(previous[0].ends_at) !== start || zonedInstant(next[0].starts_at) !== end) continue;
-    const moves = events.filter(event => event.provenance === 'box_movement'
-      && event.recorded_movement_id === interval.reactivation_movement_id);
-    if (moves.length !== 1 || moves[0].kind !== 'reactivation' || moves[0].reconciliation_status !== 'recorded'
-          || exactInstant(moves[0]) !== end
-      || pairs.get(resumed) !== moves[0]) continue;
-    // Backend eligibility includes exact-date and legacy-week measurement precision.
-    // This optional local guard can only retain more markers, never hide more.
-    if (measurementDates.some(date => measurementCouldOverlap(date, start, end))) continue;
-    [stopped, resumed, moves[0]].forEach(event => maskedEventIds.add(event.id));
-  }
   const chartEvents: TrendEvent[] = [];
+  const recordedIds = new Set<number>();
   for (const source of events) {
-    if (maskedEventIds.has(source.id) || pairs.has(source)) continue;
+    if (pairs.has(source)) continue;
     const event = lifecyclePresentation(source, pairs);
-    const detail = [event.from_thermal_zone?.name, event.to_thermal_zone?.name].filter(Boolean).join(' → ');
+    const detail = historyLocationLabel(event, t);
     const title = historyKindLabel(event, t);
     const interval = establishedHistoryWeek(event);
     if (interval) {
@@ -417,11 +431,38 @@ export function projectBoxHistory(
         detailLines: [{ label: t('movementKindOrdinary'), value: detail },
           { label: t('historyReconstruction'), value: historyWeekLabel(event, t) },
           { label: t('historyPrecision'), value: t('historyWeekOnly') }] });
-    } else if (['ordinary', 'deactivation', 'reactivation'].includes(event.kind) && Number.isFinite(exactInstant(event))) {
-
+    } else if ((['ordinary', 'deactivation', 'reactivation'].includes(event.kind)
+      || (event.kind === 'unclassified' && event.provenance === 'box_movement'
+        && Number.isSafeInteger(event.recorded_movement_id) && event.recorded_movement_id! > 0))
+      && Number.isFinite(exactInstant(event))) {
+      if (['ordinary', 'unclassified'].includes(event.kind) && event.provenance === 'box_movement'
+        && event.recorded_movement_id != null) {
+        if (recordedIds.has(event.recorded_movement_id)) continue;
+        recordedIds.add(event.recorded_movement_id);
+      }
       chartEvents.push({ id: event.id, date: localHistoryDay(event.occurred_at!), instant: event.occurred_at!,
-        title, detail, kind: event.kind === 'ordinary' ? 'movement' : event.kind as 'deactivation' | 'reactivation' });
+        title: ['ordinary', 'unclassified'].includes(event.kind) ? t('movementKindOrdinary') : title, detail,
+        kind: ['ordinary', 'unclassified'].includes(event.kind) ? 'movement' : event.kind as 'deactivation' | 'reactivation' });
     }
+  }
+  const step = (transition: HistoricalTransition) => ({
+    fromReadingId: transition.origin_observation.reading_id, toReadingId: transition.destination_observation.reading_id });
+  for (const transition of transitions) {
+    // The explicit representation, not review status or time proximity, owns the step.
+    const representation = transition.representation;
+    if (!representation?.event_id || !['box_movement', 'historical_box_movement'].includes(representation.kind)
+      || !supportsRepresentedTemperatureStep(transition)
+      || transitions.filter(item => item.representation?.event_id === representation.event_id).length !== 1) continue;
+    const owners = chartEvents.filter(event => event.id === representation.event_id);
+    if (owners.length !== 1) continue;
+    const owner = chartEvents.indexOf(owners[0]);
+    chartEvents[owner] = { ...chartEvents[owner], temperatureStep: step(transition) };
+  }
+  for (const transition of reconstructedHistoricalMovements(transitions)) {
+    const route = historicalTransitionRoute(transition), interval = historicalTransitionInterval(transition, t);
+    chartEvents.push({ id: transition.id, kind: 'historical_movement', date: historicalMovementMarkerDate(transition),
+      title: t('movementEvent'), detail: route, temporalLabel: interval, temperatureStep: step(transition),
+      detailLines: [{ label: t('historyHistoricalMovement'), value: route }, { label: '', value: interval }] });
   }
   return { events: chartEvents, maskedLocationIds, locations: locations.map(location => ({ id: location.id, name: location.thermal_zone.name, startsAt: location.starts_at,
       endsAt: location.ends_at, endDateUnknown: location.end_date_unknown })) };

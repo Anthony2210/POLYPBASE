@@ -200,10 +200,7 @@
 .chart-legend .is-missing::before { height: 0; background: transparent; border-top: 2px dashed currentColor; }
 
 .movement-timeline { display: grid; min-width: 0; margin: 0; padding: 0; list-style: none; }
-.movement-evidence { min-width: 0; }
-.movement-evidence summary { padding-block: var(--space-2); cursor: pointer; }
-.movement-evidence pre { max-width: 100%; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
-.movement-evidence summary:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+
 
 .movement-timeline li {
   position: relative;
@@ -231,7 +228,8 @@
 }
 
 .movement-timeline li:last-child { border-bottom: 0; }
-.movement-timeline time { color: var(--color-muted); font-size: .76rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.movement-timeline time,
+.movement-timeline .movement-interval { min-width: 0; color: var(--color-muted); font-size: .76rem; line-height: 1.5; font-variant-numeric: tabular-nums; white-space: normal; overflow-wrap: anywhere; }
 .movement-detail { display: grid; min-width: 0; gap: var(--space-1); overflow-wrap: anywhere; }
 .movement-event { color: var(--color-muted); font-size: .72rem; }
 .movement-locations { display: flex; min-width: 0; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-2); font-size: .86rem; font-weight: 700; }

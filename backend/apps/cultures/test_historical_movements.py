@@ -1,6 +1,7 @@
 import io
 import json
 
+from copy import deepcopy
 from datetime import date, datetime, timedelta
 from unittest.mock import patch
 from types import SimpleNamespace
@@ -9,8 +10,9 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils.dateparse import parse_datetime
 
@@ -23,6 +25,7 @@ from apps.taxonomy.models import Species, Strain
 
 from .historical_movements import accept_historical_movements, plan_historical_movements
 from .models import MOVEMENT_WEEK_TIME_ZONE, Box, BoxLocation, BoxMovement, HistoricalBoxMovement, ThermalZone
+from .movement_corrections import correct_box_movement
 from .services import deactivate_box, move_box_to_thermal_zone, reactivate_box, qualify_pending_box
 
 
@@ -467,7 +470,210 @@ class HistoricalMovementsTests(TestCase):
         self.assertEqual(event["kind"], "ordinary")
         self.assertTrue(event["can_correct"])
         self.assertTrue(event["evidence"]["period_pairing_reliable"])
+        self.assertTrue(event["evidence"]["recorded_via_polypbase"])
         self.assertEqual(event["temporal_precision"], "exact")
+
+    def test_recorded_via_polypbase_requires_original_service_audit(self):
+        for kind in BoxMovement.Kind.values:
+            with self.subTest(kind=kind):
+                movement = BoxMovement.objects.create(
+                    box=self.box, from_thermal_zone=self.b, to_thermal_zone=self.a,
+                    moved_at=paris(2026, 1, 7, 12), user=self.admin, kind=kind,
+                )
+                event = next(e for e in self.history().json()["events"] if e["recorded_movement_id"] == movement.pk)
+                self.assertFalse(event["evidence"]["recorded_via_polypbase"])
+                movement.delete()
+
+    def test_legacy_service_audit_proves_unclassified_without_period_pairing(self):
+        movement = BoxMovement.objects.create(
+            box=self.box, from_thermal_zone=self.a, to_thermal_zone=self.b,
+            moved_at=self.destination.starts_at, user=self.admin,
+        )
+        audit = AuditLog.objects.create(
+            organization=self.org, user=self.admin, action=AuditLog.Action.UPDATE,
+            object_type="box", object_id=self.box.global_code,
+            metadata={"movement_id": movement.pk, "from_thermal_zone_id": self.a.pk,
+                      "to_thermal_zone_id": self.b.pk, "moved_at": movement.moved_at.isoformat()},
+        )
+        for numeric_identity in (False, True):
+            with self.subTest(numeric_identity=numeric_identity):
+                if numeric_identity:
+                    audit.object_id = "old-unavailable-code"
+                    audit.metadata["box_id"] = self.box.pk
+                    audit.save()
+                event = next(e for e in self.history().json()["events"] if e["recorded_movement_id"] == movement.pk)
+                self.assertEqual(event["kind"], "unclassified")
+                self.assertTrue(event["evidence"]["recorded_via_polypbase"])
+                self.assertFalse(event["evidence"]["period_pairing_reliable"])
+                self.assertFalse(event["evidence"]["has_origin_link"])
+                self.assertFalse(event["evidence"]["has_destination_link"])
+
+    def test_inconsistent_or_malformed_service_audit_is_not_proof(self):
+        movement = move_box_to_thermal_zone(box=self.box, thermal_zone=self.a, moved_at=paris(2026, 1, 7, 12), user=self.admin, notes="")
+        audit = AuditLog.objects.get(metadata__movement_id=movement.pk)
+        original_metadata = audit.metadata.copy()
+        cases = [
+            {"movement_id": None}, {"movement_id": str(movement.pk)}, {"movement_id": True},
+            {"movement_id": [movement.pk]}, {"movement_id": movement.pk + 1000},
+            {"moved_at": None}, {"moved_at": "invalid"}, {"moved_at": "2026-99-99T12:00:00Z"},
+            {"moved_at": "2026-01-07T12:00:00"}, {"moved_at": paris(2026, 1, 8, 12).isoformat()},
+            {"from_thermal_zone_id": self.a.pk}, {"from_thermal_zone_id": None},
+            {"from_thermal_zone_id": str(self.b.pk)}, {"to_thermal_zone_id": self.b.pk},
+            {"to_thermal_zone_id": [self.a.pk]}, {"box_id": self.box.pk + 1000},
+            {"box_id": str(self.box.pk)}, {"box_id": True},
+            {"event": "box_movement_correction"}, {"transition": "inactive->active"},
+            {"movement_kind": "reactivation"}, {"iso_week_start": "2026-01-12"},
+            {"origin_location_id": self.origin.pk}, {"destination_location_id": self.destination.pk},
+            {"destination_location_id": True},
+        ]
+        for changes in cases:
+            with self.subTest(changes=changes):
+                AuditLog.objects.filter(pk=audit.pk).update(metadata={**original_metadata, **changes})
+                event = next(e for e in self.history().json()["events"] if e["recorded_movement_id"] == movement.pk)
+                self.assertFalse(event["evidence"]["recorded_via_polypbase"])
+        for missing in ("movement_id", "moved_at", "from_thermal_zone_id", "to_thermal_zone_id"):
+            with self.subTest(missing=missing):
+                AuditLog.objects.filter(pk=audit.pk).update(metadata={k: v for k, v in original_metadata.items() if k != missing})
+                event = next(e for e in self.history().json()["events"] if e["recorded_movement_id"] == movement.pk)
+                self.assertFalse(event["evidence"]["recorded_via_polypbase"])
+        for changes in ({"organization": self.other}, {"object_type": "other"},
+                        {"object_id": "another-box"}, {"user": self.tech}, {"user": None},
+                        {"action": AuditLog.Action.CREATION}):
+            with self.subTest(audit_fields=changes):
+                AuditLog.objects.filter(pk=audit.pk).update(
+                    organization=self.org, object_type="box", object_id=self.box.global_code,
+                    user=self.admin, action=AuditLog.Action.UPDATE, metadata=original_metadata,
+                )
+                AuditLog.objects.filter(pk=audit.pk).update(**changes)
+                event = next(e for e in self.history().json()["events"] if e["recorded_movement_id"] == movement.pk)
+                self.assertFalse(event["evidence"]["recorded_via_polypbase"])
+
+    def test_correction_audit_alone_does_not_prove_service_recording(self):
+        movement = BoxMovement.objects.create(
+            box=self.box, from_thermal_zone=self.a, to_thermal_zone=self.b,
+            moved_at=self.destination.starts_at, user=self.admin,
+        )
+        correct_box_movement(box_id=self.box.pk, movement_id=movement.pk,
+                             organization_ids=[self.org.pk], user=self.admin,
+                             data={"expected_revision": movement.revision, "notes": "Reviewed note"})
+        event = next(e for e in self.history().json()["events"] if e["recorded_movement_id"] == movement.pk)
+        self.assertFalse(event["evidence"]["recorded_via_polypbase"])
+
+    def corrected_service_movement(self):
+        movement = move_box_to_thermal_zone(box=self.box, thermal_zone=self.a, moved_at=paris(2026, 1, 7, 12), user=self.admin, notes="Original note")
+        third = ThermalZone.objects.create(organization=self.org, name="C")
+        for changes in ({"moved_at": paris(2026, 1, 8, 12).isoformat()},
+                        {"to_thermal_zone_id": third.pk}, {"notes": "Corrected note"}):
+            movement = correct_box_movement(
+                box_id=self.box.pk, movement_id=movement.pk, organization_ids=[self.org.pk], user=self.tech,
+                data={"expected_revision": movement.revision, **changes},
+            )
+        return movement
+
+    def assert_service_recording(self, movement, expected):
+        event = next(e for e in self.history().json()["events"] if e["recorded_movement_id"] == movement.pk)
+        self.assertEqual(event["evidence"]["recorded_via_polypbase"], expected)
+
+    def test_original_service_provenance_survives_date_destination_and_notes_corrections(self):
+        movement = self.corrected_service_movement()
+        self.assertEqual(movement.revision, 3)
+        self.assertNotEqual(movement.to_thermal_zone_id, self.a.pk)
+        self.assertEqual(movement.moved_at, paris(2026, 1, 8, 12))
+        self.assert_service_recording(movement, True)
+        ThermalZone.objects.filter(pk=movement.to_thermal_zone_id).update(name="Renamed C")
+        self.assert_service_recording(movement, True)
+
+    def test_correction_chain_without_original_receipt_never_proves_provenance(self):
+        movement = self.corrected_service_movement()
+        AuditLog.objects.filter(metadata__movement_id=movement.pk, metadata__event__isnull=True).delete()
+        self.assert_service_recording(movement, False)
+
+    def test_every_correction_revision_is_required_even_for_notes_only(self):
+        movement = self.corrected_service_movement()
+        for audit in AuditLog.objects.filter(metadata__event="box_movement_correction").order_by("pk"):
+            with self.subTest(revision=audit.metadata["revision"]):
+                AuditLog.objects.filter(pk=audit.pk).update(metadata={})
+                self.assert_service_recording(movement, False)
+                AuditLog.objects.filter(pk=audit.pk).update(metadata=audit.metadata)
+        self.assert_service_recording(movement, True)
+
+    def test_malformed_or_inconsistent_correction_chain_is_not_proof(self):
+        movement = self.corrected_service_movement()
+        audit = AuditLog.objects.filter(metadata__event="box_movement_correction").order_by("pk").first()
+        original = audit.metadata
+        mutations = [
+            (("box_id",), self.box.pk + 1000), (("box_id",), str(self.box.pk)),
+            (("movement_id",), str(movement.pk)), (("original_author_id",), self.tech.pk),
+            (("movement_kind",), "unclassified"), (("corrected_at",), "2026-01-09T12:00:00"),
+            (("revision",), None), (("revision", "before"), True), (("revision", "after"), 3),
+            (("changed_fields",), ["notes"]), (("changed_fields",), ["moved_at", "moved_at"]),
+            (("changed_fields",), [["moved_at"]]), (("movement_before",), None),
+            (("movement_before", "moved_at"), paris(2026, 1, 6, 12).isoformat()),
+            (("movement_before", "to_thermal_zone", "id"), self.foreign.pk),
+            (("movement_after", "moved_at"), paris(2026, 1, 9, 12).isoformat()),
+            (("movement_after", "notes"), "Unrecorded change"),
+            (("movement_after", "iso_week_start"), "2026-01-12"),
+        ]
+        for path, value in mutations:
+            with self.subTest(path=path, value=value):
+                metadata = deepcopy(original)
+                target = metadata
+                for key in path[:-1]:
+                    target = target[key]
+                target[path[-1]] = value
+                AuditLog.objects.filter(pk=audit.pk).update(metadata=metadata)
+                self.assert_service_recording(movement, False)
+        AuditLog.objects.filter(pk=audit.pk).update(metadata=original)
+        for fields in ({"organization": self.other}, {"user": None}, {"object_type": "other"},
+                       {"action": AuditLog.Action.CREATION}):
+            with self.subTest(audit_fields=fields):
+                AuditLog.objects.filter(pk=audit.pk).update(**fields)
+                self.assert_service_recording(movement, False)
+                AuditLog.objects.filter(pk=audit.pk).update(organization=self.org, user=self.tech, object_type="box", action=AuditLog.Action.UPDATE)
+        self.assert_service_recording(movement, True)
+
+    def test_ambiguous_correction_revision_and_current_state_mismatch_are_not_proof(self):
+        movement = self.corrected_service_movement()
+        audit = AuditLog.objects.filter(metadata__event="box_movement_correction").order_by("pk").first()
+        duplicate = AuditLog.objects.create(organization=self.org, user=self.tech, action=AuditLog.Action.UPDATE,
+                                           object_type="box", object_id=self.box.global_code, metadata=audit.metadata)
+        self.assert_service_recording(movement, False)
+        duplicate.delete()
+        BoxMovement.objects.filter(pk=movement.pk).update(notes="Unaudited edit")
+        self.assert_service_recording(movement, False)
+
+    def test_initial_location_service_audit_proves_null_origin_and_same_utc_instant(self):
+        self.box.thermal_zone = None
+        self.box.save(update_fields=["thermal_zone"])
+        self.destination.ends_at = paris(2026, 1, 6)
+        self.destination.save(update_fields=["ends_at"])
+        movement = move_box_to_thermal_zone(box=self.box, thermal_zone=self.a, moved_at=paris(2026, 1, 7, 12), user=self.admin, notes="")
+        audit = AuditLog.objects.get(metadata__movement_id=movement.pk)
+        audit.metadata["moved_at"] = "2026-01-07T11:00:00Z"
+        audit.save()
+        event = next(e for e in self.history().json()["events"] if e["recorded_movement_id"] == movement.pk)
+        self.assertEqual(event["kind"], "initial_location")
+        self.assertTrue(event["evidence"]["recorded_via_polypbase"])
+        del audit.metadata["from_thermal_zone_id"]
+        audit.save()
+        event = next(e for e in self.history().json()["events"] if e["recorded_movement_id"] == movement.pk)
+        self.assertFalse(event["evidence"]["recorded_via_polypbase"])
+
+    def test_service_recording_reuses_loaded_audits(self):
+        self.client.force_login(self.viewer)
+        with CaptureQueriesContext(connection) as baseline:
+            self.history()
+        for day, zone in ((7, self.a), (14, self.b), (21, self.a)):
+            movement = move_box_to_thermal_zone(box=self.box, thermal_zone=zone, moved_at=paris(2026, 1, day, 12), user=self.admin, notes="")
+            correct_box_movement(box_id=self.box.pk, movement_id=movement.pk, organization_ids=[self.org.pk], user=self.tech,
+                                 data={"expected_revision": movement.revision, "notes": "Audited correction"})
+        with CaptureQueriesContext(connection) as populated:
+            events = self.history().json()["events"]
+        audit_table = AuditLog._meta.db_table
+        self.assertEqual(sum(audit_table in q["sql"] for q in baseline),
+                         sum(audit_table in q["sql"] for q in populated))
+        self.assertEqual(sum(e["evidence"]["recorded_via_polypbase"] for e in events), 3)
+        self.assertTrue(all(not e["evidence"]["recorded_via_polypbase"] for e in events if e["recorded_movement_id"] is None))
 
     def test_lifecycle_projection_uses_explicit_pairing_not_audit_timestamp(self):
         deactivate_box(box=self.box, user=self.admin, reason="Synthetic stop")
@@ -491,6 +697,192 @@ class HistoricalMovementsTests(TestCase):
         self.assertTrue(audit_event["evidence"]["lifecycle_pairing_reliable"])
         self.assertEqual(audit_event["evidence"]["paired_movement_id"], box.movements.get().pk)
         self.assertEqual(audit_event["temporal_precision"], "exact")
+
+    def test_duplicate_lifecycle_claim_never_certifies_movement_pair(self):
+        self.inactive_cycle()
+        audit = AuditLog.objects.get(metadata__transition="inactive->active")
+        AuditLog.objects.create(
+            organization=self.org, object_type="box", user=self.admin,
+            action=AuditLog.Action.UPDATE, metadata=audit.metadata,
+        )
+        before = self.snapshot()
+        events = self.history().json()["events"]
+        claims = [e for e in events if e["provenance"] == "lifecycle_audit" and e["kind"] == "reactivation"]
+        self.assertEqual(len(claims), 2)
+        for event in claims:
+            self.assertFalse(event["evidence"]["lifecycle_pairing_reliable"])
+            self.assertIsNone(event["evidence"]["paired_movement_id"])
+            self.assertIsNone(event["to_thermal_zone"])
+            self.assertEqual(event["temporal_precision"], "unresolved")
+        self.assertEqual(before, self.snapshot())
+
+    def test_lifecycle_movement_pair_requires_scoped_zones_and_update_action(self):
+        self.inactive_cycle()
+        audit = AuditLog.objects.get(metadata__transition="inactive->active")
+        movement = self.box.movements.get(kind="reactivation")
+        for changes in ({"action": AuditLog.Action.CREATION}, {"user": self.tech}):
+            with self.subTest(changes=changes):
+                AuditLog.objects.filter(pk=audit.pk).update(**changes)
+                event = next(e for e in self.inactive_events() if e["kind"] == "reactivation")
+                self.assertFalse(event["evidence"]["lifecycle_pairing_reliable"])
+                self.assertIsNone(event["to_thermal_zone"])
+                AuditLog.objects.filter(pk=audit.pk).update(action=AuditLog.Action.UPDATE, user=self.admin)
+        BoxMovement.objects.filter(pk=movement.pk).update(to_thermal_zone=self.foreign)
+        event = next(e for e in self.inactive_events() if e["kind"] == "reactivation")
+        self.assertFalse(event["evidence"]["lifecycle_pairing_reliable"])
+        self.assertEqual(event["temporal_precision"], "unresolved")
+        self.assertIsNone(event["to_thermal_zone"])
+
+    def test_lifecycle_pair_requires_unique_original_movement_receipt(self):
+        self.inactive_cycle()
+        movement = self.box.movements.get(kind="reactivation")
+        receipt = AuditLog.objects.get(metadata__movement_id=movement.pk, metadata__transition__isnull=True)
+        duplicate = AuditLog.objects.create(
+            organization=self.org, object_type="box", object_id=self.box.global_code,
+            user=self.admin, action=AuditLog.Action.UPDATE, metadata=receipt.metadata,
+        )
+        for missing in (False, True):
+            with self.subTest(missing=missing):
+                if missing:
+                    duplicate.delete()
+                    receipt.delete()
+                event = next(e for e in self.inactive_events() if e["kind"] == "reactivation")
+                self.assertFalse(event["evidence"]["lifecycle_pairing_reliable"])
+                self.assertEqual(event["temporal_precision"], "unresolved")
+                self.assertIsNone(event["to_thermal_zone"])
+
+    def test_lifecycle_pair_survives_audited_destination_correction_and_rename(self):
+        self.inactive_cycle()
+        movement = self.box.movements.get(kind="reactivation")
+        correct_box_movement(box_id=self.box.pk, movement_id=movement.pk,
+                             organization_ids=[self.org.pk], user=self.admin,
+                             data={"expected_revision": movement.revision, "to_thermal_zone_id": self.b.pk})
+        ThermalZone.objects.filter(pk=self.b.pk).update(name="Renamed selected zone")
+        event = next(e for e in self.inactive_events() if e["kind"] == "reactivation")
+        self.assertTrue(event["evidence"]["lifecycle_pairing_reliable"])
+        self.assertEqual(event["evidence"]["paired_movement_id"], movement.pk)
+        self.assertEqual(event["to_thermal_zone"], {"id": self.b.pk, "name": "Renamed selected zone"})
+
+    def test_duplicate_deactivation_claim_does_not_certify_period_end(self):
+        self.inactive_cycle()
+        audit = AuditLog.objects.get(metadata__transition="active->inactive")
+        AuditLog.objects.create(
+            organization=self.org, object_type="box", user=self.admin,
+            action=AuditLog.Action.UPDATE, metadata=audit.metadata,
+        )
+        events = self.history().json()["events"]
+        closures = [e for e in events if e["provenance"] == "lifecycle_audit" and e["kind"] == "deactivation"]
+        self.assertEqual(len(closures), 2)
+        self.assertTrue(all(not e["evidence"]["period_pairing_reliable"] for e in closures))
+        boundary = next(e for e in events if e["id"] == f"location:{self.destination.pk}:end")
+        self.assertFalse(boundary["evidence"]["lifecycle_pairing_reliable"])
+
+    def test_non_update_deactivation_audit_does_not_certify_period_end(self):
+        self.inactive_cycle()
+        audit = AuditLog.objects.get(metadata__transition="active->inactive")
+        AuditLog.objects.filter(pk=audit.pk).update(action=AuditLog.Action.CREATION)
+        event = next(e for e in self.inactive_events() if e["kind"] == "deactivation")
+        self.assertEqual(event["temporal_precision"], "unresolved")
+        self.assertFalse(event["evidence"]["period_pairing_reliable"])
+        self.assertIsNone(event["from_thermal_zone"])
+
+    def test_unlocated_qualification_is_not_a_reactivation_or_zone_entry(self):
+        self.box = Box.objects.create(
+            organization=self.org, strain=self.box.strain, box_number="002",
+            global_code="HIS-LAB-1.002", status=Box.Status.PENDING_REVIEW,
+        )
+        qualify_pending_box(box=self.box, user=self.admin, target_status=Box.Status.ACTIVE)
+        before = self.snapshot()
+        events = self.history().json()["events"]
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["kind"], "qualification")
+        self.assertEqual(events[0]["temporal_precision"], "unresolved")
+        self.assertIsNone(events[0]["to_thermal_zone"])
+        self.assertFalse(events[0]["evidence"]["lifecycle_pairing_reliable"])
+        self.assertFalse(self.box.movements.exists())
+        self.assertFalse(self.box.locations.exists())
+        for zone in (self.a, self.b):
+            response = self.client.get(reverse("api_thermal_zone_history", args=[zone.pk]),
+                                       HTTP_X_ORGANIZATION_ID=str(self.org.pk))
+            self.assertEqual(response.status_code, 200)
+            self.assertNotIn(self.box.pk, [row["box_id"] for row in response.json()["results"]])
+        self.box.refresh_from_db()
+        self.assertEqual(self.box.status, Box.Status.ACTIVE)
+        self.assertIsNone(self.box.thermal_zone_id)
+        self.assertEqual(before, self.snapshot())
+
+    def check_lifecycle_zone_counts(self, selected_zone):
+        start, end = paris(2026, 1, 7, 12), paris(2026, 1, 8, 12)
+        with patch("apps.cultures.services.timezone.now", return_value=start):
+            deactivate_box(box=self.box, user=self.admin, reason="Synthetic stop")
+        self.box.refresh_from_db()
+        self.assertEqual(self.box.status, Box.Status.INACTIVE)
+        self.assertIsNone(self.box.thermal_zone_id)
+        self.assertFalse(self.box.locations.filter(ends_at__isnull=True, end_date_unknown=False).exists())
+        self.assertEqual(self.b.boxes.filter(status=Box.Status.ACTIVE).count(), 0)
+        stopped = self.snapshot()
+        with self.assertRaises(ValidationError):
+            reactivate_box(box=self.box, user=self.admin, thermal_zone=self.foreign)
+        self.assertEqual(stopped, self.snapshot())
+        events = self.history().json()["events"]
+        exit_event = next(e for e in events if e["kind"] == "deactivation")
+        self.assertEqual(exit_event["from_thermal_zone"]["id"], self.b.pk)
+        self.assertIsNone(exit_event["to_thermal_zone"])
+        self.assertEqual(parse_datetime(exit_event["occurred_at"]), start)
+        self.assertEqual(stopped, self.snapshot())
+        with patch("apps.cultures.services.timezone.now", return_value=end):
+            reactivate_box(box=self.box, user=self.admin, thermal_zone=selected_zone)
+        self.box.refresh_from_db()
+        movement = self.box.movements.get(kind="reactivation")
+        self.assertIsNone(movement.from_thermal_zone_id)
+        self.assertEqual(movement.to_thermal_zone_id, selected_zone.pk)
+        self.assertEqual(self.box.thermal_zone_id, selected_zone.pk)
+        self.assertEqual(self.box.status, Box.Status.ACTIVE)
+        self.assertEqual(self.box.locations.count(), 3)
+        self.assertEqual(self.box.movements.count(), 1)
+        self.assertEqual(self.box.locations.filter(ends_at__isnull=True, end_date_unknown=False).count(), 1)
+        self.assertEqual(selected_zone.boxes.filter(status=Box.Status.ACTIVE).count(), 1)
+        before = self.snapshot()
+        events = self.history().json()["events"]
+        audit_entry = next(e for e in events if e["provenance"] == "lifecycle_audit" and e["kind"] == "reactivation")
+        self.assertTrue(audit_entry["evidence"]["lifecycle_pairing_reliable"])
+        self.assertEqual(audit_entry["evidence"]["paired_movement_id"], movement.pk)
+        self.assertIsNone(audit_entry["from_thermal_zone"])
+        self.assertEqual(audit_entry["to_thermal_zone"]["id"], selected_zone.pk)
+        self.assertEqual(parse_datetime(audit_entry["occurred_at"]), end)
+        for zone, expected_entries, expected_exits in (
+            (self.b, 1 + int(selected_zone == self.b), 1),
+            (self.a, 1 + int(selected_zone == self.a), 1),
+        ):
+            with self.subTest(zone=zone.pk):
+                response = self.client.get(reverse("api_thermal_zone_history", args=[zone.pk]),
+                                           HTTP_X_ORGANIZATION_ID=str(self.org.pk))
+                self.assertEqual(response.status_code, 200)
+                rows = response.json()["results"]
+                self.assertEqual(response.json()["count"], expected_entries + expected_exits)
+                self.assertEqual(sum(row["event_type"] == "arrival" for row in rows), expected_entries)
+                self.assertEqual(sum(row["event_type"] == "departure" for row in rows), expected_exits)
+                # The deactivation has no destination, even if reactivation selects another zone.
+                stopped_rows = [row for row in rows if row["event_type"] == "departure"
+                                and parse_datetime(row["occurred_at"]) == start]
+                if zone == self.b:
+                    self.assertEqual(len(stopped_rows), 1)
+                    self.assertIsNone(stopped_rows[0]["related_zone_id"])
+                with patch("apps.cultures.api_views.timezone.localdate", return_value=date(2026, 1, 9)):
+                    summary = self.client.get(reverse("api_thermal_zone_history_summary", args=[zone.pk]),
+                                              HTTP_X_ORGANIZATION_ID=str(self.org.pk))
+                self.assertEqual(summary.status_code, 200)
+                self.assertEqual(sum(week["entry_count"] for week in summary.json()["weeks"]), expected_entries)
+                self.assertEqual(sum(week["exit_count"] for week in summary.json()["weeks"]), expected_exits)
+                self.assertEqual(summary.json()["historical_counts"], {"entry_count": 0, "exit_count": 0})
+        self.assertEqual(before, self.snapshot())
+
+    def test_same_zone_reactivation_counts_real_periods_once(self):
+        self.check_lifecycle_zone_counts(self.b)
+
+    def test_different_zone_reactivation_counts_real_periods_once(self):
+        self.check_lifecycle_zone_counts(self.a)
+        self.assertEqual(self.b.boxes.filter(status=Box.Status.ACTIVE).count(), 0)
 
     def test_qualification_without_movement_remains_unresolved(self):
         self.box.status = Box.Status.PENDING_REVIEW

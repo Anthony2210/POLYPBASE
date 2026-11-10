@@ -10,7 +10,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 import build_ja_catalogs as builder
-from test_ja_manifest import HISTORICAL_MOVEMENT_KEYS, ROOT, post_baseline_react_keys, rows
+from test_ja_manifest import (
+    B23_ADDED_KEYS, B23_RETIRED_KEYS, B24_ADDED_KEYS, HISTORICAL_MOVEMENT_KEYS, ROOT,
+    b24_events, post_baseline_react_keys, rows,
+)
+from test_check_register import before_b24
 
 
 # B20 and B21 additions postdate the frozen baseline and remain plain English fallbacks.
@@ -45,14 +49,17 @@ LATER_FALLBACK_KEYS = frozenset({
 }) | frozenset(HISTORICAL_MOVEMENT_KEYS)
 
 
-def historical_source(source):
-    lines = source.replace("\r\n", "\n").split("\n")
+def historical_source(source, language, register=None):
+    register = builder.check_register.load_register() if register is None else register
+    source = before_b24(source.replace("\r\n", "\n"), register, language.upper())
+    lines = source.split("\n")
     keys = [line[2:].split(": '", 1)[0] if line.startswith("  ") and ": '" in line else None
             for line in lines]
     counts = Counter(keys)
     for key in LATER_FALLBACK_KEYS:
-        if counts[key] != 1:
-            raise AssertionError(f"{key}: expected one additive line")
+        expected = 0 if key in B23_RETIRED_KEYS else 1
+        if counts[key] != expected:
+            raise AssertionError(f"{key}: expected {expected} additive lines")
     return "\n".join(line for line, key in zip(lines, keys) if key not in LATER_FALLBACK_KEYS)
 
 
@@ -69,9 +76,12 @@ class AiReviewTests(unittest.TestCase):
         # Independently frozen thermal, lab and historical additions are not baseline history.
         added = post_baseline_react_keys()
         self.assertEqual(set(added), LATER_FALLBACK_KEYS)
+        b24_events(builder.check_register.load_register())
         records = [row for row in copy.deepcopy(self.manifest)
                    if not (row["surface"] == "react" and (row["identity"] in added
-                                                          or row["identity"] in POTENTIAL_MOVEMENT_KEYS))]
+                                                          or row["identity"] in POTENTIAL_MOVEMENT_KEYS
+                                                          or row["identity"] in B23_ADDED_KEYS
+                                                          or row["identity"] in B24_ADDED_KEYS))]
         for row in records:
             row.pop("ja_ai_reviewed")
             if row["status"] == "AI_REVIEWED":
@@ -103,7 +113,7 @@ class AiReviewTests(unittest.TestCase):
 
     def test_later_keys_are_plain_english_fallbacks(self):
         later = [row for row in self.manifest if row["identity"] in LATER_FALLBACK_KEYS]
-        self.assertEqual({row["identity"] for row in later}, LATER_FALLBACK_KEYS)
+        self.assertEqual({row["identity"] for row in later}, LATER_FALLBACK_KEYS - B23_RETIRED_KEYS)
         for row in later:
             self.assertEqual((row["surface"], row["status"], row["reason_code"]),
                              ("react", "FALLBACK_EN", "ABSENT_FROM_WORKBOOK"), row["identity"])
@@ -141,7 +151,8 @@ class AiReviewTests(unittest.TestCase):
         }.items():
             source = (ROOT / f"frontend/src/i18n/{lang}.ts").read_text(encoding="utf-8")
             self.assertEqual(set(added), LATER_FALLBACK_KEYS)
-            self.assertEqual(hashlib.sha256(historical_source(source).encode()).hexdigest(), expected)
+            self.assertEqual(hashlib.sha256(historical_source(source, lang).encode()).hexdigest(), expected)
+            source = before_b24(source, builder.check_register.load_register(), lang.upper())
             for key, values in added.items():
                 line = f"  {key}: '{values[lang.upper()]}',\n"
                 self.assertEqual(source.count(line), 1, line)
@@ -149,18 +160,23 @@ class AiReviewTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(source.encode()).hexdigest(), expected)
 
     def test_source_fingerprint_scope_rejects_each_historical_value_change(self):
+        register = builder.check_register.load_register()
         for lang in ("fr", "en"):
             source = (ROOT / f"frontend/src/i18n/{lang}.ts").read_text(encoding="utf-8")
-            fingerprint = hashlib.sha256(historical_source(source).encode()).hexdigest()
+            fingerprint = hashlib.sha256(historical_source(source, lang, register).encode()).hexdigest()
             for key in getattr(self, lang):
                 line = next(line for line in source.split("\n") if line.lstrip().startswith(f"{key}: "))
                 mutated = line.replace(": '", ": 'changed ", 1).replace(': "', ': "changed ', 1)
                 self.assertNotEqual(mutated, line, f"{lang}.{key}: mutation must change the value")
                 changed = source.replace(line, mutated, 1)
-                actual = hashlib.sha256(historical_source(changed).encode()).hexdigest()
+                if key in B24_ADDED_KEYS:
+                    with self.assertRaises(AssertionError):
+                        historical_source(changed, lang, register)
+                    continue
+                actual = hashlib.sha256(historical_source(changed, lang, register).encode()).hexdigest()
                 self.assertEqual(actual == fingerprint, key in LATER_FALLBACK_KEYS, f"{lang}.{key}")
             unknown = source.replace("\n}", "\n  unapprovedAddition: 'Value',\n}", 1)
-            self.assertNotEqual(hashlib.sha256(historical_source(unknown).encode()).hexdigest(), fingerprint)
+            self.assertNotEqual(hashlib.sha256(historical_source(unknown, lang, register).encode()).hexdigest(), fingerprint)
 
 
     def test_authorized_files_reject_any_unreviewed_change(self):
@@ -263,13 +279,15 @@ class AiReviewTests(unittest.TestCase):
         deferred = {k for k, r in react.items() if r["status"] == "FALLBACK_EN_REVIEW"}
         self.assertTrue(blocked <= absent)
         self.assertFalse(blocked & deferred)
-        self.assertTrue(POTENTIAL_MOVEMENT_KEYS <= absent)
-        absent -= POTENTIAL_MOVEMENT_KEYS
-        # 137 original, plus 7 thermal, 30 laboratory and 44 historical keys.
-        self.assertEqual(len(absent - blocked), 218)
+        self.assertTrue((POTENTIAL_MOVEMENT_KEYS - B23_RETIRED_KEYS) <= absent)
+        self.assertTrue((B23_ADDED_KEYS | B24_ADDED_KEYS) <= absent)
+        self.assertFalse(B23_RETIRED_KEYS & set(react))
+        absent -= POTENTIAL_MOVEMENT_KEYS | B23_ADDED_KEYS | B24_ADDED_KEYS
+        # 137 original, plus 7 thermal, 30 laboratory and 42 active historical keys.
+        self.assertEqual(len(absent - blocked), 216)
         added = set(post_baseline_react_keys())
         self.assertEqual(added, LATER_FALLBACK_KEYS)
-        self.assertTrue(added <= absent)
+        self.assertTrue((added - B23_RETIRED_KEYS) <= absent)
         self.assertEqual(len(absent - blocked - added), 137)
 
         for key in react:

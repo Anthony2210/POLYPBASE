@@ -1239,7 +1239,7 @@ test('persisted movements and derived period changes stay distinct, exact and de
   assert.deepEqual(kinds([movement(12, '2026-03-01')], dateOnly), ['movement']);
 });
 
-test('same-day events have separate native controls and exact event details in both languages', () => {
+test('same-day events stay separate chart controls with exact details and no badge list in both languages', () => {
   const periods = [
     { id: 1, name: 'A', startsAt: '2026-01-01', endsAt: '2026-03-01T08:00:00Z' },
     { id: 2, name: 'B', startsAt: '2026-03-01T08:00:00Z', endsAt: null },
@@ -1283,48 +1283,252 @@ test('same-day events have separate native controls and exact event details in b
       return nodes;
     }
     const choices = () => render().filter((node) => node.props?.className?.startsWith('bio-trend-event-choice '));
+    const markers = () => render().filter((node) => node.props?.className?.startsWith('bio-trend-event is-'));
     const tooltip = () => render().find((node) => node.props?.className?.startsWith('bio-trend-tooltip'));
     assert.equal(choices().length, 0, 'period boundaries no longer compete with persisted events');
-    const markers = render().filter((node) => node.props?.className?.startsWith('bio-trend-event is-'));
-    assert.equal(markers.length, 1);
-    assert.equal(markers[0].props.tabIndex, 0);
+    assert.equal(markers().length, 1);
+    assert.equal(markers()[0].props.tabIndex, 0);
     assert.equal(render().filter((node) => node.props?.className === 'bio-trend-event is-location-change').length, 0);
     props.events.push({ ...props.events[0], id: 11, instant: '2026-03-01T11:00:00Z' });
-    assert.equal(choices().length, 2);
+    // No badge list below the chart: every marker remains its own keyboard control.
+    assert.equal(choices().length, 0);
+    assert.equal(markers().length, 2);
     for (const [index, expected, time] of [[0, locale.movementEvent, '10:00:00 UTC'], [1, locale.movementEvent, '11:00:00 UTC']]) {
-      const button = choices()[index];
-      assert.equal(button.type, 'button');
-      assert.equal(button.props.type, 'button');
-      assert.ok(button.props['aria-label'].startsWith(expected));
-      assert.ok(button.props['aria-label'].includes(time));
-      button.props.onMouseEnter();
+      const marker = markers()[index];
+      assert.equal(marker.props.role, 'button');
+      assert.equal(marker.props.tabIndex, 0);
+      assert.equal(marker.props['aria-hidden'], undefined);
+      assert.ok(marker.props['aria-label'].startsWith(expected));
+      assert.ok(marker.props['aria-label'].includes(time));
+      marker.props.onMouseEnter();
       assert.ok(tooltip().props['aria-label'].includes(time), 'independent hover handler selects this detail');
-      button.props.onMouseLeave();
-      button.props.onFocus();
+      marker.props.onMouseLeave();
+      marker.props.onFocus();
       assert.ok(tooltip().props['aria-label'].includes(time), 'keyboard focus selects this detail');
-      button.props.onClick();
-      assert.equal(choices()[index].props['aria-pressed'], true, 'click/tap pins this event');
-      choices()[index].props.onKeyDown({ key: 'Escape' });
-      assert.equal(tooltip(), undefined);
+      marker.props.onBlur();
     }
+    // Only one vertical label is drawn at a shared position, so labels never overprint.
+    const labels = render().filter((node) => node.props?.className === 'bio-trend-event-label');
+    assert.equal(labels.length, 1);
     // Arbitrarily many legacy movements, including date-only records, keep independent controls.
     props.events.push(...[8, 9, 10].map((id) => ({ id, date: '2026-03-01', title: locale.movementEvent, kind: 'movement', detail: `Legacy ${id}` })));
-    assert.equal(choices().length, 5);
-    for (const button of choices().slice(2)) {
-      assert.doesNotMatch(button.props['aria-label'], /UTC|00:00/);
-      button.props.onClick();
-      assert.equal(button.props.children[0].props.children, locale.movementEvent, 'visible choice text has no date');
-      assert.ok(tooltip().props['aria-label'].startsWith(locale.movementEvent));
-      button.props.onKeyDown({ key: 'Escape' });
-    }
+    assert.equal(choices().length, 0);
+    assert.equal(markers().length, 5);
+    // Date-only records never gain an invented time in their accessible name.
+    assert.equal(markers().filter((node) => !/UTC|00:00/.test(node.props['aria-label'])).length, 3);
     // Exact coincidence removes only the derived transition, with no duplicate controls needed.
     props.events = [{ ...props.events[0], instant: '2026-03-01T09:00:00+01:00' }];
     assert.equal(choices().length, 0);
     assert.equal(render().filter((node) => node.props?.className === 'bio-trend-event is-movement').length, 1);
   }
-  // The harness invokes handlers; it does not simulate browser SVG hit testing or native keyboard clicks.
-  assert.match(css, /\.bio-trend-event\[data-overlapping\] \.bio-trend-event-hit-area \{ pointer-events: none; \}/);
+  assert.doesNotMatch(css, /data-overlapping/);
   assert.match(css, /min-height: 44px/);
+});
+
+test('successive clicks on the shared SVG target cycle every exact event and Escape retains focus', () => {
+  for (const language of ['fr', 'en']) {
+    const locale = compile(readFileSync(new URL(`../src/i18n/${language}.ts`, import.meta.url), 'utf8'))[language];
+    const events = [
+      { id: 7, date: '2026-01-08', instant: '2026-01-08T10:00:01.123Z', detail: 'A -> B' },
+      { id: 11, date: '2026-01-08', instant: '2026-01-08T11:00:00Z', detail: 'B -> C' },
+      ...[8, 9, 10].map(id => ({ id, date: '2026-01-08', detail: `Legacy ${id}` })),
+    ].map(event => ({ ...event, title: locale.movementEvent, kind: 'movement' }));
+    const view = mountTrendChart({ events, temperatures: [], labels: {
+      chartTitle: 'Chart', empty: 'Empty', polyps: 'Polyps', ephyrae: 'Ephyrae', location: locale.location,
+      movement: locale.movementEvent,
+    } });
+    let nodes, markers, activeId = null;
+    const focusCalls = [];
+    function render() {
+      nodes = view.render();
+      markers = nodes.filter(node => hasClass(node, 'bio-trend-event'));
+      for (const marker of markers) {
+        marker.props.ref({ focus() {
+          if (activeId === marker.key) return;
+          markers.find(item => item.key === activeId)?.props.onBlur();
+          activeId = marker.key;
+          focusCalls.push(activeId);
+          marker.props.onFocus();
+        } });
+      }
+    }
+    render();
+    const coordinates = markers.map(marker => marker.props.transform);
+    assert.equal(new Set(coordinates).size, 1, 'all events retain the same scientific x position');
+    const axes = axisFrame(nodes), biology = biologyGeometry(nodes);
+    // The last-painted group receives every click at the shared line, not each hidden sibling.
+    for (let index = 0; index < events.length + 1; index++) {
+      const target = markers.at(-1);
+      assert.ok(chartNodes(target).some(node => hasClass(node, 'bio-trend-event-hit-area')));
+      if (index === 0) {
+        target.props.onMouseEnter();
+        target.props.onFocus(); // Browsers may focus the pointer target before dispatching click.
+        activeId = target.key;
+        render();
+      }
+      const pointer = { pointerType: index % 2 ? 'touch' : 'mouse', prevented: false,
+        preventDefault() { this.prevented = true; } };
+      markers.at(-1).props.onPointerDown(pointer);
+      assert.equal(pointer.prevented, true, 'pointer default focus cannot reset the selected sibling before click');
+      const click = clickEvent();
+      markers.at(-1).props.onClick(click);
+      render();
+      const expected = events[index % events.length];
+      assert.equal(click.stopped, true);
+      assert.equal(activeId, expected.id, 'actual focus follows the cycled event, not the topmost sibling');
+      const selected = markers.find(marker => marker.key === activeId);
+      assert.equal(chartTooltip(nodes).props['aria-label'], selected.props['aria-label']);
+      assert.ok(nodeText(chartTooltip(nodes)).includes(expected.detail));
+      // Re-entering the shared target must not restore its own, unrelated event detail.
+      markers.at(-1).props.onMouseLeave();
+      markers.at(-1).props.onMouseEnter();
+      render();
+      assert.equal(chartTooltip(nodes).props['aria-label'], selected.props['aria-label']);
+      assert.deepEqual(markers.map(marker => marker.props.transform), coordinates);
+      assert.equal(axisFrame(nodes), axes);
+      assert.equal(biologyGeometry(nodes), biology);
+      assert.equal(nodes.filter(node => hasClass(node, 'bio-trend-event-choice')).length, 0);
+    }
+    assert.deepEqual(focusCalls, [...events.map(event => event.id), events[0].id]);
+    const focusedBeforeEscape = activeId;
+    const escape = keyEvent('Escape');
+    markers.find(marker => marker.key === activeId).props.onKeyDown(escape);
+    render();
+    assert.equal(escape.prevented, true);
+    assert.equal(chartTooltip(nodes), undefined, 'Escape clears pinned, hover and focus detail');
+    assert.equal(activeId, focusedBeforeEscape, 'Escape never blurs the focused SVG control');
+    // Each sibling is still independently reachable and activatable with the keyboard.
+    for (let index = 0; index < events.length; index++) {
+      markers.find(marker => marker.key === activeId)?.props.onBlur();
+      activeId = events[index].id;
+      markers[index].props.onFocus();
+      render();
+      assert.equal(markers[index].props.tabIndex, 0);
+      assert.equal(chartTooltip(nodes).props['aria-label'], markers[index].props['aria-label']);
+      const activate = keyEvent(index % 2 ? ' ' : 'Enter');
+      markers[index].props.onKeyDown(activate);
+      render();
+      assert.equal(activate.prevented, true);
+      assert.equal(chartTooltip(nodes).props['aria-label'], markers[index].props['aria-label']);
+      assert.ok(nodeText(chartTooltip(nodes)).includes(events[index].detail));
+    }
+  }
+});
+
+test('event hit targets paint above same-day record rectangles without taking over the whole record area', () => {
+  for (const kind of ['movement', 'historical_reconstruction', 'deactivation', 'reactivation']) {
+    const marker = { id: 'event-1', kind, date: '2026-01-08', title: 'Event detail', detail: 'Origin → Destination',
+      ...(kind === 'historical_reconstruction' ? { intervalStart: '2026-01-05', intervalEnd: '2026-01-11' }
+        : { instant: '2026-01-08T10:00:00Z' }) };
+    const view = mountTrendChart({ measurements: [reading(1, marker.date, 0, 0)], temperatures: [], events: [marker] });
+    let nodes = view.render();
+    const record = nodes.find(node => hasClass(node, 'bio-trend-measurement'));
+    const event = nodes.find(node => hasClass(node, 'bio-trend-event'));
+    const recordHit = chartNodes(record).find(node => hasClass(node, 'bio-trend-hit-area'));
+    const eventHit = chartNodes(event).find(node => hasClass(node, 'bio-trend-event-hit-area'));
+    const eventX = Number(event.props.transform.match(/translate\(([^ ]+)/)[1]);
+    const eventY = Number(event.props.transform.match(/ ([^)]+)\)/)[1]);
+    assert.ok(nodes.indexOf(recordHit) < nodes.indexOf(eventHit), 'SVG paint order gives the marker the shared target');
+    assert.match(css, /\.bio-trend-event-hit-area\s*\{[^}]*stroke-width: 14;[^}]*pointer-events: stroke;/);
+    const recordTop = recordHit.props.y, recordBottom = recordTop + recordHit.props.height;
+    assert.ok(eventHit.props.y1 + eventY <= recordTop && eventHit.props.y2 + eventY >= recordBottom);
+    assert.ok(recordHit.props.x <= eventX && recordHit.props.x + recordHit.props.width >= eventX);
+    assert.ok(recordHit.props.width > 14, 'record retains a pointer target beside the event stroke');
+    const interval = chartNodes(event).find(node => hasClass(node, 'bio-trend-event-interval'));
+    if (interval) assert.equal(interval.props.pointerEvents, 'none', 'decorative week spans cannot intercept records');
+    for (const control of [record, event]) {
+      assert.equal(control.props.role, 'button');
+      assert.equal(control.props.tabIndex, 0);
+      control.props.onFocus();
+      nodes = view.render();
+      assert.ok(chartTooltip(nodes));
+      control.props.onKeyDown(keyEvent('Enter'));
+      nodes = view.render();
+      assert.ok(hasClass(chartTooltip(nodes), 'is-pinned'));
+      control.props.onKeyDown(keyEvent('Escape'));
+      control.props.onBlur();
+    }
+    assert.equal(view.render().filter(node => hasClass(node, 'bio-trend-event-choice')).length, 0);
+  }
+  // This checks SVG paint order and target extents, not native browser hit testing.
+});
+
+test('recorded temperature steps stay at their owner before or after weekly anchors without backtracking', () => {
+  const temperatures = [
+    { date: '2026-02-12', average_temperature_c: 0, week: { id: 7, year: 2026, number: 7, start: '2026-02-09', end: '2026-02-15', valueText: '0' } },
+    { date: '2026-02-19', average_temperature_c: 10, week: { id: 8, year: 2026, number: 8, start: '2026-02-16', end: '2026-02-22', valueText: '10' } },
+  ];
+  for (const date of ['2026-02-10', '2026-02-12', '2026-02-16', '2026-02-19', '2026-02-20']) {
+    const event = { id: 'movement:7', kind: 'movement', title: 'Movement', date, instant: date + 'T09:12:34Z',
+      temperatureStep: { fromReadingId: 7, toReadingId: 8 } };
+    const before = JSON.stringify([event, temperatures]);
+    const props = { measurements: [], temperatures, events: [event], startDate: '2026-02-01', endDate: '2026-02-28' };
+    const geometry = chart.buildGeometry([], [], [event], props.startDate, props.endDate, false, undefined, [], temperatures);
+    const stepX = geometry.eventPoints.find(point => point.event.id === event.id).x;
+    const [fromX, toX] = geometry.plottedTemperatures.map(point => geometry.xPosition(point.date));
+    const view = mountTrendChart(props);
+    const nodes = view.render();
+    const [path] = temperaturePaths(nodes);
+    assert.equal(path.props.d, `M${Math.min(fromX, stepX)},${geometry.yTemperature(0)}H${stepX}V${geometry.yTemperature(10)}H${Math.max(toX, stepX)}`);
+    const xs = [Math.min(fromX, stepX), stepX, Math.max(toX, stepX)];
+    assert.ok(xs[0] <= xs[1] && xs[1] <= xs[2], 'connector never returns to an earlier sample anchor');
+    const vertical = Number(path.props.d.match(/H([^V]+)V/)[1]);
+    assert.equal(vertical, stepX, 'the vertical transition matches the owning exact marker, not Thursday');
+    const sampleNodes = nodes.filter(node => node.type === 'rect' && hasClass(node, 'bio-trend-dot') && hasClass(node, 'is-temperature'));
+    assert.equal(sampleNodes.length, 2);
+    assert.equal(geometry.plottedTemperatures[0].date, temperatures[0].date);
+    assert.equal(geometry.plottedTemperatures[1].date, temperatures[1].date);
+    assert.equal(geometry.plottedTemperatures[0].average_temperature_c, 0);
+    assert.equal(JSON.stringify([event, temperatures]), before);
+    const extended = [
+      { date: '2026-02-05', average_temperature_c: 5, week: { id: 6, year: 2026, number: 6, start: '2026-02-02', end: '2026-02-08', valueText: '5' } },
+      ...temperatures,
+      { date: '2026-02-26', average_temperature_c: 15, week: { id: 9, year: 2026, number: 9, start: '2026-02-23', end: '2026-03-01', valueText: '15' } },
+    ];
+    const extendedPaths = temperaturePaths(view.render({ temperatures: extended }));
+    assert.equal(extendedPaths.length, 3);
+    const previousEnd = Number(extendedPaths[0].props.d.match(/L([^,]+),/)[1]);
+    const followingStart = Number(extendedPaths[2].props.d.match(/^M([^,]+),/)[1]);
+    assert.ok(previousEnd <= stepX, 'earlier connector ends no later than the exact step');
+    assert.ok(followingStart >= stepX, 'later connector cannot start before the exact step');
+  }
+});
+
+test('temperature connectors never bridge unassigned periods, including short same-zone gaps and supported steps', () => {
+  const daily = (date, value) => ({ date, average_temperature_c: value, zone_id: 7 });
+  const points = [daily('2026-01-07', 0), daily('2026-01-09', 10), daily('2026-01-10', 12)];
+  const periods = [
+    { id: 1, name: 'Same zone', startsAt: '2026-01-01', endsAt: '2026-01-08T10:00:00Z' },
+    { id: 2, name: 'Same zone', startsAt: '2026-01-08T10:00:01Z', endsAt: null },
+  ];
+  const before = JSON.stringify([points, periods]);
+  const connections = chart.buildTemperatureConnections(points, new Map(), periods);
+  assert.equal(connections.length, 1);
+  assert.equal(connections[0].from, points[1]);
+  assert.equal(connections[0].to, points[2]);
+  const olderUnknown = { id: 0, name: 'Legacy', startsAt: '2025-01-01', endsAt: null, endDateUnknown: true };
+  assert.equal(chart.buildTemperatureConnections(points, new Map(), [olderUnknown, ...periods]).length, 1,
+    'an older unknown end cannot conceal a later known gap');
+  const weekly = points.slice(0, 2).map((point, index) => ({ ...point,
+    week: { id: index + 1, start: point.date, end: point.date } }));
+  assert.equal(chart.buildTemperatureConnections(weekly, new Map([['1:2', 100]]), periods).length, 0,
+    'a supported reconstructed step cannot fill an actual unassigned gap');
+  const step = chart.buildTemperatureConnections(weekly, new Map([['1:2', 100]]));
+  assert.equal(step[0].stepX, 100, 'supported historical steps survive without lifecycle gaps');
+  assert.equal(chart.buildTemperatureConnections(points, new Map(), [periods[0]]).length, 0,
+    'a closed final period does not imply continued location temperature');
+  const contiguous = [{ ...periods[0], endsAt: periods[1].startsAt }, periods[1]];
+  assert.equal(chart.buildTemperatureConnections(points, new Map(), contiguous).length, 2);
+  const lifecycle = [
+    { id: 'stop', kind: 'deactivation', date: '2026-01-08', instant: periods[0].endsAt },
+    { id: 'resume', kind: 'reactivation', date: '2026-01-08', instant: periods[1].startsAt },
+  ];
+  assert.equal(chart.buildTemperatureConnections(points, new Map(), [], lifecycle).length, 1);
+  const view = mountTrendChart({ measurements: [], temperatures: points, locations: periods, events: lifecycle });
+  const nodes = view.render();
+  assert.equal(nodes.filter(node => hasClass(node, 'bio-trend-temperature-point')).length, 3);
+  assert.equal(nodes.filter(node => node.type === 'path' && hasClass(node, 'is-temperature')).length, 1);
+  assert.equal(JSON.stringify([points, periods]), before, 'zero and every source sample remain intact');
 });
 
 test('event dates preserve exact seconds and offsets without inventing historical times', () => {
@@ -1371,6 +1575,94 @@ const rangeEvent = (date) => ({ id: date, date, instant: date.length > 10 ? date
 const prepareRange = (events, start, end) => tracking.prepareSharedChartData(
   { measurements: [], polypStates: [] }, [], events, start, end,
 ).events;
+
+test('tracking zoom retains offscreen step owners and clips each edge without an early diagonal or marker', () => {
+  const temperatures = [
+    { date: '2026-02-12', average_temperature_c: 15, week: { id: 7, year: 2026, number: 7, start: '2026-02-09', end: '2026-02-15', valueText: '15' } },
+    { date: '2026-02-19', average_temperature_c: 10, week: { id: 8, year: 2026, number: 8, start: '2026-02-16', end: '2026-02-22', valueText: '10' } },
+  ];
+  for (const [date, startDate, endDate, side, plateau] of [
+    ['2026-02-20', '2026-02-09', '2026-02-19', 'right', 15],
+    ['2026-02-10', '2026-02-11', '2026-02-22', 'left', 10],
+  ]) {
+    const owner = { id: 'movement:7', kind: 'movement', title: 'Movement', date, instant: date + 'T09:12:34Z',
+      temperatureStep: { fromReadingId: 7, toReadingId: 8 } };
+    const before = JSON.stringify([owner, temperatures]);
+    const full = tracking.prepareSharedChartData({ measurements: [], polypStates: [] }, [], [owner], '2026-02-01', '2026-02-28');
+    const view = mountTrendChart({ ...full, temperatures });
+    const fullNodes = view.render();
+    const marker = fullNodes.find(node => hasClass(node, 'bio-trend-event'));
+    assert.ok(marker);
+    marker.props.onClick(clickEvent());
+    assert.ok(chartTooltip(view.render()));
+    const narrowed = tracking.prepareSharedChartData({ measurements: [], polypStates: [] }, [], [owner], startDate, endDate);
+    assert.equal(narrowed.events.length, 1, 'preparation preserves semantic metadata even though the owner is offscreen');
+    assert.equal(narrowed.events[0], owner);
+    const geometry = chart.buildGeometry([], [], narrowed.events, startDate, endDate, false, undefined, [], temperatures);
+    assert.equal(geometry.eventPoints.length, 0, 'geometry still filters offscreen markers');
+    const nodes = view.render(narrowed);
+    assert.equal(chartTooltip(nodes), undefined, 'hidden owner cannot retain a pinned detail');
+    assert.equal(nodes.filter(node => hasClass(node, 'bio-trend-event')).length, 0);
+    assert.equal(nodes.filter(node => hasClass(node, 'bio-trend-event-choice')).length, 0);
+    assert.equal(temperatureControls(nodes).length, 2, 'both real weekly observations remain visible');
+    const [path] = temperaturePaths(nodes);
+    assert.ok(path);
+    const stepX = geometry.xPosition(owner.instant);
+    const [fromX, toX] = geometry.plottedTemperatures.map(point => geometry.xPosition(point.date));
+    assert.equal(path.props.d, `M${Math.min(fromX, stepX)},${geometry.yTemperature(15)}H${stepX}V${geometry.yTemperature(10)}H${Math.max(toX, stepX)}`);
+    assert.doesNotMatch(path.props.d, /L/, 'zoom cannot replace the known step with a diagonal');
+    const clip = nodes.find(node => node.type === 'clipPath');
+    assert.equal(path.props.clipPath, `url(#${clip.props.id})`);
+    const bounds = chartNodes(clip).find(node => node.type === 'rect').props;
+    assert.equal(bounds.x, geometry.padding.left);
+    assert.equal(bounds.y, geometry.plotTop);
+    assert.equal(bounds.width, geometry.width - geometry.padding.right - geometry.padding.left);
+    assert.equal(bounds.height, geometry.plotHeight);
+    const [pathStart, originY, pivot, destinationY, pathEnd] = path.props.d
+      .match(/^M([^,]+),([^H]+)H([^V]+)V([^H]+)H(.+)$/).slice(1).map(Number);
+    const visiblePlateaus = [
+      { start: pathStart, end: pivot, y: originY }, { start: pivot, end: pathEnd, y: destinationY },
+    ].filter(segment => segment.start < bounds.x + bounds.width && segment.end > bounds.x).map(segment => segment.y);
+    assert.deepEqual(visiblePlateaus, [geometry.yTemperature(plateau)], 'only the correct plateau survives the viewport clip');
+    if (side === 'right') {
+      assert.ok(stepX > bounds.x + bounds.width);
+      assert.ok(fromX >= bounds.x && fromX < bounds.x + bounds.width);
+    } else {
+      assert.ok(stepX < bounds.x);
+      assert.ok(toX > bounds.x && toX <= bounds.x + bounds.width);
+    }
+    const restored = view.render(full);
+    assert.equal(restored.filter(node => hasClass(node, 'bio-trend-event')).length, 1);
+    assert.equal(temperaturePaths(restored)[0].props.d, temperaturePaths(fullNodes)[0].props.d);
+    assert.equal(JSON.stringify([owner, temperatures]), before, 'zoom changes neither samples nor owner evidence');
+  }
+});
+
+test('tracking zoom preserves lifecycle gap metadata with both markers outside the window', () => {
+  const events = [
+    { id: 'stop', kind: 'deactivation', date: '2026-02-08', instant: '2026-02-08T10:00:00Z', title: 'Deactivation' },
+    { id: 'resume', kind: 'reactivation', date: '2026-02-23', instant: '2026-02-23T10:00:00Z', title: 'Reactivation' },
+  ];
+  const temperatures = [
+    { date: '2026-02-12', average_temperature_c: 0, zone_id: 7 },
+    { date: '2026-02-19', average_temperature_c: 10, zone_id: 7 },
+    { date: '2026-02-26', average_temperature_c: 10, zone_id: 7 },
+    { date: '2026-02-27', average_temperature_c: 12, zone_id: 7 },
+  ];
+  const before = JSON.stringify([events, temperatures]);
+  const prepare = (start, end) => tracking.prepareSharedChartData({ measurements: [], polypStates: [] }, [], events, start, end);
+  const narrowed = prepare('2026-02-09', '2026-02-20');
+  assert.deepEqual(Array.from(narrowed.events, event => event.id), ['stop', 'resume']);
+  const view = mountTrendChart({ ...narrowed, temperatures });
+  let nodes = view.render();
+  assert.equal(nodes.filter(node => hasClass(node, 'bio-trend-event')).length, 0);
+  assert.equal(temperatureControls(nodes).length, 2);
+  assert.equal(temperaturePaths(nodes).length, 0, 'offscreen lifecycle evidence still prevents a false temperature connection');
+  nodes = view.render(prepare('2026-02-24', '2026-02-28'));
+  assert.equal(nodes.filter(node => hasClass(node, 'bio-trend-event')).length, 0);
+  assert.equal(temperaturePaths(nodes).length, 1, 'the offscreen reactivation ends the gap rather than hiding later connections');
+  assert.equal(JSON.stringify([events, temperatures]), before);
+});
 
 for (const [label, date, included] of [
   ['selected end date', '2026-10-03T12:00:00Z', true],

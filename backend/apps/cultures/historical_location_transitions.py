@@ -12,11 +12,12 @@ Nothing here writes: movements, periods, receipts and audits stay untouched.
 from collections import defaultdict
 from datetime import date, datetime, time, timedelta
 
+from django.db import connections
 from django.db.models import Count, Q
 
 from apps.measurements.historical_temperature_identity import temperature_source_matches
 from apps.measurements.historical_temperature_source import SOURCES, canonical_box
-from apps.measurements.models import HistoricalTemperatureEvidence, HistoricalTemperatureReading
+from apps.measurements.models import BiologicalMeasurement, HistoricalTemperatureEvidence, HistoricalTemperatureReading
 from apps.measurements.temperature_series import temperature_decimal
 
 from .historical_movements import fingerprint
@@ -31,6 +32,12 @@ ESTABLISHED = "established"
 ENVIRONMENT_ONLY = "environment_only"
 ALREADY_REPRESENTED = "already_represented"
 REVIEW = "review"
+
+_READING_FIELDS = (
+    "id", "biological_measurement_id", "association_status", "iso_year", "iso_week", "temperature_c",
+    "biological_measurement__box_id", "biological_measurement__week_start", "biological_measurement__measured_on",
+    "biological_measurement__duplicate_of_id", "biological_measurement__environment_source_box_id",
+)
 
 _EVIDENCE_FIELDS = (
     "source_file", "source_sha256", "sheet", "temperature_cell", "temperature_merged_range", "source_value",
@@ -61,7 +68,7 @@ def _monday_instant(day):
     return datetime.combine(day, time.min, tzinfo=MOVEMENT_WEEK_TIME_ZONE)
 
 
-def _observation_blockers(reading, evidences, global_code):
+def _observation_blockers(reading, evidences, global_code, *, approved_evidence_ids=frozenset()):
     blockers = set()
     if reading["association_status"] != HistoricalTemperatureReading.AssociationStatus.CONFIRMED:
         blockers.add("observation_association_not_confirmed")
@@ -84,7 +91,8 @@ def _observation_blockers(reading, evidences, global_code):
         if known is None or known[1] != evidence["source_sha256"]:
             blockers.add("source_not_validated")
         source_code = canonical_box(evidence["source_box"])
-        if source_code is None or not temperature_source_matches(source_code, global_code):
+        if ((source_code is None or not temperature_source_matches(source_code, global_code))
+                and evidence.get("id") not in approved_evidence_ids):
             blockers.add("source_box_identity_mismatch")
         if temperature is None or _temperature(evidence["source_value"]) != temperature:
             blockers.add("observation_source_value_conflict")
@@ -100,14 +108,14 @@ def _before_cutoff(reading):
             and reading["biological_measurement__measured_on"] < HISTORICAL_CUTOFF)
 
 
-def _observations(readings, evidences_by_reading, global_code):
+def _observations(readings, evidences_by_reading, global_code, *, approved_evidence_ids=frozenset()):
     observations = []
     for reading in readings:
         evidences = evidences_by_reading.get(reading["id"], [])
         observations.append({
             "reading": reading, "evidences": evidences, "temperature": _temperature(reading["temperature_c"]),
             "monday": _week_monday(reading["iso_year"], reading["iso_week"]),
-            "blockers": _observation_blockers(reading, evidences, global_code),
+            "blockers": _observation_blockers(reading, evidences, global_code, approved_evidence_ids=approved_evidence_ids),
         })
     observations.sort(key=lambda item: (item["monday"], item["reading"]["id"]))
     by_week = defaultdict(list)
@@ -189,20 +197,22 @@ def _transition(*, box, origin, destination, skipped, zones_by_temperature, move
     blockers = set(origin["blockers"]) | set(destination["blockers"]) | skipped
     mapping_gaps = {gap for gap in (origin_gap, destination_gap) if gap}
     representation = None
-    if blockers:
-        status = REVIEW
-    elif mapping_gaps:
-        # Without proven locations a nearby record cannot be compared with this change.
-        unsettled = (any(start <= row["moved_at"] < end for row in movements)
-                     or any(row["starts_at"] < end and (row["ends_at"] is None or row["ends_at"] > start) for row in periods))
-        status = REVIEW if unsettled else ENVIRONMENT_ONLY
-        if unsettled:
-            blockers.add("recorded_location_data_not_comparable")
-    else:
+    if not mapping_gaps:
         found, representation = _classify(origin_zone=origin_zone, destination_zone=destination_zone, start=start, end=end,
                                           movements=movements, receipts=receipts, periods=periods)
         blockers.update(found)
-        status = REVIEW if found else ALREADY_REPRESENTED if representation and representation["kind"] != "location_periods" else ESTABLISHED
+    else:
+        # Without proven locations a nearby record cannot be compared with this change.
+        unsettled = (any(start <= row["moved_at"] < end for row in movements)
+                     or any(row["starts_at"] < end and (row["ends_at"] is None or row["ends_at"] > start) for row in periods))
+        if unsettled:
+            blockers.add("recorded_location_data_not_comparable")
+    if blockers:
+        status = REVIEW
+    elif mapping_gaps:
+        status = ENVIRONMENT_ONLY
+    else:
+        status = ALREADY_REPRESENTED if representation and representation["kind"] != "location_periods" else ESTABLISHED
     blockers |= mapping_gaps
     resolved = origin_zone is not None and destination_zone is not None
     return {
@@ -221,6 +231,125 @@ def _transition(*, box, origin, destination, skipped, zones_by_temperature, move
     }
 
 
+def _approved_starting_evidence_ids(evidence_ids, *, using):
+    """Check persisted correction proof, never infer an alias from a source label."""
+    if not evidence_ids:
+        return set()
+    database = connections[using]
+    if database.vendor != "postgresql":
+        return set()
+    with database.cursor() as cursor:
+        cursor.execute(
+            "SELECT evidence_id FROM unnest(%s::bigint[]) AS scoped(evidence_id) "
+            "WHERE public.box_1902_evidence_valid_v2(evidence_id)",
+            [sorted(evidence_ids)],
+        )
+        return {row[0] for row in cursor.fetchall()} & set(evidence_ids)
+
+
+def _starting_observation(readings, evidences_by_reading, global_code, *, approved_evidence_ids=frozenset()):
+    """Resolve the earliest admissible group without imposing an intra-week order."""
+    eligible = [reading for reading in readings
+                if _before_cutoff(reading) and not _observation_blockers(
+                    reading, evidences_by_reading.get(reading["id"], []), global_code,
+                    approved_evidence_ids=approved_evidence_ids,
+                )]
+    if not eligible:
+        return None
+    first_week = min(_week_monday(reading["iso_year"], reading["iso_week"]) for reading in eligible)
+    group = [reading for reading in eligible
+             if _week_monday(reading["iso_year"], reading["iso_week"]) == first_week]
+    week_only = [reading for reading in group
+                 if reading["biological_measurement__temporal_precision"] != BiologicalMeasurement.TemporalPrecision.EXACT_DATE]
+    if not week_only:
+        first_day = min(reading["biological_measurement__measured_on"] for reading in group)
+        group = [reading for reading in group if reading["biological_measurement__measured_on"] == first_day]
+    # Only individually admissible observations can contradict or order this group.
+    observations = _observations(group, evidences_by_reading, global_code, approved_evidence_ids=approved_evidence_ids)
+    if any(observation["blockers"] for observation in observations):
+        return None
+    # An overlapping week-only observation prevents certifying the first exact day.
+    return week_only[0] if week_only else group[0]
+
+
+def project_starting_location(*, box, periods, zones):
+    """Anchor the earliest eligible historical environment, else a proven exact day."""
+    if box.merged_into_id is not None:
+        return None
+    biology = BiologicalMeasurement.objects.canonical().filter(
+        box_id=box.pk, box__organization_id=box.organization_id,
+    )
+    first, zone = None, None
+    if rule_applies(box.organization_id):
+        cutoff_year, cutoff_week, _day = HISTORICAL_CUTOFF.isocalendar()
+        readings = list(HistoricalTemperatureReading.objects.using(biology.db).filter(
+            biological_measurement__in=biology,
+        ).filter(
+            Q(biological_measurement__measured_on__lt=HISTORICAL_CUTOFF)
+            | Q(biological_measurement__week_start__lt=HISTORICAL_CUTOFF)
+            | Q(iso_year__lt=cutoff_year) | Q(iso_year=cutoff_year, iso_week__lt=cutoff_week),
+        ).order_by("iso_year", "iso_week", "pk").values(
+            *_READING_FIELDS, "biological_measurement__temporal_precision",
+        ))
+        evidences_by_reading = defaultdict(list)
+        mismatched_evidence_ids = set()
+        evidences = HistoricalTemperatureEvidence.objects.using(biology.db).filter(
+            reading_id__in=[reading["id"] for reading in readings],
+        )
+        for evidence in evidences.values("id", "reading_id", *_EVIDENCE_FIELDS):
+            evidences_by_reading[evidence["reading_id"]].append(evidence)
+            if not temperature_source_matches(canonical_box(evidence["source_box"]), box.global_code):
+                mismatched_evidence_ids.add(evidence["id"])
+        approved_evidence_ids = _approved_starting_evidence_ids(mismatched_evidence_ids, using=evidences.db)
+        reading = _starting_observation(readings, evidences_by_reading, box.global_code,
+                                        approved_evidence_ids=approved_evidence_ids)
+        if reading is not None:
+            zones_by_temperature = defaultdict(list)
+            for candidate in ThermalZone.objects.filter(organization_id=box.organization_id, target_temperature_c__isnull=False):
+                zones_by_temperature[candidate.target_temperature_c].append({"id": candidate.pk, "name": candidate.name})
+            zone, _gap = _zone_for(_temperature(reading["temperature_c"]), zones_by_temperature)
+            # Mapping failure is not permission to choose a later observation or period.
+            if zone is None:
+                return None
+            if reading["biological_measurement__temporal_precision"] == BiologicalMeasurement.TemporalPrecision.LEGACY_UNVERIFIED:
+                return {"observed_on": None, "temporal_precision": "iso_week",
+                        "iso_year": reading["iso_year"], "iso_week": reading["iso_week"],
+                        "thermal_zone": zone, "represented_movement_id": None}
+            first = biology.get(pk=reading["biological_measurement_id"])
+        elif readings:
+            # Unreliable historical proof cannot become a guessed period destination.
+            return None
+    if first is None:
+        first = biology.order_by("measured_on", "pk").first()
+    if (first is None or first.environment_source_box_id not in (None, box.pk)
+            or first.temporal_precision != BiologicalMeasurement.TemporalPrecision.EXACT_DATE):
+        return None
+    start = _monday_instant(first.measured_on)
+    end = _monday_instant(first.measured_on + timedelta(days=1))
+    # Partial, overlapping and unknown-ended periods cannot locate a whole day.
+    touching = [period for period in periods if period.box_id == box.pk and period.starts_at < end
+                and (period.end_date_unknown or period.ends_at is None or period.ends_at > start)]
+    represented_movement_id = None
+    if len(touching) == 1:
+        period = touching[0]
+        if (not period.end_date_unknown and period.starts_at <= start
+                and (period.ends_at is None or period.ends_at >= end)):
+            period_zone = zones.get(period.thermal_zone_id)
+            # Historical setpoints take precedence; only an agreeing whole day can pair.
+            zone = zone or period_zone
+            if period_zone is not None and period_zone["id"] == zone["id"]:
+                candidates = list(BoxMovement.objects.filter(
+                    box_id=box.pk, box__organization_id=box.organization_id,
+                    kind=BoxMovement.Kind.INITIAL_LOCATION, from_thermal_zone__isnull=True,
+                    to_thermal_zone_id=period.thermal_zone_id, destination_location_id=period.pk,
+                    moved_at=period.starts_at,
+                ).values_list("pk", flat=True)[:2])
+                if len(candidates) == 1:
+                    represented_movement_id = candidates[0]
+    return {"observed_on": first.measured_on.isoformat(), "thermal_zone": zone,
+            "represented_movement_id": represented_movement_id} if zone else None
+
+
 def project_historical_transitions(*, organization_id, box_ids=None):
     """Return every observed change for the institution, or nothing outside its rule."""
     if not rule_applies(organization_id):
@@ -232,11 +361,7 @@ def project_historical_transitions(*, organization_id, box_ids=None):
         scope["box_id__in"] = list(box_ids)
     measurement_scope = {f"biological_measurement__{key}": value for key, value in scope.items()}
     readings_by_box = defaultdict(list)
-    for reading in HistoricalTemperatureReading.objects.filter(**measurement_scope).values(
-        "id", "biological_measurement_id", "association_status", "iso_year", "iso_week", "temperature_c",
-        "biological_measurement__box_id", "biological_measurement__week_start", "biological_measurement__measured_on",
-        "biological_measurement__duplicate_of_id", "biological_measurement__environment_source_box_id",
-    ):
+    for reading in HistoricalTemperatureReading.objects.filter(**measurement_scope).values(*_READING_FIELDS):
         if _before_cutoff(reading):
             readings_by_box[reading["biological_measurement__box_id"]].append(reading)
     if not readings_by_box:

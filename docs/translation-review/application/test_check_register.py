@@ -101,6 +101,51 @@ def movement_correction_integrity_errors(rows):
     return errors
 
 
+def b24_events(rows):
+    """Validate the exact additive B24 events before excluding them from frozen sources."""
+    events = [row for row in rows if row["batch"] == "B24-2026-11-10"]
+    assert events == rows[1054:1060], "B24: events moved or gained a member"
+    assert [row["entry_id"] for row in events] == [f"T{i}" for i in range(1055, 1061)], "B24: identities changed"
+    assert all(list(row) == reg.COLUMNS for row in events), "B24: schema changed"
+    assert rows_digest(events) == "0f7e33f3574c1c177669ecadf5a708b66b2c2a789b0c53c72f71eced5819864c", "B24: history was modified"
+    return events
+
+
+def before_b24(source, rows, language="EN"):
+    """Reverse only the three exact B24 additions; unknown changes stay fingerprinted."""
+    for row in b24_events(rows):
+        if row["language"] == language:
+            line = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
+            assert source.count(line) == 1, row["key_or_msgid"]
+            source = source.replace(line, "")
+    return source
+
+
+def before_b23(source, rows, language="EN"):
+    """Reverse only the exact B23 events before checking older source fingerprints."""
+    events = [row for row in rows if row["batch"] == "B23-2026-11-10"]
+    assert events == rows[1042:1054], "B23: events moved or gained a member"
+    assert [row["entry_id"] for row in events] == [f"T{i}" for i in range(1043, 1055)], "B23: identities changed"
+    assert rows_digest(events) == "e923b831b624a2367b92bcfd9ba3b55eec575f1ec9241333d632920dc14b8423", "B23: history was modified"
+    entries = {row["key_or_msgid"]: row for row in events if row["language"] == language}
+    for key, row in entries.items():
+        if row["status"] == "REMOVED":
+            assert not any(line.startswith(f"  {key}: ") for line in source.splitlines()), key
+        else:
+            line = f"  {key}: '{row['final_value']}',\n"
+            assert source.count(line) == 1, key
+            source = source.replace(line, "")
+    for keys, anchor in (
+        (("historyEnvironmentOnly", "historyTransitionReview"), "historyReconstructionUnresolved"),
+        (("historyProvenance", "historyReconciliation"), "historyLoading"),
+    ):
+        prefix = f"  {anchor}: "
+        assert source.count(prefix) == 1, anchor
+        restored = "".join(f"  {key}: '{entries[key]['initial_value']}',\n" for key in keys)
+        source = source.replace(prefix, restored + prefix)
+    return source
+
+
 def event(entry, batch, key, initial, final, status="APPLIED", surface="react", language="EN", source=None):
     head = HEAD_1 if batch == B01 else HEAD_2
     default_source = {
@@ -716,6 +761,74 @@ class RealRegisterTests(unittest.TestCase):
                         with self.assertRaisesRegex(AssertionError, f"{batch}: history was modified"):
                             self.test_h_coordinated_b13_register_and_catalog_edit_is_rejected()
 
+    def test_h_b24_reconstruction_rejects_history_and_source_mutations(self):
+        rows = reg.load_register()
+        events = b24_events(rows)
+        for language in ("FR", "EN"):
+            source = (reg.ROOT / f"frontend/src/i18n/{language.lower()}.ts").read_text(encoding="utf-8")
+            before_b24(source, rows, language)
+            for row in events:
+                for field in reg.COLUMNS:
+                    changed = [dict(entry) for entry in rows]
+                    changed[rows.index(row)][field] += " changed"
+                    with self.subTest(language=language, entry=row["entry_id"], field=field):
+                        with self.assertRaises(AssertionError):
+                            before_b24(source, changed, language)
+                with self.assertRaises(AssertionError):
+                    before_b24(source, [entry for entry in rows if entry != row], language)
+                if row["language"] == language:
+                    line = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
+                    for replacement in ("", line + line, line.replace(": '", ": 'changed ")):
+                        with self.assertRaises(AssertionError):
+                            before_b24(source.replace(line, replacement), rows, language)
+            reordered = list(rows)
+            reordered[1054], reordered[1055] = reordered[1055], reordered[1054]
+            for changed in (reordered, rows + [dict(events[0], entry_id="T1061")],
+                            rows[:1054] + [dict(rows[0])] + rows[1054:]):
+                with self.assertRaises(AssertionError):
+                    before_b24(source, changed, language)
+            for field in ("unknown_column", "sheet_value"):
+                changed = [dict(entry) for entry in rows]
+                if field == "unknown_column":
+                    changed[1054][field] = "unapproved"
+                else:
+                    changed[1054].pop(field)
+                with self.assertRaises(AssertionError):
+                    before_b24(source, changed, language)
+
+    def test_h_b23_reconstruction_rejects_history_and_source_mutations(self):
+        rows = reg.load_register()
+        for language in ("FR", "EN"):
+            source = (reg.ROOT / f"frontend/src/i18n/{language.lower()}.ts").read_text(encoding="utf-8")
+            before_b23(source, rows, language)
+            events = rows[1042:1054]
+            for row in events:
+                for field in reg.COLUMNS:
+                    changed = [dict(entry) for entry in rows]
+                    changed[rows.index(row)][field] += " changed"
+                    with self.subTest(language=language, entry=row["entry_id"], field=field):
+                        with self.assertRaises(AssertionError):
+                            before_b23(source, changed, language)
+                with self.assertRaises(AssertionError):
+                    before_b23(source, [entry for entry in rows if entry != row], language)
+                if row["language"] != language:
+                    continue
+                key = row["key_or_msgid"]
+                if row["status"] == "REMOVED":
+                    with self.assertRaises(AssertionError):
+                        before_b23(source + f"  {key}: '{row['initial_value']}',\n", rows, language)
+                else:
+                    line = f"  {key}: '{row['final_value']}',\n"
+                    for replacement in ("", line.replace(": '", ": 'changed ")):
+                        with self.assertRaises(AssertionError):
+                            before_b23(source.replace(line, replacement), rows, language)
+            reordered = list(rows)
+            reordered[1042], reordered[1043] = reordered[1043], reordered[1042]
+            with self.assertRaises(AssertionError):
+                before_b23(source, reordered, language)
+            with self.assertRaises(AssertionError):
+                before_b23(source, rows + [dict(events[0], entry_id="T1055")], language)
+
     def test_h_coordinated_b13_register_and_catalog_edit_is_rejected(self):
         # Reported scenario: rewrite T856 (EN temperatureDailyMean) and the EN catalog together.
         rows = [dict(row) for row in reg.load_register()]
@@ -734,6 +847,7 @@ class RealRegisterTests(unittest.TestCase):
         en = (reg.ROOT / "frontend/src/i18n/en.ts").read_text(encoding="utf-8")
         edited = en.replace("  temperatureDailyMean: 'Daily mean',\n", "  temperatureDailyMean: 'Daily average',\n")
         self.assertNotEqual(edited, en)
+        edited = before_b23(before_b24(edited, rows), rows)
         # Undo later recorded value changes before removing the frozen additions.
         # Reverse order preserves continuity if the same key is corrected more than once.
         for row in reversed(rows[1006:]):
