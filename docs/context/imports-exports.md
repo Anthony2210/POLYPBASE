@@ -133,6 +133,12 @@ Depuis cette livraison, sont aussi intégrés : resolver destination read-only (
 
 **Phase 6 non implémentée :** preflight/acceptation destination atomique et idempotente, matérialisation Strain/Box, fusion entrante et arête de continuation. Aucun endpoint/UI v2, receipt, inbox, adaptateur fichier ni mutation du stock/lifecycle source. Politique source active-only, effet quantité/statut et authenticité inter-instance restent à décider. V1 reste séparé. Contrat exact : [`../transferts_csv.md`](../transferts_csv.md); statuts Git et preuves QA datées : [`../../POLYPBASE_CURRENT_STATE.md`](../../POLYPBASE_CURRENT_STATE.md).
 
+### Noyau scientifique d'échange (fondation interne, sans workflow)
+
+`measurements/scientific_snapshot.py` définit le contrat pur `polypbase.scientific-snapshot` **1.0** (sans Django) : catalogue serveur de sélecteurs, sélection explicite validée, assemblage limité aux sélecteurs divulgués, validation stricte et JSON déterministe. États de champ : `value` (dont `0`), `null`, `blank`, `absent`; une information non divulguée est absente du payload, `observations: []` signifie aucune observation. Le temps porte la précision réelle (`exact_date`, `legacy_unverified`, `iso_week`); une semaine seule n'a jamais de jour ni de lundi émis. Une version ultérieure ajoute des clés sans changer le sens des existantes; toute version inconnue est refusée.
+
+`cultures/scientific_projection.py` projette une Box de l'institution source explicitement fournie, en lecture seule : règle de lecture existante (membership actif ou superutilisateur technique), Box étrangère/fusionnée/inexistante indistinguables, relevés canoniques seulement, colonnes divulguées seulement, nombre de requêtes constant. La portée (institution, fusion, existence) est toujours décidée sur la seule ligne `cultures_box`; Strain/Species/GlobalStrainIdentity et le contrôle d'éligibilité de souche ne sont lus que si un sélecteur `identity.*` est divulgué. La validation renvoie des diagnostics, sans exception, pour des listes/objets JSON à la place de scalaires. Aucun compte, note, autre Box, lignée, température ni identifiant de ligne n'est lu ou émis; `GlobalStrainIdentity` absente reste `null`, jamais créée. Aucun snapshot transactionnel n'est garanti. L'autorité de divulgation externe, les températures, l'enveloppe, l'adaptateur XLSX et la réception restent à décider. Transfer v1/2.0/2.1 inchangés.
+
 ## Tests à cibler
 
 - vraie valeur zéro contre cellule absente ou invalide;
