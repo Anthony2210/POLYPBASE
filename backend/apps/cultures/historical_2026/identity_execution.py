@@ -29,7 +29,7 @@ TARGET_SCHEMA = "cla_sme_target_v1"
 AUTHORIZATION_SCHEMA = "cla_sme_authorization_v1"
 OPERATION = "cla_sme_identity_20261027_v2"
 PREPARATION_OPERATION = "cla_sme_references_20261027_v1"
-BOX_1902_OPERATION = "cla_box_1902_identity_20261103_v1"
+BOX_1902_OPERATION = "cla_box_1902_preservation_20261109_v2"
 AUTHORIZATION_KEYS = {
     "schema", "operation", "organization_id", "family", "target_strain_id",
     "actor_id", "plan_hash", "target_hash", "authorized_at", "expires_at", "backup",
@@ -141,8 +141,9 @@ def require_database():
     if any(key.upper().startswith("PG") for key in os.environ):
         raise ValueError("Remove inherited PG* libpq variables.")
     if module == "ht_disposable_settings" and getattr(settings, "RUNNING_TESTS", False):
-        if ((config.get("HOST"), config.get("NAME"), config.get("USER"), config.get("PASSWORD"))
-                != ("127.0.0.1", "test_subculture_qa", "subculture_qa", "")
+        if ((config.get("HOST"), config.get("NAME"), config.get("PASSWORD"))
+                != ("127.0.0.1", "test_subculture_qa", "")
+                or config.get("USER") not in ("subculture_qa", "box1902_executor")
                 or not _port(str(config.get("PORT"))) or config.get("OPTIONS") != DISPOSABLE_OPTIONS):
             raise ValueError("Disposable execution requires the exact fresh-cluster test configuration.")
         _disposable_identity()
@@ -236,13 +237,17 @@ def _verify_production(target):
 def _verify_disposable(identity):
     info = connection.connection.info
     effective = {"host": (info.host, "127.0.0.1"), "port": (str(info.port), identity["port"]),
-                 "database": (info.dbname, "test_subculture_qa"), "user": (info.user, "subculture_qa"),
+                 "database": (info.dbname, "test_subculture_qa"),
+                 "user": (info.user, connection.settings_dict["USER"]),
                  "hostaddr": (info.hostaddr, "127.0.0.1")}
     differing = [name for name, (actual, expected) in effective.items() if actual != expected]
     if differing:
         raise ValueError("Effective disposable connection differs from the launcher: " + ", ".join(differing) + ".")
     with connection.cursor() as cursor:
-        cursor.execute("""SELECT system_identifier::text, current_setting('data_directory'),
+        directory_sql = ("pg_catalog.box1902_qa_data_directory()"
+                         if connection.settings_dict["USER"] == "box1902_executor"
+                         else "current_setting('data_directory')")
+        cursor.execute(f"""SELECT system_identifier::text, {directory_sql},
             current_setting('port'), current_setting('server_version_num')::integer,
             current_user::text, session_user::text, current_schemas(false),
             current_setting('session_replication_role'), pg_is_in_recovery() FROM pg_control_system()""")
@@ -257,7 +262,8 @@ def _verify_disposable(identity):
               "data_directory": actual_path == expected_path,
               "port": row[2] == identity["port"],
               "server_version_num": type(row[3]) is int and 180000 <= row[3] < 190000,
-              "current_user": row[4] == "subculture_qa", "session_user": row[5] == "subculture_qa",
+              "current_user": row[4] == connection.settings_dict["USER"],
+              "session_user": row[5] == connection.settings_dict["USER"],
               "schemas": row[6] == ["public"], "replication_role": row[7] == "origin",
               "in_recovery": row[8] is False}
     differing = [name for name, matches in checks.items() if not matches]

@@ -1,10 +1,12 @@
 """Exact, reviewed correction of one physical Box; never a CLA batch receipt."""
 
 
+import json
+
 from django.db import connection
 
 from apps.audit.models import AuditLog
-from apps.cultures.box_codes import register_box_code
+from apps.measurements import box_1902_sql as capability
 from apps.cultures.box_identity import strain_box_identity, USABLE
 from apps.cultures.models import Box, BoxCodeNamespace
 from apps.cultures.pca_identity_unification import json_value, snapshot
@@ -25,8 +27,19 @@ OLD_CODE = "CLA-JKA-1.009"
 TARGET_CODE = "CLC-JKA-1.009"
 LOCAL_CODE = "CLA-JKA-1.09"
 RECEIPT = "cla_box_1902_correction"
-REASON = "Etienne's reviewed identity correction of Box 1902 only; preserve scientific history."
+REASON = capability.REASON
 fingerprint = execution.fingerprint
+
+PRESERVATION_CONTRACT = capability.OPERATION
+
+
+def _require_preservation_capability():
+    """Only the independently provisioned executor may use this operation."""
+    capability.attest(connection, allow_retired=False)
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT current_user, session_user")
+        if cursor.fetchone() != (capability.EXECUTOR, capability.EXECUTOR):
+            raise ValueError("The dedicated Box 1902 executor is required; v1 approvals are invalid.")
 
 
 def _scope(organization_id, box_id, source_strain_id, source_species_id, target_strain_id):
@@ -34,8 +47,8 @@ def _scope(organization_id, box_id, source_strain_id, source_species_id, target_
         raise ValueError("Explicit integer identity PKs are required.")
     if (organization_id, box_id, source_strain_id, source_species_id) != (1, 1902, 213, 131):
         raise ValueError("Only organization 1, Box 1902, source Strain 213 and Species 131 are authorized.")
-    if target_strain_id <= 0 or target_strain_id == source_strain_id:
-        raise ValueError("An explicit distinct target Strain PK is required.")
+    if target_strain_id != 285:
+        raise ValueError("Only target Strain 285 / Species 164 is authorized.")
 
 
 def build_plan(organization_id, *, box_id, source_strain_id, source_species_id, target_strain_id):
@@ -46,6 +59,14 @@ def build_plan(organization_id, *, box_id, source_strain_id, source_species_id, 
 
 def _build_plan(target_strain_id, binding):
     errors = []
+    if connection.vendor != "postgresql":
+        raise ValueError("Box 1902 preservation requires the independently provisioned PostgreSQL capability.")
+    capability.attest(connection)
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT public.box_1902_manifest_v2()")
+        manifest = cursor.fetchone()[0]
+        if isinstance(manifest, str):
+            manifest = json.loads(manifest)
     organization = Organization.objects.filter(pk=1).first()
     box = Box.objects.filter(pk=1902, organization_id=1).select_related("strain__species").first()
     strains = eligible_strains(organization).select_related("species")
@@ -56,8 +77,9 @@ def _build_plan(target_strain_id, binding):
     if source is None or (source.code, source.species_id, source.species.scientific_name) != (
             "CLA-JKA-1", 131, "Cyanea lamarckii"):
         errors.append("The exact source Strain 213 / Species 131 identity is required.")
-    if target is None or (target.code, target.species.scientific_name) != (
-            "CLC-JKA-1", "Chrysaora lactea"):
+    if target is None or (target.pk, target.organization_id, target.code, target.species_id,
+                          target.species.scientific_name) != (
+            285, 1, "CLC-JKA-1", 164, "Chrysaora lactea"):
         errors.append("MISSING_OR_INCOMPATIBLE_REFERENCE: explicit eligible target CLC-JKA-1 / Chrysaora lactea required.")
     for strain in (source, target):
         if strain:
@@ -119,7 +141,8 @@ def _build_plan(target_strain_id, binding):
                                  and row["association_status"] == "confirmed"]
     references = [s for s in (source, target) if s]
     provenances = reconciliation._rows(OrganizationProvenanceCode.objects.filter(organization_id=1))
-    return {"operation": OPERATION, "execution": dict(binding), "schema_hash": reconciliation._schema_state(),
+    return {"operation": OPERATION, "preservation_contract": PRESERVATION_CONTRACT, "manifest": manifest,
+            "execution": dict(binding), "schema_hash": reconciliation._schema_state(),
             "organization_id": 1, "box_id": 1902, "source_strain_id": 213, "source_species_id": 131,
             "target_strain_id": target_strain_id, "reason": REASON,
             "classification": "BLOCKED" if errors else "ALREADY_CORRECT" if corrected else "READY",
@@ -134,7 +157,8 @@ def _build_plan(target_strain_id, binding):
             "local_identities": reconciliation._rows(LocalStrainIdentity.objects.filter(strain_id__in=[s.pk for s in references])),
             "boxes": reconciliation._rows(Box.objects.filter(organization_id=1)),
             "dependencies": dependencies,
-            "temperature_association_invalidations": temperature_invalidations,
+            "temperature_association_invalidations": [],
+            "temperature_association_preservations": temperature_invalidations,
             "audits": reconciliation._rows(AuditLog.objects.filter(organization_id=1)),
             "namespaces": reconciliation._rows(BoxCodeNamespace.objects.filter(namespace__in=("CLA-JKA-1", "CLC-JKA-1"))),
             "collision": collision, "reservation": reservation}
@@ -147,11 +171,18 @@ def apply_plan(organization_id, *, box_id, source_strain_id, source_species_id, 
         raise ValueError("An explicit actor and reviewed plan hash are required.")
     with execution.session(apply=True, organization_id=1, family=FAMILY, target_strain_id=target_strain_id,
                            actor_id=actor.pk, expected_plan_hash=expected_plan_hash, operation=OPERATION) as binding:
-        reconciliation._lock_application_tables()
-        organization, user = reconciliation._authorize(1, actor)
-        list(Box.objects.select_for_update().filter(organization_id=1).order_by("pk"))
-        list(Strain.objects.select_for_update().filter(pk__in=(213, target_strain_id)).order_by("pk"))
-        reconciliation._dependencies([1902], organization_id=1, lock=True)
+        _require_preservation_capability()
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT public.box_1902_lock_v2(%s)", [actor.pk])
+        # The SQL maintenance barrier already locks these rows and authorizes the
+        # active institutional Admin. Recheck through Django without DML grants.
+        from django.contrib.auth import get_user_model
+        from apps.accounts.models import OrganizationMembership
+        from django.core.exceptions import PermissionDenied
+        if (not get_user_model().objects.filter(pk=actor.pk, is_active=True).exists()
+                or not OrganizationMembership.objects.filter(
+                    user_id=actor.pk, organization_id=1, is_active=True, role="admin").exists()):
+            raise PermissionDenied("An active administrator of this institution is required.")
         plan = _build_plan(target_strain_id, binding)
         if fingerprint(plan) != expected_plan_hash:
             raise ValueError("Persisted state changed since review; run a new dry-run.")
@@ -159,13 +190,8 @@ def apply_plan(organization_id, *, box_id, source_strain_id, source_species_id, 
             raise ValueError("Unresolved conflicts block the one-Box correction.")
         if plan["classification"] == "ALREADY_CORRECT":
             return plan
-        for code in (OLD_CODE, TARGET_CODE):
-            register_box_code(code, namespace=code.rsplit(".", 1)[0])
-        count = Box.objects.filter(pk=1902, organization_id=1, global_code=OLD_CODE,
-                                   strain_id=213, local_code=LOCAL_CODE, status=Box.Status.INACTIVE,
-                                   merged_into_id=None, previous_global_code="").update(**plan["proposed"])
-        if count != 1:
-            raise ValueError("Box changed during correction.")
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT public.box_1902_apply_v2(%s,%s)", [actor.pk, expected_plan_hash])
         expected_boxes = json_value(plan["boxes"])
         for row in expected_boxes:
             if row["id"] == 1902:
@@ -174,21 +200,21 @@ def apply_plan(organization_id, *, box_id, source_strain_id, source_species_id, 
         for row in expected_dependencies.get("cultures.box", []):
             if row["id"] == 1902:
                 row.update(plan["proposed"])
-        invalidations = set(plan["temperature_association_invalidations"])
-        for row in expected_dependencies.get("measurements.historicaltemperaturereading", []):
-            if row["id"] in invalidations:
-                row["association_status"] = "pending_review"
+
         if (reconciliation._rows(Box.objects.filter(organization_id=1)) != expected_boxes
                 or reconciliation._dependencies([1902], organization_id=1) != expected_dependencies):
             raise ValueError("Scientific or historical state changed during correction.")
         after = snapshot(Box.objects.get(pk=1902, organization_id=1))
-        metadata = {"operation": OPERATION, "plan_hash": expected_plan_hash,
-                    "source_species_id": 131, "before": plan["before"], "after": after}
-        AuditLog.objects.create(organization=organization, user=user, action=AuditLog.Action.UPDATE,
-            object_type="box", object_id=TARGET_CODE, description=REASON, metadata=metadata)
-        AuditLog.objects.create(organization=organization, user=user, action=AuditLog.Action.UPDATE,
-            object_type=RECEIPT, object_id="1902", description=REASON,
-            metadata={**metadata, "reviewed_plan": plan})
+        receipts = AuditLog.objects.filter(
+            organization_id=1, user_id=actor.pk, object_type=RECEIPT, object_id="1902",
+            metadata__operation=OPERATION, metadata__plan_hash=expected_plan_hash)
+        if receipts.count() != 1:
+            raise ValueError("The protected correction receipt is missing or ambiguous.")
+        if (not receipts.first().metadata.get("after", {}).get("global_code") == after["global_code"]
+                or [row for row in reconciliation._rows(AuditLog.objects.filter(organization_id=1))
+                    if row["metadata"].get("operation") != OPERATION]
+                != [row for row in plan["audits"] if row["metadata"].get("operation") != OPERATION]):
+            raise ValueError("Correction audit postconditions failed.")
         return plan
 
 

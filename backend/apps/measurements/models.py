@@ -811,7 +811,22 @@ class HistoricalTemperatureEvidence(models.Model):
                 errors["reading"] = "Historical evidence requires canonical biology and Box identity."
             if (not isinstance(self.source_box, str)
                     or not temperature_source_matches(canonical_box(self.source_box), biology.box.global_code)):
-                errors["source_box"] = "The original source Box must match the linked Box identity."
+                from django.db import connections
+                using = self._state.db or router.db_for_read(type(self), instance=self)
+                database = connections[using]
+                historically_valid = False
+                if database.vendor == "postgresql" and self.pk and not self._state.adding:
+                    # A PK alone cannot authorize a modified in-memory evidence row.
+                    stored = type(self).objects.using(using).filter(pk=self.pk).values().first()
+                    unchanged = stored is not None and all(
+                        getattr(self, field.attname) == stored[field.attname]
+                        for field in self._meta.concrete_fields)
+                    if unchanged:
+                        with database.cursor() as cursor:
+                            cursor.execute("SELECT public.box_1902_evidence_valid_v2(%s)", [self.pk])
+                            historically_valid = cursor.fetchone()[0]
+                if not historically_valid:
+                    errors["source_box"] = "The original source Box must match the linked Box identity."
             first, _last = iso_week_bounds(self.reading.iso_year, self.reading.iso_week)
             if (biology.week_start != first
                     or BiologicalMeasurement.week_start_for(biology.measured_on) != first):

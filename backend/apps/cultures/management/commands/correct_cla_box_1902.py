@@ -8,10 +8,11 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import DatabaseError
 
 from apps.cultures.historical_2026 import cla_box_1902 as correction
+from apps.measurements.box_1902_sql import ContractError
 
 
 class Command(BaseCommand):
-    help = "Plan only Box 1902; apply requires an active institution Admin and an exact reviewed hash."
+    help = "Plan only Box 1902; v2 apply requires its dedicated SQL executor, independent approval and reviewed hash."
     requires_system_checks = []
 
     def add_arguments(self, parser):
@@ -34,7 +35,7 @@ class Command(BaseCommand):
                 plan = correction.build_plan(**scope)
         except DatabaseError:
             raise CommandError("Database state, schema or locks blocked the operation; no partial correction was committed.") from None
-        except (ObjectDoesNotExist, PermissionDenied, ValueError) as error:
+        except (ObjectDoesNotExist, PermissionDenied, ValueError, ContractError) as error:
             raise CommandError(str(error)) from error
         self.stdout.write(json.dumps(correction.summary(plan), indent=2, sort_keys=True))
         self.stdout.write("Applied atomically; only Box 1902 was eligible." if options["apply"] else "Dry-run only: no writes.")

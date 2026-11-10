@@ -72,6 +72,8 @@ def _schema_state():
         raise ValueError("Unexpected migration state; deployment and schema review are required first.")
     state = {"migrations": sorted(applied)}
     if connection.vendor == "postgresql":
+        from apps.measurements import box_1902_sql
+        state["box_1902_capability"] = box_1902_sql.attest(connection)
         with connection.cursor() as cursor:
             tables = set(connection.introspection.table_names(cursor))
             if tables != set(_application_tables()):

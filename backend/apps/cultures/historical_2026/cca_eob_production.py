@@ -269,13 +269,24 @@ def _schema_state():
                     r"CREATE (?:OR REPLACE )?FUNCTION (historical_temperature_\w+)\(.*?AS \$\$(.*?)\$\$;",
                     sql, re.DOTALL):
                 expected_bodies[name] = body
+        protected_guards = {}
+        if ("measurements", "0018_box_1902_preservation") in migrations:
+            from apps.measurements import box_1902_sql
+            box_1902_sql.attest(connection)
+            protected_guards = {name.removeprefix("public."): body
+                                for name, body in box_1902_sql.EXPECTED_DEFINITIONS.items()
+                                if name.startswith("public.historical_temperature_")}
+            expected_bodies.update(protected_guards)
         cursor.execute("""SELECT proname, prosrc, prosecdef, proconfig FROM pg_proc p
             JOIN pg_namespace n ON n.oid=p.pronamespace
             WHERE n.nspname='public' AND proname LIKE 'historical_temperature_%' ORDER BY proname""")
         functions = cursor.fetchall()
         if ({r[0] for r in functions} != set(expected_bodies)
-                or any(r[1] != expected_bodies[r[0]] or r[2]
-                       or r[3] != ['search_path=pg_catalog, public, pg_temp'] for r in functions)):
+                or any(r[1] != expected_bodies[r[0]]
+                       or r[2] != (r[0] in protected_guards)
+                       or r[3] != (['search_path=pg_catalog, pg_temp', 'TimeZone=UTC', 'DateStyle=ISO, YMD']
+                                   if r[0] in protected_guards else ['search_path=pg_catalog, public, pg_temp'])
+                       for r in functions)):
             raise ValueError("Historical guard function definitions differ from the reviewed migrations.")
         cursor.execute("""SELECT t.tgname, c.relname, p.proname, t.tgtype, t.tgdeferrable, t.tginitdeferred,
                    t.tgattr::text, t.tgqual IS NULL, pn.nspname, p.pronargs,

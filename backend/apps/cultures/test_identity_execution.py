@@ -630,6 +630,7 @@ class BoundaryTests(SimpleTestCase):
         self.assertEqual(self.stack, [])
 
     def test_disposable_live_identity_must_match_offline_control_data(self):
+        self.db.settings_dict["USER"] = "subculture_qa"
         identity = {"system_identifier": "123456", "data_directory": "/synthetic/data", "port": "54321"}
         self.db.connection = SimpleNamespace(info=SimpleNamespace(
             host="127.0.0.1", port=54321, dbname="test_subculture_qa", user="subculture_qa", hostaddr="127.0.0.1"))
@@ -647,6 +648,7 @@ class BoundaryTests(SimpleTestCase):
 
     @skipUnless(os.name == "nt", "Windows path spelling regression")
     def test_disposable_accepts_windows_slashes_and_case_but_not_another_directory(self):
+        self.db.settings_dict["USER"] = "subculture_qa"
         identity = {"system_identifier": "123456", "data_directory": r"C:\Synthetic\Cluster\data", "port": "54321"}
         self.db.connection = SimpleNamespace(info=SimpleNamespace(
             host="127.0.0.1", port=54321, dbname="test_subculture_qa", user="subculture_qa", hostaddr="127.0.0.1"))
@@ -662,6 +664,7 @@ class BoundaryTests(SimpleTestCase):
             execution._verify_disposable(identity)
 
     def test_disposable_mismatch_reports_only_differing_field_names(self):
+        self.db.settings_dict["USER"] = "subculture_qa"
         identity = {"system_identifier": "123456", "data_directory": "/synthetic/data", "port": "54321"}
         self.db.connection = SimpleNamespace(info=SimpleNamespace(
             host="127.0.0.1", port=54321, dbname="test_subculture_qa", user="subculture_qa", hostaddr="127.0.0.1"))
@@ -680,6 +683,24 @@ class BoundaryTests(SimpleTestCase):
             with self.subTest(field=field), self.assertRaises(ValueError) as error:
                 execution._verify_disposable(identity)
             self.assertEqual(str(error.exception), "Live disposable cluster differs from its offline identity: " + field + ".")
+
+    def test_v1_box_1902_operation_is_not_an_authorization(self):
+        with self.assertRaisesMessage(ValueError, "Only the exact"):
+            with execution.session(operation="cla_box_1902_identity_20261103_v1", apply=True):
+                self.fail("The obsolete invalidating operation must never yield")
+        self.db.cursor.assert_not_called()
+
+    def test_disposable_executor_uses_only_the_pinned_qa_directory_reader(self):
+        self.db.settings_dict["USER"] = "box1902_executor"
+        identity = {"system_identifier": "123456", "data_directory": "/synthetic/data", "port": "54321"}
+        self.db.connection = SimpleNamespace(info=SimpleNamespace(
+            host="127.0.0.1", port=54321, dbname="test_subculture_qa",
+            user="box1902_executor", hostaddr="127.0.0.1"))
+        cursor = self.db.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = ("123456", "/synthetic/data", "54321", 180001,
+                                       "box1902_executor", "box1902_executor", ["public"], "origin", False)
+        execution._verify_disposable(identity)
+        self.assertIn("pg_catalog.box1902_qa_data_directory()", cursor.execute.call_args.args[0])
 
     def test_production_metadata_oid_schema_origin_and_recovery_are_bound(self):
         self.db.connection = SimpleNamespace(info=SimpleNamespace(

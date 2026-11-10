@@ -2,6 +2,18 @@
 
 ## Statut et décision
 
+> **2026-11-09 — READY_FOR_INDEPENDENT_REVIEW, implémentation locale v2.**
+> Le workflow dédié appelle désormais la capacité SQL protégée et conserve les
+> 41 confirmations. Seul l'exécuteur indépendant peut appliquer un plan frais,
+> avec approbation SQL indépendante et autorisation root/backup existante.
+> L'opération est `cla_box_1902_preservation_20261109_v2` ; v1 est refusée.
+> La migration 0018 s'installe uniquement sous la topologie durcie vérifiée ; son
+> retour arrière reste interdit pour préserver la provenance. **Aucune autorisation
+> de production ou de déploiement.** Les descriptions v1 ci-dessous sont historiques.
+> Voir le [workflow actuel, la procédure opérateur et les résultats exacts](box-1902-postgresql-authority-proof.md#actual-v2-workflow-and-local-validation)
+> : 28/28 tests PostgreSQL intégrés, 25/25 preuves d'autorité rejouées et 48/48
+> régressions d'arrêt/root/backup, aucun test final ignoré.
+
 **Mise à jour 2026-11-04 : code intégré à `main` au commit `a841519`, pas encore
 déployé (dernière release rapportée : `cb07a2c`) ; correction non appliquée en
 production.** Aucune revue indépendante de `a841519` n'est attestée dans le dépôt.
@@ -19,8 +31,8 @@ Seule la Box **1902**, organisation **1 / Aquarium de Paris active**, est autori
 | Champ | Avant exigé | Après |
 |---|---|---|
 | `global_code` | `CLA-JKA-1.009` | `CLC-JKA-1.009` |
-| `strain_id` | **213**, `CLA-JKA-1` | PK cible explicitement revu, `CLC-JKA-1` |
-| Species de la souche | **131**, `Cyanea lamarckii` | `Chrysaora lactea` exacte |
+| `strain_id` | **213**, `CLA-JKA-1` | **285**, organisation 1, `CLC-JKA-1` |
+| Species de la souche | **131**, `Cyanea lamarckii` | **164**, `Chrysaora lactea` exacte |
 | `local_code` | `CLA-JKA-1.09` | **inchangé** |
 | `status` | `inactive` | **inchangé** |
 
