@@ -47,10 +47,12 @@ const hooks = {
   useMemo: (factory) => factory(),
   useState: (initial) => [typeof initial === 'function' ? initial() : initial, () => {}],
   useEffect: () => {},
+  useLayoutEffect: () => {},
+  useRef: (current) => ({ current }),
 };
 const t = (key) => `translated:${key}`;
 
-function views(isDesktopApp) {
+function views(isDesktopApp, { zoneImports = {}, historyImports = {} } = {}) {
   const DetailBackButton = load(backSource, {
     'react/jsx-runtime': jsxRuntime,
     'lucide-react': { ArrowLeft },
@@ -70,13 +72,14 @@ function views(isDesktopApp) {
     '../hooks/useProbeMonitoring': { default: (zone) => ({ monitoring: zone.probe_monitoring, error: null, revalidate() {} }) },
     // Shallow page renders keep TemperatureControlPanel as an element; fail if its hook runs.
     '../hooks/useThermalControl': { default: () => assert.fail('Shallow page renders must not run thermal control') },
-    './ProbeReadingsModal': { default: Placeholder },
+    './ZoneProbeCharts': { ZoneProbeChart: Placeholder, ZoneThermalTrend: Placeholder, useZoneChartReadings: () => ({ initial: { settled: true, data: null } }) },
     '../utils/dateFormat': { formatDisplayDate: (value) => value, formatDisplayDateTime: (value) => value, getDocumentLocale: () => 'en' },
     '../utils/probeStatus': { formatProbeReadingTime: (value) => value, getProbeElapsedTime: () => null },
     '../utils/temperatureScale': {},
     './ModalPortal': { default: Placeholder },
     './PolypbaseIcon': { default: Placeholder },
     './ZoneMovementHistory': { ZoneRecentMovements: Placeholder },
+    ...zoneImports,
   });
   const history = load(`${historySource}\nexport { MovementRows };`, {
     ...common,
@@ -88,6 +91,7 @@ function views(isDesktopApp) {
     '../utils/boxHistory': { zoneHistoricalIntervalLabel: () => 'interval' },
     '../utils/dateFormat': { formatDisplayDateTime: (value) => value },
     './SkeletonRows': { default: Placeholder },
+    ...historyImports,
   });
   return { DetailBackButton, ...zones, ...history, ZoneMovementHistoryPage: history.default };
 }
@@ -130,7 +134,7 @@ for (const desktop of [true, false]) {
         const loaded = views(desktop);
         const onBack = () => {};
         const tree = loaded[pageName]({
-          zone: missing ? null : { id: 7, name: 'Test zone', organization: { name: 'Test lab' } },
+          zone: missing ? null : { id: 7, name: 'Test zone', organization: { name: 'Test lab' }, probes: [] },
           boxes: [], isLoading: false, language: 'en', direction: 'arrival', onBack, t,
         });
         const backs = nodes(tree).filter((node) => node.type === loaded.DetailBackButton);
@@ -148,6 +152,126 @@ for (const desktop of [true, false]) {
       });
     }
   }
+}
+
+for (const failure of [null, 'chart', 'history']) {
+  test(`zone detail keeps thermal charts and historical movements independent (${failure ?? 'success'})`, () => {
+    const measuredAt = '2026-11-09T10:00:00Z';
+    const monitoring = { has_collected_probes: true, last_reading_at: measuredAt, manual_entry_available: false, fallback_after_hours: 6 };
+    const zone = {
+      id: 7, name: 'Test zone', organization: { id: 1, name: 'Test lab' }, capacity: 0,
+      target_temperature_c: '0', latest_temperature: null, latest_salinity: null,
+      probes: [{ id: 3, code: 'PROBE-3', location: 'Left', is_active: true, is_collected: true }],
+      probe_monitoring: monitoring,
+    };
+    const data = {
+      zone_id: zone.id, start: '2026-11-08T10:00:00Z', end: measuredAt, resolution_minutes: 1,
+      target_temperature_c: '0', monitoring,
+      probes: [{ ...zone.probes[0], external_channel: 1, sampling_interval_seconds: 60,
+        points: [[Date.parse(measuredAt), 0, null, null]],
+        point_sources: [[[Date.parse(measuredAt), null, '0', 1, 0, 0, Date.parse(measuredAt)]]] }],
+    };
+    const chartError = failure === 'chart' ? new Error('Chart unavailable') : null;
+    const chart = {
+      custom: null, setCustom() {}, initial: { settled: true, data: chartError ? null : data },
+      readings: { data: chartError ? null : data, error: chartError, isLoading: false, retry() {} },
+    };
+    const interval = { from_iso_year: 2026, from_iso_week: 38, to_iso_year: 2026, to_iso_week: 40 };
+    const movement = {
+      location_id: null, occurred_at: null, temporal_precision: 'observation_interval',
+      transition_id: 'historical-42', historical_interval: interval, event_type: 'arrival',
+      box_id: 42, box_code: 'BOX-42', box_status: 'active', related_zone_id: 8, related_zone_name: 'Origin',
+    };
+    const summary = {
+      recent_arrivals: [movement], recent_departures: [], weeks: [],
+      historical_counts: { entry_count: 1, exit_count: 0 },
+    };
+    const Trend = () => null;
+    const CombinedChart = () => null;
+    let loaded;
+    const RecentMovements = (props) => loaded.ZoneRecentMovements(props);
+    loaded = views(true, {
+      zoneImports: {
+        '../hooks/useThermalControl': { default: () => ({ summary: {
+          temperature_c: '0', oldest_measured_at: measuredAt, newest_measured_at: measuredAt, included_probe_count: 1,
+        }, error: null }) },
+        '../utils/temperatureScale': { buildTemperatureScale: () => null },
+        './ZoneProbeCharts': {
+          ZoneThermalTrend: Trend, ZoneProbeChart: CombinedChart,
+          useZoneChartReadings(actualZone, enabled) {
+            assert.equal(actualZone, zone);
+            assert.equal(enabled, true);
+            return chart;
+          },
+        },
+        './ZoneMovementHistory': { ZoneRecentMovements: RecentMovements },
+      },
+      historyImports: {
+        react: { ...hooks, useState(initial) {
+          const [state, setState] = hooks.useState(initial);
+          return state && Object.hasOwn(state, 'summary')
+            ? [{ ...state, summary: failure === 'history' ? null : summary,
+              error: failure === 'history' ? new Error('History unavailable') : null, isLoading: false }, setState]
+            : [state, setState];
+        } },
+        '../utils/boxHistory': { zoneHistoricalIntervalLabel(actualInterval) {
+          assert.equal(actualInterval, interval);
+          return 'Between weeks 38 and 40 of 2026';
+        } },
+        '../utils/dateFormat': { formatDisplayDateTime: () => assert.fail('An interval movement has no exact timestamp') },
+      },
+    });
+    const onOpenBox = () => {};
+    const page = loaded.ZoneDetailPage({
+      zone, boxes: [], isLoading: false, language: 'en', canRecordManualTemperature: false,
+      onBack() {}, onOpenBox, onOpenHistory() {}, onOpenBoxes() {}, t,
+    });
+    const panelElement = nodes(page).find((node) => node.type.name === 'TemperatureControlPanel');
+    const functionalElement = nodes(page).find((node) => node.type.name === 'ZoneFunctionalSections');
+    assert.ok(panelElement);
+    assert.ok(functionalElement);
+    assert.ok(page.props.children.includes(panelElement));
+    assert.ok(page.props.children.includes(functionalElement));
+    // Expand the real composition only; chart leaves stay at their tested boundary.
+    const panel = panelElement.type(panelElement.props);
+    const functional = functionalElement.type(functionalElement.props);
+    const trend = nodes(panel).find((node) => node.type === Trend);
+    const combined = nodes(panel).find((node) => node.type === CombinedChart);
+    const recent = nodes(functional).find((node) => node.type === RecentMovements);
+    assert.ok(trend);
+    assert.ok(combined);
+    assert.ok(recent);
+    assert.ok(panel.props.children.includes(combined), 'The combined chart is outside the thermal control section');
+    assert.equal(nodes(functional).some((node) => node.type === Trend || node.type === CombinedChart), false);
+    assert.equal(nodes(panel).some((node) => node.type === RecentMovements), false);
+    assert.equal(trend.props.initial, chart.initial);
+    assert.equal(combined.props.chart, chart);
+    assert.equal(combined.props.chart.readings.error, chartError);
+    assert.equal(recent.props.zoneId, zone.id);
+    assert.equal(recent.props.onOpenBox, onOpenBox);
+    assert.ok(nodes(panel).some((node) => node.type === 'dd' && node.props.children === '0.0°C'));
+    assert.equal(data.probes[0].points[0][1], 0);
+    if (!chartError) assert.equal(combined.props.chart.readings.data, data);
+
+    const history = recent.type(recent.props);
+    if (failure === 'history') {
+      assert.ok(nodes(history).some((node) => node.type === 'p' && node.props.children === 'History unavailable'));
+      assert.equal(combined.props.chart.readings.data, data, 'History failure does not withdraw chart data');
+    } else {
+      assert.ok(nodes(history).some((node) => node.type === 'p' && node.props.children === t('zoneMovementHistoricalTotals')));
+      assert.equal(nodes(history).some((node) => node.type.name === 'WeeklyMovementChart'), false);
+      const column = nodes(history).find((node) => node.type.name === 'RecentMovementColumn' && node.props.direction === 'arrival');
+      assert.ok(column);
+      const rowsElement = nodes(column.type(column.props)).find((node) => node.type === loaded.MovementRows);
+      assert.ok(rowsElement);
+      const rows = rowsElement.type(rowsElement.props);
+      assert.ok(nodes(rows).some((node) => node.type === 'span' && node.props.children === 'Between weeks 38 and 40 of 2026'));
+      assert.equal(nodes(rows).some((node) => node.type === 'time'), false);
+      const open = nodes(rows).find((node) => node.type === 'button');
+      assert.match(open.props['aria-label'], /BOX-42, Between weeks 38 and 40 of 2026$/);
+      assert.equal(nodes(rows).find((node) => node.type === Placeholder).props.boxId, movement.box_id);
+    }
+  });
 }
 
 test('shared touch back style owns the circular 44px contract without changing UI stroke', () => {

@@ -69,6 +69,14 @@ const ja = jaModule.ja;
 const jaEntries = catalogEntries('../src/i18n/ja.ts', 'ja');
 const manifest = parseCsv(read('../../docs/translation-review/japanese/ja-manifest.csv'));
 const historicalMovementKeys = JSON.parse(read('../../docs/translation-review/japanese/historical-movement-keys.json'));
+const zoneChartKeys = JSON.parse(read('../../docs/translation-review/japanese/zone-chart-keys.json'));
+const potentialMovementKeys = [
+  'historyPotentialMovement', 'historyPotentialAfterRecord', 'historyPotentialUnordered',
+  'historyHistoricalMovement', 'historyBetweenRecords', 'historyBetweenRecordsAcrossYears',
+  'historyEnvironmentOnly', 'historyTransitionReview', 'zoneMovementHistoricalEntry',
+  'zoneMovementHistoricalExit', 'zoneMovementInterval', 'zoneMovementIntervalAcrossYears',
+  'zoneMovementHistoricalTotals',
+];
 const obsolete = parseCsv(read('../../docs/translation-review/japanese/ja-obsolete-workbook-keys.csv'));
 const register = parseCsv(read('../../docs/translation-review/application/register.csv').replace(/^﻿/, ''));
 const reviewedPath = '../../docs/translation-review/japanese/POLYPBASE_JA_59_candidates_revisees.csv';
@@ -225,10 +233,11 @@ test('ja catalog is exactly the historical and AI-reviewed manifest union', () =
     assert.equal(Object.hasOwn(ja, row.identity), false, `${row.identity}: ${row.reason_code} must use English`);
   }
   const counts = react.reduce((total, row) => ({ ...total, [row.status]: (total[row.status] ?? 0) + 1 }), {});
-  // Original fallbacks and registered additions, less the four explicit B23 retirements.
+  // Original fallbacks, movements and thermal additions, with B23 retirements and B23/B24 additions.
   assert.equal(postBaseline.size, 81);
-  assert.deepEqual(counts, { REUSED: 930, FALLBACK_EN: 238, FALLBACK_EN_REVIEW: 36, AI_REVIEWED: 59 });
-  assert.equal(counts.FALLBACK_EN, 143 + postBaseline.size + 13 - 4 + 2 + 3);
+  assert.deepEqual(counts, { REUSED: 930, FALLBACK_EN: 251, FALLBACK_EN_REVIEW: 36, AI_REVIEWED: 59 });
+  assert.equal(counts.FALLBACK_EN, 143 + postBaseline.size + potentialMovementKeys.length
+    - B23_RETIRED_KEYS.length + B23_ADDED_KEYS.length + B24_ADDED_KEYS.length + zoneChartKeys.length);
 });
 
 test('B13 thermal register events are immutable, even under a coordinated catalog edit', () => {
@@ -497,6 +506,59 @@ function b24Events(rows = register) {
   return events;
 }
 
+function b25Events(rows = register) {
+  const events = rows.filter(row => row.batch === 'B25-2026-11-10');
+  assert.deepEqual(events, rows.slice(1060, 1086));
+  assert.deepEqual(events.map(row => row.entry_id), Array.from({ length: 26 }, (_, i) => `T${1061 + i}`));
+  for (const entry of events) assert.deepEqual(Object.keys(entry), REGISTER_COLUMNS);
+  // Incoming b8237be thermal rows: only entry IDs and batch are projected after main history.
+  assert.equal(registerRowsDigest(events), '0d5243d50bebfc735a5627c768e4973d426b97843038b0e71ca80c98ab92e241');
+  assert.deepEqual(events.map(row => [row.key_or_msgid, row.language]),
+    zoneChartKeys.flatMap(key => [[key, 'FR'], [key, 'EN']]));
+  return events;
+}
+
+function beforeB25(source, language, rows = register) {
+  for (const entry of b25Events(rows).filter(row => row.language === language.toUpperCase())) {
+    const line = `  ${entry.key_or_msgid}: '${entry.final_value}',\n`;
+    assert.equal(source.split(line).length - 1, 1, entry.key_or_msgid);
+    source = source.replace(line, '');
+  }
+  return source;
+}
+
+test('B25 thermal additions require exact append-only events and source values', () => {
+  for (const language of ['fr', 'en']) {
+    const source = read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n');
+    assert.doesNotThrow(() => beforeB25(source, language));
+    for (const entry of b25Events()) {
+      assert.throws(() => beforeB25(source, language, register.filter(row => row !== entry)));
+      for (const field of REGISTER_COLUMNS) {
+        const changed = register.map(row => row === entry ? { ...row, [field]: `${row[field]} changed` } : row);
+        assert.throws(() => beforeB25(source, language, changed), `${entry.entry_id}.${field}`);
+      }
+      if (entry.language !== language.toUpperCase()) continue;
+      const line = `  ${entry.key_or_msgid}: '${entry.final_value}',\n`;
+      for (const replacement of ['', line + line, line.replace(": '", ": 'changed ")]) {
+        assert.throws(() => beforeB25(source.replace(line, replacement), language));
+      }
+    }
+    const reordered = register.slice();
+    [reordered[1060], reordered[1061]] = [reordered[1061], reordered[1060]];
+    assert.throws(() => beforeB25(source, language, reordered));
+    assert.throws(() => beforeB25(source, language, [...register, { ...register[1060], entry_id: 'T1087' }]));
+    for (const field of ['unknown_column', 'sheet_value']) {
+      const changed = register.map(row => ({ ...row }));
+      if (field === 'unknown_column') changed[1060][field] = 'unapproved';
+      else delete changed[1060][field];
+      assert.throws(() => beforeB25(source, language, changed));
+    }
+  }
+  const correction = { ...register[1060], entry_id: 'T1087', batch: 'B26-2026-11-10', status: 'APPLIED',
+    initial_value: register[1060].final_value, final_value: 'Later correction' };
+  assert.deepEqual(b25Events([...register, correction]), b25Events());
+});
+
 function beforeB24(source, language, rows = register) {
   for (const entry of b24Events(rows).filter(row => row.language === language.toUpperCase())) {
     const line = `  ${entry.key_or_msgid}: '${entry.final_value}',\n`;
@@ -610,7 +672,7 @@ test('B23 reconstruction requires exact append-only events, additions and retire
 });
 
 function historicalSource(source, current = false, language) {
-  if (current) source = beforeB24(source, language);
+  if (current) source = beforeB24(beforeB25(source, language), language);
   const lines = source.replace(/\r\n/g, '\n').split('\n');
   const keys = current
     ? [...LATER_FALLBACK_KEYS.filter(key => !B23_RETIRED_KEYS.includes(key)), ...B23_ADDED_KEYS]
@@ -628,7 +690,7 @@ function historicalSource(source, current = false, language) {
 }
 
 function beforeMovementLabelChange(source, language) {
-  source = beforeB23(beforeB24(source, language), language);
+  source = beforeB23(beforeB24(beforeB25(source, language), language), language);
   // B22 only rewords the reconstructed historical movement title and interval, registered as APPLIED.
   const renamed = register.filter(entry => entry.batch === 'B22-2026-11-10' && entry.language === language.toUpperCase());
   assert.deepEqual(renamed.map(entry => [entry.key_or_msgid, entry.status]), [['historyHistoricalMovement', 'APPLIED'],
@@ -657,15 +719,43 @@ function beforeMovementLabelChange(source, language) {
   source = source.replace(reconstructionLine, `  historyAcceptedReconstruction: '${original}',\n`);
   // B20 and B21 only add these exact registered lines; every older line stays frozen.
   const potential = register.filter(entry => ['B20-2026-11-09', 'B21-2026-11-09'].includes(entry.batch) && entry.language === language.toUpperCase());
-  assert.deepEqual(potential.map(entry => entry.key_or_msgid),
-    ['historyPotentialMovement', 'historyPotentialAfterRecord', 'historyPotentialUnordered', 'historyHistoricalMovement', 'historyBetweenRecords', 'historyBetweenRecordsAcrossYears', 'historyEnvironmentOnly', 'historyTransitionReview', 'zoneMovementHistoricalEntry', 'zoneMovementHistoricalExit', 'zoneMovementInterval', 'zoneMovementIntervalAcrossYears', 'zoneMovementHistoricalTotals']);
+  assert.deepEqual(potential.map(entry => entry.key_or_msgid), potentialMovementKeys);
   for (const entry of potential) {
+    assert.deepEqual([entry.surface, entry.status, entry.initial_value], ['react', 'ALREADY_MATCHING', entry.final_value], entry.entry_id);
     const line = `  ${entry.key_or_msgid}: '${entry.final_value}',\n`;
     assert.equal(source.split(line).length - 1, 1, line);
     source = source.replace(line, '');
   }
   return source;
 }
+
+test('B20/B21 movement and B25 thermal keys are exact disjoint additions, not frozen baseline keys', () => {
+  assert.equal(zoneChartKeys.length, 13);
+  assert.equal(new Set(zoneChartKeys).size, 13);
+  assert.equal(potentialMovementKeys.length, 13);
+  assert.equal(new Set([...potentialMovementKeys, ...zoneChartKeys]).size, 26);
+  for (const [batches, keys, start] of [
+    [['B20-2026-11-09', 'B21-2026-11-09'], potentialMovementKeys, 1011],
+    [['B25-2026-11-10'], zoneChartKeys, 1061],
+  ]) {
+    const events = register.filter(row => batches.includes(row.batch));
+    assert.deepEqual(events.map(row => row.entry_id), Array.from({ length: 26 }, (_, index) => `T${start + index}`));
+    assert.deepEqual(events.map(row => [row.key_or_msgid, row.language]), keys.flatMap(key => [[key, 'FR'], [key, 'EN']]));
+    for (const key of keys) assert.equal(postBaseline.has(key), false, key);
+  }
+});
+
+test('historical source reconstruction rejects missing or duplicate movement and thermal additions', () => {
+  for (const language of ['fr', 'en']) {
+    const source = read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n');
+    for (const key of [...potentialMovementKeys.filter(key => !B23_RETIRED_KEYS.includes(key)), ...zoneChartKeys]) {
+      const value = (language === 'fr' ? fr : en)[key];
+      const line = `  ${key}: '${value}',\n`;
+      assert.throws(() => beforeMovementLabelChange(source.replace(line, ''), language), undefined, `${language}.${key}: missing`);
+      assert.throws(() => beforeMovementLabelChange(source.replace(line, line + line), language), undefined, `${language}.${key}: duplicate`);
+    }
+  }
+});
 
 test('original FR and EN source content remains frozen apart from the registered movement label change', () => {
   // Removing exact registered additions must restore the original frozen bytes.
@@ -687,7 +777,8 @@ test('original FR and EN source content remains frozen apart from the registered
 
 test('additive keys stay English fallbacks without Japanese approval or provenance', () => {
   const translate = loadI18n().createTranslator('ja');
-  for (const key of [...LATER_FALLBACK_KEYS.filter(key => !B23_RETIRED_KEYS.includes(key)), ...B23_ADDED_KEYS, ...B24_ADDED_KEYS]) {
+  for (const key of [...LATER_FALLBACK_KEYS, ...potentialMovementKeys, ...B23_ADDED_KEYS, ...B24_ADDED_KEYS,
+    ...zoneChartKeys].filter(key => !B23_RETIRED_KEYS.includes(key))) {
     const rows = manifest.filter(row => row.identity === key);
     assert.equal(rows.length, 1, key);
     const row = rows[0];
@@ -708,7 +799,7 @@ test('source fingerprints accept the scoped additions but reject every historica
       const mutated = line.replace(/(: ['"])/, '$1changed ');
       assert.notEqual(mutated, line, `${language}.${key}: mutation must change the value`);
       const changed = source.replace(line, mutated);
-      if (B24_ADDED_KEYS.includes(key)) {
+      if (B24_ADDED_KEYS.includes(key) || zoneChartKeys.includes(key)) {
         assert.throws(() => historicalSource(changed, true, language), `${language}.${key}`);
         continue;
       }

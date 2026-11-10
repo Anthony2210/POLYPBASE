@@ -20,7 +20,7 @@ import DetailBackButton from './DetailBackButton';
 import ModalPortal from './ModalPortal';
 import PageLoader from './PageLoader';
 import PolypbaseIcon from './PolypbaseIcon';
-import ProbeReadingsModal from './ProbeReadingsModal';
+import { useZoneChartReadings, ZoneProbeChart, ZoneThermalTrend } from './ZoneProbeCharts';
 import { ZoneRecentMovements } from './ZoneMovementHistory';
 
 
@@ -458,6 +458,7 @@ export function ZoneDetailPage({
       </header>
 
       <TemperatureControlPanel
+        key={`temperature-${zone.id}`}
         zone={zone}
         canRecordManualTemperature={canRecordManualTemperature}
         onRecordManualTemperature={onRecordManualTemperature}
@@ -1013,17 +1014,9 @@ function TemperatureControlPanel({
     maximum: hasTemperatureRange ? maxTemperature : null,
   });
   const [isEditingTemperature, setIsEditingTemperature] = useState(false);
-  const [isProbeReadingsOpen, setIsProbeReadingsOpen] = useState(false);
-  const { monitoring: probeMonitoring, error: monitoringError, revalidate: revalidateMonitoring } = useProbeMonitoring(zone);
   const hasCollectedProbe = zone.probes.some((probe) => probe.is_collected);
-  const probeReadingsActionRef = useRef<HTMLButtonElement>(null);
-  const restoreProbeFocus = useRef(false);
-  useLayoutEffect(() => {
-    if (!isProbeReadingsOpen && restoreProbeFocus.current) {
-      probeReadingsActionRef.current?.focus({ preventScroll: true });
-      restoreProbeFocus.current = false;
-    }
-  }, [isProbeReadingsOpen]);
+  const chart = useZoneChartReadings(zone, hasCollectedProbe);
+  const { monitoring: probeMonitoring, error: monitoringError, revalidate: revalidateMonitoring } = useProbeMonitoring(zone, chart.initial);
   const usesProbes = probeMonitoring?.has_collected_probes ?? false;
   const [statusNow, setStatusNow] = useState(Date.now);
   const lastProbeReading = probeMonitoring?.last_reading_at;
@@ -1108,6 +1101,7 @@ function TemperatureControlPanel({
   }
 
   return (
+    <>
     <section className="zone-temperature-panel">
       <div className="zone-temperature-heading">
         <div>
@@ -1132,7 +1126,19 @@ function TemperatureControlPanel({
       </div>
 
       <div className="temperature-instrument">
-      {scale ? (
+      {hasCollectedProbe ? (
+        <div className="zone-thermal-overview">
+          <ZoneThermalTrend initial={chart.initial} zone={zone} t={t} />
+          <dl className="temperature-recent-facts">
+            {recentTemperature !== null ? (
+              <div><dt>{t('temperatureRecentMean')}</dt><dd>{formatTemperature(recentTemperature)}</dd></div>
+            ) : null}
+            {targetTemperature !== null ? (
+              <div><dt>{t('targetTemperature')}</dt><dd>{formatTemperature(targetTemperature)}</dd></div>
+            ) : null}
+          </dl>
+        </div>
+      ) : scale ? (
         <div className="temperature-ruler" role="img" aria-label={temperatureSummary}>
           <div className="temperature-ruler-ticks" aria-hidden="true">
             {scale.ticks.map((tick) => (
@@ -1206,7 +1212,7 @@ function TemperatureControlPanel({
       ) : null}
       </div>
 
-      {hasCollectedProbe ? (
+      {usesProbes && probeMonitoring || monitoringError ? (
         <div className="zone-probe-status">
           {usesProbes && probeMonitoring ? (
             <div className="zone-probe-reading">
@@ -1241,20 +1247,7 @@ function TemperatureControlPanel({
               <button className="secondary-button" type="button" onClick={revalidateMonitoring}>{t('probeRetry')}</button>
             </div>
           ) : null}
-          <button ref={probeReadingsActionRef} className="secondary-button zone-probe-readings-action" type="button" onClick={() => {
-            restoreProbeFocus.current = true;
-            setIsProbeReadingsOpen(true);
-          }}>
-            {t('probeReadingsAction')}
-          </button>
         </div>
-      ) : null}
-
-      {isProbeReadingsOpen ? (
-        <ProbeReadingsModal zone={zone} onClose={() => {
-          setIsProbeReadingsOpen(false);
-          revalidateMonitoring();
-        }} t={t} />
       ) : null}
 
       {isEditingTemperature ? (
@@ -1272,6 +1265,8 @@ function TemperatureControlPanel({
         />
       ) : null}
     </section>
+    {hasCollectedProbe ? <ZoneProbeChart chart={chart} zone={zone} t={t} /> : null}
+    </>
   );
 }
 

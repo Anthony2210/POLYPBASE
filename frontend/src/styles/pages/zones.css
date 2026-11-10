@@ -1645,8 +1645,157 @@
   font-size: 0.8rem;
 }
 
-.zone-probe-readings-action {
-  display: inline-flex;
+.zone-thermal-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  margin-bottom: var(--space-3);
+  gap: var(--space-4);
+}
+
+.zone-thermal-trend {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-2);
+}
+
+.zone-thermal-changes {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0;
+  gap: var(--space-1) var(--space-4);
+  color: var(--color-ink-soft);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.zone-thermal-changes small {
+  color: var(--color-muted);
+  font-size: 0.74rem;
+}
+
+.temperature-recent-facts {
+  display: grid;
+  min-width: 132px;
+  margin: 0;
+  gap: var(--space-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.temperature-recent-facts div {
+  display: grid;
+  gap: 2px;
+}
+
+.temperature-recent-facts dt {
+  color: var(--color-muted);
+  font-size: 0.74rem;
+}
+
+.temperature-recent-facts dd {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.zone-probe-chart-section {
+  position: relative;
+  overflow: hidden;
+}
+
+.zone-probe-chart-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+
+.zone-probe-chart-heading h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.zone-probe-chart-range {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
+}
+
+.zone-probe-range-button {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  padding: 0 var(--space-2);
+  gap: var(--space-2);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+}
+
+.zone-probe-range-button svg {
+  color: var(--color-muted);
+}
+
+.zone-probe-range-button:hover {
+  border-color: var(--color-line);
+}
+
+.zone-probe-range-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-2) var(--space-3);
+}
+
+.zone-probe-range-form label {
+  display: grid;
+  gap: var(--space-1);
+  color: var(--color-muted);
+  font-size: 0.74rem;
+}
+
+.zone-probe-range-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.zone-probe-range-form .inline-error {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.zone-probe-chart-note {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.74rem;
+}
+
+@media (max-width: 759px), (max-width: 900px) and (orientation: portrait) {
+  .zone-thermal-overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .temperature-recent-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+  }
+
+  /* Focused chart controls must stop above the fixed phone navigation. */
+  .zone-probe-range-button,
+  .zone-probe-range-form :is(input, button),
+  .zone-probe-chart-range button,
+  .probe-series-legend button,
+  .probe-series-status button,
+  .probe-series-svg {
+    scroll-margin-bottom: var(--phone-nav-clearance, 0px);
+  }
 }

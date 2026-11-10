@@ -64,6 +64,7 @@ function panel(monitoring, canRecord = true, language = 'fr') {
     '../utils/dateFormat': { formatDisplayDate: (value) => value, formatDisplayDateTime: (value) => value, getDocumentLocale: () => language === 'fr' ? 'fr-FR' : 'en-GB' },
     '../utils/temperatureScale': { buildTemperatureScale: () => null },
     './PolypbaseIcon': { default: noop },
+    './ZoneProbeCharts': { ZoneProbeChart: noop, ZoneThermalTrend: noop, useZoneChartReadings: () => ({ initial: { settled: true, data: null } }) },
   }, {
     Date: class extends Date { static now() { return clock; } },
     setInterval(fn, delay) { assert.equal(delay, 60000); timers.set(1, fn); return 1; },
@@ -105,8 +106,6 @@ test('silent status is compact, factual and translated without a provenance labe
   assert.match(view.text(), /Aucune mesure reçue depuis 9 h. Vous pouvez saisir la température à la main en attendant./);
   assert.doesNotMatch(view.text(), /6 h|Moyenne du jour|·/);
   assert.equal(view.find((node) => node.props.className === 'zone-probe-stale').length, 0);
-  const button = view.find((node) => node.props.className === 'secondary-button zone-probe-readings-action')[0];
-  assert.equal(typeof button.props.children, 'string');
   assert.equal(view.find((node) => node.type === 'time')[0].props.dateTime, monitoring().last_reading_at);
   assert.match(panel(monitoring(), true, 'en').text(), /\(9 h ago\).*Silent probes.*No reading received for 9 h/);
 });
@@ -122,7 +121,7 @@ test('server status and user permission remain authoritative, including missing 
   assert.doesNotMatch(absent.text(), /depuis|il y a|6 h/);
   const inactive = panel({ ...monitoring(), has_collected_probes: false });
   assert.equal(inactive.find((node) => node.props.className === 'zone-probe-silent-badge').length, 0);
-  assert.equal(inactive.find((node) => node.props.className === 'secondary-button zone-probe-readings-action').length, 1);
+  assert.equal(inactive.find((node) => node.props.className === 'secondary-button zone-probe-readings-action').length, 0);
 });
 
 test('elapsed labels update by timer and on foregrounding, then clean up without granting permission', () => {

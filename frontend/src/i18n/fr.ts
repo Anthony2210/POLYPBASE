@@ -1290,6 +1290,19 @@ export const fr = {
   probeMeasurementCount: 'Nombre de mesures',
   probeRawReading: 'Mesure instantanée',
   probeCoveragePreview: 'Aperçu partiel : les statistiques ne couvrent pas toute la sélection.',
+  temperatureTrendTitle: 'Évolution sur {hours} h',
+  probeIntervalMean: 'Moy.',
+  probeCombinedChartKeyboard: 'Flèches gauche et droite : parcourir les mesures. Plus et moins : zoomer. Glisser : sélectionner une période. Double-clic : revenir aux dernières 24 h.',
+  probeRangeEdit: 'Modifier la période : {range}',
+  probeRangeStart: 'Du',
+  probeRangeEnd: 'Au',
+  probeRangeApply: 'Afficher',
+  probeRangeReset: 'Dernières 24 h',
+  probeRangeInvalid: 'Choisissez une période de 30 minutes à 366 jours, sans date future.',
+  probeCondensedNotice: 'Moyennes par tranche de {minutes} min, avec minimum et maximum.',
+  probeLegendProbe: 'Sonde',
+  probeLatestInterval: 'Dernière tranche (moyenne)',
+  probeSeriesToggle: 'Afficher ou masquer {probe}',
 } as const;
 
 export type TranslationKey = keyof typeof fr;

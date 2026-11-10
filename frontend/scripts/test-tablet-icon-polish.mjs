@@ -87,7 +87,7 @@ function detailTree(isDesktop, zone, onBack) {
   return { tree: exports.ZoneDetailPage({ boxes: [], zone, isLoading: false, onBack, t: key => `translated:${key}` }), DetailBackButton };
 }
 
-for (const zone of [null, { id: 1, name: 'Zone', organization: { name: 'Lab' } }]) {
+for (const zone of [null, { id: 1, name: 'Zone', organization: { name: 'Lab' }, probes: [] }]) {
   for (const desktop of [false, true]) {
     test(`zone detail ${zone ? 'loaded' : 'missing'} keeps ${desktop ? 'desktop text' : 'tablet arrow'} navigation accessible`, () => {
       let calls = 0;

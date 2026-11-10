@@ -1,24 +1,8 @@
-import type { ProbeReadingPoint, ProbeReadingSource } from '../types';
-
-export type ProbePeriodId = '24h' | '7d' | '30d' | '90d';
-
-export const PROBE_PERIODS: Array<{ id: ProbePeriodId; hours: number }> = [
-  { id: '24h', hours: 24 },
-  { id: '7d', hours: 24 * 7 },
-  { id: '30d', hours: 24 * 30 },
-  { id: '90d', hours: 24 * 90 },
-];
-
 export type ProbeWindow = { start: number; end: number };
 
 /** Narrowest zoom, in milliseconds: below this a per-minute curve stops being readable. */
 export const MIN_PROBE_WINDOW_MS = 30 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
-
-export function probePeriodWindow(period: ProbePeriodId, now: number): ProbeWindow {
-  const hours = PROBE_PERIODS.find((entry) => entry.id === period)?.hours ?? 24;
-  return { start: now - hours * HOUR_MS, end: now };
-}
 
 /** Keep a zoom selection ordered, inside [extentStart, now] and at least the minimum width. */
 export function clampProbeWindow(start: number, end: number, now: number): ProbeWindow {
@@ -28,17 +12,6 @@ export function clampProbeWindow(start: number, end: number, now: number): Probe
   const center = (first + last) / 2;
   const boundedEnd = Math.min(now, center + duration / 2);
   return { start: Math.round(boundedEnd - duration), end: Math.round(boundedEnd) };
-}
-
-/** Move a window by its own width, never past now. */
-export function shiftProbeWindow(window: ProbeWindow, direction: -1 | 1, now: number): ProbeWindow {
-  const width = window.end - window.start;
-  const end = Math.min(now, window.end + direction * width);
-  return { start: end - width, end };
-}
-
-export function canShiftProbeWindowForward(window: ProbeWindow, now: number) {
-  return window.end < now - 60 * 1000;
 }
 
 /**
@@ -95,72 +68,6 @@ export function probeTemperatureDomain(
   }
   const padding = (maximum - minimum) * 0.08;
   return [minimum - padding, maximum + padding];
-}
-
-/** Summary of one series in the current window, for screen readers and the legend. */
-export function summarizeProbePoints(points: ReadonlyArray<readonly [number, number, number | null, number | null]>) {
-  if (!points.length) return null;
-  let minimum = Number.POSITIVE_INFINITY;
-  let maximum = Number.NEGATIVE_INFINITY;
-  for (const [, average, low, high] of points) {
-    minimum = Math.min(minimum, low ?? average);
-    maximum = Math.max(maximum, high ?? average);
-  }
-  return { minimum, maximum, latest: points[points.length - 1] };
-}
-
-export type ProbeCoveragePoint = {
-  point: ProbeReadingPoint;
-  sources: ProbeReadingSource[];
-  aggregate: boolean;
-  partial: boolean;
-  count: number;
-  lastMeasured: number;
-  anchors: number[];
-};
-
-/** Keep source bounds intact; only inspection anchors are clipped to the viewport. */
-export function probeCoveragePoints(
-  points: ProbeReadingPoint[], sources: ProbeReadingSource[][], window: ProbeWindow,
-): ProbeCoveragePoint[] {
-  return points.flatMap((point, index) => {
-    const contributing = sources[index] ?? [];
-    const visible = contributing.filter(([start, end]) => end === null
-      ? start >= window.start && start < window.end
-      : start < window.end && end > window.start);
-    if (!visible.length) return [];
-    return [{
-      point, sources: contributing,
-      aggregate: contributing.length !== 1 || contributing[0][1] !== null,
-      partial: contributing.some(([start, end]) => end !== null && (start < window.start || end > window.end)),
-      count: contributing.reduce((total, source) => total + source[3], 0),
-      lastMeasured: Math.max(...contributing.map((source) => source[6])),
-      anchors: visible.map(([start]) => Math.max(window.start, start)),
-    }];
-  });
-}
-
-/** Unknown gaps are never treated as coverage, including gaps within a group. */
-export function probeCoverageAt(entries: ProbeCoveragePoint[], time: number) {
-  return entries.find((entry) => entry.sources.some(([start, end]) => end === null
-    ? Math.abs(start - time) < 1 : time >= start && time < end)) ?? null;
-}
-
-export function summarizeProbeCoverage(entries: ProbeCoveragePoint[]) {
-  if (!entries.length) return null;
-  const latest = entries.reduce((a, b) => a.lastMeasured >= b.lastMeasured ? a : b);
-  return {
-    minimum: Math.min(...entries.flatMap((entry) => entry.sources.map((source) => source[4]))),
-    maximum: Math.max(...entries.flatMap((entry) => entry.sources.map((source) => source[5]))),
-    latest: latest.point,
-    latestAggregate: latest.aggregate,
-    partial: entries.some((entry) => entry.partial),
-  };
-}
-
-/** A response must never be plotted against another request's time axis. */
-export function probeRequestKey(zoneId: number, window: ProbeWindow, reloadKey: number) {
-  return `${zoneId}:${window.start}:${window.end}:${reloadKey}`;
 }
 
 /** Revalidate just after the server's freshness boundary, without granting access locally. */

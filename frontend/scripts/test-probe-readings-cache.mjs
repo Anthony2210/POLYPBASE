@@ -472,7 +472,7 @@ function hookHarness() {
         let resolve, reject;
         const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
         const url = new URL(path, 'https://qa.invalid');
-        calls.push({ path: url.pathname, options, resolve, reject,
+        calls.push({ path: url.pathname, options, resolve, reject, groupSources: url.searchParams.get('group_sources'),
           window: { start: Date.parse(url.searchParams.get('start')), end: Date.parse(url.searchParams.get('end')) } });
         return promise;
       },
@@ -509,6 +509,7 @@ test('actual hook wires no-store, window query, retry and StrictMode effect repl
   assert.equal(h.calls[0].path, '/api/thermal-zones/7/probe-readings/');
   assert.equal(h.calls[0].options.cache, 'no-store');
   assert.deepEqual(h.calls[0].window, window);
+  assert.equal(h.calls[0].groupSources, '1', 'Long periods must not transfer every raw reading');
   h.replay();
   assert.equal(h.calls[0].options.signal.aborted, true);
   assert.equal(h.calls.length, 2);
@@ -663,4 +664,22 @@ test('reselecting the same expired window revalidates while preserving curves an
   await h.answer(1, { value: 9 });
   assertView(h.loader.read(window), window, { value: 9 });
   h.loader.dispose();
+});
+
+test('actual hook requests nothing for a null window and starts when it receives one', async () => {
+  const h = hookHarness();
+  const idle = h.render(7, null);
+  h.commit();
+  assert.equal(idle.data, null);
+  assert.equal(idle.isLoading, false);
+  assert.equal(h.calls.length, 0);
+  idle.revalidate();
+  assert.equal(h.calls.length, 0);
+  const window = range();
+  h.render(7, window);
+  h.commit();
+  assert.equal(h.calls.length, 1);
+  await h.answer(0);
+  assertView(h.render(7, window), window);
+  h.dispose();
 });

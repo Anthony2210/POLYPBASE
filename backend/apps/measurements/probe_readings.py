@@ -5,10 +5,8 @@ from datetime import datetime, timedelta, timezone as datetime_timezone
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.conf import settings
-from django.db import transaction
 from django.db.models import (
-    DateTimeField, DurationField, ExpressionWrapper, F, IntegerField, Max, Min, OuterRef,
-    Subquery, Value,
+    DateTimeField, DurationField, ExpressionWrapper, F, IntegerField, OuterRef, Subquery, Value,
 )
 from django.db.models.functions import Cast
 from django.utils import timezone
@@ -16,7 +14,7 @@ from django.utils import timezone
 from apps.cultures.models import ThermalZone
 
 from .models import ProbeTemperatureBucket, TemperatureMeasurement
-from .probe_collection import collected_probes, lock_probe_zone
+from .probe_collection import collected_probes
 
 RAW_MAX_SPAN = timedelta(days=2)
 QUARTER_HOUR_MAX_SPAN = timedelta(days=31)
@@ -117,28 +115,80 @@ def probe_series(probe, start, end, resolution_minutes):
     return probe_series_with_sources(probe, start, end, resolution_minutes)[0]
 
 
-@transaction.atomic
-def probe_series_with_sources(probe, start, end, resolution_minutes):
+def _zone_series_rows(probe_ids, start, end):
+    """Read both storage tiers in one statement, without any row lock.
+
+    Condensation moves readings between tiers inside one transaction. A single
+    statement sees one snapshot, so each reading comes from exactly one tier
+    and reads neither wait for collection or manual entry nor delay them.
+    """
+    if not probe_ids:
+        return []
+    buckets = overlapping_probe_buckets(start, end).filter(
+        probe_id__in=probe_ids,
+    ).order_by().annotate(
+        is_bucket=Value(1, output_field=IntegerField()),
+    ).values_list(
+        "probe_id", "is_bucket", "period_start", "min_temperature_c", "temperature_sum_c",
+        "max_temperature_c", "measurement_count", "period_minutes", "last_measured_at",
+    )
+    minutes = TemperatureMeasurement.objects.filter(
+        probe_id__in=probe_ids, measured_at__gte=start, measured_at__lt=end,
+    ).order_by().annotate(
+        is_bucket=Value(0, output_field=IntegerField()),
+        instant=F("measured_at"), low=F("temperature_c"), total=F("temperature_c"),
+        high=F("temperature_c"), samples=Value(1, output_field=IntegerField()),
+        stored_minutes=Value(0, output_field=IntegerField()), last_at=F("measured_at"),
+    ).values_list(
+        "probe_id", "is_bucket", "instant", "low", "total", "high", "samples", "stored_minutes", "last_at",
+    )
+    return list(buckets.union(minutes, all=True))
+
+
+def _split_tiers(rows):
+    tiers = defaultdict(lambda: ([], []))
+    for probe_id, is_bucket, instant, low, total, high, count, stored_minutes, last_at in rows:
+        minutes, buckets = tiers[probe_id]
+        if is_bucket:
+            buckets.append((instant, low, total, high, count, stored_minutes, last_at))
+        else:
+            minutes.append((instant, total))
+    return tiers
+
+
+def zone_probe_series(probes, start, end, *, group_sources=False):
+    """Return one common resolution and each probe's series from a single snapshot."""
+    tiers = _split_tiers(_zone_series_rows([probe.pk for probe in probes], start, end))
+    resolution = max(
+        [series_resolution_minutes(start, end)]
+        + [bucket[5] for _minutes, buckets in tiers.values() for bucket in buckets]
+    )
+    return resolution, {
+        probe.pk: _build_series(*tiers[probe.pk], start, end, resolution, group_sources)
+        for probe in probes
+    }
+
+
+def probe_series_with_sources(probe, start, end, resolution_minutes, *, group_sources=False):
     """Return legacy points and parallel lists of their exact storage sources.
 
     Sources are [start_ms, end_ms_or_none, sum_string, count, min, max, last_ms].
     Raw instants lie in [start, end); buckets intersect it by their full stored
     interval. Bucket statistics are never prorated or assigned sample instants.
+    With ``group_sources``, each coarser group has one source with the same
+    exact statistics, so a long period does not transfer every raw reading.
     """
-    lock_probe_zone(probe)
-    minutes = TemperatureMeasurement.objects.filter(
-        probe=probe, measured_at__gte=start, measured_at__lt=end
-    ).order_by("measured_at").values_list("measured_at", "temperature_c")
-    buckets = overlapping_probe_buckets(start, end).filter(
-        probe=probe,
-    ).order_by("period_start").values_list(
-        "period_start", "min_temperature_c", "temperature_sum_c", "max_temperature_c",
-        "measurement_count", "period_minutes", "last_measured_at",
-    )
+    zone = ThermalZone.objects.get(pk=probe.thermal_zone_id, organization_id=probe.organization_id)
+    collected_probes().get(pk=probe.pk, thermal_zone=zone, organization_id=zone.organization_id)
+    minutes, buckets = _split_tiers(_zone_series_rows([probe.pk], start, end))[probe.pk]
+    return _build_series(minutes, buckets, start, end, resolution_minutes, group_sources)
 
+
+def _build_series(minutes, buckets, start, end, resolution_minutes, group_sources):
+    minutes = sorted(minutes, key=lambda row: row[0])
+    buckets = sorted(buckets, key=lambda row: row[0])
     # Direct callers also respect the effective storage resolution. API callers
-    # select one common resolution for every probe while holding the zone lock.
-    buckets = list(buckets)
+    # already pass the common resolution computed from the same snapshot.
     if buckets:
         resolution_minutes = max(resolution_minutes, max(row[5] for row in buckets))
     if resolution_minutes == 1 and not buckets:
@@ -187,23 +237,22 @@ def probe_series_with_sources(probe, start, end, resolution_minutes):
                 _number(group["min"]),
                 _number(group["max"]),
             ])
-            point_sources.append(sorted(group["sources"], key=lambda source: source[0]))
+            point_sources.append(
+                [_merged_group_source(period_start, resolution_minutes, group, start, end)]
+                if group_sources else sorted(group["sources"], key=lambda source: source[0])
+            )
     return points, point_sources
 
 
-@transaction.atomic
-def zone_reading_extent(zone):
-    """Return the first and last instants in this organization's zone."""
-    ThermalZone.objects.select_for_update().get(pk=zone.pk, organization_id=zone.organization_id)
-    probe_ids = collected_probes().filter(
-        thermal_zone=zone, organization_id=zone.organization_id,
-    ).values_list("pk", flat=True)
-    first_minute = TemperatureMeasurement.objects.filter(probe_id__in=probe_ids).aggregate(
-        first=Min("measured_at"), last=Max("measured_at")
-    )
-    first_bucket = ProbeTemperatureBucket.objects.filter(probe_id__in=probe_ids).aggregate(
-        first=Min("period_start"), last=Max("last_measured_at")
-    )
-    firsts = [value for value in (first_minute["first"], first_bucket["first"]) if value]
-    lasts = [value for value in (first_minute["last"], first_bucket["last"]) if value]
-    return (min(firsts) if firsts else None, max(lasts) if lasts else None)
+def _merged_group_source(period_start, resolution_minutes, group, start, end):
+    """Summarize one group: raw readings stay within the request, buckets stay whole."""
+    period_end = period_start + timedelta(minutes=resolution_minutes)
+    raw_start = int(max(period_start, start).timestamp() * 1000)
+    raw_end = int(min(period_end, end).timestamp() * 1000)
+    sources = group["sources"]
+    return [
+        min(raw_start if source[1] is None else source[0] for source in sources),
+        max(raw_end if source[1] is None else source[1] for source in sources),
+        str(group["total"]), group["count"], _number(group["min"]), _number(group["max"]),
+        max(source[6] for source in sources),
+    ]

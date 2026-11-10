@@ -40,7 +40,7 @@ function createView(latestSalinity, canRecordManualSalinity = true, operations =
     '../hooks/useProbeMonitoring': { default: () => ({ monitoring: null, error: null, revalidate() {} }) },
     // ZoneFunctionalSections does not render the thermal panel; fail if it ever runs here.
     '../hooks/useThermalControl': { default: () => assert.fail('Salinity sections must not run thermal control') },
-    './ProbeReadingsModal': { default: () => null },
+    './ZoneProbeCharts': { ZoneProbeChart: () => null, ZoneThermalTrend: () => null, useZoneChartReadings: () => ({ initial: { settled: true, data: null } }) },
     './BoxTrackingPreview': { default: () => null },
     './DetailBackButton': { default: () => null },
     './ModalPortal': { default: () => null },

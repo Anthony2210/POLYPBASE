@@ -20,6 +20,14 @@ export const usageExceptions = Object.freeze({
     'historyBlocked', 'historyEvidence', 'historyEvidenceUnresolved', 'historyProposedWeek', 'historyReviewRequired',
   ].map(key => [key, 'Tracking cleanup (2026-11-06): explicitly removed from the movement UI; retain the historical catalogs and Japanese review provenance rather than expanding this frontend patch into an i18n deletion batch.'])),
 
+  ...Object.fromEntries([
+    'probeAggregateAverage', 'probeAggregateCoverage', 'probeChartKeyboardDescription', 'probeMeasurementCount',
+    'probeNoCollectedProbe', 'probePeriod', 'probePeriod_24h', 'probePeriod_30d', 'probePeriod_7d', 'probePeriod_90d',
+    'probeRawReading', 'probeReadingsAction', 'probeResetZoom', 'probeWindowNext', 'probeWindowPrevious',
+  ].map(key => [key, 'Zone thermal charts (2026-11-09): the probe modal, period pills and navigation arrows were replaced by one on-page chart; retain the catalogs and Japanese provenance pending an explicit i18n removal batch.'])),
+
+  historyPartial: 'Historical movements (5b1299b): BoxHistoryStatus now reports loading and errors only; retain the undated-source notice and Japanese review provenance pending an explicit i18n removal batch.',
+
   temperatureAverage: 'B13 thermal-control relabel (cbc513f) superseded it with temperatureRecentMean/temperatureDailyMean; retained with Takeru-validated JA (manifest REUSED) pending an explicit i18n removal decision.',
   temperatureGap: 'B13 thermal-control relabel (cbc513f) superseded it with temperatureDailyGap; retained with Takeru-validated JA (manifest REUSED) pending an explicit i18n removal decision.',
   temperatureMeasurement: 'B13 thermal-control relabel (cbc513f) superseded it with temperatureRecentMean; retained with Takeru-validated JA (manifest REUSED) pending an explicit i18n removal decision.',

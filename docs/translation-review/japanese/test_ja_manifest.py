@@ -13,6 +13,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parent
 HISTORICAL_MOVEMENT_KEYS = json.loads((HERE / "historical-movement-keys.json").read_text(encoding="utf-8"))
+# Registered FR/EN additions (B25) with no Japanese, outside the frozen baselines.
+ZONE_CHART_KEYS = json.loads((HERE / "zone-chart-keys.json").read_text(encoding="utf-8"))
+# B20/B21 are distinct from the 44 older historical movement additions.
+POTENTIAL_MOVEMENT_KEYS = (
+    "historyPotentialMovement", "historyPotentialAfterRecord", "historyPotentialUnordered",
+    "historyHistoricalMovement", "historyBetweenRecords", "historyBetweenRecordsAcrossYears",
+    "historyEnvironmentOnly", "historyTransitionReview", "zoneMovementHistoricalEntry",
+    "zoneMovementHistoricalExit", "zoneMovementInterval", "zoneMovementIntervalAcrossYears",
+    "zoneMovementHistoricalTotals",
+)
 sys.path.insert(0, str(ROOT / "docs/translation-review/application"))
 sys.path.insert(0, str(ROOT / "scripts"))
 import check_i18n  # noqa: E402
@@ -32,6 +42,29 @@ B23_ADDED_KEYS = frozenset({
 B24_ADDED_KEYS = frozenset({
     "historyReactivation", "historyLocationExit", "historyLocationEntry",
 })
+
+
+def b25_events(register):
+    """Freeze the ID/batch-only projection of incoming b8237be thermal events."""
+    events = [row for row in register if row["batch"] == "B25-2026-11-10"]
+    assert events == register[1060:1086], "B25: events moved or gained a member"
+    assert [row["entry_id"] for row in events] == [f"T{i}" for i in range(1061, 1087)], "B25: identities changed"
+    assert all(list(row) == check_register.COLUMNS for row in events), "B25: schema changed"
+    assert rows_digest(events) == "0d5243d50bebfc735a5627c768e4973d426b97843038b0e71ca80c98ab92e241", "B25: history was modified"
+    assert [(row["key_or_msgid"], row["language"]) for row in events] == [
+        (key, language) for key in ZONE_CHART_KEYS for language in ("FR", "EN")
+    ], "B25: thermal keys changed"
+    return events
+
+
+def before_b25(source, register, language):
+    """Remove only exact registered thermal additions, retaining unknown changes."""
+    for row in b25_events(register):
+        if row["language"] == language:
+            line = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
+            assert source.count(line) == 1, row["key_or_msgid"]
+            source = source.replace(line, "")
+    return source
 
 
 def rows(name):
@@ -262,7 +295,7 @@ class JapaneseManifestTests(unittest.TestCase):
         # Historical counts are frozen; only registered post-baseline keys are added.
         self.assertEqual(Counter((r["surface"], r["status"]) for r in self.manifest), Counter({
             ("react", "REUSED"): 930, ("react", "AI_REVIEWED"): 59,
-            ("react", "FALLBACK_EN"): 238, ("react", "FALLBACK_EN_REVIEW"): 36,
+            ("react", "FALLBACK_EN"): 251, ("react", "FALLBACK_EN_REVIEW"): 36,
             ("django", "REUSED"): 81, ("django", "FALLBACK_EN"): 11, ("django", "FALLBACK_EN_REVIEW"): 6,
             ("local", "REUSED"): 67, ("local", "FALLBACK_EN_REVIEW"): 1, ("inline", "FALLBACK_EN_INLINE"): 14,
         }))
@@ -294,6 +327,84 @@ class JapaneseManifestTests(unittest.TestCase):
                 for column in ("sheet_row", "sheet_section", "sheet_fr", "sheet_en", "ja_validated", "ja_ai_reviewed"):
                     self.assertEqual(row[column], "")
                 self.assertNotIn(key, self.ja_ts)
+
+    def test_recent_movement_and_thermal_additions_are_exact_separate_fallbacks(self):
+        register = check_register.load_register()
+        en = check_register.read_catalog(ROOT / "frontend/src/i18n/en.ts")
+        self.assertEqual(len(ZONE_CHART_KEYS), 13)
+        self.assertEqual(len(set(ZONE_CHART_KEYS)), 13)
+        self.assertTrue(set(POTENTIAL_MOVEMENT_KEYS).isdisjoint(ZONE_CHART_KEYS))
+        historical = post_baseline_react_keys(register)
+        self.assertEqual(len(historical), 81)
+        for batches, keys, start in (
+            ({"B20-2026-11-09", "B21-2026-11-09"}, POTENTIAL_MOVEMENT_KEYS, 1011),
+            ({"B25-2026-11-10"}, ZONE_CHART_KEYS, 1061),
+        ):
+            self.assertTrue(set(keys).isdisjoint(historical))
+            events = [r for r in register if r["batch"] in batches]
+            self.assertEqual([r["entry_id"] for r in events], [f"T{n}" for n in range(start, start + 26)])
+            self.assertEqual([(r["key_or_msgid"], r["language"]) for r in events],
+                             [(key, lang) for key in keys for lang in ("FR", "EN")])
+            for event in events:
+                self.assertEqual((event["surface"], event["status"], event["initial_value"]),
+                                 ("react", "ALREADY_MATCHING", event["final_value"]))
+                if event["key_or_msgid"] in B23_RETIRED_KEYS:
+                    self.assertNotIn(event["key_or_msgid"], self.fr)
+                    self.assertNotIn(event["key_or_msgid"], en)
+                    continue
+                # B22 appends corrections to three movement labels, not to thermal keys.
+                latest = next(r for r in reversed(register)
+                              if check_register.identity(r) == check_register.identity(event))
+                self.assertEqual(latest["final_value"], (self.fr if event["language"] == "FR" else en)[event["key_or_msgid"]])
+            added = [r for r in self.by("react") if r["identity"] in keys]
+            self.assertEqual([r["identity"] for r in added], [key for key in keys if key not in B23_RETIRED_KEYS])
+            for row in added:
+                key = row["identity"]
+                self.assertEqual((row["current_fr"], row["current_en"]), (self.fr[key], en[key]))
+                self.assertEqual((row["status"], row["reason_code"], row["takeru_review"]),
+                                 ("FALLBACK_EN", "ABSENT_FROM_WORKBOOK", "no"))
+                for column in ("sheet_row", "sheet_section", "sheet_fr", "sheet_en", "ja_validated", "ja_ai_reviewed"):
+                    self.assertEqual(row[column], "", f"{key}.{column}")
+                self.assertNotIn(key, self.ja_ts)
+
+    def test_b25_reconstruction_rejects_rewritten_history_and_source_lines(self):
+        original = check_register.load_register()
+        events = b25_events(original)
+        for language in ("FR", "EN"):
+            source = (ROOT / check_register.REACT_CATALOGS[language]).read_text(encoding="utf-8")
+            before_b25(source, original, language)
+            for event in events:
+                with self.subTest(entry=event["entry_id"], language=language):
+                    with self.assertRaises(AssertionError):
+                        before_b25(source, [row for row in original if row is not event], language)
+                    for field in check_register.COLUMNS:
+                        changed = [dict(row) for row in original]
+                        changed[original.index(event)][field] += " changed"
+                        with self.assertRaises(AssertionError):
+                            before_b25(source, changed, language)
+                    if event["language"] != language:
+                        continue
+                    line = f"  {event['key_or_msgid']}: '{event['final_value']}',\n"
+                    for replacement in ("", line + line, line.replace(": '", ": 'changed ")):
+                        with self.assertRaises(AssertionError):
+                            before_b25(source.replace(line, replacement), original, language)
+        variants = [original + [dict(events[0], entry_id="T1087")]]
+        reordered = original[:]
+        reordered[1060], reordered[1061] = reordered[1061], reordered[1060]
+        variants.append(reordered)
+        for field in ("unknown_column", "sheet_value"):
+            changed = [dict(row) for row in original]
+            if field == "unknown_column":
+                changed[1060][field] = "unapproved"
+            else:
+                changed[1060].pop(field)
+            variants.append(changed)
+        for changed in variants:
+            with self.assertRaises(AssertionError):
+                b25_events(changed)
+        correction = dict(events[0], entry_id="T1087", batch="B26-2026-11-10", status="APPLIED",
+                          initial_value=events[0]["final_value"], final_value="Later correction")
+        self.assertEqual(b25_events(original + [correction]), events)
 
     def test_catalogs_equal_their_authorized_provenance_rows(self):
         self.assertEqual(self.ja_ts, {r["identity"]: r["ja_validated"] if r["status"] == "REUSED" else r["ja_ai_reviewed"]

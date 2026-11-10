@@ -16,8 +16,9 @@ from unittest import skipUnless
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.db import close_old_connections, connection, connections
+from django.db import close_old_connections, connection, connections, transaction
 from django.test import TransactionTestCase
+from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from apps.accounts.models import OrganizationMembership
@@ -25,7 +26,7 @@ from apps.cultures.api_views import ThermalZoneManualTemperatureAPIView
 
 from .iminilide import Reading
 from .models import DailyTemperature, ProbeTemperatureBucket, TemperatureMeasurement
-from .probe_collection import condense_probe_readings, recompute_daily_temperature, store_readings
+from .probe_collection import condense_probe_readings, lock_probe_zone, recompute_daily_temperature, store_readings
 from .probe_views import ThermalZoneProbeReadingsAPIView
 from .test_probe_collection import NOW, ProbeFixtureMixin, paris
 
@@ -142,11 +143,13 @@ class ProbeConcurrencyTests(ProbeFixtureMixin, TransactionTestCase):
         self.assertEqual(daily.average_temperature_c, Decimal(average))
         return daily
 
-    def _read_api(self):
+    def _read_api(self, *, start=None, grouped=False):
+        start = start or self.start
+        params = {"start": start.isoformat(), "end": (start + timedelta(hours=1)).isoformat()}
+        if grouped:
+            params["group_sources"] = "1"
         request = APIRequestFactory().get(
-            "/qa/probe-readings/",
-            {"start": self.start.isoformat(), "end": (self.start + timedelta(hours=1)).isoformat()},
-            HTTP_X_ORGANIZATION_ID=str(self.organization.pk),
+            "/qa/probe-readings/", params, HTTP_X_ORGANIZATION_ID=str(self.organization.pk),
         )
         force_authenticate(request, user=self.user)
         response = ThermalZoneProbeReadingsAPIView.as_view()(request, pk=self.zone.pk)
@@ -182,17 +185,186 @@ class ProbeConcurrencyTests(ProbeFixtureMixin, TransactionTestCase):
         self._assert_daily()
         self.assertEqual(ProbeTemperatureBucket.objects.get().temperature_sum_c, Decimal("50.00"))
 
-    def test_api_read_blocks_condensation_between_storage_tier_queries(self):
-        self._seed_old_minutes()
-        data, _condensed = self._race(self._read_api, self._condense,
-            lambda sql: sql.startswith("SELECT") and "FROM MEASUREMENTS_TEMPERATUREMEASUREMENT" in sql)
-        self._assert_series(data)
+    def _hold(self, action, hold_sql):
+        """Run action on its own connection, stopped at one SQL boundary."""
+        entered, release = threading.Event(), threading.Event()
+        pool = ThreadPoolExecutor(max_workers=1)
+        future = pool.submit(self._worker, action, Queue(), entered=entered, release=release, hold_sql=hold_sql)
+        self.addCleanup(pool.shutdown)
+        self.addCleanup(release.set)
+        self.assertTrue(entered.wait(8), "The holding connection did not reach its SQL boundary.")
+        return future, release
 
-    def test_condensation_blocks_api_read_until_both_storage_tiers_are_consistent(self):
+    def _read_without_waiting(self):
+        """A read that needed a held row lock fails here instead of succeeding late."""
+        with connection.cursor() as cursor:
+            cursor.execute("SET lock_timeout = '1500ms'")
+        return self._read_api()
+
+    def _read_without_waiting_grouped(self):
+        with connection.cursor() as cursor:
+            cursor.execute("SET lock_timeout = '1500ms'")
+        return self._read_api(grouped=True)
+
+    def _seed_condensable(self, start=None):
+        """Observations of two probes across two buckets, inside the read window."""
+        start = start or self.start
+        planned = {
+            self.left: [(0, "0.00"), (1, "-1.50"), (14, "30.25"), (15, "21.00")],
+            self.right: [(2, "0.00"), (3, "18.75")],
+        }
+        originals = {}
+        for probe, readings in planned.items():
+            originals[probe.pk] = [
+                TemperatureMeasurement.objects.create(
+                    probe=probe, measured_at=start + timedelta(minutes=minute), temperature_c=Decimal(value),
+                ) for minute, value in readings
+            ]
+        return originals
+
+    @staticmethod
+    def _ms(moment):
+        return int(moment.timestamp() * 1000)
+
+    def _expected_buckets(self, measurements):
+        groups = {}
+        for row in measurements:
+            epoch = int(row.measured_at.timestamp())
+            groups.setdefault(epoch - epoch % 900, []).append(row)
+        expected = []
+        for epoch, rows in sorted(groups.items()):
+            values = [row.temperature_c for row in rows]
+            expected.append([
+                epoch * 1000, (epoch + 900) * 1000, f"{sum(values):.2f}", len(values),
+                float(min(values)), float(max(values)), max(self._ms(row.measured_at) for row in rows),
+            ])
+        return expected
+
+    def _tier_of_each_probe(self, data, originals, grouped=False):
+        """Each probe must show every observation once, wholly raw or wholly condensed."""
+        tiers = {}
+        for probe in data["probes"]:
+            measurements = originals[probe["id"]]
+            sources = [source for group in probe["point_sources"] for source in group]
+            expected_buckets = self._expected_buckets(measurements)
+            self.assertEqual(sum(source[3] for source in sources), len(measurements), "Observation lost or counted twice")
+            if grouped:
+                # Merged groups have the same exact statistics before and after the commit.
+                self.assertEqual(sources, expected_buckets)
+                tiers[probe["id"]] = "same"
+                continue
+            if any(source[1] is None for source in sources):
+                self.assertEqual(
+                    sorted(sources),
+                    sorted([
+                        self._ms(row.measured_at), None, f"{row.temperature_c:.2f}", 1,
+                        float(row.temperature_c), float(row.temperature_c), self._ms(row.measured_at),
+                    ] for row in measurements),
+                    "A raw snapshot must contain exactly the original observations",
+                )
+                tiers[probe["id"]] = "raw"
+            else:
+                self.assertEqual(sources, expected_buckets, "A condensed snapshot must conserve exact statistics")
+                tiers[probe["id"]] = "condensed"
+        return tiers
+
+    def _assert_stored_buckets_conserve(self, originals):
+        for probe_id, measurements in originals.items():
+            stored = [
+                [self._ms(bucket.period_start), self._ms(bucket.period_start) + bucket.period_minutes * 60000,
+                 f"{bucket.temperature_sum_c:.2f}", bucket.measurement_count, float(bucket.min_temperature_c),
+                 float(bucket.max_temperature_c), self._ms(bucket.last_measured_at)]
+                for bucket in ProbeTemperatureBucket.objects.filter(probe_id=probe_id).order_by("period_start")
+            ]
+            self.assertEqual(stored, self._expected_buckets(measurements))
+            self.assertFalse(TemperatureMeasurement.objects.filter(pk__in=[row.pk for row in measurements]).exists())
+
+    def test_read_during_condensation_neither_waits_nor_mixes_storage_tiers(self):
+        insert_bucket = lambda sql: sql.startswith("INSERT INTO MEASUREMENTS_PROBETEMPERATUREBUCKET")
+        delete_raw = lambda sql: sql.startswith("DELETE FROM MEASUREMENTS_TEMPERATUREMEASUREMENT")
+        for boundary in (insert_bucket, delete_raw):
+            with self.subTest(boundary=boundary):
+                ProbeTemperatureBucket.objects.all().delete()
+                TemperatureMeasurement.objects.all().delete()
+                originals = self._seed_condensable()
+                condensing, release = self._hold(self._condense, boundary)
+                during = self._read_without_waiting()
+                self.assertEqual(set(self._tier_of_each_probe(during, originals).values()), {"raw"},
+                                 "Uncommitted condensation must stay invisible")
+                self.assertEqual(set(self._tier_of_each_probe(self._read_without_waiting_grouped(), originals, grouped=True).values()), {"same"})
+                release.set()
+                condensing.result(timeout=10)
+                after = self._read_without_waiting()
+                self.assertEqual(set(self._tier_of_each_probe(after, originals).values()), {"condensed"})
+                self.assertEqual(set(self._tier_of_each_probe(self._read_without_waiting_grouped(), originals, grouped=True).values()), {"same"})
+                self._assert_stored_buckets_conserve(originals)
+
+    def test_read_between_two_probe_condensations_keeps_each_probe_exact(self):
+        originals = self._seed_condensable()
+        inserts = []
+
+        def second_probe_insert(sql):
+            if sql.startswith("INSERT INTO MEASUREMENTS_PROBETEMPERATUREBUCKET"):
+                inserts.append(sql)
+            return len(inserts) == 2
+
+        condensing, release = self._hold(self._condense, second_probe_insert)
+        tiers = self._tier_of_each_probe(self._read_without_waiting(), originals)
+        self.assertEqual(tiers, {self.left.pk: "condensed", self.right.pk: "raw"})
+        release.set()
+        condensing.result(timeout=10)
+        self.assertEqual(set(self._tier_of_each_probe(self._read_without_waiting(), originals).values()), {"condensed"})
+        self._assert_stored_buckets_conserve(originals)
+
+    def test_reads_racing_real_commits_never_lose_or_double_an_observation(self):
+        seen = set()
+        for round_number in range(12):
+            start = self.start + timedelta(days=round_number)
+            originals = self._seed_condensable(start)
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                condensing = pool.submit(self._worker, self._condense, Queue())
+                while True:
+                    finished = condensing.done()
+                    seen.update(self._tier_of_each_probe(self._read_api(start=start), originals).values())
+                    if finished:
+                        break
+                condensing.result(timeout=10)
+            self.assertEqual(
+                set(self._tier_of_each_probe(self._read_api(start=start), originals).values()), {"condensed"},
+            )
+        self.assertIn("condensed", seen)
+
+    def test_read_does_not_wait_for_a_writer_holding_zone_and_probe_locks(self):
         self._seed_old_minutes()
-        _condensed, data = self._race(self._condense, self._read_api,
-            lambda sql: sql.startswith("INSERT INTO MEASUREMENTS_PROBETEMPERATUREBUCKET"))
-        self._assert_series(data)
+
+        def hold_locks():
+            with transaction.atomic():
+                lock_probe_zone(self.left)
+
+        holding, release = self._hold(hold_locks,
+            lambda sql: "FOR UPDATE" in sql and "MEASUREMENTS_PROBE" in sql)
+        self._assert_series(self._read_without_waiting())
+        release.set()
+        holding.result(timeout=10)
+
+    def test_writers_do_not_wait_for_a_read_in_progress(self):
+        self._seed_old_minutes()
+        reading, release = self._hold(self._read_api, lambda sql: "UNION ALL" in sql)
+        with connection.cursor() as cursor:
+            cursor.execute("SET lock_timeout = '1500ms'")
+        self.assertEqual(store_readings(self.left, [Reading(self.start + timedelta(minutes=2), Decimal("0"))])[0], 1)
+        self.assertEqual(self._manual(self.start.date()), 201)
+        release.set()
+        self.assertEqual(reading.result(timeout=10)["resolution_minutes"], 15)
+
+    def test_a_read_issues_no_row_lock_and_one_statement_for_both_tiers(self):
+        self._seed_old_minutes()
+        with CaptureQueriesContext(connection) as queries:
+            self._read_api()
+        statements = [query["sql"].upper().replace('"', "") for query in queries]
+        self.assertEqual([sql for sql in statements if "FOR UPDATE" in sql], [])
+        tiers = [sql for sql in statements if "MEASUREMENTS_TEMPERATUREMEASUREMENT" in sql and "MEASUREMENTS_PROBETEMPERATUREBUCKET" in sql and "UNION ALL" in sql]
+        self.assertEqual(len(tiers), 1)
 
     def test_duplicate_collectors_report_actual_insertions_and_one_daily_count(self):
         readings = [Reading(self.start, Decimal("0"))]

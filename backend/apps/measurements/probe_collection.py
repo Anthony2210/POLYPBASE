@@ -47,8 +47,9 @@ def collected_probes():
 def lock_probe_zone(probe, *, require_active=False):
     """Inside atomic(), lock zone before probe and revalidate collection scope.
 
-    Collection, condensation and series reads share the zone lock with manual
-    entry. Restrict the probe lock to its own table, not joined organizations.
+    Collection and condensation share the zone lock with manual entry. Series
+    reads take no lock: they read both storage tiers in one statement. Restrict
+    the probe lock to its own table, not joined organizations.
     """
     zone = ThermalZone.objects.select_for_update().get(
         pk=probe.thermal_zone_id, organization_id=probe.organization_id,

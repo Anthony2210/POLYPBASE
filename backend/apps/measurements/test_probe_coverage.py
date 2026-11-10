@@ -5,7 +5,9 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 
 from apps.accounts.models import OrganizationMembership
@@ -224,3 +226,165 @@ class ProbeCoverageApiTests(CoverageFixtureMixin, TestCase):
         left = next(probe for probe in data["probes"] if probe["id"] == self.left.pk)
         self.assertFalse(left["is_active"])
         self.assertEqual(left["point_sources"][0][0][6], ms(2))
+
+
+class ProbeGroupedSourcesApiTests(CoverageFixtureMixin, TestCase):
+    """The chart's bounded response keeps exact statistics and institution scope."""
+
+    def setUp(self):
+        super().setUp()
+        user = get_user_model().objects.create_user(
+            username="grouped@example.test", email="grouped@example.test", password="pw",
+        )
+        OrganizationMembership.objects.create(user=user, organization=self.organization, role="admin")
+        self.client = APIClient()
+        self.client.force_authenticate(user)
+        self.headers = {"HTTP_X_ORGANIZATION_ID": str(self.organization.pk)}
+        self.url = f"/api/thermal-zones/{self.zone.pk}/probe-readings/"
+
+    def get(self, start, end, **params):
+        return self.client.get(
+            self.url, {"start": moment(start).isoformat(), "end": moment(end).isoformat(), **params},
+            **self.headers,
+        )
+
+    def test_default_contract_keeps_every_source_and_exposes_cadence(self):
+        Probe.objects.filter(pk=self.left.pk).update(sampling_interval_seconds=600)
+        self.raw(0, "1.00")
+        self.raw(1, "3.00")
+        body = self.get(0, 4 * 24 * 60).json()
+        left = next(probe for probe in body["probes"] if probe["id"] == self.left.pk)
+        self.assertEqual(left["sampling_interval_seconds"], 600)
+        self.assertEqual(len(left["point_sources"][0]), 2)
+
+    def test_grouped_raw_readings_keep_exact_statistics_and_last_instant(self):
+        self.raw(0, "0.00")
+        self.raw(1, "-1.50")
+        self.raw(14, "2.00")
+        body = self.get(0, 4 * 24 * 60, group_sources="1").json()
+        left = next(probe for probe in body["probes"] if probe["id"] == self.left.pk)
+        self.assertEqual(body["resolution_minutes"], 15)
+        self.assertEqual(left["points"], [[ms(0), 0.17, -1.5, 2.0]])
+        self.assertEqual(left["point_sources"], [[[ms(0), ms(15), "0.50", 3, -1.5, 2.0, ms(14)]]])
+
+    def test_grouped_all_zero_readings_remain_measurements(self):
+        self.raw(0, "0.00")
+        self.raw(1, "0.00")
+        body = self.get(0, 4 * 24 * 60, group_sources="1").json()
+        left = next(probe for probe in body["probes"] if probe["id"] == self.left.pk)
+        self.assertEqual(left["point_sources"], [[[ms(0), ms(15), "0.00", 2, 0.0, 0.0, ms(1)]]])
+
+    def test_grouped_raw_bounds_stay_inside_the_request(self):
+        self.raw(5, "1.00")
+        body = self.get(4, 4 * 24 * 60, group_sources="1").json()
+        left = next(probe for probe in body["probes"] if probe["id"] == self.left.pk)
+        self.assertEqual(left["point_sources"][0][0][:2], [ms(4), ms(15)])
+
+    def test_grouped_stored_bucket_keeps_its_whole_interval_and_extrema(self):
+        self.bucket(0, 15, total="6.00", count=3, minimum="0.00", maximum="9.00", last=2)
+        body = self.get(5, 4 * 24 * 60, group_sources="1").json()
+        left = next(probe for probe in body["probes"] if probe["id"] == self.left.pk)
+        self.assertEqual(left["point_sources"], [[[ms(0), ms(15), "6.00", 3, 0.0, 9.0, ms(2)]]])
+
+    def test_grouped_mixed_tiers_sum_raw_and_bucket_without_inventing_points(self):
+        self.bucket(0, 15, total="6.00", count=3, minimum="1.00", maximum="3.00", last=2)
+        self.raw(20, "10.00")
+        body = self.get(0, 4 * 24 * 60, group_sources="1").json()
+        left = next(probe for probe in body["probes"] if probe["id"] == self.left.pk)
+        self.assertEqual(body["resolution_minutes"], 15)
+        self.assertEqual([point[0] for point in left["points"]], [ms(0), ms(15)])
+        self.assertEqual(left["point_sources"][1], [[ms(15), ms(30), "10.00", 1, 10.0, 10.0, ms(20)]])
+
+    def test_unrelated_group_source_values_keep_the_detailed_contract(self):
+        self.raw(0, "1.00")
+        self.raw(1, "3.00")
+        body = self.get(0, 4 * 24 * 60, group_sources="0").json()
+        left = next(probe for probe in body["probes"] if probe["id"] == self.left.pk)
+        self.assertEqual(len(left["point_sources"][0]), 2)
+
+    def test_grouped_mode_stays_scoped_to_the_active_institution(self):
+        other = Organization.objects.create(name="Other lab")
+        zone = ThermalZone.objects.create(organization=other, name="Foreign")
+        response = self.client.get(
+            f"/api/thermal-zones/{zone.pk}/probe-readings/", {"group_sources": "1"}, **self.headers,
+        )
+        self.assertEqual(response.status_code, 404)
+
+
+class ProbeReadPathCostTests(CoverageFixtureMixin, TestCase):
+    """The chart GET takes no lock and its cost does not follow the probe count."""
+
+    def setUp(self):
+        super().setUp()
+        user = get_user_model().objects.create_user(
+            username="reader@example.test", email="reader@example.test", password="pw",
+        )
+        OrganizationMembership.objects.create(user=user, organization=self.organization, role="viewer")
+        self.client = APIClient()
+        self.client.force_authenticate(user)
+        self.headers = {"HTTP_X_ORGANIZATION_ID": str(self.organization.pk)}
+        self.url = f"/api/thermal-zones/{self.zone.pk}/probe-readings/"
+        self.params = {"start": moment(0).isoformat(), "end": moment(24 * 60).isoformat(), "group_sources": "1"}
+
+    def add_probe(self, channel):
+        return Probe.objects.create(
+            organization=self.organization, thermal_zone=self.zone, code=f"EXTRA {channel}",
+            probe_type=Probe.ProbeType.IMINILIDE, external_serial="1162040825", external_channel=channel,
+        )
+
+    def read(self):
+        response = self.client.get(self.url, self.params, **self.headers)
+        self.assertEqual(response.status_code, 200)
+        return response.json()
+
+    def test_a_read_never_requests_a_row_lock(self):
+        # SQLite drops FOR UPDATE, so assert the ORM call rather than the SQL text.
+        self.raw(0, "1.00")
+        self.bucket(60, 15)
+        with patch("django.db.models.query.QuerySet.select_for_update", side_effect=AssertionError("Read path locked a row")):
+            self.read()
+            probe_series(self.left, moment(0), moment(90), 1)
+
+    def test_a_read_has_no_historical_extent_query(self):
+        self.raw(0, "1.00")
+        self.bucket(60, 15)
+        with CaptureQueriesContext(connection) as queries:
+            body = self.read()
+        self.assertNotIn("first_reading_at", body)
+        self.assertNotIn("last_reading_at", body)
+        statements = [query["sql"].upper() for query in queries]
+        self.assertEqual([sql for sql in statements if "MIN(" in sql], [])
+        self.assertEqual(len([sql for sql in statements if "UNION ALL" in sql]), 1)
+
+    def test_query_count_does_not_grow_with_probes(self):
+        self.raw(0, "1.00")
+        with CaptureQueriesContext(connection) as two:
+            self.read()
+        for channel in range(20, 28):
+            self.add_probe(channel)
+        with CaptureQueriesContext(connection) as ten:
+            self.assertEqual(len(self.read()["probes"]), 10)
+        self.assertEqual(len(ten), len(two))
+
+    def test_tiers_read_together_keep_decimal_values_and_zero(self):
+        self.raw(0, "0.00")
+        self.bucket(60, 15, total="6.00", count=3, minimum="0.00", maximum="4.00", last=62)
+        left = next(probe for probe in self.read()["probes"] if probe["id"] == self.left.pk)
+        self.assertEqual(left["point_sources"][0], [[ms(0), ms(15), "0.00", 1, 0.0, 0.0, ms(0)]])
+        self.assertEqual(left["point_sources"][1], [[ms(60), ms(75), "6.00", 3, 0.0, 4.0, ms(62)]])
+
+    def test_common_resolution_follows_stored_buckets_of_any_probe(self):
+        self.raw(0, "1.00", probe=self.right)
+        self.bucket(60, 15)
+        self.params["end"] = moment(2 * 60).isoformat()
+        with patch("apps.measurements.probe_readings.timezone.now", return_value=moment(120)):
+            body = self.read()
+        self.assertEqual(body["resolution_minutes"], 15)
+
+    def test_authorization_precedes_any_series_statement(self):
+        other = Organization.objects.create(name="Other lab")
+        zone = ThermalZone.objects.create(organization=other, name="Foreign")
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/thermal-zones/{zone.pk}/probe-readings/", self.params, **self.headers)
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual([q for q in queries if "MEASUREMENTS_TEMPERATUREMEASUREMENT" in q["sql"].upper()], [])

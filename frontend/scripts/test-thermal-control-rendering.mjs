@@ -36,10 +36,13 @@ const daily = (overrides = {}) => ({
   date: '2026-11-03', average_temperature_c: 21, min_temperature_c: 19,
   max_temperature_c: 23, measurement_count: 12, computed_from_probes: true, ...overrides,
 });
+// A manual location keeps the static ruler: it has no time series to draw.
 const zone = (overrides = {}) => ({
   id: 17, organization: { id: 1 }, target_temperature_c: '20',
-  probes: [{ id: 1, is_collected: true }], latest_temperature: daily(), ...overrides,
+  probes: [{ id: 1, is_collected: false }], latest_temperature: daily(), ...overrides,
 });
+const collectedZone = (overrides = {}) => zone({ probes: [{ id: 1, is_collected: true }], ...overrides });
+const trendStub = () => null;
 
 function text(node) {
   if (Array.isArray(node)) return node.map(text).join('');
@@ -83,9 +86,10 @@ function panel({ language = 'fr', result = { summary: summary(), error: null }, 
     } },
     '../hooks/useProbeMonitoring': { default: () => ({ monitoring: undefined, error: null, revalidate() {} }) },
   };
-  for (const name of ['BoxTrackingPreview', 'DetailBackButton', 'ModalPortal', 'PageLoader', 'PolypbaseIcon', 'ProbeReadingsModal']) {
+  for (const name of ['BoxTrackingPreview', 'DetailBackButton', 'ModalPortal', 'PageLoader', 'PolypbaseIcon']) {
     imports[`./${name}`] = { default: noop };
   }
+  imports['./ZoneProbeCharts'] = { ZoneProbeChart: noop, ZoneThermalTrend: trendStub, useZoneChartReadings: () => ({ initial: { settled: true, data: null } }) };
   imports['./ZoneMovementHistory'] = { ZoneRecentMovements: noop };
   const { TemperatureControlPanel } = load('../src/components/ZonesView.tsx', imports, { document }, '\nexport { TemperatureControlPanel };');
   function render(nextResult = result, nextZone = currentZone) {
@@ -268,5 +272,28 @@ for (const recent of [-40, 75]) {
     assert.equal(Number.parseFloat(band['--temperature-range-end']), expected.project(23));
     assert.ok(recent < 19 ? position(marker) < expected.project(19) : position(marker) > expected.project(23));
     assert.equal(text(marker), `${view.copy.temperatureRecentMean} ${recent.toFixed(1)}°C`);
+  });
+}
+
+for (const language of ['fr', 'en']) {
+  test(`${language}: a collected location replaces the ruler with the trend, keeps recent and daily facts distinct`, () => {
+    const view = panel({ language, currentZone: collectedZone() });
+    assert.equal(view.nodes('temperature-ruler').length, 0);
+    assert.equal(find(view.tree, node => node.type === trendStub).length, 1);
+    assert.equal(text(view.nodes('temperature-recent-facts')[0]),
+      `${view.copy.temperatureRecentMean}27.0°C${view.copy.targetTemperature}20.0°C`);
+    assert.equal(text(view.nodes('temperature-facts')[0]), `${view.copy.temperatureDailyMean}21.0°C${view.copy.temperatureDailyGap}+1.0°C`);
+    assert.equal(text(view.nodes('temperature-range-values')[0]), `${view.copy.minTemperature}19.0°C${view.copy.maxTemperature}23.0°C`);
+    view.render({ summary: summary({ temperature_c: -5 }), error: null });
+    assert.equal(text(view.nodes('temperature-facts')[0]), `${view.copy.temperatureDailyMean}21.0°C${view.copy.temperatureDailyGap}+1.0°C`,
+      'The recent mean cannot change the daily gap');
+  });
+
+  test(`${language}: recent zero stays a value, a missing recent mean stays absent`, () => {
+    const zero = panel({ language, currentZone: collectedZone({ target_temperature_c: '0' }), result: { summary: summary({ temperature_c: 0 }), error: null } });
+    assert.equal(text(zero.nodes('temperature-recent-facts')[0]), `${zero.copy.temperatureRecentMean}0.0°C${zero.copy.targetTemperature}0.0°C`);
+    const missing = panel({ language, currentZone: collectedZone(), result: { summary: summary({ temperature_c: null, included_probe_count: 0,
+      oldest_measured_at: null, newest_measured_at: null, expires_at: null }), error: null } });
+    assert.ok(!text(missing.nodes('temperature-recent-facts')[0]).includes(missing.copy.temperatureRecentMean));
   });
 }

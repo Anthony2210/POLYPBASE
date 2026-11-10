@@ -74,6 +74,12 @@ Les événements entrants sont ajoutés à la fin, dans leur ordre d'origine :
 
 L'empreinte canonique de tous les champs des 32 événements renumérotés est `c9e9c5d39cb1f27fc2bceddd7e40436cc2d79fdc31125ceb17f06d9d48b11134` (même calcul que `rows_digest` dans `test_check_register.py`). Elle protège ce lot indépendamment des empreintes thermiques, laboratoire initial et historiques, qui restent inchangées. Le registre intégré compte 1 006 événements dans 17 lots. Une correction ultérieure s'ajoute après cet historique ; elle ne réécrit aucun événement existant.
 
+## Intégration mouvements et thermique du 2026-11-09
+
+L'intégration locale conserve le registre de `5b1299b` (`T001–T1036`, dont les mouvements B20/B21) et ajoute les 26 événements thermiques de `ee492bd`, sans changement de formulation ni de provenance. Le lot thermique entrant `B20-2026-11-09` devient `B22-2026-11-09` ; `T1011–T1036` deviennent `T1037–T1062` (décalage exact de +26). Seuls `entry_id` et `batch` changent, conformément au précédent laboratoire ci-dessus.
+
+Les trois registres sources complets sont conservés indépendamment dans les nouveaux fichiers `integration-2026-11-09-{base,movements,thermal}.csv`. Les objets Git, empreintes, correspondances ligne par ligne et résultats de validation sont documentés dans [`integration-2026-11-09.md`](integration-2026-11-09.md). Les preuves antérieures restent inchangées. Les tests figent l'historique HEAD complet et la projection thermique, indépendamment des catalogues courants ; toute correction ultérieure doit être un événement ajouté.
+
 ## Lot B02 (2026-10-29)
 
 Baseline Git : `947105e605f979017e5915f80820ed356c411e4b`. Les 34 événements B01 restent inchangés, en tête du fichier ; B02 ajoute **86 événements, T035–T120** :

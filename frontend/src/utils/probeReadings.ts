@@ -97,7 +97,7 @@ export type ProbeReadingsView = {
 };
 type FetchReadings = (window: ProbeWindow, signal: AbortSignal) => Promise<ZoneProbeReadings>;
 
-/** One modal lifetime; no cache is shared across zones or organization contexts. */
+/** One chart lifetime; no cache is shared across zones or organization contexts. */
 export class ProbeReadingsLoader {
   private cache: ProbeReadingsCache;
   private display: { window: ProbeWindow; data: ZoneProbeReadings } | null = null;

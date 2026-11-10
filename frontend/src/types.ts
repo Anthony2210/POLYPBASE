@@ -544,8 +544,6 @@ export type ZoneProbeReadings = {
   /** False only for a local cache preview not covering the entire selected window. */
   coverage_complete?: boolean;
   target_temperature_c: string | null;
-  first_reading_at: string | null;
-  last_reading_at: string | null;
   monitoring: ZoneProbeMonitoring;
   probes: Array<{
     id: number;
@@ -553,6 +551,8 @@ export type ZoneProbeReadings = {
     location: string;
     is_active: boolean;
     external_channel: number | null;
+    /** Configured cadence, used to tell an expected reading from a real gap. */
+    sampling_interval_seconds?: number;
     points: ProbeReadingPoint[];
     /** Parallel to points; optional for older API responses. */
     point_sources?: ProbeReadingSource[][];

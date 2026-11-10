@@ -146,6 +146,161 @@ def before_b23(source, rows, language="EN"):
     return source
 
 
+# Independently retained source blobs and the ID/batch-only integration projection.
+INTEGRATION_B25 = "B25-2026-11-10"
+MOVEMENT_ROWS_SHA256 = "092d2c92d7dbdb16b5f4eccb9687636eca4b567d5f64dd4d57d92c53f1032de1"
+THERMAL_SOURCE_ROWS_SHA256 = "05c86c2949ba886fc8c5529163725bb6be21750bf53209c3c10093009cde2eb6"
+THERMAL_PROJECTED_ROWS_SHA256 = "ee979768b84b2dd0900773f26ecb25095dd916be7983c61d78f3f440658ea53e"
+MAIN_HISTORY_SHA256 = "50fa1116b8dc480c4a900e5ba17eedf865037c88ac0cbb4239c9d082082e0430"
+MAIN_BYTES_SHA256 = "d04b4502a3d873a4e6d17da790a971c3e7fc58b2b80e3a1a35b39fce1376119e"
+THERMAL_FINAL_ROWS_SHA256 = "0d5243d50bebfc735a5627c768e4973d426b97843038b0e71ca80c98ab92e241"
+MOVEMENT_HISTORY_SHA256 = "e5e5f9f6eacaafd47b083dc743e22a8e572121010f9cf123d88a4d71981f1df5"
+INTEGRATION_SOURCES = (
+    ("base", 1010, "88b17986a4bc5d69ea3c23c3d5dc9b3b5162dd9c40c0b94979d2dd05e7319eda",
+     "1c2035ad35072d2df221a4543494701ea82acc7a4645a07d50648cf764c7798d"),
+    ("movements", 1036, "19ccea2e745b600b75d0121819dbab11e9b4a7323881c775876ed8312337fc48",
+     MOVEMENT_HISTORY_SHA256),
+    ("thermal", 1036, "309be58d9c02c101a7db17723cbe1a7f7f18daa131bbd96bd64204d375b822d6",
+     "5088da5700fe1b4727898b03ed3b07f2cd13d21dfa8cbdfbc29f2547beafd0c7"),
+)
+
+
+def integration_evidence(name):
+    return Path(__file__).with_name(f"integration-2026-11-09-{name}.csv")
+
+
+def integration_integrity_errors(rows):
+    """Freeze complete HEAD history and the exact thermal projection, not today's catalogs."""
+    errors = []
+    if rows_digest(rows[:1060]) != MAIN_HISTORY_SHA256:
+        errors.append("Complete movement HEAD history was modified")
+    if rows_digest(rows[1060:1086]) != THERMAL_FINAL_ROWS_SHA256:
+        errors.append("Thermal B25 projection was modified")
+    protected_batches = {"B20-2026-11-09", "B21-2026-11-09", "B22-2026-11-10",
+                         "B23-2026-11-10", "B24-2026-11-10", INTEGRATION_B25}
+    if any(row["batch"] in protected_batches or int(row["entry_id"][1:]) <= 1086
+           for row in rows[1086:]):
+        errors.append("Integrated history gained a member")
+    return errors
+
+
+class IntegrationHistoryTests(unittest.TestCase):
+    def test_original_source_evidence_is_complete_and_independently_frozen(self):
+        sources = {}
+        for name, count, byte_digest, field_digest in INTEGRATION_SOURCES:
+            with self.subTest(source=name):
+                path = integration_evidence(name)
+                # Git blobs use LF; Windows checkouts may use CRLF.
+                blob = path.read_bytes().replace(b"\r\n", b"\n")
+                self.assertEqual(hashlib.sha256(blob).hexdigest(), byte_digest)
+                sources[name] = reg.load_register(path)
+                self.assertEqual(len(sources[name]), count)
+                self.assertEqual(rows_digest(sources[name]), field_digest)
+        for name in ("movements", "thermal"):
+            self.assertEqual(sources[name][:1010], sources["base"])
+        self.assertEqual(rows_digest(sources["movements"][1010:]), MOVEMENT_ROWS_SHA256)
+        self.assertEqual(rows_digest(sources["thermal"][1010:]), THERMAL_SOURCE_ROWS_SHA256)
+
+    def test_complete_head_bytes_and_fields_are_preserved(self):
+        original = integration_evidence("movements")
+        current = reg.REGISTER.read_bytes().replace(b"\r\n", b"\n")
+        self.assertTrue(current.startswith(original.read_bytes().replace(b"\r\n", b"\n")))
+        rows = reg.load_register()
+        self.assertEqual(rows[:1036], reg.load_register(original))
+        prefix = b"".join(current.splitlines(keepends=True)[:1061])
+        self.assertEqual(hashlib.sha256(prefix).hexdigest(), MAIN_BYTES_SHA256)
+        self.assertEqual(rows_digest(rows[:1060]), MAIN_HISTORY_SHA256)
+        self.assertEqual(integration_integrity_errors(rows), [])
+
+    def test_thermal_source_mapping_changes_only_entry_id_and_batch(self):
+        source = reg.load_register(integration_evidence("thermal"))[1010:]
+        projected = reg.load_register()[1060:1086]
+        self.assertEqual(len(source), 26)
+        self.assertEqual(len(projected), 26)
+        for number, (before, after) in enumerate(zip(source, projected), 1011):
+            with self.subTest(source_entry=before["entry_id"]):
+                self.assertEqual(before["entry_id"], f"T{number}")
+                self.assertEqual(before["batch"], "B20-2026-11-09")
+                self.assertEqual(after, dict(before, entry_id=f"T{number + 50}", batch=INTEGRATION_B25))
+        self.assertEqual(rows_digest(projected), THERMAL_FINAL_ROWS_SHA256)
+        # Preserve the earlier B22 projection as independent historical evidence.
+        historical = [dict(row, entry_id=f"T{number + 26}", batch="B22-2026-11-09")
+                      for number, row in enumerate(source, 1011)]
+        self.assertEqual(rows_digest(historical), THERMAL_PROJECTED_ROWS_SHA256)
+        self.assertEqual(rows_digest(reg.load_register(integration_evidence("movements")) + historical),
+                         "cf1b7f575ce11e801e78ce81385fb133b3ee07e04bfca63ffc4eff4d77b9308c")
+
+    def test_integration_has_exact_count_unique_ordered_ids_and_chronology(self):
+        rows = reg.load_register()
+        self.assertEqual(len(rows), 1086)
+        self.assertEqual([row["entry_id"] for row in rows], [f"T{n:03d}" for n in range(1, 1087)])
+        self.assertEqual(Counter(row["batch"] for row in rows[1010:]),
+                         Counter({"B20-2026-11-09": 6, "B21-2026-11-09": 20, "B22-2026-11-10": 6, "B23-2026-11-10": 12, "B24-2026-11-10": 6, INTEGRATION_B25: 26}))
+        self.assertEqual(len({(row["batch"], reg.identity(row)) for row in rows}), len(rows))
+        self.assertEqual(reg.check_chronology(rows), [])
+        self.assertEqual(reg.validate(rows), [])
+        self.assertEqual(reg.check_catalog_parity(), [])
+
+    def test_every_incoming_and_movement_field_edit_is_rejected(self):
+        original = reg.load_register()
+        for index in range(1010, 1086):
+            for name in reg.COLUMNS:
+                with self.subTest(entry=original[index]["entry_id"], field=name):
+                    changed = original.copy()
+                    changed[index] = dict(original[index])
+                    changed[index][name] += " altered"
+                    self.assertTrue(integration_integrity_errors(changed))
+        # The complete prefix freeze covers every older row, not only known batches.
+        for index in range(1010):
+            with self.subTest(older_entry=original[index]["entry_id"]):
+                changed = original.copy()
+                changed[index] = dict(original[index], reason=original[index]["reason"] + " altered")
+                self.assertTrue(integration_integrity_errors(changed))
+
+    def test_deletions_duplicates_reordering_and_batch_reuse_are_rejected(self):
+        original = reg.load_register()
+        for index in (0, 1009, 1010, 1016, 1035, 1060, 1085):
+            variants = {
+                "deleted": original[:index] + original[index + 1:],
+                "inserted": original[:index] + [dict(original[index])] + original[index:],
+                "duplicated": original + [dict(original[index])],
+                "reordered": original[:index] + list(reversed(original[index:index + 2])) + original[index + 2:],
+                "batch reuse": original + [dict(original[index], entry_id="T1087", batch=INTEGRATION_B25)],
+            }
+            for label, changed in variants.items():
+                if changed != original:
+                    with self.subTest(entry=original[index]["entry_id"], case=label):
+                        self.assertTrue(integration_integrity_errors(changed))
+        for batch in ("B20-2026-11-09", "B22-2026-11-08"):
+            changed = [dict(row, batch=batch) if i >= 1060 else row for i, row in enumerate(original)]
+            self.assertTrue(integration_integrity_errors(changed))
+            self.assertTrue(reg.check_chronology(changed))
+
+    def test_coordinated_catalog_rewrite_cannot_change_frozen_integration(self):
+        original = reg.load_register()
+        # Use final events for these identities so the coordinated edit remains valid history.
+        for index in (1010, 1036, 1060):
+            changed = [dict(row) for row in original]
+            row = changed[index]
+            row["final_value"] += " altered"
+            if row["status"] == "ALREADY_MATCHING":
+                row["initial_value"] = row["final_value"]
+            def state(event):
+                if reg.identity(event) == reg.identity(row):
+                    return reg.SourceState(True, row["final_value"])
+                return reg.read_source_state(event)
+            self.assertEqual(reg.validate(changed, state), [])
+            self.assertTrue(integration_integrity_errors(changed))
+
+    def test_later_corrections_must_be_appended(self):
+        original = reg.load_register()
+        row = original[-1]
+        correction = dict(row, entry_id="T1087", batch="B26-2026-11-10", status="APPLIED",
+                          initial_value=row["final_value"], final_value=row["final_value"] + " corrected")
+        self.assertEqual(integration_integrity_errors(original + [correction]), [])
+        self.assertEqual(reg.check_chronology(original + [correction]), [])
+
+
 def event(entry, batch, key, initial, final, status="APPLIED", surface="react", language="EN", source=None):
     head = HEAD_1 if batch == B01 else HEAD_2
     default_source = {
@@ -850,6 +1005,13 @@ class RealRegisterTests(unittest.TestCase):
         edited = before_b23(before_b24(edited, rows), rows)
         # Undo later recorded value changes before removing the frozen additions.
         # Reverse order preserves continuity if the same key is corrected more than once.
+        # Remove thermal B25 once; movement B20/B21 are removed separately below.
+        for row in rows:
+            if row["batch"] == INTEGRATION_B25 and row["language"] == "EN":
+                addition = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
+                self.assertEqual(edited.count(addition), 1, row["entry_id"])
+                edited = edited.replace(addition, "")
+        # Reverse later changes in reverse order to preserve value continuity.
         for row in reversed(rows[1006:]):
             if row["surface"] == "react" and row["language"] == "EN" and row["status"] == "APPLIED":
                 current = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"

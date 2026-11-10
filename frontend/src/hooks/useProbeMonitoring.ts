@@ -1,17 +1,23 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { apiGet, ApiResourceCancelledError } from '../api/client';
 import type { ThermalZone, ZoneProbeMonitoring, ZoneProbeReadings } from '../types';
 import { getErrorMessage } from '../utils/errors';
 import { probeMonitoringDelay } from '../utils/probeChart';
 
-export default function useProbeMonitoring(zone: ThermalZone) {
+/** The page's first series read also carries the server status: reuse it once. */
+export type InitialProbeRead = { settled: boolean; data: Pick<ZoneProbeReadings, 'monitoring'> | null };
+
+export default function useProbeMonitoring(zone: ThermalZone, initialRead?: InitialProbeRead) {
   const [snapshot, setSnapshot] = useState<{ zoneId: number; monitoring: ZoneProbeMonitoring } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const revalidate = useCallback(() => setReloadKey((key) => key + 1), []);
   const hasCollectedProbe = zone.probes.some((probe) => probe.is_collected);
   const monitoring = snapshot?.zoneId === zone.id ? snapshot.monitoring : zone.probe_monitoring;
+  const initialSettled = initialRead?.settled ?? true;
+  const initialMonitoring = initialRead?.data?.monitoring ?? null;
+  const consumedInitial = useRef<ZoneProbeMonitoring | null>(null);
 
   useEffect(() => {
     setSnapshot(null);
@@ -19,12 +25,14 @@ export default function useProbeMonitoring(zone: ThermalZone) {
   }, [zone.id, zone.probe_monitoring]);
 
   useEffect(() => {
-    if (!hasCollectedProbe) return;
+    if (!hasCollectedProbe || !initialSettled) return;
     let disposed = false;
     let timer: ReturnType<typeof setTimeout>;
     let controller: AbortController | null = null;
     async function refresh() {
       clearTimeout(timer);
+      // A hidden page does not poll; becoming visible refreshes it again.
+      if (document.visibilityState === 'hidden') return;
       controller?.abort();
       const request = new AbortController();
       controller = request;
@@ -51,7 +59,14 @@ export default function useProbeMonitoring(zone: ThermalZone) {
     function onVisible() {
       if (document.visibilityState === 'visible') void refresh();
     }
-    void refresh();
+    if (initialMonitoring && consumedInitial.current !== initialMonitoring) {
+      consumedInitial.current = initialMonitoring;
+      setSnapshot({ zoneId: zone.id, monitoring: initialMonitoring });
+      setError(null);
+      timer = setTimeout(refresh, probeMonitoringDelay(initialMonitoring, Date.now()));
+    } else {
+      void refresh();
+    }
     globalThis.addEventListener('focus', onVisible);
     document.addEventListener('visibilitychange', onVisible);
     return () => {
@@ -61,7 +76,7 @@ export default function useProbeMonitoring(zone: ThermalZone) {
       globalThis.removeEventListener('focus', onVisible);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [hasCollectedProbe, reloadKey, zone.id, zone.probe_monitoring]);
+  }, [hasCollectedProbe, initialMonitoring, initialSettled, reloadKey, zone.id, zone.probe_monitoring]);
 
   return { monitoring, error, revalidate };
 }

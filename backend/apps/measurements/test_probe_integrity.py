@@ -240,7 +240,7 @@ class ProbeScopedApiTests(ProbeFixtureMixin, TestCase):
         response = self.client.get(self.url, **self.headers)
         self.assertEqual(response.status_code, 200)
         self.assertNotIn(foreign.pk, [probe["id"] for probe in response.json()["probes"]])
-        self.assertIsNone(response.json()["last_reading_at"])
+        self.assertIsNone(response.json()["monitoring"]["last_reading_at"])
         summaries = self.client.get("/api/thermal-zones/", **self.headers).json()["results"]
         summary = next(zone for zone in summaries if zone["id"] == self.zone.pk)
         self.assertNotIn(foreign.pk, [probe["id"] for probe in summary["probes"]])

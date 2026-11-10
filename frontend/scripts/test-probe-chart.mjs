@@ -15,12 +15,6 @@ const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
 const NOW = Date.UTC(2026, 9, 29, 1, 0);
 
-test('periods end now and keep their length', () => {
-  const window = probeChart.probePeriodWindow('7d', NOW);
-  assert.equal(window.end, NOW);
-  assert.equal(window.end - window.start, 7 * 24 * HOUR);
-});
-
 test('zoom selections are ordered, at least 30 minutes and never past now', () => {
   assert.deepEqual(
     { ...probeChart.clampProbeWindow(NOW - 2 * HOUR, NOW - 3 * HOUR, NOW) },
@@ -29,13 +23,6 @@ test('zoom selections are ordered, at least 30 minutes and never past now', () =
   const narrow = probeChart.clampProbeWindow(NOW - 10 * MINUTE, NOW - 9 * MINUTE, NOW);
   assert.equal(narrow.end - narrow.start, 30 * MINUTE);
   assert.ok(narrow.end <= NOW);
-});
-
-test('shifting moves by one window and stops at now', () => {
-  const window = { start: NOW - 4 * HOUR, end: NOW - 2 * HOUR };
-  assert.deepEqual({ ...probeChart.shiftProbeWindow(window, -1, NOW) }, { start: NOW - 6 * HOUR, end: NOW - 4 * HOUR });
-  assert.deepEqual({ ...probeChart.shiftProbeWindow(window, 1, NOW) }, { start: NOW - 2 * HOUR, end: NOW });
-  assert.equal(probeChart.canShiftProbeWindowForward({ start: NOW - HOUR, end: NOW }, NOW), false);
 });
 
 test('missing periods break the line instead of joining distant points', () => {
@@ -61,13 +48,6 @@ test('the shared domain includes zero, the target and stays readable when flat',
   assert.equal(probeChart.probeTemperatureDomain([], null), null);
 });
 
-test('window summary uses minimum and maximum of condensed points', () => {
-  const summary = probeChart.summarizeProbePoints([[0, 21, 20, 22], [1, 0, null, null]]);
-  assert.equal(summary.minimum, 0);
-  assert.equal(summary.maximum, 22);
-  assert.equal(summary.latest[1], 0);
-});
-
 for (const minutes of [1, 15, 60]) {
   test('one missing expected reading breaks the line at cadence ' + minutes, () => {
     const cadence = minutes * MINUTE;
@@ -77,23 +57,6 @@ for (const minutes of [1, 15, 60]) {
     assert.equal(segments[1][0][1], 0);
   });
 }
-
-for (const [period, days] of [['24h', 1], ['7d', 7], ['30d', 30], ['90d', 90]]) {
-  test('period length is preserved for ' + period, () => {
-    const window = probeChart.probePeriodWindow(period, NOW);
-    assert.equal(window.end, NOW);
-    assert.equal(window.start, NOW - days * 24 * HOUR);
-  });
-}
-
-test('request identity changes with zone, either bound and retry', () => {
-  const window = { start: NOW - HOUR, end: NOW };
-  const key = probeChart.probeRequestKey(1, window, 0);
-  assert.notEqual(probeChart.probeRequestKey(2, window, 0), key);
-  assert.notEqual(probeChart.probeRequestKey(1, { ...window, start: window.start - 1 }, 0), key);
-  assert.notEqual(probeChart.probeRequestKey(1, { ...window, end: window.end + 1 }, 0), key);
-  assert.notEqual(probeChart.probeRequestKey(1, window, 1), key);
-});
 
 test('monitoring schedules a server read just after its freshness boundary', () => {
   const monitoring = { last_reading_at: new Date(NOW - 6 * HOUR + 10000).toISOString(), fallback_after_hours: 6, manual_entry_available: false };

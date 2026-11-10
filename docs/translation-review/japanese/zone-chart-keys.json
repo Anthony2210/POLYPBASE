@@ -1,0 +1,15 @@
+[
+  "temperatureTrendTitle",
+  "probeIntervalMean",
+  "probeCombinedChartKeyboard",
+  "probeRangeEdit",
+  "probeRangeStart",
+  "probeRangeEnd",
+  "probeRangeApply",
+  "probeRangeReset",
+  "probeRangeInvalid",
+  "probeCondensedNotice",
+  "probeLegendProbe",
+  "probeLatestInterval",
+  "probeSeriesToggle"
+]
