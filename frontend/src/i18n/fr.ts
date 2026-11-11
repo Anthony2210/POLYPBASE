@@ -1305,7 +1305,7 @@ export const fr = {
   probeRangeInvalid: 'Choisissez une période de 30 minutes à 366 jours, sans date future.',
   probeCondensedNotice: 'Moyennes par tranche de {minutes} min, avec minimum et maximum.',
   probeLegendProbe: 'Sonde',
-  probeLatestInterval: 'Dernière tranche (moyenne)',
+  probeLatestInterval: 'Dernière moyenne sur {minutes} min',
   probeSeriesToggle: 'Afficher ou masquer {probe}',
   probeAverage: 'Moyenne des sondes',
   probeAverageContributors: '{count} sondes contributrices',

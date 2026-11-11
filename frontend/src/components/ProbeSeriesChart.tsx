@@ -1,11 +1,11 @@
-import { type KeyboardEvent, type PointerEvent, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, type KeyboardEvent, type PointerEvent, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { scaleLinear, scaleTime } from 'd3-scale';
 import { line } from 'd3-shape';
 
 import { formatSignedTemperature, formatTemperature } from '../utils/environmentFormat';
 import type { ProbeWindow } from '../utils/probeChart';
 import {
-  binIntervalsForPixels, reduceReadingsForPixels, seriesEntryAt, SERIES_STYLE_COUNT, snapCursorTime,
+  averageSeriesColor, binIntervalsForPixels, reduceReadingsForPixels, seriesEntryAt, SERIES_STYLE_COUNT, snapCursorTime,
   splitReadingsAtGaps, stepCursorTime, type ProbeAveragePeriod, type ProbeSeries, type RawReading,
 } from '../utils/probeSeries';
 import { zoomProbeAt } from '../utils/probeGestures';
@@ -27,6 +27,16 @@ export type ProbeSeriesChartLabels = {
 
 export function seriesClassName(slot: number) {
   return `probe-series-${(slot % SERIES_STYLE_COUNT) + 1}`;
+}
+
+/** Inline style giving the average curve the mixed hue of the probes. */
+export function averageSeriesStyle(series: readonly ProbeSeries[]): CSSProperties | undefined {
+  const color = averageSeriesColor(series);
+  return color ? ({ '--series-color': color } as CSSProperties) : undefined;
+}
+
+function formatRange(format: Intl.DateTimeFormat, start: number, end: number) {
+  return typeof format.formatRange === 'function' ? format.formatRange(start, end) : `${format.format(start)} – ${format.format(end)}`;
 }
 
 export default function ProbeSeriesChart({
@@ -118,8 +128,10 @@ export default function ProbeSeriesChart({
   }, [average, axes]);
 
   const visible = useMemo(() => series.filter((entry) => !hiddenIds?.has(entry.id)), [hiddenIds, series]);
+  // The average does not change when a curve is hidden, so neither does its hue.
+  const averageStyle = useMemo(() => averageSeriesStyle(series), [series]);
   const dateTimeFormat = useMemo(() => new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }), [locale]);
-  const timeFormat = useMemo(() => new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }), [locale]);
+  const shortDateTimeFormat = useMemo(() => new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }), [locale]);
 
   const cursorInWindow = cursorTime !== null && cursorTime >= window.start && cursorTime < window.end;
   const entries = cursorInWindow
@@ -134,6 +146,11 @@ export default function ProbeSeriesChart({
   const heading = condensed?.kind === 'condensed'
     ? `${dateTimeFormat.format(condensed.interval.start)} → ${dateTimeFormat.format(condensed.interval.end)}`
     : cursorInWindow ? dateTimeFormat.format(cursorTime) : '';
+  // Visible tooltip: one short time line, then one value per curve.
+  const headingPeriod = condensed?.kind === 'condensed' ? condensed.interval
+    : averageEntry && !entries.length ? averageEntry : null;
+  const visibleHeading = headingPeriod ? formatRange(shortDateTimeFormat, headingPeriod.start, headingPeriod.end)
+    : cursorInWindow ? shortDateTimeFormat.format(cursorTime) : '';
   const cursorX = cursorInWindow ? axes.x(cursorTime) : null;
   const canZoom = onZoom !== undefined;
   const targetVisible = target !== null && target >= axes.y.domain()[0] && target <= axes.y.domain()[1];
@@ -266,7 +283,7 @@ export default function ProbeSeriesChart({
               {lastReading ? <circle className="probe-series-dot is-latest" cx={axes.x(lastReading[0])} cy={axes.y(lastReading[1])} r={3.5} /> : null}
             </g>
           ))}
-          {averagePath ? <path className="probe-series-average probe-series-average-line" d={averagePath} /> : null}
+          {averagePath ? <path className="probe-series-average probe-series-average-line" style={averageStyle} d={averagePath} /> : null}
           {cursorX !== null ? (
             <g className="probe-series-cursor" aria-hidden="true">
               <line x1={cursorX} x2={cursorX} y1={MARGIN.top} y2={height - MARGIN.bottom} />
@@ -284,25 +301,24 @@ export default function ProbeSeriesChart({
       {(entries.length > 0 || averageEntry) && cursorX !== null && !drag ? (
         <div className="probe-series-tooltip" aria-hidden="true"
           style={flipTooltip ? { right: Math.max(8, width - cursorX + 12) } : { left: cursorX + 12 }}>
-          <small>{heading}</small>
-          {entries.map((entry) => (
-            <span key={entry.series.id} className={seriesClassName(entry.series.slot)}>
-              <i aria-hidden="true" />
-              <b>{entry.series.code}</b>
-              <strong>{rowValue(entry)}</strong>
-              {entry.kind === 'raw' && timeFormat.format(entry.time) !== timeFormat.format(cursorTime!)
-                ? <small>{timeFormat.format(entry.time)}</small> : null}
-            </span>
-          ))}
+          <small>{visibleHeading}</small>
           {averageEntry ? (
-            <span className="probe-series-average">
-              <i aria-hidden="true" />
-              <b>{labels.average}</b>
-              <strong>{averageValue}</strong>
-              <small>{averagePeriod}</small>
+            <span className="probe-series-average" style={averageStyle}>
+              <b><i aria-hidden="true" />{labels.average}</b>
+              <strong>{formatTemperature(averageEntry.mean)}</strong>
+              <small />
             </span>
           ) : null}
-          {target !== null && !condensed ? <small>{labels.target} {formatTemperature(target)}</small> : null}
+          {entries.map((entry) => (
+            <span key={entry.series.id} className={seriesClassName(entry.series.slot)}>
+              <b><i aria-hidden="true" />{entry.series.code}</b>
+              <strong>{formatTemperature(entry.kind === 'condensed' ? entry.interval.mean : entry.value)}</strong>
+              <small>
+                {entry.kind === 'condensed'
+                  ? `${entry.interval.minimum.toFixed(1)} – ${formatTemperature(entry.interval.maximum)}` : ''}
+              </small>
+            </span>
+          ))}
         </div>
       ) : null}
       <span className="sr-only" role="status">{announcement}</span>

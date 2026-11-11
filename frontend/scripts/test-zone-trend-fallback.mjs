@@ -113,12 +113,14 @@ function bench({ visibilityState = 'visible' } = {}) {
   }).default;
   const chartView = () => null;
   const charts = load('../src/components/ZoneProbeCharts.tsx', {
-    react: hooks, 'react/jsx-runtime': jsxRuntime, '../api/client': client, '../hooks/useLiveWindowEnd': useLiveWindowEnd,
+    react: hooks, 'react/jsx-runtime': jsxRuntime, 'react-dom': { createPortal: (node) => node }, '../api/client': client,
+    '../hooks/useAnchoredPopover': { useAnchoredPopover: () => ({ anchorRef: { current: null }, panelRef: { current: null }, position: {}, id: 'popover' }) },
+    '../hooks/useLiveWindowEnd': useLiveWindowEnd,
     '../hooks/useProbeReadings': useProbeReadings, '../utils/dateFormat': load('../src/utils/dateFormat.ts'),
     '../utils/environmentFormat': load('../src/utils/environmentFormat.ts'), '../utils/errors': errors,
     '../utils/probeChart': probeChart, '../utils/probeReadings': probeReadings, '../utils/probeSeries': probeSeries,
     '../utils/probePeriod': load('../src/utils/probePeriod.ts'),
-    './PolypbaseIcon': { default: () => null }, './ProbeSeriesChart': { default: chartView, seriesClassName: () => '' },
+    './PolypbaseIcon': { default: () => null }, './ProbeSeriesChart': { default: chartView, seriesClassName: () => '', averageSeriesStyle: () => undefined },
   });
   const t = (key) => key;
 

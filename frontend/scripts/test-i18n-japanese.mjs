@@ -558,6 +558,28 @@ function b27Events(rows = register) {
   return events;
 }
 
+// B28: legend header reworded in place (APPLIED), restored to its B25 value before older batches.
+function b28Events(rows = register) {
+  const events = rows.filter(row => row.batch === 'B28-2026-11-11');
+  assert.deepEqual(events, rows.slice(1098, 1100));
+  assert.deepEqual(events.map(row => row.entry_id), ['T1099', 'T1100']);
+  for (const entry of events) assert.deepEqual(Object.keys(entry), REGISTER_COLUMNS);
+  assert.deepEqual(events.map(row => [row.key_or_msgid, row.language, row.status]),
+    [['probeLatestInterval', 'FR', 'APPLIED'], ['probeLatestInterval', 'EN', 'APPLIED']]);
+  return events;
+}
+
+function beforeB28(source, language, rows = register) {
+  for (const entry of b28Events(rows).filter(row => row.language === language.toUpperCase())) {
+    const line = `  ${entry.key_or_msgid}: '${entry.final_value}',
+`;
+    assert.equal(source.split(line).length - 1, 1, entry.key_or_msgid);
+    source = source.replace(line, `  ${entry.key_or_msgid}: '${entry.initial_value}',
+`);
+  }
+  return source;
+}
+
 function beforeB27(source, language, rows = register) {
   for (const entry of b27Events(rows).filter(row => row.language === language.toUpperCase())) {
     const line = `  ${entry.key_or_msgid}: '${entry.final_value}',\n`;
@@ -578,7 +600,8 @@ function beforeB25(source, language, rows = register) {
 
 test('B25 thermal additions require exact append-only events and source values', () => {
   for (const language of ['fr', 'en']) {
-    const source = read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n');
+    // B25 lines are checked at their registered value, before the B28 in-place rewording.
+    const source = beforeB28(read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n'), language);
     assert.doesNotThrow(() => beforeB25(source, language));
     for (const entry of b25Events()) {
       assert.throws(() => beforeB25(source, language, register.filter(row => row !== entry)));
@@ -721,7 +744,7 @@ test('B23 reconstruction requires exact append-only events, additions and retire
 });
 
 function historicalSource(source, current = false, language) {
-  if (current) source = beforeB24(beforeB25(beforeB26(beforeB27(source, language), language), language), language);
+  if (current) source = beforeB24(beforeB25(beforeB26(beforeB27(beforeB28(source, language), language), language), language), language);
   const lines = source.replace(/\r\n/g, '\n').split('\n');
   const keys = current
     ? [...LATER_FALLBACK_KEYS.filter(key => !B23_RETIRED_KEYS.includes(key)), ...B23_ADDED_KEYS]
@@ -739,7 +762,7 @@ function historicalSource(source, current = false, language) {
 }
 
 function beforeMovementLabelChange(source, language) {
-  source = beforeB23(beforeB24(beforeB25(beforeB26(beforeB27(source, language), language), language), language), language);
+  source = beforeB23(beforeB24(beforeB25(beforeB26(beforeB27(beforeB28(source, language), language), language), language), language), language);
   // B22 only rewords the reconstructed historical movement title and interval, registered as APPLIED.
   const renamed = register.filter(entry => entry.batch === 'B22-2026-11-10' && entry.language === language.toUpperCase());
   assert.deepEqual(renamed.map(entry => [entry.key_or_msgid, entry.status]), [['historyHistoricalMovement', 'APPLIED'],

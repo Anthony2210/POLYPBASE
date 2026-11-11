@@ -1,6 +1,8 @@
-import { type ChangeEvent, type FormEvent, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { type FormEvent, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 import { getOrganizationResourceSignal } from '../api/client';
+import { useAnchoredPopover } from '../hooks/useAnchoredPopover';
 import useLiveWindowEnd, { useDocumentVisible } from '../hooks/useLiveWindowEnd';
 import useProbeReadings from '../hooks/useProbeReadings';
 import type { Translator } from '../i18n';
@@ -10,15 +12,15 @@ import { formatSignedTemperature, formatTemperature } from '../utils/environment
 import { getErrorMessage } from '../utils/errors';
 import { clampProbeWindow, MIN_PROBE_WINDOW_MS, type ProbeWindow } from '../utils/probeChart';
 import {
-  browserTimeZone, type ChartPeriod, DEFAULT_CHART_PERIOD, DEFAULT_PERIOD_HOURS, formatCompactPeriod, formatExactPeriod,
-  isRelativePeriodHours, periodWindow, type RelativePeriodHours,
+  type ChartPeriod, DEFAULT_CHART_PERIOD, DEFAULT_PERIOD_HOURS, formatCompactPeriod, formatExactPeriod,
+  periodWindow, RELATIVE_PERIOD_HOURS, type RelativePeriodHours,
 } from '../utils/probePeriod';
 import { projectProbeReadings } from '../utils/probeReadings';
 import {
-  buildProbeAverage, buildProbeSeries, hasPartialCoverage, probeRecentChanges, seriesTemperatureDomain, type ProbeSeries,
+  buildProbeAverage, buildProbeSeries, probeRecentChanges, seriesTemperatureDomain, type ProbeSeries,
 } from '../utils/probeSeries';
 import PolypbaseIcon from './PolypbaseIcon';
-import ProbeSeriesChart, { seriesClassName, type ProbeSeriesChartLabels } from './ProbeSeriesChart';
+import ProbeSeriesChart, { averageSeriesStyle, seriesClassName, type ProbeSeriesChartLabels } from './ProbeSeriesChart';
 
 const HOUR_MS = 3_600_000;
 /** Display windows only: they carry no scientific threshold. */
@@ -48,10 +50,15 @@ function chartLabels(t: Translator): ProbeSeriesChartLabels {
   };
 }
 
-const PERIOD_OPTION_KEYS: Record<RelativePeriodHours, 'probeRangeReset' | 'probePeriodLast7Days' | 'probePeriodLast30Days'> = {
-  24: 'probeRangeReset', 168: 'probePeriodLast7Days', 720: 'probePeriodLast30Days',
+/** Short visible label and full name of each rolling period. */
+const PERIOD_OPTION_KEYS: Record<RelativePeriodHours, {
+  short: 'probePeriod_24h' | 'probePeriod_7d' | 'probePeriod_30d';
+  full: 'probeRangeReset' | 'probePeriodLast7Days' | 'probePeriodLast30Days';
+}> = {
+  24: { short: 'probePeriod_24h', full: 'probeRangeReset' },
+  168: { short: 'probePeriod_7d', full: 'probePeriodLast7Days' },
+  720: { short: 'probePeriod_30d', full: 'probePeriodLast30Days' },
 };
-const CUSTOM_PERIOD_VALUE = 'custom';
 
 /** datetime-local works in the browser's zone, like every date shown by the application. */
 export function toLocalInputValue(time: number) {
@@ -200,41 +207,32 @@ export function ZoneProbeChart({ chart, zone, t }: { chart: ZoneChartReadings; z
   const hasData = series.some((entry) => entry.latest !== null) || average.length > 0;
   const dateFormat = useMemo(() => new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }), [locale]);
   const isDefaultPeriod = period.kind === 'relative' && period.hours === DEFAULT_PERIOD_HOURS;
-  const isPartialPreview = !isDefaultPeriod && readings.data?.coverage_complete === false;
-  const partial = hasPartialCoverage(series, shownWindow)
-    || average.some((entry) => entry.start < shownWindow.start || entry.end > shownWindow.end);
   const heading = t('probeReadingsTitle');
   const labels = { ...chartLabels(t), keyboardDescription: t('probeCombinedChartKeyboard'),
     ...(average.length ? { average: t('probeAverage'), averageContributors: t('probeAverageContributors') } : {}) };
-  const startInputRef = useRef<HTMLInputElement>(null);
-  const rangeButtonRef = useRef<HTMLButtonElement>(null);
-  const periodSelectRef = useRef<HTMLSelectElement>(null);
-  const restoreRangeFocus = useRef(false);
   const exactPeriodId = useId();
   const exactPeriod = formatExactPeriod(shownWindow, locale);
-  const timeZone = browserTimeZone();
-  const periodValue = isEditing || period.kind === 'custom' ? CUSTOM_PERIOD_VALUE : String(period.hours);
+  const customActive = isEditing || period.kind === 'custom';
+  // Escape and the explicit actions return focus to the button; an outside click does not.
+  const closeEditor = useCallback((restoreFocus = true) => {
+    setIsEditing(false);
+    if (restoreFocus) customButtonRef.current?.focus({ preventScroll: true });
+  }, []);
+  const { anchorRef: customButtonRef, panelRef, position, id: popoverId } = useAnchoredPopover<HTMLButtonElement>(isEditing, closeEditor, 'end');
 
   useLayoutEffect(() => {
-    if (isEditing) startInputRef.current?.focus();
-    else if (restoreRangeFocus.current) {
-      restoreRangeFocus.current = false;
-      (rangeButtonRef.current ?? periodSelectRef.current)?.focus();
-    }
-  }, [isEditing]);
+    // Focus the panel, not a field: focusing a date input selects its first segment.
+    if (isEditing && position.visibility === 'visible') panelRef.current?.focus({ preventScroll: true });
+  }, [isEditing, panelRef, position.visibility]);
 
-  function closeEditor() {
-    restoreRangeFocus.current = true;
+  function choosePeriod(hours: RelativePeriodHours) {
+    setPeriod({ kind: 'relative', hours });
     setIsEditing(false);
   }
 
-  function choosePeriod(event: ChangeEvent<HTMLSelectElement>) {
-    const { value } = event.target;
-    if (value === CUSTOM_PERIOD_VALUE) { openEditor(); return; }
-    const hours = Number(value);
-    if (!isRelativePeriodHours(hours)) return;
-    setPeriod({ kind: 'relative', hours });
-    setIsEditing(false);
+  function toggleEditor() {
+    if (isEditing) closeEditor();
+    else openEditor();
   }
 
   function openEditor() {
@@ -276,44 +274,49 @@ export function ZoneProbeChart({ chart, zone, t }: { chart: ZoneChartReadings; z
       <div className={`probe-series-progress${readings.isLoading && (!isDefaultPeriod || !readings.data) ? ' is-loading' : ''}`} aria-hidden="true" />
       <div className="zone-probe-chart-heading">
         <h2>{heading}</h2>
-        <div className="zone-probe-chart-range">
-          <select ref={periodSelectRef} className="zone-probe-period-select" value={periodValue} onChange={choosePeriod}
-            aria-label={t('probePeriod')} aria-describedby={exactPeriodId} title={exactPeriod}>
-            {Object.entries(PERIOD_OPTION_KEYS).map(([hours, key]) => <option key={hours} value={hours}>{t(key)}</option>)}
-            <option value={CUSTOM_PERIOD_VALUE}>{t('probePeriodCustom')}</option>
-          </select>
-          {custom !== null && !isEditing ? (
-            <button ref={rangeButtonRef} className="zone-probe-range-button" type="button" title={exactPeriod}
-              aria-label={t('probeRangeEdit').replace('{range}', exactPeriod)} onClick={openEditor}>
-              <span>{formatCompactPeriod(custom, locale, Date.now())}</span>
-              <PolypbaseIcon name="edit" size={15} />
-            </button>
-          ) : null}
+        <div className="zone-probe-chart-range" role="group" aria-label={t('probePeriod')} aria-describedby={exactPeriodId}>
+          {RELATIVE_PERIOD_HOURS.map((hours) => {
+            const keys = PERIOD_OPTION_KEYS[hours];
+            const pressed = !customActive && period.kind === 'relative' && period.hours === hours;
+            return (
+              <button key={hours} type="button" className="zone-probe-period-option" aria-pressed={pressed}
+                aria-label={t(keys.full)} title={t(keys.full)} onClick={() => choosePeriod(hours)}>
+                {t(keys.short)}
+              </button>
+            );
+          })}
+          <button ref={customButtonRef} type="button" className="zone-probe-period-option zone-probe-range-button"
+            aria-pressed={customActive} aria-expanded={isEditing} aria-haspopup="dialog" aria-controls={isEditing ? popoverId : undefined} title={exactPeriod}
+            aria-label={custom !== null ? t('probeRangeEdit').replace('{range}', exactPeriod) : t('probePeriodCustom')}
+            onClick={toggleEditor}>
+            <span>{custom !== null ? formatCompactPeriod(custom, locale, Date.now()) : t('probePeriodCustom')}</span>
+            {custom !== null ? <PolypbaseIcon name="edit" size={14} /> : null}
+          </button>
           <span id={exactPeriodId} className="sr-only">{exactPeriod}</span>
         </div>
       </div>
-      {isEditing ? (
-        <form className="zone-probe-range-form" onSubmit={submitRange}>
-          {timeZone ? <p className="zone-probe-range-zone">{t('probeTimeZone').replace('{zone}', timeZone)}</p> : null}
-          <label>
-            <span>{t('probeRangeStart')}</span>
-            <input ref={startInputRef} type="datetime-local" value={startValue} onChange={(event) => setStartValue(event.target.value)}
-              max={toLocalInputValue(Date.now())} required />
-          </label>
-          <label>
-            <span>{t('probeRangeEnd')}</span>
-            <input type="datetime-local" value={endValue} onChange={(event) => setEndValue(event.target.value)}
-              max={toLocalInputValue(Date.now())} required />
-          </label>
-          <div className="zone-probe-range-actions">
-            <button className="primary-button" type="submit">{t('probeRangeApply')}</button>
-            <button className="secondary-button" type="button" onClick={closeEditor}>{t('cancel')}</button>
-          </div>
-          {rangeError ? <p className="inline-error" role="alert">{t('probeRangeInvalid')}</p> : null}
-        </form>
-      ) : null}
-      {resolution > 1 && hasData ? (
-        <p className="zone-probe-chart-note">{t('probeCondensedNotice').replace('{minutes}', String(resolution))}</p>
+      {isEditing ? createPortal(
+        <div className="anchored-popover zone-probe-range-popover" id={popoverId} ref={panelRef}
+          role="dialog" aria-label={t('probePeriodCustom')} tabIndex={-1} style={position}>
+          <form className="zone-probe-range-form" onSubmit={submitRange}>
+            <label>
+              <span>{t('probeRangeStart')}</span>
+              <input type="datetime-local" value={startValue} onChange={(event) => setStartValue(event.target.value)}
+                max={toLocalInputValue(Date.now())} required />
+            </label>
+            <label>
+              <span>{t('probeRangeEnd')}</span>
+              <input type="datetime-local" value={endValue} onChange={(event) => setEndValue(event.target.value)}
+                max={toLocalInputValue(Date.now())} required />
+            </label>
+            {rangeError ? <p className="inline-error" role="alert">{t('probeRangeInvalid')}</p> : null}
+            <div className="zone-probe-range-actions">
+              <button className="secondary-button" type="button" onClick={() => closeEditor()}>{t('cancel')}</button>
+              <button className="primary-button" type="submit">{t('probeRangeApply')}</button>
+            </div>
+          </form>
+        </div>,
+        document.body,
       ) : null}
       <div className="probe-series-frame">
         <ProbeSeriesChart ariaLabel={summaryLabel(series, `${heading}, ${exactPeriod}${average.length ? `, ${t('probeAverage')}` : ''}`, t)} average={average} domain={domain} height={CHART_HEIGHT}
@@ -321,9 +324,6 @@ export function ZoneProbeChart({ chart, zone, t }: { chart: ZoneChartReadings; z
           onZoom={zoomTo} series={series} target={target} window={shownWindow} />
         {!hasData && !readings.isLoading && !readings.error ? <p className="probe-series-state"><span>{t('probeNoReadings')}</span></p> : null}
       </div>
-      {partial || isPartialPreview ? (
-        <p className="zone-probe-chart-note">{isPartialPreview ? t('probeCoveragePreview') : t('probePartialCoverage')}</p>
-      ) : null}
       {readings.error ? (
         <div className="probe-series-status" role="status">
           <p>{getErrorMessage(readings.error)}</p>
@@ -335,7 +335,7 @@ export function ZoneProbeChart({ chart, zone, t }: { chart: ZoneChartReadings; z
           <thead>
             <tr>
               <th scope="col">{t('probeLegendProbe')}</th>
-              <th scope="col">{resolution > 1 ? t('probeLatestInterval') : t('probeLatestInWindow')}</th>
+              <th scope="col">{resolution > 1 ? t('probeLatestInterval').replace('{minutes}', String(resolution)) : t('probeLatestInWindow')}</th>
               <th scope="col">{t('minTemperature')}</th>
               <th scope="col">{t('maxTemperature')}</th>
             </tr>
@@ -343,12 +343,9 @@ export function ZoneProbeChart({ chart, zone, t }: { chart: ZoneChartReadings; z
           <tbody>
             {latestAverage ? (
               <tr>
-                <th scope="row"><span className="probe-series-name"><i className="probe-series-average" aria-hidden="true" />{t('probeAverage')}</span></th>
+                <th scope="row"><span className="probe-series-name"><i className="probe-series-average" style={averageSeriesStyle(series)} aria-hidden="true" />{t('probeAverage')}</span></th>
                 <td>
                   <strong>{formatTemperature(latestAverage.mean)}</strong>
-                  {' '}<time dateTime={new Date(latestAverage.start).toISOString()}>{dateFormat.format(latestAverage.start)}</time>
-                  {' → '}<time dateTime={new Date(latestAverage.end).toISOString()}>{dateFormat.format(latestAverage.end)}</time>
-                  {' '}<small>{t('probeAverageContributors').replace('{count}', String(latestAverage.contributors))}</small>
                 </td>
                 <td>-</td><td>-</td>
               </tr>

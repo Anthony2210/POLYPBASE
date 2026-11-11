@@ -1305,7 +1305,7 @@ export const en: Record<TranslationKey, string> = {
   probeRangeInvalid: 'Choose a period from 30 minutes to 366 days, with no future date.',
   probeCondensedNotice: 'Means per {minutes}-minute interval, with minimum and maximum.',
   probeLegendProbe: 'Probe',
-  probeLatestInterval: 'Latest interval (mean)',
+  probeLatestInterval: 'Latest {minutes}-min mean',
   probeSeriesToggle: 'Show or hide {probe}',
   probeAverage: 'Probe average',
   probeAverageContributors: '{count} contributing probes',
