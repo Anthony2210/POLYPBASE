@@ -6,7 +6,7 @@ import { formatSignedTemperature, formatTemperature } from '../utils/environment
 import type { ProbeWindow } from '../utils/probeChart';
 import {
   binIntervalsForPixels, reduceReadingsForPixels, seriesEntryAt, SERIES_STYLE_COUNT, snapCursorTime,
-  splitReadingsAtGaps, stepCursorTime, type ProbeSeries, type RawReading,
+  splitReadingsAtGaps, stepCursorTime, type ProbeAveragePeriod, type ProbeSeries, type RawReading,
 } from '../utils/probeSeries';
 import { zoomProbeAt } from '../utils/probeGestures';
 
@@ -21,6 +21,8 @@ export type ProbeSeriesChartLabels = {
   maximum: string;
   unit: string;
   keyboardDescription?: string;
+  average?: string;
+  averageContributors?: string;
 };
 
 export function seriesClassName(slot: number) {
@@ -28,9 +30,10 @@ export function seriesClassName(slot: number) {
 }
 
 export default function ProbeSeriesChart({
-  ariaLabel, domain, height, hiddenIds, labels, locale, onResetZoom, onZoom, series, target, window,
+  ariaLabel, average = [], domain, height, hiddenIds, labels, locale, onResetZoom, onZoom, series, target, window,
 }: {
   ariaLabel: string;
+  average?: readonly ProbeAveragePeriod[];
   domain: [number, number] | null;
   height: number;
   hiddenIds?: ReadonlySet<number>;
@@ -103,6 +106,17 @@ export default function ProbeSeriesChart({
     });
   }, [axes, series]);
 
+  const averagePath = useMemo(() => {
+    let path = '';
+    let previousEnd: number | null = null;
+    // Do not pixel-bin server means: that would invent a new inter-probe average.
+    for (const period of average) {
+      path += `${previousEnd === period.start ? 'V' : `M${axes.x(period.start)},`}${axes.y(period.mean)}H${axes.x(period.end)}`;
+      previousEnd = period.end;
+    }
+    return path;
+  }, [average, axes]);
+
   const visible = useMemo(() => series.filter((entry) => !hiddenIds?.has(entry.id)), [hiddenIds, series]);
   const dateTimeFormat = useMemo(() => new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }), [locale]);
   const timeFormat = useMemo(() => new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }), [locale]);
@@ -111,6 +125,11 @@ export default function ProbeSeriesChart({
   const entries = cursorInWindow
     ? visible.flatMap((entry) => { const found = seriesEntryAt(entry, cursorTime); return found ? [found] : []; })
     : [];
+  const averageEntry = cursorInWindow ? average.find((period) => cursorTime >= period.start && cursorTime < period.end) : undefined;
+  const averagePeriod = averageEntry
+    ? `${dateTimeFormat.format(averageEntry.start)} → ${dateTimeFormat.format(averageEntry.end)}` : '';
+  const averageValue = averageEntry
+    ? `${formatTemperature(averageEntry.mean)}, ${(labels.averageContributors ?? '').replace('{count}', String(averageEntry.contributors))}` : '';
   const condensed = entries.find((entry) => entry.kind === 'condensed');
   const heading = condensed?.kind === 'condensed'
     ? `${dateTimeFormat.format(condensed.interval.start)} → ${dateTimeFormat.format(condensed.interval.end)}`
@@ -134,7 +153,8 @@ export default function ProbeSeriesChart({
 
   function moveCursor(x: number) {
     setIsKeyboardCursor(false);
-    setCursorTime(snapCursorTime(visible, axes.x.invert(x).getTime()));
+    const time = axes.x.invert(x).getTime();
+    setCursorTime(average.length ? time : snapCursorTime(visible, time));
   }
 
   function handlePointerDown(event: PointerEvent<SVGSVGElement>) {
@@ -169,7 +189,13 @@ export default function ProbeSeriesChart({
     if (event.altKey || event.ctrlKey || event.metaKey) return;
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
       event.preventDefault();
-      const next = stepCursorTime(visible, cursorInWindow ? cursorTime : null, event.key === 'ArrowLeft' ? -1 : 1);
+      const from = cursorInWindow ? cursorTime : null;
+      const direction = event.key === 'ArrowLeft' ? -1 : 1;
+      const probeTime = stepCursorTime(visible, from, direction);
+      const candidates = average.map((period) => period.start)
+        .filter((time) => from === null || (direction > 0 ? time > from : time < from));
+      if (probeTime !== null) candidates.push(probeTime);
+      const next = candidates.length ? (direction > 0 ? Math.min(...candidates) : Math.max(...candidates)) : null;
       if (next !== null) { setIsKeyboardCursor(true); setCursorTime(next); }
     } else if (event.key === 'Escape' && cursorTime !== null) {
       setCursorTime(null);
@@ -182,7 +208,7 @@ export default function ProbeSeriesChart({
   }
 
   const announcement = isKeyboardCursor && cursorInWindow
-    ? `${heading}. ${entries.map((entry) => `${entry.series.code}: ${rowValue(entry)}`).join('. ')}`
+    ? `${heading}. ${entries.map((entry) => `${entry.series.code}: ${rowValue(entry)}`).join('. ')}${averageEntry ? `. ${labels.average}: ${averagePeriod}, ${averageValue}` : ''}`
     : '';
   const flipTooltip = cursorX !== null && cursorX > width / 2;
 
@@ -222,8 +248,13 @@ export default function ProbeSeriesChart({
         {targetVisible ? (
           <g className="probe-series-target">
             <line x1={MARGIN.left} x2={width - MARGIN.right} y1={axes.y(target)} y2={axes.y(target)} />
-            <text x={MARGIN.left + 4} y={axes.y(target) - 5}>{labels.target} {formatTemperature(target)}</text>
           </g>
+        ) : null}
+        {targetVisible ? (
+          // Named above the plot, so the label never covers curves near the target.
+          <text className="probe-series-target-key" x={width - MARGIN.right} y={8} dy="0.32em" textAnchor="end">
+            {labels.target} {formatTemperature(target)}
+          </text>
         ) : null}
         <g clipPath={`url(#${clipId})`}>
           {drawn.filter(({ entry }) => !hiddenIds?.has(entry.id)).map(({ entry, path, band, mean, dots, lastReading }) => (
@@ -235,6 +266,7 @@ export default function ProbeSeriesChart({
               {lastReading ? <circle className="probe-series-dot is-latest" cx={axes.x(lastReading[0])} cy={axes.y(lastReading[1])} r={3.5} /> : null}
             </g>
           ))}
+          {averagePath ? <path className="probe-series-average probe-series-average-line" d={averagePath} /> : null}
           {cursorX !== null ? (
             <g className="probe-series-cursor" aria-hidden="true">
               <line x1={cursorX} x2={cursorX} y1={MARGIN.top} y2={height - MARGIN.bottom} />
@@ -249,7 +281,7 @@ export default function ProbeSeriesChart({
           ) : null}
         </g>
       </svg>
-      {entries.length && cursorX !== null && !drag ? (
+      {(entries.length > 0 || averageEntry) && cursorX !== null && !drag ? (
         <div className="probe-series-tooltip" aria-hidden="true"
           style={flipTooltip ? { right: Math.max(8, width - cursorX + 12) } : { left: cursorX + 12 }}>
           <small>{heading}</small>
@@ -262,6 +294,14 @@ export default function ProbeSeriesChart({
                 ? <small>{timeFormat.format(entry.time)}</small> : null}
             </span>
           ))}
+          {averageEntry ? (
+            <span className="probe-series-average">
+              <i aria-hidden="true" />
+              <b>{labels.average}</b>
+              <strong>{averageValue}</strong>
+              <small>{averagePeriod}</small>
+            </span>
+          ) : null}
           {target !== null && !condensed ? <small>{labels.target} {formatTemperature(target)}</small> : null}
         </div>
       ) : null}

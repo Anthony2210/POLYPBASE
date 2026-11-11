@@ -22,9 +22,13 @@ export const usageExceptions = Object.freeze({
 
   ...Object.fromEntries([
     'probeAggregateAverage', 'probeAggregateCoverage', 'probeChartKeyboardDescription', 'probeMeasurementCount',
-    'probeNoCollectedProbe', 'probePeriod', 'probePeriod_24h', 'probePeriod_30d', 'probePeriod_7d', 'probePeriod_90d',
+    'probeNoCollectedProbe', 'probePeriod_24h', 'probePeriod_30d', 'probePeriod_7d', 'probePeriod_90d',
     'probeRawReading', 'probeReadingsAction', 'probeResetZoom', 'probeWindowNext', 'probeWindowPrevious',
   ].map(key => [key, 'Zone thermal charts (2026-11-09): the probe modal, period pills and navigation arrows were replaced by one on-page chart; retain the catalogs and Japanese provenance pending an explicit i18n removal batch.'])),
+
+  ...Object.fromEntries([
+    'temperatureNoRecent', 'probeSilentBadge', 'probeSilentDescription', 'probeSilentNoReadingDescription',
+  ].map(key => [key, 'Thermal chart simplification (2026-11-10): explicitly removed from the location thermal control; the last reading time keeps old readings distinct from no reading. Retain the catalogs and Japanese provenance pending an explicit i18n removal batch.'])),
 
   historyPartial: 'Historical movements (5b1299b): BoxHistoryStatus now reports loading and errors only; retain the undated-source notice and Japanese review provenance pending an explicit i18n removal batch.',
 

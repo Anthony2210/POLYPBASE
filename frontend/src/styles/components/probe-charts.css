@@ -1,14 +1,33 @@
-/* Five validated hues; slots 6-10 reuse them with different line patterns. */
-.probe-series-1 { --series-color: #2a78d6; --series-dash: none; }
-.probe-series-2 { --series-color: #eb6834; --series-dash: 7 3; }
-.probe-series-3 { --series-color: #1baf7a; --series-dash: none; }
-.probe-series-4 { --series-color: #6250d6; --series-dash: 7 3; }
-.probe-series-5 { --series-color: #e87ba4; --series-dash: none; }
-.probe-series-6 { --series-color: #2a78d6; --series-dash: 2 3; }
-.probe-series-7 { --series-color: #eb6834; --series-dash: 2 3; }
-.probe-series-8 { --series-color: #1baf7a; --series-dash: 9 3 2 3; }
-.probe-series-9 { --series-color: #6250d6; --series-dash: 2 3; }
-.probe-series-10 { --series-color: #e87ba4; --series-dash: 9 3 2 3; }
+/*
+ * Every curve is a solid line. Slots 1-8 each have their own hue (validated
+ * categorical order, palette checked for CVD separation); slots 9 and 10 reuse
+ * the first two hues and add a hollow marker on their latest reading.
+ */
+.probe-series-1 { --series-color: #2a78d6; }
+.probe-series-2 { --series-color: #eb6834; }
+.probe-series-3 { --series-color: #1baf7a; }
+.probe-series-4 { --series-color: #6250d6; }
+.probe-series-5 { --series-color: #e87ba4; }
+.probe-series-6 { --series-color: #eda100; }
+.probe-series-7 { --series-color: #008300; }
+.probe-series-8 { --series-color: #e34948; }
+.probe-series-9 { --series-color: #2a78d6; --series-marker-fill: var(--color-surface); }
+.probe-series-10 { --series-color: #eb6834; --series-marker-fill: var(--color-surface); }
+
+.probe-series-average {
+  --series-color: var(--color-ink);
+}
+
+.probe-series-average-line {
+  fill: none;
+  stroke: var(--series-color);
+  stroke-width: 3;
+  stroke-linejoin: round;
+}
+
+.probe-series-name i.probe-series-average {
+  border-top-width: 3px;
+}
 
 .probe-series-frame {
   position: relative;
@@ -53,13 +72,13 @@
   fill: none;
   stroke: var(--series-color);
   stroke-width: 1.6;
-  stroke-dasharray: var(--series-dash);
   stroke-linejoin: round;
+  stroke-linecap: round;
 }
 
 .probe-series-band {
   fill: var(--series-color);
-  fill-opacity: 0.16;
+  fill-opacity: 0.12;
   stroke: none;
 }
 
@@ -68,8 +87,15 @@
 }
 
 .probe-series-dot.is-latest {
-  stroke: var(--color-surface);
+  fill: var(--series-marker-fill, var(--series-color));
+  stroke: var(--series-marker-fill, var(--color-surface));
   stroke-width: 1.5;
+}
+
+.probe-series-9 .probe-series-dot.is-latest,
+.probe-series-10 .probe-series-dot.is-latest {
+  stroke: var(--series-color);
+  stroke-width: 2;
 }
 
 .probe-series-target line {
@@ -77,7 +103,7 @@
   stroke-width: 1;
 }
 
-.probe-series-target text {
+.probe-series-target-key {
   fill: var(--color-ink-soft);
   font-family: inherit;
   font-size: 0.7rem;
@@ -283,22 +309,27 @@
   font-weight: 500;
 }
 
-/* The swatch repeats the curve's color and line pattern. */
+/* The swatch repeats the curve's color; slots 9 and 10 add their marker. */
 .probe-series-name i {
+  position: relative;
   width: 22px;
   height: 0;
   border-top: 2px solid var(--series-color);
 }
 
-.probe-series-name i.probe-series-2,
-.probe-series-name i.probe-series-4 { border-top-style: dashed; }
-
-.probe-series-name i.probe-series-6,
-.probe-series-name i.probe-series-7,
-.probe-series-name i.probe-series-9 { border-top-style: dotted; }
-
-.probe-series-name i.probe-series-8,
-.probe-series-name i.probe-series-10 { border-top-style: double; border-top-width: 3px; }
+.probe-series-name i.probe-series-9::before,
+.probe-series-name i.probe-series-10::before {
+  position: absolute;
+  top: -5px;
+  left: 7px;
+  width: 8px;
+  height: 8px;
+  box-sizing: border-box;
+  content: '';
+  background: var(--color-surface);
+  border: 2px solid var(--series-color);
+  border-radius: 50%;
+}
 
 @media (max-width: 640px) {
   .probe-series-legend td time { display: block; }

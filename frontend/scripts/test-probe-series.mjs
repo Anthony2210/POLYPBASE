@@ -84,11 +84,12 @@ function render(path, props, imports, globals = {}, prepare = null) {
   return view;
 }
 
-const chartLabels = { target: 'Target', mean: 'Mean', minimum: 'Min', maximum: 'Max', unit: '°C', keyboardDescription: 'Keys' };
+const chartLabels = { target: 'Target', mean: 'Mean', minimum: 'Min', maximum: 'Max', unit: '°C', keyboardDescription: 'Keys',
+  average: 'Probe average', averageContributors: '{count} contributing probes' };
 function renderChart(data, overrides = {}) {
   const built = series.buildProbeSeries(data);
   const props = {
-    ariaLabel: 'Chart', domain: [20, 26], height: 320, labels: chartLabels, locale: 'en-GB', series: built, target: 22, window,
+    ariaLabel: 'Chart', average: series.buildProbeAverage(data), domain: [20, 26], height: 320, labels: chartLabels, locale: 'en-GB', series: built, target: 22, window,
     onZoom() {}, onResetZoom() {}, ...overrides,
   };
   const view = render('../src/components/ProbeSeriesChart.tsx', props, {
@@ -121,16 +122,23 @@ for (const count of [1, 2, 10]) {
   });
 }
 
-test('every series style pairs a color with a line pattern from the shared stylesheet', () => {
+test('every series style has a solid curve: eight hues, then a marker for repeated hues', () => {
   const css = readFileSync(new URL('../src/styles/components/probe-charts.css', import.meta.url), 'utf8');
   const looks = [];
+  const colors = [];
   for (let slot = 1; slot <= series.SERIES_STYLE_COUNT; slot += 1) {
-    const rule = css.match(new RegExp(`\\.probe-series-${slot} \\{([^}]+)\\}`))[1];
+    const rule = css.match(new RegExp(`\.probe-series-${slot} \{([^}]+)\}`))[1];
     assert.match(rule, /--series-color/);
-    assert.match(rule, /--series-dash/);
+    assert.doesNotMatch(rule, /dash/);
     looks.push(rule.trim());
+    colors.push(rule.match(/--series-color: (#[0-9a-f]{6})/)[1]);
   }
   assert.equal(new Set(looks).size, series.SERIES_STYLE_COUNT);
+  assert.equal(new Set(colors.slice(0, 8)).size, 8, 'The first eight probes each have their own hue');
+  for (const slot of [9, 10]) {
+    assert.match(css, new RegExp(`\.probe-series-${slot} \{[^}]*--series-marker-fill`), `slot ${slot} adds a marker`);
+    assert.match(css, new RegExp(`\.probe-series-name i\.probe-series-${slot}::before`), `legend ${slot} repeats the marker`);
+  }
   assert.doesNotMatch(css, /color-danger/, 'No probe curve may borrow the danger color');
 });
 
@@ -269,8 +277,26 @@ test('pixel binning of intervals keeps exact extrema and count weights', () => {
 test('the target line uses the provided value and disappears without a target', () => {
   const view = renderChart(readings([steady(1)]));
   const target = view.find((node) => node.props.className === 'probe-series-target')[0];
-  assert.match(view.text(target), /Target 22\.0°C/);
-  assert.equal(renderChart(readings([steady(1)]), { target: null }).find((node) => node.props.className === 'probe-series-target').length, 0);
+  const line = view.find((node) => node.type === 'line', target)[0];
+  assert.equal(line.props.y1, line.props.y2, 'The target is a horizontal solid line');
+  assert.equal(line.props.strokeDasharray, undefined);
+  assert.equal(view.text(target), '', 'No label is drawn on the plot next to the curves');
+  const key = view.find((node) => node.props.className === 'probe-series-target-key')[0];
+  assert.match(view.text(key), /Target 22\.0°C/);
+  assert.equal(key.props.y, 8, 'The target is named above the plot area');
+  assert.equal(key.props.textAnchor, 'end');
+  const none = renderChart(readings([steady(1)]), { target: null });
+  assert.equal(none.find((node) => node.props.className === 'probe-series-target').length, 0);
+  assert.equal(none.find((node) => node.props.className === 'probe-series-target-key').length, 0);
+});
+
+test('curves, condensed means and the target are solid strokes in the stylesheet', () => {
+  const css = readFileSync(new URL('../src/styles/components/probe-charts.css', import.meta.url), 'utf8');
+  assert.doesNotMatch(css, /dasharray|--series-dash|dashed|dotted|double/);
+  const view = renderChart(readings([probe(1, [interval(0, 15 * MINUTE, 22, 21, 24), interval(15 * MINUTE, 30 * MINUTE, 22.5, 22, 23)])], 15));
+  for (const node of view.find((child) => child.type === 'path' || child.type === 'line')) {
+    assert.equal(node.props.strokeDasharray, undefined);
+  }
 });
 
 test('tooltip shows the actual timestamp and value, and the gap to target', () => {
@@ -337,6 +363,50 @@ test('edge buckets are reported as partial; contained intervals are not', () => 
   assert.equal(series.hasPartialCoverage(built, { start: 0, end: 30 * MINUTE }), false);
 });
 
+for (const resolution of [1, 15, 60]) {
+  test(`server average at ${resolution} minutes preserves periods, zero and contributor counts`, () => {
+    const duration = resolution * MINUTE;
+    const data = { ...readings([steady(1), steady(2)], resolution),
+      probe_average: [[0, 0, 2], [duration, -1.25, 3], [3 * duration, 7, 2]] };
+    const average = series.buildProbeAverage(data);
+    assert.deepEqual(JSON.parse(JSON.stringify(average)), [
+      { start: 0, end: duration, mean: 0, contributors: 2 },
+      { start: duration, end: 2 * duration, mean: -1.25, contributors: 3 },
+      { start: 3 * duration, end: 4 * duration, mean: 7, contributors: 2 },
+    ]);
+    const view = renderChart(data, { domain: [-2, 26] });
+    const path = view.find((node) => node.props.className === 'probe-series-average probe-series-average-line')[0];
+    assert.equal((path.props.d.match(/M/g) ?? []).length, 2, 'A missing period breaks the curve');
+    assert.equal((path.props.d.match(/H/g) ?? []).length, 3, 'Every server mean has its own period, not pixel-averaged');
+    const tooltip = view.hover(0);
+    assert.match(view.text(tooltip), /Probe average0\.0°C, 2 contributing probes/);
+    assert.match(view.text(tooltip), /→/, 'Minute averages are periods too');
+    assert.equal(view.groups().length, 2, 'Individual curves remain present');
+    assert.equal(view.find((node) => node.props.className === 'probe-series-target').length, 1);
+    const domain = series.seriesTemperatureDomain([], null, average);
+    assert.ok(domain[0] < -1.25 && domain[1] > 7);
+  });
+}
+
+test('average does not appear from individual readings or across an absent minute', () => {
+  assert.equal(series.buildProbeAverage(readings([steady(1), steady(2)])).length, 0);
+  assert.equal(series.buildProbeAverage(null).length, 0);
+  const data = { ...readings([]), probe_average: [[0, 0, 2], [2 * MINUTE, 5, 3]] };
+  const view = renderChart(data);
+  assert.equal(view.hover(MINUTE), undefined, 'No nearest-value fallback for a missing average period');
+  const withProbe = renderChart({ ...data, probes: [probe(1, [raw(0, 22)])] });
+  assert.ok(!withProbe.text(withProbe.hover(MINUTE)).includes('Probe average'),
+    'Snapping to an older individual reading must not fill a missing average period');
+  view.svg().props.onKeyDown({ key: 'Escape', preventDefault() {} });
+  view.render();
+  view.svg().props.onKeyDown({ key: 'ArrowRight', preventDefault() {} });
+  view.render();
+  assert.match(view.text(view.find((node) => node.props.role === 'status')[0]), /Probe average.*0\.0°C, 2 contributing probes/);
+  view.svg().props.onKeyDown({ key: 'ArrowRight', preventDefault() {} });
+  view.render();
+  assert.match(view.text(view.find((node) => node.props.role === 'status')[0]), /5\.0°C, 3 contributing probes/);
+});
+
 // Actual section components, with the data hook controlled.
 function zoneCharts({ state = {}, language = 'fr', initial = { settled: true, data: null } } = {}) {
   const copy = language === 'fr' ? fr : en;
@@ -360,7 +430,7 @@ function zoneCharts({ state = {}, language = 'fr', initial = { settled: true, da
       calls.push({ zoneId, window: requested });
       return requested === null ? { data: null, window: { start: 0, end: 0 }, isLoading: false, error: null, retry() {} } : current;
     } },
-    '../utils/probeReadings': load('../src/utils/probeReadings.ts'),
+    '../utils/probeReadings': load('../src/utils/probeReadings.ts'), '../utils/probePeriod': load('../src/utils/probePeriod.ts'),
     '../utils/dateFormat': dates, '../utils/environmentFormat': environment,
     '../utils/errors': { getErrorMessage: (error) => error.message },
     '../utils/probeChart': chart, '../utils/probeSeries': series,
@@ -391,6 +461,10 @@ function zoneCharts({ state = {}, language = 'fr', initial = { settled: true, da
 const payload = readings([steady(1, 3), probe(2, [raw(0, 0)])]);
 const section = (view) => view.find((node) => (node.props.className ?? '').includes('zone-probe-chart-section'))[0];
 
+const periodSelect = (view) => view.find((node) => node.type === 'select')[0];
+const rangeButton = (view) => view.find((node) => node.props.className === 'zone-probe-range-button')[0];
+const choose = (view, value) => { periodSelect(view).props.onChange({ target: { value } }); view.render('ZoneProbeChart'); };
+
 test('the combined chart is on the page by default for the last 24 hours, with no trigger or modal', () => {
   const view = zoneCharts({ state: { data: payload, isLoading: false } }).render('ZoneProbeChart');
   assert.equal(section(view).type, 'section');
@@ -398,29 +472,53 @@ test('the combined chart is on the page by default for the last 24 hours, with n
   assert.equal(view.find((node) => node.props.role === 'dialog').length, 0);
   assert.deepEqual({ ...view.calls.at(-1).window }, { start: 0, end: 24 * HOUR });
   assert.equal(view.calls.at(-1).zoneId, 7);
-  assert.match(view.text(view.find((node) => node.props.className === 'zone-probe-range-button')[0]), /→/);
+  assert.equal(periodSelect(view).props.value, '24');
+  assert.equal(rangeButton(view), undefined, 'A rolling window needs no long date string');
+  const visible = view.find((node) => node.type === 'option' && node.props.value === '24')[0];
+  assert.equal(view.text(visible), view.copy.probeRangeReset);
 });
 
-for (const [language, prefix] of [['fr', 'Modifier la période : '], ['en', 'Change the period: ']]) {
-  test(`${language}: the range button names its actual period once and opens the editor`, () => {
+for (const [language, prefix, options] of [
+  ['fr', 'Modifier la période : ', ['Dernières 24 h', '7 derniers jours', '30 derniers jours', 'Dates précises']],
+  ['en', 'Change the period: ', ['Last 24 h', 'Last 7 days', 'Last 30 days', 'Exact dates']],
+]) {
+  test(`${language}: one compact period control names relative and exact periods`, () => {
     const view = zoneCharts({ language, state: { data: payload, isLoading: false } }).render('ZoneProbeChart');
-    const button = view.find((node) => node.props.className === 'zone-probe-range-button')[0];
-    const dates = load('../src/utils/dateFormat.ts', {}, { document: { documentElement: { lang: language } } });
-    const range = `${dates.formatDisplayDateTime(new Date(0).toISOString())} → ${dates.formatDisplayDateTime(new Date(24 * HOUR).toISOString())}`;
-    const label = button.props['aria-label'];
-    assert.equal(label, `${prefix}${range}`);
-    assert.doesNotMatch(label, /\{range\}/);
-    assert.equal(label.split(range).length - 1, 1);
-    assert.equal(view.text(button), range, 'The visible range keeps its date and timezone formatting');
-    assert.equal(button.type, 'button');
-    assert.equal(button.props.type, 'button');
-    assert.equal(view.find((node) => node.type === 'form').length, 0);
-    button.props.onClick();
-    view.render('ZoneProbeChart');
+    const select = periodSelect(view);
+    assert.equal(select.props['aria-label'], view.copy.probePeriod);
+    assert.deepEqual(view.find((node) => node.type === 'option', select).map((node) => view.text(node)), options);
+    assert.deepEqual(view.find((node) => node.type === 'option', select).map((node) => node.props.value), ['24', '168', '720', 'custom']);
+    // Exact bounds and time zone stay available to assistive technologies and on hover.
+    const description = view.find((node) => node.props.id === select.props['aria-describedby'])[0];
+    const format = new Intl.DateTimeFormat(language === 'fr' ? 'fr-FR' : 'en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const exact = `${format.format(0)} → ${format.format(24 * HOUR)} (${zone})`;
+    assert.equal(view.text(description), exact);
+    assert.equal(select.props.title, exact);
+    assert.equal(view.find((node) => node.type === 'button' && node.props.children === view.copy.probeRangeReset).length, 0, 'No separate reset button');
+
+    choose(view, '168');
+    assert.equal(view.calls.at(-1).window.end - view.calls.at(-1).window.start, 7 * 24 * HOUR);
+    assert.equal(view.calls.at(-1).window.end, 24 * HOUR, 'A relative period ends at the live end');
+    assert.equal(periodSelect(view).props.value, '168');
+    assert.equal(view.find((node) => node.type === 'form').length, 0, 'A relative period applies in one step');
+
+    choose(view, 'custom');
     assert.equal(view.find((node) => node.props.className === 'zone-probe-range-form').length, 1);
     const inputs = view.find((node) => node.type === 'input');
     assert.equal(inputs.length, 2);
     assert.ok(inputs.every((node) => node.props.type === 'datetime-local' && node.props.value));
+    assert.equal(view.text(view.find((node) => node.props.className === 'zone-probe-range-zone')[0]),
+      view.copy.probeTimeZone.replace('{zone}', zone));
+    view.find((node) => node.type === 'form')[0].props.onSubmit({ preventDefault() {} });
+    view.render('ZoneProbeChart');
+    assert.equal(periodSelect(view).props.value, 'custom');
+    const button = rangeButton(view);
+    const label = button.props['aria-label'];
+    assert.ok(label.startsWith(prefix));
+    assert.doesNotMatch(label, /\{range\}/);
+    assert.ok(label.endsWith(`(${zone})`), 'The accessible name carries the time zone');
+    assert.ok(view.text(button).length < label.length - prefix.length, 'The visible label is shorter than the exact bounds');
   });
 }
 
@@ -428,7 +526,8 @@ test('obsolete period pills, arrows and provenance copy are gone from the page',
   const view = zoneCharts({ state: { data: payload, isLoading: false } }).render('ZoneProbeChart');
   const text = view.text();
   assert.equal(view.find((node) => node.props.className === 'chart-periods').length, 0);
-  for (const key of ['probePeriod_24h', 'probePeriod_7d', 'probePeriod_30d', 'probePeriod_90d', 'probeWindowPrevious', 'probeWindowNext', 'probeAggregateCoverage', 'probeReadingsAction']) {
+  assert.equal(view.find((node) => node.type === 'button' && /^\d/.test(view.text(node))).length, 0, 'No range pills');
+  for (const key of ['probePeriod_7d', 'probePeriod_30d', 'probePeriod_90d', 'probeWindowPrevious', 'probeWindowNext', 'probeAggregateCoverage', 'probeReadingsAction']) {
     assert.ok(!text.includes(view.copy[key]), key);
   }
   for (const source of ['ZoneProbeCharts.tsx', 'ProbeSeriesChart.tsx', 'ZonesView.tsx']) {
@@ -486,6 +585,30 @@ test('the legend identifies probes, distinguishes inactive ones and last values 
   assert.equal(view.find((node) => node.type === 'button', view.find((node) => node.type === 'tr')[1])[0].props['aria-pressed'], false);
 });
 
+for (const language of ['fr', 'en']) {
+  test(`${language}: server average legend keeps its interval and count when individual curves are hidden`, () => {
+    const data = { ...payload, probe_average: [[0, 0, 2]] };
+    const view = zoneCharts({ language, state: { data, isLoading: false } }).render('ZoneProbeChart');
+    const row = view.find((node) => node.type === 'tr')[1];
+    assert.ok(view.text(row).includes(view.copy.probeAverage));
+    assert.ok(view.text(row).includes(view.copy.probeAverageContributors.replace('{count}', '2')));
+    assert.match(view.text(row), /0\.0°C/);
+    assert.deepEqual(view.find((node) => node.type === 'time', row).map((node) => node.props.dateTime),
+      [new Date(0).toISOString(), new Date(MINUTE).toISOString()]);
+    for (const button of view.find((node) => node.type === 'button' && node.props['aria-pressed'] === true)) button.props.onClick();
+    view.render('ZoneProbeChart');
+    const props = view.find((node) => node.type === view.chart)[0].props;
+    assert.equal(props.average[0].mean, 0);
+    assert.equal(props.average[0].contributors, 2);
+    assert.ok(props.hiddenIds.has(1) && props.hiddenIds.has(2));
+    Object.assign(view.current, { data: null, isLoading: true });
+    view.context.signal = new AbortController().signal;
+    view.render('ZoneProbeChart');
+    assert.equal(view.find((node) => node.type === view.chart)[0].props.average.length, 0);
+    assert.ok(!view.text().includes(view.copy.probeAverage), 'No old average after context clears');
+  });
+}
+
 test('a condensed window labels aggregates as such', () => {
   const view = zoneCharts({ state: { data: readings([probe(1, [interval(0, 15 * MINUTE, 22, 21, 24)])], 15), isLoading: false } }).render('ZoneProbeChart');
   assert.ok(view.text().includes(view.copy.probeLatestInterval));
@@ -494,8 +617,7 @@ test('a condensed window labels aggregates as such', () => {
 
 test('date range editing validates, applies and returns to the rolling window', () => {
   const view = zoneCharts({ state: { data: payload, isLoading: false } }).render('ZoneProbeChart');
-  view.find((node) => node.props.className === 'zone-probe-range-button')[0].props.onClick();
-  view.render('ZoneProbeChart');
+  choose(view, 'custom');
   const inputs = () => view.find((node) => node.type === 'input');
   assert.equal(inputs().length, 2);
   assert.ok(inputs().every((node) => node.props.type === 'datetime-local'));
@@ -513,19 +635,30 @@ test('date range editing validates, applies and returns to the rolling window', 
   view.render('ZoneProbeChart');
   assert.equal(view.calls.at(-1).window.end - view.calls.at(-1).window.start, 24 * HOUR);
   assert.equal(view.calls.at(-1).window.start, new Date('2000-01-01T00:00').getTime());
-  const reset = view.find((node) => node.type === 'button' && node.props.children === view.copy.probeRangeReset)[0];
-  assert.ok(reset);
-  reset.props.onClick();
-  view.render('ZoneProbeChart');
+  // A whole local day is named once, without repeated times.
+  assert.equal(view.text(rangeButton(view)),
+    new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date('2000-01-01T00:00')));
+  choose(view, '24');
   assert.deepEqual({ ...view.calls.at(-1).window }, { start: 0, end: 24 * HOUR });
-  assert.equal(view.find((node) => node.type === 'button' && node.props.children === view.copy.probeRangeReset).length, 0);
+  assert.equal(rangeButton(view), undefined);
+});
+
+test('cancelling the exact dates editor keeps the current period', () => {
+  const view = zoneCharts({ state: { data: payload, isLoading: false } }).render('ZoneProbeChart');
+  choose(view, '720');
+  choose(view, 'custom');
+  assert.equal(periodSelect(view).props.value, 'custom', 'The control reflects the open editor');
+  view.find((node) => node.type === 'button' && node.props.children === view.copy.cancel)[0].props.onClick();
+  view.render('ZoneProbeChart');
+  assert.equal(periodSelect(view).props.value, '720');
+  assert.equal(view.calls.at(-1).window.end - view.calls.at(-1).window.start, 30 * 24 * HOUR);
 });
 
 test('range parsing keeps the bounds the server accepts', () => {
   const now = new Date('2026-11-09T12:00').getTime();
   const { parseRangeInputs } = load('../src/components/ZoneProbeCharts.tsx', {
     react: {}, 'react/jsx-runtime': jsxRuntime, '../api/client': {}, '../hooks/useLiveWindowEnd': {}, '../hooks/useProbeReadings': {},
-    '../utils/probeReadings': {},
+    '../utils/probeReadings': {}, '../utils/probePeriod': {},
     '../utils/dateFormat': {}, '../utils/environmentFormat': {}, '../utils/errors': {}, '../utils/probeChart': chart, '../utils/probeSeries': series,
     './PolypbaseIcon': {}, './ProbeSeriesChart': {},
   });
@@ -717,8 +850,7 @@ test('a location without a collected probe requests no series', () => {
 
 test('date selection has no data-derived lower bound and still reaches old periods', () => {
   const view = zoneCharts({ state: { data: payload, isLoading: false } }).render('ZoneProbeChart');
-  view.find((node) => node.props.className === 'zone-probe-range-button')[0].props.onClick();
-  view.render('ZoneProbeChart');
+  choose(view, 'custom');
   const inputs = () => view.find((node) => node.type === 'input');
   assert.ok(inputs().every((node) => node.props.min === undefined));
   assert.ok(inputs().every((node) => typeof node.props.max === 'string'));
@@ -729,30 +861,31 @@ test('date selection has no data-derived lower bound and still reaches old perio
   view.render('ZoneProbeChart');
   assert.equal(view.calls.at(-1).window.start, new Date('2024-03-01T00:00').getTime());
   assert.equal(view.find((node) => node.props.role === 'alert').length, 0);
+  // The button reopens the editor on the exact bounds already shown.
+  rangeButton(view).props.onClick();
+  view.render('ZoneProbeChart');
+  assert.deepEqual(view.find((node) => node.type === 'input').map((node) => node.props.value), ['2024-03-01T00:00', '2024-03-08T00:00']);
 });
 
-test('opening the range editor focuses its first field and closing returns to the range', () => {
+test('opening the range editor focuses its first field and closing returns to the period control', () => {
   const view = zoneCharts({ state: { data: payload, isLoading: false } }).render('ZoneProbeChart');
   const focused = [];
-  const button = () => view.find((node) => node.props.className === 'zone-probe-range-button')[0];
-  button().ref.current = { focus() { focused.push('range'); } };
-  button().props.onClick();
-  view.render('ZoneProbeChart');
+  choose(view, 'custom');
   view.find((node) => node.type === 'input')[0].ref.current = { focus() { focused.push('start'); } };
   view.flush();
   assert.deepEqual(focused, ['start']);
   view.find((node) => node.type === 'button' && node.props.children === view.copy.cancel)[0].props.onClick();
   view.render('ZoneProbeChart');
-  view.find((node) => node.props.className === 'zone-probe-range-button')[0].ref.current = { focus() { focused.push('range'); } };
+  periodSelect(view).ref.current = { focus() { focused.push('period'); } };
   view.flush();
-  assert.deepEqual(focused, ['start', 'range']);
+  assert.deepEqual(focused, ['start', 'period']);
 });
 
 test('chart controls stop above the fixed phone navigation without changing it', () => {
   const css = readFileSync(new URL('../src/styles/pages/zones.css', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
   const rule = css.match(/([^{}]*\.zone-probe-range-button,[^{}]*)\{\s*scroll-margin-bottom: var\(--phone-nav-clearance, 0px\);/);
   assert.ok(rule, 'The range controls reserve the navigation height');
-  for (const selector of ['.zone-probe-range-form :is(input, button)', '.probe-series-legend button', '.probe-series-svg']) {
+  for (const selector of ['.zone-probe-period-select', '.zone-probe-range-form :is(input, button)', '.probe-series-legend button', '.probe-series-svg']) {
     assert.ok(rule[1].includes(selector), selector);
   }
   assert.match(readFileSync(new URL('../src/styles/responsive/phone.css', import.meta.url), 'utf8'), /--phone-nav-clearance: calc\(100px \+ env\(safe-area-inset-bottom\)\)/);

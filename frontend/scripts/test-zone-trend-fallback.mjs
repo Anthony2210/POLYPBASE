@@ -69,6 +69,7 @@ function bench({ visibilityState = 'visible' } = {}) {
     useCallback: (callback, deps) => memo(() => callback, deps),
     useEffect: effect,
     useLayoutEffect: effect,
+    useId: () => { cursor++; return 'test-id'; },
   };
 
   function load(path, imports = {}) {
@@ -116,6 +117,7 @@ function bench({ visibilityState = 'visible' } = {}) {
     '../hooks/useProbeReadings': useProbeReadings, '../utils/dateFormat': load('../src/utils/dateFormat.ts'),
     '../utils/environmentFormat': load('../src/utils/environmentFormat.ts'), '../utils/errors': errors,
     '../utils/probeChart': probeChart, '../utils/probeReadings': probeReadings, '../utils/probeSeries': probeSeries,
+    '../utils/probePeriod': load('../src/utils/probePeriod.ts'),
     './PolypbaseIcon': { default: () => null }, './ProbeSeriesChart': { default: chartView, seriesClassName: () => '' },
   });
   const t = (key) => key;

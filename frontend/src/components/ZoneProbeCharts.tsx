@@ -1,17 +1,21 @@
-import { type FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { type ChangeEvent, type FormEvent, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { getOrganizationResourceSignal } from '../api/client';
 import useLiveWindowEnd, { useDocumentVisible } from '../hooks/useLiveWindowEnd';
 import useProbeReadings from '../hooks/useProbeReadings';
 import type { Translator } from '../i18n';
 import type { ThermalZone, ZoneProbeReadings } from '../types';
-import { formatDisplayDateTime, getDocumentLocale } from '../utils/dateFormat';
+import { getDocumentLocale } from '../utils/dateFormat';
 import { formatSignedTemperature, formatTemperature } from '../utils/environmentFormat';
 import { getErrorMessage } from '../utils/errors';
 import { clampProbeWindow, MIN_PROBE_WINDOW_MS, type ProbeWindow } from '../utils/probeChart';
+import {
+  browserTimeZone, type ChartPeriod, DEFAULT_CHART_PERIOD, DEFAULT_PERIOD_HOURS, formatCompactPeriod, formatExactPeriod,
+  isRelativePeriodHours, periodWindow, type RelativePeriodHours,
+} from '../utils/probePeriod';
 import { projectProbeReadings } from '../utils/probeReadings';
 import {
-  buildProbeSeries, hasPartialCoverage, probeRecentChanges, seriesTemperatureDomain, type ProbeSeries,
+  buildProbeAverage, buildProbeSeries, hasPartialCoverage, probeRecentChanges, seriesTemperatureDomain, type ProbeSeries,
 } from '../utils/probeSeries';
 import PolypbaseIcon from './PolypbaseIcon';
 import ProbeSeriesChart, { seriesClassName, type ProbeSeriesChartLabels } from './ProbeSeriesChart';
@@ -19,7 +23,7 @@ import ProbeSeriesChart, { seriesClassName, type ProbeSeriesChartLabels } from '
 const HOUR_MS = 3_600_000;
 /** Display windows only: they carry no scientific threshold. */
 export const RECENT_TREND_HOURS = 6;
-export const DEFAULT_CHART_HOURS = 24;
+export const DEFAULT_CHART_HOURS = DEFAULT_PERIOD_HOURS;
 const MAX_RANGE_MS = 366 * 24 * HOUR_MS;
 const TREND_REFRESH_MS = 60_000;
 const CHART_REFRESH_MS = 5 * 60_000;
@@ -44,9 +48,10 @@ function chartLabels(t: Translator): ProbeSeriesChartLabels {
   };
 }
 
-function formatRange(window: ProbeWindow) {
-  return `${formatDisplayDateTime(new Date(window.start).toISOString())} → ${formatDisplayDateTime(new Date(window.end).toISOString())}`;
-}
+const PERIOD_OPTION_KEYS: Record<RelativePeriodHours, 'probeRangeReset' | 'probePeriodLast7Days' | 'probePeriodLast30Days'> = {
+  24: 'probeRangeReset', 168: 'probePeriodLast7Days', 720: 'probePeriodLast30Days',
+};
+const CUSTOM_PERIOD_VALUE = 'custom';
 
 /** datetime-local works in the browser's zone, like every date shown by the application. */
 export function toLocalInputValue(time: number) {
@@ -77,12 +82,14 @@ export type InitialChartRead = { settled: boolean; data: ZoneProbeReadings | nul
  * the probe status, so opening a location starts one series request, not three.
  */
 export function useZoneChartReadings(zone: ThermalZone, enabled: boolean) {
-  const [custom, setCustom] = useState<ProbeWindow | null>(null);
+  const [period, setPeriod] = useState<ChartPeriod>(DEFAULT_CHART_PERIOD);
+  const custom = period.kind === 'custom' ? period.window : null;
+  const setCustom = (range: ProbeWindow | null) => {
+    setPeriod(range ? { kind: 'custom', window: range } : DEFAULT_CHART_PERIOD);
+  };
+  const isDefaultPeriod = period.kind === 'relative' && period.hours === DEFAULT_PERIOD_HOURS;
   const liveEnd = useLiveWindowEnd(CHART_REFRESH_MS, enabled && custom === null);
-  const window = useMemo(
-    () => (enabled ? custom ?? { start: liveEnd - DEFAULT_CHART_HOURS * HOUR_MS, end: liveEnd } : null),
-    [custom, enabled, liveEnd],
-  );
+  const window = useMemo(() => (enabled ? periodWindow(period, liveEnd) : null), [enabled, liveEnd, period]);
   const readings = useProbeReadings(zone.id, window);
   const contextSignal = getOrganizationResourceSignal();
   // The outcome is recorded once per zone and context: a later chart retry or
@@ -93,14 +100,14 @@ export function useZoneChartReadings(zone: ThermalZone, enabled: boolean) {
   const outcome = firstOutcome?.context === contextSignal && firstOutcome.zoneId === zone.id ? firstOutcome : null;
   useEffect(() => {
     if (outcome !== null || contextSignal.aborted) return;
-    if (custom !== null || readings.error !== null) setFirstOutcome({ context: contextSignal, zoneId: zone.id, data: null });
+    if (!isDefaultPeriod || readings.error !== null) setFirstOutcome({ context: contextSignal, zoneId: zone.id, data: null });
     else if (readings.data) setFirstOutcome({ context: contextSignal, zoneId: zone.id, data: readings.data });
-  }, [contextSignal, custom, outcome, readings.data, readings.error, zone.id]);
+  }, [contextSignal, isDefaultPeriod, outcome, readings.data, readings.error, zone.id]);
   const initial = useMemo<InitialChartRead>(
     () => ({ settled: outcome !== null || !enabled, data: outcome?.data ?? null }),
     [enabled, outcome],
   );
-  return { custom, setCustom, readings, initial };
+  return { period, setPeriod, custom, setCustom, readings, initial };
 }
 
 export type ZoneChartReadings = ReturnType<typeof useZoneChartReadings>;
@@ -175,11 +182,13 @@ export function ZoneThermalTrend({ initial, zone, t }: { initial: InitialChartRe
 
 /** One combined chart of the probes of a location, directly on its page. */
 export function ZoneProbeChart({ chart, zone, t }: { chart: ZoneChartReadings; zone: ThermalZone; t: Translator }) {
-  const { custom, setCustom, readings } = chart;
+  const { period, setPeriod, custom, setCustom, readings } = chart;
   const fallback = useMemo(() => collectedProbes(zone), [zone]);
   const series = useMemo(() => buildProbeSeries(readings.data, fallback), [fallback, readings.data]);
   const target = parseTarget(readings.data ? readings.data.target_temperature_c : zone.target_temperature_c);
-  const domain = useMemo(() => seriesTemperatureDomain(series, target), [series, target]);
+  const average = useMemo(() => buildProbeAverage(readings.data), [readings.data]);
+  const latestAverage = average[average.length - 1];
+  const domain = useMemo(() => seriesTemperatureDomain(series, target, average), [series, target, average]);
   const [hiddenIds, setHiddenIds] = useState<ReadonlySet<number>>(new Set());
   const [isEditing, setIsEditing] = useState(false);
   const [startValue, setStartValue] = useState('');
@@ -188,21 +197,29 @@ export function ZoneProbeChart({ chart, zone, t }: { chart: ZoneChartReadings; z
   const locale = getDocumentLocale();
   const shownWindow = readings.window;
   const resolution = readings.data?.resolution_minutes ?? 1;
-  const hasData = series.some((entry) => entry.latest !== null);
+  const hasData = series.some((entry) => entry.latest !== null) || average.length > 0;
   const dateFormat = useMemo(() => new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }), [locale]);
-  const isPartialPreview = custom !== null && readings.data?.coverage_complete === false;
-  const partial = hasPartialCoverage(series, shownWindow);
+  const isDefaultPeriod = period.kind === 'relative' && period.hours === DEFAULT_PERIOD_HOURS;
+  const isPartialPreview = !isDefaultPeriod && readings.data?.coverage_complete === false;
+  const partial = hasPartialCoverage(series, shownWindow)
+    || average.some((entry) => entry.start < shownWindow.start || entry.end > shownWindow.end);
   const heading = t('probeReadingsTitle');
-  const labels = { ...chartLabels(t), keyboardDescription: t('probeCombinedChartKeyboard') };
+  const labels = { ...chartLabels(t), keyboardDescription: t('probeCombinedChartKeyboard'),
+    ...(average.length ? { average: t('probeAverage'), averageContributors: t('probeAverageContributors') } : {}) };
   const startInputRef = useRef<HTMLInputElement>(null);
   const rangeButtonRef = useRef<HTMLButtonElement>(null);
+  const periodSelectRef = useRef<HTMLSelectElement>(null);
   const restoreRangeFocus = useRef(false);
+  const exactPeriodId = useId();
+  const exactPeriod = formatExactPeriod(shownWindow, locale);
+  const timeZone = browserTimeZone();
+  const periodValue = isEditing || period.kind === 'custom' ? CUSTOM_PERIOD_VALUE : String(period.hours);
 
   useLayoutEffect(() => {
     if (isEditing) startInputRef.current?.focus();
     else if (restoreRangeFocus.current) {
       restoreRangeFocus.current = false;
-      rangeButtonRef.current?.focus();
+      (rangeButtonRef.current ?? periodSelectRef.current)?.focus();
     }
   }, [isEditing]);
 
@@ -211,9 +228,19 @@ export function ZoneProbeChart({ chart, zone, t }: { chart: ZoneChartReadings; z
     setIsEditing(false);
   }
 
+  function choosePeriod(event: ChangeEvent<HTMLSelectElement>) {
+    const { value } = event.target;
+    if (value === CUSTOM_PERIOD_VALUE) { openEditor(); return; }
+    const hours = Number(value);
+    if (!isRelativePeriodHours(hours)) return;
+    setPeriod({ kind: 'relative', hours });
+    setIsEditing(false);
+  }
+
   function openEditor() {
-    setStartValue(toLocalInputValue(shownWindow.start));
-    setEndValue(toLocalInputValue(shownWindow.end));
+    const bounds = custom ?? shownWindow;
+    setStartValue(toLocalInputValue(bounds.start));
+    setEndValue(toLocalInputValue(bounds.end));
     setRangeError(false);
     setIsEditing(true);
   }
@@ -232,7 +259,7 @@ export function ZoneProbeChart({ chart, zone, t }: { chart: ZoneChartReadings; z
   }
 
   function resetRange() {
-    setCustom(null);
+    setPeriod(DEFAULT_CHART_PERIOD);
     setIsEditing(false);
   }
 
@@ -246,22 +273,28 @@ export function ZoneProbeChart({ chart, zone, t }: { chart: ZoneChartReadings; z
 
   return (
     <section className="zone-page-section zone-functional-section zone-probe-chart-section" aria-busy={readings.isLoading}>
-      <div className={`probe-series-progress${readings.isLoading && (custom !== null || !readings.data) ? ' is-loading' : ''}`} aria-hidden="true" />
+      <div className={`probe-series-progress${readings.isLoading && (!isDefaultPeriod || !readings.data) ? ' is-loading' : ''}`} aria-hidden="true" />
       <div className="zone-probe-chart-heading">
         <h2>{heading}</h2>
-        {isEditing ? null : (
-          <div className="zone-probe-chart-range">
-            <button ref={rangeButtonRef} className="zone-probe-range-button" type="button" aria-label={t('probeRangeEdit').replace('{range}', formatRange(shownWindow))}
-              onClick={openEditor}>
-              <span>{formatRange(shownWindow)}</span>
+        <div className="zone-probe-chart-range">
+          <select ref={periodSelectRef} className="zone-probe-period-select" value={periodValue} onChange={choosePeriod}
+            aria-label={t('probePeriod')} aria-describedby={exactPeriodId} title={exactPeriod}>
+            {Object.entries(PERIOD_OPTION_KEYS).map(([hours, key]) => <option key={hours} value={hours}>{t(key)}</option>)}
+            <option value={CUSTOM_PERIOD_VALUE}>{t('probePeriodCustom')}</option>
+          </select>
+          {custom !== null && !isEditing ? (
+            <button ref={rangeButtonRef} className="zone-probe-range-button" type="button" title={exactPeriod}
+              aria-label={t('probeRangeEdit').replace('{range}', exactPeriod)} onClick={openEditor}>
+              <span>{formatCompactPeriod(custom, locale, Date.now())}</span>
               <PolypbaseIcon name="edit" size={15} />
             </button>
-            {custom !== null ? <button className="secondary-button" type="button" onClick={resetRange}>{t('probeRangeReset')}</button> : null}
-          </div>
-        )}
+          ) : null}
+          <span id={exactPeriodId} className="sr-only">{exactPeriod}</span>
+        </div>
       </div>
       {isEditing ? (
         <form className="zone-probe-range-form" onSubmit={submitRange}>
+          {timeZone ? <p className="zone-probe-range-zone">{t('probeTimeZone').replace('{zone}', timeZone)}</p> : null}
           <label>
             <span>{t('probeRangeStart')}</span>
             <input ref={startInputRef} type="datetime-local" value={startValue} onChange={(event) => setStartValue(event.target.value)}
@@ -283,7 +316,7 @@ export function ZoneProbeChart({ chart, zone, t }: { chart: ZoneChartReadings; z
         <p className="zone-probe-chart-note">{t('probeCondensedNotice').replace('{minutes}', String(resolution))}</p>
       ) : null}
       <div className="probe-series-frame">
-        <ProbeSeriesChart ariaLabel={summaryLabel(series, `${heading}, ${formatRange(shownWindow)}`, t)} domain={domain} height={CHART_HEIGHT}
+        <ProbeSeriesChart ariaLabel={summaryLabel(series, `${heading}, ${exactPeriod}${average.length ? `, ${t('probeAverage')}` : ''}`, t)} average={average} domain={domain} height={CHART_HEIGHT}
           hiddenIds={hiddenIds} labels={labels} locale={locale} onResetZoom={custom !== null ? resetRange : undefined}
           onZoom={zoomTo} series={series} target={target} window={shownWindow} />
         {!hasData && !readings.isLoading && !readings.error ? <p className="probe-series-state"><span>{t('probeNoReadings')}</span></p> : null}
@@ -297,7 +330,7 @@ export function ZoneProbeChart({ chart, zone, t }: { chart: ZoneChartReadings; z
           <button className="secondary-button" type="button" onClick={readings.retry}>{t('probeRetry')}</button>
         </div>
       ) : null}
-      {series.length ? (
+      {series.length || average.length ? (
         <table className="probe-series-legend">
           <thead>
             <tr>
@@ -308,6 +341,18 @@ export function ZoneProbeChart({ chart, zone, t }: { chart: ZoneChartReadings; z
             </tr>
           </thead>
           <tbody>
+            {latestAverage ? (
+              <tr>
+                <th scope="row"><span className="probe-series-name"><i className="probe-series-average" aria-hidden="true" />{t('probeAverage')}</span></th>
+                <td>
+                  <strong>{formatTemperature(latestAverage.mean)}</strong>
+                  {' '}<time dateTime={new Date(latestAverage.start).toISOString()}>{dateFormat.format(latestAverage.start)}</time>
+                  {' → '}<time dateTime={new Date(latestAverage.end).toISOString()}>{dateFormat.format(latestAverage.end)}</time>
+                  {' '}<small>{t('probeAverageContributors').replace('{count}', String(latestAverage.contributors))}</small>
+                </td>
+                <td>-</td><td>-</td>
+              </tr>
+            ) : null}
             {series.map((entry) => {
               const label = entry.isActive ? entry.code : `${entry.code} (${t('probeInactive')})`;
               const hidden = hiddenIds.has(entry.id);

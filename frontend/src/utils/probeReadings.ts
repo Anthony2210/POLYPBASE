@@ -38,6 +38,9 @@ export function projectProbeReadings(data: ZoneProbeReadings, window: ProbeWindo
   return {
     ...data, start: new Date(window.start).toISOString(), end: new Date(window.end).toISOString(),
     coverage_complete: data.coverage_complete !== false && covers(originalWindow, window),
+    // Keep the server's entire period and contributor count, never re-average a clipped preview.
+    probe_average: data.probe_average?.filter(([start]) =>
+      start < window.end && start + data.resolution_minutes * 60_000 > window.start),
     probes: data.probes.map((probe) => {
       if (!probe.point_sources) return {
         ...probe, points: probe.points.filter(([time]) => time >= window.start && time < window.end),

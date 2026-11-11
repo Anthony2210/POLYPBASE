@@ -85,13 +85,23 @@ export function buildProbeSeries(
   });
 }
 
-/** One Y domain for every probe and the target, independent of hidden curves. */
-export function seriesTemperatureDomain(series: readonly ProbeSeries[], target: number | null) {
+export type ProbeAveragePeriod = { start: number; end: number; mean: number; contributors: number };
+
+/** Preserve server period means, including zero; never derive them from individual curves. */
+export function buildProbeAverage(data: ZoneProbeReadings | null): ProbeAveragePeriod[] {
+  return (data?.probe_average ?? []).map(([start, mean, contributors]) => ({
+    start, end: start + data!.resolution_minutes * 60_000, mean, contributors,
+  }));
+}
+
+/** One Y domain for every probe, server average and target, independent of hidden curves. */
+export function seriesTemperatureDomain(series: readonly ProbeSeries[], target: number | null, average: readonly ProbeAveragePeriod[] = []) {
   const bounds: number[] = [];
   for (const entry of series) {
     if (entry.minimum !== null) bounds.push(entry.minimum);
     if (entry.maximum !== null) bounds.push(entry.maximum);
   }
+  for (const period of average) bounds.push(period.mean);
   return probeTemperatureDomain(bounds, target);
 }
 

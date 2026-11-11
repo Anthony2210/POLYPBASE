@@ -57,7 +57,7 @@ function load(path, timers, imports = {}) {
 }
 
 // Complete API-shaped fixtures, including scientific zero and a missing interval.
-function readings(window, { zoneId = 7, resolution = 1, value = 0, points } = {}) {
+function readings(window, { zoneId = 7, resolution = 1, value = 0, points, average = [] } = {}) {
   const samples = points ?? [
     [window.start, value, null, null],
     [window.start + MINUTE, 2, null, null],
@@ -67,7 +67,7 @@ function readings(window, { zoneId = 7, resolution = 1, value = 0, points } = {}
   const last = samples.length ? new Date(samples.at(-1)[0]).toISOString() : null;
   return {
     zone_id: zoneId, start: new Date(window.start).toISOString(), end: new Date(window.end).toISOString(),
-    resolution_minutes: resolution, target_temperature_c: '0', first_reading_at: first, last_reading_at: last,
+    resolution_minutes: resolution, probe_average: average, target_temperature_c: '0', first_reading_at: first, last_reading_at: last,
     monitoring: {
       has_collected_probes: true, last_reading_at: last, manual_entry_available: false, fallback_after_hours: 6,
     },
@@ -105,6 +105,18 @@ function assertView(view, window, { loading = false, value = 0, zoneId = 7 } = {
   assert.equal(view.data.probes[0].points[0][1], value);
   assert.equal(view.isLoading, loading);
 }
+
+test('average projection preserves overlapping server periods, values and contributors without recalculation', () => {
+  const { projectProbeReadings } = load('../src/utils/probeReadings.ts', clock());
+  const average = [[0, 0, 2], [15 * MINUTE, -1.25, 3], [45 * MINUTE, 99, 2]];
+  const data = readings(range(0, 60 * MINUTE), { resolution: 15, average });
+  const projected = projectProbeReadings(data, { start: 7 * MINUTE, end: 30 * MINUTE });
+  assert.deepEqual(plain(projected.probe_average), average.slice(0, 2));
+  assert.equal(projected.resolution_minutes, 15);
+  assert.deepEqual(plain(data.probe_average), average, 'The cache source stays intact');
+  assert.deepEqual(plain(projectProbeReadings(data, { start: 30 * MINUTE, end: 45 * MINUTE }).probe_average), [],
+    'Periods touching an exclusive edge do not fill a missing period');
+});
 
 test('cache is bounded to 24 windows, replaces exact entries and can be cleared', () => {
   const timers = clock();
@@ -532,14 +544,16 @@ test('actual hook changes zone and organization without exposing old cached read
   const window = range();
   h.render(7, window);
   h.commit();
-  await h.answer(0);
+  await h.answer(0, { average: [[0, 0, 2]] });
   assertView(h.render(7, window), window);
+  assert.deepEqual(plain(h.render(7, window).data.probe_average), [[0, 0, 2]]);
   assert.equal(h.render(8, window).data, null);
   h.commit();
   assert.equal(h.calls.length, 2);
   assert.equal(h.calls[1].path, '/api/thermal-zones/8/probe-readings/');
-  await h.answer(1, { zoneId: 8, value: 8 });
+  await h.answer(1, { zoneId: 8, value: 8, average: [[0, -2, 3]] });
   assertView(h.render(8, window), window, { zoneId: 8, value: 8 });
+  assert.deepEqual(plain(h.render(8, window).data.probe_average), [[0, -2, 3]]);
   h.render(8, window).retry();
   h.timers.advance(0);
   h.changeOrganization();
@@ -547,10 +561,11 @@ test('actual hook changes zone and organization without exposing old cached read
   assert.equal(h.render(8, window).data, null);
   h.commit();
   assert.equal(h.calls.length, 4);
-  await h.answer(2, { zoneId: 8, value: 99 });
+  await h.answer(2, { zoneId: 8, value: 99, average: [[0, 99, 9]] });
   assert.equal(h.render(8, window).data, null);
-  await h.answer(3, { zoneId: 8, value: 5 });
+  await h.answer(3, { zoneId: 8, value: 5, average: [[0, 5, 2]] });
   assertView(h.render(8, window), window, { zoneId: 8, value: 5 });
+  assert.deepEqual(plain(h.render(8, window).data.probe_average), [[0, 5, 2]]);
   assert.equal(h.render(7, window).data, null, 'Returning to the original zone must not reuse disposed cache');
   h.commit();
   assert.equal(h.calls.length, 5);

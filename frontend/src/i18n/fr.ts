@@ -1298,11 +1298,17 @@ export const fr = {
   probeRangeEnd: 'Au',
   probeRangeApply: 'Afficher',
   probeRangeReset: 'Dernières 24 h',
+  probePeriodLast7Days: '7 derniers jours',
+  probePeriodLast30Days: '30 derniers jours',
+  probePeriodCustom: 'Dates précises',
+  probeTimeZone: 'Heures affichées dans le fuseau {zone}',
   probeRangeInvalid: 'Choisissez une période de 30 minutes à 366 jours, sans date future.',
   probeCondensedNotice: 'Moyennes par tranche de {minutes} min, avec minimum et maximum.',
   probeLegendProbe: 'Sonde',
   probeLatestInterval: 'Dernière tranche (moyenne)',
   probeSeriesToggle: 'Afficher ou masquer {probe}',
+  probeAverage: 'Moyenne des sondes',
+  probeAverageContributors: '{count} sondes contributrices',
 } as const;
 
 export type TranslationKey = keyof typeof fr;

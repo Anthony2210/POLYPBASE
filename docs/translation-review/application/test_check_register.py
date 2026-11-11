@@ -121,6 +121,60 @@ def before_b24(source, rows, language="EN"):
     return source
 
 
+# B26: compact probe chart period control keys, English fallbacks without Japanese.
+B26 = "B26-2026-11-10"
+B26_KEYS = ("probePeriodLast7Days", "probePeriodLast30Days", "probePeriodCustom", "probeTimeZone")
+# B27: inter-probe average curve keys, English fallbacks without Japanese.
+B27 = "B27-2026-11-11"
+B27_KEYS = ("probeAverage", "probeAverageContributors")
+
+
+def b26_events(rows):
+    """Validate the exact additive B26 events before excluding them from frozen sources."""
+    events = [row for row in rows if row["batch"] == B26]
+    assert events == rows[1086:1094], "B26: events moved or gained a member"
+    assert [row["entry_id"] for row in events] == [f"T{i}" for i in range(1087, 1095)], "B26: identities changed"
+    assert all(list(row) == reg.COLUMNS for row in events), "B26: schema changed"
+    assert rows_digest(events) == "bb061a0b21466b02a2db8ab09453d98c3571c607c7236d28678f0aaa68080955", "B26: history was modified"
+    assert [(row["key_or_msgid"], row["language"]) for row in events] == [
+        (key, language) for key in B26_KEYS for language in ("FR", "EN")
+    ], "B26: keys changed"
+    return events
+
+
+def before_b26(source, rows, language="EN"):
+    """Reverse only the four exact B26 additions; unknown changes stay fingerprinted."""
+    for row in b26_events(rows):
+        if row["language"] == language:
+            line = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
+            assert source.count(line) == 1, row["key_or_msgid"]
+            source = source.replace(line, "")
+    return source
+
+
+def b27_events(rows):
+    """Validate the exact additive B27 events before excluding them from frozen sources."""
+    events = [row for row in rows if row["batch"] == B27]
+    assert events == rows[1094:1098], "B27: events moved or gained a member"
+    assert [row["entry_id"] for row in events] == [f"T{i}" for i in range(1095, 1099)], "B27: identities changed"
+    assert all(list(row) == reg.COLUMNS for row in events), "B27: schema changed"
+    assert rows_digest(events) == "988d1d95a042150c7c58f1e55e88c687e864b20b41623af9e69e50ebcea7a8ef", "B27: history was modified"
+    assert [(row["key_or_msgid"], row["language"]) for row in events] == [
+        (key, language) for key in B27_KEYS for language in ("FR", "EN")
+    ], "B27: keys changed"
+    return events
+
+
+def before_b27(source, rows, language="EN"):
+    """Reverse only the two exact B27 additions; unknown changes stay fingerprinted."""
+    for row in b27_events(rows):
+        if row["language"] == language:
+            line = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
+            assert source.count(line) == 1, row["key_or_msgid"]
+            source = source.replace(line, "")
+    return source
+
+
 def before_b23(source, rows, language="EN"):
     """Reverse only the exact B23 events before checking older source fingerprints."""
     events = [row for row in rows if row["batch"] == "B23-2026-11-10"]
@@ -232,10 +286,12 @@ class IntegrationHistoryTests(unittest.TestCase):
 
     def test_integration_has_exact_count_unique_ordered_ids_and_chronology(self):
         rows = reg.load_register()
-        self.assertEqual(len(rows), 1086)
-        self.assertEqual([row["entry_id"] for row in rows], [f"T{n:03d}" for n in range(1, 1087)])
+        self.assertEqual(len(rows), 1098)
+        self.assertEqual([row["entry_id"] for row in rows], [f"T{n:03d}" for n in range(1, 1099)])
         self.assertEqual(Counter(row["batch"] for row in rows[1010:]),
-                         Counter({"B20-2026-11-09": 6, "B21-2026-11-09": 20, "B22-2026-11-10": 6, "B23-2026-11-10": 12, "B24-2026-11-10": 6, INTEGRATION_B25: 26}))
+                         Counter({"B20-2026-11-09": 6, "B21-2026-11-09": 20, "B22-2026-11-10": 6, "B23-2026-11-10": 12, "B24-2026-11-10": 6, INTEGRATION_B25: 26, B26: 8, B27: 4}))
+        self.assertEqual(len(b26_events(rows)), 8)
+        self.assertEqual(len(b27_events(rows)), 4)
         self.assertEqual(len({(row["batch"], reg.identity(row)) for row in rows}), len(rows))
         self.assertEqual(reg.check_chronology(rows), [])
         self.assertEqual(reg.validate(rows), [])
@@ -295,7 +351,7 @@ class IntegrationHistoryTests(unittest.TestCase):
     def test_later_corrections_must_be_appended(self):
         original = reg.load_register()
         row = original[-1]
-        correction = dict(row, entry_id="T1087", batch="B26-2026-11-10", status="APPLIED",
+        correction = dict(row, entry_id=f"T{len(original) + 1}", batch="B28-2026-11-11", status="APPLIED",
                           initial_value=row["final_value"], final_value=row["final_value"] + " corrected")
         self.assertEqual(integration_integrity_errors(original + [correction]), [])
         self.assertEqual(reg.check_chronology(original + [correction]), [])
@@ -1002,12 +1058,12 @@ class RealRegisterTests(unittest.TestCase):
         en = (reg.ROOT / "frontend/src/i18n/en.ts").read_text(encoding="utf-8")
         edited = en.replace("  temperatureDailyMean: 'Daily mean',\n", "  temperatureDailyMean: 'Daily average',\n")
         self.assertNotEqual(edited, en)
-        edited = before_b23(before_b24(edited, rows), rows)
+        edited = before_b23(before_b24(before_b26(edited, rows), rows), rows)
         # Undo later recorded value changes before removing the frozen additions.
         # Reverse order preserves continuity if the same key is corrected more than once.
         # Remove thermal B25 once; movement B20/B21 are removed separately below.
         for row in rows:
-            if row["batch"] == INTEGRATION_B25 and row["language"] == "EN":
+            if row["batch"] in (INTEGRATION_B25, B27) and row["language"] == "EN":
                 addition = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
                 self.assertEqual(edited.count(addition), 1, row["entry_id"])
                 edited = edited.replace(addition, "")

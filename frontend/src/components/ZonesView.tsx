@@ -997,13 +997,15 @@ function TemperatureControlPanel({
       ? formatDisplayDateTime(thermalControl.newest_measured_at)
       : `${formatDisplayDateTime(thermalControl.oldest_measured_at)} — ${formatDisplayDateTime(thermalControl.newest_measured_at)}`
     : null;
+  // Without a fresh probe the line stays empty: the last reading time below
+  // already tells an old reading apart from no reading at all.
   const recentContext = thermalControlError
     ? t('temperatureRecentError')
     : !thermalControl
       ? t('loading')
       : recentPeriod
         ? t('temperatureRecentPeriod').replace('{count}', String(thermalControl.included_probe_count)).replace('{period}', recentPeriod)
-        : t('temperatureNoRecent');
+        : null;
   const dailyContext = zone.latest_temperature
     ? t('temperatureDailyPeriod').replace('{date}', formatDisplayDate(zone.latest_temperature.date))
     : null;
@@ -1038,7 +1040,6 @@ function TemperatureControlPanel({
     ? t(elapsed.unit === 'minute' ? 'probeElapsedMinutes' : elapsed.unit === 'hour' ? 'probeElapsedHours' : 'probeElapsedDays')
       .replace('{count}', String(elapsed.count))
     : null;
-  const isProbeSilent = usesProbes && (probeMonitoring?.manual_entry_available ?? false);
   // The server decides when probes are silent long enough to allow manual entry.
   const canEnterManually = canRecordManualTemperature
     && (!usesProbes || (probeMonitoring?.manual_entry_available ?? false));
@@ -1106,7 +1107,9 @@ function TemperatureControlPanel({
       <div className="zone-temperature-heading">
         <div>
           <h2>{t('temperatureControl')}</h2>
-          <p role={thermalControlError ? 'status' : undefined} aria-busy={!thermalControl && !thermalControlError}>{recentContext}</p>
+          {recentContext ? (
+            <p role={thermalControlError ? 'status' : undefined} aria-busy={!thermalControl && !thermalControlError}>{recentContext}</p>
+          ) : null}
         </div>
         {canEnterManually && !isEditingTemperature ? (
           <button
@@ -1230,15 +1233,7 @@ function TemperatureControlPanel({
                     ) : t('probeNoReadingYet')}
                   </strong>
                 </p>
-                {isProbeSilent ? <span className="zone-probe-silent-badge">{t('probeSilentBadge')}</span> : null}
               </div>
-              {isProbeSilent ? (
-                <p className="zone-probe-silent-description">
-                  {elapsedDuration
-                    ? t('probeSilentDescription').replace('{duration}', elapsedDuration)
-                    : t('probeSilentNoReadingDescription')}
-                </p>
-              ) : null}
             </div>
           ) : null}
           {monitoringError ? (
@@ -1389,7 +1384,7 @@ function buildTemperatureSummary({
   targetTemperature: number | null;
   measuredTemperature: number | null;
   recentTemperature: number | null;
-  recentContext: string;
+  recentContext: string | null;
   dailyContext: string | null;
   minTemperature: number | null;
   maxTemperature: number | null;
@@ -1397,7 +1392,7 @@ function buildTemperatureSummary({
 }) {
   const facts = [
     targetTemperature === null ? null : `${t('targetTemperature')} ${formatTemperature(targetTemperature)}`,
-    recentTemperature === null ? recentContext : `${t('temperatureRecentMean')} ${formatTemperature(recentTemperature)}, ${recentContext}`,
+    recentTemperature === null ? recentContext : [`${t('temperatureRecentMean')} ${formatTemperature(recentTemperature)}`, recentContext].filter(Boolean).join(', '),
     dailyContext,
     measuredTemperature === null ? null : `${t('temperatureDailyMean')} ${formatTemperature(measuredTemperature)}`,
     minTemperature === null ? null : `${t('minTemperature')} ${formatTemperature(minTemperature)}`,

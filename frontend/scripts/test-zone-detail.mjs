@@ -88,9 +88,9 @@ test('thermal ruler uses recent observations while daily mean, gap and range sta
   assert.match(temperaturePanel, /thermalControl\.oldest_measured_at === thermalControl\.newest_measured_at/);
   assert.match(temperaturePanel, /formatDisplayDateTime\(thermalControl\.oldest_measured_at\)/);
   assert.match(temperaturePanel, /formatDisplayDateTime\(thermalControl\.newest_measured_at\)/);
-  assert.match(temperaturePanel, /t\('temperatureNoRecent'\)/);
+  assert.doesNotMatch(temperaturePanel, /temperatureNoRecent|probeSilentBadge|probeSilentDescription|probeSilentNoReadingDescription/);
   assert.match(temperaturePanel, /const recentContext = thermalControlError\s*\? t\('temperatureRecentError'\)\s*:\s*!thermalControl\s*\? t\('loading'\)\s*:\s*recentPeriod/);
-  assert.match(temperaturePanel, /<p role=\{thermalControlError \? 'status' : undefined\} aria-busy=\{!thermalControl && !thermalControlError\}>\{recentContext\}<\/p>/);
+  assert.match(temperaturePanel, /\{recentContext \? \(\s*<p role=\{thermalControlError \? 'status' : undefined\} aria-busy=\{!thermalControl && !thermalControlError\}>\{recentContext\}<\/p>/);
   assert.match(temperaturePanel, /const measurementCount = zone\.latest_temperature\?\.measurement_count \?\? 0/);
   assert.match(temperaturePanel, /const hasTemperatureRange = measurementCount > 1/);
   assert.match(temperaturePanel, /hasTemperatureRange && minPosition !== null && maxPosition !== null/);

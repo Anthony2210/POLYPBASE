@@ -70,6 +70,10 @@ const jaEntries = catalogEntries('../src/i18n/ja.ts', 'ja');
 const manifest = parseCsv(read('../../docs/translation-review/japanese/ja-manifest.csv'));
 const historicalMovementKeys = JSON.parse(read('../../docs/translation-review/japanese/historical-movement-keys.json'));
 const zoneChartKeys = JSON.parse(read('../../docs/translation-review/japanese/zone-chart-keys.json'));
+// B26: compact probe chart period control, English fallbacks without Japanese.
+const thermalPeriodKeys = JSON.parse(read('../../docs/translation-review/japanese/thermal-period-keys.json'));
+// B27: inter-probe average curve, English fallbacks without Japanese.
+const probeAverageKeys = JSON.parse(read('../../docs/translation-review/japanese/probe-average-keys.json'));
 const potentialMovementKeys = [
   'historyPotentialMovement', 'historyPotentialAfterRecord', 'historyPotentialUnordered',
   'historyHistoricalMovement', 'historyBetweenRecords', 'historyBetweenRecordsAcrossYears',
@@ -235,9 +239,10 @@ test('ja catalog is exactly the historical and AI-reviewed manifest union', () =
   const counts = react.reduce((total, row) => ({ ...total, [row.status]: (total[row.status] ?? 0) + 1 }), {});
   // Original fallbacks, movements and thermal additions, with B23 retirements and B23/B24 additions.
   assert.equal(postBaseline.size, 81);
-  assert.deepEqual(counts, { REUSED: 930, FALLBACK_EN: 251, FALLBACK_EN_REVIEW: 36, AI_REVIEWED: 59 });
+  assert.deepEqual(counts, { REUSED: 930, FALLBACK_EN: 257, FALLBACK_EN_REVIEW: 36, AI_REVIEWED: 59 });
   assert.equal(counts.FALLBACK_EN, 143 + postBaseline.size + potentialMovementKeys.length
-    - B23_RETIRED_KEYS.length + B23_ADDED_KEYS.length + B24_ADDED_KEYS.length + zoneChartKeys.length);
+    - B23_RETIRED_KEYS.length + B23_ADDED_KEYS.length + B24_ADDED_KEYS.length + zoneChartKeys.length
+    + thermalPeriodKeys.length + probeAverageKeys.length);
 });
 
 test('B13 thermal register events are immutable, even under a coordinated catalog edit', () => {
@@ -497,6 +502,9 @@ const B23_RETIRED_KEYS = ['historyEnvironmentOnly', 'historyTransitionReview', '
 const B23_ADDED_KEYS = ['historyRecordedViaPolypbase', 'historyStartingLocation'];
 const B24_ADDED_KEYS = ['historyReactivation', 'historyLocationExit', 'historyLocationEntry'];
 
+const B26_ROWS_DIGEST = 'bb061a0b21466b02a2db8ab09453d98c3571c607c7236d28678f0aaa68080955';
+const B27_ROWS_DIGEST = '988d1d95a042150c7c58f1e55e88c687e864b20b41623af9e69e50ebcea7a8ef';
+
 function b24Events(rows = register) {
   const events = rows.filter(row => row.batch === 'B24-2026-11-10');
   assert.deepEqual(events, rows.slice(1054, 1060));
@@ -516,6 +524,47 @@ function b25Events(rows = register) {
   assert.deepEqual(events.map(row => [row.key_or_msgid, row.language]),
     zoneChartKeys.flatMap(key => [[key, 'FR'], [key, 'EN']]));
   return events;
+}
+
+function b26Events(rows = register) {
+  const events = rows.filter(row => row.batch === 'B26-2026-11-10');
+  assert.deepEqual(events, rows.slice(1086, 1094));
+  assert.deepEqual(events.map(row => row.entry_id), Array.from({ length: 8 }, (_, i) => `T${1087 + i}`));
+  for (const entry of events) assert.deepEqual(Object.keys(entry), REGISTER_COLUMNS);
+  assert.equal(registerRowsDigest(events), B26_ROWS_DIGEST);
+  assert.deepEqual(events.map(row => [row.key_or_msgid, row.language]),
+    thermalPeriodKeys.flatMap(key => [[key, 'FR'], [key, 'EN']]));
+  return events;
+}
+
+function beforeB26(source, language, rows = register) {
+  for (const entry of b26Events(rows).filter(row => row.language === language.toUpperCase())) {
+    const line = `  ${entry.key_or_msgid}: '${entry.final_value}',
+`;
+    assert.equal(source.split(line).length - 1, 1, entry.key_or_msgid);
+    source = source.replace(line, '');
+  }
+  return source;
+}
+
+function b27Events(rows = register) {
+  const events = rows.filter(row => row.batch === 'B27-2026-11-11');
+  assert.deepEqual(events, rows.slice(1094, 1098));
+  assert.deepEqual(events.map(row => row.entry_id), Array.from({ length: 4 }, (_, i) => `T${1095 + i}`));
+  for (const entry of events) assert.deepEqual(Object.keys(entry), REGISTER_COLUMNS);
+  assert.equal(registerRowsDigest(events), B27_ROWS_DIGEST);
+  assert.deepEqual(events.map(row => [row.key_or_msgid, row.language]),
+    probeAverageKeys.flatMap(key => [[key, 'FR'], [key, 'EN']]));
+  return events;
+}
+
+function beforeB27(source, language, rows = register) {
+  for (const entry of b27Events(rows).filter(row => row.language === language.toUpperCase())) {
+    const line = `  ${entry.key_or_msgid}: '${entry.final_value}',\n`;
+    assert.equal(source.split(line).length - 1, 1, entry.key_or_msgid);
+    source = source.replace(line, '');
+  }
+  return source;
 }
 
 function beforeB25(source, language, rows = register) {
@@ -672,7 +721,7 @@ test('B23 reconstruction requires exact append-only events, additions and retire
 });
 
 function historicalSource(source, current = false, language) {
-  if (current) source = beforeB24(beforeB25(source, language), language);
+  if (current) source = beforeB24(beforeB25(beforeB26(beforeB27(source, language), language), language), language);
   const lines = source.replace(/\r\n/g, '\n').split('\n');
   const keys = current
     ? [...LATER_FALLBACK_KEYS.filter(key => !B23_RETIRED_KEYS.includes(key)), ...B23_ADDED_KEYS]
@@ -690,7 +739,7 @@ function historicalSource(source, current = false, language) {
 }
 
 function beforeMovementLabelChange(source, language) {
-  source = beforeB23(beforeB24(beforeB25(source, language), language), language);
+  source = beforeB23(beforeB24(beforeB25(beforeB26(beforeB27(source, language), language), language), language), language);
   // B22 only rewords the reconstructed historical movement title and interval, registered as APPLIED.
   const renamed = register.filter(entry => entry.batch === 'B22-2026-11-10' && entry.language === language.toUpperCase());
   assert.deepEqual(renamed.map(entry => [entry.key_or_msgid, entry.status]), [['historyHistoricalMovement', 'APPLIED'],
@@ -778,7 +827,7 @@ test('original FR and EN source content remains frozen apart from the registered
 test('additive keys stay English fallbacks without Japanese approval or provenance', () => {
   const translate = loadI18n().createTranslator('ja');
   for (const key of [...LATER_FALLBACK_KEYS, ...potentialMovementKeys, ...B23_ADDED_KEYS, ...B24_ADDED_KEYS,
-    ...zoneChartKeys].filter(key => !B23_RETIRED_KEYS.includes(key))) {
+    ...zoneChartKeys, ...thermalPeriodKeys, ...probeAverageKeys].filter(key => !B23_RETIRED_KEYS.includes(key))) {
     const rows = manifest.filter(row => row.identity === key);
     assert.equal(rows.length, 1, key);
     const row = rows[0];
@@ -799,7 +848,8 @@ test('source fingerprints accept the scoped additions but reject every historica
       const mutated = line.replace(/(: ['"])/, '$1changed ');
       assert.notEqual(mutated, line, `${language}.${key}: mutation must change the value`);
       const changed = source.replace(line, mutated);
-      if (B24_ADDED_KEYS.includes(key) || zoneChartKeys.includes(key)) {
+      if (B24_ADDED_KEYS.includes(key) || zoneChartKeys.includes(key) || thermalPeriodKeys.includes(key)
+          || probeAverageKeys.includes(key)) {
         assert.throws(() => historicalSource(changed, true, language), `${language}.${key}`);
         continue;
       }

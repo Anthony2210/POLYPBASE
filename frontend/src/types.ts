@@ -536,11 +536,16 @@ export type ProbeReadingPoint = [number, number, number | null, number | null];
 /** Storage provenance: bounds (null end for an observation), exact sum, count, extrema, last observation. */
 export type ProbeReadingSource = [number, number | null, string, number, number, number, number];
 
+/** Server mean with equal probe weights: UTC period start, °C, contributing probes (at least two). */
+export type ProbeAveragePoint = [periodStartMs: number, meanC: number, contributingProbes: number];
+
 export type ZoneProbeReadings = {
   zone_id: number;
   start: string;
   end: string;
   resolution_minutes: number;
+  /** Period values even at minute resolution; absent on older servers. */
+  probe_average?: ProbeAveragePoint[];
   /** False only for a local cache preview not covering the entire selected window. */
   coverage_complete?: boolean;
   target_temperature_c: string | null;

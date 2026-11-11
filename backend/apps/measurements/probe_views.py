@@ -13,7 +13,7 @@ from apps.cultures.models import ThermalZone
 
 from .probe_collection import collected_probes
 from .thermal_control import zone_thermal_control
-from .probe_readings import MAX_SERIES_SPAN, zone_probe_monitoring, zone_probe_series
+from .probe_readings import MAX_SERIES_SPAN, zone_probe_monitoring, zone_probe_series_and_average
 
 DEFAULT_SPAN = timedelta(hours=24)
 
@@ -67,7 +67,7 @@ class ThermalZoneProbeReadingsAPIView(APIView):
             raise ValidationError({"start": "The requested period cannot exceed 366 days."})
 
         probes = list(zone.probes.all())
-        resolution, series = zone_probe_series(
+        resolution, series, average = zone_probe_series_and_average(
             probes, start, end, group_sources=request.query_params.get("group_sources") == "1",
         )
         return Response(
@@ -91,5 +91,8 @@ class ThermalZoneProbeReadingsAPIView(APIView):
                     }
                     for probe in probes
                 ],
+                # [period start ms, mean °C, contributing probes], period of
+                # resolution_minutes; only periods with at least two probes.
+                "probe_average": average,
             }
         )

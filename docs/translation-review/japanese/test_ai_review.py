@@ -12,10 +12,10 @@ from unittest.mock import patch
 import build_ja_catalogs as builder
 from test_ja_manifest import (
     B23_ADDED_KEYS, B23_RETIRED_KEYS, B24_ADDED_KEYS, HISTORICAL_MOVEMENT_KEYS,
-    POTENTIAL_MOVEMENT_KEYS, ROOT, ZONE_CHART_KEYS, b24_events, b25_events, before_b25,
-    post_baseline_react_keys, rows,
+    POTENTIAL_MOVEMENT_KEYS, PROBE_AVERAGE_KEYS, ROOT, THERMAL_PERIOD_KEYS, ZONE_CHART_KEYS, b24_events, b25_events,
+    before_b25, post_baseline_react_keys, rows,
 )
-from test_check_register import before_b24
+from test_check_register import b26_events, b27_events, before_b24, before_b26, before_b27
 
 
 def digest(value):
@@ -45,7 +45,9 @@ LATER_FALLBACK_KEYS = frozenset({
 
 def historical_source(source, language, register=None):
     register = builder.check_register.load_register() if register is None else register
-    source = before_b25(source.replace("\r\n", "\n"), register, language.upper())
+    source = before_b27(source.replace("\r\n", "\n"), register, language.upper())
+    source = before_b26(source, register, language.upper())
+    source = before_b25(source, register, language.upper())
     source = before_b24(source, register, language.upper())
     lines = source.split("\n")
     keys = [line[2:].split(": '", 1)[0] if line.startswith("  ") and ": '" in line else None
@@ -73,10 +75,12 @@ class AiReviewTests(unittest.TestCase):
         self.assertEqual(set(added), LATER_FALLBACK_KEYS)
         b24_events(builder.check_register.load_register())
         b25_events(builder.check_register.load_register())
+        b26_events(builder.check_register.load_register())
+        b27_events(builder.check_register.load_register())
         records = [row for row in copy.deepcopy(self.manifest)
                    if not (row["surface"] == "react" and row["identity"] in
-                           (set(added) | set(POTENTIAL_MOVEMENT_KEYS) | set(ZONE_CHART_KEYS)
-                            | B23_ADDED_KEYS | B24_ADDED_KEYS))]
+                           (set(added) | set(POTENTIAL_MOVEMENT_KEYS) | set(ZONE_CHART_KEYS) | set(THERMAL_PERIOD_KEYS)
+                            | set(PROBE_AVERAGE_KEYS) | B23_ADDED_KEYS | B24_ADDED_KEYS))]
         for row in records:
             row.pop("ja_ai_reviewed")
             if row["status"] == "AI_REVIEWED":
@@ -150,12 +154,29 @@ class AiReviewTests(unittest.TestCase):
             self.assertEqual(set(added), LATER_FALLBACK_KEYS)
             self.assertEqual(hashlib.sha256(historical_source(source, lang).encode()).hexdigest(), expected)
             register = builder.check_register.load_register()
-            source = before_b24(before_b25(source, register, lang.upper()), register, lang.upper())
+            source = before_b24(before_b25(before_b26(before_b27(source, register, lang.upper()),
+                                                       register, lang.upper()), register, lang.upper()),
+                                register, lang.upper())
             for key, values in added.items():
                 line = f"  {key}: '{values[lang.upper()]}',\n"
                 self.assertEqual(source.count(line), 1, line)
                 source = source.replace(line, "")
             self.assertEqual(hashlib.sha256(source.encode()).hexdigest(), expected)
+
+    def test_b27_additions_are_excluded_from_the_frozen_source_reconstruction(self):
+        # Both reconstructions must remove the B27 additions, so the frozen FR/EN
+        # bytes are restored once the earlier pre-existing baseline is repaired.
+        register = builder.check_register.load_register()
+        b27_events(register)
+        for lang in ("fr", "en"):
+            source = (ROOT / f"frontend/src/i18n/{lang}.ts").read_text(encoding="utf-8")
+            explicit = before_b24(before_b25(before_b26(before_b27(source, register, lang.upper()),
+                                                          register, lang.upper()), register, lang.upper()),
+                                  register, lang.upper())
+            implicit = historical_source(source, lang, register)
+            for key in PROBE_AVERAGE_KEYS:
+                self.assertNotIn(f"  {key}: ", explicit, f"{lang}.{key} explicit")
+                self.assertNotIn(f"  {key}: ", implicit, f"{lang}.{key} implicit")
 
     def test_source_fingerprint_scope_rejects_each_historical_value_change(self):
         register = builder.check_register.load_register()
@@ -167,7 +188,8 @@ class AiReviewTests(unittest.TestCase):
                 mutated = line.replace(": '", ": 'changed ", 1).replace(': "', ': "changed ', 1)
                 self.assertNotEqual(mutated, line, f"{lang}.{key}: mutation must change the value")
                 changed = source.replace(line, mutated, 1)
-                if key in B24_ADDED_KEYS or key in ZONE_CHART_KEYS:
+                if (key in B24_ADDED_KEYS or key in ZONE_CHART_KEYS or key in THERMAL_PERIOD_KEYS
+                        or key in PROBE_AVERAGE_KEYS):
                     with self.assertRaises(AssertionError):
                         historical_source(changed, lang, register)
                     continue
@@ -278,10 +300,12 @@ class AiReviewTests(unittest.TestCase):
         self.assertTrue(blocked <= absent)
         self.assertFalse(blocked & deferred)
         self.assertTrue((set(POTENTIAL_MOVEMENT_KEYS) - B23_RETIRED_KEYS) <= absent)
-        self.assertTrue((B23_ADDED_KEYS | B24_ADDED_KEYS | set(ZONE_CHART_KEYS)) <= absent)
+        self.assertTrue((B23_ADDED_KEYS | B24_ADDED_KEYS | set(ZONE_CHART_KEYS) | set(THERMAL_PERIOD_KEYS)
+                         | set(PROBE_AVERAGE_KEYS)) <= absent)
         self.assertFalse(B23_RETIRED_KEYS & set(react))
-        absent -= set(POTENTIAL_MOVEMENT_KEYS) | B23_ADDED_KEYS | B24_ADDED_KEYS | set(ZONE_CHART_KEYS)
-        # 137 original, plus 7 thermal, 30 laboratory and 42 active historical keys.
+        absent -= (set(POTENTIAL_MOVEMENT_KEYS) | B23_ADDED_KEYS | B24_ADDED_KEYS | set(ZONE_CHART_KEYS)
+                   | set(THERMAL_PERIOD_KEYS) | set(PROBE_AVERAGE_KEYS))
+        # 137 original, plus 7 thermal, 30 laboratory, 42 active historical and 2 average keys.
         self.assertEqual(len(absent - blocked), 216)
         added = set(post_baseline_react_keys())
         self.assertEqual(added, LATER_FALLBACK_KEYS)

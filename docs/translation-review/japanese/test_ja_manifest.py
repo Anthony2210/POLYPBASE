@@ -15,6 +15,10 @@ HERE = Path(__file__).resolve().parent
 HISTORICAL_MOVEMENT_KEYS = json.loads((HERE / "historical-movement-keys.json").read_text(encoding="utf-8"))
 # Registered FR/EN additions (B25) with no Japanese, outside the frozen baselines.
 ZONE_CHART_KEYS = json.loads((HERE / "zone-chart-keys.json").read_text(encoding="utf-8"))
+# Registered FR/EN additions (B26): compact probe chart period control, no Japanese.
+THERMAL_PERIOD_KEYS = json.loads((HERE / "thermal-period-keys.json").read_text(encoding="utf-8"))
+# Registered FR/EN additions (B27): inter-probe average curve, no Japanese.
+PROBE_AVERAGE_KEYS = json.loads((HERE / "probe-average-keys.json").read_text(encoding="utf-8"))
 # B20/B21 are distinct from the 44 older historical movement additions.
 POTENTIAL_MOVEMENT_KEYS = (
     "historyPotentialMovement", "historyPotentialAfterRecord", "historyPotentialUnordered",
@@ -29,7 +33,8 @@ import check_i18n  # noqa: E402
 import check_register  # noqa: E402
 import compile_django_messages  # noqa: E402
 from test_check_register import (  # noqa: E402
-    B13_POSITION, LAB_POSITION, b13_integrity_errors, b24_events, lab_integrity_errors, rows_digest,
+    B13_POSITION, B26_KEYS, B27_KEYS, LAB_POSITION, b13_integrity_errors, b24_events, b26_events, b27_events,
+    before_b26, before_b27, lab_integrity_errors, rows_digest,
 )
 
 
@@ -273,6 +278,44 @@ class JapaneseManifestTests(unittest.TestCase):
                 self.assertEqual(row[field], "")
             self.assertNotIn(key, self.ja_ts)
 
+    def test_b26_additions_have_exact_provenance(self):
+        self.assertEqual(tuple(THERMAL_PERIOD_KEYS), B26_KEYS)
+        events = b26_events(check_register.load_register())
+        self.assertEqual({row["status"] for row in events}, {"ALREADY_MATCHING"})
+        en = check_register.read_catalog(ROOT / "frontend/src/i18n/en.ts")
+        react = {row["identity"]: row for row in self.by("react")}
+        for event in events:
+            key = event["key_or_msgid"]
+            row = react[key]
+            language = event["language"].lower()
+            self.assertEqual(event["initial_value"], event["final_value"])
+            self.assertEqual((self.fr if language == "fr" else en)[key], event["final_value"])
+            self.assertEqual(row[f"current_{language}"], event["final_value"])
+            self.assertEqual((row["surface"], row["status"], row["reason_code"], row["takeru_review"]),
+                             ("react", "FALLBACK_EN", "ABSENT_FROM_WORKBOOK", "no"))
+            for field in ("sheet_row", "sheet_section", "sheet_fr", "sheet_en", "ja_validated", "ja_ai_reviewed"):
+                self.assertEqual(row[field], "")
+            self.assertNotIn(key, self.ja_ts)
+
+    def test_b27_additions_have_exact_provenance(self):
+        self.assertEqual(tuple(PROBE_AVERAGE_KEYS), B27_KEYS)
+        events = b27_events(check_register.load_register())
+        self.assertEqual({row["status"] for row in events}, {"ALREADY_MATCHING"})
+        en = check_register.read_catalog(ROOT / "frontend/src/i18n/en.ts")
+        react = {row["identity"]: row for row in self.by("react")}
+        for event in events:
+            key = event["key_or_msgid"]
+            row = react[key]
+            language = event["language"].lower()
+            self.assertEqual(event["initial_value"], event["final_value"])
+            self.assertEqual((self.fr if language == "fr" else en)[key], event["final_value"])
+            self.assertEqual(row[f"current_{language}"], event["final_value"])
+            self.assertEqual((row["surface"], row["status"], row["reason_code"], row["takeru_review"]),
+                             ("react", "FALLBACK_EN", "ABSENT_FROM_WORKBOOK", "no"))
+            for field in ("sheet_row", "sheet_section", "sheet_fr", "sheet_en", "ja_validated", "ja_ai_reviewed"):
+                self.assertEqual(row[field], "")
+            self.assertNotIn(key, self.ja_ts)
+
     def test_b24_additions_have_exact_provenance(self):
         events = b24_events(check_register.load_register())
         self.assertEqual({row["key_or_msgid"] for row in events}, B24_ADDED_KEYS)
@@ -295,7 +338,7 @@ class JapaneseManifestTests(unittest.TestCase):
         # Historical counts are frozen; only registered post-baseline keys are added.
         self.assertEqual(Counter((r["surface"], r["status"]) for r in self.manifest), Counter({
             ("react", "REUSED"): 930, ("react", "AI_REVIEWED"): 59,
-            ("react", "FALLBACK_EN"): 251, ("react", "FALLBACK_EN_REVIEW"): 36,
+            ("react", "FALLBACK_EN"): 257, ("react", "FALLBACK_EN_REVIEW"): 36,
             ("django", "REUSED"): 81, ("django", "FALLBACK_EN"): 11, ("django", "FALLBACK_EN_REVIEW"): 6,
             ("local", "REUSED"): 67, ("local", "FALLBACK_EN_REVIEW"): 1, ("inline", "FALLBACK_EN_INLINE"): 14,
         }))

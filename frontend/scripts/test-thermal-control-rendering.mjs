@@ -175,20 +175,21 @@ for (const language of ['fr', 'en']) {
     assert.ok(!accessible.includes(view.copy.temperatureNoRecent));
   });
 
-  test(`${language}: a successful empty response ends loading and alone establishes no recent measurement`, () => {
+  test(`${language}: a successful empty response ends loading without a redundant no-recent message`, () => {
     const view = panel({ language, result: { summary: undefined, error: null } });
     view.render({ summary: summary({ temperature_c: null, included_probe_count: 0,
       oldest_measured_at: null, newest_measured_at: null, expires_at: null, stale_probe_count: 3 }), error: null });
-    const paragraphs = find(view.nodes('zone-temperature-heading')[0], node => node.type === 'p');
-    assert.equal(paragraphs.length, 1);
-    assert.equal(text(paragraphs[0]), view.copy.temperatureNoRecent);
-    assert.equal(paragraphs[0].props['aria-busy'], false);
-    assert.equal(paragraphs[0].props.role, undefined);
+    // The absence of a fresh probe is shown by the missing recent mean, not by a sentence.
+    assert.equal(find(view.nodes('zone-temperature-heading')[0], node => node.type === 'p').length, 0);
     assert.equal(view.statuses().length, 0);
     assert.ok(!view.text().includes(view.copy.loading));
     assert.ok(!view.text().includes(view.copy.temperatureRecentError));
+    assert.ok(!view.text().includes(view.copy.temperatureNoRecent));
     assert.equal(view.nodes('temperature-observed-marker').length, 0);
-    assert.ok(view.nodes('temperature-ruler')[0].props['aria-label'].includes(view.copy.temperatureNoRecent));
+    const accessible = view.nodes('temperature-ruler')[0].props['aria-label'];
+    assert.ok(!accessible.includes(view.copy.temperatureNoRecent));
+    assert.ok(!accessible.includes(view.copy.temperatureRecentMean));
+    assert.doesNotMatch(accessible, /null|undefined|, ,/);
     assert.ok(view.text().includes(`${view.copy.temperatureDailyMean}21.0°C`));
   });
 
@@ -223,13 +224,13 @@ for (const [name, result, currentZone] of [
   test(`${name}: daily statistics remain available without masquerading as a recent measurement`, () => {
     const view = panel({ result, currentZone });
     assert.equal(view.nodes('temperature-observed-marker').length, 0);
-    const context = result.summary ? view.copy.temperatureNoRecent : view.copy.loading;
-    assert.ok(view.text().includes(context));
-    assert.equal(view.text().includes(view.copy.temperatureNoRecent), Boolean(result.summary));
+    assert.equal(view.text().includes(view.copy.loading), !result.summary);
+    assert.ok(!view.text().includes(view.copy.temperatureNoRecent));
     assert.ok(view.text().includes(`${view.copy.temperatureDailyMean}21.0°C`));
     assert.equal(view.nodes('temperature-observed-range').length, 1);
     const accessible = view.nodes('temperature-ruler')[0].props['aria-label'];
-    assert.ok(accessible.includes(context));
+    assert.equal(accessible.includes(view.copy.loading), !result.summary);
+    assert.ok(!accessible.includes(view.copy.temperatureNoRecent));
     assert.ok(!accessible.includes(view.copy.temperatureRecentMean));
     assert.ok(!text(view.nodes('zone-temperature-heading')[0]).includes('2026-11-03'));
   });

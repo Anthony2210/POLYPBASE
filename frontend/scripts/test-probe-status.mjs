@@ -99,26 +99,32 @@ const monitoring = (manual = true, last = new Date(now - 9 * 3600000).toISOStrin
   has_collected_probes: true, manual_entry_available: manual, last_reading_at: last, fallback_after_hours: 6,
 });
 
-test('silent status is compact, factual and translated without a provenance label or probe icon', () => {
+test('an old reading keeps its time and age, without the silent probe badge or description', () => {
   const view = panel(monitoring());
   assert.match(view.text(), /\(il y a 9 h\)/);
-  assert.match(view.text(), /Sondes silencieuses/);
-  assert.match(view.text(), /Aucune mesure reçue depuis 9 h. Vous pouvez saisir la température à la main en attendant./);
+  for (const removed of [fr.probeSilentBadge, 'Aucune mesure reçue depuis', 'Vous pouvez saisir la température à la main en attendant']) {
+    assert.ok(!view.text().includes(removed), removed);
+  }
   assert.doesNotMatch(view.text(), /6 h|Moyenne du jour|·/);
   assert.equal(view.find((node) => node.props.className === 'zone-probe-stale').length, 0);
+  assert.equal(view.find((node) => node.props.className === 'zone-probe-silent-badge').length, 0);
+  assert.equal(view.find((node) => node.props.className === 'zone-probe-silent-description').length, 0);
   assert.equal(view.find((node) => node.type === 'time')[0].props.dateTime, monitoring().last_reading_at);
-  assert.match(panel(monitoring(), true, 'en').text(), /\(9 h ago\).*Silent probes.*No reading received for 9 h/);
+  const english = panel(monitoring(), true, 'en').text();
+  assert.match(english, /\(9 h ago\)/);
+  assert.doesNotMatch(english, /Silent probes|No reading received for/);
 });
 
 test('server status and user permission remain authoritative, including missing and inactive probes', () => {
   for (const available of [true, false]) for (const canRecord of [true, false]) {
     const view = panel(monitoring(available), canRecord);
+    // Manual fallback availability still follows the server, without a badge.
     assert.equal(view.find((node) => node.props['aria-label'] === fr.manualTemperatureAction).length, available && canRecord ? 1 : 0);
-    assert.equal(view.find((node) => node.props.className === 'zone-probe-silent-badge').length, available ? 1 : 0);
+    assert.equal(view.find((node) => node.props.className === 'zone-probe-silent-badge').length, 0);
   }
   const absent = panel(monitoring(true, null));
   assert.match(absent.text(), /Aucune mesure reçue pour l/);
-  assert.doesNotMatch(absent.text(), /depuis|il y a|6 h/);
+  assert.doesNotMatch(absent.text(), /depuis|il y a|6 h|attendant/);
   const inactive = panel({ ...monitoring(), has_collected_probes: false });
   assert.equal(inactive.find((node) => node.props.className === 'zone-probe-silent-badge').length, 0);
   assert.equal(inactive.find((node) => node.props.className === 'secondary-button zone-probe-readings-action').length, 0);
