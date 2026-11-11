@@ -62,7 +62,15 @@ def main():
             stream.write(f"\nlisten_addresses='127.0.0.1'\nport={port}\nmax_connections=60\n"
                                      "fsync=off\nsynchronous_commit=off\nfull_page_writes=off\n")
         print(f"Fresh synthetic cluster only: {directory.name}, loopback port {port}", flush=True)
-        run("pg_ctl", "-D", data, "-l", directory / "server.log", "-w", "-t", "30", "start")
+        try:
+            run("pg_ctl", "-D", data, "-l", directory / "server.log", "-w", "-t", "30", "start")
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            try:
+                print("PostgreSQL startup failed; server.log:", flush=True)
+                print((directory / "server.log").read_text(encoding="utf-8", errors="replace"), flush=True)
+            except (OSError, UnicodeError) as error:
+                print(f"Could not read or print server.log: {ascii(error)}", flush=True)
+            raise
 
         run("createdb", "-h", "127.0.0.1", "-p", port, "-U", "subculture_qa", "subculture_qa")
         settings = directory / "ht_disposable_settings.py"
@@ -92,16 +100,22 @@ def main():
         print(report.read_text(encoding="utf-8", errors="replace"), flush=True)
         return result.returncode
     finally:
-        # Lifecycle operations are confined to the directory created above in this process.
-        status = subprocess.run([str(binaries["pg_ctl"]), "-D", str(data), "status"],
-                                env=env, capture_output=True, timeout=15)
-        stopped = status.returncode in (3, 4)
-        if not stopped:
-            run("pg_ctl", "-D", data, "-m", "immediate", "-w", "-t", "15", "stop", timeout=25)
-            stopped = True
-        if stopped:
-            shutil.rmtree(directory)
-            print("Fresh synthetic cluster stopped and removed; no existing cluster changed.", flush=True)
+        original_error = sys.exc_info()[1]
+        try:
+            # Lifecycle operations are confined to the directory created above in this process.
+            status = subprocess.run([str(binaries["pg_ctl"]), "-D", str(data), "status"],
+                                    env=env, capture_output=True, timeout=15)
+            stopped = status.returncode in (3, 4)
+            if not stopped:
+                run("pg_ctl", "-D", data, "-m", "immediate", "-w", "-t", "15", "stop", timeout=25)
+                stopped = True
+            if stopped:
+                shutil.rmtree(directory)
+                print("Fresh synthetic cluster stopped and removed; no existing cluster changed.", flush=True)
+        except Exception as error:
+            if original_error is None:
+                raise
+            print(f"Fresh synthetic cluster cleanup failed: {error}", flush=True)
 
 
 if __name__ == "__main__":

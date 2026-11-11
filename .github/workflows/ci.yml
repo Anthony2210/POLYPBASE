@@ -141,6 +141,11 @@ jobs:
       - name: Install backend dependencies
         run: uv sync --frozen
 
+      - name: Test disposable PostgreSQL launcher
+        run: >-
+          uv run --frozen python -B -m unittest discover
+          -s scripts -p test_historical_temperature_launcher.py
+
       - name: Install PostgreSQL 18 binaries
         run: |
           sudo install -d /usr/share/postgresql-common/pgdg
