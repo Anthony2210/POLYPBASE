@@ -59,6 +59,8 @@ jobs:
       EMAIL_DELIVERY_ENABLED: "0"
       POSTGRES_DB: ""
       PYTHONDONTWRITEBYTECODE: "1"
+      PYTHON_DOTENV_DISABLED: "1"
+      POLYPBASE_TEST_POSTGRES: "0"
 
     steps:
       - name: Checkout repository
@@ -97,7 +99,7 @@ jobs:
       - name: Check Django configuration
         run: >-
           uv run --frozen python manage.py check
-          --settings=config.test_settings
+          --settings=config.preflight_settings
 
       - name: Check production security settings
         run: >-
@@ -107,9 +109,55 @@ jobs:
       - name: Check for missing migrations
         run: >-
           uv run --frozen python manage.py makemigrations
-          --check --dry-run --settings=config.test_settings
+          --check --dry-run --settings=config.preflight_settings
 
       - name: Run backend tests
         run: >-
           uv run --frozen python manage.py test
           --settings=config.test_settings
+
+  box-1902:
+    name: Box 1902 PostgreSQL regressions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHON_DOTENV_DISABLED: "1"
+      POLYPBASE_TEST_POSTGRES: "0"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          python-version: "3.12"
+
+      - name: Install backend dependencies
+        run: uv sync --frozen
+
+      - name: Test disposable PostgreSQL launcher
+        run: >-
+          uv run --frozen python -B -m unittest discover
+          -s scripts -p test_historical_temperature_launcher.py
+
+      - name: Install PostgreSQL 18 binaries
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl --fail --silent --show-error --location \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          echo 'deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main' | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-18
+
+      - name: Run genuine-role Box 1902 regression tests
+        run: >-
+          uv run --frozen python -B scripts/test_historical_temperature_production.py
+          --run --pg-bin /usr/lib/postgresql/18/bin
+          apps.cultures.test_box_1902_correction_v2_postgres

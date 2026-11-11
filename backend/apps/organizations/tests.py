@@ -6,7 +6,7 @@ import uuid
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, connection, transaction
-from django.db.migrations.executor import MigrationExecutor
+from config.migration_test_utils import MigrationExecutor
 from django.forms import modelform_factory
 from django.test import TestCase, TransactionTestCase
 from django.urls import reverse

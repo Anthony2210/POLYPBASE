@@ -20,6 +20,39 @@ SCOPE = {"organization_id": 1, "box_id": 1902, "source_strain_id": 213,
          "source_species_id": 131, "target_strain_id": 285}
 
 
+class Box1902RegressionDiscoveryTests(SimpleTestCase):
+    """Keep the assertion-level v1-to-v2 mapping executable in SQLite CI too."""
+
+    def test_all_legacy_methods_are_executed_by_the_genuine_role_class(self):
+        from .test_box_1902_correction_v2_postgres import Box1902CorrectionV2PostgreSQLTests
+        from .test_cla_box_1902 import ClaBox1902Tests
+        from .test_cla_box_1902_postgres import ClaBox1902PostgreSQLTests
+        from .test_box_1902_preservation_postgres import Box1902PreservationPostgreSQLTests
+
+        mapped = set()
+        for mixin, expected_count in ((ClaBox1902Tests, 33), (ClaBox1902PostgreSQLTests, 13),
+                                      (Box1902PreservationPostgreSQLTests, 5)):
+            names = {name for name in dir(mixin) if name.startswith("test_")}
+            self.assertEqual(len(names), expected_count, mixin.__name__)
+            for name in names:
+                with self.subTest(origin=mixin.__name__, method=name):
+                    method = getattr(mixin, name)
+                    self.assertIs(getattr(Box1902CorrectionV2PostgreSQLTests, name), method)
+                    self.assertFalse(getattr(method, "__unittest_skip__", False))
+            self.assertFalse(mapped & names, "Legacy scenarios must not override one another")
+            mapped.update(names)
+        self.assertEqual(len(mapped), 51)
+
+    def test_only_the_concrete_role_class_requests_the_postgresql_harness(self):
+        from unittest import TestCase as UnitTestCase
+        from .test_cla_box_1902 import ClaBox1902Tests
+        from .test_cla_box_1902_postgres import ClaBox1902PostgreSQLTests
+        from .test_box_1902_preservation_postgres import Box1902PreservationPostgreSQLTests
+
+        for mixin in (ClaBox1902Tests, ClaBox1902PostgreSQLTests, Box1902PreservationPostgreSQLTests):
+            self.assertFalse(issubclass(mixin, UnitTestCase))
+
+
 class Box1902SafetyInterlockTests(SimpleTestCase):
     def test_exact_scope_is_required_before_any_database_access(self):
         for change in ({"organization_id": 2}, {"box_id": 1903}, {"source_strain_id": 214},

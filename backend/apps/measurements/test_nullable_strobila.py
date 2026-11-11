@@ -4,7 +4,7 @@ from datetime import date
 
 from django.contrib.auth import get_user_model
 from django.db import connection
-from django.db.migrations.executor import MigrationExecutor
+from config.migration_test_utils import MigrationExecutor
 from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
 
