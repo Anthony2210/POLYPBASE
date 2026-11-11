@@ -84,6 +84,10 @@ class LauncherTests(unittest.TestCase):
             self.data.mkdir()
         elif name == "pg_ctl" and command[-1] == "start":
             self.assertTrue((self.data / "postgresql.conf").is_file())
+            config = (self.data / "postgresql.conf").read_text(encoding="ascii").splitlines()
+            self.assertIn("listen_addresses='127.0.0.1'", config)
+            self.assertIn("unix_socket_directories=''", config)
+            self.assertIn("port=65432", config)
             self.assertEqual(command[3:5], ["-l", str(self.directory / "server.log")])
             if self.log_bytes is not None:
                 (self.directory / "server.log").write_bytes(self.log_bytes)

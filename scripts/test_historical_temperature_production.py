@@ -59,7 +59,7 @@ def main():
     try:
         run("initdb", "-D", data, "--username=subculture_qa", "--auth=trust", "--encoding=UTF8", "--no-locale", "--no-sync", "-c", "fsync=off", timeout=180)
         with (data / "postgresql.conf").open("a", encoding="ascii") as stream:
-            stream.write(f"\nlisten_addresses='127.0.0.1'\nport={port}\nmax_connections=60\n"
+            stream.write(f"\nlisten_addresses='127.0.0.1'\nunix_socket_directories=''\nport={port}\nmax_connections=60\n"
                                      "fsync=off\nsynchronous_commit=off\nfull_page_writes=off\n")
         print(f"Fresh synthetic cluster only: {directory.name}, loopback port {port}", flush=True)
         try:
