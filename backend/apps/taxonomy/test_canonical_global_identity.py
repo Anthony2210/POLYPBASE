@@ -1,5 +1,5 @@
 from django.db import IntegrityError, connection, transaction
-from django.db.migrations.executor import MigrationExecutor
+from config.migration_test_utils import MigrationExecutor
 from django.db.migrations.recorder import MigrationRecorder
 from django.test import TestCase, TransactionTestCase
 

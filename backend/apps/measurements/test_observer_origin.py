@@ -8,7 +8,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
-from django.db.migrations.executor import MigrationExecutor
+from config.migration_test_utils import MigrationExecutor
 from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
 from django.utils import timezone

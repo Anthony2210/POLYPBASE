@@ -6,7 +6,7 @@ from unittest.mock import patch
 from django.core import serializers
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
-from django.db.migrations.executor import MigrationExecutor
+from config.migration_test_utils import MigrationExecutor
 from django.test import TestCase, TransactionTestCase, override_settings, skipUnlessDBFeature
 
 from .models import BoxMovement

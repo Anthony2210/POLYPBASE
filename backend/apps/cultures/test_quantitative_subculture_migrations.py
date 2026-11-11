@@ -3,7 +3,7 @@
 from datetime import date
 
 from django.db import IntegrityError, connection, transaction
-from django.db.migrations.executor import MigrationExecutor
+from config.migration_test_utils import MigrationExecutor
 from django.test import TransactionTestCase
 from django.utils import timezone
 

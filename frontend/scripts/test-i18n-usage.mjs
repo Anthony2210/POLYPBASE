@@ -154,6 +154,16 @@ test('thermal retention is exact and does not exempt other unused temperature ke
   }
 });
 
+test('partial-history retention is exact and expires when the key is used or removed', () => {
+  const exceptions = { historyPartial: usageExceptions.historyPartial };
+  assert.match(exceptions.historyPartial, /Historical movements \(5b1299b\).*undated-source notice and Japanese review provenance.*explicit i18n removal batch/);
+  const result = analyze(['historyPartial', 'historyUnreviewed'], 'export {};', exceptions);
+  assert.equal(result.errors.length, 1);
+  assert.match(result.errors[0], /^historyUnreviewed: no exact literal/);
+  assert.match(analyze(['historyPartial'], "t('historyPartial')", exceptions).errors.join('\n'), /stale exception/);
+  assert.match(analyze([], 'export {};', exceptions).errors.join('\n'), /stale exception/);
+});
+
 test('real source has no unreviewed orphans or stale exceptions', () => {
   const result = checkRepository();
   assert.deepEqual(result.errors, [], result.errors.join('\n'));
