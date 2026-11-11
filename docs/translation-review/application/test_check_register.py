@@ -286,10 +286,10 @@ class IntegrationHistoryTests(unittest.TestCase):
 
     def test_integration_has_exact_count_unique_ordered_ids_and_chronology(self):
         rows = reg.load_register()
-        self.assertEqual(len(rows), 1098)
-        self.assertEqual([row["entry_id"] for row in rows], [f"T{n:03d}" for n in range(1, 1099)])
+        self.assertEqual(len(rows), 1100)
+        self.assertEqual([row["entry_id"] for row in rows], [f"T{n:03d}" for n in range(1, 1101)])
         self.assertEqual(Counter(row["batch"] for row in rows[1010:]),
-                         Counter({"B20-2026-11-09": 6, "B21-2026-11-09": 20, "B22-2026-11-10": 6, "B23-2026-11-10": 12, "B24-2026-11-10": 6, INTEGRATION_B25: 26, B26: 8, B27: 4}))
+                         Counter({"B20-2026-11-09": 6, "B21-2026-11-09": 20, "B22-2026-11-10": 6, "B23-2026-11-10": 12, "B24-2026-11-10": 6, INTEGRATION_B25: 26, B26: 8, B27: 4, "B28-2026-11-11": 2}))
         self.assertEqual(len(b26_events(rows)), 8)
         self.assertEqual(len(b27_events(rows)), 4)
         self.assertEqual(len({(row["batch"], reg.identity(row)) for row in rows}), len(rows))
@@ -618,6 +618,40 @@ class SyntheticHistoryTests(unittest.TestCase):
     def test_japanese_is_not_accepted(self):
         rows = [event(1, B01, "boxes", "箱", "容器", language="JA", source="frontend/src/i18n/ja.ts")]
         self.assertRejected(rows, {("react", "boxes", "JA"): "容器"}, "unsupported language")
+
+
+class ApprovedPlaceholderAdditionTests(unittest.TestCase):
+    """B28 introduces {minutes} in probeLatestInterval under one explicit product decision."""
+
+    def b28_row(self, language):
+        rows = [row for row in reg.load_register() if row["batch"] == "B28-2026-11-11"]
+        return dict(next(row for row in rows if row["language"] == language))
+
+    def test_approved_b28_events_introduce_minutes(self):
+        for language in ("FR", "EN"):
+            with self.subTest(language=language):
+                row = self.b28_row(language)
+                self.assertIn("{minutes}", row["final_value"])
+                self.assertNotIn("{", row["initial_value"])
+                self.assertEqual(reg.check_row(row), [])
+
+    def test_approval_is_bound_to_the_exact_event(self):
+        row = dict(self.b28_row("EN"), entry_id="T1101")
+        self.assertTrue(any("placeholders differ" in error for error in reg.check_row(row)))
+
+    def test_approved_event_may_not_remove_a_placeholder(self):
+        row = dict(self.b28_row("EN"), final_value="Latest mean")
+        self.assertTrue(any("placeholders differ" in error for error in reg.check_row(row)))
+
+    def test_approved_event_may_not_add_another_placeholder(self):
+        row = dict(self.b28_row("EN"), final_value="Latest {minutes}-min mean for {probe}")
+        self.assertTrue(any("placeholders differ" in error for error in reg.check_row(row)))
+
+    def test_unapproved_placeholder_introduction_is_still_rejected(self):
+        values = {("react", "probeLatestInterval", "EN"): "Latest {minutes}-min mean"}
+        rows = [event(1, B01, "probeLatestInterval", "Latest interval (mean)", "Latest {minutes}-min mean")]
+        errors = reg.validate(roundtrip(rows), fake_sources(values))
+        self.assertTrue(any("placeholders differ" in error for error in errors), errors)
 
 
 class RemovedStatusTests(unittest.TestCase):
@@ -1059,6 +1093,13 @@ class RealRegisterTests(unittest.TestCase):
         edited = en.replace("  temperatureDailyMean: 'Daily mean',\n", "  temperatureDailyMean: 'Daily average',\n")
         self.assertNotEqual(edited, en)
         edited = before_b23(before_b24(before_b26(edited, rows), rows), rows)
+        # Undo the latest value changes first, so earlier frozen additions still match the catalog.
+        for row in reversed(rows[1098:]):
+            if row["surface"] == "react" and row["language"] == "EN" and row["status"] == "APPLIED":
+                current = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
+                previous = f"  {row['key_or_msgid']}: '{row['initial_value']}',\n"
+                self.assertEqual(edited.count(current), 1, row["entry_id"])
+                edited = edited.replace(current, previous)
         # Undo later recorded value changes before removing the frozen additions.
         # Reverse order preserves continuity if the same key is corrected more than once.
         # Remove thermal B25 once; movement B20/B21 are removed separately below.
@@ -1068,7 +1109,7 @@ class RealRegisterTests(unittest.TestCase):
                 self.assertEqual(edited.count(addition), 1, row["entry_id"])
                 edited = edited.replace(addition, "")
         # Reverse later changes in reverse order to preserve value continuity.
-        for row in reversed(rows[1006:]):
+        for row in reversed(rows[1006:1098]):
             if row["surface"] == "react" and row["language"] == "EN" and row["status"] == "APPLIED":
                 current = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
                 previous = f"  {row['key_or_msgid']}: '{row['initial_value']}',\n"

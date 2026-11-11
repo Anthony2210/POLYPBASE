@@ -41,6 +41,13 @@ ENTRY_ID = re.compile(r"^T(\d{3,})$")
 GIT_HEAD = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 PLACEHOLDER = re.compile(r"\{(\w+)\}")
+# Placeholders that an explicitly approved product decision may introduce. Each entry names one
+# exact append-only event, so the approval cannot spread to another row, and adding or removing
+# any other placeholder stays rejected by the general rule.
+APPROVED_PLACEHOLDER_ADDITIONS = {
+    ("T1099", "react", "probeLatestInterval", "FR", "frontend/src/i18n/fr.ts"): Counter({"minutes": 1}),
+    ("T1100", "react", "probeLatestInterval", "EN", "frontend/src/i18n/en.ts"): Counter({"minutes": 1}),
+}
 # Strict tokenizer for the React catalogs. Any character it cannot classify makes the catalog
 # unreadable, so a key can never be reported absent because of unusual formatting.
 CATALOG_TOKEN = re.compile(r"""
@@ -284,7 +291,10 @@ def check_row(row: dict[str, str]) -> list[str]:
         errors.append(f"{label}: APPLIED without a change of value")
     if row["status"] != "APPLIED" and initial != final:
         errors.append(f"{label}: {row['status']} must not change the value")
-    if Counter(PLACEHOLDER.findall(initial)) != Counter(PLACEHOLDER.findall(final)):
+    before, after = Counter(PLACEHOLDER.findall(initial)), Counter(PLACEHOLDER.findall(final))
+    added, removed = after - before, before - after
+    approved = APPROVED_PLACEHOLDER_ADDITIONS.get((row["entry_id"],) + identity(row))
+    if removed or added != (approved or Counter()):
         errors.append(f"{label}: placeholders differ between initial and final values")
     return errors
 
