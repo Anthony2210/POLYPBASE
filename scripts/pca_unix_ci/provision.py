@@ -377,6 +377,12 @@ def main():
         postgres_command("/opt/venv/bin/python", "-B", str(ROOT / "scripts/pca_unix_ci/provision_box_1902.py"),
             input=json.dumps({"owner_password": owner_password, "runtime_password": runtime_password}),
             text=True, timeout=60)
+        from psycopg import sql
+
+        with connect() as connection:
+            connection.execute(sql.SQL(
+                "GRANT EXECUTE ON FUNCTION pg_catalog.pg_control_system() TO {}"
+            ).format(sql.Identifier(OWNER)))
         system_identifier, target = attest(postgres, identity)
         payload = {"owner_password": owner_password, "runtime_password": runtime_password,
                    "system_identifier": system_identifier}
