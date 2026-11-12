@@ -42,7 +42,10 @@ def authentication_denied(error, role):
         sqlstate = getattr(getattr(error, "diag", None), "sqlstate", None)
     primary = str(getattr(getattr(error, "diag", None), "message_primary", "") or "")
     role_pattern = re.escape(role)
-    peer_message = rf'FATAL:\s*Peer authentication failed for user "{role_pattern}"'
+    socket = re.escape(f"/var/run/postgresql/.s.PGSQL.{PORT}")
+    peer_message = (
+        rf'connection failed: connection to server on socket "{socket}" failed: '
+        rf'FATAL:\s+Peer authentication failed for user "{role_pattern}"')
     if sqlstate is not None:
         diagnostic = f"{primary}\n{error}"
         return (isinstance(sqlstate, str) and sqlstate.startswith("28")

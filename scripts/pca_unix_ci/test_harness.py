@@ -121,17 +121,33 @@ class HarnessTests(unittest.TestCase):
 
         fake_psycopg = SimpleNamespace(OperationalError=OperationalError)
         with patch.dict(sys.modules, {"psycopg": fake_psycopg}):
-            actual = OperationalError('FATAL: Peer authentication failed for user "box1902_backup"')
+            actual = OperationalError(
+                'connection failed: connection to server on socket '
+                '"/var/run/postgresql/.s.PGSQL.65432" failed: FATAL:  '
+                'Peer authentication failed for user "box1902_backup"')
             self.assertTrue(run_tests.authentication_denied(actual, "box1902_backup"))
             self.assertFalse(run_tests.authentication_denied(
-                OperationalError('FATAL: Peer authentication failed for user "other_role"'),
+                OperationalError(f"{actual} unrelated text"), "box1902_backup"))
+            self.assertFalse(run_tests.authentication_denied(
+                OperationalError(
+                    'connection failed: connection to server on socket '
+                    '"/var/run/postgresql/.s.PGSQL.65432" failed: FATAL:  '
+                    'Peer authentication failed for user "other_role"'),
+                "box1902_backup"))
+            self.assertFalse(run_tests.authentication_denied(
+                OperationalError(
+                    'connection failed: connection to server on socket '
+                    '"/var/run/postgresql/.s.PGSQL.65433" failed: FATAL:  '
+                    'Peer authentication failed for user "box1902_backup"'),
                 "box1902_backup"))
             self.assertFalse(run_tests.authentication_denied(
                 OperationalError("connection refused"), "box1902_backup"))
             self.assertFalse(run_tests.authentication_denied(
                 OperationalError("FATAL: authentication failed"), "box1902_backup"))
             with_sqlstate = OperationalError(
-                'FATAL: Peer authentication failed for user "box1902_backup"')
+                'connection failed: connection to server on socket '
+                '"/var/run/postgresql/.s.PGSQL.65432" failed: FATAL:  '
+                'Peer authentication failed for user "box1902_backup"')
             with_sqlstate.sqlstate = "28000"
             self.assertTrue(run_tests.authentication_denied(with_sqlstate, "box1902_backup"))
             with_sqlstate.sqlstate = "08006"
