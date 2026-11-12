@@ -103,6 +103,87 @@ class BashGuardTests(unittest.TestCase):
             )
             self.assertEqual(bool(result.returncode), bool(expected), result.stderr)
 
+    def git_invocations(self, app_dir):
+        commands = (("symbolic-ref", "--short", "HEAD"),
+                    ("status", "--porcelain", "--untracked-files=all"),
+                    ("rev-parse", "HEAD"))
+        bash_calls = []
+        for args in commands:
+            # Capture the real wrapper's argv without requiring Debian binary paths.
+            result = self.run_shell(
+                '/usr/bin/env() { printf "%s\\0" "$@"; }\n'
+                'trusted_git -C "$APP_DIR" ' + " ".join(args),
+                POLYPBASE_MIGRATION_APP_DIR=app_dir,
+                POLYPBASE_APP_DIR="/srv/runtime-owned/app",
+                GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="safe.directory", GIT_CONFIG_VALUE_0="*",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            fields = result.stdout.decode().split("\0")[:-1]
+            self.assertEqual(fields[0], "-i")
+            self.assertEqual(fields[4], "/usr/bin/git")
+            environment = dict(field.split("=", 1) for field in fields[1:4])
+            bash_calls.append((fields[4:], environment))
+        ns = logic()
+        with patch.object(ns["subprocess"], "check_output",
+                          side_effect=[b"main\n", b"", TARGET.encode()]) as git:
+            ns["assert_checkout"](PurePosixPath(app_dir), TARGET)
+        python_calls = [(call.args[0], call.kwargs["env"]) for call in git.call_args_list]
+        return bash_calls, python_calls
+
+    def test_both_git_wrappers_authorize_only_the_exact_snapshot_and_isolate_config(self):
+        app_dir = "/opt/polypbase-migrations/reviewed snapshot"
+        bash_calls, python_calls = self.git_invocations(app_dir)
+        self.assertEqual(len(python_calls), 3)
+        for bash_call, python_call in zip(bash_calls, python_calls):
+            argv, environment = python_call
+            self.assertEqual(bash_call, ([arg for arg in argv if arg != "--no-pager"], environment))
+            self.assertEqual(environment, {"PATH": "/usr/bin:/bin", "GIT_CONFIG_NOSYSTEM": "1",
+                                           "GIT_CONFIG_GLOBAL": "/dev/null"})
+            self.assertEqual([arg for arg in argv if arg.startswith("safe.directory=")],
+                             [f"safe.directory={app_dir}"])
+            self.assertEqual(argv[argv.index("-C") + 1], app_dir)
+            self.assertIn("core.fsmonitor=false", argv)
+        preflight_end = SOURCE.index("\nPREFLIGHT\n")
+        self.assertLess(preflight_end, SOURCE.index("\nassert_checkout\n"))
+        self.assertLess(preflight_end, SOURCE.index('"$APP_DIR/.venv/bin/python" -I -B -'))
+
+    def test_real_git_accepts_only_exact_snapshot_with_different_owner(self):
+        git_binary = shutil.which("git")
+        if not git_binary:
+            self.skipTest("Git unavailable")
+        with tempfile.TemporaryDirectory() as directory:
+            snapshot = Path(directory, "reviewed snapshot")
+            child = snapshot / "nested"
+            sibling = Path(directory, "other snapshot")
+            for repository in (snapshot, child, sibling):
+                subprocess.run([git_binary, "init", "--initial-branch=main", str(repository)],
+                               check=True, capture_output=True, timeout=10)
+            app_dir = snapshot.as_posix()
+            bash_calls, python_calls = self.git_invocations(app_dir)
+            for implementation, calls in (("bash", bash_calls), ("python", python_calls)):
+                argv, environment = calls[0]
+                # Git's test hook exercises its real dubious-ownership boundary
+                # without chown/root. Only the executable and test hook are adapted.
+                environment = dict(environment, GIT_TEST_ASSUME_DIFFERENT_OWNER="1")
+                if os.name == "nt":
+                    environment["SystemRoot"] = os.environ["SystemRoot"]
+                argv = [git_binary, *argv[1:]]
+                for repository, accepted in ((snapshot, True), (child, False), (sibling, False)):
+                    command = argv.copy()
+                    command[command.index("-C") + 1] = repository.as_posix()
+                    with self.subTest(implementation=implementation, repository=repository):
+                        result = subprocess.run(command, env=environment, capture_output=True, timeout=10)
+                        self.assertEqual(result.returncode == 0, accepted, result.stderr)
+                        if accepted:
+                            self.assertEqual(result.stdout.strip(), b"main")
+                        else:
+                            self.assertIn(b"dubious ownership", result.stderr)
+                index = argv.index(f"safe.directory={app_dir}")
+                del argv[index - 1:index + 1]
+                result = subprocess.run(argv, env=environment, capture_output=True, timeout=10)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(b"dubious ownership", result.stderr)
+
     def test_snapshot_is_mandatory_with_no_live_checkout_fallback(self):
         gate = SOURCE.split('\nvalidate_arguments "$@"\n', 1)[1].split('\nCURRENT_STEP=', 1)[0]
         self.assertNotEqual(self.run_shell(gate, POLYPBASE_MIGRATION_APP_DIR="", POLYPBASE_APP_DIR="/srv/web").returncode, 0)

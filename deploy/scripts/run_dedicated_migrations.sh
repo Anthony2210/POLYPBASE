@@ -28,7 +28,7 @@ fail() {
 
 trusted_git() {
     /usr/bin/env -i PATH=/usr/bin:/bin GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
-        /usr/bin/git --no-optional-locks -c core.fsmonitor=false "$@"
+        /usr/bin/git --no-optional-locks -c core.fsmonitor=false -c "safe.directory=$APP_DIR" "$@"
 }
 
 assert_checkout() {
@@ -232,7 +232,8 @@ def require(condition, message):
 def assert_checkout(app_dir, target):
     def git(*args):
         return subprocess.check_output(
-            ["/usr/bin/git", "--no-pager", "--no-optional-locks", "-c", "core.fsmonitor=false", "-C", str(app_dir), *args],
+            ["/usr/bin/git", "--no-pager", "--no-optional-locks", "-c", "core.fsmonitor=false",
+             "-c", f"safe.directory={app_dir}", "-C", str(app_dir), *args],
             env={"PATH": "/usr/bin:/bin", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"},
             stdin=subprocess.DEVNULL, timeout=30,
         ).decode("utf-8").strip()
