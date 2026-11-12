@@ -75,6 +75,12 @@ réservés au compte `polypbase` :
 - sauvegarde propre ayant servi à créer la base de production
 - sauvegardes quotidiennes de production
 
+Les archives privées du broker de sauvegarde de déploiement sont distinctes :
+`/var/lib/polypbase/deployment-backups` doit être sous un ancêtre root:root
+0755, et le répertoire lui-même `polypbase_backup:polypbase_backup` 0700.
+Elles ne doivent jamais être rendues lisibles par `polypbase`. Les sauvegardes
+quotidiennes et leur rétention restent dans `/srv/polypbase/backups`.
+
 Le minuteur `polypbase-backup.timer` exécute une sauvegarde vérifiée chaque nuit
 vers 2 h 30 et conserve 14 jours de sauvegardes portant le préfixe `polypbase`.
 

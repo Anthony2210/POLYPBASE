@@ -82,7 +82,7 @@ BACKUP_OUTPUT="$(
         /usr/local/libexec/polypbase-deployment-backup "$TARGET_COMMIT"
 )"
 printf '%s\n' "$BACKUP_OUTPUT"
-[[ "$BACKUP_OUTPUT" =~ ^BACKUP_OK\ /srv/polypbase/deployment-backups/pre-${SHORT_COMMIT}-[0-9]{8}T[0-9]{6}Z\.dump$ ]] || \
+[[ "$BACKUP_OUTPUT" =~ ^BACKUP_OK\ /var/lib/polypbase/deployment-backups/pre-${SHORT_COMMIT}-[0-9]{8}T[0-9]{6}Z\.dump$ ]] || \
     fail "trusted backup broker did not return the expected BACKUP_OK path"
 BACKUP_PATH="${BACKUP_OUTPUT#BACKUP_OK }"
 BACKUP_NAME="${BACKUP_PATH##*/}"

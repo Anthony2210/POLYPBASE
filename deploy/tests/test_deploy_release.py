@@ -117,7 +117,7 @@ sudo_mock() {
         )
 
     def backup_attestation(self):
-        return f'BACKUP_OK /srv/polypbase/deployment-backups/pre-{TARGET[:8]}-20261112T120000Z.dump'
+        return f'BACKUP_OK /var/lib/polypbase/deployment-backups/pre-{TARGET[:8]}-20261112T120000Z.dump'
 
     def test_verified_broker_result_reaches_update_without_web_archive_access(self):
         with tempfile.TemporaryDirectory() as directory:

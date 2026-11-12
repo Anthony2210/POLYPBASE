@@ -19,7 +19,7 @@ Installation contract (operator/root, not the deployment account):
                 "OPTIONS": {"sslmode": "disable", "passfile": "/dev/null"}}}
   Pin hashes computed independently from reviewed installation bytes. Parent
   directories must be root-owned, not group/other writable. Never copy app .env.
-* mkdir /srv/polypbase/deployment-backups; chown polypbase_backup:polypbase_backup
+* mkdir /var/lib/polypbase/deployment-backups; chown polypbase_backup:polypbase_backup
   that directory; chmod 0700. Its ancestors must be root-owned and not writable.
 * Provision a dedicated direct PostgreSQL backup login with complete read
   authority, including protected schemas/RLS. Prefer local peer authentication
@@ -47,8 +47,9 @@ web-owned checkout. These commands intentionally do not provision database grant
     install -o root -g root -m 0644 deploy/scripts/backup_database.py \\
         /usr/local/lib/polypbase-deployment-backup/backup_database.py
     install -d -o root -g root -m 0755 /etc/polypbase
+    install -d -o root -g root -m 0755 /var/lib/polypbase
     install -d -o polypbase_backup -g polypbase_backup -m 0700 \\
-        /srv/polypbase/deployment-backups
+        /var/lib/polypbase/deployment-backups
     sha256sum /usr/local/lib/polypbase-deployment-backup/database_backup.py \\
         /usr/local/lib/polypbase-deployment-backup/backup_database.py
     install -o root -g polypbase_backup -m 0640 /dev/null \\
@@ -93,7 +94,7 @@ import types
 
 CONFIG = Path('/etc/polypbase/deployment-backup.json')
 BUNDLE = Path('/usr/local/lib/polypbase-deployment-backup')
-OUTPUT = Path('/srv/polypbase/deployment-backups')
+OUTPUT = Path('/var/lib/polypbase/deployment-backups')
 LAUNCHER = Path('/usr/local/libexec/polypbase-deployment-backup')
 FILES = ('database_backup.py', 'backup_database.py')
 SAFE_ENV = {'PATH': '/usr/bin:/bin', 'HOME': '/nonexistent', 'LANG': 'C.UTF-8',
