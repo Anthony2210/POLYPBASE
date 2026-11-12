@@ -257,6 +257,7 @@ class ProductionRefusalTests(SimpleTestCase):
                 production.verify_target(self.target)
 
     def test_tcp_backup_identity_uses_verified_server_address(self):
+        target = {**self.target, "configured_host": "localhost"}
         database = MagicMock()
         database.info = SimpleNamespace(
             host="localhost", hostaddr="127.0.0.1", port=65432,
@@ -267,13 +268,20 @@ class ProductionRefusalTests(SimpleTestCase):
             "127.0.0.1", 65432, self.target["postmaster_started_at"], 180000,
             "origin", ["public"], False, 65432)
         cursor.fetchall.return_value = []
-        production._verify_backup_target(self.target, database)
+        production._verify_backup_target(target, database)
 
     def test_tcp_requires_encrypted_runtime_transport(self):
-        with patch.object(production, "connection") as mocked:
+        with patch.dict(os.environ, {"PCA_BACKUP_PASSWORD_FILE": str(Path.cwd() / "operator-password")},
+                        clear=True), \
+                patch.object(production, "connection") as mocked, \
+                patch.object(production, "require_target", return_value=False), \
+                patch.object(production, "_read_operator_password_file", return_value="backup-secret"), \
+                patch.object(production.psycopg, "connect") as connect:
             mocked.settings_dict = {**self.config, "OPTIONS": {"sslmode": "prefer"}}
-            with self.assertRaisesMessage(ValueError, "secure"):
-                production.require_target(self.target)
+            with self.assertRaisesMessage(ValueError, "encrypted"):
+                with production.backup_connection(self.target, "00000000-00000000-1"):
+                    pass
+            connect.assert_not_called()
 
     def test_tcp_backup_reads_private_operator_file_and_passes_secret(self):
         database = MagicMock()
@@ -294,7 +302,7 @@ class ProductionRefusalTests(SimpleTestCase):
                     patch.object(production, "socket_guard", return_value=nullcontext()), \
                     patch.object(production, "_verify_backup_target"), \
                     patch.object(production.psycopg, "connect", return_value=database) as connect:
-                with production.backup_connection(self.target, "synthetic-exported-snapshot") as config:
+                with production.backup_connection(self.target, "00000000-00000000-1") as config:
                     self.assertEqual(config["PASSWORD"], "backup-secret")
                 self.assertEqual(connect.call_args.kwargs["password"], "backup-secret")
 
