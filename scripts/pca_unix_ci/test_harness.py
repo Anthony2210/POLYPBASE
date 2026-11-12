@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import stat
 import subprocess
+import sys
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, call, patch
@@ -113,6 +114,70 @@ class HarnessTests(unittest.TestCase):
         self.assertNotIn("--reuid=10002", self.process.call_args_list[1].args[0])
         self.assertIn("--reuid=10002", self.process.call_args_list[2].args[0])
         self.assertIn("--reuid=10002", self.process.call_args_list[3].args[0])
+
+    def test_peer_denial_classifier_requires_exact_postgresql_failure(self):
+        class OperationalError(Exception):
+            pass
+
+        fake_psycopg = SimpleNamespace(OperationalError=OperationalError)
+        with patch.dict(sys.modules, {"psycopg": fake_psycopg}):
+            actual = OperationalError('FATAL: Peer authentication failed for user "box1902_backup"')
+            self.assertTrue(run_tests.authentication_denied(actual, "box1902_backup"))
+            self.assertFalse(run_tests.authentication_denied(
+                OperationalError('FATAL: Peer authentication failed for user "other_role"'),
+                "box1902_backup"))
+            self.assertFalse(run_tests.authentication_denied(
+                OperationalError("connection refused"), "box1902_backup"))
+            self.assertFalse(run_tests.authentication_denied(
+                OperationalError("FATAL: authentication failed"), "box1902_backup"))
+            with_sqlstate = OperationalError(
+                'FATAL: Peer authentication failed for user "box1902_backup"')
+            with_sqlstate.sqlstate = "28000"
+            self.assertTrue(run_tests.authentication_denied(with_sqlstate, "box1902_backup"))
+            with_sqlstate.sqlstate = "08006"
+            self.assertFalse(run_tests.authentication_denied(with_sqlstate, "box1902_backup"))
+
+    def test_forbidden_successful_authentication_fails_probe(self):
+        class Cursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def execute(self, query):
+                return None
+
+            def fetchone(self):
+                return (self.role, self.role)
+
+        class Database:
+            def __init__(self, role):
+                self.cursor_instance = Cursor()
+                self.cursor_instance.role = role
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def cursor(self):
+                return self.cursor_instance
+
+            def close(self):
+                return None
+
+        class FakePsycopg:
+            OperationalError = RuntimeError
+
+            @staticmethod
+            def connect(**kwargs):
+                return Database(kwargs["user"])
+
+        with patch.dict(sys.modules, {"psycopg": FakePsycopg}):
+            with self.assertRaisesRegex(AssertionError, "Unexpected peer authentication"):
+                run_tests.auth_probe("runtime-backup")
 
     def probe_mocks(self):
         child = self.stack.enter_context(patch.object(provision, "child"))

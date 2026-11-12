@@ -13,6 +13,7 @@ from copy import deepcopy
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import sys
 
@@ -29,6 +30,26 @@ MIGRATOR = "box1902_migrator"
 PORT = "65432"
 RUNTIME_UID = 10001
 BACKUP_UID = 10002
+
+
+def authentication_denied(error, role):
+    import psycopg
+
+    if not isinstance(error, psycopg.OperationalError):
+        return False
+    sqlstate = getattr(error, "sqlstate", None)
+    if sqlstate is None:
+        sqlstate = getattr(getattr(error, "diag", None), "sqlstate", None)
+    primary = str(getattr(getattr(error, "diag", None), "message_primary", "") or "")
+    role_pattern = re.escape(role)
+    peer_message = rf'FATAL:\s*Peer authentication failed for user "{role_pattern}"'
+    if sqlstate is not None:
+        diagnostic = f"{primary}\n{error}"
+        return (isinstance(sqlstate, str) and sqlstate.startswith("28")
+                and re.search(peer_message, diagnostic) is not None)
+    # libpq can omit all diagnostics for a startup failure. In that case accept
+    # only the exact PostgreSQL peer-authentication message for this role.
+    return re.fullmatch(peer_message, str(error).strip()) is not None
 
 
 def preflight(payload, *, expected_uid=RUNTIME_UID):
@@ -273,18 +294,6 @@ def auth_probe(case):
     def connect(role):
         return psycopg.connect(user=role, **connection_kwargs)
 
-    def authentication_denied(error):
-        sqlstate = getattr(error, "sqlstate", None)
-        if sqlstate is None:
-            sqlstate = getattr(getattr(error, "diag", None), "sqlstate", None)
-        primary = str(getattr(getattr(error, "diag", None), "message_primary", "") or "")
-        # SQLSTATE class 28 is the server-defined authorization failure class.
-        # Missing sockets and local client/configuration failures have no such
-        # diagnostic and must not satisfy a negative probe.
-        return (isinstance(error, psycopg.OperationalError)
-                and isinstance(sqlstate, str) and sqlstate.startswith("28")
-                and "authentication" in primary.lower())
-
     # Establish the expected positive identity from this same OS process before
     # interpreting a negative result.
     positive_role = RUNTIME if case.startswith("runtime-") else BACKUP
@@ -298,7 +307,7 @@ def auth_probe(case):
     try:
         database = connect(expected[0])
     except Exception as error:
-        if expected[1] or not authentication_denied(error):
+        if expected[1] or not authentication_denied(error, expected[0]):
             raise
         print(f"Native PostgreSQL authentication denial passed: {case}", flush=True)
         return
