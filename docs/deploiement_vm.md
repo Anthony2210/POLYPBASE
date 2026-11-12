@@ -242,14 +242,12 @@ Conditions : exactement un run `push` sur `main` du workflow
 terminés en `success`. Restent exécutés : branche, état Git, alignement avec
 `origin/main`, `git diff --check`, `manage.py check`, dérive de migrations, ainsi que
 toutes les étapes côté VM (dépendances, build frontend, contrôles Django, sauvegarde,
-revue/approbation et garde SHA du plan de migration, migrations, publication,
-redémarrage, santé).
+garde read-only du plan de migration, publication, redémarrage, santé).
 
 ```powershell
-.\deploy\deploy_vm.ps1 -UseVerifiedGitHubCi -ReviewedMigrationApproval ('{0}:{1}' -f (git rev-parse HEAD).Trim(), (Read-Host 'SHA-256 du migrate-plan.txt exact revu'))
+.\deploy\deploy_vm.ps1 -UseVerifiedGitHubCi
 ```
 
-`-ReviewedMigrationApproval` n'est nécessaire que si le plan l'exige.
 `-UseVerifiedGitHubCi -PreflightOnly` vérifie la CI sans modifier la VM.
 
 Le chemin de clé SSH doit être fourni avec `-SshKeyPath` ou, si ce paramètre
@@ -259,55 +257,81 @@ n'est utilisé. La clé et son contenu ne sont jamais copiés dans le dépôt.
 
 ### Approbation explicite d'un plan de migration revu
 
-Sans approbation, l'exécuteur refuse toujours les plans contenant suppression ou
-renommage de champ/modèle, `Raw Python operation` ou `Raw SQL operation`. Aucune
-opération Python ou SQL n'est automatiquement considérée comme sûre.
+Le déploiement normal est désormais **strictement read-only pour les migrations** :
+`migrate --check` refuse toute migration en attente, quelle que soit son contenu.
+Il n'applique jamais de migration et le script de release n'accepte plus aucun
+paramètre d'approbation de migration.
 
-Une revue humaine peut autoriser **ce plan exact pour ce commit exact** avec le
-paramètre `-ReviewedMigrationApproval`, au format
-`<commit Git complet en hexadécimal minuscule>:<SHA-256 du plan en hexadécimal minuscule>`.
-Ce n'est ni un drapeau permanent ni une variable d'environnement. L'approbation
-couvre toutes les opérations du plan correspondant, y compris les opérations
-destructives : leur revue doit donc être explicite.
+Pour toute exécution dédiée, 0018 comme toute migration future, suivre la procédure
+[de contrôle authentifié et de reprise](dedicated-migration-recovery.md). Aucune
+opération, même personnalisée ou apparemment additive, ne reçoit d'approbation
+implicite. Le plan d'approbation dédié est un fichier JSON déterministe ; le
+`migrate-plan.txt` textuel du déploiement n'est pas interchangeable avec lui.
+Un déploiement sans migration en attente continue normalement. Une migration en
+attente bloque avant publication, redémarrage ou contrôles de santé, puis doit
+passer par l'exécuteur dédié avec une nouvelle revue humaine.
 
-L'exécuteur conserve `migrate-plan.txt` dans le dossier de release et affiche
-`MIGRATION_PLAN commit=... sha256=... file=...`, même lorsque le garde refuse le
-plan. L'empreinte porte sur les octets exacts de ce fichier : ne pas reconstruire
-le texte depuis un résumé ni changer ses fins de ligne. Pour un plan capturé par
-un ancien exécuteur, calculer son SHA-256 sur le fichier conservé, sans le modifier.
-Ne jamais utiliser l'empreinte comme substitut à une revue des migrations et de
-leurs préconditions sur les données.
-
-Après intégration, depuis `main` propre et aligné avec `origin/main`, Anthony peut
-utiliser cette commande. Elle demande l'empreinte du fichier déjà revu et la lie
-au commit local qui sera déployé :
-
-```powershell
-.\deploy\deploy_vm.ps1 -ReviewedMigrationApproval ('{0}:{1}' -f (git rev-parse HEAD).Trim(), (Read-Host 'SHA-256 du migrate-plan.txt exact revu'))
-```
-
-Si l'intégration crée un nouveau commit, confirmer que ses migrations et son plan
-correspondent bien à la revue avant d'autoriser ce nouveau commit. Le SHA historique
-`23a9f3edd37da19d2d11d4378009f339e6d14db8` ne doit pas être utilisé comme cible
-d'approbation d'une autre release. Le plan de la VM au moment du rerun est comparé
-à l'empreinte fournie ; toute discordance, même pour un plan non suspect, arrête
-le déploiement avant `migrate --noinput`. Un jeton malformé ou lié à un autre commit
-est refusé avant la sauvegarde. Un plan différent nécessite une nouvelle revue,
-pas un remplacement automatique de l'empreinte.
-
-Un rerun crée et vérifie **une nouvelle sauvegarde** avant toute migration :
-l'approbation ne réutilise pas la sauvegarde de l'essai précédent et ne supprime
-aucune validation. Son acceptation est visible dans stdout et dans le journal
-distant via `MIGRATION_REVIEW_APPROVED commit=... plan_sha256=...`. Les sorties de
-l'exécuteur et les diagnostics de service/journal restent visibles même lorsque
-le résultat PowerShell est envoyé à `Out-Null`.
+L'exécuteur conserve `migrate-plan.txt` dans le dossier de release pour diagnostic.
+Son contenu peut décrire n'importe quelle opération Django : aucun mot-clé ou
+résumé textuel ne modifie la décision de blocage. Le déploiement normal ne
+produit jamais `MIGRATION_REVIEW_APPROVED` et n'exécute jamais `migrate`.
 
 En état intermédiaire code/schéma, ne pas prendre un échec d'un diagnostic utilisant
 un champ encore non migré pour une preuve d'anomalie des données. Pour la release
 ci-dessus, le diagnostic Phase 3B utilisant `Organization.portable_id` n'est pas
 utilisable avant `organizations.0002`; la migration taxonomy conserve son propre
-précontrôle de doublons sur les modèles historiques. L'approbation du garde ne
-court-circuite pas ce précontrôle.
+précontrôle de doublons sur les modèles historiques. La procédure de migration dédiée ne court-circuite pas ce précontrôle.
+
+### Installation PostgreSQL Box 1902 et reprise d'une release préparée
+
+L'installation de `measurements.0018_box_1902_preservation` est une opération
+distincte du déploiement applicatif. Le compte `polypbase` ne doit jamais
+exécuter une migration et ne reçoit aucun privilège de propriétaire protégé.
+Le SQL de `deploy/scripts/box_1902_privileges.py provision` est seulement
+émis pour revue : son exécution exige une autorisation séparée du
+cluster-admin et une nouvelle sauvegarde vérifiée. Il refuse toute collision,
+réutilisation ou reprovisionnement partiel. Après exécution, vérifier en
+lecture seule les rôles, la base, les propriétaires, les ACL et l'absence de
+CREATE/TEMP pour `polypbase`; ne pas poursuivre si une vérification échoue.
+
+La connexion de migration doit ensuite être authentifiée indépendamment de
+`polypbase` (mot de passe ou certificat administré hors dépôt, jamais un secret
+dans la commande ou Git). Le rôle PostgreSQL doit être réellement
+`box1902_migrator`, avec son unique appartenance SET-only à
+`box1902_owner`. `PGOPTIONS` demande explicitement `SET ROLE
+box1902_owner`; l'exécuteur vérifie avant et après migration
+`session_user=box1902_migrator`, `current_user=box1902_owner`,
+`session_replication_role=origin`, ainsi que l'enregistrement de 0018.
+L'authentification locale peer actuelle de `polypbase` ne satisfait pas ce
+contrat et ne doit pas être contournée par superutilisateur, `SET SESSION
+AUTHORIZATION` ou une modification permissive.
+
+**Ne pas lancer de runner depuis le checkout `8504f52`**, où il n'existe pas,
+ni transférer un fichier non suivi. Exporter les contrôles depuis un commit Git
+complet déjà intégré et indépendamment revu, puis vérifier leurs empreintes selon
+[la procédure exécutable](dedicated-migration-recovery.md). Elle maintient le
+checkout applicatif intact et distingue le commit de contrôle du commit à migrer.
+Les identités OS de migration/sauvegarde et leurs secrets sont distincts du service
+web ; l'ancien exemple `sudo -u polypbase` ne fournit pas cette isolation et ne doit
+pas être utilisé.
+
+Le résultat requis est `MIGRATION_COMPLETE`; toute autre sortie, toute
+discordance d'identité, tout plan différent ou toute erreur arrête la
+procédure. Ce script n'effectue ni provisioning de rôles ni restauration et
+ne modifie pas Git. Une erreur laisse la base et la release intermédiaires
+pour diagnostic read-only; aucune migration n'est annulée automatiquement.
+
+Après vérification indépendante de `django_migrations`, reprendre le
+déploiement pour le même commit. Le déploiement contrôle désormais le plan avec
+`migrate --check` sans exécuter de DDL sous
+`polypbase`, puis publie le frontend, redémarre le service et réalise les
+contrôles de santé. Si le contrôle trouve encore une migration en attente,
+arrêter et repasser par l'exécuteur dédié; ne jamais ajouter un privilège au
+runtime. Les futures migrations suivent la même séparation et exigent une nouvelle revue
+humaine de leur commit exact et de leur plan JSON exact, même pour un simple ajout. Une release
+partiellement préparée peut être reprise seulement si le checkout est propre,
+le commit cible exact, la sauvegarde et le journal précédents sont conservés,
+et les contrôles de plan/identité passent.
 
 Tests locaux isolés, sans VM ni base :
 

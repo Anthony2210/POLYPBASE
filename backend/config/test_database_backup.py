@@ -17,9 +17,18 @@ import types
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from config import database_backup as backup
+
+
+def empty_backup_connection():
+    connection = MagicMock()
+    connection.__enter__.return_value = connection
+    cursor = connection.cursor.return_value.__enter__.return_value
+    cursor.fetchone.side_effect = [(180006, True), ("snapshot-complete",)]
+    cursor.fetchall.return_value = []
+    return connection
 
 
 class DatabaseBackupTests(unittest.TestCase):
@@ -40,7 +49,7 @@ class DatabaseBackupTests(unittest.TestCase):
     def run_command(self, command, **kwargs):
         if command[0].endswith("/pg_dump"):
             Path(command[command.index("--file") + 1]).write_bytes(b"archive-content")
-        return subprocess.CompletedProcess(command, 0)
+        return subprocess.CompletedProcess(command, 0, stdout=b"")
 
     def evidence(self):
         return backup.create_evidence(
@@ -114,6 +123,16 @@ class DatabaseBackupTests(unittest.TestCase):
         dump = self.runner.call_args_list[0]
         self.assertNotIn("--snapshot", dump.args[0])
         self.assertEqual(dump.kwargs["env"]["PGSSLMODE"], "prefer")
+        self.assertIn("--no-owner", dump.args[0])
+        self.assertIn("--no-acl", dump.args[0])
+        for preserve in (False, True):
+            with self.subTest(preserve_authority=preserve):
+                self.runner.reset_mock()
+                backup.create_archive(self.database, self.directory, f"authority-{preserve}",
+                                      preserve_authority=preserve)
+                command = self.runner.call_args_list[0].args[0]
+                self.assertEqual("--no-owner" in command, not preserve)
+                self.assertEqual("--no-acl" in command, not preserve)
 
     def test_hostaddr_pins_localhost_without_changing_tls_hostname(self):
         self.database["HOST"] = "localhost"
@@ -405,6 +424,7 @@ class DatabaseBackupTests(unittest.TestCase):
                 patch.object(module, "parse_args", return_value=types.SimpleNamespace(
                     output_dir=self.directory, label="normal", retention_days=14)), \
                 patch.object(backup, "require_client", side_effect=lambda name, major: f"/usr/lib/postgresql/{major}/bin/{name}"), \
+                patch.object(backup, "_connect_backup", return_value=empty_backup_connection()), \
                 patch.object(module.os, "umask"), patch.dict(os.environ), \
                 patch.object(sys, "path", list(sys.path)), redirect_stdout(output):
             module.main()
@@ -413,7 +433,9 @@ class DatabaseBackupTests(unittest.TestCase):
         self.assertEqual(lines[1:], [f"BACKUP_REMOVED {old.name}"])
         self.assertFalse(old.exists())
         self.assertTrue(unrelated.exists())
-        self.assertNotIn("--snapshot", self.runner.call_args_list[0].args[0])
+        self.assertIn("--snapshot", self.runner.call_args_list[0].args[0])
+        self.assertNotIn("--no-owner", self.runner.call_args_list[0].args[0])
+        self.assertNotIn("--no-acl", self.runner.call_args_list[0].args[0])
         self.assertEqual(self.runner.call_args_list[0].args[0][0], "/usr/lib/postgresql/18/bin/pg_dump")
         self.assertEqual(self.runner.call_args_list[1].args[0][0], "/usr/lib/postgresql/18/bin/pg_restore")
 
@@ -429,13 +451,14 @@ class DatabaseBackupTests(unittest.TestCase):
         fake_django.setup = lambda: None
         fake_conf = types.ModuleType("django.conf")
         fake_conf.settings = types.SimpleNamespace(DATABASES={"default": self.database})
-        for failure in ("PostgreSQL 18 pg_dump is unavailable", "archive command failed or timed out"):
+        for failure in ("PostgreSQL 18 pg_dump is unavailable", "archive command failed or timed out",
+                        "Incomplete backup authority", "Incomplete backup archive"):
             with self.subTest(failure=failure):
                 output = io.StringIO()
                 with patch.dict(sys.modules, {"django": fake_django, "django.conf": fake_conf}), \
                         patch.object(module, "parse_args", return_value=types.SimpleNamespace(
                             output_dir=self.directory, label="normal", retention_days=14)), \
-                        patch.object(backup, "create_archive", side_effect=ValueError(failure)) as create, \
+                        patch.object(backup, "create_complete_archive", side_effect=ValueError(failure)) as create, \
                         patch.object(module.os, "umask"), patch.dict(os.environ), \
                         patch.object(sys, "path", list(sys.path)), redirect_stdout(output):
                     with self.assertRaisesRegex(ValueError, failure):
@@ -443,6 +466,121 @@ class DatabaseBackupTests(unittest.TestCase):
                 create.assert_called_once_with(self.database, self.directory, "normal", client_major=18)
                 self.assertEqual(output.getvalue(), "")
                 self.assertEqual(old.read_bytes(), b"old")
+
+
+class CompleteBackupTests(unittest.TestCase):
+    def inventory_cursor(self, *, version=180006, direct=True, schemas=None,
+                         relations=None, large_objects=None):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (version, direct)
+        cursor.fetchall.side_effect = [
+            [(1, True)] if schemas is None else schemas,
+            [(10, 'r', True, True, False), (11, 'S', True, True, False),
+             (12, 'p', True, True, False), (13, 'm', True, True, False)]
+            if relations is None else relations,
+            [] if large_objects is None else large_objects,
+        ]
+        results = list(cursor.fetchall.side_effect)
+        results[1] = [(*row, 'public', f'relation_{row[0]}', 'owner') for row in results[1]]
+        cursor.fetchall.side_effect = results
+        return cursor
+
+    def test_inventory_covers_tables_sequences_and_populated_views(self):
+        self.assertEqual(backup._complete_inventory(self.inventory_cursor()), {
+            (10, 'TABLE DATA'), ('public relation_11 owner', 'SEQUENCE SET'),
+            ('public relation_13 owner', 'MATERIALIZED VIEW DATA'),
+        })
+
+    def test_inventory_fails_closed_on_unreadable_or_unsupported_sources(self):
+        cases = [dict(version=170000), dict(direct=False), dict(schemas=[(1, False)]),
+                 dict(relations=[(10, 'r', True, False, False)]),
+                 dict(relations=[(10, 'S', True, False, False)]),
+                 dict(relations=[(10, 'r', True, True, True)]),
+                 dict(relations=[(10, 'f', True, True, False)]),
+                 dict(large_objects=[(1, True)])]
+        for case in cases:
+            with self.subTest(case=case), self.assertRaises(ValueError):
+                backup._complete_inventory(self.inventory_cursor(**case))
+
+    def test_toc_uses_oids_not_ambiguous_or_quoted_names(self):
+        toc = b'1; 0 10 TABLE DATA private name with spaces owner\n2; 0 11 SEQUENCE SET public seq owner\n'
+        with patch.object(backup, 'require_client', return_value='pg_restore'), \
+                patch.object(backup.subprocess, 'run', return_value=types.SimpleNamespace(stdout=toc)):
+            backup._verify_inventory({'path': '/archive'}, {(10, 'TABLE DATA'), ('public seq owner', 'SEQUENCE SET')}, 18)
+            with self.assertRaisesRegex(ValueError, 'expected data entries'):
+                backup._verify_inventory({'path': '/archive'}, {(12, 'TABLE DATA')}, 18)
+
+    def test_connection_routing_is_explicit_and_ambient_overrides_are_refused(self):
+        database = {'HOST': '/private/socket', 'PORT': '55499', 'NAME': 'isolated',
+                    'USER': 'backup', 'PASSWORD': '', 'OPTIONS': {'sslmode': 'disable'}}
+        with patch.dict(os.environ, {}, clear=True), patch('psycopg.connect') as connect:
+            backup._connect_backup(database)
+            parameters = connect.call_args.kwargs
+            self.assertEqual(parameters['host'], '/private/socket')
+            self.assertEqual(parameters['port'], '55499')
+            self.assertEqual(parameters['passfile'], os.devnull)
+            self.assertEqual(parameters['password'], '')
+            self.assertEqual(parameters['hostaddr'], '')
+            self.assertEqual(parameters['options'], '-c row_security=off')
+            self.assertTrue(parameters['autocommit'])
+        with patch.dict(os.environ, {'PGSERVICE': 'untrusted-service'}), patch('psycopg.connect') as connect:
+            with self.assertRaisesRegex(ValueError, 'Ambient PostgreSQL'):
+                backup._connect_backup(database)
+            connect.assert_not_called()
+        with patch.dict(os.environ, {}, clear=True), patch('psycopg.connect') as connect:
+            with self.assertRaisesRegex(ValueError, 'connection string'):
+                backup._connect_backup(dict(database, NAME='host=untrusted'))
+            connect.assert_not_called()
+
+    def test_incomplete_archive_is_removed_and_connection_error_is_sanitized(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / 'test.dump'
+            archive.write_bytes(b'archive')
+            with patch.object(backup, 'require_client'), \
+                    patch.object(backup, '_connect_backup', return_value=empty_backup_connection()), \
+                    patch.object(backup, 'create_archive', return_value={'path': str(archive)}) as create, \
+                    patch.object(backup, '_verify_inventory', side_effect=ValueError('Incomplete backup archive')):
+                with self.assertRaisesRegex(ValueError, 'Incomplete backup archive'):
+                    backup.create_complete_archive({'ENGINE': 'django.db.backends.postgresql'}, directory, 'test')
+                self.assertEqual(create.call_args.kwargs['snapshot'], 'snapshot-complete')
+                self.assertIs(create.call_args.kwargs['preserve_authority'], True)
+            self.assertFalse(archive.exists())
+        with patch.object(backup, 'require_client'), \
+                patch.object(backup, '_connect_backup', side_effect=RuntimeError('private details')):
+            with self.assertRaisesRegex(ValueError, '^Complete deployment backup verification failed.$'):
+                backup.create_complete_archive({'ENGINE': 'django.db.backends.postgresql'}, '.', 'test')
+
+    def test_script_selects_separate_login_without_reusing_runtime_credentials(self):
+        root = Path(__file__).resolve().parents[2]
+        spec = importlib.util.spec_from_file_location('separate_backup_test', root / 'deploy/scripts/backup_database.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        runtime = {'ENGINE': 'django.db.backends.postgresql', 'USER': 'polypbase',
+                   'PASSWORD': 'runtime-secret', 'OPTIONS': {'passfile': 'runtime-file'}}
+        original = copy.deepcopy(runtime)
+        fake_django = types.ModuleType('django')
+        fake_django.setup = lambda: None
+        fake_conf = types.ModuleType('django.conf')
+        fake_conf.settings = types.SimpleNamespace(DATABASES={'default': runtime})
+        for environment, password in [({'POLYPBASE_BACKUP_USER': 'box1902_backup'}, ''),
+                                      ({'POLYPBASE_BACKUP_USER': 'box1902_backup',
+                                        'POLYPBASE_BACKUP_PASSWORD': 'backup-secret'}, 'backup-secret')]:
+            with self.subTest(environment=list(environment)), \
+                    patch.dict(os.environ, environment, clear=True), \
+                    patch.dict(sys.modules, {'django': fake_django, 'django.conf': fake_conf}), \
+                    patch.object(module, 'parse_args', return_value=types.SimpleNamespace(
+                        output_dir=Path('.'), label='backup', retention_days=None)), \
+                    patch.object(module.os, 'umask'), patch.object(sys, 'path', list(sys.path)), \
+                    patch.object(backup, 'create_complete_archive', side_effect=ValueError('incomplete')) as create, \
+                    redirect_stdout(io.StringIO()) as output:
+                with self.assertRaisesRegex(ValueError, 'incomplete'):
+                    module.main()
+                selected = create.call_args.args[0]
+                self.assertEqual(selected['USER'], 'box1902_backup')
+                self.assertEqual(selected['PASSWORD'], password)
+                self.assertEqual(selected['OPTIONS']['passfile'], os.devnull)
+                self.assertEqual(runtime, original)
+                self.assertEqual(output.getvalue(), '')
 
 
 class PinnedClientTests(unittest.TestCase):
@@ -485,7 +623,7 @@ class PinnedClientTests(unittest.TestCase):
             return subprocess.CompletedProcess(command, 0, stdout=output)
         if command[0] == self.dump_client:
             Path(command[command.index("--file") + 1]).write_bytes(b"archive-content")
-        return subprocess.CompletedProcess(command, 0)
+        return subprocess.CompletedProcess(command, 0, stdout=b"")
 
     def commands(self):
         return [call.args[0] for call in self.runner.call_args_list]
@@ -560,38 +698,19 @@ class PinnedClientTests(unittest.TestCase):
                 self.assertNotIn("secret", str(caught.exception))
         self.runner.side_effect = self.run_command
 
-    def test_release_bootstrap_loads_target_helper_not_old_checkout(self):
-        import config
-
+    def test_release_backup_does_not_import_web_owned_checkout_or_settings(self):
         root = Path(__file__).resolve().parents[2]
         source = (root / "deploy/scripts/deploy_release.sh").read_text(encoding="utf-8")
-        bootstrap = source.split("<<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
-        stage = self.path.parent
-        shutil.copyfile(root / "backend/config/database_backup.py", stage / "database_backup.py")
-        shutil.copyfile(root / "deploy/scripts/backup_database.py", stage / "backup_database.py")
-        fake_django = types.ModuleType("django")
-        fake_django.setup = lambda: None
-        fake_conf = types.ModuleType("django.conf")
-        fake_conf.settings = types.SimpleNamespace(DATABASES={"default": self.database()})
-        output = io.StringIO()
-        # Fresh processes have not imported the old checkout's archive helper.
-        # Make the same package state here, then restore the existing test module.
-        old_helper = config.__dict__.pop("database_backup", None)
-        try:
-            with patch.dict(sys.modules, {"django": fake_django, "django.conf": fake_conf}), \
-                    patch.object(sys, "argv", ["-", str(stage), "--output-dir", str(stage), "--label", "pre-test"]), \
-                    patch.object(sys, "path", list(sys.path)), patch.object(os, "umask"), \
-                    patch.dict(os.environ), redirect_stdout(output):
-                exec(compile(bootstrap, "release-bootstrap", "exec"), {})
-                loaded = sys.modules["config.database_backup"]
-                self.assertEqual(Path(loaded.__file__), stage / "database_backup.py")
-                self.assertIsNot(loaded, backup)
-        finally:
-            if old_helper is not None:
-                config.database_backup = old_helper
-        self.assertRegex(output.getvalue(), r"^BACKUP_OK pre-test-.* 15 bytes sha256=[a-f0-9]{64}\n$")
-        self.assertEqual(self.commands()[0], [self.dump_client, "--version"])
-        self.assertEqual(self.commands()[-1][0:2], [self.CLIENT, "--list"])
+        section = source.split('CURRENT_STEP="database backup"', 1)[1].split(
+            'CURRENT_STEP="fast-forward update"', 1,
+        )[0]
+        self.assertIn('/usr/bin/sudo -n -u polypbase_backup', section)
+        self.assertIn('/usr/local/libexec/polypbase-deployment-backup "$TARGET_COMMIT"', section)
+        self.assertNotIn('.venv', section)
+        self.assertNotIn('database_backup.py', section)
+        self.assertNotIn('POLYPBASE_BACKUP_PASSWORD', section)
+        # Executable hash/approval/environment/complete-helper tests live in
+        # deploy/tests/test_trusted_deployment_backup.py; no web bootstrap remains.
 
     def database(self):
         return {"ENGINE": "django.db.backends.postgresql", "HOST": "/var/run/postgresql",

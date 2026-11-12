@@ -9,7 +9,6 @@ BACKUP_DIR="${POLYPBASE_BACKUP_DIR:-/srv/polypbase/backups}"
 DEPLOY_DIR="${POLYPBASE_DEPLOY_DIR:-/srv/polypbase/deployments}"
 LOCK_FILE="${POLYPBASE_DEPLOY_LOCK:-/srv/polypbase/deploy.lock}"
 TARGET_COMMIT="${1:-}"
-REVIEWED_MIGRATION_APPROVAL="${2:-}"
 EXPECTED_USER="${POLYPBASE_SERVICE_USER:-polypbase}"
 CURRENT_STEP="initialization"
 
@@ -28,39 +27,9 @@ on_error() {
 
 trap 'on_error "$LINENO" "$?"' ERR
 
-check_migration_plan() {
-    local plan_file="$1"
-    local plan_sha256
-    plan_sha256="$(sha256sum "$plan_file" | awk '{print $1}')"
-    [[ "$plan_sha256" =~ ^[0-9a-f]{64}$ ]] || fail "could not hash the migration plan"
-    printf 'MIGRATION_PLAN commit=%s sha256=%s file=%s\n' \
-        "$TARGET_COMMIT" "$plan_sha256" "$plan_file"
-
-    if [[ -n "$REVIEWED_MIGRATION_APPROVAL" ]]; then
-        [[ "$REVIEWED_MIGRATION_APPROVAL" == "$TARGET_COMMIT:$plan_sha256" ]] || \
-            fail "reviewed migration approval does not match the captured plan"
-        printf 'MIGRATION_REVIEW_APPROVED commit=%s plan_sha256=%s\n' \
-            "$TARGET_COMMIT" "$plan_sha256"
-    elif grep -Eiq \
-        'remove field|delete model|rename field|rename model|raw python operation|raw SQL operation' \
-        "$plan_file"; then
-        fail "potentially destructive migrations require manual review; rerun with approval $TARGET_COMMIT:$plan_sha256 only after reviewing this exact plan"
-    else
-        # grep returns 1 for no match; any other failure must stop deployment.
-        local grep_status="$?"
-        [[ "$grep_status" == 1 ]] || fail "could not inspect the migration plan"
-    fi
-}
-
-(( $# <= 2 )) || fail "expected target commit and optional reviewed migration approval"
+(( $# == 1 )) || fail "expected exactly one target commit; migrations require the dedicated runner"
 [[ "$TARGET_COMMIT" =~ ^[0-9a-f]{40}$ ]] || \
     fail "target commit must be a full 40-character SHA"
-if [[ -n "$REVIEWED_MIGRATION_APPROVAL" ]]; then
-    [[ "$REVIEWED_MIGRATION_APPROVAL" =~ ^[0-9a-f]{40}:[0-9a-f]{64}$ ]] || \
-        fail "reviewed migration approval must be COMMIT_SHA:PLAN_SHA256 in lowercase hex"
-    [[ "${REVIEWED_MIGRATION_APPROVAL%%:*}" == "$TARGET_COMMIT" ]] || \
-        fail "reviewed migration approval does not match the target commit"
-fi
 [[ "$(id -un)" == "$EXPECTED_USER" ]] || \
     fail "run this script as $EXPECTED_USER"
 [[ -d "$APP_DIR/.git" ]] || fail "application repository not found at $APP_DIR"
@@ -105,44 +74,20 @@ AVAILABLE_KB="$(df -Pk "$APP_DIR" | awk 'NR == 2 {print $4}')"
 (( AVAILABLE_KB >= 1048576 )) || fail "less than 1 GiB is available on the application disk"
 
 CURRENT_STEP="database backup"
-# The checkout is still the previous release. Use the target's reviewed backup
-# code without updating it (or changing its Django settings) before the backup.
-git -C "$APP_DIR" show "$TARGET_COMMIT:backend/config/database_backup.py" >"$RELEASE_DIR/database_backup.py"
-git -C "$APP_DIR" show "$TARGET_COMMIT:deploy/scripts/backup_database.py" >"$RELEASE_DIR/backup_database.py"
-cd "$APP_DIR/backend"
+# Only the independently installed broker may access the dedicated backup login.
+# It verifies root-approved code and archive completeness before attesting success.
+# Do not pass environment overrides or run checkout/venv code as the backup user.
 BACKUP_OUTPUT="$(
-    "$APP_DIR/.venv/bin/python" - "$RELEASE_DIR" \
-        --output-dir "$BACKUP_DIR" \
-        --label "pre-${SHORT_COMMIT}" <<'PY'
-import importlib.util
-from pathlib import Path
-import runpy
-import sys
-
-release = Path(sys.argv.pop(1))
-spec = importlib.util.spec_from_file_location("config.database_backup", release / "database_backup.py")
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
-sys.modules[spec.name] = module
-runpy.run_path(str(release / "backup_database.py"), run_name="__main__")
-PY
+    /usr/bin/sudo -n -u polypbase_backup \
+        /usr/local/libexec/polypbase-deployment-backup "$TARGET_COMMIT"
 )"
 printf '%s\n' "$BACKUP_OUTPUT"
-BACKUP_NAME="$(printf '%s\n' "$BACKUP_OUTPUT" | awk '/^BACKUP_OK / {print $2}' | tail -n 1)"
-[[ -n "$BACKUP_NAME" ]] || fail "backup script did not return BACKUP_OK"
-BACKUP_PATH="$BACKUP_DIR/$BACKUP_NAME"
-[[ -s "$BACKUP_PATH" ]] || fail "backup file is missing or empty"
-# Reuse the strict helper for the independent readability check, with its
-# provenance/version checks, sanitized environment and bounded subprocess.
-"$APP_DIR/.venv/bin/python" - "$RELEASE_DIR/database_backup.py" "$BACKUP_PATH" <<'PY'
-import importlib.util
-import sys
-
-spec = importlib.util.spec_from_file_location("release_database_backup", sys.argv[1])
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
-module.verify_archive({"path": sys.argv[2]}, client_major=18)
-PY
+[[ "$BACKUP_OUTPUT" =~ ^BACKUP_OK\ /srv/polypbase/deployment-backups/pre-${SHORT_COMMIT}-[0-9]{8}T[0-9]{6}Z\.dump$ ]] || \
+    fail "trusted backup broker did not return the expected BACKUP_OK path"
+BACKUP_PATH="${BACKUP_OUTPUT#BACKUP_OK }"
+BACKUP_NAME="${BACKUP_PATH##*/}"
+# The archive is private to the backup OS identity; never broaden its permissions
+# merely to repeat the broker's verification from the web OS identity.
 
 CURRENT_STEP="fast-forward update"
 git -C "$APP_DIR" merge --ff-only "$TARGET_COMMIT"
@@ -182,10 +127,14 @@ PYTHON="$APP_DIR/.venv/bin/python"
 "$PYTHON" backend/manage.py check --deploy
 MIGRATION_PLAN="$("$PYTHON" backend/manage.py migrate --plan)"
 printf '%s\n' "$MIGRATION_PLAN" | tee "$RELEASE_DIR/migrate-plan.txt"
-check_migration_plan "$RELEASE_DIR/migrate-plan.txt"
 
-CURRENT_STEP="database migrations"
-"$PYTHON" backend/manage.py migrate --noinput
+CURRENT_STEP="database migration readiness"
+# Migrations are never executed by the runtime account. Run
+# run_dedicated_migrations.sh separately through the independently provisioned
+# migrator, then resume this release. --check is read-only and also supports
+# future migrations without granting DDL authority to the application.
+"$PYTHON" backend/manage.py migrate --check --noinput || \
+    fail "pending migrations require the separately authorized dedicated migrator; resume this release after it reports MIGRATION_COMPLETE"
 
 CURRENT_STEP="static files"
 "$PYTHON" backend/manage.py collectstatic --noinput

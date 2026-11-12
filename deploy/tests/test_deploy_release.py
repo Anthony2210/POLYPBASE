@@ -1,6 +1,5 @@
 """Exercise deployment guards only; never run the executor or contact a database/VM."""
 
-import hashlib
 import os
 from pathlib import Path
 import shutil
@@ -12,15 +11,6 @@ import unittest
 DEPLOY_DIR = Path(__file__).resolve().parents[1]
 EXECUTOR = DEPLOY_DIR / "scripts" / "deploy_release.sh"
 TARGET = "23a9f3edd37da19d2d11d4378009f339e6d14db8"
-OTHER_TARGET = "a" * 40
-ORDINARY_PLAN = "Planned operations:\ncultures.0008_example\n    Create model Example\n"
-REVIEWED_PLAN = (
-    "Planned operations:\n"
-    "organizations.0002_organization_portable_id\n"
-    "    Add field portable_id to organization\n"
-    "    Raw Python operation\n"
-    "    Alter field portable_id on organization\n"
-)
 
 
 class MigrationGuardTests(unittest.TestCase):
@@ -30,189 +20,169 @@ class MigrationGuardTests(unittest.TestCase):
         if not cls.bash:
             raise unittest.SkipTest("Bash is unavailable")
         cls.source = EXECUTOR.read_text(encoding="utf-8")
-        # Run the real functions and argument validation, stopping before user,
-        # filesystem, Git, backup, dependency or database operations can execute.
-        cls.prologue = cls.source.split('[[ "$(id -un)"', 1)[0]
-        assert "check_migration_plan()" in cls.prologue
-        assert "reviewed migration approval does not match the target commit" in cls.prologue
+    def test_no_pending_migrations_continue(self):
+        readiness = self.source.split('CURRENT_STEP="database migration readiness"', 1)[1]
+        self.assertIn('"$PYTHON" backend/manage.py migrate --check --noinput || \\', readiness)
+        self.assertLess(
+            readiness.index('"$PYTHON" backend/manage.py migrate --check --noinput'),
+            readiness.index('CURRENT_STEP="static files"'),
+        )
 
-    def run_guard(self, plan, approval="", target=TARGET, *, missing=False, extra=False, grep_error=False):
-        with tempfile.TemporaryDirectory() as directory:
-            if not missing:
-                Path(directory, "plan.txt").write_bytes(plan.encode("utf-8"))
-            # Rebuild positional arguments inside Bash so Windows native argument
-            # quoting cannot strip malformed whitespace before validation.
-            setup = 'set -- "$TEST_TARGET" "$TEST_APPROVAL"\n'
-            if extra:
-                setup += 'set -- "$@" unexpected\n'
-            if grep_error:
-                setup += 'grep() { return 2; }\n'
-            command = setup + self.prologue + '\nCURRENT_STEP="migration plan test"\ncheck_migration_plan "plan.txt"\n'
-            environment = os.environ.copy()
-            environment.update(TEST_TARGET=target, TEST_APPROVAL=approval)
-            return subprocess.run(
-                [self.bash, "--noprofile", "--norc", "-c", command, "guard-test"],
-                cwd=directory,
-                env=environment,
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-
-    def approval(self, plan, target=TARGET):
-        return f"{target}:{hashlib.sha256(plan.encode('utf-8')).hexdigest()}"
-
-    def assert_rejected(self, result, message):
-        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn(message, result.stderr)
-        self.assertNotIn("MIGRATION_REVIEW_APPROVED", result.stdout)
-
-    def test_ordinary_plan_passes_without_approval(self):
-        result = self.run_guard(ORDINARY_PLAN)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("MIGRATION_PLAN commit=", result.stdout)
-        self.assertNotIn("MIGRATION_REVIEW_APPROVED", result.stdout)
-
-    def test_all_guarded_operations_fail_without_approval(self):
-        for operation in (
-            "Remove field", "Delete model", "Rename field", "Rename model",
-            "Raw Python operation", "Raw SQL operation",
-        ):
+    def test_every_pending_plan_is_blocked_without_keyword_exceptions(self):
+        for operation in ("Create model", "RunPython", "RunSQL"):
             with self.subTest(operation=operation):
-                self.assert_rejected(
-                    self.run_guard(f"Planned operations:\n    {operation}\n"),
-                    "potentially destructive migrations require manual review",
-                )
-
-    def test_reviewed_exact_plan_passes(self):
-        result = self.run_guard(REVIEWED_PLAN, self.approval(REVIEWED_PLAN))
-        self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn(operation, self.source)
         self.assertIn(
-            f"MIGRATION_REVIEW_APPROVED commit={TARGET} plan_sha256={self.approval(REVIEWED_PLAN).split(':')[1]}",
-            result.stdout,
+            'fail "pending migrations require the separately authorized dedicated migrator; resume this release after it reports MIGRATION_COMPLETE"',
+            self.source,
         )
+        self.assertNotIn("grep -Eiq", self.source)
 
-    def test_destructive_operations_require_exact_explicit_review(self):
-        plan = "Planned operations:\n    Delete model Example\n    Raw SQL operation\n"
-        result = self.run_guard(plan, self.approval(plan))
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("MIGRATION_REVIEW_APPROVED", result.stdout)
-
-    def test_mismatched_target_fails_even_for_ordinary_plan(self):
-        for plan in (ORDINARY_PLAN, REVIEWED_PLAN):
-            with self.subTest(plan=plan):
-                self.assert_rejected(
-                    self.run_guard(plan, self.approval(plan, OTHER_TARGET)),
-                    "does not match the target commit",
-                )
-
-    def test_changed_plan_fails_closed(self):
-        for plan in (ORDINARY_PLAN, REVIEWED_PLAN + "    Delete model Example\n", REVIEWED_PLAN.replace("\n", "\r\n")):
-            with self.subTest(plan=plan):
-                self.assert_rejected(
-                    self.run_guard(plan, self.approval(REVIEWED_PLAN)),
-                    "does not match the captured plan",
-                )
-
-    def test_malformed_approval_fails_closed(self):
-        for approval in (
-            "true", "1", TARGET, ":" + "a" * 64,
-            TARGET + ":" + "a" * 63, TARGET + ":" + "g" * 64,
-            self.approval(REVIEWED_PLAN).upper(),
-            self.approval(REVIEWED_PLAN) + "\n",
-            self.approval(REVIEWED_PLAN) + "; echo unsafe",
-            " " + self.approval(REVIEWED_PLAN),
-        ):
-            with self.subTest(approval=approval):
-                self.assert_rejected(
-                    self.run_guard(REVIEWED_PLAN, approval),
-                    "must be COMMIT_SHA:PLAN_SHA256",
-                )
-
-    def test_extra_arguments_fail_closed(self):
-        self.assert_rejected(
-            self.run_guard(ORDINARY_PLAN, extra=True),
-            "expected target commit and optional reviewed migration approval",
+    def test_obsolete_approval_argument_is_rejected(self):
+        self.assertIn(
+            '(( $# == 1 )) || fail "expected exactly one target commit; migrations require the dedicated runner"',
+            self.source,
         )
+        self.assertNotIn("REVIEWED_MIGRATION_APPROVAL", self.source)
 
-    def test_missing_plan_fails_closed(self):
-        result = self.run_guard(ORDINARY_PLAN, missing=True)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertNotIn("MIGRATION_REVIEW_APPROVED", result.stdout)
+    def test_plan_readiness_is_read_only_and_precedes_publication(self):
+        readiness = self.source.index('"$PYTHON" backend/manage.py migrate --check --noinput')
+        publication = self.source.index('CURRENT_STEP="frontend publication"')
+        self.assertLess(readiness, publication)
+        self.assertNotIn('"$PYTHON" backend/manage.py migrate --noinput', self.source)
+        self.assertNotIn("check_migration_plan", self.source)
+        self.assertNotIn("REVIEWED_MIGRATION_APPROVAL", self.source)
+        self.assertNotIn("grep -Eiq", self.source)
 
-    def test_grep_error_fails_closed(self):
-        self.assert_rejected(
-            self.run_guard(ORDINARY_PLAN, grep_error=True),
-            "could not inspect the migration plan",
+    def test_runtime_never_executes_migrations(self):
+        self.assertIn('pending migrations require the separately authorized dedicated migrator', self.source)
+        self.assertIn('run_dedicated_migrations.sh', self.source)
+
+    def test_dedicated_migration_executor_requires_real_identity(self):
+        executor = (DEPLOY_DIR / "scripts" / "run_dedicated_migrations.sh").read_text(encoding="utf-8")
+        self.assertIn('POSTGRES_USER must be explicitly set to $EXPECTED_MIGRATOR', executor)
+        self.assertIn('PGOPTIONS must explicitly request SET ROLE $EXPECTED_OWNER', executor)
+        self.assertIn('SELECT session_user::text, current_user::text', executor)
+        self.assertIn('MIGRATION_COMPLETE', executor)
+        result = subprocess.run(
+            [self.bash, "-n"], input=executor.encode("utf-8"),
+            capture_output=True, timeout=10,
         )
+        self.assertEqual(result.returncode, 0, result.stderr.decode("utf-8", errors="replace"))
 
-    def test_plan_is_captured_before_guard_and_migrations(self):
-        capture = self.source.index('tee "$RELEASE_DIR/migrate-plan.txt"')
-        guard = self.source.index('check_migration_plan "$RELEASE_DIR/migrate-plan.txt"')
-        migrate = self.source.index('"$PYTHON" backend/manage.py migrate --noinput')
-        backup = self.source.index('module.verify_archive({"path": sys.argv[2]}, client_major=18)')
-        update = self.source.index('merge --ff-only "$TARGET_COMMIT"')
-        self.assertLess(backup, update)
-        self.assertLess(update, capture)
-        self.assertLess(capture, guard)
-        self.assertLess(guard, migrate)
+    def backup_section(self):
+        return self.source.split('CURRENT_STEP="database backup"', 1)[1].split(
+            'CURRENT_STEP="fast-forward update"', 1)[0]
 
-    def test_release_stages_target_backup_code_before_update(self):
-        for path in ("backend/config/database_backup.py", "deploy/scripts/backup_database.py"):
-            stage = self.source.index(f'git -C "$APP_DIR" show "$TARGET_COMMIT:{path}"')
-            self.assertLess(stage, self.source.index('BACKUP_OUTPUT="$('))
-        self.assertIn('sys.modules[spec.name] = module', self.source)
-        self.assertIn('runpy.run_path(str(release / "backup_database.py"), run_name="__main__")', self.source)
+    def test_release_requires_fixed_broker_before_update(self):
+        section = self.backup_section()
+        self.assertEqual(section.count('/usr/bin/sudo'), 1)
+        self.assertIn('/usr/bin/sudo -n -u polypbase_backup', section)
+        self.assertIn('/usr/local/libexec/polypbase-deployment-backup "$TARGET_COMMIT"', section)
+        for forbidden in ('git -C', '.venv', 'runpy', 'importlib', 'POLYPBASE_BACKUP_PASSWORD',
+                          'verify_archive', '[[ -s', '--output-dir'):
+            self.assertNotIn(forbidden, section)
         self.assertNotIn("/usr/bin/pg_restore", self.source)
         self.assertNotIn("/usr/bin/pg_dump", self.source)
 
-    def test_backup_or_verification_failure_stops_before_update(self):
-        # Execute only the real backup section, with fake Git/Python commands.
-        # No Python payload, archive tool, database or deployment can run.
-        section = self.source.split('CURRENT_STEP="database backup"', 1)[1].split('CURRENT_STEP="fast-forward update"', 1)[0]
-        for failure in ("none", "stage", "backup", "verify"):
-            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
-                Path(directory, "backend").mkdir()
-                command = '''set -Eeuo pipefail
-fail() { echo "$*" >&2; exit 1; }
-APP_DIR=.
-RELEASE_DIR=.
-BACKUP_DIR=.
-TARGET_COMMIT=unused
-SHORT_COMMIT=unused
-git() { [[ "$TEST_FAILURE" != stage ]] || return 7; }
-python_mock() {
-    cat >/dev/null
-    if [[ "$1" == - && "$2" == . ]]; then
-        [[ "$TEST_FAILURE" != backup ]] || return 8
-        printf x > fake.dump
-        echo 'BACKUP_OK fake.dump 1 bytes sha256=unused'
-    else
-        [[ "$TEST_FAILURE" != verify ]] || return 9
-    fi
+    def run_backup_section(self, directory, output, *, status=0):
+        # Replace only sudo's executable in the extracted section. No real sudo,
+        # broker, Git, Python backup payload or database command can be executed.
+        section = self.backup_section()
+        self.assertEqual(section.count('/usr/bin/sudo'), 1)
+        command = '''set -Eeuo pipefail
+fail() { printf '%s\\n' "$*" >&2; exit 1; }
+TARGET_COMMIT="$TEST_TARGET"
+SHORT_COMMIT="${TARGET_COMMIT:0:8}"
+sudo_mock() {
+    [[ "$#" == 5 && "$1" == -n && "$2" == -u && "$3" == polypbase_backup &&
+       "$4" == /usr/local/libexec/polypbase-deployment-backup &&
+       "$5" == "$TARGET_COMMIT" ]] || { printf 'BROKER_ARGUMENTS_INVALID\\n' >&2; return 99; }
+    printf 'BROKER_CALLED\\n' >> broker-calls.txt
+    printf '%b' "$TEST_BROKER_OUTPUT"
+    return "$TEST_BROKER_STATUS"
 }
 '''
-                # Substitute only the executable, retaining arguments/heredocs and set -e.
-                command += section.replace('"$APP_DIR/.venv/bin/python"', 'python_mock')
-                command += '\nprintf "UPDATE_REACHED\\n"\n'
-                result = subprocess.run(
-                    [self.bash, "--noprofile", "--norc", "-c", command],
-                    cwd=directory, env={**os.environ, "TEST_FAILURE": failure},
-                    capture_output=True, text=True, timeout=10,
-                )
-                if failure == "none":
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertIn("UPDATE_REACHED", result.stdout)
-                else:
+        command += section.replace('/usr/bin/sudo', 'sudo_mock')
+        # The sentinel stands in for the boundary immediately before Git update.
+        command += '\nprintf "UPDATE_REACHED path=%s name=%s\\n" "$BACKUP_PATH" "$BACKUP_NAME"\n'
+        # Windows-to-Bash environment transport may normalize literal CRLF.
+        # Reconstruct control characters inside the mock to test the actual bytes.
+        escaped_output = output.replace('\\', '\\\\').replace('\r', '\\r').replace('\n', '\\n')
+        return subprocess.run(
+            [self.bash, "--noprofile", "--norc", "-c", command], cwd=directory,
+            env={**os.environ, 'TEST_TARGET': TARGET, 'TEST_BROKER_OUTPUT': escaped_output,
+                 'TEST_BROKER_STATUS': str(status), 'POLYPBASE_BACKUP_DIR': '/tmp/caller-override'},
+            capture_output=True, text=True, timeout=10,
+        )
+
+    def backup_attestation(self):
+        return f'BACKUP_OK /srv/polypbase/deployment-backups/pre-{TARGET[:8]}-20261112T120000Z.dump'
+
+    def test_verified_broker_result_reaches_update_without_web_archive_access(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.run_backup_section(directory, self.backup_attestation() + '\n')
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            path = self.backup_attestation().removeprefix('BACKUP_OK ')
+            self.assertIn(f'UPDATE_REACHED path={path} name={path.rsplit("/", 1)[1]}', result.stdout)
+            self.assertEqual(Path(directory, 'broker-calls.txt').read_text(), 'BROKER_CALLED\n')
+
+    def test_broker_failure_stops_before_update_even_with_success_output(self):
+        for status in (1, 8, 124):
+            for output in ('', 'BACKUP_ERROR refused\n', self.backup_attestation() + '\n'):
+                with self.subTest(status=status, output=output), tempfile.TemporaryDirectory() as directory:
+                    result = self.run_backup_section(directory, output, status=status)
                     self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
-                    self.assertNotIn("UPDATE_REACHED", result.stdout)
+                    self.assertNotIn('UPDATE_REACHED', result.stdout)
+
+    def test_tampered_broker_attestation_stops_before_update(self):
+        valid = self.backup_attestation()
+        outputs = (
+            '', 'BACKUP_OK', valid.replace(TARGET[:8], 'ffffffff'),
+            valid.replace('/deployment-backups/', '/backups/'),
+            valid.replace('/pre-', '/../pre-'), valid + '.extra',
+            valid + ' 1 bytes sha256=' + 'a' * 64,
+            valid + '\n' + valid, 'unexpected output\n' + valid,
+            valid + '\nunexpected output',
+            valid.replace('20261112T120000Z', '20261112T120000'),
+        )
+        for output in outputs:
+            with self.subTest(output=output), tempfile.TemporaryDirectory() as directory:
+                result = self.run_backup_section(directory, output)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertNotIn('UPDATE_REACHED', result.stdout)
+                self.assertIn('trusted backup broker did not return the expected BACKUP_OK path', result.stderr)
+
+    @unittest.skipIf(os.name == 'nt', 'Windows Bash normalizes CRLF in command substitution')
+    def test_crlf_broker_attestation_stops_before_update(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.run_backup_section(directory, self.backup_attestation() + '\r\n')
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertNotIn('UPDATE_REACHED', result.stdout)
+
+    def test_retry_requires_fresh_successful_broker_result(self):
+        with tempfile.TemporaryDirectory() as directory:
+            attempts = (
+                (1, self.backup_attestation(), False),
+                (0, self.backup_attestation(), True),
+                (1, self.backup_attestation(), False),
+                (0, '', False),
+                (0, self.backup_attestation(), True),
+            )
+            for number, (status, output, allowed) in enumerate(attempts, start=1):
+                with self.subTest(attempt=number):
+                    result = self.run_backup_section(directory, output, status=status)
+                    self.assertEqual(result.returncode == 0, allowed, result.stdout + result.stderr)
+                    self.assertEqual('UPDATE_REACHED' in result.stdout, allowed)
+                    self.assertEqual(Path(directory, 'broker-calls.txt').read_text().splitlines(),
+                                     ['BROKER_CALLED'] * number)
 
     def test_shell_syntax(self):
         result = subprocess.run(
-            [self.bash, "-n"], input=self.source, text=True,
+            [self.bash, "-n"], input=self.source.encode("utf-8"),
             capture_output=True, timeout=10,
         )
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr.decode("utf-8", errors="replace"))
 
 
 class PowerShellTests(unittest.TestCase):

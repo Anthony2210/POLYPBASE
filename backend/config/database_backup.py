@@ -1,7 +1,7 @@
-"""Connection-free archive helpers; callers own target and snapshot provenance.
+"""Archive helpers without Django settings or manifest writes.
 
 Evidence hashes detect changes, not authenticity. Readability is not a restore test.
-No Django settings, database connections, or manifest writes occur here.
+Only create_complete_archive opens a database connection, for deployment backups.
 """
 
 import datetime
@@ -161,9 +161,10 @@ def verify_archive(archive, *, client_major=None):
 
 
 def create_archive(database, output_dir, label, *, snapshot=None, hostaddr=None,
-                   client_major=None):
-    """Create a private custom archive, optionally requiring versioned clients.
+                   client_major=None, preserve_authority=False):
+    """Create a private custom archive, optionally preserving ownership and ACLs.
 
+    Historical callers retain --no-owner/--no-acl unless preserve_authority is True.
     Without client_major the historical wrapper clients are used unchanged.
     """
     if not isinstance(label, str) or not _LABEL.fullmatch(label):
@@ -200,12 +201,14 @@ def create_archive(database, output_dir, label, *, snapshot=None, hostaddr=None,
     descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     os.close(descriptor)
     try:
-        command = [
-            pg_dump, "--format=custom", "--no-owner", "--no-acl",
+        command = [pg_dump, "--format=custom"]
+        if not preserve_authority:
+            command.extend(["--no-owner", "--no-acl"])
+        command.extend([
             "--no-password", "--file", str(path), "--host", str(database["HOST"]),
             "--port", str(database["PORT"]), "--username", str(database["USER"]),
             "--dbname", name,
-        ]
+        ])
         if snapshot is not None:
             command.extend(["--snapshot", snapshot])
         # Pin the address without changing the hostname used for TLS verification.
@@ -216,6 +219,130 @@ def create_archive(database, output_dir, label, *, snapshot=None, hostaddr=None,
     except BaseException:
         path.unlink(missing_ok=True)
         raise
+
+
+def _connect_backup(database):
+    """Use explicit libpq routing, without service, role or password-file fallback."""
+    import psycopg
+
+    if any(key.upper().startswith("PG") for key in os.environ):
+        raise ValueError("Ambient PostgreSQL connection overrides are not permitted.")
+    for key in ("HOST", "PORT", "USER", "NAME"):
+        if database.get(key) is None or not str(database.get(key, "")).strip():
+            raise ValueError("Explicit database connection parameters are required.")
+    name = str(database["NAME"])
+    if "=" in name or name.startswith(("postgresql://", "postgres://")):
+        raise ValueError("Database name must not be a connection string.")
+    options = database.get("OPTIONS", {})
+    return psycopg.connect(
+        host=str(database["HOST"]), port=str(database["PORT"]),
+        dbname=name, user=str(database["USER"]),
+        password=str(database.get("PASSWORD", "")),
+        sslmode=str(options.get("sslmode", "prefer")),
+        passfile=str(options.get("passfile", os.devnull)),
+        hostaddr="", options="-c row_security=off",
+        connect_timeout=10, autocommit=True,
+    )
+
+
+def _complete_inventory(cursor):
+    """Reject unreadable/filtered data before pg_dump can silently omit a schema."""
+    cursor.execute("""SELECT current_setting('server_version_num')::int,
+        session_user = current_user""")
+    version, direct_login = cursor.fetchone()
+    if not 180000 <= version < 190000 or not direct_login:
+        raise ValueError("Complete deployment backup requires a direct PostgreSQL 18 login.")
+    cursor.execute("""SELECT oid, has_schema_privilege(oid, 'USAGE')
+        FROM pg_catalog.pg_namespace
+        WHERE nspname !~ '^pg_' AND nspname <> 'information_schema'""")
+    if any(not readable for _, readable in cursor.fetchall()):
+        raise ValueError("Incomplete backup authority: unreadable schema.")
+    cursor.execute("""SELECT c.oid, c.relkind, c.relispopulated,
+        CASE WHEN c.relkind = 'S' THEN has_sequence_privilege(c.oid, 'SELECT')
+             ELSE has_table_privilege(c.oid, 'SELECT') END,
+        CASE WHEN c.relkind IN ('r','p') THEN row_security_active(c.oid) ELSE false END,
+        n.nspname, c.relname, pg_get_userbyid(c.relowner)
+        FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema'
+          AND c.relkind IN ('r','p','m','S','f')""")
+    expected = set()
+    for oid, kind, populated, readable, filtered, schema, name, owner in cursor.fetchall():
+        if not readable or filtered or kind == 'f':
+            raise ValueError("Incomplete backup authority: unreadable, RLS or foreign relation.")
+        if kind == 'r':
+            expected.add((oid, "TABLE DATA"))
+        elif kind == 'S' or (kind == 'm' and populated):
+            # PG18 emits synthetic data entries with OID 0 for these objects.
+            # Refuse ambiguous TOC names rather than splitting quoted identifiers.
+            if any(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_$]*", value) is None
+                   for value in (schema, name, owner)):
+                raise ValueError("Ambiguous sequence or materialized view backup identity.")
+            entry = "SEQUENCE SET" if kind == 'S' else "MATERIALIZED VIEW DATA"
+            expected.add((f"{schema} {name} {owner}", entry))
+    cursor.execute("""SELECT oid, has_largeobject_privilege(oid, 'SELECT')
+        FROM pg_catalog.pg_largeobject_metadata""")
+    # Large objects need a separately reviewed completeness verifier. Do not claim
+    # a complete archive merely because their metadata is visible.
+    if cursor.fetchall():
+        raise ValueError("Complete deployment backup does not yet support large objects.")
+    return expected
+
+
+def _verify_inventory(archive, expected, client_major):
+    client = require_client("pg_restore", client_major)
+    try:
+        output = subprocess.run(
+            [client, "--list", archive["path"]], check=True, env=_environment(),
+            timeout=TIMEOUT_SECONDS, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        ).stdout.decode("utf-8")
+    except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
+        raise ValueError("PostgreSQL archive inventory verification failed.") from None
+    entries = set()
+    for line in output.splitlines():
+        match = re.match(
+            r"^\d+; \d+ (\d+) (TABLE DATA|SEQUENCE SET|MATERIALIZED VIEW DATA) (.*)$", line,
+        )
+        if match:
+            identity = int(match[1]) if match[2] == "TABLE DATA" else match[3]
+            entries.add((identity, match[2]))
+    if not expected <= entries:
+        raise ValueError("Incomplete backup archive: expected data entries are missing.")
+
+
+def create_complete_archive(database, output_dir, label, *, client_major=18):
+    """Fail closed on missing data authority and verify same-snapshot TOC coverage.
+
+    Does not grant privileges or test restoration. The normal deployment caller
+    must use this function, not the historical readability-only PCA helper.
+    """
+    if database.get("ENGINE") != "django.db.backends.postgresql":
+        raise ValueError("The configured database is not PostgreSQL.")
+    require_client("pg_dump", client_major)
+    require_client("pg_restore", client_major)
+    archive = None
+    try:
+        with _connect_backup(database) as connection:
+            with connection.transaction(), connection.cursor() as cursor:
+                cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+                cursor.execute("SET LOCAL statement_timeout = '60s'")
+                cursor.execute("SET LOCAL lock_timeout = '5s'")
+                expected = _complete_inventory(cursor)
+                cursor.execute("SELECT pg_export_snapshot()")
+                snapshot = cursor.fetchone()[0]
+                archive = create_archive(
+                    database, output_dir, label, snapshot=snapshot, client_major=client_major,
+                    preserve_authority=True,
+                )
+                _verify_inventory(archive, expected, client_major)
+        return archive
+    except BaseException as error:
+        if archive is not None:
+            Path(archive["path"]).unlink(missing_ok=True)
+        if isinstance(error, (ValueError, KeyboardInterrupt, SystemExit)):
+            raise
+        # Database errors can contain connection identity or application values.
+        raise ValueError("Complete deployment backup verification failed.") from None
 
 
 def _evidence_hash(evidence):
