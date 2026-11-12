@@ -72,6 +72,7 @@ PERMISSION_KEYS = frozenset({
 R, D = "REUSE", "DEFER"
 SEMANTIC_DECISIONS = {
     # React catalog: compatible differences.
+    "adminTabTransfers": (R, "EN_FORM_ONLY", "Sending and receiving names the existing Envois et réceptions entry; Japanese 発送・受け取り is preserved."),
     "auditDescriptionManualTemperature": (R, "JA_MATCHES_CURRENT", "Workbook EN was a wrong sentence (AC11); JA already says manual temperature for {zone}."),
     "auditMetaResponsableStatus": (R, "EN_TYPO_ONLY", "statut -> status."),
     "auditMetaCultureStatus": (R, "EN_TYPO_ONLY", "statut -> status."),

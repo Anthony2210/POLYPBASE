@@ -163,14 +163,15 @@ export function invalidateInFlightGet(path: string, organizationId?: number | nu
   }
 }
 
-export async function apiEnsureCsrfCookie() {
-  return apiGet<{ detail: string }>('/api/auth/session/');
+export async function apiEnsureCsrfCookie(options: RequestOptions = {}) {
+  return apiGet<{ detail: string }>('/api/auth/session/', options);
 }
 
-export async function apiPost<T>(path: string, payload: unknown): Promise<T> {
+export async function apiPost<T>(path: string, payload: unknown, options: RequestOptions = {}): Promise<T> {
   const temperatureContext = /^\/api\/thermal-zones\/\d+\/temperature\/$/.test(path)
     ? getOrganizationResourceSignal() : null;
   const result = await apiRequest<T>(path, {
+    ...options,
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -196,8 +197,9 @@ export async function apiPostForm<T>(path: string, body: FormData, signal?: Abor
   });
 }
 
-export async function apiPatch<T>(path: string, payload: unknown): Promise<T> {
+export async function apiPatch<T>(path: string, payload: unknown, options: RequestOptions = {}): Promise<T> {
   return apiRequest<T>(path, {
+    ...options,
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',

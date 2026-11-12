@@ -53,7 +53,7 @@ function harness(language = 'en') {
     'lucide-react', '../api/client', '../utils/accountMembers', '../utils/accountInvitations', '../utils/dateFormat',
     '../utils/memberMutationLock', '../utils/memberFeedback', '../utils/stepValue', '../utils/zoneOccupancy',
     './AccountInvitationsPanel', './AdminActionPanel', './AdminAuditSection', './BoxInventoryAdminSection', './ConfirmActionModal',
-    './LabConfigurationAdminSection',
+    './LabConfigurationAdminSection', './sharing/BoxSharingAdminSection',
     './PageLoader', './PolypbaseIcon', './RowActionMenu', './SkeletonRows', './TaxonomyAdminSection',
   ];
   const modules = Object.fromEntries(unusedModules.map((name) => [name, {}]));

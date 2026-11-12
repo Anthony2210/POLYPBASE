@@ -83,6 +83,7 @@ const potentialMovementKeys = [
 ];
 const obsolete = parseCsv(read('../../docs/translation-review/japanese/ja-obsolete-workbook-keys.csv'));
 const register = parseCsv(read('../../docs/translation-review/application/register.csv').replace(/^﻿/, ''));
+const sharingKeys = Object.keys(fr).filter(key => /^share[A-Z]/.test(key));
 const reviewedPath = '../../docs/translation-review/japanese/POLYPBASE_JA_59_candidates_revisees.csv';
 const blockedPath = '../../docs/translation-review/japanese/POLYPBASE_JA_6_blocked.csv';
 const reviewed = parseCsv(read(reviewedPath));
@@ -239,10 +240,10 @@ test('ja catalog is exactly the historical and AI-reviewed manifest union', () =
   const counts = react.reduce((total, row) => ({ ...total, [row.status]: (total[row.status] ?? 0) + 1 }), {});
   // Original fallbacks, movements and thermal additions, with B23 retirements and B23/B24 additions.
   assert.equal(postBaseline.size, 81);
-  assert.deepEqual(counts, { REUSED: 930, FALLBACK_EN: 257, FALLBACK_EN_REVIEW: 36, AI_REVIEWED: 59 });
+  assert.deepEqual(counts, { REUSED: 930, FALLBACK_EN: 257 + sharingKeys.length, FALLBACK_EN_REVIEW: 36, AI_REVIEWED: 59 });
   assert.equal(counts.FALLBACK_EN, 143 + postBaseline.size + potentialMovementKeys.length
     - B23_RETIRED_KEYS.length + B23_ADDED_KEYS.length + B24_ADDED_KEYS.length + zoneChartKeys.length
-    + thermalPeriodKeys.length + probeAverageKeys.length);
+    + thermalPeriodKeys.length + probeAverageKeys.length + sharingKeys.length);
 });
 
 test('B13 thermal register events are immutable, even under a coordinated catalog edit', () => {
@@ -569,7 +570,34 @@ function b28Events(rows = register) {
   return events;
 }
 
+function beforeB29(source, language, rows = register) {
+  const batch = rows.filter(row => row.batch === 'B29-2026-11-12');
+  const rename = batch.find(entry => entry.key_or_msgid === 'adminTabTransfers');
+  assert.deepEqual([rename.entry_id, rename.key_or_msgid, rename.language, rename.status, rename.initial_value, rename.final_value],
+    ['T1399', 'adminTabTransfers', 'EN', 'APPLIED', 'Shipments and receipts', 'Sending and receiving']);
+  if (language === 'en') {
+    const line = `  adminTabTransfers: '${rename.final_value}',\n`;
+    assert.equal(source.split(line).length - 1, 1);
+    source = source.replace(line, `  adminTabTransfers: '${rename.initial_value}',\n`);
+  }
+  const events = batch.filter(entry => entry !== rename);
+  assert.equal(sharingKeys.length, 150);
+  assert.deepEqual(events.map(row => row.entry_id), [...Array.from({ length: 298 }, (_, index) => `T${1101 + index}`), 'T1400', 'T1401']);
+  assert.deepEqual(events.map(row => [row.key_or_msgid, row.language]), sharingKeys.flatMap(key => [[key, 'FR'], [key, 'EN']]));
+  for (const entry of events) {
+    assert.deepEqual([entry.surface, entry.status, entry.initial_value], ['react', 'ALREADY_MATCHING', entry.final_value]);
+    assert.equal(entry.baseline_git_head, '380235543d7be7d715b5de2b81fade1f38e90936');
+    assert.equal(Object.hasOwn(ja, entry.key_or_msgid), false);
+    if (entry.language !== language.toUpperCase()) continue;
+    const line = `  ${entry.key_or_msgid}: '${entry.final_value}',\n`;
+    assert.equal(source.split(line).length - 1, 1, entry.key_or_msgid);
+    source = source.replace(line, '');
+  }
+  return source;
+}
+
 function beforeB28(source, language, rows = register) {
+  source = beforeB29(source, language, rows);
   for (const entry of b28Events(rows).filter(row => row.language === language.toUpperCase())) {
     const line = `  ${entry.key_or_msgid}: '${entry.final_value}',
 `;
@@ -872,7 +900,7 @@ test('source fingerprints accept the scoped additions but reject every historica
       assert.notEqual(mutated, line, `${language}.${key}: mutation must change the value`);
       const changed = source.replace(line, mutated);
       if (B24_ADDED_KEYS.includes(key) || zoneChartKeys.includes(key) || thermalPeriodKeys.includes(key)
-          || probeAverageKeys.includes(key)) {
+          || probeAverageKeys.includes(key) || sharingKeys.includes(key) || (key === 'adminTabTransfers' && language === 'en')) {
         assert.throws(() => historicalSource(changed, true, language), `${language}.${key}`);
         continue;
       }

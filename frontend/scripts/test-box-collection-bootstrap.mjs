@@ -187,7 +187,8 @@ test('only list-dependent routes and interactions ask for the complete Box list'
   for (const section of ['accounts', 'inventory', 'references', 'environment', 'history', 'organizations']) {
     assert.equal(need({ activeTab: 'admin', adminSection: section }), false, section);
   }
-  assert.equal(need({ activeTab: 'admin', adminSection: 'transfers' }), true);
+  assert.equal(need({ activeTab: 'admin', adminSection: 'transfers' }), false,
+      'scientific sharing uses bounded source lookup, not the complete collection');
   assert.equal(need({ activeTab: 'admin', adminSection: 'transfers', isAdminAvailable: false }), false,
     'tablet administration never loads anything');
 });
