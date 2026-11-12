@@ -10,7 +10,7 @@ APP_DIR="${POLYPBASE_MIGRATION_APP_DIR:-}"
 LIVE_APP_DIR="${POLYPBASE_APP_DIR:-/srv/polypbase/app}"
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
-BACKUP_DIR="${POLYPBASE_BACKUP_DIR:-/srv/polypbase/backups}"
+BACKUP_DIR="${POLYPBASE_BACKUP_DIR:-/var/lib/polypbase/migration-backups}"
 LOCK_FILE="${POLYPBASE_DEPLOY_LOCK:-/srv/polypbase/deploy.lock}"
 # The operator authenticates this control bundle separately from the app commit.
 CONTROL_DIR="${POLYPBASE_MIGRATION_CONTROL_DIR:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)}"

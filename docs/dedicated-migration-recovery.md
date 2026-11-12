@@ -97,7 +97,7 @@ changes. Use the verified bundle as their source, never the app checkout. In sho
    checked SHA-256 of each installed file and the explicit database configuration.
    Do not copy `.env`. Pin the backup helper from CONTROL, including when TARGET
    is 8504f52. Ancestors must be root-owned and not group/other writable.
-4. Archive directory `/srv/polypbase/deployment-backups` is backup-owned 0700;
+4. Archive directory `/var/lib/polypbase/deployment-backups` is backup-owned 0700;
    ancestors are root-owned. Never make archives web-readable for verification.
 5. DBA authorizes the existing provisioned read-only `box1902_backup` login through
    peer **only from OS `polypbase_backup`**, using the explicit ident mapping in
@@ -107,7 +107,7 @@ changes. Use the verified bundle as their source, never the app checkout. In sho
 6. Install/validate the exact `NOSETENV` sudo rule from the broker contract. No
    general interpreter, shell, editor or environment permission is allowed.
 7. Test the installed broker as the deployment OS user with TARGET. Require exactly
-   `BACKUP_OK /srv/polypbase/deployment-backups/pre-<target8>-<timestamp>.dump`.
+   `BACKUP_OK /var/lib/polypbase/deployment-backups/pre-<target8>-<timestamp>.dump`.
    A root/backup operator independently checks hash/TOC and archives the evidence.
 
 Every release needs an explicit root repin of TARGET and reviewed helper hashes.
@@ -136,8 +136,24 @@ Provisioning is not repeated for later migrations.
 
 Use the dedicated nonroot OS account/group **`polypbase_migrator`**, never the
 web OS identity, without shared UID, primary or supplementary web groups. Give
-it access to the existing deployment lock and a private migration review/backup
-directory through narrowly reviewed ACLs, not membership in a web group.
+it access to the existing deployment lock through a narrowly reviewed per-user
+ACL, and use root-controlled private migration review/backup directories:
+
+```bash
+install -d -o root -g root -m 0755 /var/lib/polypbase
+install -d -o polypbase_migrator -g polypbase_migrator -m 0700 \
+  /var/lib/polypbase/migration-reviews /var/lib/polypbase/migration-backups
+# The existing lock is under the web-owned application parent. Preserve its
+# owner and grant only the dedicated migrator the access needed for flock.
+setfacl -m u:polypbase_migrator:rw /srv/polypbase/deploy.lock
+getfacl /srv/polypbase/deploy.lock
+```
+
+The current topology is otherwise a concrete blocker: without that ACL the
+migrator cannot open `/srv/polypbase/deploy.lock`; it also cannot create
+`/srv/polypbase/migration-reviews` or write migration backups below the
+web-owned `/srv/polypbase` parent. Do not use a shared web group or make the
+application tree writable by the migrator.
 
 **Do not use the live checkout or its `.venv`.** Before introducing credentials,
 a root operator installs an independent authenticated Git clone of TARGET under
@@ -182,7 +198,7 @@ export PGOPTIONS='-c role=box1902_owner'
 export POLYPBASE_MIGRATION_CONTROL_DIR=/opt/polypbase-controls/<CONTROL>
 export POLYPBASE_MIGRATION_APP_DIR=/opt/polypbase-migrations/<TARGET>
 /bin/bash /opt/polypbase-controls/<CONTROL>/deploy/scripts/run_dedicated_migrations.sh \
-  --plan <TARGET> /srv/polypbase/migration-reviews/<unique-plan>.json
+  --plan <TARGET> /var/lib/polypbase/migration-reviews/<unique-plan>.json
 ```
 
 Set POSTGRES_HOST explicitly to the approved TCP/TLS endpoint; the script refuses
@@ -214,7 +230,7 @@ arguments, web environment or repository. Reverify bundle pins, then:
 
 ```bash
 /bin/bash /opt/polypbase-controls/<CONTROL>/deploy/scripts/run_dedicated_migrations.sh \
-  --apply <TARGET> /srv/polypbase/migration-reviews/<unique-plan>.json \
+  --apply <TARGET> /var/lib/polypbase/migration-reviews/<unique-plan>.json \
   <TARGET>:<independently-approved-json-sha256>
 ```
 

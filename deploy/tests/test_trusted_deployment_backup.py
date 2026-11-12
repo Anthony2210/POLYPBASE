@@ -147,6 +147,45 @@ class PathTests(unittest.TestCase):
             with self.subTest(options=options), self.assertRaises(ValueError):
                 self.check(**options)
 
+    def test_production_archive_topology_rejects_runtime_parent(self):
+        class SyntheticPath:
+            def __init__(self, value, nodes):
+                self.value, self.nodes = value, nodes
+
+            @property
+            def parents(self):
+                parts = self.value.strip('/').split('/')
+                return [SyntheticPath('/' + '/'.join(parts[:index]), self.nodes)
+                        for index in range(len(parts) - 1, 0, -1)]
+
+            def lstat(self):
+                return self.nodes[self.value]
+
+        directory = stat.S_IFDIR | 0o700
+        nodes = {
+            '/srv': types.SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_uid=0),
+            '/srv/polypbase': types.SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_uid=1234),
+            '/srv/polypbase/deployment-backups': types.SimpleNamespace(
+                st_mode=directory, st_uid=IDENTITY.pw_uid, st_gid=IDENTITY.pw_gid),
+        }
+        with patch.object(broker, 'backup_identity', return_value=IDENTITY):
+            with self.assertRaises(ValueError):
+                broker.require_path(SyntheticPath('/srv/polypbase/deployment-backups', nodes),
+                                    directory=True, owner=IDENTITY.pw_uid)
+
+        nodes.update({
+            '/var': types.SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_uid=0),
+            '/var/lib': types.SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_uid=0),
+            '/var/lib/polypbase': types.SimpleNamespace(
+                st_mode=stat.S_IFDIR | 0o755, st_uid=0),
+            '/var/lib/polypbase/deployment-backups': types.SimpleNamespace(
+                st_mode=directory, st_uid=IDENTITY.pw_uid, st_gid=IDENTITY.pw_gid),
+        })
+        with patch.object(broker, 'backup_identity', return_value=IDENTITY):
+            broker.require_path(
+                SyntheticPath('/var/lib/polypbase/deployment-backups', nodes),
+                directory=True, owner=IDENTITY.pw_uid)
+
 
 class ExecutionTests(unittest.TestCase):
     def test_real_backup_script_calls_complete_helper_without_app_settings(self):

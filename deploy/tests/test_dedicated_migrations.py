@@ -137,6 +137,7 @@ class BashGuardTests(unittest.TestCase):
 
     def test_lock_and_connection_gate_order(self):
         self.assertIn('LOCK_FILE="${POLYPBASE_DEPLOY_LOCK:-/srv/polypbase/deploy.lock}"', SOURCE)
+        self.assertIn('BACKUP_DIR="${POLYPBASE_BACKUP_DIR:-/var/lib/polypbase/migration-backups}"', SOURCE)
         lock = SOURCE.index('flock -n 9 || fail')
         self.assertLess(lock, SOURCE.index('CURRENT_STEP="dedicated connection"'))
         self.assertLess(lock, SOURCE.index("<<'PY'"))
