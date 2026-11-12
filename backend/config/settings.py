@@ -130,6 +130,7 @@ LOCAL_APPS = [
     "apps.measurements.apps.MeasurementsConfig",
     "apps.exports.apps.ExportsConfig",
     "apps.audit.apps.AuditConfig",
+    "apps.sharing.apps.SharingConfig",
 ]
 
 INSTALLED_APPS = [
@@ -299,6 +300,31 @@ EMAIL_DELIVERY_ENABLED = env_flag(
         "django.core.mail.backends.dummy.EmailBackend",
     },
 )
+
+
+def _optional_positive_seconds(name):
+    """Read an explicit positive duration; unset or blank means not configured."""
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return None
+    value = int(raw)
+    if value <= 0:
+        raise ValueError(f"{name} must be a positive number of seconds.")
+    return value
+
+
+# External read-only Box sharing. No lifetime has a product-approved default:
+# both upper bounds must be configured explicitly. While either is unset, no
+# share can be created, extended or have its invitation reissued.
+BOX_SHARING_INVITATION_MAX_LIFETIME_SECONDS = _optional_positive_seconds(
+    "BOX_SHARING_INVITATION_MAX_LIFETIME_SECONDS",
+)
+BOX_SHARING_ACCESS_MAX_LIFETIME_SECONDS = _optional_positive_seconds(
+    "BOX_SHARING_ACCESS_MAX_LIFETIME_SECONDS",
+)
+# Frozen captures are only guaranteed consistent on PostgreSQL. SQLite is
+# refused unless a verified environment (the isolated test settings) opts in.
+BOX_SHARING_SQLITE_FROZEN_CAPTURE = False
 
 # The React app owns the UI: authentication redirects must land there, never on
 # a server-rendered page (the old HTML pages have been removed).

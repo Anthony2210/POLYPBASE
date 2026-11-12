@@ -51,6 +51,7 @@ Le code décrit ce qui existe, mais un comportement observé n'est pas automatiq
 - [`deploiement_vm.md`](deploiement_vm.md) : exploitation et procédures de secours.
 - [`transferts_csv.md`](transferts_csv.md) : contrat v1 et fondations Transfer v2, sans acceptation destination v2.
 - [`canonical-measurement-csv.md`](canonical-measurement-csv.md) et [`measurement-import-planner.md`](measurement-import-planner.md) : préparation et aperçu scientifique read-only, distincts des importeurs historiques.
+- [`backend/BOX_READER_SHARING.md`](../backend/BOX_READER_SHARING.md) : fondation backend du partage externe en lecture seule d'une boîte (non revue, inactive sans configuration); pas de lecteur React, de XLSX ni de transfert biologique.
 - [`backend/QUANTITATIVE_SUBCULTURE.md`](../backend/QUANTITATIVE_SUBCULTURE.md) : état scientifique, allocations et snapshots du repiquage.
 - [`frontend-style.md`](context/frontend-style.md) : références visuelles/interactions à consulter pour un travail UI substantiel.
 - [`mcd/schema_bdd.md`](mcd/schema_bdd.md) et [`tracabilite_mcd.md`](tracabilite_mcd.md) : modèle conceptuel et correspondance Django.

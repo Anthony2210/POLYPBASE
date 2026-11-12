@@ -78,6 +78,18 @@ from apps.organizations.api_views import (
     OrganizationCreateAPIView,
     OrganizationDetailAPIView,
 )
+from apps.sharing.api_views import (
+    BoxShareDetailAPIView,
+    BoxShareInvitationReissueAPIView,
+    BoxShareListCreateAPIView,
+    BoxShareOptionsAPIView,
+    BoxSharePreviewAPIView,
+    BoxShareRevokeAPIView,
+    SharedBoxDetailAPIView,
+    SharedBoxInvitationAcceptAPIView,
+    SharedBoxInvitationInspectAPIView,
+    SharedBoxListAPIView,
+)
 from apps.taxonomy.api_views import (
     BiologicalProvenanceListCreateAPIView,
     ProvenanceCodeListCreateAPIView,
@@ -131,6 +143,28 @@ urlpatterns = [
         AdminBoxInventoryBatchQualifyAPIView.as_view(),
         name="api_admin_box_inventory_batch_qualify",
     ),
+    path("admin/box-shares/", BoxShareListCreateAPIView.as_view(), name="api_admin_box_shares"),
+    path("admin/box-shares/options/", BoxShareOptionsAPIView.as_view(), name="api_admin_box_share_options"),
+    path("admin/box-shares/preview/", BoxSharePreviewAPIView.as_view(), name="api_admin_box_share_preview"),
+    path("admin/box-shares/<int:pk>/", BoxShareDetailAPIView.as_view(), name="api_admin_box_share_detail"),
+    path("admin/box-shares/<int:pk>/revoke/", BoxShareRevokeAPIView.as_view(), name="api_admin_box_share_revoke"),
+    path(
+        "admin/box-shares/<int:pk>/reissue-invitation/",
+        BoxShareInvitationReissueAPIView.as_view(),
+        name="api_admin_box_share_reissue_invitation",
+    ),
+    path("shared-boxes/", SharedBoxListAPIView.as_view(), name="api_shared_box_list"),
+    path(
+        "shared-boxes/invitations/inspect/",
+        SharedBoxInvitationInspectAPIView.as_view(),
+        name="api_shared_box_invitation_inspect",
+    ),
+    path(
+        "shared-boxes/invitations/accept/",
+        SharedBoxInvitationAcceptAPIView.as_view(),
+        name="api_shared_box_invitation_accept",
+    ),
+    path("shared-boxes/<uuid:public_id>/", SharedBoxDetailAPIView.as_view(), name="api_shared_box_detail"),
     path("boxes/", BoxListAPIView.as_view(), name="api_box_list"),
     path("boxes/automatic/", AutomaticBoxCreateAPIView.as_view(), name="api_box_automatic"),
     path("boxes/automatic/resolve/", AutomaticBoxResolveAPIView.as_view(), name="api_box_automatic_resolve"),
