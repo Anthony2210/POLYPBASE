@@ -298,13 +298,17 @@ class ProductionRefusalTests(SimpleTestCase):
                             clear=True), \
                     patch.object(production.os, "name", "posix"), \
                     patch.object(production.os, "geteuid", return_value=owner, create=True), \
+                    patch.object(production, "connection") as mocked_connection, \
                     patch.object(production, "require_target", return_value=False), \
                     patch.object(production, "socket_guard", return_value=nullcontext()), \
                     patch.object(production, "_verify_backup_target"), \
                     patch.object(production.psycopg, "connect", return_value=database) as connect:
+                mocked_connection.settings_dict = self.config
                 with production.backup_connection(self.target, "00000000-00000000-1") as config:
                     self.assertEqual(config["PASSWORD"], "backup-secret")
+                self.assertEqual(connect.call_args.kwargs["user"], self.target["backup_role"])
                 self.assertEqual(connect.call_args.kwargs["password"], "backup-secret")
+                self.assertEqual(connect.call_args.kwargs["sslmode"], "require")
 
     def test_tcp_backup_rejects_unconfigured_operator_file(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[3]) as directory:
