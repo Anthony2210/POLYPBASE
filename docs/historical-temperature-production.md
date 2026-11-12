@@ -65,8 +65,9 @@ post-PCA n'est annoncé ici : il sera calculé par un nouveau plan sur l'état r
 - Attestation historique indépendante `historical_temperature_target_v1` épinglée
   à `/etc/polypbase/historical-temperature-production-target.json`, root-owned.
   Elle lie le rôle d'import et le rôle de sauvegarde à la même base, au même
-  endpoint et au même démarrage PostgreSQL. **Le contrat PCA `pca_target_v3` et
-  `/etc/polypbase/pca-production-target.json` restent inchangés.** Réutilisation
+  endpoint et au même démarrage PostgreSQL. **Le contrat PCA `pca_target_v4` et
+  `/etc/polypbase/pca-production-target.json` sont distincts et épinglés
+  séparément.** Réutilisation
   des gardes Linux non-root, sans capacités, `NoNewPrivs=1`, procfs initial et
   chemins protégés. Toute rotation impose un nouveau plan, jamais l'édition
   d'un plan approuvé.

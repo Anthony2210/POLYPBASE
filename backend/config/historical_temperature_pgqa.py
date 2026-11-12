@@ -20,6 +20,10 @@ SETTINGS = "config.historical_temperature_pgqa_settings"
 OPTIONS = "-c lock_timeout=10000 -c statement_timeout=30000 -c search_path=public -c default_transaction_isolation=read\\ committed"
 CREDENTIALS = {}
 AUTHORIZED = False
+# When set, the owner login acts through an explicit SET ROLE to this protected
+# owner role (Box 1902 V2). None preserves the original single-identity harness.
+OWNER_ROLE = None
+BACKUP = "box1902_backup"
 RUN_LEASE = None
 EMPTY_START_VERIFIED = False
 UNSAFE_WORKERS = False
@@ -140,10 +144,11 @@ def verify_raw(raw, role):
             raise IsolationError("server identity (database, address, port)", (DATABASE, HOST, int(PORT)), row[:3])
         if not 180000 <= row[3] < 190000:
             raise IsolationError("PostgreSQL major version 18", "180000..189999", row[3])
-        if row[4:] != (role, role, "public", "origin", "read committed"):
+        expected_current = OWNER_ROLE if (OWNER_ROLE and role == OWNER) else role
+        if row[4:] != (role, expected_current, "public", "origin", "read committed"):
             raise IsolationError(
                 "session_user, current_user, schema, replication role, isolation",
-                (role, role, "public", "origin", "read committed"), row[4:],
+                (role, expected_current, "public", "origin", "read committed"), row[4:],
             )
         cursor.execute(
             "SELECT rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls "
@@ -155,6 +160,16 @@ def verify_raw(raw, role):
                 "cluster attributes (super, createdb, createrole, replication, bypassrls)",
                 (False,) * 5, attributes,
             )
+
+
+def apply_owner_role(raw, role):
+    """Enter the protected owner role for the owner login, never for the runtime."""
+    if not OWNER_ROLE or role != OWNER:
+        return
+    from psycopg import sql
+
+    with raw.cursor() as cursor:
+        cursor.execute(sql.SQL("SET ROLE {}").format(sql.Identifier(OWNER_ROLE)))
 
 
 def assert_disposable(connection):
@@ -214,10 +229,17 @@ def assert_empty_business_data(connection):
             cursor.execute(f'SELECT EXISTS (SELECT 1 FROM {connection.ops.quote_name(table)})')
             if cursor.fetchone()[0]:
                 raise IsolationError("disposable database starts empty (no application rows)", "empty", f"rows in {table}")
-        cursor.execute("SELECT nspname FROM pg_namespace WHERE nspname NOT IN ('public','information_schema') AND nspname NOT LIKE 'pg_%'")
+        cursor.execute("SELECT nspname FROM pg_namespace WHERE nspname NOT IN ('public','information_schema','box1902_private') AND nspname NOT LIKE 'pg_%'")
         extra = [row[0] for row in cursor.fetchall()]
         if extra:
             raise IsolationError("no user schemas besides public", "none", extra)
+        cursor.execute("SELECT to_regnamespace('box1902_private')")
+        if cursor.fetchone()[0] is not None:
+            for table in ("approval_v2", "context_v2", "correction_v2"):
+                cursor.execute(f"SELECT EXISTS (SELECT 1 FROM box1902_private.{table})")
+                if cursor.fetchone()[0]:
+                    raise IsolationError("protected capability starts empty", "empty",
+                                         f"rows in box1902_private.{table}")
 
 
 def clean_synthetic_leftovers(connection):
@@ -268,7 +290,7 @@ def grant_runtime(connection):
         cursor.execute(sql.SQL("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {}").format(sql.Identifier(RUNTIME)))
         for table in ("measurements_historicaltemperaturereading", "measurements_historicaltemperatureevidence", "measurements_historicaltemperatureimportreceipt"):
             cursor.execute(sql.SQL("GRANT TRUNCATE ON TABLE {} TO {}").format(sql.Identifier(table), sql.Identifier(RUNTIME)))
-        cursor.execute("SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname LIKE 'historical_temperature_%'")
+        cursor.execute("SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname LIKE 'historical_temperature_%' AND NOT p.prosecdef")
         signatures = [row[0] for row in cursor.fetchall()]
         for signature in signatures:
             # Catalog-generated signatures, not caller input.
@@ -288,10 +310,17 @@ def verify_schema(connection):
             raise RuntimeError("Evidence nonempty constraint must be deferred to COMMIT")
         cursor.execute("SELECT p.proname, p.prosecdef, p.proowner::regrole::text, p.proconfig FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname LIKE 'historical_temperature_%'")
         functions = cursor.fetchall()
-        if {row[0] for row in functions} != FUNCTIONS or any(row[1] or row[2] != OWNER for row in functions):
+        owner = OWNER_ROLE or OWNER
+        definer = ({"historical_temperature_box_guard", "historical_temperature_evidence_valid"}
+                   if OWNER_ROLE else set())
+        if {row[0] for row in functions} != FUNCTIONS or any(
+                row[2] != owner or (row[1] and row[0] not in definer) for row in functions):
             raise RuntimeError("Unexpected guard functions or ownership/security-definer privileges")
-        if any("search_path=pg_catalog, public, pg_temp" not in (row[3] or []) for row in functions):
-            raise RuntimeError("Guard function search path is not pinned")
+        for name, _, _, config in functions:
+            pinned = ("search_path=pg_catalog, pg_temp" if name in definer
+                      else "search_path=pg_catalog, public, pg_temp")
+            if pinned not in (config or []):
+                raise RuntimeError("Guard function search path is not pinned")
         cursor.execute("SELECT name FROM django_migrations WHERE app='measurements' AND name LIKE '001_%%' ORDER BY name")
         migrations = [row[0] for row in cursor.fetchall()]
         if not {"0013_historical_temperature_receipt", "0014_measurement_canonical_evidence"} <= set(migrations):
@@ -338,6 +367,11 @@ def cleanup_test_data():
             guards.forwards(None, editor)
             receipt.guards(None, editor)
             import_module("apps.measurements.migrations.0014_measurement_canonical_evidence").forwards(None, editor)
+            if OWNER_ROLE:
+                # Restore the reviewed Box 1902 guard overrides after the ordinary flush.
+                from apps.measurements import box_1902_sql as contract
+
+                editor.execute(contract.GUARD_SQL, params=None)
         grant_runtime(connection)
     verify_schema(connection)
 
