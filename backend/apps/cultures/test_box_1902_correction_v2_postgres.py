@@ -7,12 +7,15 @@ is patched and no immutable source row is reset through a trigger bypass.
 """
 
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
 from io import StringIO
 from pathlib import Path
 from threading import Barrier
+from time import monotonic, sleep
 from unittest import TestCase, skipUnless
 from unittest.mock import patch
 
@@ -20,9 +23,10 @@ import psycopg
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
-from django.db import connection, transaction
+from django.db import DatabaseError, connection, transaction
 from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.exceptions import IrreversibleError
+from django.test import TestCase as DjangoTestCase
 from psycopg import sql
 
 from apps.measurements import box_1902_sql as contract
@@ -33,7 +37,9 @@ from apps.taxonomy.models import OrganizationSpeciesCode, Species, Strain
 
 from .historical_2026 import cca_eob_production as cca
 from .historical_2026 import cla_box_1902 as correction
-from .test_cla_box_1902 import ClaBox1902Fixture
+from .test_cla_box_1902 import ClaBox1902Fixture, ClaBox1902Tests
+from .test_cla_box_1902_postgres import ClaBox1902PostgreSQLTests
+from .test_box_1902_preservation_postgres import Box1902PreservationPostgreSQLTests
 
 
 LEASE = os.environ.get("POLYPBASE_HISTORICAL_TEMPERATURE_DISPOSABLE_CLUSTER", "")
@@ -47,7 +53,202 @@ SCOPE = {"organization_id": 1, "box_id": 1902, "source_strain_id": 213,
 
 
 @skipUnless(LEASE, "Requires scripts/test_historical_temperature_production.py and its fresh PG18 lease")
-class Box1902CorrectionV2PostgreSQLTests(ClaBox1902Fixture, TestCase):
+class Box1902CorrectionV2PostgreSQLTests(
+    ClaBox1902Tests, ClaBox1902PostgreSQLTests,
+    Box1902PreservationPostgreSQLTests, ClaBox1902Fixture, TestCase,
+):
+    """All legacy acceptance assertions execute here with real v2 logins.
+
+    Assertion mapping: the 33 single-Box tests, 13 PostgreSQL tests and five
+    preservation-prototype tests retain their names in the imported mixins.
+    Their docstrings identify the superseded v1 expectations. The 28 original
+    v2 tests below remain independent acceptance/security proofs.
+    """
+
+    assertNumQueries = DjangoTestCase.assertNumQueries
+    correction_tables = {
+        "public.cultures_box", "public.cultures_boxcodenamespace", "public.audit_auditlog",
+        *(f"box1902_private.{name}" for name in contract.PRIVATE_TABLES),
+    }
+
+    def assertRaisesMessage(self, exception, message):
+        return self.assertRaisesRegex(exception, re.escape(message))
+
+    def assert_planner_read_only(self, observed):
+        self.assertTrue(connection.in_atomic_block)
+        with connection.cursor() as cursor:
+            cursor.execute("SHOW transaction_read_only")
+            self.assertEqual(cursor.fetchone(), ("on",))
+            cursor.execute(
+                "SELECT locktype, mode FROM pg_locks WHERE pid=pg_backend_pid() "
+                "AND (locktype='tuple' OR (locktype='relation' AND mode IN "
+                "('RowShareLock','RowExclusiveLock','ShareRowExclusiveLock',"
+                "'ExclusiveLock','AccessExclusiveLock')))"
+            )
+            self.assertEqual(cursor.fetchall(), [])
+        observed.append(True)
+
+    def install_receipt_failure(self):
+        """The trusted disposable administrator injects a real receipt-only fault."""
+        self.execute("""
+            CREATE FUNCTION public.box1902_receipt_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN
+                IF NEW.object_type = 'cla_box_1902_correction' THEN
+                    IF (SELECT global_code FROM public.cultures_box WHERE id=1902) <> 'CLC-JKA-1.009'
+                       OR (SELECT count(*) FROM public.audit_auditlog
+                           WHERE object_type='box' AND metadata->>'operation'=
+                           'cla_box_1902_preservation_20261109_v2') <> 1 THEN
+                        RAISE EXCEPTION 'Receipt fault did not follow the Box and first audit';
+                    END IF;
+                    RAISE EXCEPTION 'Single-box receipt unavailable' USING ERRCODE='23514';
+                END IF;
+                RETURN NEW;
+            END $$;
+            CREATE TRIGGER box1902_receipt_failure BEFORE INSERT ON public.audit_auditlog
+            FOR EACH ROW EXECUTE FUNCTION public.box1902_receipt_failure();
+            ALTER FUNCTION public.box1902_receipt_failure() OWNER TO box1902_owner;
+            REVOKE ALL ON FUNCTION public.box1902_receipt_failure() FROM PUBLIC;
+        """)
+
+    def install_dependency_mutation(self):
+        self.execute("""
+            CREATE FUNCTION public.box1902_dependency_mutation() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN
+                UPDATE public.measurements_observation SET notes='Unexpected synthetic dependency mutation'
+                    WHERE box_id=1902;
+                RETURN NEW;
+            END $$;
+            CREATE TRIGGER box1902_dependency_mutation AFTER UPDATE ON public.cultures_box
+            FOR EACH ROW EXECUTE FUNCTION public.box1902_dependency_mutation();
+            ALTER FUNCTION public.box1902_dependency_mutation() OWNER TO box1902_owner;
+            REVOKE ALL ON FUNCTION public.box1902_dependency_mutation() FROM PUBLIC;
+        """)
+
+    def install_audit_barrier(self):
+        self.execute("""
+            CREATE FUNCTION public.box1902_test_audit_barrier() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN
+                PERFORM pg_advisory_xact_lock(19021902);
+                RETURN NEW;
+            END $$;
+            CREATE TRIGGER box1902_test_audit_barrier BEFORE INSERT ON public.audit_auditlog
+            FOR EACH ROW EXECUTE FUNCTION public.box1902_test_audit_barrier();
+            ALTER FUNCTION public.box1902_test_audit_barrier() OWNER TO box1902_owner;
+            REVOKE ALL ON FUNCTION public.box1902_test_audit_barrier() FROM PUBLIC;
+        """)
+
+    def concurrent_python_correction(self, reviewed):
+        """Hold the first real SQL audit while a second Python writer fails NOWAIT."""
+        def worker():
+            connection.close()
+            try:
+                return correction.apply_plan(**SCOPE, actor=self.admin,
+                                             expected_plan_hash=correction.fingerprint(reviewed))
+            finally:
+                connection.close()
+
+        with self.role(contract.EXECUTOR), self.connect() as holder:
+            holder.execute("SELECT pg_advisory_lock(19021902)")
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                first = pool.submit(worker)
+                try:
+                    deadline = monotonic() + 20
+                    while monotonic() < deadline:
+                        waiting = holder.execute(
+                            "SELECT count(*) FROM pg_stat_activity WHERE datname=%s "
+                            "AND usename=%s AND wait_event='advisory' AND pid<>pg_backend_pid()",
+                            [DATABASE, contract.EXECUTOR],
+                        ).fetchone()[0]
+                        if waiting:
+                            break
+                        if first.done():
+                            first.result()
+                            self.fail("First correction did not reach the transactional audit barrier")
+                        sleep(0.02)
+                    else:
+                        self.fail("First correction did not hold its transactional audit")
+                    second = pool.submit(worker)
+                    with self.assertRaises(DatabaseError) as raised:
+                        second.result(timeout=20)
+                    cause = raised.exception
+                    while cause.__cause__ is not None:
+                        cause = cause.__cause__
+                    self.assertEqual(getattr(cause, "sqlstate", None), "55P03")
+                    self.assertFalse(first.done())
+                finally:
+                    holder.execute("SELECT pg_advisory_unlock(19021902)")
+                self.assertEqual(first.result(timeout=20), reviewed)
+
+    def create_extra_reading(self, biology):
+        year, week, _ = biology.measured_on.isocalendar()
+        with transaction.atomic():
+            reading = HistoricalTemperatureReading.objects.create(
+                biological_measurement=biology, iso_year=year, iso_week=week, temperature_c="0.0000",
+            )
+            HistoricalTemperatureEvidence.objects.create(
+                reading=reading, source_file="synthetic-1902.xlsx", source_sha256="a" * 64,
+                sheet="Synthetic", temperature_cell="C3", temperature_merged_range="C3:C4",
+                source_value="0.0000", source_box=biology.box.global_code,
+                polyp_cell="F3", polyp_value=str(biology.polyp_count),
+                ephyrae_cell="F4", ephyrae_value=str(biology.ephyrae_count),
+                week_cell="F1", week_value=str(week), source_iso_year=year, source_iso_week=week,
+            )
+        return reading
+
+    @contextmanager
+    def role(self, user):
+        previous = connection.settings_dict["USER"]
+        if user == previous:
+            yield
+            return
+        if connection.in_atomic_block:
+            raise AssertionError("Commit fixture mutations before switching genuine logins")
+        self.use_django_role(user)
+        try:
+            yield
+        finally:
+            self.use_django_role(previous)
+
+    @contextmanager
+    def fixture_case(self):
+        """Restore a whole cloned database, never bypass immutable-row guards."""
+        saved = "box1902_case_template"
+        connection.close()
+        self.execute(sql.SQL("CREATE DATABASE {} WITH TEMPLATE {} OWNER box1902_owner").format(
+            sql.Identifier(saved), sql.Identifier(DATABASE)), database="subculture_qa")
+        self.created_databases.add(saved)
+        try:
+            yield
+        finally:
+            self.drop_working_database()
+            self.execute(sql.SQL("CREATE DATABASE {} WITH TEMPLATE {} OWNER box1902_owner").format(
+                sql.Identifier(DATABASE), sql.Identifier(saved)), database="subculture_qa")
+            self.created_databases.add(DATABASE)
+            self.working_acl()
+            self.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(saved)),
+                         database="subculture_qa")
+            self.created_databases.discard(saved)
+
+    def plan(self, **overrides):
+        options = self.options(**overrides)
+        correction._scope(**options)
+        with self.role(contract.EXECUTOR):
+            return correction.build_plan(**options)
+
+    def apply(self, *, plan=None, actor=None, **overrides):
+        """Never approve implicitly: positive tests must call approve themselves."""
+        options = self.options()
+        options.update(actor=self.admin if actor is None else actor,
+                       expected_plan_hash=correction.fingerprint(self.plan() if plan is None else plan))
+        options.update(overrides)
+        with self.role(contract.EXECUTOR):
+            return correction.apply_plan(**options)
+
+    def family_plan(self):
+        from .historical_2026 import identity_reconciliation
+        with self.role("subculture_qa"):
+            return identity_reconciliation.build_plan(1, family="cla", target_strain_id=self.target.pk)
+
     @classmethod
     def connect(cls, user="subculture_qa", database=DATABASE):
         return psycopg.connect(
@@ -114,18 +315,7 @@ class Box1902CorrectionV2PostgreSQLTests(ClaBox1902Fixture, TestCase):
         executor.migrate(targets)
         print("Box 1902 v2: populating immutable scientific evidence", flush=True)
         cls.create_fixture()
-        # Reuse the existing rich fixture, but pin the exact v2 production PKs.
-        old_target, old_species = cls.target, cls.target_species
-        cls.target_species = Species.objects.create(pk=164, scientific_name="Chrysaora lactea v2 temporary")
-        OrganizationSpeciesCode.objects.filter(organization=cls.org, code="CLC").update(species=cls.target_species)
-        old_target.delete()
-        old_species.delete()
-        Species.objects.filter(pk=164).update(scientific_name="Chrysaora lactea")
-        cls.target_species.refresh_from_db()
-        cls.target = Strain.objects.create(
-            pk=285, organization=cls.org, species=cls.target_species,
-            code="CLC-JKA-1", origin_code="JKA", number=1,
-        )
+        # The shared fixture now uses the exact authorized v2 reference PKs.
         cls.source.refresh_from_db()
         cls.reading_ids = list(range(12173, 12214))
         for week, reading_id in zip(range(12, 53), cls.reading_ids):
@@ -220,6 +410,17 @@ class Box1902CorrectionV2PostgreSQLTests(ClaBox1902Fixture, TestCase):
             sql.Identifier(DATABASE), sql.Identifier(TEMPLATE)), database="subculture_qa")
         self.created_databases.add(DATABASE)
         self.addCleanup(self.drop_working_database)
+        self.working_acl()
+        self.use_django_role(contract.EXECUTOR)
+        # unittest.TestCase does not deepcopy setUpTestData like Django TestCase.
+        # Refresh fixture identities so a prior test's refresh_from_db is not shared.
+        for name in ("org", "other_org", "admin", "source_species", "target_species",
+                     "source", "target", "zone", "previous_zone", "box", "foreign_box", "old_audit"):
+            model = getattr(type(self), name)
+            setattr(self, name, type(model).objects.get(pk=model.pk))
+        self.sentinels = [type(box).objects.get(pk=box.pk) for box in type(self).sentinels]
+
+    def working_acl(self):
         # CREATE DATABASE copies template contents, not its database ACL.
         self.execute(sql.SQL(
             "REVOKE ALL ON DATABASE {} FROM PUBLIC, polypbase, box1902_approver, "
@@ -229,7 +430,6 @@ class Box1902CorrectionV2PostgreSQLTests(ClaBox1902Fixture, TestCase):
             "GRANT CONNECT ON DATABASE {} TO polypbase, box1902_approver, "
             "box1902_executor, box1902_migrator"
         ).format(sql.Identifier(DATABASE)), database="subculture_qa")
-        self.use_django_role(contract.EXECUTOR)
 
     def drop_working_database(self):
         connection.close()
@@ -261,7 +461,7 @@ class Box1902CorrectionV2PostgreSQLTests(ClaBox1902Fixture, TestCase):
         manifest = self.manifest() if manifest is None else manifest
         # Even SQL-only negative tests use the dedicated workflow's full reviewed state.
         if plan is None:
-            plan = correction.build_plan(**SCOPE)
+            plan = self.plan()
             plan["manifest"] = manifest
         text = contract.canonical_plan(plan)
         self.execute(contract.approval_sql(
@@ -286,7 +486,7 @@ class Box1902CorrectionV2PostgreSQLTests(ClaBox1902Fixture, TestCase):
                    *(f"box1902_private.{name}" for name in contract.PRIVATE_TABLES)}
         for table in before.keys() - allowed:
             self.assertEqual(after[table], before[table], table)
-        boxes = [row[0] for row in before["public.cultures_box"]]
+        boxes = deepcopy([row[0] for row in before["public.cultures_box"]])
         for box in boxes:
             if box["id"] == 1902:
                 box.update(global_code="CLC-JKA-1.009", strain_id=285)

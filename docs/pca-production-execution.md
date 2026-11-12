@@ -20,8 +20,10 @@ are separate decisions. Never execute uncommitted code on the VM.
 - All actions require explicit organization **1** and an active user with an
   active administrator membership in that organization. Apply rechecks and locks
   those rights through the reviewed merge service.
-- No new production grants are needed or made. A privileged or mismatched login
-  is a refusal, not a reason to grant privileges or run as `postgres`.
+- The application runtime receives no new grants. A privileged or mismatched
+  login is a refusal, not a reason to grant privileges or run as `postgres`. The
+  only additional identity is the separately authorized, read-only backup login
+  described below, which the runtime can neither hold nor impersonate.
 
 ## Independent target attestation
 
@@ -34,7 +36,7 @@ or deployment-runtime-generated file to trusted status without that independent
 verification. A hash, a nonempty reference or runtime ownership is not evidence
 of an independent source.
 
-`attestation_ref` remains removed. The exact `pca_target_v3` artifact contains
+`attestation_ref` remains removed. The exact `pca_target_v4` artifact contains
 these fields, with no defaults or omitted keys. Earlier target schemas are not
 accepted. No production action has occurred and no attestation has been installed;
 no backward migration is needed. The changed target changes plan hashes: generate
@@ -42,15 +44,17 @@ and independently review a new read-only plan, never reuse an earlier approval.
 
 | Field | Source / type |
 | --- | --- |
-| `schema` | Literal `pca_target_v3` |
+| `schema` | Literal `pca_target_v4` |
 | `connection_mode` | Literal `tcp` or `unix`; must match the existing application connection |
 | `machine_id` | Independently checked `/etc/machine-id`; 32 lowercase hex characters |
 | `configured_host` | Existing application DB host: numeric loopback or `localhost` for TCP; exactly `/run/postgresql` or `/var/run/postgresql` for Unix |
 | `configured_port` | Existing application DB port, string |
 | `database` | Independently verified application database name |
 | `role` | Independently verified application login, not a privileged maintenance user |
+| `backup_role` | Independently verified dedicated read-only backup login, distinct from `role` |
 | `database_oid` | Actual database OID, integer |
 | `role_oid` | Actual login OID, integer |
+| `backup_role_oid` | Actual backup login OID, integer, distinct from `role_oid` |
 | `server_address` | TCP: actual canonical numeric loopback server address; Unix: explicit JSON `null` |
 | `server_port` | TCP: actual server port, integer matching configured port; Unix: explicit JSON `null` |
 | `socket_uid` | Unix: independently attested positive integer PostgreSQL OS owner UID; TCP: explicit JSON `null` |
@@ -363,12 +367,50 @@ setpriv --no-new-privs -- ../.venv/bin/python manage.py pca_production backup --
 Backup creation rechecks the target, actor and exact live plan inside a new
 read-only repeatable-read transaction. It exports that snapshot and keeps the
 transaction open while `pg_dump --snapshot` creates the custom-format archive.
-The dump uses the same database/login and exact configured host/port. For Unix,
-that is the attested socket directory and port, with **no `PGHOSTADDR`**; supplying
-a numeric host address for a Unix host is refused. For TCP, `PGHOSTADDR` remains
-pinned to the verified numeric endpoint while retaining the configured host for
-TLS verification. Inherited libpq overrides are scrubbed. Any command failure
-stops the workflow; failed archive creation removes its incomplete file.
+The dump uses the **dedicated, read-only backup login** (`backup_role`), never the
+application runtime, so the archive includes the protected Box 1902 private
+objects the runtime cannot read. The backup login holds only `SELECT` on public
+and `box1902_private` tables and sequences, no write/DDL/administration/
+replication/`BYPASSRLS`, no membership, and is not impersonable by the runtime.
+For Unix sockets, the operator must run the complete `backup` action under a
+dedicated OS account. The exact peer rules must map that account to both the
+runtime SQL role (for the snapshot-exporting Django connection) and
+`backup_role` (for `pg_dump`), while the application OS account maps only to the
+runtime SQL role:
+
+```text
+local  polypbase  polypbase        peer map=pca_runtime_or_backup
+local  polypbase  box1902_backup   peer map=pca_backup_only
+pca_runtime_or_backup  polypbase              polypbase
+pca_runtime_or_backup  pca-backup-operator    polypbase
+pca_backup_only        pca-backup-operator    box1902_backup
+```
+
+The disposable CI harness additionally has a restricted peer mapping for
+initial cluster attestation: only the root orchestrator and the PostgreSQL OS
+account may authenticate as `postgres`. It is not part of the production
+configuration and does not map either application or backup operator identity.
+
+The normal application OS account therefore cannot authenticate as
+`box1902_backup`; an `os.getuid()` check is not used as a security boundary.
+The operator must invoke the backup command outside the application request
+path, through a preconfigured account boundary with no application-controlled
+escalation. For TCP, peer is unavailable: use a separately provisioned backup
+credential, never the runtime credential, and require `sslmode=require` or
+`verify-full`. Supply that credential only through an operator-protected,
+mode-0600 password file referenced by `PCA_BACKUP_PASSWORD_FILE`; the secret
+must never be put in an environment variable or command line. The file must
+be owned by the authorized backup operator, whose numeric UID is supplied
+through the non-secret `PCA_BACKUP_OPERATOR_UID` setting, and the executing
+process must have that same UID. A root-owned mode-0600 file is supported only
+when the backup process itself runs as root. All ancestors must be non-writable
+by group/world and free of symlinks. The exact
+configured host/port are used. For Unix, that is the
+attested socket directory and port, with **no `PGHOSTADDR`**; supplying a numeric
+host address for a Unix host is refused. For TCP, `PGHOSTADDR` remains pinned to
+the verified numeric endpoint while retaining the configured host for TLS
+verification. Inherited libpq overrides are scrubbed. Any command failure stops
+the workflow; failed archive creation removes its incomplete file.
 
 `config.database_backup` is shared with
 `deploy/scripts/backup_database.py`, but the release caller explicitly selects
@@ -438,7 +480,7 @@ verification of the 94/18 outcome and affected application views.
 
 ## Focused validation
 
-The following are local validation commands, not results for `pca_target_v3`.
+The following are local validation commands, not results for `pca_target_v4`.
 Run the affected production workflow module through the established disposable
 PostgreSQL harness, never application settings:
 

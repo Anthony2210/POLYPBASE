@@ -1,73 +1,33 @@
-"""Single-Box PostgreSQL proofs; use only the owned isolated native-cluster launcher."""
+"""The 13 legacy PostgreSQL scenarios, inherited by the genuine-role v2 suite.
 
+Names preserve the assertion mapping to v1. Only the authorized temperature
+transition changes: v2 preserves the exact 41 confirmations, and rejects a
+mixed/pending manifest. Ordinary runtime changes still invalidate associations.
+Fault injection uses actual SQL triggers, never mocked permission decisions.
+"""
+
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import date
-from threading import Event, current_thread
-from unittest import skipUnless
-from unittest.mock import patch
+from threading import Event
 
-from django.db import DatabaseError, connection, transaction
-from django.test import TransactionTestCase
+from django.db import DatabaseError, connection
 
 from apps.audit.models import AuditLog
-from apps.measurements.models import (
-    BiologicalMeasurement, HistoricalTemperatureEvidence, HistoricalTemperatureReading, Observation,
-)
-from apps.organizations.models import Organization
+from apps.measurements.models import BiologicalMeasurement, HistoricalTemperatureReading, Observation
 
+
+from .box_1902_test_support import runtime_test
 from .historical_2026 import cla_box_1902 as correction
-from .historical_2026 import identity_execution as execution
-from .models import Box, BoxCodeNamespace, HistoricalBoxMovement
+from .models import Box, HistoricalBoxMovement
 from .qr import box_scan_url
-from .test_cla_box_1902 import ClaBox1902DependencyRegressions, ClaBox1902Fixture, NEW_CODE, OPERATION, OLD_CODE
-from .test_identity_reconciliation_postgres import PostgreSQLFixture, WAIT_SECONDS, sqlstate
+from .test_cla_box_1902 import NEW_CODE, OPERATION, OLD_CODE
 
 
-@skipUnless(connection.vendor == "postgresql", "Requires the disposable native PostgreSQL cluster.")
-class ClaBox1902PostgreSQLTests(ClaBox1902DependencyRegressions, ClaBox1902Fixture, PostgreSQLFixture, TransactionTestCase):
-    reset_sequences = True
-
-    def setUp(self):
-        # Reuse the worker/teardown protocol, not PostgreSQLFixture's batch data.
-        TransactionTestCase.setUp(self)
-        self.assertFalse(connection.in_atomic_block)
-        self.assertEqual(execution.require_database(), "disposable")
-        with execution.session(operation=OPERATION) as binding:
-            self.assertEqual(binding["mode"], "disposable")
-        self.create_fixture()
-
-    def create_historical_reading(self, biology, *, temperature="0.0000"):
-        year, week, _ = biology.measured_on.isocalendar()
-        # The deferred nonempty guard requires evidence before this transaction commits.
-        with transaction.atomic():
-            reading = HistoricalTemperatureReading.objects.create(
-                biological_measurement=biology, iso_year=year, iso_week=week,
-                temperature_c=temperature,
-            )
-            HistoricalTemperatureEvidence.objects.create(
-                reading=reading, source_file="synthetic-1902.xlsx", source_sha256="a" * 64,
-                sheet="Synthetic", temperature_cell="C3", temperature_merged_range="C3:C4",
-                source_value=temperature, source_box=biology.box.global_code,
-                polyp_cell="F3", polyp_value=str(biology.polyp_count),
-                ephyrae_cell="F4", ephyrae_value=str(biology.ephyrae_count),
-                week_cell="F1", week_value=str(week), source_iso_year=year, source_iso_week=week,
-            )
-        return reading
+class ClaBox1902PostgreSQLTests:
+    """All old PostgreSQL acceptance methods run in the concrete v2 class."""
 
     def create_historical_fixture(self, *, pending_weeks=()):
-        # Require installed migration guards, never install or bypass them in the proof.
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT tgname FROM pg_trigger WHERE NOT tgisinternal AND tgenabled = 'O' "
-                "AND tgname IN ('historical_box_guard', 'historical_biology_guard', "
-                "'historical_reading_valid', 'historical_reading_immutable', "
-                "'historical_reading_nonempty', 'historical_evidence_valid', 'historical_evidence_immutable')"
-            )
-            self.assertEqual({row[0] for row in cursor.fetchall()}, {
-                "historical_box_guard", "historical_biology_guard", "historical_reading_valid",
-                "historical_reading_immutable", "historical_reading_nonempty",
-                "historical_evidence_valid", "historical_evidence_immutable",
-            })
         movement = self.box.movements.get()
         HistoricalBoxMovement.objects.create(
             box=self.box, iso_year=2026, iso_week=39,
@@ -76,82 +36,64 @@ class ClaBox1902PostgreSQLTests(ClaBox1902DependencyRegressions, ClaBox1902Fixtu
             candidate_key="b" * 64, plan_fingerprint="c" * 64,
             evidence={"synthetic": True}, accepted_by=self.admin, notes="Preserved historical movement",
         )
-        direct = []
-        for week in range(1, 42):
-            biology, _ = BiologicalMeasurement.objects.get_or_create(
-                box=self.box, measured_on=date.fromisocalendar(2026, week, 1),
-                defaults={"polyp_count": 0, "ephyrae_count": 0,
-                          "strobila_count": None if week % 2 else 0,
-                          "salinity_psu": None if week % 2 else "0.00", "user": self.admin},
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT tgname FROM pg_trigger WHERE NOT tgisinternal AND tgenabled = 'O' "
+                "AND tgname IN ('historical_box_guard','historical_biology_guard',"
+                "'historical_reading_valid','historical_reading_immutable','historical_reading_nonempty',"
+                "'historical_evidence_valid','historical_evidence_immutable')"
             )
-            reading = self.create_historical_reading(
-                biology, temperature="0.0000" if week % 2 else "15.12345678901234567890",
-            )
-            if week in pending_weeks:
-                with connection.cursor() as cursor:
-                    cursor.execute(
-                        "UPDATE measurements_historicaltemperaturereading "
-                        "SET association_status = 'pending_review' WHERE id = %s", [reading.pk],
-                    )
-            direct.append(reading.pk)
-        witnesses = []
-        for box in (self.sentinels[0], self.foreign_box):
-            biology = BiologicalMeasurement.objects.create(
-                box=box, measured_on=date(2026, 1, 5), polyp_count=0, ephyrae_count=0,
-                strobila_count=None,
-                environment_source_box=self.box if box == self.sentinels[0] else None,
-            )
-            witnesses.append(self.create_historical_reading(biology).pk)
-        # An environmental source link includes the sentinel biology in the plan,
-        # but the trigger must follow its owning Box, not that source link.
-        return direct, witnesses
+            self.assertEqual({r[0] for r in cursor.fetchall()}, {
+                "historical_box_guard", "historical_biology_guard", "historical_reading_valid",
+                "historical_reading_immutable", "historical_reading_nonempty",
+                "historical_evidence_valid", "historical_evidence_immutable",
+            })
+            if pending_weeks:
+                cursor.execute(
+                    "UPDATE measurements_historicaltemperaturereading SET association_status='pending_review' "
+                    "WHERE id = ANY(%s)", [[12161 + week for week in pending_weeks]],
+                )
+        return self.reading_ids, self.witness_ids
 
     def assert_historical_correction(self, *, pending_weeks=()):
         direct, witnesses = self.create_historical_fixture(pending_weeks=pending_weeks)
         reviewed = self.plan()
         self.assert_classification(reviewed, "READY")
         self.assertEqual(len(direct), 41)
-        self.assertEqual(reviewed["temperature_association_invalidations"], [
-            pk for week, pk in enumerate(direct, 1) if week not in pending_weeks
+        # Supersedes v1's accepted invalidations: v2 has no scientific delta.
+        self.assertEqual(reviewed["temperature_association_invalidations"], [])
+        self.assertEqual(reviewed["temperature_association_preservations"], [
+            pk for week, pk in zip(range(12, 53), direct) if week not in pending_weeks
         ])
-        readings = {row["id"]: row for row in HistoricalTemperatureReading.objects.order_by("pk").values()}
+        readings = {r["id"]: r for r in HistoricalTemperatureReading.objects.order_by("pk").values()}
         self.assertEqual(sum(readings[pk]["association_status"] == "confirmed" for pk in direct),
                          len(direct) - len(pending_weeks))
-        self.assertIn(witnesses[0], [row["id"] for row in
-                      reviewed["dependencies"]["measurements.historicaltemperaturereading"]])
-        self.assertNotIn(witnesses[1], [row["id"] for row in
-                         reviewed["dependencies"]["measurements.historicaltemperaturereading"]])
+        dependencies = reviewed["dependencies"]["measurements.historicaltemperaturereading"]
+        self.assertIn(witnesses[0], [r["id"] for r in dependencies])
+        self.assertNotIn(witnesses[1], [r["id"] for r in dependencies])
+        self.approve(plan=reviewed)
         before = self.snapshot()
-        expected_boxes = {row["id"]: row for row in Box.objects.order_by("pk").values()}
-        expected_boxes[1902].update(global_code=NEW_CODE, strain_id=self.target.pk)
-        expected_readings = deepcopy(readings)
-        for pk in direct:
-            expected_readings[pk]["association_status"] = "pending_review"
+        if pending_weeks:
+            # The documented v2 writer requires all 41 exact confirmed rows.
+            with self.assertRaisesMessage(DatabaseError, "Exact 41 confirmed readings") as raised:
+                self.apply(plan=reviewed)
+            self.assertEqual(raised.exception.__cause__.sqlstate, "23514")
+            self.assertEqual(self.snapshot(), before)
+            self.assertEqual({r["id"]: r for r in HistoricalTemperatureReading.objects.order_by("pk").values()},
+                             readings)
+            return
+        expected_boxes = {r["id"]: r for r in Box.objects.order_by("pk").values()}
+        expected_boxes[1902].update(global_code=NEW_CODE, strain_id=285)
         expected_dependencies = deepcopy(reviewed["dependencies"])
         for row in expected_dependencies.get("cultures.box", []):
             if row["id"] == 1902:
-                row.update(global_code=NEW_CODE, strain_id=self.target.pk)
-        for row in expected_dependencies["measurements.historicaltemperaturereading"]:
-            if row["id"] in direct:
-                row["association_status"] = "pending_review"
-        namespaces = dict(BoxCodeNamespace.objects.values_list("namespace", "high_water"))
-        audits = list(AuditLog.objects.order_by("pk").values())
+                row.update(global_code=NEW_CODE, strain_id=285)
+        old_audits = list(AuditLog.objects.order_by("pk").values())
         url = box_scan_url(self.box)
         self.assertEqual(self.apply(plan=reviewed), reviewed)
-        self.assertEqual({row["id"]: row for row in Box.objects.order_by("pk").values()}, expected_boxes)
-        self.assertEqual({row["id"]: row for row in HistoricalTemperatureReading.objects.order_by("pk").values()},
-                         expected_readings)
-        after = self.snapshot()
-        mutable = {model._meta.db_table for model in
-                   (Box, HistoricalTemperatureReading, AuditLog, BoxCodeNamespace)}
-        for table in before.keys() - mutable:
-            self.assertEqual(after[table], before[table], table)
-        namespaces_after = dict(BoxCodeNamespace.objects.values_list("namespace", "high_water"))
-        self.assertEqual({key: value for key, value in namespaces_after.items() if key != "CLC-JKA-1"},
-                         {key: value for key, value in namespaces.items() if key != "CLC-JKA-1"})
-        self.assertGreaterEqual(namespaces_after["CLC-JKA-1"], max(9, namespaces.get("CLC-JKA-1", 0)))
-        self.assertEqual(list(AuditLog.objects.filter(pk__in=[row["id"] for row in audits])
-                              .order_by("pk").values()), audits)
+        self.assert_preserved(before)
+        self.assertEqual({r["id"]: r for r in Box.objects.order_by("pk").values()}, expected_boxes)
+        self.assertEqual({r["id"]: r for r in HistoricalTemperatureReading.objects.order_by("pk").values()}, readings)
         self.box.refresh_from_db()
         self.assertEqual(box_scan_url(self.box), url)
         self.assertEqual(self.box.tags.get(tag_type="qr").url, url)
@@ -159,36 +101,51 @@ class ClaBox1902PostgreSQLTests(ClaBox1902DependencyRegressions, ClaBox1902Fixtu
         self.assert_classification(fresh, "ALREADY_CORRECT")
         self.assertEqual(fresh["temperature_association_invalidations"], [])
         self.assertEqual(fresh["dependencies"], expected_dependencies)
-        metadata = {
-            "operation": OPERATION, "plan_hash": correction.fingerprint(reviewed),
-            "source_species_id": 131, "before": reviewed["before"], "after": fresh["before"],
-        }
-        new_audits = list(AuditLog.objects.exclude(pk__in=[row["id"] for row in audits]).order_by("pk"))
+        self.assertEqual(list(AuditLog.objects.filter(pk__in=[r["id"] for r in old_audits])
+                              .order_by("pk").values()), old_audits)
+        new_audits = list(AuditLog.objects.exclude(pk__in=[r["id"] for r in old_audits]).order_by("pk"))
         self.assertEqual(len(new_audits), 2)
-        for audit, object_type, object_id, expected_metadata in (
-            (new_audits[0], "box", NEW_CODE, metadata),
-            (new_audits[1], "cla_box_1902_correction", "1902", {**metadata, "reviewed_plan": reviewed}),
+        # v2 adds independently approved provenance to the old exact audit fields.
+        for audit, object_type, object_id in (
+            (new_audits[0], "box", NEW_CODE), (new_audits[1], "cla_box_1902_correction", "1902"),
         ):
             self.assertEqual((audit.organization_id, audit.user_id, audit.action, audit.object_type,
-                              audit.object_id, audit.description, audit.metadata),
-                             (self.org.pk, self.admin.pk, AuditLog.Action.UPDATE, object_type,
-                              object_id, correction.REASON, expected_metadata))
+                              audit.object_id, audit.description),
+                             (1, self.admin.pk, AuditLog.Action.UPDATE, object_type, object_id, correction.REASON))
+            self.assertEqual(audit.metadata, {
+                "operation": OPERATION, "plan_hash": correction.fingerprint(reviewed),
+                "source_species_id": 131, "before": reviewed["manifest"]["box"],
+                "after": fresh["manifest"]["box"], "reviewed_plan": reviewed,
+                "reason": correction.REASON, "scientific_basis": correction.REASON,
+                "actor_id": self.admin.pk, "approval_id": 1,
+            })
+            # SQL jsonb uses native numerics, whereas Django snapshots stringify
+            # Decimal. Compare every field to the independently approved SQL image.
+            self.assertEqual(audit.original_values, reviewed["manifest"]["box"])
         self.assertEqual(self.receipt().pk, new_audits[1].pk)
+        after = self.snapshot()
         with self.assertRaisesMessage(ValueError, "changed since review"):
             self.apply(plan=reviewed)
         self.assertEqual(self.snapshot(), after)
         self.assertEqual(self.apply(plan=fresh), fresh)
         self.assertEqual(self.snapshot(), after)
 
+    @runtime_test
     def test_41_confirmed_historical_readings_allow_only_direct_status_transitions(self):
+        """V1 direct invalidation is replaced by exact v2 preservation."""
         self.assert_historical_correction()
 
+    @runtime_test
     def test_mixed_historical_statuses_preserve_pending_and_all_scientific_history(self):
-        self.assert_historical_correction(pending_weeks=(1, 17, 38, 41))
+        """V2 rejects mixed status input; every original scientific row survives."""
+        self.assert_historical_correction(pending_weeks=(12, 17, 38, 52))
 
+    @runtime_test
     def test_already_pending_historical_readings_need_no_status_changes(self):
-        self.assert_historical_correction(pending_weeks=tuple(range(1, 42)))
+        """V2 rejects all-pending input without changing science or approval."""
+        self.assert_historical_correction(pending_weeks=tuple(range(12, 53)))
 
+    @runtime_test
     def test_reviewed_historical_scientific_state_change_rejects_without_writes(self):
         self.create_historical_fixture()
         reviewed = self.plan()
@@ -202,120 +159,74 @@ class ClaBox1902PostgreSQLTests(ClaBox1902DependencyRegressions, ClaBox1902Fixtu
             self.apply(plan=reviewed)
         self.assertEqual(self.snapshot(), before)
 
+    @runtime_test
     def test_extra_historical_association_invalidates_review_without_writes(self):
         self.create_historical_fixture()
         biology = BiologicalMeasurement.objects.create(
-            box=self.box, measured_on=date.fromisocalendar(2026, 42, 1),
+            box=self.box, measured_on=date(2024, 12, 23),
             polyp_count=0, ephyrae_count=0, strobila_count=None,
         )
         reviewed = self.plan()
-        self.create_historical_reading(biology)
+        # A real extra immutable reading/evidence pair, not a mocked dependency.
+        with self.role("polypbase"):
+            self.create_extra_reading(biology)
         self.assertNotEqual(correction.fingerprint(self.plan()), correction.fingerprint(reviewed))
         before = self.snapshot()
         with self.assertRaisesMessage(ValueError, "changed since review"):
             self.apply(plan=reviewed)
         self.assertEqual(self.snapshot(), before)
 
+    @runtime_test
     def test_unexpected_post_update_dependency_mutation_rolls_back_historical_correction(self):
-        direct, witnesses = self.create_historical_fixture(pending_weeks=(1, 38))
+        direct, witnesses = self.create_historical_fixture()
+        self.install_dependency_mutation()
         reviewed = self.plan()
+        self.approve(plan=reviewed)
         before = self.snapshot()
-        injected = []
+        observed = []
 
-        def mutate_after_box_update(execute, sql, params, many, context):
-            result = execute(sql, params, many, context)
-            if sql.lstrip().upper().startswith('UPDATE "CULTURES_BOX"') and not injected:
-                injected.append(True)
+        def inspect(execute, statement, params, many, context):
+            result = execute(statement, params, many, context)
+            if statement.startswith("SELECT public.box_1902_apply_v2"):
+                observed.append(True)
                 self.assertEqual(Box.objects.get(pk=1902).global_code, NEW_CODE)
-                self.assertFalse(HistoricalTemperatureReading.objects.filter(
-                    pk__in=direct, association_status="confirmed").exists())
                 self.assertEqual(HistoricalTemperatureReading.objects.filter(
-                    pk__in=witnesses, association_status="confirmed").count(), len(witnesses))
-                Observation.objects.filter(box_id=1902).update(notes="Unexpected synthetic dependency mutation")
+                    pk__in=direct, association_status="confirmed").count(), 41)
+                self.assertEqual(HistoricalTemperatureReading.objects.filter(
+                    pk__in=witnesses, association_status="confirmed").count(), 2)
                 self.assertTrue(Observation.objects.filter(
                     box_id=1902, notes="Unexpected synthetic dependency mutation").exists())
             return result
 
-        with connection.execute_wrapper(mutate_after_box_update):
+        with connection.execute_wrapper(inspect):
             with self.assertRaisesMessage(ValueError, "Scientific or historical state changed"):
                 self.apply(plan=reviewed)
-        self.assertEqual(injected, [True])
+        self.assertEqual(observed, [True])
         self.assertFalse(connection.in_atomic_block)
         self.assertFalse(connection.needs_rollback)
         self.assertEqual(self.snapshot(), before)
         self.assertEqual(self.plan(), reviewed)
 
+    @runtime_test
     def test_exact_box_delta_preserves_references_zero_null_and_qr(self):
-        reviewed = self.plan()
-        self.assert_classification(reviewed, "READY")
-        before = self.snapshot()
-        expected_boxes = {row["id"]: row for row in Box.objects.order_by("pk").values()}
-        expected_boxes = deepcopy(expected_boxes)
-        expected_boxes[1902].update(global_code=NEW_CODE, strain_id=self.target.pk)
-        namespaces = dict(BoxCodeNamespace.objects.values_list("namespace", "high_water"))
-        audits = list(AuditLog.objects.order_by("pk").values())
-        url = box_scan_url(self.box)
-        self.assertEqual(self.apply(plan=reviewed), reviewed)
-        self.assertEqual({row["id"]: row for row in Box.objects.order_by("pk").values()}, expected_boxes)
-        after = self.snapshot()
-        mutable = {Box._meta.db_table, AuditLog._meta.db_table, BoxCodeNamespace._meta.db_table}
-        for table in before.keys() - mutable:
-            self.assertEqual(after[table], before[table], table)
-        namespaces_after = dict(BoxCodeNamespace.objects.values_list("namespace", "high_water"))
-        self.assertEqual(
-            {key: value for key, value in namespaces_after.items() if key != "CLC-JKA-1"},
-            {key: value for key, value in namespaces.items() if key != "CLC-JKA-1"},
-        )
-        self.assertGreaterEqual(namespaces_after["CLC-JKA-1"], max(9, namespaces.get("CLC-JKA-1", 0)))
-        self.assertEqual(list(AuditLog.objects.filter(pk__in=[row["id"] for row in audits])
-                              .order_by("pk").values()), audits)
-        self.box.refresh_from_db()
-        self.assertEqual(self.box.local_code, "CLA-JKA-1.09")
-        self.assertEqual(self.box.previous_global_code, "")
-        self.assertIsNone(self.box.merged_into_id)
-        self.assertEqual(self.box.status, Box.Status.INACTIVE)
-        self.assertEqual(box_scan_url(self.box), url)
-        self.assertEqual(self.box.tags.get(tag_type="qr").url, url)
-        measurements = self.box.biological_measurements.order_by("measured_on")
-        self.assertEqual(list(measurements.values_list("polyp_count", "ephyrae_count", "strobila_count")),
-                         [(0, 0, 0), (0, 0, None)])
-        self.assertEqual(list(measurements.values_list("salinity_psu", flat=True)), [0, None])
+        # The original single-Box test now also asserts v2 private provenance.
+        self.test_apply_changes_exactly_two_fields_on_exactly_one_box()
         receipt = self.receipt()
         self.assertEqual(receipt.user_id, self.admin.pk)
-        self.assertEqual(receipt.metadata["plan_hash"], correction.fingerprint(reviewed))
         self.assertEqual(receipt.metadata["before"]["global_code"], OLD_CODE)
         self.assertEqual(receipt.metadata["after"]["id"], 1902)
         self.assertEqual(receipt.metadata["after"]["global_code"], NEW_CODE)
-        self.assertEqual(receipt.metadata["after"]["strain_id"], self.target.pk)
+        self.assertEqual(receipt.metadata["after"]["strain_id"], 285)
         self.assertEqual(AuditLog.objects.filter(metadata__operation=OPERATION).count(), 2)
         self.assertFalse(AuditLog.objects.filter(object_type="identity_reconciliation").exists())
 
+    @runtime_test
     def test_concurrent_apply_commits_once_then_requires_a_fresh_review(self):
+        """Hold a real SQL audit INSERT, not the removed ORM audit writer."""
+        self.install_audit_barrier()
         reviewed = self.plan()
-        held, release = Event(), Event()
-        original = AuditLog.objects.create
-
-        def hold_first_audit(**kwargs):
-            result = original(**kwargs)
-            if current_thread().name == "cla-1902-first" and not held.is_set():
-                held.set()
-                if not release.wait(WAIT_SECONDS):
-                    raise TimeoutError("First single-Box apply was not released")
-            return result
-
-        with patch.object(AuditLog.objects, "create", side_effect=hold_first_audit):
-            with self.workers() as (start, releases):
-                releases.append(release)
-                one = start(lambda: self.apply(plan=reviewed), "cla-1902-first")
-                self.wait_for(held, "First apply did not reach its transactional audit")
-                two = start(lambda: self.apply(plan=reviewed), "cla-1902-second")
-                self.wait_for(two["done"], "Second apply did not reject held maintenance locks")
-                self.assert_busy_or_stale(two.get("error"))
-                self.assertFalse(one["done"].is_set())
-                release.set()
-                self.wait_for(one["done"], "First apply did not commit")
-        self.assertNotIn("error", one, one.get("error"))
-        self.assertEqual(one["result"], reviewed)
+        self.approve(plan=reviewed)
+        self.concurrent_python_correction(reviewed)
         self.assertEqual(AuditLog.objects.filter(metadata__operation=OPERATION).count(), 2)
         self.receipt()
         fresh = self.plan()
@@ -326,58 +237,58 @@ class ClaBox1902PostgreSQLTests(ClaBox1902DependencyRegressions, ClaBox1902Fixtu
         self.assertEqual(self.apply(plan=fresh), fresh)
         self.assertEqual(self.snapshot(), before)
 
+    @runtime_test
     def test_active_writer_aborts_apply_nowait_then_invalidates_the_old_plan(self):
         reviewed = self.plan()
         held, release = Event(), Event()
 
         def writer():
-            with transaction.atomic():
-                box = Box.objects.select_for_update().get(pk=1902)
-                box.notes = "Synthetic concurrent ordinary writer"
-                box.save(update_fields=["notes"])
-                held.set()
-                if not release.wait(WAIT_SECONDS):
-                    raise TimeoutError("Ordinary single-Box writer was not released")
+            with self.connect("polypbase") as conn:
+                with conn.transaction():
+                    conn.execute("SELECT id FROM cultures_box WHERE id=1902 FOR UPDATE")
+                    conn.execute("UPDATE cultures_box SET notes=%s WHERE id=1902",
+                                 ["Synthetic concurrent ordinary writer"])
+                    held.set()
+                    if not release.wait(20):
+                        raise TimeoutError("Ordinary writer was not released")
 
         before = self.snapshot()
-        with self.workers() as (start, releases):
-            releases.append(release)
-            one = start(writer, "cla-1902-writer")
-            self.wait_for(held, "Ordinary writer did not hold the Box lock")
-            statements = []
+        statements = []
 
-            def record_sql(execute, sql, params, many, context):
-                statements.append(sql)
-                return execute(sql, params, many, context)
+        def record(execute, statement, params, many, context):
+            statements.append(statement)
+            return execute(statement, params, many, context)
 
-            def apply_while_busy():
-                with connection.execute_wrapper(record_sql):
-                    return self.apply(plan=reviewed)
-
-            two = start(apply_while_busy, "cla-1902-maintenance")
-            self.wait_for(two["done"], "Apply waited instead of failing closed with NOWAIT")
-            locks = [sql for sql in statements if sql.lstrip().upper().startswith("LOCK TABLE")]
-            self.assertTrue(locks, statements)
-            self.assertTrue(all("EXCLUSIVE MODE NOWAIT" in sql.upper() for sql in locks))
-            self.assertFalse(any("FOR UPDATE" in sql.upper() or "FOR NO KEY UPDATE" in sql.upper()
-                                 for sql in statements), "Busy tables must be rejected before row locks")
-            self.assert_busy_or_stale(two.get("error"))
-            self.assertFalse(one["done"].is_set())
-            self.assertEqual(self.snapshot(), before)
-            release.set()
-            self.wait_for(one["done"], "Ordinary writer did not commit")
-        self.assertNotIn("error", one, one.get("error"))
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(writer)
+            try:
+                self.assertTrue(held.wait(20))
+                with connection.execute_wrapper(record), self.assertRaises(DatabaseError) as raised:
+                    self.apply(plan=reviewed)
+                self.assertEqual(raised.exception.__cause__.sqlstate, "55P03")
+                self.assertTrue(any(s.startswith("SELECT public.box_1902_lock_v2") for s in statements))
+                self.assertFalse(any(s.startswith("SELECT public.box_1902_apply_v2") for s in statements))
+                body = self.execute("SELECT prosrc FROM pg_proc WHERE oid='public.box_1902_lock_v2(bigint)'::regprocedure")[0][0]
+                self.assertIn("EXCLUSIVE MODE NOWAIT", body)
+                self.assertFalse(any("FOR UPDATE" in s.upper() or "FOR NO KEY UPDATE" in s.upper() for s in statements))
+                self.assertFalse(future.done())
+                self.assertEqual(self.snapshot(), before)
+            finally:
+                release.set()
+            future.result(timeout=20)
         fresh = self.plan()
         self.assertNotEqual(correction.fingerprint(fresh), correction.fingerprint(reviewed))
         after_writer = self.snapshot()
         with self.assertRaises(ValueError):
             self.apply(plan=reviewed)
         self.assertEqual(self.snapshot(), after_writer)
+        self.approve(plan=fresh)
         self.assertEqual(self.apply(plan=fresh), fresh)
 
+    @runtime_test
     def test_measurement_change_invalidates_review_and_preserves_zero(self):
         reviewed = self.plan()
-        measurement = self.box.biological_measurements.order_by("measured_on").first()
+        measurement = self.box.biological_measurements.filter(measured_on__year=2026).order_by("measured_on").first()
         self.assertEqual(measurement.strobila_count, 0)
         BiologicalMeasurement.objects.filter(pk=measurement.pk).update(strobila_count=None)
         self.assertNotEqual(correction.fingerprint(self.plan()), correction.fingerprint(reviewed))
@@ -385,62 +296,32 @@ class ClaBox1902PostgreSQLTests(ClaBox1902DependencyRegressions, ClaBox1902Fixtu
         with self.assertRaises(ValueError):
             self.apply(plan=reviewed)
         self.assertEqual(self.snapshot(), before)
-        self.assertEqual(list(self.box.biological_measurements.order_by("measured_on")
+        self.assertEqual(list(self.box.biological_measurements.filter(measured_on__year=2026).order_by("measured_on")
                               .values_list("polyp_count", "ephyrae_count", "strobila_count")),
                          [(0, 0, None), (0, 0, None)])
 
+    @runtime_test
     def test_receipt_failure_rolls_back_box_namespaces_and_first_audit(self):
         self.create_historical_fixture()
-        reviewed = self.plan()
-        before = self.snapshot()
-        original = AuditLog.objects.create
-        calls = []
-
-        def fail_receipt(**kwargs):
-            calls.append(kwargs["object_type"])
-            if kwargs["object_type"] == "cla_box_1902_correction":
-                self.assertEqual(Box.objects.get(pk=1902).global_code, NEW_CODE)
-                self.assertEqual(AuditLog.objects.filter(
-                    object_type="box", metadata__operation=OPERATION,
-                ).count(), 1)
-                raise RuntimeError("Synthetic single-Box receipt failure")
-            return original(**kwargs)
-
-        with patch.object(AuditLog.objects, "create", side_effect=fail_receipt):
-            with self.assertRaisesMessage(RuntimeError, "Synthetic single-Box receipt failure"):
-                self.apply(plan=reviewed)
-        self.assertEqual(calls, ["box", "cla_box_1902_correction"])
+        self.test_receipt_audit_failure_rolls_back_box_namespace_and_other_audits()
         self.assertFalse(connection.in_atomic_block)
         self.assertFalse(connection.needs_rollback)
-        self.assertEqual(self.snapshot(), before)
         self.assert_classification(self.plan(), "READY")
 
+    @runtime_test
     def test_planning_uses_read_only_transaction_without_write_or_row_locks(self):
-        original = correction._build_plan
         observed = []
 
-        def assert_read_only():
-            self.assertTrue(connection.in_atomic_block)
-            with connection.cursor() as cursor:
-                cursor.execute("SHOW transaction_read_only")
-                self.assertEqual(cursor.fetchone(), ("on",))
-                cursor.execute(
-                    "SELECT locktype, mode FROM pg_locks WHERE pid=pg_backend_pid() "
-                    "AND (locktype='tuple' OR (locktype='relation' AND mode IN "
-                    "('RowShareLock', 'RowExclusiveLock', 'ShareRowExclusiveLock', "
-                    "'ExclusiveLock', 'AccessExclusiveLock')))"
-                )
-                self.assertEqual(cursor.fetchall(), [])
-            observed.append(True)
-
-        def inspect(*args, **kwargs):
-            assert_read_only()
-            result = original(*args, **kwargs)
-            assert_read_only()
+        def inspect(execute, statement, params, many, context):
+            if statement == "SELECT public.box_1902_manifest_v2()":
+                self.assert_planner_read_only(observed)
+            result = execute(statement, params, many, context)
+            if statement == "SELECT public.box_1902_manifest_v2()":
+                self.assert_planner_read_only(observed)
             return result
 
         before = self.snapshot()
-        with patch.object(correction, "_build_plan", side_effect=inspect):
+        with connection.execute_wrapper(inspect):
             reviewed = self.plan()
             self.assert_classification(reviewed, "READY")
             self.assertEqual(self.plan(), reviewed)
@@ -451,19 +332,22 @@ class ClaBox1902PostgreSQLTests(ClaBox1902DependencyRegressions, ClaBox1902Fixtu
             self.assertEqual(cursor.fetchone(), ("off",))
         self.assertEqual(self.snapshot(), before)
 
+    @runtime_test
     def test_postgresql_rejects_injected_planner_write_and_restores_session(self):
-        original = correction._build_plan
+        """Real read-only transaction rejects DDL before any schema permission check."""
         before = self.snapshot()
 
-        def attempt_write(*args, **kwargs):
-            original(*args, **kwargs)
-            Organization.objects.filter(pk=1).update(name="Forbidden synthetic planner write")
-            self.fail("PostgreSQL accepted a write inside read-only planning")
+        def attempt(execute, statement, params, many, context):
+            result = execute(statement, params, many, context)
+            if statement == "SELECT public.box_1902_manifest_v2()":
+                with connection.cursor() as cursor:
+                    cursor.execute("CREATE TABLE public.box1902_forbidden_planner_write (id integer)")
+                self.fail("PostgreSQL accepted a write inside read-only planning")
+            return result
 
-        with patch.object(correction, "_build_plan", side_effect=attempt_write):
-            with self.assertRaises(DatabaseError) as caught:
-                self.plan()
-        self.assertEqual(sqlstate(caught.exception), "25006")
+        with connection.execute_wrapper(attempt), self.assertRaises(DatabaseError) as raised:
+            self.plan()
+        self.assertEqual(raised.exception.__cause__.sqlstate, "25006")
         self.assertFalse(connection.in_atomic_block)
         self.assertFalse(connection.needs_rollback)
         self.assertEqual(self.snapshot(), before)

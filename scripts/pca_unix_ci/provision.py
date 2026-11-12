@@ -1,7 +1,7 @@
 """Root-only provisioning for an ephemeral, network-none Linux CI container.
 
-Never run on a host. Local trust authentication is ONLY for this disposable,
-network-isolated container, not a production authentication recommendation.
+Never run on a host. The disposable cluster uses peer authentication for local
+administration and the tested runtime/backup identities.
 
 Child protocol: run_tests.py receives one JSON object on stdin, containing exactly
 owner_password, runtime_password and system_identifier. No arguments means the
@@ -36,9 +36,15 @@ DATA = Path("/var/lib/postgresql/pca-unix-ci")
 SOCKET_DIRECTORY = Path("/run/postgresql")
 PORT = 65432
 DATABASE = "synthetic_pca_ci"
-OWNER = "synthetic_pca_owner"
-RUNTIME = "synthetic_pca_runtime"
+# Genuine Box 1902 V2 topology: the runtime is the application login, the owner is
+# NOLOGIN, and the migrator/backup logins are independent, non-impersonable roles.
+RUNTIME = "polypbase"
+BACKUP_OPERATOR = "pca-backup-operator"
+OWNER = "box1902_owner"
+MIGRATOR = "box1902_migrator"
+BACKUP = "box1902_backup"
 RUNTIME_UID = RUNTIME_GID = 10001
+BACKUP_UID = BACKUP_GID = 10002
 ATTESTATION = Path("/etc/polypbase/pca-production-target.json")
 MARKER = Path("/etc/polypbase/pca-unix-ci.json")
 
@@ -104,11 +110,14 @@ def preflight():
     if any(ROOT.rglob(".env")):
         raise RuntimeError("Host .env files must never be present in the CI image")
     runtime = pwd.getpwnam("pca-runtime")
+    backup_operator = pwd.getpwnam(BACKUP_OPERATOR)
     postgres = pwd.getpwnam("postgres")
     if ((runtime.pw_uid, runtime.pw_gid) != (RUNTIME_UID, RUNTIME_GID)
+            or (backup_operator.pw_uid, backup_operator.pw_gid) != (BACKUP_UID, BACKUP_GID)
+            or backup_operator.pw_uid == runtime.pw_uid
             or postgres.pw_uid in (0, RUNTIME_UID) or postgres.pw_gid in (0, RUNTIME_GID)
             or postgres.pw_gid in os.getgrouplist("pca-runtime", RUNTIME_GID)):
-        raise RuntimeError("Expected distinct dedicated postgres and unprivileged runtime OS accounts")
+        raise RuntimeError("Expected distinct runtime and backup operator OS accounts")
     artifacts = ROOT / ".local-docs"
     info = artifacts.lstat()
     if (not stat.S_ISDIR(info.st_mode) or info.st_uid != RUNTIME_UID
@@ -155,28 +164,27 @@ def connect(*, database=DATABASE, role="postgres", password=None):
                            options="-c statement_timeout=10000 -c lock_timeout=5000")
 
 
-def initialize_roles(owner_password, runtime_password):
+def initialize_roles(runtime_password):
     from psycopg import sql
 
     with connect(database="postgres") as connection:
-        for role, password in ((OWNER, owner_password), (RUNTIME, runtime_password)):
-            # Literal composition is needed for CREATE ROLE's PASSWORD grammar.
-            # Never emit the composed SQL or exceptions containing credentials.
-            connection.execute(sql.SQL(
-                "CREATE ROLE {} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE "
-                "NOREPLICATION NOBYPASSRLS PASSWORD {}"
-            ).format(sql.Identifier(role), sql.Literal(password)))
+        # Only the application runtime is created here; the reviewed Box 1902
+        # transition (provision_sql) creates the owner/migrator/backup logins.
+        connection.execute(sql.SQL(
+            "CREATE ROLE {} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE "
+            "NOREPLICATION NOBYPASSRLS PASSWORD {}"
+        ).format(sql.Identifier(RUNTIME), sql.Literal(runtime_password)))
         connection.execute(sql.SQL("CREATE DATABASE {} OWNER {} TEMPLATE template0").format(
-            sql.Identifier(DATABASE), sql.Identifier(OWNER)))
+            sql.Identifier(DATABASE), sql.Identifier(RUNTIME)))
     with connect() as connection:
         connection.execute(sql.SQL("REVOKE ALL ON DATABASE {} FROM PUBLIC").format(sql.Identifier(DATABASE)))
-        connection.execute(sql.SQL("GRANT CONNECT ON DATABASE {} TO {}, {}").format(
-            sql.Identifier(DATABASE), sql.Identifier(OWNER), sql.Identifier(RUNTIME)))
+        connection.execute(sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(
+            sql.Identifier(DATABASE), sql.Identifier(RUNTIME)))
         connection.execute("REVOKE CREATE ON SCHEMA public FROM PUBLIC")
         connection.execute(sql.SQL("GRANT USAGE ON SCHEMA public TO {}").format(sql.Identifier(RUNTIME)))
         connection.execute("REVOKE ALL ON FUNCTION pg_catalog.pg_control_system() FROM PUBLIC")
-        connection.execute(sql.SQL("GRANT EXECUTE ON FUNCTION pg_catalog.pg_control_system() TO {}, {}").format(
-            sql.Identifier(OWNER), sql.Identifier(RUNTIME)))
+        connection.execute(sql.SQL("GRANT EXECUTE ON FUNCTION pg_catalog.pg_control_system() TO {}").format(
+            sql.Identifier(RUNTIME)))
 
 
 def attest(postgres, identity):
@@ -195,10 +203,18 @@ def attest(postgres, identity):
             or row[5:7] != (None, None) or row[9:] != ("origin", ["public"], False, PORT)
             or not 180000 <= row[8] < 190000):
         raise RuntimeError("Fresh PostgreSQL identity does not match the synthetic target")
+    with connect() as connection:
+        backup = connection.execute(
+            """SELECT oid, rolcanlogin, rolinherit, rolsuper, rolcreatedb,
+                      rolcreaterole, rolreplication, rolbypassrls
+               FROM pg_catalog.pg_roles WHERE rolname = %s""", [BACKUP]).fetchone()
+    if backup is None or backup[1:] != (True, False, False, False, False, False, False):
+        raise RuntimeError("Box 1902 backup login was not provisioned")
     target = {
-        "schema": "pca_target_v3", "machine_id": identity,
+        "schema": "pca_target_v4", "machine_id": identity,
         "configured_host": "/var/run/postgresql", "configured_port": str(PORT),
         "database": DATABASE, "role": RUNTIME, "database_oid": row[1], "role_oid": row[4],
+        "backup_role": BACKUP, "backup_role_oid": backup[0],
         "server_address": None, "server_port": None,
         "postmaster_started_at": row[7], "server_version_num": row[8],
         "connection_mode": "unix", "socket_uid": postgres.pw_uid, "socket_gid": postgres.pw_gid,
@@ -209,12 +225,12 @@ def attest(postgres, identity):
     write_json(MARKER, {
         "schema": "pca_unix_ci_v1", "container_only": True, "network": "none",
         "system_identifier": system_identifier, "database": DATABASE, "port": PORT,
-        "owner": OWNER, "runtime": RUNTIME,
+        "owner": OWNER, "runtime": RUNTIME, "migrator": MIGRATOR, "backup": BACKUP,
     }, exclusive=True)
     return system_identifier, target
 
 
-def child(payload, *, probe=None, postgres_gid=None):
+def child(payload, *, probe=None, auth_probe=None, postgres_gid=None, identity="runtime"):
     environment = clean_environment()
     environment.update({
         "DJANGO_SETTINGS_MODULE": "config.historical_temperature_pgqa_settings",
@@ -225,17 +241,24 @@ def child(payload, *, probe=None, postgres_gid=None):
         "POLYPBASE_TEST_POSTGRES": "1",
         "POLYPBASE_HISTORICAL_POSTGRES_QA": "1",
         "POLYPBASE_QA_HOST": "127.0.0.1", "POLYPBASE_QA_PORT": str(PORT),
-        "POLYPBASE_QA_DATABASE": DATABASE, "POLYPBASE_QA_OWNER": OWNER,
+        "POLYPBASE_QA_DATABASE": DATABASE, "POLYPBASE_QA_OWNER": MIGRATOR,
         "POLYPBASE_QA_RUNTIME": RUNTIME,
         "POLYPBASE_QA_SYSTEM_IDENTIFIER": payload["system_identifier"],
+        "POLYPBASE_PCA_TEST_ARTIFACTS": (
+            "/opt/pca/.backup-docs" if identity == "backup" else "/opt/pca/.local-docs"),
     })
-    command = ["setpriv", f"--reuid={RUNTIME_UID}", f"--regid={RUNTIME_GID}",
+    uid, gid = (BACKUP_UID, BACKUP_GID) if identity == "backup" else (RUNTIME_UID, RUNTIME_GID)
+    command = ["setpriv", f"--reuid={uid}", f"--regid={gid}",
                "--clear-groups" if postgres_gid is None else f"--groups={postgres_gid}",
                "--no-new-privs", "--bounding-set=-all", "--inh-caps=-all", "--ambient-caps=-all",
                "/opt/venv/bin/python", "-B", "/opt/pca/scripts/pca_unix_ci/run_tests.py"]
     if probe is not None:
         command.extend(["--probe", probe])
-    print(f"CI child: {probe or 'full suite'}", flush=True)
+    if auth_probe is not None:
+        command.extend(["--auth-probe", auth_probe])
+    if identity == "backup" and auth_probe is None:
+        command.append("--backup-workflow")
+    print(f"CI child: {probe or auth_probe or 'full suite'} as {identity}", flush=True)
     subprocess.run(command, cwd=ROOT, env=environment, input=json.dumps(payload) + "\n",
                    text=True, check=True, timeout=600 if probe is None else 30)
 
@@ -276,6 +299,15 @@ def probes(payload, target, postgres):
             child(payload, probe="success")
 
 
+def authentication_probes(payload):
+    child(payload, auth_probe="runtime-runtime")
+    child(payload, auth_probe="runtime-backup")
+    child(payload, auth_probe="runtime-postgres")
+    child(payload, auth_probe="backup-runtime", identity="backup")
+    child(payload, auth_probe="backup-backup", identity="backup")
+    child(payload, auth_probe="backup-postgres", identity="backup")
+
+
 def interrupted(signum, frame):
     raise SystemExit(128 + signum)
 
@@ -307,19 +339,55 @@ def main():
     owner_password, runtime_password = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
     # Once initdb has been attempted, only this fresh path can be stopped below.
     try:
-        postgres_command("initdb", "-D", str(DATA), "--auth-local=trust",
+        postgres_command("initdb", "-D", str(DATA), "--auth-local=peer",
                          "--auth-host=scram-sha-256", "--encoding=UTF8", "--locale=C.UTF-8", timeout=60)
+        with (DATA / "pg_ident.conf").open("w", encoding="ascii") as stream:
+            stream.write(
+                # The root orchestrator needs one bootstrap attestation login;
+                # it is not an application or backup identity.
+                "pca_runtime_or_backup root polypbase\n"
+                "pca_runtime_or_backup pca-runtime polypbase\n"
+                "pca_runtime_or_backup pca-backup-operator polypbase\n"
+                "pca_backup_only pca-backup-operator box1902_backup\n"
+                "pca_postgres_bootstrap root postgres\n"
+                "pca_postgres_bootstrap postgres postgres\n"
+            )
+        with (DATA / "pg_hba.conf").open("w", encoding="ascii") as stream:
+            stream.write(
+                # Only the root orchestrator and postgres OS account can use
+                # the disposable administrative peer path.
+                "local all postgres peer map=pca_postgres_bootstrap\n"
+                "local synthetic_pca_ci polypbase peer map=pca_runtime_or_backup\n"
+                "local synthetic_pca_ci box1902_backup peer map=pca_backup_only\n"
+                "local all all reject\n"
+                "host all all 127.0.0.1/32 scram-sha-256\n"
+            )
+        os.chown(DATA / "pg_ident.conf", postgres.pw_uid, postgres.pw_gid)
+        os.chown(DATA / "pg_hba.conf", postgres.pw_uid, postgres.pw_gid)
+        (DATA / "pg_ident.conf").chmod(0o600)
+        (DATA / "pg_hba.conf").chmod(0o600)
         with (DATA / "postgresql.conf").open("a", encoding="ascii") as stream:
             stream.write("\nlisten_addresses = '127.0.0.1'\nport = 65432\n"
                          "unix_socket_directories = '/run/postgresql'\n"
                          "unix_socket_permissions = 0777\npassword_encryption = 'scram-sha-256'\n")
         postgres_command("pg_ctl", "-D", str(DATA), "-l", str(DATA / "server.log"),
                          "-w", "-t", "30", "start", timeout=40)
-        initialize_roles(owner_password, runtime_password)
+        initialize_roles(runtime_password)
+        # Separately authorized cluster-administrator provisioning, before migration.
+        postgres_command("/opt/venv/bin/python", "-B", str(ROOT / "scripts/pca_unix_ci/provision_box_1902.py"),
+            input=json.dumps({"owner_password": owner_password, "runtime_password": runtime_password}),
+            text=True, timeout=60)
+        from psycopg import sql
+
+        with connect() as connection:
+            connection.execute(sql.SQL(
+                "GRANT EXECUTE ON FUNCTION pg_catalog.pg_control_system() TO {}"
+            ).format(sql.Identifier(OWNER)))
         system_identifier, target = attest(postgres, identity)
         payload = {"owner_password": owner_password, "runtime_password": runtime_password,
                    "system_identifier": system_identifier}
-        child(payload)
+        authentication_probes(payload)
+        child(payload, identity="backup")
         probes(payload, target, postgres)
     finally:
         if (DATA / "postmaster.pid").exists():

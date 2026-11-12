@@ -8,7 +8,7 @@ from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import skipUnless
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from config import database_backup
 from django.conf import settings
@@ -29,11 +29,21 @@ from .test_pca_identity_unification import PcaFixtureMixin
 MACHINE = "a" * 32
 
 
+@contextmanager
+def backup_config(target, snapshot):
+    """Stand-in for the dedicated backup login; no real connection in refusal tests."""
+    yield {"ENGINE": "django.db.backends.postgresql", "HOST": target["configured_host"],
+           "PORT": target["configured_port"], "NAME": target["database"],
+           "USER": target["backup_role"], "PASSWORD": "",
+           "OPTIONS": {"sslmode": "disable" if target["connection_mode"] == "unix" else "require"}}
+
+
 def synthetic_target():
-    return {"schema": "pca_target_v3", "connection_mode": "tcp", "socket_uid": None, "socket_gid": None,
+    return {"schema": "pca_target_v4", "connection_mode": "tcp", "socket_uid": None, "socket_gid": None,
             "machine_id": MACHINE, "configured_host": "127.0.0.1", "configured_port": "65432",
-            "database": "synthetic_pca", "role": "synthetic_runtime", "server_address": "127.0.0.1",
-            "server_port": 65432, "database_oid": 1234, "role_oid": 5678,
+            "database": "synthetic_pca", "role": "synthetic_runtime", "backup_role": "synthetic_backup",
+            "server_address": "127.0.0.1", "server_port": 65432, "database_oid": 1234, "role_oid": 5678,
+            "backup_role_oid": 5679,
             "postmaster_started_at": "2026-01-01T00:00:00.000000Z", "server_version_num": 180000}
 
 
@@ -47,7 +57,7 @@ class ProductionRefusalTests(SimpleTestCase):
         self.trusted_reader = self.attestation.start()
         self.addCleanup(self.attestation.stop)
         self.config = {"ENGINE": "django.db.backends.postgresql", "HOST": "127.0.0.1", "PORT": "65432",
-                       "NAME": "synthetic_pca", "USER": "synthetic_runtime", "OPTIONS": {"sslmode": "prefer"}}
+                       "NAME": "synthetic_pca", "USER": "synthetic_runtime", "OPTIONS": {"sslmode": "require"}}
         self.environment = patch.dict(os.environ, {}, clear=True)
         self.environment.start()
         self.addCleanup(self.environment.stop)
@@ -155,6 +165,7 @@ class ProductionRefusalTests(SimpleTestCase):
                 patch.object(merge, "_make_plan", return_value=plan), \
                 patch.object(production.pca_protected_artifacts, "protected_directory", directory_guard), \
                 patch.object(production.pca_protected_artifacts, "validate_file"), \
+                patch.object(production, "backup_connection", backup_config), \
                 patch.object(database_backup, "create_evidence", side_effect=archive):
             mocked.settings_dict = self.config
             mocked.in_atomic_block = False
@@ -245,6 +256,89 @@ class ProductionRefusalTests(SimpleTestCase):
                 cursor.fetchall.return_value = []
                 production.verify_target(self.target)
 
+    def test_tcp_backup_identity_uses_verified_server_address(self):
+        target = {**self.target, "configured_host": "localhost"}
+        database = MagicMock()
+        database.info = SimpleNamespace(
+            host="localhost", hostaddr="127.0.0.1", port=65432,
+            dbname="synthetic_pca", user="synthetic_backup")
+        cursor = database.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (
+            "synthetic_pca", 1234, "synthetic_backup", "synthetic_backup", 5679,
+            "127.0.0.1", 65432, self.target["postmaster_started_at"], 180000,
+            "origin", ["public"], False, 65432)
+        cursor.fetchall.return_value = []
+        production._verify_backup_target(target, database)
+
+    def test_tcp_requires_encrypted_runtime_transport(self):
+        with patch.dict(os.environ, {"PCA_BACKUP_PASSWORD_FILE": str(Path.cwd() / "operator-password")},
+                        clear=True), \
+                patch.object(production, "connection") as mocked, \
+                patch.object(production, "require_target", return_value=False), \
+                patch.object(production, "_read_operator_password_file", return_value="backup-secret"), \
+                patch.object(production.psycopg, "connect") as connect:
+            mocked.settings_dict = {**self.config, "OPTIONS": {"sslmode": "prefer"}}
+            with self.assertRaisesMessage(ValueError, "encrypted"):
+                with production.backup_connection(self.target, "00000000-00000000-1"):
+                    pass
+            connect.assert_not_called()
+
+    def test_tcp_backup_reads_private_operator_file_and_passes_secret(self):
+        database = MagicMock()
+        database.info = SimpleNamespace(
+            host="127.0.0.1", hostaddr="127.0.0.1", port=65432,
+            dbname="synthetic_pca", user="synthetic_backup")
+        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[3]) as directory:
+            password_file = Path(directory) / "backup-password"
+            password_file.write_text("backup-secret\n", encoding="utf-8")
+            password_file.chmod(0o600)
+            owner = password_file.stat().st_uid
+            operator_env = {} if owner == 0 else {"PCA_BACKUP_OPERATOR_UID": str(owner)}
+            with patch.dict(os.environ, {"PCA_BACKUP_PASSWORD_FILE": str(password_file), **operator_env},
+                            clear=True), \
+                    patch.object(production.os, "name", "posix"), \
+                    patch.object(production.os, "geteuid", return_value=owner, create=True), \
+                    patch.object(production, "connection") as mocked_connection, \
+                    patch.object(production, "require_target", return_value=False), \
+                    patch.object(production, "socket_guard", return_value=nullcontext()), \
+                    patch.object(production, "_verify_backup_target"), \
+                    patch.object(production.psycopg, "connect", return_value=database) as connect:
+                mocked_connection.settings_dict = self.config
+                with production.backup_connection(self.target, "00000000-00000000-1") as config:
+                    self.assertEqual(config["PASSWORD"], "backup-secret")
+                self.assertEqual(connect.call_args.kwargs["user"], self.target["backup_role"])
+                self.assertEqual(connect.call_args.kwargs["password"], "backup-secret")
+                self.assertEqual(connect.call_args.kwargs["sslmode"], "require")
+
+    def test_tcp_backup_rejects_unconfigured_operator_file(self):
+        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[3]) as directory:
+            password_file = Path(directory) / "backup-password"
+            password_file.write_text("backup-secret\n", encoding="utf-8")
+            password_file.chmod(0o600)
+            owner = password_file.stat().st_uid
+            with patch.dict(os.environ, {"PCA_BACKUP_PASSWORD_FILE": str(password_file)}, clear=True), \
+                    patch.object(production.os, "name", "posix"), \
+                    patch.object(production.os, "geteuid",
+                                 return_value=owner if owner != 0 else 10002, create=True):
+                with self.assertRaisesMessage(ValueError, "operator UID"):
+                    production._read_operator_password_file(password_file)
+
+    def test_tcp_backup_rejects_writable_password_ancestor(self):
+        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[3]) as directory:
+            unsafe = Path(directory) / "unsafe"
+            unsafe.mkdir()
+            unsafe.chmod(0o777)
+            password_file = unsafe / "backup-password"
+            password_file.write_text("backup-secret\n", encoding="utf-8")
+            password_file.chmod(0o600)
+            owner = password_file.stat().st_uid
+            operator_env = {} if owner == 0 else {"PCA_BACKUP_OPERATOR_UID": str(owner)}
+            with patch.dict(os.environ, operator_env, clear=True), \
+                    patch.object(production.os, "name", "posix"), \
+                    patch.object(production.os, "geteuid", return_value=owner, create=True):
+                with self.assertRaisesMessage(ValueError, "unsafe ancestor"):
+                    production._read_operator_password_file(password_file)
+
     def test_unix_target_requires_complete_transport_evidence_before_connect(self):
         target = self.unix_target()
         changes = ({"configured_host": "/tmp/postgresql"}, {"server_address": "127.0.0.1"},
@@ -296,6 +390,7 @@ class ProductionRefusalTests(SimpleTestCase):
                 patch.object(production.pca_protected_artifacts, "protected_postgresql_socket", socket_guard), \
                 patch.object(production.pca_protected_artifacts, "protected_directory"), \
                 patch.object(production.pca_protected_artifacts, "validate_file"), \
+                patch.object(production, "backup_connection", backup_config), \
                 patch.object(database_backup, "create_evidence", side_effect=archive):
             mocked.settings_dict = self.config
             mocked.in_atomic_block = False
@@ -323,7 +418,7 @@ class ProductionRefusalTests(SimpleTestCase):
             if "REPEATABLE READ" in sql:
                 state["isolation"] = "repeatable read"
 
-        with patch.object(production, "connection") as mocked,                 patch.object(production, "require_target", return_value=True),                 patch.object(production, "_is_disposable_qa", return_value=True),                 patch.object(production, "socket_guard", return_value=nullcontext()),                 patch.object(production, "_verify_live_target") as live,                 patch.object(production.transaction, "atomic", return_value=nullcontext()),                 patch.object(merge, "_verify_connection", side_effect=qa_verifier),                 patch.object(merge, "_authorize", return_value=(object(), object())),                 patch.object(merge, "_make_plan", return_value=plan),                 patch.object(database_backup, "create_evidence", return_value={"archive": {}}):
+        with patch.object(production, "connection") as mocked,                 patch.object(production, "require_target", return_value=True),                 patch.object(production, "_is_disposable_qa", return_value=True),                 patch.object(production, "socket_guard", return_value=nullcontext()),                 patch.object(production, "_verify_live_target") as live,                 patch.object(production.transaction, "atomic", return_value=nullcontext()),                 patch.object(production, "backup_connection", backup_config),                 patch.object(merge, "_verify_connection", side_effect=qa_verifier),                 patch.object(merge, "_authorize", return_value=(object(), object())),                 patch.object(merge, "_make_plan", return_value=plan),                 patch.object(database_backup, "create_evidence", return_value={"archive": {}}):
             mocked.in_atomic_block = False
             cursor = mocked.cursor.return_value.__enter__.return_value
             cursor.execute.side_effect = execute
@@ -384,13 +479,21 @@ class ProductionWorkflowTests(PcaFixtureMixin, TransactionTestCase):
         with connection.cursor() as cursor:
             cursor.execute(production.IDENTITY_SQL)
             row = cursor.fetchone()
+            from config import historical_temperature_pgqa as qa
+
+            cursor.execute("SELECT oid FROM pg_roles WHERE rolname=%s", [qa.BACKUP])
+            backup_oid = cursor.fetchone()[0]
         config = connection.settings_dict
-        self.target = {"schema": "pca_target_v3", "connection_mode": "tcp", "socket_uid": None, "socket_gid": None,
+        self.target = {"schema": "pca_target_v4", "connection_mode": "tcp", "socket_uid": None, "socket_gid": None,
                        "machine_id": MACHINE, "configured_host": config["HOST"],
                        "configured_port": str(config["PORT"]), "database": row[0], "database_oid": row[1],
-                       "role": row[2], "role_oid": row[4], "server_address": row[5], "server_port": row[6],
+                       "role": row[2], "role_oid": row[4], "backup_role": qa.BACKUP,
+                       "backup_role_oid": backup_oid, "server_address": row[5], "server_port": row[6],
                        "postmaster_started_at": row[7], "server_version_num": row[8]}
-        directory = Path(__file__).resolve().parents[3] / ".local-docs"
+        directory = Path(os.environ.get(
+            "POLYPBASE_PCA_TEST_ARTIFACTS",
+            Path(__file__).resolve().parents[3] / ".local-docs",
+        ))
         directory.mkdir(exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(prefix="pca-synthetic-", dir=directory)
         self.addCleanup(self.temporary.cleanup)

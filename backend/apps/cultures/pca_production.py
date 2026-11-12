@@ -9,9 +9,12 @@ import json
 import os
 import re
 import stat
-from contextlib import AbstractContextManager, nullcontext
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from pathlib import Path
 from typing import cast
+
+import psycopg
+from psycopg import sql
 
 from config import database_backup, pca_protected_artifacts
 from django.conf import settings
@@ -26,6 +29,10 @@ TARGET_KEYS = {"schema", "machine_id", "configured_host", "configured_port",
                "database", "role", "server_address", "server_port", "database_oid", "role_oid",
                "postmaster_started_at", "server_version_num", "connection_mode",
                "socket_uid", "socket_gid"}
+# The PCA target additionally binds the dedicated, read-only backup login.
+PCA_TARGET_KEYS = TARGET_KEYS | {"backup_role", "backup_role_oid"}
+TARGET_SCHEMA = "pca_target_v4"
+SNAPSHOT = re.compile(r"[0-9A-Fa-f]+-[0-9A-Fa-f]+-[0-9]+")
 # All functions are public PostgreSQL metadata reads; no pg_control_system grant.
 IDENTITY_SQL = """
 SELECT current_database(), d.oid::bigint, session_user::text, current_user::text,
@@ -84,22 +91,25 @@ def write_artifact(path, value):
 
 def require_target(target):
     """Preconnect refusal: no discovery, DNS lists, libpq redirection or QA bypass."""
-    if type(target) is not dict or set(target) != TARGET_KEYS or target["schema"] != "pca_target_v3":
-        raise ValueError("A complete authenticated pca_target_v3 attestation is required.")
+    if type(target) is not dict or set(target) != PCA_TARGET_KEYS or target["schema"] != TARGET_SCHEMA:
+        raise ValueError(f"A complete authenticated {TARGET_SCHEMA} attestation is required.")
     if (not all(isinstance(target[key], str) and target[key].strip() for key in
                 ("machine_id", "configured_host", "configured_port", "database",
-                 "role", "postmaster_started_at"))
+                 "role", "backup_role", "postmaster_started_at"))
             or not re.fullmatch(r"[0-9a-f]{32}", target["machine_id"])
             or any(type(target[key]) is not int or target[key] <= 0 for key in
-                   ("database_oid", "role_oid", "server_version_num"))):
+                   ("database_oid", "role_oid", "backup_role_oid", "server_version_num"))):
         raise ValueError("Incomplete or invalid target identity.")
     # The command runs locally on the production server, never through a tunnel.
     host = target["configured_host"]
     if (not target["configured_port"].isascii() or not target["configured_port"].isdigit()
             or not 1 <= int(target["configured_port"]) <= 65535
-            or any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", target[key]) for key in ("database", "role"))
-            or target["database"] in ("postgres", "template0", "template1")):
-        raise ValueError("An exact local application database endpoint is required; no tunnels or remote hosts.")
+            or any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", target[key])
+                   for key in ("database", "role", "backup_role"))
+            or target["database"] in ("postgres", "template0", "template1")
+            or target["role"] == target["backup_role"]
+            or target["role_oid"] == target["backup_role_oid"]):
+        raise ValueError("An exact local application database endpoint and a distinct backup login are required.")
     if target["connection_mode"] == "tcp":
         if not isinstance(target["server_address"], str):
             raise ValueError("A canonical numeric loopback address is required.")
@@ -127,7 +137,9 @@ def require_target(target):
           or getattr(settings, "HISTORICAL_TEMPERATURE_PGQA", False)
           or config.get("ENGINE") != "django.db.backends.postgresql"
           or config.get("OPTIONS") not in ({"sslmode": "prefer"}, {"sslmode": "require"},
-                                          {"sslmode": "verify-full"}, {"sslmode": "disable"})):
+                                          {"sslmode": "verify-full"}, {"sslmode": "disable"})
+          or (target["connection_mode"] == "tcp"
+              and config.get("OPTIONS", {}).get("sslmode") not in ("require", "verify-full"))):
         raise ValueError("Production requires config.settings, DEBUG off and unredirected PostgreSQL settings.")
     if (settings.DATABASE_ROUTERS or set(settings.DATABASES) != {"default"}
             or (config.get("HOST"), str(config.get("PORT")), config.get("NAME"), config.get("USER")) !=
@@ -190,6 +202,135 @@ def _verify_live_target(target):
             raise ValueError("Unsafe PostgreSQL role privileges or privileged role membership.")
 
 
+def _verify_backup_target(target, database):
+    """Verify the dedicated backup login on its own peer-authenticated connection."""
+    info = database.info
+    expected_hostaddr = (target["server_address"]
+                         if target["connection_mode"] == "tcp" else "")
+    if ((info.host, info.hostaddr, str(info.port), info.dbname, info.user) !=
+            (target["configured_host"], expected_hostaddr, target["configured_port"], target["database"],
+             target["backup_role"])):
+        raise ValueError("Effective backup connection differs from the attested target.")
+    with database.cursor() as cursor:
+        cursor.execute(IDENTITY_SQL)
+        expected = (target["database"], target["database_oid"], target["backup_role"],
+                    target["backup_role"], target["backup_role_oid"], target["server_address"],
+                    target["server_port"], target["postmaster_started_at"],
+                    target["server_version_num"], "origin", ["public"], False,
+                    int(target["configured_port"]))
+        if tuple(cursor.fetchone()) != expected:
+            raise ValueError("Live backup identity/session state differs from the independent attestation.")
+        cursor.execute("""
+            SELECT rolname FROM pg_roles
+            WHERE pg_has_role(current_user, oid, 'MEMBER') AND
+              (rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls
+               OR (left(rolname, 3) = 'pg_' AND rolname <> 'pg_database_owner'))
+        """)
+        if cursor.fetchall():
+            raise ValueError("Unsafe backup role privileges or privileged role membership.")
+
+
+def _read_operator_password_file(path):
+    """Read a TCP credential only from the authorized backup execution context."""
+    if os.name != "posix" or not path.is_absolute():
+        raise ValueError("TCP backup password file requires a POSIX absolute path.")
+    try:
+        effective_uid = os.geteuid()
+        info = path.lstat()
+        resolved = path.resolve(strict=True)
+    except (AttributeError, OSError) as error:
+        raise ValueError("TCP backup password file is unavailable.") from error
+    if resolved != path or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        raise ValueError("TCP backup password file must be a non-linked regular file.")
+    if info.st_mode & 0o077:
+        raise ValueError("TCP backup password file must be private.")
+
+    configured_uid = os.environ.get("PCA_BACKUP_OPERATOR_UID")
+    if configured_uid is not None:
+        if not configured_uid.isascii() or not configured_uid.isdigit():
+            raise ValueError("TCP backup operator UID is invalid.")
+        operator_uid = int(configured_uid)
+        if operator_uid <= 0 or effective_uid != operator_uid or info.st_uid != operator_uid:
+            raise ValueError("TCP backup password file is not owned by the backup operator.")
+    elif effective_uid == 0:
+        operator_uid = 0
+        if info.st_uid != 0:
+            raise ValueError("Root TCP backup requires a root-owned password file.")
+    else:
+        raise ValueError("TCP backup operator UID must be explicitly configured.")
+
+    current = path.parent
+    while True:
+        try:
+            ancestor = current.lstat()
+        except OSError as error:
+            raise ValueError("TCP backup password path is unavailable.") from error
+        if stat.S_ISLNK(ancestor.st_mode) or not stat.S_ISDIR(ancestor.st_mode):
+            raise ValueError("TCP backup password path has an unsafe ancestor.")
+        if ancestor.st_mode & 0o022 or ancestor.st_uid not in (0, operator_uid):
+            raise ValueError("TCP backup password path has an unsafe ancestor.")
+        if current.parent == current:
+            break
+        current = current.parent
+
+    try:
+        return path.read_text(encoding="utf-8").rstrip("\r\n")
+    except OSError as error:
+        raise ValueError("TCP backup password file is unavailable.") from error
+
+
+@contextmanager
+def backup_connection(target, snapshot):
+    """Hold the dedicated backup login and import the caller's exported snapshot.
+
+    The runtime never receives this login, its membership or its credentials; the
+    backup role is a separate, read-only, non-impersonable identity.
+    """
+    require_target(target)
+    if not isinstance(snapshot, str) or not SNAPSHOT.fullmatch(snapshot):
+        raise ValueError("A PostgreSQL exported snapshot identifier is required.")
+    if target["connection_mode"] == "unix":
+        if any(name in os.environ for name in ("PCA_BACKUP_PASSWORD", "PCA_BACKUP_PASSWORD_FILE")):
+            raise ValueError("Unix peer backup must not receive a password.")
+        sslmode, password = "disable", ""
+    else:
+        if "PCA_BACKUP_PASSWORD" in os.environ:
+            raise ValueError("TCP backup password must not be supplied in the process environment.")
+        password_file = os.environ.get("PCA_BACKUP_PASSWORD_FILE")
+        if not password_file or not os.path.isabs(password_file):
+            raise ValueError("TCP backup requires an operator-protected password file.")
+        path = Path(password_file)
+        password = _read_operator_password_file(path)
+        if not password or password == connection.settings_dict.get("PASSWORD", ""):
+            raise ValueError("TCP backup requires a distinct operator-supplied credential.")
+        sslmode = connection.settings_dict.get("OPTIONS", {}).get("sslmode")
+        if sslmode not in ("require", "verify-full"):
+            raise ValueError("TCP backup requires encrypted transport.")
+    config = {"ENGINE": "django.db.backends.postgresql", "HOST": target["configured_host"],
+              "PORT": target["configured_port"], "NAME": target["database"],
+              "USER": target["backup_role"], "PASSWORD": password,
+              "OPTIONS": {"sslmode": sslmode, "passfile": os.devnull}}
+    with socket_guard(target):
+        database = psycopg.connect(host=config["HOST"], port=config["PORT"], dbname=config["NAME"],
+                               user=config["USER"], password=password, passfile=os.devnull,
+                                   sslmode=sslmode, connect_timeout=5, autocommit=True,
+                                   options="-c search_path=public")
+        try:
+            _verify_backup_target(target, database)
+            with database.cursor() as cursor:
+                cursor.execute("SET default_transaction_read_only = on")
+                cursor.execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
+                # Import must precede every snapshot-taking read in this transaction.
+                cursor.execute(sql.SQL("SET TRANSACTION SNAPSHOT {}").format(sql.Literal(snapshot)))
+            _verify_backup_target(target, database)
+            yield config
+            database.rollback()
+            _verify_backup_target(target, database)
+            require_target(target)
+        finally:
+            database.close()
+
+
 def envelope(target, plan):
     return {"schema": SCHEMA, "target": target, "plan": plan, "expected_outcome": OUTCOME}
 
@@ -234,11 +375,11 @@ def backup_plan(organization_id, *, actor, document, approved_hash, output_dir):
                 raise ValueError("Stale plan: no backup evidence can be issued for a different live snapshot.")
             cursor.execute("SELECT pg_export_snapshot()")
             snapshot = cursor.fetchone()[0]
-        database = {**connection.settings_dict, "ENGINE": "django.db.backends.postgresql"}
-        evidence = database_backup.create_evidence(
-            database, target, approved_hash, output_dir, snapshot=snapshot,
-            hostaddr=target["server_address"],
-        )
+        with backup_connection(target, snapshot) as backup_config:
+            evidence = database_backup.create_evidence(
+                backup_config, target, approved_hash, output_dir, snapshot=snapshot,
+                hostaddr=target["server_address"],
+            )
         if not _is_disposable_qa():
             pca_protected_artifacts.validate_file(evidence["archive"]["path"])
         verify_target(target, in_snapshot=True)

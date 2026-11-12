@@ -13,19 +13,50 @@ from copy import deepcopy
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import sys
 
 ROOT = Path("/opt/pca")
 MARKER = Path("/etc/polypbase/pca-unix-ci.json")
 DATABASE = "synthetic_pca_ci"
-OWNER = "synthetic_pca_owner"
-RUNTIME = "synthetic_pca_runtime"
+# Genuine Box 1902 V2 topology: the owner login acts through SET ROLE to the
+# protected owner; the runtime and backup logins stay independent.
+OWNER = "box1902_migrator"
+OWNER_ROLE = "box1902_owner"
+RUNTIME = "polypbase"
+BACKUP = "box1902_backup"
+MIGRATOR = "box1902_migrator"
 PORT = "65432"
+RUNTIME_UID = 10001
+BACKUP_UID = 10002
 
 
-def preflight(payload):
-    if (sys.platform != "linux" or os.getuid() != 10001 or os.geteuid() != 10001
+def authentication_denied(error, role):
+    import psycopg
+
+    if not isinstance(error, psycopg.OperationalError):
+        return False
+    sqlstate = getattr(error, "sqlstate", None)
+    if sqlstate is None:
+        sqlstate = getattr(getattr(error, "diag", None), "sqlstate", None)
+    primary = str(getattr(getattr(error, "diag", None), "message_primary", "") or "")
+    role_pattern = re.escape(role)
+    socket = re.escape(f"/var/run/postgresql/.s.PGSQL.{PORT}")
+    peer_message = (
+        rf'connection failed: connection to server on socket "{socket}" failed: '
+        rf'FATAL:\s+Peer authentication failed for user "{role_pattern}"')
+    if sqlstate is not None:
+        diagnostic = f"{primary}\n{error}"
+        return (isinstance(sqlstate, str) and sqlstate.startswith("28")
+                and re.search(peer_message, diagnostic) is not None)
+    # libpq can omit all diagnostics for a startup failure. In that case accept
+    # only the exact PostgreSQL peer-authentication message for this role.
+    return re.fullmatch(peer_message, str(error).strip()) is not None
+
+
+def preflight(payload, *, expected_uid=RUNTIME_UID):
+    if (sys.platform != "linux" or os.getuid() != expected_uid or os.geteuid() != expected_uid
             or Path(__file__).resolve() != ROOT / "scripts/pca_unix_ci/run_tests.py"
             or not Path("/.dockerenv").is_file()
             or set(os.listdir("/sys/class/net")) != {"lo"}):
@@ -42,7 +73,8 @@ def preflight(payload):
     marker = json.loads(MARKER.read_text(encoding="utf-8"))
     if marker != {"schema": "pca_unix_ci_v1", "container_only": True, "network": "none",
                   "system_identifier": payload["system_identifier"], "database": DATABASE,
-                  "port": int(PORT), "owner": OWNER, "runtime": RUNTIME}:
+                  "port": int(PORT), "owner": OWNER_ROLE, "runtime": RUNTIME,
+                  "migrator": MIGRATOR, "backup": BACKUP}:
         raise RuntimeError("Disposable target differs from the independent CI provisioning record")
     expected = {"POLYPBASE_QA_HOST": "127.0.0.1", "POLYPBASE_QA_PORT": PORT,
                 "POLYPBASE_QA_DATABASE": DATABASE, "POLYPBASE_QA_OWNER": OWNER,
@@ -182,6 +214,14 @@ def workflow_suite(runtime_password):
             self.assertEqual(row[0:5], (DATABASE, self.target["database_oid"], RUNTIME, RUNTIME,
                                        self.target["role_oid"]))
             self.assertEqual(production.machine_id(), self.target["machine_id"])
+            # The runtime must never read the protected capability: fail closed.
+            from django.db import DatabaseError
+
+            with connection.cursor() as cursor:
+                for table in ("approval_v2", "context_v2", "correction_v2"):
+                    with self.assertRaises(DatabaseError) as caught:
+                        cursor.execute(f"SELECT * FROM box1902_private.{table}")
+                    self.assertIn("permission denied", str(caught.exception))
 
         def test_mismatched_configured_socket_role_database_and_port_refused(self):
             config = connection.settings_dict
@@ -205,7 +245,7 @@ def workflow_suite(runtime_password):
             def inspect_snapshot(database, target, digest, output_dir, *, snapshot, hostaddr):
                 self.assertIsNone(hostaddr)
                 self.assertEqual((database["HOST"], str(database["PORT"]), database["USER"]),
-                                 ("/var/run/postgresql", PORT, RUNTIME))
+                                 ("/var/run/postgresql", PORT, BACKUP))
                 with connection.cursor() as cursor:
                     cursor.execute("SELECT current_setting('transaction_read_only'), "
                                    "current_setting('transaction_isolation')")
@@ -223,20 +263,102 @@ def workflow_suite(runtime_password):
             self.assertTrue(observed[0])
             self.assertGreater(evidence["archive"]["size_bytes"], 0)
             database_backup.validate_evidence(evidence, self.target, merge.fingerprint(document))
+            # A readable archive is not a complete backup: prove the protected objects are present.
+            import subprocess
+
+            listing = subprocess.run(
+                [database_backup.PG_RESTORE, "--list", evidence["archive"]["path"]],
+                capture_output=True, text=True, check=True).stdout
+            private = [line for line in listing.splitlines() if "box1902_private" in line]
+            for table in ("approval_v2", "context_v2", "correction_v2"):
+                self.assertTrue(any(table in line for line in private),
+                                f"protected table {table} missing from the archive")
 
     return unittest.defaultTestLoader.loadTestsFromTestCase(NativeUnixWorkflowTests)
+
+
+def auth_probe(case):
+    import psycopg
+
+    expected = {
+        "runtime-runtime": (RUNTIME, True),
+        "runtime-backup": (BACKUP, False),
+        "runtime-postgres": ("postgres", False),
+        "backup-runtime": (RUNTIME, True),
+        "backup-backup": (BACKUP, True),
+        "backup-postgres": ("postgres", False),
+    }[case]
+    connection_kwargs = {
+        "host": "/var/run/postgresql", "port": PORT, "dbname": DATABASE,
+        "password": "", "passfile": "/dev/null", "sslmode": "disable",
+        "connect_timeout": 5, "autocommit": True,
+    }
+
+    def connect(role):
+        return psycopg.connect(user=role, **connection_kwargs)
+
+    # Establish the expected positive identity from this same OS process before
+    # interpreting a negative result.
+    positive_role = RUNTIME if case.startswith("runtime-") else BACKUP
+    with connect(positive_role) as database:
+        with database.cursor() as cursor:
+            cursor.execute("SELECT session_user, current_user")
+            if cursor.fetchone() != (positive_role, positive_role):
+                raise AssertionError("Legitimate peer identity could not be established")
+
+    database = None
+    try:
+        database = connect(expected[0])
+    except Exception as error:
+        if expected[1] or not authentication_denied(error, expected[0]):
+            raise
+        print(f"Native PostgreSQL authentication denial passed: {case}", flush=True)
+        return
+    try:
+        if not expected[1]:
+            raise AssertionError(f"Unexpected peer authentication for {case}")
+        with database:
+            with database.cursor() as cursor:
+                cursor.execute("SELECT session_user, current_user")
+                if cursor.fetchone() != (expected[0], expected[0]):
+                    raise AssertionError(f"Unexpected SQL identity for {case}")
+                if case == "backup-backup":
+                    cursor.execute(
+                        "SELECT rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls "
+                        "FROM pg_roles WHERE rolname=current_user")
+                    if cursor.fetchone() != (False, False, False, False, False):
+                        raise AssertionError("Backup role has administrative privilege")
+                    cursor.execute(
+                        "SELECT has_database_privilege(current_user, current_database(), 'CREATE'), "
+                        "has_schema_privilege(current_user, 'public', 'CREATE')")
+                    if cursor.fetchone() != (False, False):
+                        raise AssertionError("Backup role can create database objects")
+    finally:
+        database.close()
+    print(f"Native PostgreSQL authentication probe passed: {case}", flush=True)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--probe", choices=("success", "socket-owner", "socket-group", "socket-acl",
                                            "socket-world-write", "server-identity", "role-privileges"))
+    parser.add_argument("--auth-probe", choices=("runtime-runtime", "runtime-backup",
+                                                  "runtime-postgres", "backup-runtime",
+                                                  "backup-backup", "backup-postgres"))
+    parser.add_argument("--backup-workflow", action="store_true")
     args = parser.parse_args()
     payload = json.load(sys.stdin)
-    preflight(payload)
+    expected_uid = (BACKUP_UID if args.backup_workflow
+                    or args.auth_probe in ("backup-runtime", "backup-backup", "backup-postgres")
+                    else RUNTIME_UID)
+    preflight(payload, expected_uid=expected_uid)
     sys.path.insert(0, str(ROOT / "backend"))
+    if args.auth_probe:
+        auth_probe(args.auth_probe)
+        return 0
     from config import historical_temperature_pgqa as qa
 
+    qa.OWNER_ROLE = OWNER_ROLE
     qa.CREDENTIALS.update({OWNER: payload["owner_password"], RUNTIME: payload["runtime_password"]})
     qa.AUTHORIZED = True
     import django

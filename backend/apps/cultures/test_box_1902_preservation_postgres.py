@@ -1,138 +1,89 @@
-"""Isolated PostgreSQL proofs for the protected Box 1902 preservation capability."""
+"""Five preservation-prototype scenarios, executed by the genuine-role v2 class.
 
-from datetime import date, timedelta
-from unittest import skipUnless
+The former public *_v1 helpers/tables no longer exist. Each method keeps its
+original science/identity assertions and uses the real independent v2 approval
+and writer. V2 retains validated private context as immutable provenance instead
+of deleting the prototype's temporary context.
+"""
 
-from django.db import DatabaseError, connection, transaction
-from django.test import TransactionTestCase
+import psycopg
+from django.db import connection
 
 from apps.audit.models import AuditLog
-from apps.measurements.models import (
-    BiologicalMeasurement, HistoricalTemperatureEvidence, HistoricalTemperatureReading,
-)
-from apps.taxonomy.models import Strain
+from apps.measurements.models import BiologicalMeasurement, HistoricalTemperatureEvidence, HistoricalTemperatureReading
 
+from .box_1902_test_support import runtime_test
 from .models import Box
-from .test_cla_box_1902 import ClaBox1902Fixture
-from .test_identity_reconciliation_postgres import PostgreSQLFixture
 
 
-@skipUnless(connection.vendor == "postgresql", "Requires the disposable native PostgreSQL cluster.")
-class Box1902PreservationPostgreSQLTests(ClaBox1902Fixture, PostgreSQLFixture, TransactionTestCase):
-    reset_sequences = True
-
-    def setUp(self):
-        TransactionTestCase.setUp(self)
-        self.assertFalse(connection.in_atomic_block)
-        self.create_fixture()
-        self.target = Strain.objects.create(
-            pk=285, organization=self.org, species=self.target_species, code="CLC-JKA-2",
-            origin_code="JKA", number=2,
-        )
-        self.readings = []
-        for week in range(12, 53):
-            biology = BiologicalMeasurement.objects.create(
-                box=self.box, measured_on=date.fromisocalendar(2025, week, 1),
-                polyp_count=0, ephyrae_count=0, strobila_count=None,
-                salinity_psu=None, user=self.admin,
-            )
-            with transaction.atomic():
-                reading = HistoricalTemperatureReading.objects.create(
-                    biological_measurement=biology, iso_year=2025, iso_week=week,
-                    temperature_c="0.0000",
-                )
-                HistoricalTemperatureEvidence.objects.create(
-                    reading=reading, source_file="Suivi_2025.xlsx",
-                    source_sha256="0" * 64, sheet="Semaestomeae",
-                    temperature_cell="C61", temperature_merged_range="C61:C62",
-                    source_value="0.0000", source_box="CLA-JKA-1.09",
-                    polyp_cell="Q61", polyp_value="0",
-                    ephyrae_cell="Q62", ephyrae_value="0",
-                    week_cell="Q1", week_value=str(week),
-                    source_iso_year=2025, source_iso_week=week,
-                )
-            self.readings.append(reading.pk)
-
-    def tearDown(self):
-        with connection.cursor() as cursor:
-            cursor.execute("DELETE FROM public.box_1902_preservation_context_v1")
-            cursor.execute("DELETE FROM public.box_1902_approval_v1")
-        super().tearDown()
-
-    def _approve(self):
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "INSERT INTO public.box_1902_approval_v1 "
-                "(singleton, operation, document, manifest_hash, expires_at) "
-                "VALUES (true, %s, %s::jsonb, %s, clock_timestamp() + interval '1 hour')",
-                ["box_1902_preservation_20261109_v1", "{}", "a" * 64],
-            )
-
-    def _apply(self):
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT public.box_1902_preserve_v1(%s)", [self.admin.pk])
-
+class Box1902PreservationPostgreSQLTests:
     def _reading_statuses(self):
-        return dict(HistoricalTemperatureReading.objects.filter(pk__in=self.readings)
+        return dict(HistoricalTemperatureReading.objects.filter(pk__in=self.reading_ids)
                     .values_list("pk", "association_status"))
 
     def _evidence_rows(self):
-        return list(HistoricalTemperatureEvidence.objects.filter(reading_id__in=self.readings)
+        return list(HistoricalTemperatureEvidence.objects.filter(reading_id__in=self.reading_ids)
                     .order_by("pk").values())
 
+    @runtime_test
     def test_exact_correction_preserves_all_41_confirmations(self):
         before_evidence = self._evidence_rows()
-        before_measurements = list(BiologicalMeasurement.objects.filter(box=self.box)
-                                   .order_by("pk").values())
-        self._approve()
-        self._apply()
+        before_measurements = list(BiologicalMeasurement.objects.filter(box=self.box).order_by("pk").values())
+        digest = self.approve(plan=self.plan())
+        before = self.snapshot()
+        self.write(digest)
+        self.assert_preserved(before)
         self.box.refresh_from_db()
         self.assertEqual(self.box.global_code, "CLC-JKA-1.009")
         self.assertEqual(self.box.strain_id, 285)
         self.assertEqual(self.box.local_code, "CLA-JKA-1.09")
         self.assertEqual(self.box.status, Box.Status.INACTIVE)
-        self.assertEqual(self._reading_statuses(), {pk: "confirmed" for pk in self.readings})
+        self.assertEqual(self._reading_statuses(), {pk: "confirmed" for pk in self.reading_ids})
         self.assertEqual(self._evidence_rows(), before_evidence)
-        self.assertEqual(list(BiologicalMeasurement.objects.filter(box=self.box)
-                              .order_by("pk").values()), before_measurements)
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT count(*) FROM public.box_1902_preservation_context_v1")
-            self.assertEqual(cursor.fetchone()[0], 0)
-            cursor.execute("SELECT count(*) FROM public.box_1902_approval_v1 WHERE consumed_at IS NOT NULL")
-            self.assertEqual(cursor.fetchone()[0], 1)
+        self.assertEqual(list(BiologicalMeasurement.objects.filter(box=self.box).order_by("pk").values()),
+                         before_measurements)
+        self.assertEqual(self.execute("SELECT count(*) FROM box1902_private.context_v2 WHERE validated"), [(1,)])
+        self.assertEqual(self.execute("SELECT count(*) FROM box1902_private.approval_v2 WHERE consumed_at IS NOT NULL"), [(1,)])
         self.assertTrue(AuditLog.objects.filter(
             organization=self.org, object_type="box", object_id="CLC-JKA-1.009",
-            metadata__operation="box_1902_preservation_20261109_v1",
+            metadata__operation="cla_box_1902_preservation_20261109_v2",
         ).exists())
 
+    @runtime_test
     def test_replay_is_rejected_without_new_writes(self):
-        self._approve()
-        self._apply()
-        before = self._reading_statuses()
-        with self.assertRaises(DatabaseError):
-            self._apply()
-        self.assertEqual(self._reading_statuses(), before)
+        digest = self.approve(plan=self.plan())
+        self.write(digest)
+        before = self.snapshot()
+        statuses = self._reading_statuses()
+        with self.assertRaises(psycopg.Error):
+            self.write(digest)
+        self.assertEqual(self._reading_statuses(), statuses)
+        self.assertEqual(self.snapshot(), before)
 
+    @runtime_test
     def test_direct_sql_without_approval_is_rejected(self):
-        with self.assertRaises(DatabaseError):
-            self._apply()
+        before = self.snapshot()
+        with self.assertRaises(psycopg.Error):
+            self.write("a" * 64)
         self.box.refresh_from_db()
         self.assertEqual(self.box.global_code, "CLA-JKA-1.009")
-        self.assertEqual(self._reading_statuses(), {pk: "confirmed" for pk in self.readings})
+        self.assertEqual(self._reading_statuses(), {pk: "confirmed" for pk in self.reading_ids})
+        self.assertEqual(self.snapshot(), before)
 
+    @runtime_test
     def test_ordinary_identity_change_still_invalidates(self):
         with connection.cursor() as cursor:
-            cursor.execute(
-                "UPDATE public.cultures_box SET global_code = 'CLC-JKA-1.009', strain_id = %s "
-                "WHERE id = 1902 AND organization_id = 1",
-                [self.target.pk],
-            )
-        self.assertEqual(self._reading_statuses(), {pk: "pending_review" for pk in self.readings})
+            cursor.execute("UPDATE public.cultures_box SET global_code='CLC-JKA-1.009', strain_id=285 "
+                           "WHERE id=1902 AND organization_id=1")
+        self.assertEqual(self._reading_statuses(), {pk: "pending_review" for pk in self.reading_ids})
 
+    @runtime_test
     def test_other_boxes_and_organizations_are_untouched(self):
         before = list(Box.objects.order_by("pk").values())
-        self._approve()
-        self._apply()
+        digest = self.approve(plan=self.plan())
+        snapshot = self.snapshot()
+        self.write(digest)
+        self.assert_preserved(snapshot)
         after = list(Box.objects.order_by("pk").values())
         changed = [row for row in after if row not in before]
         self.assertEqual(len(changed), 1)
