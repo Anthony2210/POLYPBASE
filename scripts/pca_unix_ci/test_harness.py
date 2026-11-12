@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import stat
 import subprocess
+import sys
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, call, patch
@@ -101,6 +102,99 @@ class HarnessTests(unittest.TestCase):
                 self.assertNotIn(PAYLOAD[key], json.dumps(environment))
         self.assertEqual(self.process.call_args.args[0][-2:], ["--probe", "socket-group"])
 
+    def test_authentication_probes_select_distinct_os_identities(self):
+        self.process.side_effect = None
+        provision.child(PAYLOAD, auth_probe="runtime-backup")
+        provision.child(PAYLOAD, auth_probe="runtime-postgres")
+        provision.child(PAYLOAD, auth_probe="backup-backup", identity="backup")
+        provision.child(PAYLOAD, auth_probe="backup-postgres", identity="backup")
+        for call in self.process.call_args_list:
+            self.assertIn("--auth-probe", call.args[0])
+        self.assertNotIn("--reuid=10002", self.process.call_args_list[0].args[0])
+        self.assertNotIn("--reuid=10002", self.process.call_args_list[1].args[0])
+        self.assertIn("--reuid=10002", self.process.call_args_list[2].args[0])
+        self.assertIn("--reuid=10002", self.process.call_args_list[3].args[0])
+
+    def test_peer_denial_classifier_requires_exact_postgresql_failure(self):
+        class OperationalError(Exception):
+            pass
+
+        fake_psycopg = SimpleNamespace(OperationalError=OperationalError)
+        with patch.dict(sys.modules, {"psycopg": fake_psycopg}):
+            actual = OperationalError(
+                'connection failed: connection to server on socket '
+                '"/var/run/postgresql/.s.PGSQL.65432" failed: FATAL:  '
+                'Peer authentication failed for user "box1902_backup"')
+            self.assertTrue(run_tests.authentication_denied(actual, "box1902_backup"))
+            self.assertFalse(run_tests.authentication_denied(
+                OperationalError(f"{actual} unrelated text"), "box1902_backup"))
+            self.assertFalse(run_tests.authentication_denied(
+                OperationalError(
+                    'connection failed: connection to server on socket '
+                    '"/var/run/postgresql/.s.PGSQL.65432" failed: FATAL:  '
+                    'Peer authentication failed for user "other_role"'),
+                "box1902_backup"))
+            self.assertFalse(run_tests.authentication_denied(
+                OperationalError(
+                    'connection failed: connection to server on socket '
+                    '"/var/run/postgresql/.s.PGSQL.65433" failed: FATAL:  '
+                    'Peer authentication failed for user "box1902_backup"'),
+                "box1902_backup"))
+            self.assertFalse(run_tests.authentication_denied(
+                OperationalError("connection refused"), "box1902_backup"))
+            self.assertFalse(run_tests.authentication_denied(
+                OperationalError("FATAL: authentication failed"), "box1902_backup"))
+            with_sqlstate = OperationalError(
+                'connection failed: connection to server on socket '
+                '"/var/run/postgresql/.s.PGSQL.65432" failed: FATAL:  '
+                'Peer authentication failed for user "box1902_backup"')
+            with_sqlstate.sqlstate = "28000"
+            self.assertTrue(run_tests.authentication_denied(with_sqlstate, "box1902_backup"))
+            with_sqlstate.sqlstate = "08006"
+            self.assertFalse(run_tests.authentication_denied(with_sqlstate, "box1902_backup"))
+
+    def test_forbidden_successful_authentication_fails_probe(self):
+        class Cursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def execute(self, query):
+                return None
+
+            def fetchone(self):
+                return (self.role, self.role)
+
+        class Database:
+            def __init__(self, role):
+                self.cursor_instance = Cursor()
+                self.cursor_instance.role = role
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def cursor(self):
+                return self.cursor_instance
+
+            def close(self):
+                return None
+
+        class FakePsycopg:
+            OperationalError = RuntimeError
+
+            @staticmethod
+            def connect(**kwargs):
+                return Database(kwargs["user"])
+
+        with patch.dict(sys.modules, {"psycopg": FakePsycopg}):
+            with self.assertRaisesRegex(AssertionError, "Unexpected peer authentication"):
+                run_tests.auth_probe("runtime-backup")
+
     def probe_mocks(self):
         child = self.stack.enter_context(patch.object(provision, "child"))
         chown = self.stack.enter_context(patch.object(os, "chown", create=True))
@@ -186,7 +280,10 @@ class HarnessTests(unittest.TestCase):
             with self.subTest(index=index, wrong=wrong), self.assertRaisesRegex(RuntimeError, "identity"):
                 provision.attest(POSTGRES, "a" * 32)
         write.assert_not_called()
-        fetch.side_effect = [(PAYLOAD["system_identifier"],), valid]
+        fetch.side_effect = [
+            (PAYLOAD["system_identifier"],), valid,
+            (99, True, False, False, False, False, False, False),
+        ]
         identifier, target = provision.attest(POSTGRES, "a" * 32)
         self.assertEqual(identifier, PAYLOAD["system_identifier"])
         self.assertEqual((target["connection_mode"], target["socket_uid"], target["socket_gid"]),
@@ -204,7 +301,8 @@ class HarnessTests(unittest.TestCase):
         self.stack.enter_context(patch.object(os, "listdir", return_value=["lo"]))
         marker = {"schema": "pca_unix_ci_v1", "container_only": True, "network": "none",
                   "system_identifier": PAYLOAD["system_identifier"], "database": run_tests.DATABASE,
-                  "port": int(run_tests.PORT), "owner": run_tests.OWNER, "runtime": run_tests.RUNTIME}
+                  "port": int(run_tests.PORT), "owner": run_tests.OWNER_ROLE, "runtime": run_tests.RUNTIME,
+                  "migrator": run_tests.MIGRATOR, "backup": run_tests.BACKUP}
         read = self.stack.enter_context(patch.object(Path, "read_text", return_value=json.dumps(marker)))
         self.stack.enter_context(patch.object(Path, "lstat", autospec=True, side_effect=lambda path:
             SimpleNamespace(st_uid=0, st_mode=(stat.S_IFREG if path == run_tests.MARKER else stat.S_IFDIR) | 0o755)))

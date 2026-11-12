@@ -48,6 +48,7 @@ class DatabaseWrapper(PostgreSQLWrapper):
     def init_connection_state(self):
         super().init_connection_state()
         try:
+            qa.apply_owner_role(self.connection, self.settings_dict["USER"])
             qa.verify_raw(self.connection, self.settings_dict["USER"])
         except BaseException:
             self.connection.close()

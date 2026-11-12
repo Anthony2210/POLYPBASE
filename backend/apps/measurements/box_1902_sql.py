@@ -27,7 +27,9 @@ RUNTIME = "polypbase"
 APPROVER = "box1902_approver"
 EXECUTOR = "box1902_executor"
 MIGRATOR = "box1902_migrator"
-ROLES = (OWNER, RUNTIME, APPROVER, EXECUTOR, MIGRATOR)
+# Dedicated read-only backup login: complete pg_dump without runtime private access.
+BACKUP = "box1902_backup"
+ROLES = (OWNER, RUNTIME, APPROVER, EXECUTOR, MIGRATOR, BACKUP)
 PRIVATE_TABLES = ("approval_v2", "context_v2", "correction_v2")
 APPROVAL_COLUMNS = (
     "id", "operation", "actor_id", "plan_text", "plan_hash", "manifest", "expires_at",
@@ -425,6 +427,11 @@ ACL_SQL = "\n".join(
 GRANT USAGE ON SCHEMA box1902_private TO box1902_approver;
 GRANT INSERT (id, operation, actor_id, plan_text, plan_hash, manifest, expires_at)
     ON box1902_private.approval_v2 TO box1902_approver;
+-- Dedicated backup login reads protected provenance for a complete archive only.
+GRANT USAGE ON SCHEMA box1902_private TO box1902_backup;
+GRANT SELECT ON ALL TABLES IN SCHEMA box1902_private TO box1902_backup;
+ALTER DEFAULT PRIVILEGES FOR ROLE box1902_owner IN SCHEMA box1902_private
+    GRANT SELECT ON TABLES TO box1902_backup;
 GRANT EXECUTE ON FUNCTION public.box_1902_manifest_v2()
     TO polypbase, box1902_approver, box1902_executor;
 GRANT EXECUTE ON FUNCTION public.box_1902_evidence_valid_v2(bigint) TO PUBLIC;
@@ -460,7 +467,7 @@ def assert_topology(connection, installation=False):
             raise ContractError("Missing independent Box 1902 roles; provision separately")
         for role, flags in roles.items():
             if (any(flags[:6]) or (role == OWNER and flags[6])
-                    or (role in (RUNTIME, APPROVER, MIGRATOR) and not flags[6])):
+                    or (role in (RUNTIME, APPROVER, MIGRATOR, BACKUP) and not flags[6])):
                 raise ContractError(f"Unsafe role attributes: {role}")
         c.execute("""SELECT parent.rolname, member.rolname, m.admin_option, m.inherit_option, m.set_option
             FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles parent ON parent.oid = m.roleid
@@ -498,7 +505,7 @@ def assert_topology(connection, installation=False):
         c.execute("SELECT current_setting('session_replication_role')")
         if c.fetchone()[0] != 'origin':
             raise ContractError("Triggers must run in origin mode")
-        for role in (RUNTIME, APPROVER, EXECUTOR, MIGRATOR):
+        for role in (RUNTIME, APPROVER, EXECUTOR, MIGRATOR, BACKUP):
             c.execute("SELECT has_parameter_privilege(%s, 'session_replication_role', 'SET,ALTER SYSTEM')", [role])
             if c.fetchone()[0]:
                 raise ContractError(f"Trigger-bypass parameter privilege: {role}")
@@ -517,7 +524,7 @@ def assert_topology(connection, installation=False):
                                coalesce(to_regprocedure('public.box_1902_evidence_valid_v2(bigint)')::oid,0))""", [RUNTIME])
         if c.fetchall():
             raise ContractError("Runtime has an unreviewed SECURITY DEFINER capability")
-        for role in (APPROVER, EXECUTOR, MIGRATOR):
+        for role in (APPROVER, EXECUTOR, MIGRATOR, BACKUP):
             c.execute("""SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_class t
                 JOIN pg_catalog.pg_namespace n ON n.oid=t.relnamespace
                 WHERE n.nspname='public' AND t.relkind IN ('r','p','v','m','f')
@@ -532,7 +539,7 @@ def assert_topology(connection, installation=False):
                                     has_sequence_privilege(%s,t.oid,'USAGE,UPDATE') ELSE false END)""", [role])
             if c.fetchone()[0]:
                 raise ContractError(f"Untrusted public sequence write privilege: {role}")
-        for role in (APPROVER, EXECUTOR, MIGRATOR):
+        for role in (APPROVER, EXECUTOR, MIGRATOR, BACKUP):
             allowed = ['box_1902_evidence_valid_v2']
             if role in (APPROVER, EXECUTOR):
                 allowed.append('box_1902_manifest_v2')
@@ -544,6 +551,23 @@ def assert_topology(connection, installation=False):
                   AND has_function_privilege(%s,p.oid,'EXECUTE')""", [allowed, role])
             if c.fetchall():
                 raise ContractError(f"Unexpected public routine access: {role}")
+        # The backup login must read every public relation and sequence, never more.
+        c.execute("SELECT has_schema_privilege(%s, 'public', 'USAGE')", [BACKUP])
+        if not c.fetchone()[0]:
+            raise ContractError("Backup role lacks public schema USAGE")
+        c.execute("""SELECT count(*) FROM pg_catalog.pg_class t
+            JOIN pg_catalog.pg_namespace n ON n.oid=t.relnamespace
+            WHERE n.nspname='public' AND t.relkind IN ('r','p')
+              AND NOT has_table_privilege(%s,t.oid,'SELECT')""", [BACKUP])
+        if c.fetchone()[0]:
+            raise ContractError("Backup role lacks SELECT on public tables")
+        c.execute("""SELECT count(*) FROM pg_catalog.pg_class t
+            JOIN pg_catalog.pg_namespace n ON n.oid=t.relnamespace
+            WHERE n.nspname='public'
+              AND CASE t.relkind WHEN 'S' THEN
+                    NOT has_sequence_privilege(%s,t.oid,'SELECT') ELSE false END""", [BACKUP])
+        if c.fetchone()[0]:
+            raise ContractError("Backup role lacks SELECT on public sequences")
         for name in ('public.box_1902_lock_v2(bigint)', 'public.box_1902_apply_v2(bigint,text)'):
             c.execute("SELECT to_regprocedure(%s)::oid", [name])
             oid = c.fetchone()[0]
@@ -725,8 +749,14 @@ def _attest_private_acl(c):
         JOIN pg_catalog.pg_namespace n ON n.oid=cl.relnamespace,
         LATERAL aclexplode(coalesce(cl.relacl, acldefault('r',cl.relowner))) x
         WHERE n.nspname='box1902_private' AND cl.relkind='r'""")
-    if any(role != OWNER for _, role, _, _ in c.fetchall()):
+    grants = c.fetchall()
+    if any(role != OWNER and (role != BACKUP or privilege != 'SELECT' or grantable)
+           for _, role, privilege, grantable in grants):
         raise ContractError("Private table grants are forbidden")
+    for table in PRIVATE_TABLES:
+        if not any(name == table and role == BACKUP and privilege == 'SELECT' and not grantable
+                   for name, role, privilege, grantable in grants):
+            raise ContractError(f"Backup role lacks SELECT on private table: {table}")
     c.execute("""SELECT cl.relname, a.attname, pg_get_userbyid(x.grantee), x.privilege_type, x.is_grantable
         FROM pg_catalog.pg_attribute a JOIN pg_catalog.pg_class cl ON cl.oid=a.attrelid
         JOIN pg_catalog.pg_namespace n ON n.oid=cl.relnamespace,
@@ -737,7 +767,8 @@ def _attest_private_acl(c):
         x.privilege_type, x.is_grantable FROM pg_catalog.pg_namespace n,
         LATERAL aclexplode(coalesce(n.nspacl,acldefault('n',n.nspowner))) x
         WHERE n.nspname='box1902_private'""")
-    if set(c.fetchall()) != {(OWNER, 'USAGE', False), (OWNER, 'CREATE', False), (APPROVER, 'USAGE', False)}:
+    if set(c.fetchall()) != {(OWNER, 'USAGE', False), (OWNER, 'CREATE', False),
+                             (APPROVER, 'USAGE', False), (BACKUP, 'USAGE', False)}:
         raise ContractError("Private schema ACL drift")
     for role in (RUNTIME, EXECUTOR, MIGRATOR):
         c.execute("SELECT has_schema_privilege(%s,'box1902_private','USAGE')", [role])
@@ -765,7 +796,7 @@ SET LOCAL search_path = pg_catalog;
 DO $$ DECLARE runtime_oid oid; BEGIN
     -- No catalog mutation may precede these checks. Names/markers prove no identity.
     IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles
-        WHERE rolname IN ('box1902_owner','box1902_approver','box1902_executor','box1902_migrator')) THEN
+        WHERE rolname IN ('box1902_owner','box1902_approver','box1902_executor','box1902_migrator','box1902_backup')) THEN
         RAISE EXCEPTION 'Reserved Box 1902 role already exists; separate operator review required'
             USING ERRCODE = '42501';
     END IF;
@@ -823,10 +854,10 @@ ALTER ROLE polypbase NOINHERIT;
 DO $$ DECLARE obj record; BEGIN
     EXECUTE format('ALTER DATABASE %I OWNER TO box1902_owner',current_database());
     EXECUTE format('REVOKE ALL ON DATABASE %I FROM PUBLIC, polypbase, box1902_approver, box1902_executor, box1902_migrator',current_database());
-    EXECUTE format('GRANT CONNECT ON DATABASE %I TO polypbase, box1902_approver, box1902_executor, box1902_migrator',current_database());
+    EXECUTE format('GRANT CONNECT ON DATABASE %I TO polypbase, box1902_approver, box1902_executor, box1902_migrator, box1902_backup',current_database());
     ALTER SCHEMA public OWNER TO box1902_owner;
-    REVOKE ALL ON SCHEMA public FROM PUBLIC, polypbase, box1902_approver, box1902_executor, box1902_migrator;
-    GRANT USAGE ON SCHEMA public TO polypbase, box1902_approver, box1902_executor, box1902_migrator;
+    REVOKE ALL ON SCHEMA public FROM PUBLIC, polypbase, box1902_approver, box1902_executor, box1902_migrator, box1902_backup;
+    GRANT USAGE ON SCHEMA public TO polypbase, box1902_approver, box1902_executor, box1902_migrator, box1902_backup;
     FOR obj IN SELECT n.nspname, cl.relname, cl.relkind FROM pg_catalog.pg_class cl
         JOIN pg_catalog.pg_namespace n ON n.oid=cl.relnamespace WHERE n.nspname='public'
         AND cl.relkind IN ('r','p','S','v','m','f') ORDER BY (cl.relkind='S'), cl.relname
@@ -854,21 +885,28 @@ DO $$ DECLARE obj record; BEGIN
         JOIN pg_catalog.pg_namespace n ON n.oid=cl.relnamespace
         WHERE n.nspname='public' AND a.attnum>0 AND NOT a.attisdropped AND a.attacl IS NOT NULL
     LOOP
-        EXECUTE format('REVOKE ALL (%I) ON TABLE %s FROM PUBLIC, box1902_approver, box1902_executor, box1902_migrator',obj.attname,obj.relation);
+        EXECUTE format('REVOKE ALL (%I) ON TABLE %s FROM PUBLIC, box1902_approver, box1902_executor, box1902_migrator, box1902_backup',obj.attname,obj.relation);
     END LOOP;
 END $$;
 GRANT box1902_owner TO box1902_migrator WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
 -- Preserve ordinary runtime DML after removing implicit ownership. No exceptional grant.
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO polypbase;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO polypbase;
-REVOKE ALL ON ALL TABLES IN SCHEMA public FROM PUBLIC, box1902_approver, box1902_executor, box1902_migrator;
-REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM PUBLIC, box1902_approver, box1902_executor, box1902_migrator;
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM PUBLIC, box1902_approver, box1902_executor, box1902_migrator, box1902_backup;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM PUBLIC, box1902_approver, box1902_executor, box1902_migrator, box1902_backup;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO box1902_executor;
+-- Complete read-only backup authority: tables and sequences, never write or DDL.
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO box1902_backup;
+GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO box1902_backup;
 ALTER DEFAULT PRIVILEGES FOR ROLE box1902_owner REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES FOR ROLE box1902_owner IN SCHEMA public
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO polypbase;
 ALTER DEFAULT PRIVILEGES FOR ROLE box1902_owner IN SCHEMA public
     GRANT USAGE, SELECT ON SEQUENCES TO polypbase;
+ALTER DEFAULT PRIVILEGES FOR ROLE box1902_owner IN SCHEMA public
+    GRANT SELECT ON TABLES TO box1902_backup;
+ALTER DEFAULT PRIVILEGES FOR ROLE box1902_owner IN SCHEMA public
+    GRANT SELECT ON SEQUENCES TO box1902_backup;
 DO $$ BEGIN
     -- The public exception is preflight-only. Ownership transfer must also remove
     -- implicit pg_database_owner authority, not just explicit runtime ACL entries.

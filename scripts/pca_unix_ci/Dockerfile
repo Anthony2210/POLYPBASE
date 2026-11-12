@@ -6,6 +6,9 @@ RUN apt-get update \
     && groupadd --gid 10001 pca-runtime \
     && useradd --uid 10001 --gid 10001 --no-create-home --home-dir /nonexistent \
         --shell /usr/sbin/nologin pca-runtime \
+    && groupadd --gid 10002 pca-backup-operator \
+    && useradd --uid 10002 --gid 10002 --no-create-home --home-dir /nonexistent \
+        --shell /usr/sbin/nologin pca-backup-operator \
     && python3 -m venv /opt/venv
 
 WORKDIR /opt/pca
@@ -18,7 +21,8 @@ COPY --chown=0:0 backend /opt/pca/backend
 COPY --chown=0:0 scripts /opt/pca/scripts
 RUN chmod -R go-w /opt/pca /opt/venv \
     && chmod 0755 /opt /opt/pca \
-    && install -d -o 10001 -g 10001 -m 0700 /opt/pca/.local-docs
+    && install -d -o 10001 -g 10001 -m 0700 /opt/pca/.local-docs \
+    && install -d -o 10002 -g 10002 -m 0700 /opt/pca/.backup-docs
 
 # Bypass the upstream entrypoint: it must not initialize a default cluster or
 # consume POSTGRES_* configuration. The root provisioner owns this cluster only.
