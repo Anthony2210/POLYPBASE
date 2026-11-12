@@ -38,12 +38,14 @@ def main():
     from apps.measurements.box_1902_sql import provision_sql
 
     import psycopg
+    from psycopg import sql
 
     with psycopg.connect(host="/var/run/postgresql", port=PORT, dbname=DATABASE,
                          user="postgres", password=None, connect_timeout=5,
                          passfile="/dev/null", sslmode="disable", autocommit=True) as connection:
         connection.execute(provision_sql())
-        connection.execute("ALTER ROLE box1902_migrator PASSWORD %s", (credentials["owner_password"],))
+        connection.execute(sql.SQL("ALTER ROLE {} PASSWORD {}").format(
+            sql.Identifier("box1902_migrator"), sql.Literal(credentials["owner_password"])))
     print("Box 1902 V2 topology provisioned", flush=True)
     return 0
 
