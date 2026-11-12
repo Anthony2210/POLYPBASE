@@ -151,6 +151,13 @@ class Box1902ProvisioningPostgreSQLTests(TestCase):
         self.assertEqual(self.execute("SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database()"),
                          [(contract.OWNER,)])
 
+    def test_topology_sequence_check_ignores_non_sequence_relations(self):
+        self.execute("CREATE SEQUENCE public.sequence_probe", user=contract.RUNTIME)
+        self.execute(contract.provision_sql())
+        with self.connect(contract.EXECUTOR) as conn:
+            self.assertTrue(contract.assert_topology(SimpleNamespace(
+                vendor="postgresql", cursor=conn.cursor)))
+
     def test_preexisting_owner_is_rejected_without_mutation(self):
         self.add_collision(contract.OWNER)
 

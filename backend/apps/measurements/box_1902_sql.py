@@ -563,8 +563,9 @@ def assert_topology(connection, installation=False):
             raise ContractError("Backup role lacks SELECT on public tables")
         c.execute("""SELECT count(*) FROM pg_catalog.pg_class t
             JOIN pg_catalog.pg_namespace n ON n.oid=t.relnamespace
-            WHERE n.nspname='public' AND t.relkind='S'
-              AND NOT has_sequence_privilege(%s,t.oid,'SELECT')""", [BACKUP])
+            WHERE n.nspname='public'
+              AND CASE t.relkind WHEN 'S' THEN
+                    NOT has_sequence_privilege(%s,t.oid,'SELECT') ELSE false END""", [BACKUP])
         if c.fetchone()[0]:
             raise ContractError("Backup role lacks SELECT on public sequences")
         for name in ('public.box_1902_lock_v2(bigint)', 'public.box_1902_apply_v2(bigint,text)'):
