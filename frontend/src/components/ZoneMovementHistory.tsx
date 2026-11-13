@@ -342,13 +342,7 @@ export function ZoneRecentMovements({
           ) : (
             <p className="muted compact-text">{t('zoneMovementEmpty')}</p>
           )}
-          {summary.historical_counts && summary.historical_counts.entry_count + summary.historical_counts.exit_count > 0 ? (
-            <p className="muted compact-text">
-              {t('zoneMovementHistoricalTotals')
-                .replace('{entries}', String(summary.historical_counts.entry_count))
-                .replace('{exits}', String(summary.historical_counts.exit_count))}
-            </p>
-          ) : null}
+
           <div className="zone-recent-movement-columns">
             <RecentMovementColumn
               direction="arrival"

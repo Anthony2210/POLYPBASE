@@ -235,16 +235,16 @@ for (const failure of [null, 'chart', 'history']) {
     // Expand the real composition only; chart leaves stay at their tested boundary.
     const panel = panelElement.type(panelElement.props);
     const functional = functionalElement.type(functionalElement.props);
-    const trend = nodes(panel).find((node) => node.type === Trend);
+
     const combined = nodes(panel).find((node) => node.type === CombinedChart);
     const recent = nodes(functional).find((node) => node.type === RecentMovements);
-    assert.ok(trend);
+
     assert.ok(combined);
     assert.ok(recent);
     assert.ok(panel.props.children.includes(combined), 'The combined chart is outside the thermal control section');
-    assert.equal(nodes(functional).some((node) => node.type === Trend || node.type === CombinedChart), false);
+    assert.equal(nodes(functional).some((node) => node.type === CombinedChart), false);
     assert.equal(nodes(panel).some((node) => node.type === RecentMovements), false);
-    assert.equal(trend.props.initial, chart.initial);
+
     assert.equal(combined.props.chart, chart);
     assert.equal(combined.props.chart.readings.error, chartError);
     assert.equal(recent.props.zoneId, zone.id);
@@ -258,7 +258,7 @@ for (const failure of [null, 'chart', 'history']) {
       assert.ok(nodes(history).some((node) => node.type === 'p' && node.props.children === 'History unavailable'));
       assert.equal(combined.props.chart.readings.data, data, 'History failure does not withdraw chart data');
     } else {
-      assert.ok(nodes(history).some((node) => node.type === 'p' && node.props.children === t('zoneMovementHistoricalTotals')));
+      assert.ok(!nodes(history).some((node) => node.type === 'p' && String(node.props.children).includes('Not placed on the chart')));
       assert.equal(nodes(history).some((node) => node.type.name === 'WeeklyMovementChart'), false);
       const column = nodes(history).find((node) => node.type.name === 'RecentMovementColumn' && node.props.direction === 'arrival');
       assert.ok(column);

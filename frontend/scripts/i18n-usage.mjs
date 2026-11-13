@@ -40,6 +40,8 @@ export const usageExceptions = Object.freeze({
   temperatureGap: 'B13 thermal-control relabel (cbc513f) superseded it with temperatureDailyGap; retained with Takeru-validated JA (manifest REUSED) pending an explicit i18n removal decision.',
   temperatureMeasurement: 'B13 thermal-control relabel (cbc513f) superseded it with temperatureRecentMean; retained with Takeru-validated JA (manifest REUSED) pending an explicit i18n removal decision.',
   temperatureMissing: 'B13 thermal-control relabel (cbc513f) superseded it with temperatureNoRecent and the daily period line; retained with Takeru-validated JA (manifest REUSED) pending an explicit i18n removal decision.',
+  temperatureTrendTitle: 'Location thermal chart update (2026-11-12): the six-hour trend and its heading were removed from the location page; retain historical catalog and Japanese review provenance pending an explicit i18n removal batch.',
+  zoneMovementHistoricalTotals: 'Location history update (2026-11-12): historical entry/exit totals are no longer shown on the chart; retain historical catalog and Japanese review provenance pending an explicit i18n removal batch.',
 });
 
 export function isUsageSource(filename) {
