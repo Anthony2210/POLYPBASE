@@ -251,7 +251,9 @@ class Box1902CorrectionV2PostgreSQLTests(
 
     @classmethod
     def connect(cls, user="subculture_qa", database=DATABASE):
-        return psycopg.connect(
+        from historical_temperature_cluster_lease import connect_leased
+
+        return connect_leased(
             host="127.0.0.1", port=cls.port, dbname=database, user=user,
             password="", sslmode="disable", connect_timeout=5, autocommit=True,
             options="-c lock_timeout=5000 -c statement_timeout=60000",
@@ -533,6 +535,25 @@ class Box1902CorrectionV2PostgreSQLTests(
                          [MIGRATION])
         self.assertEqual(contract.attest(connection, allow_retired=False),
                          {"operation": contract.OPERATION, "retired": False})
+        from historical_temperature_cluster_lease import connect_leased
+
+        privilege_query = (
+            "SELECT has_function_privilege(%s, 'pg_catalog.pg_control_system()', 'EXECUTE'), "
+            "has_function_privilege(%s, 'pg_catalog.pg_read_file(text)', 'EXECUTE')"
+        )
+        privileges_before = self.execute(privilege_query, [contract.MIGRATOR, contract.MIGRATOR])
+        with connect_leased(
+            host="127.0.0.1", port=self.port, dbname=DATABASE,
+            user=contract.MIGRATOR, password="", sslmode="disable", connect_timeout=5,
+            autocommit=True, options="-c role=box1902_owner -c statement_timeout=60000",
+            expected_role=contract.OWNER,
+        ) as migrator:
+            self.assertEqual(migrator.execute("SELECT session_user, current_user").fetchone(),
+                             (contract.MIGRATOR, contract.OWNER))
+        self.assertEqual(self.execute(privilege_query, [contract.MIGRATOR, contract.MIGRATOR]),
+                         privileges_before)
+        triggers = self.execute("SELECT tgenabled FROM pg_trigger WHERE NOT tgisinternal AND tgname LIKE 'historical_%%'")
+        self.assertEqual(triggers, [("O",)] * 11)
 
     def test_authorized_actual_command_preserves_science_dependencies_and_receipts(self):
         plan = correction.build_plan(**SCOPE)

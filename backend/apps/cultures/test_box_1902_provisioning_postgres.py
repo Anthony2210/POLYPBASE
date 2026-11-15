@@ -26,7 +26,9 @@ RESERVED = tuple(role for role in contract.ROLES if role != contract.RUNTIME)
 class Box1902ProvisioningPostgreSQLTests(TestCase):
     @classmethod
     def connect(cls, user="subculture_qa", database=DATABASE):
-        return psycopg.connect(
+        from historical_temperature_cluster_lease import connect_leased
+
+        return connect_leased(
             host="127.0.0.1", port=cls.port, dbname=database, user=user, password="",
             sslmode="disable", connect_timeout=5, autocommit=True,
             options="-c statement_timeout=60000 -c lock_timeout=5000",

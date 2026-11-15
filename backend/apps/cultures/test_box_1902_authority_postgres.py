@@ -126,7 +126,9 @@ class Box1902AuthorityPostgreSQLTests(SimpleTestCase):
 
     @classmethod
     def connect(cls, user=RUNTIME, db=HARD_DB):
-        return psycopg.connect(
+        from historical_temperature_cluster_lease import connect_leased
+
+        return connect_leased(
             host="127.0.0.1", port=cls.port, dbname=db, user=user, password="",
             sslmode="disable", connect_timeout=5, autocommit=True,
             options=("-c statement_timeout=120000 -c lock_timeout=10000" if user == "subculture_qa"
