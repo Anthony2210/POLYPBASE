@@ -525,9 +525,13 @@ class HarnessSafetyTests(unittest.TestCase):
                 management.call_command = Mock()
                 executor_module = ModuleType("django.db.migrations.executor")
                 executor = Mock()
-                executor.migration_plan.side_effect = [
-                    [(migration(utility.M19), False), (migration(utility.M20), False)], reverse,
-                ]
+                executor.migration_plan.return_value = reverse
+                scoped = ModuleType("config.history_revision_ci_migrations")
+                scoped.scoped_plan = Mock(side_effect=[
+                    [(migration(utility.M19), False), (migration(utility.M20), False)], [],
+                ])
+                scoped.migration_scope = Mock(return_value={"targets": [], "closure": [], "excluded": []})
+                scoped.migrate_scoped = Mock(return_value={"targets": [], "after": [], "excluded": []})
                 executor_module.MigrationExecutor = Mock(return_value=executor)
                 recorder_module = ModuleType("django.db.migrations.recorder")
                 recorder = Mock()
@@ -538,7 +542,9 @@ class HarnessSafetyTests(unittest.TestCase):
                            "django.core.management": management, "django.db": ModuleType("django.db"),
                            "django.db.migrations": ModuleType("django.db.migrations"),
                            "django.db.migrations.executor": executor_module,
-                           "django.db.migrations.recorder": recorder_module}
+                           "django.db.migrations.recorder": recorder_module,
+                           "config": ModuleType("config"),
+                           "config.history_revision_ci_migrations": scoped}
                 with patch.dict(sys.modules, modules), patch.object(utility, "evidence"), \
                         patch.object(utility, "installed_schema", return_value={}):
                     with self.assertRaisesRegex(RuntimeError, "Reverse plan must remove only 0020"):

@@ -1,14 +1,18 @@
-# QA PostgreSQL distante des révisions — Phase 5A
+# QA PostgreSQL distante des révisions — TARGETED Phase5A
 
 ## Statut et périmètre
 
-**QA PostgreSQL distante : NOT EXECUTED.** Ce document prépare une revue indépendante,
-pas une preuve PostgreSQL ni une autorisation de publication ou de déploiement.
-Base inspectée : `f843ff6dcd96e5973671dcb95b893a6d041a651b`, branche
-`test/history-revision-postgres-qa`. Aucun commit, staging, push ou lancement Actions
-n'est effectué par l'agent. Les modèles, migrations et moteurs Phase 1–4 sont inchangés.
+**Périmètre : TARGETED Phase5A, jamais une validation du graphe complet.**
+Deux exécutions distantes antérieures sont rapportées par l'utilisateur ci-dessous;
+la version à migrations ciblées n'a pas encore été exécutée à distance. Ce document
+n'est ni une preuve de réussite PostgreSQL de cette version ni une autorisation de
+publication ou de déploiement.
+Base inspectée : `e9907e2`, branche `test/history-revision-postgres-qa`.
+Aucun commit, staging, push ou lancement Actions n'est effectué par l'agent.
+Cette mise à jour adapte uniquement le harnais QA, ses tests, ce document et le
+workflow. Aucun modèle scientifique, migration ou moteur métier n'est modifié.
 
-Workflow exact : **History revisions PostgreSQL QA**,
+Workflow exact : **History revisions PostgreSQL QA — TARGETED Phase5A**,
 `.github/workflows/history-revision-postgres.yml`.
 
 ## Déclenchement et isolation
@@ -57,17 +61,100 @@ Ces contrôles protègent ce job de configuration accidentelle; ils ne constitue
 pas une preuve cryptographique d'origine ni une frontière contre un propriétaire
 malveillant du runner ou du schéma.
 
-## Matrice distante prévue
+## Historique distant rapporté par l'utilisateur
+
+Ces constats sont fournis par l'utilisateur, sans consultation distante des logs
+pendant cette tâche :
+
+1. **Run #1 :** défaut PL/pgSQL dans `cultures.0020_history_revision_guards`,
+   corrigé ensuite. Ce run n'est pas une réussite de la matrice.
+2. **Run #2 :** `cultures.0019_history_revision_storage` et
+   `cultures.0020_history_revision_guards` exécutées avec succès, puis arrêt sur
+   `measurements.0018_box_1902_preservation` avec `ContractError` :
+   https://github.com/Anthony2210/POLYPBASE/actions/runs/43948285336.
+   Le succès de 0019/0020 ne démontre pas le succès des catalogues, de l'inversion,
+   de la réapplication ou des tests ultérieurs.
+
+**Version ciblée : aucune exécution distante à ce jour.** L'exclusion de 0018
+isole cette QA synthétique; elle ne corrige ni ne valide son contrat métier.
+
+## Gate de périmètre et migrations ciblées
+
+Le gate est **PASSED avec le vrai `MigrationLoader(None)`**, sans connexion
+à une base. La fermeture transitive de `cultures.0020_history_revision_guards`
+contient exactement **33 migrations réelles** : `cultures` 0001–0020 (20),
+`taxonomy` 0001–0009 (9), `organizations` 0001–0002 (2), `auth.0001_initial` (1)
+et `contenttypes.0001_initial` (1). Il ne s'agit pas d'une preuve d'exécution SQL.
+
+Cette fermeture seule ne suffit pas : les fixtures de snapshot de tous les modèles
+nécessitent tous les schémas gérés, y compris les tables M2M auto-créées. Les
+**11 cibles explicites** retenues sont :
+
+| Application | Cible |
+| --- | --- |
+| accounts | `0008_interface_language_japanese` |
+| admin | `0003_logentry_add_action_flag_choices` |
+| audit | `0005_auditlog_deletion_action` |
+| auth | `0012_alter_user_first_name_max_length` |
+| contenttypes | `0002_remove_content_type_name` |
+| cultures | `0020_history_revision_guards` |
+| exports | `0001_initial` |
+| measurements | `0017_bucket_probe_last_measured_index` |
+| organizations | `0002_organization_portable_id` |
+| sessions | `0001_initial` |
+| taxonomy | `0009_localstrainnumbercounter` |
+
+L'union de leurs fermetures contient **80 migrations réelles** : accounts 8,
+admin 3, audit 5, auth 12, contenttypes 2, cultures 20, exports 1, measurements 17,
+organizations 2, sessions 1 et taxonomy 9. Dans l'inventaire actuel de 81 migrations,
+seule `measurements.0018_box_1902_preservation` est exclue. Les colonnes des modèles
+historiques à ces cibles correspondent à celles des modèles runtime selon le gate;
+cela ne remplace pas l'inspection du schéma PostgreSQL réel.
+
+Le nouveau module local `backend/config/history_revision_ci_migrations.py` fige
+les **80 noms**, les cibles et l'exclusion; il ne les déduit pas des seuls numéros
+ni des feuilles courantes. Toute modification de l'inventaire, des dépendances,
+remplacement ou conflit exige une nouvelle revue. `migrate_scoped()` utilise la
+vraie commande Django `migrate` avec un adaptateur d'exécuteur, conserve les signaux
+`pre_migrate`/`post_migrate` et refuse fake/fake-initial. Il compare plan,
+callbacks d'exécution réellement commencés/terminés et historique final; un simple
+recorder rempli ne prouve pas l'exécution. Il vérifie aussi modèles historiques
+contre runtime, tables gérées, colonnes exactes et FK, y compris M2M et cibles de FK.
+Ces contrôles ne remplacent pas ceux des fonctions, triggers et contraintes Phase 5A.
+L'adaptateur est lié à Django 5.2.17; l'identité du service et le cycle de vie des
+bases restent la responsabilité des appelants.
+
+Le runner intercepte uniquement l'appel `migrate` de `BaseDatabaseCreation`
+pendant la création de la base de test. Il exige l'appel attendu, une seule fois,
+vérifie l'identité puis exécute `migrate_scoped(fresh=True)`, sans syncdb.
+L'interception est restaurée immédiatement; les gardes de connexion et de teardown
+restent actives. Le harnais utilise le même périmètre pour l'application initiale
+et la réapplication après inversion de 0020. Les signaux Django sont conservés.
+
+Django `StateApps` reconstruit les PK implicites des tables M2M avec le
+`DEFAULT_AUTO_FIELD` global, contrairement à l'AppConfig runtime d'auth. La
+comparaison normalise uniquement la largeur AutoField/BigAutoField de ces PK
+auto-générées; noms de colonnes, relations et autres champs restent stricts.
+Ce n'est pas une équivalence des types SQL de toutes les tables en production.
+
+Le workflow ajoute le contrôle offline
+`python -B -m unittest discover -s scripts -p test_history_revision_ci_migrations.py -v`.
+Il comprend de vraies migrations Django sur SQLite `:memory:` dans un processus
+isolé, sockets interdits, sans settings applicatifs ni dotenv. Ce contrôle ne
+valide pas PL/pgSQL, les verrous ou les catalogues PostgreSQL. Son ajout au workflow
+ne signifie pas qu'il a déjà été exécuté par Actions.
+
+## Matrice distante ciblée prévue
 
 | Étape | Assertions et preuves |
 | --- | --- |
 | Préflight | SHA exact, identité, versions PostgreSQL/psycopg/libpq, base initialement vide |
-| Graph complet | Plan exigeant 0019 et 0020 réellement non appliquées; migrate sans fake; enregistrements django_migrations; absence de migration restante |
+| TARGETED Phase5A | 11 cibles, fermeture figée de 80 noms; 0019 et 0020 réellement non appliquées au départ; migrate sans fake, callbacks réels et recorder exact; aucune migration restante **dans ce périmètre**, 0018 explicitement exclue |
 | Drift | `makemigrations --check --dry-run` sur le service |
 | Catalogues initiaux | Dix triggers et fonctions activés; corps installés comparés à 0020 et attributs d'exécution vérifiés; contraintes nommées, expressions et colonnes; index uniques partiels; cibles et différabilité des FK |
 | Inversion | Plan autorisant **seulement 0020**; maintien de 0019; absence des dix triggers et fonctions |
 | Réapplication | 0020 réappliquée; catalogues restaurés identiques |
-| Intégrité | 33 tests existants de stockage : ORM immutable, SQL UPDATE/DELETE, heads valides/invalides, prédécesseurs, unicité séquence/idempotence, institutions, suppression Box/auteur et attribution conservée |
+| Intégrité | 34 tests de modèles/stockage actuellement découverts : ORM immutable, SQL UPDATE/DELETE, heads valides/invalides, prédécesseurs, unicité séquence/idempotence, institutions, suppression Box/auteur et attribution conservée |
 | Codec/composition | 14 tests existants de codec/intégration et 47 de composition pure; absence de consommation active de l'overlay |
 | Transactions PostgreSQL | Neuf tests du socle et une régression supplémentaire des fonctions installées, décrits ci-dessous |
 
@@ -128,8 +215,13 @@ Une régression PostgreSQL supplémentaire altère les vraies fonctions dans des
 transactions annulées : prédicat modifié, condition auteur retirée, retour changé,
 retour anticipé avec `RAISE EXCEPTION` toujours présent, attribut SECURITY DEFINER
 fonction supprimée et trigger avec WHEN (false). Chaque altération doit être rejetée, puis le catalogue
-restauré vérifié. **Elle est collectée mais non exécutée localement.** La matrice
-actuelle comporte donc **104 tests**, dont le socle obligatoire de 103 reste intact.
+restauré vérifié. **Elle est collectée mais non exécutée localement.** La découverte
+réelle actuelle comporte **105 tests : 34 modèles/stockage, 14 codec,
+47 composition et 10 PostgreSQL**. Le socle figé de **103 identités** reste inchangé;
+les deux ajouts ne compensent jamais une identité requise absente. Toutes les
+identités collectées, y compris les ajouts, doivent démarrer, terminer et réussir.
+La découverte
+n'est pas une preuve d'exécution ni de réussite de ces 105 tests.
 
 ## Lecture des résultats Actions
 
@@ -153,7 +245,9 @@ synthétique, arrêter et demander une correction ciblée séparée. Ne pas modi
 
 ## Validation locale initiale
 
-Aucun Docker, PostgreSQL, service distant, Actions ou base partagée exécuté.
+Les validations locales historiques ci-dessous n'ont utilisé ni Docker, ni
+PostgreSQL, ni service distant, ni Actions, ni base partagée. Elles précèdent les
+runs distants rapportés plus haut et ne valident pas la version ciblée actuelle.
 Les commandes Django sont lancées dans un processus enfant avec
 `POLYPBASE_TEST_POSTGRES=0`, `PYTHON_DOTENV_DISABLED=1`, `DJANGO_DEBUG=1` et
 `DJANGO_SETTINGS_MODULE=config.preflight_settings`; une assertion exige SQLite
@@ -188,9 +282,36 @@ Sur Python 3.12.13 / Django 5.2.17, sans PostgreSQL ni Docker :
 - 94 tests Phase 5A SQLite réussis, aucun skip. Les dix tests PostgreSQL ne sont pas
   sélectionnés pour exécution locale.
 
+## Validation locale du périmètre ciblé
+
+Sans PostgreSQL, Docker, connexion distante ni Actions :
+
+- Découverte Django réelle : **105 identités**, 95 SQLite-compatibles et 10
+  PostgreSQL; socle figé de 103 conservé sans modification.
+- **26 tests** de graphe, migrations et schéma réussis sur SQLite `:memory:`,
+  sockets interdits; migrations réelles, signaux, flush et reverse/reapply inclus.
+- **40 tests** settings/workflow/runner/collecte réussis, sans skip.
+- **22 tests** catalogue/harnais réussis, sans skip.
+- Django check sans problème et `makemigrations --check --dry-run` sans changement.
+- **95 tests Phase 5A réussis, sans skip**, après application réelle des 80
+  migrations ciblées sur SQLite `:memory:`. Les dix tests PostgreSQL ne sont pas
+  exécutés localement; leur découverte n'est pas leur validation.
+- Première invocation de la suite migrations interrompue à 180 s; relance bornée
+  terminée. Deux invocations offline demandaient un package psycopg-binary absent
+  du cache et ont échoué avant les tests; les contrôles SQLite ont été relancés
+  sans ce driver inutile.
+- YAML chargé et syntaxe des sept étapes shell vérifiée avec `bash -n`; syntaxe
+  Python et whitespace vérifiés. Une dernière réinvocation combinée de ces
+  contrôles après retouche du résumé a expiré à 30 s sans sortie; ce timeout
+  n'est pas compté comme une validation réussie. `git diff --check` a réussi
+  séparément.
+- Les contrôles ont identifié et corrigé deux défauts d'intégration du harnais :
+  passage du proxy Django au lieu du wrapper concret et comparaison trop stricte
+  des PK M2M implicites décrite ci-dessus. Aucun contrat métier n'a été modifié.
+
 ## Passation à Anthony — après revue indépendante uniquement
 
-1. Examiner les sept nouveaux fichiers et le diff complet sur
+1. Examiner les fichiers du périmètre ciblé, son intégration au harnais/runner et le diff complet sur
    `test/history-revision-postgres-qa`. Ne pas synchroniser/rebaser main implicitement :
    l'ascendance de cette branche et les références main peuvent diverger.
 2. Après approbation, Anthony stage et commit personnellement les fichiers revus.
@@ -198,16 +319,22 @@ Sur Python 3.12.13 / Django 5.2.17, sans PostgreSQL ni Docker :
 3. Anthony pousse ensuite lui-même :
    `git push -u origin test/history-revision-postgres-qa`.
    Ce push constitue l'activation distante; pas besoin que le workflow soit sur main.
-4. Ouvrir Actions → **History revisions PostgreSQL QA**, vérifier le SHA exact,
+4. Ouvrir Actions → **History revisions PostgreSQL QA — TARGETED Phase5A**, vérifier le SHA exact,
    toutes les étapes, `tests.json`, les catalogues et les quatre résultats de course.
-   Le résultat attendu actuel est 104 réussites, zéro échec/erreur/skip, et aucune
+   Le résultat attendu est 105 réussites, zéro échec/erreur/skip, et aucune
    identité requise manquante. Des ajouts légitimes peuvent augmenter ce total.
 5. Revue séparée des preuves avant toute décision ultérieure. Ni merge, ni deploy,
    ni activation d'un publisher ne découlent d'un résultat vert.
 
 ## Limites restantes
 
-PostgreSQL reste **NOT EXECUTED** jusqu'au push revu d'Anthony. Le conteneur suit
+La version ciblée reste **non exécutée à distance**; les deux runs antérieurs ne
+prouvent pas sa réussite. Le câblage du harnais et l'interception du migrate à la
+création de la base de test nécessitent une revue indépendante et une preuve
+sur le service PostgreSQL jetable. Même un futur succès
+ne validerait ni le graphe complet, ni `measurements.0018_box_1902_preservation`,
+ni une migration sur données de production. Aucun résultat de validation future
+n'est considéré acquis. Le conteneur suit
 le tag majeur 18 existant (patch flottant; version réelle enregistrée). Le rôle
 synthétique possède les privilèges d'initialisation de l'image : pas de preuve de
 permissions de production, notamment contre TRUNCATE ou désactivation de triggers.

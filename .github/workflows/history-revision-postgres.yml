@@ -1,4 +1,4 @@
-name: History revisions PostgreSQL QA
+name: History revisions PostgreSQL QA — TARGETED Phase5A
 
 on:
   push:
@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   history-revision-postgres:
-    name: Phase 5A synthetic migrations and integrity on PostgreSQL 18
+    name: TARGETED Phase5A synthetic migrations and integrity on PostgreSQL 18
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
@@ -84,13 +84,15 @@ jobs:
       - name: Install locked backend dependencies
         run: uv sync --frozen
 
-      - name: Validate safety guards and workflow offline
+      - name: Validate TARGETED Phase5A guards, scope and workflow offline
         run: |
           set -euo pipefail
           uv run --frozen --with pyyaml==6.0.3 python -B -m unittest \
             discover -s scripts -p test_history_revision_ci.py -v
           uv run --frozen python -B -m unittest \
             discover -s scripts -p test_validate_history_revision_ci.py -v
+          uv run --frozen python -B -m unittest \
+            discover -s scripts -p test_history_revision_ci_migrations.py -v
 
       - name: Preflight fresh service before any database mutation
         run: |
@@ -98,13 +100,13 @@ jobs:
           uv run --frozen python -B scripts/validate_history_revision_ci.py preflight \
             2>&1 | tee "$HR_CI_EVIDENCE_DIR/preflight.log"
 
-      - name: Rehearse migrations and run synthetic PostgreSQL integrity tests
+      - name: Rehearse TARGETED Phase5A migrations and synthetic PostgreSQL integrity tests
         run: |
           set -euo pipefail
           uv run --frozen python -B scripts/validate_history_revision_ci.py run \
             2>&1 | tee "$HR_CI_EVIDENCE_DIR/rehearsal-and-tests.log"
 
-      - name: Report actual validation status and limits
+      - name: Report TARGETED Phase5A validation status and limits
         if: always()
         env:
           VALIDATION_STATUS: ${{ job.status }}
@@ -116,7 +118,9 @@ jobs:
           from pathlib import Path
           evidence = Path(os.environ['HR_CI_EVIDENCE_DIR'])
           lines = [
-              '## History revisions PostgreSQL QA',
+              '## History revisions PostgreSQL QA — TARGETED Phase5A',
+              'Scope: 11 explicit targets, frozen union of 80 real migrations; not full-graph validation.',
+              'Excluded: measurements.0018_box_1902_preservation. The 33-node cultures.0020 closure alone cannot support all-model snapshot fixtures.',
               'Tested commit: `' + os.environ['TESTED_SHA'] + '`',
               'Job status before reporting: **' + os.environ['VALIDATION_STATUS'] + '**',
           ]
@@ -126,9 +130,9 @@ jobs:
               lines.append('```json\n' + path.read_text() + '\n```' if path.is_file()
                            else '**NOT COMPLETED** — inspect the failed/cancelled step.')
           lines.extend([
-              'Catalog definitions: schema-initial/reversed/restored.json. Concurrency outcomes: named tests in rehearsal-and-tests.log.',
+              'Execution and schema evidence: migration-plan/application/reapplication.json and test-database-migrations.json. Catalog definitions: schema-initial/reversed/restored.json. Concurrency outcomes: named tests and concurrency-*.json.',
               'No publisher, production data, Neon, deployment or local PostgreSQL. All fixtures are synthetic.',
-              'Limits: disposable owner role, PostgreSQL 18/current image, bounded races only; no production privilege or load guarantee. TRUNCATE is not guarded by Phase 5A.',
+              'Limits: TARGETED Phase5A only, not a full-graph migration rehearsal or validation of measurements.0018. Disposable owner role, PostgreSQL 18/current image, bounded races only; no Box 1902 provisioning, production privilege, load or deployment-readiness guarantee. TRUNCATE is not guarded by Phase 5A.',
               '**A summary or artifact is not proof of success. All validation steps and every test must pass; missing evidence is not a pass.**',
           ])
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as output:

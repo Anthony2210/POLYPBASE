@@ -1,7 +1,7 @@
 """Synthetic Phase 5A rehearsal; executable only against the hosted CI service.
 
 Preflight identifies an empty database before adding a disposable-service marker.
-Run applies the graph, rehearses 0020 only, then tests a separate Django database.
+Run applies the reviewed target closure, rehearses 0020 only, then tests a separate Django database.
 No migration repair, publisher, production endpoint or environment dump is provided.
 """
 
@@ -67,7 +67,8 @@ def bootstrap():
     import django
     django.setup()
     from config import history_revision_ci_settings as guards
-    from django.db import connection
+    from django.db import connections
+    connection = connections["default"]
     guards.check_database_config(connection)
     return connection, guards
 
@@ -416,17 +417,24 @@ def run(connection, guards):
     from django.db.migrations.executor import MigrationExecutor
     from django.db.migrations.recorder import MigrationRecorder
 
+    from config.history_revision_ci_migrations import (
+        migration_scope, migrate_scoped, scoped_plan,
+    )
+
     guards.server_identity(connection)
-    require(not MigrationRecorder(connection).has_table(), "Full graph must start without migration history.")
+    require(not MigrationRecorder(connection).has_table(), "Scoped rehearsal must start without migration history.")
     executor = MigrationExecutor(connection)
-    plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
+    plan = scoped_plan(connection)
     require({M19, M20} <= {(m.app_label, m.name) for m, backwards in plan if not backwards},
             "0019 and 0020 must really execute, not be faked or pre-applied.")
-    evidence("migration-plan", {"forward": [f"{m.app_label}.{m.name}" for m, backwards in plan]})
+    evidence("migration-plan", {
+        **migration_scope(executor.loader),
+        "forward": [f"{m.app_label}.{m.name}" for m, backwards in plan],
+    })
     call_command("check")
-    call_command("migrate", plan=True, interactive=False)
-    call_command("migrate", interactive=False, verbosity=2)
-    call_command("migrate", check_unapplied=True, interactive=False)
+    applied = migrate_scoped(connection, fresh=True, verbosity=2)
+    evidence("migration-application", applied)
+    require(not scoped_plan(connection), "Approved scoped migrations remain unapplied.")
     call_command("makemigrations", check=True, dry_run=True, interactive=False)
     require({M19, M20} <= set(MigrationRecorder(connection).applied_migrations()), "Phase 5A not recorded as applied.")
     initial = installed_schema(connection, guarded=True)
@@ -440,11 +448,18 @@ def run(connection, guards):
     require(M19 in MigrationRecorder(connection).applied_migrations()
             and M20 not in MigrationRecorder(connection).applied_migrations(), "Unexpected reverse migration state.")
     evidence("schema-reversed", installed_schema(connection, guarded=False))
-    call_command("migrate", interactive=False, verbosity=2)
+    reapplied = migrate_scoped(connection, fresh=False, verbosity=2)
+    require(reapplied["completed"] == [".".join(M20)], "Reapplication must execute only 0020.")
+    require(not scoped_plan(connection), "Approved scoped migrations remain unapplied after restoration.")
+    evidence("migration-reapplication", reapplied)
     restored = installed_schema(connection, guarded=True)
     require(initial == restored, "Restored catalogs differ after 0020 reapplication.")
     evidence("schema-restored", restored)
-    evidence("migration-results", {"full_graph_applied": True, "0019_executed": True,
+    evidence("migration-results", {"validation_scope": "targeted-phase-5a",
+                                   "targets": applied["targets"], "applied": applied["after"],
+                                   "intentionally_outside_scope": applied["excluded"],
+                                   "scoped_closure_applied": True, "complete_application_graph_validated": False,
+                                   "0019_executed": True,
                                    "0020_executed": True, "drift": False,
                                    "0020_reversed": True, "guards_removed": True,
                                    "0020_reapplied": True, "catalogs_restored": True})

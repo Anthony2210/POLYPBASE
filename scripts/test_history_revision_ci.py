@@ -76,10 +76,21 @@ if payload.get("real_django"):
     from django.test.runner import DiscoverRunner as RealDiscoverRunner
 else:
     module("django")
-    module("django.core")
+    core = module("django.core")
+    core.management = module("django.core.management")
     module("django.core.exceptions").ImproperlyConfigured = ImproperlyConfigured
     module("django.db").connections = {}
     module("django.test")
+from django.core import management
+
+def offline_call_command(command, *args, **options):
+    assert command == "createcachetable", "Full-graph or unexpected command escaped interception"
+    forwarded_commands.append((command, args, options))
+    events.append("createcachetable")
+    return "offline-cache-result"
+
+management.call_command = offline_call_command
+
 class DiscoverRunner:
     test_runner = unittest.TextTestRunner
     test_loader = unittest.TestLoader()
@@ -92,14 +103,14 @@ class DiscoverRunner:
         return self.test_runner(**self.get_test_runner_kwargs()).run(suite)
     def __init__(self, *, keepdb=False, parallel=0, interactive=False, verbosity=0):
         self.keepdb, self.parallel, self.interactive = keepdb, parallel, interactive
+        self.verbosity = verbosity
     def suite_result(self, suite, result, **kwargs):
         return len(result.failures) + len(result.errors) + len(result.unexpectedSuccesses)
     def setup_databases(self, **kwargs):
-        connection.creation._create_test_db(2, not self.interactive, keepdb=self.keepdb)
-        connection.settings_dict["NAME"] = settings.TEST_DATABASE_NAME
-        connection.close()
-        connection.connect()
-        events.append("migrate")
+        connection.creation.create_test_db(
+            verbosity=self.verbosity, autoclobber=not self.interactive,
+            keepdb=self.keepdb, serialize=False,
+        )
         return "old-config"
     def teardown_databases(self, old_config, **kwargs):
         assert old_config == "old-config"
@@ -127,6 +138,23 @@ rows = {}
 existing_test_database = False
 create_error = None
 create_parameters = []
+forwarded_commands = []
+scoped_migrations = []
+migration_error = None
+
+def migrate_scoped(candidate, *, verbosity, fresh):
+    assert candidate is connection
+    assert candidate.settings_dict["NAME"] == settings.TEST_DATABASE_NAME
+    assert candidate.connected
+    assert fresh is True
+    scoped_migrations.append((candidate, verbosity, fresh))
+    events.append("migrate")
+    if migration_error is not None:
+        raise migration_error
+    return {"scope": "offline-targeted"}
+
+module("config.history_revision_ci_migrations").migrate_scoped = migrate_scoped
+
 class Cursor:
     def __init__(self, connection):
         self.connection = connection
@@ -168,6 +196,18 @@ class Creation:
         create_parameters.append(parameters)
         if create_error is not None:
             raise create_error
+    def create_test_db(self, verbosity=1, autoclobber=False, serialize=True, keepdb=False):
+        # Like BaseDatabaseCreation, import the command at creation time, switch
+        # to the test DB, then dispatch migrations before creating cache tables.
+        from django.core.management import call_command
+        name = self._get_test_db_name()
+        self._create_test_db(verbosity, autoclobber, keepdb)
+        self.connection.close()
+        self.connection.settings_dict["NAME"] = name
+        call_command("migrate", verbosity=max(verbosity - 1, 0),
+                     interactive=False, database="default", run_syncdb=True)
+        call_command("createcachetable", database="default")
+        return name
     def _create_test_db(self, verbosity, autoclobber, keepdb=False):
         # Model Django's dangerous fallback so the regression catches delegation.
         with self._nodb_cursor() as cursor:
@@ -430,6 +470,237 @@ runner.teardown_databases(old_config)
 assert events[-1] == "drop"
 ''')
 
+    def test_runner_scopes_one_migration_and_restores_patches_before_teardown(self):
+        for verbosity in (0, 1, 3):
+            with self.subTest(verbosity=verbosity):
+                self.child(assertions='verbosity = ' + repr(verbosity) + r'''
+original_create = connection.creation.create_test_db
+original_call = management.call_command
+runner = settings.HistoryRevisionCIRunner(verbosity=verbosity)
+old_config = runner.setup_databases()
+assert scoped_migrations == [(connection, max(verbosity - 1, 0), True)]
+assert events.count("migrate") == 1
+assert events[events.index("migrate") - 1] == "identity:" + settings.TEST_DATABASE_NAME
+assert events.index("create") < events.index("migrate") < events.index("createcachetable")
+assert forwarded_commands == [("createcachetable", (), {"database": "default"})]
+assert management.call_command is original_call
+assert connection.creation.create_test_db == original_create
+assert "create_test_db" not in vars(connection.creation)
+# Connect guards remain active until teardown, unlike the narrow command patch.
+assert "connect" in vars(connection)
+runner.teardown_databases(old_config)
+assert "connect" not in vars(connection)
+assert management.call_command is original_call
+assert connection.creation.create_test_db == original_create
+''')
+
+    def test_scoped_creation_rejects_unexpected_migration_arguments_and_options(self):
+        self.child(assertions=r'''
+runner = settings.HistoryRevisionCIRunner()
+original_call = management.call_command
+expected = {"verbosity": 1, "interactive": False, "database": "default", "run_syncdb": True}
+candidates = [((), {**expected, key: value}) for key, value in (
+    ("verbosity", 2), ("interactive", True), ("database", "other"),
+    ("run_syncdb", False), ("plan", True), ("fake", True), ("fake_initial", True),
+    ("skip_checks", True), ("app_label", "cultures"), ("migration_name", "zero"),
+)]
+candidates += [((), {key: value for key, value in expected.items() if key != missing})
+               for missing in expected]
+candidates += [(args, expected) for args in (("cultures",), ("cultures", "zero"), ("--plan",))]
+for command_args, options in candidates:
+    def original_create(**kwargs):
+        management.call_command("migrate", *command_args, **options)
+    before = list(events)
+    try:
+        runner._create_scoped_database(connection.creation, original_create, verbosity=2)
+    except ImproperlyConfigured as error:
+        assert "unexpected test migration dispatch" in str(error)
+    else:
+        raise AssertionError((command_args, options))
+    assert management.call_command is original_call
+    assert events == before
+assert scoped_migrations == forwarded_commands == []
+''')
+
+    def test_scoped_creation_rejects_full_graph_and_other_commands(self):
+        self.child(assertions=r'''
+runner = settings.HistoryRevisionCIRunner()
+original_call = management.call_command
+for command in ("flush", "makemigrations", "sqlmigrate", "test", "MIGRATE", object()):
+    def original_create():
+        management.call_command(command)
+    try:
+        runner._create_scoped_database(connection.creation, original_create)
+    except ImproperlyConfigured as error:
+        assert "unexpected database creation command" in str(error)
+    else:
+        raise AssertionError(command)
+    assert management.call_command is original_call
+assert events == scoped_migrations == forwarded_commands == []
+''')
+
+    def test_scoped_creation_requires_migration_even_if_cache_command_was_forwarded(self):
+        self.child(assertions=r'''
+runner = settings.HistoryRevisionCIRunner()
+original_call = management.call_command
+for cache_only in (False, True):
+    def original_create():
+        if cache_only:
+            assert management.call_command("createcachetable", "offline-cache", database="default",
+                                           verbosity=2) == "offline-cache-result"
+        return "creation-result"
+    try:
+        runner._create_scoped_database(connection.creation, original_create)
+    except ImproperlyConfigured as error:
+        assert "did not execute its scoped migrations" in str(error)
+    else:
+        raise AssertionError("Missing migration dispatch accepted")
+    assert management.call_command is original_call
+assert forwarded_commands == [("createcachetable", ("offline-cache",), {"database": "default", "verbosity": 2})]
+assert scoped_migrations == []
+''')
+
+    def test_scoped_creation_rejects_repeated_migration_dispatch(self):
+        self.child(assertions=r'''
+connection.settings_dict["NAME"] = settings.TEST_DATABASE_NAME
+original_call = management.call_command
+def original_create(**kwargs):
+    for _ in range(2):
+        management.call_command("migrate", verbosity=0, interactive=False,
+                                database="default", run_syncdb=True)
+try:
+    settings.HistoryRevisionCIRunner()._create_scoped_database(
+        connection.creation, original_create, verbosity=0)
+except ImproperlyConfigured as error:
+    assert "unexpected test migration dispatch" in str(error)
+else:
+    raise AssertionError("Repeated migration dispatch accepted")
+assert scoped_migrations == [(connection, 0, True)]
+assert events.count("migrate") == 1
+assert forwarded_commands == []
+assert management.call_command is original_call
+''')
+
+    def test_scoped_creation_rechecks_identity_at_migration_dispatch(self):
+        self.child(assertions=r'''
+connection.settings_dict["NAME"] = settings.TEST_DATABASE_NAME
+original_call = management.call_command
+def original_create(**kwargs):
+    rows[settings.TEST_DATABASE_NAME] = ("other", settings.DATABASE_NAME, settings.DATABASE_NAME, 5432, 180001, None)
+    management.call_command("migrate", verbosity=0, interactive=False,
+                            database="default", run_syncdb=True)
+try:
+    settings.HistoryRevisionCIRunner()._create_scoped_database(
+        connection.creation, original_create, verbosity=1)
+except ImproperlyConfigured:
+    pass
+else:
+    raise AssertionError("Wrong dispatch-time identity accepted")
+assert scoped_migrations == forwarded_commands == []
+assert management.call_command is original_call
+''')
+
+    def test_runner_restores_creation_commands_and_guards_on_setup_exceptions(self):
+        for stage in ("create", "migrate", "cache", "after_create"):
+            with self.subTest(stage=stage):
+                self.child(assertions='stage = ' + repr(stage) + r'''
+original_call = management.call_command
+creation = connection.creation
+original_methods = {name: getattr(creation, name)
+                    for name in ("create_test_db", "_create_test_db", "_nodb_cursor")}
+original_connect = connection.connect
+failure = RuntimeError("offline setup failure")
+if stage == "create":
+    create_error = failure
+elif stage == "migrate":
+    migration_error = failure
+elif stage == "cache":
+    def fail_cache(*args, **kwargs):
+        raise failure
+    management.call_command = fail_cache
+    original_call = fail_cache
+else:
+    original_setup = DiscoverRunner.setup_databases
+    def fail_after_create(self, **kwargs):
+        original_setup(self, **kwargs)
+        raise failure
+    DiscoverRunner.setup_databases = fail_after_create
+try:
+    settings.HistoryRevisionCIRunner().setup_databases()
+except ImproperlyConfigured:
+    assert stage == "create"
+except RuntimeError as error:
+    assert stage != "create" and error is failure
+else:
+    raise AssertionError("Setup exception swallowed")
+assert management.call_command is original_call
+assert connection.connect == original_connect
+for name, original in original_methods.items():
+    assert getattr(creation, name) == original
+    assert name not in vars(creation)
+assert not {"drop", "fallback_drop"}.intersection(events)
+assert len(scoped_migrations) == (0 if stage == "create" else 1)
+''')
+
+    def test_scoped_creation_preserves_result_arguments_and_writes_migration_evidence(self):
+        self.child(assertions=r'''
+connection.settings_dict["NAME"] = settings.TEST_DATABASE_NAME
+directory = Path(payload["directory"]) / "evidence"
+directory.mkdir()
+os.environ["HR_CI_EVIDENCE_DIR"] = str(directory)
+original_call = management.call_command
+sentinel = object()
+def original_create(*args, **kwargs):
+    assert args == (sentinel,)
+    assert kwargs == {"autoclobber": True, "keepdb": False, "serialize": False}
+    assert management.call_command is not original_call
+    assert management.call_command("migrate", verbosity=0, interactive=False,
+                                   database="default", run_syncdb=True) is None
+    return sentinel
+result = settings.HistoryRevisionCIRunner()._create_scoped_database(
+    connection.creation, original_create, sentinel, autoclobber=True, keepdb=False, serialize=False)
+assert result is sentinel
+assert scoped_migrations == [(connection, 0, True)]
+assert management.call_command is original_call
+assert json.loads((directory / "test-database-migrations.json").read_text()) == {"scope": "offline-targeted"}
+''')
+
+    def test_scoped_creation_restores_command_on_evidence_write_failure(self):
+        self.child(assertions=r'''
+connection.settings_dict["NAME"] = settings.TEST_DATABASE_NAME
+os.environ["HR_CI_EVIDENCE_DIR"] = str(Path(payload["directory"]) / "missing")
+original_call = management.call_command
+def original_create():
+    management.call_command("migrate", verbosity=0, interactive=False,
+                            database="default", run_syncdb=True)
+try:
+    settings.HistoryRevisionCIRunner()._create_scoped_database(
+        connection.creation, original_create)
+except OSError:
+    pass
+else:
+    raise AssertionError("Migration evidence write failure swallowed")
+assert scoped_migrations == [(connection, 0, True)]
+assert management.call_command is original_call
+''')
+
+    @unittest.skipUnless(importlib.util.find_spec("django"), "Django is not installed in this interpreter")
+    def test_installed_django_management_interception_is_narrow_and_offline(self):
+        self.child(real_django=True, assertions=r'''
+connection.settings_dict["NAME"] = settings.TEST_DATABASE_NAME
+original_call = management.call_command
+def original_create(**kwargs):
+    management.call_command("migrate", verbosity=1, interactive=False,
+                            database="default", run_syncdb=True)
+    return management.call_command("createcachetable", database="default")
+result = settings.HistoryRevisionCIRunner()._create_scoped_database(
+    connection.creation, original_create, verbosity=2)
+assert result == "offline-cache-result"
+assert scoped_migrations == [(connection, 1, True)]
+assert forwarded_commands == [("createcachetable", (), {"database": "default"})]
+assert management.call_command is original_call
+''')
+
     def test_runner_refuses_preexisting_test_database_without_create_drop_or_prompt(self):
         self.child(assertions='''
 import builtins
@@ -633,6 +904,17 @@ for extras in (0, 4):
     assert required <= result.history_revision_stopped_ids
     assert required <= result.history_revision_successful_ids
     assert value.suite_result(suite, result) == 0
+    if extras:
+        extra = next(iter(value._history_revision_collected_ids - required))
+        for attribute in ("history_revision_started_ids", "history_revision_stopped_ids",
+                          "history_revision_successful_ids"):
+            identities = getattr(result, attribute)
+            identities.remove(extra)
+            assert value.suite_result(suite, result) > 0
+            identities.add(extra)
+        result.testsRun -= 1
+        assert value.suite_result(suite, result) > 0
+        result.testsRun += 1
 assert events == []
 ''')
 

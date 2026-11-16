@@ -312,7 +312,11 @@ class HistoryRevisionCIRunner(DiscoverRunner):
         missing_collected = REQUIRED_TEST_IDS - collected
         missing_executed = REQUIRED_TEST_IDS - (started & stopped)
         missing_successful = REQUIRED_TEST_IDS - successful
-        identity_failure = bool(missing_collected or missing_executed or missing_successful)
+        identity_failure = bool(
+            missing_collected or missing_executed or missing_successful
+            or collected != started or collected != stopped or collected != successful
+            or result.testsRun != len(collected)
+        )
         directory = os.environ.get("HR_CI_EVIDENCE_DIR")
         if directory:
             evidence = {
@@ -354,6 +358,42 @@ class HistoryRevisionCIRunner(DiscoverRunner):
                 raise
 
         stack.enter_context(patch.object(connection, "connect", guarded_connect))
+
+    def _create_scoped_database(self, creation, original_create, *args, **kwargs):
+        from django.core import management
+        from .history_revision_ci_migrations import migrate_scoped
+
+        original_call = management.call_command
+        migration_calls = 0
+
+        def scoped_call(command, *command_args, **options):
+            nonlocal migration_calls
+            if command == "migrate":
+                if command_args or migration_calls or options != {
+                    "verbosity": max(kwargs.get("verbosity", 1) - 1, 0),
+                    "interactive": False, "database": "default", "run_syncdb": True,
+                }:
+                    raise ImproperlyConfigured("History revision CI refuses unexpected test migration dispatch.")
+                server_identity(creation.connection, test_database=True)
+                migration_calls += 1
+                result = migrate_scoped(creation.connection, verbosity=options["verbosity"], fresh=True)
+                directory = os.environ.get("HR_CI_EVIDENCE_DIR")
+                if directory:
+                    (Path(directory) / "test-database-migrations.json").write_text(
+                        json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8",
+                    )
+                return None
+            if command != "createcachetable":
+                raise ImproperlyConfigured("History revision CI refuses unexpected database creation command.")
+            return original_call(command, *command_args, **options)
+
+        # BaseDatabaseCreation imports call_command locally. Intercept only its
+        # creation-time dispatch; normal migrate signals and later flush are intact.
+        with patch.object(management, "call_command", scoped_call):
+            result = original_create(*args, **kwargs)
+        if migration_calls != 1:
+            raise ImproperlyConfigured("History revision CI test setup did not execute its scoped migrations.")
+        return result
 
     def setup_databases(self, **kwargs):
         if self.keepdb or self.parallel > 1:
@@ -412,9 +452,13 @@ class HistoryRevisionCIRunner(DiscoverRunner):
 
         stack.enter_context(patch.object(creation, "_nodb_cursor", marked_base_cursor))
         stack.enter_context(patch.object(creation, "_create_test_db", create_test_db_once))
+        original_create = creation.create_test_db
         try:
             server_identity(connection)
-            old_config = super().setup_databases(**kwargs)
+            # Restore command interception immediately, not at teardown.
+            with patch.object(creation, "create_test_db", lambda *args, **options:
+                              self._create_scoped_database(creation, original_create, *args, **options)):
+                old_config = super().setup_databases(**kwargs)
             # The connect guard also checks the test identity BEFORE its migrations.
             server_identity(connection, test_database=True)
             return old_config
