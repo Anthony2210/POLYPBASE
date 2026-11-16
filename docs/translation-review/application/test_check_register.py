@@ -175,6 +175,44 @@ def before_b27(source, rows, language="EN"):
     return source
 
 
+# Published B29 introduction: ae07ef79ad39def03a0eca7541aa69c674e5b522.
+# Its parent 84e7f1fb3526d99dd8b9200f0146f8cdbbc623b5 contains exactly T001-T1100.
+# Independently computed from those Git blobs, not from the current catalogs.
+# B29 records its original development baseline (3802355), not the integration parent.
+PRE_B29_ROWS_SHA256 = "98a1755315c89ac3456df918393269fa9f5b7d8522bc6366d9b55932a5bf7f10"
+B29 = "B29-2026-11-12"
+B29_ROWS_SHA256 = "f1532753960713d43fce130483a7685a8fd4b6da604cb9e5881c6dc9f2e8bf7f"
+PRE_B29_CATALOG_SHA256 = {
+    "EN": "0b961092c2568d78e8ed570fe503864587be4a7eb838d4300884f81d4392af5b",
+    "FR": "25e28173c88539c10a3f37c6c4293c63918a646d72d199cf9b7192ad236fc5dc",
+}
+
+
+def b29_events(rows):
+    """Validate every published B29 field before trusting its catalog reversals."""
+    entry_ids = [f"T{i}" for i in range(1101, 1402)]
+    protected_ids = set(entry_ids)
+    events = [row for row in rows if row["batch"] == B29 or row["entry_id"] in protected_ids]
+    assert events == rows[1100:1401], "B29: events moved or gained a member"
+    assert [row["entry_id"] for row in events] == entry_ids, "B29: identities changed"
+    assert all(list(row) == reg.COLUMNS for row in events), "B29: schema changed"
+    assert rows_digest(events) == B29_ROWS_SHA256, "B29: history was modified"
+    return events
+
+
+def before_b29(source, rows, language="EN"):
+    """Undo only the frozen B29 additions and changes, in reverse event order."""
+    for row in reversed(b29_events(rows)):
+        if row["language"] != language:
+            continue
+        line = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
+        assert source.count(line) == 1, row["entry_id"]
+        previous = (f"  {row['key_or_msgid']}: '{row['initial_value']}',\n"
+                    if row["status"] == "APPLIED" else "")
+        source = source.replace(line, previous)
+    return source
+
+
 def before_b23(source, rows, language="EN"):
     """Reverse only the exact B23 events before checking older source fingerprints."""
     events = [row for row in rows if row["batch"] == "B23-2026-11-10"]
@@ -226,6 +264,12 @@ def integration_evidence(name):
 def integration_integrity_errors(rows):
     """Freeze complete HEAD history and the exact thermal projection, not today's catalogs."""
     errors = []
+    if rows_digest(rows[:1100]) != PRE_B29_ROWS_SHA256:
+        errors.append("Pre-B29 history was modified")
+    try:
+        b29_events(rows)
+    except AssertionError as error:
+        errors.append(str(error))
     if rows_digest(rows[:1060]) != MAIN_HISTORY_SHA256:
         errors.append("Complete movement HEAD history was modified")
     if rows_digest(rows[1060:1086]) != THERMAL_FINAL_ROWS_SHA256:
@@ -286,10 +330,20 @@ class IntegrationHistoryTests(unittest.TestCase):
 
     def test_integration_has_exact_count_unique_ordered_ids_and_chronology(self):
         rows = reg.load_register()
-        self.assertEqual(len(rows), 1100)
-        self.assertEqual([row["entry_id"] for row in rows], [f"T{n:03d}" for n in range(1, 1101)])
+        self.assertEqual(len(rows), 1401)
+        self.assertEqual([row["entry_id"] for row in rows], [f"T{n:03d}" for n in range(1, 1402)])
+        self.assertEqual(rows_digest(rows[:1100]), PRE_B29_ROWS_SHA256)
+        self.assertEqual(integration_integrity_errors(rows), [])
+        b29 = b29_events(rows)
+        self.assertEqual(Counter((row["language"], row["status"]) for row in b29),
+                         Counter({("FR", "ALREADY_MATCHING"): 150, ("EN", "ALREADY_MATCHING"): 150,
+                                  ("EN", "APPLIED"): 1}))
+        self.assertEqual({row["baseline_git_head"] for row in b29},
+                         {"380235543d7be7d715b5de2b81fade1f38e90936"})
+        self.assertEqual({row["baseline_sheet_sha256"] for row in b29},
+                         {"e80b409fbea485d97fbccf66d06da83eb46374883d1e3343f50e51e656b8c307"})
         self.assertEqual(Counter(row["batch"] for row in rows[1010:]),
-                         Counter({"B20-2026-11-09": 6, "B21-2026-11-09": 20, "B22-2026-11-10": 6, "B23-2026-11-10": 12, "B24-2026-11-10": 6, INTEGRATION_B25: 26, B26: 8, B27: 4, "B28-2026-11-11": 2}))
+                         Counter({"B20-2026-11-09": 6, "B21-2026-11-09": 20, "B22-2026-11-10": 6, "B23-2026-11-10": 12, "B24-2026-11-10": 6, INTEGRATION_B25: 26, B26: 8, B27: 4, "B28-2026-11-11": 2, B29: 301}))
         self.assertEqual(len(b26_events(rows)), 8)
         self.assertEqual(len(b27_events(rows)), 4)
         self.assertEqual(len({(row["batch"], reg.identity(row)) for row in rows}), len(rows))
@@ -351,10 +405,26 @@ class IntegrationHistoryTests(unittest.TestCase):
     def test_later_corrections_must_be_appended(self):
         original = reg.load_register()
         row = original[-1]
-        correction = dict(row, entry_id=f"T{len(original) + 1}", batch="B28-2026-11-11", status="APPLIED",
+        correction = dict(row, entry_id="T1402", batch="B30-2026-11-13", status="APPLIED",
+                          baseline_git_head=HEAD_2, decision_ref="synthetic-future-correction",
                           initial_value=row["final_value"], final_value=row["final_value"] + " corrected")
-        self.assertEqual(integration_integrity_errors(original + [correction]), [])
-        self.assertEqual(reg.check_chronology(original + [correction]), [])
+        appended = original + [correction]
+        state = lambda event: (reg.SourceState(True, correction["final_value"])
+                               if reg.identity(event) == reg.identity(correction) else reg.read_source_state(event))
+        self.assertEqual(integration_integrity_errors(appended), [])
+        self.assertEqual(reg.check_chronology(appended), [])
+        self.assertEqual(reg.validate(appended, state), [])
+        variants = {
+            "reopened B28": (original + [dict(correction, batch="B28-2026-11-11")], "is split"),
+            "reopened B29": (original + [dict(correction, batch=B29)], "several baseline_git_head"),
+            "split B29": (appended + [dict(correction, entry_id="T1403", batch=B29)], "is split"),
+            "mixed B30 baselines": (appended + [dict(correction, entry_id="T1403", baseline_git_head=HEAD_1)],
+                                    "several baseline_git_head"),
+        }
+        for label, (changed, expected) in variants.items():
+            with self.subTest(case=label):
+                self.assertTrue(any(expected in error for error in reg.check_chronology(changed)))
+                self.assertTrue(reg.validate(changed, state))
 
 
 def event(entry, batch, key, initial, final, status="APPLIED", surface="react", language="EN", source=None):
@@ -1041,6 +1111,86 @@ class RealRegisterTests(unittest.TestCase):
                 with self.assertRaises(AssertionError):
                     before_b24(source, changed, language)
 
+    def test_h_b29_reconstruction_rejects_every_field_edit(self):
+        rows = reg.load_register()
+        source = (reg.ROOT / "frontend/src/i18n/en.ts").read_text(encoding="utf-8")
+        for index in range(1100, 1401):
+            for field in reg.COLUMNS:
+                changed = rows.copy()
+                changed[index] = dict(rows[index])
+                changed[index][field] += " changed"
+                with self.subTest(entry=rows[index]["entry_id"], field=field):
+                    with self.assertRaisesRegex(AssertionError, "B29:"):
+                        before_b29(source, changed)
+        for field in ("unknown_column", "sheet_value"):
+            changed = [dict(row) for row in rows]
+            if field == "unknown_column":
+                changed[1100][field] = "unapproved"
+            else:
+                changed[1100].pop(field)
+            with self.assertRaisesRegex(AssertionError, "B29: schema changed"):
+                before_b29(source, changed)
+
+    def test_h_b29_reconstruction_rejects_membership_and_source_mutations(self):
+        rows = reg.load_register()
+        events = b29_events(rows)
+        for language in ("FR", "EN"):
+            source = (reg.ROOT / f"frontend/src/i18n/{language.lower()}.ts").read_text(encoding="utf-8")
+            restored = before_b29(source, rows, language)
+            self.assertNotEqual(restored, source)
+            self.assertEqual(hashlib.sha256(restored.encode("utf-8")).hexdigest(),
+                             PRE_B29_CATALOG_SHA256[language])
+            # Unregistered additions must remain visible to the historical fingerprint.
+            extra = "  unregisteredKey: 'Unapproved',\n"
+            self.assertEqual(before_b29(source + extra, rows, language), restored + extra)
+            for index in range(1100, 1401):
+                row = rows[index]
+                with self.subTest(language=language, entry=row["entry_id"]):
+                    for changed in (
+                        rows[:index] + rows[index + 1:],
+                        rows + [dict(row, entry_id="T1402")],
+                        rows[:index] + [dict(row, batch="B30-2026-11-13")] + rows[index + 1:],
+                    ):
+                        with self.assertRaises(AssertionError):
+                            before_b29(source, changed, language)
+                    if row["language"] == language:
+                        line = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
+                        for replacement in ("", line + line, line.replace(": '", ": 'changed ")):
+                            with self.assertRaises(AssertionError):
+                                before_b29(source.replace(line, replacement), rows, language)
+            for index in (1100, 1398, 1399):
+                changed = rows.copy()
+                changed[index], changed[index + 1] = changed[index + 1], changed[index]
+                with self.assertRaises(AssertionError):
+                    before_b29(source, changed, language)
+            self.assertEqual(len(events), 301)
+
+    def test_h_coordinated_b29_register_and_catalog_edits_are_rejected(self):
+        original = reg.load_register()
+        # Snapshot real sources once; each mutation still runs the full validator.
+        sources = {reg.identity(row): reg.read_source_state(row) for row in original}
+        catalogs = {language: (reg.ROOT / path).read_text(encoding="utf-8")
+                    for language, path in reg.REACT_CATALOGS.items()}
+        for index in range(1100, 1401):
+            changed = original.copy()
+            row = changed[index] = dict(original[index])
+            row["final_value"] += " altered"
+            if row["status"] == "ALREADY_MATCHING":
+                row["initial_value"] = row["final_value"]
+            overrides = {reg.identity(row): row["final_value"]}
+            with self.subTest(entry=row["entry_id"]):
+                def state(event):
+                    key = reg.identity(event)
+                    return reg.SourceState(True, overrides[key]) if key in overrides else sources[key]
+                self.assertEqual(reg.validate(changed, state), [])
+                source = catalogs[row["language"]]
+                old_line = f"  {row['key_or_msgid']}: '{original[index]['final_value']}',\n"
+                new_line = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
+                edited = source.replace(old_line, new_line)
+                self.assertNotEqual(edited, source)
+                with self.assertRaisesRegex(AssertionError, "B29: history was modified"):
+                    before_b29(edited, changed, row["language"])
+
     def test_h_b23_reconstruction_rejects_history_and_source_mutations(self):
         rows = reg.load_register()
         for language in ("FR", "EN"):
@@ -1092,14 +1242,15 @@ class RealRegisterTests(unittest.TestCase):
         en = (reg.ROOT / "frontend/src/i18n/en.ts").read_text(encoding="utf-8")
         edited = en.replace("  temperatureDailyMean: 'Daily mean',\n", "  temperatureDailyMean: 'Daily average',\n")
         self.assertNotEqual(edited, en)
-        edited = before_b23(before_b24(before_b26(edited, rows), rows), rows)
+        edited = before_b29(edited, rows)
         # Undo the latest value changes first, so earlier frozen additions still match the catalog.
-        for row in reversed(rows[1098:]):
+        for row in reversed(rows[1098:1100]):
             if row["surface"] == "react" and row["language"] == "EN" and row["status"] == "APPLIED":
                 current = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
                 previous = f"  {row['key_or_msgid']}: '{row['initial_value']}',\n"
                 self.assertEqual(edited.count(current), 1, row["entry_id"])
                 edited = edited.replace(current, previous)
+        edited = before_b23(before_b24(before_b26(edited, rows), rows), rows)
         # Undo later recorded value changes before removing the frozen additions.
         # Reverse order preserves continuity if the same key is corrected more than once.
         # Remove thermal B25 once; movement B20/B21 are removed separately below.
