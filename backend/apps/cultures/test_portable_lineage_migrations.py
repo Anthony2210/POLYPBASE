@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from django.conf import settings
 from django.db import connection, migrations
-from config.migration_test_utils import MigrationExecutor
+from config.migration_test_utils import MigrationExecutor, historical_targets
 from django.db.migrations.loader import MigrationLoader
 from django.db.migrations.recorder import MigrationRecorder
 from django.test import SimpleTestCase, TransactionTestCase
@@ -15,6 +15,7 @@ BEFORE = ("cultures", "0008_transfer_v2_source_package")
 AFTER = ("cultures", "0009_portable_lineage")
 ORGANIZATIONS_INITIAL = ("organizations", "0001_initial")
 TAXONOMY_INITIAL = ("taxonomy", "0001_initial")
+HISTORICAL_APPS = {"cultures", "organizations", "taxonomy", "measurements"}
 
 
 class PortableLineageMigrationGraphTests(SimpleTestCase):
@@ -50,15 +51,15 @@ class PortableLineageMigrationTests(TransactionTestCase):
         # Historical tests may leave a partial state; always restore it before targeting history.
         executor.migrate(self.latest)
         self.addCleanup(self.restore_latest)
-        self.other_targets = [
-            node for node in self.latest if node[0] not in {"cultures", "organizations", "taxonomy", "measurements"}
-        ] + [("measurements", "0005_biologicalmeasurement_week_start")]
 
     def restore_latest(self):
         MigrationExecutor(connection).migrate(self.latest)
 
     def migrate_to(self, cultures, taxonomy=TAXONOMY_INITIAL):
-        targets = self.other_targets + [cultures, ORGANIZATIONS_INITIAL, taxonomy]
+        targets = historical_targets(MigrationLoader(None), HISTORICAL_APPS, [
+            ("measurements", "0005_biologicalmeasurement_week_start"),
+            cultures, ORGANIZATIONS_INITIAL, taxonomy,
+        ])
         executor = MigrationExecutor(connection)
         executor.migrate(targets)
         executor = MigrationExecutor(connection)

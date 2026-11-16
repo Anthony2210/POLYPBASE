@@ -2,7 +2,7 @@ import json
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, connection, transaction
-from config.migration_test_utils import MigrationExecutor
+from config.migration_test_utils import MigrationExecutor, historical_targets
 from django.db.models import ProtectedError
 from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
@@ -13,6 +13,13 @@ from apps.organizations.models import Organization
 
 from .models import GlobalStrainIdentity, LocalStrainIdentity, OrganizationSpeciesCode, Species, Strain
 from .serializers import StrainReferenceSerializer, StrainReferenceWriteSerializer
+
+
+HISTORICAL_APPS = {"taxonomy", "organizations", "cultures", "measurements"}
+CROSS_APP_TARGETS = [
+    ("cultures", "0014_box_movement_week_matches_moved_at"),
+    ("measurements", "0013_historical_temperature_receipt"),
+]
 
 
 class StrainOrganizationTests(TestCase):
@@ -131,13 +138,9 @@ class StrainOrganizationMigrationTests(TransactionTestCase):
         executor = MigrationExecutor(connection)
         latest = executor.loader.graph.leaf_nodes()
         # Keep the physical schema aligned with the historical cross-app models.
-        other_targets = [node for node in latest if node[0] not in {"taxonomy", "organizations", "cultures", "measurements"}] + [
-            ("cultures", "0014_box_movement_week_matches_moved_at"),
-            ("measurements", "0013_historical_temperature_receipt"),
-        ]
         organizations = ("organizations", "0001_initial")
-        before_targets = other_targets + [before, organizations]
-        after_targets = other_targets + [after, organizations]
+        before_targets = historical_targets(executor.loader, HISTORICAL_APPS, CROSS_APP_TARGETS + [before, organizations])
+        after_targets = historical_targets(executor.loader, HISTORICAL_APPS, CROSS_APP_TARGETS + [after, organizations])
         try:
             # A preceding migration test may have left another historical state.
             executor.migrate(latest)
