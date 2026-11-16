@@ -61,6 +61,12 @@ Règles vérifiées par `check_register.py` :
 - **État courant** : seul le dernier événement de chaque identité est comparé au code. Un ancien `final_value` peut différer du code actuel si un événement ultérieur l'explique.
 - Statuts, surfaces, langues FR/EN uniquement, empreintes, variables `{x}` conservées avec leur multiplicité, parité des clés et variables FR/EN des catalogues.
 
+## ADN : ajout puis retrait du chip d'état (2026-11-16)
+
+La clé React `dnaStateValidated` a été ajoutée en FR (`Validée`) et EN (`Validated`) dans le lot local non committé B30, puis retirée avec le chip redondant du popover. Les événements d'ajout `T1452/T1453`, supprimés pendant la session précédente, sont rétablis dans leur position chronologique : leur suppression n'est pas une manière de tracer un retrait applicatif. Les événements suivants `T1454–T1457` ne sont pas renumérotés.
+
+Le nouveau lot `B31-2026-11-16` ajoute la paire `REMOVED` `T1458/T1459`, avec les valeurs exactes avant retrait et une valeur finale vide. Les catalogues restent sans cette clé; aucune réintroduction ni modification du japonais n'est faite. L'historique baseline `T001–T1401` reste inchangé, y compris la représentation CSV de `T841/T842`; aucune empreinte ni règle du checker n'est modifiée. Cette traçabilité ne constitue pas un nouveau résultat QA frontend ou navigateur.
+
 ## Intégration laboratoire du 2026-11-05
 
 Les 32 événements FR/EN entrants de `8f7cf04` (suppression d'emplacements et audit du laboratoire) entraient en collision avec les événements de mouvements historiques déjà présents sur `main`. L'intégration conserve `T001–T974` octet pour octet, notamment les événements thermiques `T845–T858`, laboratoire `T859–T886` et historiques `T887–T974`.

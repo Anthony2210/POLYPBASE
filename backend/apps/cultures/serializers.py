@@ -17,6 +17,7 @@ from apps.audit.models import AuditLog
 from apps.cultures import qr
 from apps.cultures.models import (
     Box,
+    BoxDnaValidation,
     BoxLocation,
     BoxMovement,
     BoxTransfer,
@@ -448,7 +449,52 @@ class BoxTemperatureHistoryQuerySerializer(serializers.Serializer):
         return attrs
 
 
+class BoxDnaValidationSerializer(serializers.ModelSerializer):
+    created_by = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BoxDnaValidation
+        fields = ["id", "evidence_url", "created_by", "created_at", "revision"]
+        read_only_fields = fields
+
+    def get_created_by(self, obj):
+        return readable_user_identity_label(obj.created_by) or ""
+
+
+class BoxDnaValidationCreateSerializer(serializers.Serializer):
+    evidence_url = serializers.URLField(max_length=2000, trim_whitespace=True)
+
+    def validate_evidence_url(self, value):
+        from django.core.validators import URLValidator
+
+        URLValidator(schemes=["http", "https"])(value)
+        return value
+
+
+class BoxDnaValidationUpdateSerializer(BoxDnaValidationCreateSerializer):
+    expected_revision = serializers.IntegerField(min_value=1, required=True)
+
+
+class BoxDnaValidationRevokeSerializer(serializers.Serializer):
+    expected_revision = serializers.IntegerField(min_value=1, required=True)
+
+
 class BoxDetailSerializer(BoxListSerializer):
+    dna_validation = serializers.SerializerMethodField()
+    can_edit_dna_validation = serializers.SerializerMethodField()
+
+    def get_dna_validation(self, obj):
+        validation = obj.dna_validations.filter(revoked_at__isnull=True).select_related("created_by").first()
+        return BoxDnaValidationSerializer(validation).data if validation else None
+
+    def get_can_edit_dna_validation(self, obj):
+        from .dna_validation import can_edit_dna_validation
+
+        request = self.context.get("request")
+        return bool(request and can_edit_dna_validation(
+            user=request.user, organization=obj.organization,
+        ))
+
     tags = IdentificationTagSerializer(many=True, read_only=True)
     temperature_history = serializers.SerializerMethodField()
     lineage = serializers.SerializerMethodField()
@@ -512,6 +558,8 @@ class BoxDetailSerializer(BoxListSerializer):
             "qr_image_url",
             "can_create_measurement",
             "biological_timeline",
+            "dna_validation",
+            "can_edit_dna_validation",
         ]
 
     def get_can_create_measurement(self, obj):

@@ -552,7 +552,32 @@ export function getAuditInlineBusinessItems(
   return [];
 }
 
+export function getDnaAuditSummary(entry: AuditEntryLike, t: Translator): string | null {
+  const event = entry.metadata?.event;
+  if (event === 'box_dna_validation_added') return t('dnaAuditAdded');
+  if (event === 'box_dna_validation_updated') return t('dnaAuditUpdated');
+  if (event === 'box_dna_validation_revoked') return t('dnaAuditRevoked');
+  return null;
+}
+
+export function getDnaAuditDetails(entry: AuditEntryLike | undefined, t: Translator) {
+  if (!entry || !getDnaAuditSummary(entry, t)) return null;
+  return {
+    before: getDnaAuditEvidence(entry.metadata?.before),
+    after: getDnaAuditEvidence(entry.metadata?.after),
+    revoked: entry.metadata?.event === 'box_dna_validation_revoked',
+  };
+}
+
+function getDnaAuditEvidence(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return null;
+  const url = (value as Record<string, unknown>).evidence_url;
+  return typeof url === 'string' ? url : null;
+}
+
 export function getAuditBusinessSummary(entry: AuditEntryLike, t: Translator): string {
+  const dnaSummary = getDnaAuditSummary(entry, t);
+  if (dnaSummary) return dnaSummary;
   const description = (entry.description || '').trim();
   const details = entry.business_details;
   const accountTitle = getAccountActionTitle(entry, t);

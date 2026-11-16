@@ -11,6 +11,116 @@
   box-shadow: var(--shadow-float);
 }
 
+.dna-validation-popover {
+  display: grid;
+  width: min(320px, calc(100vw - 24px));
+  gap: var(--space-3);
+  padding: var(--space-3);
+  font-size: .82rem;
+  overflow-wrap: anywhere;
+}
+
+.dna-validation-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.dna-validation-heading h3 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: .9rem;
+  line-height: 1.4;
+}
+
+.dna-validation-facts {
+  display: grid;
+  margin: 0;
+  gap: var(--space-2);
+}
+
+.dna-validation-facts > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.dna-validation-facts dt {
+  color: var(--color-muted);
+  font-size: .68rem;
+  font-weight: 700;
+}
+
+.dna-validation-facts dd {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--color-ink-soft);
+  font-size: .8rem;
+  font-weight: 700;
+}
+
+.dna-validation-facts dd a {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-primary-hover);
+}
+
+.dna-evidence-edit {
+  display: grid;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--color-primary-hover);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+
+.dna-evidence-edit:is(:hover, :focus-visible) { background: var(--color-primary-faint); }
+
+@media (pointer: coarse) {
+  .dna-evidence-edit { width: 44px; min-width: 44px; height: 44px; }
+}
+
+.dna-validation-actions {
+  display: grid;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-line);
+}
+
+.dna-validation-actions button {
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-danger-hover);
+  font-size: .8rem;
+  font-weight: 650;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+
+.dna-validation-actions button:is(:hover, :focus-visible) { background: var(--color-danger-soft); }
+
+@media (prefers-reduced-motion: reduce) {
+  /* Measured visibility must take effect before keyboard focus moves inside. */
+  .dna-validation-popover,
+  .dna-validation-popover * { transition-property: none; }
+}
+
 .anchored-popover :is(button, a, [tabindex]):focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;

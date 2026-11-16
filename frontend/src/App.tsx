@@ -30,7 +30,7 @@ import {
   type Translator,
 } from './i18n';
 import type { AdminSectionKey } from './components/AdminView';
-import type { EditableMeasurement } from './types';
+import type { DnaValidationMutation, EditableMeasurement } from './types';
 import BoxPage from './components/BoxPage';
 
 // A measurement handed over by the history so the box sheet can open with it
@@ -1531,6 +1531,28 @@ export default function App() {
     return detail;
   }
 
+  async function mutateDnaValidation(boxId: number, mutation: DnaValidationMutation) {
+    const { apiPost, apiPatch, assertCurrent } = getOperationRequests(operationGeneration);
+    const commit = beginBoxMutation();
+    const path = `/api/boxes/${boxId}/dna-validation/`;
+    if (mutation.operation === 'add') {
+      await apiPost(path, { evidence_url: mutation.evidence_url });
+    } else if (mutation.operation === 'update') {
+      await apiPatch(path, { evidence_url: mutation.evidence_url, expected_revision: mutation.expected_revision });
+    } else {
+      await apiPost(`${path}revoke/`, { expected_revision: mutation.expected_revision });
+    }
+    assertCurrent();
+    const publication = commit(boxId);
+    await refreshAfterMutation(() => refreshBoxAfterMeasurement(boxId), assertCurrent, publication.isCurrent);
+    assertCurrent();
+  }
+
+  async function refreshDnaValidation(boxId: number) {
+    invalidateBoxDetail(boxId, operationGeneration);
+    return refreshBoxAfterMeasurement(boxId);
+  }
+
   async function correctMovement(boxId: number, movementId: number, payload: BoxMovementCorrectionPayload) {
     const { apiPatch, assertCurrent } = getOperationRequests(operationGeneration);
     const commit = beginBoxMutation(true);
@@ -2323,6 +2345,8 @@ export default function App() {
                 onRefreshMeasurementState={refreshBoxAfterMeasurement}
                 onCorrectMovement={correctMovement}
                 onRefreshMovementState={refreshMovementState}
+                onMutateDnaValidation={mutateDnaValidation}
+                onRefreshDnaValidation={refreshDnaValidation}
                 onCreateSubculture={createSubculture}
                 onMoveBox={moveBox}
                 onDeactivateBox={deactivateBox}

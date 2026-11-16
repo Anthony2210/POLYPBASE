@@ -28,7 +28,7 @@ function loadModuleWithRequire(relativePath, requireMap) {
     if (specifier in requireMap) return requireMap[specifier];
     throw new Error(`Unexpected require: ${specifier}`);
   };
-  vm.runInNewContext(outputText, { exports, require, URLSearchParams });
+  vm.runInNewContext(outputText, { exports, require, URLSearchParams, URL });
   return exports;
 }
 
@@ -47,6 +47,33 @@ const timeline = loadModuleWithRequire('../src/components/AuditTimeline.tsx', {
   'react/jsx-runtime': jsxRuntime,
   '../utils/auditPresentation': audit,
   './BoxTrackingPreview': { default: () => null },
+  './DnaEvidenceLink': loadModuleWithRequire('../src/components/DnaEvidenceLink.tsx', {
+    'react/jsx-runtime': jsxRuntime, 'lucide-react': { ExternalLink: () => null },
+  }),
+});
+
+test('DNA events use business summaries and safe before/after evidence links', () => {
+  const labels = {
+    dnaAuditAdded: 'Validation ADN ajoutée', dnaAuditUpdated: 'Lien de preuve ADN modifié',
+    dnaAuditRevoked: 'Validation ADN retirée', dnaMissing: 'Validation ADN : non renseignée',
+    dnaEvidenceUrl: 'Lien vers la preuve ADN', auditPrevious: 'Avant', auditNew: 'Après',
+  };
+  const t = key => labels[key] ?? key;
+  for (const event of ['added', 'updated', 'revoked']) {
+    const entry = { action: 'update', description: `Box DNA validation ${event}`, metadata: {
+      event: `box_dna_validation_${event}`,
+      before: event === 'added' ? null : { evidence_url: 'https://before.example/proof' },
+      after: { evidence_url: 'https://after.example/proof' },
+    } };
+    const html = renderBusinessRow(entry, t);
+    assert.ok(html.includes(labels[{ added: 'dnaAuditAdded', updated: 'dnaAuditUpdated', revoked: 'dnaAuditRevoked' }[event]]));
+    assert.ok(!html.includes('Box DNA validation'));
+    assert.ok(!html.includes('evidence_url'));
+    assert.ok(html.includes('→'));
+    assert.equal(html.includes('href="https://before.example/proof"'), event !== 'added');
+    assert.equal(html.includes('href="https://after.example/proof"'), event !== 'revoked');
+    assert.ok(html.includes('rel="noopener noreferrer"'));
+  }
 });
 
 function renderBusinessRow(entry, t = tFr, boxReference = null) {

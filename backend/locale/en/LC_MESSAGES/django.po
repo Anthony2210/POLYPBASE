@@ -11,6 +11,26 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
+#: apps/cultures/dna_validation.py
+msgid "This account cannot edit DNA validations. Please contact your administrator."
+msgstr "This account cannot edit DNA validations. Please contact your administrator."
+
+msgid "No Box matches the given query."
+msgstr "No Box matches the given query."
+
+msgid "A DNA validation already exists."
+msgstr "A DNA validation already exists."
+
+msgid "The DNA validation has changed. Reload the box."
+msgstr "The DNA validation has changed. Reload the box."
+
+msgid "The evidence URL has not changed."
+msgstr "The evidence URL has not changed."
+
+#: apps/cultures/models.py
+msgid "DNA validations must be revoked, not deleted."
+msgstr "DNA validations must be revoked, not deleted."
+
 #: apps/cultures/automatic_box_creation.py
 msgid "This field is not accepted."
 msgstr "This field is not accepted."
