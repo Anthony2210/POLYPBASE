@@ -5,6 +5,7 @@ from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal
 import json
+import re
 from uuid import UUID
 
 from django.db import connection
@@ -28,6 +29,29 @@ from .history_revision_composition import (
     source_event_fingerprint,
 )
 from .models import BoxHistoryEventIdentity, BoxHistoryRevision, BoxHistoryStream
+
+
+_LEADING_SELECT = re.compile(r"^\(*\s*SELECT\b", re.IGNORECASE)
+_SET_OPERAND = re.compile(
+    r"\b(?:UNION(?:\s+ALL)?|INTERSECT|EXCEPT)\s*\(*\s*([A-Za-z]+)",
+    re.IGNORECASE,
+)
+
+
+def is_read_only_preview_sql(statement):
+    """Accept SELECT and set operations whose every operand is SELECT.
+
+    PostgreSQL may emit ``(SELECT ...) UNION ALL (SELECT ...)`` for the
+    preview. CTEs and other read-only shapes are deliberately not accepted
+    here, so adding one requires an explicit review of the zero-write check.
+    """
+    text = statement.lstrip()
+    if _LEADING_SELECT.match(text) is None:
+        return False
+    return all(
+        match.group(1).upper() == "SELECT"
+        for match in _SET_OPERAND.finditer(text)
+    )
 
 
 def identity(number):
@@ -303,8 +327,9 @@ class HistoryRevisionCodecStorageTests(TestCase):
                     HTTP_X_ORGANIZATION_ID=str(self.org.pk),
                 )
         finally:
-            self.assertTrue(all(row["sql"].lstrip().upper().startswith("SELECT") for row in queries),
-                            [row["sql"] for row in queries if not row["sql"].lstrip().upper().startswith("SELECT")])
+            self.assertTrue(all(is_read_only_preview_sql(row["sql"]) for row in queries),
+                            [row["sql"] for row in queries
+                             if not is_read_only_preview_sql(row["sql"])])
         diagnostic = f"Preview GET status={response.status_code}, headers={dict(response.headers)!r}"
         self.assertEqual(response.status_code, 200, diagnostic)
         self.assertEqual(response.get("Cache-Control"), "private, no-store", diagnostic)

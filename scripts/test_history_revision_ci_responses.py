@@ -127,6 +127,37 @@ with case.assertRaises(AssertionError) as caught:
 assert "PRAGMA user_version" in str(caught.exception)
 ''')
 
+    def test_preview_sql_classifier_accepts_parenthesized_select_union_and_rejects_writes(self):
+        self.run_offline(r'''
+from apps.cultures.test_history_revision_codec import is_read_only_preview_sql
+
+read_only = (
+    "SELECT 1",
+    "  select 1",
+    "(SELECT 1) UNION ALL (SELECT 2)",
+    "((SELECT 1) UNION (SELECT 2))",
+    "( SELECT 1 ) INTERSECT ( SELECT 2 )",
+)
+for statement in read_only:
+    assert is_read_only_preview_sql(statement), statement
+
+writes = (
+    "INSERT INTO t VALUES (1)",
+    "(INSERT INTO t VALUES (1))",
+    "UPDATE t SET x = 1",
+    "DELETE FROM t",
+    "TRUNCATE t",
+    "(SELECT 1) UNION ALL (DELETE FROM t)",
+    "(SELECT 1) UNION ALL (UPDATE t SET x = 1)",
+    "WITH x AS (SELECT 1) DELETE FROM t",
+    "CREATE TABLE t (id integer)",
+    "ALTER TABLE t ADD COLUMN x integer",
+    "DROP TABLE t",
+)
+for statement in writes:
+    assert not is_read_only_preview_sql(statement), statement
+''')
+
     def test_only_overlength_key_accepts_data_error_including_subclasses(self):
         self.run_offline(r'''
 class DriverDataError(DataError):
