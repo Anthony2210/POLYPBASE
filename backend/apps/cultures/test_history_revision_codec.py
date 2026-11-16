@@ -7,7 +7,9 @@ from decimal import Decimal
 import json
 from uuid import UUID
 
+from django.db import connection
 from django.test import SimpleTestCase, TestCase
+from django.test.utils import CaptureQueriesContext
 
 from . import test_history_preview as fixtures
 from . import test_history_preview_api as api_fixtures
@@ -290,8 +292,26 @@ class HistoryRevisionCodecStorageTests(TestCase):
     url = api_fixtures.HistoryPreviewAPITests.url
     window = api_fixtures.HistoryPreviewAPITests.window
     api_client = api_fixtures.HistoryPreviewAPITests.api_client
-    request = api_fixtures.HistoryPreviewAPITests.request
     success = api_fixtures.HistoryPreviewAPITests.success
+
+    def request(self):
+        # Script-based CI keeps production HTTPS middleware enabled with DEBUG off.
+        try:
+            with CaptureQueriesContext(connection) as queries:
+                response = self.api_client().get(
+                    self.url(), data=self.window(), secure=True,
+                    HTTP_X_ORGANIZATION_ID=str(self.org.pk),
+                )
+        finally:
+            self.assertTrue(all(row["sql"].lstrip().upper().startswith("SELECT") for row in queries),
+                            [row["sql"] for row in queries if not row["sql"].lstrip().upper().startswith("SELECT")])
+        diagnostic = f"Preview GET status={response.status_code}, headers={dict(response.headers)!r}"
+        self.assertEqual(response.status_code, 200, diagnostic)
+        self.assertEqual(response.get("Cache-Control"), "private, no-store", diagnostic)
+        self.assertTrue({"cookie", "x-organization-id"}.issubset(
+            {item.strip().lower() for item in response.get("Vary", "").split(",")},
+        ), diagnostic)
+        return response
 
     def load(self):
         return load_box_source_history(organization_id=self.org.pk, box_id=self.box.pk)

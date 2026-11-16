@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, connection, models, transaction
+from django.db import DataError, IntegrityError, connection, models, transaction
 from django.db.models import ProtectedError
 from django.test import SimpleTestCase, TestCase
 
@@ -240,8 +240,11 @@ class HistoryRevisionStorageTests(TestCase):
         query = "INSERT INTO cultures_boxhistoryeventidentity (id, stream_id, kind, source_key, derived_source_key, locator, source_fingerprint, source_snapshot) VALUES (%s, %s, %s, '', %s, %s, %s, '{}')"
         # Different locator JSON cannot evade the explicit stream/key index.
         self.rejects_sql(query, [uuid4().hex, self.stream.pk.hex, "derived", identity.derived_source_key, '{"reading":2}', "a" * 64])
-        for key in ("", "a" * 63, "a" * 65, "A" * 64, "x" * 64):
+        for key in ("", "a" * 63, "A" * 64, "x" * 64):
             self.rejects_sql(query, [uuid4().hex, self.stream.pk.hex, "derived", key, '{"reading":2}', "a" * 64])
+        # PostgreSQL rejects varchar overflow before the identity shape guard runs.
+        with self.assertRaises((DataError, IntegrityError)), transaction.atomic():
+            self.sql(query, [uuid4().hex, self.stream.pk.hex, "derived", "a" * 65, '{"reading":2}', "a" * 64])
         self.rejects_sql(query, [uuid4().hex, self.stream.pk.hex, "inserted", "a" * 64, '{}', ""])
         for kind in ("persisted", "inserted"):
             with self.assertRaises(ValidationError):

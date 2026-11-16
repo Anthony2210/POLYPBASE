@@ -155,6 +155,23 @@ def migrate_scoped(candidate, *, verbosity, fresh):
 
 module("config.history_revision_ci_migrations").migrate_scoped = migrate_scoped
 
+isolation_calls = []
+
+class IsolationStub:
+    @staticmethod
+    def prepare(maintenance, **options):
+        isolation_calls.append(("prepare", maintenance, options))
+        events.append("isolation_prepare")
+    @staticmethod
+    def finish():
+        isolation_calls.append(("finish",))
+        events.append("isolation_finish")
+        return {"template": settings.TEMPLATE_DATABASE_NAME, "template_oid": 1, "resets": 0}
+
+isolation_module = module("config.history_revision_ci_isolation")
+isolation_module.prepare = IsolationStub.prepare
+isolation_module.finish = IsolationStub.finish
+
 class Cursor:
     def __init__(self, connection):
         self.connection = connection
@@ -466,8 +483,16 @@ runner = settings.HistoryRevisionCIRunner()
 old_config = runner.setup_databases()
 assert events.index("identity:history_revision_ci") < events.index("create")
 assert events.index("identity:test_history_revision_ci") < events.index("migrate")
+assert events.index("identity:test_history_revision_ci") < events.index("isolation_prepare")
+assert isolation_calls[0][0] == "prepare"
+assert isolation_calls[0][1].settings_dict["NAME"] == settings.DATABASE_NAME
+assert isolation_calls[0][2]["base_name"] == settings.DATABASE_NAME
+assert isolation_calls[0][2]["test_name"] == settings.TEST_DATABASE_NAME
+assert isolation_calls[0][2]["template_name"] == settings.TEMPLATE_DATABASE_NAME
 runner.teardown_databases(old_config)
-assert events[-1] == "drop"
+assert events.index("drop") < events.index("isolation_finish")
+assert events[-1] == "isolation_finish"
+assert isolation_calls[-1] == ("finish",)
 ''')
 
     def test_runner_scopes_one_migration_and_restores_patches_before_teardown(self):
@@ -486,9 +511,11 @@ assert forwarded_commands == [("createcachetable", (), {"database": "default"})]
 assert management.call_command is original_call
 assert connection.creation.create_test_db == original_create
 assert "create_test_db" not in vars(connection.creation)
+assert "isolation_prepare" in events
 # Connect guards remain active until teardown, unlike the narrow command patch.
 assert "connect" in vars(connection)
 runner.teardown_databases(old_config)
+assert events[-1] == "isolation_finish"
 assert "connect" not in vars(connection)
 assert management.call_command is original_call
 assert connection.creation.create_test_db == original_create

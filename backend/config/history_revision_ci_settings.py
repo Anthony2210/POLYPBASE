@@ -24,6 +24,7 @@ REQUIRED_ENVIRONMENT = {
 }
 DATABASE_NAME = "history_revision_ci"
 TEST_DATABASE_NAME = "test_history_revision_ci"
+TEMPLATE_DATABASE_NAME = "test_history_revision_ci_template"
 SERVICE_MARKER = "history-revision-actions-disposable"
 
 
@@ -461,6 +462,18 @@ class HistoryRevisionCIRunner(DiscoverRunner):
                 old_config = super().setup_databases(**kwargs)
             # The connect guard also checks the test identity BEFORE its migrations.
             server_identity(connection, test_database=True)
+            from . import history_revision_ci_isolation as isolation
+            try:
+                isolation.prepare(
+                    maintenance, base_name=DATABASE_NAME, test_name=TEST_DATABASE_NAME,
+                    template_name=TEMPLATE_DATABASE_NAME, quote=connection.ops.quote_name,
+                    verify_base=lambda: server_identity(maintenance),
+                    verify_test=lambda: server_identity(connection, test_database=True),
+                )
+            except BaseException:
+                isolation.finish()
+                raise
+            self._history_revision_isolation = isolation
             return old_config
         except BaseException:
             stack.close()
@@ -471,4 +484,14 @@ class HistoryRevisionCIRunner(DiscoverRunner):
             server_identity(connections["default"], test_database=True)
             return super().teardown_databases(old_config, **kwargs)
         finally:
-            self._history_revision_guards.close()
+            try:
+                isolation = getattr(self, "_history_revision_isolation", None)
+                if isolation is not None:
+                    evidence = isolation.finish()
+                    directory = os.environ.get("HR_CI_EVIDENCE_DIR")
+                    if directory and evidence:
+                        (Path(directory) / "isolation.json").write_text(
+                            json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8",
+                        )
+            finally:
+                self._history_revision_guards.close()

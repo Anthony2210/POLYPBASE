@@ -3,11 +3,12 @@
 ## Statut et périmètre
 
 **Périmètre : TARGETED Phase5A, jamais une validation du graphe complet.**
-Deux exécutions distantes antérieures sont rapportées par l'utilisateur ci-dessous;
-la version à migrations ciblées n'a pas encore été exécutée à distance. Ce document
-n'est ni une preuve de réussite PostgreSQL de cette version ni une autorisation de
-publication ou de déploiement.
-Base inspectée : `e9907e2`, branche `test/history-revision-postgres-qa`.
+Trois exécutions distantes sont rapportées par l'utilisateur ci-dessous; le run #3
+a exécuté la version ciblée mais a échoué sur trois causes, et ses corrections
+locales n'ont pas encore été exécutées à distance. Ce document n'est ni une preuve
+de réussite PostgreSQL de ces corrections ni une autorisation de publication ou de
+déploiement.
+Base inspectée : `6be1018`, branche `test/history-revision-postgres-qa`.
 Aucun commit, staging, push ou lancement Actions n'est effectué par l'agent.
 Cette mise à jour adapte uniquement le harnais QA, ses tests, ce document et le
 workflow. Aucun modèle scientifique, migration ou moteur métier n'est modifié.
@@ -74,9 +75,20 @@ pendant cette tâche :
    https://github.com/Anthony2210/POLYPBASE/actions/runs/43948285336.
    Le succès de 0019/0020 ne démontre pas le succès des catalogues, de l'inversion,
    de la réapplication ou des tests ultérieurs.
+3. **Run #3 :** commit `6be1018`, périmètre ciblé appliqué (80 migrations réelles,
+   0019 et 0020 incluses, 0018 exclue), puis **105 tests exécutés et
+   `FAILED (errors=18)`** :
+   https://github.com/Anthony2210/POLYPBASE/actions/runs/43969930237.
+   Les 18 erreurs proviennent de **trois causes indépendantes** : le flush
+   `TransactionTestCase` rejeté par les triggers `BEFORE TRUNCATE` de
+   `measurements.0012` (9 tests, dont 7 erreurs de cascade au `setUp` suivant),
+   `DataError` PostgreSQL sur une clé de 65 caractères dans un `varchar(64)`, et
+   un 301 HTTPS sur le helper HTTP du test codec. Les corrections locales sont
+   décrites ci-dessous; **elles n'ont pas encore été exécutées à distance**.
 
-**Version ciblée : aucune exécution distante à ce jour.** L'exclusion de 0018
-isole cette QA synthétique; elle ne corrige ni ne valide son contrat métier.
+**État courant :** le run #3 a réellement exécuté le périmètre ciblé, mais il a
+échoué sur ces trois causes. L'exclusion de 0018 isole cette QA synthétique; elle
+ne corrige ni ne valide son contrat métier.
 
 ## Gate de périmètre et migrations ciblées
 
@@ -137,12 +149,63 @@ comparaison normalise uniquement la largeur AutoField/BigAutoField de ces PK
 auto-générées; noms de colonnes, relations et autres champs restent stricts.
 Ce n'est pas une équivalence des types SQL de toutes les tables en production.
 
-Le workflow ajoute le contrôle offline
-`python -B -m unittest discover -s scripts -p test_history_revision_ci_migrations.py -v`.
-Il comprend de vraies migrations Django sur SQLite `:memory:` dans un processus
-isolé, sockets interdits, sans settings applicatifs ni dotenv. Ce contrôle ne
-valide pas PL/pgSQL, les verrous ou les catalogues PostgreSQL. Son ajout au workflow
-ne signifie pas qu'il a déjà été exécuté par Actions.
+Le workflow ajoute trois contrôles offline :
+`test_history_revision_ci_migrations.py`, `test_history_revision_ci_isolation.py`
+et `test_history_revision_ci_responses.py`. Ils exécutent de vraies migrations
+Django sur SQLite `:memory:`, des doubles de catalogue et des réponses HTTP, dans
+des processus isolés, sockets interdits, sans settings applicatifs ni dotenv. Ces
+contrôles ne valident pas PL/pgSQL, les verrous, les triggers ni les catalogues
+PostgreSQL. Leur ajout au workflow ne signifie pas qu'ils ont déjà réussi dans
+Actions.
+
+## Correction des trois échecs du run #3
+
+### 1. Isolation des `TransactionTestCase`
+
+Django nettoie ces tests avec `TRUNCATE`. `measurements.0012` et `0013` installent
+des triggers `BEFORE TRUNCATE` sur les tables scientifiques historiques; ces
+triggers sont corrects et **ne sont ni désactivés ni modifiés**. Le flush échoue,
+les fixtures restent, et le test suivant échoue sur des noms d'organisation
+duplicés.
+
+`backend/config/history_revision_ci_isolation.py` remplace ce nettoyage, pour le
+seul PostgreSQL jetable, par un reset complet :
+
+1. le runner crée, après les migrations ciblées et avant tout test, un template
+   vide `test_history_revision_ci_template` à partir de la base de test;
+2. après chaque `TransactionTestCase`, la base de test est fermée, supprimée par
+   son nom exact puis recréée depuis ce template;
+3. la connexion est rétablie et son identité est revérifiée avant le test suivant;
+4. le template est supprimé au teardown, uniquement si son OID créé par ce run
+   correspond encore et si son propriétaire est le rôle QA.
+
+Le reset conserve les commits réels, les connexions concurrentes indépendantes,
+les FK différées et les gardes d'immutabilité. Il n'appelle pas `flush`, ne
+supprime aucune ligne protégée, n'utilise pas `session_replication_role`, ne
+désactive aucun trigger, n'utilise pas `WITH (FORCE)` et ne supprime aucune base
+inconnue : un nom, un propriétaire ou un OID inattendu fait échouer le job. Le test
+de base est lui-même identifié par son OID entre les resets. La connexion de
+maintenance marquée et ses contrôles d'identité restent utilisés. Les classes de
+concurrence restent des `TransactionTestCase`.
+
+### 2. Exception SQL PostgreSQL
+
+`test_derived_identity_sql_uniqueness_and_key_shape` insère une clé dérivée de
+65 caractères. PostgreSQL applique `varchar(64)` avant le trigger de forme et
+lève `DataError`, alors que SQLite et les clés de 63/64 caractères lèvent
+`IntegrityError`. Seule la valeur de 65 caractères accepte désormais
+`(DataError, IntegrityError)`; les autres valeurs continuent d'exiger
+`IntegrityError`. Le schéma et les triggers restent inchangés.
+
+### 3. Réponse HTTP du test codec
+
+Le harnais tourne via un script, donc `RUNNING_TESTS` est faux et les réglages de
+production activent `SECURE_SSL_REDIRECT`. Le helper partagé envoyait une requête
+HTTP : `SecurityMiddleware` répondait **301** avant la vue, sans `Cache-Control`
+ni `Vary`. Ce n'est pas un défaut produit. Le test codec envoie maintenant sa
+requête avec `secure=True`, vérifie d'abord le statut avec un diagnostic complet,
+puis conserve les assertions `Cache-Control`, `Vary` et lecture seule. Aucune
+assertion de sécurité HTTP n'est retirée.
 
 ## Matrice distante ciblée prévue
 
@@ -154,6 +217,7 @@ ne signifie pas qu'il a déjà été exécuté par Actions.
 | Catalogues initiaux | Dix triggers et fonctions activés; corps installés comparés à 0020 et attributs d'exécution vérifiés; contraintes nommées, expressions et colonnes; index uniques partiels; cibles et différabilité des FK |
 | Inversion | Plan autorisant **seulement 0020**; maintien de 0019; absence des dix triggers et fonctions |
 | Réapplication | 0020 réappliquée; catalogues restaurés identiques |
+| Isolation | Reset depuis un template migré vide après chaque `TransactionTestCase`; aucun `TRUNCATE`, trigger désactivé ou base inconnue; OID du template et de la base de test vérifiés; preuve `isolation.json` |
 | Intégrité | 34 tests de modèles/stockage actuellement découverts : ORM immutable, SQL UPDATE/DELETE, heads valides/invalides, prédécesseurs, unicité séquence/idempotence, institutions, suppression Box/auteur et attribution conservée |
 | Codec/composition | 14 tests existants de codec/intégration et 47 de composition pure; absence de consommation active de l'overlay |
 | Transactions PostgreSQL | Neuf tests du socle et une régression supplémentaire des fonctions installées, décrits ci-dessous |
@@ -276,7 +340,7 @@ Sur Python 3.12.13 / Django 5.2.17, sans PostgreSQL ni Docker :
   fonctions absentes/remplacées/surchargées, mauvaise association OID et attributs
   changés rejetés. Les dix corps réels de 0020 sont rendus hors base, avec connexions
   et sockets interdits; la conservation réelle par PostgreSQL reste à tester.
-- Collecte Django réelle des quatre modules : 104 identités, toutes les 103 requises
+- Collecte Django réelle des quatre modules : 105 identités, toutes les 103 requises
   présentes. Cette collecte n'exécute aucun test PostgreSQL.
 - Django check et drift sur preflight SQLite mémoire : sans problème/changement.
 - 94 tests Phase 5A SQLite réussis, aucun skip. Les dix tests PostgreSQL ne sont pas
@@ -308,6 +372,11 @@ Sans PostgreSQL, Docker, connexion distante ni Actions :
 - Les contrôles ont identifié et corrigé deux défauts d'intégration du harnais :
   passage du proxy Django au lieu du wrapper concret et comparaison trop stricte
   des PK M2M implicites décrite ci-dessus. Aucun contrat métier n'a été modifié.
+- Corrections du run #3 : **26 tests** migrations/schéma, **40 tests**
+  settings/workflow/runner, **22 tests** catalogue/harnais, **3 tests** réponses
+  SQL/HTTP et **2 tests** isolation réussis hors base. La suite Phase 5A SQLite
+  reste à **95 réussis, aucun skip**. Le reset PostgreSQL réel, les triggers, les
+  courses et les catalogues restent à vérifier sur le service distant.
 
 ## Passation à Anthony — après revue indépendante uniquement
 
@@ -328,10 +397,10 @@ Sans PostgreSQL, Docker, connexion distante ni Actions :
 
 ## Limites restantes
 
-La version ciblée reste **non exécutée à distance**; les deux runs antérieurs ne
-prouvent pas sa réussite. Le câblage du harnais et l'interception du migrate à la
-création de la base de test nécessitent une revue indépendante et une preuve
-sur le service PostgreSQL jetable. Même un futur succès
+Le run #3 a exécuté le périmètre ciblé mais a échoué sur les trois causes
+ci-dessus. Les corrections locales ne sont **pas encore prouvées à distance**; le
+reset par template, les triggers `BEFORE TRUNCATE`, les courses et les catalogues
+réels restent à vérifier sur le service PostgreSQL jetable. Même un futur succès
 ne validerait ni le graphe complet, ni `measurements.0018_box_1902_preservation`,
 ni une migration sur données de production. Aucun résultat de validation future
 n'est considéré acquis. Le conteneur suit
