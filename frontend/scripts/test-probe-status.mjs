@@ -6,6 +6,8 @@ import React from 'react';
 import * as jsxRuntime from 'react/jsx-runtime';
 import ts from 'typescript';
 
+import { zoneChartReadings } from './zone-chart-test-harness.mjs';
+
 function load(path, imports = {}, globals = {}, extra = '') {
   const source = readFileSync(new URL(path, import.meta.url), 'utf8') + extra;
   const { outputText } = ts.transpileModule(source, {
@@ -64,7 +66,10 @@ function panel(monitoring, canRecord = true, language = 'fr') {
     '../utils/dateFormat': { formatDisplayDate: (value) => value, formatDisplayDateTime: (value) => value, getDocumentLocale: () => language === 'fr' ? 'fr-FR' : 'en-GB' },
     '../utils/temperatureScale': { buildTemperatureScale: () => null },
     './PolypbaseIcon': { default: noop },
-    './ZoneProbeCharts': { ZoneProbeChart: noop, ZoneThermalTrend: noop, useZoneChartReadings: () => ({ initial: { settled: true, data: null } }) },
+    // A settled chart read with no reading: probe status must not depend on it.
+    './ZoneProbeCharts': { ZoneProbeChart: noop, useZoneChartReadings: () => zoneChartReadings({
+      data: { zone_id: 1, resolution_minutes: 1, target_temperature_c: '0', probes: [], probe_average: [] },
+    }) },
   }, {
     Date: class extends Date { static now() { return clock; } },
     setInterval(fn, delay) { assert.equal(delay, 60000); timers.set(1, fn); return 1; },

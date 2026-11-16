@@ -81,7 +81,11 @@ test('thermal ruler uses recent observations while daily mean, gap and range sta
   assert.match(ruler, /formatTemperature\(recentTemperature \?\? undefined\)/);
   assert.doesNotMatch(ruler, /temperatureAverage|temperatureMeasurement|formatTemperature\(measuredTemperature/);
   assert.match(temperaturePanel, /const \{ summary: thermalControl, error: thermalControlError \} = useThermalControl\(zone\)/);
-  assert.match(temperaturePanel, /const recentTemperature = parseTemperatureNumber\(thermalControl\?\.temperature_c\)/);
+  // The recent mean is the latest server inter-probe average of the chart read,
+  // never a client-side mean; thermal control only describes its period.
+  assert.match(temperaturePanel, /const averagePoints = chart\.readings\.data\?\.probe_average \?\? \[\]/);
+  assert.match(temperaturePanel, /const recentTemperature = chartAverage;/);
+  assert.doesNotMatch(temperaturePanel, /thermalControl\?\.temperature_c/);
   assert.match(temperaturePanel, /average: recentTemperature/);
   assert.match(temperaturePanel, /const measuredPosition = scale && recentTemperature !== null \? scale\.project\(recentTemperature\) : null/);
   assert.match(temperaturePanel, /const delta = measuredTemperature !== null && targetTemperature !== null\s*\? measuredTemperature - targetTemperature/);

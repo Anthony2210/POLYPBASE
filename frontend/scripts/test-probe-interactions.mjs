@@ -6,6 +6,8 @@ import React from 'react';
 import * as jsxRuntime from 'react/jsx-runtime';
 import ts from 'typescript';
 
+import { zoneChartReadings } from './zone-chart-test-harness.mjs';
+
 function loadModule(path, imports = {}, globals = {}, extra = '') {
   const { outputText } = ts.transpileModule(readFileSync(new URL(path, import.meta.url), 'utf8') + extra, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
@@ -139,7 +141,9 @@ test('monitoring revalidates at the boundary, retains server decisions on failur
 function panelView(zone) {
   let refreshes = 0;
   const chart = () => null;
-  const trend = () => null;
+  // A settled chart read with no reading: the panel shows no recent mean.
+  const readings = zoneChartReadings({ data: { zone_id: zone.id, resolution_minutes: 1, target_temperature_c: null, probes: [], probe_average: [] } });
+  const chartCalls = [];
   const view = harness('../src/components/ZonesView.tsx', {
     '../api/client': { ApiResourceCancelledError, ApiError: Error },
     '../hooks/useProbeMonitoring': { default: (value) => ({ monitoring: value.probe_monitoring, error: null, revalidate() { refreshes++; } }) },
@@ -154,10 +158,10 @@ function panelView(zone) {
     '../utils/errors': errors, '../utils/temperatureScale': { buildTemperatureScale: () => null },
     './BoxTrackingPreview': { default: noop }, './DetailBackButton': { default: noop },
     './ModalPortal': { default: noop }, './PageLoader': { default: noop }, './PolypbaseIcon': { default: noop },
-    './ZoneProbeCharts': { ZoneProbeChart: chart, ZoneThermalTrend: trend, useZoneChartReadings: () => ({ initial: { settled: true, data: null } }) }, './ZoneMovementHistory': { ZoneRecentMovements: noop },
+    './ZoneProbeCharts': { ZoneProbeChart: chart, useZoneChartReadings: (value, enabled) => { chartCalls.push({ value, enabled }); return readings; } }, './ZoneMovementHistory': { ZoneRecentMovements: noop },
   }, {}, '\nexport { TemperatureControlPanel };', 'TemperatureControlPanel');
   view.render({ zone, canRecordManualTemperature: true, onRecordManualTemperature() {}, t: (key) => key });
-  return { view, trend, get refreshes() { return refreshes; } };
+  return { view, chart, readings, chartCalls, get refreshes() { return refreshes; } };
 }
 
 for (const origin of [true, false, undefined]) {
@@ -172,13 +176,17 @@ for (const origin of [true, false, undefined]) {
   });
 }
 
-test('a collected inactive probe keeps its trend, without a modal or an empty status row', () => {
+test('a collected inactive probe keeps its location chart, without a modal or an empty status row', () => {
   const panel = panelView({ id: 7, target_temperature_c: null, latest_temperature: null,
     probes: [{ is_collected: true, is_active: false }],
     probe_monitoring: { has_collected_probes: false, manual_entry_available: true },
   });
   const { view } = panel;
-  assert.equal(view.find((node) => node.type === panel.trend).length, 1);
+  const charts = view.find((node) => node.type === panel.chart);
+  assert.equal(charts.length, 1);
+  // The panel and the chart share one read: the chart receives the hook's own result.
+  assert.equal(charts[0].props.chart, panel.readings);
+  assert.ok(panel.chartCalls.every((call) => call.enabled === true));
   assert.equal(view.find((node) => node.props.className === 'secondary-button zone-probe-readings-action').length, 0);
   assert.equal(view.find((node) => node.props.role === 'dialog').length, 0);
   assert.equal(view.find((node) => node.props.className === 'zone-probe-status').length, 0);
