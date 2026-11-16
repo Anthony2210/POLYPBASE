@@ -868,3 +868,6 @@ class BoxTransferImport(models.Model):
 
     def __str__(self):
         return f"{self.source_global_code} -> {self.created_box.global_code}"
+
+
+from .history_revision_models import BoxHistoryEventIdentity, BoxHistoryRevision, BoxHistoryStream  # noqa: E402, F401
