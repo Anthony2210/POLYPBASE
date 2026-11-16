@@ -110,8 +110,8 @@ def install_guards(apps, schema_editor):
         {json_type('operations')} <> 'array' OR {json_type('review_values')} <> 'object'
         OR {json_type('metadata')} <> 'object' OR {json_type('justifications')} <> 'array'
         OR {digest_bad('source_fingerprint')} OR {digest_bad('request_fingerprint')}
-        OR CASE WHEN {json_type('operations')} = 'array' THEN {operations_length} > 100 ELSE FALSE END
-        OR CASE WHEN {json_type('justifications')} = 'array' THEN {justifications_length} > 100 ELSE FALSE END
+        OR (CASE WHEN {json_type('operations')} = 'array' THEN {operations_length} > 100 ELSE FALSE END)
+        OR (CASE WHEN {json_type('justifications')} = 'array' THEN {justifications_length} > 100 ELSE FALSE END)
     """)
 
 

@@ -10,7 +10,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, models, transaction
 from django.db.models import ProtectedError
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from apps.organizations.models import Organization
 from apps.taxonomy.models import Species, Strain
@@ -522,3 +522,32 @@ class HistoryRevisionStorageTests(TestCase):
         self.assertNotIn("TRUNCATE", "\n".join(call.args[0] for call in editor.execute.call_args_list))
         self.assertIn("IS DISTINCT FROM", sql)
         self.assertIn("NEW.author_id IS NULL", sql)
+
+
+class HistoryRevisionGuardSQLTests(SimpleTestCase):
+    def test_postgresql_shape_guard_parenthesizes_complete_case_expressions(self):
+        from django.db.migrations.loader import MigrationLoader
+
+        guards = import_module("apps.cultures.migrations.0020_history_revision_guards")
+        historical_apps = MigrationLoader(None).project_state([
+            ("cultures", "0020_history_revision_guards"),
+        ]).apps
+        editor = Mock()
+        editor.connection.vendor = "postgresql"
+        editor.quote_name.side_effect = lambda value: '"' + value + '"'
+        guards.install_guards(historical_apps, editor)
+        statements = [call.args[0] for call in editor.execute.call_args_list]
+        self.assertEqual(len(statements), 10)
+        shape_sql, = [sql for sql in statements
+                      if "CREATE FUNCTION history_revision_shape_insert()" in sql]
+        for column in ("operations", "justifications"):
+            with self.subTest(column=column):
+                self.assertIn(
+                    f"OR (CASE WHEN jsonb_typeof(NEW.{column}) = 'array' "
+                    f"THEN jsonb_array_length(NEW.{column}) > 100 ELSE FALSE END)",
+                    shape_sql,
+                )
+        self.assertNotRegex(shape_sql, r"\bOR\s+CASE\b")
+        self.assertIn("USING ERRCODE = '23514'", shape_sql)
+        self.assertIn("BEFORE INSERT ON cultures_boxhistoryrevision", shape_sql)
+        self.assertIn("FOR EACH ROW EXECUTE FUNCTION history_revision_shape_insert()", shape_sql)
