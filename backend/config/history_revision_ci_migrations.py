@@ -33,6 +33,7 @@ TARGETS = (
     ("measurements", "0017_bucket_probe_last_measured_index"),
     ("organizations", "0002_organization_portable_id"),
     ("sessions", "0001_initial"),
+    ("sharing", "0001_initial"),
     ("taxonomy", "0009_localstrainnumbercounter"),
 )
 EXCLUDED = frozenset({("measurements", "0018_box_1902_preservation")})
@@ -83,6 +84,7 @@ _APPROVED_NAMES = {
     ),
     "organizations": ("0001_initial", "0002_organization_portable_id"),
     "sessions": ("0001_initial",),
+    "sharing": ("0001_initial",),
     "taxonomy": (
         "0001_initial", "0002_speciestranslation_straintranslation",
         "0003_globalstrainidentity_strain_global_identity", "0004_strain_organization",
@@ -131,7 +133,7 @@ def migration_scope(loader):
     _require(loader.migrated_apps == set(_APPROVED_NAMES), "migrated app inventory changed.")
     closure = {node for target in TARGETS for node in loader.graph.forwards_plan(target)}
     _require(not closure & EXCLUDED, "excluded migration is a target dependency.")
-    _require(closure == APPROVED, "dependency closure differs from the approved 80 nodes.")
+    _require(closure == APPROVED, "dependency closure differs from the approved 81 nodes.")
     _require(not loader.detect_conflicts(), "conflicting migrations are forbidden.")
     return {
         "targets": [f"{app}.{name}" for app, name in TARGETS],

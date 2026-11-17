@@ -123,8 +123,9 @@ jobs:
           evidence = Path(os.environ['HR_CI_EVIDENCE_DIR'])
           lines = [
               '## History revisions PostgreSQL QA — TARGETED Phase5A',
-              'Scope: 11 explicit targets, frozen union of 80 real migrations; not full-graph validation.',
+              'Scope: 12 explicit targets, frozen union of 81 real migrations; not full-graph validation.',
               'Excluded: measurements.0018_box_1902_preservation. The 33-node cultures.0020 closure alone cannot support all-model snapshot fixtures.',
+              'Run #5 at c6c63a1 validated the prior 80-node graph. This integrated graph adds sharing.0001_initial and has not yet been validated remotely.',
               'Per-test isolation: reset from a migrated empty template; no TRUNCATE, trigger bypass, session_replication_role or unknown-database drop. Template/test OIDs are checked.',
               'Run #3 corrections: DataError accepted only for the 65-character key; codec request uses HTTPS. The former 301 came from SecurityMiddleware, not product code.',
               'Tested commit: `' + os.environ['TESTED_SHA'] + '`',

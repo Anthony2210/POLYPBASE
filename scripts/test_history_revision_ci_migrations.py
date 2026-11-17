@@ -31,7 +31,7 @@ def run_offline_tests():
         DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}},
         INSTALLED_APPS=[
             "apps.accounts", "apps.organizations", "apps.taxonomy", "apps.cultures",
-            "apps.measurements", "apps.exports", "apps.audit", "django.contrib.admin",
+            "apps.measurements", "apps.exports", "apps.audit", "apps.sharing", "django.contrib.admin",
             "django.contrib.auth", "django.contrib.contenttypes", "django.contrib.sessions",
         ],
         USE_TZ=True,
@@ -74,21 +74,24 @@ def run_offline_tests():
     class ScopeTests(unittest.TestCase):
         def test_frozen_graph_exact_targets_counts_and_evidence(self):
             evidence = scoped.migration_scope(MigrationLoader(None))
-            self.assertEqual(len(evidence["closure"]), 80)
+            self.assertEqual(len(evidence["closure"]), 81)
             self.assertEqual(evidence["counts"], {
                 "accounts": 8, "admin": 3, "audit": 5, "auth": 12, "contenttypes": 2,
                 "cultures": 20, "exports": 1, "measurements": 17, "organizations": 2,
-                "sessions": 1, "taxonomy": 9,
+                "sessions": 1, "sharing": 1, "taxonomy": 9,
             })
-            self.assertEqual(len(evidence["targets"]), 11)
+            self.assertEqual(len(evidence["targets"]), 12)
+            self.assertIn("sharing.0001_initial", evidence["targets"])
+            self.assertIn("sharing.0001_initial", evidence["closure"])
             self.assertEqual(evidence["excluded"], ["measurements.0018_box_1902_preservation"])
             self.assertEqual(set(evidence["closure"]), set(scoped._names(scoped.APPROVED)))
 
         def test_missing_target(self):
-            loader = MigrationLoader(None)
-            loader.graph.nodes.pop(scoped.TARGETS[-1])
-            with self.assertRaisesRegex(ImproperlyConfigured, "target is missing"):
-                scoped.migration_scope(loader)
+            for target in (scoped.TARGETS[-1], ("sharing", "0001_initial")):
+                loader = MigrationLoader(None)
+                loader.graph.nodes.pop(target)
+                with self.assertRaisesRegex(ImproperlyConfigured, "target is missing"):
+                    scoped.migration_scope(loader)
 
         def test_new_migration_cannot_expand_scope(self):
             loader = MigrationLoader(None)
@@ -224,7 +227,7 @@ def run_offline_tests():
             try:
                 plan = scoped.scoped_plan(connection)
                 self.assertFalse(MigrationRecorder(connection).has_table())
-                self.assertEqual(len(plan), 80)
+                self.assertEqual(len(plan), 81)
                 evidence = scoped.migrate_scoped(connection, verbosity=0, fresh=True)
             finally:
                 pre_migrate.disconnect(capture)
@@ -234,9 +237,9 @@ def run_offline_tests():
             self.assertEqual(set(evidence["after"]), set(evidence["closure"]))
             self.assertEqual(evidence["started"], evidence["completed"])
             self.assertEqual(set(evidence["planned"]), set(evidence["completed"]))
-            self.assertEqual(len(evidence["completed"]), 80)
+            self.assertEqual(len(evidence["completed"]), 81)
             self.assertTrue(signals)
-            self.assertTrue(all(registry is not None and len(plan) == 80 and alias == "default"
+            self.assertTrue(all(registry is not None and len(plan) == 81 and alias == "default"
                                 for registry, plan, alias in signals))
             final_registry = signals[-1][0]
             self.assertIsNotNone(final_registry.get_model("auth", "User"))

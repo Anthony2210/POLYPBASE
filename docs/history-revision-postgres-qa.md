@@ -3,12 +3,13 @@
 ## Statut et périmètre
 
 **Périmètre : TARGETED Phase5A, jamais une validation du graphe complet.**
-Trois exécutions distantes sont rapportées par l'utilisateur ci-dessous; le run #3
-a exécuté la version ciblée mais a échoué sur trois causes, et ses corrections
-locales n'ont pas encore été exécutées à distance. Ce document n'est ni une preuve
-de réussite PostgreSQL de ces corrections ni une autorisation de publication ou de
-déploiement.
-Base inspectée : `6be1018`, branche `test/history-revision-postgres-qa`.
+Cinq exécutions distantes sont rapportées par l'utilisateur. Le **run #5**
+(`c6c63a1`) a réussi **105/105 tests sur le périmètre 80 nœuds**, avec 0018
+exclue. Le graphe intégré actuel comporte **81 nœuds** après l'ajout de
+`sharing.0001_initial`; cette version intégrée n'a pas encore été exécutée à
+distance. Ce document n'est ni une preuve PostgreSQL de cette version intégrée
+ni une autorisation de publication ou de déploiement.
+Base inspectée : `649eba2`, branche `test/history-revision-postgres-qa`.
 Aucun commit, staging, push ou lancement Actions n'est effectué par l'agent.
 Cette mise à jour adapte uniquement le harnais QA, ses tests, ce document et le
 workflow. Aucun modèle scientifique, migration ou moteur métier n'est modifié.
@@ -83,12 +84,23 @@ pendant cette tâche :
    `TransactionTestCase` rejeté par les triggers `BEFORE TRUNCATE` de
    `measurements.0012` (9 tests, dont 7 erreurs de cascade au `setUp` suivant),
    `DataError` PostgreSQL sur une clé de 65 caractères dans un `varchar(64)`, et
-   un 301 HTTPS sur le helper HTTP du test codec. Les corrections locales sont
-   décrites ci-dessous; **elles n'ont pas encore été exécutées à distance**.
+   un 301 HTTPS sur le helper HTTP du test codec.
+4. **Run #4 :** commit `0272b3e`, 105 tests exécutés, **104 réussis, 1 échec**
+   dans le test codec : l'assertion de lecture seule refusait la requête
+   PostgreSQL `(SELECT ...) UNION ALL (SELECT ...)`. Les 9 tests PostgreSQL
+   spécifiques, dont l'isolation et les courses, réussissaient :
+   https://github.com/Anthony2210/POLYPBASE/actions/runs/43980820110.
+5. **Run #5 :** commit `c6c63a1`, **105/105 réussis**, 80 migrations réelles
+   validées, 0019/0020 inversées puis réappliquées, 0018 exclue :
+   https://github.com/Anthony2210/POLYPBASE/actions/runs/43983041991.
+   Ce run est la preuve PostgreSQL du périmètre 80 nœuds. Il ne contenait pas
+   `sharing.0001_initial` et ne valide donc pas le graphe intégré 81 nœuds.
 
-**État courant :** le run #3 a réellement exécuté le périmètre ciblé, mais il a
-échoué sur ces trois causes. L'exclusion de 0018 isole cette QA synthétique; elle
-ne corrige ni ne valide son contrat métier.
+**État courant :** le run #5 est le dernier résultat PostgreSQL réussi, sur le
+périmètre 80 nœuds de `c6c63a1`. La QA intégrée 81 nœuds, après les merges
+locaux et l'ajout de `sharing.0001_initial`, reste à exécuter à distance.
+L'exclusion de 0018 isole cette QA synthétique; elle ne corrige ni ne valide son
+contrat métier.
 
 ## Gate de périmètre et migrations ciblées
 
@@ -100,7 +112,7 @@ et `contenttypes.0001_initial` (1). Il ne s'agit pas d'une preuve d'exécution S
 
 Cette fermeture seule ne suffit pas : les fixtures de snapshot de tous les modèles
 nécessitent tous les schémas gérés, y compris les tables M2M auto-créées. Les
-**11 cibles explicites** retenues sont :
+**12 cibles explicites** retenues sont :
 
 | Application | Cible |
 | --- | --- |
@@ -114,17 +126,19 @@ nécessitent tous les schémas gérés, y compris les tables M2M auto-créées. 
 | measurements | `0017_bucket_probe_last_measured_index` |
 | organizations | `0002_organization_portable_id` |
 | sessions | `0001_initial` |
+| sharing | `0001_initial` |
 | taxonomy | `0009_localstrainnumbercounter` |
 
-L'union de leurs fermetures contient **80 migrations réelles** : accounts 8,
+L'union de leurs fermetures contient **81 migrations réelles** : accounts 8,
 admin 3, audit 5, auth 12, contenttypes 2, cultures 20, exports 1, measurements 17,
-organizations 2, sessions 1 et taxonomy 9. Dans l'inventaire actuel de 81 migrations,
-seule `measurements.0018_box_1902_preservation` est exclue. Les colonnes des modèles
-historiques à ces cibles correspondent à celles des modèles runtime selon le gate;
-cela ne remplace pas l'inspection du schéma PostgreSQL réel.
+organizations 2, sessions 1, sharing 1 et taxonomy 9. Dans l'inventaire actuel de
+82 migrations, seule `measurements.0018_box_1902_preservation` est exclue. Les
+colonnes des modèles historiques à ces cibles correspondent à celles des modèles
+runtime selon le gate; les contraintes et index de `sharing` concordent aussi.
+Cela ne remplace pas l'inspection du schéma PostgreSQL réel.
 
 Le nouveau module local `backend/config/history_revision_ci_migrations.py` fige
-les **80 noms**, les cibles et l'exclusion; il ne les déduit pas des seuls numéros
+les **81 noms**, les cibles et l'exclusion; il ne les déduit pas des seuls numéros
 ni des feuilles courantes. Toute modification de l'inventaire, des dépendances,
 remplacement ou conflit exige une nouvelle revue. `migrate_scoped()` utilise la
 vraie commande Django `migrate` avec un adaptateur d'exécuteur, conserve les signaux
@@ -212,7 +226,7 @@ assertion de sécurité HTTP n'est retirée.
 | Étape | Assertions et preuves |
 | --- | --- |
 | Préflight | SHA exact, identité, versions PostgreSQL/psycopg/libpq, base initialement vide |
-| TARGETED Phase5A | 11 cibles, fermeture figée de 80 noms; 0019 et 0020 réellement non appliquées au départ; migrate sans fake, callbacks réels et recorder exact; aucune migration restante **dans ce périmètre**, 0018 explicitement exclue |
+| TARGETED Phase5A | 12 cibles, fermeture figée de 81 noms; 0019 et 0020 réellement non appliquées au départ; migrate sans fake, callbacks réels et recorder exact; aucune migration restante **dans ce périmètre**, 0018 explicitement exclue |
 | Drift | `makemigrations --check --dry-run` sur le service |
 | Catalogues initiaux | Dix triggers et fonctions activés; corps installés comparés à 0020 et attributs d'exécution vérifiés; contraintes nommées, expressions et colonnes; index uniques partiels; cibles et différabilité des FK |
 | Inversion | Plan autorisant **seulement 0020**; maintien de 0019; absence des dix triggers et fonctions |
@@ -357,7 +371,7 @@ Sans PostgreSQL, Docker, connexion distante ni Actions :
 - **40 tests** settings/workflow/runner/collecte réussis, sans skip.
 - **22 tests** catalogue/harnais réussis, sans skip.
 - Django check sans problème et `makemigrations --check --dry-run` sans changement.
-- **95 tests Phase 5A réussis, sans skip**, après application réelle des 80
+- **95 tests Phase 5A réussis, sans skip**, après application réelle des 81
   migrations ciblées sur SQLite `:memory:`. Les dix tests PostgreSQL ne sont pas
   exécutés localement; leur découverte n'est pas leur validation.
 - Première invocation de la suite migrations interrompue à 180 s; relance bornée
@@ -375,8 +389,8 @@ Sans PostgreSQL, Docker, connexion distante ni Actions :
 - Corrections du run #3 : **26 tests** migrations/schéma, **40 tests**
   settings/workflow/runner, **22 tests** catalogue/harnais, **3 tests** réponses
   SQL/HTTP et **2 tests** isolation réussis hors base. La suite Phase 5A SQLite
-  reste à **95 réussis, aucun skip**. Le reset PostgreSQL réel, les triggers, les
-  courses et les catalogues restent à vérifier sur le service distant.
+  reste à **95 réussis, aucun skip**. Ces contrôles locaux précèdent le run #5,
+  qui a ensuite validé le périmètre PostgreSQL 80 nœuds.
 
 ## Passation à Anthony — après revue indépendante uniquement
 
@@ -397,10 +411,11 @@ Sans PostgreSQL, Docker, connexion distante ni Actions :
 
 ## Limites restantes
 
-Le run #3 a exécuté le périmètre ciblé mais a échoué sur les trois causes
-ci-dessus. Les corrections locales ne sont **pas encore prouvées à distance**; le
-reset par template, les triggers `BEFORE TRUNCATE`, les courses et les catalogues
-réels restent à vérifier sur le service PostgreSQL jetable. Même un futur succès
+Le run #5 a prouvé le périmètre **80 nœuds** de `c6c63a1` : 105/105 tests,
+migrations 0019/0020 inversées et réappliquées, isolation et courses PostgreSQL
+réussies. Le graphe intégré **81 nœuds** avec `sharing.0001_initial` n'a pas
+encore été exécuté à distance; le reset par template et les catalogues réels de
+cette version restent à vérifier sur le service PostgreSQL jetable. Même un futur succès
 ne validerait ni le graphe complet, ni `measurements.0018_box_1902_preservation`,
 ni une migration sur données de production. Aucun résultat de validation future
 n'est considéré acquis. Le conteneur suit
