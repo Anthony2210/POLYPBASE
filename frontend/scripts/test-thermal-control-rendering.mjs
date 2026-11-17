@@ -21,38 +21,34 @@ function load(path, imports = {}, globals = {}, extra = '') {
 }
 
 const catalogs = { fr: load('../src/i18n/fr.ts').fr, en: load('../src/i18n/en.ts').en };
-const scaleUtils = load('../src/utils/temperatureScale.ts');
 const probeStatus = load('../src/utils/probeStatus.ts');
-// Local constructor makes the expected clock labels independent of the runner's timezone.
-const oldest = new Date(2026, 10, 4, 8, 12).toISOString();
-const newest = new Date(2026, 10, 4, 9, 34).toISOString();
-const summary = (overrides = {}) => ({
-  evaluated_at: newest, temperature_c: 27, included_probe_count: 2,
-  oldest_measured_at: oldest, newest_measured_at: newest,
-  expires_at: new Date(Date.parse(newest) + 180_000).toISOString(),
-  eligible_probe_count: 3, no_reading_probe_count: 0, stale_probe_count: 1,
-  unavailable_probe_count: 0, future_probe_count: 0, invalid_interval_probe_count: 0,
+const chartUtils = load('../src/utils/probeChart.ts');
+const seriesUtils = load('../src/utils/probeSeries.ts', { './probeChart': chartUtils });
+const periodUtils = load('../src/utils/probePeriod.ts');
+const environment = load('../src/utils/environmentFormat.ts');
+const start = new Date(2026, 10, 4, 22, 17).getTime();
+const end = new Date(2026, 10, 5, 2, 17).getTime();
+const raw = (time, value) => [time, null, String(value), 1, value, value, time];
+const probe = (id, values = [0, 30]) => ({
+  id, code: `P${id}`, location: `Shelf ${id}`, is_active: id !== 2,
+  sampling_interval_seconds: 60, points: [],
+  point_sources: [values.map((value, index) => raw(start + (index + 1) * 60_000, value))],
+});
+const payload = (overrides = {}) => ({
+  zone_id: 17, start: new Date(start).toISOString(), end: new Date(end).toISOString(),
+  resolution_minutes: 1, target_temperature_c: 20,
+  probes: [probe(1), probe(2, [12, 40])],
+  probe_average: [[start + 60_000, 6, 2], [start + 120_000, 35, 2]],
+  summary: { mean_temperature_c: 23.4, target_deviation_c: 3.4, min_temperature_c: 0,
+    max_temperature_c: 40, contributing_probe_count: 2, measurement_count: 4 },
   ...overrides,
 });
-const daily = (overrides = {}) => ({
-  date: '2026-11-03', average_temperature_c: 21, min_temperature_c: 19,
-  max_temperature_c: 23, measurement_count: 12, computed_from_probes: true, ...overrides,
-});
-// A manual location keeps the static ruler: it has no time series to draw.
 const zone = (overrides = {}) => ({
-  id: 17, organization: { id: 1 }, target_temperature_c: '20',
-  probes: [{ id: 1, is_collected: false }], latest_temperature: daily(), ...overrides,
+  id: 17, organization: { id: 1 }, target_temperature_c: '99',
+  probes: [{ id: 1, is_collected: false }, { id: 2, is_collected: true }],
+  latest_temperature: { date: '2026-11-03', average_temperature_c: 91, min_temperature_c: 89, max_temperature_c: 93, measurement_count: 12 },
+  ...overrides,
 });
-const collectedZone = (overrides = {}) => zone({ probes: [{ id: 1, is_collected: true }], ...overrides });
-// A successful chart read: probe curves plus the server inter-probe average
-// ([period start ms, mean °C, contributing probes]). The probe values differ
-// from the average on purpose, so a client-side mean could not pass for it.
-const chartData = (average, overrides = {}) => ({
-  zone_id: 17, start: oldest, end: newest, resolution_minutes: 1, target_temperature_c: '20',
-  probes: [], ...(average === undefined ? {} : { probe_average: average }), ...overrides,
-});
-const loadedChart = (average, overrides) => zoneChartReadings({ data: chartData(average, overrides) });
-
 function text(node) {
   if (Array.isArray(node)) return node.map(text).join('');
   if (React.isValidElement(node)) return text(node.props.children);
@@ -63,288 +59,307 @@ function find(node, predicate) {
   if (!React.isValidElement(node)) return [];
   return [...(predicate(node) ? [node] : []), ...find(node.props.children, predicate)];
 }
-function hasClass(name) {
-  return node => (node.props.className ?? '').split(' ').includes(name);
-}
+const hasClass = name => node => (node.props.className ?? '').split(' ').includes(name);
+const noop = () => null;
 
-// Render the actual panel, not a duplicated presentation helper. Only resource
-// hooks and unrelated child components are stubbed; scale, dates and copy are real.
-function panel({ language = 'fr', result = { summary: summary(), error: null }, currentZone = zone(), chart = zoneChartReadings() } = {}) {
-  const copy = catalogs[language];
-  const document = { documentElement: { lang: language } };
-  const dates = load('../src/utils/dateFormat.ts', {}, { document });
-  const noop = () => null;
+// Exercise real JSX and state updates at component boundaries, without rendering SVG
+// or requesting resources. Effects have explicit commit phases for focus assertions.
+function harness(path, imports, globals = {}, exportName = 'default', extra = '') {
   const slots = [];
-  let cursor = 0, tree;
-  const chartCalls = [];
+  let cursor = 0, tree, props, effects;
+  const same = (a, b) => a && b && a.length === b.length && a.every((value, i) => Object.is(value, b[i]));
+  const effect = (run, deps) => {
+    const index = cursor++;
+    if (!same(slots[index]?.deps, deps)) effects.push(() => {
+      slots[index]?.cleanup?.();
+      slots[index] = { deps, cleanup: run() };
+    });
+  };
   const hooks = {
     useState(initial) {
       const index = cursor++;
       if (!(index in slots)) slots[index] = typeof initial === 'function' ? initial() : initial;
-      return [slots[index], value => { slots[index] = typeof value === 'function' ? value(slots[index]) : value; }];
+      return [slots[index], next => { slots[index] = typeof next === 'function' ? next(slots[index]) : next; }];
     },
     useRef(initial) { const index = cursor++; return slots[index] ??= { current: initial }; },
-    useEffect() {}, useLayoutEffect() {},
+    useMemo(factory) { cursor++; return factory(); },
+    useEffect: effect, useLayoutEffect: effect,
   };
-  const imports = {
-    react: hooks, 'react/jsx-runtime': jsxRuntime,
-    '../api/client': {}, '../utils/errors': {},
-    '../utils/dateFormat': dates, '../utils/probeStatus': probeStatus,
-    '../utils/temperatureScale': scaleUtils,
-    '../hooks/useThermalControl': { default: received => {
-      assert.equal(received, currentZone, 'Read freshness belongs to the rendered zone'); return result;
-    } },
-    '../hooks/useProbeMonitoring': { default: () => ({ monitoring: undefined, error: null, revalidate() {} }) },
-  };
-  for (const name of ['BoxTrackingPreview', 'DetailBackButton', 'ModalPortal', 'PageLoader', 'PolypbaseIcon']) {
-    imports[`./${name}`] = { default: noop };
-  }
-  imports['./ZoneProbeCharts'] = { ZoneProbeChart: noop, useZoneChartReadings: (received, enabled) => {
-    chartCalls.push({ zone: received, enabled }); return chart;
-  } };
-  imports['./ZoneMovementHistory'] = { ZoneRecentMovements: noop };
-  const { TemperatureControlPanel } = load('../src/components/ZonesView.tsx', imports, { document }, '\nexport { TemperatureControlPanel };');
-  function render(nextResult = result, nextZone = currentZone, nextChart = chart) {
-    result = nextResult; currentZone = nextZone; chart = nextChart; cursor = 0;
-    tree = TemperatureControlPanel({ zone: currentZone, canRecordManualTemperature: false,
-      onRecordManualTemperature() { throw new Error('Rendering must not write'); },
-      t(key) { assert.equal(typeof copy[key], 'string', `Missing ${language} copy: ${key}`); return copy[key]; },
-    });
-  }
-  render();
+  const component = load(path, { react: hooks, 'react/jsx-runtime': jsxRuntime, ...imports }, globals, extra)[exportName];
   return {
-    copy, dates, render, chartCalls,
     get tree() { return tree; },
-    nodes: name => find(tree, hasClass(name)),
-    text: () => text(tree),
-    statuses: () => find(tree, node => node.props.role === 'status'),
+    render(next = props) { props = next; cursor = 0; effects = []; tree = component(props); return this; },
+    commit() { effects.forEach(run => run()); },
+    nodes(predicate) { return find(tree, predicate); },
+    text() { return text(tree); },
   };
 }
+function translator(language) {
+  return key => {
+    assert.equal(typeof catalogs[language][key], 'string', `Missing ${language} copy: ${key}`);
+    return catalogs[language][key];
+  };
+}
+function monitoring({ language = 'fr', data = payload(), error = null, isLoading = false, currentZone = zone() } = {}) {
+  const document = { documentElement: { lang: language } };
+  const chart = noop;
+  let retries = 0;
+  const state = { data, error, isLoading, retry() { retries++; } };
+  const view = harness('../src/components/ThermalMonitoringChart.tsx', {
+    '../hooks/useThermalMonitoring': { default: received => { assert.equal(received, currentZone); return state; } },
+    '../utils/dateFormat': load('../src/utils/dateFormat.ts', {}, { document }),
+    '../utils/environmentFormat': environment, '../utils/probePeriod': periodUtils,
+    '../utils/probeSeries': seriesUtils,
+    './ProbeSeriesChart': { default: chart,
+      seriesClassName: slot => `probe-series-${slot + 1}`,
+      averageSeriesStyle: series => ({ '--series-color': seriesUtils.averageSeriesColor(series) }),
+    },
+  }, { document }).render({ zone: currentZone, t: translator(language) });
+  return Object.assign(view, { copy: catalogs[language], state,
+    chart: () => view.nodes(node => node.type === chart)[0]?.props,
+    metrics: () => view.nodes(node => node.type === 'dd').map(text),
+    toggles: () => view.nodes(node => node.type === 'button' && typeof node.props['aria-pressed'] === 'boolean'),
+    getRetries: () => retries,
+  });
+}
 
 for (const language of ['fr', 'en']) {
-  test(`${language}: a manual location keeps daily mean/min/max and the daily gap, without a chart read or a recent marker`, () => {
-    const manual = zone();
-    const view = panel({ language, currentZone: manual });
-    // The recent mean comes from the chart's server average; a location
-    // without a collected probe never enables that read.
-    assert.deepEqual(view.chartCalls, [{ zone: manual, enabled: false }]);
-    assert.equal(view.nodes('temperature-observed-marker').length, 0);
-    const facts = view.nodes('temperature-facts')[0];
-    assert.equal(text(facts), `${view.copy.temperatureDailyMean}21.0°C${view.copy.temperatureDailyGap}+1.0°C`);
-    const range = view.nodes('temperature-range-values')[0];
-    assert.equal(text(range), `${view.copy.minTemperature}19.0°C${view.copy.maxTemperature}23.0°C`);
-    const dailyPeriod = view.copy.temperatureDailyPeriod.replace('{date}', view.dates.formatDisplayDate('2026-11-03'));
-    assert.equal(text(view.nodes('temperature-daily-period')[0]), dailyPeriod);
-    assert.equal(view.nodes('temperature-summary')[0].props['aria-label'], dailyPeriod);
-    const accessible = view.nodes('temperature-ruler')[0].props['aria-label'];
-    for (const fact of [`${view.copy.targetTemperature} 20.0°C`, `${view.copy.temperatureDailyMean} 21.0°C`,
-      `${view.copy.minTemperature} 19.0°C`, `${view.copy.maxTemperature} 23.0°C`, dailyPeriod]) {
-      assert.ok(accessible.includes(fact), `Accessible ruler must retain ${fact}`);
+  test(`${language}: ordered metrics use the backend summary, not the latest average or daily aggregate`, () => {
+    const view = monitoring({ language });
+    assert.deepEqual(view.nodes(node => node.type === 'dt').map(text),
+      ['temperatureAverage', 'thermalMonitoringDeviation', 'thermalMonitoringExtrema'].map(key => view.copy[key]));
+    assert.deepEqual(view.metrics(), ['23.4°C', '+3.4°C', '0.0°C / 40.0°C']);
+    assert.doesNotMatch(view.text(), /35\.0°C|91\.0°C|89\.0°C|93\.0°C|99\.0°C/);
+    assert.equal(view.nodes(node => node.type === 'dl').length, 1);
+    assert.equal(view.nodes(hasClass('temperature-ruler')).length, 0);
+    assert.equal(view.nodes(hasClass('temperature-daily-period')).length, 0);
+    assert.equal(view.nodes(node => /alert|danger|warning|safe-band|is-ok|is-watch/.test(node.props.className ?? '')).length, 0);
+  });
+
+  test(`${language}: shared chart receives raw probes, server average, target and fixed exact window across midnight`, () => {
+    const view = monitoring({ language });
+    const chart = view.chart();
+    assert.deepEqual({ ...chart.window }, { start, end });
+    assert.deepEqual(Array.from(chart.series[0].readings, point => Array.from(point)), [[start + 60_000, 0], [start + 120_000, 30]]);
+    assert.equal(chart.series[0].intervals.length, 0);
+    assert.equal(chart.series.length, 2);
+    assert.deepEqual(Array.from(chart.series, entry => [entry.id, entry.slot]), [[1, 1], [2, 0]], 'Collected probes retain historical color slots');
+    assert.deepEqual(Array.from(chart.average, entry => ({ ...entry })), [
+      { start: start + 60_000, end: start + 120_000, mean: 6, contributors: 2 },
+      { start: start + 120_000, end: start + 180_000, mean: 35, contributors: 2 },
+    ]);
+    assert.equal(chart.target, 20, 'The API target wins over stale zone data');
+    assert.equal(chart.locale, language === 'fr' ? 'fr-FR' : 'en-GB');
+    const format = new Intl.DateTimeFormat(chart.locale, { dateStyle: 'medium', timeStyle: 'short' });
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    assert.equal(chart.ariaLabel, `${view.copy.temperatureControl}, ${format.format(start)} → ${format.format(end)} (${timezone})`);
+    assert.match(chart.ariaLabel, /22:17/);
+    assert.match(chart.ariaLabel, /02:17/);
+    assert.equal(chart.labels.keyboardDescription, view.copy.thermalMonitoringKeyboard);
+    assert.equal(chart.labels.average, view.copy.probeAverage);
+    assert.deepEqual(Object.keys(chart).sort(), ['ariaLabel', 'average', 'domain', 'height', 'hiddenIds', 'labels', 'locale', 'series', 'target', 'window'].sort(), 'No zoom/reset/period callbacks');
+    assert.equal(view.nodes(node => node.type === 'input' || node.type === 'select').length, 0);
+    assert.deepEqual(view.nodes(node => node.type === 'button'), view.toggles(), 'The compact legend is the only chart control');
+  });
+
+  test(`${language}: compact legend identifies probes and toggles only visibility, never summary or average`, () => {
+    const view = monitoring({ language });
+    const legend = view.nodes(hasClass('thermal-monitoring-legend'))[0];
+    assert.equal(legend.type, 'ul');
+    assert.equal(legend.props['aria-label'], view.copy.probeLegendProbe);
+    assert.equal(view.nodes(node => node.type === 'table').length, 0);
+    assert.ok(text(legend).includes(view.copy.probeAverage));
+    assert.equal(text(view.toggles()[0]), 'P1Shelf 1');
+    assert.equal(text(view.toggles()[1]), `P2 (${view.copy.probeInactive})Shelf 2`);
+    const before = view.chart();
+    for (const toggle of view.toggles()) {
+      assert.equal(toggle.props.type, 'button');
+      assert.equal(toggle.props['aria-pressed'], true);
+      assert.equal(toggle.props.title, view.copy.probeSeriesToggle.replace('{probe}', toggle === view.toggles()[0] ? 'P1' : 'P2'));
+      toggle.props.onClick();
     }
-    // A thermal-control value alone is not the displayed recent mean.
-    assert.ok(!accessible.includes(view.copy.temperatureRecentMean));
-    view.render({ summary: summary({ temperature_c: -5 }), error: null });
-    assert.equal(text(view.nodes('temperature-facts')[0]), text(facts), 'Recent changes cannot change the daily delta');
-    assert.equal(text(view.nodes('temperature-range-values')[0]), text(range));
-    assert.equal(view.nodes('temperature-observed-marker').length, 0);
+    view.render();
+    assert.ok(view.toggles().every(toggle => toggle.props['aria-pressed'] === false));
+    assert.deepEqual(Array.from(view.chart().hiddenIds), [1, 2]);
+    assert.equal(view.nodes(hasClass('is-hidden')).length, 2);
+    assert.deepEqual(view.metrics(), ['23.4°C', '+3.4°C', '0.0°C / 40.0°C']);
+    assert.deepEqual(view.chart().average, before.average);
+    assert.deepEqual(view.chart().domain, before.domain);
+    assert.deepEqual(view.chart().series, before.series);
+    view.toggles()[0].props.onClick(); view.render();
+    assert.equal(view.toggles()[0].props['aria-pressed'], true);
+    assert.deepEqual(Array.from(view.chart().hiddenIds), [2]);
   });
 
-  test(`${language}: observation period includes full dates and times, using a range only for distinct instants`, () => {
-    const view = panel({ language });
-    const expectedPeriod = `${view.dates.formatDisplayDateTime(oldest)} — ${view.dates.formatDisplayDateTime(newest)}`;
-    const expected = view.copy.temperatureRecentPeriod.replace('{count}', '2').replace('{period}', expectedPeriod);
-    const heading = view.nodes('zone-temperature-heading')[0];
-    assert.ok(text(heading).includes(expected));
-    assert.match(text(heading), /2026/);
-    assert.match(text(heading), /08:12/);
-    assert.match(text(heading), /09:34/);
-    assert.match(text(heading), language === 'fr' ? /nov\./ : /Nov/);
-    assert.ok(view.nodes('temperature-ruler')[0].props['aria-label'].includes(expected));
-    view.render({ summary: summary({ oldest_measured_at: newest, included_probe_count: 1 }), error: null });
-    const single = view.copy.temperatureRecentPeriod.replace('{count}', '1').replace('{period}', view.dates.formatDisplayDateTime(newest));
-    assert.ok(text(view.nodes('zone-temperature-heading')[0]).includes(single));
-    assert.doesNotMatch(text(view.nodes('zone-temperature-heading')[0]), / — |08:12|\{count\}|\{period\}/);
+  test(`${language}: one probe, zero summary, zero target and zero average are real values`, () => {
+    const view = monitoring({ language, data: payload({ probes: [probe(1, [0])], target_temperature_c: 0,
+      probe_average: [[start + 60_000, 0, 1]],
+      summary: { mean_temperature_c: 0, target_deviation_c: 0, min_temperature_c: 0, max_temperature_c: 0, contributing_probe_count: 1, measurement_count: 1 },
+    }) });
+    assert.deepEqual(view.metrics(), ['0.0°C', '0.0°C', '0.0°C / 0.0°C']);
+    assert.equal(view.chart().target, 0);
+    assert.equal(view.chart().average[0].mean, 0);
+    assert.equal(view.chart().series[0].readings[0][1], 0);
+    assert.equal(view.toggles().length, 1);
+    assert.equal(view.nodes(node => node.props.role === 'status').length, 0);
+    assert.ok(view.chart().domain[0] < 0 && view.chart().domain[1] > 0);
   });
 
-  test(`${language}: daily zero, zero gap, zero minimum and zero target are values, not missing`, () => {
-    const view = panel({ language, result: { summary: summary({ temperature_c: 0 }), error: null },
-      currentZone: zone({ target_temperature_c: '0', latest_temperature: daily({ average_temperature_c: 0, min_temperature_c: 0, max_temperature_c: 2 }) }) });
-    assert.equal(text(view.nodes('temperature-target-marker')[0]), `${view.copy.targetTemperature} 0.0°C`);
-    const accessible = view.nodes('temperature-ruler')[0].props['aria-label'];
-    assert.ok(accessible.includes(`${view.copy.temperatureDailyMean} 0.0°C`));
-    assert.ok(accessible.includes(`${view.copy.minTemperature} 0.0°C`));
-    assert.equal(text(view.nodes('temperature-facts')[0]), `${view.copy.temperatureDailyMean}0.0°C${view.copy.temperatureDailyGap}0.0°C`);
-    assert.ok(text(view.nodes('temperature-range-values')[0]).includes(`${view.copy.minTemperature}0.0°C`));
-    assert.ok(!view.text().includes(view.copy.temperatureNoRecent));
+  test(`${language}: an exact midnight end stays exclusive and is not replaced by now or daily bounds`, () => {
+    const midnight = new Date(2026, 10, 5, 0, 0).getTime();
+    const serverStart = midnight - 4 * 3_600_000;
+    const view = monitoring({ language, data: payload({ start: new Date(serverStart).toISOString(), end: new Date(midnight).toISOString() }) });
+    assert.deepEqual({ ...view.chart().window }, { start: serverStart, end: midnight });
+    const format = new Intl.DateTimeFormat(view.chart().locale, { dateStyle: 'medium', timeStyle: 'short' });
+    assert.ok(view.chart().ariaLabel.includes(`${format.format(serverStart)} → ${format.format(midnight)}`));
+    assert.match(view.chart().ariaLabel, /00:00/);
+    assert.deepEqual(view.metrics(), ['23.4°C', '+3.4°C', '0.0°C / 40.0°C']);
   });
 
-  test(`${language}: pending is busy loading, not a successful absence of recent measurements`, () => {
-    const view = panel({ language, result: { summary: undefined, error: null } });
-    const paragraphs = find(view.nodes('zone-temperature-heading')[0], node => node.type === 'p');
-    assert.equal(paragraphs.length, 1);
-    assert.equal(text(paragraphs[0]), view.copy.loading);
-    assert.equal(paragraphs[0].props['aria-busy'], true);
-    assert.equal(paragraphs[0].props.role, undefined);
-    assert.equal(view.statuses().length, 0);
-    assert.ok(!view.text().includes(view.copy.temperatureNoRecent));
-    assert.ok(!view.text().includes(view.copy.temperatureRecentError));
-    assert.equal(view.nodes('temperature-observed-marker').length, 0);
-    const accessible = view.nodes('temperature-ruler')[0].props['aria-label'];
-    assert.ok(accessible.includes(view.copy.loading));
-    assert.ok(!accessible.includes(view.copy.temperatureNoRecent));
+  test(`${language}: absent average and missing summary never trigger client or daily fallback`, () => {
+    const data = payload({ probe_average: [] });
+    const view = monitoring({ language, data });
+    assert.equal(view.chart().average.length, 0);
+    assert.equal(view.chart().labels.average, undefined);
+    assert.ok(!text(view.nodes(hasClass('thermal-monitoring-legend'))[0]).includes(view.copy.probeAverage));
+    assert.equal(view.toggles().length, 2);
+    assert.deepEqual(view.metrics(), ['23.4°C', '+3.4°C', '0.0°C / 40.0°C']);
+    view.state.data = { ...payload(), summary: { ...data.summary, mean_temperature_c: null, target_deviation_c: null,
+      min_temperature_c: null, max_temperature_c: null } };
+    view.render();
+    assert.equal(view.chart().average.length, 2);
+    assert.deepEqual(view.metrics(), ['-', '-', '- / -']);
+    assert.doesNotMatch(view.text(), /35\.0°C|91\.0°C|99\.0°C/);
   });
 
-  test(`${language}: a successful empty response ends loading without a redundant no-recent message`, () => {
-    const view = panel({ language, result: { summary: undefined, error: null } });
-    view.render({ summary: summary({ temperature_c: null, included_probe_count: 0,
-      oldest_measured_at: null, newest_measured_at: null, expires_at: null, stale_probe_count: 3 }), error: null });
-    // The absence of a fresh probe is shown by the missing recent mean, not by a sentence.
-    assert.equal(find(view.nodes('zone-temperature-heading')[0], node => node.type === 'p').length, 0);
-    assert.equal(view.statuses().length, 0);
+  test(`${language}: negative deviation and absent target are not inferred from curve or zone values`, () => {
+    const data = payload();
+    const view = monitoring({ language, data: { ...data, summary: { ...data.summary, mean_temperature_c: 18.6, target_deviation_c: -1.4 } } });
+    assert.deepEqual(view.metrics(), ['18.6°C', '−1.4°C', '0.0°C / 40.0°C']);
+    view.state.data = { ...data, target_temperature_c: null, summary: { ...data.summary, target_deviation_c: null } };
+    view.render();
+    assert.equal(view.chart().target, null);
+    assert.deepEqual(view.metrics(), ['23.4°C', '-', '0.0°C / 40.0°C']);
+  });
+
+  test(`${language}: loading, empty and error remain distinct with no daily fallback; retry retains data`, () => {
+    const view = monitoring({ language, data: null, isLoading: true });
+    assert.equal(view.tree.props['aria-busy'], true);
+    assert.equal(text(view.nodes(node => node.props.role === 'status')[0]), view.copy.loading);
+    assert.equal(view.chart(), undefined);
+    assert.deepEqual(view.metrics(), ['-', '-', '- / -']);
+    assert.ok(!view.text().includes(view.copy.thermalMonitoringEmpty));
+    view.state.isLoading = false;
+    view.state.data = payload({ probes: [], probe_average: [], summary: { mean_temperature_c: null, target_deviation_c: null,
+      min_temperature_c: null, max_temperature_c: null, contributing_probe_count: 0, measurement_count: 0 } });
+    view.render();
+    assert.equal(view.tree.props['aria-busy'], false);
+    assert.equal(text(view.nodes(node => node.props.role === 'status')[0]), view.copy.thermalMonitoringEmpty);
+    assert.deepEqual(view.metrics(), ['-', '-', '- / -']);
+    assert.deepEqual({ ...view.chart().window }, { start, end });
+    assert.equal(view.toggles().length, 0);
+    view.state.data = null; view.state.error = new Error('Private transport details'); view.render();
+    assert.ok(view.text().includes(view.copy.temperatureRecentError));
+    assert.ok(!view.text().includes(view.copy.thermalMonitoringEmpty));
     assert.ok(!view.text().includes(view.copy.loading));
-    assert.ok(!view.text().includes(view.copy.temperatureRecentError));
-    assert.ok(!view.text().includes(view.copy.temperatureNoRecent));
-    assert.equal(view.nodes('temperature-observed-marker').length, 0);
-    const accessible = view.nodes('temperature-ruler')[0].props['aria-label'];
-    assert.ok(!accessible.includes(view.copy.temperatureNoRecent));
-    assert.ok(!accessible.includes(view.copy.temperatureRecentMean));
-    assert.doesNotMatch(accessible, /null|undefined|, ,/);
-    assert.ok(view.text().includes(`${view.copy.temperatureDailyMean}21.0°C`));
-  });
-
-  test(`${language}: refresh error is localized and cannot substitute a daily marker`, () => {
-    const view = panel({ language, result: { summary: undefined, error: 'Internal transport details' } });
-    assert.equal(view.statuses().length, 1);
-    assert.equal(text(view.statuses()[0]), view.copy.temperatureRecentError);
-    assert.ok(!view.text().includes(view.copy.temperatureNoRecent), 'A failed request cannot establish that observations are absent');
-    assert.ok(!view.text().includes(view.copy.loading));
-    const headingParagraphs = find(view.nodes('zone-temperature-heading')[0], node => node.type === 'p');
-    assert.equal(headingParagraphs.length, 1);
-    assert.equal(headingParagraphs[0], view.statuses()[0]);
-    assert.equal(headingParagraphs[0].props['aria-busy'], false);
-    assert.ok(view.nodes('temperature-ruler')[0].props['aria-label'].includes(view.copy.temperatureRecentError));
-    assert.ok(!view.nodes('temperature-ruler')[0].props['aria-label'].includes(view.copy.temperatureNoRecent));
-    assert.ok(!view.text().includes('Internal transport details'));
-    assert.equal(view.nodes('temperature-observed-marker').length, 0);
-    assert.ok(view.text().includes(`${view.copy.temperatureDailyMean}21.0°C`));
-    view.render({ summary: summary(), error: null });
-    assert.equal(view.statuses().length, 0);
-    assert.ok(!view.text().includes(view.copy.temperatureRecentError), 'A recovered read clears its error');
-    const period = `${view.dates.formatDisplayDateTime(oldest)} — ${view.dates.formatDisplayDateTime(newest)}`;
-    assert.ok(text(view.nodes('zone-temperature-heading')[0]).includes(
-      view.copy.temperatureRecentPeriod.replace('{count}', '2').replace('{period}', period)));
+    assert.doesNotMatch(view.text(), /Private transport details|91\.0°C/);
+    view.nodes(node => node.type === 'button' && text(node) === view.copy.probeRetry)[0].props.onClick();
+    assert.equal(view.getRetries(), 1);
+    view.state.data = payload(); view.render();
+    assert.equal(view.chart().series.length, 2);
+    assert.deepEqual(view.metrics(), ['23.4°C', '+3.4°C', '0.0°C / 40.0°C']);
+    view.state.data = null; view.state.error = null; view.state.isLoading = true; view.render();
+    assert.equal(view.chart(), undefined);
+    assert.equal(view.toggles().length, 0);
+    assert.deepEqual(view.metrics(), ['-', '-', '- / -']);
   });
 }
 
-for (const [name, result, currentZone] of [
-  ['no summary', { summary: undefined, error: null }, zone()],
-  ['no probes', { summary: summary({ temperature_c: null, included_probe_count: 0, eligible_probe_count: 0,
-    oldest_measured_at: null, newest_measured_at: null, expires_at: null, stale_probe_count: 0 }), error: null }, zone({ probes: [] })],
-  ['no fresh observations', { summary: summary({ temperature_c: null, included_probe_count: 0,
-    oldest_measured_at: null, newest_measured_at: null, expires_at: null, stale_probe_count: 3 }), error: null }, zone()],
-]) {
-  test(`${name}: daily statistics remain available without masquerading as a recent measurement`, () => {
-    const view = panel({ result, currentZone });
-    assert.equal(view.nodes('temperature-observed-marker').length, 0);
-    assert.equal(view.text().includes(view.copy.loading), !result.summary);
-    assert.ok(!view.text().includes(view.copy.temperatureNoRecent));
-    assert.ok(view.text().includes(`${view.copy.temperatureDailyMean}21.0°C`));
-    assert.equal(view.nodes('temperature-observed-range').length, 1);
-    const accessible = view.nodes('temperature-ruler')[0].props['aria-label'];
-    assert.equal(accessible.includes(view.copy.loading), !result.summary);
-    assert.ok(!accessible.includes(view.copy.temperatureNoRecent));
-    assert.ok(!accessible.includes(view.copy.temperatureRecentMean));
-    assert.ok(!text(view.nodes('zone-temperature-heading')[0]).includes('2026-11-03'));
+function panel({ language = 'fr', currentZone = zone(), canRecord = true, monitoring = { has_collected_probes: true, manual_entry_available: true, last_reading_at: null }, error = null } = {}) {
+  const document = { documentElement: { lang: language } };
+  const chart = zoneChartReadings();
+  const chartCalls = [];
+  const Monitoring = () => null;
+  const Historical = () => null;
+  let retries = 0;
+  const view = harness('../src/components/ZonesView.tsx', {
+    '../api/client': {}, '../utils/errors': {},
+    '../utils/dateFormat': load('../src/utils/dateFormat.ts', {}, { document }), '../utils/probeStatus': probeStatus,
+    '../hooks/useProbeMonitoring': { default: (received, initial) => {
+      assert.equal(received, currentZone); assert.equal(initial, chart.initial);
+      return { monitoring, error, revalidate() { retries++; } };
+    } },
+    './ThermalMonitoringChart': { default: Monitoring },
+    './ZoneProbeCharts': { ZoneProbeChart: Historical, useZoneChartReadings: (received, enabled) => {
+      chartCalls.push({ zone: received, enabled }); return chart;
+    } },
+    './ZoneMovementHistory': { ZoneRecentMovements: noop },
+    ...Object.fromEntries(['BoxTrackingPreview', 'DetailBackButton', 'ModalPortal', 'PageLoader', 'PolypbaseIcon'].map(name => [`./${name}`, { default: noop }])),
+  }, { document }, 'TemperatureControlPanel', '\nexport { TemperatureControlPanel };')
+    .render({ zone: currentZone, canRecordManualTemperature: canRecord,
+      onRecordManualTemperature() { assert.fail('Rendering must not write'); }, t: translator(language) });
+  return Object.assign(view, { chart, chartCalls, Monitoring, Historical, copy: catalogs[language], getRetries: () => retries });
+}
+for (const language of ['fr', 'en']) {
+  test(`${language}: panel has exactly one period header and delegates monitoring while retaining the historical chart`, () => {
+    const currentZone = zone();
+    const view = panel({ language, currentZone });
+    const heading = view.nodes(hasClass('zone-temperature-heading'))[0];
+    assert.equal(text(heading), view.copy.temperatureControl + view.copy.thermalMonitoringPeriod);
+    assert.equal(view.text().split(view.copy.thermalMonitoringPeriod).length - 1, 1);
+    const child = view.nodes(node => node.type === view.Monitoring);
+    assert.equal(child.length, 1); assert.equal(child[0].props.zone, currentZone);
+    assert.equal(child[0].props.t('thermalMonitoringPeriod'), view.copy.thermalMonitoringPeriod);
+    const history = view.nodes(node => node.type === view.Historical);
+    assert.equal(history.length, 1); assert.equal(history[0].props.chart, view.chart);
+    assert.equal(history[0].props.zone, currentZone);
+    assert.deepEqual(view.chartCalls, [{ zone: currentZone, enabled: true }]);
+    assert.ok(view.tree.props.children.includes(history[0]));
+    assert.equal(view.nodes(node => node.type === 'dd').length, 0, 'The panel no longer owns daily or recent numeric facts');
+    assert.equal(view.nodes(hasClass('temperature-ruler')).length, 0);
+  });
+
+  test(`${language}: manual action opens the existing modal and restores action focus on cancel`, () => {
+    const view = panel({ language }); view.commit();
+    const action = view.nodes(node => node.props['aria-label'] === view.copy.manualTemperatureAction)[0];
+    assert.equal(action.props.type, 'button');
+    assert.equal(action.props.className, 'icon-button zone-temperature-action');
+    let focused = 0; action.ref.current = { focus() { focused++; } };
+    action.props.onClick(); view.render(); view.commit();
+    assert.equal(view.nodes(node => node.props['aria-label'] === view.copy.manualTemperatureAction).length, 0);
+    const modal = view.nodes(node => node.type.name === 'TemperatureEntryModal')[0];
+    assert.ok(modal); assert.equal(modal.props.isSaving, false); assert.equal(modal.props.value, '');
+    modal.props.onValueChange('0'); view.render();
+    assert.equal(view.nodes(node => node.type.name === 'TemperatureEntryModal')[0].props.value, '0');
+    modal.props.onCancel(); view.render(); view.commit();
+    assert.equal(view.nodes(node => node.type.name === 'TemperatureEntryModal').length, 0);
+    assert.equal(focused, 1);
+    assert.equal(view.nodes(node => node.type === view.Historical).length, 1);
+  });
+
+  test(`${language}: server manual capability and permission still gate action; monitoring error offers retry`, () => {
+    for (const canRecord of [false, true]) for (const available of [false, true]) {
+      const view = panel({ language, canRecord, monitoring: { has_collected_probes: true, manual_entry_available: available, last_reading_at: null } });
+      assert.equal(view.nodes(node => node.props['aria-label'] === view.copy.manualTemperatureAction).length, canRecord && available ? 1 : 0);
+      assert.ok(view.text().includes(view.copy.probeNoReadingYet));
+    }
+    const view = panel({ language, error: 'Private transport details' });
+    const status = view.nodes(node => node.props.role === 'status')[0];
+    assert.equal(text(status), view.copy.probeMonitoringError + view.copy.probeRetry);
+    view.nodes(node => node.type === 'button' && text(node) === view.copy.probeRetry)[0].props.onClick();
+    assert.equal(view.getRetries(), 1);
+    assert.doesNotMatch(view.text(), /Private transport details/);
+    assert.equal(view.nodes(node => node.type === view.Monitoring).length, 1);
   });
 }
-
-test('a recent server average without any daily data still renders, with no invented daily facts', () => {
-  const view = panel({ currentZone: collectedZone({ latest_temperature: null }), chart: loadedChart([[0, 24.5, 2]]) });
-  assert.equal(text(view.nodes('temperature-recent-facts')[0]),
-    `${view.copy.temperatureRecentMean}24.5°C${view.copy.targetTemperature}20.0°C`);
-  assert.equal(view.nodes('temperature-summary').length, 0);
-  assert.equal(view.nodes('temperature-daily-period').length, 0);
-  assert.ok(!view.text().includes(view.copy.temperatureDailyMean));
-  // The period line still describes the server thermal-control read.
-  assert.ok(text(view.nodes('zone-temperature-heading')[0]).includes(view.copy.temperatureRecentPeriod.replace('{count}', '2').split('{period}')[0]));
-});
-
-test('with no recent, daily or target data the panel has no invented ruler or values', () => {
-  const view = panel({ result: { summary: undefined, error: null },
-    currentZone: zone({ probes: [], latest_temperature: null, target_temperature_c: null }) });
-  assert.ok(view.text().includes(view.copy.loading));
-  assert.ok(!view.text().includes(view.copy.temperatureNoRecent));
-  for (const name of ['temperature-ruler', 'temperature-observed-marker', 'temperature-summary', 'temperature-daily-period']) {
-    assert.equal(view.nodes(name).length, 0);
+test('manual-only and uninstrumented locations still mount monitoring, without enabling the historical chart', () => {
+  for (const probes of [[], [{ id: 1, is_collected: false }]]) {
+    const currentZone = zone({ probes });
+    const view = panel({ currentZone, monitoring: { has_collected_probes: false, manual_entry_available: true } });
+    assert.equal(view.nodes(node => node.type === view.Monitoring).length, 1);
+    assert.equal(view.nodes(node => node.type === view.Historical).length, 0);
+    assert.deepEqual(view.chartCalls, [{ zone: currentZone, enabled: false }]);
+    assert.equal(view.nodes(node => node.props['aria-label'] === view.copy.manualTemperatureAction).length, 1);
+    assert.doesNotMatch(view.text(), /91\.0°C|89\.0°C|93\.0°C/);
   }
-  assert.doesNotMatch(view.text(), /0\.0°C|NaN|undefined/);
-});
-
-test('the manual ruler scale comes only from the target and the real daily range', () => {
-  const view = panel({ currentZone: zone({ latest_temperature: daily({ min_temperature_c: -40, max_temperature_c: 75 }) }) });
-  const expected = scaleUtils.buildTemperatureScale({ target: 20, average: null, minimum: -40, maximum: 75 });
-  const rulerTicks = view.nodes('temperature-ruler-tick');
-  assert.deepEqual(rulerTicks.map(tick => Number(text(tick))), Array.from(expected.ticks));
-  const position = node => Number.parseFloat(node.props.style['--temperature-position']);
-  assert.equal(position(view.nodes('temperature-target-marker')[0]), expected.project(20));
-  const band = view.nodes('temperature-observed-range')[0].props.style;
-  assert.equal(Number.parseFloat(band['--temperature-range-start']), expected.project(-40));
-  assert.equal(Number.parseFloat(band['--temperature-range-end']), expected.project(75));
-  assert.equal(view.nodes('temperature-observed-marker').length, 0);
-});
-
-for (const language of ['fr', 'en']) {
-  test(`${language}: a collected location shows the latest server average as recent mean, distinct from daily facts`, () => {
-    const collected = collectedZone();
-    // The probe curve reads 30°C; only the server average may be shown as the mean.
-    const probes = [{ id: 1, code: 'P1', location: '', is_active: true, points: [], point_sources: [[[1, null, '30.00', 1, 30, 30, 1]]] }];
-    const view = panel({ language, currentZone: collected, chart: loadedChart([[0, 26.4, 2], [60_000, 27, 3]], { probes }) });
-    assert.deepEqual(view.chartCalls, [{ zone: collected, enabled: true }]);
-    assert.equal(view.nodes('temperature-ruler').length, 0);
-    assert.equal(text(view.nodes('temperature-recent-facts')[0]),
-      `${view.copy.temperatureRecentMean}27.0°C${view.copy.targetTemperature}20.0°C`);
-    assert.equal(text(view.nodes('temperature-facts')[0]), `${view.copy.temperatureDailyMean}21.0°C${view.copy.temperatureDailyGap}+1.0°C`);
-    assert.equal(text(view.nodes('temperature-range-values')[0]), `${view.copy.minTemperature}19.0°C${view.copy.maxTemperature}23.0°C`);
-    // Neither a new thermal-control value nor a new chart average changes the daily gap.
-    view.render({ summary: summary({ temperature_c: -5 }), error: null });
-    assert.ok(text(view.nodes('temperature-recent-facts')[0]).includes('27.0°C'), 'Thermal control does not replace the server average');
-    view.render(undefined, undefined, loadedChart([[0, -5, 2]]));
-    assert.ok(text(view.nodes('temperature-recent-facts')[0]).includes('-5.0°C'));
-    assert.equal(text(view.nodes('temperature-facts')[0]), `${view.copy.temperatureDailyMean}21.0°C${view.copy.temperatureDailyGap}+1.0°C`,
-      'The recent mean cannot change the daily gap');
-  });
-
-  test(`${language}: a recent zero average stays a value, a missing average stays absent`, () => {
-    const zero = panel({ language, currentZone: collectedZone({ target_temperature_c: '0' }), chart: loadedChart([[0, 0, 2]]) });
-    assert.equal(text(zero.nodes('temperature-recent-facts')[0]), `${zero.copy.temperatureRecentMean}0.0°C${zero.copy.targetTemperature}0.0°C`);
-    for (const [state, chart] of [
-      ['loading', zoneChartReadings({ isLoading: true })],
-      ['failed', zoneChartReadings({ error: new Error('Offline') })],
-      ['empty average', loadedChart([])],
-      ['no average field', loadedChart(undefined)],
-    ]) {
-      const missing = panel({ language, currentZone: collectedZone(), chart });
-      const facts = text(missing.nodes('temperature-recent-facts')[0]);
-      assert.equal(facts, `${missing.copy.targetTemperature}20.0°C`, `${state}: no recent mean is invented`);
-      assert.doesNotMatch(missing.text(), /NaN|undefined/);
-    }
-  });
-}
-
-for (const recent of [-40, 75]) {
-  test(`a recent ${recent}°C server average is shown as is, not clamped to the daily range`, () => {
-    const view = panel({ currentZone: collectedZone(), chart: loadedChart([[0, recent, 2]]) });
-    assert.equal(text(view.nodes('temperature-recent-facts')[0]),
-      `${view.copy.temperatureRecentMean}${recent.toFixed(1)}°C${view.copy.targetTemperature}20.0°C`);
-  });
-}
-
-test('the recent mean follows the rendered chart, so a stale zone or context result is never reused', () => {
-  const first = collectedZone({ id: 17 });
-  const view = panel({ currentZone: first, chart: loadedChart([[0, 27, 2]]) });
-  const next = collectedZone({ id: 18 });
-  // The real hook returns no data for a new zone or organization until its own read settles.
-  view.render(undefined, next, zoneChartReadings({ isLoading: true }));
-  assert.equal(view.chartCalls.at(-1).zone, next);
-  assert.ok(!text(view.nodes('temperature-recent-facts')[0]).includes('27.0°C'));
 });

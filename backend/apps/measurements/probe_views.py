@@ -13,6 +13,7 @@ from apps.cultures.models import ThermalZone
 
 from .probe_collection import collected_probes
 from .thermal_control import zone_thermal_control
+from .thermal_monitoring import zone_thermal_monitoring
 from .probe_readings import MAX_SERIES_SPAN, zone_probe_monitoring, zone_probe_series_and_average
 
 DEFAULT_SPAN = timedelta(hours=24)
@@ -40,6 +41,18 @@ class ThermalZoneThermalControlAPIView(APIView):
             organization_id__in=get_active_organization_ids(request),
         )
         return Response(zone_thermal_control(zone), headers={"Cache-Control": "no-store"})
+
+
+class ThermalZoneThermalMonitoringAPIView(APIView):
+    """Fixed four-hour raw history scoped to the active organization."""
+
+    def get(self, request, pk):
+        zone = get_object_or_404(
+            ThermalZone.objects,
+            pk=pk,
+            organization_id__in=get_active_organization_ids(request),
+        )
+        return Response(zone_thermal_monitoring(zone), headers={"Cache-Control": "no-store"})
 
 
 class ThermalZoneProbeReadingsAPIView(APIView):

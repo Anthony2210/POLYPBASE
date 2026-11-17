@@ -579,6 +579,19 @@ export type ZoneProbeReadings = {
   }>;
 };
 
+/** Server-fixed inclusive four-hour snapshot of individual probe observations. */
+export type ZoneThermalMonitoring = Omit<ZoneProbeReadings, 'monitoring' | 'target_temperature_c'> & {
+  target_temperature_c: number | null;
+  summary: {
+    mean_temperature_c: number | null;
+    target_deviation_c: number | null;
+    min_temperature_c: number | null;
+    max_temperature_c: number | null;
+    contributing_probe_count: number;
+    measurement_count: number;
+  };
+};
+
 export type ThermalZoneMovementDirection = 'arrival' | 'departure';
 
 export type ThermalZoneMovementEvent = {

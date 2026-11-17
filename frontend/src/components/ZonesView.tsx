@@ -3,7 +3,6 @@ import type { Language, Translator } from '../i18n';
 import type { BoxItem, ThermalZone, UserProfile } from '../types';
 import { ApiError, ApiResourceCancelledError } from '../api/client';
 import useProbeMonitoring from '../hooks/useProbeMonitoring';
-import useThermalControl from '../hooks/useThermalControl';
 import type {
   ManualSalinityPayload,
   ManualSalinityUpdatePayload,
@@ -14,12 +13,12 @@ import type {
 import { formatDisplayDate, formatDisplayDateTime, getDocumentLocale } from '../utils/dateFormat';
 import { formatProbeReadingTime, getProbeElapsedTime } from '../utils/probeStatus';
 import { getErrorMessage } from '../utils/errors';
-import { buildTemperatureScale } from '../utils/temperatureScale';
 import BoxTrackingPreview from './BoxTrackingPreview';
 import DetailBackButton from './DetailBackButton';
 import ModalPortal from './ModalPortal';
 import PageLoader from './PageLoader';
 import PolypbaseIcon from './PolypbaseIcon';
+import ThermalMonitoringChart from './ThermalMonitoringChart';
 import { useZoneChartReadings, ZoneProbeChart } from './ZoneProbeCharts';
 import { ZoneRecentMovements } from './ZoneMovementHistory';
 
@@ -978,47 +977,8 @@ function TemperatureControlPanel({
   onRecordManualTemperature: (zoneId: number, payload: ManualTemperaturePayload) => Promise<ThermalZone>;
   t: Translator;
 }) {
-  const targetTemperature = parseTemperatureNumber(zone.target_temperature_c);
-  const measuredTemperature = parseTemperatureNumber(zone.latest_temperature?.average_temperature_c);
-  const minTemperature = parseTemperatureNumber(zone.latest_temperature?.min_temperature_c);
-  const maxTemperature = parseTemperatureNumber(zone.latest_temperature?.max_temperature_c);
-  const measurementCount = zone.latest_temperature?.measurement_count ?? 0;
-  const hasTemperatureRange = measurementCount > 1
-    && minTemperature !== null
-    && maxTemperature !== null
-    && minTemperature !== maxTemperature;
-  const delta = measuredTemperature !== null && targetTemperature !== null
-    ? measuredTemperature - targetTemperature
-    : null;
   const hasCollectedProbe = zone.probes.some((probe) => probe.is_collected);
   const chart = useZoneChartReadings(zone, hasCollectedProbe);
-  const { summary: thermalControl, error: thermalControlError } = useThermalControl(zone);
-  const averagePoints = chart.readings.data?.probe_average ?? [];
-  const chartAverage = averagePoints.length ? averagePoints[averagePoints.length - 1][1] : null;
-  const recentTemperature = chartAverage;
-  const recentPeriod = thermalControl?.oldest_measured_at && thermalControl.newest_measured_at
-    ? thermalControl.oldest_measured_at === thermalControl.newest_measured_at
-      ? formatDisplayDateTime(thermalControl.newest_measured_at)
-      : `${formatDisplayDateTime(thermalControl.oldest_measured_at)} — ${formatDisplayDateTime(thermalControl.newest_measured_at)}`
-    : null;
-  // Without a fresh probe the line stays empty: the last reading time below
-  // already tells an old reading apart from no reading at all.
-  const recentContext = thermalControlError
-    ? t('temperatureRecentError')
-    : !thermalControl
-      ? t('loading')
-      : recentPeriod
-        ? t('temperatureRecentPeriod').replace('{count}', String(thermalControl.included_probe_count)).replace('{period}', recentPeriod)
-        : null;
-  const dailyContext = zone.latest_temperature
-    ? t('temperatureDailyPeriod').replace('{date}', formatDisplayDate(zone.latest_temperature.date))
-    : null;
-  const scale = buildTemperatureScale({
-    target: targetTemperature,
-    average: recentTemperature,
-    minimum: hasTemperatureRange ? minTemperature : null,
-    maximum: hasTemperatureRange ? maxTemperature : null,
-  });
   const [isEditingTemperature, setIsEditingTemperature] = useState(false);
   const { monitoring: probeMonitoring, error: monitoringError, revalidate: revalidateMonitoring } = useProbeMonitoring(zone, chart.initial);
   const usesProbes = probeMonitoring?.has_collected_probes ?? false;
@@ -1057,24 +1017,7 @@ function TemperatureControlPanel({
       restoreTemperatureFocus.current = false;
     }
   }, [isEditingTemperature]);
-  const targetPosition = scale && targetTemperature !== null ? scale.project(targetTemperature) : null;
-  const measuredPosition = scale && recentTemperature !== null ? scale.project(recentTemperature) : null;
-  const minPosition = scale && hasTemperatureRange && minTemperature !== null
-    ? scale.project(minTemperature)
-    : null;
-  const maxPosition = scale && hasTemperatureRange && maxTemperature !== null
-    ? scale.project(maxTemperature)
-    : null;
-  const temperatureSummary = buildTemperatureSummary({
-    targetTemperature,
-    measuredTemperature,
-    recentTemperature,
-    recentContext,
-    dailyContext,
-    minTemperature: hasTemperatureRange ? minTemperature : null,
-    maxTemperature: hasTemperatureRange ? maxTemperature : null,
-    t,
-  });
+
 
   async function handleManualTemperatureSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1109,9 +1052,7 @@ function TemperatureControlPanel({
       <div className="zone-temperature-heading">
         <div>
           <h2>{t('temperatureControl')}</h2>
-          {recentContext ? (
-            <p role={thermalControlError ? 'status' : undefined} aria-busy={!thermalControl && !thermalControlError}>{recentContext}</p>
-          ) : null}
+          <p>{t('thermalMonitoringPeriod')}</p>
         </div>
         {canEnterManually && !isEditingTemperature ? (
           <button
@@ -1130,91 +1071,7 @@ function TemperatureControlPanel({
         ) : null}
       </div>
 
-      <div className="temperature-instrument">
-      {hasCollectedProbe ? (
-        <div className="zone-thermal-overview">
-          <dl className="temperature-recent-facts">
-            {recentTemperature !== null ? (
-              <div><dt>{t('temperatureRecentMean')}</dt><dd className={targetTemperature === null ? undefined : Math.abs(recentTemperature - targetTemperature) > 0.5 ? 'is-out-of-range' : 'is-in-range'}>{formatTemperature(recentTemperature)}</dd></div>
-            ) : null}
-            {targetTemperature !== null ? (
-              <div><dt>{t('targetTemperature')}</dt><dd>{formatTemperature(targetTemperature)}</dd></div>
-            ) : null}
-          </dl>
-        </div>
-      ) : scale ? (
-        <div className="temperature-ruler" role="img" aria-label={temperatureSummary}>
-          <div className="temperature-ruler-ticks" aria-hidden="true">
-            {scale.ticks.map((tick) => (
-              <span
-                className={`temperature-ruler-tick ${getTemperatureEdgeClass(scale.project(tick))}`}
-                key={tick}
-                style={{ '--temperature-position': `${scale.project(tick)}%` } as CSSProperties}
-              >
-                <i />
-                <b>{formatTemperatureTick(tick)}</b>
-              </span>
-            ))}
-          </div>
-          <span className="temperature-ruler-track" aria-hidden="true" />
-          {hasTemperatureRange && minPosition !== null && maxPosition !== null ? (
-            <span
-              className="temperature-observed-range"
-              style={{
-                '--temperature-range-start': `${Math.min(minPosition, maxPosition)}%`,
-                '--temperature-range-end': `${Math.max(minPosition, maxPosition)}%`,
-              } as CSSProperties}
-              aria-hidden="true"
-            />
-          ) : null}
-          {targetPosition !== null ? (
-            <span
-              className={`temperature-target-marker ${getTemperatureEdgeClass(targetPosition)}`}
-              style={{ '--temperature-position': `${targetPosition}%` } as CSSProperties}
-              aria-hidden="true"
-            >
-              <b>{t('targetTemperature')} {formatTemperature(targetTemperature ?? undefined)}</b>
-              <i />
-            </span>
-          ) : null}
-          {measuredPosition !== null ? (
-            <span
-              className={`temperature-observed-marker ${getTemperatureEdgeClass(measuredPosition)}`}
-              style={{ '--temperature-position': `${measuredPosition}%` } as CSSProperties}
-              aria-hidden="true"
-            >
-              <i />
-              <b>
-                {t('temperatureRecentMean')}
-                {' '}{formatTemperature(recentTemperature ?? undefined)}
-              </b>
-            </span>
-          ) : null}
-        </div>
-      ) : (
-        null
-      )}
-
-      {dailyContext ? <p className="temperature-daily-period">{dailyContext}</p> : null}
-      {measuredTemperature !== null || delta !== null || hasTemperatureRange ? (
-        <div className="temperature-summary" aria-label={dailyContext ?? t('temperatureControl')}>
-          <div className="temperature-facts">
-            {measuredTemperature !== null ? (
-              <span><small>{t('temperatureDailyMean')}</small><strong>{formatTemperature(measuredTemperature)}</strong></span>
-            ) : null}
-            {delta !== null ? (
-              <span><small>{t('temperatureDailyGap')}</small><strong>{formatTemperatureDelta(delta)}</strong></span>
-            ) : null}
-          </div>
-          {hasTemperatureRange ? (
-            <div className="temperature-range-values">
-              <span><small>{t('minTemperature')}</small><strong>{formatTemperature(minTemperature ?? undefined)}</strong></span>
-              <span><small>{t('maxTemperature')}</small><strong>{formatTemperature(maxTemperature ?? undefined)}</strong></span>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-      </div>
+      <ThermalMonitoringChart zone={zone} t={t} />
 
       {usesProbes && probeMonitoring || monitoringError ? (
         <div className="zone-probe-status">
@@ -1372,36 +1229,6 @@ function TemperatureEntryModal({
   );
 }
 
-function buildTemperatureSummary({
-  targetTemperature,
-  measuredTemperature,
-  recentTemperature,
-  recentContext,
-  dailyContext,
-  minTemperature,
-  maxTemperature,
-  t,
-}: {
-  targetTemperature: number | null;
-  measuredTemperature: number | null;
-  recentTemperature: number | null;
-  recentContext: string | null;
-  dailyContext: string | null;
-  minTemperature: number | null;
-  maxTemperature: number | null;
-  t: Translator;
-}) {
-  const facts = [
-    targetTemperature === null ? null : `${t('targetTemperature')} ${formatTemperature(targetTemperature)}`,
-    recentTemperature === null ? recentContext : [`${t('temperatureRecentMean')} ${formatTemperature(recentTemperature)}`, recentContext].filter(Boolean).join(', '),
-    dailyContext,
-    measuredTemperature === null ? null : `${t('temperatureDailyMean')} ${formatTemperature(measuredTemperature)}`,
-    minTemperature === null ? null : `${t('minTemperature')} ${formatTemperature(minTemperature)}`,
-    maxTemperature === null ? null : `${t('maxTemperature')} ${formatTemperature(maxTemperature)}`,
-  ].filter((fact): fact is string => Boolean(fact));
-  return facts.join(', ');
-}
-
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <span className="metric">
@@ -1413,22 +1240,6 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function formatTemperature(value: number | undefined) {
   return value === undefined ? '-' : `${value.toFixed(1)}°C`;
-}
-
-function getTemperatureEdgeClass(position: number) {
-  if (position < 18) return 'is-start';
-  if (position > 82) return 'is-end';
-  return '';
-}
-
-function formatTemperatureTick(value: number) {
-  return Number.isInteger(value) ? String(value) : value.toFixed(1);
-}
-
-function formatTemperatureDelta(value: number) {
-  const magnitude = Math.abs(value).toFixed(1);
-  const sign = Number(magnitude) === 0 ? '' : value > 0 ? '+' : value < 0 ? '−' : '';
-  return `${sign}${magnitude}°C`;
 }
 
 function parseTemperatureNumber(value: string | number | null | undefined) {

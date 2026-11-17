@@ -240,10 +240,10 @@ test('ja catalog is exactly the historical and AI-reviewed manifest union', () =
   const counts = react.reduce((total, row) => ({ ...total, [row.status]: (total[row.status] ?? 0) + 1 }), {});
   // Original fallbacks, movements, thermal and DNA additions, with B23 retirements and B23/B24 additions.
   assert.equal(postBaseline.size, 81);
-  assert.deepEqual(counts, { REUSED: 930, FALLBACK_EN: 257 + sharingKeys.length + DNA_KEYS.length, FALLBACK_EN_REVIEW: 36, AI_REVIEWED: 59 });
+  assert.deepEqual(counts, { REUSED: 930, FALLBACK_EN: 257 + sharingKeys.length + DNA_KEYS.length + B32_KEYS.length, FALLBACK_EN_REVIEW: 36, AI_REVIEWED: 59 });
   assert.equal(counts.FALLBACK_EN, 143 + postBaseline.size + potentialMovementKeys.length
     - B23_RETIRED_KEYS.length + B23_ADDED_KEYS.length + B24_ADDED_KEYS.length + zoneChartKeys.length
-    + thermalPeriodKeys.length + probeAverageKeys.length + sharingKeys.length + DNA_KEYS.length);
+    + thermalPeriodKeys.length + probeAverageKeys.length + sharingKeys.length + DNA_KEYS.length + B32_KEYS.length);
 });
 
 test('B13 thermal register events are immutable, even under a coordinated catalog edit', () => {
@@ -631,6 +631,36 @@ const DNA_KEYS = ['dnaMissing', 'dnaValidated', 'dnaTitle', 'dnaAdd', 'dnaSave',
   'dnaConflict', 'dnaReload', 'dnaReloadError', 'dnaSaveError', 'dnaForbidden', 'dnaAuditAdded',
   'dnaAuditUpdated', 'dnaAuditRevoked'];
 
+// B32: four-hour thermal monitoring labels, English fallbacks without Japanese.
+// Same canonical digest as B32_ROWS_SHA256 in
+// docs/translation-review/application/test_check_register.py.
+const B32 = 'B32-2026-11-17';
+const B32_ROWS_DIGEST = '6d7a1eaf48f628124aba324eea02ed971a4f4bd0063875624592398fc83a2243';
+const B32_KEYS = ['thermalMonitoringPeriod', 'thermalMonitoringDeviation', 'thermalMonitoringExtrema',
+  'thermalMonitoringEmpty', 'thermalMonitoringKeyboard'];
+
+function b32Events(rows = register) {
+  const entryIds = Array.from({ length: 10 }, (_, index) => `T${1460 + index}`);
+  const protectedIds = new Set(entryIds);
+  const events = rows.filter(row => row.batch === B32 || protectedIds.has(row.entry_id));
+  assert.deepEqual(events, rows.slice(1459, 1469));
+  assert.deepEqual(events.map(row => row.entry_id), entryIds);
+  for (const entry of events) assert.deepEqual(Object.keys(entry), REGISTER_COLUMNS);
+  assert.equal(registerRowsDigest(events), B32_ROWS_DIGEST);
+  assert.deepEqual(events.map(row => [row.key_or_msgid, row.language]),
+    B32_KEYS.flatMap(key => [[key, 'FR'], [key, 'EN']]));
+  return events;
+}
+
+function beforeB32(source, language, rows = register) {
+  for (const entry of b32Events(rows).filter(row => row.language === language.toUpperCase())) {
+    const line = `  ${entry.key_or_msgid}: '${entry.final_value}',\n`;
+    assert.equal(source.split(line).length - 1, 1, entry.key_or_msgid);
+    source = source.replace(line, '');
+  }
+  return source;
+}
+
 function b30Events(rows = register) {
   const entryIds = Array.from({ length: 56 }, (_, index) => `T${1402 + index}`);
   const protectedIds = new Set(entryIds);
@@ -888,6 +918,7 @@ function historicalSource(source, current = false, language) {
 }
 
 function beforeMovementLabelChange(source, language) {
+  source = beforeB32(source, language);
   source = beforeB30(source, language);
   source = beforeB23(beforeB24(beforeB25(beforeB26(beforeB27(beforeB28(source, language), language), language), language), language), language);
   // B22 only rewords the reconstructed historical movement title and interval, registered as APPLIED.
@@ -977,7 +1008,7 @@ test('original FR and EN source content remains frozen apart from the registered
 test('additive keys stay English fallbacks without Japanese approval or provenance', () => {
   const translate = loadI18n().createTranslator('ja');
   for (const key of [...LATER_FALLBACK_KEYS, ...potentialMovementKeys, ...B23_ADDED_KEYS, ...B24_ADDED_KEYS,
-    ...zoneChartKeys, ...thermalPeriodKeys, ...probeAverageKeys, ...DNA_KEYS].filter(key => !B23_RETIRED_KEYS.includes(key))) {
+    ...zoneChartKeys, ...thermalPeriodKeys, ...probeAverageKeys, ...DNA_KEYS, ...B32_KEYS].filter(key => !B23_RETIRED_KEYS.includes(key))) {
     const rows = manifest.filter(row => row.identity === key);
     assert.equal(rows.length, 1, key);
     const row = rows[0];

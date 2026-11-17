@@ -36,7 +36,10 @@ export const usageExceptions = Object.freeze({
 
   historyPartial: 'Historical movements (5b1299b): BoxHistoryStatus now reports loading and errors only; retain the undated-source notice and Japanese review provenance pending an explicit i18n removal batch.',
 
-  temperatureAverage: 'B13 thermal-control relabel (cbc513f) superseded it with temperatureRecentMean/temperatureDailyMean; retained with Takeru-validated JA (manifest REUSED) pending an explicit i18n removal decision.',
+  ...Object.fromEntries([
+    'temperatureDailyGap', 'temperatureDailyMean', 'temperatureDailyPeriod',
+    'temperatureRecentMean', 'temperatureRecentPeriod',
+  ].map(key => [key, 'Four-hour monitoring (2026-11-17): the location panel now uses a fixed-window chart and period metrics, not daily statistics or a latest-reading summary. Retain reviewed catalogs and Japanese provenance; translation deletion is outside this change.'])),
   temperatureGap: 'B13 thermal-control relabel (cbc513f) superseded it with temperatureDailyGap; retained with Takeru-validated JA (manifest REUSED) pending an explicit i18n removal decision.',
   temperatureMeasurement: 'B13 thermal-control relabel (cbc513f) superseded it with temperatureRecentMean; retained with Takeru-validated JA (manifest REUSED) pending an explicit i18n removal decision.',
   temperatureMissing: 'B13 thermal-control relabel (cbc513f) superseded it with temperatureNoRecent and the daily period line; retained with Takeru-validated JA (manifest REUSED) pending an explicit i18n removal decision.',

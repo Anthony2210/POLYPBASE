@@ -63,6 +63,7 @@ function views(isDesktopApp, { zoneImports = {}, historyImports = {} } = {}) {
     'react/jsx-runtime': jsxRuntime,
     './DetailBackButton': { default: DetailBackButton },
     './BoxTrackingPreview': { default: Placeholder },
+    './ThermalMonitoringChart': { default: Placeholder },
     './PageLoader': { default: Placeholder },
     '../utils/errors': { getErrorMessage: (error) => error.message },
   };
@@ -249,7 +250,9 @@ for (const failure of [null, 'chart', 'history']) {
     assert.equal(combined.props.chart.readings.error, chartError);
     assert.equal(recent.props.zoneId, zone.id);
     assert.equal(recent.props.onOpenBox, onOpenBox);
-    assert.ok(nodes(panel).some((node) => node.type === 'dd' && node.props.children === '0.0°C'));
+    const monitoringChart = nodes(panel).filter((node) => node.type === Placeholder && node.props.zone === zone);
+    assert.equal(monitoringChart.length, 1, 'The independent thermal monitoring child remains mounted');
+    assert.equal(monitoringChart[0].props.t, t);
     assert.equal(data.probes[0].points[0][1], 0);
     if (!chartError) assert.equal(combined.props.chart.readings.data, data);
 
