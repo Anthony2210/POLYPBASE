@@ -93,6 +93,7 @@ const nullComponent = () => null;
 const auditTimeline = compile(read('../src/components/AuditTimeline.tsx'), {}, {
   '../utils/auditPresentation': audit,
   './BoxTrackingPreview': { default: nullComponent },
+  './DnaEvidenceLink': { DnaEvidenceLink: nullComponent },
 });
 const rowGlobals = {
   ...identity, ...audit, ...auditTimeline,
