@@ -55,6 +55,61 @@ def _function(cursor):
     return definition
 
 
+def _maintenance_identity(cursor, expected=None):
+    """Attest real authority, never activate a privileged role for the caller."""
+    cursor.execute("SELECT session_user::text, current_user::text, current_setting('role'), "
+                   "current_setting('session_replication_role'), "
+                   "current_setting('server_version_num')::int, pg_backend_pid(), "
+                   "pg_current_xact_id()::text, "
+                   "(SELECT NOT rolsuper AND NOT rolbypassrls AND NOT rolreplication AND rolcanlogin "
+                   " FROM pg_roles WHERE rolname = session_user), "
+                   "(SELECT NOT rolsuper AND NOT rolbypassrls AND NOT rolreplication AND NOT rolcanlogin "
+                   " FROM pg_roles WHERE rolname = current_user), "
+                   "pg_has_role(session_user, current_user, 'SET')")
+    session, current, role, replication, version, pid, xid, login_safe, owner_safe, can_set = cursor.fetchone()
+    if ((session, current, role, replication) !=
+            ('box1902_migrator', 'box1902_owner', 'box1902_owner', 'origin')
+            or not 180000 <= version < 190000 or not all((login_safe, owner_safe, can_set))):
+        raise ValueError("Apply requires PostgreSQL 18 and the non-superuser migrator session with effective owner role.")
+    identity = (connection.connection, pid, xid)
+    if expected is not None and (identity[0] is not expected[0] or identity[1:] != expected[1:]):
+        raise ValueError("Maintenance connection, backend or transaction changed; refusing apply.")
+    return identity
+
+
+def _maintenance_privileges(cursor):
+    # Ownership alone does not establish DML: an owner can revoke its own ACL.
+    # Require the existing owner topology and its ordinary SELECT/UPDATE ACLs;
+    # UPDATE also authorizes every requested ACCESS EXCLUSIVE table lock.
+    cursor.execute("SELECT nspowner = current_user::regrole, "
+                   "has_schema_privilege(oid, 'USAGE'), has_schema_privilege(oid, 'CREATE') "
+                   "FROM pg_namespace WHERE nspname = 'public'")
+    if cursor.fetchone() != (True, True, True):
+        raise ValueError("Unexpected public schema ownership or privileges.")
+    for table in TABLES:
+        cursor.execute("SELECT relowner = current_user::regrole, relkind = 'r', "
+                       "NOT relrowsecurity AND NOT relforcerowsecurity, "
+                       "has_table_privilege(oid, 'SELECT'), has_table_privilege(oid, 'UPDATE') "
+                       "FROM pg_class WHERE oid = %s::regclass", ['public.' + table])
+        if cursor.fetchone() != (True, True, True, True, True):
+            raise ValueError(f"Unexpected maintenance ownership, RLS or SELECT/UPDATE privileges: {table}.")
+    cursor.execute("SELECT proowner = current_user::regrole, "
+                   "has_function_privilege(oid, 'EXECUTE') FROM pg_proc WHERE oid = %s::regprocedure",
+                   [FUNCTION])
+    if cursor.fetchone() != (True, True):
+        raise ValueError("Maintenance must own and execute the original immutable function.")
+    cursor.execute("SELECT has_table_privilege('public.audit_auditlog', 'INSERT'), "
+                   "has_language_privilege('plpgsql', 'USAGE'), "
+                   "pg_get_serial_sequence('public.audit_auditlog', 'id')")
+    insert, language, sequence = cursor.fetchone()
+    if not insert or not language or sequence is None:
+        raise ValueError("Missing audit INSERT, trigger language or audit sequence.")
+    cursor.execute("SELECT relowner = current_user::regrole, has_sequence_privilege(oid, 'USAGE') "
+                   "FROM pg_class WHERE oid = %s::regclass", [sequence])
+    if cursor.fetchone() != (True, True):
+        raise ValueError("Unexpected audit sequence ownership or USAGE privilege.")
+
+
 def _snapshot(definition):
     """Fingerprint pending org-1 readings and their linked records, not receipts.
 
@@ -125,6 +180,9 @@ def run(*, organization_id=1, actor_id=None, reason="", attestation="", apply=Fa
         cursor.execute("SET LOCAL search_path = pg_catalog, public, pg_temp")
         # SHARE gives a coherent dry-run without mutation. Apply takes exclusive
         # locks up front: no lock upgrade deadlock or unseen concurrent inserts.
+        identity = _maintenance_identity(cursor) if apply else None
+        if apply:
+            _maintenance_privileges(cursor)
         mode = "ACCESS EXCLUSIVE" if apply else "SHARE"
         cursor.execute("LOCK TABLE " + ", ".join("public." + table for table in TABLES) + f" IN {mode} MODE")
         definition = _function(cursor)
@@ -153,6 +211,7 @@ def run(*, organization_id=1, actor_id=None, reason="", attestation="", apply=Fa
         END IF;
 """
         temporary_body = _ORIGINAL_BODY.replace("BEGIN", "BEGIN" + exception_body, 1)
+        _maintenance_identity(cursor, identity)
         cursor.execute("CREATE OR REPLACE FUNCTION " + FUNCTION + " RETURNS trigger LANGUAGE plpgsql "
                        "SET search_path = pg_catalog, public, pg_temp AS $reconfirm$"
                        + temporary_body + "$reconfirm$")
@@ -162,6 +221,7 @@ def run(*, organization_id=1, actor_id=None, reason="", attestation="", apply=Fa
         if cursor.rowcount != expected_count:
             raise ValueError("Unexpected update count; rolling back entire batch.")
         cursor.execute(definition)
+        _maintenance_identity(cursor, identity)
         if _function(cursor) != definition:
             raise ValueError("Original protection restoration failed.")
         event = AuditLog.objects.create(
@@ -172,4 +232,5 @@ def run(*, organization_id=1, actor_id=None, reason="", attestation="", apply=Fa
                       "operator_username": actor.get_username(), "owner_attestation": attestation,
                       "previous_status": "pending_review", "new_status": "confirmed"},
         )
+        _maintenance_identity(cursor, identity)
         return {**report, "applied_count": len(ids), "audit_id": event.pk}

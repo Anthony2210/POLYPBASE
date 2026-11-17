@@ -1,9 +1,8 @@
 """Reconfirmation contracts; PostgreSQL proofs use only the fresh-cluster harness.
 
 Run from the repository root:
-    uv run python scripts/test_historical_temperature_production.py --run \
-        --pg-bin "C:/Program Files/PostgreSQL/18/bin" \
-        apps.measurements.test_historical_temperature_reconfirm
+    uv run python scripts/test_historical_temperature_maintenance.py --run \
+        --pg-bin "C:/Program Files/PostgreSQL/18/bin"
 
 SQLite proves refusal only, never trigger, locking or transactional guarantees.
 """
@@ -11,6 +10,7 @@ SQLite proves refusal only, never trigger, locking or transactional guarantees.
 import json
 import os
 import threading
+from contextlib import contextmanager
 from copy import deepcopy
 from datetime import date
 from importlib import import_module
@@ -167,28 +167,95 @@ class SQLiteRefusalTests(ReconfirmationFixture, TestCase):
             self.assertEqual(state(), before)
 
 
-@skipUnless(connection.vendor == "postgresql" and DISPOSABLE,
-            "Requires scripts/test_historical_temperature_production.py and its fresh disposable cluster")
+@skipUnless(connection.vendor == "postgresql" and DISPOSABLE
+            and os.environ.get("POLYPBASE_HT_MAINTENANCE_SCRAM") == "1",
+            "Requires scripts/test_historical_temperature_maintenance.py and its fresh SCRAM cluster")
 class PostgreSQLReconfirmationTests(ReconfirmationFixture, TransactionTestCase):
     reset_sequences = True
 
     def assert_disposable(self):
         self.assertEqual(connection.settings_dict["HOST"], "127.0.0.1")
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT current_database(), current_setting('data_directory')")
-            database, directory = cursor.fetchone()
+        from test_historical_temperature_maintenance import admin_connection
+
+        with admin_connection() as admin:
+            database, directory = admin.execute(
+                "SELECT current_database(), current_setting('data_directory')"
+            ).fetchone()
         self.assertEqual(database, "test_subculture_qa")
+        self.assertEqual(connection.settings_dict["NAME"], database)
         self.assertEqual(Path(directory).resolve(), Path(DISPOSABLE).resolve())
-        self.assertTrue(Path(directory).parent.name.startswith("polypbase-ht-production-synthetic-"))
+        self.assertTrue(Path(directory).parent.name.startswith("polypbase-ht-maintenance-synthetic-"))
 
     def setUp(self):
         self.assert_disposable()
         self.make_fixture()
+        self.admin_config = deepcopy(connection.settings_dict)
+        self.prepare_maintenance_owners()
+        self.addCleanup(self.restore_admin_connection)
+        self.set_login("box1902_migrator", role="box1902_owner")
+
+    def prepare_maintenance_owners(self):
+        from psycopg import sql as pgsql
+        from test_historical_temperature_maintenance import admin_connection
+
+        self.original_owners = []
+        with admin_connection() as admin:
+            for table in self.module.TABLES:
+                owner = admin.execute("SELECT pg_get_userbyid(relowner) FROM pg_class "
+                                      "WHERE oid=%s::regclass", ["public." + table]).fetchone()[0]
+                self.original_owners.append(("TABLE", "public." + table, owner))
+                admin.execute(pgsql.SQL("ALTER TABLE public.{} OWNER TO box1902_owner").format(
+                    pgsql.Identifier(table)))
+            owner = admin.execute("SELECT pg_get_userbyid(proowner) FROM pg_proc "
+                                  "WHERE oid=%s::regprocedure", [self.module.FUNCTION]).fetchone()[0]
+            self.original_owners.append(("FUNCTION", self.module.FUNCTION, owner))
+            admin.execute("ALTER FUNCTION " + self.module.FUNCTION + " OWNER TO box1902_owner")
+            owner = admin.execute("SELECT pg_get_userbyid(nspowner) FROM pg_namespace "
+                                  "WHERE nspname='public'").fetchone()[0]
+            self.original_owners.append(("SCHEMA", "public", owner))
+            admin.execute("ALTER SCHEMA public OWNER TO box1902_owner")
+
+    def restore_admin_connection(self):
+        connection.close()
+        connection.settings_dict.update(self.admin_config)
+
+    def restore_maintenance_owners(self):
+        from psycopg import sql as pgsql
+        from test_historical_temperature_maintenance import admin_connection
+
+        with admin_connection() as admin:
+            for kind, name, owner in reversed(self.original_owners):
+                # These names come only from the fixed service contract/catalog.
+                admin.execute(pgsql.SQL("ALTER " + kind + " " + name + " OWNER TO {}").format(
+                    pgsql.Identifier(owner)))
+
+    def set_login(self, user, *, role=None):
+        passwords = {"subculture_qa": "ADMIN", "polypbase": "RUNTIME", "box1902_migrator": "MIGRATOR"}
+        connection.close()
+        options = "-c lock_timeout=10000 -c statement_timeout=120000"
+        if role is not None:
+            options += " -c role=" + role
+        connection.settings_dict.update(
+            USER=user, PASSWORD=os.environ[f"POLYPBASE_HT_{passwords[user]}_PASSWORD"],
+            OPTIONS={"options": options},
+        )
+
+    @contextmanager
+    def login(self, user, *, role=None):
+        original = deepcopy(connection.settings_dict)
+        self.set_login(user, role=role)
+        try:
+            yield
+        finally:
+            connection.close()
+            connection.settings_dict.update(original)
 
     def _fixture_teardown(self):
         # Adapt ProductionFixture's append-only cleanup, with an additional live
         # cluster identity check immediately before any trigger is disabled.
+        self.restore_admin_connection()
         self.assert_disposable()
+        self.restore_maintenance_owners()
         for table in TABLES:
             sql(f"ALTER TABLE {table} DISABLE TRIGGER USER")
         try:
@@ -213,6 +280,185 @@ class PostgreSQLReconfirmationTests(ReconfirmationFixture, TransactionTestCase):
             self.approved(**overrides)
         self.assertEqual(state(), before)
         self.assertEqual(self.trigger_definition(), definition)
+
+    def test_genuine_scram_migrator_has_effective_nonsuperuser_owner_role(self):
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT session_user, current_user, current_setting('role'), "
+                "current_setting('session_replication_role'), "
+                "(SELECT rolsuper FROM pg_roles WHERE rolname=session_user), "
+                "(SELECT rolsuper FROM pg_roles WHERE rolname=current_user), "
+                "current_setting('server_version_num')::int"
+            )
+            row = cursor.fetchone()
+        self.assertEqual(row[:6], ("box1902_migrator", "box1902_owner", "box1902_owner", "origin", False, False))
+        self.assertTrue(180000 <= row[6] < 190000)
+        self.assertEqual(self.approved()["applied_count"], 1)
+
+    def assert_preflight_refused(self, report):
+        statements = []
+
+        def execute(execute, statement, parameters, many, context):
+            statements.append(statement.upper())
+            return execute(statement, parameters, many, context)
+
+        with connection.execute_wrapper(execute), self.assertRaises(REFUSALS):
+            self.approved(report)
+        self.assertFalse(any("CREATE OR REPLACE FUNCTION" in text for text in statements))
+        self.assertFalse(any(text.lstrip().startswith("UPDATE ") for text in statements))
+
+    def test_app_can_dry_run_but_cannot_apply(self):
+        report, before = self.module.run(), state()
+        with self.login("polypbase"):
+            self.assertEqual(self.module.run(), report)
+            self.assert_preflight_refused(report)
+        self.assertEqual(state(), before)
+        self.assert_raw_reconfirmation_rejected(self.reading.pk)
+
+    def test_wrong_session_or_current_role_is_refused_before_ddl(self):
+        report, before = self.module.run(), state()
+        for user, role in (("subculture_qa", None), ("subculture_qa", "box1902_owner"),
+                           ("box1902_migrator", None), ("box1902_migrator", "none")):
+            with self.subTest(user=user, role=role), self.login(user, role=role):
+                self.assert_preflight_refused(report)
+        self.assertEqual(state(), before)
+
+    def test_absent_and_ineffective_role_setting_are_refused_without_service_set_role(self):
+        report, before = self.module.run(), state()
+        with self.login("box1902_migrator"):
+            self.assert_preflight_refused(report)
+            # A local role setting vanishes at transaction end; membership alone
+            # must not make the service activate its privileged owner role.
+            with transaction.atomic():
+                sql("SET LOCAL ROLE box1902_owner")
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT current_user, current_setting('role')")
+                self.assertEqual(cursor.fetchone(), ("box1902_migrator", "none"))
+            self.assert_preflight_refused(report)
+        self.assertEqual(state(), before)
+
+    def test_failed_set_role_does_not_authorize_app(self):
+        report, before = self.module.run(), state()
+        with self.login("polypbase"):
+            with self.assertRaises(DatabaseError):
+                sql("SET ROLE box1902_owner")
+            self.assert_preflight_refused(report)
+        self.assertEqual(state(), before)
+
+    def test_missing_table_privileges_are_refused_before_ddl(self):
+        from test_historical_temperature_maintenance import admin_connection
+
+        report, before = self.module.run(), state()
+        cases = [(table, privilege) for table in self.module.TABLES for privilege in ("SELECT", "UPDATE")]
+        cases.append(("audit_auditlog", "INSERT"))
+        for table, privilege in cases:
+            with self.subTest(table=table, privilege=privilege):
+                with admin_connection() as admin:
+                    admin.execute(f"REVOKE {privilege} ON public.{table} FROM box1902_owner")
+                try:
+                    self.assert_preflight_refused(report)
+                finally:
+                    with admin_connection() as admin:
+                        admin.execute(f"GRANT {privilege} ON public.{table} TO box1902_owner")
+                self.assertEqual(state(), before)
+        self.assert_raw_reconfirmation_rejected(self.reading.pk)
+
+    def test_missing_audit_sequence_usage_is_refused_before_ddl(self):
+        from psycopg import sql as pgsql
+        from test_historical_temperature_maintenance import admin_connection
+
+        report, before = self.module.run(), state()
+        with admin_connection() as admin:
+            sequence = admin.execute("SELECT pg_get_serial_sequence('public.audit_auditlog', 'id')").fetchone()[0]
+            self.assertIsNotNone(sequence)
+            identifier = pgsql.Identifier(*sequence.split("."))
+            admin.execute(pgsql.SQL("REVOKE USAGE ON SEQUENCE {} FROM box1902_owner").format(identifier))
+        try:
+            self.assert_preflight_refused(report)
+        finally:
+            with admin_connection() as admin:
+                admin.execute(pgsql.SQL("GRANT USAGE ON SEQUENCE {} TO box1902_owner").format(identifier))
+        self.assertEqual(state(), before)
+
+    def test_exact_table_function_and_schema_ownership_is_required(self):
+        from test_historical_temperature_maintenance import admin_connection
+
+        report, before = self.module.run(), state()
+        objects = [("TABLE", "public." + table) for table in self.module.TABLES]
+        objects += [("FUNCTION", self.module.FUNCTION), ("SCHEMA", "public")]
+        for kind, name in objects:
+            with self.subTest(kind=kind, name=name):
+                with admin_connection() as admin:
+                    admin.execute(f"ALTER {kind} {name} OWNER TO subculture_qa")
+                    # Keep effective privileges: this tests exact ownership, not
+                    # an incidental permission error caused by its transfer.
+                    grant = "ALL PRIVILEGES" if kind != "FUNCTION" else "EXECUTE"
+                    admin.execute(f"GRANT {grant} ON {kind} {name} TO box1902_owner")
+                try:
+                    self.assert_preflight_refused(report)
+                finally:
+                    with admin_connection() as admin:
+                        admin.execute(f"ALTER {kind} {name} OWNER TO box1902_owner")
+                self.assertEqual(state(), before)
+
+    def test_role_change_before_ddl_after_restoration_or_after_audit_rolls_back(self):
+        report, before, definition = self.module.run(), state(), self.trigger_definition()
+        for phase in ("before ddl", "after restoration", "after audit"):
+            reached = []
+            original_create = AuditLog.objects.create
+            def execute(execute, statement, parameters, many, context):
+                result = execute(statement, parameters, many, context)
+                if (phase == "before ddl" and not reached
+                        and 'FROM "auth_user"' in statement):
+                    reached.append(phase)
+                    sql("SET LOCAL ROLE NONE")
+                if (phase == "after restoration" and not reached
+                        and statement.strip().rstrip(";") == definition.strip().rstrip(";")):
+                    reached.append(phase)
+                    sql("SET LOCAL ROLE NONE")
+                return result
+
+            def create(**kwargs):
+                event = original_create(**kwargs)
+                if phase == "after audit":
+                    reached.append(phase)
+                    sql("SET LOCAL ROLE NONE")
+                return event
+
+            with self.subTest(phase=phase):
+                with connection.execute_wrapper(execute), patch.object(
+                    AuditLog.objects, "create", side_effect=create
+                ):
+                    with self.assertRaises(REFUSALS):
+                        self.approved(report)
+                self.assertEqual(reached, [phase])
+                self.assertEqual(state(), before)
+                self.assertEqual(self.trigger_definition(), definition)
+                self.assert_raw_reconfirmation_rejected(self.reading.pk)
+
+    def test_apply_keeps_same_raw_connection_backend_and_transaction_for_ddl_and_audit(self):
+        report = self.module.run()
+        observed = []
+        sampling = False
+
+        def execute(execute, statement, parameters, many, context):
+            nonlocal sampling
+            if not sampling and ("CREATE OR REPLACE FUNCTION" in statement.upper()
+                                 or statement.upper().lstrip().startswith('INSERT INTO "AUDIT_AUDITLOG"')):
+                sampling = True
+                try:
+                    with connection.cursor() as cursor:
+                        cursor.execute("SELECT pg_backend_pid(), pg_current_xact_id()::text, session_user, current_user")
+                        observed.append((connection.connection, *cursor.fetchone()))
+                finally:
+                    sampling = False
+            return execute(statement, parameters, many, context)
+
+        with connection.execute_wrapper(execute):
+            self.approved(report)
+        self.assertGreaterEqual(len(observed), 3)
+        self.assertTrue(all(row == observed[0] for row in observed))
+        self.assertEqual(observed[0][-2:], ("box1902_migrator", "box1902_owner"))
 
     def test_dry_run_is_json_deterministic_read_only_and_scoped(self):
         before, definition = state(), self.trigger_definition()
@@ -588,6 +834,10 @@ class PostgreSQLReconfirmationTests(ReconfirmationFixture, TransactionTestCase):
         with connection.cursor() as cursor:
             cursor.execute("SHOW session_replication_role")
             self.assertEqual(cursor.fetchone()[0], "origin")
+        from test_historical_temperature_maintenance import admin_connection
+
+        with admin_connection() as admin:
+            admin.execute("GRANT SET ON PARAMETER session_replication_role TO box1902_owner")
         try:
             sql("SET session_replication_role = replica")
             with self.assertRaises(ValueError):
@@ -596,6 +846,8 @@ class PostgreSQLReconfirmationTests(ReconfirmationFixture, TransactionTestCase):
             self.assertEqual(state(), before)
         finally:
             sql("SET session_replication_role = origin")
+            with admin_connection() as admin:
+                admin.execute("REVOKE SET ON PARAMETER session_replication_role FROM box1902_owner")
         self.assertEqual(self.module.run(), report)
         self.assert_raw_reconfirmation_rejected(self.reading.pk)
 
@@ -778,7 +1030,12 @@ class PostgreSQLReconfirmationTests(ReconfirmationFixture, TransactionTestCase):
             report = self.module.run()
             self.approved(report)
         self.assertTrue(observed)
-        self.assertFalse(any("DISABLE TRIGGER" in text or ("SESSION_REPLICATION_ROLE" in text and not text.startswith("SHOW ")) for text in statements))
+        self.assertFalse(any(
+            "DISABLE TRIGGER" in text
+            or (text.lstrip().startswith("SET ") and "SESSION_REPLICATION_ROLE" in text)
+            or ("SET_CONFIG" in text and "SESSION_REPLICATION_ROLE" in text)
+            for text in statements
+        ))
 
     def run_in_thread(self, function):
         outcome = {}
