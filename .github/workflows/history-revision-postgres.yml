@@ -1,0 +1,157 @@
+name: History revisions PostgreSQL QA — TARGETED Phase5A
+
+on:
+  push:
+    branches: [test/history-revision-postgres-qa]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: history-revision-postgres-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  history-revision-postgres:
+    name: TARGETED Phase5A synthetic migrations and integrity on PostgreSQL 18
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      DJANGO_SETTINGS_MODULE: config.history_revision_ci_settings
+      DJANGO_DEBUG: "0"
+      DJANGO_SECRET_KEY: ci-only-history-revision-key-never-used-outside-actions
+      EMAIL_BACKEND: django.core.mail.backends.locmem.EmailBackend
+      EMAIL_DELIVERY_ENABLED: "0"
+      POSTGRES_DB: ""
+      POLYPBASE_TEST_POSTGRES: "0"
+      HR_CI_POSTGRES: "1"
+      PYTHON_DOTENV_DISABLED: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+
+    services:
+      postgres:
+        # Matches the established PostgreSQL 18 QA major; runs only on Actions.
+        image: postgres:18
+        env:
+          POSTGRES_DB: history_revision_ci
+          POSTGRES_USER: history_revision_ci
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 55440:5432
+        options: >-
+          --tmpfs /var/lib/postgresql:rw,nosuid
+          --health-cmd "pg_isready -h 127.0.0.1 -U history_revision_ci -d history_revision_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Initialize synthetic evidence directory
+        run: |
+          set -euo pipefail
+          evidence_dir="$RUNNER_TEMP/history-revision-evidence"
+          mkdir -p "$evidence_dir"
+          printf 'HR_CI_EVIDENCE_DIR=%s\n' "$evidence_dir" >> "$GITHUB_ENV"
+
+      - name: Checkout reviewed push without persistent credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Record exact tested SHA and refuse dotenv
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HR_CI_EVIDENCE_DIR"
+          git rev-parse HEAD | tee "$HR_CI_EVIDENCE_DIR/commit.txt"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          if test -e backend/.env; then
+            echo 'Refusing backend/.env in the fresh service checkout.' >&2
+            exit 1
+          fi
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          python-version: "3.12"
+
+      - name: Install locked backend dependencies
+        run: uv sync --frozen
+
+      - name: Validate TARGETED Phase5A guards, scope and workflow offline
+        run: |
+          set -euo pipefail
+          uv run --frozen --with pyyaml==6.0.3 python -B -m unittest \
+            discover -s scripts -p test_history_revision_ci.py -v
+          uv run --frozen python -B -m unittest \
+            discover -s scripts -p test_validate_history_revision_ci.py -v
+          uv run --frozen python -B -m unittest \
+            discover -s scripts -p test_history_revision_ci_migrations.py -v
+          uv run --frozen python -B -m unittest \
+            discover -s scripts -p test_history_revision_ci_isolation.py -v
+          uv run --frozen python -B -m unittest \
+            discover -s scripts -p test_history_revision_ci_responses.py -v
+
+      - name: Preflight fresh service before any database mutation
+        run: |
+          set -euo pipefail
+          uv run --frozen python -B scripts/validate_history_revision_ci.py preflight \
+            2>&1 | tee "$HR_CI_EVIDENCE_DIR/preflight.log"
+
+      - name: Rehearse TARGETED Phase5A migrations and synthetic PostgreSQL integrity tests
+        run: |
+          set -euo pipefail
+          uv run --frozen python -B scripts/validate_history_revision_ci.py run \
+            2>&1 | tee "$HR_CI_EVIDENCE_DIR/rehearsal-and-tests.log"
+
+      - name: Report TARGETED Phase5A validation status and limits
+        if: always()
+        env:
+          VALIDATION_STATUS: ${{ job.status }}
+          TESTED_SHA: ${{ github.sha }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          evidence = Path(os.environ['HR_CI_EVIDENCE_DIR'])
+          lines = [
+              '## History revisions PostgreSQL QA — TARGETED Phase5A',
+              'Scope: 12 explicit targets, frozen union of 83 migrations (22 cultures), 84 inventory nodes; not full-graph validation.',
+              'Excluded: measurements.0018_box_1902_preservation. The 33-node cultures.0020 closure alone cannot support all-model snapshot fixtures.',
+              'Run #5 at c6c63a1 validated the prior 80-node graph, not the integrated 83-node contract with sharing, DNA and the required empty 0021 merge.',
+              'Cultures target: 0021_merge_dna_and_history. Reverse only the verified empty merge then 0020; reapply only 0020 then merge. Both 0019 storage branches must remain applied.',
+              'Per-test isolation: reset from a migrated empty template; no TRUNCATE, trigger bypass, session_replication_role or unknown-database drop. Template/test OIDs are checked.',
+              'Run #3 corrections: DataError accepted only for the 65-character key; codec request uses HTTPS. The former 301 came from SecurityMiddleware, not product code.',
+              'Tested commit: `' + os.environ['TESTED_SHA'] + '`',
+              'Job status before reporting: **' + os.environ['VALIDATION_STATUS'] + '**',
+          ]
+          for name in ('preflight', 'migration-results', 'isolation', 'tests'):
+              path = evidence / (name + '.json')
+              lines.append('### ' + name)
+              lines.append('```json\n' + path.read_text() + '\n```' if path.is_file()
+                           else '**NOT COMPLETED** — inspect the failed/cancelled step.')
+          lines.extend([
+              'Execution and schema evidence: migration-plan/application/reapplication.json, test-database-migrations.json, isolation.json. Catalog definitions: schema-initial/reversed/restored.json. Concurrency outcomes: named tests and concurrency-*.json.',
+              'No publisher, production data, Neon, deployment or local PostgreSQL. All fixtures are synthetic.',
+              'Limits: TARGETED Phase5A only, not DNA constraint/concurrency validation, a full-graph migration rehearsal or validation of measurements.0018. Disposable owner role, PostgreSQL 18/current image, bounded races only; no Box 1902 provisioning, production privilege, load or deployment-readiness guarantee. TRUNCATE is not guarded by Phase 5A.',
+              '**A summary or artifact is not proof of success. All validation steps and every test must pass; missing evidence is not a pass.**',
+          ])
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as output:
+              output.write('\n\n'.join(lines) + '\n')
+          PY
+
+      - name: Upload only synthetic evidence even after failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: history-revision-postgres-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/history-revision-evidence/
+          if-no-files-found: warn
+          retention-days: 7

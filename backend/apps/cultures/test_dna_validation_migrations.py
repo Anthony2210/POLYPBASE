@@ -3,7 +3,7 @@
 from django.db import connection
 from django.test import TransactionTestCase
 
-from config.migration_test_utils import MigrationExecutor
+from config.migration_test_utils import MigrationExecutor, historical_targets
 
 
 class DnaValidationMigrationTests(TransactionTestCase):
@@ -11,11 +11,14 @@ class DnaValidationMigrationTests(TransactionTestCase):
         executor = MigrationExecutor(connection)
         latest = executor.loader.graph.leaf_nodes()
         self.addCleanup(lambda: MigrationExecutor(connection).migrate(latest))
-        before = [node for node in latest if node[0] != "cultures"] + [
+        before = historical_targets(executor.loader, {"cultures"}, [
             ("cultures", "0018_historicalboxmovement"),
-        ]
+        ])
         executor.migrate(before)
         apps = executor.loader.project_state(before).apps
+        for model_name in ("BoxDnaValidation", "BoxHistoryStream", "BoxHistoryRevision", "BoxHistoryEventIdentity"):
+            with self.subTest(model=model_name), self.assertRaises(LookupError):
+                apps.get_model("cultures", model_name)
         organization = apps.get_model("organizations", "Organization").objects.create(name="DNA migration QA")
         species = apps.get_model("taxonomy", "Species").objects.create(scientific_name="Aurelia migration DNA")
         strain = apps.get_model("taxonomy", "Strain").objects.create(species=species, code="DNA-MIGRATION")
@@ -34,3 +37,10 @@ class DnaValidationMigrationTests(TransactionTestCase):
         for label, rows in snapshots.items():
             self.assertEqual(list(apps.get_model(*label).objects.values()), rows)
         self.assertFalse(apps.get_model("cultures", "BoxDnaValidation").objects.exists())
+        for model_name in ("BoxHistoryStream", "BoxHistoryRevision", "BoxHistoryEventIdentity"):
+            with self.subTest(model=model_name):
+                self.assertFalse(apps.get_model("cultures", model_name).objects.exists())
+        self.assertEqual(
+            executor.loader.graph.leaf_nodes("cultures"),
+            [("cultures", "0021_merge_dna_and_history")],
+        )

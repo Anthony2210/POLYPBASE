@@ -8,7 +8,8 @@ non-use, so eligibility is established from every stored trace:
   movements, measurements, probes, tags, anomalies, alerts), read from the
   model registry so a future relation is checked without code changes;
 * JSON documents that can name a location (audit metadata, box-creation
-  intents, exports, imports, transfers, subculture and lineage snapshots);
+  intents, exports, imports, transfers, subculture and lineage snapshots,
+  box history event identities and revisions);
 * audit entries, except the location's own configuration history (its
   creation and edits), which is not a use and stays after the deletion.
 
@@ -35,6 +36,8 @@ from apps.organizations.models import Organization
 from .models import (
     AutomaticBoxCreationRequest,
     Box,
+    BoxHistoryEventIdentity,
+    BoxHistoryRevision,
     BoxInventoryInitialization,
     BoxTransferImport,
     HistoricalBoxMovement,
@@ -119,6 +122,11 @@ def _json_sources(zone):
         (BoxInventoryInitialization.objects.filter(organization_id=organization_id), ("previous_status_counts",)),
         (SubcultureEvent.objects.filter(parent_box__organization_id=organization_id), ("parent_state_snapshot",)),
         (TransferItem.objects.filter(source_box__organization_id=organization_id), ("lineage_snapshot",)),
+        # History documents name a location through the stream's institution.
+        (BoxHistoryEventIdentity.objects.filter(stream__organization_id=organization_id),
+         ("locator", "source_snapshot")),
+        (BoxHistoryRevision.objects.filter(stream__organization_id=organization_id),
+         ("operations", "justifications", "review_values", "metadata")),
     ]
 
 

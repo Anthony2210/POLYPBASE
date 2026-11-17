@@ -36,6 +36,9 @@ from .models import (
     MOVEMENT_WEEK_TIME_ZONE,
     AutomaticBoxCreationRequest,
     Box,
+    BoxHistoryEventIdentity,
+    BoxHistoryRevision,
+    BoxHistoryStream,
     BoxLocation,
     BoxMovement,
     HistoricalBoxMovement,
@@ -68,6 +71,9 @@ class LocationDeletionTests(TestCase):
         species = Species.objects.create(scientific_name="Aurelia deletion", genus_species_code="ADL")
         self.strain = Strain.objects.create(
             species=species, code="ADL-LAB-1", organization=self.organization, number=1, origin_code="LAB",
+        )
+        self.other_strain = Strain.objects.create(
+            species=species, code="ADL-OTH-1", organization=self.other_organization, number=1, origin_code="OTH",
         )
         self.other_zone = ThermalZone.objects.create(organization=self.organization, name="Armoire 10")
         self.foreign_zone = ThermalZone.objects.create(organization=self.other_organization, name="Foreign 15")
@@ -105,6 +111,33 @@ class LocationDeletionTests(TestCase):
                 box=box, thermal_zone=zone, starts_at=datetime(2025, 1, 6, 9, 0, tzinfo=MOVEMENT_WEEK_TIME_ZONE),
             )
         return box
+
+    def history_stream(self, *, organization=None, number="900"):
+        """A live-box history stream, so its documents can name a location."""
+        organization = organization or self.organization
+        strain = self.strain if organization == self.organization else self.other_strain
+        box = Box.objects.create(
+            organization=organization, global_code=f"{strain.code}.{number}",
+            box_number=number, strain=strain,
+        )
+        return BoxHistoryStream.objects.create(organization=organization, box=box)
+
+    def history_revision(self, stream, **kwargs):
+        return BoxHistoryRevision.objects.create(
+            stream=stream, sequence=1, author=self.admin, reason="Reviewed correction",
+            source_fingerprint="a" * 64, request_fingerprint="b" * 64, **kwargs,
+        )
+
+    def event_snapshot(self, **changes):
+        """A valid stored event snapshot, as history storage accepts it."""
+        return {
+            "event_key": "box_movement:1", "kind": "movement",
+            "temporal": {"precision": "exact", "instant": "2026-11-01T10:00:00+01:00"},
+            "origin_zone_id": 1, "destination_zone_id": 2,
+            "sources": [{"source": "historical_temperature_reading", "source_id": 1,
+                         "role": "observation", "basis": "recorded", "exclusive": False}],
+            **changes,
+        }
 
     def assert_refused(self, zone, reasons):
         audit_ids = set(AuditLog.objects.values_list("id", flat=True))
@@ -291,6 +324,78 @@ class LocationDeletionTests(TestCase):
                       "zone_type": "cabinet", "count": zone.pk},
         )
         self.assertEqual(self.delete(zone).status_code, 204)
+
+    # -- history revision references ---------------------------------------------------
+
+    def test_history_identity_document_reference_blocks_deletion(self):
+        cases = {
+            "source snapshot": lambda zone, stream: BoxHistoryEventIdentity.objects.create(
+                stream=stream, kind="inserted",
+                source_snapshot=self.event_snapshot(destination_zone_id=zone.pk),
+            ),
+            "derived locator": lambda zone, stream: BoxHistoryEventIdentity.objects.create(
+                stream=stream, kind="derived", source_fingerprint="a" * 64,
+                locator={"policy": "historical_transition", "destination_zone_id": zone.pk},
+            ),
+        }
+        for index, (label, create) in enumerate(cases.items()):
+            with self.subTest(label):
+                zone = self.create_zone_through_api({"name": f"History identity {label}"})
+                identity = create(zone, self.history_stream(number=f"9{index:02d}"))
+                self.assert_refused(zone, ["history"])
+                stored = BoxHistoryEventIdentity.objects.get(pk=identity.pk)
+                self.assertEqual(stored.locator, identity.locator)
+                self.assertEqual(stored.source_snapshot, identity.source_snapshot)
+
+    def test_history_revision_document_reference_blocks_deletion(self):
+        cases = {
+            "operations": lambda zone: {"operations": [{
+                "type": "adjust_event_zones", "target": {"key": "box_movement:1"},
+                "origin_zone_id": zone.pk,
+            }]},
+            "review events": lambda zone: {
+                "review_values": {"events": [self.event_snapshot(destination_zone_id=zone.pk)]},
+            },
+        }
+        for index, (label, payload) in enumerate(cases.items()):
+            with self.subTest(label):
+                zone = self.create_zone_through_api({"name": f"History revision {label}"})
+                revision = self.history_revision(self.history_stream(number=f"9{index:02d}"), **payload(zone))
+                self.assert_refused(zone, ["history"])
+                stored = BoxHistoryRevision.objects.get(pk=revision.pk)
+                self.assertEqual(stored.operations, revision.operations)
+                self.assertEqual(stored.review_values, revision.review_values)
+
+    def test_history_references_to_other_locations_do_not_block(self):
+        zone = self.create_zone_through_api()
+        stream = self.history_stream()
+        self.history_revision(
+            stream,
+            operations=[{"type": "adjust_event_zones", "target": {"key": "box_movement:1"},
+                         "destination_zone_id": self.other_zone.pk}],
+            justifications=[{"operation_index": 0, "reason": "Unrelated review"}],
+            review_values={"events": [self.event_snapshot(origin_zone_id=self.other_zone.pk)]},
+            metadata={"producer": "reviewer", "composition_version": "1"},
+        )
+        BoxHistoryEventIdentity.objects.create(
+            stream=stream, kind="derived", source_fingerprint="a" * 64,
+            locator={"policy": "historical_transition", "destination_zone_id": self.other_zone.pk},
+        )
+        self.assertEqual(self.delete(zone).status_code, 204)
+        self.assertFalse(ThermalZone.objects.filter(pk=zone.pk).exists())
+        self.assertTrue(ThermalZone.objects.filter(pk=self.other_zone.pk).exists())
+
+    def test_history_reference_in_another_institution_does_not_block(self):
+        zone = self.create_zone_through_api()
+        foreign_stream = self.history_stream(organization=self.other_organization)
+        foreign_revision = self.history_revision(
+            foreign_stream,
+            operations=[{"type": "adjust_event_zones", "target": {"key": "box_movement:1"},
+                         "destination_zone_id": zone.pk}],
+        )
+        self.assertEqual(self.delete(zone).status_code, 204)
+        self.assertFalse(ThermalZone.objects.filter(pk=zone.pk).exists())
+        self.assertTrue(BoxHistoryRevision.objects.filter(pk=foreign_revision.pk).exists())
 
     # -- access ------------------------------------------------------------------------
 

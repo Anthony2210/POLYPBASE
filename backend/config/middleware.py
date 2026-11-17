@@ -1,3 +1,6 @@
+import re
+
+
 class BrowserSecurityHeadersMiddleware:
     """Add browser protections to Django responses, including API errors."""
 
@@ -25,4 +28,7 @@ class BrowserSecurityHeadersMiddleware:
         if request.path.startswith("/api/measurement-import/"):
             # Include errors produced outside the diagnostic API view.
             response["Cache-Control"] = "no-store"
+        if re.fullmatch(r"/api/boxes/[0-9]+/history/preview/", request.path):
+            # Cover native CSRF refusals that never reach APIView finalization.
+            response["Cache-Control"] = "private, no-store"
         return response

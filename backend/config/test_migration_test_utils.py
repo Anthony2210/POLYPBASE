@@ -48,6 +48,25 @@ class HistoricalTargetsTests(SimpleTestCase):
         self.assertTrue(set(historical) <= set(targets))
         self.assertIn(("sharing", "0001_initial"), targets)
 
+    def test_0018_excludes_both_integrated_branches(self):
+        before = ("cultures", "0018_historicalboxmovement")
+        targets = historical_targets(self.loader, {"cultures"}, [before])
+        closure = {node for target in targets for node in self.loader.graph.forwards_plan(target)}
+        self.assertEqual(
+            {node for node in closure if node[0] == "cultures"},
+            {node for node in self.loader.graph.forwards_plan(before) if node[0] == "cultures"},
+        )
+        for name in (
+            "0019_box_dna_validation", "0019_history_revision_storage",
+            "0020_history_revision_guards", "0021_merge_dna_and_history",
+        ):
+            self.assertNotIn(("cultures", name), closure)
+        self.assertEqual(
+            self.loader.graph.leaf_nodes("cultures"),
+            [("cultures", "0021_merge_dna_and_history")],
+        )
+        self.assertFalse(self.loader.detect_conflicts())
+
     def test_older_dependency_does_not_conflict_with_a_newer_explicit_target(self):
         historical = [
             ("cultures", "0009_portable_lineage"),

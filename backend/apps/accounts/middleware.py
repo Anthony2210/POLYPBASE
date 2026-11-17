@@ -1,3 +1,5 @@
+import re
+
 from django.conf import settings
 from django.utils import translation
 
@@ -43,10 +45,11 @@ class UserInterfaceLanguageMiddleware:
         return final_language if final_language in dict(settings.LANGUAGES) else language
 
     def _get_language(self, request):
-        if request.user.is_authenticated and request.path in {
-            "/api/measurement-import/inspect/", "/api/measurement-import/preview/",
-        }:
-            # Diagnostic uploads must not create preferences or persist sessions.
+        if request.user.is_authenticated and (
+            request.path in {"/api/measurement-import/inspect/", "/api/measurement-import/preview/"}
+            or re.fullmatch(r"/api/boxes/[0-9]+/history/preview/", request.path)
+        ):
+            # Read-only diagnostics must not create preferences or persist sessions.
             return (
                 UserPreference.objects.filter(user=request.user)
                 .values_list("interface_language", flat=True).first()

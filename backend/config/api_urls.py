@@ -17,6 +17,7 @@ from apps.accounts.api_views import (
 )
 from apps.cultures.history_api import BoxHistoryAPIView
 from apps.cultures.dna_validation_api import BoxDnaValidationAPIView, BoxDnaValidationRevokeAPIView
+from apps.cultures.history_preview_api import BoxHistoryPreviewAPIView
 from apps.measurements.probe_views import (
     ThermalZoneProbeReadingsAPIView,
     ThermalZoneThermalControlAPIView,
@@ -178,6 +179,7 @@ urlpatterns = [
     path("boxes/automatic/intents/cancel/", AutomaticBoxIntentCancelAPIView.as_view(), name="api_box_automatic_intent_cancel"),
     path("boxes/<int:pk>/", BoxDetailAPIView.as_view(), name="api_box_detail"),
     path("boxes/<int:box_id>/history/", BoxHistoryAPIView.as_view(), name="api_box_history"),
+    path("boxes/<int:box_id>/history/preview/", BoxHistoryPreviewAPIView.as_view(), name="api_box_history_preview"),
     path(
         "boxes/<int:box_id>/temperatures/",
         BoxTemperatureHistoryAPIView.as_view(),
