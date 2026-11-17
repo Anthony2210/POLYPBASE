@@ -93,6 +93,8 @@ Ne pas déduire une parenté d'une ressemblance de codes.
 
 **V2, fondation source intégrée :** la Phase 5 projette la lignée connue dans des nœuds/arêtes portables et fige un snapshot source en protocole 2.1 opt-in (défaut 2.0). Elle ne matérialise ni n'accepte une Box destination; aucune arête de continuation de transfert n'est créée par un workflow d'acceptation. Phase 6 reste future. Parentage/repiquage et arêtes de transfert sont des sémantiques distinctes. Une Strain identique n'implique pas une lignée; aucune parenté ne doit être inférée d'une ressemblance de codes. Les métadonnées de lignée inter-institutions ne doivent jamais donner accès aux fiches opérationnelles étrangères de Box.
 
+**Phase 6, jalon 1 (non revu) :** `GlobalBoxIdentity` relie les représentations locales successives d'une même Box biologique via `BoxOwnershipEpisode` (une Box locale par épisode, au plus un propriétaire courant en base). Aucune transition n'est active; `Box.organization` n'est jamais réaffecté et devient non modifiable pour une Box déjà représentée. Voir [`../../backend/TRANSFER_V2_BOX_IDENTITY.md`](../../backend/TRANSFER_V2_BOX_IDENTITY.md).
+
 ## Règles de modification
 
 - Valider organisation, permission, statut et zone côté serveur.

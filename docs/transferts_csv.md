@@ -255,3 +255,13 @@ jamais rendu possible par suppression de la connaissance portable.
 
 Cette phase n'ajoute ni receipt/import de package, ni acceptation, ni mutation
 de stock/cycle de vie, ni allocation X ou création destination.
+
+## Transfer v2 — Phase 6, jalon 1 : identité globale de Box (non revu)
+
+Fondation de persistance seulement : `GlobalBoxIdentity` et `BoxOwnershipEpisode`
+(migration `0019`, additive, sans backfill). Une même Box biologique a une
+représentation locale par institution successive, au plus un propriétaire
+courant imposé en base. Aucun endpoint, acceptation, transition de propriété,
+matérialisation destination ni changement des protocoles `2.0`/`2.1`.
+Contrat et décisions ouvertes :
+[`../backend/TRANSFER_V2_BOX_IDENTITY.md`](../backend/TRANSFER_V2_BOX_IDENTITY.md).

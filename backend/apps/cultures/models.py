@@ -115,7 +115,7 @@ class Box(models.Model):
             current = None
             if not self._state.adding or self.pk is not None:
                 rows = type(self).objects.select_for_update().only(
-                    "merged_into", "previous_global_code", "global_code", "strain_id",
+                    "merged_into", "previous_global_code", "global_code", "strain_id", "organization_id",
                 )
                 current = rows.filter(pk=self.pk).first() if self._state.adding else rows.get(pk=self.pk)
             adding = current is None
@@ -129,6 +129,22 @@ class Box(models.Model):
                 update_fields = {field.name for field in self._meta.concrete_fields
                                  if not field.primary_key and field.name != "polyp_state_revision"}
                 kwargs["update_fields"] = update_fields
+            if not adding:
+                reassigns = (
+                    {"organization", "organization_id"}.intersection(update_fields)
+                    and self.organization_id != current.organization_id
+                )
+                becomes_alias = (
+                    {"merged_into", "merged_into_id"}.intersection(update_fields)
+                    and self.merged_into_id is not None
+                )
+                if (reassigns or becomes_alias) and BoxOwnershipEpisode.objects.filter(
+                    local_box_id=self.pk,
+                ).exists():
+                    # A representation in a global ownership chain keeps its
+                    # institution and stays a living Box; a new owner receives
+                    # its own local Box. Technical guard (admin/ORM only).
+                    raise ValidationError("A Box in an ownership history cannot change institution or become an alias.")
             identity_fields = {"global_code", "strain", "strain_id"}
             writes_identity = adding or bool(identity_fields.intersection(update_fields))
             if not adding and writes_identity:
@@ -831,6 +847,160 @@ class TransferItem(models.Model):
                 name="transfer_item_quantity_nonnegative",
             ),
         ]
+
+
+class ProtectedBoxIdentityQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("Global Box identities are immutable.")
+
+    def delete(self):
+        raise ValidationError("Global Box identities are protected.")
+
+
+class GlobalBoxIdentity(models.Model):
+    """The same biological Box across successive institutional representations.
+
+    Distinct from Box.pk, Box.global_code, GlobalStrainIdentity and portable
+    lineage nodes. It grants no permission and is never an operational lookup key.
+    """
+
+    global_box_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    objects = ProtectedBoxIdentityQuerySet.as_manager()
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("Global Box identities are immutable.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Global Box identities are protected.")
+
+    def __str__(self):
+        return str(self.global_box_id)
+
+
+class ProtectedOwnershipEpisodeQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("Box ownership episodes change only through validated saves.")
+
+    def delete(self):
+        raise ValidationError("Box ownership history is protected.")
+
+
+class BoxOwnershipEpisode(models.Model):
+    """One institution's local representation of a GlobalBoxIdentity.
+
+    Episodes form a gapless chronological sequence per identity. A return to a
+    previous institution appends a new episode with a new local Box; earlier
+    episodes are never rebound. Sequence 1 is the origin representation and has
+    no arrival provenance; later episodes cite the Transfer v2 item that carried
+    the Box. The current operational owner is the single episode without end.
+    """
+
+    identity = models.ForeignKey(
+        GlobalBoxIdentity, on_delete=models.PROTECT,
+        related_name="ownership_episodes", editable=False,
+    )
+    sequence = models.PositiveIntegerField(editable=False)
+    organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.PROTECT,
+        related_name="box_ownership_episodes", editable=False,
+    )
+    local_box = models.OneToOneField(
+        Box, on_delete=models.PROTECT, related_name="ownership_episode", editable=False,
+    )
+    # NULL means unknown, never reconstructed: an origin episode recorded for
+    # an existing Box does not know when that institution acquired it.
+    started_at = models.DateTimeField(null=True, blank=True, editable=False)
+    ended_at = models.DateTimeField(null=True, blank=True, editable=False)
+    # Portable Transfer v2 provenance (TransferEnvelope.transfer_id,
+    # TransferItem.item_id). UUIDs, not FKs: the source package may live in
+    # another installation.
+    arrival_transfer_id = models.UUIDField(null=True, blank=True, editable=False)
+    arrival_item_id = models.UUIDField(null=True, blank=True, editable=False)
+    recorded_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    objects = ProtectedOwnershipEpisodeQuerySet.as_manager()
+
+    _closable_fields = frozenset({"ended_at"})
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["identity", "sequence"], name="box_ownership_sequence_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["identity"], condition=Q(ended_at__isnull=True),
+                name="box_ownership_single_current",
+            ),
+            models.UniqueConstraint(
+                fields=["arrival_transfer_id", "arrival_item_id"],
+                condition=Q(arrival_transfer_id__isnull=False),
+                name="box_ownership_arrival_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(sequence__gte=1), name="box_ownership_sequence_positive",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(sequence=1, arrival_transfer_id__isnull=True, arrival_item_id__isnull=True)
+                    | Q(sequence__gt=1, arrival_transfer_id__isnull=False,
+                        arrival_item_id__isnull=False, started_at__isnull=False)
+                ),
+                name="box_ownership_arrival_provenance",
+            ),
+            models.CheckConstraint(
+                condition=Q(started_at__isnull=True) | Q(ended_at__isnull=True)
+                | Q(ended_at__gte=F("started_at")),
+                name="box_ownership_chronology",
+            ),
+        ]
+        indexes = [models.Index(fields=["organization", "ended_at"])]
+
+    def save(self, *args, **kwargs):
+        with transaction.atomic(using=kwargs.get("using")):
+            # One identity lock serializes every writer of the same chain.
+            GlobalBoxIdentity.objects.select_for_update().only("pk").get(pk=self.identity_id)
+            if self._state.adding:
+                self._validate_new_episode()
+            else:
+                self._validate_closing(kwargs.get("update_fields"))
+            return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Box ownership history is protected.")
+
+    def _validate_new_episode(self):
+        box = Box.objects.select_for_update().only("organization_id", "merged_into_id").get(pk=self.local_box_id)
+        if box.organization_id != self.organization_id:
+            raise ValidationError("A local representation must belong to the episode institution.")
+        if box.merged_into_id is not None:
+            raise ValidationError("A merged identity alias cannot represent a biological Box.")
+        if self.ended_at is not None:
+            raise ValidationError("A new ownership episode starts as the current owner.")
+        previous = type(self).objects.filter(identity_id=self.identity_id).order_by("-sequence").first()
+        expected = 1 if previous is None else previous.sequence + 1
+        if self.sequence != expected:
+            raise ValidationError("Ownership episodes must extend the chain without gaps.")
+        if previous is None:
+            return
+        if previous.organization_id == self.organization_id:
+            raise ValidationError("An ownership transfer must change institution.")
+        if previous.ended_at is None or previous.ended_at != self.started_at:
+            raise ValidationError("The previous owner must end exactly when the next owner starts.")
+
+    def _validate_closing(self, update_fields):
+        current = type(self).objects.select_for_update().get(pk=self.pk)
+        if update_fields is None or set(update_fields) - self._closable_fields:
+            raise ValidationError("Only the end of an ownership episode can be recorded.")
+        if current.ended_at is not None:
+            raise ValidationError("An ended ownership episode is immutable.")
+        if self.ended_at is None:
+            raise ValidationError("Closing an ownership episode requires its end.")
+        if current.started_at is not None and self.ended_at < current.started_at:
+            raise ValidationError("An ownership episode cannot end before it starts.")
 
 
 class BoxTransferImport(models.Model):
