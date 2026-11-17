@@ -1,7 +1,7 @@
 """Synthetic Phase 5A rehearsal; executable only against the hosted CI service.
 
 Preflight identifies an empty database before adding a disposable-service marker.
-Run applies the reviewed target closure, rehearses 0020 only, then tests a separate Django database.
+Run applies the reviewed closure, rehearses 0020 plus the empty merge, then tests a separate Django database.
 No migration repair, publisher, production endpoint or environment dump is provided.
 """
 
@@ -19,6 +19,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SETTINGS = "config.history_revision_ci_settings"
 M19 = ("cultures", "0019_history_revision_storage")
 M20 = ("cultures", "0020_history_revision_guards")
+DNA = ("cultures", "0019_box_dna_validation")
+MERGE = ("cultures", "0021_merge_dna_and_history")
 TABLES = (
     "cultures_boxhistorystream", "cultures_boxhistoryrevision",
     "cultures_boxhistoryeventidentity",
@@ -418,15 +420,15 @@ def run(connection, guards):
     from django.db.migrations.recorder import MigrationRecorder
 
     from config.history_revision_ci_migrations import (
-        migration_scope, migrate_scoped, scoped_plan,
+        APPROVED, migration_scope, migrate_scoped, scoped_plan,
     )
 
     guards.server_identity(connection)
     require(not MigrationRecorder(connection).has_table(), "Scoped rehearsal must start without migration history.")
     executor = MigrationExecutor(connection)
     plan = scoped_plan(connection)
-    require({M19, M20} <= {(m.app_label, m.name) for m, backwards in plan if not backwards},
-            "0019 and 0020 must really execute, not be faked or pre-applied.")
+    require({DNA, M19, M20, MERGE} <= {(m.app_label, m.name) for m, backwards in plan if not backwards},
+            "DNA, history 0019/0020 and the merge must really execute, not be faked or pre-applied.")
     evidence("migration-plan", {
         **migration_scope(executor.loader),
         "forward": [f"{m.app_label}.{m.name}" for m, backwards in plan],
@@ -436,20 +438,28 @@ def run(connection, guards):
     evidence("migration-application", applied)
     require(not scoped_plan(connection), "Approved scoped migrations remain unapplied.")
     call_command("makemigrations", check=True, dry_run=True, interactive=False)
-    require({M19, M20} <= set(MigrationRecorder(connection).applied_migrations()), "Phase 5A not recorded as applied.")
+    require(set(MigrationRecorder(connection).applied_migrations()) == APPROVED,
+            "Integrated scope not recorded exactly as applied.")
     initial = installed_schema(connection, guarded=True)
     evidence("schema-initial", initial)
-    # Rehearse the exact RunPython reverse, never reverse storage migration 0019.
+    # The empty merge depends on 0020. Validate its metadata again before allowing
+    # that exact two-node reversal; neither storage branch may be unapplied.
     executor = MigrationExecutor(connection)
+    migration_scope(executor.loader)
     reverse = executor.migration_plan([M19])
-    require([(m.app_label, m.name, backwards) for m, backwards in reverse] == [(*M20, True)],
-            "Reverse plan must remove only 0020, never 0019 or another dependent migration.")
+    require([(m.app_label, m.name, backwards) for m, backwards in reverse]
+            == [(*MERGE, True), (*M20, True)],
+            "Reverse plan must remove only the empty merge then 0020, never DNA or history storage.")
     call_command("migrate", "cultures", M19[1], interactive=False, verbosity=2)
-    require(M19 in MigrationRecorder(connection).applied_migrations()
-            and M20 not in MigrationRecorder(connection).applied_migrations(), "Unexpected reverse migration state.")
+    require(set(MigrationRecorder(connection).applied_migrations()) == APPROVED - {M20, MERGE},
+            "Unexpected reverse migration state; DNA and history storage must remain applied.")
     evidence("schema-reversed", installed_schema(connection, guarded=False))
     reapplied = migrate_scoped(connection, fresh=False, verbosity=2)
-    require(reapplied["completed"] == [".".join(M20)], "Reapplication must execute only 0020.")
+    expected = [".".join(M20), ".".join(MERGE)]
+    require(reapplied["planned"] == reapplied["started"] == reapplied["completed"] == expected,
+            "Reapplication must execute only 0020 then the empty merge.")
+    require(set(MigrationRecorder(connection).applied_migrations()) == APPROVED,
+            "Unexpected restored migration state.")
     require(not scoped_plan(connection), "Approved scoped migrations remain unapplied after restoration.")
     evidence("migration-reapplication", reapplied)
     restored = installed_schema(connection, guarded=True)
@@ -462,7 +472,10 @@ def run(connection, guards):
                                    "0019_executed": True,
                                    "0020_executed": True, "drift": False,
                                    "0020_reversed": True, "guards_removed": True,
-                                   "0020_reapplied": True, "catalogs_restored": True})
+                                   "0020_reapplied": True, "catalogs_restored": True,
+                                   "dna_executed": True, "dna_storage_retained": True,
+                                   "empty_merge_executed": True, "empty_merge_reversed": True,
+                                   "empty_merge_reapplied": True})
     for migration in (M19, M20):
         sql = StringIO()
         with redirect_stdout(sql):

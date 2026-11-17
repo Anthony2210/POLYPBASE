@@ -4,11 +4,68 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.validators import URLValidator
 from django.db import models, transaction
 from django.db.models import F, Q
 from django.db.models.functions import Cast, TruncWeek
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+
+
+class BoxDnaValidationQuerySet(models.QuerySet):
+    def delete(self):
+        raise ValidationError(_("DNA validations must be revoked, not deleted."))
+
+
+class BoxDnaValidation(models.Model):
+    box = models.ForeignKey(
+        "cultures.Box", on_delete=models.PROTECT, related_name="dna_validations",
+    )
+    evidence_url = models.URLField(
+        max_length=2000, validators=[URLValidator(schemes=["http", "https"])],
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name="created_box_dna_validations",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name="updated_box_dna_validations",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+    revision = models.PositiveBigIntegerField(default=1)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    revoked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="revoked_box_dna_validations",
+    )
+
+    objects = BoxDnaValidationQuerySet.as_manager()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["box"], condition=Q(revoked_at__isnull=True),
+                name="unique_active_box_dna_validation",
+            ),
+            models.CheckConstraint(
+                condition=Q(revision__gte=1), name="box_dna_revision_positive",
+            ),
+            models.CheckConstraint(
+                condition=(Q(revoked_at__isnull=True, revoked_by__isnull=True)
+                           | Q(revoked_at__isnull=False, revoked_by__isnull=False)),
+                name="box_dna_revocation_attribution",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        self.evidence_url = self.evidence_url.strip()
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError(_("DNA validations must be revoked, not deleted."))
 
 
 class ThermalZone(models.Model):

@@ -275,7 +275,7 @@
     height: 48px;
     min-height: 48px;
   }
-  .is-phone .box-code-line h2 { overflow-wrap: anywhere; white-space: normal; }
+  .is-phone .box-code-line h2 { overflow-wrap: anywhere; white-space: normal; font-size: 1.5rem; }
   .is-phone .box-species-name { overflow-wrap: anywhere; }
 
   .box-page.is-read-only .last-reading-card {

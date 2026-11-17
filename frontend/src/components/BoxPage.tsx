@@ -11,7 +11,7 @@ import {
 import { ApiError, ApiResourceCancelledError } from '../api/client';
 import { getBoxStatusPresentation } from '../boxStatus';
 import type { Language, TranslationKey, Translator } from '../i18n';
-import type { EditableMeasurement } from '../types';
+import type { DnaValidationMutation, EditableMeasurement } from '../types';
 import BoxLifecycleModal, {
   type BoxLifecycleAction,
   type BoxLifecycleSubmission,
@@ -23,6 +23,7 @@ type HistoryMeasurementPrefill = EditableMeasurement;
 import type { BoxInsightTab } from './BoxInsights';
 import type { ConfirmActionOptions } from './ConfirmActionModal';
 import DetailBackButton from './DetailBackButton';
+import DnaValidationBadge from './DnaValidationBadge';
 import InfoPill from './InfoPill';
 import Metric from './Metric';
 import LatestMovementBanner from './LatestMovementBanner';
@@ -108,6 +109,8 @@ export default function BoxPage({
   onRefreshMeasurementState,
   onCorrectMovement,
   onRefreshMovementState,
+  onMutateDnaValidation,
+  onRefreshDnaValidation,
   onCreateSubculture,
   onMoveBox,
   onDeactivateBox,
@@ -139,6 +142,8 @@ export default function BoxPage({
   onRefreshMeasurementState: (boxId: number) => Promise<BoxDetail>;
   onCorrectMovement: (boxId: number, movementId: number, payload: BoxMovementCorrectionPayload) => Promise<void>;
   onRefreshMovementState: (boxId: number) => Promise<BoxDetail>;
+  onMutateDnaValidation: (boxId: number, mutation: DnaValidationMutation) => Promise<void>;
+  onRefreshDnaValidation: (boxId: number) => Promise<BoxDetail>;
   onCreateSubculture: (boxId: number, payload: SubculturePayload) => Promise<SubcultureResult>;
   onMoveBox: (boxId: number, payload: BoxMovePayload) => Promise<BoxDetail>;
   onDeactivateBox: (boxId: number, payload: BoxDeactivatePayload) => Promise<void>;
@@ -635,6 +640,15 @@ export default function BoxPage({
             <p className="box-page-label">{t('boxSheet')}</p>
             <div className="box-code-line">
               <h2 data-box-page-focus-target tabIndex={-1}>{box.global_code}</h2>
+              {'dna_validation' in box ? <DnaValidationBadge
+                validation={box.dna_validation}
+                canEdit={box.can_edit_dna_validation === true}
+                onMutate={(mutation) => onMutateDnaValidation(box.id, mutation)}
+                onReload={() => onRefreshDnaValidation(box.id)}
+                isOperationCurrent={isOperationCurrent}
+                confirmAction={confirmAction}
+                t={t}
+              /> : null}
             </div>
             <p className="box-species-name">{box.species.scientific_name}</p>
           </div>

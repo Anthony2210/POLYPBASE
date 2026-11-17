@@ -142,6 +142,38 @@ class HistoryPreviewServiceTests(TestCase):
             if zone == (self.a.pk if row.measured_at < boundary else destination)
         }
 
+    def test_preview_preserves_active_and_revoked_dna_and_their_audits(self):
+        from rest_framework.test import APIClient
+        from django.urls import reverse
+
+        from .dna_validation import mutate_dna_validation
+        from .models import BoxDnaValidation
+
+        baseline = self.preview()
+        values = dict(user=self.admin, organization=self.org, box_id=self.box.pk)
+        evidence = mutate_dna_validation(
+            **values, operation="add", data={"evidence_url": "https://example.org/original-dna"},
+        )
+        mutate_dna_validation(
+            **values, operation="revoke", data={"expected_revision": evidence.revision},
+        )
+        mutate_dna_validation(
+            **values, operation="add", data={"evidence_url": "https://example.org/replacement-dna"},
+        )
+        self.assertEqual(BoxDnaValidation.objects.filter(box=self.box).count(), 2)
+        self.assertEqual(BoxDnaValidation.objects.filter(box=self.box, revoked_at__isnull=True).count(), 1)
+        before = self.snapshot()
+        self.assertEqual(self.preview(), baseline)
+        client = APIClient()
+        client.force_authenticate(self.admin)
+        response = client.get(
+            reverse("api_box_history_preview", args=[self.box.pk]),
+            {"start": self.start.isoformat(), "end": self.end.isoformat()},
+            secure=True, HTTP_X_ORGANIZATION_ID=str(self.org.pk),
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(self.snapshot(), before)
+
     def test_admin_uses_exact_active_institution_and_scoped_references(self):
         OrganizationMembership.objects.create(user=self.admin, organization=self.other, role="viewer")
         inactive_zone = ThermalZone.objects.create(organization=self.org, name="Inactive", is_active=False)

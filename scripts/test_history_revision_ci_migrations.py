@@ -74,17 +74,104 @@ def run_offline_tests():
     class ScopeTests(unittest.TestCase):
         def test_frozen_graph_exact_targets_counts_and_evidence(self):
             evidence = scoped.migration_scope(MigrationLoader(None))
-            self.assertEqual(len(evidence["closure"]), 81)
+            self.assertEqual(len(evidence["closure"]), 83)
             self.assertEqual(evidence["counts"], {
                 "accounts": 8, "admin": 3, "audit": 5, "auth": 12, "contenttypes": 2,
-                "cultures": 20, "exports": 1, "measurements": 17, "organizations": 2,
+                "cultures": 22, "exports": 1, "measurements": 17, "organizations": 2,
                 "sessions": 1, "sharing": 1, "taxonomy": 9,
             })
-            self.assertEqual(len(evidence["targets"]), 12)
-            self.assertIn("sharing.0001_initial", evidence["targets"])
+            self.assertEqual(evidence["targets"], [
+                "accounts.0008_interface_language_japanese",
+                "admin.0003_logentry_add_action_flag_choices", "audit.0005_auditlog_deletion_action",
+                "auth.0012_alter_user_first_name_max_length", "contenttypes.0002_remove_content_type_name",
+                "cultures.0021_merge_dna_and_history", "exports.0001_initial",
+                "measurements.0017_bucket_probe_last_measured_index",
+                "organizations.0002_organization_portable_id", "sessions.0001_initial",
+                "sharing.0001_initial", "taxonomy.0009_localstrainnumbercounter",
+            ])
+            self.assertIn("cultures.0019_box_dna_validation", evidence["closure"])
+            self.assertIn("cultures.0021_merge_dna_and_history", evidence["closure"])
+            loader = MigrationLoader(None)
+            self.assertEqual(len(loader.disk_migrations), 84)
+            self.assertEqual(loader.graph.leaf_nodes("cultures"), [
+                ("cultures", "0021_merge_dna_and_history"),
+            ])
             self.assertIn("sharing.0001_initial", evidence["closure"])
             self.assertEqual(evidence["excluded"], ["measurements.0018_box_1902_preservation"])
             self.assertEqual(set(evidence["closure"]), set(scoped._names(scoped.APPROVED)))
+
+        def test_integration_declared_dependencies_are_exact(self):
+            expected = {
+                ("cultures", "0019_box_dna_validation"): [
+                    ("cultures", "0018_historicalboxmovement"), ("auth", "__first__"),
+                ],
+                ("cultures", "0019_history_revision_storage"): [
+                    ("cultures", "0018_historicalboxmovement"),
+                    ("organizations", "0002_organization_portable_id"), ("auth", "__first__"),
+                ],
+                ("cultures", "0020_history_revision_guards"): [
+                    ("cultures", "0019_history_revision_storage"),
+                ],
+                ("cultures", "0021_merge_dna_and_history"): [
+                    ("cultures", "0019_box_dna_validation"), ("cultures", "0020_history_revision_guards"),
+                ],
+            }
+            loader = MigrationLoader(None)
+            for key, dependencies in expected.items():
+                migration = loader.disk_migrations[key]
+                with self.subTest(key=key):
+                    self.assertCountEqual(migration.dependencies, dependencies)
+                    for changed in (dependencies[:-1], dependencies + [dependencies[0]],
+                                    dependencies + [("accounts", "0008_interface_language_japanese")],
+                                    [("auth", "0012_alter_user_first_name_max_length")] + dependencies[1:]):
+                        with self.subTest(dependencies=changed), patch.object(migration, "dependencies", changed):
+                            with self.assertRaisesRegex(ImproperlyConfigured, "integration dependencies"):
+                                scoped._validate_integration(loader)
+            scoped._validate_integration(loader)
+
+        def test_intra_closure_extra_graph_parent_is_refused(self):
+            for name in ("0019_box_dna_validation", "0019_history_revision_storage",
+                         "0020_history_revision_guards", "0021_merge_dna_and_history"):
+                loader = MigrationLoader(None)
+                key = ("cultures", name)
+                loader.graph.add_dependency("offline-test", key,
+                                            ("accounts", "0008_interface_language_japanese"))
+                closure = {node for target in scoped.TARGETS for node in loader.graph.forwards_plan(target)}
+                self.assertEqual(closure, scoped.APPROVED)
+                with self.subTest(key=key), self.assertRaisesRegex(
+                    ImproperlyConfigured, "integration graph parents",
+                ):
+                    scoped.migration_scope(loader)
+
+        def test_missing_graph_parent_is_refused(self):
+            loader = MigrationLoader(None)
+            loader.graph.node_map[("cultures", "0021_merge_dna_and_history")].parents.pop()
+            with self.assertRaisesRegex(ImproperlyConfigured, "integration graph parents"):
+                scoped._validate_integration(loader)
+
+        def test_integration_ordering_and_replacements_are_refused(self):
+            loader = MigrationLoader(None)
+            for name in ("0019_box_dna_validation", "0019_history_revision_storage",
+                         "0020_history_revision_guards", "0021_merge_dna_and_history"):
+                migration = loader.disk_migrations[("cultures", name)]
+                for attribute in ("run_before", "replaces"):
+                    with self.subTest(name=name, attribute=attribute), patch.object(
+                        migration, attribute, [("accounts", "0008_interface_language_japanese")],
+                    ):
+                        with self.assertRaisesRegex(ImproperlyConfigured, "ordering/replacement metadata"):
+                            scoped._validate_integration(loader)
+
+        def test_merge_must_be_empty_non_initial_and_atomic(self):
+            loader = MigrationLoader(None)
+            merge = loader.disk_migrations[("cultures", "0021_merge_dna_and_history")]
+            self.assertEqual(merge.operations, [])
+            self.assertIsNone(merge.initial)
+            self.assertIs(merge.atomic, True)
+            for attribute, value in (("operations", [migrations.RunPython(migrations.RunPython.noop)]),
+                                     ("initial", True), ("initial", False), ("atomic", False)):
+                with self.subTest(attribute=attribute, value=value), patch.object(merge, attribute, value):
+                    with self.assertRaisesRegex(ImproperlyConfigured, "merge must be empty"):
+                        scoped.migration_scope(loader)
 
         def test_missing_target(self):
             for target in (scoped.TARGETS[-1], ("sharing", "0001_initial")):
@@ -135,6 +222,20 @@ def run_offline_tests():
                         self.assertEqual(scoped._field_shape(old_pk, connection),
                                          scoped._field_shape(current_pk, connection))
             self.assertIn("auth.user_groups", scoped._model_shapes(apps, connection))
+            dna = historical.get_model("cultures", "BoxDnaValidation")
+            self.assertEqual({field.column for field in dna._meta.concrete_fields}, {
+                "id", "box_id", "evidence_url", "created_by_id", "created_at", "updated_by_id",
+                "updated_at", "revision", "revoked_at", "revoked_by_id",
+            })
+            self.assertEqual(scoped._model_shapes(historical, connection)["cultures.boxdnavalidation"],
+                             scoped._model_shapes(apps, connection)["cultures.boxdnavalidation"])
+
+        def test_history_only_state_cannot_match_runtime_dna_model(self):
+            targets = tuple(("cultures", "0020_history_revision_guards") if app == "cultures"
+                            else (app, name) for app, name in scoped.TARGETS)
+            with patch.object(scoped, "TARGETS", targets):
+                with self.assertRaisesRegex(ImproperlyConfigured, "model inventory differs"):
+                    scoped._validate_models(MigrationLoader(None), connection)
 
         def test_regular_pk_type_drift_is_not_normalized(self):
             field = apps.get_model("auth", "User")._meta.pk
@@ -227,7 +328,7 @@ def run_offline_tests():
             try:
                 plan = scoped.scoped_plan(connection)
                 self.assertFalse(MigrationRecorder(connection).has_table())
-                self.assertEqual(len(plan), 81)
+                self.assertEqual(len(plan), 83)
                 evidence = scoped.migrate_scoped(connection, verbosity=0, fresh=True)
             finally:
                 pre_migrate.disconnect(capture)
@@ -237,15 +338,18 @@ def run_offline_tests():
             self.assertEqual(set(evidence["after"]), set(evidence["closure"]))
             self.assertEqual(evidence["started"], evidence["completed"])
             self.assertEqual(set(evidence["planned"]), set(evidence["completed"]))
-            self.assertEqual(len(evidence["completed"]), 81)
+            self.assertEqual(len(evidence["completed"]), 83)
+            self.assertIn("cultures.0019_box_dna_validation", evidence["completed"])
+            self.assertIn("cultures.0021_merge_dna_and_history", evidence["completed"])
             self.assertTrue(signals)
-            self.assertTrue(all(registry is not None and len(plan) == 81 and alias == "default"
+            self.assertTrue(all(registry is not None and len(plan) == 83 and alias == "default"
                                 for registry, plan, alias in signals))
             final_registry = signals[-1][0]
             self.assertIsNotNone(final_registry.get_model("auth", "User"))
             self.assertEqual(scoped._model_shapes(final_registry, connection),
                              scoped._model_shapes(apps, connection))
             self.assertIn("auth_user_groups", evidence["schema"])
+            self.assertIn("cultures_boxdnavalidation", evidence["schema"])
             self.assertTrue(apps.get_model("auth", "Permission").objects.exists())
             self.assertEqual(scoped.scoped_plan(connection), [])
             with self.assertRaisesRegex(ImproperlyConfigured, "preapplied"):
@@ -324,16 +428,32 @@ def run_offline_tests():
                 with self.assertRaisesRegex(ImproperlyConfigured, "final recorder"):
                     scoped.migrate_scoped(connection, verbosity=0, fresh=True)
 
-        def test_separate_reverse_then_only_0020_reapplied(self):
+        def test_separate_reverse_then_only_guards_and_empty_merge_reapplied(self):
             scoped.migrate_scoped(connection, verbosity=0, fresh=True)
+            reverse = MigrationExecutor(connection).migration_plan([
+                ("cultures", "0019_history_revision_storage"),
+            ])
+            self.assertEqual([(m.app_label, m.name, backwards) for m, backwards in reverse], [
+                ("cultures", "0021_merge_dna_and_history", True),
+                ("cultures", "0020_history_revision_guards", True),
+            ])
             call_command("migrate", "cultures", "0019_history_revision_storage",
                          interactive=False, verbosity=0, stdout=StringIO())
+            self.assertEqual(set(MigrationRecorder(connection).applied_migrations()), scoped.APPROVED - {
+                ("cultures", "0020_history_revision_guards"), ("cultures", "0021_merge_dna_and_history"),
+            })
             plan = scoped.scoped_plan(connection)
-            self.assertEqual([(m.app_label, m.name, backwards) for m, backwards in plan],
-                             [("cultures", "0020_history_revision_guards", False)])
+            self.assertEqual([(m.app_label, m.name, backwards) for m, backwards in plan], [
+                ("cultures", "0020_history_revision_guards", False),
+                ("cultures", "0021_merge_dna_and_history", False),
+            ])
             evidence = scoped.migrate_scoped(connection, verbosity=0, fresh=False)
-            self.assertEqual(evidence["completed"], ["cultures.0020_history_revision_guards"])
-            self.assertFalse(scoped.EXCLUDED & set(MigrationRecorder(connection).applied_migrations()))
+            self.assertEqual(evidence["completed"], [
+                "cultures.0020_history_revision_guards", "cultures.0021_merge_dna_and_history",
+            ])
+            self.assertEqual(evidence["planned"], evidence["started"])
+            self.assertEqual(evidence["started"], evidence["completed"])
+            self.assertEqual(set(MigrationRecorder(connection).applied_migrations()), scoped.APPROVED)
 
     class SchemaTests(unittest.TestCase):
         @classmethod
@@ -347,15 +467,23 @@ def run_offline_tests():
 
         def test_missing_table(self):
             original = connection.introspection.table_names
-            with patch.object(connection.introspection, "table_names",
-                              side_effect=lambda *a, **k: [t for t in original(*a, **k) if t != "auth_user_groups"]):
-                with self.assertRaisesRegex(ImproperlyConfigured, "missing managed table"):
-                    scoped.verify_schema(connection)
+            for table in ("auth_user_groups", "cultures_boxdnavalidation"):
+                with self.subTest(table=table), patch.object(
+                    connection.introspection, "table_names",
+                    side_effect=lambda *a, **k: [t for t in original(*a, **k) if t != table],
+                ):
+                    with self.assertRaisesRegex(ImproperlyConfigured, "missing managed table"):
+                        scoped.verify_schema(connection)
 
         def test_missing_scalar_fk_and_m2m_columns(self):
             original = connection.introspection.get_table_description
             for table, column in (("auth_user", "username"), ("cultures_box", "organization_id"),
-                                  ("auth_user_groups", "user_id")):
+                                  ("auth_user_groups", "user_id"),
+                                  ("cultures_boxdnavalidation", "evidence_url"),
+                                  ("cultures_boxdnavalidation", "box_id"),
+                                  ("cultures_boxdnavalidation", "created_by_id"),
+                                  ("cultures_boxdnavalidation", "updated_by_id"),
+                                  ("cultures_boxdnavalidation", "revoked_by_id")):
                 def description(cursor, name):
                     return [item for item in original(cursor, name)
                             if name != table or item.name != column]
@@ -369,7 +497,9 @@ def run_offline_tests():
         def test_wrong_fk_target_columns_and_missing_m2m_fk(self):
             original = connection.introspection.get_constraints
             for table, remove in (("cultures_box", False), ("auth_user_groups", False),
-                                              ("auth_user_groups", True)):
+                                              ("auth_user_groups", True),
+                                              ("cultures_boxdnavalidation", False),
+                                              ("cultures_boxdnavalidation", True)):
                 def constraints(cursor, name):
                     result = deepcopy(original(cursor, name))
                     if name == table:

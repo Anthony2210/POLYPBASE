@@ -28,7 +28,7 @@ TARGETS = (
     ("audit", "0005_auditlog_deletion_action"),
     ("auth", "0012_alter_user_first_name_max_length"),
     ("contenttypes", "0002_remove_content_type_name"),
-    ("cultures", "0020_history_revision_guards"),
+    ("cultures", "0021_merge_dna_and_history"),
     ("exports", "0001_initial"),
     ("measurements", "0017_bucket_probe_last_measured_index"),
     ("organizations", "0002_organization_portable_id"),
@@ -69,7 +69,8 @@ _APPROVED_NAMES = {
         "0014_box_movement_week_matches_moved_at",
         "0015_box_merged_into_box_previous_global_code_and_more", "0016_automaticboxcreationrequest",
         "0017_automatic_box_intent_lifecycle", "0018_historicalboxmovement",
-        "0019_history_revision_storage", "0020_history_revision_guards",
+        "0019_box_dna_validation", "0019_history_revision_storage", "0020_history_revision_guards",
+        "0021_merge_dna_and_history",
     ),
     "exports": ("0001_initial",),
     "measurements": (
@@ -94,6 +95,23 @@ _APPROVED_NAMES = {
     ),
 }
 APPROVED = frozenset((app, name) for app, names in _APPROVED_NAMES.items() for name in names)
+# Pin this integration's edges as well as its node inventory. Other migrations
+# retain the existing closure checks, not a full dependency-edge manifest.
+_INTEGRATION_DEPENDENCIES = {
+    ("cultures", "0019_box_dna_validation"): (
+        ("cultures", "0018_historicalboxmovement"), ("auth", "__first__"),
+    ),
+    ("cultures", "0019_history_revision_storage"): (
+        ("cultures", "0018_historicalboxmovement"),
+        ("organizations", "0002_organization_portable_id"), ("auth", "__first__"),
+    ),
+    ("cultures", "0020_history_revision_guards"): (
+        ("cultures", "0019_history_revision_storage"),
+    ),
+    ("cultures", "0021_merge_dna_and_history"): (
+        ("cultures", "0019_box_dna_validation"), ("cultures", "0020_history_revision_guards"),
+    ),
+}
 _COMMAND_LOCK = Lock()
 
 
@@ -120,6 +138,23 @@ def _guard(connection):
     _require(not settings.DATABASE_ROUTERS, "database routers are forbidden.")
 
 
+def _validate_integration(loader):
+    for key, expected in _INTEGRATION_DEPENDENCIES.items():
+        migration = loader.disk_migrations[key]
+        label = ".".join(key)
+        _require(len(migration.dependencies) == len(expected)
+                 and set(migration.dependencies) == set(expected),
+                 f"integration dependencies differ for {label}.")
+        _require(not migration.run_before and not migration.replaces,
+                 f"integration ordering/replacement metadata differs for {label}.")
+        parents = {parent.key for parent in loader.graph.node_map[key].parents}
+        resolved = {loader.check_key(dependency, key[0]) for dependency in expected}
+        _require(parents == resolved, f"integration graph parents differ for {label}.")
+    merge = loader.disk_migrations[("cultures", "0021_merge_dna_and_history")]
+    _require(merge.operations == [] and merge.initial is None and merge.atomic is True,
+             "integration merge must be empty, non-initial and atomic.")
+
+
 def migration_scope(loader):
     """Return JSON-safe targets, frozen closure, excluded nodes and per-app counts.
 
@@ -133,8 +168,9 @@ def migration_scope(loader):
     _require(loader.migrated_apps == set(_APPROVED_NAMES), "migrated app inventory changed.")
     closure = {node for target in TARGETS for node in loader.graph.forwards_plan(target)}
     _require(not closure & EXCLUDED, "excluded migration is a target dependency.")
-    _require(closure == APPROVED, "dependency closure differs from the approved 81 nodes.")
+    _require(closure == APPROVED, "dependency closure differs from the approved 83 nodes.")
     _require(not loader.detect_conflicts(), "conflicting migrations are forbidden.")
+    _validate_integration(loader)
     return {
         "targets": [f"{app}.{name}" for app, name in TARGETS],
         "closure": _names(closure),

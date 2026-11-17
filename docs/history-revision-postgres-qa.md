@@ -5,11 +5,15 @@
 **Périmètre : TARGETED Phase5A, jamais une validation du graphe complet.**
 Cinq exécutions distantes sont rapportées par l'utilisateur. Le **run #5**
 (`c6c63a1`) a réussi **105/105 tests sur le périmètre 80 nœuds**, avec 0018
-exclue. Le graphe intégré actuel comporte **81 nœuds** après l'ajout de
-`sharing.0001_initial`; cette version intégrée n'a pas encore été exécutée à
-distance. Ce document n'est ni une preuve PostgreSQL de cette version intégrée
+exclue. Le contrat intégré attendu comporte désormais **83 nœuds approuvés** :
+le périmètre 81 nœuds avec `sharing.0001_initial`, plus
+`cultures.0019_box_dna_validation` et le merge vide
+`cultures.0021_merge_dna_and_history`. Ce dernier reste à créer séparément;
+le gate refuse son absence. Ce périmètre n'a pas été exécuté à distance.
+Ce document n'est ni une preuve PostgreSQL de cette version intégrée
 ni une autorisation de publication ou de déploiement.
-Base inspectée : `649eba2`, branche `test/history-revision-postgres-qa`.
+Base de la revue précédente : `649eba2`, branche `test/history-revision-postgres-qa`.
+Extension ADN : merge local en cours sur `feat/box-dna-validation`.
 Aucun commit, staging, push ou lancement Actions n'est effectué par l'agent.
 Cette mise à jour adapte uniquement le harnais QA, ses tests, ce document et le
 workflow. Aucun modèle scientifique, migration ou moteur métier n'est modifié.
@@ -32,6 +36,10 @@ Workflow exact : **History revisions PostgreSQL QA — TARGETED Phase5A**,
   préflight avant migrations, dépendances verrouillées, logs avec `pipefail`,
   artifacts synthétiques conservés sept jours même après échec.
   Les versions d'actions checkout/uv suivent aussi `ci.yml` de ce checkout.
+- `ci.yml` ne lance pas les cinq suites de scripts de ce harnais. Une PR vers
+  main, un push main ou un push `feat/box-dna-validation` ne remplace pas ce job.
+  Le déclencheur et les gardes d'identité restent inchangés; aucune identité
+  hébergée ne doit être simulée pour lancer le harnais PostgreSQL localement.
 
 ## Garde-fous fail-closed
 
@@ -97,16 +105,18 @@ pendant cette tâche :
    `sharing.0001_initial` et ne valide donc pas le graphe intégré 81 nœuds.
 
 **État courant :** le run #5 est le dernier résultat PostgreSQL réussi, sur le
-périmètre 80 nœuds de `c6c63a1`. La QA intégrée 81 nœuds, après les merges
-locaux et l'ajout de `sharing.0001_initial`, reste à exécuter à distance.
+périmètre 80 nœuds de `c6c63a1`. La QA intégrée 83 nœuds attendue, avec
+`sharing.0001_initial`, ADN et merge vide, reste à exécuter à distance.
 L'exclusion de 0018 isole cette QA synthétique; elle ne corrige ni ne valide son
 contrat métier.
 
 ## Gate de périmètre et migrations ciblées
 
-Le gate est **PASSED avec le vrai `MigrationLoader(None)`**, sans connexion
-à une base. La fermeture transitive de `cultures.0020_history_revision_guards`
-contient exactement **33 migrations réelles** : `cultures` 0001–0020 (20),
+Le succès du gate précédemment rapporté concernait le périmètre antérieur,
+pas l'extension ADN. Le nouveau gate exige la présence du merge vide et refuse
+le graphe à deux feuilles. La fermeture transitive de
+`cultures.0020_history_revision_guards` reste distincte du nouveau target merge :
+**33 migrations réelles** : `cultures` sur la branche historique (20),
 `taxonomy` 0001–0009 (9), `organizations` 0001–0002 (2), `auth.0001_initial` (1)
 et `contenttypes.0001_initial` (1). Il ne s'agit pas d'une preuve d'exécution SQL.
 
@@ -121,7 +131,7 @@ nécessitent tous les schémas gérés, y compris les tables M2M auto-créées. 
 | audit | `0005_auditlog_deletion_action` |
 | auth | `0012_alter_user_first_name_max_length` |
 | contenttypes | `0002_remove_content_type_name` |
-| cultures | `0020_history_revision_guards` |
+| cultures | `0021_merge_dna_and_history` |
 | exports | `0001_initial` |
 | measurements | `0017_bucket_probe_last_measured_index` |
 | organizations | `0002_organization_portable_id` |
@@ -129,18 +139,27 @@ nécessitent tous les schémas gérés, y compris les tables M2M auto-créées. 
 | sharing | `0001_initial` |
 | taxonomy | `0009_localstrainnumbercounter` |
 
-L'union de leurs fermetures contient **81 migrations réelles** : accounts 8,
-admin 3, audit 5, auth 12, contenttypes 2, cultures 20, exports 1, measurements 17,
-organizations 2, sessions 1, sharing 1 et taxonomy 9. Dans l'inventaire actuel de
-82 migrations, seule `measurements.0018_box_1902_preservation` est exclue. Les
-colonnes des modèles historiques à ces cibles correspondent à celles des modèles
-runtime selon le gate; les contraintes et index de `sharing` concordent aussi.
-Cela ne remplace pas l'inspection du schéma PostgreSQL réel.
+L'union attendue de leurs fermetures contient **83 migrations** : accounts 8,
+admin 3, audit 5, auth 12, contenttypes 2, cultures 22, exports 1, measurements 17,
+organizations 2, sessions 1, sharing 1 et taxonomy 9. Le merge vide compte comme
+un nœud réellement appliqué avec callbacks et recorder, sans SQL métier.
+Dans l'inventaire attendu de **84 migrations**, seule
+`measurements.0018_box_1902_preservation` est exclue. Le gate doit vérifier les
+modèles historiques contre runtime, y compris `BoxDnaValidation` et ses FK Box/auteurs;
+aucun filtre de modèle ne contourne cette exigence. Ces vérifications ne prouvent
+ni les contraintes/index ADN ni sa concurrence, et ne remplacent pas l'inspection
+PostgreSQL réelle.
 
 Le nouveau module local `backend/config/history_revision_ci_migrations.py` fige
-les **81 noms**, les cibles et l'exclusion; il ne les déduit pas des seuls numéros
-ni des feuilles courantes. Toute modification de l'inventaire, des dépendances,
-remplacement ou conflit exige une nouvelle revue. `migrate_scoped()` utilise la
+les **83 noms**, les cibles et l'exclusion; il ne les déduit pas des seuls numéros
+ni des feuilles courantes. Les dépendances déclarées et parents résolus des deux
+0019, de 0020 et du merge sont épinglés exactement. Un parent supplémentaire
+même déjà approuvé, `run_before` ou remplacement est refusé. Le merge doit avoir
+`operations=[]`, `initial=None`, `atomic=True`, avec exactement ADN et 0020 comme
+parents. Les autres nœuds conservent les contrôles de fermeture existants : ce
+n'est pas un manifeste de toutes les arêtes du graphe. Toute modification de
+l'inventaire, des dépendances, remplacement ou conflit exige une nouvelle revue.
+`migrate_scoped()` utilise la
 vraie commande Django `migrate` avec un adaptateur d'exécuteur, conserve les signaux
 `pre_migrate`/`post_migrate` et refuse fake/fake-initial. Il compare plan,
 callbacks d'exécution réellement commencés/terminés et historique final; un simple
@@ -155,7 +174,12 @@ pendant la création de la base de test. Il exige l'appel attendu, une seule foi
 vérifie l'identité puis exécute `migrate_scoped(fresh=True)`, sans syncdb.
 L'interception est restaurée immédiatement; les gardes de connexion et de teardown
 restent actives. Le harnais utilise le même périmètre pour l'application initiale
-et la réapplication après inversion de 0020. Les signaux Django sont conservés.
+et la réapplication après inversion du merge vide puis de 0020. Le harnais
+revalide le gate avant cette inversion, exige le recorder approuvé moins ces deux
+nœuds et conserve les deux stockages 0019. La réapplication exige exactement
+0020 puis merge dans le plan, les callbacks commencés/terminés et le recorder final.
+Les catalogues des gardes restent comparés avant/après; le rendu SQL reste fondé
+sur l'état historique à 0020, pas sur le merge. Les signaux Django sont conservés.
 
 Django `StateApps` reconstruit les PK implicites des tables M2M avec le
 `DEFAULT_AUTO_FIELD` global, contrairement à l'AppConfig runtime d'auth. La
@@ -226,11 +250,11 @@ assertion de sécurité HTTP n'est retirée.
 | Étape | Assertions et preuves |
 | --- | --- |
 | Préflight | SHA exact, identité, versions PostgreSQL/psycopg/libpq, base initialement vide |
-| TARGETED Phase5A | 12 cibles, fermeture figée de 81 noms; 0019 et 0020 réellement non appliquées au départ; migrate sans fake, callbacks réels et recorder exact; aucune migration restante **dans ce périmètre**, 0018 explicitement exclue |
+| TARGETED Phase5A | 12 cibles, fermeture figée de 83 noms; ADN, histoire 0019/0020 et merge réellement non appliqués au départ; migrate sans fake, callbacks réels et recorder exact; aucune migration restante **dans ce périmètre**, 0018 explicitement exclue |
 | Drift | `makemigrations --check --dry-run` sur le service |
 | Catalogues initiaux | Dix triggers et fonctions activés; corps installés comparés à 0020 et attributs d'exécution vérifiés; contraintes nommées, expressions et colonnes; index uniques partiels; cibles et différabilité des FK |
-| Inversion | Plan autorisant **seulement 0020**; maintien de 0019; absence des dix triggers et fonctions |
-| Réapplication | 0020 réappliquée; catalogues restaurés identiques |
+| Inversion | Plan exact **merge vide puis 0020**; maintien des deux stockages 0019 et de tout autre nœud approuvé; absence des dix triggers et fonctions |
+| Réapplication | Plan/callbacks exacts **0020 puis merge vide**; recorder approuvé restauré; catalogues restaurés identiques |
 | Isolation | Reset depuis un template migré vide après chaque `TransactionTestCase`; aucun `TRUNCATE`, trigger désactivé ou base inconnue; OID du template et de la base de test vérifiés; preuve `isolation.json` |
 | Intégrité | 34 tests de modèles/stockage actuellement découverts : ORM immutable, SQL UPDATE/DELETE, heads valides/invalides, prédécesseurs, unicité séquence/idempotence, institutions, suppression Box/auteur et attribution conservée |
 | Codec/composition | 14 tests existants de codec/intégration et 47 de composition pure; absence de consommation active de l'overlay |
@@ -392,6 +416,41 @@ Sans PostgreSQL, Docker, connexion distante ni Actions :
   reste à **95 réussis, aucun skip**. Ces contrôles locaux précèdent le run #5,
   qui a ensuite validé le périmètre PostgreSQL 80 nœuds.
 
+## Validation locale de l'extension ADN — 2026-11-17
+
+Les cinq suites ont été lancées séparément depuis la racine, sans PostgreSQL,
+sans lancement du harnais hébergé et sans mutation Git :
+
+```sh
+uv run --frozen python -B -m unittest discover -s scripts -p test_history_revision_ci.py -v
+uv run --frozen python -B -m unittest discover -s scripts -p test_validate_history_revision_ci.py -v
+uv run --frozen python -B -m unittest discover -s scripts -p test_history_revision_ci_migrations.py -v
+uv run --frozen python -B -m unittest discover -s scripts -p test_history_revision_ci_isolation.py -v
+uv run --frozen python -B -m unittest discover -s scripts -p test_history_revision_ci_responses.py -v
+```
+
+- Settings/runner : 36 réussites et 4 checks YAML ignorés faute de PyYAML.
+  Ces quatre checks ont ensuite réussi séparément avec
+  `uv run --frozen --with pyyaml==6.0.3 python -B -m unittest discover -s scripts -p test_history_revision_ci.py -k WorkflowTests -v`.
+  Aucun ajout aux dépendances de production ni changement de déclencheur.
+- Catalogue/harnais : **26 réussites**, dont le parcours positif du merge et les
+  refus de plans, callbacks, recorder et merge non vide.
+- Isolation : **2 réussites**; réponses SQL/HTTP : **4 réussites**.
+- Migrations du checkout : après création du vrai merge vide
+  `0021_merge_dna_and_history`, **32 tests réussis** sur SQLite `:memory:`, sockets
+  interdits : migrations réelles, signaux, schéma, métadonnées et parents exacts,
+  parent supplémentaire déjà dans la fermeture, inversion et réapplication.
+  La première tentative avait atteint son délai de 120 secondes; la relance bornée
+  à 600 secondes a terminé en 252 secondes. La vérification synthétique antérieure
+  du merge injecté en mémoire n'est pas utilisée comme preuve du checkout.
+  Aucun de ces résultats ne constitue une preuve PostgreSQL.
+
+Le marqueur `dna_storage_retained` atteste le maintien de la migration ADN dans
+le recorder pendant la répétition, pas un test complet de préservation de données
+ADN. Les tests métier/ADN, le merge et les URLs sont traités séparément. Les
+preuves locales antérieures ci-dessus restent historiques; elles ne sont pas
+réattribuées au nouveau périmètre.
+
 ## Passation à Anthony — après revue indépendante uniquement
 
 1. Examiner les fichiers du périmètre ciblé, son intégration au harnais/runner et le diff complet sur
@@ -413,9 +472,11 @@ Sans PostgreSQL, Docker, connexion distante ni Actions :
 
 Le run #5 a prouvé le périmètre **80 nœuds** de `c6c63a1` : 105/105 tests,
 migrations 0019/0020 inversées et réappliquées, isolation et courses PostgreSQL
-réussies. Le graphe intégré **81 nœuds** avec `sharing.0001_initial` n'a pas
-encore été exécuté à distance; le reset par template et les catalogues réels de
-cette version restent à vérifier sur le service PostgreSQL jetable. Même un futur succès
+réussies. Ni l'intégration précédente 81 nœuds avec `sharing.0001_initial`, ni
+le nouveau contrat **83 nœuds** avec ADN et merge vide ne sont validés par ce run.
+Le merge vide et les URLs sont intégrés dans le working tree; le conflit d'index
+reste volontairement à marquer résolu par Anthony. Le reset par template et les catalogues réels de cette
+version restent à vérifier sur le service PostgreSQL jetable. Même un futur succès
 ne validerait ni le graphe complet, ni `measurements.0018_box_1902_preservation`,
 ni une migration sur données de production. Aucun résultat de validation future
 n'est considéré acquis. Le conteneur suit

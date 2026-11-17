@@ -306,7 +306,22 @@ export type OverviewResponse = {
   results: OverviewBox[];
 };
 
+export type DnaValidation = {
+  id: number;
+  evidence_url: string;
+  created_by: string;
+  created_at: string;
+  revision: number;
+};
+
+export type DnaValidationMutation =
+  | { operation: 'add'; evidence_url: string }
+  | { operation: 'update'; evidence_url: string; expected_revision: number }
+  | { operation: 'revoke'; expected_revision: number };
+
 export type BoxDetail = BoxItem & {
+  dna_validation: DnaValidation | null;
+  can_edit_dna_validation: boolean;
   created_on: string;
   volume_liters: string | null;
   stop_reason: string;

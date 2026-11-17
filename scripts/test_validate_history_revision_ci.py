@@ -1,5 +1,6 @@
 """Offline catalog mutation tests; no Django settings, drivers or sockets."""
 
+from contextlib import contextmanager
 from copy import deepcopy
 import importlib.util
 from pathlib import Path
@@ -513,45 +514,136 @@ class HarnessSafetyTests(unittest.TestCase):
         self.assertEqual(sys.path, before)
         self.assertEqual(imports, [])
 
-    def test_unsafe_reverse_plans_refused_before_reverse_command(self):
+    @contextmanager
+    def rehearsal(self):
+        # Literal identities keep the expected contract independent of utility constants.
+        dna = ("cultures", "0019_box_dna_validation")
+        storage = ("cultures", "0019_history_revision_storage")
+        guards = ("cultures", "0020_history_revision_guards")
+        merge = ("cultures", "0021_merge_dna_and_history")
+        approved = {dna, storage, guards, merge, ("accounts", "0001_initial")}
+
         def migration(key):
             return SimpleNamespace(app_label=key[0], name=key[1])
 
-        for reverse in ([], [(migration(utility.M19), True)],
-                        [(migration(utility.M20), False)],
-                        [(migration(utility.M20), True), (migration(utility.M19), True)]):
-            with self.subTest(reverse=reverse):
-                management = ModuleType("django.core.management")
-                management.call_command = Mock()
-                executor_module = ModuleType("django.db.migrations.executor")
-                executor = Mock()
-                executor.migration_plan.return_value = reverse
-                scoped = ModuleType("config.history_revision_ci_migrations")
-                scoped.scoped_plan = Mock(side_effect=[
-                    [(migration(utility.M19), False), (migration(utility.M20), False)], [],
-                ])
-                scoped.migration_scope = Mock(return_value={"targets": [], "closure": [], "excluded": []})
-                scoped.migrate_scoped = Mock(return_value={"targets": [], "after": [], "excluded": []})
-                executor_module.MigrationExecutor = Mock(return_value=executor)
-                recorder_module = ModuleType("django.db.migrations.recorder")
-                recorder = Mock()
-                recorder.has_table.return_value = False
-                recorder.applied_migrations.return_value = {utility.M19, utility.M20}
-                recorder_module.MigrationRecorder = Mock(return_value=recorder)
-                modules = {"django": ModuleType("django"), "django.core": ModuleType("django.core"),
-                           "django.core.management": management, "django.db": ModuleType("django.db"),
-                           "django.db.migrations": ModuleType("django.db.migrations"),
-                           "django.db.migrations.executor": executor_module,
-                           "django.db.migrations.recorder": recorder_module,
-                           "config": ModuleType("config"),
-                           "config.history_revision_ci_migrations": scoped}
-                with patch.dict(sys.modules, modules), patch.object(utility, "evidence"), \
-                        patch.object(utility, "installed_schema", return_value={}):
-                    with self.assertRaisesRegex(RuntimeError, "Reverse plan must remove only 0020"):
-                        utility.run(Mock(), Mock())
-                self.assertTrue(management.call_command.called)
-                self.assertFalse(any(call.args[:2] == ("migrate", "cultures")
-                                     for call in management.call_command.call_args_list))
+        case = SimpleNamespace(
+            state=set(), approved=approved, reverse_state=approved - {guards, merge},
+            connection=Mock(), guards=Mock(),
+            reapplication={key: ["cultures.0020_history_revision_guards", "cultures.0021_merge_dna_and_history"]
+                           for key in ("planned", "started", "completed")},
+        )
+        management = ModuleType("django.core.management")
+
+        def command(name, *args, **kwargs):
+            if name == "migrate":
+                self.assertEqual(args, ("cultures", "0019_history_revision_storage"))
+                case.state = set(case.reverse_state)
+
+        management.call_command = case.command = Mock(side_effect=command)
+        executor_module = ModuleType("django.db.migrations.executor")
+        case.executor = Mock()
+        case.executor.migration_plan.return_value = [(migration(merge), True), (migration(guards), True)]
+        executor_module.MigrationExecutor = Mock(return_value=case.executor)
+        scoped = case.scoped = ModuleType("config.history_revision_ci_migrations")
+        scoped.APPROVED = approved
+        scoped.scoped_plan = Mock(side_effect=[
+            [(migration(key), False) for key in (dna, storage, guards, merge)], [], [],
+        ])
+        scoped.migration_scope = Mock(return_value={"targets": [], "closure": [], "excluded": []})
+
+        def migrate(connection, *, fresh, verbosity):
+            case.state = set(approved)
+            if not fresh:
+                return case.reapplication
+            return {"targets": [], "after": [".".join(key) for key in sorted(approved)], "excluded": []}
+
+        scoped.migrate_scoped = Mock(side_effect=migrate)
+        recorder_module = ModuleType("django.db.migrations.recorder")
+        recorder = Mock()
+        recorder.has_table.return_value = False
+        recorder.applied_migrations.side_effect = lambda: set(case.state)
+        recorder_module.MigrationRecorder = Mock(return_value=recorder)
+        modules = {"django": ModuleType("django"), "django.core": ModuleType("django.core"),
+                   "django.core.management": management, "django.db": ModuleType("django.db"),
+                   "django.db.migrations": ModuleType("django.db.migrations"),
+                   "django.db.migrations.executor": executor_module,
+                   "django.db.migrations.recorder": recorder_module,
+                   "config": ModuleType("config"), "config.history_revision_ci_migrations": scoped}
+        with patch.dict(sys.modules, modules), patch.object(utility, "evidence") as evidence, \
+                patch.object(utility, "installed_schema", return_value={}) as catalog, \
+                patch.object(utility.os, "environ", {"HR_CI_EVIDENCE_DIR": "unused"}), \
+                patch.object(Path, "write_text"):
+            case.evidence, case.catalog = evidence, catalog
+            yield case
+
+    def test_exact_merged_rehearsal_is_accepted(self):
+        with self.rehearsal() as case:
+            utility.run(case.connection, case.guards)
+            self.assertEqual(case.state, case.approved)
+            self.assertEqual(case.scoped.migration_scope.call_count, 2)
+            self.assertEqual(case.scoped.migrate_scoped.call_count, 2)
+            self.assertEqual(case.catalog.call_args_list, [
+                unittest.mock.call(case.connection, guarded=True),
+                unittest.mock.call(case.connection, guarded=False),
+                unittest.mock.call(case.connection, guarded=True),
+            ])
+            results = next(call.args[1] for call in case.evidence.call_args_list
+                           if call.args[0] == "migration-results")
+            self.assertTrue(results["empty_merge_reversed"])
+            self.assertTrue(results["dna_storage_retained"])
+            self.assertEqual(case.command.call_args_list[-1].args, ("test", *utility.TEST_LABELS))
+
+    def test_unsafe_reverse_plans_refused_before_reverse_command(self):
+        dna = ("cultures", "0019_box_dna_validation")
+        storage = ("cultures", "0019_history_revision_storage")
+        guards = ("cultures", "0020_history_revision_guards")
+        merge = ("cultures", "0021_merge_dna_and_history")
+        valid = [(*merge, True), (*guards, True)]
+        for reverse in ([], [(*guards, True)], [(*merge, True)],
+                        [(*merge, False), (*guards, True)], list(reversed(valid)),
+                        valid + [(*dna, True)], valid + [(*storage, True)]):
+            with self.subTest(reverse=reverse), self.rehearsal() as case:
+                case.executor.migration_plan.return_value = [
+                    (SimpleNamespace(app_label=app, name=name), backwards)
+                    for app, name, backwards in reverse
+                ]
+                with self.assertRaisesRegex(RuntimeError, "Reverse plan must remove only the empty merge then 0020"):
+                    utility.run(case.connection, case.guards)
+                self.assertFalse(any(call.args[0] == "migrate" for call in case.command.call_args_list))
+
+    def test_nonempty_merge_scope_rejected_before_reverse_command(self):
+        with self.rehearsal() as case:
+            case.scoped.migration_scope.side_effect = [
+                {}, RuntimeError("integration merge must be empty"),
+            ]
+            with self.assertRaisesRegex(RuntimeError, "merge must be empty"):
+                utility.run(case.connection, case.guards)
+            case.executor.migration_plan.assert_not_called()
+            self.assertFalse(any(call.args[0] == "migrate" for call in case.command.call_args_list))
+
+    def test_reverse_recorder_must_retain_exact_storage_scope(self):
+        for key in (("cultures", "0019_box_dna_validation"), ("cultures", "0019_history_revision_storage"),
+                    ("accounts", "0001_initial")):
+            with self.subTest(key=key), self.rehearsal() as case:
+                case.reverse_state.remove(key)
+                with self.assertRaisesRegex(RuntimeError, "Unexpected reverse migration state"):
+                    utility.run(case.connection, case.guards)
+                self.assertEqual(case.scoped.migrate_scoped.call_count, 1)
+        with self.rehearsal() as case:
+            case.reverse_state.add(("cultures", "0021_merge_dna_and_history"))
+            with self.assertRaisesRegex(RuntimeError, "Unexpected reverse migration state"):
+                utility.run(case.connection, case.guards)
+
+    def test_reapplication_requires_exact_plan_and_callbacks(self):
+        valid = ["cultures.0020_history_revision_guards", "cultures.0021_merge_dna_and_history"]
+        for key in ("planned", "started", "completed"):
+            for changed in ([], valid[:1], list(reversed(valid)),
+                            valid + ["cultures.0019_box_dna_validation"]):
+                with self.subTest(key=key, changed=changed), self.rehearsal() as case:
+                    case.reapplication[key] = changed
+                    with self.assertRaisesRegex(RuntimeError, "Reapplication must execute only 0020 then the empty merge"):
+                        utility.run(case.connection, case.guards)
+                    self.assertFalse(any(call.args[0] == "test" for call in case.command.call_args_list))
 
 
 if __name__ == "__main__":

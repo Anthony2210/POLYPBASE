@@ -118,6 +118,7 @@ const wiring = {
   onUpdateMeasurement: 'updateMeasurement', onRefreshMeasurementState: 'refreshBoxAfterMeasurement',
   onCreateSubculture: 'createSubculture', onMoveBox: 'moveBox',
   onCorrectMovement: 'correctMovement', onRefreshMovementState: 'refreshMovementState',
+  onMutateDnaValidation: 'mutateDnaValidation', onRefreshDnaValidation: 'refreshDnaValidation',
   onDeactivateBox: 'deactivateBox', onReactivateBox: 'reactivateBox', onLoadLineageGraph: 'loadLineageGraph',
   measurementPrefill: 'measurementPrefill', onMeasurementPrefillConsumed: '() => setMeasurementPrefill(null)',
   onOpenBox: 'openBox', onOpenZone: 'openZone', onAddQrLabel: 'addQrLabelToSelection',
@@ -155,7 +156,7 @@ test('real App JSX forwards fixture identities, loading flags and current-operat
     measurementPrefill: { box_id: 7, id: 9 }, setMeasurementPrefill: value => consumed.push(value),
   };
   const callbacks = Object.fromEntries(['createMeasurement', 'updateMeasurement', 'refreshBoxAfterMeasurement',
-    'createSubculture', 'moveBox', 'correctMovement', 'refreshMovementState',
+    'createSubculture', 'moveBox', 'correctMovement', 'refreshMovementState', 'mutateDnaValidation', 'refreshDnaValidation',
     'deactivateBox', 'reactivateBox', 'loadLineageGraph', 'openBox',
     'openZone', 'addQrLabelToSelection', 'closeBoxPage', 'openQrLabelSelection', 'confirmAction', 't']
     .map(name => [name, () => name]));

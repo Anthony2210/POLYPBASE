@@ -16,6 +16,7 @@ from apps.accounts.api_views import (
     UserProfileAPIView,
 )
 from apps.cultures.history_api import BoxHistoryAPIView
+from apps.cultures.dna_validation_api import BoxDnaValidationAPIView, BoxDnaValidationRevokeAPIView
 from apps.cultures.history_preview_api import BoxHistoryPreviewAPIView
 from apps.measurements.probe_views import (
     ThermalZoneProbeReadingsAPIView,
@@ -104,6 +105,8 @@ from apps.taxonomy.api_views import (
 )
 
 urlpatterns = [
+    path("boxes/<int:box_id>/dna-validation/", BoxDnaValidationAPIView.as_view(), name="api_box_dna_validation"),
+    path("boxes/<int:box_id>/dna-validation/revoke/", BoxDnaValidationRevokeAPIView.as_view(), name="api_box_dna_validation_revoke"),
     path("health/", HealthAPIView.as_view(), name="api_health"),
     path("measurement-import/inspect/", MeasurementImportInspectAPIView.as_view(), name="api_measurement_import_inspect"),
     path("measurement-import/preview/", MeasurementImportPreviewAPIView.as_view(), name="api_measurement_import_preview"),

@@ -8,6 +8,8 @@ import {
   getAuditBoxSummaryParts,
   getAuditBusinessNote,
   getAuditBusinessSummary,
+  getDnaAuditSummary,
+  getDnaAuditDetails,
   getAuditInlineBusinessItems,
   getAuditInitialPolypsLabel,
   getAuditPreviousZone,
@@ -16,6 +18,7 @@ import {
   hasAuditSubcultureSummary,
 } from '../utils/auditPresentation';
 import BoxTrackingPreview from './BoxTrackingPreview';
+import { DnaEvidenceLink } from './DnaEvidenceLink';
 
 export function AuditDayHeading({ children }: { children: ReactNode }) {
   return <h3 className="audit-day-heading">{children}</h3>;
@@ -36,7 +39,8 @@ export function AuditPrimarySummary({
   onOpenBox?: (boxId: number, code: string) => void;
   t: Translator;
 }) {
-  const boxSummary = boxReference ? getAuditBoxSummaryParts(entry, t) : null;
+  const dnaSummary = getDnaAuditSummary(entry, t);
+  const boxSummary = !dnaSummary && boxReference ? getAuditBoxSummaryParts(entry, t) : null;
   const previousZone = getAuditPreviousZone(entry.business_details);
   const subcultureDetails = entry.business_details?.type === 'subculture'
     && hasAuditSubcultureSummary(entry.business_details)
@@ -183,6 +187,20 @@ export function AuditInlineBusinessSummary({
   entry?: AuditEntryLike;
   t: Translator;
 }) {
+  const dnaDetails = getDnaAuditDetails(entry, t);
+  if (dnaDetails) {
+    const { before, after, revoked } = dnaDetails;
+    return <p className="audit-inline-business-summary">
+      <span>{t('dnaEvidenceUrl')} </span>
+      <span className="sr-only">{t('auditPrevious')}: </span>
+      {before ? <DnaEvidenceLink url={before} /> : <span>{t('dnaMissing')}</span>}
+      <span className="audit-change-arrow" aria-hidden="true">→</span>
+      <span className="sr-only">{t('auditNew')}: </span>
+      {revoked
+        ? <span>{t('dnaAuditRevoked')}</span>
+        : after ? <DnaEvidenceLink url={after} /> : <span>{t('dnaMissing')}</span>}
+    </p>;
+  }
   const items = getAuditInlineBusinessItems(details, t, description, entry);
   if (!items.length) return null;
   return (
