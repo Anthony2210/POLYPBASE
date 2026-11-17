@@ -512,14 +512,14 @@ const choose = (view, value) => {
   view.render('ZoneProbeChart');
 };
 
-test('the combined chart is on the page by default for the last 24 hours, with no trigger or modal', () => {
+test('the combined chart is on the page by default for the last 2 hours, with no trigger or modal', () => {
   const view = zoneCharts({ state: { data: payload, isLoading: false } }).render('ZoneProbeChart');
   assert.equal(section(view).type, 'section');
   assert.equal(view.find((node) => node.type === view.chart).length, 1);
   assert.equal(view.find((node) => node.props.role === 'dialog').length, 0);
-  assert.deepEqual({ ...view.calls.at(-1).window }, { start: 0, end: 24 * HOUR });
+  assert.deepEqual({ ...view.calls.at(-1).window }, { start: 22 * HOUR, end: 24 * HOUR });
   assert.equal(view.calls.at(-1).zoneId, 7);
-  assert.equal(selectedPeriod(view), '24');
+  assert.equal(periodButtons(view).filter((node) => node.props['aria-pressed'] === true).length, 0, 'The initial two-hour window is distinct from the period presets');
   assert.equal(view.text(rangeButton(view)), view.copy.probePeriodCustom, 'A rolling window needs no long date string');
   const visible = periodButtons(view).find((node) => node.key === '24');
   assert.equal(view.text(visible), view.copy.probePeriod_24h);
@@ -746,15 +746,13 @@ test('range parsing keeps the bounds the server accepts', () => {
     { start: new Date('2026-11-08T10:00').getTime(), end: new Date('2026-11-09T10:00').getTime() });
 });
 
-test('the trend renders a compact chart and factual per-probe changes, with no alert color', () => {
+test('the trend renders a compact chart without the removed per-probe changes' , () => {
   const view = zoneCharts({ state: { data: readings([probe(1, [raw(0, 22), raw(MINUTE, 22.6)])]), isLoading: false, window: { start: 0, end: 6 * HOUR } } }).render('ZoneThermalTrend');
   const props = view.find((node) => node.type === view.chart)[0].props;
   assert.equal(props.onZoom, undefined);
   assert.ok(props.height < 200);
   assert.equal(props.target, 22);
-  const changes = view.find((node) => node.props.className === 'zone-thermal-changes')[0];
-  assert.match(view.text(changes), /P1 \+0\.6°C/);
-  assert.equal(view.find((node) => node.type === 'time', changes)[0].props.dateTime, new Date(0).toISOString());
+  assert.equal(view.find((node) => node.props.className === 'zone-thermal-changes').length, 0);
   assert.equal(view.find((node) => /danger|alert/.test(node.props.className ?? '')).length, 0);
   assert.equal(view.calls.at(-1).window.end - view.calls.at(-1).window.start, 6 * HOUR);
 });
@@ -820,7 +818,7 @@ test('the trend reuses the first chart response instead of requesting six hours'
   const recent = probe(1, [raw(18 * HOUR, 22), raw(23 * HOUR, 22.6)]);
   const view = zoneCharts({ initial: { settled: true, data: liveDay({ probes: [recent] }) } }).render('ZoneThermalTrend');
   assert.ok(view.calls.every((call) => call.window === null), 'No own request at opening');
-  assert.match(view.text(view.find((node) => node.props.className === 'zone-thermal-changes')[0]), /P1 \+0\.6°C/);
+  assert.equal(view.find((node) => node.props.className === 'zone-thermal-changes').length, 0);
   const chart = view.find((node) => node.type === view.chart)[0].props;
   assert.deepEqual({ ...chart.window }, { start: 18 * HOUR, end: 24 * HOUR });
 });
@@ -867,7 +865,7 @@ test('trend errors stay independent from the chart and offer their own retry', (
 
 test('opening a location starts exactly one series read, for the chart window', () => {
   const view = zoneCharts().render('ZoneProbeChart');
-  assert.deepEqual(view.calls.map((call) => ({ ...call.window })), [{ start: 0, end: 24 * HOUR }]);
+  assert.deepEqual(view.calls.map((call) => ({ ...call.window })), [{ start: 22 * HOUR, end: 24 * HOUR }]);
 });
 
 test('the first live response settles once and is kept when the user changes the range', () => {

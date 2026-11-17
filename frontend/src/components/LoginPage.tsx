@@ -10,9 +10,11 @@ type SessionLoginResponse = {
 type Props = {
   onAuthenticated: () => void;
   t: Translator;
+  skipOrganizationContext?: boolean;
 };
 
-export default function LoginPage({ onAuthenticated, t }: Props) {
+export default function LoginPage({ onAuthenticated, t, skipOrganizationContext = false }: Props) {
+  const requestOptions = skipOrganizationContext ? { skipOrganizationContext: true, cache: 'no-store' as const } : undefined;
   const emailRef = useRef<HTMLInputElement | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -26,8 +28,8 @@ export default function LoginPage({ onAuthenticated, t }: Props) {
 
   useEffect(() => {
     emailRef.current?.focus();
-    void apiEnsureCsrfCookie().catch(() => undefined);
-  }, []);
+    void apiEnsureCsrfCookie(requestOptions).catch(() => undefined);
+  }, [skipOrganizationContext]);
 
   async function handleForgotSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -37,8 +39,8 @@ export default function LoginPage({ onAuthenticated, t }: Props) {
     setError(null);
 
     try {
-      await apiEnsureCsrfCookie();
-      await apiPost<void>('/api/auth/password-reset/', { email: resetEmail });
+      await apiEnsureCsrfCookie(requestOptions);
+      await apiPost<void>('/api/auth/password-reset/', { email: resetEmail }, requestOptions);
       // The API answers the same way whether or not the address is known, so the
       // confirmation must stay just as neutral here.
       setResetSent(true);
@@ -64,8 +66,8 @@ export default function LoginPage({ onAuthenticated, t }: Props) {
     setError(null);
 
     try {
-      await apiEnsureCsrfCookie();
-      const session = await apiPost<SessionLoginResponse>('/api/auth/session/', { email, password });
+      await apiEnsureCsrfCookie(requestOptions);
+      const session = await apiPost<SessionLoginResponse>('/api/auth/session/', { email, password }, requestOptions);
       setStoredInterfaceLanguage(session.interface_language);
       onAuthenticated();
     } catch (requestError) {

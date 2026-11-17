@@ -20,7 +20,7 @@ import DetailBackButton from './DetailBackButton';
 import ModalPortal from './ModalPortal';
 import PageLoader from './PageLoader';
 import PolypbaseIcon from './PolypbaseIcon';
-import { useZoneChartReadings, ZoneProbeChart, ZoneThermalTrend } from './ZoneProbeCharts';
+import { useZoneChartReadings, ZoneProbeChart } from './ZoneProbeCharts';
 import { ZoneRecentMovements } from './ZoneMovementHistory';
 
 
@@ -990,8 +990,12 @@ function TemperatureControlPanel({
   const delta = measuredTemperature !== null && targetTemperature !== null
     ? measuredTemperature - targetTemperature
     : null;
+  const hasCollectedProbe = zone.probes.some((probe) => probe.is_collected);
+  const chart = useZoneChartReadings(zone, hasCollectedProbe);
   const { summary: thermalControl, error: thermalControlError } = useThermalControl(zone);
-  const recentTemperature = parseTemperatureNumber(thermalControl?.temperature_c);
+  const averagePoints = chart.readings.data?.probe_average ?? [];
+  const chartAverage = averagePoints.length ? averagePoints[averagePoints.length - 1][1] : null;
+  const recentTemperature = chartAverage;
   const recentPeriod = thermalControl?.oldest_measured_at && thermalControl.newest_measured_at
     ? thermalControl.oldest_measured_at === thermalControl.newest_measured_at
       ? formatDisplayDateTime(thermalControl.newest_measured_at)
@@ -1016,8 +1020,6 @@ function TemperatureControlPanel({
     maximum: hasTemperatureRange ? maxTemperature : null,
   });
   const [isEditingTemperature, setIsEditingTemperature] = useState(false);
-  const hasCollectedProbe = zone.probes.some((probe) => probe.is_collected);
-  const chart = useZoneChartReadings(zone, hasCollectedProbe);
   const { monitoring: probeMonitoring, error: monitoringError, revalidate: revalidateMonitoring } = useProbeMonitoring(zone, chart.initial);
   const usesProbes = probeMonitoring?.has_collected_probes ?? false;
   const [statusNow, setStatusNow] = useState(Date.now);
@@ -1131,10 +1133,9 @@ function TemperatureControlPanel({
       <div className="temperature-instrument">
       {hasCollectedProbe ? (
         <div className="zone-thermal-overview">
-          <ZoneThermalTrend initial={chart.initial} zone={zone} t={t} />
           <dl className="temperature-recent-facts">
             {recentTemperature !== null ? (
-              <div><dt>{t('temperatureRecentMean')}</dt><dd>{formatTemperature(recentTemperature)}</dd></div>
+              <div><dt>{t('temperatureRecentMean')}</dt><dd className={targetTemperature === null ? undefined : Math.abs(recentTemperature - targetTemperature) > 0.5 ? 'is-out-of-range' : 'is-in-range'}>{formatTemperature(recentTemperature)}</dd></div>
             ) : null}
             {targetTemperature !== null ? (
               <div><dt>{t('targetTemperature')}</dt><dd>{formatTemperature(targetTemperature)}</dd></div>

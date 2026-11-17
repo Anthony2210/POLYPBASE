@@ -35,3 +35,6 @@ if os.getenv("POLYPBASE_TEST_POSTGRES") == "1":
 PASSWORD_HASHERS = [
     "django.contrib.auth.hashers.MD5PasswordHasher",
 ]
+
+# Isolated in-memory SQLite test runs may exercise frozen sharing captures.
+BOX_SHARING_SQLITE_FROZEN_CAPTURE = True

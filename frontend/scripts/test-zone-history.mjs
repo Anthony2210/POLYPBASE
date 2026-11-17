@@ -36,8 +36,7 @@ test('historical sides show observation intervals and stay out of dated weekly b
   assert.match(historySource, /movement\.transition_id \?\? movement\.location_id/);
   assert.match(historySource, /zoneMovementHistoricalEntry/);
   assert.match(historySource, /zoneMovementHistoricalExit/);
-  assert.match(historySource, /zoneMovementHistoricalTotals/);
-  assert.match(historySource, /summary\.historical_counts/);
+  assert.doesNotMatch(historySource, /zoneMovementHistoricalTotals/);
   assert.doesNotMatch(historySource, /historical_counts[^\n]*week\.entry_count/);
 });
 

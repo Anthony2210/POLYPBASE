@@ -5,8 +5,6 @@ param(
     [string]$VmUser = 'aquariumparis',
     [string]$SshKeyPath,
     [string]$HostKeyFingerprint = 'ssh-ed25519 255 SHA256:qLQPuLRIqeGa/b5fKNsCOcpF2TJZCmbMB0ZRJ90Ifwk',
-    [ValidatePattern('\A[0-9a-f]{40}:[0-9a-f]{64}\z', Options = 'None')]
-    [string]$ReviewedMigrationApproval,
     [switch]$PreflightOnly,
     [switch]$UseVerifiedGitHubCi
 )
@@ -270,14 +268,6 @@ try {
         throw 'The deployment executor is not committed in the target release.'
     }
 
-    if (-not [string]::IsNullOrEmpty($ReviewedMigrationApproval)) {
-        $reviewedCommit = $ReviewedMigrationApproval.Split(':')[0]
-        if ($reviewedCommit -cne $targetCommit) {
-            throw 'Reviewed migration approval does not match the target release commit.'
-        }
-        Write-Host "Requested reviewed migration approval: $ReviewedMigrationApproval" -ForegroundColor Yellow
-    }
-
     Write-Host "Target commit: $targetCommit" -ForegroundColor Green
     Write-Host (& $gitPath log -1 --format='%h %s' $targetCommit)
 
@@ -319,10 +309,6 @@ try {
 
     $productionChanged = $true
     $prepareCommand = "sudo -n -u polypbase /bin/bash $remoteScript $targetCommit"
-    if (-not [string]::IsNullOrEmpty($ReviewedMigrationApproval)) {
-        # Parameter validation permits only hex digits and one colon: no shell syntax.
-        $prepareCommand += " $ReviewedMigrationApproval"
-    }
     Invoke-RemoteCommand -Label 'Backup and prepare release' -Command $prepareCommand | Out-Null
     Invoke-RemoteCommand -Label 'Restart Polypbase' -Command 'sudo -n /usr/bin/systemctl restart polypbase' | Out-Null
     Invoke-RemoteCommand -Label 'Validate Nginx configuration' -Command 'sudo -n /usr/sbin/nginx -t' | Out-Null

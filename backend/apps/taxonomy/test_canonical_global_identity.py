@@ -1,5 +1,5 @@
 from django.db import IntegrityError, connection, transaction
-from config.migration_test_utils import MigrationExecutor
+from config.migration_test_utils import MigrationExecutor, historical_targets
 from django.db.migrations.recorder import MigrationRecorder
 from django.test import TestCase, TransactionTestCase
 
@@ -11,6 +11,7 @@ from .models import GlobalStrainIdentity, Species, Strain
 CONSTRAINT = "unique_owned_strain_per_global_identity"
 BEFORE = ("taxonomy", "0007_localstrainidentity_provenance_code_assignment")
 AFTER = ("taxonomy", "0008_strain_canonical_global_identity")
+HISTORICAL_APPS = {"taxonomy", "cultures", "measurements"}
 
 
 class CanonicalGlobalIdentityTests(TestCase):
@@ -115,10 +116,10 @@ class CanonicalGlobalIdentityMigrationTests(TransactionTestCase):
         # Normalize preceding historical tests, then retain current cross-app states,
         # including Organization.portable_id, in both schema and historical models.
         executor.migrate(self.latest)
-        self.before_targets = [node for node in self.latest if node[0] not in {"taxonomy", "cultures", "measurements"}] + [
+        self.before_targets = historical_targets(executor.loader, HISTORICAL_APPS, [
             BEFORE, ("cultures", "0014_box_movement_week_matches_moved_at"),
             ("measurements", "0013_historical_temperature_receipt"),
-        ]
+        ])
         executor = MigrationExecutor(connection)
         executor.migrate(self.before_targets)
         return executor.loader.project_state(self.before_targets).apps

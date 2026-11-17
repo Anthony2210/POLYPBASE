@@ -3,7 +3,7 @@
 from datetime import date
 
 from django.db import IntegrityError, connection, transaction
-from config.migration_test_utils import MigrationExecutor
+from config.migration_test_utils import MigrationExecutor, historical_targets
 from django.test import TransactionTestCase
 from django.utils import timezone
 
@@ -13,10 +13,10 @@ class QuantitativeSubcultureMigrationTests(TransactionTestCase):
         executor = MigrationExecutor(connection)
         latest = executor.loader.graph.leaf_nodes()
         self.addCleanup(lambda: MigrationExecutor(connection).migrate(latest))
-        before = [node for node in latest if node[0] not in {"cultures", "measurements"}] + [
+        before = historical_targets(executor.loader, {"cultures", "measurements"}, [
             ("cultures", "0011_protect_subculture_history"),
             ("measurements", "0013_historical_temperature_receipt"),
-        ]
+        ])
         executor.migrate(before)
         apps = executor.loader.project_state(before).apps
         org = apps.get_model("organizations", "Organization").objects.create(name="Optional upgrade QA")
@@ -65,8 +65,10 @@ class QuantitativeSubcultureMigrationTests(TransactionTestCase):
         executor = MigrationExecutor(connection)
         latest = executor.loader.graph.leaf_nodes()
         self.addCleanup(lambda: MigrationExecutor(connection).migrate(latest))
-        other_targets = [node for node in latest if node[0] not in {"cultures", "measurements"}]
-        before = other_targets + [("cultures", "0009_portable_lineage"), ("measurements", "0005_biologicalmeasurement_week_start")]
+        before = historical_targets(executor.loader, {"cultures", "measurements"}, [
+            ("cultures", "0009_portable_lineage"),
+            ("measurements", "0005_biologicalmeasurement_week_start"),
+        ])
         executor.migrate(before)
         old_apps = executor.loader.project_state(before).apps
         org = old_apps.get_model("organizations", "Organization").objects.create(name="Legacy quantitative QA")

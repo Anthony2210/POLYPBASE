@@ -1,0 +1,419 @@
+/* Sharing reuses operational controls and surfaces; reader chrome has no institutional context. */
+.sharing-admin,
+.sharing-editor,
+.sharing-science,
+.sharing-form-body,
+.sharing-access-main,
+.sharing-invitation,
+.sharing-received,
+.sharing-reader {
+  min-width: 0;
+}
+
+.sharing-admin h2,
+.sharing-access h1 {
+  margin-block: 0 var(--space-3);
+}
+
+.sharing-toolbar,
+.sharing-row-main,
+.sharing-selected-box,
+.sharing-access-header,
+.sharing-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.sharing-toolbar,
+.sharing-row-main,
+.sharing-selected-box,
+.sharing-access-header {
+  justify-content: space-between;
+}
+
+.sharing-toolbar {
+  margin-block: var(--space-5);
+}
+
+.sharing-toolbar h3,
+.sharing-toolbar p,
+.sharing-row p {
+  margin: 0;
+}
+
+.sharing-actions a,
+.sharing-brand {
+  text-decoration: none;
+}
+
+.sharing-access a.secondary-button,
+.sharing-admin a.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-block: var(--space-2);
+}
+
+.sharing-admin .box-tracking-preview-link {
+  color: var(--color-primary-hover);
+  font-weight: 750;
+}
+
+.sharing-current {
+  padding: var(--space-2) var(--space-3);
+  font-weight: 750;
+  border-bottom: 2px solid var(--color-primary);
+}
+
+.sharing-help,
+.sharing-field small,
+.sharing-check small,
+.sharing-row small,
+.sharing-selected-box small {
+  color: var(--color-ink-soft);
+  font-size: .875rem;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.sharing-help {
+  max-width: 78ch;
+}
+
+.sharing-notice,
+.sharing-empty,
+.sharing-selected-box {
+  padding: var(--space-4);
+  background: var(--color-surface-subtle);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+}
+
+.sharing-editor,
+.sharing-filter {
+  padding: var(--space-5);
+  margin-block: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+}
+
+.sharing-form-body,
+.sharing-disclosure fieldset,
+.sharing-mode {
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+
+.sharing-form-body > * + * {
+  margin-block-start: var(--space-5);
+}
+
+.sharing-field {
+  display: grid;
+  gap: var(--space-2);
+  max-width: 38rem;
+}
+
+.sharing-disclosure {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-5);
+}
+
+.sharing-disclosure > p {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.sharing-disclosure legend,
+.sharing-mode legend {
+  margin-block-end: var(--space-2);
+  font-weight: 750;
+}
+
+.sharing-check {
+  display: flex;
+  align-items: start;
+  min-height: 44px;
+  padding-block: var(--space-2);
+  gap: var(--space-2);
+  cursor: pointer;
+}
+
+.sharing-check input {
+  width: 20px;
+  min-height: 20px;
+  height: 20px;
+  margin: 2px 0 0;
+  accent-color: var(--color-primary);
+  flex: 0 0 20px;
+}
+
+.sharing-check small,
+.sharing-row small,
+.sharing-table small,
+.sharing-selected-box small,
+.sharing-selected-box strong {
+  display: block;
+}
+
+.sharing-expiries {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.sharing-preview {
+  padding-block-start: var(--space-5);
+  margin-block-start: var(--space-5);
+  border-top: 1px solid var(--color-line);
+}
+
+.sharing-rows,
+.sharing-lookup-results {
+  padding: 0;
+  list-style: none;
+}
+
+.sharing-lookup-results {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.sharing-lookup .search-field {
+  margin-block-end: var(--space-2);
+}
+
+.sharing-row {
+  display: grid;
+  gap: var(--space-3);
+  padding-block: var(--space-5);
+  border-top: 1px solid var(--color-line);
+  overflow-wrap: anywhere;
+}
+
+.sharing-row-main {
+  align-items: start;
+}
+
+.sharing-row-main > div {
+  flex: 1 1 16rem;
+}
+
+.sharing-delivery {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.sharing-danger {
+  color: #8f3028;
+}
+
+.sharing-reissue {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  background: var(--color-surface-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.sharing-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: var(--space-4) var(--space-6);
+  margin-block: var(--space-4) var(--space-6);
+}
+
+.sharing-facts dt {
+  color: var(--color-ink-soft);
+  font-size: .875rem;
+}
+
+.sharing-facts dd {
+  margin: var(--space-1) 0 0;
+  overflow-wrap: anywhere;
+}
+
+.sharing-hash {
+  overflow-wrap: anywhere;
+  font-family: monospace;
+  font-size: .875rem;
+}
+
+.sharing-access {
+  min-height: 100dvh;
+  background: var(--color-page);
+  color: var(--color-ink);
+  line-height: 1.5;
+}
+
+.sharing-access-header {
+  padding: var(--space-4) max(var(--space-4), calc((100% - 1120px) / 2));
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.sharing-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-ink);
+  font-weight: 750;
+}
+
+.sharing-brand img {
+  width: 26px;
+  height: 32px;
+}
+
+.sharing-account {
+  overflow-wrap: anywhere;
+  font-size: .875rem;
+}
+
+.sharing-access-main {
+  width: min(100%, 1168px);
+  padding: var(--space-6) var(--space-6) var(--space-10);
+  margin-inline: auto;
+}
+
+.sharing-skip {
+  position: fixed;
+  top: var(--space-2);
+  inset-inline-start: var(--space-2);
+  z-index: 100;
+  padding: var(--space-3);
+  background: var(--color-surface);
+  transform: translateY(-200%);
+}
+
+.sharing-skip:focus {
+  transform: none;
+}
+
+/* The reader uses document scrolling, without an overflow ancestor or fixed
+   institutional header. Sticky top:0 therefore stays visible without an offset. */
+.sharing-readonly-banner {
+  --sharing-context-background: #e8f2ff;
+  --sharing-context-ink: #173e68;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  color: var(--sharing-context-ink);
+  background: var(--sharing-context-background);
+  border: 1px solid #b6cfe9;
+  border-radius: var(--radius-sm);
+  overflow-wrap: anywhere;
+}
+
+.sharing-readonly-banner svg {
+  flex: 0 0 auto;
+  margin-block-start: 2px;
+}
+
+.sharing-readonly-banner p {
+  margin: 0;
+}
+
+.sharing-readonly-banner small {
+  color: var(--sharing-context-ink);
+  font-size: .875rem;
+}
+
+.sharing-science > section {
+  margin-block: var(--space-6);
+}
+
+.sharing-access details summary,
+.sharing-admin details summary {
+  padding-block: var(--space-2);
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.sharing-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+}
+
+.sharing-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--color-surface);
+  font-variant-numeric: tabular-nums;
+  font-size: .875rem;
+}
+
+.sharing-table th,
+.sharing-table td {
+  padding: var(--space-3);
+  text-align: start;
+  vertical-align: top;
+  border-bottom: 1px solid var(--color-line-soft);
+}
+
+.sharing-table thead {
+  background: var(--color-surface-subtle);
+}
+
+.sharing-table th {
+  min-width: 8rem;
+}
+
+.sharing-login-help {
+  padding: var(--space-3) var(--space-5);
+  color: var(--color-ink-soft);
+  background: var(--color-surface-info);
+}
+
+.sharing-access :focus-visible,
+.sharing-admin :focus-visible {
+  outline: 2px solid var(--color-primary-hover);
+  outline-offset: 3px;
+}
+
+.sharing-access [id],
+.sharing-access :is(button, a, summary, [tabindex]) {
+  scroll-margin-block: 10rem var(--space-4);
+}
+
+@media (max-width: 759px) {
+  .sharing-access-main {
+    padding: var(--space-4) var(--space-4) var(--space-8);
+  }
+
+  .sharing-access-header {
+    align-items: start;
+    gap: var(--space-4);
+  }
+
+  .sharing-access-header nav {
+    width: 100%;
+  }
+
+  .sharing-access input,
+  .sharing-access select {
+    font-size: 1rem;
+  }
+
+  .sharing-readonly-banner {
+    padding: var(--space-3);
+  }
+}
+
+@media (forced-colors: active) {
+  .sharing-readonly-banner {
+    border: 2px solid CanvasText;
+  }
+}

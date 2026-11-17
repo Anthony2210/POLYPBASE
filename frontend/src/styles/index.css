@@ -29,6 +29,7 @@
 @import './pages/exports-labels.css' layer(pages);
 @import './pages/profile.css' layer(pages);
 @import './pages/administration.css' layer(pages);
+@import './pages/box-sharing.css' layer(pages);
 @import './responsive/tablet.css' layer(responsive);
 @import './responsive/phone.css' layer(responsive);
 @import './responsive/print.css' layer(print);

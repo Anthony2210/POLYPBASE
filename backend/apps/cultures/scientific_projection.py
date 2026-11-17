@@ -70,6 +70,20 @@ def project_box_snapshot(*, actor, source_organization, box_id, selectors, requi
     identity selector is disclosed; the strain eligibility check runs then.
     """
     source = _authorized_source(actor, source_organization)
+    return project_verified_source_box_snapshot(
+        source=source, box_id=box_id, selectors=selectors, required_selectors=required_selectors,
+    )
+
+
+def project_verified_source_box_snapshot(*, source, box_id, selectors, required_selectors=frozenset()):
+    """Project one Box of a source institution the caller already authorized.
+
+    Trusted internal entry: it performs no actor check. `source` must be an
+    Organization row the calling workflow loaded from server-side state after
+    its own authorization succeeded (institutional read above, or an active
+    individual reader grant); it is never built from client input. Box scope,
+    disclosure filtering and every guarantee documented above are unchanged.
+    """
     try:
         disclosure = select_disclosure(selectors, required=required_selectors)
     except SnapshotError as error:

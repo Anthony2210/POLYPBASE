@@ -6,7 +6,7 @@ import uuid
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, connection, transaction
-from config.migration_test_utils import MigrationExecutor
+from config.migration_test_utils import MigrationExecutor, historical_targets
 from django.forms import modelform_factory
 from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
@@ -169,10 +169,10 @@ class OrganizationPortableIdentityMigrationTests(TransactionTestCase):
 
         executor = MigrationExecutor(connection)
         latest = executor.loader.graph.leaf_nodes()
-        before_targets = [node for node in latest if node[0] not in {"organizations", "cultures", "measurements"}] + [
+        before_targets = historical_targets(executor.loader, {"organizations", "cultures", "measurements"}, [
             before, ("cultures", "0014_box_movement_week_matches_moved_at"),
             ("measurements", "0013_historical_temperature_receipt"),
-        ]
+        ])
         try:
             executor.migrate(before_targets)
             old_apps = executor.loader.project_state(before_targets).apps

@@ -618,7 +618,8 @@ migration : **ne pas relancer tant que cette poursuite n'est pas explicitement
 autorisée**. L'accord manifeste ne vaut pas accord release/migration ou SQL CCA.
 
 La reprise passe par `deploy/deploy_vm.ps1 -UseVerifiedGitHubCi` avec les accords
-habituels et, si requis par le plan, `-ReviewedMigrationApproval COMMIT:SHA256`.
+habituels. Toute migration en attente bloque le déploiement normal et doit suivre
+la procédure de migration dédiée.
 Ne pas appeler manuellement `migrate`, modifier SQL, copier des sources dans APP,
 faire un checkout à la main ou déplacer le garde. Aucune commande de release
 n'est exécutée par la préparation de ce document.

@@ -8,7 +8,7 @@ import useProbeReadings from '../hooks/useProbeReadings';
 import type { Translator } from '../i18n';
 import type { ThermalZone, ZoneProbeReadings } from '../types';
 import { getDocumentLocale } from '../utils/dateFormat';
-import { formatSignedTemperature, formatTemperature } from '../utils/environmentFormat';
+import { formatTemperature } from '../utils/environmentFormat';
 import { getErrorMessage } from '../utils/errors';
 import { clampProbeWindow, MIN_PROBE_WINDOW_MS, type ProbeWindow } from '../utils/probeChart';
 import {
@@ -17,7 +17,7 @@ import {
 } from '../utils/probePeriod';
 import { projectProbeReadings } from '../utils/probeReadings';
 import {
-  buildProbeAverage, buildProbeSeries, probeRecentChanges, seriesTemperatureDomain, type ProbeSeries,
+  buildProbeAverage, buildProbeSeries, seriesTemperatureDomain, type ProbeSeries,
 } from '../utils/probeSeries';
 import PolypbaseIcon from './PolypbaseIcon';
 import ProbeSeriesChart, { averageSeriesStyle, seriesClassName, type ProbeSeriesChartLabels } from './ProbeSeriesChart';
@@ -51,10 +51,10 @@ function chartLabels(t: Translator): ProbeSeriesChartLabels {
 }
 
 /** Short visible label and full name of each rolling period. */
-const PERIOD_OPTION_KEYS: Record<RelativePeriodHours, {
+const PERIOD_OPTION_KEYS: Partial<Record<RelativePeriodHours, {
   short: 'probePeriod_24h' | 'probePeriod_7d' | 'probePeriod_30d';
   full: 'probeRangeReset' | 'probePeriodLast7Days' | 'probePeriodLast30Days';
-}> = {
+}>> = {
   24: { short: 'probePeriod_24h', full: 'probeRangeReset' },
   168: { short: 'probePeriod_7d', full: 'probePeriodLast7Days' },
   720: { short: 'probePeriod_30d', full: 'probePeriodLast30Days' },
@@ -154,16 +154,13 @@ export function ZoneThermalTrend({ initial, zone, t }: { initial: InitialChartRe
   const series = useMemo(() => buildProbeSeries(readings.data, fallback), [fallback, readings.data]);
   const target = parseTarget(readings.data ? readings.data.target_temperature_c : zone.target_temperature_c);
   const domain = useMemo(() => seriesTemperatureDomain(series, target), [series, target]);
-  const changes = useMemo(() => probeRecentChanges(series), [series]);
   const locale = getDocumentLocale();
-  const timeFormat = useMemo(() => new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }), [locale]);
-  const heading = t('temperatureTrendTitle').replace('{hours}', String(RECENT_TREND_HOURS));
   const hasReadings = series.some((entry) => entry.readings.length > 0);
 
   return (
     <div className="zone-thermal-trend" aria-busy={readings.isLoading && !readings.data}>
       <div className="probe-series-frame">
-        <ProbeSeriesChart ariaLabel={summaryLabel(series, heading, t)} domain={domain} height={TREND_HEIGHT}
+        <ProbeSeriesChart ariaLabel={summaryLabel(series, t('probeReadingsTitle'), t)} domain={domain} height={TREND_HEIGHT}
           labels={chartLabels(t)} locale={locale} series={series} target={target} window={readings.window} />
         {readings.data && !hasReadings ? <p className="probe-series-state"><span>{t('probeNoReadings')}</span></p> : null}
       </div>
@@ -173,16 +170,7 @@ export function ZoneThermalTrend({ initial, zone, t }: { initial: InitialChartRe
           <button className="secondary-button" type="button" onClick={readings.retry}>{t('probeRetry')}</button>
         </div>
       ) : null}
-      {changes.length ? (
-        <p className="zone-thermal-changes">
-          <small>{heading}</small>
-          {changes.map((change) => (
-            <span key={change.id}>
-              {change.code} <strong>{formatSignedTemperature(change.delta)}°C</strong> <time dateTime={new Date(change.from).toISOString()}>{timeFormat.format(change.from)}</time> → <time dateTime={new Date(change.to).toISOString()}>{timeFormat.format(change.to)}</time>
-            </span>
-          ))}
-        </p>
-      ) : null}
+
     </div>
   );
 }
@@ -192,7 +180,7 @@ export function ZoneProbeChart({ chart, zone, t }: { chart: ZoneChartReadings; z
   const { period, setPeriod, custom, setCustom, readings } = chart;
   const fallback = useMemo(() => collectedProbes(zone), [zone]);
   const series = useMemo(() => buildProbeSeries(readings.data, fallback), [fallback, readings.data]);
-  const target = parseTarget(readings.data ? readings.data.target_temperature_c : zone.target_temperature_c);
+  const target = null;
   const average = useMemo(() => buildProbeAverage(readings.data), [readings.data]);
   const latestAverage = average[average.length - 1];
   const domain = useMemo(() => seriesTemperatureDomain(series, target, average), [series, target, average]);
@@ -277,6 +265,7 @@ export function ZoneProbeChart({ chart, zone, t }: { chart: ZoneChartReadings; z
         <div className="zone-probe-chart-range" role="group" aria-label={t('probePeriod')} aria-describedby={exactPeriodId}>
           {RELATIVE_PERIOD_HOURS.map((hours) => {
             const keys = PERIOD_OPTION_KEYS[hours];
+            if (!keys) return null;
             const pressed = !customActive && period.kind === 'relative' && period.hours === hours;
             return (
               <button key={hours} type="button" className="zone-probe-period-option" aria-pressed={pressed}

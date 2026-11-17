@@ -25,20 +25,9 @@ foreach ($name in @('Write-Step', 'Invoke-NativeCommand', 'Invoke-RemoteCommand'
     . ([scriptblock]::Create($definition.Extent.Text))
 }
 
-# Exercise the actual parameter attributes without any deployment body.
-$bindParameters = [scriptblock]::Create($ast.ParamBlock.Extent.Text + "`nreturn `$ReviewedMigrationApproval")
-$targetCommit = '23a9f3edd37da19d2d11d4378009f339e6d14db8'
-$approval = $targetCommit + ':' + ('a' * 64)
-$bound = & $bindParameters -ReviewedMigrationApproval $approval
-Assert-True ($bound -ceq $approval) 'Valid approval parameter was not preserved.'
-$default = & $bindParameters
-Assert-True ([string]::IsNullOrEmpty($default)) 'Approval must be absent by default.'
-foreach ($invalid in @('true', $targetCommit, $approval.ToUpperInvariant(), ($approval + "`n"), ($approval + '; echo unsafe'))) {
-    $rejected = $false
-    try { & $bindParameters -ReviewedMigrationApproval $invalid | Out-Null }
-    catch { $rejected = $true }
-    Assert-True $rejected 'Malformed approval parameter was accepted.'
-}
+# The obsolete migration approval parameter must no longer be bindable.
+Assert-True (-not ($ast.ParamBlock.Parameters.Name.VariablePath.UserPath -contains 'ReviewedMigrationApproval')) `
+    'Obsolete migration approval parameter remains bindable.'
 
 # A local PowerShell child is a native-output fixture, not plink or SSH.
 $nativeShell = (Get-Process -Id $PID).Path
@@ -127,28 +116,15 @@ $VmHost = 'fixture-host.invalid'
 $HostKeyFingerprint = 'fixture-host-key'
 $remoteScript = '/tmp/fixture-executor.sh'
 
-$guardStart = $source.IndexOf('    if (-not [string]::IsNullOrEmpty($ReviewedMigrationApproval)) {')
-$guardEnd = $source.IndexOf('    Write-Host "Target commit: $targetCommit"', $guardStart)
-$targetGuard = [scriptblock]::Create($source.Substring($guardStart, $guardEnd - $guardStart))
-$ReviewedMigrationApproval = $approval
-& $targetGuard
-$ReviewedMigrationApproval = ('b' * 40) + ':' + ('a' * 64)
-$mismatchCaught = $false
-try { & $targetGuard }
-catch { $mismatchCaught = $_.Exception.Message -match 'does not match the target release commit' }
-Assert-True $mismatchCaught 'Mismatched release target was accepted.'
-
 $prepareStart = $source.IndexOf('    $prepareCommand = "sudo -n -u polypbase')
 $prepareEnd = $source.IndexOf("    Invoke-RemoteCommand -Label 'Restart Polypbase'", $prepareStart)
 $prepare = [scriptblock]::Create($source.Substring($prepareStart, $prepareEnd - $prepareStart))
-foreach ($ReviewedMigrationApproval in @('', $approval)) {
-    & $prepare
-    $expected = "sudo -n -u polypbase /bin/bash $remoteScript $targetCommit"
-    if ($ReviewedMigrationApproval) { $expected += " $ReviewedMigrationApproval" }
-    Assert-True ($script:ObservedArguments[-1] -ceq $expected) 'Approval was not passed as the exact sudo/Bash argument.'
-    Assert-True ($script:ObservedArguments[0] -ceq '-batch') 'Plink batch safeguard changed.'
-    Assert-True ($script:ObservedArguments[1] -ceq '-hostkey') 'Plink host-key safeguard changed.'
-}
+$targetCommit = '23a9f3edd37da19d2d11d4378009f339e6d14db8'
+& $prepare
+$expected = "sudo -n -u polypbase /bin/bash $remoteScript $targetCommit"
+Assert-True ($script:ObservedArguments[-1] -ceq $expected) 'Unexpected migration approval argument was passed.'
+Assert-True ($script:ObservedArguments[0] -ceq '-batch') 'Plink batch safeguard changed.'
+Assert-True ($script:ObservedArguments[1] -ceq '-hostkey') 'Plink host-key safeguard changed.'
 Show-RemoteDiagnostics
 
 # Verified fast mode: the GitHub API boundary is replaced by an in-memory fixture.
@@ -248,6 +224,6 @@ $gateText = $gates[0].Extent.Text
 Assert-True ($gateText.Contains("'Django test suite'") -and $gateText.Contains("'Frontend production build'")) 'Gate must cover tests and build.'
 Assert-True (-not $gateText.Contains("'check'") -and -not $gateText.Contains('makemigrations')) 'Checks and drift must stay ungated.'
 Assert-True (([regex]::Matches($source, "'Django test suite'")).Count -eq 1) 'Test step must exist once.'
-Assert-True ($source.Contains('ReviewedMigrationApproval')) 'Migration approval guard must remain.'
+Assert-True (-not $source.Contains('ReviewedMigrationApproval')) 'Obsolete migration approval parameter remains.'
 
 Write-Host 'POWERSHELL_TESTS_OK'

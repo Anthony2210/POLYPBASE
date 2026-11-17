@@ -123,6 +123,7 @@ import { getLabelsViewLabels, getProfileLabels } from './utils/presentationLabel
 import type { QrLabelItem } from './utils/qrLabels';
 import { isBoxLocationChangedError } from './utils/boxErrors';
 import { isRouteRequestCurrent } from './utils/routeSafety';
+import { isSharedPath, navigateShared } from './utils/boxSharing';
 
 const AdminView = lazy(() => import('./components/AdminView'));
 const ExportsView = lazy(() => import('./components/ExportsView'));
@@ -2070,6 +2071,10 @@ export default function App() {
     // Access is checked by the existing guards after profile bootstrap. Recognize
     // the destination now without treating an unknown parser fallback as home.
     const destination = nextPath && isRecognizedAppPath(nextPath, true, true) ? nextPath : '/';
+    if (isSharedPath(destination)) {
+      navigateShared(destination, true);
+      return;
+    }
 
     resetNavigation(destination, null);
     setRoute(getCurrentRoute());
@@ -2815,6 +2820,7 @@ function isRecognizedAppPath(path: string, isDesktopApp: boolean, canUseAdmin: b
       || /(?:^|\/)\.{1,2}(?:\/|$)/.test(decoded)
       || (/%2f/i.test(pathname) && !isBoxPath)) return false;
     if (['/', '/zones', '/overview', '/labels', '/profile'].includes(pathname)) return true;
+    if (/^\/shared-boxes(?:\/(?:accept|[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}))?\/?$/i.test(pathname)) return !url.search && !url.hash;
     if (pathname === '/exports') return isDesktopApp;
     if (isBoxPath) return true;
     const idMatch = pathname.match(/^\/(?:bac\/(\d+)|zones\/(\d+)(?:\/(?:boxes|history))?)\/?$/);

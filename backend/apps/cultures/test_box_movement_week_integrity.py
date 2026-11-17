@@ -6,7 +6,7 @@ from unittest.mock import patch
 from django.core import serializers
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
-from config.migration_test_utils import MigrationExecutor
+from config.migration_test_utils import MigrationExecutor, historical_targets
 from django.test import TestCase, TransactionTestCase, override_settings, skipUnlessDBFeature
 
 from .models import BoxMovement
@@ -219,10 +219,10 @@ class BoxMovementWeekConstraintMigrationTests(TransactionTestCase):
         executor = MigrationExecutor(connection)
         latest = executor.loader.graph.leaf_nodes()
         self.addCleanup(lambda: MigrationExecutor(connection).migrate(latest))
-        before = [node for node in latest if node[0] not in {"cultures", "measurements"}] + [
+        before = historical_targets(executor.loader, {"cultures", "measurements"}, [
             ("cultures", "0013_box_movement_kind_week_links"),
             ("measurements", "0013_historical_temperature_receipt"),
-        ]
+        ])
         executor.migrate(before)
         apps = executor.loader.project_state(before).apps
         organization = apps.get_model("organizations", "Organization").objects.create(name="Week schema QA")

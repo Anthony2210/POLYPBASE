@@ -1684,6 +1684,14 @@
   font-weight: 700;
 }
 
+.temperature-recent-facts dd.is-in-range,
+.temperature-recent-facts dd.is-out-of-range {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+}
+.temperature-recent-facts dd.is-in-range { color: var(--color-success); background: var(--color-success-soft); }
+.temperature-recent-facts dd.is-out-of-range { color: var(--color-danger); background: var(--color-danger-soft); }
+
 .zone-probe-chart-section {
   position: relative;
   overflow: hidden;

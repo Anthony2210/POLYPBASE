@@ -5,8 +5,8 @@ const DAY_MS = 24 * HOUR_MS;
 
 /** Rolling windows offered by the period control. Display choices, not thresholds. */
 export const RELATIVE_PERIOD_HOURS = [24, 7 * 24, 30 * 24] as const;
-export type RelativePeriodHours = (typeof RELATIVE_PERIOD_HOURS)[number];
-export const DEFAULT_PERIOD_HOURS: RelativePeriodHours = 24;
+export type RelativePeriodHours = 2 | (typeof RELATIVE_PERIOD_HOURS)[number];
+export const DEFAULT_PERIOD_HOURS: RelativePeriodHours = 2;
 
 /** A rolling window ending now, or exact bounds chosen by the user. */
 export type ChartPeriod =

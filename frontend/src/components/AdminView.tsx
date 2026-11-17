@@ -70,6 +70,7 @@ import AccountInvitationsPanel, { type InvitationsSnapshot } from './AccountInvi
 import AdminActionPanel from './AdminActionPanel';
 import AdminAuditSection from './AdminAuditSection';
 import BoxInventoryAdminSection from './BoxInventoryAdminSection';
+import BoxSharingAdminSection from './sharing/BoxSharingAdminSection';
 import { useConfirmAction } from './ConfirmActionModal';
 import LabConfigurationAdminSection from './LabConfigurationAdminSection';
 import PageLoader from './PageLoader';
@@ -94,7 +95,6 @@ export type AdminSectionKey = (typeof ADMIN_FLOW_ITEMS)[number]['key'];
 
 const DISABLED_ADMIN_SECTIONS: ReadonlySet<AdminSectionKey> = new Set([
   'references',
-  'transfers',
   'organizations',
 ]);
 
@@ -2534,28 +2534,13 @@ export default function AdminView({
             />
           ) : null}
 
-          {displayedSection === 'transfers' && !isOptionsLoading && boxCollectionStatus === 'error' ? (
-            <section className="login-notice" role="alert">
-              <h2>{t('pageLoadErrorTitle')}</h2>
-              <p>{t('boxCollectionLoadError')}</p>
-              <button className="secondary-button" type="button" onClick={onRetryBoxCollection}>
-                {t('boxCollectionRetry')}
-              </button>
-            </section>
-          ) : null}
-
-          {displayedSection === 'transfers' && !isOptionsLoading && boxCollectionStatus !== 'error'
-            && boxCollectionStatus !== 'ready' ? (
-            <PageLoader variant="admin" label={t('loading')} />
-          ) : null}
-
-          {displayedSection === 'transfers' && !isOptionsLoading && boxCollectionStatus === 'ready' ? (
-            <TransfersAdminSection
+          {displayedSection === 'transfers' && activeOrganizationId != null ? (
+            <BoxSharingAdminSection
+              key={`${profile.id}:${activeOrganizationId}`}
+              organizationId={activeOrganizationId}
               profile={profile}
-              boxes={boxes}
-              organizations={organizations}
-              onCreateTransfer={onCreateTransfer}
-              zones={zones}
+              language={language}
+              onOpenBox={onOpenBox}
               t={t}
             />
           ) : null}

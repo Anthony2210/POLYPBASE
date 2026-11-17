@@ -109,6 +109,11 @@ export function installAppRouting(context, evaluate, organization = 1) {
     const exports = evaluate(`(() => { const exports = {}; ${outputText}\nreturn exports; })()`);
     Object.assign(context, exports);
   }
+  const sharingSource = ts.createSourceFile('boxSharing.ts', readFileSync(new URL('../src/utils/boxSharing.ts', import.meta.url), 'utf8'), ts.ScriptTarget.Latest, true);
+  for (const name of ['isSharedPath', 'navigateShared']) {
+    const node = sharingSource.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === name);
+    evaluate(node.getText(sharingSource).replace(/^export /, ''));
+  }
   // The on-demand Box collection: real helpers and App functions over inert refs/setters.
   const boxCollectionSource = readFileSync(new URL('../src/utils/boxCollection.ts', import.meta.url), 'utf8');
   const { outputText: boxCollectionOutput } = ts.transpileModule(boxCollectionSource, {

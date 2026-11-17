@@ -4,6 +4,7 @@ import type { Language, Translator } from '../i18n';
 import type { UserProfile } from '../types';
 import { getAccountMemberRoleLabel } from '../utils/accountMembers';
 import { getErrorMessage } from '../utils/errors';
+import { navigateShared } from '../utils/boxSharing';
 import { formatReadableUserIdentity } from '../utils/userIdentity';
 import PageLoader from './PageLoader';
 import PolypbaseIcon from './PolypbaseIcon';
@@ -113,6 +114,11 @@ export default function ProfileView({
           </div>
         </div>
         <div className="profile-identity-actions">
+          <a className="secondary-button button-icon-label" href="/shared-boxes" onClick={(event) => {
+            if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            navigateShared('/shared-boxes');
+          }}>{t('shareReceived')}</a>
           {canOpenAdmin ? (
             <button
               className="secondary-button button-icon-label profile-admin-action"

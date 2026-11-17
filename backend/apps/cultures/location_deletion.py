@@ -64,6 +64,7 @@ _NON_LOCATION_ZONE_KEYS = frozenset(
 # Measurement rows hang off a probe; any probe of the location already blocks.
 JSON_EXEMPTIONS = {
     "measurements.TemperatureMeasurement": "raw probe payload; its probe relation is checked",
+    "sharing.BoxReaderShare": "scientific snapshot selector names only; the catalogue has no location",
 }
 
 

@@ -40,6 +40,9 @@ function hasStrobilaReference(path, source) {
   if (path === 'api/measurementImport.ts') {
     source = source.replace(/\bstrobila_count:\s*'csvFieldStrobila'(?=\s*[,}])/, '');
   }
+  if (path === 'utils/boxSharing.ts') {
+    source = source.replace(/'observation\.strobila_count':\s*'shareStrobilae'(?=\s*[,}])/, '');
+  }
   return /strobila_count|strobiles/.test(source);
 }
 
@@ -58,9 +61,11 @@ test('the CSV field label is metadata but numerical strobila readers remain dete
   }
   assert.equal(hasStrobilaReference('other.ts', "strobila_count: 'csvFieldStrobila',"), true);
   assert.equal(hasStrobilaReference(path, 'strobila_count: Number(null),'), true);
+  assert.equal(hasStrobilaReference('utils/boxSharing.ts', "'observation.strobila_count': 'shareStrobilae',"), false);
+  assert.equal(hasStrobilaReference('utils/boxSharing.ts', "'observation.strobila_count': 'shareStrobilae',\nconst value = row.strobila_count ?? 0;"), true);
 });
 
-test('no unreviewed strobila references exist outside the typed API and audit presentation', () => {
+test('no unreviewed numerical strobila references exist outside the typed API and audit presentation', () => {
   const root = new URL('../src/', import.meta.url);
   const offenders = [];
   const walk = (directory) => {
