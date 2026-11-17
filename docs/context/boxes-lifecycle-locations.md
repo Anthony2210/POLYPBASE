@@ -95,6 +95,8 @@ Ne pas déduire une parenté d'une ressemblance de codes.
 
 **Phase 6, jalon 1 (non revu) :** `GlobalBoxIdentity` relie les représentations locales successives d'une même Box biologique via `BoxOwnershipEpisode` (une Box locale par épisode, au plus un propriétaire courant en base). Aucune transition n'est active; `Box.organization` n'est jamais réaffecté et devient non modifiable pour une Box déjà représentée. Voir [`../../backend/TRANSFER_V2_BOX_IDENTITY.md`](../../backend/TRANSFER_V2_BOX_IDENTITY.md).
 
+**Phase 6, jalon 2 (backend, non revu) :** un Admin source peut proposer le don d'une Box entière active à une autre institution enregistrée (`BoxDonationProposal`, `/api/box-donations/...`). Une proposition n'est pas un transfert : aucune propriété, Box destination, relevé, mouvement ou stock n'est modifié, la Box source reste pleinement opérationnelle et la destination ne lit pas son historique. Voir [`../../backend/TRANSFER_V2_BOX_DONATION_PROPOSAL.md`](../../backend/TRANSFER_V2_BOX_DONATION_PROPOSAL.md).
+
 ## Règles de modification
 
 - Valider organisation, permission, statut et zone côté serveur.

@@ -15,6 +15,13 @@ from apps.accounts.api_views import (
     SessionLogoutAPIView,
     UserProfileAPIView,
 )
+from apps.cultures.box_donation_api import (
+    BoxDonationCancelAPIView,
+    BoxDonationDetailAPIView,
+    BoxDonationIncomingAPIView,
+    BoxDonationOutgoingAPIView,
+    BoxDonationPreflightAPIView,
+)
 from apps.cultures.history_api import BoxHistoryAPIView
 from apps.measurements.probe_views import (
     ThermalZoneProbeReadingsAPIView,
@@ -296,6 +303,19 @@ urlpatterns = [
     path("probes/", ProbeCreateAPIView.as_view(), name="api_probe_create"),
     path("box-transfers/", BoxTransferCreateAPIView.as_view(), name="api_box_transfer_create"),
     path("box-transfer-imports/", BoxTransferImportAPIView.as_view(), name="api_box_transfer_import"),
+    path("box-donations/preflight/", BoxDonationPreflightAPIView.as_view(), name="api_box_donation_preflight"),
+    path("box-donations/outgoing/", BoxDonationOutgoingAPIView.as_view(), name="api_box_donation_outgoing"),
+    path("box-donations/incoming/", BoxDonationIncomingAPIView.as_view(), name="api_box_donation_incoming"),
+    path(
+        "box-donations/<uuid:proposal_id>/",
+        BoxDonationDetailAPIView.as_view(),
+        name="api_box_donation_detail",
+    ),
+    path(
+        "box-donations/<uuid:proposal_id>/cancel/",
+        BoxDonationCancelAPIView.as_view(),
+        name="api_box_donation_cancel",
+    ),
     path("organizations/", OrganizationCreateAPIView.as_view(), name="api_organization_create"),
     path("organizations/<int:pk>/", OrganizationDetailAPIView.as_view(), name="api_organization_detail"),
     path("taxonomy/references/", TaxonomyReferenceListAPIView.as_view(), name="api_taxonomy_references"),

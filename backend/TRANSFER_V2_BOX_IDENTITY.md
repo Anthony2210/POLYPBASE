@@ -163,8 +163,9 @@ pour ne pas détruire de provenance; possible seulement sur schéma vide.
 
 Stratégie legacy **forward-only** : `enroll_origin_box(organization=, box=)`
 attribue paresseusement et de façon idempotente une identité à une Box locale,
-comme épisode d'origine (`sequence = 1`, `started_at = NULL`). Il n'est appelé
-par aucun flux actuel. Il refuse :
+comme épisode d'origine (`sequence = 1`, `started_at = NULL`). Le seul flux
+opérationnel qui l'appelle est l'émission d'une proposition de don (jalon 2),
+via `enroll_origin_box_as_admin`. Il refuse :
 
 - une Box d'une autre institution (`box_not_in_organization`);
 - un alias fusionné (`merged_into`);
@@ -212,7 +213,10 @@ Dans une transaction unique, sous verrou de l'identité :
   (un `global_box_id` étranger reçu crée-t-il une `GlobalBoxIdentity` locale ?).
 - Contrainte différée PostgreSQL « au moins un courant » et trigger de garde de
   `Box.organization` côté SQL.
-- Audit de l'enrôlement d'origine (aujourd'hui technique, sans acteur ni audit).
+- Audit de l'enrôlement d'origine : `enroll_origin_box` reste technique; le flux
+  opérationnel du jalon 2 passe par `enroll_origin_box_as_admin` (autorité Admin,
+  acteur, audit `global_box_identity`, même transaction). Voir
+  [`TRANSFER_V2_BOX_DONATION_PROPOSAL.md`](TRANSFER_V2_BOX_DONATION_PROPOSAL.md).
 
 ## Validation
 

@@ -1,12 +1,16 @@
 """Global biological Box identity and institutional ownership episodes.
 
-Internal foundation only (Transfer v2 milestone 1). There is no endpoint, no
-ownership transition, no destination materialization and no cross-institution
-read access here. Future donation acceptance consumes these primitives.
+Internal foundation (Transfer v2 milestone 1). There is no ownership
+transition, no destination materialization and no cross-institution read
+access here. The donation proposal workflow (milestone 2) enrolls origin Boxes
+through ``enroll_origin_box_as_admin``; future acceptance consumes the rest.
 """
 
-from django.db import transaction
-from rest_framework.exceptions import ValidationError
+from django.db import connection, transaction
+from rest_framework.exceptions import PermissionDenied, ValidationError
+
+from apps.accounts.models import OrganizationMembership
+from apps.audit.models import AuditLog
 
 from .models import Box, BoxOwnershipEpisode, BoxTransferImport, GlobalBoxIdentity
 
@@ -15,7 +19,6 @@ def _refuse(message, code="box_ownership_conflict"):
     raise ValidationError({"box": message}, code=code)
 
 
-@transaction.atomic
 def enroll_origin_box(*, organization, box):
     """Give an existing local Box its global identity, lazily and idempotently.
 
@@ -30,6 +33,17 @@ def enroll_origin_box(*, organization, box):
     - a Transfer v1 import may continue a Box held elsewhere;
     - a merged identity alias is not a living representation.
     """
+    episode, _created = _enroll_origin_box(organization=organization, box=box)
+    return episode
+
+
+@transaction.atomic
+def _enroll_origin_box(*, organization, box):
+    """Return ``(episode, created)``; ``created`` is decided under the Box lock.
+
+    The Box row lock serializes every enroller of this Box (and PCA alias
+    conversion), so exactly one caller observes "no episode" and creates it.
+    """
     locked = Box.objects.select_for_update().filter(
         pk=box.pk, organization_id=organization.pk,
     ).only("id", "organization_id", "merged_into_id").first()
@@ -39,7 +53,7 @@ def enroll_origin_box(*, organization, box):
     if existing is not None:
         if existing.organization_id != organization.pk:
             _refuse("Box ownership history contradicts its institution.")
-        return existing
+        return existing, False
     if locked.merged_into_id is not None:
         _refuse("A merged identity alias cannot receive a global Box identity.")
     if BoxTransferImport.objects.filter(created_box_id=locked.pk).exists():
@@ -50,7 +64,48 @@ def enroll_origin_box(*, organization, box):
     identity = GlobalBoxIdentity.objects.create()
     return BoxOwnershipEpisode.objects.create(
         identity=identity, sequence=1, organization_id=organization.pk, local_box=locked,
+    ), True
+
+
+def enroll_origin_box_as_admin(*, actor, organization, box):
+    """Operational entry to ``enroll_origin_box``: authorized, attributed, audited.
+
+    Returns ``(episode, created)``. Must run inside the caller's transaction,
+    after the caller locked the institution and rechecked authority, so that
+    the enrollment, its audit and the caller's own write commit or roll back
+    together. Authority is checked again here: an active Admin membership of
+    ``organization`` (no superuser shortcut). An already enrolled Box keeps
+    its identity and writes no audit; a new identity is never allocated for it.
+    """
+    if not connection.in_atomic_block:
+        raise RuntimeError("Origin enrollment must run inside the caller's transaction.")
+    if (
+        actor is None or not getattr(actor, "is_authenticated", False) or not actor.is_active
+        or not OrganizationMembership.objects.filter(
+            user_id=actor.pk, organization_id=organization.pk, is_active=True,
+            role=OrganizationMembership.Role.ADMIN, organization__is_active=True,
+        ).exists()
+    ):
+        raise PermissionDenied("Source organization Admin authority is required.")
+    # "New" must come from the state observed under the Box lock, never from a
+    # read before it: two concurrent callers would both see no episode.
+    episode, created = _enroll_origin_box(organization=organization, box=box)
+    if not created:
+        return episode, False
+    AuditLog.objects.create(
+        organization_id=organization.pk,
+        user=actor,
+        action=AuditLog.Action.CREATION,
+        object_type="global_box_identity",
+        object_id=str(episode.identity.global_box_id),
+        description="Global Box identity enrolled for origin Box",
+        metadata={
+            "box_id": episode.local_box_id,
+            "box_code": episode.local_box.global_code,
+            "ownership_sequence": episode.sequence,
+        },
     )
+    return episode, True
 
 
 def boxes_with_ownership_history(box_ids):

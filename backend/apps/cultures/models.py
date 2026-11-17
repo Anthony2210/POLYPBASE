@@ -1003,6 +1003,140 @@ class BoxOwnershipEpisode(models.Model):
             raise ValidationError("An ownership episode cannot end before it starts.")
 
 
+class ProtectedDonationProposalQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("Box donation proposals change only through validated saves.")
+
+    def delete(self):
+        raise ValidationError("Box donation proposals are protected.")
+
+
+class BoxDonationProposal(models.Model):
+    """A source institution's pending offer to donate one whole biological Box.
+
+    A proposal is not a transfer: it changes no ownership, creates no
+    destination Box, TransferEnvelope, measurement, movement or stock effect,
+    and grants the destination no read access to the source history. The
+    source keeps full operational control of its Box while it is pending.
+    Snapshots are frozen at issue time; only cancellation fields may change.
+    """
+
+    class State(models.TextChoices):
+        PENDING = "pending"
+        CANCELLED = "cancelled"
+
+    proposal_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    source_organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.PROTECT,
+        related_name="outgoing_box_donation_proposals", editable=False,
+    )
+    destination_organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.PROTECT,
+        related_name="incoming_box_donation_proposals", editable=False,
+    )
+    source_box = models.ForeignKey(
+        Box, on_delete=models.PROTECT, related_name="donation_proposals", editable=False,
+    )
+    identity = models.ForeignKey(
+        GlobalBoxIdentity, on_delete=models.PROTECT,
+        related_name="donation_proposals", editable=False,
+    )
+    # The current ownership episode at issue time. Acceptance must find it
+    # still current (stale/replay control), as for a future protocol item.
+    source_episode = models.ForeignKey(
+        BoxOwnershipEpisode, on_delete=models.PROTECT,
+        related_name="donation_proposals", editable=False,
+    )
+    source_ownership_sequence = models.PositiveIntegerField(editable=False)
+    source_institution_name = models.CharField(max_length=150, editable=False)
+    destination_institution_name = models.CharField(max_length=150, editable=False)
+    source_box_code = models.CharField(max_length=100, editable=False)
+    source_strain_code = models.CharField(max_length=80, editable=False)
+    species_scientific_name = models.CharField(max_length=150, editable=False)
+    global_strain_id = models.UUIDField(editable=False)
+    # Explicit sender confirmation of having reviewed the history, bound to
+    # the SHA-256 of the scientific snapshot it described. It is not proof
+    # that the measurements are scientifically correct.
+    history_verified_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name="verified_box_donation_histories", editable=False,
+    )
+    history_verified_at = models.DateTimeField(editable=False)
+    history_snapshot_version = models.CharField(max_length=20, editable=False)
+    history_sha256 = models.CharField(max_length=64, editable=False)
+    source_polyp_state_revision = models.PositiveBigIntegerField(editable=False)
+    state = models.CharField(max_length=20, choices=State.choices, default=State.PENDING, editable=False)
+    revision = models.PositiveIntegerField(default=1, editable=False)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name="created_box_donation_proposals", editable=False,
+    )
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    # Server-side idempotency: one request key per source institution and actor.
+    request_id = models.UUIDField(editable=False)
+    request_fingerprint = models.CharField(max_length=64, editable=False)
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="cancelled_box_donation_proposals", editable=False,
+    )
+    cancelled_at = models.DateTimeField(null=True, blank=True, editable=False)
+
+    objects = ProtectedDonationProposalQuerySet.as_manager()
+
+    _cancellation_fields = frozenset({"state", "revision", "cancelled_by", "cancelled_at"})
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["identity"], condition=Q(state="pending"),
+                name="box_donation_single_pending",
+            ),
+            models.UniqueConstraint(
+                fields=["source_organization", "created_by", "request_id"],
+                name="box_donation_request_unique",
+            ),
+            models.CheckConstraint(
+                condition=~Q(source_organization=F("destination_organization")),
+                name="box_donation_distinct_institutions",
+            ),
+            models.CheckConstraint(
+                condition=Q(revision__gte=1) & Q(source_ownership_sequence__gte=1),
+                name="box_donation_positive_counters",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(state="pending", cancelled_by__isnull=True, cancelled_at__isnull=True)
+                    | Q(state="cancelled", cancelled_by__isnull=False,
+                        cancelled_at__isnull=False, revision__gte=2)
+                ),
+                name="box_donation_coherent_state",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["source_organization", "created_at"]),
+            models.Index(fields=["destination_organization", "created_at"]),
+        ]
+
+    def save(self, *args, **kwargs):
+        with transaction.atomic(using=kwargs.get("using")):
+            if self._state.adding:
+                if self.state != self.State.PENDING or self.revision != 1:
+                    raise ValidationError("A donation proposal is issued pending at revision 1.")
+                return super().save(*args, **kwargs)
+            update_fields = kwargs.get("update_fields")
+            if update_fields is None or set(update_fields) - self._cancellation_fields:
+                raise ValidationError("Only the cancellation of a donation proposal can be recorded.")
+            current = type(self).objects.select_for_update().get(pk=self.pk)
+            if current.state != self.State.PENDING or self.state != self.State.CANCELLED:
+                raise ValidationError("Only a pending donation proposal can be cancelled.")
+            if self.revision != current.revision + 1:
+                raise ValidationError("A cancellation must advance the proposal revision by one.")
+            return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Box donation proposals are protected.")
+
+
 class BoxTransferImport(models.Model):
     format_version = models.CharField(max_length=80)
     source_transfer_id = models.CharField(max_length=120)
