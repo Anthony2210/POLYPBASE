@@ -5,27 +5,25 @@ import PageLoader from './components/PageLoader';
 import { useIsDesktopApp } from './hooks/useIsDesktopApp';
 
 const App = lazy(() => import('./App'));
-const SharedAccessApp = lazy(() => import('./components/sharing/SharedAccessApp'));
-
-// Mount exactly one access context. Shared routes never bootstrap the
-// institution workspace, its Box collection, recent Boxes, zones or exports.
+// Administration stays desktop-only; the retired personal portal is not mounted.
 export default function AppEntry() {
   const [path, setPath] = useState(window.location.pathname);
   const isDesktopApp = useIsDesktopApp();
   const blockedAdministration = path.startsWith('/administration') && !isDesktopApp;
+  const retiredSharing = isSharedPath(path);
   useLayoutEffect(() => {
-    if (!blockedAdministration) return;
+    if (!blockedAdministration && !retiredSharing) return;
     window.history.replaceState(null, '', '/');
     setPath('/');
-  }, [blockedAdministration]);
+  }, [blockedAdministration, retiredSharing]);
   useEffect(() => {
     const sync = () => setPath(window.location.pathname);
     window.addEventListener('popstate', sync);
     return () => window.removeEventListener('popstate', sync);
   }, []);
-  if (blockedAdministration) return null;
+  if (blockedAdministration || retiredSharing) return null;
   const t = createTranslator(getStoredInterfaceLanguage() ?? 'fr');
   return <Suspense fallback={<PageLoader variant="profile" label={t('pageLoading')} />}>
-    {isSharedPath(path) ? <SharedAccessApp key={path} path={path} /> : <App />}
+    <App />
   </Suspense>;
 }
