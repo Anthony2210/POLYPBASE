@@ -150,7 +150,7 @@ class CatalogTests(unittest.TestCase):
                 ("backend/apps/cultures/models.py", "backend/apps/cultures/models.py"),
                 gate.LANGUAGES),
             "This code is reserved by a historical culture identity.": (
-                ("backend/apps/cultures/models.py", "backend/apps/cultures/box_codes.py"),
+                ("backend/apps/cultures/box_codes.py",),
                 ("fr",)),
         }
         for msgid, (expected, languages) in scopes.items():
@@ -173,7 +173,9 @@ class CatalogTests(unittest.TestCase):
                     self.assertEqual(report.exempted[language], [msgid])
                     for drift in (expected[:1], expected + (expected[0],),
                                   expected + ("backend/unexpected.py",),
-                                  (expected[0], "backend/unexpected.py")):
+                                  (expected[0], "backend/unexpected.py"), ()):
+                        if drift == expected:
+                            continue  # A single-source scope has no strict-subset drift.
                         with self.subTest(drift=drift):
                             report = self.check({msgid: drift}, catalogs,
                                                 exceptions=exceptions, decision_events=events)

@@ -38,6 +38,17 @@ its exact value. No policy for changing this field has been invented.
 `cultures.0022_box_global_identity`, which follows main's
 `0021_merge_dna_and_history`. Existing main migration identities are unchanged.
 
+`cultures.0024_local_id_guard_search_path` replaces, in place, the bodies of the
+six PostgreSQL trigger functions installed by 0023. They now use schema-qualified
+relations (`public.cultures_box`, `public.cultures_boxlocalidalias`) and pin
+`search_path = pg_catalog, pg_temp`. Previously these functions resolved their
+tables through the firing statement's search_path, so a SECURITY DEFINER writer
+with a restricted path (`box_1902_apply_v2`) failed with an undefined relation.
+Logic, firing conditions, advisory key, isolation refusal and SQLSTATE `23514`
+messages are unchanged; triggers, owners and ACLs are kept. Its reverse is a
+no-op so a rollback never reinstalls the path-dependent bodies. Rolling back
+0023 therefore takes two separate plans: first 0024, then 0023.
+
 - globally unique exact `code` (up to 100 characters);
 - permanent `box` FK with `PROTECT`, retaining the actual source, even if merged;
 - immutable `created_at`;

@@ -30,6 +30,7 @@ from django.test import TestCase as DjangoTestCase
 from psycopg import sql
 
 from apps.measurements import box_1902_sql as contract
+from config.migration_test_utils import historical_targets
 from apps.measurements.models import (
     BiologicalMeasurement, HistoricalTemperatureEvidence, HistoricalTemperatureReading,
 )
@@ -217,9 +218,11 @@ class Box1902CorrectionV2PostgreSQLTests(
         self.execute(sql.SQL("CREATE DATABASE {} WITH TEMPLATE {} OWNER box1902_owner").format(
             sql.Identifier(saved), sql.Identifier(DATABASE)), database="subculture_qa")
         self.created_databases.add(saved)
+        self._fixture_case_active = True
         try:
             yield
         finally:
+            self._fixture_case_active = False
             self.drop_working_database()
             self.execute(sql.SQL("CREATE DATABASE {} WITH TEMPLATE {} OWNER box1902_owner").format(
                 sql.Identifier(DATABASE), sql.Identifier(saved)), database="subculture_qa")
@@ -228,6 +231,37 @@ class Box1902CorrectionV2PostgreSQLTests(
             self.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(saved)),
                          database="subculture_qa")
             self.created_databases.discard(saved)
+
+    def write_legacy_local_id_conflict(self, box_id, **fields):
+        """Recreate a conflicting pre-0023 Local ID state in this disposable case only.
+
+        The 0023 backfill deliberately leaves conflicting historical codes on
+        Box fields for review instead of rewriting them, so such rows can exist
+        in a migrated database. The current guard refuses to create them, which
+        is correct for application writes. Here the exact row is written by the
+        leased administrator inside fixture_case's cloned database, with
+        ordinary triggers suppressed only for this transaction; the database
+        is restored from its template afterwards. No trigger or function changes.
+        """
+        allowed = {"global_code", "previous_global_code"}
+        if not fields or set(fields) - allowed or not getattr(self, "_fixture_case_active", False):
+            raise AssertionError("Legacy Local ID injection is limited to fixture_case code fields")
+        connection.close()
+        with self.connect(database=DATABASE) as admin:
+            database, directory = admin.execute(
+                "SELECT current_database(), current_setting('data_directory')").fetchone()
+            if database != DATABASE or Path(directory).resolve() != Path(LEASE).resolve():
+                raise RuntimeError("Refuse legacy injection outside the leased disposable database")
+            with admin.transaction():
+                admin.execute("SET LOCAL session_replication_role = replica")
+                assignments = sql.SQL(", ").join(
+                    sql.SQL("{} = %s").format(sql.Identifier(name)) for name in sorted(fields))
+                updated = admin.execute(sql.SQL("UPDATE cultures_box SET {} WHERE id = %s").format(assignments),
+                                        [fields[name] for name in sorted(fields)] + [box_id]).rowcount
+                if updated != 1:
+                    raise AssertionError("Legacy Local ID injection must change exactly one Box")
+            if admin.execute("SHOW session_replication_role").fetchone() != ("origin",):
+                raise RuntimeError("Trigger execution was not restored after legacy injection")
 
     def plan(self, **overrides):
         options = self.options(**overrides)
@@ -313,7 +347,9 @@ class Box1902CorrectionV2PostgreSQLTests(
         print("Box 1902 v2: creating the real pre-0018 Django schema", flush=True)
         cls.use_django_role(contract.RUNTIME)
         executor = MigrationExecutor(connection)
-        targets = [PREVIOUS if node == MIGRATION else node for node in executor.loader.graph.leaf_nodes()]
+        # Stop strictly before 0018, excluding descendants such as 0019 that
+        # would otherwise pull the capability in under the runtime role.
+        targets = historical_targets(executor.loader, {"measurements"}, [PREVIOUS])
         executor.migrate(targets)
         print("Box 1902 v2: populating immutable scientific evidence", flush=True)
         cls.create_fixture()
@@ -358,6 +394,14 @@ class Box1902CorrectionV2PostgreSQLTests(
             if cursor.fetchone() != (contract.MIGRATOR, contract.OWNER):
                 raise AssertionError("Migration did not use a genuine SET-only migrator login")
         MigrationExecutor(connection).migrate([MIGRATION])
+        # Then complete the current graph (e.g. additive measurements.0019) under
+        # the same trusted migrator, as the disposable runner does for its own
+        # database. The correction refuses any partially migrated schema.
+        executor = MigrationExecutor(connection)
+        executor.migrate(executor.loader.graph.leaf_nodes())
+        current = MigrationExecutor(connection)
+        if current.migration_plan(current.loader.graph.leaf_nodes()):
+            raise AssertionError("The populated schema is not at the complete migration graph")
         # QA-only identity access; production authentication is not mocked.
         cls.execute("GRANT EXECUTE ON FUNCTION pg_catalog.pg_control_system() TO box1902_executor")
         cls.execute(
@@ -760,8 +804,15 @@ class Box1902CorrectionV2PostgreSQLTests(
             try:
                 with connection.cursor() as cursor:
                     cursor.execute("SET ROLE box1902_owner")
+                executor = MigrationExecutor(connection)
+                # Reverse exactly 0018 with its real backwards operation. A
+                # target-based rollback to 0017 would first unapply and commit
+                # descendants such as 0019, leaving a partially downgraded schema.
+                plan = [(executor.loader.graph.nodes[MIGRATION], True)]
                 with self.assertRaises(IrreversibleError):
-                    MigrationExecutor(connection).migrate([PREVIOUS])
+                    executor.migrate([PREVIOUS], plan=plan)
+                self.assertEqual(MigrationExecutor(connection).migration_plan(
+                    executor.loader.graph.leaf_nodes()), [])
             finally:
                 self.use_django_role(contract.EXECUTOR)
             self.assertEqual(self.snapshot(), before)

@@ -103,4 +103,27 @@ class DisposablePostgresCleanupTests(SimpleTestCase):
                     self.real_gate()
             module.assert_not_called()
 
+    def test_install_and_cleanup_verify_separately_and_fail_closed(self):
+        original = cleanup.TransactionTestCase._fixture_teardown
+        self.enterContext(patch.object(cleanup, "_ORIGINAL_TEARDOWN", None))
+        self.enterContext(patch.object(cleanup, "_launcher_lease", return_value=object()))
+        self.addCleanup(cleanup.uninstall_disposable_flush)
+        # Installation on the non-test database (no test database created) is refused.
+        self.verify.side_effect = RuntimeError("Fixture cleanup is allowed only in the Django test database.")
+        with self.assertRaisesMessage(RuntimeError, "Django test database"):
+            cleanup.install_disposable_flush()
+        self.assertIs(cleanup.TransactionTestCase._fixture_teardown, original)
+        # A verified installation does not authorize a later unverified cleanup.
+        self.verify.side_effect = None
+        cleanup.install_disposable_flush()
+        self.assertEqual(self.verify.call_count, 2)
+        self.verify.side_effect = RuntimeError("Server does not match the fresh launcher cluster.")
+        teardown = Mock()
+        self.enterContext(patch.object(cleanup, "_ORIGINAL_TEARDOWN", teardown))
+        with self.assertRaisesMessage(RuntimeError, "fresh launcher cluster"):
+            cleanup._installed_teardown(self)
+        self.assertEqual(self.verify.call_count, 3)
+        teardown.assert_not_called()
+        self.assertEqual(self.statements(), [])
+
     real_gate = staticmethod(cleanup.require_disposable_cluster)

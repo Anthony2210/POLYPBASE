@@ -29,6 +29,8 @@ from .models import Box, BoxGlobalIdentity, BoxLocalIdAlias
 
 CULTURES_0021 = ("cultures", "0021_merge_dna_and_history")
 CULTURES_0022 = ("cultures", "0022_box_global_identity")
+# 0024 only hardens the 0023 guard functions; its reverse is an unguarded no-op.
+CULTURES_0023 = ("cultures", "0023_box_local_id_alias")
 TAXONOMY_0012 = ("taxonomy", "0012_institution_species_foundation")
 Reason = BoxGlobalIdentity.AllocationReason
 
@@ -119,7 +121,8 @@ class RollbackPlanPreflightTests(DisposablePostgresFlushMixin, TransactionTestCa
     def test_plan_includes_dependents_before_protected_migrations(self):
         executor = MigrationExecutor(connection)
         names = lambda target: [f"{m.app_label}.{m.name}" for m, backwards in executor.migration_plan([target])]
-        self.assertEqual(names(CULTURES_0021), ["cultures.0023_box_local_id_alias", "cultures.0022_box_global_identity"])
+        self.assertEqual(names(CULTURES_0021), ["cultures.0024_local_id_guard_search_path",
+                                                "cultures.0023_box_local_id_alias", "cultures.0022_box_global_identity"])
         self.assertEqual(names(TAXONOMY_0012), ["taxonomy.0015_provenance_country_acquisition_types",
                                                 "taxonomy.0014_speciescodechangerequest",
                                                 "taxonomy.0013_institutionstraincreationrequest"])
@@ -179,6 +182,8 @@ class RollbackPlanPreflightTests(DisposablePostgresFlushMixin, TransactionTestCa
     def test_lossless_partial_rollback_is_still_allowed_with_global_ids(self):
         # Rolling back only 0023 drops no Global ID: the preflight is plan-aware.
         box, identity = self.assigned_global_id()
+        # One backwards migration per plan: first the unguarded 0024, then 0023.
+        self.migrate(CULTURES_0023)
         self.migrate(CULTURES_0022)
         self.assertNotIn("cultures_boxlocalidalias", connection.introspection.table_names())
         self.assertNotIn(("cultures", "0023_box_local_id_alias"),
@@ -325,6 +330,7 @@ class RollbackPlanPreflightTests(DisposablePostgresFlushMixin, TransactionTestCa
 
     @skipUnless(connection.vendor == "postgresql", "Requires PostgreSQL advisory locks")
     def test_passed_preflight_blocks_new_evidence_until_the_rollback_ends(self):
+        self.migrate(CULTURES_0023)  # Leave 0023 as the single guarded backwards step.
         executor = MigrationExecutor(connection)
         plan = executor.migration_plan([CULTURES_0022])
         apps = executor._create_project_state(with_applied_migrations=True).apps

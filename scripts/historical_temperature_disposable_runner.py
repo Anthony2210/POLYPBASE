@@ -6,7 +6,7 @@ from pathlib import Path
 
 import psycopg
 from psycopg import sql
-from django.db import connections
+from django.db import DEFAULT_DB_ALIAS, connections
 from django.db.backends.postgresql.creation import DatabaseCreation
 from django.db.migrations.executor import MigrationExecutor
 from django.test.runner import DiscoverRunner
@@ -120,6 +120,13 @@ class DisposableRunner(DiscoverRunner):
         connection = connections["default"]
         connection.creation = DisposableCreation(connection)
         config = super().setup_databases(**kwargs)
+        # Django skips test database creation when no selected test uses it.
+        # Then nothing may be flushed: install no cleanup bypass at all. A
+        # TransactionTestCase cannot run without the database, and the mixin
+        # still fails closed on its own.
+        aliases = kwargs.get("aliases")
+        if aliases is not None and DEFAULT_DB_ALIAS not in aliases:
+            return config
         # Append-only guards forbid Django's TRUNCATE flush. Suppress them for
         # fixture cleanup only, after re-verifying this launch's cluster.
         from config.disposable_postgres import install_disposable_flush

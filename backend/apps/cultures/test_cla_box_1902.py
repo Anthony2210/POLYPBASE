@@ -611,7 +611,8 @@ class ClaBox1902Tests(ClaBox1902DependencyRegressions):
                         organization=organization, strain=self.source,
                         global_code="RES-JKA-1.001", box_number="1", notes="Private collision note",
                     )
-                    Box._base_manager.filter(pk=holder.pk).update(previous_global_code=code)
+                    # Conflicting historical reservation preserved by the 0023 backfill.
+                    self.write_legacy_local_id_conflict(holder.pk, previous_global_code=code)
                     self.assert_blocked()
             with self.subTest(organization=organization.pk, collision=NEW_CODE), self.fixture_case():
                 holder = Box.objects.create(
