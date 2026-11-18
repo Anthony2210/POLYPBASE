@@ -1,8 +1,8 @@
 """HTTP surface of whole-Box donation proposals. No acceptance endpoint exists.
 
 Every endpoint requires the explicit `X-Organization-Id` context and an active
-Admin membership of that institution. Lists are filtered by institution in the
-query itself. The destination sees a summary, never the source history,
+Admin membership of that institution. Proposal lists are filtered by institution
+in the query itself. The destination sees a summary, never the source history,
 source accounts or local Box id. Responses are `no-store`.
 """
 
@@ -31,6 +31,13 @@ class DonationAPIView(APIView):
         response["Cache-Control"] = "no-store"
         patch_vary_headers(response, ["Cookie"])
         return response
+
+
+class BoxDonationDestinationsAPIView(DonationAPIView):
+    def get(self, request):
+        organization = get_required_active_organization_from_request(request)
+        destinations = box_donation.list_destinations(actor=request.user, organization=organization)
+        return Response({"results": destinations})
 
 
 class BoxDonationPreflightAPIView(DonationAPIView):
