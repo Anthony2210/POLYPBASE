@@ -35,12 +35,26 @@ class DnaValidationMigrationTests(TransactionTestCase):
         executor.migrate(latest)
         apps = executor.loader.project_state(latest).apps
         for label, rows in snapshots.items():
-            self.assertEqual(list(apps.get_model(*label).objects.values()), rows)
+            model = apps.get_model(*label)
+            historical_fields = tuple(rows[0])
+            added_fields = {"global_identity_id"} if label == ("cultures", "Box") else set()
+            self.assertEqual({field.attname for field in model._meta.concrete_fields},
+                             set(historical_fields) | added_fields)
+            self.assertEqual(list(model.objects.values(*historical_fields)), rows)
+        # This historical Box has no verified creation receipt: 0022 must not
+        # infer physical continuity or allocate an identity during the upgrade.
+        self.assertIsNone(apps.get_model("cultures", "Box").objects.get(pk=box.pk).global_identity_id)
+        self.assertFalse(apps.get_model("cultures", "BoxGlobalIdentity").objects.exists())
+        self.assertFalse(apps.get_model("cultures", "GlobalBoxIdentity").objects.exists())
+        self.assertFalse(apps.get_model("cultures", "BoxOwnershipEpisode").objects.exists())
+        measurement = apps.get_model("measurements", "BiologicalMeasurement").objects.get(box_id=box.pk)
+        self.assertEqual((measurement.polyp_count, measurement.ephyrae_count, measurement.strobila_count),
+                         (0, 0, 0))
         self.assertFalse(apps.get_model("cultures", "BoxDnaValidation").objects.exists())
         for model_name in ("BoxHistoryStream", "BoxHistoryRevision", "BoxHistoryEventIdentity"):
             with self.subTest(model=model_name):
                 self.assertFalse(apps.get_model("cultures", model_name).objects.exists())
         self.assertEqual(
             executor.loader.graph.leaf_nodes("cultures"),
-            [("cultures", "0021_merge_dna_and_history")],
+            [("cultures", "0024_merge_donation_and_local_identity")],
         )

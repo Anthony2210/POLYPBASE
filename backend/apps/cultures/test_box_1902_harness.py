@@ -58,6 +58,57 @@ class Box1902HarnessTests(SimpleTestCase):
         self.assertNotIn(dependent, targets)
         self.assertIn(independent, plan)
 
+    def test_privileged_install_alone_leaves_initial_origin_unapplied(self):
+        loader = MigrationLoader(None)
+        _, baseline = self.baseline_plan(loader)
+        installed = baseline | set(loader.graph.forwards_plan(harness.MIGRATION))
+        self.assertEqual(set(loader.disk_migrations) - installed,
+                         {("measurements", "0019_box_creation_initial_origin")})
+        complete = set().union(*(set(loader.graph.forwards_plan(node))
+                                 for node in loader.graph.leaf_nodes()))
+        self.assertEqual(complete, set(loader.disk_migrations))
+
+    def privileged_setup(self, *, missing=False, backwards=False):
+        loader = MigrationLoader(None)
+        leaves = loader.graph.leaf_nodes()
+        events = []
+        capability = Mock()
+        capability.migrate.side_effect = lambda targets: events.append(("capability", targets))
+        current = Mock(loader=loader)
+        current.migration_plan.return_value = [(loader.disk_migrations[harness.MIGRATION], backwards)]
+        current.migrate.side_effect = lambda targets: events.append(("current", targets))
+        applied = set(loader.disk_migrations)
+        if missing:
+            applied.remove(("measurements", "0019_box_creation_initial_origin"))
+        final = Mock(applied_migrations=applied, disk_migrations=loader.disk_migrations)
+        with patch.object(harness, "MigrationExecutor", side_effect=[capability, current]) as factory, \
+                patch.object(harness, "MigrationLoader", return_value=final) as load, \
+                patch.object(harness.Box1902CorrectionV2PostgreSQLTests, "use_django_role") as role:
+            if backwards or missing:
+                with self.assertRaisesRegex(AssertionError, "reverse historical|complete disk"):
+                    harness.Box1902CorrectionV2PostgreSQLTests.migrate_privileged_schema()
+            else:
+                harness.Box1902CorrectionV2PostgreSQLTests.migrate_privileged_schema()
+            self.assertEqual(factory.call_count, 2)
+            role.assert_not_called()  # Keep the already verified migrator/SET ROLE session.
+            current.migration_plan.assert_called_once_with(leaves)
+            if backwards:
+                current.migrate.assert_not_called()
+                load.assert_not_called()
+            else:
+                self.assertEqual(events, [("capability", [harness.MIGRATION]), ("current", leaves)])
+                load.assert_called_once_with(harness.connection)
+                final.check_consistent_history.assert_called_once_with(harness.connection)
+
+    def test_privileged_setup_finishes_and_attests_full_graph(self):
+        self.privileged_setup()
+
+    def test_privileged_setup_rejects_missing_migration_before_template_creation(self):
+        self.privileged_setup(missing=True)
+
+    def test_privileged_setup_never_reverses_history(self):
+        self.privileged_setup(backwards=True)
+
     def cleanup(self, provisioned, *, failure=None):
         suite = harness.Box1902CorrectionV2PostgreSQLTests
         original = {"NAME": "subculture_qa", "USER": "subculture_qa"}

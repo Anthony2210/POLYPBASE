@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.db import connection, transaction
+from django.db import IntegrityError, connection, transaction
 from django.test import TestCase
 
 from apps.audit.models import AuditLog
@@ -712,8 +712,22 @@ class IdentityDecisionTests(DiagnosticBase):
         Box.objects.filter(pk=old.pk).update(global_code="PCA-JKA-1.005", strain=self.pca_jka,
                                              previous_global_code="PCA-CHO-1.005")
         self.assertEqual(self.approved()["PCA-CHO-1.005"]["status"], "APPLIED_VERIFIED")
-        Box.objects.filter(pk=donor.pk).update(merged_into=None)
+        before = self.database_snapshot()
+        # Detaching the donor would split two claims to the official Local ID.
+        with self.assertRaisesRegex(IntegrityError, "Local ID is reserved or its source identity is unresolved"):
+            with transaction.atomic():
+                Box.objects.filter(pk=donor.pk).update(merged_into=None)
+        self.assertEqual(self.database_snapshot(), before)
+        self.assertEqual(self.approved()["PCA-CHO-1.005"]["status"], "APPLIED_VERIFIED")
+
+    def test_pca_official_code_without_merge_evidence_is_unverified(self):
+        official = self.box("PCA-JKA-1.005", self.pca_jka)
+        self.assertEqual(official.previous_global_code, "")
+        self.assertIsNone(official.merged_into_id)
+        self.assertFalse(Box.objects.filter(global_code=pca.RETIRED_CODE).exists())
+        before = self.database_snapshot()
         self.assertEqual(self.approved()["PCA-CHO-1.005"]["status"], "UNVERIFIED")
+        self.assertEqual(self.database_snapshot(), before)
 
     def test_ldr_zero_is_a_real_value_and_absence_is_missing(self):
         box = self.box("LDR-JAP-1.001", self.ldr)

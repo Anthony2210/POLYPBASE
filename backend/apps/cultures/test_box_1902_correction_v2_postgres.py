@@ -25,6 +25,7 @@ from django.core.exceptions import ValidationError
 from django.core.management import call_command
 from django.db import DatabaseError, connection, transaction
 from django.db.migrations.executor import MigrationExecutor
+from django.db.migrations.loader import MigrationLoader
 from django.db.migrations.exceptions import IrreversibleError
 from django.test import TestCase as DjangoTestCase
 from psycopg import sql
@@ -358,7 +359,7 @@ class Box1902CorrectionV2PostgreSQLTests(
             cursor.execute("SELECT session_user, current_user")
             if cursor.fetchone() != (contract.MIGRATOR, contract.OWNER):
                 raise AssertionError("Migration did not use a genuine SET-only migrator login")
-        MigrationExecutor(connection).migrate([MIGRATION])
+        cls.migrate_privileged_schema()
         # QA-only identity access; production authentication is not mocked.
         cls.execute("GRANT EXECUTE ON FUNCTION pg_catalog.pg_control_system() TO box1902_executor")
         cls.execute(
@@ -385,6 +386,20 @@ class Box1902CorrectionV2PostgreSQLTests(
         # Pin the historical app, not just its leaf: later leaves depend on 0018.
         targets = historical_targets(executor.loader, {"measurements"}, [PREVIOUS])
         executor.migrate(targets)
+
+    @classmethod
+    def migrate_privileged_schema(cls):
+        """Install the capability, then finish the graph in the verified owner session."""
+        MigrationExecutor(connection).migrate([MIGRATION])
+        executor = MigrationExecutor(connection)
+        targets = executor.loader.graph.leaf_nodes()
+        if any(backwards for _, backwards in executor.migration_plan(targets)):
+            raise AssertionError("Current schema setup must not reverse historical migrations")
+        executor.migrate(targets)
+        loader = MigrationLoader(connection)
+        loader.check_consistent_history(connection)
+        if set(loader.applied_migrations) != set(loader.disk_migrations):
+            raise AssertionError("Box 1902 template requires the complete disk migration graph")
 
     @classmethod
     def create_reading(cls, biology, week, reading_id):
