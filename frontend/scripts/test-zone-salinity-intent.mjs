@@ -41,6 +41,7 @@ function createView(latestSalinity, canRecordManualSalinity = true, operations =
     // ZoneFunctionalSections does not render the thermal panel; fail if it ever runs here.
     '../hooks/useThermalControl': { default: () => assert.fail('Salinity sections must not run thermal control') },
     './ZoneProbeCharts': { ZoneProbeChart: () => null, ZoneThermalTrend: () => null, useZoneChartReadings: () => ({ initial: { settled: true, data: null } }) },
+    './ThermalMonitoringChart': { default: () => assert.fail('Salinity sections must not render thermal monitoring') },
     './BoxTrackingPreview': { default: () => null },
     './DetailBackButton': { default: () => null },
     './ModalPortal': { default: () => null },

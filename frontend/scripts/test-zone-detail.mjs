@@ -28,13 +28,13 @@ const requiredKeys = [
   'zoneSalinityEditTitle',
   'zoneSalinityNotes',
 
-  'temperatureRecentMean',
-  'temperatureNoRecent',
-  'temperatureRecentPeriod',
+  'temperatureAverage',
   'temperatureRecentError',
-  'temperatureDailyPeriod',
-  'temperatureDailyMean',
-  'temperatureDailyGap',
+  'thermalMonitoringPeriod',
+  'thermalMonitoringDeviation',
+  'thermalMonitoringExtrema',
+  'thermalMonitoringEmpty',
+  'thermalMonitoringKeyboard',
   'zoneCapacityMissing',
   'zoneNoProbe',
   'zoneRecentMovementsTitle',
@@ -62,57 +62,22 @@ test('zone detail removes biological summary and activity components', () => {
   assert.doesNotMatch(detailSource, /latestCounts|zoneActivityTitle/);
 });
 
-test('thermal ruler uses recent observations while daily mean, gap and range stay separate', () => {
-  const temperaturePanel = zonesSource.slice(
-    zonesSource.indexOf('function TemperatureControlPanel'),
-    zonesSource.indexOf('function buildTemperatureSummary'),
-  );
-  const ruler = temperaturePanel.slice(
-    temperaturePanel.indexOf('<div className="temperature-ruler"'),
-    temperaturePanel.indexOf('<div className="temperature-summary"'),
-  );
-  const summary = temperaturePanel.slice(
-    temperaturePanel.indexOf('<div className="temperature-summary"'),
-    temperaturePanel.indexOf('{isEditingTemperature ? ('),
-  );
-  assert.doesNotMatch(temperaturePanel, /temperatureOk|temperatureWatch|absoluteDelta|safe-band/);
-  assert.match(ruler, /<b>\{t\('targetTemperature'\)\} \{formatTemperature\(targetTemperature/);
-  assert.match(ruler, /t\('temperatureRecentMean'\)/);
-  assert.match(ruler, /formatTemperature\(recentTemperature \?\? undefined\)/);
-  assert.doesNotMatch(ruler, /temperatureAverage|temperatureMeasurement|formatTemperature\(measuredTemperature/);
-  assert.match(temperaturePanel, /const \{ summary: thermalControl, error: thermalControlError \} = useThermalControl\(zone\)/);
-  // The recent mean is the latest server inter-probe average of the chart read,
-  // never a client-side mean; thermal control only describes its period.
-  assert.match(temperaturePanel, /const averagePoints = chart\.readings\.data\?\.probe_average \?\? \[\]/);
-  assert.match(temperaturePanel, /const recentTemperature = chartAverage;/);
-  assert.doesNotMatch(temperaturePanel, /thermalControl\?\.temperature_c/);
-  assert.match(temperaturePanel, /average: recentTemperature/);
-  assert.match(temperaturePanel, /const measuredPosition = scale && recentTemperature !== null \? scale\.project\(recentTemperature\) : null/);
-  assert.match(temperaturePanel, /const delta = measuredTemperature !== null && targetTemperature !== null\s*\? measuredTemperature - targetTemperature/);
-  assert.match(temperaturePanel, /thermalControl\.oldest_measured_at === thermalControl\.newest_measured_at/);
-  assert.match(temperaturePanel, /formatDisplayDateTime\(thermalControl\.oldest_measured_at\)/);
-  assert.match(temperaturePanel, /formatDisplayDateTime\(thermalControl\.newest_measured_at\)/);
-  assert.doesNotMatch(temperaturePanel, /temperatureNoRecent|probeSilentBadge|probeSilentDescription|probeSilentNoReadingDescription/);
-  assert.match(temperaturePanel, /const recentContext = thermalControlError\s*\? t\('temperatureRecentError'\)\s*:\s*!thermalControl\s*\? t\('loading'\)\s*:\s*recentPeriod/);
-  assert.match(temperaturePanel, /\{recentContext \? \(\s*<p role=\{thermalControlError \? 'status' : undefined\} aria-busy=\{!thermalControl && !thermalControlError\}>\{recentContext\}<\/p>/);
-  assert.match(temperaturePanel, /const measurementCount = zone\.latest_temperature\?\.measurement_count \?\? 0/);
-  assert.match(temperaturePanel, /const hasTemperatureRange = measurementCount > 1/);
-  assert.match(temperaturePanel, /hasTemperatureRange && minPosition !== null && maxPosition !== null/);
-  assert.match(temperaturePanel, /const temperatureSummary = buildTemperatureSummary/);
-  assert.match(temperaturePanel, /\{measuredTemperature !== null \|\| delta !== null \|\| hasTemperatureRange \? \(/);
-  assert.match(temperaturePanel, /className="temperature-daily-period">\{dailyContext\}/);
-  assert.match(summary, /aria-label=\{dailyContext \?\? t\('temperatureControl'\)\}/);
-  assert.match(summary, /<small>\{t\('temperatureDailyMean'\)\}<\/small><strong>\{formatTemperature\(measuredTemperature\)\}/);
-  assert.match(summary, /<small>\{t\('temperatureDailyGap'\)\}<\/small><strong>\{formatTemperatureDelta\(delta\)\}/);
-  assert.match(summary, /<small>\{t\('minTemperature'\)\}/);
-  assert.match(summary, /<small>\{t\('maxTemperature'\)\}/);
-  assert.doesNotMatch(summary, /targetTemperature|temperatureAverage|temperatureMeasurement|measurementCount|temperatureRecentMean|recentTemperature/);
+test('thermal monitoring replaces ruler and daily facts without changing the historical chart', () => {
+  const panel = zonesSource.slice(zonesSource.indexOf('function TemperatureControlPanel'), zonesSource.indexOf('function TemperatureEntryModal'));
+  assert.match(zonesSource, /import ThermalMonitoringChart from '.\/ThermalMonitoringChart'/);
+  assert.match(panel, /<ThermalMonitoringChart zone=\{zone\} t=\{t\} \/>/);
+  assert.equal((panel.match(/t\('thermalMonitoringPeriod'\)/g) ?? []).length, 1);
+  assert.match(panel, /<h2>\{t\('temperatureControl'\)\}<\/h2>\s*<p>\{t\('thermalMonitoringPeriod'\)\}<\/p>/);
+  assert.match(panel, /useZoneChartReadings\(zone, hasCollectedProbe\)/);
+  assert.match(panel, /useProbeMonitoring\(zone, chart.initial\)/);
+  assert.match(panel, /hasCollectedProbe \? <ZoneProbeChart chart=\{chart\} zone=\{zone\} t=\{t\} \/>/);
+  assert.doesNotMatch(panel, /temperature-ruler|temperature-summary|temperatureDaily|temperatureRecentMean|latest_temperature|useThermalControl|buildTemperatureSummary/);
 });
 
 test('manual temperature editor is progressive and supports cancel', () => {
   const temperaturePanel = zonesSource.slice(
     zonesSource.indexOf('function TemperatureControlPanel'),
-    zonesSource.indexOf('function buildTemperatureSummary'),
+    zonesSource.indexOf('function Metric'),
   );
   assert.match(temperaturePanel, /isEditingTemperature/);
   assert.match(temperaturePanel, /manualTemperatureAction/);
@@ -210,6 +175,8 @@ test('salinity reuses the compact reading summary and progressive editor for cre
   assert.match(stylesSource, /\.zone-salinity-entry-grid \.measurement-date-field \{[^}]*display: grid/s);
   assert.match(stylesSource, /\.zone-salinity-entry-grid \.notes-field textarea \{[^}]*min-height: 120px/s);
   assert.match(stylesSource, /\.zone-salinity-section \.measurement-summary-edit-button \{[^}]*position: static/s);
+  assert.match(stylesSource, /\.zone-salinity-section\.has-edit-capability > div:first-child,\s*\.zone-salinity-section\.has-edit-capability \.last-reading-comment \{\s*padding-inline-end: 0/s);
+  assert.match(stylesSource, /\.zone-salinity-editor-section \.inline-error \{[^}]*margin: 0/s);
 });
 
 test('salinity uses server capability for correction versus a new reading', () => {
@@ -245,49 +212,17 @@ test('zone card shows only the latest salinity and never renders business histor
   assert.match(appSource, /refreshZoneSalinityCapability[\s\S]*salinity\/history\//);
 });
 
-test('temperature uses a compact named icon action and integrated instrument summary', () => {
-  const temperaturePanel = zonesSource.slice(
-    zonesSource.indexOf('function TemperatureControlPanel'),
-    zonesSource.indexOf('function buildTemperatureSummary'),
-  );
-  assert.match(temperaturePanel, /className="icon-button zone-temperature-action"/);
-  assert.match(temperaturePanel, /aria-label=\{t\('manualTemperatureAction'\)\}/);
-  assert.match(temperaturePanel, /<PolypbaseIcon name="plus"/);
-  assert.doesNotMatch(temperaturePanel, /secondary-button zone-temperature-action/);
-  assert.match(temperaturePanel, /className="temperature-instrument"/);
-  assert.match(temperaturePanel, /className="temperature-summary"/);
-  assert.match(temperaturePanel, /<TemperatureEntryModal/);
-  assert.match(temperaturePanel, /className="zone-inline-editor"/);
-  assert.match(temperaturePanel, /className="primary-button" type="submit"/);
-  assert.match(stylesSource, /\.temperature-instrument \{[^}]*width: 100%/s);
+test('temperature keeps its compact named action and existing manual-entry modal', () => {
+  const panel = zonesSource.slice(zonesSource.indexOf('function TemperatureControlPanel'), zonesSource.indexOf('function Metric'));
+  assert.match(panel, /className="icon-button zone-temperature-action"/);
+  assert.match(panel, /aria-label=\{t\('manualTemperatureAction'\)\}/);
+  assert.match(panel, /<PolypbaseIcon name="plus"/);
+  assert.match(panel, /<ThermalMonitoringChart/);
+  assert.match(panel, /<TemperatureEntryModal/);
+  assert.match(panel, /className="zone-inline-editor"/);
+  assert.match(panel, /className="primary-button" type="submit"/);
   assert.match(stylesSource, /\.zone-temperature-modal \{[^}]*width: min\(100%, 540px\)/s);
-});
-
-test('zone detail uses one aligned instrument and compact operational sections', () => {
-  const temperaturePanel = zonesSource.slice(
-    zonesSource.indexOf('function TemperatureControlPanel'),
-    zonesSource.indexOf('function buildTemperatureSummary'),
-  );
-  assert.match(temperaturePanel, /<b>\{t\('targetTemperature'\)\} \{formatTemperature\(targetTemperature/);
-  assert.match(temperaturePanel, /t\('temperatureRecentMean'\)/);
-  assert.match(temperaturePanel, /formatTemperature\(recentTemperature \?\? undefined\)/);
-  assert.match(temperaturePanel, /t\('temperatureDailyMean'\)/);
-  assert.match(temperaturePanel, /t\('temperatureDailyGap'\)/);
-  assert.match(stylesSource, /\.zone-temperature-heading \{[^}]*width: 100%/s);
-  assert.match(stylesSource, /\.temperature-instrument \{[^}]*width: 100%/s);
-  assert.match(stylesSource, /\.temperature-summary \{[^}]*grid-template-columns: repeat\(auto-fit, minmax\(100px, 1fr\)\)/s);
-  assert.match(stylesSource, /\.temperature-facts,\s*\.temperature-range-values \{\s*display: contents;/s);
-  assert.doesNotMatch(stylesSource, /\.temperature-summary \.is-primary/);
-  assert.match(stylesSource, /\.temperature-summary \{\s*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/s);
-  assert.match(stylesSource, /\.zone-salinity-section\.has-edit-capability > div:first-child,\s*\.zone-salinity-section\.has-edit-capability \.last-reading-comment \{\s*padding-inline-end: 0/s);
-  assert.ok(temperaturePanel.indexOf('id="zone-temperature-error"') < temperaturePanel.indexOf('zone-inline-editor-actions'));
-  assert.match(stylesSource, /\.zone-salinity-editor-section \.inline-error \{[^}]*margin: 0/s);
-});
-
-test('thermal ruler separates observed and tick-label lanes', () => {
-  assert.match(stylesSource, /\.temperature-ruler\s*\{[^}]*height:\s*116px/s);
-  assert.match(stylesSource, /\.temperature-ruler-tick b\s*\{[^}]*top:\s*44px/s);
-  assert.match(stylesSource, /\.temperature-observed-marker b\s*\{[^}]*top:\s*24px/s);
+  assert.ok(panel.indexOf('id="zone-temperature-error"') < panel.indexOf('zone-inline-editor-actions'));
 });
 
 test('new zone detail copy exists in French and English', () => {

@@ -4,6 +4,11 @@
   "main_register_rows_sha256": "3b042169ec9988fe39f8ac5c223817563c9a0d614e369bc3c27c29f99a3c7f74",
   "main_register_bytes_sha256": "81a7b8e169da7fcddbdcc77d73a923438063b67e7732d279c8f1f2b07e519457",
   "integrated_register_rows_sha256": "d504268a3b3d41d127ad89a9c8087211bf2c55997d71d8b19bb3fffeb8b80066",
+  "thermal_main": "5e28969",
+  "thermal_main_register_rows_sha256": "bede936a9a5ccb4f947a2aba29ff0c28997552e5e4f848c388bc2c2c73702f48",
+  "thermal_main_register_bytes_sha256": "b9d379ea6a6a9208ddc1d80960a2ab8970a813316e9776942614f2d0e0ade38f",
+  "reallocation": {"entry_id_offset": 10, "batch_number_offset": 1},
+  "reallocated_register_rows_sha256": "650afff45b03430dfd3e147bd6fcade7cf6e82ff4a61c1465a6a2896608864fc",
   "catalog_additions": {
     "fr": [
       "  adminTabSpecies: 'Espèces',\n",

@@ -156,6 +156,7 @@ function panelView(zone) {
     '../utils/dateFormat': { formatDisplayDate: (date) => date, formatDisplayDateTime: (date) => date, getDocumentLocale: () => 'en' },
     '../utils/probeStatus': probeStatus,
     '../utils/errors': errors, '../utils/temperatureScale': { buildTemperatureScale: () => null },
+    './ThermalMonitoringChart': { default: noop },
     './BoxTrackingPreview': { default: noop }, './DetailBackButton': { default: noop },
     './ModalPortal': { default: noop }, './PageLoader': { default: noop }, './PolypbaseIcon': { default: noop },
     './ZoneProbeCharts': { ZoneProbeChart: chart, useZoneChartReadings: (value, enabled) => { chartCalls.push({ value, enabled }); return readings; } }, './ZoneMovementHistory': { ZoneRecentMovements: noop },

@@ -21,6 +21,7 @@ from apps.cultures.history_preview_api import BoxHistoryPreviewAPIView
 from apps.measurements.probe_views import (
     ThermalZoneProbeReadingsAPIView,
     ThermalZoneThermalControlAPIView,
+    ThermalZoneThermalMonitoringAPIView,
 )
 from apps.cultures.api_views import (
     AdminBoxInitialLocationAPIView,
@@ -300,6 +301,11 @@ urlpatterns = [
         "thermal-zones/<int:pk>/thermal-control/",
         ThermalZoneThermalControlAPIView.as_view(),
         name="api_thermal_zone_thermal_control",
+    ),
+    path(
+        "thermal-zones/<int:pk>/thermal-monitoring/",
+        ThermalZoneThermalMonitoringAPIView.as_view(),
+        name="api_thermal_zone_thermal_monitoring",
     ),
     path(
         "thermal-zones/<int:pk>/probe-readings/",

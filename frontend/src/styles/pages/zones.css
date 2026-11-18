@@ -629,6 +629,118 @@
   min-height: 42px;
 }
 
+.thermal-monitoring {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(180px, 1fr);
+  width: 100%;
+  gap: var(--space-4);
+}
+
+.thermal-monitoring-plot {
+  min-width: 0;
+}
+
+.thermal-monitoring-frame {
+  display: grid;
+  min-height: 210px;
+  align-items: center;
+}
+
+.thermal-monitoring-metrics {
+  display: grid;
+  margin: 0;
+  padding-inline-start: var(--space-4);
+  align-content: center;
+  gap: var(--space-3);
+  border-inline-start: 1px solid var(--color-line-soft);
+}
+
+.thermal-monitoring-metrics > div + div {
+  padding-block-start: var(--space-3);
+  border-block-start: 1px solid var(--color-line-soft);
+}
+
+.thermal-monitoring-metrics dt {
+  color: var(--color-muted);
+  font-size: 0.78rem;
+}
+
+.thermal-monitoring-metrics dd {
+  margin: var(--space-1) 0 0;
+  color: var(--color-ink);
+  font-size: 1rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.thermal-monitoring-legend {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 0;
+  gap: var(--space-1) var(--space-3);
+  align-items: center;
+  list-style: none;
+  font-size: 0.78rem;
+}
+
+.thermal-monitoring-legend button {
+  min-height: 44px;
+  padding: var(--space-1) 0;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  background: none;
+  border: 0;
+}
+
+.thermal-monitoring-legend button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
+}
+
+.thermal-monitoring-legend .is-hidden {
+  color: var(--color-muted);
+  text-decoration: line-through;
+}
+
+@media (max-width: 759px) {
+  .thermal-monitoring {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+
+  .thermal-monitoring-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    padding-inline-start: 0;
+    padding-block-start: var(--space-3);
+    align-content: start;
+    border-inline-start: 0;
+    border-block-start: 1px solid var(--color-line-soft);
+  }
+
+  .thermal-monitoring-metrics > div + div {
+    padding-block-start: 0;
+    padding-inline-start: var(--space-3);
+    border-block-start: 0;
+    border-inline-start: 1px solid var(--color-line-soft);
+  }
+}
+
+@media (max-width: 420px) {
+  .thermal-monitoring-metrics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .thermal-monitoring-metrics > div + div {
+    padding-inline-start: 0;
+    padding-block-start: var(--space-3);
+    border-inline-start: 0;
+    border-block-start: 1px solid var(--color-line-soft);
+  }
+}
+
 .temperature-instrument {
   width: 100%;
   min-width: 0;

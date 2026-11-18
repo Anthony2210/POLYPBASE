@@ -144,7 +144,8 @@ test('repository traversal includes unmounted components but not catalogs or tes
 });
 
 test('thermal retention is exact and does not exempt other unused temperature keys', () => {
-  const retained = ['temperatureAverage', 'temperatureGap', 'temperatureMeasurement', 'temperatureMissing'];
+  const retained = ['temperatureGap', 'temperatureMeasurement', 'temperatureMissing'];
+  assert.equal(usageExceptions.temperatureAverage, undefined, 'The four-hour mean reuses this key');
   const result = analyze([...retained, 'temperatureUnreviewed'], 'export {};',
     Object.fromEntries(retained.map(key => [key, usageExceptions[key]])));
   assert.equal(result.errors.length, 1);
@@ -153,6 +154,19 @@ test('thermal retention is exact and does not exempt other unused temperature ke
     assert.match(usageExceptions[key], /cbc513f.*explicit i18n removal decision/);
     assert.match(analyze([key], `t('${key}')`, { [key]: usageExceptions[key] }).errors.join('\n'), /stale exception/);
     assert.match(analyze([], 'export {};', { [key]: usageExceptions[key] }).errors.join('\n'), /stale exception/);
+  }
+});
+
+test('four-hour monitoring retains only the superseded daily and latest-reading labels', () => {
+  const retained = ['temperatureDailyGap', 'temperatureDailyMean', 'temperatureDailyPeriod', 'temperatureRecentMean', 'temperatureRecentPeriod'];
+  const exceptions = Object.fromEntries(retained.map(key => [key, usageExceptions[key]]));
+  const result = analyze([...retained, 'temperatureUnreviewed'], 'export {};', exceptions);
+  assert.equal(result.errors.length, 1);
+  assert.match(result.errors[0], /^temperatureUnreviewed: no exact literal/);
+  for (const key of retained) {
+    assert.match(exceptions[key], /Four-hour monitoring.*Japanese provenance/);
+    assert.match(analyze([key], `t('${key}')`, { [key]: exceptions[key] }).errors.join('\n'), /stale exception/);
+    assert.match(analyze([], 'export {};', { [key]: exceptions[key] }).errors.join('\n'), /stale exception/);
   }
 });
 

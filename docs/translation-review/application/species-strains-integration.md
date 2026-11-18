@@ -6,9 +6,15 @@ Local integration of `6455727` onto `5651ffb`, without commit, production access
 
 `register.csv` remains at 1,731 events: the complete 1,459-event main prefix is unchanged byte-for-byte, followed by the 272 reviewed feature events. Their integration IDs/batches and provenance were established in the preceding conflict resolution; this follow-up does not edit the register.
 
-`species-strains-integration.json` locks the main register byte/field digests, the exact integrated register tail digest, 266 additive lines per language from the original feature, and the one existing-key change (`firstMeasurementOn`, EN: `First reading` → `First record`, T1714). Its SHA-256 is fixed independently in both Python and frontend tests. The old B01–B31 and catalog fingerprints are not replaced. Only those exact feature lines can be reversed before applying the old fingerprints; missing, duplicated or changed lines fail, and unknown additions remain visible.
+`species-strains-integration.json` locks the main register byte/field digests, the exact integrated register tail digest, 266 additive lines per language from the original feature, and the one existing-key change (`firstMeasurementOn`, EN: `First reading` → `First record`, T1714 originally, T1724 after reallocation). Its SHA-256 is fixed independently in both Python and frontend tests. The old B01–B31 and catalog fingerprints are not replaced. Only those exact feature lines can be reversed before applying the old fingerprints; missing, duplicated or changed lines fail, and unknown additions remain visible.
 
-Python register tests now expect T001–T1731, retain the old batch-count assertion on its original prefix, and append synthetic future corrections under fresh IDs/B43 instead of reusing T1460/B32. New regressions lock the entire main prefix, the entire incoming tail and the original main bytes, and reject field edits, deletion and extension of frozen batches.
+Python register tests now expect T001–T1741, retain the old batch-count assertion on its original prefix, and append synthetic future corrections under fresh IDs/B44 instead of reusing an existing ID or batch. New regressions lock the entire main prefix, the entire incoming tail and the original main bytes, and reject field edits, deletion and extension of frozen batches.
+
+## Reallocation after main thermal monitoring (merge of `5e28969`)
+
+Main independently published B32 (`T1460`–`T1469`, four-hour thermal monitoring labels). Those ten events are kept byte-identical; the register prefix now matches main `5e28969` for its first 1,469 events. The 272 feature events are reallocated, changing only `entry_id` (+10: `T1470`–`T1741`) and the batch number (+1: `B33`–`B43`, same dates and membership). All other fields are unchanged.
+
+`species-strains-integration.json` keeps every original digest (5651ffb prefix, original `T1460`–`T1731` tail) and adds the main `5e28969` row/byte digests, the offsets and the reallocated tail digest. Tests verify the current tail digest and that reversing the offsets reproduces the original integrated digest exactly. The documentary manifest now freezes the main `5e28969` manifest (including the five `thermalMonitoring*` fallback rows) and still checks the 5651ffb digest once those rows are removed. The `firstMeasurementOn` manifest note now cites `T1724`.
 
 ## Documentary Japanese manifest
 

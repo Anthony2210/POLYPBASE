@@ -220,6 +220,10 @@ B30 = "B30-2026-11-16"
 B31 = "B31-2026-11-16"
 B30_ROWS_SHA256 = "076b5eb663c1824c81bab89c3af034ca6a65286f6982b4206161aa370cfe2e6f"
 B31_ROWS_SHA256 = "c702ed9c9f5450b11066edef261c4ea045be866bbd0ff6aabb01c973e3af1a57"
+# Published B32 append-only four-hour monitoring labels, added in this local change.
+# B32 adds five new React keys in FR and EN; no existing value or Japanese changes.
+B32 = "B32-2026-11-17"
+B32_ROWS_SHA256 = "6d7a1eaf48f628124aba324eea02ed971a4f4bd0063875624592398fc83a2243"
 
 
 def b30_events(rows):
@@ -245,6 +249,30 @@ def b31_events(rows):
     assert rows_digest(events) == B31_ROWS_SHA256, "B31: history was modified"
     assert {row["status"] for row in events} == {"REMOVED"}, "B31: only removals are expected"
     return events
+
+
+def b32_events(rows):
+    """Validate the published B32 four-hour monitoring labels before trusting their reversals."""
+    entry_ids = [f"T{i}" for i in range(1460, 1470)]
+    protected_ids = set(entry_ids)
+    events = [row for row in rows if row["batch"] == B32 or row["entry_id"] in protected_ids]
+    assert events == rows[1459:1469], "B32: events moved or gained a member"
+    assert [row["entry_id"] for row in events] == entry_ids, "B32: identities changed"
+    assert all(list(row) == reg.COLUMNS for row in events), "B32: schema changed"
+    assert rows_digest(events) == B32_ROWS_SHA256, "B32: history was modified"
+    assert {row["status"] for row in events} == {"ALREADY_MATCHING"}, "B32: only additions are expected"
+    return events
+
+
+def before_b32(source, rows, language="EN"):
+    """Undo only the frozen B32 additions, in reverse event order."""
+    for row in reversed(b32_events(rows)):
+        if row["surface"] != "react" or row["language"] != language:
+            continue
+        line = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
+        assert source.count(line) == 1, row["entry_id"]
+        source = source.replace(line, "")
+    return source
 
 
 def before_b30(source, rows, language="EN"):
@@ -325,6 +353,7 @@ def integration_integrity_errors(rows):
         b29_events(rows)
         b30_events(rows)
         b31_events(rows)
+        b32_events(rows)
     except AssertionError as error:
         errors.append(str(error))
     if rows_digest(rows[:1060]) != MAIN_HISTORY_SHA256:
@@ -340,28 +369,48 @@ def integration_integrity_errors(rows):
 
 
 SPECIES_EVIDENCE_PATH = Path(__file__).with_name("species-strains-integration.json")
-SPECIES_EVIDENCE_SHA256 = "47962b35ca993a2db7b4b08f63045a793262c8717e70532c9b84e80526748861"
+SPECIES_EVIDENCE_SHA256 = "1323838b5e1ac8cfa94a0f42f5e9cf40417b3a85f2a22be7b55409404b434985"
 _evidence_bytes = SPECIES_EVIDENCE_PATH.read_bytes().replace(b"\r\n", b"\n")
 assert hashlib.sha256(_evidence_bytes).hexdigest() == SPECIES_EVIDENCE_SHA256
 SPECIES_EVIDENCE = json.loads(_evidence_bytes)
 
 
+SPECIES_TAIL = slice(1469, 1741)
+
+
+def species_original_projection(rows):
+    """Map reallocated feature events back to their original T1460-T1731/B32-B42 identities."""
+    offsets = SPECIES_EVIDENCE["reallocation"]
+    return [dict(row, entry_id=f"T{int(row['entry_id'][1:]) - offsets['entry_id_offset']}",
+                 batch=f"B{int(row['batch'][1:3]) - offsets['batch_number_offset']}{row['batch'][3:]}")
+            for row in rows]
+
+
 def species_integration_errors(rows):
-    """Freeze all main events and all fields of the reviewed integration tail."""
+    """Freeze all main events (including thermal B32) and all fields of the reallocated feature tail."""
     errors = []
     if rows_digest(rows[:1459]) != SPECIES_EVIDENCE["main_register_rows_sha256"]:
         errors.append("Species integration: complete main history was modified")
-    if rows_digest(rows[1459:1731]) != SPECIES_EVIDENCE["integrated_register_rows_sha256"]:
+    if rows_digest(rows[:1469]) != SPECIES_EVIDENCE["thermal_main_register_rows_sha256"]:
+        errors.append("Species integration: main thermal B32 history was modified")
+    tail = rows[SPECIES_TAIL]
+    if rows_digest(tail) != SPECIES_EVIDENCE["reallocated_register_rows_sha256"]:
         errors.append("Species integration: appended events were modified")
-    protected_batches = {f"B{n}-2026-11-17" for n in range(32, 43)}
-    if any(row["batch"] in protected_batches or int(row["entry_id"][1:]) <= 1731 for row in rows[1731:]):
+    try:
+        original = species_original_projection(tail)
+    except (KeyError, ValueError):
+        original = []
+    if rows_digest(original) != SPECIES_EVIDENCE["integrated_register_rows_sha256"]:
+        errors.append("Species integration: reallocation changed more than entry_id and batch")
+    protected_batches = {f"B{n}-2026-11-17" for n in range(32, 44)}
+    if any(row["batch"] in protected_batches or int(row["entry_id"][1:]) <= 1741 for row in rows[1741:]):
         errors.append("Species integration: frozen history gained a member")
     return errors
 
 
 def before_species_integration(source, rows, language="EN"):
     """Reverse exact feature lines only; unknown edits remain fingerprinted."""
-    assert rows_digest(rows[1459:1731]) == SPECIES_EVIDENCE["integrated_register_rows_sha256"], "Species integration history was modified"
+    assert rows_digest(rows[SPECIES_TAIL]) == SPECIES_EVIDENCE["reallocated_register_rows_sha256"], "Species integration history was modified"
     language = language.lower()
     for line in SPECIES_EVIDENCE["catalog_additions"][language]:
         assert source.count(line) == 1, line
@@ -402,17 +451,23 @@ class IntegrationHistoryTests(unittest.TestCase):
 
     def test_species_integration_preserves_main_bytes_and_rejects_mutation(self):
         rows = reg.load_register()
-        prefix = b"".join(reg.REGISTER.read_bytes().replace(b"\r\n", b"\n").splitlines(keepends=True)[:1460])
-        self.assertEqual(hashlib.sha256(prefix).hexdigest(), SPECIES_EVIDENCE["main_register_bytes_sha256"])
+        lines = reg.REGISTER.read_bytes().replace(b"\r\n", b"\n").splitlines(keepends=True)
+        self.assertEqual(hashlib.sha256(b"".join(lines[:1460])).hexdigest(), SPECIES_EVIDENCE["main_register_bytes_sha256"])
+        self.assertEqual(hashlib.sha256(b"".join(lines[:1470])).hexdigest(),
+                         SPECIES_EVIDENCE["thermal_main_register_bytes_sha256"])
         self.assertEqual(species_integration_errors(rows), [])
-        for index in (0, 1100, 1401, 1458, 1459, 1600, 1730):
+        self.assertEqual(rows_digest(species_original_projection(rows[SPECIES_TAIL])),
+                         SPECIES_EVIDENCE["integrated_register_rows_sha256"])
+        self.assertEqual([row["entry_id"] for row in rows[SPECIES_TAIL]], [f"T{n}" for n in range(1470, 1742)])
+        self.assertEqual({row["batch"] for row in rows[SPECIES_TAIL]}, {f"B{n}-2026-11-17" for n in range(33, 44)})
+        for index in (0, 1100, 1401, 1458, 1459, 1468, 1469, 1600, 1740):
             for field in reg.COLUMNS:
                 changed = rows.copy()
                 changed[index] = dict(rows[index])
                 changed[index][field] += " altered"
                 self.assertTrue(species_integration_errors(changed), (index, field))
             self.assertTrue(species_integration_errors(rows[:index] + rows[index + 1:]))
-        self.assertTrue(species_integration_errors(rows + [dict(rows[-1], entry_id="T1732")]))
+        self.assertTrue(species_integration_errors(rows + [dict(rows[-1], entry_id="T1742")]))
         for language in ("FR", "EN"):
             source = (reg.ROOT / f"frontend/src/i18n/{language.lower()}.ts").read_text(encoding="utf-8")
             restored = before_species_integration(source, rows, language)
@@ -443,8 +498,8 @@ class IntegrationHistoryTests(unittest.TestCase):
 
     def test_integration_has_exact_count_unique_ordered_ids_and_chronology(self):
         rows = reg.load_register()
-        self.assertEqual(len(rows), 1731)
-        self.assertEqual([row["entry_id"] for row in rows], [f"T{n:03d}" for n in range(1, 1732)])
+        self.assertEqual(len(rows), 1741)
+        self.assertEqual([row["entry_id"] for row in rows], [f"T{n:03d}" for n in range(1, 1742)])
         self.assertEqual(species_integration_errors(rows), [])
         self.assertEqual(rows_digest(rows[:1100]), PRE_B29_ROWS_SHA256)
         self.assertEqual(integration_integrity_errors(rows), [])
@@ -458,12 +513,17 @@ class IntegrationHistoryTests(unittest.TestCase):
                          {"e80b409fbea485d97fbccf66d06da83eb46374883d1e3343f50e51e656b8c307"})
         b30 = b30_events(rows)
         b31 = b31_events(rows)
+        b32 = b32_events(rows)
         self.assertEqual(len(b30), 56)
         self.assertEqual(len(b31), 2)
+        self.assertEqual(len(b32), 10)
         self.assertEqual([(row["key_or_msgid"], row["language"], row["status"]) for row in b31],
                          [("dnaStateValidated", "FR", "REMOVED"), ("dnaStateValidated", "EN", "REMOVED")])
-        self.assertEqual(Counter(row["batch"] for row in rows[1010:1459]),
-                         Counter({"B20-2026-11-09": 6, "B21-2026-11-09": 20, "B22-2026-11-10": 6, "B23-2026-11-10": 12, "B24-2026-11-10": 6, INTEGRATION_B25: 26, B26: 8, B27: 4, "B28-2026-11-11": 2, B29: 301, B30: 56, B31: 2}))
+        self.assertEqual(Counter(row["batch"] for row in rows[1010:1469]),
+                         Counter({"B20-2026-11-09": 6, "B21-2026-11-09": 20, "B22-2026-11-10": 6, "B23-2026-11-10": 12, "B24-2026-11-10": 6, INTEGRATION_B25: 26, B26: 8, B27: 4, "B28-2026-11-11": 2, B29: 301, B30: 56, B31: 2, B32: 10}))
+        self.assertEqual(Counter(row["batch"] for row in rows[SPECIES_TAIL]),
+                         Counter({f"B{n}-2026-11-17": count for n, count in
+                                  zip(range(33, 44), (2, 12, 6, 2, 160, 34, 38, 4, 6, 6, 2))}))
         self.assertEqual(len(b26_events(rows)), 8)
         self.assertEqual(len(b27_events(rows)), 4)
         self.assertEqual(len({(row["batch"], reg.identity(row)) for row in rows}), len(rows))
@@ -527,7 +587,7 @@ class IntegrationHistoryTests(unittest.TestCase):
         # The latest events are B31 removals; a correction must target a live identity.
         row = next(entry for entry in reversed(original) if entry["status"] != "REMOVED")
         next_id = max(int(entry["entry_id"][1:]) for entry in original) + 1
-        correction = dict(row, entry_id=f"T{next_id}", batch="B43-2026-11-17", status="APPLIED",
+        correction = dict(row, entry_id=f"T{next_id}", batch="B44-2026-11-17", status="APPLIED",
                           baseline_git_head=HEAD_2, decision_ref="synthetic-future-correction",
                           initial_value=row["final_value"], final_value=row["final_value"] + " corrected")
         appended = original + [correction]
@@ -1259,13 +1319,13 @@ class RealRegisterTests(unittest.TestCase):
         events = b29_events(rows)
         for language in ("FR", "EN"):
             source = (reg.ROOT / f"frontend/src/i18n/{language.lower()}.ts").read_text(encoding="utf-8")
-            restored = before_b29(before_b30(source, rows, language), rows, language)
+            restored = before_b29(before_b30(before_b32(source, rows, language), rows, language), rows, language)
             self.assertNotEqual(restored, source)
             self.assertEqual(hashlib.sha256(restored.encode("utf-8")).hexdigest(),
                              PRE_B29_CATALOG_SHA256[language])
             # Unregistered additions must remain visible to the historical fingerprint.
             extra = "  unregisteredKey: 'Unapproved',\n"
-            self.assertEqual(before_b29(before_b30(source + extra, rows, language), rows, language),
+            self.assertEqual(before_b29(before_b30(before_b32(source + extra, rows, language), rows, language), rows, language),
                              restored + extra)
             for index in range(1100, 1401):
                 row = rows[index]
@@ -1335,7 +1395,7 @@ class RealRegisterTests(unittest.TestCase):
                 self.assertNotIn(f"  {key}: ", restored)
             self.assertNotIn("  dnaStateValidated: ", restored)
             # Reversing B30/B31 then B29 restores the independently frozen pre-B29 catalog.
-            self.assertEqual(hashlib.sha256(before_b29(restored, rows, language).encode("utf-8")).hexdigest(),
+            self.assertEqual(hashlib.sha256(before_b29(before_b32(restored, rows, language), rows, language).encode("utf-8")).hexdigest(),
                              PRE_B29_CATALOG_SHA256[language])
             # Unregistered additions must remain visible to the historical fingerprint.
             extra = "  unregisteredKey: 'Unapproved',\n"
@@ -1345,7 +1405,7 @@ class RealRegisterTests(unittest.TestCase):
                 with self.subTest(language=language, entry=row["entry_id"]):
                     for changed in (
                         rows[:index] + rows[index + 1:],
-                        rows + [dict(row, entry_id="T1460")],
+                        rows + [dict(row, entry_id="T1470")],
                         rows[:index] + [dict(row, batch="B99-2026-11-17")] + rows[index + 1:],
                     ):
                         with self.assertRaises(AssertionError):
@@ -1474,6 +1534,12 @@ class RealRegisterTests(unittest.TestCase):
         # B20 and B21 only add these exact registered lines after the frozen baseline.
         for row in rows:
             if row["batch"] in ("B20-2026-11-09", "B21-2026-11-09") and row["language"] == "EN":
+                line = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
+                self.assertEqual(baseline.count(line), 1, row["entry_id"])
+                baseline = baseline.replace(line, "")
+        # B32 only adds these exact registered four-hour monitoring lines after the frozen baseline.
+        for row in b32_events(rows):
+            if row["language"] == "EN":
                 line = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
                 self.assertEqual(baseline.count(line), 1, row["entry_id"])
                 baseline = baseline.replace(line, "")

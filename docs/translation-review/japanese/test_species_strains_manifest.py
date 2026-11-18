@@ -11,7 +11,11 @@ sys.path.insert(0, str(ROOT / 'docs/translation-review/application'))
 from test_check_register import SPECIES_EVIDENCE, before_species_integration  # noqa: E402
 import check_register as reg  # noqa: E402
 
-MAIN_MANIFEST_SHA256 = '6084ae89dacf2e834371941a8b4f9c452f5be76bda1d32b96c06f63325e9afdd'
+# Main 5e28969 manifest (adds the five B32 thermalMonitoring rows); 5651ffb digest kept for the older prefix.
+MAIN_MANIFEST_SHA256 = 'd6c48d94c2362f7a04a64463b9460a7b8944e35d178e08e5f9af238357200d94'
+PRE_THERMAL_MAIN_MANIFEST_SHA256 = '6084ae89dacf2e834371941a8b4f9c452f5be76bda1d32b96c06f63325e9afdd'
+THERMAL_B32_KEYS = ('thermalMonitoringPeriod', 'thermalMonitoringDeviation', 'thermalMonitoringExtrema',
+                    'thermalMonitoringEmpty', 'thermalMonitoringKeyboard')
 MAIN_JA_SHA256 = 'fbf104463753a848ca7d2442d7689f5ac1be554ee14f0e7cc370fdf0c9ba6652'
 
 
@@ -45,10 +49,15 @@ class SpeciesStrainsManifestTests(unittest.TestCase):
         changed = next(row for row in original if row['identity'] == 'firstMeasurementOn')
         self.assertEqual(changed['current_en'], 'First record')
         self.assertEqual(changed['reason_code'], 'EN_FORM_ONLY')
-        self.assertEqual(changed['note'], 'Register T1714 uses Record for the same biological record; existing validated Japanese is unchanged.')
+        self.assertEqual(changed['note'], 'Register T1724 uses Record for the same biological record; existing validated Japanese is unchanged.')
         changed.update(current_en='First reading', reason_code='EXACT_MATCH', note='')
         digest = hashlib.sha256(json.dumps(original, ensure_ascii=False, separators=(',', ':')).encode()).hexdigest()
         self.assertEqual(digest, MAIN_MANIFEST_SHA256)
+        thermal = [row for row in original if row['identity'] in THERMAL_B32_KEYS]
+        self.assertEqual([row['identity'] for row in thermal], list(THERMAL_B32_KEYS))
+        before_thermal = [row for row in original if row['identity'] not in THERMAL_B32_KEYS]
+        digest = hashlib.sha256(json.dumps(before_thermal, ensure_ascii=False, separators=(',', ':')).encode()).hexdigest()
+        self.assertEqual(digest, PRE_THERMAL_MAIN_MANIFEST_SHA256)
 
     def test_japanese_catalog_is_byte_unchanged_and_new_keys_have_no_japanese(self):
         source = (ROOT / 'frontend/src/i18n/ja.ts').read_bytes().replace(b'\r\n', b'\n')

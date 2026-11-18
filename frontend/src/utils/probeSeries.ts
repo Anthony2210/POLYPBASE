@@ -109,7 +109,7 @@ function cadenceSeconds(value: number | undefined) {
 
 /** Convert one API response. A response is entirely raw or entirely condensed. */
 export function buildProbeSeries(
-  data: ZoneProbeReadings | null,
+  data: Pick<ZoneProbeReadings, 'probes' | 'resolution_minutes'> | null,
   fallbackProbes: readonly ProbeIdentity[] = [],
 ): ProbeSeries[] {
   const probes: ReadonlyArray<ProbeIdentity & Partial<ZoneProbeReadings['probes'][number]>> = data?.probes ?? fallbackProbes;
@@ -146,7 +146,7 @@ export function buildProbeSeries(
 export type ProbeAveragePeriod = { start: number; end: number; mean: number; contributors: number };
 
 /** Preserve server period means, including zero; never derive them from individual curves. */
-export function buildProbeAverage(data: ZoneProbeReadings | null): ProbeAveragePeriod[] {
+export function buildProbeAverage(data: Pick<ZoneProbeReadings, 'probe_average' | 'resolution_minutes'> | null): ProbeAveragePeriod[] {
   return (data?.probe_average ?? []).map(([start, mean, contributors]) => ({
     start, end: start + data!.resolution_minutes * 60_000, mean, contributors,
   }));

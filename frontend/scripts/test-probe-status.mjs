@@ -58,13 +58,14 @@ function panel(monitoring, canRecord = true, language = 'fr') {
     useLayoutEffect() {},
   };
   const noop = () => null;
-  const { TemperatureControlPanel, formatTemperatureDelta } = load('../src/components/ZonesView.tsx', {
+  const { TemperatureControlPanel } = load('../src/components/ZonesView.tsx', {
     react: hooks, 'react/jsx-runtime': jsxRuntime,
     '../hooks/useProbeMonitoring': { default: () => ({ monitoring, error: null, revalidate() {} }) },
     '../hooks/useThermalControl': { default: () => ({ summary: undefined, error: null }) },
     '../utils/probeStatus': status,
     '../utils/dateFormat': { formatDisplayDate: (value) => value, formatDisplayDateTime: (value) => value, getDocumentLocale: () => language === 'fr' ? 'fr-FR' : 'en-GB' },
     '../utils/temperatureScale': { buildTemperatureScale: () => null },
+    './ThermalMonitoringChart': { default: noop },
     './PolypbaseIcon': { default: noop },
     // A settled chart read with no reading: probe status must not depend on it.
     './ZoneProbeCharts': { ZoneProbeChart: noop, useZoneChartReadings: () => zoneChartReadings({
@@ -77,7 +78,7 @@ function panel(monitoring, canRecord = true, language = 'fr') {
     addEventListener(name, fn) { events[name] = fn; },
     removeEventListener(name) { delete events[name]; },
     document: { addEventListener(name, fn) { events[name] = fn; }, removeEventListener(name) { delete events[name]; } },
-  }, String.fromCharCode(10) + 'export { TemperatureControlPanel, formatTemperatureDelta };');
+  }, String.fromCharCode(10) + 'export { TemperatureControlPanel };');
   let tree;
   const render = () => {
     cursor = 0; effects.length = 0;
@@ -97,7 +98,7 @@ function panel(monitoring, canRecord = true, language = 'fr') {
     return node == null ? '' : String(node);
   }
   render();
-  return { render, find, text, formatTemperatureDelta, timers, events, effects, advance(minutes) { clock += minutes * 60000; } };
+  return { render, find, text, timers, events, effects, advance(minutes) { clock += minutes * 60000; } };
 }
 
 const monitoring = (manual = true, last = new Date(now - 9 * 3600000).toISOString()) => ({
@@ -149,8 +150,8 @@ test('elapsed labels update by timer and on foregrounding, then clean up without
 });
 
 test('rounded zero deltas have no sign while nonzero deltas retain their sign', () => {
-  const { formatTemperatureDelta } = panel(monitoring());
-  for (const value of [0, -0, -0.001, -0.049, 0.001, 0.049, 20.01 - 20.02]) assert.equal(formatTemperatureDelta(value), '0.0°C');
-  assert.equal(formatTemperatureDelta(-0.051), '−0.1°C');
-  assert.equal(formatTemperatureDelta(0.051), '+0.1°C');
+  const { formatSignedTemperature } = load('../src/utils/environmentFormat.ts');
+  for (const value of [0, -0, -0.001, -0.049, 0.001, 0.049, 20.01 - 20.02]) assert.equal(formatSignedTemperature(value), '0.0');
+  assert.equal(formatSignedTemperature(-0.051), '−0.1');
+  assert.equal(formatSignedTemperature(0.051), '+0.1');
 });
