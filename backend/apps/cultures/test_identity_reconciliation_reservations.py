@@ -22,11 +22,23 @@ class IdentityReconciliationReservationTests(TestCase):
         species = Species.objects.create(scientific_name="Reservation species")
         cls.source = Strain.objects.create(organization=cls.org, species=species, code="CLA-JKA-1")
         cls.target = Strain.objects.create(organization=cls.org, species=species, code="CLC-JKA-1")
+        foreign_species = Species.objects.create(scientific_name="Foreign reservation species")
+        cls.foreign_source = Strain.objects.create(
+            organization=cls.other_org, species=foreign_species, code="CLA-JKA-1",
+        )
+        cls.foreign_target = Strain.objects.create(
+            organization=cls.other_org, species=foreign_species, code="CLC-JKA-1",
+        )
 
     def create_box(self, code, *, organization=None):
+        organization = organization or self.org
+        source, target = (
+            (self.source, self.target) if organization == self.org
+            else (self.foreign_source, self.foreign_target)
+        )
         return Box.objects.create(
-            organization=organization or self.org,
-            strain=self.target if code.startswith("CLC-") else self.source,
+            organization=organization,
+            strain=target if code.startswith("CLC-") else source,
             global_code=code, box_number=code.rsplit(".", 1)[1],
         )
 
@@ -69,15 +81,19 @@ class IdentityReconciliationReservationTests(TestCase):
             for existing, proposed in (("CLA", "CLC"), ("CLC", "CLA")):
                 for organization in (self.org, self.other_org):
                     with self.subTest(suffix=suffix, existing=existing, organization=organization.pk):
-                        counterpart = self.create_box(f"{existing}-JKA-1.{suffix}", organization=organization)
-                        before = self.snapshot()
-                        with override("en"), self.assertRaises(ValidationError) as error:
-                            self.create_box(f"{proposed}-JKA-1.{suffix}")
-                        self.assertEqual(error.exception.messages, [
-                            "This code is reserved by a historical culture identity.",
-                        ])
-                        self.assertEqual(self.snapshot(), before)
-                        counterpart.delete()
+                        # Roll back the entire fixture, including historical claims,
+                        # so each globally unique code starts in an independent state.
+                        with transaction.atomic():
+                            self.create_box(f"{existing}-JKA-1.{suffix}", organization=organization)
+                            before = self.snapshot()
+                            with override("en"):
+                                with self.assertRaises(ValidationError) as error:
+                                    self.create_box(f"{proposed}-JKA-1.{suffix}")
+                                self.assertEqual(error.exception.messages, [
+                                    "This code is reserved by a historical box identity.",
+                                ])
+                            self.assertEqual(self.snapshot(), before)
+                            transaction.set_rollback(True)
 
     def test_rename_is_rejected_in_both_directions_with_full_or_explicit_save(self):
         for suffix in ("009", "010"):

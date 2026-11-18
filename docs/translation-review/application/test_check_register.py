@@ -200,9 +200,98 @@ def b29_events(rows):
     return events
 
 
+# Donation integration: feature T1402-T1471/B30-B31 becomes T1742-T1811/B44-B45.
+# Project only IDs and batches back before checking the original feature digests.
+def donation_original_projection(rows):
+    return [dict(row, entry_id=f"T{int(row['entry_id'][1:]) - 340}",
+                 batch=f"B{int(row['batch'][1:3]) - 14}{row['batch'][3:]}")
+            for row in rows]
+
+
+B44 = "B44-2026-11-18"
+B44_ROWS_SHA256 = "cd8e6091a166c53d3a746e0f129d2ef2fc413a468892b854a60a15db80fe6469"
+B44_ADDED_KEYS = [
+    "donationIncoming", "donationSend", "donationRefresh", "donationDestination", "donationSource",
+    "donationType", "donationTypeDon", "donationDate", "donationState", "donationPending",
+    "donationCancelled", "donationCancelledAt", "donationAllTypes", "donationAllStates", "donationSearch",
+    "donationDetails", "donationReference", "donationEmpty", "donationNoMatch", "donationForbidden",
+    "donationNotFound", "donationReadError", "donationSendUnavailable", "donationAcceptanceUnavailable",
+]
+
+
+def b44_events(rows):
+    """Freeze the same complete B44 events as the Japanese provenance tests."""
+    entry_ids = [f"T{i}" for i in range(1742, 1790)]
+    protected_ids = set(entry_ids)
+    events = [row for row in rows if row["batch"] == B44 or row["entry_id"] in protected_ids]
+    assert events == rows[1741:1789], "B44: events moved or gained a member"
+    assert [row["entry_id"] for row in events] == entry_ids, "B44: identities changed"
+    assert all(list(row) == reg.COLUMNS for row in events), "B44: schema changed"
+    assert [(row["key_or_msgid"], row["language"]) for row in events] == [
+        (key, language) for key in B44_ADDED_KEYS for language in ("FR", "EN")
+    ], "B44: key or language order changed"
+    assert all((row["surface"], row["source_file"], row["status"], row["initial_value"]) == (
+        "react", f"frontend/src/i18n/{row['language'].lower()}.ts", "ALREADY_MATCHING", row["final_value"],
+    ) for row in events), "B44: additive event changed"
+    assert rows_digest(donation_original_projection(events)) == B44_ROWS_SHA256, "B44: history was modified"
+    return events
+
+
+B45 = "B45-2026-11-18"
+B45_ROWS_SHA256 = "ce4c9f91ebdd92c896516483d152efde1959fcd727dd1ad902bc2cf1b83193fc"
+B45_ADDED_KEYS = [
+    "exchangePreviewTitle", "exchangePreviewNotice", "exchangePreviewType", "exchangePreviewBox",
+    "exchangePreviewInstitution", "exchangePreviewBoxPlaceholder", "exchangePreviewInstitutionPlaceholder",
+    "exchangePreviewLive", "exchangePreviewFrozen", "exchangePreviewEmail",
+]
+
+
+def b45_events(rows):
+    """Freeze all B45 fields independently of the current catalogs."""
+    entry_ids = [f"T{i}" for i in range(1790, 1812)]
+    events = [row for row in rows if row["batch"] == B45 or row["entry_id"] in entry_ids]
+    assert events == rows[1789:1811], "B45: events moved or gained a member"
+    assert [row["entry_id"] for row in events] == entry_ids, "B45: identities changed"
+    assert all(list(row) == reg.COLUMNS for row in events), "B45: schema changed"
+    assert [(row["key_or_msgid"], row["language"]) for row in events] == [
+        (key, language) for key in ["donationSendUnavailable"] + B45_ADDED_KEYS for language in ("FR", "EN")
+    ], "B45: key or language order changed"
+    assert rows_digest(donation_original_projection(events)) == B45_ROWS_SHA256, "B45: history was modified"
+    return events
+
+
+def before_b45(source, rows, language="EN"):
+    """Undo exact B45 additions and restore the retired warning in its original position."""
+    events = [row for row in b45_events(rows) if row["language"] == language]
+    for row in events:
+        if row["status"] != "ALREADY_MATCHING":
+            continue
+        line = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
+        assert source.count(line) == 1, row["entry_id"]
+        source = source.replace(line, "")
+    removed = next(row for row in events if row["status"] == "REMOVED")
+    assert not any(line.startswith(f"  {removed['key_or_msgid']}: ") for line in source.splitlines())
+    anchor = "  donationAcceptanceUnavailable: "
+    assert source.count(anchor) == 1
+    return source.replace(anchor, f"  {removed['key_or_msgid']}: '{removed['initial_value']}',\n" + anchor)
+
+
+def before_b44(source, rows, language="EN"):
+    """Remove only exact, frozen B44 additions; leave unregistered text visible."""
+    for row in b44_events(rows):
+        if row["language"] != language:
+            continue
+        line = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
+        assert source.count(line) == 1, row["entry_id"]
+        source = source.replace(line, "")
+    return source
+
+
 def before_b29(source, rows, language="EN"):
-    """Undo only the frozen B29 additions and changes, in reverse event order."""
-    for row in reversed(b29_events(rows)):
+    """Undo frozen B45 and B44 events, then B29 additions and changes."""
+    events = b29_events(rows)
+    source = before_b44(before_b45(source, rows, language), rows, language)
+    for row in reversed(events):
         if row["language"] != language:
             continue
         line = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
@@ -275,12 +364,29 @@ def before_b32(source, rows, language="EN"):
     return source
 
 
+def before_donation_integration_layout(source, rows, language="EN"):
+    """Undo only the three separators added by merge 90a1065, not arbitrary whitespace."""
+    dna = {row["key_or_msgid"]: row for row in b30_events(rows) if row["language"] == language}
+    donation = {row["key_or_msgid"]: row for row in b44_events(rows) if row["language"] == language}
+    header = ("export const fr = {\n" if language == "FR"
+              else "export const en: Record<TranslationKey, string> = {\n")
+    first = f"  dnaMissing: '{dna['dnaMissing']['final_value']}',\n"
+    last = f"  dnaAuditRevoked: '{dna['dnaAuditRevoked']['final_value']}',\n"
+    warning = f"  donationAcceptanceUnavailable: '{donation['donationAcceptanceUnavailable']['final_value']}',\n"
+    for current, previous in ((header + "\n" + first, header + first),
+                              (last + "\n", last), (warning + "\n", warning)):
+        assert source.count(current) == 1, "Donation integration separator changed"
+        source = source.replace(current, previous)
+    return source
+
+
 def before_b30(source, rows, language="EN"):
     """Undo only the frozen B30 additions, honoring the B31 removals.
 
     A key removed by B31 must already be absent from the catalog: an absent
     removed key is a recorded removal, not an unrecorded missing translation.
     """
+    source = before_donation_integration_layout(source, rows, language)
     source = before_species_integration(source, rows, language)
     removed = {(row["key_or_msgid"], row["language"]) for row in b31_events(rows)}
     for row in reversed(b30_events(rows)):
@@ -467,7 +573,10 @@ class IntegrationHistoryTests(unittest.TestCase):
                 changed[index][field] += " altered"
                 self.assertTrue(species_integration_errors(changed), (index, field))
             self.assertTrue(species_integration_errors(rows[:index] + rows[index + 1:]))
-        self.assertTrue(species_integration_errors(rows + [dict(rows[-1], entry_id="T1742")]))
+        next_id = max(int(row["entry_id"][1:]) for row in rows) + 1
+        self.assertTrue(species_integration_errors(rows + [dict(rows[SPECIES_TAIL][-1], entry_id=f"T{next_id}")]))
+        self.assertEqual(species_integration_errors(rows + [dict(rows[-1], entry_id=f"T{next_id}",
+                                                               batch="B99-2026-11-19")]), [])
         for language in ("FR", "EN"):
             source = (reg.ROOT / f"frontend/src/i18n/{language.lower()}.ts").read_text(encoding="utf-8")
             restored = before_species_integration(source, rows, language)
@@ -498,8 +607,12 @@ class IntegrationHistoryTests(unittest.TestCase):
 
     def test_integration_has_exact_count_unique_ordered_ids_and_chronology(self):
         rows = reg.load_register()
-        self.assertEqual(len(rows), 1741)
-        self.assertEqual([row["entry_id"] for row in rows], [f"T{n:03d}" for n in range(1, 1742)])
+        integrated = rows[:1811]
+        self.assertEqual(len(integrated), 1811)
+        self.assertEqual(len(b44_events(rows)), 48)
+        self.assertEqual(len(b45_events(rows)), 22)
+        self.assertEqual(Counter(row["batch"] for row in integrated[1741:]), Counter({B44: 48, B45: 22}))
+        self.assertEqual([row["entry_id"] for row in integrated], [f"T{n:03d}" for n in range(1, 1812)])
         self.assertEqual(species_integration_errors(rows), [])
         self.assertEqual(rows_digest(rows[:1100]), PRE_B29_ROWS_SHA256)
         self.assertEqual(integration_integrity_errors(rows), [])
@@ -584,10 +697,11 @@ class IntegrationHistoryTests(unittest.TestCase):
 
     def test_later_corrections_must_be_appended(self):
         original = reg.load_register()
-        # The latest events are B31 removals; a correction must target a live identity.
+        # A correction must target a live identity and use a new batch after all appended events.
         row = next(entry for entry in reversed(original) if entry["status"] != "REMOVED")
         next_id = max(int(entry["entry_id"][1:]) for entry in original) + 1
-        correction = dict(row, entry_id=f"T{next_id}", batch="B44-2026-11-17", status="APPLIED",
+        next_batch = max(int(entry["batch"].split("-", 1)[0][1:]) for entry in original) + 1
+        correction = dict(row, entry_id=f"T{next_id}", batch=f"B{next_batch}-2026-11-19", status="APPLIED",
                           baseline_git_head=HEAD_2, decision_ref="synthetic-future-correction",
                           initial_value=row["final_value"], final_value=row["final_value"] + " corrected")
         appended = original + [correction]
@@ -1122,6 +1236,117 @@ class CatalogParserTests(unittest.TestCase):
 
 
 class RealRegisterTests(unittest.TestCase):
+    def test_h_b45_reconstruction_rejects_history_and_source_mutations(self):
+        rows = reg.load_register()
+        events = b45_events(rows)
+        for index in range(1789, 1811):
+            for field in reg.COLUMNS + ["unknown_column"]:
+                changed = rows.copy()
+                changed[index] = dict(rows[index])
+                changed[index][field] = changed[index].get(field, "") + " changed"
+                with self.subTest(entry=rows[index]["entry_id"], field=field):
+                    with self.assertRaises(AssertionError):
+                        b45_events(changed)
+            changed = rows.copy()
+            changed[index] = dict(rows[index])
+            changed[index].pop("sheet_value")
+            for invalid in (changed, rows[:index] + rows[index + 1:]):
+                with self.assertRaises(AssertionError):
+                    b45_events(invalid)
+        reordered = rows.copy()
+        reordered[1789], reordered[1790] = reordered[1790], reordered[1789]
+        for changed in (reordered, rows + [dict(events[0], entry_id="T1812")],
+                        [dict(events[0], batch="earlier")] + rows):
+            with self.assertRaises(AssertionError):
+                b45_events(changed)
+        self.assertEqual(b45_events(rows + [dict(events[2], entry_id="T1812", batch="later")]), events)
+        for language, digest in (
+            ("FR", "b987f50afd2504ac6b3de347ccf3a5bca4aa4abfbe8e6a2f80dc040c7e5cfb22"),
+            ("EN", "f51265056ec7e3f84057b4e8405410292465240beb720bbc2e5d4e01ebf25a77"),
+        ):
+            source = (reg.ROOT / reg.REACT_CATALOGS[language]).read_text(encoding="utf-8")
+            layout = before_donation_integration_layout(source, rows, language)
+            self.assertEqual(len(source.splitlines()) - len(layout.splitlines()), 3)
+            for key in ("dnaMissing", "exchangePreviewTitle", "shareWorkspace"):
+                line = next(line for line in source.splitlines(keepends=True) if line.startswith(f"  {key}: "))
+                with self.subTest(language=language, separator=key):
+                    with self.assertRaises(AssertionError):
+                        before_donation_integration_layout(source.replace("\n" + line, line), rows, language)
+            # Other whitespace changes must survive inversion and fail the historical hash.
+            unknown_space = "\n  shareWorkspaceHelp: "
+            changed_space = source.replace(unknown_space, "\n" + unknown_space)
+            self.assertNotEqual(changed_space, source)
+            self.assertEqual(before_donation_integration_layout(changed_space, rows, language),
+                             layout.replace(unknown_space, "\n" + unknown_space))
+            restored = before_b45(source, rows, language)
+            # Remove main-only layers to recover the independently frozen feature B30 source.
+            feature_source = before_b32(before_b30(restored, rows, language), rows, language)
+            self.assertEqual(hashlib.sha256(feature_source.encode()).hexdigest(), digest)
+            extra = "  unregisteredKey: 'Unapproved',\n"
+            self.assertEqual(before_b45(source + extra, rows, language), restored + extra)
+            for row in events:
+                if row["language"] != language:
+                    continue
+                if row["status"] == "REMOVED":
+                    with self.assertRaises(AssertionError):
+                        before_b45(source + f"  {row['key_or_msgid']}: '{row['initial_value']}',\n", rows, language)
+                    continue
+                line = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
+                for replacement in ("", line + line, line.replace(": '", ": 'changed ")):
+                    with self.assertRaises(AssertionError):
+                        before_b45(source.replace(line, replacement), rows, language)
+                changed = [dict(entry, initial_value="changed " + entry["initial_value"],
+                                final_value="changed " + entry["final_value"]) if entry == row else entry
+                           for entry in rows]
+                with self.assertRaises(AssertionError):
+                    before_b45(source.replace(line, line.replace(": '", ": 'changed ")), changed, language)
+
+    def test_h_b44_reconstruction_rejects_history_and_source_mutations(self):
+        rows = reg.load_register()
+        events = b44_events(rows)
+        for index in range(1741, 1789):
+            for field in reg.COLUMNS + ["unknown_column"]:
+                changed = rows.copy()
+                changed[index] = dict(rows[index])
+                changed[index][field] = changed[index].get(field, "") + " changed"
+                with self.subTest(entry=rows[index]["entry_id"], field=field):
+                    with self.assertRaises(AssertionError):
+                        b44_events(changed)
+            changed = rows.copy()
+            changed[index] = dict(rows[index])
+            changed[index].pop("sheet_value")
+            with self.assertRaises(AssertionError):
+                b44_events(changed)
+            with self.assertRaises(AssertionError):
+                b44_events(rows[:index] + rows[index + 1:])
+        reordered = rows.copy()
+        reordered[1741], reordered[1742] = reordered[1742], reordered[1741]
+        for changed in (reordered, rows + [dict(events[0], entry_id="T1812")],
+                        [dict(events[0], batch="earlier")] + rows):
+            with self.assertRaises(AssertionError):
+                b44_events(changed)
+        correction = dict(events[0], entry_id="T1812", batch="B46-2026-11-19", status="APPLIED",
+                          final_value="Later correction")
+        self.assertEqual(b44_events(rows + [correction]), events)
+        for language in ("FR", "EN"):
+            source = (reg.ROOT / reg.REACT_CATALOGS[language]).read_text(encoding="utf-8")
+            source = before_b45(source, rows, language)
+            restored = before_b44(source, rows, language)
+            extra = "  unregisteredKey: 'Unapproved',\n"
+            self.assertEqual(before_b44(source + extra, rows, language), restored + extra)
+            for row in events:
+                if row["language"] != language:
+                    continue
+                line = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
+                for replacement in ("", line + line, line.replace(": '", ": 'changed ")):
+                    with self.assertRaises(AssertionError):
+                        before_b44(source.replace(line, replacement), rows, language)
+                changed = [dict(entry, initial_value="changed " + entry["initial_value"],
+                                final_value="changed " + entry["final_value"]) if entry == row else entry
+                           for entry in rows]
+                with self.assertRaises(AssertionError):
+                    before_b44(source.replace(line, line.replace(": '", ": 'changed ")), changed, language)
+
     def test_h_b01_register_is_unchanged_and_valid(self):
         rows = reg.load_register()
         b01 = [row for row in rows if row["batch"] == B01]
@@ -1388,9 +1613,9 @@ class RealRegisterTests(unittest.TestCase):
             restored = before_b30(source, rows, language)
             self.assertNotEqual(restored, source)
             # Reverse the frozen feature layer, then exactly 21 active DNA keys.
-            # The registered English rewording changes no line count; B31 stays absent.
+            # Also reverse the three merge separators. The English rewording adds no lines; B31 stays absent.
             self.assertEqual(len(SPECIES_EVIDENCE["catalog_additions"][language.lower()]), 266)
-            self.assertEqual(len(source.splitlines()) - len(restored.splitlines()), 266 + 21)
+            self.assertEqual(len(source.splitlines()) - len(restored.splitlines()), 266 + 21 + 3)
             for key in active:
                 self.assertNotIn(f"  {key}: ", restored)
             self.assertNotIn("  dnaStateValidated: ", restored)

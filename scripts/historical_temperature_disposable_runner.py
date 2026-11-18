@@ -131,7 +131,11 @@ class DisposableRunner(DiscoverRunner):
         # fixture cleanup only, after re-verifying this launch's cluster.
         from config.disposable_postgres import install_disposable_flush
 
-        install_disposable_flush()
+        # Plain unittest suites (Box 1902) provision their own database clones.
+        # Django returns no database configuration for them; the connection is
+        # still on the non-test bootstrap database, where cleanup must refuse.
+        if config:
+            install_disposable_flush()
         return config
 
     def teardown_databases(self, old_config, **kwargs):

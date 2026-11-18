@@ -25,6 +25,7 @@ from apps.organizations.models import Organization
 from apps.taxonomy.models import Strain
 
 from .box_codes import lock_local_id_registry, register_box_code
+from .box_ownership import boxes_with_ownership_history
 from .models import Box, BoxCodeNamespace, BoxLocation, BoxMovement, ThermalZone
 
 OPERATION = "pca_identity_unification_v1"
@@ -259,6 +260,10 @@ def _make_plan(organization):
             blockers.append(f"Unexpected identity/status/location for Box {box.pk}.")
         if box.origin_id is not None or box.merged_into_id is not None or box.previous_global_code:
             blockers.append(f"Box {box.pk} requires a null origin and no prior merge identity.")
+    # Apply rebuilds this plan after locking both Box rows, the lock taken first
+    # by ownership enrollment: an enrolled donor can never become an alias.
+    if DONOR_ID in boxes_with_ownership_history([DONOR_ID]):
+        blockers.append(f"Box {DONOR_ID} has a global ownership history and cannot become a merged alias.")
     if len(strains) != 2 or any(s.organization_id not in (None, ORGANIZATION_ID) for s in strains):
         blockers.append("Both exact Strain references must be shared or owned by organization 1.")
     if {strain.pk: (strain.code, strain.species_id) for strain in strains} != {

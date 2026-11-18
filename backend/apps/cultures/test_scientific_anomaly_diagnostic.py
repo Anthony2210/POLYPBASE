@@ -713,14 +713,41 @@ class IdentityDecisionTests(DiagnosticBase):
         Box.objects.filter(pk=old.pk).update(global_code="PCA-JKA-1.005", strain=self.pca_jka,
                                              previous_global_code="PCA-CHO-1.005")
         self.assertEqual(self.approved()["PCA-CHO-1.005"]["status"], "APPLIED_VERIFIED")
-        # Detaching the donor leaves two identities claiming PCA-JKA-1.005: the
-        # current Local ID guard rightly refuses that write.
-        with self.assertRaises(DatabaseError), transaction.atomic():
-            Box.objects.filter(pk=donor.pk).update(merged_into=None)
-        # The 0023 backfill preserves such legacy states for review, so the
-        # diagnostic must still classify them. Recreate it without the guard.
-        self.legacy_update(donor.pk, merged_into=None)
+        before = self.database_snapshot()
+        # Detaching the donor would split two claims to the official Local ID.
+        with self.assertRaisesRegex(IntegrityError, "Local ID is reserved or its source identity is unresolved"):
+            with transaction.atomic():
+                Box.objects.filter(pk=donor.pk).update(merged_into=None)
+        self.assertEqual(self.database_snapshot(), before)
+        self.assertEqual(self.approved()["PCA-CHO-1.005"]["status"], "APPLIED_VERIFIED")
+
+    def test_pca_official_code_without_merge_evidence_is_unverified(self):
+        official = self.box("PCA-JKA-1.005", self.pca_jka)
+        self.assertEqual(official.previous_global_code, "")
+        self.assertIsNone(official.merged_into_id)
+        self.assertFalse(Box.objects.filter(global_code=pca.RETIRED_CODE).exists())
+        before = self.database_snapshot()
+
         self.assertEqual(self.approved()["PCA-CHO-1.005"]["status"], "UNVERIFIED")
+        self.assertEqual(self.database_snapshot(), before)
+
+    @skipUnless(connection.vendor == "sqlite", "The legacy fixture is SQLite-only by design")
+    def test_pca_legacy_detached_donor_is_unverified(self):
+        old = self.box("PCA-CHO-1.005", self.pca_cho)
+        donor = self.box("PCA-JKA-1.005", self.pca_jka)
+        Box.objects.filter(pk=donor.pk).update(
+            global_code=pca.RETIRED_CODE, status="inactive", merged_into=old,
+            previous_global_code="PCA-JKA-1.005",
+        )
+        Box.objects.filter(pk=old.pk).update(
+            global_code="PCA-JKA-1.005", strain=self.pca_jka,
+            previous_global_code="PCA-CHO-1.005",
+        )
+        # The 0023 backfill leaves unresolved legacy claims for read-only review.
+        self.legacy_update(donor.pk, merged_into=None)
+        before = self.database_snapshot()
+        self.assertEqual(self.approved()["PCA-CHO-1.005"]["status"], "UNVERIFIED")
+        self.assertEqual(self.database_snapshot(), before)
 
     def legacy_update(self, pk, **fields):
         """Write one inconsistent legacy row inside this test's transaction only.

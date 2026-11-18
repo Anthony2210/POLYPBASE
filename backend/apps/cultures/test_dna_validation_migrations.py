@@ -36,20 +36,22 @@ class DnaValidationMigrationTests(TransactionTestCase):
         apps = executor.loader.project_state(latest).apps
         # Every retained field is unchanged, including the zero counts. Columns
         # added later are checked separately; no other column may appear.
-        additive = {("cultures", "Box"): {"global_identity_id": None}, ("measurements", "BiologicalMeasurement"): {}}
         for label, rows in snapshots.items():
-            with self.subTest(model=label):
-                current = list(apps.get_model(*label).objects.values())
-                self.assertEqual([{key: row[key] for key in before_row} for row, before_row in zip(current, rows)],
-                                 rows)
-                self.assertEqual(len(current), len(rows))
-                for row, before_row in zip(current, rows):
-                    # 0022 leaves Global ID NULL ("not initialized") for a Box
-                    # without a creation receipt or subculture allocation.
-                    self.assertEqual({key: value for key, value in row.items() if key not in before_row},
-                                     additive[label])
-        measurement = apps.get_model("measurements", "BiologicalMeasurement").objects.get()
-        self.assertEqual((measurement.polyp_count, measurement.ephyrae_count, measurement.strobila_count), (0, 0, 0))
+            model = apps.get_model(*label)
+            historical_fields = tuple(rows[0])
+            added_fields = {"global_identity_id"} if label == ("cultures", "Box") else set()
+            self.assertEqual({field.attname for field in model._meta.concrete_fields},
+                             set(historical_fields) | added_fields)
+            self.assertEqual(list(model.objects.values(*historical_fields)), rows)
+        # This historical Box has no verified creation receipt: 0022 must not
+        # infer physical continuity or allocate an identity during the upgrade.
+        self.assertIsNone(apps.get_model("cultures", "Box").objects.get(pk=box.pk).global_identity_id)
+        self.assertFalse(apps.get_model("cultures", "BoxGlobalIdentity").objects.exists())
+        self.assertFalse(apps.get_model("cultures", "GlobalBoxIdentity").objects.exists())
+        self.assertFalse(apps.get_model("cultures", "BoxOwnershipEpisode").objects.exists())
+        measurement = apps.get_model("measurements", "BiologicalMeasurement").objects.get(box_id=box.pk)
+        self.assertEqual((measurement.polyp_count, measurement.ephyrae_count, measurement.strobila_count),
+                         (0, 0, 0))
         self.assertFalse(apps.get_model("cultures", "BoxLocalIdAlias").objects.exists())
         self.assertFalse(apps.get_model("cultures", "BoxDnaValidation").objects.exists())
         for model_name in ("BoxHistoryStream", "BoxHistoryRevision", "BoxHistoryEventIdentity"):
@@ -57,5 +59,5 @@ class DnaValidationMigrationTests(TransactionTestCase):
                 self.assertFalse(apps.get_model("cultures", model_name).objects.exists())
         self.assertEqual(
             executor.loader.graph.leaf_nodes("cultures"),
-            [("cultures", "0024_local_id_guard_search_path")],
+            [("cultures", "0025_merge_local_id_hardening_and_donations")],
         )

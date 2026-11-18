@@ -55,9 +55,9 @@ test('Laboratory configuration is an enabled Administration section on its exist
   assert.ok(disabled);
   assert.doesNotMatch(disabled, /'environment'/);
   for (const key of ['references', 'organizations']) assert.match(disabled, new RegExp(`'${key}'`));
-    assert.doesNotMatch(disabled, /'transfers'/);
-    assert.match(adminView, /<BoxSharingAdminSection/);
-    assert.doesNotMatch(adminView, /<TransfersAdminSection/);
+  assert.doesNotMatch(disabled, /'transfers'/);
+  assert.match(adminView, /displayedSection === 'transfers' && activeOrganizationId != null \? \(\s*<InstitutionalExchangesPage\b/);
+  assert.doesNotMatch(adminView, /<(?:BoxSharingAdminSection|TransfersAdminSection)\b/);
   assert.match(app, /environment: '\/administration\/laboratory'/);
   assert.match(adminView, /displayedSection === 'environment' && activeOrganizationId != null \? \(\s*<LabConfigurationAdminSection\s+key=\{activeOrganizationId\}/);
   assert.equal(fr.adminTabLocations, 'Configuration du laboratoire');

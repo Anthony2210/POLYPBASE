@@ -427,6 +427,20 @@ class DisposableRunnerTests(unittest.TestCase):
         setup.assert_called_once_with(aliases={"default"})
         connect.assert_not_called()
 
+    def test_suite_without_django_databases_never_installs_flush(self):
+        # Box 1902 uses unittest.TestCase and owns its database clones itself.
+        for aliases in ({}, None, {"default"}):
+            with self.subTest(aliases=aliases), \
+                    patch.object(runner, "require_launch"), \
+                    patch.object(runner, "connections"), \
+                    patch.object(runner.DiscoverRunner, "setup_databases", return_value=[]) as setup, \
+                    patch("config.disposable_postgres.install_disposable_flush") as install, \
+                    patch.object(runner.psycopg, "connect") as connect:
+                self.assertEqual(runner.DisposableRunner(verbosity=0).setup_databases(aliases=aliases), [])
+            setup.assert_called_once_with(aliases=aliases)
+            install.assert_not_called()
+            connect.assert_not_called()
+
     def test_suite_without_database_installs_no_cleanup_bypass(self):
         # Django skips creating an unused test database; the connection then
         # still targets the non-test database, so no bypass may be installed.

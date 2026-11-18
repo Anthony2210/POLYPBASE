@@ -50,6 +50,8 @@ Le code décrit ce qui existe, mais un comportement observé n'est pas automatiq
 - [`tests_backend.md`](tests_backend.md) : inventaire détaillé des tests backend.
 - [`deploiement_vm.md`](deploiement_vm.md) : exploitation et procédures de secours.
 - [`transferts_csv.md`](transferts_csv.md) : contrat v1 et fondations Transfer v2, sans acceptation destination v2.
+- [`backend/TRANSFER_V2_BOX_IDENTITY.md`](../backend/TRANSFER_V2_BOX_IDENTITY.md) : identité globale de Box et épisodes de propriété institutionnelle (Phase 6 jalon 1, non revu, sans transition active).
+- [`backend/TRANSFER_V2_BOX_DONATION_PROPOSAL.md`](../backend/TRANSFER_V2_BOX_DONATION_PROPOSAL.md) : proposition de don de Box entière (Phase 6 jalon 2, backend non revu, sans acceptation ni UI).
 - [`canonical-measurement-csv.md`](canonical-measurement-csv.md) et [`measurement-import-planner.md`](measurement-import-planner.md) : préparation et aperçu scientifique read-only, distincts des importeurs historiques.
 - [`backend/BOX_READER_SHARING.md`](../backend/BOX_READER_SHARING.md) : fondation backend du partage externe en lecture seule d'une boîte (non revue, inactive sans configuration); pas de lecteur React, de XLSX ni de transfert biologique.
 - [`backend/QUANTITATIVE_SUBCULTURE.md`](../backend/QUANTITATIVE_SUBCULTURE.md) : état scientifique, allocations et snapshots du repiquage.

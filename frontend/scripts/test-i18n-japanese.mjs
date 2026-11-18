@@ -256,7 +256,8 @@ test('deleted and obsolete keys are never restored in Japanese', () => {
 
 test('ja catalog is exactly the historical and AI-reviewed manifest union', () => {
   const react = manifest.filter(row => row.surface === 'react');
-  assert.deepEqual(react.map(row => row.identity), Object.keys(fr), 'one row per key in canonical FR order');
+  assert.deepEqual(react.map(row => row.identity), Object.keys(fr).filter(key => !B44_ADDED_KEYS.includes(key) && !B45_ADDED_KEYS.includes(key)),
+    'one row per historical key in canonical FR order; B44/B45 have no fabricated manifest provenance');
   const included = react.filter(row => ['REUSED', 'AI_REVIEWED'].includes(row.status));
   const expected = included.map(row => [row.identity,
     row.status === 'REUSED' ? row.ja_validated : row.ja_ai_reviewed]);
@@ -563,6 +564,207 @@ const B24_ADDED_KEYS = ['historyReactivation', 'historyLocationExit', 'historyLo
 
 const B26_ROWS_DIGEST = 'bb061a0b21466b02a2db8ab09453d98c3571c607c7236d28678f0aaa68080955';
 const B27_ROWS_DIGEST = '988d1d95a042150c7c58f1e55e88c687e864b20b41623af9e69e50ebcea7a8ef';
+// Feature T1402-T1471/B30-B31 is appended as T1742-T1811/B44-B45.
+// Preserve the original feature digests by projecting only the reallocated fields.
+function donationOriginalProjection(rows) {
+  return rows.map(row => ({ ...row,
+    entry_id: `T${Number(row.entry_id.slice(1)) - 340}`,
+    batch: `B${Number(row.batch.slice(1, 3)) - 14}${row.batch.slice(3)}` }));
+}
+
+const B44_ADDED_KEYS = [
+  'donationIncoming', 'donationSend', 'donationRefresh', 'donationDestination', 'donationSource',
+  'donationType', 'donationTypeDon', 'donationDate', 'donationState', 'donationPending',
+  'donationCancelled', 'donationCancelledAt', 'donationAllTypes', 'donationAllStates', 'donationSearch',
+  'donationDetails', 'donationReference', 'donationEmpty', 'donationNoMatch', 'donationForbidden',
+  'donationNotFound', 'donationReadError', 'donationSendUnavailable', 'donationAcceptanceUnavailable',
+];
+// Freeze all 14 columns, including values, decision, baseline and the unused refresh exception.
+const B44_ROWS_DIGEST = 'cd8e6091a166c53d3a746e0f129d2ef2fc413a468892b854a60a15db80fe6469';
+
+function b44Events(rows = register) {
+  const events = rows.filter(row => row.batch === 'B44-2026-11-18');
+  assert.deepEqual(events, rows.slice(1741, 1789));
+  assert.deepEqual(events.map(row => row.entry_id), Array.from({ length: 48 }, (_, index) => `T${1742 + index}`));
+  assert.deepEqual(events.map(row => [row.key_or_msgid, row.language]),
+    B44_ADDED_KEYS.flatMap(key => [[key, 'FR'], [key, 'EN']]));
+  for (const entry of events) {
+    assert.deepEqual(Object.keys(entry), REGISTER_COLUMNS);
+    assert.deepEqual([entry.surface, entry.source_file, entry.status, entry.initial_value],
+      ['react', `frontend/src/i18n/${entry.language.toLowerCase()}.ts`, 'ALREADY_MATCHING', entry.final_value]);
+  }
+  assert.equal(registerRowsDigest(donationOriginalProjection(events)), B44_ROWS_DIGEST);
+  return events;
+}
+
+const B45_ADDED_KEYS = [
+  'exchangePreviewTitle', 'exchangePreviewNotice', 'exchangePreviewType', 'exchangePreviewBox',
+  'exchangePreviewInstitution', 'exchangePreviewBoxPlaceholder', 'exchangePreviewInstitutionPlaceholder',
+  'exchangePreviewLive', 'exchangePreviewFrozen', 'exchangePreviewEmail',
+];
+const B45_ROWS_DIGEST = 'ce4c9f91ebdd92c896516483d152efde1959fcd727dd1ad902bc2cf1b83193fc';
+
+function b45Events(rows = register) {
+  const ids = Array.from({ length: 22 }, (_, index) => `T${1790 + index}`);
+  const events = rows.filter(row => row.batch === 'B45-2026-11-18' || ids.includes(row.entry_id));
+  assert.deepEqual(events, rows.slice(1789, 1811));
+  assert.deepEqual(events.map(row => row.entry_id), ids);
+  assert.deepEqual(events.map(row => [row.key_or_msgid, row.language]),
+    ['donationSendUnavailable', ...B45_ADDED_KEYS].flatMap(key => [[key, 'FR'], [key, 'EN']]));
+  for (const entry of events) assert.deepEqual(Object.keys(entry), REGISTER_COLUMNS);
+  assert.equal(registerRowsDigest(donationOriginalProjection(events)), B45_ROWS_DIGEST);
+  return events;
+}
+
+function beforeB45(source, language, rows = register) {
+  const events = b45Events(rows).filter(row => row.language === language.toUpperCase());
+  for (const entry of events.filter(row => row.status === 'ALREADY_MATCHING')) {
+    const line = `  ${entry.key_or_msgid}: '${entry.final_value}',\n`;
+    assert.equal(source.split(line).length - 1, 1, entry.entry_id);
+    source = source.replace(line, '');
+  }
+  const removed = events.find(row => row.status === 'REMOVED');
+  assert.equal(source.split('\n').some(line => line.startsWith(`  ${removed.key_or_msgid}: `)), false);
+  const anchor = '  donationAcceptanceUnavailable: ';
+  assert.equal(source.split(anchor).length - 1, 1);
+  return source.replace(anchor, `  ${removed.key_or_msgid}: '${removed.initial_value}',\n${anchor}`);
+}
+
+test('B45 preview events reconstruct exact HEAD catalogs and reject history or source mutations', () => {
+  const events = b45Events();
+  for (const entry of events) {
+    assert.throws(() => b45Events(register.filter(row => row !== entry)));
+    for (const field of [...REGISTER_COLUMNS, 'unknown_column']) {
+      assert.throws(() => b45Events(register.map(row => row === entry
+        ? { ...row, [field]: `${row[field] ?? ''} changed` } : row)), `${entry.entry_id}.${field}`);
+    }
+    const missing = { ...entry };
+    delete missing.sheet_value;
+    assert.throws(() => b45Events(register.map(row => row === entry ? missing : row)));
+  }
+  const reordered = register.slice();
+  [reordered[1789], reordered[1790]] = [reordered[1790], reordered[1789]];
+  for (const rows of [reordered, [...register, { ...events[0], entry_id: 'T1812' }],
+    [{ ...events[0], batch: 'earlier' }, ...register]]) assert.throws(() => b45Events(rows));
+  assert.deepEqual(b45Events([...register, { ...events[2], entry_id: 'T1812', batch: 'later' }]), events);
+  const translate = loadI18n().createTranslator('ja');
+  for (const [language, digest] of [
+    ['fr', 'b987f50afd2504ac6b3de347ccf3a5bca4aa4abfbe8e6a2f80dc040c7e5cfb22'],
+    ['en', 'f51265056ec7e3f84057b4e8405410292465240beb720bbc2e5d4e01ebf25a77'],
+  ]) {
+    const source = read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n');
+    const layout = beforeDonationIntegrationLayout(source, language);
+    assert.equal(source.split('\n').length - layout.split('\n').length, 3);
+    for (const key of ['dnaMissing', 'exchangePreviewTitle', 'shareWorkspace']) {
+      const line = `${source.split('\n').find(line => line.startsWith(`  ${key}: `))}\n`;
+      assert.throws(() => beforeDonationIntegrationLayout(source.replace(`\n${line}`, line), language), key);
+    }
+    // Unrelated whitespace must remain visible to the historical fingerprint.
+    const unknownSpace = '\n  shareWorkspaceHelp: ';
+    const changedSpace = source.replace(unknownSpace, `\n${unknownSpace}`);
+    assert.notEqual(changedSpace, source);
+    assert.equal(beforeDonationIntegrationLayout(changedSpace, language), layout.replace(unknownSpace, `\n${unknownSpace}`));
+    const restored = beforeB45(source, language);
+    // Reverse main-only layers before comparing with the original feature B30 source.
+    const featureSource = beforeB32(beforeB30(restored, language), language);
+    assert.equal(sha256(featureSource), digest);
+    const extra = "  unregisteredKey: 'Unapproved',\n";
+    assert.equal(beforeB45(source + extra, language), restored + extra);
+    for (const entry of events.filter(row => row.language === language.toUpperCase())) {
+      const line = `  ${entry.key_or_msgid}: '${entry.final_value}',\n`;
+      if (entry.status === 'REMOVED') {
+        assert.throws(() => beforeB45(source + `  ${entry.key_or_msgid}: '${entry.initial_value}',\n`, language));
+        continue;
+      }
+      for (const replacement of ['', line + line, line.replace(": '", ": 'changed ")]) {
+        assert.throws(() => beforeB45(source.replace(line, replacement), language));
+      }
+      const coordinated = register.map(row => row === entry
+        ? { ...row, initial_value: `changed ${row.initial_value}`, final_value: `changed ${row.final_value}` } : row);
+      assert.throws(() => beforeB45(source.replace(line, line.replace(": '", ": 'changed ")), language, coordinated));
+      assert.equal(translate(entry.key_or_msgid), en[entry.key_or_msgid]);
+      assert.equal(Object.hasOwn(ja, entry.key_or_msgid), false);
+      assert.equal(manifest.some(row => row.identity === entry.key_or_msgid), false);
+      assert.equal(reviewed.some(row => row.identity === entry.key_or_msgid || row.key === entry.key_or_msgid), false);
+      assert.equal(postBaseline.has(entry.key_or_msgid), false);
+    }
+  }
+});
+
+function beforeB44(source, language, rows = register) {
+  for (const entry of b44Events(rows).filter(row => row.language === language.toUpperCase())) {
+    const line = `  ${entry.key_or_msgid}: '${entry.final_value}',\n`;
+    assert.equal(source.split(line).length - 1, 1, entry.key_or_msgid);
+    source = source.replace(line, '');
+  }
+  return source;
+}
+
+test('B44 donation additions require exact append-only events, schema, metadata and source values', () => {
+  const events = b44Events();
+  for (const entry of events) {
+    assert.throws(() => b44Events(register.filter(row => row !== entry)), `${entry.entry_id}: omitted`);
+    for (const field of REGISTER_COLUMNS) {
+      const changed = register.map(row => row === entry ? { ...row, [field]: `${row[field]} changed` } : row);
+      assert.throws(() => b44Events(changed), `${entry.entry_id}.${field}`);
+    }
+    for (const field of ['unknown_column', 'sheet_value']) {
+      const changed = { ...entry };
+      if (field === 'unknown_column') changed[field] = 'unapproved';
+      else delete changed[field];
+      assert.throws(() => b44Events(register.map(row => row === entry ? changed : row)));
+    }
+  }
+  const reordered = register.slice();
+  [reordered[1741], reordered[1742]] = [reordered[1742], reordered[1741]];
+  assert.throws(() => b44Events(reordered));
+  assert.throws(() => b44Events([...register, { ...events[0], entry_id: 'T1812' }]));
+  assert.throws(() => b44Events([{ ...events[0], batch: 'earlier' }, ...register]));
+  const correction = { ...events[0], entry_id: 'T1812', batch: 'later', status: 'APPLIED', final_value: 'Later correction' };
+  assert.deepEqual(b44Events([...register, correction]), events, 'later events do not rewrite B44');
+
+  for (const language of ['fr', 'en']) {
+    const source = read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n');
+    const b44Source = beforeB45(source, language);
+    assert.doesNotThrow(() => beforeB44(b44Source, language));
+    for (const entry of events.filter(row => row.language === language.toUpperCase())) {
+      const line = `  ${entry.key_or_msgid}: '${entry.final_value}',\n`;
+      for (const replacement of ['', line + line, line.replace(": '", ": 'changed ")]) {
+        assert.throws(() => beforeB44(b44Source.replace(line, replacement), language));
+      }
+      const coordinated = register.map(row => row === entry
+        ? { ...row, initial_value: `changed ${row.initial_value}`, final_value: `changed ${row.final_value}` } : row);
+      assert.throws(() => beforeB44(b44Source.replace(line, line.replace(": '", ": 'changed ")), language, coordinated));
+    }
+    const digest = sha256(historicalSource(source, true, language));
+    for (const key of ['donationUnapproved', 'unapprovedAddition']) {
+      const unknown = source.replace('\n}', `\n  ${key}: 'Value',\n}`);
+      assert.notEqual(sha256(historicalSource(unknown, true, language)), digest, key);
+    }
+    const line = source.split('\n').find(line => line.startsWith('  overviewEmpty: '));
+    assert.ok(line);
+    const changed = source.replace(line, line.replace(": '", ": 'changed "));
+    assert.notEqual(sha256(historicalSource(changed, true, language)), digest, 'historical values remain frozen');
+  }
+});
+
+test('B44 donation keys use English runtime fallback without Japanese approval or fabricated provenance', () => {
+  const translate = loadI18n().createTranslator('ja');
+  for (const [language, catalog] of [['FR', fr], ['EN', en]]) {
+    assert.deepEqual(Object.keys(catalog).filter(key => /^donation/.test(key)), B44_ADDED_KEYS.filter(key => key !== 'donationSendUnavailable'));
+    for (const entry of b44Events().filter(row => row.language === language)) {
+      if (entry.key_or_msgid === 'donationSendUnavailable') assert.equal(Object.hasOwn(catalog, entry.key_or_msgid), false);
+      else assert.equal(catalog[entry.key_or_msgid], entry.final_value, entry.entry_id);
+    }
+  }
+  for (const key of B44_ADDED_KEYS.filter(key => key !== 'donationSendUnavailable')) {
+    assert.equal(Object.hasOwn(ja, key), false, key);
+    assert.equal(postBaseline.has(key), false, key);
+    assert.equal(manifest.some(row => row.identity === key), false, `${key}: no invented manifest row`);
+    assert.equal(reviewed.some(row => row.identity === key || row.key === key), false, key);
+    assert.equal(translate(key), en[key], `${key}: English runtime fallback`);
+  }
+});
 
 function b24Events(rows = register) {
   const events = rows.filter(row => row.batch === 'B24-2026-11-10');
@@ -629,6 +831,7 @@ function b28Events(rows = register) {
 }
 
 function beforeB29(source, language, rows = register) {
+  source = beforeB44(beforeB45(source, language, rows), language, rows);
   const batch = rows.filter(row => row.batch === 'B29-2026-11-12');
   const rename = batch.find(entry => entry.key_or_msgid === 'adminTabTransfers');
   assert.deepEqual([rename.entry_id, rename.key_or_msgid, rename.language, rename.status, rename.initial_value, rename.final_value],
@@ -743,7 +946,27 @@ function b31Events(rows = register) {
   return events;
 }
 
+function beforeDonationIntegrationLayout(source, language, rows = register) {
+  // Merge 90a1065 added exactly these three separators; do not normalize other whitespace.
+  const dna = Object.fromEntries(b30Events(rows).filter(row => row.language === language.toUpperCase())
+    .map(row => [row.key_or_msgid, row.final_value]));
+  const donation = Object.fromEntries(b44Events(rows).filter(row => row.language === language.toUpperCase())
+    .map(row => [row.key_or_msgid, row.final_value]));
+  const header = language === 'fr' ? 'export const fr = {\n'
+    : 'export const en: Record<TranslationKey, string> = {\n';
+  const first = `  dnaMissing: '${dna.dnaMissing}',\n`;
+  const last = `  dnaAuditRevoked: '${dna.dnaAuditRevoked}',\n`;
+  const warning = `  donationAcceptanceUnavailable: '${donation.donationAcceptanceUnavailable}',\n`;
+  for (const [current, previous] of [[`${header}\n${first}`, header + first],
+    [`${last}\n`, last], [`${warning}\n`, warning]]) {
+    assert.equal(source.split(current).length - 1, 1, 'Donation integration separator changed');
+    source = source.replace(current, previous);
+  }
+  return source;
+}
+
 function beforeB30(source, language, rows = register) {
+  source = beforeDonationIntegrationLayout(source, language, rows);
   source = beforeSpeciesIntegration(source, language, rows);
   // A key removed by B31 must already be absent: an absent removed key is a
   // recorded removal, not an unrecorded missing translation.
@@ -1090,7 +1313,7 @@ test('source fingerprints accept the scoped additions but reject every historica
       assert.notEqual(mutated, line, `${language}.${key}: mutation must change the value`);
       const changed = source.replace(line, mutated);
       if (B24_ADDED_KEYS.includes(key) || zoneChartKeys.includes(key) || thermalPeriodKeys.includes(key)
-          || probeAverageKeys.includes(key) || sharingKeys.includes(key) || DNA_KEYS.includes(key)
+          || probeAverageKeys.includes(key) || sharingKeys.includes(key) || B44_ADDED_KEYS.includes(key) || B45_ADDED_KEYS.includes(key) || DNA_KEYS.includes(key)
           || speciesIntegrationKeys.includes(key) || (key === 'firstMeasurementOn' && language === 'en')
                     || (key === 'adminTabTransfers' && language === 'en')) {
         assert.throws(() => historicalSource(changed, true, language), `${language}.${key}`);

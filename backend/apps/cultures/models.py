@@ -221,7 +221,8 @@ class Box(models.Model):
             current = None
             if not self._state.adding or self.pk is not None:
                 rows = type(self).objects.select_for_update().only(
-                    "merged_into", "previous_global_code", "global_code", "strain_id", "global_identity",
+                    "merged_into", "previous_global_code", "global_code", "strain_id",
+                    "global_identity", "organization_id",
                 )
                 current = rows.filter(pk=self.pk).first() if self._state.adding else rows.get(pk=self.pk)
             adding = current is None
@@ -241,6 +242,22 @@ class Box(models.Model):
                 if (current.global_identity_id is not None
                         and self.global_identity_id != current.global_identity_id):
                     raise ValidationError("A box Global ID is permanent.")
+            if not adding:
+                reassigns = (
+                    {"organization", "organization_id"}.intersection(update_fields)
+                    and self.organization_id != current.organization_id
+                )
+                becomes_alias = (
+                    {"merged_into", "merged_into_id"}.intersection(update_fields)
+                    and self.merged_into_id is not None
+                )
+                if (reassigns or becomes_alias) and BoxOwnershipEpisode.objects.filter(
+                    local_box_id=self.pk,
+                ).exists():
+                    # A representation in a global ownership chain keeps its
+                    # institution and stays a living Box; a new owner receives
+                    # its own local Box. Technical guard (admin/ORM only).
+                    raise ValidationError("A Box in an ownership history cannot change institution or become an alias.")
             identity_fields = {"global_code", "strain", "strain_id"}
             writes_identity = adding or bool(identity_fields.intersection(update_fields))
             if not adding and writes_identity:
@@ -997,6 +1014,294 @@ class TransferItem(models.Model):
                 name="transfer_item_quantity_nonnegative",
             ),
         ]
+
+
+class ProtectedBoxIdentityQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("Global Box identities are immutable.")
+
+    def delete(self):
+        raise ValidationError("Global Box identities are protected.")
+
+
+class GlobalBoxIdentity(models.Model):
+    """The same biological Box across successive institutional representations.
+
+    Distinct from Box.pk, Box.global_code, GlobalStrainIdentity and portable
+    lineage nodes. It grants no permission and is never an operational lookup key.
+    """
+
+    global_box_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    objects = ProtectedBoxIdentityQuerySet.as_manager()
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("Global Box identities are immutable.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Global Box identities are protected.")
+
+    def __str__(self):
+        return str(self.global_box_id)
+
+
+class ProtectedOwnershipEpisodeQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("Box ownership episodes change only through validated saves.")
+
+    def delete(self):
+        raise ValidationError("Box ownership history is protected.")
+
+
+class BoxOwnershipEpisode(models.Model):
+    """One institution's local representation of a GlobalBoxIdentity.
+
+    Episodes form a gapless chronological sequence per identity. A return to a
+    previous institution appends a new episode with a new local Box; earlier
+    episodes are never rebound. Sequence 1 is the origin representation and has
+    no arrival provenance; later episodes cite the Transfer v2 item that carried
+    the Box. The current operational owner is the single episode without end.
+    """
+
+    identity = models.ForeignKey(
+        GlobalBoxIdentity, on_delete=models.PROTECT,
+        related_name="ownership_episodes", editable=False,
+    )
+    sequence = models.PositiveIntegerField(editable=False)
+    organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.PROTECT,
+        related_name="box_ownership_episodes", editable=False,
+    )
+    local_box = models.OneToOneField(
+        Box, on_delete=models.PROTECT, related_name="ownership_episode", editable=False,
+    )
+    # NULL means unknown, never reconstructed: an origin episode recorded for
+    # an existing Box does not know when that institution acquired it.
+    started_at = models.DateTimeField(null=True, blank=True, editable=False)
+    ended_at = models.DateTimeField(null=True, blank=True, editable=False)
+    # Portable Transfer v2 provenance (TransferEnvelope.transfer_id,
+    # TransferItem.item_id). UUIDs, not FKs: the source package may live in
+    # another installation.
+    arrival_transfer_id = models.UUIDField(null=True, blank=True, editable=False)
+    arrival_item_id = models.UUIDField(null=True, blank=True, editable=False)
+    recorded_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    objects = ProtectedOwnershipEpisodeQuerySet.as_manager()
+
+    _closable_fields = frozenset({"ended_at"})
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["identity", "sequence"], name="box_ownership_sequence_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["identity"], condition=Q(ended_at__isnull=True),
+                name="box_ownership_single_current",
+            ),
+            models.UniqueConstraint(
+                fields=["arrival_transfer_id", "arrival_item_id"],
+                condition=Q(arrival_transfer_id__isnull=False),
+                name="box_ownership_arrival_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(sequence__gte=1), name="box_ownership_sequence_positive",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(sequence=1, arrival_transfer_id__isnull=True, arrival_item_id__isnull=True)
+                    | Q(sequence__gt=1, arrival_transfer_id__isnull=False,
+                        arrival_item_id__isnull=False, started_at__isnull=False)
+                ),
+                name="box_ownership_arrival_provenance",
+            ),
+            models.CheckConstraint(
+                condition=Q(started_at__isnull=True) | Q(ended_at__isnull=True)
+                | Q(ended_at__gte=F("started_at")),
+                name="box_ownership_chronology",
+            ),
+        ]
+        indexes = [models.Index(fields=["organization", "ended_at"])]
+
+    def save(self, *args, **kwargs):
+        with transaction.atomic(using=kwargs.get("using")):
+            # One identity lock serializes every writer of the same chain.
+            GlobalBoxIdentity.objects.select_for_update().only("pk").get(pk=self.identity_id)
+            if self._state.adding:
+                self._validate_new_episode()
+            else:
+                self._validate_closing(kwargs.get("update_fields"))
+            return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Box ownership history is protected.")
+
+    def _validate_new_episode(self):
+        box = Box.objects.select_for_update().only("organization_id", "merged_into_id").get(pk=self.local_box_id)
+        if box.organization_id != self.organization_id:
+            raise ValidationError("A local representation must belong to the episode institution.")
+        if box.merged_into_id is not None:
+            raise ValidationError("A merged identity alias cannot represent a biological Box.")
+        if self.ended_at is not None:
+            raise ValidationError("A new ownership episode starts as the current owner.")
+        previous = type(self).objects.filter(identity_id=self.identity_id).order_by("-sequence").first()
+        expected = 1 if previous is None else previous.sequence + 1
+        if self.sequence != expected:
+            raise ValidationError("Ownership episodes must extend the chain without gaps.")
+        if previous is None:
+            return
+        if previous.organization_id == self.organization_id:
+            raise ValidationError("An ownership transfer must change institution.")
+        if previous.ended_at is None or previous.ended_at != self.started_at:
+            raise ValidationError("The previous owner must end exactly when the next owner starts.")
+
+    def _validate_closing(self, update_fields):
+        current = type(self).objects.select_for_update().get(pk=self.pk)
+        if update_fields is None or set(update_fields) - self._closable_fields:
+            raise ValidationError("Only the end of an ownership episode can be recorded.")
+        if current.ended_at is not None:
+            raise ValidationError("An ended ownership episode is immutable.")
+        if self.ended_at is None:
+            raise ValidationError("Closing an ownership episode requires its end.")
+        if current.started_at is not None and self.ended_at < current.started_at:
+            raise ValidationError("An ownership episode cannot end before it starts.")
+
+
+class ProtectedDonationProposalQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("Box donation proposals change only through validated saves.")
+
+    def delete(self):
+        raise ValidationError("Box donation proposals are protected.")
+
+
+class BoxDonationProposal(models.Model):
+    """A source institution's pending offer to donate one whole biological Box.
+
+    A proposal is not a transfer: it changes no ownership, creates no
+    destination Box, TransferEnvelope, measurement, movement or stock effect,
+    and grants the destination no read access to the source history. The
+    source keeps full operational control of its Box while it is pending.
+    Snapshots are frozen at issue time; only cancellation fields may change.
+    """
+
+    class State(models.TextChoices):
+        PENDING = "pending"
+        CANCELLED = "cancelled"
+
+    proposal_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    source_organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.PROTECT,
+        related_name="outgoing_box_donation_proposals", editable=False,
+    )
+    destination_organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.PROTECT,
+        related_name="incoming_box_donation_proposals", editable=False,
+    )
+    source_box = models.ForeignKey(
+        Box, on_delete=models.PROTECT, related_name="donation_proposals", editable=False,
+    )
+    identity = models.ForeignKey(
+        GlobalBoxIdentity, on_delete=models.PROTECT,
+        related_name="donation_proposals", editable=False,
+    )
+    # The current ownership episode at issue time. Acceptance must find it
+    # still current (stale/replay control), as for a future protocol item.
+    source_episode = models.ForeignKey(
+        BoxOwnershipEpisode, on_delete=models.PROTECT,
+        related_name="donation_proposals", editable=False,
+    )
+    source_ownership_sequence = models.PositiveIntegerField(editable=False)
+    source_institution_name = models.CharField(max_length=150, editable=False)
+    destination_institution_name = models.CharField(max_length=150, editable=False)
+    source_box_code = models.CharField(max_length=100, editable=False)
+    source_strain_code = models.CharField(max_length=80, editable=False)
+    species_scientific_name = models.CharField(max_length=150, editable=False)
+    global_strain_id = models.UUIDField(editable=False)
+    # Explicit sender confirmation of having reviewed the history, bound to
+    # the SHA-256 of the scientific snapshot it described. It is not proof
+    # that the measurements are scientifically correct.
+    history_verified_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name="verified_box_donation_histories", editable=False,
+    )
+    history_verified_at = models.DateTimeField(editable=False)
+    history_snapshot_version = models.CharField(max_length=20, editable=False)
+    history_sha256 = models.CharField(max_length=64, editable=False)
+    source_polyp_state_revision = models.PositiveBigIntegerField(editable=False)
+    state = models.CharField(max_length=20, choices=State.choices, default=State.PENDING, editable=False)
+    revision = models.PositiveIntegerField(default=1, editable=False)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name="created_box_donation_proposals", editable=False,
+    )
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    # Server-side idempotency: one request key per source institution and actor.
+    request_id = models.UUIDField(editable=False)
+    request_fingerprint = models.CharField(max_length=64, editable=False)
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="cancelled_box_donation_proposals", editable=False,
+    )
+    cancelled_at = models.DateTimeField(null=True, blank=True, editable=False)
+
+    objects = ProtectedDonationProposalQuerySet.as_manager()
+
+    _cancellation_fields = frozenset({"state", "revision", "cancelled_by", "cancelled_at"})
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["identity"], condition=Q(state="pending"),
+                name="box_donation_single_pending",
+            ),
+            models.UniqueConstraint(
+                fields=["source_organization", "created_by", "request_id"],
+                name="box_donation_request_unique",
+            ),
+            models.CheckConstraint(
+                condition=~Q(source_organization=F("destination_organization")),
+                name="box_donation_distinct_institutions",
+            ),
+            models.CheckConstraint(
+                condition=Q(revision__gte=1) & Q(source_ownership_sequence__gte=1),
+                name="box_donation_positive_counters",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(state="pending", cancelled_by__isnull=True, cancelled_at__isnull=True)
+                    | Q(state="cancelled", cancelled_by__isnull=False,
+                        cancelled_at__isnull=False, revision__gte=2)
+                ),
+                name="box_donation_coherent_state",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["source_organization", "created_at"]),
+            models.Index(fields=["destination_organization", "created_at"]),
+        ]
+
+    def save(self, *args, **kwargs):
+        with transaction.atomic(using=kwargs.get("using")):
+            if self._state.adding:
+                if self.state != self.State.PENDING or self.revision != 1:
+                    raise ValidationError("A donation proposal is issued pending at revision 1.")
+                return super().save(*args, **kwargs)
+            update_fields = kwargs.get("update_fields")
+            if update_fields is None or set(update_fields) - self._cancellation_fields:
+                raise ValidationError("Only the cancellation of a donation proposal can be recorded.")
+            current = type(self).objects.select_for_update().get(pk=self.pk)
+            if current.state != self.State.PENDING or self.state != self.State.CANCELLED:
+                raise ValidationError("Only a pending donation proposal can be cancelled.")
+            if self.revision != current.revision + 1:
+                raise ValidationError("A cancellation must advance the proposal revision by one.")
+            return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Box donation proposals are protected.")
 
 
 class BoxTransferImport(models.Model):

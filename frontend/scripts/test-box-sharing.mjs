@@ -245,15 +245,54 @@ test('unconfigured policy disables creation instead of inventing lifetimes', asy
   assert.equal(elements(tree, node => typeof node.type === 'function' && node.type.name === 'ExpiryField').length, 0);
   f.runtime.unmount();
 });
-test('routing mounts separate access contexts and keeps Administration desktop-only', () => {
-  assert.match(read('src/AppEntry.tsx'), /isSharedPath\(path\) \? <SharedAccessApp[^\n]+: <App \/>/);
+test('retired personal routes and non-desktop Administration redirect before rendering', () => {
+  for (const [path, desktop] of [
+    ['/shared-boxes', true], ['/shared-boxes/accept', true],
+    ['/shared-boxes/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', true],
+    ['/administration/transfers', false],
+  ]) {
+    const runtime = hookRuntime();
+    const replacements = [];
+    const location = { pathname: path };
+    const workspace = () => null;
+    const load = moduleLoader({
+      react: { ...React, ...runtime.hooks, lazy: () => workspace },
+      'src/hooks/useIsDesktopApp.ts': { useIsDesktopApp: () => desktop },
+      'src/i18n/index.ts': { createTranslator: () => labels, getStoredInterfaceLanguage: () => 'fr' },
+      'src/components/PageLoader.tsx': { default: () => null },
+    }, {
+      window: {
+        location,
+        history: { replaceState: (_state, _title, url) => { replacements.push(url); location.pathname = url; } },
+        addEventListener() {}, removeEventListener() {},
+      },
+    });
+    const AppEntry = load('src/AppEntry.tsx').default;
+    assert.equal(runtime.render(() => AppEntry()), null, `${path}: no intermediate UI`);
+    runtime.commit();
+    assert.deepEqual(replacements, ['/']);
+    assert.equal(elements(runtime.render(() => AppEntry()), node => node.type === workspace).length, 1);
+    runtime.unmount();
+  }
+});
+
+test('routing retires the personal portal and keeps Administration desktop-only', () => {
+  const entry = read('src/AppEntry.tsx');
+  assert.match(entry, /const retiredSharing = isSharedPath\(path\)/);
+  assert.doesNotMatch(entry, /SharedAccessApp/);
+  assert.match(entry, /if \(!blockedAdministration && !retiredSharing\) return/);
+  assert.match(entry, /window\.history\.replaceState\(null, '', '\/'\)/);
   assert.match(read('src/App.tsx'), /activeTab === 'admin' && !isDesktopApp/);
   assert.match(read('src/AppEntry.tsx'), /path\.startsWith\('\/administration'\) && !isDesktopApp/);
-  assert.match(read('src/AppEntry.tsx'), /if \(blockedAdministration\) return null/);
+  assert.match(entry, /if \(blockedAdministration \|\| retiredSharing\) return null/);
+  assert.doesNotMatch(read('src/components/ProfileView.tsx'), /navigateShared|shared-boxes|shareReceived|shareAreas/);
   const source = read('src/components/sharing/SharedAccessApp.tsx');
   assert.doesNotMatch(source, /api\/boxes|api\/measurements|api\/exports|BoxPage|onOpenBox|localStorage|sessionStorage/);
   assert.match(source, /sharing-readonly-banner/);
-  assert.match(read('src/components/AdminView.tsx'), /key: 'transfers'[^\n]+label: 'adminTabTransfers'/);
+  const admin = read('src/components/AdminView.tsx');
+  assert.equal((admin.match(/key: 'transfers'[^\n]+label: 'adminTabTransfers'/g) ?? []).length, 1);
+  assert.match(admin, /<InstitutionalExchangesPage/);
+  assert.doesNotMatch(admin, /BoxSharingAdminSection/);
   assert.doesNotMatch(read('src/components/AdminView.tsx'), /<TransfersAdminSection/);
   assert.match(read('src/styles/pages/box-sharing.css'), /\.sharing-readonly-banner\s*\{[^}]*position: sticky;[^}]*top: 0;/);
 });
