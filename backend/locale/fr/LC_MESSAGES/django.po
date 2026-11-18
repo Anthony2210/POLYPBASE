@@ -11,6 +11,10 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
+#: apps/cultures/box_codes.py
+msgid "This code is reserved by a historical culture identity."
+msgstr "Ce code est réservé par une identité historique de boîte."
+
 #: apps/cultures/dna_validation.py
 msgid "This account cannot edit DNA validations. Please contact your administrator."
 msgstr "Ce compte ne peut pas modifier les validations ADN. Merci de contacter un administrateur."

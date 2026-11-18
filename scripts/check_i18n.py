@@ -142,8 +142,6 @@ COVERAGE_EXCEPTIONS = (
     _deferred("fr", "Terminé", C),
     _deferred("fr", "The culture identity changed. Reload the culture.", C, C),
     _deferred("fr", "The date range must not exceed 366 days, inclusive.", S),
-    _deferred("fr", "This code is reserved by a historical culture identity.", C,
-                  "backend/apps/cultures/box_codes.py"),
     _deferred("fr", "Transfert", C),
     _deferred("fr", "Use YYYY-MM-DD format.", S),
     _deferred("fr", "Vigilance", F),

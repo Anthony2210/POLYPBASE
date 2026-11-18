@@ -346,8 +346,10 @@ def cleanup_test_data():
     """Explicitly destructive synthetic-fixture cleanup, only on the fixed target.
 
     TransactionTestCase cannot flush with immutable guards installed. Drop guards,
-    flush and reinstall atomically; no populated migration rollback is bypassed on
-    any scientific target. The database itself is never dropped or recreated.
+    flush and reinstall atomically. Suspend only the alias TRUNCATE trigger in
+    that same transaction; PostgreSQL rolls its state back on failure. No
+    populated migration rollback is bypassed on any scientific target. The
+    database itself is never dropped or recreated.
     """
     from django.core.management import call_command
     from django.db import connection, transaction
@@ -359,10 +361,22 @@ def cleanup_test_data():
     receipt = import_module("apps.measurements.migrations.0013_historical_temperature_receipt")
     with transaction.atomic():
         with connection.cursor() as cursor:
+            cursor.execute("SELECT tgenabled FROM pg_catalog.pg_trigger "
+                           "WHERE tgrelid='public.cultures_boxlocalidalias'::regclass "
+                           "AND tgname='no_truncate_box_local_id_aliases' AND NOT tgisinternal")
+            if cursor.fetchone() != ("O",):
+                raise RuntimeError("Cleanup requires the active alias TRUNCATE guard.")
+            # The dedicated owner cannot use session_replication_role. Keep the
+            # UPDATE/DELETE guards active and restore this one before commit.
+            cursor.execute("ALTER TABLE public.cultures_boxlocalidalias "
+                           "DISABLE TRIGGER no_truncate_box_local_id_aliases")
             cursor.execute("DROP TRIGGER historical_receipt_immutable ON measurements_historicaltemperatureimportreceipt; DROP TRIGGER historical_receipt_no_truncate ON measurements_historicaltemperatureimportreceipt;")
             cursor.execute(guards.REVERSE_SQL)
         call_command("flush", database="default", interactive=False, verbosity=0,
                      reset_sequences=False, inhibit_post_migrate=True)
+        with connection.cursor() as cursor:
+            cursor.execute("ALTER TABLE public.cultures_boxlocalidalias "
+                           "ENABLE TRIGGER no_truncate_box_local_id_aliases")
         with connection.schema_editor() as editor:
             guards.forwards(None, editor)
             receipt.guards(None, editor)

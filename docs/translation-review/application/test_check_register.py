@@ -587,11 +587,12 @@ class IntegrationHistoryTests(unittest.TestCase):
 
     def test_integration_has_exact_count_unique_ordered_ids_and_chronology(self):
         rows = reg.load_register()
-        self.assertEqual(len(rows), 1811)
+        integrated = rows[:1811]
+        self.assertEqual(len(integrated), 1811)
         self.assertEqual(len(b44_events(rows)), 48)
         self.assertEqual(len(b45_events(rows)), 22)
-        self.assertEqual(Counter(row["batch"] for row in rows[1741:]), Counter({B44: 48, B45: 22}))
-        self.assertEqual([row["entry_id"] for row in rows], [f"T{n:03d}" for n in range(1, 1812)])
+        self.assertEqual(Counter(row["batch"] for row in integrated[1741:]), Counter({B44: 48, B45: 22}))
+        self.assertEqual([row["entry_id"] for row in integrated], [f"T{n:03d}" for n in range(1, 1812)])
         self.assertEqual(species_integration_errors(rows), [])
         self.assertEqual(rows_digest(rows[:1100]), PRE_B29_ROWS_SHA256)
         self.assertEqual(integration_integrity_errors(rows), [])

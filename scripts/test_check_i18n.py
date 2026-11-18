@@ -144,14 +144,12 @@ class CatalogTests(unittest.TestCase):
             exceptions=(self.exception(), self.exception()), decision_events=self.decisions()).errors))
 
     def test_main_identity_guard_exemptions_require_exact_occurrences(self):
-        # The EN reserved-code entry was approved in B09; only FR stays exempted.
+        # Reserved-code translations are covered in both languages, not exempted.
         scopes = {
             "The culture identity changed. Reload the culture.": (
                 ("backend/apps/cultures/models.py", "backend/apps/cultures/models.py"),
                 gate.LANGUAGES),
-            "This code is reserved by a historical culture identity.": (
-                ("backend/apps/cultures/models.py", "backend/apps/cultures/box_codes.py"),
-                ("fr",)),
+
         }
         for msgid, (expected, languages) in scopes.items():
             for language in languages:
@@ -181,6 +179,17 @@ class CatalogTests(unittest.TestCase):
                                                 for error in report.errors))
                             self.assertEqual(report.exempted[language], [])
                             self.assertIn(msgid, report.raw_missing[language])
+
+    def test_reserved_identity_guard_has_translation_without_exception(self):
+        msgid = "This code is reserved by a historical culture identity."
+        sources = {msgid: ("backend/apps/cultures/box_codes.py",)}
+        exceptions = [item for item in gate.COVERAGE_EXCEPTIONS if item.msgid == msgid]
+        self.assertEqual(exceptions, [])
+        catalogs = {language: {msgid: "Translated identity guard"} for language in gate.LANGUAGES}
+        self.assertEqual(self.check(sources, catalogs).errors, [])
+        catalogs["fr"] = {}
+        self.assertTrue(any("missing translation" in error
+                            for error in self.check(sources, catalogs).errors))
 
     def test_register_exception_requires_latest_exact_identity(self):
         identity = self.exception().decision_identity
