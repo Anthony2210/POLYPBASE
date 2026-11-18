@@ -175,7 +175,9 @@ class DestinationDirectoryTests(DonationTestCase):
         OrganizationMembership.objects.create(user=self.dual, organization=self.org_b, role=Role.VIEWER)
         inactive_org = Organization.objects.create(name="Inactive source", slug="inactive-source", is_active=False)
         OrganizationMembership.objects.create(user=self.admin_a, organization=inactive_org, role=Role.ADMIN)
-        inactive_user = get_user_model().objects.create_user(username="inactive-donor", is_active=False)
+        inactive_user = get_user_model().objects.create_user(
+            username="inactive-donor", email="inactive-donor@example.test", is_active=False,
+        )
         OrganizationMembership.objects.create(user=inactive_user, organization=self.org_a, role=Role.ADMIN)
         source_header = str(self.org_a.pk)
         for label, user, header in (
