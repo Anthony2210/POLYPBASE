@@ -29,6 +29,8 @@ from .models import Box, BoxGlobalIdentity, BoxLocalIdAlias
 
 CULTURES_0021 = ("cultures", "0021_merge_dna_and_history")
 CULTURES_0022 = ("cultures", "0022_box_global_identity")
+CULTURES_0023 = ("cultures", "0023_box_local_id_alias")
+CULTURES_0024_HARDENING = ("cultures", "0024_local_id_guard_search_path")
 TAXONOMY_0012 = ("taxonomy", "0012_institution_species_foundation")
 Reason = BoxGlobalIdentity.AllocationReason
 
@@ -119,7 +121,9 @@ class RollbackPlanPreflightTests(DisposablePostgresFlushMixin, TransactionTestCa
     def test_plan_includes_dependents_before_protected_migrations(self):
         executor = MigrationExecutor(connection)
         names = lambda target: [f"{m.app_label}.{m.name}" for m, backwards in executor.migration_plan([target])]
-        self.assertEqual(names(CULTURES_0021), ["cultures.0024_merge_donation_and_local_identity",
+        self.assertEqual(names(CULTURES_0021), ["cultures.0025_merge_local_id_hardening_and_donations",
+                                                 "cultures.0024_merge_donation_and_local_identity",
+                                                 "cultures.0024_local_id_guard_search_path",
                                                  "cultures.0023_box_local_id_alias",
                                                  "cultures.0022_box_global_identity"])
         self.assertTrue(all(backwards for _, backwards in executor.migration_plan([CULTURES_0021])))
@@ -183,26 +187,58 @@ class RollbackPlanPreflightTests(DisposablePostgresFlushMixin, TransactionTestCa
         self.assigned_global_id()
         plan = MigrationExecutor(connection).migration_plan([CULTURES_0022])
         self.assertEqual([(migration.app_label, migration.name, backwards) for migration, backwards in plan], [
+            ("cultures", "0025_merge_local_id_hardening_and_donations", True),
             ("cultures", "0024_merge_donation_and_local_identity", True),
+            ("cultures", "0024_local_id_guard_search_path", True),
             ("cultures", "0023_box_local_id_alias", True),
         ])
         self.assert_refused_without_change(CULTURES_0022, "Multi-migration rollback")
 
     def test_merge_only_rollback_is_still_allowed_with_global_ids(self):
         box, identity = self.assigned_global_id()
-        target = ("cultures", "0023_box_local_id_alias")
+        target = CULTURES_0024_HARDENING
         plan = MigrationExecutor(connection).migration_plan([target])
         self.assertEqual([(migration.app_label, migration.name, backwards) for migration, backwards in plan], [
-            ("cultures", "0024_merge_donation_and_local_identity", True),
+            ("cultures", "0025_merge_local_id_hardening_and_donations", True),
         ])
         before = self.snapshot()
         self.migrate(target)
         after = self.snapshot()
         self.assertEqual(after.pop("migrations"), [
             row for row in before.pop("migrations")
-            if row[:2] != ("cultures", "0024_merge_donation_and_local_identity")
+            if row[:2] != ("cultures", "0025_merge_local_id_hardening_and_donations")
         ])
         self.assertEqual(after, before)
+        self.assertEqual(Box.objects.get(pk=box.pk).global_identity_id, identity.global_id)
+        if connection.vendor == "postgresql":
+            self.assertFalse(self.holds_registry_key())
+
+    def test_lossless_partial_rollback_is_still_allowed_with_global_ids(self):
+        box, identity = self.assigned_global_id()
+        executor = MigrationExecutor(connection)
+        plan = executor.migration_plan([CULTURES_0023])
+        self.assertEqual([(migration.app_label, migration.name, backwards) for migration, backwards in plan], [
+            ("cultures", "0025_merge_local_id_hardening_and_donations", True),
+            ("cultures", "0024_local_id_guard_search_path", True),
+            ("cultures", "0024_merge_donation_and_local_identity", True),
+        ])
+        self.assertEqual(rollback_preflight.guarded_migrations(plan), [])
+        before = self.snapshot()
+        self.migrate(CULTURES_0023)
+        after = self.snapshot()
+        removed = {(migration.app_label, migration.name) for migration, _ in plan}
+        self.assertEqual(after.pop("migrations"), [
+            row for row in before.pop("migrations") if row[:2] not in removed
+        ])
+        self.assertEqual(after, before)
+        plan = MigrationExecutor(connection).migration_plan([CULTURES_0022])
+        self.assertEqual([(migration.app_label, migration.name, backwards) for migration, backwards in plan], [
+            ("cultures", "0023_box_local_id_alias", True),
+        ])
+        self.migrate(CULTURES_0022)
+        self.assertNotIn("cultures_boxlocalidalias", connection.introspection.table_names())
+        self.assertNotIn(CULTURES_0023, MigrationExecutor(connection).loader.applied_migrations)
+        call_command("migrate", verbosity=0, interactive=False)
         self.assertEqual(Box.objects.get(pk=box.pk).global_identity_id, identity.global_id)
         if connection.vendor == "postgresql":
             self.assertFalse(self.holds_registry_key())
@@ -364,8 +400,13 @@ class RollbackPlanPreflightTests(DisposablePostgresFlushMixin, TransactionTestCa
 
     @skipUnless(connection.vendor == "postgresql", "Requires PostgreSQL advisory locks")
     def test_passed_preflight_blocks_new_evidence_until_the_rollback_ends(self):
+        # Both 0024 branches and 0025 reverse without a protected step.
+        self.migrate(CULTURES_0023)
         executor = MigrationExecutor(connection)
         plan = executor.migration_plan([CULTURES_0022])
+        self.assertEqual([(migration.app_label, migration.name, backwards) for migration, backwards in plan], [
+            ("cultures", "0023_box_local_id_alias", True),
+        ])
         apps = executor._create_project_state(with_applied_migrations=True).apps
         rollback_preflight.preflight_rollback_plan(plan=plan, apps=apps, using=connection.alias)
         self.assertTrue(self.holds_registry_key())

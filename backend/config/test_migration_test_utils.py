@@ -59,15 +59,28 @@ class HistoricalTargetsTests(SimpleTestCase):
         for name in (
             "0019_box_dna_validation", "0019_history_revision_storage",
             "0020_history_revision_guards", "0021_merge_dna_and_history",
-            "0020_box_donation_proposal", "0022_box_global_identity",
+            "0019_global_box_identity", "0020_box_donation_proposal", "0022_box_global_identity",
             "0023_box_local_id_alias", "0024_merge_donation_and_local_identity",
+            "0024_local_id_guard_search_path", "0025_merge_local_id_hardening_and_donations",
         ):
             self.assertNotIn(("cultures", name), closure)
         self.assertEqual(
             self.loader.graph.leaf_nodes("cultures"),
-            [("cultures", "0024_merge_donation_and_local_identity")],
+            [("cultures", "0025_merge_local_id_hardening_and_donations")],
         )
         self.assertFalse(self.loader.detect_conflicts())
+
+    def test_joined_leaf_preserves_both_0024_branches_without_operations(self):
+        joined = ("cultures", "0025_merge_local_id_hardening_and_donations")
+        parents = {
+            ("cultures", "0024_local_id_guard_search_path"),
+            ("cultures", "0024_merge_donation_and_local_identity"),
+        }
+        migration = self.loader.graph.nodes[joined]
+        self.assertEqual(set(migration.dependencies), parents)
+        self.assertEqual({node.key for node in self.loader.graph.node_map[joined].parents}, parents)
+        self.assertEqual(migration.operations, [])
+        self.assertTrue(parents <= set(self.loader.graph.forwards_plan(joined)))
 
     def test_older_dependency_does_not_conflict_with_a_newer_explicit_target(self):
         historical = [

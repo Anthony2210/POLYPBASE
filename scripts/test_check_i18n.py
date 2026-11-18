@@ -171,7 +171,9 @@ class CatalogTests(unittest.TestCase):
                     self.assertEqual(report.exempted[language], [msgid])
                     for drift in (expected[:1], expected + (expected[0],),
                                   expected + ("backend/unexpected.py",),
-                                  (expected[0], "backend/unexpected.py")):
+                                  (expected[0], "backend/unexpected.py"), ()):
+                        if drift == expected:
+                            continue  # A single-source scope has no strict-subset drift.
                         with self.subTest(drift=drift):
                             report = self.check({msgid: drift}, catalogs,
                                                 exceptions=exceptions, decision_events=events)

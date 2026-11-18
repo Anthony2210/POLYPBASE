@@ -34,6 +34,8 @@ class DnaValidationMigrationTests(TransactionTestCase):
         executor = MigrationExecutor(connection)
         executor.migrate(latest)
         apps = executor.loader.project_state(latest).apps
+        # Every retained field is unchanged, including the zero counts. Columns
+        # added later are checked separately; no other column may appear.
         for label, rows in snapshots.items():
             model = apps.get_model(*label)
             historical_fields = tuple(rows[0])
@@ -50,11 +52,12 @@ class DnaValidationMigrationTests(TransactionTestCase):
         measurement = apps.get_model("measurements", "BiologicalMeasurement").objects.get(box_id=box.pk)
         self.assertEqual((measurement.polyp_count, measurement.ephyrae_count, measurement.strobila_count),
                          (0, 0, 0))
+        self.assertFalse(apps.get_model("cultures", "BoxLocalIdAlias").objects.exists())
         self.assertFalse(apps.get_model("cultures", "BoxDnaValidation").objects.exists())
         for model_name in ("BoxHistoryStream", "BoxHistoryRevision", "BoxHistoryEventIdentity"):
             with self.subTest(model=model_name):
                 self.assertFalse(apps.get_model("cultures", model_name).objects.exists())
         self.assertEqual(
             executor.loader.graph.leaf_nodes("cultures"),
-            [("cultures", "0024_merge_donation_and_local_identity")],
+            [("cultures", "0025_merge_local_id_hardening_and_donations")],
         )

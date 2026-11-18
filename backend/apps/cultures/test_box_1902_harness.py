@@ -38,11 +38,12 @@ class Box1902HarnessTests(SimpleTestCase):
         self.assertIn(harness.MIGRATION, old_plan)
         targets, plan = self.baseline_plan(loader)
         self.assertNotIn(later, plan)
-        self.assertIn(("cultures", "0024_merge_donation_and_local_identity"), targets)
+        self.assertIn(("cultures", "0025_merge_local_id_hardening_and_donations"), targets)
         for name in ("0019_global_box_identity", "0020_box_donation_proposal",
                      "0019_box_dna_validation", "0019_history_revision_storage",
                      "0020_history_revision_guards", "0021_merge_dna_and_history",
-                     "0022_box_global_identity", "0023_box_local_id_alias"):
+                     "0022_box_global_identity", "0023_box_local_id_alias",
+                                          "0024_merge_donation_and_local_identity", "0024_local_id_guard_search_path"):
             with self.subTest(migration=name):
                 self.assertIn(("cultures", name), plan)
 
