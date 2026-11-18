@@ -17,6 +17,7 @@ from apps.accounts.api_views import (
 )
 from apps.cultures.box_donation_api import (
     BoxDonationCancelAPIView,
+    BoxDonationDestinationsAPIView,
     BoxDonationDetailAPIView,
     BoxDonationIncomingAPIView,
     BoxDonationOutgoingAPIView,
@@ -337,6 +338,7 @@ urlpatterns = [
     path("probes/", ProbeCreateAPIView.as_view(), name="api_probe_create"),
     path("box-transfers/", BoxTransferCreateAPIView.as_view(), name="api_box_transfer_create"),
     path("box-transfer-imports/", BoxTransferImportAPIView.as_view(), name="api_box_transfer_import"),
+    path("box-donations/destinations/", BoxDonationDestinationsAPIView.as_view(), name="api_box_donation_destinations"),
     path("box-donations/preflight/", BoxDonationPreflightAPIView.as_view(), name="api_box_donation_preflight"),
     path("box-donations/outgoing/", BoxDonationOutgoingAPIView.as_view(), name="api_box_donation_outgoing"),
     path("box-donations/incoming/", BoxDonationIncomingAPIView.as_view(), name="api_box_donation_incoming"),

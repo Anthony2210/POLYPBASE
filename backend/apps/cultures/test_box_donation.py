@@ -26,6 +26,7 @@ from .models import (
 )
 
 Role = OrganizationMembership.Role
+DESTINATIONS = reverse("api_box_donation_destinations")
 PREFLIGHT = reverse("api_box_donation_preflight")
 OUTGOING = reverse("api_box_donation_outgoing")
 INCOMING = reverse("api_box_donation_incoming")
@@ -122,6 +123,83 @@ class DonationTestCase(TestCase):
         return self.client_for(user or self.admin_a, organization or self.org_a).post(
             OUTGOING, data if data is not None else self.payload(), format="json",
         )
+
+
+class DestinationDirectoryTests(DonationTestCase):
+    def test_exact_projection_includes_active_destinations_without_members_or_agreements(self):
+        no_members = Organization.objects.create(
+            name="Independent institution", slug="independent", country="France",
+            city="Paris", contact_email="private@example.test", notes="Private notes",
+        )
+        Organization.objects.create(name="Inactive institution", slug="inactive", is_active=False)
+        audits = AuditLog.objects.count()
+
+        response = self.client_for(self.admin_a, self.org_a).get(DESTINATIONS)
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.json(), {"results": [
+            {"institution_id": str(no_members.portable_id), "name": "Independent institution", "country": "France"},
+            {"institution_id": str(self.org_b.portable_id), "name": "Receiver B", "country": ""},
+            {"institution_id": str(self.org_c.portable_id), "name": "Third C", "country": ""},
+        ]})
+        self.assertEqual(response["Cache-Control"], "no-store")
+        self.assertEqual(AuditLog.objects.count(), audits)
+        self.assertFalse(BoxDonationProposal.objects.exists())
+
+    def test_switching_context_in_same_session_excludes_only_the_current_source(self):
+        client = self.client_for(self.dual, self.org_a)
+        for source, expected in ((self.org_a, [self.org_b, self.org_c]), (self.org_c, [self.org_a, self.org_b])):
+            with self.subTest(source=source.name):
+                client.credentials(HTTP_X_ORGANIZATION_ID=str(source.pk))
+                response = client.get(DESTINATIONS)
+                self.assertEqual(response.status_code, 200, response.data)
+                self.assertEqual(
+                    [row["institution_id"] for row in response.json()["results"]],
+                    [str(destination.portable_id) for destination in expected],
+                )
+                self.assertEqual(response["Cache-Control"], "no-store")
+
+    def test_empty_directory_and_read_only_method(self):
+        Organization.objects.exclude(pk=self.org_a.pk).update(is_active=False)
+        client = self.client_for(self.admin_a, self.org_a)
+        response = client.get(DESTINATIONS)
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.json(), {"results": []})
+        self.assertEqual(response["Cache-Control"], "no-store")
+        rejected = client.post(DESTINATIONS, {}, format="json")
+        self.assertEqual(rejected.status_code, 405, rejected.data)
+        self.assertEqual(rejected["Cache-Control"], "no-store")
+
+    def test_refused_auth_and_contexts_are_no_store(self):
+        OrganizationMembership.objects.filter(user=self.admin_a2, organization=self.org_a).update(is_active=False)
+        OrganizationMembership.objects.create(user=self.dual, organization=self.org_b, role=Role.VIEWER)
+        inactive_org = Organization.objects.create(name="Inactive source", slug="inactive-source", is_active=False)
+        OrganizationMembership.objects.create(user=self.admin_a, organization=inactive_org, role=Role.ADMIN)
+        inactive_user = get_user_model().objects.create_user(username="inactive-donor", is_active=False)
+        OrganizationMembership.objects.create(user=inactive_user, organization=self.org_a, role=Role.ADMIN)
+        source_header = str(self.org_a.pk)
+        for label, user, header in (
+            ("anonymous", None, source_header),
+            ("inactive account", inactive_user, source_header),
+            ("no context", self.admin_a, None),
+            ("malformed context", self.admin_a, "invalid"),
+            ("unknown context", self.admin_a, "0"),
+            ("foreign context", self.admin_a, str(self.org_b.pk)),
+            ("inactive source", self.admin_a, str(inactive_org.pk)),
+            ("inactive membership", self.admin_a2, source_header),
+            ("technician", self.tech_a, source_header),
+            ("viewer", self.viewer_a, source_header),
+            ("admin elsewhere", self.dual, str(self.org_b.pk)),
+            ("superuser without membership", self.root, source_header),
+        ):
+            with self.subTest(case=label):
+                client = APIClient() if user is None else self.client_for(user, None)
+                if header is not None:
+                    client.credentials(HTTP_X_ORGANIZATION_ID=header)
+                response = client.get(DESTINATIONS)
+                self.assertEqual(response.status_code, 403, response.data)
+                self.assertNotIn("results", response.json())
+                self.assertEqual(response["Cache-Control"], "no-store")
 
 
 class PreflightTests(DonationTestCase):

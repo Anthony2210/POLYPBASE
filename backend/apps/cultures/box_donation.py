@@ -442,6 +442,18 @@ def cancel_proposal(*, actor, organization, proposal_id, data):
 # Reads ------------------------------------------------------------------------
 
 
+def list_destinations(*, actor, organization):
+    source = require_admin(actor, organization)
+    destinations = (
+        Organization.objects.filter(is_active=True).exclude(pk=source.pk)
+        .order_by("name").values_list("portable_id", "name", "country")
+    )
+    return [
+        {"institution_id": str(portable_id), "name": name, "country": country}
+        for portable_id, name, country in destinations
+    ]
+
+
 def _proposals():
     return BoxDonationProposal.objects.select_related(
         "identity", "source_organization", "created_by", "history_verified_by", "cancelled_by",
