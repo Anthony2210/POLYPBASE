@@ -41,6 +41,8 @@ export type TrendMeasurement = {
   user_identity?: ReadableUserIdentity | null;
   note?: string | null;
   environmentLocations?: readonly ChartLocation[] | null;
+  // Explicit Box-creation initial measurement (server origin), never inferred from its date.
+  isInitial?: boolean;
 };
 
 export type TrendPolypState = {
@@ -98,6 +100,8 @@ type TrendLabels = {
   empty: string;
   ephyrae: string;
   enteredBy?: string;
+  // Observer label of the initial measurement; other readings keep enteredBy.
+  initialObservedBy?: string;
   historicalUser?: string;
   location: string;
   sourceLocation?: string;
@@ -965,7 +969,9 @@ function buildMeasurementDetailLines(
   }
 
   if (labels.enteredBy) {
-    lines.push({ kind: 'user', label: labels.enteredBy, value: formatReadableUserIdentity(measurement.user_identity) || labels.historicalUser || '—' });
+    const userLabel = !('kind' in measurement) && measurement.isInitial && labels.initialObservedBy
+      ? labels.initialObservedBy : labels.enteredBy;
+    lines.push({ kind: 'user', label: userLabel, value: formatReadableUserIdentity(measurement.user_identity) || labels.historicalUser || '—' });
   }
 
   if (labels.observation && measurement.note?.trim()) {

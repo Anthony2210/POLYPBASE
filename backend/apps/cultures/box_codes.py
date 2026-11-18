@@ -3,18 +3,24 @@
 import re
 
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import DEFAULT_DB_ALIAS, connections, transaction
 from django.utils.translation import gettext_lazy as _
 
-from .models import Box, BoxCodeNamespace
+from .models import Box, BoxCodeNamespace, BoxLocalIdAlias
 
 
 def _reconciled_high_water(namespace, high_water):
     pattern = re.compile(rf"^{re.escape(namespace)}\.(\d+)")
-    for code in Box.objects.filter(global_code__startswith=f"{namespace}.").values_list("global_code", flat=True):
-        match = pattern.match(code)
-        if match:
-            high_water = max(high_water, int(match.group(1)))
+    sources = (
+        Box.objects.filter(global_code__startswith=f"{namespace}.").values_list("global_code", flat=True),
+        Box.objects.filter(previous_global_code__startswith=f"{namespace}.").values_list("previous_global_code", flat=True),
+        BoxLocalIdAlias.objects.filter(code__startswith=f"{namespace}.").values_list("code", flat=True),
+    )
+    for codes in sources:
+        for code in codes:
+            match = pattern.match(code)
+            if match:
+                high_water = max(high_water, int(match.group(1)))
     return high_water
 
 
@@ -38,6 +44,25 @@ def preview_box_codes(namespace, count):
     return _formatted_box_codes(namespace, _reconciled_high_water(namespace, high_water or 0), count)
 
 
+def lock_local_id_registry(*, using=None):
+    """Acquire identity coordination before any Box or namespace row lock.
+
+    Call this at the start of an outer transaction if it explicitly locks Box
+    rows before saving, allocating, or registering aliases. Statement-level SQL
+    guards use the same order for ordinary raw/bulk identity writes; they cannot
+    retroactively reorder a caller's earlier SELECT FOR UPDATE.
+    """
+    connection = connections[using or DEFAULT_DB_ALIAS]
+    if not connection.in_atomic_block:
+        raise RuntimeError("Local ID coordination requires an atomic transaction.")
+    if connection.vendor == "postgresql":
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(192837, 19)")
+            cursor.execute("SHOW transaction_isolation")
+            if cursor.fetchone()[0] == "repeatable read":
+                raise ValidationError("Local ID writes require READ COMMITTED or SERIALIZABLE isolation.")
+
+
 def _lock_namespace_row(namespace):
     row, _ = BoxCodeNamespace.objects.get_or_create(namespace=namespace)
     return BoxCodeNamespace.objects.select_for_update().get(pk=row.pk)
@@ -52,6 +77,7 @@ def locked_namespace(namespace, *, reconcile=True):
     """
     if not transaction.get_connection().in_atomic_block:
         raise RuntimeError("Box code allocation requires an atomic transaction.")
+    lock_local_id_registry()
     pair = ("CLA-JKA-1", "CLC-JKA-1")
     namespaces = sorted(pair) if namespace in pair else (namespace,)
     rows = {name: _lock_namespace_row(name) for name in namespaces}

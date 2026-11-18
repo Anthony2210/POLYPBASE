@@ -284,6 +284,7 @@ def paginate_audit_logs(queryset, *, limit, offset, legacy_effective_order=False
 
 def resolve_audit_box_references(logs, *, organization_id):
     """Resolve current box targets inside exactly one active organization."""
+    from apps.cultures.identity_resolution import resolve_box_local_ids
     from apps.cultures.models import Box
 
     global_codes = {
@@ -294,11 +295,10 @@ def resolve_audit_box_references(logs, *, organization_id):
     if not global_codes:
         return {}
 
-    boxes = Box.objects.filter(
-        organization_id=organization_id,
-        global_code__in=global_codes,
-    ).select_related("strain__species")
-    return {box.global_code: box for box in boxes}
+    return resolve_box_local_ids(
+        Box.objects.filter(organization_id=organization_id).select_related("strain__species"),
+        global_codes,
+    )
 
 
 def resolve_audit_subculture_children(logs, *, organization_id):

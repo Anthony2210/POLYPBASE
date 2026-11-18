@@ -30,6 +30,8 @@ Le frontend n'utilise pas React Router. `frontend/src/App.tsx` traduit l'URL en 
 
 Ce découpage situe le code; il ne remplace pas les frontières métier documentées dans les autres contextes.
 
+Fondation additive non activée : `InstitutionSpecies` stocke le nom scientifique et l'AphiaID locaux d'une institution au-dessus de la référence `Species` partagée. La migration `taxonomy.0012` ne convertit aucune donnée historique et ne change ni les FK des souches, ni les codes. Des API Admin institutionnelles et un espace local Administration > Espèces et souches (en attente de validation, non publié) les utilisent; les anciens POST de référentiel partagé restent des bloqueurs d'activation. Modèle, diagnostic de préparation en lecture seule, rollback protégé et liste des gates : [`../../backend/INSTITUTION_SPECIES_FOUNDATION.md`](../../backend/INSTITUTION_SPECIES_FOUNDATION.md).
+
 ## Décision produit : abandon des alertes
 
 Les Alertes ne sont plus une fonctionnalité active : aucun parcours de consultation ou de résolution, ni génération ou synchronisation automatique d'alertes, ne fait partie du contrat produit. Les mesures restent factuelles; une variation de comptage, un écart à une consigne ou une donnée absente ne doit pas produire d'avertissement opérationnel ou biologique inféré.

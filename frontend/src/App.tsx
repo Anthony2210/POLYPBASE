@@ -30,6 +30,7 @@ import {
   type Translator,
 } from './i18n';
 import type { AdminSectionKey } from './components/AdminView';
+import { adminSpeciesPath, type AdminSpeciesTarget } from './utils/speciesCatalog';
 import type { DnaValidationMutation, EditableMeasurement } from './types';
 import BoxPage from './components/BoxPage';
 
@@ -38,6 +39,7 @@ import BoxPage from './components/BoxPage';
 type HistoryMeasurementPrefill = EditableMeasurement;
 import { useConfirmAction } from './components/ConfirmActionModal';
 import ApplicationErrorNotice from './components/ApplicationErrorNotice';
+import CreateBoxPanel from './components/CreateBoxPanel';
 import PilotageView from './components/PilotageView';
 import LoginPage from './components/LoginPage';
 import PasswordResetPage from './components/PasswordResetPage';
@@ -200,22 +202,36 @@ type RouteState = {
   boxCode: string | null;
   boxId: number | null;
   scanBoxId?: number;
+  // Permanent Box Global ID (UUID), resolved in the active institution only.
+  globalBoxId?: string;
   zoneId?: number | null;
   zoneBoxes?: boolean;
   zoneHistory?: boolean;
   zoneHistoryDirection?: 'arrival' | 'departure';
   adminSection?: AdminSectionKey;
+  adminSpecies?: AdminSpeciesTarget | null;
 };
 
 const ADMIN_SECTION_PATHS: Record<AdminSectionKey, string> = {
   accounts: '/administration/team',
   inventory: '/administration/box-inventory',
+  species: '/administration/species-strains',
   references: '/administration/reference-data',
   environment: '/administration/laboratory',
   transfers: '/administration/transfers',
   history: '/administration/history',
   organizations: '/administration/institutions',
 };
+
+// Species detail pages: an institutional profile, or a historical reference
+// used by the institution without a profile (read-only).
+function parseAdminSpeciesPath(pathname: string): AdminSpeciesTarget | null {
+  const match = pathname.match(/^\/administration\/species-strains\/(?:(historical)\/)?(\d+)\/?$/);
+  if (!match) return null;
+  const id = Number(match[2]);
+  if (!Number.isSafeInteger(id) || id <= 0) return null;
+  return { kind: match[1] ? 'historical' : 'profile', id };
+}
 
 
 type TFunction = Translator;
@@ -234,6 +250,8 @@ export default function App() {
   const [qrLabelSelection, setQrLabelSelection] = useState<QrLabelItem[]>([]);
   const [isPhoneQrOpen, setIsPhoneQrOpen] = useState(false);
   const [isCreateBoxOpen, setIsCreateBoxOpen] = useState(false);
+  // New Box form opened from an Administration Strain context.
+  const [adminBoxStrainId, setAdminBoxStrainId] = useState<number | null>(null);
   // Values carried over when the history sends the user to correct a
   // measurement; consumed once by the box sheet, then cleared.
   const [measurementPrefill, setMeasurementPrefill] = useState<HistoryMeasurementPrefill | null>(null);
@@ -266,10 +284,14 @@ export default function App() {
   const [boxCollection, setBoxCollection] = useState<BoxCollectionState>(IDLE_BOX_COLLECTION);
   const boxCollectionRef = useRef<BoxCollectionState>(IDLE_BOX_COLLECTION);
   const boxCollectionRequestRef = useRef<{ generation: number; promise: Promise<void> } | null>(null);
+  const boxCollectionRevisionRef = useRef(0);
   const requestedRecentBoxIdsRef = useRef(new Set<number>());
+  // One scoped resolution of the current Box route: a Local ID code, or a
+  // Global ID (code null) whose UUID URL is kept after resolution.
   const [resolvedBoxCode, setResolvedBoxCode] = useState<{
     organizationId: number | null;
-    code: string;
+    code: string | null;
+    globalId?: string;
     boxId: number | null;
   } | null>(null);
   const [exportOptionsRequested, setExportOptionsRequested] = useState(false);
@@ -283,7 +305,7 @@ export default function App() {
   }, [activeOrganizationId]);
 
   const activeTab = route.tab;
-  const isBoxRoute = route.boxCode != null || route.boxId != null;
+  const isBoxRoute = route.boxCode != null || route.boxId != null || route.globalBoxId != null;
   const isZoneRoute = activeTab === 'zones' && route.zoneId != null;
   const language = getLanguage(data.profile);
   const t = useMemo(() => createTranslator(language), [language]);
@@ -315,7 +337,8 @@ export default function App() {
 
   useEffect(() => {
     if (activeTab !== 'pilotage' || isBoxRoute || isPhoneLayout) setIsCreateBoxOpen(false);
-  }, [activeTab, isBoxRoute, isPhoneLayout]);
+    if (activeTab !== 'admin' || isBoxRoute || !isDesktopApp) setAdminBoxStrainId(null);
+  }, [activeTab, isBoxRoute, isPhoneLayout, isDesktopApp]);
   const canUseAdmin = hasAdminRole;
   const navigationPolicyRef = useRef({ isDesktopApp, canUseAdmin });
   navigationPolicyRef.current = { isDesktopApp, canUseAdmin };
@@ -328,7 +351,7 @@ export default function App() {
   ) && data.exportOptions === null;
   const isOverviewLoading = activeTab === 'overview' && data.overview === null;
   const zonePageKey = route.zoneHistory ? 'history' : route.zoneBoxes ? 'boxes' : 'detail';
-  const workspacePageKey = `${activeOrganizationId ?? 'none'}-${activeTab}-${route.boxCode ?? route.boxId ?? 'list'}-${route.zoneId ?? 'list'}-${zonePageKey}-${route.adminSection ?? 'default'}`;
+  const workspacePageKey = `${activeOrganizationId ?? 'none'}-${activeTab}-${route.boxCode ?? route.boxId ?? route.globalBoxId ?? 'list'}-${route.zoneId ?? 'list'}-${zonePageKey}-${route.adminSection ?? 'default'}`;
   const brandOrganizationName = getBrandOrganizationName(data.profile, t);
   const selectableOrganizations = useMemo(() => getSelectableOrganizations(data.profile), [data.profile]);
   const activeOrganization = useMemo(
@@ -414,14 +437,14 @@ export default function App() {
       }
     }
     return {
-      apiGet: <T,>(path: string) => {
+      apiGet: <T,>(path: string, fresh = false) => {
         const match = /^\/api\/boxes\/(\d+)\/$/.exec(path);
         if (match) {
           const key = `${generation}:${Number(match[1])}`;
           detailReads.set(key, boxDetailRevisionsRef.current.get(key) ?? 0);
         }
         // Zone snapshots must not join pages or histories captured before a boundary.
-        return run(() => apiGet<T>(path, path.startsWith('/api/thermal-zones/') ? { cache: 'no-store' } : {}));
+        return run(() => apiGet<T>(path, fresh || path.startsWith('/api/thermal-zones/') ? { cache: 'no-store' } : {}));
       },
       apiPost: <T,>(path: string, payload: unknown) => run(() => apiPost<T>(path, payload)),
       apiPatch: <T,>(path: string, payload: unknown) => run(() => apiPatch<T>(path, payload)),
@@ -442,6 +465,7 @@ export default function App() {
   async function fetchAllPages<T extends { id: number }>(
     path: string,
     stopWhen?: (pageItems: T[]) => boolean,
+    fresh = false,
   ): Promise<T[]> {
     const { apiGet } = getOperationRequests();
     const results: T[] = [];
@@ -461,7 +485,7 @@ export default function App() {
       }
       // Normalize DRF proxy-origin links to same-origin requests and cycle keys.
       visited.add(requestPath);
-      const page: PaginatedResponse<T> = await apiGet<PaginatedResponse<T>>(requestPath);
+      const page: PaginatedResponse<T> = await apiGet<PaginatedResponse<T>>(requestPath, fresh);
       for (const item of page.results) {
         if (!Number.isSafeInteger(item.id)) throw new Error('Invalid pagination item ID.');
         if (seenIds.has(item.id)) continue;
@@ -578,6 +602,7 @@ export default function App() {
   // Box data belongs to one organization session: forget it on every replacement.
   function resetBoxCollection() {
     boxCollectionRequestRef.current = null;
+    boxCollectionRevisionRef.current += 1;
     requestedRecentBoxIdsRef.current = new Set();
     writeBoxCollection(IDLE_BOX_COLLECTION);
     setResolvedBoxCode(null);
@@ -589,27 +614,30 @@ export default function App() {
    * background once it is old. A failure stays local to the routes that need
    * the list and never replaces the whole application with an error.
    */
-  function requestBoxCollection(options: { retry?: boolean } = {}): Promise<void> {
+  function requestBoxCollection(options: { retry?: boolean; force?: boolean } = {}): Promise<void> {
     const generation = organizationRequestGenerationRef.current;
     const pending = boxCollectionRequestRef.current;
-    if (pending && pending.generation === generation) return pending.promise;
+    if (!options.force && pending && pending.generation === generation) return pending.promise;
 
     const current = boxCollectionRef.current;
     const isRetry = options.retry === true && current.status === 'error';
-    if (!isRetry && !shouldLoadBoxCollection(current, Date.now())) return Promise.resolve();
+    if (!options.force && !isRetry && !shouldLoadBoxCollection(current, Date.now())) return Promise.resolve();
 
     const baselineBoxes = data.boxes;
+    const revision = ++boxCollectionRevisionRef.current;
     const { setData } = getOperationRequests(generation);
-    if (current.status !== 'ready') writeBoxCollection({ status: 'loading', loadedAt: null });
+    if (options.force || current.status !== 'ready') writeBoxCollection({ status: 'loading', loadedAt: null });
 
-    const request: Promise<void> = fetchAllPages<BoxItem>(`/api/boxes/?limit=${BOX_LIST_LIMIT}`)
+    const request: Promise<void> = fetchAllPages<BoxItem>(`/api/boxes/?limit=${BOX_LIST_LIMIT}`, undefined, options.force)
       .then((boxes) => {
-        if (generation !== organizationRequestGenerationRef.current) return;
-        setData((latest) => ({ ...latest, boxes: mergeLoadedBoxes(latest.boxes, boxes, baselineBoxes) }));
+        if (generation !== organizationRequestGenerationRef.current || boxCollectionRequestRef.current?.promise !== request) return;
+        setData((latest) => revision === boxCollectionRevisionRef.current
+          ? { ...latest, boxes: mergeLoadedBoxes(latest.boxes, boxes, baselineBoxes) }
+          : latest);
         writeBoxCollection({ status: 'ready', loadedAt: Date.now() });
       })
       .catch(() => {
-        if (generation !== organizationRequestGenerationRef.current) return;
+        if (generation !== organizationRequestGenerationRef.current || boxCollectionRequestRef.current?.promise !== request) return;
         // A failed background refresh keeps the list that was already loaded.
         if (boxCollectionRef.current.status === 'loading') writeBoxCollection({ status: 'error', loadedAt: null });
       })
@@ -673,6 +701,7 @@ export default function App() {
     setIsOrganizationMenuOpen(false);
     setNeedsOrganizationChoice(false);
     setIsCreateBoxOpen(false);
+    setAdminBoxStrainId(null);
     const organizationPath = isBoxRoute || isZoneRoute
       ? (activeTab === 'zones' ? '/zones' : '/')
       : getCurrentAppPath();
@@ -972,19 +1001,23 @@ export default function App() {
 
   const isBoxCodeResolved = resolvedBoxCode != null
     && resolvedBoxCode.organizationId === activeOrganizationId
+    && resolvedBoxCode.code != null
     && resolvedBoxCode.code === route.boxCode;
 
-  // A box reached by code (direct URL, QR) is found among the known boxes first,
-  // then through the organization-scoped search; the full list is not needed.
+  // Direct Local ID URLs must revalidate every claim on the server, even if
+  // the collection already contains a Box with that current code.
   const selectedBoxId = useMemo(() => {
     if (route.boxId != null) return route.boxId;
+    if (route.globalBoxId != null) {
+      return resolvedBoxCode?.organizationId === activeOrganizationId
+        && resolvedBoxCode.globalId === route.globalBoxId ? resolvedBoxCode.boxId : null;
+    }
     if (route.boxCode) {
-      const knownBox = data.boxes.find((box) => box.global_code === route.boxCode);
-      if (knownBox) return knownBox.id;
       return isBoxCodeResolved ? resolvedBoxCode?.boxId ?? null : null;
     }
     return null;
-  }, [data.boxes, isBoxCodeResolved, resolvedBoxCode, route.boxCode, route.boxId]);
+  }, [activeOrganizationId, isBoxCodeResolved, resolvedBoxCode,
+    route.boxCode, route.boxId, route.globalBoxId]);
 
   const selectedBox = useMemo(() => {
     if (selectedBoxId == null) return null;
@@ -1007,10 +1040,10 @@ export default function App() {
 
     async function resolveBoxCode() {
       try {
-        const box = await findBoxBySearch(code, (item) => item.global_code === code || item.previous_global_code === code);
+        const box = await apiGet<BoxDetail>(`/api/boxes/by-code/${encodeURIComponent(code)}/`);
         if (!isCurrentRequest()) return;
-        setResolvedBoxCode({ organizationId, code, boxId: box?.id ?? null });
-        if (box && box.global_code !== code) {
+        setResolvedBoxCode({ organizationId, code, boxId: box.id });
+        if (box.global_code !== code) {
           replaceRoute(
             { tab: 'pilotage', boxCode: box.global_code, boxId: box.id },
             `/boxes/${encodeURIComponent(box.global_code)}`,
@@ -1018,6 +1051,10 @@ export default function App() {
         }
       } catch (requestError) {
         if (!isCurrentRequest()) return;
+        if (requestError instanceof ApiError && requestError.status === 404) {
+          setResolvedBoxCode({ organizationId, code, boxId: null });
+          return;
+        }
         const applicationError = await getApplicationError(requestError);
         if (!isCurrentRequest()) return;
         setError(applicationError);
@@ -1029,6 +1066,51 @@ export default function App() {
       isActive = false;
     };
   }, [activeOrganizationId, isBoxCodePending, isLoading, isLoginRoute, needsOrganizationChoice, route.boxCode]);
+
+  const isGlobalBoxResolved = resolvedBoxCode != null
+    && resolvedBoxCode.organizationId === activeOrganizationId
+    && resolvedBoxCode.globalId === route.globalBoxId;
+  const isGlobalBoxPending = route.globalBoxId != null && !isGlobalBoxResolved;
+
+  // A Global ID resolves only within the active institution. The UUID URL is
+  // kept: refresh and history reopen the same physical Box, never a Local ID.
+  useEffect(() => {
+    if (!isGlobalBoxPending || route.globalBoxId == null) return;
+    if (isLoginRoute || isLoading || needsOrganizationChoice || activeOrganizationId == null) return;
+
+    const globalId = route.globalBoxId;
+    const organizationId = activeOrganizationId;
+    let isActive = true;
+    const requestGeneration = organizationRequestGenerationRef.current;
+    const navigationGeneration = navigationGenerationRef.current;
+    const isCurrentRequest = () => isActive && requestGeneration === organizationRequestGenerationRef.current
+      && navigationGeneration === navigationGenerationRef.current;
+
+    async function resolveGlobalBoxId() {
+      try {
+        const result = await apiGet<{ id: number; global_id: string; global_code: string }>(
+          `/api/boxes/global/${encodeURIComponent(globalId)}/`,
+        );
+        if (!isCurrentRequest()) return;
+        setResolvedBoxCode({ organizationId, code: null, globalId, boxId: result.id });
+      } catch (requestError) {
+        if (!isCurrentRequest()) return;
+        // Unknown, uninitialized and foreign identities share one not-found state.
+        if (requestError instanceof ApiError && requestError.status === 404) {
+          setResolvedBoxCode({ organizationId, code: null, globalId, boxId: null });
+          return;
+        }
+        const applicationError = await getApplicationError(requestError);
+        if (!isCurrentRequest()) return;
+        setError(applicationError);
+      }
+    }
+
+    void resolveGlobalBoxId();
+    return () => {
+      isActive = false;
+    };
+  }, [activeOrganizationId, isGlobalBoxPending, isLoading, isLoginRoute, needsOrganizationChoice, route.globalBoxId]);
   const selectedZone = useMemo(() => {
     if (route.zoneId == null) return null;
     return data.zones.find((zone) => zone.id === route.zoneId) ?? null;
@@ -1236,6 +1318,17 @@ export default function App() {
       { tab: 'admin', boxCode: null, boxId: null, adminSection: section },
       ADMIN_SECTION_PATHS[section],
     );
+  }
+
+  function openAdminSpecies(target: AdminSpeciesTarget) {
+    navigateTo(
+      { tab: 'admin', boxCode: null, boxId: null, adminSection: 'species', adminSpecies: target },
+      adminSpeciesPath(target),
+    );
+  }
+
+  function closeAdminSpecies() {
+    goBack(ADMIN_SECTION_PATHS.species);
   }
 
   function addQrLabelToSelection(label: QrLabelItem) {
@@ -2280,7 +2373,7 @@ export default function App() {
       </aside>
 
       <section className="workspace">
-        {!isBoxRoute && !isZoneRoute ? (
+        {!isBoxRoute && !isZoneRoute && !(activeTab === 'admin' && route.adminSection === 'species') ? (
           <header className={activeTab === 'pilotage' ? 'page-heading pilotage-page-heading' : 'page-heading'}>
             <h1>{getTitle(activeTab, t)}</h1>
             {activeTab === 'pilotage' && !isPhoneLayout && canCreateBox ? (
@@ -2338,7 +2431,7 @@ export default function App() {
                 profile={data.profile}
                 language={language}
                 qrLabelSelection={qrLabelSelection}
-                isLoading={isLoading || isBoxLoading || isBoxCodePending || isBoxDetailPending}
+                isLoading={isLoading || isBoxLoading || isBoxCodePending || isGlobalBoxPending || isBoxDetailPending}
                 onCreateMeasurement={createMeasurement}
                 isOperationCurrent={() => operationGeneration === organizationRequestGenerationRef.current}
                 onUpdateMeasurement={updateMeasurement}
@@ -2473,9 +2566,12 @@ export default function App() {
               <AdminView
                 activeOrganizationId={activeOrganizationId}
                 activeSection={route.adminSection ?? 'accounts'}
+                speciesTarget={route.adminSpecies ?? null}
+                onOpenSpecies={openAdminSpecies}
+                onCloseSpecies={closeAdminSpecies}
                 boxes={data.boxes}
                 boxCollectionStatus={boxCollection.status}
-                onRetryBoxCollection={requestBoxCollectionRetry}
+                onRetryBoxCollection={() => void requestBoxCollection({ retry: true, force: route.adminSection === 'species' })}
                 exportOptions={data.exportOptions}
                 isLoading={isLoading}
                 isOptionsLoading={isExportOptionsLoading}
@@ -2500,10 +2596,31 @@ export default function App() {
                 onQualifyBox={qualifyBox}
                 onReactivateBox={reactivateBox}
                 onEditMeasurement={editMeasurementFromHistory}
+                onCreateBoxForStrain={canCreateBox ? setAdminBoxStrainId : undefined}
                 t={t}
                 zones={data.zones}
               />
             )}
+
+            {activeTab === 'admin' && canCreateBox && isDesktopApp && adminBoxStrainId != null ? (
+              <CreateBoxPanel
+                key={`admin:${data.profile?.id ?? 'none'}:${activeOrganizationId ?? 'none'}:${adminBoxStrainId}`}
+                exportOptions={data.exportOptions}
+                initialStrainId={adminBoxStrainId}
+                lockStrain
+                isOpen
+                isOptionsLoading={isExportOptionsLoading}
+                presentation="modal"
+                profile={data.profile}
+                t={t}
+                onCreateBox={createBox}
+                onResolveBoxCreation={resolveBoxCreation}
+                isOperationCurrent={() => operationGeneration === organizationRequestGenerationRef.current}
+                onOpenChange={(isOpen) => { if (!isOpen) setAdminBoxStrainId(null); }}
+                onRequestOptions={() => setExportOptionsRequested(true)}
+                onSelectBox={openBox}
+              />
+            ) : null}
 
             {activeTab === 'labels' && (boxCollectionError ?? (
               <LabelsView
@@ -2847,6 +2964,7 @@ function isRecognizedAppPath(path: string, isDesktopApp: boolean, canUseAdmin: b
     if (/^\/shared-boxes(?:\/(?:accept|[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}))?\/?$/i.test(pathname)) return !url.search && !url.hash;
     if (pathname === '/exports') return isDesktopApp;
     if (isBoxPath) return true;
+    if (/^\/boxes\/global\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/?$/i.test(pathname)) return true;
     const idMatch = pathname.match(/^\/(?:bac\/(\d+)|zones\/(\d+)(?:\/(?:boxes|history))?)\/?$/);
     if (idMatch) {
       const id = Number(idMatch[1] ?? idMatch[2]);
@@ -2854,6 +2972,7 @@ function isRecognizedAppPath(path: string, isDesktopApp: boolean, canUseAdmin: b
     }
     if (!isDesktopApp || !canUseAdmin) return false;
     return pathname === '/administration' || pathname === '/administration/'
+      || parseAdminSpeciesPath(pathname) !== null
       || Object.values(ADMIN_SECTION_PATHS).some((sectionPath) => (
         pathname === sectionPath || pathname === `${sectionPath}/`
       ));
@@ -2873,6 +2992,12 @@ function getCurrentRoute(): RouteState {
     if (Number.isSafeInteger(scanBoxId) && scanBoxId > 0) {
       return { tab: 'pilotage', boxCode: null, boxId: null, scanBoxId };
     }
+  }
+
+  // Two segments, so never an encoded Local ID (a code is one opaque segment).
+  const globalBoxMatch = path.match(/^\/boxes\/global\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/?$/i);
+  if (globalBoxMatch) {
+    return { tab: 'pilotage', boxCode: null, boxId: null, globalBoxId: globalBoxMatch[1].toLowerCase() };
   }
 
   if (path.startsWith('/boxes/')) {
@@ -2936,6 +3061,11 @@ function getCurrentRoute(): RouteState {
 
   if (path === '/administration' || path === '/administration/') {
     return { tab: 'admin', boxCode: null, boxId: null, adminSection: 'accounts' };
+  }
+
+  const adminSpecies = parseAdminSpeciesPath(path);
+  if (adminSpecies) {
+    return { tab: 'admin', boxCode: null, boxId: null, adminSection: 'species', adminSpecies };
   }
 
   const adminSection = Object.entries(ADMIN_SECTION_PATHS).find(([, sectionPath]) => (

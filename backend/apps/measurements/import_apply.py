@@ -9,6 +9,7 @@ import hashlib
 from django.db import IntegrityError, transaction
 
 from apps.audit.models import AuditLog
+from apps.cultures.box_codes import lock_local_id_registry
 from apps.cultures.models import Box
 
 from .canonical import PAYLOAD_FIELDS
@@ -82,6 +83,7 @@ def apply_measurement_import(
                 value.value for record in preparation.records if record.row is not None
                 for value in record.row.values if value.field == "box_reference"
             })
+            lock_local_id_registry()
             boxes = list(Box.objects.select_for_update().filter(
                 organization=organization, global_code__in=references, merged_into__isnull=True,
             ).order_by("pk"))

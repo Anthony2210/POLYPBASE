@@ -54,12 +54,13 @@ class TransferV1ConcurrencyTests(TransactionTestCase):
             "transferred_polyp_count": "12",
         }
 
-    def _post_import(self, user, source, barrier, synchronization):
+    def _post_import(self, user, source, barrier):
         close_old_connections()
         observations = {
             "replay_selects": 0,
             "import_inserts": 0,
             "constraint_names": [],
+            "registry_acquisitions": 0,
         }
         try:
             with connection.cursor() as cursor:
@@ -77,12 +78,15 @@ class TransferV1ConcurrencyTests(TransactionTestCase):
                 import_insert = normalized.startswith(
                     "INSERT INTO CULTURES_BOXTRANSFERIMPORT "
                 )
+                if normalized.startswith("SELECT PG_ADVISORY_XACT_LOCK(192837, 19)"):
+                    if observations["registry_acquisitions"] == 0:
+                        # Start both imports before the gate serializes their bodies.
+                        barrier.wait()
+                    observations["registry_acquisitions"] += 1
                 if replay_select:
                     observations["replay_selects"] += 1
                 if import_insert:
                     observations["import_inserts"] += 1
-                    if synchronization == "insert":
-                        barrier.wait()
                 try:
                     result = execute(sql, params, many, context)
                 except Exception as exc:
@@ -95,14 +99,7 @@ class TransferV1ConcurrencyTests(TransactionTestCase):
                     if constraint_name is not None:
                         observations["constraint_names"].append(constraint_name)
                     raise
-                if (
-                    synchronization == "precheck"
-                    and replay_select
-                    and observations["replay_selects"] == 1
-                ):
-                    # Both SELECT snapshots must be taken while no import exists,
-                    # before either worker can proceed to the species lock.
-                    barrier.wait()
+
                 return result
 
             request = APIRequestFactory().post(
@@ -134,12 +131,12 @@ class TransferV1ConcurrencyTests(TransactionTestCase):
         finally:
             connections.close_all()
 
-    def _run_imports(self, sources, synchronization):
+    def _run_imports(self, sources):
         barrier = threading.Barrier(2, timeout=10)
         with ThreadPoolExecutor(max_workers=2) as executor:
             futures = [
                 executor.submit(
-                    self._post_import, user, source, barrier, synchronization
+                    self._post_import, user, source, barrier
                 )
                 for user, source in zip(self.users, sources)
             ]
@@ -216,28 +213,29 @@ class TransferV1ConcurrencyTests(TransactionTestCase):
         self.assertEqual(audit.metadata["transfer_import_id"], imported.pk)
         self.assertEqual(audit.metadata["created_box_id"], box.pk)
 
-    def test_identical_imports_recheck_replay_after_species_lock(self):
-        # Avoid serializing on species creation: both requests must contend on
-        # the existing species row after their empty prechecks have executed.
+    def test_identical_imports_serialize_before_species_and_reject_replay(self):
+        # Both requests reach the registry together, before any Species row lock.
         Species.objects.create(
             scientific_name=self.source["species_scientific_name"]
         )
         results, loser_index = self._run_imports(
-            [dict(self.source), dict(self.source)], "precheck"
+            [dict(self.source), dict(self.source)]
         )
         for _, observations in results:
-            self.assertGreaterEqual(observations["replay_selects"], 2)
+            self.assertGreaterEqual(observations["registry_acquisitions"], 1)
+            self.assertGreaterEqual(observations["replay_selects"], 1)
             self.assertEqual(observations["constraint_names"], [])
         self.assertEqual(results[loser_index][1]["import_inserts"], 0)
         winner_index = 1 - loser_index
+        self.assertGreaterEqual(results[winner_index][1]["replay_selects"], 2)
         self.assertEqual(results[winner_index][1]["import_inserts"], 1)
         self._assert_single_import(
             results[winner_index][0], self.source, self.users[winner_index]
         )
 
-    def test_different_species_replay_constraint_rolls_back_losing_import(self):
-        # The legacy replay identity excludes species and strain. Distinct new
-        # species avoid shared row locks and let both transactions reach INSERT.
+    def test_different_species_replay_creates_no_losing_identity(self):
+        # Replay identity excludes Species and Strain. Registry coordination must
+        # reject the losing request before either of its identities is created.
         sources = [
             dict(self.source),
             {
@@ -247,16 +245,15 @@ class TransferV1ConcurrencyTests(TransactionTestCase):
                 "source_global_code": "OTHER-SOURCE.001",
             },
         ]
-        results, loser_index = self._run_imports(sources, "insert")
+        results, loser_index = self._run_imports(sources)
         for _, observations in results:
-            self.assertGreaterEqual(observations["replay_selects"], 2)
-            self.assertEqual(observations["import_inserts"], 1)
-        self.assertEqual(
-            results[loser_index][1]["constraint_names"],
-            ["unique_imported_box_transfer"],
-        )
+            self.assertGreaterEqual(observations["registry_acquisitions"], 1)
+            self.assertGreaterEqual(observations["replay_selects"], 1)
+            self.assertEqual(observations["constraint_names"], [])
+        self.assertEqual(results[loser_index][1]["import_inserts"], 0)
         winner_index = 1 - loser_index
-        self.assertEqual(results[winner_index][1]["constraint_names"], [])
+        self.assertGreaterEqual(results[winner_index][1]["replay_selects"], 2)
+        self.assertEqual(results[winner_index][1]["import_inserts"], 1)
         self._assert_single_import(
             results[winner_index][0], sources[winner_index], self.users[winner_index]
         )

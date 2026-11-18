@@ -56,6 +56,7 @@ class BoxStrainScopingTests(TestCase):
                 "strain": strain.pk,
                 "thermal_zone": self.zone.pk,
                 "entered_on": "2026-08-27",
+                "initial_polyp_count": 12,
                 "request_id": str(uuid.uuid4()),
             },
             content_type="application/json",

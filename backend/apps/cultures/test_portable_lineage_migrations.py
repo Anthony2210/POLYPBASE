@@ -3,11 +3,14 @@ from decimal import Decimal
 from uuid import uuid4
 
 from django.conf import settings
-from django.db import connection, migrations
-from config.migration_test_utils import MigrationExecutor, historical_targets
+from django.db import IntegrityError, connection, migrations, transaction
+from config.migration_test_utils import (
+    HistoricalRehearsalMixin, MigrationExecutor, historical_targets, rehearsal_latest_targets,
+)
 from django.db.migrations.loader import MigrationLoader
 from django.db.migrations.recorder import MigrationRecorder
 from django.test import SimpleTestCase, TransactionTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 
@@ -43,11 +46,53 @@ class PortableLineageMigrationGraphTests(SimpleTestCase):
         self.assertFalse(any(isinstance(operation, (migrations.RunPython, migrations.RunSQL)) for operation in migration.operations))
 
 
-class PortableLineageMigrationTests(TransactionTestCase):
+class GlobalIdentitySQLiteMigrationTests(TransactionTestCase):
+    def test_empty_reverse_preserves_main_history_guards_without_rebuilding_box(self):
+        if connection.vendor != "sqlite":
+            self.skipTest("SQLite native column removal regression")
+        executor = MigrationExecutor(connection)
+        latest = executor.loader.graph.leaf_nodes()
+        self.addCleanup(lambda: MigrationExecutor(connection).migrate(latest))
+        apps = executor.loader.project_state(latest).apps
+        # This rehearsal does not authorize deleting populated permanent IDs.
+        self.assertFalse(apps.get_model("cultures", "BoxGlobalIdentity").objects.exists())
+        self.assertFalse(apps.get_model("cultures", "Box").objects.filter(global_identity__isnull=False).exists())
+
+        def history_guards():
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT name, sql FROM sqlite_master WHERE type = 'trigger' "
+                               "AND name LIKE 'history_%%' ORDER BY name")
+                return cursor.fetchall()
+
+        guards = history_guards()
+        self.assertIn("history_stream_insert", {name for name, sql in guards})
+        targets = historical_targets(executor.loader, {"cultures"}, [
+            ("cultures", "0021_merge_dna_and_history"),
+        ])
+        with CaptureQueriesContext(connection) as queries:
+            executor.migrate(targets)
+        statements = [query["sql"] for query in queries]
+        self.assertIn('ALTER TABLE "cultures_box" DROP COLUMN "global_id"', statements)
+        self.assertFalse(any("new__cultures_box" in sql for sql in statements))
+        self.assertEqual(history_guards(), guards)
+        apps = executor.loader.project_state(targets).apps
+        with self.assertRaisesMessage(IntegrityError, "History storage integrity violation: history_stream_insert"):
+            with transaction.atomic():
+                apps.get_model("cultures", "BoxHistoryStream").objects.create(
+                    original_box_id=1, box_id=None, organization_id=1,
+                )
+        with connection.cursor() as cursor:
+            cursor.execute("PRAGMA foreign_key_check")
+            self.assertEqual(cursor.fetchall(), [])
+        MigrationExecutor(connection).migrate(latest)
+        self.assertEqual(history_guards(), guards)
+
+
+class PortableLineageMigrationTests(HistoricalRehearsalMixin, TransactionTestCase):
     def setUp(self):
         super().setUp()
         executor = MigrationExecutor(connection)
-        self.latest = executor.loader.graph.leaf_nodes()
+        self.latest = rehearsal_latest_targets(executor.loader, connection.vendor)
         # Historical tests may leave a partial state; always restore it before targeting history.
         executor.migrate(self.latest)
         self.addCleanup(self.restore_latest)
@@ -56,9 +101,15 @@ class PortableLineageMigrationTests(TransactionTestCase):
         MigrationExecutor(connection).migrate(self.latest)
 
     def migrate_to(self, cultures, taxonomy=TAXONOMY_INITIAL):
-        targets = historical_targets(MigrationLoader(None), HISTORICAL_APPS, [
+        loader = MigrationLoader(None)
+        # Only the taxonomy target may require a later Organization state;
+        # the portable schema itself still depends on the initial state.
+        organizations = [
+            node for node in loader.graph.forwards_plan(taxonomy) if node[0] == "organizations"
+        ]
+        targets = historical_targets(loader, HISTORICAL_APPS, [
             ("measurements", "0005_biologicalmeasurement_week_start"),
-            cultures, ORGANIZATIONS_INITIAL, taxonomy,
+            cultures, organizations[-1], taxonomy,
         ])
         executor = MigrationExecutor(connection)
         executor.migrate(targets)
@@ -180,11 +231,15 @@ class PortableLineageMigrationTests(TransactionTestCase):
             with self.subTest(target=target):
                 apps = self.migrate_to(AFTER, taxonomy=target)
                 applied = MigrationRecorder(connection).applied_migrations()
-                expected_taxonomy = {
-                    node for node in loader.graph.forwards_plan(target) if node[0] == "taxonomy"
-                }
+                plan = loader.graph.forwards_plan(target)
+                expected_taxonomy = {node for node in plan if node[0] == "taxonomy"}
                 self.assertEqual({node for node in applied if node[0] == "taxonomy"}, expected_taxonomy)
                 self.assertIn(AFTER, applied)
-                self.assertNotIn(("organizations", "0002_organization_portable_id"), applied)
+                # The portable schema itself never requires later Organization
+                # migrations; only a taxonomy target that declares one may apply it.
+                expected_organizations = {ORGANIZATIONS_INITIAL} | {
+                    node for node in plan if node[0] == "organizations"
+                }
+                self.assertEqual({node for node in applied if node[0] == "organizations"}, expected_organizations)
                 self.assertFalse(apps.get_model("cultures", "PortableLineageNode").objects.exists())
                 self.assertFalse(apps.get_model("cultures", "PortableLineageEdge").objects.exists())

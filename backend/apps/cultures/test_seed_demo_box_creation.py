@@ -56,7 +56,8 @@ class DemoSeedBoxCreationTests(TestCase):
         self.assertEqual(demo["identity"]["status"], "usable")
         zone = ThermalZone.objects.filter(organization=self.paris, is_active=True).order_by("pk").first()
         legacy_codes = sorted(Box.objects.values_list("global_code", flat=True))
-        payload = {"strain": demo["id"], "thermal_zone": zone.pk, "entered_on": "2026-10-28", "request_id": str(uuid.uuid4())}
+        payload = {"strain": demo["id"], "thermal_zone": zone.pk, "entered_on": "2026-10-28", "request_id": str(uuid.uuid4()),
+                   "initial_polyp_count": 12}
         response = self.client.post(reverse("api_box_automatic"), payload, content_type="application/json", **headers)
         self.assertEqual(response.status_code, 201, response.content)
         self.assertEqual(response.json()["global_code"], f"{DEMO_CREATION_STRAIN_CODE}.001")

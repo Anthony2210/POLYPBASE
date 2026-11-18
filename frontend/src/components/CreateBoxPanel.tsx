@@ -1,4 +1,5 @@
 import { type FormEvent, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { LockKeyhole } from 'lucide-react';
 
 import { ApiError, apiGet } from '../api/client';
 import type { Translator } from '../i18n';
@@ -29,12 +30,25 @@ const DIALOG_FOCUSABLE_SELECTOR =
 
 function hasFieldError(error: unknown) {
   const data = error instanceof ApiError ? error.data : null;
-  return Boolean(data && typeof data === 'object' && ['strain', 'thermal_zone', 'entered_on', 'notes']
+  return Boolean(data && typeof data === 'object' && ['strain', 'thermal_zone', 'entered_on', 'notes', 'initial_polyp_count']
     .some((field) => field in (data as Record<string, unknown>)));
+}
+
+// A whole, non-negative count: empty is missing, never 0.
+const INITIAL_POLYPS_PATTERN = /^\d{1,10}$/;
+const MAX_INITIAL_POLYPS = 2147483647;
+
+export function parseInitialPolypCount(value: string) {
+  const text = value.trim();
+  if (!INITIAL_POLYPS_PATTERN.test(text)) return null;
+  const count = Number(text);
+  return count <= MAX_INITIAL_POLYPS ? count : null;
 }
 
 export default function CreateBoxPanel({
   exportOptions,
+  initialStrainId = null,
+  lockStrain = false,
   isOpen: controlledIsOpen,
   isOptionsLoading,
   presentation = 'inline',
@@ -47,6 +61,9 @@ export default function CreateBoxPanel({
   t,
 }: {
   exportOptions: ExportOptions | null;
+  // Preselected Strain (and so its Species) when continuing from its creation.
+  initialStrainId?: number | null;
+  lockStrain?: boolean;
   isOpen?: boolean;
   isOptionsLoading: boolean;
   presentation?: 'inline' | 'modal';
@@ -74,6 +91,12 @@ export default function CreateBoxPanel({
   const [stored] = useState(() => readStoredCreationIntent(storageKey));
   const pending = stored?.kind === 'pending' ? stored : null;
   const initialDraft = pending?.canRestoreDraft ? pending.intent as BoxCreatePayload : null;
+  // A contextual form cannot silently resume another (or unidentified) strain.
+  // Keep its evidence intact so the general creation flow can recover it.
+  const hasContextConflict = lockStrain && pending != null
+    && (initialDraft == null || initialDraft.strain !== initialStrainId);
+  const currentContextRef = useRef({ storageKey, initialStrainId, lockStrain, isOperationCurrent });
+  currentContextRef.current = { storageKey, initialStrainId, lockStrain, isOperationCurrent };
   const pendingIntentRef = useRef<PendingIntent | null>(pending?.intent ?? null);
   // Only a complete, scoped token-bound intention can resume registration/execution.
   // Bare or divergent UUIDs never acquire write authority.
@@ -83,29 +106,38 @@ export default function CreateBoxPanel({
   // Records are cleared only once every candidate is terminal.
   const requestIdsRef = useRef<string[]>(pending?.requestIds ?? []);
   // Destroyed identities cannot be reconciled safely; do not offer a replacement.
-  const [hasUnverifiedPrevious, setHasUnverifiedPrevious] = useState(stored?.kind === 'unidentified');
+  const [hasUnverifiedPrevious, setHasUnverifiedPrevious] = useState(stored?.kind === 'unidentified' || hasContextConflict);
   const refusalRef = useRef<unknown>(null);
   const busyRef = useRef(false);
   const attemptRef = useRef(0);
   const retryTimerRef = useRef<number | null>(null);
   const reconcileRef = useRef<() => Promise<void>>(async () => {});
-  const [phase, setPhase] = useState<CreationPhase>(pending ? 'sending' : stored?.kind === 'unidentified' ? 'blocked' : 'draft');
+  const [phase, setPhase] = useState<CreationPhase>(hasContextConflict || stored?.kind === 'unidentified' ? 'blocked' : pending ? 'sending' : 'draft');
   const [isRetryExhausted, setIsRetryExhausted] = useState(false);
   const [isRecoveryUnavailable, setIsRecoveryUnavailable] = useState(false);
   const [createdBox, setCreatedBox] = useState<BoxDetail | null>(null);
   // Divergent stored keys can reveal two committed Boxes; both are shown, none is hidden.
   const [otherCreatedBox, setOtherCreatedBox] = useState<BoxDetail | null>(null);
-  const [strainId, setStrainId] = useState<number | null>(initialDraft?.strain ?? null);
+  const [strainId, setStrainId] = useState<number | null>(initialDraft?.strain ?? initialStrainId);
   const [zoneId, setZoneId] = useState<number | null>(initialDraft?.thermal_zone ?? null);
   const [enteredOn, setEnteredOn] = useState(initialDraft?.entered_on ?? todayLocalIsoDate());
   const [notes, setNotes] = useState(initialDraft?.notes ?? '');
+  const [initialPolyps, setInitialPolyps] = useState(
+    typeof initialDraft?.initial_polyp_count === 'number' ? String(initialDraft.initial_polyp_count) : '',
+  );
+  const [isInitialPolypsTouched, setIsInitialPolypsTouched] = useState(false);
+  const initialPolypCount = parseInitialPolypCount(initialPolyps);
   const [strainOptions, setStrainOptions] = useState<BoxStrainOption[] | null>(null);
   const [isStrainsLoading, setIsStrainsLoading] = useState(false);
   const [strainsError, setStrainsError] = useState<string | null>(null);
   const [strainsAttempt, setStrainsAttempt] = useState(0);
 
   const [error, setError] = useState<string | null>(null);
-  const isLocked = phase !== 'draft';
+  const isLocked = phase !== 'draft' || hasContextConflict;
+  const effectiveStrainId = lockStrain ? initialStrainId : strainId;
+  const strainsContext = JSON.stringify([storageKey, isOpen, strainsAttempt, lockStrain, initialStrainId]);
+  const [loadedStrainsContext, setLoadedStrainsContext] = useState<string | null>(null);
+  const hasCurrentStrains = loadedStrainsContext === strainsContext;
 
   function setOpen(nextIsOpen: boolean) {
     if (presentation === 'modal') onOpenChange?.(nextIsOpen);
@@ -113,7 +145,10 @@ export default function CreateBoxPanel({
   }
 
   function isAlive() {
-    return operationLifetimeRef.current && isOperationCurrent();
+    const current = currentContextRef.current;
+    return operationLifetimeRef.current && current.storageKey === storageKey
+      && current.initialStrainId === initialStrainId && current.lockStrain === lockStrain
+      && isOperationCurrent() && current.isOperationCurrent();
   }
 
   function clearRetryTimer() {
@@ -169,7 +204,7 @@ export default function CreateBoxPanel({
   // safe even if registration never reached Django or execution already committed.
   async function reconcile() {
     const intent = pendingIntentRef.current;
-    if (!intent || busyRef.current || !isAlive()) return;
+    if (!intent || hasContextConflict || busyRef.current || !isAlive()) return;
     busyRef.current = true;
     clearRetryTimer();
     setPhase('sending');
@@ -281,38 +316,42 @@ export default function CreateBoxPanel({
   }, [isOpen]);
 
   useEffect(() => {
-    if (!isOpen || organizationId == null) return;
+    if (!isOpen || organizationId == null || !isAlive()) return;
     let isCurrent = true;
     setIsStrainsLoading(true);
     setStrainOptions(null);
     setStrainsError(null);
-    apiGet<BoxStrainOption[]>('/api/boxes/automatic/strains/')
+    apiGet<BoxStrainOption[]>('/api/boxes/automatic/strains/', { cache: 'no-store' })
       .then((result) => {
-        if (isCurrent) setStrainOptions(result);
+        if (isCurrent && isAlive()) {
+          setStrainOptions(result);
+          setLoadedStrainsContext(strainsContext);
+        }
       })
       .catch((requestError) => {
-        if (isCurrent) setStrainsError(getErrorMessage(requestError, t('taxonomyLoadError')));
+        if (isCurrent && isAlive()) setStrainsError(getErrorMessage(requestError, t('taxonomyLoadError')));
       })
       .finally(() => {
-        if (isCurrent) setIsStrainsLoading(false);
+        if (isCurrent && isAlive()) setIsStrainsLoading(false);
       });
     return () => { isCurrent = false; };
-  }, [isOpen, organizationId, profile?.id, t, strainsAttempt]);
+  }, [isOpen, organizationId, profile?.id, t, strainsAttempt, lockStrain, initialStrainId]);
 
-  const selectedStrain = strainOptions?.find((strain) => strain.id === strainId) ?? null;
+  const selectedStrain = hasCurrentStrains
+    ? strainOptions?.find((strain) => strain.id === effectiveStrainId) ?? null : null;
 
   const availableZones = (exportOptions?.zones ?? []).filter((zone) => zone.organization_id === organizationId);
   const selectedZone = availableZones.find((zone) => zone.id === zoneId) ?? null;
   const canSubmit = organizationId != null && storageKey != null && !isLocked && !createdBox
-    && strainOptions != null && !isStrainsLoading && !strainsError
+    && isOpen && isAlive() && hasCurrentStrains && strainOptions != null && !isStrainsLoading && !strainsError
     && selectedStrain?.identity.status === 'usable'
-    && selectedZone != null && enteredOn !== '' && !isOptionsLoading;
+    && selectedZone != null && enteredOn !== '' && initialPolypCount !== null && !isOptionsLoading;
 
   useEffect(() => {
     // An unlocked draft never keeps a choice the server no longer offers.
-    if (isLocked || strainOptions == null || strainId == null || strainOptions.some((strain) => strain.id === strainId)) return;
+    if (lockStrain || isLocked || !hasCurrentStrains || strainOptions == null || strainId == null || strainOptions.some((strain) => strain.id === strainId)) return;
     setStrainId(null);
-  }, [isLocked, strainId, strainOptions]);
+  }, [lockStrain, isLocked, hasCurrentStrains, strainId, strainOptions]);
 
   useEffect(() => {
     if (isLocked || !exportOptions || zoneId == null || availableZones.some((zone) => zone.id === zoneId)) return;
@@ -379,9 +418,12 @@ export default function CreateBoxPanel({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (busyRef.current || pendingIntentRef.current || !canSubmit || strainId == null || zoneId == null || !isAlive()) return;
+    setIsInitialPolypsTouched(true);
+    if (busyRef.current || pendingIntentRef.current || !canSubmit || effectiveStrainId == null || zoneId == null
+      || initialPolypCount === null || !isAlive()) return;
     const intent: BoxCreationIntent = {
-      strain: strainId, thermal_zone: zoneId, entered_on: enteredOn, volume_liters: null, notes: notes.trim(),
+      strain: effectiveStrainId, thermal_zone: zoneId, entered_on: enteredOn, volume_liters: null, notes: notes.trim(),
+      initial_polyp_count: initialPolypCount,
       request_id: window.crypto.randomUUID(),
       resume_token: window.crypto.randomUUID(),
     };
@@ -409,7 +451,7 @@ export default function CreateBoxPanel({
   }
 
   function openCreatedBox(box: BoxDetail | null = createdBox) {
-    if (!box || !isOperationCurrent()) return;
+    if (!box || !isAlive()) return;
     onSelectBox(box.id);
     if (presentation === 'modal') {
       window.requestAnimationFrame(() => {
@@ -425,6 +467,8 @@ export default function CreateBoxPanel({
     setCreatedBox(null);
     setOtherCreatedBox(null);
     setNotes('');
+    setInitialPolyps('');
+    setIsInitialPolypsTouched(false);
     setPhase('draft');
   }
 
@@ -483,16 +527,36 @@ export default function CreateBoxPanel({
           </div>
 
           <fieldset className="create-box-strain-field" disabled={isLocked}>
-            <legend>{t('createBoxStrain')}</legend>
+            <legend className={lockStrain ? 'create-box-locked-strain-legend' : undefined}>
+              {lockStrain ? (
+                <span>
+                  {t('createBoxSelectedStrain')}
+                  <LockKeyhole size={14} strokeWidth={1.5} aria-hidden="true" />
+                </span>
+              ) : t('createBoxStrain')}
+            </legend>
             {isStrainsLoading ? <p className="muted compact-text">{t('loading')}</p> : null}
             {strainsError ? (
               <p className="inline-error" role="alert">
                 {strainsError} <button type="button" onClick={() => setStrainsAttempt((value) => value + 1)}>{t('createBoxRetry')}</button>
               </p>
             ) : null}
-            {!isStrainsLoading && !strainsError && strainOptions && !strainOptions.length
+            {!isStrainsLoading && !strainsError && hasCurrentStrains && strainOptions
+              && (lockStrain ? !selectedStrain || selectedStrain.identity.status !== 'usable' : !strainOptions.length)
               ? <p className="muted compact-text">{t('createBoxNoOptions')}</p> : null}
-            {strainOptions?.length && !strainsError ? (
+            {lockStrain && selectedStrain?.identity.status === 'usable' && !isStrainsLoading && !strainsError ? (
+              <div className="create-box-selected-strain">
+                <div className="create-box-selected-strain-identity">
+                  <span><em>{selectedStrain.species.scientific_name}</em></span>
+                  <span>
+                    <strong>{selectedStrain.name.trim() || `${t('createBoxStrainLabel')} ${selectedStrain.identity.strain_number}`}</strong>
+                    {' '}({selectedStrain.code})
+                  </span>
+                </div>
+                <span className="sr-only" role="status">{t('createBoxStrainFixed')}</span>
+              </div>
+            ) : null}
+            {!lockStrain && hasCurrentStrains && strainOptions?.length && !strainsError ? (
               <StrainPicker
                 options={strainOptions}
                 selectedId={strainId}
@@ -525,6 +589,22 @@ export default function CreateBoxPanel({
           <label className="create-box-date-field">
             <span>{t('createBoxEnteredOn')}</span>
             <input disabled={isLocked} required type="date" value={enteredOn} onChange={(event) => setEnteredOn(event.target.value)} />
+          </label>
+
+          <label className="create-box-initial-polyps-field">
+            <span>{t('createBoxInitialPolyps')}</span>
+            <input
+              disabled={isLocked} required type="number" min={0} step={1} inputMode="numeric"
+              value={initialPolyps}
+              aria-invalid={isInitialPolypsTouched && initialPolypCount === null}
+              aria-describedby={isInitialPolypsTouched && initialPolypCount === null
+                ? 'create-box-initial-polyps-error' : undefined}
+              onBlur={() => setIsInitialPolypsTouched(true)}
+              onChange={(event) => setInitialPolyps(event.target.value)}
+            />
+            {isInitialPolypsTouched && initialPolypCount === null ? (
+              <small id="create-box-initial-polyps-error" className="inline-error compact-text">{t('createBoxInitialPolypsRequired')}</small>
+            ) : null}
           </label>
 
           <label className="create-box-notes-field">

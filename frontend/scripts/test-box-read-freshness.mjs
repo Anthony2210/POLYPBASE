@@ -1251,7 +1251,7 @@ function installRevisionLifecycle(h) {
   Object.assign(h.context, {
     data: h.state.data, needsOrganizationChoice: false,
     isBoxRoute: false, isZoneRoute: false, activeTab: 'pilotage',
-    setIsOrganizationMenuOpen() {}, setIsCreateBoxOpen() {},
+    setIsOrganizationMenuOpen() {}, setIsCreateBoxOpen() {}, setAdminBoxStrainId() {},
     setQrLabelSelection() {}, setMeasurementPrefill() {}, setExportOptionsRequested() {},
     setRecentBoxIds(ids) { h.state.recentIds = ids; },
     setNeedsOrganizationChoice(value) { h.context.needsOrganizationChoice = value; },

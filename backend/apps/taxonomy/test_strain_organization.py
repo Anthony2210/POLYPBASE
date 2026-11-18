@@ -121,11 +121,12 @@ class StrainOrganizationTests(TestCase):
             }),
             content_type="application/json",
         )
-        self.assertEqual(response.status_code, 201)
-        self.assertNotIn("organization", response.json())
-        strain = Strain.objects.get(pk=response.json()["id"])
-        self.assertEqual(strain.organization_id, self.first_organization.pk)
-        self.assertEqual(LocalStrainIdentity.objects.get(strain=strain).species_code_assignment, assignment)
+        # Manual creation is closed; ownership from the active context is covered
+        # by the institutional Species endpoint (test_institution_strains).
+        self.assertEqual(response.status_code, 410)
+        self.assertFalse(Strain.objects.filter(code="API-1").exists())
+        strain = Strain.objects.create(species=self.species, organization=self.first_organization, code="API-1")
+        LocalStrainIdentity.objects.create(strain=strain, species_code_assignment=assignment)
         listing = self.client.get(reverse("api_taxonomy_references"))
         self.assertEqual(listing.status_code, 200)
         self.assertNotIn("organization", listing.json()["strains"][0])

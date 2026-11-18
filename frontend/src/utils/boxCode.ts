@@ -1,9 +1,8 @@
 import type { BoxItem } from '../types';
-import type { QuickCreatedStrain } from '../components/QuickStrainCreator';
 
 export function buildNextBoxCode(
   boxes: BoxItem[],
-  strain: QuickCreatedStrain,
+  strain: { id: number; code: string },
   organizationId: number,
 ) {
   const matchingBoxes = boxes

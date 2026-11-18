@@ -77,6 +77,8 @@ import PageLoader from './PageLoader';
 import PolypbaseIcon from './PolypbaseIcon';
 import { RowActionMenu } from './RowActionMenu';
 import SkeletonRows from './SkeletonRows';
+import SpeciesStrainsAdminSection from './SpeciesStrainsAdminSection';
+import type { AdminSpeciesTarget } from '../utils/speciesCatalog';
 import TaxonomyAdminSection from './TaxonomyAdminSection';
 
 export type { EditableMeasurement } from '../types';
@@ -84,6 +86,7 @@ export type { EditableMeasurement } from '../types';
 const ADMIN_FLOW_ITEMS = [
   { key: 'accounts', panelId: 'admin-accounts', label: 'adminTabUsers', scope: 'aquarium' },
   { key: 'inventory', panelId: 'admin-inventory', label: 'adminTabInventory', scope: 'aquarium' },
+  { key: 'species', panelId: 'admin-species', label: 'adminTabSpecies', scope: 'aquarium' },
   { key: 'references', panelId: 'admin-taxonomy', label: 'adminTabReferences', scope: 'shared' },
   { key: 'environment', panelId: 'admin-environment', label: 'adminTabLocations', scope: 'aquarium' },
   { key: 'transfers', panelId: 'admin-transfers', label: 'adminTabTransfers', scope: 'aquarium' },
@@ -2396,13 +2399,23 @@ export default function AdminView({
   onQualifyBox,
   onReactivateBox,
   onEditMeasurement,
+  speciesTarget,
+  onOpenSpecies,
+  onCloseSpecies,
+  onCreateBoxForStrain,
   t,
   zones,
 }: {
   activeOrganizationId: number | null;
   activeSection: AdminSectionKey;
+  // Species page opened from the Administration > Species catalog.
+  speciesTarget: AdminSpeciesTarget | null;
+  onOpenSpecies: (target: AdminSpeciesTarget) => void;
+  onCloseSpecies: () => void;
+  // Continues a Strain creation with the existing New Box form (absent: no offer).
+  onCreateBoxForStrain?: (strainId: number) => void;
   onEditMeasurement: (measurement: EditableMeasurement) => void;
-  // Only the transfers section needs every box; the others work without them.
+  // Species pages need every box; sharing uses bounded server-side lookup.
   boxes: BoxItem[];
   boxCollectionStatus: BoxCollectionStatus;
   onRetryBoxCollection: () => void;
@@ -2460,16 +2473,22 @@ export default function AdminView({
   const organizations = exportOptions?.organizations ?? profile.organizations;
   const activeOrganizationName = profile.active_organization?.name ?? '-';
 
+  // A Species page is a full entity page, like a Box or a Location: the
+  // Administration section list returns with the catalog.
+  const isSpeciesPage = displayedSection === 'species' && speciesTarget !== null;
+
   return (
     <section className="admin-panel">
-      <div className="admin-workspace">
-        <AdminFlowNav
-          activeSection={displayedSection}
-          aquariumName={activeOrganizationName}
-          isSuperuser={profile.is_superuser}
-          onSelect={selectAdminSection}
-          t={t}
-        />
+      <div className={isSpeciesPage ? 'admin-workspace is-entity-page' : 'admin-workspace'}>
+        {isSpeciesPage ? null : (
+          <AdminFlowNav
+            activeSection={displayedSection}
+            aquariumName={activeOrganizationName}
+            isSuperuser={profile.is_superuser}
+            onSelect={selectAdminSection}
+            t={t}
+          />
+        )}
 
         <div className="admin-flow-panel">
           {activeSectionNeedsOptions && isOptionsLoading ? (
@@ -2501,10 +2520,30 @@ export default function AdminView({
             />
           ) : null}
 
+          {displayedSection === 'species' && activeOrganizationId != null ? (
+            <SpeciesStrainsAdminSection
+              key={activeOrganizationId}
+              target={speciesTarget}
+              organizationId={activeOrganizationId}
+              organizationName={profile?.active_organization?.name ?? ''}
+              boxes={boxes}
+              boxCollectionStatus={boxCollectionStatus}
+              onRetryBoxCollection={onRetryBoxCollection}
+              language={language}
+              onOpenSpecies={onOpenSpecies}
+              onOpenBox={onOpenBox}
+              onOpenZone={onOpenZone}
+              onBack={onCloseSpecies}
+              onCreateBox={onCreateBoxForStrain}
+              t={t}
+            />
+          ) : null}
+
           {displayedSection === 'references' && activeOrganizationId != null ? (
             <TaxonomyAdminSection
               key={activeOrganizationId}
               organizationName={profile?.organizations.find((organization) => organization.id === activeOrganizationId)?.name ?? ''}
+              onOpenSpeciesWorkspace={() => selectAdminSection('species')}
               t={t}
             />
           ) : null}

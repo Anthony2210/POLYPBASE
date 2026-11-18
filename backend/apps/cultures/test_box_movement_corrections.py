@@ -15,6 +15,7 @@ from apps.measurements.models import BiologicalMeasurement, DailyTemperature
 from apps.organizations.models import Organization
 from apps.taxonomy.models import Species, Strain
 
+from . import movement_corrections
 from .models import MOVEMENT_WEEK_TIME_ZONE, Box, BoxLocation, BoxMovement, ThermalZone
 from .services import deactivate_box, move_box_to_thermal_zone, reactivate_box
 
@@ -103,6 +104,25 @@ class BoxMovementCorrectionTests(TestCase):
 
     def correction_audits(self):
         return AuditLog.objects.filter(metadata__event="box_movement_correction").order_by("id")
+
+    def test_registry_coordination_precedes_the_box_lock_for_destination_correction(self):
+        original = movement_corrections._scoped_box
+        with patch.object(
+            movement_corrections, "lock_local_id_registry",
+            wraps=movement_corrections.lock_local_id_registry,
+        ) as registry:
+            def scoped_box(**kwargs):
+                if kwargs.get("for_update"):
+                    registry.assert_called_once_with()
+                return original(**kwargs)
+
+            with patch.object(movement_corrections, "_scoped_box", side_effect=scoped_box):
+                response = self.patch_movement({
+                    "expected_revision": 0, "to_thermal_zone_id": self.zone_c.pk,
+                })
+        self.assertEqual(response.status_code, 200, response.content)
+        self.box.refresh_from_db()
+        self.assertEqual(self.box.thermal_zone_id, self.zone_c.pk)
 
     # Notes -------------------------------------------------------------------
 

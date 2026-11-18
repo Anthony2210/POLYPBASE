@@ -6,7 +6,9 @@ from unittest.mock import patch
 from django.core import serializers
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
-from config.migration_test_utils import MigrationExecutor, historical_targets
+from config.migration_test_utils import (
+    HistoricalRehearsalMixin, MigrationExecutor, historical_targets, rehearsal_latest_targets,
+)
 from django.test import TestCase, TransactionTestCase, override_settings, skipUnlessDBFeature
 
 from .models import BoxMovement
@@ -214,10 +216,10 @@ class BoxMovementWeekIntegrityTests(MovementFixtureMixin, TestCase):
         self.assert_rejected_without_changes(lambda: movement.save(update_fields=["notes"]))
 
 
-class BoxMovementWeekConstraintMigrationTests(TransactionTestCase):
+class BoxMovementWeekConstraintMigrationTests(HistoricalRehearsalMixin, TransactionTestCase):
     def test_upgrade_and_reverse_preserve_existing_movement_values(self):
         executor = MigrationExecutor(connection)
-        latest = executor.loader.graph.leaf_nodes()
+        latest = rehearsal_latest_targets(executor.loader, connection.vendor)
         self.addCleanup(lambda: MigrationExecutor(connection).migrate(latest))
         before = historical_targets(executor.loader, {"cultures", "measurements"}, [
             ("cultures", "0013_box_movement_kind_week_links"),

@@ -12,6 +12,7 @@ from django.db.migrations.executor import MigrationExecutor
 from django.test.runner import DiscoverRunner
 
 from apps.measurements import box_1902_sql as contract
+from config.migration_test_utils import historical_targets
 from historical_temperature_cluster_lease import require_launch, verify_server
 
 
@@ -96,8 +97,7 @@ class DisposableCreation(DatabaseCreation):
         self.connection.settings_dict.update(NAME=name, USER=contract.RUNTIME)
         try:
             executor = MigrationExecutor(self.connection)
-            targets = [PREVIOUS if node == MIGRATION else node
-                       for node in executor.loader.graph.leaf_nodes()]
+            targets = historical_targets(executor.loader, {"measurements"}, [PREVIOUS])
             print("Disposable QA: applying real pre-0018 migrations as polypbase", flush=True)
             executor.migrate(targets)
         finally:
@@ -119,4 +119,16 @@ class DisposableRunner(DiscoverRunner):
         require_launch()
         connection = connections["default"]
         connection.creation = DisposableCreation(connection)
-        return super().setup_databases(**kwargs)
+        config = super().setup_databases(**kwargs)
+        # Append-only guards forbid Django's TRUNCATE flush. Suppress them for
+        # fixture cleanup only, after re-verifying this launch's cluster.
+        from config.disposable_postgres import install_disposable_flush
+
+        install_disposable_flush()
+        return config
+
+    def teardown_databases(self, old_config, **kwargs):
+        from config.disposable_postgres import uninstall_disposable_flush
+
+        uninstall_disposable_flush()
+        return super().teardown_databases(old_config, **kwargs)

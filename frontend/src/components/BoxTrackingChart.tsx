@@ -205,6 +205,7 @@ export default function BoxTrackingChart({
               closeDetail: language === 'fr' ? 'Fermer le détail' : 'Close details',
               empty: labels.chartEmpty,
               enteredBy: labels.historyEnteredBy,
+              initialObservedBy: createTranslator(language)('historyInitialObservedBy'),
               historicalUser: createTranslator(language)('historicalUser'),
               ephyrae: labels.ephyraeFull,
               location: language === 'fr' ? 'Emplacement' : 'Location',

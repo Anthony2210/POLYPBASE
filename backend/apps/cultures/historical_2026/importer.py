@@ -253,7 +253,7 @@ def _plan_materialization(spec, organization, strains_by_code):
 
 
 def build_plan(manifest, organization, *, lock=False):
-    """Classify read-only; the apply-only lock mode takes Box locks before Organization."""
+    """Classify read-only; apply locks the Local ID registry, Boxes, then Organization."""
     corrections = {
         item["to_code"]: item for item in manifest["decisions"]["identity_corrections"]
     }
@@ -263,8 +263,11 @@ def build_plan(manifest, organization, *, lock=False):
     codes |= {CLA_RECONCILED_CODES[code] for code in codes & CLA_RECONCILED_CODES.keys()}
     queryset = Box.objects.filter(global_code__in=codes).select_related("strain", "strain__species")
     if lock:
-        # Match ordinary writers and reviewed correctors: own Boxes by PK first,
-        # then Organization. Never wait for another Box after taking that lock.
+        from ..box_codes import lock_local_id_registry
+
+        lock_local_id_registry()
+        # Match identity writers before locking Boxes that may be renamed or
+        # saved. Then own Boxes by PK before Organization, as measurement writers do.
         by_code = {box.global_code: box for box in queryset.filter(
             organization_id=organization.pk,
         ).select_for_update(of=("self",)).order_by("pk")}

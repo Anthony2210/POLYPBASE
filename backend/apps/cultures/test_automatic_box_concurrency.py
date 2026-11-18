@@ -17,6 +17,7 @@ from apps.audit.models import AuditLog
 from apps.measurements.models import BiologicalMeasurement
 from apps.organizations.models import Organization
 from apps.taxonomy.models import Strain
+from config.disposable_postgres import DisposablePostgresFlushMixin
 
 from .automatic_box_creation import (
     AutomaticBoxCreationCancelled, AutomaticBoxCreationConflict, inspect_automatic_box_request,
@@ -29,7 +30,7 @@ from .test_automatic_box_creation import AutomaticBoxFixture
 
 
 @skipUnless(connection.vendor == "postgresql", "Requires disposable PostgreSQL and real row locks.")
-class AutomaticBoxConcurrencyTests(AutomaticBoxFixture, TransactionTestCase):
+class AutomaticBoxConcurrencyTests(AutomaticBoxFixture, DisposablePostgresFlushMixin, TransactionTestCase):
     def setUp(self):
         super().setUp()
         self.local = threading.local()
@@ -106,13 +107,20 @@ class AutomaticBoxConcurrencyTests(AutomaticBoxFixture, TransactionTestCase):
                 release.set()
             return one.result(timeout=20), two.result(timeout=20)
 
+    def assert_creation_audits(self):
+        self.assertEqual(AuditLog.objects.filter(action="creation").count(), 1)
+        self.assertEqual(AuditLog.objects.filter(action="entry").count(), 1)
+        self.assertEqual(AuditLog.objects.count(), 2)
+        measurement = BiologicalMeasurement.objects.get(origin="box_creation")
+        self.assertEqual(measurement.polyp_count, self.payload["initial_polyp_count"])
+
     def test_same_key_concurrent_first_use_creates_once_then_replays(self):
         BoxCodeNamespace.objects.all().delete()
         first, second = self.ordered(self.service, self.service)
         self.assertEqual((first[1], second[1]), (True, False))
         self.assertEqual(first[0].pk, second[0].pk)
         self.assertEqual(AutomaticBoxCreationRequest.objects.count(), 1)
-        self.assertEqual(AuditLog.objects.count(), 1)
+        self.assert_creation_audits()
         self.assertEqual(BoxCodeNamespace.objects.get().high_water, 11)
 
     def test_same_key_different_intent_conflicts_after_wait(self):
@@ -132,7 +140,7 @@ class AutomaticBoxConcurrencyTests(AutomaticBoxFixture, TransactionTestCase):
         self.assertIsInstance(first, RuntimeError)
         self.assertEqual(second[0].global_code, "AUT-LAB-1.011")
         self.assertTrue(second[1])
-        self.assertEqual(AuditLog.objects.count(), 1)
+        self.assert_creation_audits()
         self.assertEqual(AutomaticBoxCreationRequest.objects.count(), 1)
 
     def registered_execution(self):
@@ -215,7 +223,7 @@ class AutomaticBoxConcurrencyTests(AutomaticBoxFixture, TransactionTestCase):
         self.assertEqual(receipt_b.box_id, created[0].pk)
         self.assertFalse(AutomaticBoxCreationRequest.objects.filter(request_id=self.payload["request_id"]).exists())
         self.assertFalse(self.service(b)[1])
-        self.assertEqual(AuditLog.objects.count(), 1)
+        self.assert_creation_audits()
 
     def test_inspection_waits_for_independent_inflight_creation_without_cancelling(self):
         a = str(uuid.uuid4())
@@ -235,7 +243,7 @@ class AutomaticBoxConcurrencyTests(AutomaticBoxFixture, TransactionTestCase):
         self.assertEqual(first[0].pk, second.pk)
         self.assertEqual(AutomaticBoxCreationRequest.objects.count(), 1)
         self.assertFalse(AutomaticBoxCreationRequest.objects.get().cancelled)
-        self.assertEqual(AuditLog.objects.count(), 1)
+        self.assert_creation_audits()
 
     def test_create_rolls_back_then_resolution_persists_cancellation(self):
         first, second = self.ordered(self.service, self.resolve, fail_first=True)

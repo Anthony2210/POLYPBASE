@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from apps.accounts.models import OrganizationMembership
 from apps.audit.models import AuditLog
+from apps.cultures.box_codes import lock_local_id_registry
 from apps.cultures.models import Box
 
 from .models import BiologicalMeasurement, HistoricalTemperatureReading
@@ -144,6 +145,7 @@ def _get_measurement_box(*, box_id, organization_ids, for_update=False):
         organization_id__in=organization_ids, merged_into__isnull=True,
     )
     if for_update:
+        lock_local_id_registry()
         queryset = queryset.select_for_update()
     try:
         return queryset.get(pk=box_id)
@@ -222,6 +224,48 @@ def create_biological_measurement(*, box_id, organization_ids, user, data):
             action=AuditLog.Action.ENTRY,
             metadata={
                 "measurement_id": measurement.id,
+                "valeurs": _measurement_audit_values(measurement),
+            },
+        )
+    return measurement
+
+
+def create_box_creation_measurement(*, box, user, measured_on, polyp_count):
+    """Record the initial polyp count entered with an ordinary Box creation.
+
+    Internal step of the Box creation transaction: the caller holds the Local ID
+    registry and has just created the active Box. Ephyrae are an explicit,
+    product-approved 0 (a real count). Strobilae and salinity were not observed
+    and stay NULL; no other observation is invented. The authenticated actor is
+    the known observer and audit actor, as for ordinary entry.
+    """
+    if type(polyp_count) is not int or polyp_count < 0:
+        raise MeasurementWriteInvalid({"initial_polyp_count": ["A known initial polyp count is required."]})
+    with transaction.atomic():
+        box = _get_measurement_box(box_id=box.pk, organization_ids=(box.organization_id,), for_update=True)
+        _validate_measurement_create_permission(user=user, box=box)
+        if box.status != Box.Status.ACTIVE:
+            raise MeasurementWriteInvalid("An inactive box cannot receive a new measurement.")
+        if BiologicalMeasurement.objects.filter(box=box).exists():
+            # Never relabel or add to an existing history: the initial count
+            # belongs to a newly created Box only.
+            raise MeasurementWriteInvalid("The initial measurement requires a Box without measurements.")
+        _check_measurement_week(box=box, measured_on=measured_on)
+        measurement = BiologicalMeasurement.objects.create(
+            box=box, user=user, original_observer=user,
+            observer_status=BiologicalMeasurement.ObserverStatus.KNOWN,
+            origin=BiologicalMeasurement.Origin.BOX_CREATION,
+            temporal_precision=BiologicalMeasurement.TemporalPrecision.EXACT_DATE,
+            measured_on=measured_on, polyp_count=polyp_count, ephyrae_count=0, strobila_count=None,
+        )
+        _record_measurement_audit(
+            box=box,
+            measurement=measurement,
+            user=user,
+            action=AuditLog.Action.ENTRY,
+            metadata={
+                "measurement_id": measurement.id,
+                "origin": BiologicalMeasurement.Origin.BOX_CREATION.value,
                 "valeurs": _measurement_audit_values(measurement),
             },
         )

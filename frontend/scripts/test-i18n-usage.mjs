@@ -7,6 +7,8 @@ import {
   analyzeUsage, catalogKeys, checkRepository, collectUsage, isUsageSource, usageExceptions,
 } from './i18n-usage.mjs';
 
+import { retainedSpeciesCopy } from './species-strains-retained-copy.mjs';
+
 const catalogs = (...keys) => ({ fr: new Set(keys), en: new Set(keys) });
 const analyze = (keys, source, exceptions = {}) => analyzeUsage(catalogs(...keys), new Map([['src/component.tsx', source]]), exceptions);
 
@@ -162,6 +164,16 @@ test('partial-history retention is exact and expires when the key is used or rem
   assert.match(result.errors[0], /^historyUnreviewed: no exact literal/);
   assert.match(analyze(['historyPartial'], "t('historyPartial')", exceptions).errors.join('\n'), /stale exception/);
   assert.match(analyze([], 'export {};', exceptions).errors.join('\n'), /stale exception/);
+});
+
+test('Species retention is exact, justified and expires when a consumer returns', () => {
+  assert.equal(Object.keys(retainedSpeciesCopy).length, 68);
+  for (const [key, reason] of Object.entries(retainedSpeciesCopy)) {
+    assert.match(reason, /Species integration \(2026-11-17\)/);
+    assert.match(analyze([key], `t('${key}')`, { [key]: reason }).errors.join('\n'), /stale exception/);
+    assert.match(analyze([], 'export {};', { [key]: reason }).errors.join('\n'), /stale exception/);
+  }
+  assert.match(analyze(['speciesUnreviewed'], 'export {};', {}).errors.join('\n'), /no exact literal/);
 });
 
 test('real source has no unreviewed orphans or stale exceptions', () => {

@@ -20,6 +20,7 @@ from apps.accounts.models import OrganizationMembership
 from apps.audit.models import AuditLog
 from apps.organizations.models import Organization
 from apps.taxonomy.models import Strain
+from config.disposable_postgres import DisposablePostgresFlushMixin
 
 from . import automatic_box_creation as service
 from .models import (
@@ -104,7 +105,7 @@ class AutomaticBoxIntentFixture(AutomaticBoxFixture):
         return patch.object(model, "save", failing_save)
 
 
-class AutomaticBoxIntentServiceTests(AutomaticBoxIntentFixture, TransactionTestCase):
+class AutomaticBoxIntentServiceTests(AutomaticBoxIntentFixture, DisposablePostgresFlushMixin, TransactionTestCase):
     def test_registration_binds_pending_receipt_without_allocating(self):
         receipt = self.register()
         self.assert_pending(receipt)
@@ -113,6 +114,7 @@ class AutomaticBoxIntentServiceTests(AutomaticBoxIntentFixture, TransactionTestC
         self.assertEqual(receipt.intent, {
             "strain": self.strain.pk, "thermal_zone": self.zone.pk,
             "entered_on": "2026-10-01", "volume_liters": None, "notes": "",
+            "initial_polyp_count": 12,
         })
         self.assert_no_creation()
         self.assertEqual(AutomaticBoxCreationRequest.objects.count(), 1)
@@ -232,7 +234,7 @@ class AutomaticBoxIntentServiceTests(AutomaticBoxIntentFixture, TransactionTestC
         self.assertEqual(first.box.strain_id, self.strain.pk)
         self.assertEqual(second.box.strain_id, strain.pk)
         self.assertNotEqual(first.box_id, second.box_id)
-        self.assertEqual((Box.objects.count(), BoxLocation.objects.count(), AuditLog.objects.count()), (2, 2, 2))
+        self.assertEqual((Box.objects.count(), BoxLocation.objects.count(), AuditLog.objects.count()), (2, 2, 4))
 
     def test_recovering_a_cannot_cancel_or_mutate_independent_b_in_same_scope(self):
         a = self.register()
@@ -252,7 +254,7 @@ class AutomaticBoxIntentServiceTests(AutomaticBoxIntentFixture, TransactionTestC
         self.assertEqual(result.box.strain_id, strain.pk)
         self.assertFalse(result.cancelled)
         self.assertEqual(AutomaticBoxCreationRequest.objects.get(pk=a.pk).box_id, None)
-        self.assertEqual((Box.objects.count(), BoxLocation.objects.count(), AuditLog.objects.count()), (1, 1, 1))
+        self.assertEqual((Box.objects.count(), BoxLocation.objects.count(), AuditLog.objects.count()), (1, 1, 2))
 
     def test_execute_atomically_creates_box_location_audit_and_receipt_then_replays(self):
         pending = self.register()
@@ -273,7 +275,7 @@ class AutomaticBoxIntentServiceTests(AutomaticBoxIntentFixture, TransactionTestC
         location = BoxLocation.objects.get(box=box)
         self.assertEqual(location.thermal_zone_id, self.zone.pk)
         self.assertIsNone(location.ends_at)
-        audit = AuditLog.objects.get()
+        audit = AuditLog.objects.get(action="creation")
         self.assertEqual((audit.organization_id, audit.user_id, audit.action),
                          (self.org.pk, self.user.pk, "creation"))
         self.assertEqual(audit.metadata["box_id"], box.pk)
@@ -296,7 +298,7 @@ class AutomaticBoxIntentServiceTests(AutomaticBoxIntentFixture, TransactionTestC
         self.assertEqual({first.box.global_code, second.box.global_code}, {"AUT-LAB-1.001", "AUT-LAB-1.002"})
         self.assertEqual(set(Box.objects.values_list("box_number", flat=True)), {"001", "002"})
         self.assertEqual((Box.objects.count(), BoxLocation.objects.count(), AuditLog.objects.count(),
-                          AutomaticBoxCreationRequest.objects.count()), (2, 2, 2, 2))
+                          AutomaticBoxCreationRequest.objects.count()), (2, 2, 4, 2))
         self.assertEqual(BoxCodeNamespace.objects.get().high_water, 2)
 
     def test_cancellation_is_terminal_retains_intent_and_replays_without_writes(self):

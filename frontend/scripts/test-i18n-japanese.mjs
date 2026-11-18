@@ -83,6 +83,23 @@ const potentialMovementKeys = [
 ];
 const obsolete = parseCsv(read('../../docs/translation-review/japanese/ja-obsolete-workbook-keys.csv'));
 const register = parseCsv(read('../../docs/translation-review/application/register.csv').replace(/^﻿/, ''));
+const speciesEvidenceText = read('../../docs/translation-review/application/species-strains-integration.json').replace(/\r\n/g, '\n');
+assert.equal(sha256(speciesEvidenceText), '47962b35ca993a2db7b4b08f63045a793262c8717e70532c9b84e80526748861');
+const speciesEvidence = JSON.parse(speciesEvidenceText);
+const speciesIntegrationKeys = speciesEvidence.catalog_additions.fr.map(line => line.trim().split(':', 1)[0]);
+
+function beforeSpeciesIntegration(source, language, rows = register) {
+  assert.equal(registerRowsDigest(rows.slice(1459, 1731)), speciesEvidence.integrated_register_rows_sha256);
+  for (const line of speciesEvidence.catalog_additions[language]) {
+    assert.equal(source.split(line).length - 1, 1, line);
+    source = source.replace(line, '');
+  }
+  for (const change of speciesEvidence.catalog_changes[language]) {
+    assert.equal(source.split(change.after).length - 1, 1, change.key);
+    source = source.replace(change.after, change.before);
+  }
+  return source;
+}
 const sharingKeys = Object.keys(fr).filter(key => /^share[A-Z]/.test(key));
 const reviewedPath = '../../docs/translation-review/japanese/POLYPBASE_JA_59_candidates_revisees.csv';
 const blockedPath = '../../docs/translation-review/japanese/POLYPBASE_JA_6_blocked.csv';
@@ -240,10 +257,10 @@ test('ja catalog is exactly the historical and AI-reviewed manifest union', () =
   const counts = react.reduce((total, row) => ({ ...total, [row.status]: (total[row.status] ?? 0) + 1 }), {});
   // Original fallbacks, movements, thermal and DNA additions, with B23 retirements and B23/B24 additions.
   assert.equal(postBaseline.size, 81);
-  assert.deepEqual(counts, { REUSED: 930, FALLBACK_EN: 257 + sharingKeys.length + DNA_KEYS.length, FALLBACK_EN_REVIEW: 36, AI_REVIEWED: 59 });
+  assert.deepEqual(counts, { REUSED: 930, FALLBACK_EN: 257 + sharingKeys.length + DNA_KEYS.length + speciesIntegrationKeys.length, FALLBACK_EN_REVIEW: 36, AI_REVIEWED: 59 });
   assert.equal(counts.FALLBACK_EN, 143 + postBaseline.size + potentialMovementKeys.length
     - B23_RETIRED_KEYS.length + B23_ADDED_KEYS.length + B24_ADDED_KEYS.length + zoneChartKeys.length
-    + thermalPeriodKeys.length + probeAverageKeys.length + sharingKeys.length + DNA_KEYS.length);
+    + thermalPeriodKeys.length + probeAverageKeys.length + sharingKeys.length + DNA_KEYS.length + speciesIntegrationKeys.length);
 });
 
 test('B13 thermal register events are immutable, even under a coordinated catalog edit', () => {
@@ -376,6 +393,35 @@ test('registered post-baseline keys fall back to English without any Japanese', 
     assert.equal(translate(key), en[key], key);
   }
 
+});
+
+test('Species additions keep frozen source values and documentary English fallback only', () => {
+  assert.equal(speciesIntegrationKeys.length, 266);
+  assert.equal(new Set(speciesIntegrationKeys).size, 266);
+  const translate = loadI18n().createTranslator('ja');
+  const byKey = new Map(manifest.filter(row => row.surface === 'react').map(row => [row.identity, row]));
+  for (const key of speciesIntegrationKeys) {
+    const row = byKey.get(key);
+    assert.deepEqual([row.current_fr, row.current_en], [fr[key], en[key]], key);
+    assert.deepEqual([row.status, row.reason_code, row.takeru_review], ['FALLBACK_EN', 'ABSENT_FROM_WORKBOOK', 'no'], key);
+    for (const field of ['sheet_row', 'sheet_section', 'sheet_fr', 'sheet_en', 'ja_validated', 'ja_ai_reviewed']) assert.equal(row[field], '', `${key}.${field}`);
+    assert.equal(Object.hasOwn(ja, key), false, key);
+    assert.equal(translate(key), en[key], key);
+  }
+  for (const language of ['fr', 'en']) {
+    const source = read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n');
+    const restored = beforeSpeciesIntegration(source, language);
+    const extra = "  unknownSpeciesKey: 'Unapproved',\n";
+    assert.equal(beforeSpeciesIntegration(source + extra, language), restored + extra);
+    for (const line of speciesEvidence.catalog_additions[language].slice(0, 3)) {
+      for (const replacement of ['', line + line, line.replace(": '", ": 'changed ")]) {
+        assert.throws(() => beforeSpeciesIntegration(source.replace(line, replacement), language));
+      }
+    }
+    for (const change of speciesEvidence.catalog_changes[language]) {
+      assert.throws(() => beforeSpeciesIntegration(source.replace(change.after, change.before), language));
+    }
+  }
 });
 
 test('original review inputs retain their byte-exact SHA256 hashes', () => {
@@ -656,6 +702,7 @@ function b31Events(rows = register) {
 }
 
 function beforeB30(source, language, rows = register) {
+  source = beforeSpeciesIntegration(source, language, rows);
   // A key removed by B31 must already be absent: an absent removed key is a
   // recorded removal, not an unrecorded missing translation.
   const removed = new Set(b31Events(rows).map(entry => entry.key_or_msgid));
@@ -977,7 +1024,7 @@ test('original FR and EN source content remains frozen apart from the registered
 test('additive keys stay English fallbacks without Japanese approval or provenance', () => {
   const translate = loadI18n().createTranslator('ja');
   for (const key of [...LATER_FALLBACK_KEYS, ...potentialMovementKeys, ...B23_ADDED_KEYS, ...B24_ADDED_KEYS,
-    ...zoneChartKeys, ...thermalPeriodKeys, ...probeAverageKeys, ...DNA_KEYS].filter(key => !B23_RETIRED_KEYS.includes(key))) {
+    ...zoneChartKeys, ...thermalPeriodKeys, ...probeAverageKeys, ...DNA_KEYS, ...speciesIntegrationKeys].filter(key => !B23_RETIRED_KEYS.includes(key))) {
     const rows = manifest.filter(row => row.identity === key);
     assert.equal(rows.length, 1, key);
     const row = rows[0];
@@ -1000,7 +1047,8 @@ test('source fingerprints accept the scoped additions but reject every historica
       const changed = source.replace(line, mutated);
       if (B24_ADDED_KEYS.includes(key) || zoneChartKeys.includes(key) || thermalPeriodKeys.includes(key)
           || probeAverageKeys.includes(key) || sharingKeys.includes(key) || DNA_KEYS.includes(key)
-          || (key === 'adminTabTransfers' && language === 'en')) {
+          || speciesIntegrationKeys.includes(key) || (key === 'firstMeasurementOn' && language === 'en')
+                    || (key === 'adminTabTransfers' && language === 'en')) {
         assert.throws(() => historicalSource(changed, true, language), `${language}.${key}`);
         continue;
       }

@@ -122,11 +122,9 @@ export type SpeciesReferencePayload = {
   translations: LocalizedReferenceValues;
 };
 
+// Strain identity (code, number, origin_code) is server-built and immutable here.
 export type StrainReferencePayload = {
   species: number;
-  code: string;
-  number: number | null;
-  origin_code: string;
   notes: string;
   translations: LocalizedReferenceValues;
 };

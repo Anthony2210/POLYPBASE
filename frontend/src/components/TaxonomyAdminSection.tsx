@@ -13,7 +13,7 @@ import type {
   TaxonomyReferences,
 } from '../types/admin';
 import { getErrorMessage } from '../utils/errors';
-import { hasSpeciesCode, isMissingStrainSpeciesCode, type SpeciesCodeAssignment } from '../utils/strainSpeciesCode';
+import type { SpeciesCodeAssignment } from '../utils/strainSpeciesCode';
 import AdminActionPanel from './AdminActionPanel';
 import PolypbaseIcon from './PolypbaseIcon';
 import PageLoader from './PageLoader';
@@ -21,14 +21,22 @@ import PageLoader from './PageLoader';
 type ReferenceTab = 'species' | 'strains';
 type FormState =
   | { kind: 'species'; item?: SpeciesReference }
-  | { kind: 'strains'; item?: StrainReference }
+  | { kind: 'strains'; item: StrainReference }
   | null;
 
 
 const EMPTY_TRANSLATION = { name: '', description: '' };
 const REFERENCE_PAGE_SIZE = 24;
 
-export default function TaxonomyAdminSection({ organizationName, t }: { organizationName: string; t: Translator }) {
+export default function TaxonomyAdminSection({
+  organizationName,
+  onOpenSpeciesWorkspace,
+  t,
+}: {
+  organizationName: string;
+  onOpenSpeciesWorkspace?: () => void;
+  t: Translator;
+}) {
   const [data, setData] = useState<TaxonomyReferences | null>(null);
   const [activeTab, setActiveTab] = useState<ReferenceTab>('species');
   const [formState, setFormState] = useState<FormState>(null);
@@ -122,13 +130,10 @@ export default function TaxonomyAdminSection({ organizationName, t }: { organiza
     setFormState(null);
   }
 
-  function saveStrain(strain: StrainReference, previousSpeciesId?: number) {
+  function saveStrain(strain: StrainReference, previousSpeciesId: number) {
     setData((current) => current ? {
       ...current,
       species: current.species.map((species) => {
-        if (previousSpeciesId === undefined && species.id === strain.species) {
-          return { ...species, strain_count: species.strain_count + 1 };
-        }
         if (previousSpeciesId !== strain.species && species.id === previousSpeciesId) {
           return { ...species, strain_count: Math.max(0, species.strain_count - 1) };
         }
@@ -158,19 +163,29 @@ export default function TaxonomyAdminSection({ organizationName, t }: { organiza
             <span><strong>{data.strains.length}</strong> {t('taxonomyStrainCount')}</span>
           </div>
         </div>
-        <button
-          className="primary-button taxonomy-add-button"
-          disabled={activeTab === 'strains' && data.species.length === 0}
-          type="button"
-          title={activeTab === 'strains' && data.species.length === 0
-            ? t('taxonomyCreateSpeciesFirst')
-            : undefined}
-          onClick={() => setFormState({ kind: activeTab })}
-        >
-          <PolypbaseIcon name="plus" size={18} />
-          {activeTab === 'species' ? t('taxonomyNewSpecies') : t('taxonomyNewStrain')}
-        </button>
+        {activeTab === 'species' ? (
+          <button
+            className="primary-button taxonomy-add-button"
+            type="button"
+            onClick={() => setFormState({ kind: 'species' })}
+          >
+            <PolypbaseIcon name="plus" size={18} />
+            {t('taxonomyNewSpecies')}
+          </button>
+        ) : null}
       </header>
+
+      {activeTab === 'strains' ? (
+        <p role="note">
+          {t('taxonomyStrainCreationMoved')}
+          {onOpenSpeciesWorkspace ? (
+            <>
+              {' '}
+              <button type="button" onClick={onOpenSpeciesWorkspace}>{t('taxonomyOpenSpeciesStrains')}</button>
+            </>
+          ) : null}
+        </p>
+      ) : null}
 
       <div className="taxonomy-toolbar">
         <div className="segmented-control taxonomy-tabs" role="tablist">
@@ -210,7 +225,7 @@ export default function TaxonomyAdminSection({ organizationName, t }: { organiza
           wide
           title={t(formState.kind === 'species'
             ? (formState.item ? 'taxonomyEditSpecies' : 'taxonomyNewSpecies')
-            : (formState.item ? 'taxonomyEditStrain' : 'taxonomyNewStrain'))}
+            : 'taxonomyEditStrain')}
           closeLabel={t('close')}
           onClose={() => setFormState(null)}
         >
@@ -225,20 +240,10 @@ export default function TaxonomyAdminSection({ organizationName, t }: { organiza
             />
           ) : (
             <StrainForm
-              key={formState.item?.id ?? 'new-strain'}
+              key={formState.item.id}
               initialStrain={formState.item}
               languages={data.languages}
               species={data.species}
-              assignments={assignments}
-              codeLoadError={codeLoadError}
-              onRetryCodes={() => setCodeReload((current) => current + 1)}
-              onManageCodes={(speciesId) => {
-                const selected = data.species.find((item) => item.id === speciesId);
-                setFormState(null);
-                setActiveTab('species');
-                setSearch(selected?.scientific_name ?? '');
-                if (selected) setCodeForm(selected);
-              }}
               t={t}
               onCancel={() => setFormState(null)}
               onSaved={saveStrain}
@@ -508,62 +513,43 @@ function StrainForm({
   initialStrain,
   languages,
   species,
-  assignments,
-  codeLoadError,
-  onRetryCodes,
-  onManageCodes,
   t,
   onCancel,
   onSaved,
 }: {
   key?: string | number;
-  initialStrain?: StrainReference;
+  initialStrain: StrainReference;
   languages: ReferenceLanguage[];
   species: SpeciesReference[];
-  assignments: SpeciesCodeAssignment[] | null;
-  codeLoadError: boolean;
-  onRetryCodes: () => void;
-  onManageCodes: (speciesId: number) => void;
   t: Translator;
   onCancel: () => void;
-  onSaved: (strain: StrainReference, previousSpeciesId?: number) => void;
+  onSaved: (strain: StrainReference, previousSpeciesId: number) => void;
 }) {
-  const [speciesId, setSpeciesId] = useState(initialStrain?.species ?? species[0]?.id ?? 0);
-  const [code, setCode] = useState(initialStrain?.code ?? '');
-  const [number, setNumber] = useState(initialStrain?.number?.toString() ?? '');
-  const [originCode, setOriginCode] = useState(initialStrain?.origin_code ?? '');
-  const [notes, setNotes] = useState(initialStrain?.notes ?? '');
+  // Edit-only: Strains are created from an institutional Species (server-built
+  // AAA-BBB-X). Identity fields are displayed but never sent.
+  const [speciesId, setSpeciesId] = useState(initialStrain.species);
+  const [notes, setNotes] = useState(initialStrain.notes ?? '');
   const [translations, setTranslations] = useState(() =>
-    createTranslationState(languages, initialStrain?.translations));
+    createTranslationState(languages, initialStrain.translations));
   const [activeLanguage, setActiveLanguage] = useState(languages[0]?.code ?? 'fr');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [missingAAAError, setMissingAAAError] = useState(false);
-  const speciesHasCode = initialStrain ? null : hasSpeciesCode(assignments, speciesId);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isSaving || !speciesId || speciesHasCode === false) return;
+    if (isSaving || !speciesId) return;
     setIsSaving(true);
     setError(null);
-    setMissingAAAError(false);
     const payload: StrainReferencePayload = {
       species: speciesId,
-      code: code.trim(),
-      number: number ? Number(number) : null,
-      origin_code: originCode.trim(),
       notes: notes.trim(),
       translations: cleanTranslations(translations),
     };
     try {
-      const savedStrain = initialStrain
-        ? await apiPatch<StrainReference>(`/api/taxonomy/strains/${initialStrain.id}/`, payload)
-        : await apiPost<StrainReference>('/api/taxonomy/strains/', payload);
-      onSaved(savedStrain, initialStrain?.species);
+      const savedStrain = await apiPatch<StrainReference>(`/api/taxonomy/strains/${initialStrain.id}/`, payload);
+      onSaved(savedStrain, initialStrain.species);
     } catch (requestError) {
-      const missing = !initialStrain && isMissingStrainSpeciesCode(requestError);
-      setMissingAAAError(missing);
-      setError(missing ? t('taxonomyStrainMissingAAA') : getErrorMessage(requestError, t('taxonomySaveError')));
+      setError(getErrorMessage(requestError, t('taxonomySaveError')));
     } finally {
       setIsSaving(false);
     }
@@ -572,7 +558,7 @@ function StrainForm({
   return (
     <form className="taxonomy-form" onSubmit={submit}>
       <FormHeading
-        title={t(initialStrain ? 'taxonomyEditStrain' : 'taxonomyNewStrain')}
+        title={t('taxonomyEditStrain')}
         closeLabel={t('close')}
         onCancel={onCancel}
       />
@@ -584,38 +570,25 @@ function StrainForm({
             <select required value={speciesId} onChange={(event) => {
               setSpeciesId(Number(event.target.value));
               setError(null);
-              setMissingAAAError(false);
             }}>
               {species.map((item) => <option key={item.id} value={item.id}>{item.scientific_name}</option>)}
             </select>
           </label>
-          {!initialStrain && assignments === null && !codeLoadError ? <p role="status">{t('taxonomyLocalCodeLoading')}</p> : null}
-          {!initialStrain && codeLoadError ? (
-            <p className="inline-error" role="alert">
-              {t('taxonomyLocalCodeLoadError')}{' '}
-              <button type="button" onClick={onRetryCodes}>{t('taxonomyRetry')}</button>
-            </p>
-          ) : null}
-          {!initialStrain && (speciesHasCode === false || missingAAAError) ? (
-            <p className="inline-error" role="alert">
-              {t('taxonomyStrainMissingAAA')}{' '}
-              <button type="button" onClick={() => onManageCodes(speciesId)}>{t('taxonomyCreateLocalCode')}</button>
-            </p>
-          ) : null}
           <label>
             <span>{t('taxonomyStrainCode')}</span>
-            <input required value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} />
+            <input readOnly value={initialStrain.code} />
           </label>
           <div className="taxonomy-inline-fields">
             <label>
               <span>{t('taxonomyStrainNumber')}</span>
-              <input min="1" type="number" value={number} onChange={(event) => setNumber(event.target.value)} />
+              <input readOnly value={initialStrain.number ?? ''} />
             </label>
             <label>
               <span>{t('taxonomyOriginCode')}</span>
-              <input value={originCode} onChange={(event) => setOriginCode(event.target.value.toUpperCase())} />
+              <input readOnly value={initialStrain.origin_code} />
             </label>
           </div>
+          <small>{t('taxonomyStrainIdentityReadOnly')}</small>
           <label>
             <span>{t('taxonomyNotes')}</span>
             <textarea rows={2} value={notes} onChange={(event) => setNotes(event.target.value)} />
@@ -631,10 +604,9 @@ function StrainForm({
         />
       </div>
       <FormActions
-        error={missingAAAError ? null : error}
-        isEditing={Boolean(initialStrain)}
+        error={error}
+        isEditing
         isSaving={isSaving}
-        isDisabled={speciesHasCode === false}
         t={t}
         onCancel={onCancel}
       />

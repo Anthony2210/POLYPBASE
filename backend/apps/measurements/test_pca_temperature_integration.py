@@ -237,6 +237,11 @@ class IntegratedMigrationGraphTests(SimpleTestCase):
         for previous, node in zip(later, later[1:]):
             parents = {p.key for p in graph.node_map[node].parents if p.key[0] == "measurements"}
             self.assertEqual(parents, {previous}, node)
+        self.assertEqual(
+            {parent.key for parent in graph.node_map[("measurements", "0019_box_creation_initial_origin")].parents
+             if parent.key[0] == "measurements"},
+            {("measurements", "0018_box_1902_preservation")},
+        )
         for migration in (
             ("measurements", "0011_historical_temperature_storage"),
             ("measurements", "0012_historical_temperature_guards"),

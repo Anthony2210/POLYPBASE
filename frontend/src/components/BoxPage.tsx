@@ -1247,7 +1247,7 @@ function getLatestComment(measurements: BiologicalMeasurement[], box: BoxItem | 
 
 function getBoxCreatedDate(box: BoxItem | BoxDetail) {
   if ('created_on' in box) {
-    return box.created_on;
+    return box.created_on ?? null;
   }
   return box.entered_on;
 }

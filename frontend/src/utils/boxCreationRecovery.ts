@@ -41,7 +41,9 @@ function isReplayablePayload(record: Record<string, unknown>) {
   return Number.isInteger(record.strain) && Number.isInteger(record.thermal_zone)
     && typeof record.entered_on === 'string' && record.entered_on !== ''
     && (record.notes === undefined || typeof record.notes === 'string')
-    && (record.volume_liters === undefined || record.volume_liters === null || typeof record.volume_liters === 'string');
+    && (record.volume_liters === undefined || record.volume_liters === null || typeof record.volume_liters === 'string')
+    // An envelope without the initial count (older form) is inspected only, never replayed.
+    && Number.isInteger(record.initial_polyp_count) && (record.initial_polyp_count as number) >= 0;
 }
 
 export function readStoredCreationIntent(storageKey: string | null): StoredCreationIntent | null {
@@ -83,6 +85,7 @@ export function readStoredCreationIntent(storageKey: string | null): StoredCreat
     entered_on: record!.entered_on as string,
     volume_liters: record!.volume_liters as string | null | undefined,
     notes: record!.notes as string | undefined,
+    initial_polyp_count: record!.initial_polyp_count as number,
     ...(canResume ? { resume_token: validUuid(record!.resume_token)! } : {}),
   } : { request_id: requestId };
   return { kind: 'pending', intent, canRestoreDraft, canResume, digest: canResume ? record!.digest as string : undefined, requestIds: [requestId] };
@@ -91,7 +94,7 @@ export function readStoredCreationIntent(storageKey: string | null): StoredCreat
 export async function creationIntentDigest(storageKey: string, intent: BoxCreationIntent) {
   const content = JSON.stringify([
     storageKey, intent.request_id, intent.resume_token, intent.strain, intent.thermal_zone,
-    intent.entered_on, intent.volume_liters ?? null, intent.notes ?? '',
+    intent.entered_on, intent.volume_liters ?? null, intent.notes ?? '', intent.initial_polyp_count,
   ]);
   const digest = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(content));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');

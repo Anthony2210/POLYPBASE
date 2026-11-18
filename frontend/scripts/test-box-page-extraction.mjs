@@ -112,7 +112,7 @@ const wiring = {
   key: '`${activeOrganizationId}:${selectedBoxId}`',
   box: 'selectedBoxDetail ?? selectedBox', zones: 'data.zones', profile: 'data.profile',
   language: 'language', qrLabelSelection: 'qrLabelSelection',
-  isLoading: 'isLoading || isBoxLoading || isBoxCodePending || isBoxDetailPending',
+  isLoading: 'isLoading || isBoxLoading || isBoxCodePending || isGlobalBoxPending || isBoxDetailPending',
   onCreateMeasurement: 'createMeasurement',
   isOperationCurrent: '() => operationGeneration === organizationRequestGenerationRef.current',
   onUpdateMeasurement: 'updateMeasurement', onRefreshMeasurementState: 'refreshBoxAfterMeasurement',
@@ -151,7 +151,8 @@ test('real App JSX forwards fixture identities, loading flags and current-operat
     activeOrganizationId: 3, selectedBoxId: 7,
     selectedBoxDetail: { id: 7, detail: true }, selectedBox: { id: 7 },
     data: { zones: [{ id: 12 }], profile: { id: 5 } }, language: 'fr', qrLabelSelection: [{ boxId: 7 }],
-    isLoading: false, isBoxLoading: false, isBoxCodePending: false, isBoxDetailPending: false,
+    isLoading: false, isBoxLoading: false, isBoxCodePending: false, isGlobalBoxPending: false,
+    isBoxDetailPending: false,
     operationGeneration: 4, organizationRequestGenerationRef: { current: 4 },
     measurementPrefill: { box_id: 7, id: 9 }, setMeasurementPrefill: value => consumed.push(value),
   };
@@ -180,7 +181,7 @@ test('real App JSX forwards fixture identities, loading flags and current-operat
   context.selectedBoxDetail = null;
   assert.equal(render().box, context.selectedBox);
   assert.equal(render().isLoading, false);
-  for (const flag of ['isLoading', 'isBoxLoading', 'isBoxCodePending', 'isBoxDetailPending']) {
+  for (const flag of ['isLoading', 'isBoxLoading', 'isBoxCodePending', 'isGlobalBoxPending', 'isBoxDetailPending']) {
     context[flag] = true;
     assert.equal(render().isLoading, true, flag);
     context[flag] = false;

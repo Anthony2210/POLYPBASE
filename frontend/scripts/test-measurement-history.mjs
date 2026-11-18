@@ -534,6 +534,19 @@ function detailValues(history, row) {
 }
 
 for (const language of ['fr', 'en']) {
+  test(`${language}: only the explicit Box-creation measurement is labelled as the start`, () => {
+    const catalog = catalogs[language];
+    const initial = measurement({ id: 1, measured_on: '2026-10-01', polyp_count: 0, ephyrae_count: 0, origin: 'box_creation' });
+    const ordinary = measurement({ id: 2, measured_on: '2026-10-08', polyp_count: 5, ephyrae_count: 0, origin: 'direct_entry' });
+    const history = createHistory([initial, ordinary], { language, labels: { ...labels, ...catalog,
+      historyVisibleCount: (visible, total) => catalog.historyVisibleCount.replace('{visible}', visible).replace('{total}', total) } });
+    assert.deepEqual(history.find(node => node.props.className === 'measurement-history-type').map(text),
+      [catalog.auditObjectMeasurement, catalog.historyInitialMeasurement]);
+    assert.deepEqual(cells(history.rows()[1]).slice(1, 3).map(cellValue), ['0', '0'], 'initial zeros stay real values');
+    assert.equal(catalogs.fr.historyInitialMeasurement, 'Départ');
+    assert.equal(catalogs.fr.auditObjectMeasurement, 'Relevé');
+  });
+
   test(`${language}: history distinguishes measurements, parent allocations and child initialization`, () => {
     const catalog = catalogs[language];
     const t = i18n.createTranslator(language);

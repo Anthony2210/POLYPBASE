@@ -89,6 +89,7 @@ def strain_box_identity(strain, organization, *, species_codes=None):
         return {"status": UNUSABLE, "reason": REASON_SPECIES_CODE_MISMATCH}
 
     provenance_name = None
+    country_code = None
     identity = _local_identity(strain)
     if identity is not None:
         provenance = identity.provenance_code_assignment
@@ -100,6 +101,7 @@ def strain_box_identity(strain, organization, *, species_codes=None):
             return {"status": UNUSABLE, "reason": REASON_LOCAL_IDENTITY_MISMATCH}
         if provenance is not None:
             provenance_name = provenance.biological_provenance.name or None
+            country_code = provenance.country_code
 
     return {
         "status": USABLE,
@@ -110,6 +112,8 @@ def strain_box_identity(strain, organization, *, species_codes=None):
         # Optional reference metadata: the name of the active institution's recorded
         # biological provenance. Never a provider, place or acquisition event.
         "recorded_provenance_name": provenance_name,
+        # ISO 3166-1 alpha-2 country recorded for that BBB, or None (never inferred).
+        "recorded_country_code": country_code,
     }
 
 

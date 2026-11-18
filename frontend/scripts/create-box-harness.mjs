@@ -53,6 +53,7 @@ export function createBoxEnvironment() {
         || (this.type === 'a' && Boolean(this.props.href)) || (this.props.tabIndex != null && this.props.tabIndex !== -1);
       if (selector.startsWith('.')) return (this.props.className ?? '').split(/\s+/).includes(selector.slice(1));
       if (selector === '[data-box-page-focus-target]') return 'data-box-page-focus-target' in this.props;
+      if (selector === '[role="dialog"][aria-modal="true"]') return this.props.role === 'dialog' && this.props['aria-modal'] === 'true';
       if (selector === '*') return true;
       throw new Error(`Unsupported DOM selector: ${selector}`);
     }
@@ -144,12 +145,16 @@ export function createBoxEnvironment() {
     modules.set(url.href, exports);
     const require = name => {
       if (name === 'react') return hooks;
+      // Portals are opaque: this hook harness does not emulate their DOM or focus.
+      if (name === 'react-dom') return { createPortal: () => null };
       if (name === 'react/jsx-runtime') {
         const jsx = (type, props, key) => ({ type, props, key });
         return { jsx, jsxs: jsx, Fragment: 'test-fragment' };
       }
       // Inert leaves retain their props for nested-dialog callback tests.
-      if (['./ModalPortal', './PolypbaseIcon', './QuickStrainCreator', './SearchField', './RecentAccessList', './TabletQrScanner', './PageLoader', './BoxSearchStatus', './SuggestionList'].includes(name)) return { default: name.slice(2) };
+      if (['./ModalPortal', './PolypbaseIcon', './QuickStrainCreator', './SearchField', './RecentAccessList', './TabletQrScanner', './PageLoader', './BoxSearchStatus', './SuggestionList', './BoxTrackingPreview'].includes(name)) return { default: name.slice(2) };
+      // Icons are inert leaves named after the imported icon.
+      if (name === 'lucide-react') return new Proxy({}, { get: (_target, icon) => String(icon) });
       if (name.startsWith('.')) {
         const candidates = /\.(ts|tsx)$/.test(name) ? [name] : [`${name}.ts`, `${name}.tsx`, `${name}/index.ts`];
         const resolved = candidates.map(path => new URL(path, url)).find(candidate => existsSync(candidate));
@@ -159,7 +164,7 @@ export function createBoxEnvironment() {
       throw new Error(`Unexpected module import: ${name}`);
     };
     vm.runInNewContext(compiled.get(url.href), {
-      exports, require, document, window, HTMLElement: Element, Error, URL, AbortController, TextEncoder,
+      exports, require, document, window, HTMLElement: Element, Error, URL, URLSearchParams, AbortController, TextEncoder,
       __API_PROXY_ORIGIN__: null,
       fetch() { throw new Error('Network is forbidden in the create-box harness'); },
     }, { filename: url.pathname });
@@ -313,8 +318,10 @@ export function createBoxEnvironment() {
     };
   }
   function renderNested(path) { nestedComponents.add(load(path).default); }
+  // Module-private leaf components, found by the caller among rendered nodes.
+  function renderNestedComponent(component) { nestedComponents.add(component); }
   return {
-    document, window, opener, requests, key, load, instance, external, keyedChild, confirmationHost, renderNested,
+    document, window, opener, requests, key, load, instance, external, keyedChild, confirmationHost, renderNested, renderNestedComponent,
     listenerCount: () => listeners.get('keydown')?.size ?? 0,
     windowListenerCount: name => listeners.get(name)?.size ?? 0,
     dispatch(name) { for (const listener of [...(listeners.get(name) ?? [])]) listener({ type: name }); },

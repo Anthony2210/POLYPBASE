@@ -47,6 +47,9 @@ class BiologicalMeasurement(models.Model):
         LEGACY_UNCLASSIFIED = "legacy_unclassified", "Legacy unclassified origin"
         DIRECT_ENTRY = "direct_entry", "Direct entry"
         FILE_IMPORT = "file_import", "File import"
+        # Initial polyp count entered with an ordinary Box creation, in the same
+        # transaction. Never assigned to imported or pre-existing measurements.
+        BOX_CREATION = "box_creation", "Box creation initial count"
 
     class ImportFormat(models.TextChoices):
         CSV = "csv", "CSV"
@@ -155,15 +158,21 @@ class BiologicalMeasurement(models.Model):
                 condition=(
                     models.Q(origin="file_import", import_format="csv")
                     | models.Q(
-                        origin__in=["direct_entry", "legacy_unclassified"],
+                        origin__in=["direct_entry", "box_creation", "legacy_unclassified"],
                         import_format="", imported_by__isnull=True,
                     )
                 ),
                 name="measurement_origin_consistent",
             ),
             models.CheckConstraint(
-                condition=~models.Q(origin="direct_entry") | models.Q(observer_status="known"),
+                condition=~models.Q(origin__in=["direct_entry", "box_creation"]) | models.Q(observer_status="known"),
                 name="measurement_direct_observer_known",
+            ),
+            # At most one Box-creation initial measurement per Box.
+            models.UniqueConstraint(
+                fields=["box"],
+                condition=models.Q(origin="box_creation"),
+                name="unique_box_creation_measurement_per_box",
             ),
         ]
         indexes = [
@@ -220,6 +229,7 @@ class BiologicalMeasurement(models.Model):
             self._validate_evidence_relations()
 
     def save(self, *args, **kwargs):
+        from apps.cultures.box_codes import lock_local_id_registry
         from apps.cultures.models import Box
 
         self.week_start = self.week_start_for(self.measured_on)
@@ -229,6 +239,7 @@ class BiologicalMeasurement(models.Model):
         # The interactive POST/PATCH already hold this lock. Keep imports and
         # admin writes on the same ordering protocol as well.
         with transaction.atomic(using=kwargs.get("using")):
+            lock_local_id_registry(using=kwargs.get("using"))
             box = Box.objects.select_for_update().get(pk=self.box_id)
             previous = None
             if self.pk is not None:

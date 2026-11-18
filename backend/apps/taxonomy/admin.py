@@ -10,7 +10,20 @@ from .models import (
 )
 
 
-class SpeciesTranslationInline(admin.TabularInline):
+class SuperuserOnlyWriteMixin:
+    """Shared references are visible to every institution; staff status is not authority."""
+
+    def has_add_permission(self, request, *args):
+        return request.user.is_superuser and super().has_add_permission(request, *args)
+
+    def has_change_permission(self, request, obj=None):
+        return request.user.is_superuser and super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        return request.user.is_superuser and super().has_delete_permission(request, obj)
+
+
+class SpeciesTranslationInline(SuperuserOnlyWriteMixin, admin.TabularInline):
     model = SpeciesTranslation
     extra = 0
 
@@ -28,11 +41,17 @@ class TaxonAdmin(admin.ModelAdmin):
 
 
 @admin.register(Species)
-class SpeciesAdmin(admin.ModelAdmin):
+class SpeciesAdmin(SuperuserOnlyWriteMixin, admin.ModelAdmin):
     list_display = ("scientific_name", "common_name", "genus_species_code", "taxon", "worms_aphia_id", "is_described")
     list_filter = ("is_described",)
     search_fields = ("scientific_name", "common_name", "genus_species_code", "worms_aphia_id")
     inlines = (SpeciesTranslationInline,)
+
+    def get_readonly_fields(self, request, obj=None):
+        # The technical reference of existing Strains, Boxes and transfers keeps
+        # its name and AphiaID; institutional corrections use their own service.
+        readonly = tuple(super().get_readonly_fields(request, obj))
+        return readonly + ("scientific_name", "worms_aphia_id") if obj is not None else readonly
 
 
 @admin.register(Origin)

@@ -13,6 +13,7 @@ from django.db.models import (
     Exists,
     F,
     IntegerField,
+    Max,
     Min,
     OuterRef,
     Prefetch,
@@ -118,12 +119,14 @@ from .serializers import (
     ThermalZoneSerializer,
     salinity_editable_until,
 )
-from .identity_resolution import resolve_box_identity
+from .identity_resolution import (
+    box_local_id_search_ids, resolve_box_identity, resolve_box_local_id,
+)
 from .temperature_history import (
     box_historical_temperature_queryset, box_temperature_queryset, has_merged_identity,
     historical_temperature_history_point, temperature_history_point, temperature_support_periods,
 )
-from .box_codes import preview_box_codes
+from .box_codes import lock_local_id_registry, preview_box_codes
 from .automatic_box_creation import (
     automatic_box_strain_options,
     cancel_automatic_box_intent,
@@ -247,7 +250,7 @@ def box_queryset_for_user(user, organization_ids=None, *, include_merged=False):
 def box_list_queryset_for_user(user, organization_ids=None):
     """Lightweight queryset for the box list.
 
-    The list serializer only needs the latest measurement, so avoid the heavy
+    Only the latest measurement object and date bounds are needed, so avoid the heavy
     detail prefetches (full history, lineages, movements, locations, tags).
     Sliced prefetches select one measurement per box using a window query on
     PostgreSQL and SQLite, without a latest-ID lookup for every historical row.
@@ -259,6 +262,11 @@ def box_list_queryset_for_user(user, organization_ids=None):
         .order_by("-week_start", "-created_at", "-pk")[:1]
     )
 
+    measurement_dates = (
+        BiologicalMeasurement.objects.canonical().filter(box_id=OuterRef("pk"))
+        .order_by().values("box_id")
+        .annotate(first=Min("measured_on"), last=Max("measured_on"))
+    )
     latest_salinity = Subquery(
         BiologicalMeasurement.objects.canonical().filter(box_id=OuterRef("pk"), salinity_psu__isnull=False)
         .order_by("-week_start", "-created_at", "-pk")
@@ -288,6 +296,8 @@ def box_list_queryset_for_user(user, organization_ids=None):
         .annotate(
             latest_salinity_annotation=latest_salinity,
             current_location_started_at_annotation=current_location_started_at,
+            first_measurement_on_annotation=Subquery(measurement_dates.values("first")),
+            last_measurement_on_annotation=Subquery(measurement_dates.values("last")),
         )
         .prefetch_related(
             *current_state_prefetches(),
@@ -772,8 +782,9 @@ class BoxListAPIView(generics.ListAPIView):
         search = self.request.query_params.get("q")
         if search:
             queryset = queryset.filter(
-                Q(global_code__icontains=search)
-                | Q(previous_global_code__icontains=search)
+                Q(pk__in=box_local_id_search_ids(
+                    Box.objects.filter(organization_id__in=get_active_organization_ids(self.request)), search,
+                ))
                 | Q(local_code__icontains=search)
                 | Q(box_number__icontains=search)
                 | Q(strain__code__icontains=search)
@@ -867,7 +878,9 @@ def _apply_box_inventory_filters(queryset, request, organization_ids, filter_sta
     search = request.query_params.get("q", "").strip()
     if search:
         queryset = queryset.filter(
-            Q(global_code__icontains=search)
+            Q(pk__in=box_local_id_search_ids(
+                Box.objects.filter(organization_id__in=organization_ids), search,
+            ))
             | Q(local_code__icontains=search)
             | Q(strain__species__scientific_name__icontains=search)
         )
@@ -1048,6 +1061,7 @@ class AdminBoxInventoryBatchQualifyAPIView(APIView):
             success_item = None
             try:
                 with transaction.atomic():
+                    lock_local_id_registry()
                     box = (
                         Box.objects.select_for_update()
                         .filter(id=box_id, organization_id__in=organization_ids, merged_into__isnull=True)
@@ -1176,6 +1190,21 @@ class BoxDetailAPIView(generics.RetrieveAPIView):
         return box
 
 
+class BoxDetailByCodeAPIView(BoxDetailAPIView):
+    """Retrieve an operational Box by an exact current or historical Local ID."""
+
+    def get_queryset(self):
+        organization = get_required_active_organization_from_request(self.request)
+        return box_queryset_for_user(
+            self.request.user, organization_ids=[organization.pk], include_merged=True,
+        )
+
+    def get_object(self):
+        box = resolve_box_local_id(self.get_queryset(), self.kwargs["code"])
+        self.check_object_permissions(self.request, box)
+        return box
+
+
 class BoxTemperatureHistoryPagination(LimitOffsetPagination):
     default_limit = 100
     max_limit = 500
@@ -1238,6 +1267,24 @@ class BoxScanAPIView(APIView):
             metadata={"box_id": box.id, "requested_box_id": box_id, "source": "qr_link"},
         )
         return Response({"id": box.id, "global_code": box.global_code}, status=status.HTTP_201_CREATED)
+
+
+class BoxGlobalIdResolveAPIView(APIView):
+    """Resolve a Box Global ID within the explicitly active institution only.
+
+    A Global ID identifies a physical Box; it never authorizes access. Unknown,
+    uninitialized and other institutions' identities all answer the same 404.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, global_id):
+        organization = get_required_active_organization_from_request(request)
+        box = get_object_or_404(
+            Box.objects.only("id", "global_code", "global_identity"),
+            organization=organization, global_identity_id=global_id, merged_into__isnull=True,
+        )
+        return Response({"id": box.id, "global_id": str(box.global_identity_id), "global_code": box.global_code})
 
 
 class BoxAccessAPIView(APIView):

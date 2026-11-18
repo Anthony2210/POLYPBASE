@@ -62,7 +62,7 @@ function harness({ path = '/', organizationId = 1 } = {}) {
     navigationGenerationRef: { current: 0 },
     boxCollectionRef: { current: { status: 'idle', loadedAt: null } },
     window: { location: browser.location, history: browser.history },
-    setIsOrganizationMenuOpen() {}, setNeedsOrganizationChoice() {}, setIsCreateBoxOpen() {},
+    setIsOrganizationMenuOpen() {}, setNeedsOrganizationChoice() {}, setIsCreateBoxOpen() {}, setAdminBoxStrainId() {},
     setStoredInterfaceLanguage() {}, setIsLoginRoute() {}, setIsTabletScannerOpen() {}, setPasswordReset() {},
     setSearch() {}, setQrLabelSelection() {}, setMeasurementPrefill() {}, setExportOptionsRequested() {},
     setRoute() {}, setIsBoxLoading() {},
@@ -184,6 +184,9 @@ test('only list-dependent routes and interactions ask for the complete Box list'
   assert.equal(need({ activeTab: 'zones', zoneId: 3 }), true, 'zone boxes');
   assert.equal(need({ activeTab: 'zones', zoneId: 3, zoneHistory: true }), false, 'zone movement history');
   assert.equal(need({ activeTab: 'labels' }), true);
+  // Species pages group every Box by Strain, so they need the complete list too.
+  assert.equal(need({ activeTab: 'admin', adminSection: 'species' }), true, 'Administration species');
+  assert.equal(need({ activeTab: 'admin', adminSection: 'species', isAdminAvailable: false }), false, 'no Administration on tablet');
   for (const section of ['accounts', 'inventory', 'references', 'environment', 'history', 'organizations']) {
     assert.equal(need({ activeTab: 'admin', adminSection: section }), false, section);
   }
@@ -199,18 +202,18 @@ function resolutionEffect() {
   return effectCall('resolveBoxCode');
 }
 
-test('a direct /boxes/CODE route resolves its id through the scoped search, not the full list', async () => {
+test('a direct /boxes/CODE route resolves its id through the exact by-code endpoint, not the full list', async () => {
   const h = harness({ path: '/boxes/AUR-042' });
   Object.assign(h.context, {
     route: { tab: 'pilotage', boxCode: 'AUR-042', boxId: null }, isBoxCodePending: true,
   });
   h.run(resolutionEffect());
   assert.equal(h.requests.length, 1);
-  assert.equal(h.requests[0].url, '/api/boxes/?limit=100&q=AUR-042');
-  h.requests[0].resolve(pages([box(420, { global_code: 'XAUR-042' }), box(42, { global_code: 'AUR-042' })]));
+  assert.equal(h.requests[0].url, '/api/boxes/by-code/AUR-042/');
+  h.requests[0].resolve({ id: 42, global_code: 'AUR-042' });
   await tick();
   assert.deepEqual({ ...h.state.resolved }, { organizationId: 1, code: 'AUR-042', boxId: 42 });
-  assert.equal(h.requests.length, 1, 'found on the first page: no further page, no list');
+  assert.equal(h.requests.length, 1, 'the exact endpoint is authoritative: no further page, no list');
   assert.equal(h.state.data.boxes.length, 0);
 
   // The id is then derived without any known box, and the detail endpoint loads the sheet.
@@ -236,13 +239,11 @@ test('legacy code bookmark resolves only an exact previous code and replaces it 
   h.context.setRoute = next => { route = next; };
   Object.assign(h.context, { route: { tab: 'pilotage', boxCode: oldCode, boxId: null }, isBoxCodePending: true });
   h.run(resolutionEffect());
-  assert.equal(h.requests[0].url, '/api/boxes/?limit=100&q=' + oldCode);
-  h.requests[0].resolve(pages([box(99, { previous_global_code: oldCode + '0' })],
-    'https://polypbase.test/api/boxes/?limit=100&q=' + oldCode + '&offset=100'));
+  assert.equal(h.requests.length, 1);
+  assert.equal(h.requests[0].url, '/api/boxes/by-code/' + oldCode + '/');
+  h.requests[0].resolve({ id: 2135, global_code: 'PCA-JKA-1.005', previous_global_code: oldCode });
   await tick();
-  assert.equal(h.requests.length, 2);
-  h.requests[1].resolve(pages([box(2135, { global_code: 'PCA-JKA-1.005', previous_global_code: oldCode })]));
-  await tick();
+  assert.equal(h.requests.length, 1, 'the exact previous code resolves in one authoritative request');
   assert.equal(h.state.resolved.boxId, 2135);
   assert.equal(route.boxId, 2135);
   assert.equal(route.boxCode, 'PCA-JKA-1.005');
@@ -261,7 +262,7 @@ for (const supersede of ['organization', 'navigation', 'cleanup']) {
     if (supersede === 'navigation') h.context.openZone(17);
     if (supersede === 'cleanup') cleanup();
     const path = h.browser.path;
-    h.requests[0].resolve(pages([box(2135, { global_code: 'PCA-JKA-1.005', previous_global_code: oldCode })]));
+    h.requests[0].resolve({ id: 2135, global_code: 'PCA-JKA-1.005', previous_global_code: oldCode });
     await tick();
     assert.equal(h.browser.path, path);
     assert.equal(h.state.resolved, undefined);
@@ -281,25 +282,27 @@ test('typed former codes resolve case-insensitively to the canonical numeric ide
   assert.equal(h.browser.path, '/boxes/PCA-JKA-1.005');
 });
 
-test('code lookup follows pages only until the exact code is found and reports an absent code', async () => {
+test('code lookup makes one exact request and never paginates the collection', async () => {
   const h = harness();
   Object.assign(h.context, { route: { tab: 'pilotage', boxCode: 'AUR-1', boxId: null }, isBoxCodePending: true });
   h.run(resolutionEffect());
-  h.requests[0].resolve(pages([box(1, { global_code: 'AUR-10' })], 'https://polypbase.test/api/boxes/?limit=100&q=AUR-1&offset=100'));
+  assert.equal(h.requests.length, 1);
+  assert.equal(h.requests[0].url, '/api/boxes/by-code/AUR-1/');
+  h.requests[0].resolve({ id: 1, global_code: 'AUR-1' });
   await tick();
-  assert.equal(h.requests.length, 2, 'the exact code is not on page one: next page is read');
-  h.requests[1].resolve(pages([box(2, { global_code: 'AUR-11' })]));
-  await tick();
-  assert.deepEqual({ ...h.state.resolved }, { organizationId: 1, code: 'AUR-1', boxId: null });
+  assert.deepEqual({ ...h.state.resolved }, { organizationId: 1, code: 'AUR-1', boxId: 1 });
+  assert.equal(h.requests.length, 1, 'the exact endpoint is authoritative: no page walk');
+  assert.equal(h.state.collection.status, 'idle');
 });
 
 test('an unavailable Box is reported as absent, not as a loading list', async () => {
   const h = harness();
   Object.assign(h.context, { route: { tab: 'pilotage', boxCode: 'OTHER-ORG', boxId: null }, isBoxCodePending: true });
   h.run(resolutionEffect());
-  h.requests[0].resolve(pages([]));
+  assert.equal(h.requests[0].url, '/api/boxes/by-code/OTHER-ORG/');
+  h.requests[0].reject(Object.assign(new h.context.ApiError('Not found'), { status: 404 }));
   await tick();
-  assert.equal(h.state.resolved.boxId, null);
+  assert.deepEqual({ ...h.state.resolved }, { organizationId: 1, code: 'OTHER-ORG', boxId: null });
   assert.equal(h.state.error, null);
 });
 
@@ -312,7 +315,7 @@ test('code resolution waits for bootstrap and ignores an organization change', a
   h.context.isLoading = false;
   h.run(resolutionEffect());
   const selection = h.context.chooseOrganization(2);
-  h.requests[0].resolve(pages([box(42, { global_code: 'AUR-042' })]));
+  h.requests[0].resolve({ id: 42, global_code: 'AUR-042' });
   await tick();
   assert.equal(h.state.resolved, null, 'chooseOrganization clears resolutions and the stale answer is dropped');
   for (const request of h.requests.filter((item) => item.organizationId === 2)) {
@@ -436,6 +439,45 @@ test('an old loaded list is refreshed in the background without hiding its conte
   await refresh;
   assert.deepEqual(Array.from(h.state.data.boxes.map((item) => item.id)), [1, 2]);
   assert.ok(Date.now() - h.state.collection.loadedAt < 60_000);
+});
+
+test('a forced collection read rejects a previous response and bypasses shared GETs', async () => {
+  const h = harness();
+  const options = [];
+  const apiGet = h.context.apiGet;
+  h.context.apiGet = (url, requestOptions) => {
+    options.push(requestOptions);
+    return apiGet(url);
+  };
+  h.render();
+  const previous = h.context.requestBoxCollection();
+  const current = h.context.requestBoxCollection({ force: true });
+  assert.equal(h.requests.length, 2);
+  assert.equal(options[1].cache, 'no-store');
+  h.requests[1].resolve(pages([box(1, { latest_measurement: { polyp_count: 0 } })]));
+  await current;
+  h.requests[0].resolve(pages([box(1, { latest_measurement: { polyp_count: 99 } })]));
+  await previous;
+  assert.equal(h.state.data.boxes[0].latest_measurement.polyp_count, 0);
+});
+
+test('a deferred collection publication is rejected after a newer refresh starts', async () => {
+  const h = harness();
+  h.render();
+  const updates = [];
+  h.context.setData = (update) => updates.push(update);
+  const previous = h.context.requestBoxCollection();
+  h.requests[0].resolve(pages([box(1, { latest_measurement: { polyp_count: 99 } })]));
+  await previous;
+  assert.equal(updates.length, 1);
+  const current = h.context.requestBoxCollection({ force: true });
+  h.requests[1].resolve(pages([box(1, { latest_measurement: { polyp_count: 0 } })]));
+  await current;
+  assert.equal(updates.length, 2);
+  h.state.data = updates[1](h.state.data);
+  const fresh = h.state.data;
+  assert.equal(updates[0](fresh), fresh, 'React cannot apply the superseded collection later');
+  assert.equal(fresh.boxes[0].latest_measurement.polyp_count, 0);
 });
 
 // --- 8. A failed list stays local ------------------------------------------------------------

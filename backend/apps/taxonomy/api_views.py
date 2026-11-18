@@ -7,6 +7,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.validators import UniqueValidator
 
 from apps.accounts.permissions import (
     get_active_admin_organization_ids,
@@ -15,9 +16,12 @@ from apps.accounts.permissions import (
     user_can_write_lab_data,
 )
 from apps.audit.models import AuditLog
+from apps.cultures.box_codes import lock_local_id_registry
+from apps.cultures.models import Box
 
 from .models import (
     BiologicalProvenance,
+    InstitutionSpecies,
     LocalStrainIdentity,
     OrganizationProvenanceCode,
     OrganizationSpeciesCode,
@@ -27,12 +31,10 @@ from .models import (
     StrainTranslation,
 )
 from .scoping import eligible_strains
-from .services import create_local_strain_identity
+from .species_codes import lock_species_code_allocation
 from .serializers import (
     BiologicalProvenanceSerializer,
-    BiologicalProvenanceWriteSerializer,
     ProvenanceCodeSerializer,
-    ProvenanceCodeWriteSerializer,
     SpeciesCodeSerializer,
     SpeciesCodeWriteSerializer,
     SpeciesReferenceSerializer,
@@ -155,7 +157,20 @@ def _raise_species_code_conflict(error):
     raise error
 
 
-class BiologicalProvenanceListCreateAPIView(APIView):
+def _visible_provenances(organization):
+    """Provenances explicitly associated with the active institution.
+
+    A shared ``BiologicalProvenance`` row is visible only through the active
+    institution's own ``OrganizationProvenanceCode``. Unassigned legacy rows and
+    another institution's private collection locations are never returned.
+    """
+    return BiologicalProvenance.objects.filter(
+        local_code_assignments__organization=organization,
+    ).distinct().order_by("pk")
+
+
+class BiologicalProvenanceListAPIView(APIView):
+    """Read-only legacy collection; creation belongs to institutional Strain creation."""
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -163,26 +178,8 @@ class BiologicalProvenanceListCreateAPIView(APIView):
         if organization is None or not user_can_write_lab_data(request.user, organization):
             raise PermissionDenied("Laboratory access is required.")
         return Response(BiologicalProvenanceSerializer(
-            BiologicalProvenance.objects.order_by("pk"), many=True
+            _visible_provenances(organization), many=True
         ).data)
-
-    @transaction.atomic
-    def post(self, request):
-        _require_active_admin(request)
-        serializer = BiologicalProvenanceWriteSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        provenance = serializer.save()
-        _write_audit_log(
-            request,
-            action=AuditLog.Action.CREATION,
-            object_type="biological_provenance",
-            instance=provenance,
-            description=f"Biological provenance created: {provenance.name}",
-        )
-        return Response(
-            BiologicalProvenanceSerializer(provenance).data,
-            status=status.HTTP_201_CREATED,
-        )
 
 
 def _provenance_code_queryset(organization):
@@ -191,37 +188,8 @@ def _provenance_code_queryset(organization):
     ).select_related("biological_provenance")
 
 
-def _check_provenance_code_conflicts(organization, *, provenance, code):
-    assignments = _provenance_code_queryset(organization)
-    if assignments.filter(biological_provenance=provenance).exists():
-        raise ValidationError({
-            "biological_provenance": "This provenance already has a code in this organization."
-        })
-    if assignments.filter(code=code).exists():
-        raise ValidationError({"code": "This code is already used in this organization."})
-
-
-def _raise_provenance_code_conflict(error):
-    constraint = getattr(getattr(error.__cause__, "diag", None), "constraint_name", None)
-    # SQLite test databases report unique columns rather than constraint names.
-    if constraint is None:
-        constraint = str(error)
-    if constraint in (
-        "unique_provenance_code_per_organization_source",
-        "UNIQUE constraint failed: taxonomy_organizationprovenancecode.organization_id, taxonomy_organizationprovenancecode.biological_provenance_id",
-    ):
-        raise ValidationError({
-            "biological_provenance": "This provenance already has a code in this organization."
-        }) from error
-    if constraint in (
-        "unique_provenance_code_per_organization_code",
-        "UNIQUE constraint failed: taxonomy_organizationprovenancecode.organization_id, taxonomy_organizationprovenancecode.code",
-    ):
-        raise ValidationError({"code": "This code is already used in this organization."}) from error
-    raise error
-
-
-class ProvenanceCodeListCreateAPIView(APIView):
+class ProvenanceCodeListAPIView(APIView):
+    """Read verified assignments without allowing historical location claims by ID."""
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -231,28 +199,6 @@ class ProvenanceCodeListCreateAPIView(APIView):
         return Response(ProvenanceCodeSerializer(
             _provenance_code_queryset(organization).order_by("pk"), many=True
         ).data)
-
-    @transaction.atomic
-    def post(self, request):
-        organization = _require_active_admin(request)
-        serializer = ProvenanceCodeWriteSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        provenance = serializer.validated_data["biological_provenance"]
-        code = serializer.validated_data["code"]
-        _check_provenance_code_conflicts(organization, provenance=provenance, code=code)
-        try:
-            with transaction.atomic():
-                assignment = serializer.save(organization=organization)
-        except IntegrityError as error:
-            _raise_provenance_code_conflict(error)
-        _write_audit_log(
-            request,
-            action=AuditLog.Action.CREATION,
-            object_type="organization_provenance_code",
-            instance=assignment,
-            description=f"Provenance code created for provenance {provenance.pk}",
-        )
-        return Response(ProvenanceCodeSerializer(assignment).data, status=status.HTTP_201_CREATED)
 
 
 class SpeciesCodeListCreateAPIView(APIView):
@@ -268,6 +214,7 @@ class SpeciesCodeListCreateAPIView(APIView):
     @transaction.atomic
     def post(self, request):
         organization = _require_active_admin(request)
+        lock_species_code_allocation()
         serializer = SpeciesCodeWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         species = serializer.validated_data["species"]
@@ -301,26 +248,66 @@ class SpeciesCodeDetailAPIView(APIView):
     @transaction.atomic
     def patch(self, request, pk):
         organization = _require_active_admin(request)
+        lock_species_code_allocation()
         assignment = get_object_or_404(_species_code_queryset(organization), pk=pk)
         serializer = SpeciesCodeWriteSerializer(assignment, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         if "code" not in serializer.validated_data:
             raise ValidationError({"code": "This field is required."})
-        code = serializer.validated_data["code"]
-        _check_species_code_conflicts(organization, code=code, exclude_pk=assignment.pk)
-        try:
-            with transaction.atomic():
-                assignment = serializer.save()
-        except IntegrityError as error:
-            _raise_species_code_conflict(error)
-        _write_audit_log(
-            request,
-            action=AuditLog.Action.UPDATE,
-            object_type="organization_species_code",
-            instance=assignment,
-            description=f"Species code updated for species {assignment.species_id}",
-        )
+        if serializer.validated_data["code"] != assignment.code:
+            # Assigned codes prefix issued Strain and Box identifiers: immutable.
+            return Response(
+                {"detail": "An assigned species code cannot be changed.", "error": "species_code_immutable"},
+                status=status.HTTP_409_CONFLICT,
+            )
         return Response(SpeciesCodeSerializer(assignment).data)
+
+
+def _save_species_reference(serializer):
+    try:
+        with transaction.atomic():
+            return serializer.save()
+    except IntegrityError as error:
+        constraint = getattr(getattr(error.__cause__, "diag", None), "constraint_name", None)
+        if constraint in (
+            "taxonomy_species_scientific_name_key",
+            "unique_species_scientific_name_ci",
+            "unique_species_scientific_name_normalized",
+        ) or any(name in str(error) for name in (
+            "taxonomy_species.scientific_name",
+            "unique_species_scientific_name_ci",
+            "unique_species_scientific_name_normalized",
+        )):
+            raise ValidationError({"scientific_name": [UniqueValidator.message]}) from error
+        raise
+
+
+def _shared_species_update_refusal(organization, species, validated_data):
+    """Return why the legacy shared-reference edit is refused, or None.
+
+    Shared information (name, AphiaID, translations, notes) is visible to every
+    institution using the reference, so an institution may not change it once
+    another institution uses it. A reference carrying institutional information
+    is frozen: local corrections go through the institutional edit service.
+    Legacy single-institution edits otherwise keep their current behavior.
+    """
+    used_elsewhere = (
+        OrganizationSpeciesCode.objects.filter(species=species).exclude(organization=organization).exists()
+        or InstitutionSpecies.objects.filter(species=species).exclude(organization=organization).exists()
+        or Strain.objects.filter(species=species, organization__isnull=False)
+        .exclude(organization=organization).exists()
+        or Box.objects.filter(strain__species=species, organization__isnull=False)
+        .exclude(organization=organization).exists()
+    )
+    if used_elsewhere:
+        return "shared_species_used_by_another_institution"
+    identity_changed = any(
+        field in validated_data and validated_data[field] != getattr(species, field)
+        for field in ("scientific_name", "worms_aphia_id")
+    )
+    if identity_changed and InstitutionSpecies.objects.filter(species=species).exists():
+        return "shared_species_reference_frozen"
+    return None
 
 
 class SpeciesReferenceListCreateAPIView(APIView):
@@ -331,7 +318,7 @@ class SpeciesReferenceListCreateAPIView(APIView):
         organization = _require_active_admin(request)
         serializer = SpeciesReferenceWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        species = serializer.save()
+        species = _save_species_reference(serializer)
         _write_audit_log(
             request,
             action=AuditLog.Action.CREATION,
@@ -352,6 +339,15 @@ class SpeciesReferenceDetailAPIView(APIView):
     @transaction.atomic
     def patch(self, request, pk):
         organization = _require_active_admin(request)
+        # The guard below reads other institutions' use of this reference, so it
+        # must not race a concurrent attachment. Every product path that can
+        # newly attach an institution already serializes on one of these locks:
+        # institutional registration and code assignment take the allocation
+        # gate; the Transfer v1 import row-locks the Species it resolves. Box
+        # and Strain creation require a prior attachment. Gate before row lock,
+        # matching registration's gate-first order.
+        lock_species_code_allocation()
+        get_object_or_404(Species.objects.select_for_update(no_key=True), pk=pk)
         species = get_object_or_404(_species_queryset(organization), pk=pk)
         serializer = SpeciesReferenceWriteSerializer(
             species,
@@ -359,7 +355,13 @@ class SpeciesReferenceDetailAPIView(APIView):
             partial=True,
         )
         serializer.is_valid(raise_exception=True)
-        species = serializer.save()
+        refusal = _shared_species_update_refusal(organization, species, serializer.validated_data)
+        if refusal is not None:
+            return Response(
+                {"detail": "This shared species reference cannot be modified here.", "error": refusal},
+                status=status.HTTP_409_CONFLICT,
+            )
+        species = _save_species_reference(serializer)
         _write_audit_log(
             request,
             action=AuditLog.Action.UPDATE,
@@ -372,37 +374,50 @@ class SpeciesReferenceDetailAPIView(APIView):
 
 
 class StrainReferenceListCreateAPIView(APIView):
+    """Closed: X is allocated and AAA-BBB-X built by the server.
+
+    Strains are created from an institutional Species in Administration
+    (``POST /api/admin/institution-species/<id>/strains/``); manually supplied
+    codes or numbers are no longer accepted.
+    """
+
     permission_classes = [IsAuthenticated]
 
-    @transaction.atomic
     def post(self, request):
-        organization = _require_strain_creation_organization(request)
-        serializer = StrainReferenceWriteSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        species = serializer.validated_data["species"]
-        assignment = _species_code_queryset(organization).filter(species=species).first()
-        if assignment is None:
-            raise ValidationError({
-                "species": "Assign an AAA code to this species in the active institution in Administration before creating a strain."
-            })
-        strain = serializer.save(organization=organization)
-        create_local_strain_identity(
-            strain=strain,
-            organization=organization,
-            species_code_assignment=assignment,
-        )
-        _write_audit_log(
-            request,
-            action=AuditLog.Action.CREATION,
-            object_type="strain",
-            instance=strain,
-            description=f"Strain created: {strain.code}",
-        )
-        strain = _strain_queryset(organization).get(pk=strain.pk)
+        _require_strain_creation_organization(request)
         return Response(
-            StrainReferenceSerializer(strain).data,
-            status=status.HTTP_201_CREATED,
+            {"code": "superseded_by_institution_species_strains"}, status=status.HTTP_410_GONE,
         )
+
+
+STRAIN_IDENTITY_FIELDS = ("code", "number", "origin_code")
+
+
+def _requested_strain_identity_changes(strain, data):
+    """Return the identity fields whose requested value differs from the stored one.
+
+    ``code`` (AAA-BBB-X), ``number`` (X) and ``origin_code`` (BBB) prefix issued
+    Box identifiers and back the local identity, so this ordinary endpoint never
+    rewrites them. Values are normalized like the write serializer; a value that
+    cannot be read is a change. ``0`` is a real number, distinct from ``null``.
+    """
+    if not hasattr(data, "keys"):
+        return []
+    fields = StrainReferenceWriteSerializer().fields
+    changed = []
+    for name in STRAIN_IDENTITY_FIELDS:
+        if name not in data:
+            continue
+        try:
+            value = fields[name].run_validation(data[name])
+        except ValidationError:
+            changed.append(name)
+            continue
+        if isinstance(value, str):
+            value = value.strip().upper()
+        if value != getattr(strain, name):
+            changed.append(name)
+    return changed
 
 
 class StrainReferenceDetailAPIView(APIView):
@@ -411,10 +426,23 @@ class StrainReferenceDetailAPIView(APIView):
     @transaction.atomic
     def patch(self, request, pk):
         organization = _require_active_admin(request)
-        # Share the identity service's Strain-first lock through mutation and audit.
+        # Coordinate Species reassignment with readiness checks before row locks.
+        lock_local_id_registry()
+        lock_species_code_allocation()
         strain = get_object_or_404(
             Strain.objects.select_for_update().filter(organization=organization), pk=pk
         )
+        identity_changes = _requested_strain_identity_changes(strain, request.data)
+        if identity_changes:
+            # Rejected before any write or audit; never silently ignored.
+            return Response(
+                {
+                    "detail": "Strain identity fields cannot be changed here.",
+                    "error": "strain_identity_immutable",
+                    "fields": identity_changes,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
         serializer = StrainReferenceWriteSerializer(
             strain,
             data=request.data,

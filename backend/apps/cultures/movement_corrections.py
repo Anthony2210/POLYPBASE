@@ -5,8 +5,8 @@ and never creates, deletes or merges movements. It edits only the periods the
 movement itself wrote, and refuses whenever later history would have to be
 rewritten or the movement-period relation cannot be proven.
 
-Lock order is the same as every movement and lifecycle writer: the Box row
-first, then the movement, then its linked periods by primary key. The Box lock
+Lock order matches movement and lifecycle writers: the Local ID registry,
+then the Box row, the movement and its linked periods by primary key. The Box lock
 therefore serializes corrections with new movements, lifecycle changes and
 other corrections of the same box.
 """
@@ -18,6 +18,7 @@ from django.utils import timezone
 from apps.accounts.permissions import user_can_write_lab_data
 from apps.audit.models import AuditLog
 
+from .box_codes import lock_local_id_registry
 from .models import Box, BoxLocation, BoxMovement, ThermalZone
 from .services import BoxMovementWeekConflict, check_ordinary_movement_week
 
@@ -311,6 +312,7 @@ def correct_box_movement(*, box_id, movement_id, organization_ids, user, data):
     values = _validated_correction_data(data=data, box=box)
 
     with transaction.atomic():
+        lock_local_id_registry()
         box = _scoped_box(box_id=box_id, organization_ids=organization_ids, for_update=True)
         _require_correction_permission(user=user, box=box)
         try:

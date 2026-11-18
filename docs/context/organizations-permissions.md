@@ -68,6 +68,8 @@ Lorsqu'une mutation relie deux objets, vérifier la portée des deux côtés. Un
 
 Les taxons, espèces, souches et autres référentiels taxonomiques suivent leur portée partagée actuelle. Ne pas les convertir implicitement en objets institutionnels, ni déduire de leur caractère partagé un accès aux mesures ou aux cultures.
 
+Les lieux de collecte font exception : `BiologicalProvenance` reste une table partagée sans propriétaire, mais sa visibilité est limitée par l'association institutionnelle `OrganizationProvenanceCode`. Les GET `/api/taxonomy/biological-provenances/` et `/api/taxonomy/provenance-codes/` ne renvoient que les lieux et BBB associés à l'institution active. Les deux POST legacy sont retirés (405) : aucune création sans attribution ni revendication d'une ligne historique par ID n'est permise. La création institutionnelle de Strain crée atomiquement son nouveau lieu et son BBB, ou réutilise une association existante de l'institution. Deux institutions peuvent enregistrer le même nom indépendamment. Les lignes non attribuées sont préservées sans propriétaire inventé. Détail : [`../../backend/INSTITUTION_SPECIES_FOUNDATION.md`](../../backend/INSTITUTION_SPECIES_FOUNDATION.md).
+
 `PartnerInstitution` et `SharingAgreement` existent dans le schéma. Leur présence n'accorde aucun accès transversal implicite et ne prouve pas qu'un parcours de partage inter-institution est disponible. Le multi-base, le partage automatique et la création sponsorisée d'institutions restent des idées tant qu'une décision produit et une implémentation ne les établissent pas.
 
 ## Permissions et audit

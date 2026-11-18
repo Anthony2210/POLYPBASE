@@ -125,6 +125,7 @@ export function installAppRouting(context, evaluate, organization = 1) {
   }
   context.boxCollectionRef ??= { current: context.IDLE_BOX_COLLECTION };
   context.boxCollectionRequestRef ??= { current: null };
+  context.boxCollectionRevisionRef ??= { current: 0 };
   context.requestedRecentBoxIdsRef ??= { current: new Set() };
   context.setBoxCollection ??= (value) => { context.boxCollectionState = value; };
   context.setResolvedBoxCode ??= (value) => { context.resolvedBoxCodeState = value; };
@@ -137,7 +138,7 @@ export function installAppRouting(context, evaluate, organization = 1) {
     && node.declarationList.declarations.some(declaration => declaration.name.getText(ast) === 'ADMIN_SECTION_PATHS'));
   assert.ok(adminPaths);
   context.ADMIN_SECTION_PATHS = evaluate(`(${adminPaths.declarationList.declarations[0].initializer.getText(ast)})`);
-  for (const name of ['getCurrentAppPath', 'isRecognizedAppPath', 'getCurrentRoute', 'getInAppHistory',
+  for (const name of ['parseAdminSpeciesPath', 'getCurrentAppPath', 'isRecognizedAppPath', 'getCurrentRoute', 'getInAppHistory',
     'resetNavigation', 'updateNavigationOrganization', 'navigateTo', 'replaceRoute', 'goBack',
     'closeBoxPage', 'closeZonePage', 'closeZoneSubview', 'openZone', 'openZoneBoxes', 'openZoneHistory', 'syncRoute']) {
     // Restrict nested routing functions to App, not similarly named UI callbacks.

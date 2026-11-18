@@ -119,6 +119,29 @@ for (const language of ['fr', 'en']) {
       }
     }
   });
+  test(`${language}: only the explicit Box-creation measurement relabels its observer line`, () => {
+    const labels = {
+      polyps: t('polyps'), ephyrae: t('ephyraeFull'), enteredBy: t('historyEnteredBy'),
+      initialObservedBy: t('historyInitialObservedBy'), historicalUser: t('historicalUser'),
+    };
+    const readings = [
+      { id: 1, measured_on: '2026-10-01', polyp_count: 0, ephyrae_count: 0, user_identity: current, origin: 'box_creation' },
+      { id: 2, measured_on: '2026-10-08', polyp_count: 4, ephyrae_count: 0, user_identity: current, origin: 'direct_entry' },
+      // The earliest legacy record is never treated as an initial measurement.
+      { id: 3, measured_on: '2026-01-01', polyp_count: 9, ephyrae_count: 0, user_identity: current, origin: 'legacy_unclassified' },
+    ];
+    const data = timeline.prepareBiologicalChartData(readings, [], timeline.getBiologicalTimelineLabels(t));
+    const byId = new Map(data.measurements.map(point => [point.id, point]));
+    assert.deepEqual([1, 2, 3].map(id => byId.get(id).isInitial), [true, false, false]);
+    const userLine = point => chart.buildMeasurementDetailLines(point, labels, []).find(line => line.kind === 'user');
+    assert.equal(userLine(byId.get(1)).label, t('historyInitialObservedBy'));
+    assert.equal(userLine(byId.get(1)).value, readable, 'the real observer stays displayed');
+    for (const id of [2, 3]) assert.equal(userLine(byId.get(id)).label, t('historyEnteredBy'));
+    const values = chart.buildMeasurementDetailLines(byId.get(1), labels, []);
+    assert.equal(values[0].value, '0', 'an initial count of 0 stays a real 0');
+    // A subculture state never takes the initial label.
+    assert.equal(userLine({ kind: 'subculture', polypCount: 3, user_identity: current, isInitial: true }).label, t('historyEnteredBy'));
+  });
   test(`${language}: timeline and export preview carry structured authors, not legacy labels`, () => {
     const measurement = { id: 1, measured_on: '2026-10-01', polyp_count: 0, ephyrae_count: 0, user: raw, user_identity: current };
     const data = timeline.prepareBiologicalChartData([measurement], [{

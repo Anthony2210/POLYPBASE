@@ -54,7 +54,7 @@ function harness(language = 'en') {
     '../utils/memberMutationLock', '../utils/memberFeedback', '../utils/stepValue', '../utils/zoneOccupancy',
     './AccountInvitationsPanel', './AdminActionPanel', './AdminAuditSection', './BoxInventoryAdminSection', './ConfirmActionModal',
     './LabConfigurationAdminSection', './sharing/BoxSharingAdminSection',
-    './PageLoader', './PolypbaseIcon', './RowActionMenu', './SkeletonRows', './TaxonomyAdminSection',
+    './PageLoader', './PolypbaseIcon', './RowActionMenu', './SkeletonRows', './SpeciesStrainsAdminSection', './TaxonomyAdminSection',
   ];
   const modules = Object.fromEntries(unusedModules.map((name) => [name, {}]));
   Object.assign(modules, {

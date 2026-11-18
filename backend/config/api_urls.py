@@ -37,6 +37,7 @@ from apps.cultures.api_views import (
     BoxActivateAPIView,
     BoxDeactivateAPIView,
     BoxDetailAPIView,
+    BoxDetailByCodeAPIView,
     BoxLineageGraphAPIView,
     BoxListAPIView,
     BoxMeasurementDetailAPIView,
@@ -45,6 +46,7 @@ from apps.cultures.api_views import (
     BoxMovementDetailAPIView,
     BoxQualifyAPIView,
     BoxScanAPIView,
+    BoxGlobalIdResolveAPIView,
     BoxSubcultureCodePreviewAPIView,
     BoxSubcultureCreateAPIView,
     BoxHistoricalTemperatureAPIView,
@@ -92,9 +94,24 @@ from apps.sharing.api_views import (
     SharedBoxInvitationInspectAPIView,
     SharedBoxListAPIView,
 )
+from apps.taxonomy.admin_api import (
+    AdminSpeciesCodeAPIView,
+    AdminSpeciesCreateAPIView,
+    SpeciesCatalogAPIView,
+    WormsSearchAPIView,
+)
+from apps.taxonomy.institution_species_api import (
+    HistoricalSpeciesDetailAPIView,
+    InstitutionSpeciesCodeChangePreviewAPIView,
+    InstitutionSpeciesDetailAPIView,
+    InstitutionSpeciesListCreateAPIView,
+    InstitutionSpeciesResolveAPIView,
+    InstitutionSpeciesStrainsAPIView,
+    CollectionLocationListAPIView,
+)
 from apps.taxonomy.api_views import (
-    BiologicalProvenanceListCreateAPIView,
-    ProvenanceCodeListCreateAPIView,
+    BiologicalProvenanceListAPIView,
+    ProvenanceCodeListAPIView,
     SpeciesCodeDetailAPIView,
     SpeciesCodeListCreateAPIView,
     SpeciesReferenceDetailAPIView,
@@ -177,9 +194,15 @@ urlpatterns = [
     path("boxes/automatic/intents/", AutomaticBoxIntentAPIView.as_view(), name="api_box_automatic_intent"),
     path("boxes/automatic/intents/execute/", AutomaticBoxIntentExecuteAPIView.as_view(), name="api_box_automatic_intent_execute"),
     path("boxes/automatic/intents/cancel/", AutomaticBoxIntentCancelAPIView.as_view(), name="api_box_automatic_intent_cancel"),
+    path("boxes/by-code/<path:code>/", BoxDetailByCodeAPIView.as_view(), name="api_box_detail_by_code"),
     path("boxes/<int:pk>/", BoxDetailAPIView.as_view(), name="api_box_detail"),
     path("boxes/<int:box_id>/history/", BoxHistoryAPIView.as_view(), name="api_box_history"),
     path("boxes/<int:box_id>/history/preview/", BoxHistoryPreviewAPIView.as_view(), name="api_box_history_preview"),
+    path(
+        "boxes/global/<uuid:global_id>/",
+        BoxGlobalIdResolveAPIView.as_view(),
+        name="api_box_global_id_resolve",
+    ),
     path(
         "boxes/<int:box_id>/temperatures/",
         BoxTemperatureHistoryAPIView.as_view(),
@@ -305,13 +328,68 @@ urlpatterns = [
     path("organizations/<int:pk>/", OrganizationDetailAPIView.as_view(), name="api_organization_detail"),
     path("taxonomy/references/", TaxonomyReferenceListAPIView.as_view(), name="api_taxonomy_references"),
     path(
+        "admin/species-catalog/",
+        SpeciesCatalogAPIView.as_view(),
+        name="api_admin_species_catalog",
+    ),
+    path(
+        "admin/species-catalog/species/",
+        AdminSpeciesCreateAPIView.as_view(),
+        name="api_admin_species_create",
+    ),
+    path(
+        "admin/species-catalog/species/<int:pk>/code/",
+        AdminSpeciesCodeAPIView.as_view(),
+        name="api_admin_species_code",
+    ),
+    path(
+        "admin/institution-species/",
+        InstitutionSpeciesListCreateAPIView.as_view(),
+        name="api_admin_institution_species",
+    ),
+    path(
+        "admin/institution-species/resolve/",
+        InstitutionSpeciesResolveAPIView.as_view(),
+        name="api_admin_institution_species_resolve",
+    ),
+    path(
+        "admin/institution-species/<int:pk>/",
+        InstitutionSpeciesDetailAPIView.as_view(),
+        name="api_admin_institution_species_detail",
+    ),
+    path(
+        "admin/institution-species/historical/<int:species_id>/",
+        HistoricalSpeciesDetailAPIView.as_view(),
+        name="api_admin_historical_species_detail",
+    ),
+    path(
+        "admin/institution-species/<int:pk>/code-change-preview/",
+        InstitutionSpeciesCodeChangePreviewAPIView.as_view(),
+        name="api_admin_institution_species_code_change_preview",
+    ),
+    path(
+        "admin/institution-species/<int:pk>/strains/",
+        InstitutionSpeciesStrainsAPIView.as_view(),
+        name="api_admin_institution_species_strains",
+    ),
+    path(
+        "admin/collection-locations/",
+        CollectionLocationListAPIView.as_view(),
+        name="api_admin_collection_locations",
+    ),
+    path(
+        "admin/species-catalog/worms-search/",
+        WormsSearchAPIView.as_view(),
+        name="api_admin_worms_search",
+    ),
+    path(
         "taxonomy/biological-provenances/",
-        BiologicalProvenanceListCreateAPIView.as_view(),
+        BiologicalProvenanceListAPIView.as_view(),
         name="api_taxonomy_biological_provenances",
     ),
     path(
         "taxonomy/provenance-codes/",
-        ProvenanceCodeListCreateAPIView.as_view(),
+        ProvenanceCodeListAPIView.as_view(),
         name="api_taxonomy_provenance_codes",
     ),
     path("taxonomy/species-codes/", SpeciesCodeListCreateAPIView.as_view(), name="api_taxonomy_species_codes"),

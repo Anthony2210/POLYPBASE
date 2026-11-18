@@ -1,5 +1,7 @@
 import { useId, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 
+import { getAnchoredPopoverPlacement } from '../utils/anchoredPopoverPlacement';
+
 const OPEN_EVENT = 'polypbase:popover-open';
 
 export function useAnchoredPopover<T extends HTMLElement>(
@@ -25,19 +27,22 @@ export function useAnchoredPopover<T extends HTMLElement>(
         onClose();
         return;
       }
-      const margin = 12;
-      const gap = 6;
       const { width, height } = panel.getBoundingClientRect();
-      const left = align === 'end' ? rect.right - width : rect.left;
-      const below = rect.bottom + gap;
-      const top = below + height <= window.innerHeight - margin
-        ? below
-        : rect.top - height - gap;
-      setPosition({
-        left: Math.max(margin, Math.min(left, window.innerWidth - width - margin)),
-        top: Math.max(margin, Math.min(top, window.innerHeight - height - margin)),
-        visibility: 'visible',
-      });
+      // Keep using the full content height after maxHeight constrains the panel,
+      // otherwise ResizeObserver can flip it back to the smaller side repeatedly.
+      const contentHeight = Math.max(height, panel.scrollHeight + panel.offsetHeight - panel.clientHeight);
+      const placement = getAnchoredPopoverPlacement(
+        rect,
+        { width, height: contentHeight },
+        { width: window.innerWidth, height: window.innerHeight },
+        align,
+      );
+      setPosition((current) => (
+        current.left === placement.left && current.top === placement.top
+        && current.maxHeight === placement.maxHeight && current.visibility === 'visible'
+          ? current
+          : { ...placement, visibility: 'visible' }
+      ));
     }
 
     function handleOutside(event: PointerEvent) {

@@ -86,7 +86,7 @@ function harness(path = '/?scan_box=42') {
     setQrLabelSelection(value) { state.labels = value; },
     setIsPhoneQrOpen(value) { state.phoneScanner = value; },
     setIsTabletScannerOpen(value) { state.tabletScanner = value; },
-    setIsOrganizationMenuOpen() {}, setIsCreateBoxOpen() {}, setSearch() {},
+    setIsOrganizationMenuOpen() {}, setIsCreateBoxOpen() {}, setAdminBoxStrainId() {}, setSearch() {},
     setRecentBoxIds() {}, setMeasurementPrefill() {}, setExportOptionsRequested() {},
     setActiveOrganizationContext(value) { state.organizationContext = value; },
     setData(value) { context.data = typeof value === 'function' ? value(context.data) : value; },

@@ -167,12 +167,36 @@ class OrganizationPortableIdentityMigrationTests(TransactionTestCase):
     def test_existing_rows_keep_primary_keys_and_relationships(self):
         before = ("organizations", "0001_initial")
 
+        portable = ("organizations", "0002_organization_portable_id")
+
         executor = MigrationExecutor(connection)
-        latest = executor.loader.graph.leaf_nodes()
-        before_targets = historical_targets(executor.loader, {"organizations", "cultures", "measurements"}, [
+        graph = executor.loader.graph
+        latest = graph.leaf_nodes()
+        historical_apps = {"organizations", "cultures", "measurements"}
+        historical = [
             before, ("cultures", "0014_box_movement_week_matches_moved_at"),
             ("measurements", "0013_historical_temperature_receipt"),
-        ])
+        ]
+        before_targets = historical_targets(executor.loader, historical_apps, historical)
+        allowed = {node for target in historical for node in graph.forwards_plan(target)}
+        for leaf in latest:
+            if leaf[0] in historical_apps or leaf in before_targets:
+                continue
+            # Keep dependent apps at their last compatible schema rather than
+            # dropping their tables or pulling newer pinned apps back in.
+            compatible = [
+                node for node in graph.forwards_plan(leaf)
+                if node[0] == leaf[0] and {
+                    dependency for dependency in graph.forwards_plan(node)
+                    if dependency[0] in historical_apps
+                } <= allowed
+            ]
+            if compatible:
+                before_targets.append(compatible[-1])
+        projected = {node for target in before_targets for node in graph.forwards_plan(target)}
+        self.assertNotIn(portable, projected)
+        self.assertEqual({node for node in projected if node[0] in historical_apps},
+                         {node for node in allowed if node[0] in historical_apps})
         try:
             executor.migrate(before_targets)
             old_apps = executor.loader.project_state(before_targets).apps

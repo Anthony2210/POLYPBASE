@@ -27,6 +27,7 @@ async function ready(h = createBoxHarness(), strains = options) {
   await h.panel.settle();
   h.panel.click(option(h));
   if (!field(h, 'location').disabled) h.panel.change(field(h, 'location'), '10');
+  if (!field(h, 'initial-polyps').disabled) h.panel.change(field(h, 'initial-polyps'), '5');
   return h;
 }
 async function send(h) {
@@ -46,7 +47,7 @@ test('form asks only for strain, location, date and note; no preview or client-a
   await ready(h);
   assert.equal(h.boxCollectionRequests, 0);
   const controls = h.panel.nodes.filter(n => ['select', 'input', 'textarea'].includes(n.type));
-  assert.deepEqual(controls.map(n => n.props.type ?? n.type), ['search', 'select', 'date', 'textarea']);
+  assert.deepEqual(controls.map(n => n.props.type ?? n.type), ['search', 'select', 'date', 'number', 'textarea']);
   assert.equal(h.panel.byClass('created-box-identifier'), undefined);
   assert.equal(h.env.requests.length, 1, 'Only the strain list is fetched');
   assert.doesNotMatch(panelText(h), /Identifiant prévu|Expected identifier|AUR-ATL-1\.\d/);
@@ -55,7 +56,15 @@ test('form asks only for strain, location, date and note; no preview or client-a
   await h.panel.submit();
   assert.equal(h.mutations.length, 0);
   h.panel.change(field(h, 'date'), '2026-10-01');
+  // The initial count is required: empty is never sent as 0.
+  h.panel.change(field(h, 'initial-polyps'), '');
+  assert.equal(save(h).disabled, true);
+  await h.panel.submit();
+  assert.equal(h.mutations.length, 0);
+  h.panel.change(field(h, 'initial-polyps'), '0');
+  assert.equal(save(h).disabled, false, '0 is a real initial count');
   await send(h);
+  assert.equal(h.mutations[0].payload.initial_polyp_count, 0);
   assert.equal(h.confirmations.length, 0, 'Creation does not require confirmation');
   assert.equal(h.mutations.length, 1);
   h.unmount();
@@ -76,6 +85,12 @@ test('no strain or location is preselected; an unusable identity cannot be submi
   await h.panel.submit();
   assert.equal(h.mutations.length, 0);
   h.panel.click(option(h, 1));
+  assert.equal(save(h).disabled, true, 'the initial polyp count is still missing');
+  for (const value of ['-1', '1.5', 'abc']) {
+    h.panel.change(field(h, 'initial-polyps'), value);
+    assert.equal(save(h).disabled, true, value);
+  }
+  h.panel.change(field(h, 'initial-polyps'), '12');
   assert.equal(save(h).disabled, false);
   h.unmount();
 });
@@ -90,7 +105,7 @@ test('synchronous double submit sends exactly one UUID intent, persisted before 
   assert.equal(h.mutations.length, 1);
   const payload = plain(h.mutations[0].payload);
   assert.match(payload.request_id, /^[0-9a-f-]{36}$/);
-  assert.deepEqual(payload, { strain: 1, thermal_zone: 10, entered_on: '2026-10-01', volume_liters: null, notes: 'note', request_id: payload.request_id, resume_token: payload.resume_token });
+  assert.deepEqual(payload, { strain: 1, thermal_zone: 10, entered_on: '2026-10-01', volume_liters: null, notes: 'note', initial_polyp_count: 5, request_id: payload.request_id, resume_token: payload.resume_token });
   assert.match(payload.resume_token, /^[0-9a-f-]{36}$/);
   assert.notEqual(payload.request_id, payload.resume_token);
   const { digest, ...persisted } = stored(h);
@@ -150,6 +165,10 @@ test('creating another box keeps strain, location and date, clears the note and 
   assert.equal(field(h, 'location').props.value, 10);
   assert.equal(field(h, 'date').props.value, '2026-09-09');
   assert.equal(notes(h).props.value, '');
+  // The count belongs to each Box: never carried over to the next one.
+  assert.equal(field(h, 'initial-polyps').props.value, '');
+  assert.equal(save(h).disabled, true);
+  h.panel.change(field(h, 'initial-polyps'), '8');
   await send(h);
   assert.notEqual(h.mutations[1].payload.request_id, firstId);
   h.unmount();
@@ -647,8 +666,8 @@ test('AST: automatic payload type excludes all client code fields and requires U
   const ast = sourceAst('../src/types.ts');
   const type = ast.statements.find(n => ts.isTypeAliasDeclaration(n) && n.name.text === 'BoxCreatePayload');
   const fields = new Map(type.type.members.map(n => [n.name.getText(ast), n]));
-  assert.deepEqual([...fields.keys()].sort(), ['entered_on', 'notes', 'request_id', 'strain', 'thermal_zone', 'volume_liters']);
-  for (const name of ['entered_on', 'request_id', 'strain', 'thermal_zone']) assert.equal(fields.get(name).questionToken, undefined);
+  assert.deepEqual([...fields.keys()].sort(), ['entered_on', 'initial_polyp_count', 'notes', 'request_id', 'strain', 'thermal_zone', 'volume_liters']);
+  for (const name of ['entered_on', 'initial_polyp_count', 'request_id', 'strain', 'thermal_zone']) assert.equal(fields.get(name).questionToken, undefined);
   for (const name of ['notes', 'volume_liters']) assert.ok(fields.get(name).questionToken);
   const identity = ast.statements.find(n => ts.isTypeAliasDeclaration(n) && n.name.text === 'BoxStrainIdentity').getText(ast);
   assert.doesNotMatch(identity, /box_number|next|global_code/, 'The identity contract carries no Box number');

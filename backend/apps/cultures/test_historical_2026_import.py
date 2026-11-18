@@ -8,6 +8,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import PermissionDenied
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.db.models.query import QuerySet
 from django.test import TestCase
 
 from apps.accounts.models import OrganizationMembership
@@ -16,6 +17,7 @@ from apps.measurements.models import BiologicalMeasurement
 from apps.organizations.models import Organization
 from apps.taxonomy.models import Species, Strain
 
+from . import box_codes
 from .historical_2026 import deactivation, importer, manifest as manifest_module
 from .historical_2026.decisions import EXPECTED_WORKBOOK_SHA256, ISO_YEAR
 from .models import Box, BoxLineage, IdentificationTag, ThermalZone
@@ -148,6 +150,22 @@ class ImporterBase(TestCase):
 
 
 class ClassificationTests(ImporterBase):
+    def test_apply_plan_coordinates_before_box_locks_but_dry_run_does_not_lock(self):
+        manifest = self.standard(item("AAA-BBB-1.001", 1, 5, 0))
+        original = QuerySet.select_for_update
+        with mock.patch.object(
+            box_codes, "lock_local_id_registry", wraps=box_codes.lock_local_id_registry,
+        ) as registry:
+            def row_lock(queryset, *args, **kwargs):
+                registry.assert_called_once_with()
+                return original(queryset, *args, **kwargs)
+
+            with mock.patch.object(QuerySet, "select_for_update", autospec=True, side_effect=row_lock):
+                self.plan(manifest)
+                registry.assert_not_called()
+                importer.build_plan(manifest, self.org, lock=True)
+            registry.assert_called_once_with()
+
     def test_default_dry_run_performs_no_mutation(self):
         manifest = self.standard(item("AAA-BBB-1.001", 1, 5, 0))
         before = self.counts()

@@ -47,7 +47,7 @@ function harness(initialPath = '/zones', organization = 1) {
     data: { boxes: [], boxDetails: {}, profile: { id: 1 } },
     setRoute(value) { context.route = value; context.routeWrites++; }, routeWrites: 0,
     setSearch() {}, setIsBoxLoading() {}, setIsLoading() {}, setNeedsOrganizationChoice() {},
-    setIsOrganizationMenuOpen() {}, setIsCreateBoxOpen() {}, setRecentBoxIds() {}, setQrLabelSelection() {},
+    setIsOrganizationMenuOpen() {}, setIsCreateBoxOpen() {}, setAdminBoxStrainId() {}, setRecentBoxIds() {}, setQrLabelSelection() {},
     setMeasurementPrefill() {}, setExportOptionsRequested() {}, setRefreshRecovery() {},
     setIsTabletScannerOpen() {}, setPasswordReset(value) { context.passwordReset = value; },
     setIsLoginRoute(value) { context.isLoginRoute = value; }, setError(value) { context.error = value; },
@@ -374,4 +374,53 @@ test('all browser history writes use the helper and zone subview callbacks use c
   assert.match(loadData, /resetNavigation\(loginPath, null\)/);
   assert.match(loadData, /updateNavigationOrganization\(resolvedOrganizationId\)/);
   assert.match(source, /resetNavigation\('\/login', null\);\s*setPasswordReset\(null\)/);
+});
+
+test('Species detail routes are desktop Administration paths with a strict identifier', () => {
+  const h = harness();
+  const classify = h.context.isRecognizedAppPath;
+  for (const path of ['/administration/species-strains/12', '/administration/species-strains/12/',
+    '/administration/species-strains/historical/7', '/administration/species-strains/historical/7/']) {
+    assert.equal(classify(path, true, true), true, path);
+    // Tablet or non-admin: never an Administration screen.
+    assert.equal(classify(path, false, true), false, path);
+    assert.equal(classify(path, true, false), false, path);
+  }
+  for (const path of ['/administration/species-strains/0', '/administration/species-strains/-1',
+    '/administration/species-strains/abc', '/administration/species-strains/12/extra',
+    '/administration/species-strains/historical', '/administration/species-strains/historical/0',
+    '/administration/species-strains/other/7', '/administration/species-strains/9007199254740992',
+    '/administration/species-strains%2F12']) {
+    assert.equal(classify(path, true, true), false, path);
+  }
+  const route = (path) => {
+    h.context.window.location.pathname = path;
+    return JSON.parse(JSON.stringify(h.context.getCurrentRoute()));
+  };
+  assert.deepEqual(route('/administration/species-strains/12'), {
+    tab: 'admin', boxCode: null, boxId: null, adminSection: 'species', adminSpecies: { kind: 'profile', id: 12 },
+  });
+  assert.deepEqual(route('/administration/species-strains/historical/7/'), {
+    tab: 'admin', boxCode: null, boxId: null, adminSection: 'species', adminSpecies: { kind: 'historical', id: 7 },
+  });
+  assert.deepEqual(route('/administration/species-strains'), {
+    tab: 'admin', boxCode: null, boxId: null, adminSection: 'species',
+  });
+});
+
+test('Species detail opens as an in-app page and Back returns to the list', () => {
+  const h = harness('/administration/species-strains');
+  const app = functionNode('App');
+  h.context.adminSpeciesPath = (target) => (target.kind === 'historical'
+    ? `/administration/species-strains/historical/${target.id}` : `/administration/species-strains/${target.id}`);
+  for (const name of ['openAdminSpecies', 'closeAdminSpecies']) {
+    h.evaluate(app.body.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === name).getText(ast));
+  }
+  h.context.openAdminSpecies({ kind: 'profile', id: 12 });
+  assert.equal(h.path, '/administration/species-strains/12');
+  assert.deepEqual(JSON.parse(JSON.stringify(h.context.route.adminSpecies)), { kind: 'profile', id: 12 });
+  h.context.closeAdminSpecies();
+  h.flush();
+  assert.equal(h.path, '/administration/species-strains');
+  assert.equal(h.context.route.adminSpecies, undefined);
 });

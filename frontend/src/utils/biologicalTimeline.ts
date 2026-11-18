@@ -130,6 +130,7 @@ function toTrendMeasurement(measurement: BiologicalMeasurement): TrendMeasuremen
     salinity: measurement.salinity_psu,
     user_identity: measurement.user_identity,
     note: measurement.notes,
+    isInitial: measurement.origin === 'box_creation',
     environmentLocations: measurement.environment_locations === undefined && measurement.environment_source_box != null
       ? []
       : measurement.environment_locations?.map((location) => ({

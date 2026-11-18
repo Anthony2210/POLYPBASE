@@ -619,7 +619,8 @@ function MeasurementHistoryList({
         const note = (measurement?.notes ?? event?.notes)?.trim() ?? '';
         const isLongNote = note.length > 140;
         const isExpanded = expandedNotes.has(entry.identity);
-        const typeLabel = measurement ? t('auditObjectMeasurement')
+        // Only the explicit Box-creation measurement is the start; others stay records.
+        const typeLabel = measurement ? t(measurement.origin === 'box_creation' ? 'historyInitialMeasurement' : 'auditObjectMeasurement')
           : entry.kind === 'subculture_initialization'
             ? `${timelineLabels.subcultureEvent} — ${t('auditMetaInitialPolypCounts')}`
             : timelineLabels.subcultureEvent;

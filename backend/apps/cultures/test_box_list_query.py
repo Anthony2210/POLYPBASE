@@ -11,14 +11,14 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, connection, transaction
-from django.db.models import F, OuterRef, Prefetch, Q, Subquery, Value
+from django.db.models import F, Max, Min, OuterRef, Prefetch, Q, Subquery, Value
 from django.db.models.functions import Coalesce
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
-from rest_framework.test import APIRequestFactory
+from rest_framework.test import APIRequestFactory, force_authenticate
 
 from apps.accounts.models import OrganizationMembership
 from apps.accounts.permissions import get_authorized_organization_ids
@@ -26,10 +26,10 @@ from apps.measurements.models import BiologicalMeasurement
 from apps.organizations.models import Organization
 from apps.taxonomy.models import Species, Strain
 
-from .api_views import box_list_queryset_for_user
+from .api_views import BoxListAPIView, box_list_queryset_for_user, box_queryset_for_user
 from .models import Box, BoxLocation, SubcultureAllocation, SubcultureEvent, ThermalZone
 from .polyp_state import MEASUREMENT_STATE_ORDER, _measurement_candidates, resolve_current_polyp_state
-from .serializers import BoxListSerializer
+from .serializers import BoxDetailSerializer, BoxListSerializer
 from .services import create_subculture
 
 
@@ -120,6 +120,16 @@ def legacy_box_list_queryset_for_user(user, organization_ids=None):
         .annotate(
             latest_salinity_annotation=latest_salinity,
             current_location_started_at_annotation=current_location_started_at,
+            # Independent oracle for the additive bounds; the relation prefetch
+            # below intentionally contains only one row and is not a history.
+            first_measurement_on_annotation=Min(
+                "biological_measurements__measured_on",
+                filter=Q(biological_measurements__duplicate_of__isnull=True),
+            ),
+            last_measurement_on_annotation=Max(
+                "biological_measurements__measured_on",
+                filter=Q(biological_measurements__duplicate_of__isnull=True),
+            ),
         )
         .prefetch_related(
             *legacy_current_state_prefetches(),
@@ -196,6 +206,106 @@ class BoxListQueryTests(TestCase):
         self.assertTrue(new)
         self.assertEqual(set(new[0]), set(BoxListSerializer.Meta.fields))
         return {row["id"]: row for row in new}
+
+    def test_creation_date_is_serialized_separately_from_entry_date(self):
+        box = self.box()
+        row = self.assert_equivalent()[box.pk]
+        self.assertEqual(row["created_on"], box.created_on.isoformat())
+        self.assertEqual(row["entered_on"], box.entered_on.isoformat())
+        self.assertNotEqual(row["created_on"], row["entered_on"])
+        self.assertTrue(BoxListSerializer().fields["created_on"].read_only)
+
+    def test_measurement_bounds_are_observation_dates_not_technical_dates(self):
+        box = self.box()
+        # Insert out of observation order, with technical timestamps reversed.
+        last = self.measurement(box, days=-14, polyp_count=0, ephyrae_count=0, strobila_count=0)
+        first = self.measurement(box, days=-112)
+        self.measurement(box, days=-42)
+        BiologicalMeasurement.objects.filter(pk=last.pk).update(created_at=self.now - timedelta(days=200))
+        rows = self.assert_equivalent()
+        row = rows[box.pk]
+        self.assertEqual(row["first_measurement_on"], first.measured_on.isoformat())
+        self.assertEqual(row["last_measurement_on"], last.measured_on.isoformat())
+        self.assertEqual(row["latest_measurement"]["polyp_count"], 0)
+        for field in ("created_on", "entered_on"):
+            self.assertNotEqual(row["first_measurement_on"], row[field])
+            self.assertNotEqual(row["last_measurement_on"], row[field])
+        for field in ("first_measurement_on", "last_measurement_on"):
+            self.assertTrue(BoxListSerializer().fields[field].read_only)
+
+    def test_measurement_bounds_inactive_empty_zero_and_active_institution_api(self):
+        inactive = self.box(status=Box.Status.INACTIVE, located=False, stop_reason="Historical stop")
+        observed = self.measurement(inactive, days=-28, polyp_count=0, ephyrae_count=0, strobila_count=0)
+        empty = self.box()
+        foreign = self.box(foreign=True)
+        self.measurement(foreign, days=-700)
+        OrganizationMembership.objects.create(
+            user=self.user, organization=self.foreign_org, role=OrganizationMembership.Role.VIEWER,
+        )
+        request = APIRequestFactory().get("/api/boxes/", HTTP_X_ORGANIZATION_ID=str(self.org.pk))
+        force_authenticate(request, user=self.user)
+        response = BoxListAPIView.as_view()(request)
+        self.assertEqual(response.status_code, 200)
+        payload = response.data["results"] if isinstance(response.data, dict) else response.data
+        rows = {row["id"]: row for row in payload}
+        self.assertEqual(set(rows), {inactive.pk, empty.pk})
+        for field in ("first_measurement_on", "last_measurement_on"):
+            self.assertEqual(rows[inactive.pk][field], observed.measured_on.isoformat())
+            self.assertIsNone(rows[empty.pk][field])
+        self.assertEqual(rows[inactive.pk]["latest_measurement"]["polyp_count"], 0)
+
+    def test_measurement_bounds_exclude_duplicate_evidence_and_other_boxes(self):
+        box = self.box()
+        # Monday and Sunday evidence would extend both ends if not excluded.
+        monday = self.today - timedelta(days=self.today.weekday() + 28)
+        first = self.measurement(box, days=(monday + timedelta(days=2) - self.today).days)
+        last = self.measurement(box, days=(monday + timedelta(days=16) - self.today).days)
+        self.measurement(box, days=(monday - self.today).days, duplicate_of=first)
+        self.measurement(box, days=(monday + timedelta(days=20) - self.today).days, duplicate_of=last)
+        other = self.box()
+        self.measurement(other, days=-700)
+        self.measurement(other, days=70)
+        evidence_only = self.box()
+        self.measurement(evidence_only, days=(monday - self.today).days, duplicate_of=first)
+        boxes = list(self.queryset())
+        with self.assertNumQueries(0):
+            rows = {row["id"]: row for row in BoxListSerializer(
+                boxes, many=True, context=self.context(cached_role=True),
+            ).data}
+        self.assertEqual(rows[box.pk]["first_measurement_on"], first.measured_on.isoformat())
+        self.assertEqual(rows[box.pk]["last_measurement_on"], last.measured_on.isoformat())
+        self.assertIsNone(rows[evidence_only.pk]["first_measurement_on"])
+        self.assertIsNone(rows[evidence_only.pk]["last_measurement_on"])
+
+    def test_measurement_bounds_fallback_is_one_cached_aggregate_even_with_partial_prefetch(self):
+        box = self.box()
+        first = self.measurement(box, days=-84)
+        last = self.measurement(box, days=-14)
+        # Consumers can supply either a bare box or a partial/full prefetch.
+        candidates = [
+            Box.objects.get(pk=box.pk),
+            Box.objects.prefetch_related(Prefetch(
+                "biological_measurements",
+                queryset=BiologicalMeasurement.objects.filter(pk=last.pk),
+            )).get(pk=box.pk),
+            box_queryset_for_user(self.user, [self.org.pk]).get(pk=box.pk),
+        ]
+        for candidate in candidates:
+            with self.subTest(prefetched=hasattr(candidate, "_prefetched_objects_cache")):
+                serializer = BoxDetailSerializer()
+                with CaptureQueriesContext(connection) as queries:
+                    self.assertEqual(serializer.get_first_measurement_on(candidate), first.measured_on.isoformat())
+                    self.assertEqual(serializer.get_last_measurement_on(candidate), last.measured_on.isoformat())
+                self.assertEqual(len(queries), 1)
+                self.assertIn("MIN(", queries[0]["sql"])
+                self.assertIn("MAX(", queries[0]["sql"])
+                with self.assertNumQueries(0):
+                    self.assertEqual(BoxListSerializer().get_first_measurement_on(candidate), first.measured_on.isoformat())
+                    self.assertEqual(BoxListSerializer().get_last_measurement_on(candidate), last.measured_on.isoformat())
+        empty = self.box()
+        with self.assertNumQueries(1):
+            self.assertIsNone(BoxListSerializer().get_first_measurement_on(empty))
+            self.assertIsNone(BoxListSerializer().get_last_measurement_on(empty))
 
     def assert_candidate_and_state_equivalent(self, box, *, candidate_ids, polyp_count, source_kind, source):
         rows = self.assert_equivalent()

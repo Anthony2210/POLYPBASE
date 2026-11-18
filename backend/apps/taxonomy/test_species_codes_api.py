@@ -115,40 +115,42 @@ class SpeciesCodesApiTests(TestCase):
         self.assertEqual(self.post(self.a, {"species": self.other_species.pk, "code": "CCC", "global_identity": 1}).status_code, 400)
         self.assertFalse(OrganizationSpeciesCode.objects.filter(code="CCC").exists())
 
-    def test_update_changes_only_aaa_and_preserves_issued_identifiers(self):
+    def test_assigned_code_is_immutable_and_issued_identifiers_are_preserved(self):
         strain = Strain.objects.create(organization=self.a, species=self.species, code="OLD-1")
         identity = LocalStrainIdentity.objects.create(strain=strain, species_code_assignment=self.a_code)
         box = Box.objects.create(organization=self.a, strain=strain, global_code="OLD-1.001", box_number="001")
         self.client.force_login(self.admin)
         response = self.patch_code(self.a, self.a_code, {"code": "CCC"})
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["error"], "species_code_immutable")
+        # Resubmitting the assigned value is an unchanged read, without audit.
+        response = self.patch_code(self.a, self.a_code, {"code": "AAA"})
+        self.assertEqual((response.status_code, response.json()["code"]), (200, "AAA"))
         self.a_code.refresh_from_db()
         self.species.refresh_from_db()
         strain.refresh_from_db()
         box.refresh_from_db()
         identity.refresh_from_db()
         self.assertEqual(identity.species_code_assignment_id, self.a_code.pk)
-        self.assertEqual(self.a_code.code, "CCC")
+        self.assertEqual(self.a_code.code, "AAA")
         self.assertEqual(self.species.genus_species_code, "OLD")
         self.assertEqual(strain.code, "OLD-1")
         self.assertEqual(box.global_code, "OLD-1.001")
-        audit = AuditLog.objects.get()
-        self.assertEqual((audit.organization_id, audit.user_id, audit.action, audit.object_type),
-                         (self.a.pk, self.admin.pk, AuditLog.Action.UPDATE, "organization_species_code"))
+        self.assertFalse(AuditLog.objects.exists())
         self.assertEqual(self.patch_code(self.a, self.a_code, {"species": self.other_species.pk, "code": "DDD"}).status_code, 400)
         self.assertEqual(self.patch_code(self.a, self.a_code, {"organization": self.b.pk, "code": "DDD"}).status_code, 400)
         self.assertEqual(self.patch_code(self.a, self.a_code, {"code": ""}).status_code, 400)
         self.assertEqual(self.patch_code(self.a, self.a_code, {}).status_code, 400)
         self.a_code.refresh_from_db()
-        self.assertEqual((self.a_code.species_id, self.a_code.code), (self.species.pk, "CCC"))
+        self.assertEqual((self.a_code.species_id, self.a_code.code), (self.species.pk, "AAA"))
 
     def test_foreign_pk_is_not_found_and_duplicate_update_is_rejected(self):
         other = OrganizationSpeciesCode.objects.create(organization=self.a, species=self.other_species, code="CCC")
         self.client.force_login(self.admin)
         self.assertEqual(self.patch_code(self.a, self.b_code, {"code": "DDD"}).status_code, 404)
         response = self.patch_code(self.a, other, {"code": "AAA"})
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("code", response.json())
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["error"], "species_code_immutable")
         other.refresh_from_db()
         self.assertEqual(other.code, "CCC")
         self.assertFalse(AuditLog.objects.exists())
@@ -156,13 +158,12 @@ class SpeciesCodesApiTests(TestCase):
         self.assertEqual(self.client.delete(self.list_url, **self.headers(self.a)).status_code, 405)
 
     @patch("apps.taxonomy.api_views.AuditLog.objects.create", side_effect=RuntimeError("Audit unavailable"))
-    def test_audit_failure_rolls_back_create_and_update(self, create_audit):
+    def test_audit_failure_rolls_back_create_and_update_is_refused(self, create_audit):
         self.client.force_login(self.admin)
         with self.assertRaises(RuntimeError):
             self.post(self.a, {"species": self.other_species.pk, "code": "CCC"})
         self.assertFalse(OrganizationSpeciesCode.objects.filter(organization=self.a, species=self.other_species).exists())
-        with self.assertRaises(RuntimeError):
-            self.patch_code(self.a, self.a_code, {"code": "DDD"})
+        self.assertEqual(self.patch_code(self.a, self.a_code, {"code": "DDD"}).status_code, 409)
         self.a_code.refresh_from_db()
         self.assertEqual(self.a_code.code, "AAA")
 

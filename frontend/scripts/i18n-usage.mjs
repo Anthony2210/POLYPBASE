@@ -2,9 +2,11 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import { retainedSpeciesCopy } from './species-strains-retained-copy.mjs';
 
 // Exact keys only. These are retention decisions, not evidence of source use.
 export const usageExceptions = Object.freeze({
+  ...retainedSpeciesCopy,
   auditSummaryAlertResolved: 'B03/B06 preservation decision: retain the legacy alert summary; current audit rendering uses auditDescriptionAlertResolved.',
   adminTransferText: 'B01 deferred transfer introduction (register T012); B03/B06 explicitly preserve it pending a transfer-screen decision.',
   manualTemperatureForbidden: 'B02 deferred legacy temperature refusal with no source usage; B03/B06 explicitly preserve it pending permission-copy review.',

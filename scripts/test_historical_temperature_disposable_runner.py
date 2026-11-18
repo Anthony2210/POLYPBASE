@@ -2,13 +2,16 @@
 
 from copy import deepcopy
 import importlib
+import os
 from pathlib import Path
+import subprocess
 import sys
 import unittest
 from unittest.mock import Mock, call, patch
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import historical_temperature_cluster_lease as cluster_lease
 import historical_temperature_disposable_runner as runner
 
@@ -205,13 +208,18 @@ class DisposableCreationTests(unittest.TestCase):
         other = ("other_app", "0002_other")
         executor = self.executor_type.return_value
         executor.loader.graph.leaf_nodes.return_value = [runner.MIGRATION, other]
+        executor.loader.graph.forwards_plan.side_effect = lambda node: {
+            runner.PREVIOUS: [runner.PREVIOUS],
+            runner.MIGRATION: [runner.PREVIOUS, runner.MIGRATION],
+            other: [other],
+        }[node]
         events = []
 
         def pre_migrate(targets):
             self.assertEqual(self.config["USER"], runner.contract.RUNTIME)
             self.assertEqual(self.config["NAME"], "test_subculture_qa")
             self.assertEqual(self.config["OPTIONS"], self.original["OPTIONS"])
-            self.assertEqual(targets, [runner.PREVIOUS, other])
+            self.assertEqual(targets, [other, runner.PREVIOUS])
             events.append("runtime")
 
         def provision():
@@ -243,7 +251,9 @@ class DisposableCreationTests(unittest.TestCase):
         self.provision.side_effect = provision
         self.base_lifecycle.side_effect = actual_django_create
         self.attest.side_effect = attest
-        self.assertEqual(self.creation.create_test_db(verbosity=1, keepdb=False), "test_subculture_qa")
+        with patch.object(runner, "historical_targets", wraps=runner.historical_targets) as targets:
+            self.assertEqual(self.creation.create_test_db(verbosity=1, keepdb=False), "test_subculture_qa")
+        targets.assert_called_once_with(executor.loader, {"measurements"}, [runner.PREVIOUS])
         self.assertEqual(events, ["runtime", "administrator", "migrator-owner", "attest"])
         self.base_lifecycle.assert_called_once_with(verbosity=1, keepdb=False)
         self.base_create.assert_called_once_with(1, False, False)
@@ -312,6 +322,66 @@ class DisposableCreationTests(unittest.TestCase):
                 self.connect.assert_not_called()
 
 
+class ActualMigrationGraphTests(unittest.TestCase):
+    def test_pre_capability_bootstrap_excludes_descendant_0019_in_actual_graph(self):
+        root = Path(__file__).resolve().parents[1]
+        environment = {
+            key: value for key, value in os.environ.items()
+            if key.upper() in {"SYSTEMROOT", "WINDIR", "SYSTEMDRIVE", "TEMP", "TMP", "PATH"}
+        }
+        environment.update(
+            PYTHON_DOTENV_DISABLED="1", POLYPBASE_TEST_POSTGRES="0", DJANGO_DEBUG="1",
+            DJANGO_SETTINGS_MODULE="config.test_settings",
+            PYTHONPATH=os.pathsep.join((str(root / "backend"), str(root / "scripts"))),
+        )
+        result = subprocess.run(
+            [sys.executable, "-B", "-c", r'''
+from unittest.mock import Mock, patch
+import dotenv
+with patch.object(dotenv, "load_dotenv", return_value=False), patch(
+    "psycopg.connect", side_effect=AssertionError("Graph regression must not connect")
+):
+    import django
+    django.setup()
+    from django.conf import settings
+    from django.db.migrations.loader import MigrationLoader
+    import historical_temperature_disposable_runner as runner
+
+    assert settings.DATABASES["default"]["ENGINE"] == "django.db.backends.sqlite3"
+    loader = MigrationLoader(None)
+    descendant = ("measurements", "0019_box_creation_initial_origin")
+    assert descendant in loader.graph.nodes
+    assert runner.MIGRATION in loader.graph.forwards_plan(descendant)
+    executor = Mock(loader=loader)
+    connection = Mock(settings_dict={
+        "NAME": "subculture_qa", "USER": "subculture_qa", "OPTIONS": {},
+        "TEST": {"NAME": "test_subculture_qa"},
+    })
+    creation = runner.DisposableCreation(connection)
+    with patch.object(creation, "admin_connection") as admin, patch.object(
+        runner.DatabaseCreation, "_create_test_db", return_value="test_subculture_qa"
+    ), patch.object(runner, "MigrationExecutor", return_value=executor), patch.object(
+        runner.contract, "provision_sql", return_value="OFFLINE PROVISION"
+    ):
+        admin.return_value.__enter__.return_value.execute.return_value.fetchone.return_value = None
+        creation._create_test_db(0, False)
+
+    targets = executor.migrate.call_args.args[0]
+    projected = {node for target in targets for node in loader.graph.forwards_plan(target)}
+    expected = {node for node in loader.graph.forwards_plan(runner.PREVIOUS)
+                if node[0] == "measurements"}
+    assert runner.PREVIOUS in targets
+    assert runner.MIGRATION not in projected
+    assert descendant not in projected
+    assert {node for node in projected if node[0] == "measurements"} == expected
+    print("Actual graph excludes capability and descendant 0019 before provisioning")
+'''],
+            cwd=root, env=environment, capture_output=True, text=True, timeout=60,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Actual graph excludes capability and descendant 0019", result.stdout)
+
+
 class DisposableRunnerTests(unittest.TestCase):
     def test_forged_context_refused_before_connections_or_base_setup(self):
         with patch.object(cluster_lease, "_active_launch", None), \
@@ -348,11 +418,23 @@ class DisposableRunnerTests(unittest.TestCase):
 
             connections.__getitem__.side_effect = get_connection
             setup.side_effect = base_setup
-            self.assertEqual(runner.DisposableRunner(verbosity=0).setup_databases(
-                aliases={"default"}), "database configuration")
-        self.assertEqual(events, ["launch", "connection", "setup"])
+            with patch("config.disposable_postgres.install_disposable_flush",
+                       side_effect=lambda: events.append("flush")):
+                self.assertEqual(runner.DisposableRunner(verbosity=0).setup_databases(
+                    aliases={"default"}), "database configuration")
+        # Cleanup is installed only once the verified test database exists.
+        self.assertEqual(events, ["launch", "connection", "setup", "flush"])
         setup.assert_called_once_with(aliases={"default"})
         connect.assert_not_called()
+
+    def test_teardown_restores_flush_before_destroying_databases(self):
+        events = []
+        with patch("config.disposable_postgres.uninstall_disposable_flush",
+                   side_effect=lambda: events.append("restore")), \
+                patch.object(runner.DiscoverRunner, "teardown_databases",
+                             side_effect=lambda config, **kwargs: events.append(("teardown", config))):
+            runner.DisposableRunner(verbosity=0).teardown_databases("database configuration")
+        self.assertEqual(events, ["restore", ("teardown", "database configuration")])
 
 
 if __name__ == "__main__":

@@ -11,9 +11,12 @@ from apps.accounts.permissions import user_can_write_lab_data
 from apps.audit.models import AuditLog
 from apps.taxonomy.scoping import eligible_strains
 
-from .box_codes import allocate_box_codes
+from .box_codes import allocate_box_codes, lock_local_id_registry
 from .polyp_state import resolve_current_polyp_state
-from .models import Box, BoxLineage, BoxLocation, BoxMovement, SubcultureAllocation, SubcultureEvent, ThermalZone
+from .models import (
+    Box, BoxGlobalIdentity, BoxLineage, BoxLocation, BoxMovement, SubcultureAllocation, SubcultureEvent, ThermalZone,
+    new_box_global_identity,
+)
 
 LINEAGE_GRAPH_MAX_NODES = 250
 _EXPECTED_THERMAL_ZONE_UNSET = object()
@@ -68,6 +71,7 @@ def check_ordinary_movement_week(*, box, moved_at, movement=None):
 
 
 def _locked_box(box):
+    lock_local_id_registry()
     box = (
         # Lock the box, not the nullable location side of the outer join.
         Box.objects.select_for_update(of=("self",))
@@ -404,6 +408,8 @@ def create_subculture(*, parent_box, user, organization, expected_current_state_
             volume_liters=parent_box.volume_liters if child_data.get("copy_volume_liters", True) else None,
             thermal_zone=thermal_zone, entered_on=event_date,
             notes=child_data.get("notes", ""), polyp_state_revision=1,
+            # A subculture child is a new physical Box with its own Global ID.
+            global_identity=new_box_global_identity(BoxGlobalIdentity.AllocationReason.SUBCULTURE),
         )
         allocation = SubcultureAllocation.objects.create(
             event=event, child_box=child_box, position=position,
@@ -425,7 +431,8 @@ def create_subculture(*, parent_box, user, organization, expected_current_state_
             "parent_state_snapshot": state, "parent_polyp_count_before": state["polyp_count"],
             "allocated_polyp_count": total, "parent_polyp_count_after": event.parent_polyp_count_after,
             "child_box_ids": [box.pk for box in child_boxes],
-            "child_global_codes": [box.global_code for box in child_boxes], "allocations": allocations,
+            "child_global_codes": [box.global_code for box in child_boxes],
+            "child_global_ids": [str(box.global_identity_id) for box in child_boxes], "allocations": allocations,
         },
     )
     return event, child_boxes

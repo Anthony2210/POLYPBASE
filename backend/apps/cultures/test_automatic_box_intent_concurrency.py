@@ -10,8 +10,10 @@ from rest_framework.exceptions import PermissionDenied
 
 from apps.accounts.models import OrganizationMembership
 from apps.audit.models import AuditLog
+from apps.measurements.models import BiologicalMeasurement
 from apps.organizations.models import Organization
 from apps.taxonomy.models import Strain
+from config.disposable_postgres import DisposablePostgresFlushMixin
 
 from . import automatic_box_creation as service
 from . import test_automatic_box_concurrency as legacy_concurrency
@@ -20,7 +22,7 @@ from .test_automatic_box_intents import AutomaticBoxIntentFixture
 
 
 @skipUnless(connection.vendor == "postgresql", "Requires disposable PostgreSQL and real row locks.")
-class AutomaticBoxIntentConcurrencyTests(AutomaticBoxIntentFixture, TransactionTestCase):
+class AutomaticBoxIntentConcurrencyTests(AutomaticBoxIntentFixture, DisposablePostgresFlushMixin, TransactionTestCase):
     ordered = legacy_concurrency.AutomaticBoxConcurrencyTests.ordered
 
     def setUp(self):
@@ -47,12 +49,15 @@ class AutomaticBoxIntentConcurrencyTests(AutomaticBoxIntentFixture, TransactionT
         self.assertFalse(receipt.cancelled)
         self.assertIsNone(receipt.failure)
         self.assertEqual((AutomaticBoxCreationRequest.objects.count(), Box.objects.count(),
-                          BoxLocation.objects.count(), AuditLog.objects.count()), (1, 1, 1, 1))
+                          BoxLocation.objects.count(), AuditLog.objects.count()), (1, 1, 1, 2))
         self.assertEqual(receipt.box.global_code, "AUT-LAB-1.001")
         location = BoxLocation.objects.get(box_id=receipt.box_id)
         self.assertEqual(location.thermal_zone_id, self.zone.pk)
         self.assertIsNone(location.ends_at)
-        audit = AuditLog.objects.get()
+        audit = AuditLog.objects.get(action="creation")
+        measurement = BiologicalMeasurement.objects.get(box_id=receipt.box_id)
+        self.assertEqual((measurement.origin, measurement.polyp_count), ("box_creation", 12))
+        self.assertEqual(AuditLog.objects.filter(action="entry").count(), 1)
         self.assertEqual((audit.organization_id, audit.user_id, audit.metadata["box_id"]),
                          (self.org.pk, self.user.pk, receipt.box_id))
         self.assertEqual(BoxCodeNamespace.objects.get().high_water, 1)
@@ -186,7 +191,7 @@ class AutomaticBoxIntentConcurrencyTests(AutomaticBoxIntentFixture, TransactionT
             self.assertEqual(BoxLocation.objects.get(box_id=receipt.box_id).thermal_zone_id, self.zone.pk)
         self.assertEqual(set(Box.objects.values_list("global_code", flat=True)), {"AUT-LAB-1.001", "AUT-LAB-2.001"})
         self.assertEqual((Box.objects.count(), BoxLocation.objects.count(), AuditLog.objects.count(),
-                          AutomaticBoxCreationRequest.objects.count()), (2, 2, 2, 2))
+                          AutomaticBoxCreationRequest.objects.count()), (2, 2, 4, 2))
         self.assertEqual(list(BoxCodeNamespace.objects.order_by("pk").values_list("high_water", flat=True)), [1, 1])
         before = self.snapshot()
         self.assertEqual(self.execute().box_id, first_result.box_id)
@@ -224,7 +229,7 @@ class AutomaticBoxIntentConcurrencyTests(AutomaticBoxIntentFixture, TransactionT
         self.assertEqual((first.box.global_code, second.box.global_code), ("AUT-LAB-1.001", "AUT-LAB-1.002"))
         self.assertEqual((first.box.box_number, second.box.box_number), ("001", "002"))
         self.assertFalse(AutomaticBoxCreationRequest.objects.filter(cancelled=True).exists())
-        self.assertEqual((Box.objects.count(), BoxLocation.objects.count(), AuditLog.objects.count()), (2, 2, 2))
+        self.assertEqual((Box.objects.count(), BoxLocation.objects.count(), AuditLog.objects.count()), (2, 2, 4))
         self.assertEqual(BoxCodeNamespace.objects.get().high_water, 2)
 
     def test_permission_revocation_serializes_before_waiting_register_execute_and_cancel(self):

@@ -253,6 +253,7 @@ def before_b30(source, rows, language="EN"):
     A key removed by B31 must already be absent from the catalog: an absent
     removed key is a recorded removal, not an unrecorded missing translation.
     """
+    source = before_species_integration(source, rows, language)
     removed = {(row["key_or_msgid"], row["language"]) for row in b31_events(rows)}
     for row in reversed(b30_events(rows)):
         if row["surface"] != "react" or row["language"] != language:
@@ -338,6 +339,39 @@ def integration_integrity_errors(rows):
     return errors
 
 
+SPECIES_EVIDENCE_PATH = Path(__file__).with_name("species-strains-integration.json")
+SPECIES_EVIDENCE_SHA256 = "47962b35ca993a2db7b4b08f63045a793262c8717e70532c9b84e80526748861"
+_evidence_bytes = SPECIES_EVIDENCE_PATH.read_bytes().replace(b"\r\n", b"\n")
+assert hashlib.sha256(_evidence_bytes).hexdigest() == SPECIES_EVIDENCE_SHA256
+SPECIES_EVIDENCE = json.loads(_evidence_bytes)
+
+
+def species_integration_errors(rows):
+    """Freeze all main events and all fields of the reviewed integration tail."""
+    errors = []
+    if rows_digest(rows[:1459]) != SPECIES_EVIDENCE["main_register_rows_sha256"]:
+        errors.append("Species integration: complete main history was modified")
+    if rows_digest(rows[1459:1731]) != SPECIES_EVIDENCE["integrated_register_rows_sha256"]:
+        errors.append("Species integration: appended events were modified")
+    protected_batches = {f"B{n}-2026-11-17" for n in range(32, 43)}
+    if any(row["batch"] in protected_batches or int(row["entry_id"][1:]) <= 1731 for row in rows[1731:]):
+        errors.append("Species integration: frozen history gained a member")
+    return errors
+
+
+def before_species_integration(source, rows, language="EN"):
+    """Reverse exact feature lines only; unknown edits remain fingerprinted."""
+    assert rows_digest(rows[1459:1731]) == SPECIES_EVIDENCE["integrated_register_rows_sha256"], "Species integration history was modified"
+    language = language.lower()
+    for line in SPECIES_EVIDENCE["catalog_additions"][language]:
+        assert source.count(line) == 1, line
+        source = source.replace(line, "")
+    for change in SPECIES_EVIDENCE["catalog_changes"][language]:
+        assert source.count(change["after"]) == 1, change["key"]
+        source = source.replace(change["after"], change["before"])
+    return source
+
+
 class IntegrationHistoryTests(unittest.TestCase):
     def test_original_source_evidence_is_complete_and_independently_frozen(self):
         sources = {}
@@ -366,6 +400,29 @@ class IntegrationHistoryTests(unittest.TestCase):
         self.assertEqual(rows_digest(rows[:1060]), MAIN_HISTORY_SHA256)
         self.assertEqual(integration_integrity_errors(rows), [])
 
+    def test_species_integration_preserves_main_bytes_and_rejects_mutation(self):
+        rows = reg.load_register()
+        prefix = b"".join(reg.REGISTER.read_bytes().replace(b"\r\n", b"\n").splitlines(keepends=True)[:1460])
+        self.assertEqual(hashlib.sha256(prefix).hexdigest(), SPECIES_EVIDENCE["main_register_bytes_sha256"])
+        self.assertEqual(species_integration_errors(rows), [])
+        for index in (0, 1100, 1401, 1458, 1459, 1600, 1730):
+            for field in reg.COLUMNS:
+                changed = rows.copy()
+                changed[index] = dict(rows[index])
+                changed[index][field] += " altered"
+                self.assertTrue(species_integration_errors(changed), (index, field))
+            self.assertTrue(species_integration_errors(rows[:index] + rows[index + 1:]))
+        self.assertTrue(species_integration_errors(rows + [dict(rows[-1], entry_id="T1732")]))
+        for language in ("FR", "EN"):
+            source = (reg.ROOT / f"frontend/src/i18n/{language.lower()}.ts").read_text(encoding="utf-8")
+            restored = before_species_integration(source, rows, language)
+            for line in SPECIES_EVIDENCE["catalog_additions"][language.lower()]:
+                for replacement in ("", line + line, line.replace(": '", ": 'changed ")):
+                    with self.assertRaises(AssertionError):
+                        before_species_integration(source.replace(line, replacement), rows, language)
+            extra = "  unapprovedKey: 'Unapproved',\n"
+            self.assertEqual(before_species_integration(source + extra, rows, language), restored + extra)
+
     def test_thermal_source_mapping_changes_only_entry_id_and_batch(self):
         source = reg.load_register(integration_evidence("thermal"))[1010:]
         projected = reg.load_register()[1060:1086]
@@ -386,8 +443,9 @@ class IntegrationHistoryTests(unittest.TestCase):
 
     def test_integration_has_exact_count_unique_ordered_ids_and_chronology(self):
         rows = reg.load_register()
-        self.assertEqual(len(rows), 1459)
-        self.assertEqual([row["entry_id"] for row in rows], [f"T{n:03d}" for n in range(1, 1460)])
+        self.assertEqual(len(rows), 1731)
+        self.assertEqual([row["entry_id"] for row in rows], [f"T{n:03d}" for n in range(1, 1732)])
+        self.assertEqual(species_integration_errors(rows), [])
         self.assertEqual(rows_digest(rows[:1100]), PRE_B29_ROWS_SHA256)
         self.assertEqual(integration_integrity_errors(rows), [])
         b29 = b29_events(rows)
@@ -404,7 +462,7 @@ class IntegrationHistoryTests(unittest.TestCase):
         self.assertEqual(len(b31), 2)
         self.assertEqual([(row["key_or_msgid"], row["language"], row["status"]) for row in b31],
                          [("dnaStateValidated", "FR", "REMOVED"), ("dnaStateValidated", "EN", "REMOVED")])
-        self.assertEqual(Counter(row["batch"] for row in rows[1010:]),
+        self.assertEqual(Counter(row["batch"] for row in rows[1010:1459]),
                          Counter({"B20-2026-11-09": 6, "B21-2026-11-09": 20, "B22-2026-11-10": 6, "B23-2026-11-10": 12, "B24-2026-11-10": 6, INTEGRATION_B25: 26, B26: 8, B27: 4, "B28-2026-11-11": 2, B29: 301, B30: 56, B31: 2}))
         self.assertEqual(len(b26_events(rows)), 8)
         self.assertEqual(len(b27_events(rows)), 4)
@@ -468,20 +526,22 @@ class IntegrationHistoryTests(unittest.TestCase):
         original = reg.load_register()
         # The latest events are B31 removals; a correction must target a live identity.
         row = next(entry for entry in reversed(original) if entry["status"] != "REMOVED")
-        correction = dict(row, entry_id="T1460", batch="B32-2026-11-17", status="APPLIED",
+        next_id = max(int(entry["entry_id"][1:]) for entry in original) + 1
+        correction = dict(row, entry_id=f"T{next_id}", batch="B43-2026-11-17", status="APPLIED",
                           baseline_git_head=HEAD_2, decision_ref="synthetic-future-correction",
                           initial_value=row["final_value"], final_value=row["final_value"] + " corrected")
         appended = original + [correction]
         state = lambda event: (reg.SourceState(True, correction["final_value"])
                                if reg.identity(event) == reg.identity(correction) else reg.read_source_state(event))
         self.assertEqual(integration_integrity_errors(appended), [])
+        self.assertEqual(species_integration_errors(appended), [])
         self.assertEqual(reg.check_chronology(appended), [])
         self.assertEqual(reg.validate(appended, state), [])
         variants = {
             "reopened B28": (original + [dict(correction, batch="B28-2026-11-11")], "is split"),
             "reopened B29": (original + [dict(correction, batch=B29)], "several baseline_git_head"),
-            "split B29": (appended + [dict(correction, entry_id="T1461", batch=B29)], "is split"),
-            "mixed B32 baselines": (appended + [dict(correction, entry_id="T1461", baseline_git_head=HEAD_1)],
+            "split B29": (appended + [dict(correction, entry_id=f"T{next_id + 1}", batch=B29)], "is split"),
+            "mixed future baselines": (appended + [dict(correction, entry_id=f"T{next_id + 1}", baseline_git_head=HEAD_1)],
                                     "several baseline_git_head"),
         }
         for label, (changed, expected) in variants.items():
@@ -1267,8 +1327,10 @@ class RealRegisterTests(unittest.TestCase):
             source = (reg.ROOT / f"frontend/src/i18n/{language.lower()}.ts").read_text(encoding="utf-8")
             restored = before_b30(source, rows, language)
             self.assertNotEqual(restored, source)
-            # Exactly the 21 active DNA keys leave the catalog; the B31 removal stays absent.
-            self.assertEqual(len(source.splitlines()) - len(restored.splitlines()), 21)
+            # Reverse the frozen feature layer, then exactly 21 active DNA keys.
+            # The registered English rewording changes no line count; B31 stays absent.
+            self.assertEqual(len(SPECIES_EVIDENCE["catalog_additions"][language.lower()]), 266)
+            self.assertEqual(len(source.splitlines()) - len(restored.splitlines()), 266 + 21)
             for key in active:
                 self.assertNotIn(f"  {key}: ", restored)
             self.assertNotIn("  dnaStateValidated: ", restored)

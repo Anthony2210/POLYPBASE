@@ -1,6 +1,11 @@
 import uuid
 
+from django.conf import settings
 from django.db import models
+from django.db.models.functions import Lower
+from django.db.models.lookups import Exact
+
+from .species_names import ScientificNameKey
 
 
 class Taxon(models.Model):
@@ -27,6 +32,84 @@ class Species(models.Model):
     worms_aphia_id = models.PositiveIntegerField(null=True, blank=True, unique=True)
     is_described = models.BooleanField(default=True)
     notes = models.TextField(blank=True)
+
+    class Meta:
+        constraints = [
+            # Scientific identity ignores letter case; exact uniqueness stays on the field.
+            models.UniqueConstraint(
+                Lower("scientific_name"),
+                name="unique_species_scientific_name_ci",
+            ),
+            models.UniqueConstraint(
+                ScientificNameKey("scientific_name"),
+                name="unique_species_scientific_name_normalized",
+            ),
+        ]
+
+    def __str__(self):
+        return self.scientific_name
+
+
+class InstitutionSpeciesQuerySet(models.QuerySet):
+    def for_organization(self, organization):
+        if organization is None or organization.pk is None:
+            return self.none()
+        return self.filter(organization_id=organization.pk)
+
+    def compare_and_swap(self, *, organization, pk, expected_revision, scientific_name, worms_aphia_id):
+        """Internal persistence primitive, not an authorized editing workflow.
+
+        The future caller must authorize, validate WoRMS and audit in its own
+        transaction. A stale revision or foreign institution changes zero rows.
+        No reference, code assignment or historical identity is modified.
+        """
+        if type(expected_revision) is not int or expected_revision < 1:
+            raise ValueError("A positive expected revision is required.")
+        return self.for_organization(organization).filter(pk=pk, revision=expected_revision).update(
+            scientific_name=scientific_name,
+            worms_aphia_id=worms_aphia_id,
+            revision=models.F("revision") + 1,
+        )
+
+
+class InstitutionSpecies(models.Model):
+    """Inactive foundation for institution-owned information, not a new identity."""
+
+    organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.PROTECT,
+        related_name="institution_species",
+    )
+    species = models.ForeignKey(
+        Species, on_delete=models.PROTECT, related_name="institution_information",
+    )
+    scientific_name = models.CharField(max_length=150)
+    worms_aphia_id = models.PositiveIntegerField(null=True, blank=True)
+    revision = models.PositiveBigIntegerField(default=1, editable=False)
+
+    objects = InstitutionSpeciesQuerySet.as_manager()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "species"], name="unique_institution_species_reference",
+            ),
+            models.UniqueConstraint(
+                "organization", ScientificNameKey("scientific_name"),
+                name="unique_institution_species_name",
+            ),
+            models.CheckConstraint(
+                condition=~Exact(ScientificNameKey("scientific_name"), models.Value("")),
+                name="institution_species_name_not_empty",
+            ),
+            models.CheckConstraint(
+                condition=(models.Q(worms_aphia_id__isnull=True)
+                           | models.Q(worms_aphia_id__gte=1, worms_aphia_id__lte=2147483647)),
+                name="institution_species_aphia_positive",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(revision__gte=1), name="institution_species_revision_positive",
+            ),
+        ]
 
     def __str__(self):
         return self.scientific_name
@@ -80,6 +163,11 @@ class OrganizationProvenanceCode(models.Model):
         related_name="local_code_assignments",
     )
     code = models.CharField(max_length=3)
+    # ISO 3166-1 alpha-2 country of the collection location. Within one
+    # institution a country has exactly one BBB and a BBB exactly one country
+    # (with the two constraints above). NULL: no country recorded (legacy rows
+    # are never assigned one implicitly).
+    country_code = models.CharField(max_length=2, null=True, blank=True, editable=False)
 
     class Meta:
         constraints = [
@@ -90,6 +178,15 @@ class OrganizationProvenanceCode(models.Model):
             models.UniqueConstraint(
                 fields=["organization", "code"],
                 name="unique_provenance_code_per_organization_code",
+            ),
+            models.UniqueConstraint(
+                fields=["organization", "country_code"],
+                condition=models.Q(country_code__isnull=False),
+                name="unique_provenance_code_per_organization_country",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(country_code__isnull=True) | models.Q(country_code__regex=r"^[A-Z]{2}$"),
+                name="provenance_country_code_format",
             ),
         ]
 
@@ -129,6 +226,10 @@ class Origin(models.Model):
         DONATION = "donation", "Donation"
         EXCHANGE = "exchange", "Exchange"
         UNKNOWN = "unknown", "Unknown"
+        ARTIFICIAL_FERTILIZATION_WILD = "artificial_fertilization_wild", "Artificial fertilization from wild individuals"
+        ARTIFICIAL_FERTILIZATION_CAPTIVE = (
+            "artificial_fertilization_captive", "Artificial fertilization from captive individuals",
+        )
 
     source_type = models.CharField(
         max_length=40,
@@ -252,6 +353,72 @@ class LocalStrainIdentity(models.Model):
         blank=True,
         related_name="local_strain_identities",
     )
+
+
+class InstitutionStrainCreationRequest(models.Model):
+    """Durable idempotency receipt for institutional Strain creation.
+
+    One row records one successful creation, scoped to the institution, the actor
+    and the client request key. A replay with the same key and the same normalized
+    intent returns the recorded Strain; a different intent is an explicit conflict.
+    The row is written in the creation transaction, so a rollback leaves no false
+    success and no counter, location, identity or audit is duplicated on replay.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.PROTECT,
+        related_name="institution_strain_creation_requests",
+    )
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name="institution_strain_creation_requests",
+    )
+    request_id = models.UUIDField()
+    intent = models.JSONField()
+    strain = models.OneToOneField(
+        Strain, on_delete=models.PROTECT, related_name="institution_creation_request",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "actor", "request_id"],
+                name="unique_institution_strain_request",
+            ),
+        ]
+
+
+class SpeciesCodeChangeRequest(models.Model):
+    """Successful code-change receipt; intent and result survive later renames.
+
+    LocalStrainIdentity references the same assignment row, not its old literal
+    code. Historical literals belong in aliases and this operation's result.
+    """
+
+    organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.PROTECT,
+        related_name="species_code_change_requests",
+    )
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name="species_code_change_requests",
+    )
+    profile = models.ForeignKey(
+        InstitutionSpecies, on_delete=models.PROTECT, related_name="code_change_requests",
+    )
+    request_id = models.UUIDField()
+    intent = models.JSONField()
+    result = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "actor", "request_id"],
+                name="unique_species_code_change_request",
+            ),
+        ]
 
 
 class StrainTranslation(models.Model):

@@ -32,6 +32,7 @@ async function ready(h = createBoxHarness(), strains = references()) {
   await h.panel.settle();
   h.panel.click(options(h)[0]);
   h.panel.change(field(h, 'location'), '10');
+  h.panel.change(field(h, 'initial-polyps'), '5');
   assert.equal(save(h).disabled, false);
   return h;
 }
@@ -51,6 +52,14 @@ function key(h, name) {
   return event;
 }
 describe('Actual extracted CreateBoxPanel', () => {
+  test('initial count has no explanatory hint or dangling accessible description', async () => {
+    const h = await ready();
+    assert.equal(h.panel.nodes.some(node => node.props.id === 'create-box-initial-polyps-hint'), false);
+    assert.equal(panelText(h).includes('createBoxInitialPolypsHint'), false);
+    const input = field(h, 'initial-polyps');
+    assert.equal(input.props['aria-describedby'], undefined);
+    h.unmount();
+  });
   test('inline starts closed, requests options/strains only on open, and ignores controlled isOpen', async () => {
     const h = createBoxHarness({ presentation: 'inline', isOpen: true, exportOptions: null });
     assert.equal(h.panel.form, undefined);
@@ -357,6 +366,7 @@ describe('Actual extracted CreateBoxPanel', () => {
     await h.panel.settle();
     h.panel.click(options(h)[0]);
     edit(h, 'location', '10');
+    edit(h, 'initial-polyps', '3');
     const { pending } = await beginMutation(h);
     h.mutations[0].resolve({ id: 77, global_code: 'AUR-ATL-1.001', box_number: '001', strain: { id: 1 }, species: { scientific_name: 'Aurelia aurita' } });
     await pending;
@@ -437,6 +447,209 @@ describe('Actual extracted CreateBoxPanel', () => {
       ? 'Ce compte ne peut pas créer de boîte. Merci de contacter un administrateur.'
       : 'This account cannot create boxes. Please contact your administrator.']);
     h.unmount();
+  });
+});
+
+describe('Contextual locked New Box', () => {
+  const locked = (props = {}, config = {}) => createBoxHarness({ lockStrain: true, initialStrainId: 2, ...props }, config);
+  const fill = h => {
+    edit(h, 'location', '10');
+    edit(h, 'initial-polyps', '0');
+  };
+
+  for (const [language, legend, label, status] of [
+    ['fr', 'Souche sélectionnée', 'Souche', 'Cette souche est fixée pour la création.'],
+    ['en', 'Selected strain', 'Strain', 'This strain is fixed for this creation.'],
+  ]) {
+    for (const name of ['  Coastal culture  ', '', '   ']) test(`${language}: locked summary uses ${name.trim() ? 'trimmed name' : 'server strain-number fallback'} (${JSON.stringify(name)})`, async () => {
+      const env = createBoxEnvironment();
+      const { createTranslator } = env.load('../src/i18n/index.ts');
+      const h = locked({ t: createTranslator(language) }, { environment: env });
+      assert.equal(h.panel.byClass('create-box-selected-strain'), undefined);
+      h.env.requests[0].resolve([strainOption(2, {
+        name, code: 'SERVER-ATL-42',
+        identity: { ...complete('SERVER-ATL-42', '42'), species_code: 'AAA' },
+      })]);
+      await h.panel.settle();
+      const summary = h.panel.byClass('create-box-selected-strain');
+      const identity = h.panel.byClass('create-box-selected-strain-identity');
+      const lockedLegend = h.panel.nodes.find(node => node.type === 'legend');
+      assert.equal(text(lockedLegend), legend);
+      assert.equal(lockedLegend.props.className, 'create-box-locked-strain-legend');
+      assert.equal(text(identity.children[0]), 'Aurelia aurita');
+      assert.equal(identity.children[0].children[0].type, 'em');
+      assert.equal(text(identity.children[1]), `${name.trim() || `${label} 42`} (SERVER-ATL-42)`);
+      const fixedStatus = summary.children.find(node => node.props.role === 'status');
+      assert.equal(text(fixedStatus), status);
+      assert.equal(fixedStatus.props.className, 'sr-only');
+      const lock = lockedLegend.children[0].children.at(-1);
+      assert.equal(lock.type, 'LockKeyhole');
+      assert.equal(lock.props['aria-hidden'], 'true');
+      assert.equal(summary.querySelectorAll('*').some(node => node.type === 'LockKeyhole'), false);
+      assert.equal(summary.querySelectorAll('*').some(node => node.props.title || ['button', 'input', 'select'].includes(node.type)), false);
+      assert.equal(search(h), undefined);
+      assert.equal(options(h).length, 0);
+      assert.equal(h.panel.nodes.some(node => node.props.role === 'listbox'), false);
+      h.unmount();
+    });
+  }
+
+  test('loading hides the selector and cannot submit before eligible options arrive', async () => {
+    const h = locked();
+    fill(h);
+    assert.ok(panelText(h).includes('loading'));
+    assert.equal(h.env.requests[0].options.cache, 'no-store', 'Fresh eligibility must not share a pre-mutation request');
+    assert.equal(search(h), undefined);
+    assert.equal(options(h).length, 0);
+    await h.panel.submit();
+    assert.equal(h.mutations.length, 0);
+    h.env.requests[0].resolve(references(2, 'AUR-ATL-2'));
+    await h.panel.settle();
+    assert.equal(save(h).disabled, false);
+    assert.ok(panelText(h).includes('Aurelia aurita'));
+    assert.ok(panelText(h).includes('AUR-ATL-2'));
+    assert.equal(search(h), undefined);
+    assert.equal(options(h).length, 0);
+    const { pending } = await beginMutation(h);
+    assert.equal(h.mutations[0].payload.strain, 2);
+    assert.equal(h.mutations[0].payload.initial_polyp_count, 0);
+    h.mutations[0].resolve({ ...created(), strain: { id: 2 } });
+    await pending;
+    await h.panel.settle();
+    h.panel.click(h.panel.byClass('create-box-another'));
+    assert.equal(search(h), undefined);
+    assert.equal(field(h, 'initial-polyps').props.value, '');
+    fill(h);
+    assert.equal(save(h).disabled, false);
+    h.unmount();
+  });
+
+  for (const kind of ['empty', 'missing', 'unusable', 'no context']) test(`${kind} never falls back to another strain`, async () => {
+    const h = locked(kind === 'no context' ? { initialStrainId: null } : {});
+    fill(h);
+    const result = kind === 'empty' ? [] : kind === 'unusable'
+      ? [strainOption(2, { identity: { status: 'unusable', reason: 'incomplete' } }), strainOption(1)]
+      : references(1);
+    h.env.requests[0].resolve(result);
+    await h.panel.settle();
+    assert.ok(panelText(h).includes('createBoxNoOptions'));
+    assert.equal(search(h), undefined);
+    assert.equal(h.panel.byClass('create-box-selected-strain'), undefined);
+    assert.equal(save(h).disabled, true);
+    await h.panel.submit();
+    assert.equal(h.mutations.length, 0);
+    h.unmount();
+  });
+
+  test('load failure stays blocked; retry selects only the exact server identity', async () => {
+    const h = locked();
+    fill(h);
+    h.env.requests[0].reject(new h.api.ApiError(500, 'Options unavailable'));
+    await h.panel.settle();
+    assert.equal(save(h).disabled, true);
+    assert.equal(search(h), undefined);
+    const retry = h.panel.nodes.find(n => n.type === 'button' && text(n) === 'createBoxRetry');
+    h.panel.click(retry);
+    assert.ok(panelText(h).includes('loading'));
+    h.env.requests[1].resolve([...references(1), ...references(2, 'NEW-ATL-2', 'Server species')]);
+    await h.panel.settle();
+    assert.ok(panelText(h).includes('Server species'));
+    assert.ok(panelText(h).includes('NEW-ATL-2'));
+    assert.equal(panelText(h).includes('AUR-ATL-1'), false);
+    assert.equal(save(h).disabled, false);
+    h.unmount();
+  });
+
+  test('a refreshed context does not clear preselection against the previous options', async () => {
+    const h = locked({ initialStrainId: 1 });
+    h.env.requests[0].resolve(references(1));
+    await h.panel.settle();
+    fill(h);
+    h.panel.setProps({ initialStrainId: 2 });
+    assert.equal(save(h).disabled, true);
+    assert.equal(h.panel.byClass('create-box-selected-strain'), undefined);
+    h.env.requests[1].resolve(references(2, 'AUR-ATL-2'));
+    await h.panel.settle();
+    assert.equal(save(h).disabled, false);
+    const { pending } = await beginMutation(h);
+    assert.equal(h.mutations[0].payload.strain, 2);
+    h.unmount();
+    h.mutations[0].resolve(created());
+    await pending;
+    assert.equal(h.panel.updatesAfterUnmount, 0);
+  });
+
+  test('institution refresh ignores older eligibility and does not reuse old zones', async () => {
+    const h = locked();
+    fill(h);
+    h.panel.setProps({ profile: { ...h.props.profile, active_organization: { id: 2 } } });
+    h.env.requests[0].resolve(references(2, 'OLD-ATL-2'));
+    await h.panel.settle();
+    assert.equal(h.panel.byClass('create-box-selected-strain'), undefined);
+    assert.equal(save(h).disabled, true);
+    h.env.requests[1].resolve(references(2, 'NEW-ATL-2'));
+    await h.panel.settle();
+    assert.ok(panelText(h).includes('NEW-ATL-2'));
+    assert.equal(panelText(h).includes('OLD-ATL-2'), false);
+    assert.equal(save(h).disabled, true, 'The old institution location is not eligible');
+    await h.panel.submit();
+    assert.equal(h.mutations.length, 0);
+    h.unmount();
+  });
+
+  for (const completion of ['resolve', 'reject']) test(`invalidated operation ignores eligibility ${completion} and cannot submit`, async () => {
+    const h = locked();
+    fill(h);
+    h.invalidateOperation();
+    h.env.requests[0][completion](completion === 'resolve' ? references(2) : new Error('Stale failure'));
+    await h.panel.settle();
+    assert.equal(h.panel.byClass('create-box-selected-strain'), undefined);
+    assert.deepEqual(errors(h), []);
+    await h.panel.submit();
+    assert.equal(h.mutations.length, 0);
+    h.unmount();
+  });
+
+  test('already eligible context cannot submit after its operation is invalidated', async () => {
+    const h = locked();
+    h.env.requests[0].resolve(references(2));
+    await h.panel.settle();
+    fill(h);
+    assert.equal(save(h).disabled, false);
+    h.invalidateOperation();
+    await h.panel.submit();
+    assert.equal(h.mutations.length, 0, 'The submit handler rechecks the current operation');
+    h.unmount();
+  });
+
+  test('close/unmount and contextual remount discard draft only, ignoring late eligibility', async () => {
+    const first = locked();
+    edit(first, 'notes', 'Old draft');
+    first.panel.click(first.panel.byClass('modal-close-button'));
+    assert.deepEqual(first.openChanges, [false]);
+    first.unmount();
+    const next = locked({ initialStrainId: 3 }, { environment: first.env });
+    first.env.requests[0].resolve(references(2, 'OLD-ATL-2'));
+    first.env.requests[1].resolve(references(3, 'NEW-ATL-3'));
+    await next.panel.settle();
+    assert.equal(first.panel.updatesAfterUnmount, 0);
+    assert.equal(next.panel.nodes.find(n => n.type === 'textarea').props.value, '');
+    assert.ok(panelText(next).includes('NEW-ATL-3'));
+    assert.equal(panelText(next).includes('OLD-ATL-2'), false);
+    next.unmount();
+  });
+
+  test('default and explicit unlocked modes keep the searchable selectable list', async () => {
+    for (const props of [{ initialStrainId: 2 }, { initialStrainId: 2, lockStrain: false }]) {
+      const h = createBoxHarness(props);
+      h.env.requests[0].resolve([...references(1), ...references(2, 'AUR-ATL-2')]);
+      await h.panel.settle();
+      assert.ok(search(h));
+      assert.equal(selectedStrain(h), 2);
+      h.panel.click(option(h, 1));
+      assert.equal(selectedStrain(h), 1);
+      h.unmount();
+    }
   });
 });
 

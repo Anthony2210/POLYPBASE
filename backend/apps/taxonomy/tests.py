@@ -81,10 +81,11 @@ class TaxonomyReferenceApiTests(TestCase):
         self.assertEqual(species.genus_species_code, "AAU")
         self.assertEqual(species.common_name, "Aurélie")
         self.assertEqual(species.translations.count(), 3)
-        assignment = OrganizationSpeciesCode.objects.create(
+        OrganizationSpeciesCode.objects.create(
             organization=self.organization, species=species, code="AAA"
         )
 
+        # Manual strain codes/numbers are no longer accepted (server-built AAA-BBB-X).
         strain_response = self.post_json(
             "api_taxonomy_strains",
             {
@@ -92,28 +93,15 @@ class TaxonomyReferenceApiTests(TestCase):
                 "code": "aau-fra-1",
                 "number": 1,
                 "origin_code": "fra",
-                "notes": "Reference culture.",
-                "translations": {
-                    "fr": {
-                        "name": "Souche française 1",
-                        "description": "Souche de référence.",
-                    },
-                    "en": {
-                        "name": "French strain 1",
-                        "description": "Reference strain.",
-                    },
-                },
+                "translations": {"fr": {"name": "Souche française 1"}},
             },
         )
 
-        self.assertEqual(strain_response.status_code, 201)
-        strain = Strain.objects.get(code="AAU-FRA-1")
-        self.assertEqual(strain.origin_code, "FRA")
-        self.assertEqual(strain.translations.count(), 2)
-        self.assertEqual(strain.local_identity.species_code_assignment, assignment)
+        self.assertEqual(strain_response.status_code, 410)
+        self.assertFalse(Strain.objects.filter(code="AAU-FRA-1").exists())
         self.assertEqual(
             AuditLog.objects.filter(object_type__in=["species", "strain"]).count(),
-            2,
+            1,
         )
 
     def test_default_language_name_is_required(self):
@@ -284,37 +272,26 @@ class TaxonomyReferenceApiTests(TestCase):
         create_audit.assert_called_once()
 
     @patch("apps.taxonomy.api_views.AuditLog.objects.create", side_effect=RuntimeError("Audit unavailable"))
-    def test_strain_create_rolls_back_when_audit_fails(self, create_audit):
+    def test_closed_manual_strain_creation_writes_nothing(self, create_audit):
+        # Rollback on audit failure is covered on the institutional endpoint.
         species = Species.objects.create(scientific_name="Aurelia aurita")
         OrganizationSpeciesCode.objects.create(organization=self.organization, species=species, code="AAA")
         self.client.login(username="taxonomy_admin", password="secret")
-        strain_count = Strain.objects.count()
-        translation_count = StrainTranslation.objects.count()
-        audit_count = AuditLog.objects.count()
-
-        with self.assertRaises(RuntimeError):
-            self.post_json(
-                "api_taxonomy_strains",
-                {
-                    "species": species.pk,
-                    "code": "AAU-FRA-1",
-                    "number": 1,
-                    "origin_code": "FRA",
-                    "notes": "Souche de référence.",
-                    "translations": {
-                        "fr": {"name": "Souche française 1"},
-                        "en": {"name": "French strain 1"},
-                    },
-                },
-            )
-
-        self.assertEqual(Strain.objects.count(), strain_count)
-        self.assertFalse(Strain.objects.filter(species=species, code="AAU-FRA-1").exists())
-        self.assertEqual(StrainTranslation.objects.count(), translation_count)
-        self.assertFalse(StrainTranslation.objects.filter(strain__code="AAU-FRA-1").exists())
+        counts = (Strain.objects.count(), StrainTranslation.objects.count(), AuditLog.objects.count())
+        response = self.post_json(
+            "api_taxonomy_strains",
+            {
+                "species": species.pk,
+                "code": "AAU-FRA-1",
+                "number": 1,
+                "origin_code": "FRA",
+                "translations": {"fr": {"name": "Souche française 1"}},
+            },
+        )
+        self.assertEqual(response.status_code, 410)
+        self.assertEqual((Strain.objects.count(), StrainTranslation.objects.count(), AuditLog.objects.count()), counts)
         self.assertFalse(LocalStrainIdentity.objects.exists())
-        self.assertEqual(AuditLog.objects.count(), audit_count)
-        create_audit.assert_called_once()
+        create_audit.assert_not_called()
 
     @patch("apps.taxonomy.api_views.AuditLog.objects.create", side_effect=RuntimeError("Audit unavailable"))
     def test_strain_update_rolls_back_model_and_translations_when_audit_fails(self, create_audit):
@@ -358,9 +335,6 @@ class TaxonomyReferenceApiTests(TestCase):
                 [strain.pk],
                 {
                     "species": replacement_species.pk,
-                    "code": "ACO-NEW-2",
-                    "number": 2,
-                    "origin_code": "NEW",
                     "notes": "Nouvelles notes",
                     "translations": {
                         "fr": {"name": "Nouvelle souche", "description": "Nouvelle description"},

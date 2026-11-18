@@ -63,8 +63,10 @@ export function needsFullBoxCollection(need: BoxCollectionNeed) {
   if (need.activeTab === 'pilotage') return !need.isBoxRoute && need.hasSearch;
   if (need.activeTab === 'zones') return !(need.zoneId != null && need.zoneHistory);
   if (need.activeTab === 'labels') return true;
-  // Sharing uses bounded server-side Box lookup, not the full collection.
-  if (need.activeTab === 'admin') return false;
+  // Species groups all institution Boxes; sharing keeps its bounded server lookup.
+  if (need.activeTab === 'admin') {
+    return need.isAdminAvailable && need.adminSection === 'species';
+  }
   return false;
 }
 

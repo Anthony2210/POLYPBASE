@@ -1,8 +1,6 @@
 import json
-from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.db import IntegrityError
 from django.test import TestCase
 from django.urls import Resolver404, resolve, reverse
 
@@ -42,6 +40,7 @@ class ProvenanceCodesApiTests(TestCase):
             (self.viewer, self.a, OrganizationMembership.Role.VIEWER),
         ):
             OrganizationMembership.objects.create(user=user, organization=organization, role=role)
+        # Preserve already-verified historical associations, even if shared.
         self.provenance = BiologicalProvenance.objects.create(name="Shared source")
         self.other_provenance = BiologicalProvenance.objects.create(name="Other source")
         self.a_code = OrganizationProvenanceCode.objects.create(
@@ -61,19 +60,24 @@ class ProvenanceCodesApiTests(TestCase):
             url, data=json.dumps(data), content_type="application/json", **self.headers(organization)
         )
 
+    def snapshot(self):
+        return {
+            model._meta.label: list(model.objects.order_by("pk").values())
+            for model in (BiologicalProvenance, OrganizationProvenanceCode, Strain,
+                          LocalStrainIdentity, Box, AuditLog)
+        }
+
     def test_collections_have_expected_paths_and_scoped_read_access(self):
         self.assertEqual(self.provenances_url, "/api/taxonomy/biological-provenances/")
         self.assertEqual(self.codes_url, "/api/taxonomy/provenance-codes/")
-        expected_provenances = [
-            {"id": self.provenance.pk, "name": "Shared source"},
-            {"id": self.other_provenance.pk, "name": "Other source"},
-        ]
+        expected_provenances = [{"id": self.provenance.pk, "name": "Shared source"}]
         self.client.force_login(self.admin)
         for organization in (self.a, self.b):
             with self.subTest(organization=organization.pk):
                 response = self.client.get(self.provenances_url, **self.headers(organization))
                 self.assertEqual(response.status_code, 200)
                 self.assertCountEqual(response.json(), expected_provenances)
+                self.assertNotIn("Other source", response.content.decode())
 
         for organization, assignment in ((self.a, self.a_code), (self.b, self.b_code)):
             with self.subTest(organization=organization.pk):
@@ -99,170 +103,55 @@ class ProvenanceCodesApiTests(TestCase):
         for url in (self.provenances_url, self.codes_url):
             self.assertEqual(self.client.get(url, **self.headers(self.a)).status_code, 403)
 
-    def test_create_provenance_is_shared_allows_duplicate_names_and_audits_each_write(self):
+    def test_both_legacy_posts_are_retired_for_every_institution_and_role(self):
+        before = self.snapshot()
+        for user in (self.admin, self.tech, self.viewer):
+            self.client.force_login(user)
+            for url, payload in (
+                (self.provenances_url, {"name": "New private location"}),
+                (self.codes_url, {"biological_provenance": self.other_provenance.pk, "code": "CCC"}),
+            ):
+                with self.subTest(user=user.pk, url=url):
+                    response = self.post(url, self.a, payload)
+                    self.assertEqual(response.status_code, 405)
+                    self.assertNotIn("POST", response["Allow"])
         self.client.force_login(self.admin)
-        for organization in (self.a, self.b):
-            response = self.post(self.provenances_url, organization, {"name": "Shared source"})
-            self.assertEqual(response.status_code, 201)
-            created = BiologicalProvenance.objects.get(pk=response.json()["id"])
-            self.assertEqual(response.json(), {"id": created.pk, "name": "Shared source"})
-            audit = AuditLog.objects.get(object_type="biological_provenance", object_id=str(created.pk))
-            self.assertEqual(
-                (audit.organization_id, audit.user_id, audit.action),
-                (organization.pk, self.admin.pk, AuditLog.Action.CREATION),
-            )
-        self.assertEqual(BiologicalProvenance.objects.filter(name="Shared source").count(), 3)
-        self.assertEqual(AuditLog.objects.count(), 2)
-        self.assertFalse(LocalStrainIdentity.objects.exists())
+        for url in (self.provenances_url, self.codes_url):
+            self.assertEqual(self.post(url, self.b, {}).status_code, 405)
+        self.assertEqual(self.snapshot(), before)
 
-    def test_create_code_binds_active_organization_and_audits_without_creating_strains(self):
-        self.client.force_login(self.admin)
-        response = self.post(self.codes_url, self.a, {
-            "biological_provenance": self.other_provenance.pk, "code": "CCC",
-        })
-        self.assertEqual(response.status_code, 201)
-        assignment = OrganizationProvenanceCode.objects.get(pk=response.json()["id"])
-        self.assertEqual((assignment.organization_id, assignment.biological_provenance_id, assignment.code),
-                         (self.a.pk, self.other_provenance.pk, "CCC"))
-        self.assertEqual(response.json(), {
-            "id": assignment.pk, "biological_provenance": self.other_provenance.pk,
-            "biological_provenance_name": "Other source", "code": "CCC",
-        })
-        audit = AuditLog.objects.get()
-        self.assertEqual(
-            (audit.organization_id, audit.user_id, audit.action, audit.object_type, audit.object_id),
-            (self.a.pk, self.admin.pk, AuditLog.Action.CREATION,
-             "organization_provenance_code", str(assignment.pk)),
-        )
-        self.assertFalse(Strain.objects.exists())
-        self.assertFalse(LocalStrainIdentity.objects.exists())
-
-    def test_strict_payloads_unknown_ids_and_spoofing_leave_no_writes(self):
-        self.client.force_login(self.admin)
-        for payload, field in (
-            ({}, "name"),
-            ({"name": ""}, "name"),
-            ({"name": "   "}, "name"),
-            ({"name": "New", "organization": self.b.pk}, "organization"),
-            ({"name": "New", "code": "ZZZ"}, "code"),
-            ({"name": "New", "id": 999}, "id"),
-        ):
-            with self.subTest(url=self.provenances_url, payload=payload):
-                response = self.post(self.provenances_url, self.a, payload)
-                self.assertEqual(response.status_code, 400)
-                self.assertIn(field, response.json())
-        for payload, field in (
-            ({}, "biological_provenance"),
-            ({"biological_provenance": self.other_provenance.pk}, "code"),
-            ({"biological_provenance": 999999, "code": "CCC"}, "biological_provenance"),
-            ({"biological_provenance": self.other_provenance.pk, "code": ""}, "code"),
-            ({"biological_provenance": self.other_provenance.pk, "code": "LONG"}, "code"),
-            ({"biological_provenance": self.other_provenance.pk, "code": "CCC",
-              "organization": self.b.pk}, "organization"),
-            ({"biological_provenance": self.other_provenance.pk, "code": "CCC",
-              "name": "Spoofed"}, "name"),
-            ({"biological_provenance": self.other_provenance.pk, "code": "CCC",
-              "global_identity": 1}, "global_identity"),
-        ):
-            with self.subTest(url=self.codes_url, payload=payload):
-                response = self.post(self.codes_url, self.a, payload)
-                self.assertEqual(response.status_code, 400)
-                self.assertIn(field, response.json())
-        self.assertEqual(BiologicalProvenance.objects.count(), 2)
-        self.assertEqual(OrganizationProvenanceCode.objects.count(), 2)
-        self.assertFalse(AuditLog.objects.exists())
-
-    def test_duplicate_source_and_code_conflicts_are_distinct_and_local(self):
-        self.client.force_login(self.admin)
-        response = self.post(self.codes_url, self.a, {
-            "biological_provenance": self.provenance.pk, "code": "CCC",
-        })
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("biological_provenance", response.json())
-        response = self.post(self.codes_url, self.a, {
-            "biological_provenance": self.other_provenance.pk, "code": "AAA",
-        })
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("code", response.json())
-
-        # Both the source and a code already used elsewhere are valid locally.
-        response = self.post(self.codes_url, self.b, {
-            "biological_provenance": self.other_provenance.pk, "code": "AAA",
-        })
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(
-            OrganizationProvenanceCode.objects.get(pk=response.json()["id"]).organization_id,
-            self.b.pk,
-        )
-        response = self.post(self.codes_url, self.a, {
-            "biological_provenance": self.other_provenance.pk, "code": "BBB",
-        })
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(self.post(self.codes_url, self.b, {
-            "biological_provenance": self.other_provenance.pk, "code": "CCC",
-        }).status_code, 400)
-        self.assertEqual(OrganizationProvenanceCode.objects.count(), 4)
-        self.assertEqual(AuditLog.objects.count(), 2)
-
-    def test_permissions_follow_active_membership_and_organization_header(self):
-        for url, data in (
-            (self.provenances_url, {"name": "New"}),
-            (self.codes_url, {"biological_provenance": self.other_provenance.pk, "code": "CCC"}),
-        ):
+    def test_read_permissions_follow_active_membership_and_organization_header(self):
+        for url in (self.provenances_url, self.codes_url):
             self.assertIn(self.client.get(url, **self.headers(self.a)).status_code, (401, 403))
-            self.assertIn(self.post(url, self.a, data).status_code, (401, 403))
+            self.assertIn(self.post(url, self.a, {}).status_code, (401, 403))
         self.client.force_login(self.tech)
-        for url, data in (
-            (self.provenances_url, {"name": "New"}),
-            (self.codes_url, {"biological_provenance": self.other_provenance.pk, "code": "CCC"}),
-        ):
-            self.assertEqual(self.post(url, self.a, data).status_code, 403)
-            self.assertEqual(self.client.get(url, **self.headers(self.b)).status_code, 403)
-            self.assertEqual(self.post(url, self.b, data).status_code, 403)
-        self.client.force_login(self.viewer)
-        for url, data in (
-            (self.provenances_url, {"name": "New"}),
-            (self.codes_url, {"biological_provenance": self.other_provenance.pk, "code": "CCC"}),
-        ):
-            self.assertEqual(self.post(url, self.a, data).status_code, 403)
-
-        self.client.force_login(self.admin)
-        membership = OrganizationMembership.objects.get(user=self.admin, organization=self.b)
-        membership.role = OrganizationMembership.Role.LAB_TECHNICIAN
-        membership.save(update_fields=["role"])
-        for url, data in (
-            (self.provenances_url, {"name": "New"}),
-            (self.codes_url, {"biological_provenance": self.other_provenance.pk, "code": "CCC"}),
-        ):
-            self.assertEqual(self.client.get(url, **self.headers(self.b)).status_code, 200)
-            self.assertEqual(self.post(url, self.b, data).status_code, 403)
-        self.assertEqual(self.client.get(self.codes_url, **self.headers(self.a)).status_code, 200)
-        membership.role = OrganizationMembership.Role.VIEWER
-        membership.save(update_fields=["role"])
         for url in (self.provenances_url, self.codes_url):
             self.assertEqual(self.client.get(url, **self.headers(self.b)).status_code, 403)
+        self.client.force_login(self.admin)
+        membership = OrganizationMembership.objects.get(user=self.admin, organization=self.b)
+        for role, expected in ((OrganizationMembership.Role.LAB_TECHNICIAN, 200),
+                               (OrganizationMembership.Role.VIEWER, 403)):
+            membership.role = role
+            membership.save(update_fields=["role"])
+            for url in (self.provenances_url, self.codes_url):
+                self.assertEqual(self.client.get(url, **self.headers(self.b)).status_code, expected)
         membership.is_active = False
         membership.save(update_fields=["is_active"])
-        for url, data in (
-            (self.provenances_url, {"name": "New"}),
-            (self.codes_url, {"biological_provenance": self.other_provenance.pk, "code": "CCC"}),
-        ):
+        for url in (self.provenances_url, self.codes_url):
             self.assertEqual(self.client.get(url, **self.headers(self.b)).status_code, 403)
-            self.assertEqual(self.post(url, self.b, data).status_code, 403)
             self.assertEqual(self.client.get(url, HTTP_X_ORGANIZATION_ID="999999").status_code, 403)
-            self.assertEqual(self.client.post(
-                url, data=json.dumps(data), content_type="application/json",
-                HTTP_X_ORGANIZATION_ID="999999",
-            ).status_code, 403)
-        self.assertEqual(BiologicalProvenance.objects.count(), 2)
-        self.assertEqual(OrganizationProvenanceCode.objects.count(), 2)
-        self.assertFalse(AuditLog.objects.exists())
+            self.assertEqual(self.client.get(url, **self.headers(self.a)).status_code, 200)
 
-    def test_only_collection_get_and_post_are_exposed(self):
+    def test_only_collection_reads_are_exposed(self):
         self.client.force_login(self.admin)
+        before = self.snapshot()
         for url, pk in ((self.provenances_url, self.provenance.pk),
                         (self.codes_url, self.a_code.pk)):
-            for method in ("put", "patch", "delete"):
+            options = self.client.options(url, **self.headers(self.a))
+            self.assertEqual(options.status_code, 200)
+            self.assertEqual(set(options["Allow"].split(", ")), {"GET", "HEAD", "OPTIONS"})
+            self.assertEqual(self.client.head(url, **self.headers(self.a)).status_code, 200)
+            for method in ("post", "put", "patch", "delete"):
                 with self.subTest(url=url, method=method):
                     response = getattr(self.client, method)(
                         url, data=json.dumps({"name": "Edited", "code": "XYZ"}),
@@ -272,86 +161,124 @@ class ProvenanceCodesApiTests(TestCase):
             with self.assertRaises(Resolver404):
                 resolve(f"{url}{pk}/")
             self.assertEqual(self.client.get(f"{url}{pk}/", **self.headers(self.a)).status_code, 404)
-        self.assertEqual(OrganizationProvenanceCode.objects.count(), 2)
-        self.assertFalse(AuditLog.objects.exists())
+        self.assertEqual(self.snapshot(), before)
 
-    @patch("apps.taxonomy.api_views.AuditLog.objects.create", side_effect=RuntimeError("Audit unavailable"))
-    def test_audit_failure_rolls_back_both_creates(self, create_audit):
-        self.client.force_login(self.admin)
-        with self.assertRaises(RuntimeError):
-            self.post(self.provenances_url, self.a, {"name": "New source"})
-        self.assertFalse(BiologicalProvenance.objects.filter(name="New source").exists())
-        with self.assertRaises(RuntimeError):
-            self.post(self.codes_url, self.a, {
-                "biological_provenance": self.other_provenance.pk, "code": "CCC",
-            })
-        self.assertFalse(OrganizationProvenanceCode.objects.filter(
-            organization=self.a, biological_provenance=self.other_provenance
-        ).exists())
-        self.assertEqual(create_audit.call_count, 2)
-        self.assertFalse(AuditLog.objects.exists())
-
-    def test_known_constraint_races_map_to_field_errors_without_audit(self):
-        self.client.force_login(self.admin)
-        sqlite_prefix = (
-            "UNIQUE constraint failed: taxonomy_organizationprovenancecode.organization_id, "
-            "taxonomy_organizationprovenancecode."
-        )
-        for constraint, field in (
-            ("unique_provenance_code_per_organization_source", "biological_provenance"),
-            ("unique_provenance_code_per_organization_code", "code"),
-            (f"{sqlite_prefix}biological_provenance_id", "biological_provenance"),
-            (f"{sqlite_prefix}code", "code"),
-        ):
-            with self.subTest(constraint=constraint):
-                error = IntegrityError("duplicate")
-                if not constraint.startswith("UNIQUE"):
-                    error.__cause__ = type(
-                        "DatabaseErrorCause", (Exception,),
-                        {"diag": type("Diag", (), {"constraint_name": constraint})()},
-                    )()
-                else:
-                    error = IntegrityError(constraint)
-                with patch.object(OrganizationProvenanceCode._default_manager, "create", side_effect=error):
-                    response = self.post(self.codes_url, self.a, {
-                        "biological_provenance": self.other_provenance.pk, "code": "CCC",
-                    })
-                self.assertEqual(response.status_code, 400)
-                self.assertIn(field, response.json())
-        with (
-            patch.object(OrganizationProvenanceCode._default_manager, "create",
-                         side_effect=IntegrityError("unrelated constraint")),
-            self.assertRaises(IntegrityError),
-        ):
-            self.post(self.codes_url, self.a, {
-                "biological_provenance": self.other_provenance.pk, "code": "CCC",
-            })
-        self.assertEqual(OrganizationProvenanceCode.objects.count(), 2)
-        self.assertFalse(AuditLog.objects.exists())
-
-    def test_assigning_bbb_does_not_infer_historical_strain_provenance(self):
+    def test_refused_writes_preserve_historical_identities_boxes_and_audits(self):
         species = Species.objects.create(scientific_name="Historical species")
-        aaa = OrganizationSpeciesCode.objects.create(
-            organization=self.a, species=species, code="HIS"
+        aaa = OrganizationSpeciesCode.objects.create(organization=self.a, species=species, code="HIS")
+        for code, assignment in (("HIS-1", None), ("HIS-AAA-2", self.a_code)):
+            strain = Strain.objects.create(
+                organization=self.a, species=species, code=code, origin_code="AAA"
+            )
+            LocalStrainIdentity.objects.create(
+                strain=strain, species_code_assignment=aaa, provenance_code_assignment=assignment,
+            )
+            Box.objects.create(
+                organization=self.a, strain=strain, global_code=f"{code}.001", box_number="001"
+            )
+        AuditLog.objects.create(
+            organization=self.a, user=self.admin, action=AuditLog.Action.CREATION,
+            object_type="biological_provenance", object_id=str(self.other_provenance.pk),
+            description="Historical provenance creation",
         )
-        strain = Strain.objects.create(
-            organization=self.a, species=species, code="HIS-1", origin_code="LEG"
-        )
-        identity = LocalStrainIdentity.objects.create(strain=strain, species_code_assignment=aaa)
-        box = Box.objects.create(
-            organization=self.a, strain=strain, global_code="HIS-1.001", box_number="001"
-        )
+        before = self.snapshot()
         self.client.force_login(self.admin)
-        response = self.post(self.codes_url, self.a, {
+        self.assertEqual(self.post(self.provenances_url, self.a, {"name": "New source"}).status_code, 405)
+        self.assertEqual(self.post(self.codes_url, self.a, {
             "biological_provenance": self.other_provenance.pk, "code": "LEG",
-        })
-        self.assertEqual(response.status_code, 201)
-        strain.refresh_from_db()
-        identity.refresh_from_db()
-        box.refresh_from_db()
-        self.assertIsNone(identity.provenance_code_assignment_id)
-        self.assertEqual((strain.code, strain.origin_code, box.global_code),
-                         ("HIS-1", "LEG", "HIS-1.001"))
-        self.assertEqual((Strain.objects.count(), LocalStrainIdentity.objects.count(), Box.objects.count()),
-                         (1, 1, 1))
-        self.assertEqual(AuditLog.objects.count(), 1)
+        }).status_code, 405)
+        self.assertEqual(self.snapshot(), before)
+
+
+class ProvenanceIsolationTests(TestCase):
+    """M1: private and unattributed locations cannot be claimed through legacy APIs."""
+
+    def setUp(self):
+        self.a = Organization.objects.create(name="Isolation A")
+        self.b = Organization.objects.create(name="Isolation B")
+        user_model = get_user_model()
+        self.a_admin = user_model.objects.create_user(
+            username="iso_a", email="iso_a@example.org", password="secret"
+        )
+        self.b_admin = user_model.objects.create_user(
+            username="iso_b", email="iso_b@example.org", password="secret"
+        )
+        for user, organization in ((self.a_admin, self.a), (self.b_admin, self.b)):
+            OrganizationMembership.objects.create(
+                user=user, organization=organization, role=OrganizationMembership.Role.ADMIN
+            )
+        self.provenances_url = reverse("api_taxonomy_biological_provenances")
+        self.codes_url = reverse("api_taxonomy_provenance_codes")
+
+    def headers(self, organization):
+        return {"HTTP_X_ORGANIZATION_ID": str(organization.pk)}
+
+    def register(self, organization, name, code):
+        """Seed an existing verified association, not a legacy API write."""
+        provenance = BiologicalProvenance.objects.create(name=name)
+        OrganizationProvenanceCode.objects.create(
+            organization=organization, biological_provenance=provenance, code=code,
+        )
+        return provenance.pk
+
+    def test_a_private_location_is_invisible_to_another_institution(self):
+        provenance = self.register(self.a, "Secret lagoon", "SEC")
+        self.client.force_login(self.a_admin)
+        self.assertEqual(self.client.get(self.provenances_url, **self.headers(self.a)).json(),
+                         [{"id": provenance, "name": "Secret lagoon"}])
+        self.client.force_login(self.b_admin)
+        for url in (self.provenances_url, self.codes_url):
+            response = self.client.get(url, **self.headers(self.b))
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json(), [])
+            self.assertNotIn("Secret lagoon", response.content.decode())
+
+    def test_same_name_and_bbb_remain_institution_scoped(self):
+        a_provenance = self.register(self.a, "Rade de Brest", "BRE")
+        b_provenance = self.register(self.b, "Rade de Brest", "BRE")
+        self.assertNotEqual(a_provenance, b_provenance)
+        self.assertEqual(BiologicalProvenance.objects.filter(name="Rade de Brest").count(), 2)
+        for user, organization, provenance in ((self.a_admin, self.a, a_provenance),
+                                                (self.b_admin, self.b, b_provenance)):
+            self.client.force_login(user)
+            self.assertEqual(self.client.get(self.provenances_url, **self.headers(organization)).json(),
+                             [{"id": provenance, "name": "Rade de Brest"}])
+            codes = self.client.get(self.codes_url, **self.headers(organization)).json()
+            self.assertEqual([(item["biological_provenance"], item["code"]) for item in codes],
+                             [(provenance, "BRE")])
+
+    def test_own_foreign_unassigned_and_unknown_ids_are_equally_refused_without_disclosure(self):
+        own = self.register(self.b, "Own lagoon", "OWN")
+        foreign = self.register(self.a, "Secret lagoon", "SEC")
+        legacy = BiologicalProvenance.objects.create(name="Unknown historical ownership")
+        before = list(OrganizationProvenanceCode.objects.order_by("pk").values())
+        self.client.force_login(self.b_admin)
+        responses = []
+        for pk in (own, foreign, legacy.pk, 999999):
+            response = self.client.post(
+                self.codes_url, data=json.dumps({"biological_provenance": pk, "code": "BBB"}),
+                content_type="application/json", **self.headers(self.b),
+            )
+            self.assertEqual(response.status_code, 405)
+            self.assertNotIn("Secret lagoon", response.content.decode())
+            self.assertNotIn(legacy.name, response.content.decode())
+            responses.append(response.json())
+        self.assertTrue(all(body == responses[0] for body in responses))
+        self.assertEqual(list(OrganizationProvenanceCode.objects.order_by("pk").values()), before)
+        self.assertTrue(BiologicalProvenance.objects.filter(pk=legacy.pk, name=legacy.name).exists())
+        self.assertFalse(AuditLog.objects.exists())
+
+    def test_unassigned_legacy_rows_are_preserved_invisible_and_not_claimable(self):
+        legacy = BiologicalProvenance.objects.create(name="Legacy source")
+        for user, organization in ((self.a_admin, self.a), (self.b_admin, self.b)):
+            self.client.force_login(user)
+            for url in (self.provenances_url, self.codes_url):
+                self.assertEqual(self.client.get(url, **self.headers(organization)).json(), [])
+            response = self.client.post(
+                self.codes_url, data=json.dumps({"biological_provenance": legacy.pk, "code": "LEG"}),
+                content_type="application/json", **self.headers(organization),
+            )
+            self.assertEqual(response.status_code, 405)
+        self.assertTrue(BiologicalProvenance.objects.filter(pk=legacy.pk, name="Legacy source").exists())
+        self.assertFalse(OrganizationProvenanceCode.objects.exists())
+        self.assertFalse(AuditLog.objects.exists())

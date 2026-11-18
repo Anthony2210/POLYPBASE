@@ -39,6 +39,7 @@ class AutomaticBoxFixture:
         self.payload = {
             "strain": self.strain.pk, "thermal_zone": self.zone.pk,
             "entered_on": "2026-10-01", "request_id": str(uuid.uuid4()),
+            "initial_polyp_count": 12,
         }
 
     def service(self, payload=None):
@@ -75,12 +76,17 @@ class AutomaticBoxCreationTests(AutomaticBoxFixture, TestCase):
         location = BoxLocation.objects.get(box=box)
         self.assertEqual(location.thermal_zone_id, self.zone.pk)
         self.assertIsNone(location.ends_at)
-        log = AuditLog.objects.get()
+        log = AuditLog.objects.get(action="creation")
         self.assertEqual((log.organization_id, log.user_id, log.action), (self.org.pk, self.user.pk, "creation"))
         self.assertEqual(log.metadata["box_id"], box.pk)
         self.assertEqual(log.metadata["valeurs"]["volume_litres"], "0.00")
+        self.assertEqual(log.metadata["valeurs"]["polypes_initiaux"], 12)
         self.assertEqual(AutomaticBoxCreationRequest.objects.get().box_id, box.pk)
-        for model in (BoxMovement, BoxLineage, SubcultureEvent, BiologicalMeasurement, GlobalStrainIdentity):
+        # The only scientific record is the explicit Box-creation initial count.
+        measurement = BiologicalMeasurement.objects.get()
+        self.assertEqual((measurement.box_id, measurement.origin, measurement.polyp_count, measurement.ephyrae_count),
+                         (box.pk, "box_creation", 12, 0))
+        for model in (BoxMovement, BoxLineage, SubcultureEvent, GlobalStrainIdentity):
             self.assertFalse(model.objects.exists(), model.__name__)
 
     def test_normalized_replay_is_durable_without_new_records(self):
@@ -90,7 +96,8 @@ class AutomaticBoxCreationTests(AutomaticBoxFixture, TestCase):
         self.assertEqual((first.status_code, second.status_code), (201, 200))
         self.assertEqual(first.json(), second.json())
         self.assertEqual((Box.objects.count(), BoxLocation.objects.count(), AuditLog.objects.count(),
-                          AutomaticBoxCreationRequest.objects.count()), (1, 1, 1, 1))
+                          AutomaticBoxCreationRequest.objects.count(), BiologicalMeasurement.objects.count()),
+                         (1, 1, 2, 1, 1))
         self.assertEqual(BoxCodeNamespace.objects.get().high_water, 1)
 
     def test_decimal_and_uuid_normalization(self):
@@ -117,7 +124,7 @@ class AutomaticBoxCreationTests(AutomaticBoxFixture, TestCase):
                 self.assertEqual(response.status_code, 409, response.content)
                 self.assertEqual(response.json()["code"], "box_creation_request_conflict")
         self.assertEqual(Box.objects.count(), 1)
-        self.assertEqual(AuditLog.objects.count(), 1)
+        self.assertEqual(AuditLog.objects.count(), 2)  # Box creation + initial measurement
 
     def test_required_fields_and_unknown_fields_rejected(self):
         for field in self.payload:
@@ -157,6 +164,10 @@ class AutomaticBoxCreationTests(AutomaticBoxFixture, TestCase):
         self.user.is_superuser = True
         self.user.save()
         self.membership.delete()
+        # The initial count needs an observer allowed to record measurements here.
+        self.assertEqual(self.post().status_code, 403)
+        self.assert_empty()
+        OrganizationMembership.objects.create(organization=self.org, user=self.user, role="admin")
         self.assertEqual(self.post().status_code, 201)
         self.org.is_active = False
         self.org.save()
@@ -187,6 +198,8 @@ class AutomaticBoxCreationTests(AutomaticBoxFixture, TestCase):
     def test_retry_rechecks_superuser_demotion_on_stale_actor(self):
         self.user.is_superuser = True
         self.user.save()
+        self.service()
+        # A replay only needs Box authority: the superuser keeps it as a viewer.
         self.membership.role = "viewer"
         self.membership.save()
         self.service()
@@ -200,7 +213,7 @@ class AutomaticBoxCreationTests(AutomaticBoxFixture, TestCase):
         Box.objects.filter(pk=box.pk).update(organization=self.other_org)
         with self.assertRaises(PermissionDenied):
             self.service()
-        self.assertEqual(AuditLog.objects.count(), 1)
+        self.assertEqual(AuditLog.objects.count(), 2)
 
     def test_errors_use_french_and_english_catalogs(self):
         for language, expected in (("fr", "Ce champ n'est pas accepté."), ("en", "This field is not accepted.")):
@@ -227,7 +240,7 @@ class AutomaticBoxCreationTests(AutomaticBoxFixture, TestCase):
             ThermalZone.objects.filter(pk=self.zone.pk).update(**change)
             self.assertEqual(self.post().status_code, 400)
             ThermalZone.objects.filter(pk=self.zone.pk).update(is_active=True, organization=self.org)
-        self.assertEqual(AuditLog.objects.count(), 1)
+        self.assertEqual(AuditLog.objects.count(), 2)
 
     def test_legacy_used_strain_remains_eligible(self):
         Strain.objects.filter(pk=self.strain.pk).update(organization=None)

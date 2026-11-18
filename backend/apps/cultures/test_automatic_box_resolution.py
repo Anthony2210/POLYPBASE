@@ -74,7 +74,7 @@ class AutomaticBoxResolutionTests(AutomaticBoxFixture, TestCase):
         for payload, expected in ((self.payload, a), (other, b)):
             self.assertEqual(self.inspect(payload["request_id"]).json()["box"]["id"], expected.json()["id"])
             self.assertEqual(self.create(payload).json()["id"], expected.json()["id"])
-        self.assertEqual((Box.objects.count(), AuditLog.objects.count()), (2, 2))
+        self.assertEqual((Box.objects.count(), AuditLog.objects.count()), (2, 4))
         self.assertFalse(AutomaticBoxCreationRequest.objects.filter(cancelled=True).exists())
 
     def test_inspection_reads_existing_cancellation_without_new_tombstone(self):
@@ -112,7 +112,7 @@ class AutomaticBoxResolutionTests(AutomaticBoxFixture, TestCase):
         Strain.objects.filter(pk=self.strain.pk).update(organization=self.other_org)
         ThermalZone.objects.filter(pk=self.zone.pk).update(is_active=False)
         self.assertEqual(self.inspect().json()["box"]["id"], box.pk)
-        self.assertEqual((Box.objects.count(), AuditLog.objects.count()), (1, 1))
+        self.assertEqual((Box.objects.count(), AuditLog.objects.count()), (1, 2))
 
     def test_inspection_never_discloses_other_actor_or_institution_receipt(self):
         box, _ = self.service()
@@ -166,7 +166,7 @@ class AutomaticBoxResolutionTests(AutomaticBoxFixture, TestCase):
         self.assertFalse(receipt.cancelled)
         self.assertEqual(receipt.box_id, created.json()["id"])
         self.assertIsNotNone(receipt.intent)
-        self.assertEqual((Box.objects.count(), BoxLocation.objects.count(), AuditLog.objects.count()), (1, 1, 1))
+        self.assertEqual((Box.objects.count(), BoxLocation.objects.count(), AuditLog.objects.count()), (1, 1, 2))
         self.assertEqual(BoxCodeNamespace.objects.get().high_water, 1)
 
     def test_resolution_of_committed_box_ignores_now_invalid_strain_and_zone(self):
@@ -236,9 +236,9 @@ class AutomaticBoxResolutionTests(AutomaticBoxFixture, TestCase):
     def test_resolution_reloads_superuser_demotion(self):
         self.user.is_superuser = True
         self.user.save()
+        self.service()
         self.membership.role = "viewer"
         self.membership.save()
-        self.service()
         get_user_model().objects.filter(pk=self.user.pk).update(is_superuser=False)
         with self.assertRaises(PermissionDenied):
             self.resolve_service()
@@ -256,7 +256,7 @@ class AutomaticBoxResolutionTests(AutomaticBoxFixture, TestCase):
         Box.objects.filter(pk=box.pk).update(organization=self.other_org)
         self.assertEqual(self.resolve().status_code, 403)
         self.assertFalse(AutomaticBoxCreationRequest.objects.get().cancelled)
-        self.assertEqual(AuditLog.objects.count(), 1)
+        self.assertEqual(AuditLog.objects.count(), 2)  # Box creation + initial measurement
 
     def test_scope_does_not_resolve_or_cancel_another_actors_creation(self):
         box, _ = self.service()

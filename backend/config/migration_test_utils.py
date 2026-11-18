@@ -1,6 +1,9 @@
 """Historical schema rehearsals, not PostgreSQL capability acceptance tests."""
 
-from copy import copy
+from contextlib import contextmanager
+from copy import copy, deepcopy
+from importlib import import_module
+from uuid import uuid4
 
 from django.db.migrations.executor import MigrationExecutor as DjangoMigrationExecutor
 
@@ -24,6 +27,80 @@ class MigrationExecutor(DjangoMigrationExecutor):
             migration.operations = []
             self.loader.graph.nodes[BOX_1902_CAPABILITY] = migration
             self.loader.disk_migrations[BOX_1902_CAPABILITY] = migration
+
+
+def rehearsal_latest_targets(loader, vendor):
+    """Keep PostgreSQL historical rehearsals strictly before the capability."""
+    if vendor == "postgresql":
+        return historical_targets(loader, {"measurements"}, [
+            ("measurements", "0017_bucket_probe_last_measured_index"),
+        ])
+    return loader.graph.leaf_nodes()
+
+
+@contextmanager
+def historical_rehearsal_database(connection):
+    """Use a new database, never reverse an installed PostgreSQL capability.
+
+    Only the live fresh-cluster launcher grants creation authority. The original
+    Django wrapper is retained so historical model managers still use default.
+    Restore it before TransactionTestCase flushes the runner's real test schema.
+    """
+    if connection.vendor == "sqlite":
+        yield
+        return
+    if connection.vendor != "postgresql":
+        raise RuntimeError("Historical rehearsals require SQLite or the fresh PostgreSQL launcher")
+    lease = import_module("historical_temperature_cluster_lease")
+    launch = lease.require_launch()
+    original = deepcopy(connection.settings_dict)
+    if (original["HOST"] != "127.0.0.1" or int(original["PORT"]) != launch.port
+            or original["USER"] != "subculture_qa" or original["PASSWORD"] != ""
+            or original["NAME"] != "test_subculture_qa"
+            or connection.in_atomic_block):
+        raise RuntimeError("Refuse historical rehearsal outside the launcher's test database")
+    from psycopg import sql
+
+    name = "test_history_" + uuid4().hex
+    with lease.connect_leased(
+        host="127.0.0.1", port=launch.port, dbname="postgres", user="subculture_qa",
+        password="", sslmode="disable", connect_timeout=5, autocommit=True,
+        options="-c lock_timeout=10000 -c statement_timeout=120000",
+    ) as admin:
+        # CREATE has no IF NOT EXISTS: a collision never adopts an existing DB.
+        admin.execute(sql.SQL("CREATE DATABASE {} TEMPLATE template0").format(sql.Identifier(name)))
+        oid = admin.execute("SELECT oid FROM pg_database WHERE datname=%s", [name]).fetchone()[0]
+        try:
+            connection.close()
+            connection.settings_dict["NAME"] = name
+            connection.ensure_connection()
+            lease.verify_server(connection.connection)
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT current_database(), oid FROM pg_database WHERE datname=current_database()")
+                if cursor.fetchone() != (name, oid):
+                    raise RuntimeError("Historical rehearsal database identity mismatch")
+            yield
+        finally:
+            connection.close()
+            connection.settings_dict.clear()
+            connection.settings_dict.update(original)
+            # Drop only the database this context created on the attested server.
+            # No FORCE or session termination: unexpected users fail cleanup closed.
+            lease.verify_server(admin)
+            row = admin.execute("SELECT oid FROM pg_database WHERE datname=%s", [name]).fetchone()
+            if row != (oid,):
+                raise RuntimeError("Refuse dropping a replaced historical rehearsal database")
+            admin.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(name)))
+
+
+class HistoricalRehearsalMixin:
+    """Place before TransactionTestCase; cleanup precedes Django fixture teardown."""
+
+    def setUp(self):
+        super().setUp()
+        from django.db import connection
+
+        self.enterContext(historical_rehearsal_database(connection))
 
 
 def historical_targets(loader, historical_apps, historical):

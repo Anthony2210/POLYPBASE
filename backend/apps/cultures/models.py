@@ -103,6 +103,47 @@ class ThermalZone(models.Model):
         return f"{self.name} ({self.organization})"
 
 
+class BoxGlobalIdentityQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("Box global identities are immutable.")
+
+
+class BoxGlobalIdentity(models.Model):
+    """Permanent identity of one physical Box, independent of any institution.
+
+    Several institutional Box records may later reference the same identity
+    (for example the same physical Box known by two institutions). A Global ID
+    identifies; it never authorizes access to any Box record.
+    """
+
+    class AllocationReason(models.TextChoices):
+        AUTOMATIC_CREATION = "automatic_creation", "Automatic creation"
+        SUBCULTURE = "subculture", "Subculture child"
+        INITIALIZED_AUTOMATIC_CREATION = (
+            "initialized_automatic_creation", "Initialized from an automatic creation receipt"
+        )
+        INITIALIZED_SUBCULTURE = "initialized_subculture", "Initialized from a subculture allocation"
+
+    global_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    allocation_reason = models.CharField(max_length=40, choices=AllocationReason.choices, editable=False)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    objects = BoxGlobalIdentityQuerySet.as_manager()
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("Box global identities are immutable.")
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return str(self.global_id)
+
+
+def new_box_global_identity(reason):
+    """Allocate a fresh Global ID for a Box that is a new physical Box."""
+    return BoxGlobalIdentity.objects.create(allocation_reason=reason)
+
+
 class Box(models.Model):
     class Status(models.TextChoices):
         PENDING_REVIEW = "pending_review", _("À vérifier")
@@ -140,6 +181,13 @@ class Box(models.Model):
         related_name="merged_sources", editable=False,
     )
     previous_global_code = models.CharField(max_length=100, blank=True, editable=False)
+    # Despite its name, global_code is the institutional Local ID. The Global ID
+    # is this permanent physical identity; NULL means not yet initialized, never
+    # "a distinct Box". Once set it never changes (guarded in save and in SQL).
+    global_identity = models.ForeignKey(
+        BoxGlobalIdentity, on_delete=models.PROTECT, null=True, blank=True,
+        to_field="global_id", db_column="global_id", related_name="boxes", editable=False,
+    )
 
     _reviewed_identity_codes = frozenset(
         [f"CLA-JKA-1.{number:03}" for number in range(1, 11)]
@@ -164,15 +212,16 @@ class Box(models.Model):
                 self._loaded_identity = (self.__dict__["global_code"], self.__dict__["strain_id"])
 
     def save(self, *args, **kwargs):
-        from .box_codes import register_box_code, reserve_reconciled_box_identity
+        from .box_codes import lock_local_id_registry, register_box_code, reserve_reconciled_box_identity
 
         # Recheck retirement after waiting for the same lock as laboratory
         # writers. A stale model instance must never resurrect an alias.
         with transaction.atomic(using=kwargs.get("using")):
+            lock_local_id_registry(using=kwargs.get("using"))
             current = None
             if not self._state.adding or self.pk is not None:
                 rows = type(self).objects.select_for_update().only(
-                    "merged_into", "previous_global_code", "global_code", "strain_id",
+                    "merged_into", "previous_global_code", "global_code", "strain_id", "global_identity",
                 )
                 current = rows.filter(pk=self.pk).first() if self._state.adding else rows.get(pk=self.pk)
             adding = current is None
@@ -183,9 +232,15 @@ class Box(models.Model):
                     raise ValidationError(_("The culture identity changed. Reload the culture."))
             update_fields = kwargs.get("update_fields")
             if not adding and update_fields is None:
+                # A stale instance must never clear or replace a Global ID.
                 update_fields = {field.name for field in self._meta.concrete_fields
-                                 if not field.primary_key and field.name != "polyp_state_revision"}
+                                 if not field.primary_key
+                                 and field.name not in {"polyp_state_revision", "global_identity"}}
                 kwargs["update_fields"] = update_fields
+            if not adding and {"global_identity", "global_identity_id"}.intersection(update_fields):
+                if (current.global_identity_id is not None
+                        and self.global_identity_id != current.global_identity_id):
+                    raise ValidationError("A box Global ID is permanent.")
             identity_fields = {"global_code", "strain", "strain_id"}
             writes_identity = adding or bool(identity_fields.intersection(update_fields))
             if not adding and writes_identity:
@@ -211,8 +266,12 @@ class Box(models.Model):
                 if adding or self.global_code != current.global_code:
                     reserve_reconciled_box_identity(self.global_code)
                 register_box_code(self.global_code, namespace=self.strain.code)
-                if type(self).objects.filter(previous_global_code=self.global_code).exclude(pk=self.pk).exists():
-                    raise ValidationError(_("This code is reserved by a historical culture identity."))
+                if adding or self.global_code != current.global_code:
+                    from .box_aliases import validate_local_id_claim
+
+                    # Keep duplicate-current-code errors on the existing unique
+                    # constraint; the advisory guard covers historical claims.
+                    validate_local_id_claim(self.global_code, box=self, check_current=False)
             result = super().save(*args, **kwargs)
             if writes_identity:
                 saved_identity = (
@@ -234,6 +293,13 @@ class Box(models.Model):
                 ),
                 name="merged_box_is_retired",
             ),
+            # One live record per physical Box within an institution; retired
+            # merge aliases may share the identity of their terminal record.
+            models.UniqueConstraint(
+                fields=["organization", "global_identity"],
+                condition=Q(merged_into__isnull=True, global_identity__isnull=False),
+                name="unique_live_box_global_identity_per_organization",
+            ),
         ]
         indexes = [
             models.Index(fields=["organization", "status"]),
@@ -243,6 +309,49 @@ class Box(models.Model):
 
     def __str__(self):
         return f"{self.global_code} - {self.box_number}"
+
+
+class BoxLocalIdAliasQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("Box Local ID aliases are immutable.")
+
+    def delete(self):
+        raise ValidationError("Box Local ID aliases are immutable.")
+
+
+class BoxLocalIdAlias(models.Model):
+    """An explicitly confirmed old Local ID, attached permanently to its source.
+
+    Organization is derived from box. Resolution of merged sources belongs to
+    the resolver, not this registry. A shared physical Global ID is not evidence
+    that two institutional records may share a Local ID.
+    """
+
+    code = models.CharField(max_length=100, unique=True, editable=False)
+    box = models.ForeignKey(Box, on_delete=models.PROTECT, related_name="local_id_aliases", editable=False)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    objects = BoxLocalIdAliasQuerySet.as_manager()
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(condition=~Q(code=""), name="box_local_id_alias_not_empty"),
+        ]
+
+    @property
+    def organization_id(self):
+        return self.box.organization_id
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("Box Local ID aliases are immutable.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Box Local ID aliases are immutable.")
+
+    def __str__(self):
+        return self.code
 
 
 class AutomaticBoxCreationRequest(models.Model):

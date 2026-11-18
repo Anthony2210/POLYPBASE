@@ -22,6 +22,7 @@ for (const gap of ['before submission', 'after mutation success']) {
     await box.panel.settle();
     box.panel.click(box.panel.nodes.find(node => node.props.role === 'option'));
     box.panel.change(box.panel.field('create-box-location-field'), '10');
+    box.panel.change(box.panel.field('create-box-initial-polyps-field'), '5');
     if (gap === 'before submission') h.switchOrganization();
     const pending = box.panel.submit();
     if (gap === 'after mutation success') {
@@ -168,7 +169,7 @@ function harness() {
     openBoxRequestGenerationRef: { current: 0 },
     navigationGenerationRef: { current: 0 },
     window: { location: browser.location, history: browser.history },
-    setIsOrganizationMenuOpen() {}, setNeedsOrganizationChoice() {}, setIsCreateBoxOpen() {},
+    setIsOrganizationMenuOpen() {}, setNeedsOrganizationChoice() {}, setIsCreateBoxOpen() {}, setAdminBoxStrainId() {},
     setStoredInterfaceLanguage() {}, setIsLoginRoute() {},
     setSearch(value) { state.search = value; },
     setQrLabelSelection(value) { state.qrLabels = value; },

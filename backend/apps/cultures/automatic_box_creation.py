@@ -1,6 +1,7 @@
 """Ordinary box creation with atomic code allocation and durable retry intent."""
 
 from collections.abc import Mapping
+from datetime import datetime, time
 import hashlib
 import hmac
 import json
@@ -21,9 +22,11 @@ from apps.organizations.models import Organization
 from apps.taxonomy.models import Strain
 from apps.taxonomy.scoping import eligible_strains
 
-from .box_codes import allocate_box_codes
+from .box_codes import allocate_box_codes, lock_local_id_registry
 from .box_identity import USABLE, institution_species_codes, strain_box_identity, strain_display_name
-from .models import AutomaticBoxCreationRequest, Box, BoxLocation, ThermalZone
+from .models import (
+    AutomaticBoxCreationRequest, Box, BoxGlobalIdentity, BoxLocation, ThermalZone, new_box_global_identity,
+)
 
 
 class AutomaticBoxRequestSerializer(serializers.Serializer):
@@ -47,6 +50,9 @@ class AutomaticBoxCreateSerializer(AutomaticBoxRequestSerializer):
         max_digits=5, decimal_places=2, required=False, allow_null=True, default=None,
     )
     notes = serializers.CharField(required=False, allow_blank=True, default="")
+    # Recorded as the Box's initial measurement on entered_on. Required: an empty
+    # value is never read as 0, and 0 itself is a real count.
+    initial_polyp_count = serializers.IntegerField(min_value=0, max_value=2147483647)
 
 
 class AutomaticBoxIntentKeySerializer(AutomaticBoxRequestSerializer):
@@ -64,6 +70,7 @@ def _normalized_intent(values):
         "entered_on": values["entered_on"].isoformat(),
         "volume_liters": None if volume is None else format(volume.copy_abs() if volume == 0 else volume, ".2f"),
         "notes": values["notes"],
+        "initial_polyp_count": values["initial_polyp_count"],
     }
 
 
@@ -170,6 +177,7 @@ def inspect_automatic_box_request(*, organization, actor, data):
     """
     serializer = AutomaticBoxRequestSerializer(data=data)
     serializer.is_valid(raise_exception=True)
+    lock_local_id_registry()
     organization, actor = _locked_creation_authority(organization=organization, actor=actor)
     receipt = AutomaticBoxCreationRequest.objects.filter(
         organization=organization, actor=actor,
@@ -189,6 +197,7 @@ def resolve_automatic_box_request(*, organization, actor, data):
     """Return a committed owned Box or permanently cancel an absent scoped key."""
     serializer = AutomaticBoxRequestSerializer(data=data)
     serializer.is_valid(raise_exception=True)
+    lock_local_id_registry()
     organization, actor = _locked_creation_authority(organization=organization, actor=actor)
     receipt, _created = AutomaticBoxCreationRequest.objects.get_or_create(
         organization=organization, actor=actor,
@@ -208,8 +217,8 @@ def resolve_automatic_box_request(*, organization, actor, data):
 def create_automatic_box(*, organization, actor, data, _registered_receipt=None):
     """Revalidate locked authority and eligibility before creation or replay.
 
-    Lock order: organization -> membership -> actor -> strain -> zone -> namespace.
-    Never lock existing Boxes after the namespace: subculture owns its parent first.
+    Lock order: Local ID registry -> organization -> membership -> actor -> strain -> zone -> namespace.
+    All Box and namespace locks follow registry coordination.
     NO KEY UPDATE keeps FK references compatible with concurrent subculture inserts.
     The organization lock serializes creation and resolution of an idempotency key.
     """
@@ -217,6 +226,7 @@ def create_automatic_box(*, organization, actor, data, _registered_receipt=None)
         data={key: value for key, value in data.items() if key == "request_id"} if isinstance(data, Mapping) else data,
     )
     key_serializer.is_valid(raise_exception=True)
+    lock_local_id_registry()
     organization, actor = _locked_creation_authority(organization=organization, actor=actor)
     previous = AutomaticBoxCreationRequest.objects.filter(
         organization=organization, actor=actor,
@@ -264,24 +274,43 @@ def create_automatic_box(*, organization, actor, data, _registered_receipt=None)
             organization=organization, strain=strain, thermal_zone=zone,
             global_code=code, box_number=number, local_code="", status=Box.Status.ACTIVE,
             entered_on=values["entered_on"], volume_liters=volume, notes=values["notes"],
+            global_identity=new_box_global_identity(BoxGlobalIdentity.AllocationReason.AUTOMATIC_CREATION),
         )
     except DjangoValidationError as error:
         raise serializers.ValidationError({"global_code": error.messages}) from error
     BoxLocation.objects.create(
-        box=box, thermal_zone=zone, starts_at=timezone.now(),
+        box=box, thermal_zone=zone,
+        # The selected initial location covers the full scientific creation day.
+        starts_at=timezone.make_aware(datetime.combine(values["entered_on"], time.min)),
         notes="Initial location after automatic ordinary creation.",
     )
+    from apps.measurements.services import (
+        MeasurementWriteError, MeasurementWriteForbidden, create_box_creation_measurement,
+    )
+
+    try:
+        # Same transaction and receipt as the Box: a failure leaves no Box, and a
+        # replay returns the recorded Box without a second initial measurement.
+        create_box_creation_measurement(
+            box=box, user=actor, measured_on=values["entered_on"],
+            polyp_count=values["initial_polyp_count"],
+        )
+    except MeasurementWriteForbidden as error:
+        raise PermissionDenied(_("This account cannot create boxes.")) from error
+    except MeasurementWriteError as error:
+        raise serializers.ValidationError({"initial_polyp_count": [str(error)]}) from error
     AuditLog.objects.create(
         organization=organization, user=actor, action=AuditLog.Action.CREATION,
         object_type="box", object_id=box.global_code,
         description=f"Box created automatically: {box.global_code}",
         metadata={
-            "box_id": box.pk, "request_id": str(values["request_id"]),
+            "box_id": box.pk, "global_id": str(box.global_identity_id), "request_id": str(values["request_id"]),
             "valeurs": {
                 "code_global": box.global_code, "numero_boite": box.box_number,
                 "souche": strain.code, "espece": strain.species.scientific_name,
                 "emplacement": zone.name, "date_entree": intent["entered_on"],
                 "volume_litres": intent["volume_liters"], "note": box.notes,
+                "polypes_initiaux": intent["initial_polyp_count"],
             },
         },
     )
@@ -331,6 +360,7 @@ def register_automatic_box_intent(*, organization, actor, data):
         field: data[field] for field in ("request_id", "resume_token") if field in data
     } if isinstance(data, Mapping) else data)
     key.is_valid(raise_exception=True)
+    lock_local_id_registry()
     organization, actor = _locked_creation_authority(organization=organization, actor=actor)
     token_hash = _token_hash(key.validated_data["resume_token"])
     serializer = AutomaticBoxIntentSerializer(data=data)
@@ -398,6 +428,7 @@ def _locked_registered_intent(*, organization, actor, data):
 @transaction.atomic
 def execute_automatic_box_intent(*, organization, actor, data):
     """Execute only the stored immutable parameters, or return its terminal result."""
+    lock_local_id_registry()
     organization, actor, receipt = _locked_registered_intent(organization=organization, actor=actor, data=data)
     if receipt.box_id is not None:
         _owned_receipt_box(receipt, organization)
@@ -425,6 +456,7 @@ def execute_automatic_box_intent(*, organization, actor, data):
 @transaction.atomic
 def cancel_automatic_box_intent(*, organization, actor, data):
     """Fence a registered pending intent only with its matching recovery token."""
+    lock_local_id_registry()
     organization, actor, receipt = _locked_registered_intent(organization=organization, actor=actor, data=data)
     if receipt.box_id is not None:
         _owned_receipt_box(receipt, organization)

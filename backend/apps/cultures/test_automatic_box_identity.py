@@ -31,6 +31,7 @@ class StrainBoxIdentityTests(AutomaticBoxFixture, TestCase):
         self.assertEqual(self.identity(), {
             "status": "usable", "prefix": "AUT-LAB-1", "species_code": "AUT",
             "origin_code": "LAB", "strain_number": "1", "recorded_provenance_name": None,
+            "recorded_country_code": None,
         })
         self.assertEqual(self.identity(number=1, origin_code="LAB")["status"], "usable")
 
@@ -197,6 +198,7 @@ class AutomaticBoxIdentityApiTests(AutomaticBoxFixture, TestCase):
             "identity": {
                 "status": "usable", "prefix": "AUT-LAB-1", "species_code": "AUT",
                 "origin_code": "LAB", "strain_number": "1", "recorded_provenance_name": None,
+                "recorded_country_code": None,
             },
         })
         self.assertEqual(by_id[legacy.pk]["identity"], {"status": "unusable", "reason": "code_format"})

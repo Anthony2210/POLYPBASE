@@ -61,6 +61,8 @@ export type BiologicalMeasurement = {
   readonly duplicate_of?: number | null;
   readonly environment_source_box?: number | null;
   readonly environment_locations?: readonly BoxLocation[] | null;
+  // Server provenance; 'box_creation' marks the initial count entered with a new Box.
+  readonly origin?: 'direct_entry' | 'file_import' | 'legacy_unclassified' | 'box_creation' | string;
 };
 
 export type CurrentPolypState = {
@@ -148,6 +150,9 @@ export type LocationConflict = {
 
 export type BoxItem = {
   id: number;
+  // Permanent physical Box identity (UUID); null until initialized.
+  readonly global_id?: string | null;
+  // Institutional Local ID, despite its technical name.
   global_code: string;
   readonly previous_global_code?: string;
   local_code: string;
@@ -157,6 +162,9 @@ export type BoxItem = {
   species: Species;
   strain: Strain;
   thermal_zone: ThermalZoneSummary | null;
+  readonly created_on?: string;
+  readonly first_measurement_on?: string | null;
+  readonly last_measurement_on?: string | null;
   entered_on: string | null;
   current_location_started_at: string | null;
   latest_measurement: BiologicalMeasurement | null;
@@ -523,6 +531,8 @@ export type BoxCreatePayload = {
   entered_on: string;
   volume_liters?: string | null;
   notes?: string;
+  // Recorded as the Box's initial measurement on entered_on (ephyrae 0). 0 is a real count.
+  initial_polyp_count: number;
 };
 
 export type BoxCreationIntent = BoxCreatePayload & { resume_token: string };

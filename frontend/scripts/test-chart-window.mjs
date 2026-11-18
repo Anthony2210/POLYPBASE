@@ -96,6 +96,77 @@ test('source locations never extend an unknown end to a reading or a following p
   assert.equal(locationExports.findSourceChartLocationAtDate(locations, '2026-02-05'), undefined);
 });
 
+for (const { season, enteredOn, previousDay, movementDay, offset } of [
+  { season: 'winter', enteredOn: '2026-01-15', previousDay: '2026-01-14', movementDay: '2026-02-10', offset: '+01:00' },
+  { season: 'summer', enteredOn: '2026-07-15', previousDay: '2026-07-14', movementDay: '2026-08-10', offset: '+02:00' },
+]) {
+  const initialLocation = Object.freeze({
+    id: 1,
+    name: 'Initial zone',
+    startsAt: `${enteredOn}T00:00:00${offset}`,
+    endsAt: null,
+  });
+  const locations = Object.freeze([initialLocation]);
+
+  test(`backdated initial location starts on entered_on at Paris ${season} midnight (${offset})`, () => {
+    // UTC midnight conversion would incorrectly move this band to the previous day.
+    assert.equal(new Date(initialLocation.startsAt).toISOString().slice(0, 10), previousDay);
+    const periods = locationExports.resolveChartLocationPeriods(locations, '2026-08-20', enteredOn);
+    assert.equal(periods.length, 1);
+    assert.equal(periods[0].startDate, enteredOn);
+    assert.equal(periods[0].endDate, '2026-08-20');
+    assert.equal(periods[0].startsAt, initialLocation.startsAt);
+  });
+
+  test(`selected scientific date resolves the backdated initial location (${offset})`, () => {
+    const measurement = Object.freeze({ date: enteredOn, recordedAt: '2026-08-20T12:00:00+02:00' });
+    for (const resolve of [locationExports.findChartLocationAtDate, locationExports.findSourceChartLocationAtDate]) {
+      assert.equal(resolve(locations, measurement.date), 'Initial zone');
+    }
+    const windowOffset = exports.getLatestChartWindowOffset([measurement.date], [measurement.date], 6);
+    const window = exports.buildChartWindow([measurement.date], windowOffset, 6);
+    assert.ok(window.startDate <= measurement.date && window.endDate >= measurement.date);
+  });
+
+  test(`subsequent movement keeps the backdated initial stay and wins on the movement day (${offset})`, () => {
+    const movedAt = `${movementDay}T14:30:00${offset}`;
+    // Deliberately unordered, immutable input also guards against rewriting the API history.
+    const movedLocations = Object.freeze([
+      Object.freeze({ id: 2, name: 'Next zone', startsAt: movedAt, endsAt: null }),
+      Object.freeze({ ...initialLocation, endsAt: movedAt }),
+    ]);
+    const measurement = Object.freeze({ date: enteredOn, recordedAt: '2026-08-20T12:00:00+02:00' });
+    const periods = locationExports.resolveChartLocationPeriods(movedLocations, '2026-08-20', measurement.date);
+    assert.equal(periods.length, 2);
+    assert.equal(periods[0].startDate, enteredOn);
+    assert.equal(periods[0].endDate, movementDay);
+    assert.equal(periods[0].endsAt, movedAt);
+    assert.equal(periods[1].startDate, movementDay);
+    assert.equal(periods[1].startsAt, movedAt);
+    assert.equal(periods[1].endDate, '2026-08-20');
+    for (const resolve of [locationExports.findChartLocationAtDate, locationExports.findSourceChartLocationAtDate]) {
+      assert.equal(resolve(movedLocations, measurement.date), 'Initial zone');
+      assert.equal(resolve(movedLocations, movementDay), 'Next zone');
+      assert.equal(resolve(movedLocations, measurement.recordedAt.slice(0, 10)), 'Next zone');
+    }
+  });
+
+  test(`local midnight does not fabricate location prehistory or backfill a missing initial stay (${offset})`, () => {
+    const laterLocations = Object.freeze([
+      Object.freeze({ id: 2, name: 'Next zone', startsAt: `${movementDay}T14:30:00${offset}`, endsAt: null }),
+    ]);
+    for (const resolve of [locationExports.findChartLocationAtDate, locationExports.findSourceChartLocationAtDate]) {
+      assert.equal(resolve(locations, previousDay), undefined);
+      assert.equal(resolve(laterLocations, enteredOn), undefined);
+      assert.equal(resolve([], enteredOn), undefined);
+    }
+    const periods = locationExports.resolveChartLocationPeriods(laterLocations, '2026-08-20', enteredOn);
+    assert.equal(periods.length, 1);
+    assert.equal(periods[0].startDate, movementDay);
+    assert.equal(locationExports.resolveChartLocationPeriods([], '2026-08-20', enteredOn).length, 0);
+  });
+}
+
 test('an unknown location end is not extended when no reading supports it', () => {
   const periods = locationExports.resolveChartLocationPeriods([{
     id: 1,

@@ -357,7 +357,7 @@ class LifecycleMovementKindTests(MovementFixtureMixin, TestCase):
             reverse("api_box_automatic"),
             data=json.dumps({
                 "strain": self.strain.id, "thermal_zone": self.zone_a.id,
-                "entered_on": "2026-08-27", "request_id": str(uuid.uuid4()),
+                "entered_on": "2026-08-27", "request_id": str(uuid.uuid4()), "initial_polyp_count": 12,
             }),
             content_type="application/json",
             HTTP_X_ORGANIZATION_ID=str(self.organization.id),

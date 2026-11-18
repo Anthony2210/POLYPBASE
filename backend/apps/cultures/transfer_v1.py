@@ -10,7 +10,7 @@ from apps.measurements.models import BiologicalMeasurement
 from apps.taxonomy.models import Species, Strain
 
 from .models import Box, BoxLocation, BoxTransfer, BoxTransferImport
-from .box_codes import allocate_box_codes, locked_namespace
+from .box_codes import allocate_box_codes, lock_local_id_registry, locked_namespace
 
 
 class TransferV1ValidationError(Exception):
@@ -94,6 +94,7 @@ def import_transfer_v1(*, source, organization, zone, user, global_code=""):
     """
     try:
         with transaction.atomic():
+            lock_local_id_registry()
             return _import_transfer_v1(
                 source=source, organization=organization, zone=zone,
                 user=user, global_code=global_code,

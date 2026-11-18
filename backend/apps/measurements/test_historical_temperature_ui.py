@@ -331,6 +331,10 @@ class MigrationOrderTests(SimpleTestCase):
             plan.index(("measurements", "0014_measurement_canonical_evidence")),
             plan.index(("measurements", "0015_iminilide_probe_collection")),
         )
+        self.assertLess(
+            plan.index(("measurements", "0018_box_1902_preservation")),
+            plan.index(("measurements", "0019_box_creation_initial_origin")),
+        )
         chain = graph.forwards_plan(("measurements", "0014_measurement_canonical_evidence"))
         expected = [node for node in chain if node in ui.EXPECTED_PENDING]
         self.assertEqual(set(expected), set(ui.EXPECTED_PENDING))

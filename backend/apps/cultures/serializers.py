@@ -3,6 +3,7 @@ from collections.abc import Mapping
 from datetime import date, timedelta
 from decimal import Decimal
 
+from django.db.models import Max, Min
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
@@ -271,14 +272,20 @@ class BoxListSerializer(serializers.ModelSerializer):
     strain = StrainSummarySerializer(read_only=True)
     thermal_zone = ThermalZoneSummarySerializer(read_only=True)
     latest_measurement = serializers.SerializerMethodField()
+    first_measurement_on = serializers.SerializerMethodField()
+    last_measurement_on = serializers.SerializerMethodField()
     latest_salinity_psu = serializers.SerializerMethodField()
     current_location_started_at = serializers.SerializerMethodField()
     current_polyp_state = serializers.SerializerMethodField()
+    # Permanent physical identity; NULL until initialized. Read-only: no API
+    # accepts a Global ID as input to create, reassign or merge a Box.
+    global_id = serializers.UUIDField(source="global_identity_id", read_only=True)
 
     class Meta:
         model = Box
         fields = [
             "id",
+            "global_id",
             "global_code",
             "previous_global_code",
             "local_code",
@@ -288,7 +295,10 @@ class BoxListSerializer(serializers.ModelSerializer):
             "species",
             "strain",
             "thermal_zone",
+            "created_on",
             "entered_on",
+            "first_measurement_on",
+            "last_measurement_on",
             "latest_measurement",
             "latest_salinity_psu",
             "current_location_started_at",
@@ -297,6 +307,29 @@ class BoxListSerializer(serializers.ModelSerializer):
 
     def get_species(self, obj):
         return SpeciesSummarySerializer(obj.strain.species).data
+
+    def _measurement_date(self, obj, name):
+        annotation = f"{name}_annotation"
+        if hasattr(obj, annotation):
+            value = getattr(obj, annotation)
+        else:
+            # Relation prefetches can contain only the latest row, not history.
+            # One cached aggregate keeps bare/detail objects correct and bounded.
+            if not hasattr(obj, "_measurement_date_bounds"):
+                obj._measurement_date_bounds = BiologicalMeasurement.objects.canonical().filter(
+                    box_id=obj.pk,
+                ).aggregate(
+                    first_measurement_on=Min("measured_on"),
+                    last_measurement_on=Max("measured_on"),
+                )
+            value = obj._measurement_date_bounds[name]
+        return value.isoformat() if value is not None else None
+
+    def get_first_measurement_on(self, obj):
+        return self._measurement_date(obj, "first_measurement_on")
+
+    def get_last_measurement_on(self, obj):
+        return self._measurement_date(obj, "last_measurement_on")
 
     def get_current_polyp_state(self, obj):
         return resolve_current_polyp_state(obj)

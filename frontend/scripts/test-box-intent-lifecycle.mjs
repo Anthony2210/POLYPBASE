@@ -24,6 +24,7 @@ async function select(h) {
   await h.panel.settle();
   h.panel.click(h.panel.nodes.find(n => n.props.role === 'option'));
   h.panel.change(h.panel.field('create-box-location-field'), '10');
+  h.panel.change(h.panel.field('create-box-initial-polyps-field'), '5');
 }
 async function start(h) {
   const completion = h.panel.submit();
@@ -179,6 +180,74 @@ test('actor replacement in the same institution remounts and cannot resume the o
   assert.equal(h.env.window.sessionStorage.getItem('polypbase.automaticBox.8.1'), null);
   assert.equal(h.panel.field('create-box-date-field').disabled, false);
   h.unmount();
+});
+
+test('locked cross-strain recovery blocks without replay or loss; general remount resumes the original intent', async () => {
+  const env = createBoxEnvironment();
+  const intent = { ...payload(), initial_polyp_count: 0 };
+  await env.load('../src/utils/boxCreationRecovery.ts').storeCreationIntent(STORAGE, intent);
+  const saved = env.window.sessionStorage.getItem(STORAGE);
+  const savedKey = env.window.sessionStorage.getItem(KEY);
+  const h = createBoxHarness({ lockStrain: true, initialStrainId: 2 }, { environment: env });
+  await h.panel.settle();
+  env.requests.find(r => r.path === '/api/boxes/automatic/strains/').resolve([
+    option, { ...option, id: 2, code: 'AUR-ATL-2' },
+  ]);
+  await h.panel.settle();
+  assert.ok(visible(h).includes('createBoxPreviousUnverified'));
+  assert.ok(visible(h).includes('AUR-ATL-2'));
+  assert.equal(h.panel.byClass('create-box-submit').disabled, true);
+  env.dispatch('online');
+  env.runTimers();
+  h.panel.setProps({ isOpen: false });
+  h.panel.setProps({ isOpen: true });
+  await h.panel.submit();
+  await h.panel.settle();
+  assert.equal(h.mutations.length, 0);
+  assert.equal(h.resolutions.length, 0);
+  assert.equal(env.requests.some(r => r.path.includes('/resolve/')), false);
+  assert.equal(env.window.sessionStorage.getItem(STORAGE), saved);
+  assert.equal(env.window.sessionStorage.getItem(KEY), savedKey);
+  h.unmount();
+  const restored = integrated(env);
+  await restored.h.panel.settle();
+  assert.deepEqual(plain(restored.transport.requests[0].payload), intent);
+  await respond(restored.h, restored.transport.requests[0], { status: 'created', box });
+  assert.equal(env.window.sessionStorage.getItem(STORAGE), null);
+  restored.h.unmount();
+});
+
+for (const context of [1, 2]) test(`locked strain ${context} retains unidentified pending evidence without inspection or replay`, async () => {
+  const env = createBoxEnvironment();
+  const id = crypto.randomUUID();
+  env.window.sessionStorage.setItem(KEY, id);
+  const h = createBoxHarness({ lockStrain: true, initialStrainId: context }, { environment: env });
+  await h.panel.settle();
+  assert.ok(visible(h).includes('createBoxPreviousUnverified'));
+  assert.equal(h.panel.byClass('create-box-submit').disabled, true);
+  assert.equal(h.mutations.length, 0);
+  assert.equal(env.requests.some(r => r.path.includes('/resolve/')), false);
+  assert.equal(env.window.sessionStorage.getItem(KEY), id);
+  h.unmount();
+});
+
+test('locked same-strain recovery replays the exact intent, ignoring stale completion after contextual remount', async () => {
+  const env = createBoxEnvironment();
+  const intent = { ...payload(), initial_polyp_count: 0 };
+  await env.load('../src/utils/boxCreationRecovery.ts').storeCreationIntent(STORAGE, intent);
+  const saved = env.window.sessionStorage.getItem(STORAGE);
+  const first = createBoxHarness({ lockStrain: true, initialStrainId: 1 }, { environment: env });
+  await first.panel.settle();
+  assert.deepEqual(plain(first.mutations[0].payload), intent);
+  first.unmount();
+  const next = createBoxHarness({ lockStrain: true, initialStrainId: 2 }, { environment: env });
+  first.mutations[0].resolve(box);
+  await next.panel.settle();
+  assert.equal(first.panel.updatesAfterUnmount, 0);
+  assert.equal(next.mutations.length, 0);
+  assert.equal(next.panel.byClass('create-box-open-created'), undefined);
+  assert.equal(env.window.sessionStorage.getItem(STORAGE), saved);
+  next.unmount();
 });
 
 test('institution replacement between registration and execution cannot dispatch the second stage', async () => {

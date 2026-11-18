@@ -105,6 +105,7 @@ class BoxLifecycleTests(TestCase):
         payload = {
             "strain": self.strain.id,
             "entered_on": "2026-08-27",
+            "initial_polyp_count": 12,
             "request_id": str(uuid.uuid4()),
         }
 

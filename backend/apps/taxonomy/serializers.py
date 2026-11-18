@@ -1,6 +1,8 @@
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Value
 from rest_framework import serializers
+from rest_framework.validators import UniqueValidator
 
 from .models import (
     BiologicalProvenance,
@@ -11,6 +13,7 @@ from .models import (
     Strain,
     StrainTranslation,
 )
+from .species_names import ScientificNameKey, normalize_scientific_name
 
 
 def available_content_languages():
@@ -121,22 +124,6 @@ class BiologicalProvenanceSerializer(serializers.ModelSerializer):
         fields = ["id", "name"]
 
 
-class BiologicalProvenanceWriteSerializer(serializers.ModelSerializer):
-    name = serializers.CharField(max_length=150, trim_whitespace=True, allow_blank=False)
-
-    class Meta:
-        model = BiologicalProvenance
-        fields = ["name"]
-
-    def to_internal_value(self, data):
-        if not isinstance(data, dict):
-            raise serializers.ValidationError("Expected an object.")
-        unexpected = set(data) - {"name"}
-        if unexpected:
-            raise serializers.ValidationError({field: "This field is not allowed." for field in unexpected})
-        return super().to_internal_value(data)
-
-
 class ProvenanceCodeSerializer(serializers.ModelSerializer):
     biological_provenance_name = serializers.CharField(
         source="biological_provenance.name", read_only=True
@@ -145,22 +132,6 @@ class ProvenanceCodeSerializer(serializers.ModelSerializer):
     class Meta:
         model = OrganizationProvenanceCode
         fields = ["id", "biological_provenance", "biological_provenance_name", "code"]
-
-
-class ProvenanceCodeWriteSerializer(serializers.ModelSerializer):
-    code = serializers.CharField(max_length=3, trim_whitespace=False)
-
-    class Meta:
-        model = OrganizationProvenanceCode
-        fields = ["biological_provenance", "code"]
-
-    def to_internal_value(self, data):
-        if not isinstance(data, dict):
-            raise serializers.ValidationError("Expected an object.")
-        unexpected = set(data) - {"biological_provenance", "code"}
-        if unexpected:
-            raise serializers.ValidationError({field: "This field is not allowed." for field in unexpected})
-        return super().to_internal_value(data)
 
 
 class SpeciesCodeSerializer(serializers.ModelSerializer):
@@ -214,6 +185,17 @@ class StrainReferenceSerializer(serializers.ModelSerializer):
 
 class SpeciesReferenceWriteSerializer(serializers.ModelSerializer):
     translations = serializers.JSONField(write_only=True)
+
+    def validate_scientific_name(self, value):
+        name = normalize_scientific_name(value)
+        matches = Species.objects.annotate(name_key=ScientificNameKey("scientific_name")).filter(
+            name_key=ScientificNameKey(Value(name)),
+        )
+        if self.instance is not None:
+            matches = matches.exclude(pk=self.instance.pk)
+        if matches.exists():
+            raise serializers.ValidationError(UniqueValidator.message, code="unique")
+        return name
 
     class Meta:
         model = Species

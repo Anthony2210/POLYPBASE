@@ -24,7 +24,7 @@ from apps.measurements.services import _measurement_audit_values
 from apps.organizations.models import Organization
 from apps.taxonomy.models import Strain
 
-from .box_codes import register_box_code
+from .box_codes import lock_local_id_registry, register_box_code
 from .models import Box, BoxCodeNamespace, BoxLocation, BoxMovement, ThermalZone
 
 OPERATION = "pca_identity_unification_v1"
@@ -412,6 +412,7 @@ def _apply_reviewed_plan(organization_id, *, actor_id, expected_plan_hash, backu
                          review_ref, execution_evidence=None, verify_execution=None):
     """Shared locked merge; public callers own target and evidence verification."""
     with transaction.atomic():
+        lock_local_id_registry()
         if verify_execution is not None:
             verify_execution()
         boxes = list(Box.objects.select_for_update().filter(

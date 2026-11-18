@@ -68,6 +68,8 @@ _NON_LOCATION_ZONE_KEYS = frozenset(
 JSON_EXEMPTIONS = {
     "measurements.TemperatureMeasurement": "raw probe payload; its probe relation is checked",
     "sharing.BoxReaderShare": "scientific snapshot selector names only; the catalogue has no location",
+    "taxonomy.InstitutionStrainCreationRequest": "strain intent names collection provenance, never a laboratory location",
+    "taxonomy.SpeciesCodeChangeRequest": "intent and result contain taxonomic codes and Box IDs, never locations",
 }
 
 
