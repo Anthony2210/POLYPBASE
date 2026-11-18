@@ -364,12 +364,29 @@ def before_b32(source, rows, language="EN"):
     return source
 
 
+def before_donation_integration_layout(source, rows, language="EN"):
+    """Undo only the three separators added by merge 90a1065, not arbitrary whitespace."""
+    dna = {row["key_or_msgid"]: row for row in b30_events(rows) if row["language"] == language}
+    donation = {row["key_or_msgid"]: row for row in b44_events(rows) if row["language"] == language}
+    header = ("export const fr = {\n" if language == "FR"
+              else "export const en: Record<TranslationKey, string> = {\n")
+    first = f"  dnaMissing: '{dna['dnaMissing']['final_value']}',\n"
+    last = f"  dnaAuditRevoked: '{dna['dnaAuditRevoked']['final_value']}',\n"
+    warning = f"  donationAcceptanceUnavailable: '{donation['donationAcceptanceUnavailable']['final_value']}',\n"
+    for current, previous in ((header + "\n" + first, header + first),
+                              (last + "\n", last), (warning + "\n", warning)):
+        assert source.count(current) == 1, "Donation integration separator changed"
+        source = source.replace(current, previous)
+    return source
+
+
 def before_b30(source, rows, language="EN"):
     """Undo only the frozen B30 additions, honoring the B31 removals.
 
     A key removed by B31 must already be absent from the catalog: an absent
     removed key is a recorded removal, not an unrecorded missing translation.
     """
+    source = before_donation_integration_layout(source, rows, language)
     source = before_species_integration(source, rows, language)
     removed = {(row["key_or_msgid"], row["language"]) for row in b31_events(rows)}
     for row in reversed(b30_events(rows)):
@@ -556,7 +573,10 @@ class IntegrationHistoryTests(unittest.TestCase):
                 changed[index][field] += " altered"
                 self.assertTrue(species_integration_errors(changed), (index, field))
             self.assertTrue(species_integration_errors(rows[:index] + rows[index + 1:]))
-        self.assertTrue(species_integration_errors(rows + [dict(rows[-1], entry_id="T1742")]))
+        next_id = max(int(row["entry_id"][1:]) for row in rows) + 1
+        self.assertTrue(species_integration_errors(rows + [dict(rows[SPECIES_TAIL][-1], entry_id=f"T{next_id}")]))
+        self.assertEqual(species_integration_errors(rows + [dict(rows[-1], entry_id=f"T{next_id}",
+                                                               batch="B99-2026-11-19")]), [])
         for language in ("FR", "EN"):
             source = (reg.ROOT / f"frontend/src/i18n/{language.lower()}.ts").read_text(encoding="utf-8")
             restored = before_species_integration(source, rows, language)
@@ -677,10 +697,11 @@ class IntegrationHistoryTests(unittest.TestCase):
 
     def test_later_corrections_must_be_appended(self):
         original = reg.load_register()
-        # The latest events are B31 removals; a correction must target a live identity.
+        # A correction must target a live identity and use a new batch after all appended events.
         row = next(entry for entry in reversed(original) if entry["status"] != "REMOVED")
         next_id = max(int(entry["entry_id"][1:]) for entry in original) + 1
-        correction = dict(row, entry_id=f"T{next_id}", batch="B46-2026-11-19", status="APPLIED",
+        next_batch = max(int(entry["batch"].split("-", 1)[0][1:]) for entry in original) + 1
+        correction = dict(row, entry_id=f"T{next_id}", batch=f"B{next_batch}-2026-11-19", status="APPLIED",
                           baseline_git_head=HEAD_2, decision_ref="synthetic-future-correction",
                           initial_value=row["final_value"], final_value=row["final_value"] + " corrected")
         appended = original + [correction]
@@ -1244,6 +1265,19 @@ class RealRegisterTests(unittest.TestCase):
             ("EN", "f51265056ec7e3f84057b4e8405410292465240beb720bbc2e5d4e01ebf25a77"),
         ):
             source = (reg.ROOT / reg.REACT_CATALOGS[language]).read_text(encoding="utf-8")
+            layout = before_donation_integration_layout(source, rows, language)
+            self.assertEqual(len(source.splitlines()) - len(layout.splitlines()), 3)
+            for key in ("dnaMissing", "exchangePreviewTitle", "shareWorkspace"):
+                line = next(line for line in source.splitlines(keepends=True) if line.startswith(f"  {key}: "))
+                with self.subTest(language=language, separator=key):
+                    with self.assertRaises(AssertionError):
+                        before_donation_integration_layout(source.replace("\n" + line, line), rows, language)
+            # Other whitespace changes must survive inversion and fail the historical hash.
+            unknown_space = "\n  shareWorkspaceHelp: "
+            changed_space = source.replace(unknown_space, "\n" + unknown_space)
+            self.assertNotEqual(changed_space, source)
+            self.assertEqual(before_donation_integration_layout(changed_space, rows, language),
+                             layout.replace(unknown_space, "\n" + unknown_space))
             restored = before_b45(source, rows, language)
             # Remove main-only layers to recover the independently frozen feature B30 source.
             feature_source = before_b32(before_b30(restored, rows, language), rows, language)
@@ -1579,9 +1613,9 @@ class RealRegisterTests(unittest.TestCase):
             restored = before_b30(source, rows, language)
             self.assertNotEqual(restored, source)
             # Reverse the frozen feature layer, then exactly 21 active DNA keys.
-            # The registered English rewording changes no line count; B31 stays absent.
+            # Also reverse the three merge separators. The English rewording adds no lines; B31 stays absent.
             self.assertEqual(len(SPECIES_EVIDENCE["catalog_additions"][language.lower()]), 266)
-            self.assertEqual(len(source.splitlines()) - len(restored.splitlines()), 266 + 21)
+            self.assertEqual(len(source.splitlines()) - len(restored.splitlines()), 266 + 21 + 3)
             for key in active:
                 self.assertNotIn(f"  {key}: ", restored)
             self.assertNotIn("  dnaStateValidated: ", restored)

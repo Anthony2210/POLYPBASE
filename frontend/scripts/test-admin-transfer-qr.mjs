@@ -3,7 +3,9 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
+import React from 'react';
 import { resourceClient } from './resource-test-harness.mjs';
+import { moduleLoader, hookRuntime, deferred, elements, one } from './sharing-test-harness.mjs';
 
 function compile(path, suffix = '') {
   return ts.transpileModule(readFileSync(new URL(path, import.meta.url), 'utf8') + suffix, {
@@ -17,6 +19,8 @@ function load(code, globals = {}) {
   return exports;
 }
 
+// These private legacy components are retained in AdminView but not mounted by
+// Administration. Exporting them here tests dormant behavior, not an active route.
 const componentCode = compile('../src/components/AdminView.tsx', '\nexport { TransferCreateForm, LEGACY_TRANSFER_PREVIEW_LABELS };');
 const qr = load(compile('../src/utils/qrLabels.ts'), { require: () => resourceClient(), URL, window: { location: { origin: 'https://polypbase.test' } } });
 const locales = {
@@ -31,6 +35,7 @@ const failureKeys = {
   preparation: 'qrLabelPreparationFailed',
 };
 const tick = () => new Promise((resolve) => setImmediate(resolve));
+const productionExchanges = moduleLoader()('src/components/sharing/InstitutionalExchangesPage.tsx');
 
 function harness(language = 'en') {
   const slots = [], effects = [], calls = [], transfers = [];
@@ -53,7 +58,7 @@ function harness(language = 'en') {
     'lucide-react', '../api/client', '../utils/accountMembers', '../utils/accountInvitations', '../utils/dateFormat',
     '../utils/memberMutationLock', '../utils/memberFeedback', '../utils/stepValue', '../utils/zoneOccupancy',
     './AccountInvitationsPanel', './AdminActionPanel', './AdminAuditSection', './BoxInventoryAdminSection', './ConfirmActionModal',
-    './LabConfigurationAdminSection', './sharing/BoxSharingAdminSection',
+    './LabConfigurationAdminSection',
     './PageLoader', './PolypbaseIcon', './RowActionMenu', './SkeletonRows', './SpeciesStrainsAdminSection', './TaxonomyAdminSection',
   ];
   const modules = Object.fromEntries(unusedModules.map((name) => [name, {}]));
@@ -72,6 +77,9 @@ function harness(language = 'en') {
       },
     },
   });
+  // Resolve the new entrypoint as real code, not an empty replacement module.
+  // Active Administration integration is exercised separately below.
+  modules['./sharing/InstitutionalExchangesPage'] = productionExchanges;
   const adminModule = load(componentCode, {
     URL,
     window: { location: { origin: 'https://polypbase.test' } },
@@ -121,6 +129,214 @@ function harness(language = 'en') {
   return h;
 }
 
+// Each explicitly mounted component has independent hook state. This follows the
+// real AdminView -> page -> sections -> detail/preview element props; it is not a
+// DOM renderer. Only unrelated admin sections and leaf UI are replaced.
+function administrationHarness(language = 'en', extraProps = {}) {
+  const requests = [], mounted = [];
+  const storage = new Map([['polypbase.activeOrganizationId', '1']]);
+  let current;
+  const hooks = Object.fromEntries(Object.keys(hookRuntime().hooks).map((key) => [key, (...args) => current.hooks[key](...args)]));
+  const overrides = { react: { ...React, ...hooks, useId: () => 'admin-donation-dialog' } };
+  for (const name of ['AccountInvitationsPanel', 'AdminActionPanel', 'AdminAuditSection', 'BoxInventoryAdminSection',
+    'ConfirmActionModal', 'LabConfigurationAdminSection', 'PageLoader', 'SpeciesStrainsAdminSection', 'TaxonomyAdminSection',
+    'BoxTrackingPreview', 'ModalPortal', 'PolypbaseIcon', 'SkeletonRows']) {
+    overrides[`src/components/${name}.tsx`] = { default: () => null };
+  }
+  overrides['src/hooks/useMutationDialog.ts'] = { default: (_busy, onClose) => ({ dialogRef: { current: null }, close: onClose }) };
+  const load = moduleLoader(overrides, {
+    window: { location: { origin: 'https://polypbase.test' }, localStorage: {
+      getItem: (key) => storage.get(key) ?? null,
+      setItem: (key, value) => storage.set(key, value), removeItem: (key) => storage.delete(key),
+    } },
+    document: { cookie: '', body: {}, documentElement: { lang: language } },
+    fetch(path, init) {
+      const pending = deferred();
+      requests.push({ path, init, ...pending });
+      return pending.promise;
+    },
+  });
+  function mount(type, props) {
+    const runtime = hookRuntime();
+    let tree;
+    const instance = {
+      render(next = {}) {
+        props = { ...props, ...next };
+        current = runtime;
+        try { tree = runtime.render(() => type(props)); runtime.commit(); } finally { current = null; }
+        return tree;
+      },
+      get tree() { return tree; },
+      unmount: () => runtime.unmount(),
+    };
+    mounted.push(instance);
+    instance.render();
+    return instance;
+  }
+  const t = (key) => { assert.ok(Object.hasOwn(locales[language], key), `missing ${language} key: ${key}`); return locales[language][key]; };
+  const AdminView = load('src/components/AdminView.tsx').default;
+  load('src/utils/qrLabels.ts').printQrLabels = () => assert.fail('active donations must not prepare legacy QR labels');
+  const root = mount(AdminView, {
+    activeOrganizationId: 1, activeSection: 'transfers', speciesTarget: null,
+    profile: { id: 9, is_superuser: true, active_organization: { id: 1, name: 'Source' }, organizations: [] },
+    language, t, boxes: [], zones: [], isLoading: false, isOptionsLoading: false,
+    onOpenBox() {}, onSelectSection() {},
+    onRequestOptions() { assert.fail('donations do not need export options'); },
+    onCreateTransfer() { assert.fail('the dormant biological transfer must not be called'); },
+    ...extraProps,
+  });
+  const components = load('src/components/sharing/InstitutionalExchangesPage.tsx');
+  const pageNode = () => one(root.tree, (node) => node.type === components.default);
+  function openSections() {
+    const node = pageNode();
+    const page = mount(node.type, node.props);
+    return elements(page.tree, (child) => child.type === components.DonationSection).map((child) => mount(child.type, child.props));
+  }
+  return { root, pageNode, openSections, mount, load, components, requests, storage, t,
+    reply(index, data, status = 200) {
+      requests[index].resolve(new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } }));
+    },
+    cleanup() { for (const instance of mounted.toReversed()) instance.unmount(); },
+  };
+}
+
+const donationFixture = {
+  proposal_id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', state: 'pending', revision: 1,
+  created_at: '2026-11-10T10:00:00Z', cancelled_at: null,
+  source_institution: { name: 'Source' }, destination_institution: { name: 'Destination' },
+  box: { id: 17, global_code: 'ATL-AAU-1.001', species_scientific_name: 'Aurelia aurita', strain_code: 'AAU-1',
+    ownership_sequence: 1, global_strain_id: 'bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee', global_box_id: 'cccccccc-bbbb-cccc-dddd-eeeeeeeeeeee' },
+  created_by: { first_name: 'Test', last_name: 'Researcher', email: 'researcher@example.test' }, cancelled_by: null,
+  history_verified_at: '2026-11-09T10:00:00Z',
+  history_verification: { verified_by: { first_name: 'Test', last_name: 'Researcher', email: 'researcher@example.test' }, verified_at: '2026-11-09T10:00:00Z', snapshot_version: '1', sha256: 'test-only', polyp_state_revision: 0 },
+};
+
+for (const language of ['fr', 'en']) {
+  test(`${language}: Administration mounts real donation lists and reads detail instead of the legacy QR transfer`, async (context) => {
+    const h = administrationHarness(language);
+    context.after(h.cleanup);
+    assert.equal(h.pageNode().key, '9:1', 'account and active institution define the page lifetime');
+    assert.equal(h.pageNode().props.organizationId, 1);
+    const sections = h.openSections();
+    assert.equal(sections.length, 2);
+    assert.deepEqual(h.requests.map((request) => request.path), ['/api/box-donations/outgoing/', '/api/box-donations/incoming/']);
+    for (const request of h.requests) {
+      assert.equal(request.init.method ?? 'GET', 'GET');
+      assert.equal(request.init.headers.get('X-Organization-Id'), '1');
+      assert.equal(request.init.cache, 'no-store');
+      assert.equal(request.init.credentials, 'include');
+      assert.equal(request.init.signal.aborted, false);
+    }
+    for (const section of sections) assert.ok(elements(section.tree, (node) => node.props?.role === 'status').length);
+    const incoming = { ...donationFixture, box: { ...donationFixture.box } };
+    delete incoming.box.id;
+    h.reply(0, { results: [donationFixture] });
+    h.reply(1, { results: [incoming] });
+    await tick();
+    for (const section of sections) {
+      section.render();
+      const row = one(section.tree, (node) => node.type === 'article');
+      assert.ok(row.props['aria-label'].includes(donationFixture.box.global_code));
+      assert.ok(row.props['aria-label'].includes(h.t('donationPending')));
+      assert.equal(elements(section.tree, (node) => node.props?.className === 'transfer-package').length, 0);
+    }
+    const { RowActionMenu } = h.load('src/components/RowActionMenu.tsx');
+    one(sections[0].tree, (node) => node.type === RowActionMenu).props.onAction('details');
+    sections[0].render();
+    const detailNode = one(sections[0].tree, (node) => node.type === h.components.DonationDetailDialog);
+    const detail = h.mount(detailNode.type, detailNode.props);
+    assert.equal(h.requests[2].path, `/api/box-donations/${donationFixture.proposal_id}/`);
+    h.reply(2, { ...donationFixture, box: { ...donationFixture.box, global_code: 'DETAIL-NOT-SUMMARY' }, history_verification: { ...donationFixture.history_verification, current: true } });
+    await tick(); detail.render();
+    assert.ok(elements(detail.tree, (node) => node.type === 'strong' && node.props.children === 'DETAIL-NOT-SUMMARY').length);
+    assert.equal(h.requests.length, 3, 'no legacy transfer, personal sharing or box collection requests');
+  });
+}
+
+test('Administration Send opens the real inert preview, never creates a transfer or prepares QR', async (context) => {
+  const h = administrationHarness();
+  context.after(h.cleanup);
+  const [outgoing] = h.openSections();
+  h.reply(0, { results: [] }); h.reply(1, { results: [] });
+  await tick(); outgoing.render();
+  one(outgoing.tree, (node) => node.type === 'button' && [node.props.children].flat().includes(h.t('donationSend'))).props.onClick();
+  outgoing.render();
+  const Preview = h.load('src/components/sharing/ExchangeFormPreview.tsx').default;
+  const previewNode = one(outgoing.tree, (node) => node.type === Preview);
+  const preview = h.mount(previewNode.type, previewNode.props);
+  let prevented = false;
+  one(preview.tree, (node) => node.type === 'form').props.onSubmit({ preventDefault() { prevented = true; } });
+  assert.equal(prevented, true);
+  assert.equal(elements(preview.tree, (node) => node.type === 'button' && node.props.type === 'submit').length, 0);
+  assert.equal(h.requests.length, 2);
+  previewNode.props.onClose(); outgoing.render();
+  assert.equal(elements(outgoing.tree, (node) => node.type === Preview).length, 0);
+});
+
+test('Administration donation read errors retry only the failed direction with real API reads', async (context) => {
+  const h = administrationHarness();
+  context.after(h.cleanup);
+  const [outgoing, incoming] = h.openSections();
+  h.reply(0, { detail: 'Forbidden' }, 403);
+  h.reply(1, { results: [] });
+  await tick(); outgoing.render(); incoming.render();
+  const errorNode = one(outgoing.tree, (node) => typeof node.type === 'function' && node.props.error);
+  const error = h.mount(errorNode.type, errorNode.props);
+  assert.equal(one(error.tree, (node) => node.type === 'p').props.children, h.t('donationForbidden'));
+  assert.ok(elements(incoming.tree, (node) => node.type === 'strong' && node.props.children === h.t('donationEmpty')).length);
+  one(error.tree, (node) => node.type === 'button').props.onClick();
+  outgoing.render();
+  assert.equal(h.requests.length, 3);
+  assert.equal(h.requests[2].path, '/api/box-donations/outgoing/');
+  assert.equal(h.requests[2].init.headers.get('X-Organization-Id'), '1');
+  assert.equal(h.requests[2].init.cache, 'no-store');
+  h.reply(2, { results: [donationFixture] });
+  await tick(); outgoing.render();
+  assert.equal(elements(outgoing.tree, (node) => node.type === 'article').length, 1);
+  assert.equal(elements(outgoing.tree, (node) => node.props?.error).length, 0);
+});
+
+test('Administration keys the donation page by account and institution and unmount aborts its reads', async (context) => {
+  const h = administrationHarness();
+  context.after(h.cleanup);
+  const sections = h.openSections();
+  const oldKey = h.pageNode().key;
+  h.root.render({ profile: { id: 10, is_superuser: true, organizations: [] } });
+  assert.equal(h.pageNode().key, '10:1');
+  assert.notEqual(h.pageNode().key, oldKey);
+  for (const section of sections) section.unmount();
+  assert.ok(h.requests.every((request) => request.init.signal.aborted));
+  h.storage.set('polypbase.activeOrganizationId', '2');
+  h.root.render({ activeOrganizationId: 2 });
+  assert.equal(h.pageNode().key, '10:2');
+  assert.equal(h.pageNode().props.organizationId, 2);
+  const next = h.openSections();
+  assert.equal(h.requests.length, 4);
+  for (const request of h.requests.slice(2)) assert.equal(request.init.headers.get('X-Organization-Id'), '2');
+  // Transport deliberately permits late responses: the real hook must reject them.
+  h.reply(0, { results: [donationFixture] }); h.reply(1, { results: [donationFixture] });
+  h.reply(2, { results: [] }); h.reply(3, { results: [] });
+  await tick();
+  for (const section of next) {
+    section.render();
+    assert.equal(elements(section.tree, (node) => node.type === 'article').length, 0);
+    assert.ok(elements(section.tree, (node) => node.type === 'strong' && node.props.children === h.t('donationEmpty')).length);
+  }
+});
+
+test('Administration never mounts exchanges for a missing institution or non-admin profile', (context) => {
+  const h = administrationHarness('en', { activeOrganizationId: null });
+  context.after(h.cleanup);
+  assert.equal(elements(h.root.tree, (node) => node.type === h.components.default).length, 0);
+  h.root.render({ activeOrganizationId: 1, profile: {
+    id: 9, is_superuser: false, organizations: [{ id: 1, name: 'Source' }],
+    active_organization: { id: 1, name: 'Source' },
+    memberships: [{ organization: { id: 1 }, role: 'technician' }],
+  } });
+  assert.equal(h.root.tree, null);
+  assert.equal(h.requests.length, 0);
+});
+
 test('unmounted transfer preview preserves the two existing missing-key fallbacks explicitly', () => {
   const i18n = load(compile('../src/i18n/index.ts'), {
     require(name) {
@@ -144,7 +360,7 @@ test('unmounted transfer preview preserves the two existing missing-key fallback
 
 for (const language of ['fr', 'en']) {
   for (const [reason, key] of Object.entries(failureKeys)) {
-    test(`${language}: ${reason} is factual, retry keeps the prepared transfer and does not recreate it`, async () => {
+    test(`dormant legacy QR / ${language}: ${reason} is factual, retry keeps the prepared transfer and does not recreate it`, async () => {
       const h = harness(language);
       await h.prepare();
       const packageBefore = h.text(h.nodes().find((node) => node.props?.className === 'transfer-package').props.children[0]);
@@ -172,7 +388,7 @@ for (const language of ['fr', 'en']) {
     });
   }
 
-  test(`${language}: cancellation is not an error and printing remains available`, async () => {
+  test(`dormant legacy QR / ${language}: cancellation is not an error and printing remains available`, async () => {
     const h = harness(language);
     await h.prepare();
     h.button('adminTransferPrintLabel').props.onClick();
@@ -189,7 +405,7 @@ for (const language of ['fr', 'en']) {
   });
 }
 
-test('synchronous guard blocks duplicate clicks before rendering and while busy', async () => {
+test('dormant legacy QR: synchronous guard blocks duplicate clicks before rendering and while busy', async () => {
   const h = harness();
   await h.prepare();
   const click = h.button('adminTransferPrintLabel').props.onClick;
@@ -209,7 +425,7 @@ test('synchronous guard blocks duplicate clicks before rendering and while busy'
   assert.equal(h.button('adminTransferPrintLabel').props.disabled, false);
 });
 
-test('old pending QR failure cannot attach to a newly prepared transfer package', async () => {
+test('dormant legacy QR: old pending failure cannot attach to a newly prepared transfer package', async () => {
   const h = harness();
   await h.prepare();
   h.button('adminTransferPrintLabel').props.onClick();
@@ -238,7 +454,7 @@ test('old pending QR failure cannot attach to a newly prepared transfer package'
   assert.equal(h.transfers.length, 2);
 });
 
-test('submission invalidates the old package synchronously before rendering or backend completion', async () => {
+test('dormant legacy QR: submission invalidates the old package before rendering or backend completion', async () => {
   const h = harness();
   await h.prepare();
   const oldClick = h.button('adminTransferPrintLabel').props.onClick;
@@ -267,7 +483,7 @@ test('submission invalidates the old package synchronously before rendering or b
   await tick(); h.render();
 });
 
-test('backend transfer errors and QR preparation errors remain independent', async () => {
+test('dormant legacy QR: backend transfer errors and QR preparation errors remain independent', async () => {
   const h = harness();
   await h.prepare();
   h.button('adminTransferPrintLabel').props.onClick();

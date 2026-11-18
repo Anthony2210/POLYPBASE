@@ -29,6 +29,8 @@ from django.db.migrations.exceptions import IrreversibleError
 from django.test import TestCase as DjangoTestCase
 from psycopg import sql
 
+from config.migration_test_utils import historical_targets
+
 from apps.measurements import box_1902_sql as contract
 from apps.measurements.models import (
     BiologicalMeasurement, HistoricalTemperatureEvidence, HistoricalTemperatureReading,
@@ -296,6 +298,7 @@ class Box1902CorrectionV2PostgreSQLTests(
                 raise RuntimeError("Fresh PostgreSQL 18 administrator lease mismatch")
             cls.original_settings = deepcopy(settings.DATABASES["default"])
             cls.original_connection_settings = deepcopy(connection.settings_dict)
+            cls.roles_provisioned = False
             cls.addClassCleanup(cls.cleanup_cluster)
             # Provisioning itself must create all reserved technical identities.
             # Precreating them would now correctly fail the collision preflight.
@@ -311,10 +314,7 @@ class Box1902CorrectionV2PostgreSQLTests(
             admin.execute(sql.SQL("CREATE DATABASE {} OWNER polypbase").format(sql.Identifier(DATABASE)))
             cls.created_databases = {DATABASE}
         print("Box 1902 v2: creating the real pre-0018 Django schema", flush=True)
-        cls.use_django_role(contract.RUNTIME)
-        executor = MigrationExecutor(connection)
-        targets = [PREVIOUS if node == MIGRATION else node for node in executor.loader.graph.leaf_nodes()]
-        executor.migrate(targets)
+        cls.migrate_baseline_schema()
         print("Box 1902 v2: populating immutable scientific evidence", flush=True)
         cls.create_fixture()
         # The shared fixture now uses the exact authorized v2 reference PKs.
@@ -351,6 +351,7 @@ class Box1902CorrectionV2PostgreSQLTests(
             raise AssertionError("Refused unsafe installation changed science")
         print("Box 1902 v2: independent privilege transition and installation", flush=True)
         cls.execute(contract.provision_sql())
+        cls.roles_provisioned = True
         cls.use_django_role(contract.MIGRATOR)
         with connection.cursor() as cursor:
             cursor.execute("SET ROLE box1902_owner")
@@ -378,6 +379,14 @@ class Box1902CorrectionV2PostgreSQLTests(
         print("Box 1902 v2: actual schema, 41 populated readings, independent provision and migrator installation", flush=True)
 
     @classmethod
+    def migrate_baseline_schema(cls):
+        cls.use_django_role(contract.RUNTIME)
+        executor = MigrationExecutor(connection)
+        # Pin the historical app, not just its leaf: later leaves depend on 0018.
+        targets = historical_targets(executor.loader, {"measurements"}, [PREVIOUS])
+        executor.migrate(targets)
+
+    @classmethod
     def create_reading(cls, biology, week, reading_id):
         with transaction.atomic():
             reading = HistoricalTemperatureReading.objects.create(
@@ -394,16 +403,19 @@ class Box1902CorrectionV2PostgreSQLTests(
 
     @classmethod
     def cleanup_cluster(cls):
-        connection.close()
-        for name in getattr(cls, "created_databases", set()):
-            cls.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)),
-                        database="subculture_qa")
-        # Retirement changes a cluster role, so restore it for other leased suites.
-        cls.execute("ALTER ROLE box1902_executor LOGIN", database="subculture_qa")
-        settings.DATABASES["default"].clear()
-        settings.DATABASES["default"].update(cls.original_settings)
-        connection.settings_dict.clear()
-        connection.settings_dict.update(cls.original_connection_settings)
+        try:
+            connection.close()
+            for name in getattr(cls, "created_databases", set()):
+                cls.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)),
+                            database="subculture_qa")
+            # Only our committed provisioning grants authority to restore this role.
+            if cls.roles_provisioned:
+                cls.execute("ALTER ROLE box1902_executor LOGIN", database="subculture_qa")
+        finally:
+            settings.DATABASES["default"].clear()
+            settings.DATABASES["default"].update(cls.original_settings)
+            connection.settings_dict.clear()
+            connection.settings_dict.update(cls.original_connection_settings)
 
     def setUp(self):
         super().setUp()

@@ -653,10 +653,21 @@ test('B45 preview events reconstruct exact HEAD catalogs and reject history or s
     ['en', 'f51265056ec7e3f84057b4e8405410292465240beb720bbc2e5d4e01ebf25a77'],
   ]) {
     const source = read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n');
+    const layout = beforeDonationIntegrationLayout(source, language);
+    assert.equal(source.split('\n').length - layout.split('\n').length, 3);
+    for (const key of ['dnaMissing', 'exchangePreviewTitle', 'shareWorkspace']) {
+      const line = `${source.split('\n').find(line => line.startsWith(`  ${key}: `))}\n`;
+      assert.throws(() => beforeDonationIntegrationLayout(source.replace(`\n${line}`, line), language), key);
+    }
+    // Unrelated whitespace must remain visible to the historical fingerprint.
+    const unknownSpace = '\n  shareWorkspaceHelp: ';
+    const changedSpace = source.replace(unknownSpace, `\n${unknownSpace}`);
+    assert.notEqual(changedSpace, source);
+    assert.equal(beforeDonationIntegrationLayout(changedSpace, language), layout.replace(unknownSpace, `\n${unknownSpace}`));
     const restored = beforeB45(source, language);
     // Reverse main-only layers before comparing with the original feature B30 source.
-        const featureSource = beforeB32(beforeB30(restored, language), language);
-        assert.equal(sha256(featureSource), digest);
+    const featureSource = beforeB32(beforeB30(restored, language), language);
+    assert.equal(sha256(featureSource), digest);
     const extra = "  unregisteredKey: 'Unapproved',\n";
     assert.equal(beforeB45(source + extra, language), restored + extra);
     for (const entry of events.filter(row => row.language === language.toUpperCase())) {
@@ -935,7 +946,27 @@ function b31Events(rows = register) {
   return events;
 }
 
+function beforeDonationIntegrationLayout(source, language, rows = register) {
+  // Merge 90a1065 added exactly these three separators; do not normalize other whitespace.
+  const dna = Object.fromEntries(b30Events(rows).filter(row => row.language === language.toUpperCase())
+    .map(row => [row.key_or_msgid, row.final_value]));
+  const donation = Object.fromEntries(b44Events(rows).filter(row => row.language === language.toUpperCase())
+    .map(row => [row.key_or_msgid, row.final_value]));
+  const header = language === 'fr' ? 'export const fr = {\n'
+    : 'export const en: Record<TranslationKey, string> = {\n';
+  const first = `  dnaMissing: '${dna.dnaMissing}',\n`;
+  const last = `  dnaAuditRevoked: '${dna.dnaAuditRevoked}',\n`;
+  const warning = `  donationAcceptanceUnavailable: '${donation.donationAcceptanceUnavailable}',\n`;
+  for (const [current, previous] of [[`${header}\n${first}`, header + first],
+    [`${last}\n`, last], [`${warning}\n`, warning]]) {
+    assert.equal(source.split(current).length - 1, 1, 'Donation integration separator changed');
+    source = source.replace(current, previous);
+  }
+  return source;
+}
+
 function beforeB30(source, language, rows = register) {
+  source = beforeDonationIntegrationLayout(source, language, rows);
   source = beforeSpeciesIntegration(source, language, rows);
   // A key removed by B31 must already be absent: an absent removed key is a
   // recorded removal, not an unrecorded missing translation.

@@ -130,7 +130,8 @@ test('Administration keeps one desktop Species entry; disabled sections stay dis
   for (const key of ['references', 'organizations']) assert.match(disabled, new RegExp(`'${key}'`));
   for (const key of ['environment', 'transfers']) assert.doesNotMatch(disabled, new RegExp(`'${key}'`));
   assert.match(adminView, /<LabConfigurationAdminSection\b/);
-  assert.match(adminView, /<BoxSharingAdminSection\b/);
+  assert.match(adminView, /displayedSection === 'transfers' && activeOrganizationId != null \? \(\s*<InstitutionalExchangesPage\b/);
+  assert.doesNotMatch(adminView, /<(?:BoxSharingAdminSection|TransfersAdminSection)\b/);
   assert.match(adminView, /<SpeciesStrainsAdminSection\s+key=\{activeOrganizationId\}\s+target=\{speciesTarget\}/);
   assert.match(app, /species: '\/administration\/species-strains',/);
   assert.match(app, /if \(activeTab === 'admin' && !isDesktopApp\) \{\s*replaceRoute\(\{ tab: 'pilotage', boxCode: null, boxId: null \}, '\/', true\);\s*return;\s*\}/);
