@@ -81,6 +81,8 @@ def _timeout():
 
 
 def _fetch_json(url):
+    if settings.DEMO_MODE:
+        raise WormsUnavailable()
     request = Request(url, headers={"Accept": "application/json", "User-Agent": "Polypbase"})
     try:
         with urlopen(request, timeout=_timeout()) as response:  # noqa: S310 - fixed https base URL

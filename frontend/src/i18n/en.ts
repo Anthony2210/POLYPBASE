@@ -1,6 +1,7 @@
 import type { TranslationKey } from './fr';
 
 export const en: Record<TranslationKey, string> = {
+  demoModeBanner: 'Demonstration mode',
 
   dnaMissing: 'DNA validation: not provided',
   dnaValidated: 'DNA validation: validated',

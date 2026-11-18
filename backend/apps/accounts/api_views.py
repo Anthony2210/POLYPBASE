@@ -234,6 +234,11 @@ class SessionLoginAPIView(APIView):
     authentication_classes = []
 
     def get(self, request):
+        if settings.DEMO_MODE:
+            return Response(
+                {"detail": "CSRF cookie set.", "demo_mode": True},
+                headers={"Cache-Control": "no-store"},
+            )
         return Response({"detail": "CSRF cookie set."})
 
     def post(self, request):

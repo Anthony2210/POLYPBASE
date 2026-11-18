@@ -1,4 +1,5 @@
 export const fr = {
+  demoModeBanner: 'Mode démonstration',
 
   dnaMissing: 'Validation ADN : non renseignée',
   dnaValidated: 'Validation ADN : validée',

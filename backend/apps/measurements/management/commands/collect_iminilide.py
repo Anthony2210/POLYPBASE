@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from apps.measurements.iminilide import IminilideConfigurationError
@@ -19,6 +20,8 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        if settings.DEMO_MODE:
+            raise CommandError("Probe collection is disabled in demo mode.")
         try:
             result = collect_iminilide(serial=options.get("serial"))
         except IminilideConfigurationError as error:
