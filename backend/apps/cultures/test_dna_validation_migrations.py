@@ -34,13 +34,28 @@ class DnaValidationMigrationTests(TransactionTestCase):
         executor = MigrationExecutor(connection)
         executor.migrate(latest)
         apps = executor.loader.project_state(latest).apps
+        # Every retained field is unchanged, including the zero counts. Columns
+        # added later are checked separately; no other column may appear.
+        additive = {("cultures", "Box"): {"global_identity_id": None}, ("measurements", "BiologicalMeasurement"): {}}
         for label, rows in snapshots.items():
-            self.assertEqual(list(apps.get_model(*label).objects.values()), rows)
+            with self.subTest(model=label):
+                current = list(apps.get_model(*label).objects.values())
+                self.assertEqual([{key: row[key] for key in before_row} for row, before_row in zip(current, rows)],
+                                 rows)
+                self.assertEqual(len(current), len(rows))
+                for row, before_row in zip(current, rows):
+                    # 0022 leaves Global ID NULL ("not initialized") for a Box
+                    # without a creation receipt or subculture allocation.
+                    self.assertEqual({key: value for key, value in row.items() if key not in before_row},
+                                     additive[label])
+        measurement = apps.get_model("measurements", "BiologicalMeasurement").objects.get()
+        self.assertEqual((measurement.polyp_count, measurement.ephyrae_count, measurement.strobila_count), (0, 0, 0))
+        self.assertFalse(apps.get_model("cultures", "BoxLocalIdAlias").objects.exists())
         self.assertFalse(apps.get_model("cultures", "BoxDnaValidation").objects.exists())
         for model_name in ("BoxHistoryStream", "BoxHistoryRevision", "BoxHistoryEventIdentity"):
             with self.subTest(model=model_name):
                 self.assertFalse(apps.get_model("cultures", model_name).objects.exists())
         self.assertEqual(
             executor.loader.graph.leaf_nodes("cultures"),
-            [("cultures", "0021_merge_dna_and_history")],
+            [("cultures", "0024_local_id_guard_search_path")],
         )

@@ -3,11 +3,12 @@
 import json
 from datetime import date
 from io import StringIO
+from unittest import skipUnless
 from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.db import connection, transaction
+from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.test import TestCase
 
 from apps.audit.models import AuditLog
@@ -712,8 +713,77 @@ class IdentityDecisionTests(DiagnosticBase):
         Box.objects.filter(pk=old.pk).update(global_code="PCA-JKA-1.005", strain=self.pca_jka,
                                              previous_global_code="PCA-CHO-1.005")
         self.assertEqual(self.approved()["PCA-CHO-1.005"]["status"], "APPLIED_VERIFIED")
-        Box.objects.filter(pk=donor.pk).update(merged_into=None)
+        # Detaching the donor leaves two identities claiming PCA-JKA-1.005: the
+        # current Local ID guard rightly refuses that write.
+        with self.assertRaises(DatabaseError), transaction.atomic():
+            Box.objects.filter(pk=donor.pk).update(merged_into=None)
+        # The 0023 backfill preserves such legacy states for review, so the
+        # diagnostic must still classify them. Recreate it without the guard.
+        self.legacy_update(donor.pk, merged_into=None)
         self.assertEqual(self.approved()["PCA-CHO-1.005"]["status"], "UNVERIFIED")
+
+    def legacy_update(self, pk, **fields):
+        """Write one inconsistent legacy row inside this test's transaction only.
+
+        Supported only on the isolated in-memory SQLite test database used by
+        backend CI. Any other database (PostgreSQL included) is refused before
+        any query, so no shared or privileged connection can lose a guard.
+        Only the Local ID update trigger is dropped, for this single statement;
+        its exact definition is restored even if the write fails, then
+        verified. The enclosing test transaction is rolled back afterwards.
+        """
+        if (connection.vendor != "sqlite" or not connection.in_atomic_block
+                or not connection.creation.is_in_memory_db(connection.settings_dict["NAME"])):
+            raise RuntimeError("Legacy Local ID fixtures require the isolated in-memory SQLite test transaction.")
+        name = "validate_box_local_id_update"
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = %s "
+                           "AND tbl_name = 'cultures_box'", [name])
+            (definition,) = cursor.fetchone()
+            cursor.execute(f"DROP TRIGGER {name}")
+            try:
+                # Own savepoint: a failed write must not block the restoration below.
+                with transaction.atomic():
+                    Box.objects.filter(pk=pk).update(**fields)
+            finally:
+                cursor.execute(definition)
+                cursor.execute("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = %s", [name])
+                if cursor.fetchone() != (definition,):
+                    raise RuntimeError("The Local ID update guard was not restored exactly.")
+
+    def guard_definition(self):
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT sql FROM sqlite_master WHERE type = 'trigger' "
+                           "AND name = 'validate_box_local_id_update'")
+            return cursor.fetchone()
+
+    def test_legacy_update_refuses_unverified_databases_before_any_query(self):
+        donor = self.box("PCA-JKA-1.006", self.pca_jka)
+        for label, patcher in (
+            ("postgresql", patch.object(connection, "vendor", "postgresql")),
+            ("persistent sqlite", patch.object(connection.creation, "is_in_memory_db", return_value=False)),
+        ):
+            with self.subTest(database=label), patcher, self.assertNumQueries(0):
+                with self.assertRaisesMessage(RuntimeError, "isolated in-memory SQLite"):
+                    self.legacy_update(donor.pk, status="inactive")
+        donor.refresh_from_db()
+        self.assertEqual(donor.status, "active")
+
+    @skipUnless(connection.vendor == "sqlite", "The legacy fixture is SQLite-only by design")
+    def test_legacy_update_restores_the_exact_guard_after_a_failed_write(self):
+        donor = self.box("PCA-JKA-1.007", self.pca_jka)
+        before = self.guard_definition()
+        self.assertIsNotNone(before)
+        # A statement failing inside the database must still restore the guard.
+        with self.assertRaises(IntegrityError):
+            self.legacy_update(donor.pk, global_code=None)
+        self.assertEqual(self.guard_definition(), before)
+        # The restored guard is effective again.
+        self.box("PCA-JKA-1.008", self.pca_jka)
+        with self.assertRaises(DatabaseError), transaction.atomic():
+            Box.objects.filter(pk=donor.pk).update(previous_global_code="PCA-JKA-1.008")
+        donor.refresh_from_db()
+        self.assertEqual(donor.previous_global_code, "")
 
     def test_ldr_zero_is_a_real_value_and_absence_is_missing(self):
         box = self.box("LDR-JAP-1.001", self.ldr)

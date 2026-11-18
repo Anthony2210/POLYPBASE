@@ -59,11 +59,12 @@ class HistoricalTargetsTests(SimpleTestCase):
         for name in (
             "0019_box_dna_validation", "0019_history_revision_storage",
             "0020_history_revision_guards", "0021_merge_dna_and_history",
+            "0022_box_global_identity", "0023_box_local_id_alias", "0024_local_id_guard_search_path",
         ):
             self.assertNotIn(("cultures", name), closure)
         self.assertEqual(
             self.loader.graph.leaf_nodes("cultures"),
-            [("cultures", "0021_merge_dna_and_history")],
+            [("cultures", "0024_local_id_guard_search_path")],
         )
         self.assertFalse(self.loader.detect_conflicts())
 
@@ -99,9 +100,26 @@ class HistoricalTargetsTests(SimpleTestCase):
         for historical in cases:
             with self.subTest(historical=historical):
                 apps = {node[0] for node in historical}
+                plans = [set(self.loader.graph.forwards_plan(node)) for node in historical]
+                allowed = set().union(*plans)
+                if any(node[0] == target[0] and node not in plan
+                       for target, plan in zip(historical, plans) for node in allowed):
+                    # Taxonomy 0012+ requires organizations.0002: such pins are
+                    # genuinely incompatible with organizations.0001 and must fail closed.
+                    self.assertIn(organizations_1, historical)
+                    self.assertIn(("organizations", "0002_organization_portable_id"), allowed)
+                    with self.assertRaisesRegex(ValueError, "Incompatible historical target organizations.0001"):
+                        historical_targets(self.loader, apps, historical)
+                    continue
                 targets = historical_targets(self.loader, apps, historical)
-                expected = [node for node in self.loader.graph.leaf_nodes() if node[0] not in apps | {"sharing"}]
+                # Leaves needing a historical app beyond its pin (for example
+                # taxonomy 0012+ needing organizations.0002) are left out.
+                expected = [node for node in self.loader.graph.leaf_nodes() if node[0] not in apps
+                            and {m for m in self.loader.graph.forwards_plan(node) if m[0] in apps} <= allowed]
                 self.assertEqual(targets, expected + historical)
+                if organizations_1 in historical:
+                    self.assertNotIn(("taxonomy", "0015_provenance_country_acquisition_types"), targets)
+                    self.assertNotIn(("sharing", "0001_initial"), targets)
                 closure = set().union(*(set(self.loader.graph.forwards_plan(node)) for node in targets))
                 for target in historical:
                     self.assertEqual(
