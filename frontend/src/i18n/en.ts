@@ -1,7 +1,6 @@
 import type { TranslationKey } from './fr';
 
 export const en: Record<TranslationKey, string> = {
-  demoModeBanner: 'Demonstration mode',
 
   dnaMissing: 'DNA validation: not provided',
   dnaValidated: 'DNA validation: validated',
@@ -1788,4 +1787,5 @@ export const en: Record<TranslationKey, string> = {
   probeSeriesToggle: 'Show or hide {probe}',
   probeAverage: 'Probe average',
   probeAverageContributors: '{count} contributing probes',
+  demoModeBanner: 'Demonstration mode',
 };

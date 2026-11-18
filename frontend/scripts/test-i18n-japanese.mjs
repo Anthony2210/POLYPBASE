@@ -256,8 +256,9 @@ test('deleted and obsolete keys are never restored in Japanese', () => {
 
 test('ja catalog is exactly the historical and AI-reviewed manifest union', () => {
   const react = manifest.filter(row => row.surface === 'react');
-  assert.deepEqual(react.map(row => row.identity), Object.keys(fr).filter(key => !B44_ADDED_KEYS.includes(key) && !B45_ADDED_KEYS.includes(key)),
-    'one row per historical key in canonical FR order; B44/B45 have no fabricated manifest provenance');
+  assert.deepEqual(react.map(row => row.identity), Object.keys(fr).filter(key =>
+    !B44_ADDED_KEYS.includes(key) && !B45_ADDED_KEYS.includes(key) && key !== 'demoModeBanner'),
+    'one row per historical key in canonical FR order; B44/B45/B47 have no fabricated manifest provenance');
   const included = react.filter(row => ['REUSED', 'AI_REVIEWED'].includes(row.status));
   const expected = included.map(row => [row.identity,
     row.status === 'REUSED' ? row.ja_validated : row.ja_ai_reviewed]);
@@ -666,7 +667,7 @@ test('B45 preview events reconstruct exact HEAD catalogs and reject history or s
     assert.equal(beforeDonationIntegrationLayout(changedSpace, language), layout.replace(unknownSpace, `\n${unknownSpace}`));
     const restored = beforeB45(source, language);
     // Reverse main-only layers before comparing with the original feature B30 source.
-    const featureSource = beforeB32(beforeB30(restored, language), language);
+    const featureSource = beforeB32(beforeB30(beforeB47(restored, language), language), language);
     assert.equal(sha256(featureSource), digest);
     const extra = "  unregisteredKey: 'Unapproved',\n";
     assert.equal(beforeB45(source + extra, language), restored + extra);
@@ -830,7 +831,55 @@ function b28Events(rows = register) {
   return events;
 }
 
+function b47Events(rows = register) {
+  const ids = ['T1813', 'T1814'];
+  const events = rows.filter(row => row.batch === 'B47-2026-11-18' || ids.includes(row.entry_id));
+  assert.deepEqual(events, rows.slice(1812, 1814));
+  assert.deepEqual(events.map(row => [row.entry_id, row.language, row.final_value]), [
+    ['T1813', 'FR', 'Mode démonstration'], ['T1814', 'EN', 'Demonstration mode'],
+  ]);
+  for (const row of events) {
+    assert.deepEqual(Object.keys(row), REGISTER_COLUMNS);
+    assert.deepEqual([row.batch, row.surface, row.key_or_msgid, row.source_file, row.status, row.initial_value],
+      ['B47-2026-11-18', 'react', 'demoModeBanner', `frontend/src/i18n/${row.language.toLowerCase()}.ts`, 'ALREADY_MATCHING', row.final_value]);
+  }
+  return events;
+}
+
+function beforeB47(source, language, rows = register) {
+  const entry = b47Events(rows).find(row => row.language === language.toUpperCase());
+  assert.equal(source.match(/^[ \t]*(?:demoModeBanner|['"]demoModeBanner['"])[ \t]*:/gm)?.length, 1,
+    'demoModeBanner: exactly one entry');
+  const line = `  demoModeBanner: '${entry.final_value}',\n`;
+  assert.equal(source.split(line).length - 1, 1, `${entry.entry_id}: exact registered line`);
+  return source.replace(line, '');
+}
+
+test('B47 preserves register values and allows only the exact demo banner addition', () => {
+  const translate = loadI18n().createTranslator('ja');
+  for (const entry of b47Events()) {
+    const language = entry.language.toLowerCase();
+    const source = read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n');
+    const line = `  demoModeBanner: '${entry.final_value}',\n`;
+    const altered = line.replace(": '", ": 'changed ");
+    const restored = beforeB47(source, language);
+    assert.equal(restored, source.replace(line, ''));
+    for (const replacement of ['', line + line, line + altered, altered]) {
+      assert.throws(() => beforeB47(source.replace(line, replacement), language));
+    }
+    assert.throws(() => beforeB47(source, language, register.filter(row => row !== entry)));
+    assert.throws(() => beforeB47(source, language, [...register, entry]));
+    const changed = `changed ${entry.final_value}`;
+    const coordinated = register.map(row => row === entry
+      ? { ...row, initial_value: changed, final_value: changed } : row);
+    assert.throws(() => beforeB47(source.replace(line, altered), language, coordinated));
+  }
+  assert.equal(Object.hasOwn(ja, 'demoModeBanner'), false);
+  assert.equal(translate('demoModeBanner'), en.demoModeBanner);
+});
+
 function beforeB29(source, language, rows = register) {
+  source = beforeB47(source, language, rows);
   source = beforeB44(beforeB45(source, language, rows), language, rows);
   const batch = rows.filter(row => row.batch === 'B29-2026-11-12');
   const rename = batch.find(entry => entry.key_or_msgid === 'adminTabTransfers');
@@ -1315,7 +1364,7 @@ test('source fingerprints accept the scoped additions but reject every historica
       if (B24_ADDED_KEYS.includes(key) || zoneChartKeys.includes(key) || thermalPeriodKeys.includes(key)
           || probeAverageKeys.includes(key) || sharingKeys.includes(key) || B44_ADDED_KEYS.includes(key) || B45_ADDED_KEYS.includes(key) || DNA_KEYS.includes(key)
           || speciesIntegrationKeys.includes(key) || (key === 'firstMeasurementOn' && language === 'en')
-                    || (key === 'adminTabTransfers' && language === 'en')) {
+                    || key === 'demoModeBanner' || (key === 'adminTabTransfers' && language === 'en')) {
         assert.throws(() => historicalSource(changed, true, language), `${language}.${key}`);
         continue;
       }
