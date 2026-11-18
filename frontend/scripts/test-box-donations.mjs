@@ -74,17 +74,19 @@ function componentFixture() {
     'src/components/ModalPortal.tsx': { default: ModalPortal },
     'src/components/PolypbaseIcon.tsx': { default: () => null },
     'src/components/SkeletonRows.tsx': { default: () => null },
-    'src/hooks/useMutationDialog.ts': { default: (_pending, onClose) => ({ dialogRef: { current: null }, close: onClose }) },
+    'src/hooks/useMutationDialog.ts': { default: (_pending, onClose) => ({ dialogRef: { current: null }, initialFocusRef: { current: null }, close: onClose }) },
     'src/hooks/useAnchoredPopover.ts': { useAnchoredPopover: () => ({
       anchorRef: { current: null }, panelRef: { current: null }, position: { visibility: 'visible' }, id: 'test-menu',
     }) },
   });
   const components = f.load('src/components/sharing/InstitutionalExchangesPage.tsx');
+  const Preview = f.load('src/components/sharing/ExchangeFormPreview.tsx').default;
+  const renderPreview = onClose => runtime.render(() => Preview({ t: labels, onClose }));
   const opened = [];
   const props = { organizationId, language: 'en', t: labels, onOpenBox: (...args) => opened.push(args), direction: 'outgoing' };
   const render = (extra = {}) => runtime.render(() => components.DonationSection({ ...props, ...extra }));
   const renderDetail = extra => runtime.render(() => components.DonationDetailDialog({ organizationId, t: labels, onClose() {}, ...extra }));
-  return { ...f, runtime, components, props, render, renderDetail, opened };
+  return { ...f, runtime, components, Preview, props, render, renderDetail, renderPreview, opened };
 }
 const rows = tree => elements(tree, node => node.type === 'article');
 const text = tree => {
@@ -255,7 +257,9 @@ for (const direction of ['outgoing', 'incoming']) {
       assert.equal(preview.props.speciesName, 'Aurelia aurita'); assert.equal(preview.props.language, 'en');
       preview.props.onOpenBox(preview.props.boxId, preview.props.code);
       assert.deepEqual(f.opened, [[81, 'BOX-001']]);
-      assert.equal(button(tree, 'donationSend').props.disabled, true);
+      assert.notEqual(button(tree, 'donationSend').props.disabled, true);
+      assert.equal(button(tree, 'donationSend').props['aria-describedby'], undefined);
+      assert.doesNotMatch(text(tree), /donationSendUnavailable/);
       assert.match(text(tree), /Musée destination/);
     } else {
       assert.equal(elements(tree, node => node.type === BoxTrackingPreview || node.type === 'a').length, 0);
@@ -267,6 +271,86 @@ for (const direction of ['outgoing', 'incoming']) {
     f.runtime.unmount();
   });
 }
+
+test('active Send opens and closes the local preview without changing rows or reading again', async () => {
+  const f = componentFixture(); f.render(); f.runtime.commit();
+  f.reply(0, { results: [outgoing, cancelled] }); await tick();
+  let tree = f.render();
+  assert.equal(elements(tree, node => node.type === f.Preview).length, 0);
+  button(tree, 'donationSend').props.onClick();
+  tree = f.render();
+  const preview = one(tree, node => node.type === f.Preview);
+  assert.equal(preview.props.t, labels);
+  assert.equal(rows(tree).length, 2);
+  assert.doesNotMatch(text(tree), /donationSendUnavailable/);
+  f.runtime.commit(); assert.equal(f.requests.length, 1);
+  preview.props.onClose(); tree = f.render();
+  assert.equal(elements(tree, node => node.type === f.Preview).length, 0);
+  assert.equal(rows(tree).length, 2);
+  assert.equal(f.requests.length, 1);
+  assert.equal(elements(f.render({ direction: 'incoming' }), node => node.type === 'button' && text(node).includes('donationSend')).length, 0);
+  f.runtime.unmount();
+});
+
+test('preview has four local types, controlled fields, conditional email and inert submission', () => {
+  const f = componentFixture();
+  const storageBefore = [...f.storage];
+  let closed = 0;
+  const render = () => f.renderPreview(() => closed++);
+  let tree = render();
+  assert.equal(tree.type, ModalPortal);
+  const dialog = one(tree, node => node.props?.role === 'dialog');
+  assert.equal(dialog.props['aria-modal'], 'true');
+  assert.equal(dialog.props['aria-labelledby'], 'donation-test-id-title');
+  assert.equal(dialog.props['aria-describedby'], undefined);
+  assert.match(text(tree), /exchangePreviewTitle/);
+  assert.doesNotMatch(text(tree), /exchangePreviewNotice/);
+  const select = () => one(tree, node => node.type === 'select');
+  assert.equal(select().props.value, 'donation');
+  assert.ok(select().ref ?? select().props.ref);
+  assert.deepEqual(elements(tree, node => node.type === 'option').map(node => [node.props.value, text(node)]), [
+    ['donation', 'donationTypeDon'], ['live', 'exchangePreviewLive'],
+    ['frozen', 'exchangePreviewFrozen'], ['email_frozen', 'exchangePreviewEmail'],
+  ]);
+  const input = suffix => one(tree, node => node.type === 'input' && node.props.id.endsWith(suffix));
+  for (const [suffix, value] of [['-box', 'BOX-LOCAL-0'], ['-institution', 'Local destination']]) {
+    assert.equal(input(suffix).props.value, '');
+    assert.equal(input(suffix).props.autoComplete, 'off');
+    assert.ok(elements(tree, node => node.type === 'label' && node.props.htmlFor === input(suffix).props.id).length);
+    change(input(suffix), value); tree = render();
+    assert.equal(input(suffix).props.value, value);
+  }
+  for (const type of ['donation', 'live', 'frozen', 'email_frozen', 'live', 'email_frozen']) {
+    change(select(), type); tree = render();
+    assert.equal(select().props.value, type);
+    assert.equal(input('-box').props.value, 'BOX-LOCAL-0');
+    assert.equal(input('-institution').props.value, 'Local destination');
+    assert.equal(elements(tree, node => node.type === 'input' && node.props.type === 'email').length, type === 'email_frozen' ? 1 : 0);
+    if (type === 'email_frozen') {
+      change(input('-email'), 'recipient@example.test'); tree = render();
+      assert.equal(input('-email').props.value, 'recipient@example.test');
+    }
+    const form = one(tree, node => node.type === 'form');
+    assert.equal(form.props.noValidate, true);
+    let prevented = 0;
+    form.props.onSubmit({ preventDefault() { prevented++; } });
+    assert.equal(prevented, 1);
+    tree = render(); f.runtime.commit();
+    assert.equal(closed, 0, 'submit must not close or imply success');
+    assert.equal(elements(tree, node => ['status', 'alert'].includes(node.props?.role)).length, 0);
+    assert.equal(elements(tree, node => node.type === 'button' && node.props.type !== 'button').length, 0);
+    assert.equal(f.requests.length, 0, 'no lookup, read or mutation');
+    assert.deepEqual([...f.storage], storageBefore, 'no persisted draft');
+  }
+  button(tree, 'close').props.onClick();
+  one(tree, node => node.type === 'button' && node.props['aria-label'] === 'close').props.onClick();
+  one(tree, node => node.props?.role === 'presentation').props.onMouseDown();
+  assert.equal(closed, 3);
+  let stopped = 0;
+  dialog.props.onMouseDown({ stopPropagation() { stopped++; } });
+  assert.equal(stopped, 1); assert.equal(closed, 3);
+  f.runtime.unmount();
+});
 
 test('rendered search/type/state controls combine filters and reset without additional requests', async () => {
   const f = componentFixture(); f.render(); f.runtime.commit();

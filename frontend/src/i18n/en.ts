@@ -1,6 +1,16 @@
 import type { TranslationKey } from './fr';
 
 export const en: Record<TranslationKey, string> = {
+  exchangePreviewTitle: 'New shipment',
+  exchangePreviewNotice: 'Form preview. Nothing will be sent.',
+  exchangePreviewType: 'Exchange type',
+  exchangePreviewBox: 'Box',
+  exchangePreviewInstitution: 'Destination institution',
+  exchangePreviewBoxPlaceholder: 'Enter a box code',
+  exchangePreviewInstitutionPlaceholder: 'Enter an institution name',
+  exchangePreviewLive: 'Live data sharing via POLYPBASE',
+  exchangePreviewFrozen: 'Frozen data sharing via POLYPBASE',
+  exchangePreviewEmail: 'Frozen data sharing by email',
   donationIncoming: 'Receiving',
   donationSend: 'Send',
   donationRefresh: 'Refresh',
@@ -23,7 +33,6 @@ export const en: Record<TranslationKey, string> = {
   donationForbidden: 'Access denied. Please contact your administrator.',
   donationNotFound: 'Proposal or list unavailable in this institution.',
   donationReadError: 'Unable to load donation proposals. Please try again.',
-  donationSendUnavailable: 'Sending is unavailable: the destination institution directory and verified donation form are not yet available.',
   donationAcceptanceUnavailable: 'Donation acceptance is not yet available.',
   shareWorkspace: 'Sending and receiving',
   shareWorkspaceHelp: 'Share the scientific data of one box, read-only, with an identified recipient.',

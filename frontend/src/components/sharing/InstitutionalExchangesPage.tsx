@@ -11,6 +11,7 @@ import ModalPortal from '../ModalPortal';
 import PolypbaseIcon from '../PolypbaseIcon';
 import { RowActionMenu } from '../RowActionMenu';
 import SkeletonRows from '../SkeletonRows';
+import ExchangeFormPreview from './ExchangeFormPreview';
 
 type Props = { organizationId: number; language: Language; onOpenBox: (id: number, code: string) => void; t: Translator };
 const stateLabel = (state: DonationState) => state === 'pending' ? 'donationPending' : 'donationCancelled';
@@ -45,19 +46,20 @@ export function DonationSection({ organizationId, language, onOpenBox, t, direct
   const [type, setType] = useState('');
   const [status, setStatus] = useState('');
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const outgoing = direction === 'outgoing';
   const counterpart = t(outgoing ? 'donationDestination' : 'donationSource');
   const rows = state.status === 'ready' ? filterDonations(state.data.results, direction, query, type, status) : [];
   const filtered = Boolean(query.trim() || type || status);
-  const unavailableId = useId();
+
   return <section className="admin-section box-inventory-section exchange-section" id={outgoing ? 'admin-transfers' : 'admin-receipts'}>
     <header className="admin-section-heading section-title exchange-heading">
       <h2>{t(outgoing ? 'shareOutgoing' : 'donationIncoming')}</h2>
-      {outgoing ? <button className="admin-primary-action" type="button" disabled aria-describedby={unavailableId}>
+      {outgoing ? <button className="admin-primary-action" type="button" onClick={() => setPreviewOpen(true)}>
         <PolypbaseIcon name="plus" size={18} />{t('donationSend')}
       </button> : null}
     </header>
-    {outgoing ? <p className="muted compact-text" id={unavailableId}>{t('donationSendUnavailable')}</p> : null}
+
     <div className="box-inventory-filters exchange-filters">
       <label className="box-inventory-search">
         <span>{t('boxInventorySearch')}</span>
@@ -92,6 +94,7 @@ export function DonationSection({ organizationId, language, onOpenBox, t, direct
             <div className="box-inventory-cell box-inventory-actions"><RowActionMenu ariaLabel={t('auditRowActions').replace('{target}', row.box.global_code)} actions={[{ action: 'details', label: t('donationDetails') }]} onAction={() => setDetailId(row.proposal_id)} /></div>
           </article>) : <div className="box-inventory-empty"><strong>{t(filtered ? 'donationNoMatch' : 'donationEmpty')}</strong></div>}
     </div>
+    {previewOpen ? <ExchangeFormPreview onClose={() => setPreviewOpen(false)} t={t} /> : null}
     {detailId ? <DonationDetailDialog key={detailId} proposalId={detailId} organizationId={organizationId} onClose={() => setDetailId(null)} t={t} /> : null}
   </section>;
 }

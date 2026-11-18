@@ -229,6 +229,45 @@ def b30_events(rows):
     return events
 
 
+B31 = "B31-2026-11-18"
+B31_ROWS_SHA256 = "ce4c9f91ebdd92c896516483d152efde1959fcd727dd1ad902bc2cf1b83193fc"
+B31_ADDED_KEYS = [
+    "exchangePreviewTitle", "exchangePreviewNotice", "exchangePreviewType", "exchangePreviewBox",
+    "exchangePreviewInstitution", "exchangePreviewBoxPlaceholder", "exchangePreviewInstitutionPlaceholder",
+    "exchangePreviewLive", "exchangePreviewFrozen", "exchangePreviewEmail",
+]
+
+
+def b31_events(rows):
+    """Freeze all B31 fields independently of the current catalogs."""
+    entry_ids = [f"T{i}" for i in range(1450, 1472)]
+    events = [row for row in rows if row["batch"] == B31 or row["entry_id"] in entry_ids]
+    assert events == rows[1449:1471], "B31: events moved or gained a member"
+    assert [row["entry_id"] for row in events] == entry_ids, "B31: identities changed"
+    assert all(list(row) == reg.COLUMNS for row in events), "B31: schema changed"
+    assert [(row["key_or_msgid"], row["language"]) for row in events] == [
+        (key, language) for key in ["donationSendUnavailable"] + B31_ADDED_KEYS for language in ("FR", "EN")
+    ], "B31: key or language order changed"
+    assert rows_digest(events) == B31_ROWS_SHA256, "B31: history was modified"
+    return events
+
+
+def before_b31(source, rows, language="EN"):
+    """Undo exact B31 additions and restore the retired warning in its original position."""
+    events = [row for row in b31_events(rows) if row["language"] == language]
+    for row in events:
+        if row["status"] != "ALREADY_MATCHING":
+            continue
+        line = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
+        assert source.count(line) == 1, row["entry_id"]
+        source = source.replace(line, "")
+    removed = next(row for row in events if row["status"] == "REMOVED")
+    assert not any(line.startswith(f"  {removed['key_or_msgid']}: ") for line in source.splitlines())
+    anchor = "  donationAcceptanceUnavailable: "
+    assert source.count(anchor) == 1
+    return source.replace(anchor, f"  {removed['key_or_msgid']}: '{removed['initial_value']}',\n" + anchor)
+
+
 def before_b30(source, rows, language="EN"):
     """Remove only exact, frozen B30 additions; leave unregistered text visible."""
     for row in b30_events(rows):
@@ -241,9 +280,9 @@ def before_b30(source, rows, language="EN"):
 
 
 def before_b29(source, rows, language="EN"):
-    """Undo frozen B30 additions, then B29 additions and changes."""
+    """Undo frozen B31 and B30 events, then B29 additions and changes."""
     events = b29_events(rows)
-    source = before_b30(source, rows, language)
+    source = before_b30(before_b31(source, rows, language), rows, language)
     for row in reversed(events):
         if row["language"] != language:
             continue
@@ -982,6 +1021,56 @@ class CatalogParserTests(unittest.TestCase):
 
 
 class RealRegisterTests(unittest.TestCase):
+    def test_h_b31_reconstruction_rejects_history_and_source_mutations(self):
+        rows = reg.load_register()
+        events = b31_events(rows)
+        for index in range(1449, 1471):
+            for field in reg.COLUMNS + ["unknown_column"]:
+                changed = rows.copy()
+                changed[index] = dict(rows[index])
+                changed[index][field] = changed[index].get(field, "") + " changed"
+                with self.subTest(entry=rows[index]["entry_id"], field=field):
+                    with self.assertRaises(AssertionError):
+                        b31_events(changed)
+            changed = rows.copy()
+            changed[index] = dict(rows[index])
+            changed[index].pop("sheet_value")
+            for invalid in (changed, rows[:index] + rows[index + 1:]):
+                with self.assertRaises(AssertionError):
+                    b31_events(invalid)
+        reordered = rows.copy()
+        reordered[1449], reordered[1450] = reordered[1450], reordered[1449]
+        for changed in (reordered, rows + [dict(events[0], entry_id="T1472")],
+                        [dict(events[0], batch="earlier")] + rows):
+            with self.assertRaises(AssertionError):
+                b31_events(changed)
+        self.assertEqual(b31_events(rows + [dict(events[2], entry_id="T1472", batch="later")]), events)
+        for language, digest in (
+            ("FR", "b987f50afd2504ac6b3de347ccf3a5bca4aa4abfbe8e6a2f80dc040c7e5cfb22"),
+            ("EN", "f51265056ec7e3f84057b4e8405410292465240beb720bbc2e5d4e01ebf25a77"),
+        ):
+            source = (reg.ROOT / reg.REACT_CATALOGS[language]).read_text(encoding="utf-8")
+            restored = before_b31(source, rows, language)
+            self.assertEqual(hashlib.sha256(restored.encode()).hexdigest(), digest)
+            extra = "  unregisteredKey: 'Unapproved',\n"
+            self.assertEqual(before_b31(source + extra, rows, language), restored + extra)
+            for row in events:
+                if row["language"] != language:
+                    continue
+                if row["status"] == "REMOVED":
+                    with self.assertRaises(AssertionError):
+                        before_b31(source + f"  {row['key_or_msgid']}: '{row['initial_value']}',\n", rows, language)
+                    continue
+                line = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
+                for replacement in ("", line + line, line.replace(": '", ": 'changed ")):
+                    with self.assertRaises(AssertionError):
+                        before_b31(source.replace(line, replacement), rows, language)
+                changed = [dict(entry, initial_value="changed " + entry["initial_value"],
+                                final_value="changed " + entry["final_value"]) if entry == row else entry
+                           for entry in rows]
+                with self.assertRaises(AssertionError):
+                    before_b31(source.replace(line, line.replace(": '", ": 'changed ")), changed, language)
+
     def test_h_b30_reconstruction_rejects_history_and_source_mutations(self):
         rows = reg.load_register()
         events = b30_events(rows)
@@ -1011,6 +1100,7 @@ class RealRegisterTests(unittest.TestCase):
         self.assertEqual(b30_events(rows + [correction]), events)
         for language in ("FR", "EN"):
             source = (reg.ROOT / reg.REACT_CATALOGS[language]).read_text(encoding="utf-8")
+            source = before_b31(source, rows, language)
             restored = before_b30(source, rows, language)
             extra = "  unregisteredKey: 'Unapproved',\n"
             self.assertEqual(before_b30(source + extra, rows, language), restored + extra)

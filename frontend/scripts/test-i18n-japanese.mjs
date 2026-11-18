@@ -228,8 +228,8 @@ test('deleted and obsolete keys are never restored in Japanese', () => {
 
 test('ja catalog is exactly the historical and AI-reviewed manifest union', () => {
   const react = manifest.filter(row => row.surface === 'react');
-  assert.deepEqual(react.map(row => row.identity), Object.keys(fr).filter(key => !B30_ADDED_KEYS.includes(key)),
-    'one row per historical key in canonical FR order; B30 has no fabricated manifest provenance');
+  assert.deepEqual(react.map(row => row.identity), Object.keys(fr).filter(key => !B30_ADDED_KEYS.includes(key) && !B31_ADDED_KEYS.includes(key)),
+    'one row per historical key in canonical FR order; B30/B31 have no fabricated manifest provenance');
   const included = react.filter(row => ['REUSED', 'AI_REVIEWED'].includes(row.status));
   const expected = included.map(row => [row.identity,
     row.status === 'REUSED' ? row.ja_validated : row.ja_ai_reviewed]);
@@ -531,6 +531,87 @@ function b30Events(rows = register) {
   return events;
 }
 
+const B31_ADDED_KEYS = [
+  'exchangePreviewTitle', 'exchangePreviewNotice', 'exchangePreviewType', 'exchangePreviewBox',
+  'exchangePreviewInstitution', 'exchangePreviewBoxPlaceholder', 'exchangePreviewInstitutionPlaceholder',
+  'exchangePreviewLive', 'exchangePreviewFrozen', 'exchangePreviewEmail',
+];
+const B31_ROWS_DIGEST = 'ce4c9f91ebdd92c896516483d152efde1959fcd727dd1ad902bc2cf1b83193fc';
+
+function b31Events(rows = register) {
+  const ids = Array.from({ length: 22 }, (_, index) => `T${1450 + index}`);
+  const events = rows.filter(row => row.batch === 'B31-2026-11-18' || ids.includes(row.entry_id));
+  assert.deepEqual(events, rows.slice(1449, 1471));
+  assert.deepEqual(events.map(row => row.entry_id), ids);
+  assert.deepEqual(events.map(row => [row.key_or_msgid, row.language]),
+    ['donationSendUnavailable', ...B31_ADDED_KEYS].flatMap(key => [[key, 'FR'], [key, 'EN']]));
+  for (const entry of events) assert.deepEqual(Object.keys(entry), REGISTER_COLUMNS);
+  assert.equal(registerRowsDigest(events), B31_ROWS_DIGEST);
+  return events;
+}
+
+function beforeB31(source, language, rows = register) {
+  const events = b31Events(rows).filter(row => row.language === language.toUpperCase());
+  for (const entry of events.filter(row => row.status === 'ALREADY_MATCHING')) {
+    const line = `  ${entry.key_or_msgid}: '${entry.final_value}',\n`;
+    assert.equal(source.split(line).length - 1, 1, entry.entry_id);
+    source = source.replace(line, '');
+  }
+  const removed = events.find(row => row.status === 'REMOVED');
+  assert.equal(source.split('\n').some(line => line.startsWith(`  ${removed.key_or_msgid}: `)), false);
+  const anchor = '  donationAcceptanceUnavailable: ';
+  assert.equal(source.split(anchor).length - 1, 1);
+  return source.replace(anchor, `  ${removed.key_or_msgid}: '${removed.initial_value}',\n${anchor}`);
+}
+
+test('B31 preview events reconstruct exact HEAD catalogs and reject history or source mutations', () => {
+  const events = b31Events();
+  for (const entry of events) {
+    assert.throws(() => b31Events(register.filter(row => row !== entry)));
+    for (const field of [...REGISTER_COLUMNS, 'unknown_column']) {
+      assert.throws(() => b31Events(register.map(row => row === entry
+        ? { ...row, [field]: `${row[field] ?? ''} changed` } : row)), `${entry.entry_id}.${field}`);
+    }
+    const missing = { ...entry };
+    delete missing.sheet_value;
+    assert.throws(() => b31Events(register.map(row => row === entry ? missing : row)));
+  }
+  const reordered = register.slice();
+  [reordered[1449], reordered[1450]] = [reordered[1450], reordered[1449]];
+  for (const rows of [reordered, [...register, { ...events[0], entry_id: 'T1472' }],
+    [{ ...events[0], batch: 'earlier' }, ...register]]) assert.throws(() => b31Events(rows));
+  assert.deepEqual(b31Events([...register, { ...events[2], entry_id: 'T1472', batch: 'later' }]), events);
+  const translate = loadI18n().createTranslator('ja');
+  for (const [language, digest] of [
+    ['fr', 'b987f50afd2504ac6b3de347ccf3a5bca4aa4abfbe8e6a2f80dc040c7e5cfb22'],
+    ['en', 'f51265056ec7e3f84057b4e8405410292465240beb720bbc2e5d4e01ebf25a77'],
+  ]) {
+    const source = read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n');
+    const restored = beforeB31(source, language);
+    assert.equal(sha256(restored), digest);
+    const extra = "  unregisteredKey: 'Unapproved',\n";
+    assert.equal(beforeB31(source + extra, language), restored + extra);
+    for (const entry of events.filter(row => row.language === language.toUpperCase())) {
+      const line = `  ${entry.key_or_msgid}: '${entry.final_value}',\n`;
+      if (entry.status === 'REMOVED') {
+        assert.throws(() => beforeB31(source + `  ${entry.key_or_msgid}: '${entry.initial_value}',\n`, language));
+        continue;
+      }
+      for (const replacement of ['', line + line, line.replace(": '", ": 'changed ")]) {
+        assert.throws(() => beforeB31(source.replace(line, replacement), language));
+      }
+      const coordinated = register.map(row => row === entry
+        ? { ...row, initial_value: `changed ${row.initial_value}`, final_value: `changed ${row.final_value}` } : row);
+      assert.throws(() => beforeB31(source.replace(line, line.replace(": '", ": 'changed ")), language, coordinated));
+      assert.equal(translate(entry.key_or_msgid), en[entry.key_or_msgid]);
+      assert.equal(Object.hasOwn(ja, entry.key_or_msgid), false);
+      assert.equal(manifest.some(row => row.identity === entry.key_or_msgid), false);
+      assert.equal(reviewed.some(row => row.identity === entry.key_or_msgid || row.key === entry.key_or_msgid), false);
+      assert.equal(postBaseline.has(entry.key_or_msgid), false);
+    }
+  }
+});
+
 function beforeB30(source, language, rows = register) {
   for (const entry of b30Events(rows).filter(row => row.language === language.toUpperCase())) {
     const line = `  ${entry.key_or_msgid}: '${entry.final_value}',\n`;
@@ -565,15 +646,16 @@ test('B30 donation additions require exact append-only events, schema, metadata 
 
   for (const language of ['fr', 'en']) {
     const source = read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n');
-    assert.doesNotThrow(() => beforeB30(source, language));
+    const b30Source = beforeB31(source, language);
+    assert.doesNotThrow(() => beforeB30(b30Source, language));
     for (const entry of events.filter(row => row.language === language.toUpperCase())) {
       const line = `  ${entry.key_or_msgid}: '${entry.final_value}',\n`;
       for (const replacement of ['', line + line, line.replace(": '", ": 'changed ")]) {
-        assert.throws(() => beforeB30(source.replace(line, replacement), language));
+        assert.throws(() => beforeB30(b30Source.replace(line, replacement), language));
       }
       const coordinated = register.map(row => row === entry
         ? { ...row, initial_value: `changed ${row.initial_value}`, final_value: `changed ${row.final_value}` } : row);
-      assert.throws(() => beforeB30(source.replace(line, line.replace(": '", ": 'changed ")), language, coordinated));
+      assert.throws(() => beforeB30(b30Source.replace(line, line.replace(": '", ": 'changed ")), language, coordinated));
     }
     const digest = sha256(historicalSource(source, true, language));
     for (const key of ['donationUnapproved', 'unapprovedAddition']) {
@@ -590,12 +672,13 @@ test('B30 donation additions require exact append-only events, schema, metadata 
 test('B30 donation keys use English runtime fallback without Japanese approval or fabricated provenance', () => {
   const translate = loadI18n().createTranslator('ja');
   for (const [language, catalog] of [['FR', fr], ['EN', en]]) {
-    assert.deepEqual(Object.keys(catalog).filter(key => /^donation/.test(key)), B30_ADDED_KEYS);
+    assert.deepEqual(Object.keys(catalog).filter(key => /^donation/.test(key)), B30_ADDED_KEYS.filter(key => key !== 'donationSendUnavailable'));
     for (const entry of b30Events().filter(row => row.language === language)) {
-      assert.equal(catalog[entry.key_or_msgid], entry.final_value, entry.entry_id);
+      if (entry.key_or_msgid === 'donationSendUnavailable') assert.equal(Object.hasOwn(catalog, entry.key_or_msgid), false);
+      else assert.equal(catalog[entry.key_or_msgid], entry.final_value, entry.entry_id);
     }
   }
-  for (const key of B30_ADDED_KEYS) {
+  for (const key of B30_ADDED_KEYS.filter(key => key !== 'donationSendUnavailable')) {
     assert.equal(Object.hasOwn(ja, key), false, key);
     assert.equal(postBaseline.has(key), false, key);
     assert.equal(manifest.some(row => row.identity === key), false, `${key}: no invented manifest row`);
@@ -669,7 +752,7 @@ function b28Events(rows = register) {
 }
 
 function beforeB29(source, language, rows = register) {
-  source = beforeB30(source, language, rows);
+  source = beforeB30(beforeB31(source, language, rows), language, rows);
   const batch = rows.filter(row => row.batch === 'B29-2026-11-12');
   const rename = batch.find(entry => entry.key_or_msgid === 'adminTabTransfers');
   assert.deepEqual([rename.entry_id, rename.key_or_msgid, rename.language, rename.status, rename.initial_value, rename.final_value],
@@ -1000,6 +1083,7 @@ test('source fingerprints accept the scoped additions but reject every historica
       const changed = source.replace(line, mutated);
       if (B24_ADDED_KEYS.includes(key) || zoneChartKeys.includes(key) || thermalPeriodKeys.includes(key)
           || probeAverageKeys.includes(key) || sharingKeys.includes(key) || B30_ADDED_KEYS.includes(key)
+          || B31_ADDED_KEYS.includes(key)
           || (key === 'adminTabTransfers' && language === 'en')) {
         assert.throws(() => historicalSource(changed, true, language), `${language}.${key}`);
         continue;

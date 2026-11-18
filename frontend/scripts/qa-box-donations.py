@@ -185,16 +185,94 @@ def run(screenshots=False, inspect_seconds=0, keep_screenshots=False):
                 assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
                 for section in [outgoing, incoming]:
                     assert section.locator(".exchange-row").first.evaluate("el => el.scrollWidth <= el.clientWidth + 1")
-                expect(outgoing.get_by_role("button", name="Envoyer", exact=True)).to_be_disabled()
-                assert outgoing.get_by_role("button", name="Envoyer", exact=True).get_attribute("aria-describedby")
+                expect(outgoing.get_by_role("button", name="Envoyer", exact=True)).to_be_enabled()
+                expect(outgoing.get_by_text(re.compile("L’envoi est indisponible|Sending is unavailable"))).to_have_count(0)
                 expect(page.get_by_role("button", name=re.compile(r"^(Accept|Accepter)"))).to_have_count(0)
                 expect(incoming.locator(".box-tracking-preview-link, canvas, svg[role='img']")).to_have_count(0)
                 capture(f"desktop-{width}")
-                passed(f"{width}x{height}: native AdminFlowNav, stacked sections, no page/row overflow, disabled Send, no Accept, incoming no graph", metrics(".exchange-row"))
+                passed(f"{width}x{height}: native AdminFlowNav, stacked sections, no page/row overflow, active Send, no old warning, no Accept, incoming no graph", metrics(".exchange-row"))
 
             page.set_viewport_size({"width": 1440, "height": 1000})
             outgoing = page.locator("#admin-transfers")
             incoming = page.locator("#admin-receipts")
+            send = outgoing.get_by_role("button", name="Envoyer", exact=True)
+            before_preview = len(requests)
+            before_rows = page.locator(".exchange-row").all_text_contents()
+            storage_snapshot = "() => JSON.stringify([Object.entries(localStorage).sort(), Object.entries(sessionStorage).sort()])"
+            before_storage = page.evaluate(storage_snapshot)
+            send.click()
+            modal = page.get_by_role("dialog", name="Nouvel envoi", exact=True)
+            expect(modal).to_be_visible()
+            expect(modal).not_to_contain_text("Aperçu du formulaire. Aucun envoi ne sera effectué.")
+            exchange_type = modal.get_by_label("Type d’échange", exact=True)
+            expect(exchange_type).to_be_focused()
+            assert exchange_type.locator("option").evaluate_all("els => els.map(el => [el.value, el.textContent])") == [
+                ["donation", "Don"],
+                ["live", "Partage de données actualisé via POLYPBASE"],
+                ["frozen", "Partage de données figé via POLYPBASE"],
+                ["email_frozen", "Partage de données figé par mail"],
+            ]
+            box = modal.get_by_label("Boîte concernée", exact=True)
+            institution = modal.get_by_label("Institution destinataire", exact=True)
+            email = modal.locator("input[type='email']")
+            expect(box).to_have_value("")
+            expect(institution).to_have_value("")
+            box.fill("MOCK-LOCAL-0")
+            institution.fill("Local destination")
+            # Observe native submissions too: Enter must never navigate or send data.
+            modal.locator("form").evaluate("el => { window.__previewSubmits=[]; el.addEventListener('submit', event => queueMicrotask(() => window.__previewSubmits.push(event.defaultPrevented))); }")
+            for kind in ["donation", "live", "frozen", "email_frozen"]:
+                exchange_type.select_option(kind)
+                expect(exchange_type).to_have_value(kind)
+                expect(box).to_have_value("MOCK-LOCAL-0")
+                expect(institution).to_have_value("Local destination")
+                expect(email).to_have_count(1 if kind == "email_frozen" else 0)
+                if kind == "email_frozen":
+                    email.fill("recipient@example.test")
+                    expect(email).to_have_value("recipient@example.test")
+                    email.press("Enter")
+                else:
+                    box.press("Enter")
+                # Multiple text inputs can suppress implicit Enter submission; exercise the
+                # actual submit event as well, rather than mistaking that for prevention.
+                assert modal.locator("form").evaluate("el => !el.dispatchEvent(new Event('submit', {bubbles:true,cancelable:true}))")
+                expect(modal).to_be_visible()
+                expect(modal.locator("[role='status'], [role='alert'], button[type='submit']")).to_have_count(0)
+                assert page.url == BASE + "/administration/transfers"
+                assert page.locator(".exchange-row").all_text_contents() == before_rows
+                assert len(requests) == before_preview, requests[before_preview:]
+                assert page.evaluate(storage_snapshot) == before_storage
+                capture("exchange-form-" + kind)
+            assert page.evaluate("window.__previewSubmits.length >= 4 && window.__previewSubmits.every(Boolean)")
+            exchange_type.select_option("live")
+            expect(email).to_have_count(0)
+            exchange_type.select_option("email_frozen")
+            expect(email).to_have_value("recipient@example.test")
+            footer_close = modal.locator("footer button")
+            x_close = modal.locator(".modal-close-button")
+            footer_close.focus()
+            page.keyboard.press("Tab")
+            expect(x_close).to_be_focused()
+            page.keyboard.press("Shift+Tab")
+            expect(footer_close).to_be_focused()
+            page.keyboard.press("Escape")
+            expect(modal).to_have_count(0)
+            expect(send).to_be_focused()
+            for close_selector in ["footer button", ".modal-close-button"]:
+                send.click()
+                expect(modal).to_be_visible()
+                expect(modal.get_by_label("Type d’échange", exact=True)).to_have_value("donation")
+                expect(modal.get_by_label("Boîte concernée", exact=True)).to_have_value("")
+                expect(modal.get_by_label("Institution destinataire", exact=True)).to_have_value("")
+                expect(modal.locator("input[type='email']")).to_have_count(0)
+                modal.locator(close_selector).click()
+                expect(modal).to_have_count(0)
+                expect(send).to_be_focused()
+            page.wait_for_load_state("networkidle")
+            assert len(requests) == before_preview, requests[before_preview:]
+            assert page.locator(".exchange-row").all_text_contents() == before_rows
+            assert page.evaluate(storage_snapshot) == before_storage
+            passed("FR active Send: four preview types, local fields, conditional email, inert Enter/submit, no success/persistence/requests/row changes, focus trap, Escape/footer/X close and focus restore")
             for section, term in [(outgoing, "musee"), (incoming, "source")]:
                 search = section.get_by_role("searchbox")
                 for query, count in [(term, 4), ("aurelia", 4), ("001", 1), ("no-match", 0)]:
@@ -319,14 +397,25 @@ def run(screenshots=False, inspect_seconds=0, keep_screenshots=False):
             ready()
             expect(outgoing.get_by_role("heading", name="Sending", exact=True)).to_be_visible()
             expect(incoming.get_by_role("heading", name="Receiving", exact=True)).to_be_visible()
-            expect(outgoing.get_by_role("button", name="Send", exact=True)).to_be_disabled()
+            expect(outgoing.get_by_role("button", name="Send", exact=True)).to_be_enabled()
+            expect(page.get_by_text(re.compile("Sending is unavailable|L’envoi est indisponible"))).to_have_count(0)
+            before = len(requests)
+            outgoing.get_by_role("button", name="Send", exact=True).click()
+            english_modal = page.get_by_role("dialog", name="New shipment", exact=True)
+            expect(english_modal).to_be_visible()
+            expect(english_modal).not_to_contain_text("Form preview. Nothing will be sent.")
+            expect(english_modal.get_by_label("Exchange type", exact=True)).to_be_focused()
+            english_modal.locator("footer").get_by_role("button", name="Close", exact=True).click()
+            expect(english_modal).to_have_count(0)
+            expect(outgoing.get_by_role("button", name="Send", exact=True)).to_be_focused()
+            assert len(requests) == before
             outgoing.locator("select").nth(1).select_option("cancelled")
             expect(outgoing.locator(".exchange-row")).to_have_count(2)
             expect(outgoing.locator(".exchange-row").first).to_contain_text("Cancelled")
             outgoing.locator("select").nth(1).select_option("pending")
             expect(outgoing.locator(".exchange-row").first).to_contain_text("Pending")
             capture("english")
-            passed("EN headings, disabled Send, Pending/Cancelled labels and filters")
+            passed("EN headings, active Send opens translated preview, close restores focus, no extra requests or old warning, Pending/Cancelled labels and filters")
             load("/profile")
             expect(page.locator(".profile-identity-actions")).to_be_visible()
             expect(page.locator("a[href^='/shared-boxes']")).to_have_count(0)
