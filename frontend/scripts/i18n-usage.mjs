@@ -5,6 +5,7 @@ import ts from 'typescript';
 
 // Exact keys only. These are retention decisions, not evidence of source use.
 export const usageExceptions = Object.freeze({
+  donationRefresh: 'B30 institutional exchanges (2026-11-18): refresh button explicitly removed at user request; retain this exact FR/EN key registered during integration pending a dedicated i18n removal batch.',
   auditSummaryAlertResolved: 'B03/B06 preservation decision: retain the legacy alert summary; current audit rendering uses auditDescriptionAlertResolved.',
   adminTransferText: 'B01 deferred transfer introduction (register T012); B03/B06 explicitly preserve it pending a transfer-screen decision.',
   manualTemperatureForbidden: 'B02 deferred legacy temperature refusal with no source usage; B03/B06 explicitly preserve it pending permission-copy review.',

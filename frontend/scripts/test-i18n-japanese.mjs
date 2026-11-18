@@ -228,7 +228,8 @@ test('deleted and obsolete keys are never restored in Japanese', () => {
 
 test('ja catalog is exactly the historical and AI-reviewed manifest union', () => {
   const react = manifest.filter(row => row.surface === 'react');
-  assert.deepEqual(react.map(row => row.identity), Object.keys(fr), 'one row per key in canonical FR order');
+  assert.deepEqual(react.map(row => row.identity), Object.keys(fr).filter(key => !B30_ADDED_KEYS.includes(key)),
+    'one row per historical key in canonical FR order; B30 has no fabricated manifest provenance');
   const included = react.filter(row => ['REUSED', 'AI_REVIEWED'].includes(row.status));
   const expected = included.map(row => [row.identity,
     row.status === 'REUSED' ? row.ja_validated : row.ja_ai_reviewed]);
@@ -505,6 +506,103 @@ const B24_ADDED_KEYS = ['historyReactivation', 'historyLocationExit', 'historyLo
 
 const B26_ROWS_DIGEST = 'bb061a0b21466b02a2db8ab09453d98c3571c607c7236d28678f0aaa68080955';
 const B27_ROWS_DIGEST = '988d1d95a042150c7c58f1e55e88c687e864b20b41623af9e69e50ebcea7a8ef';
+const B30_ADDED_KEYS = [
+  'donationIncoming', 'donationSend', 'donationRefresh', 'donationDestination', 'donationSource',
+  'donationType', 'donationTypeDon', 'donationDate', 'donationState', 'donationPending',
+  'donationCancelled', 'donationCancelledAt', 'donationAllTypes', 'donationAllStates', 'donationSearch',
+  'donationDetails', 'donationReference', 'donationEmpty', 'donationNoMatch', 'donationForbidden',
+  'donationNotFound', 'donationReadError', 'donationSendUnavailable', 'donationAcceptanceUnavailable',
+];
+// Freeze all 14 columns, including values, decision, baseline and the unused refresh exception.
+const B30_ROWS_DIGEST = 'cd8e6091a166c53d3a746e0f129d2ef2fc413a468892b854a60a15db80fe6469';
+
+function b30Events(rows = register) {
+  const events = rows.filter(row => row.batch === 'B30-2026-11-18');
+  assert.deepEqual(events, rows.slice(1401, 1449));
+  assert.deepEqual(events.map(row => row.entry_id), Array.from({ length: 48 }, (_, index) => `T${1402 + index}`));
+  assert.deepEqual(events.map(row => [row.key_or_msgid, row.language]),
+    B30_ADDED_KEYS.flatMap(key => [[key, 'FR'], [key, 'EN']]));
+  for (const entry of events) {
+    assert.deepEqual(Object.keys(entry), REGISTER_COLUMNS);
+    assert.deepEqual([entry.surface, entry.source_file, entry.status, entry.initial_value],
+      ['react', `frontend/src/i18n/${entry.language.toLowerCase()}.ts`, 'ALREADY_MATCHING', entry.final_value]);
+  }
+  assert.equal(registerRowsDigest(events), B30_ROWS_DIGEST);
+  return events;
+}
+
+function beforeB30(source, language, rows = register) {
+  for (const entry of b30Events(rows).filter(row => row.language === language.toUpperCase())) {
+    const line = `  ${entry.key_or_msgid}: '${entry.final_value}',\n`;
+    assert.equal(source.split(line).length - 1, 1, entry.key_or_msgid);
+    source = source.replace(line, '');
+  }
+  return source;
+}
+
+test('B30 donation additions require exact append-only events, schema, metadata and source values', () => {
+  const events = b30Events();
+  for (const entry of events) {
+    assert.throws(() => b30Events(register.filter(row => row !== entry)), `${entry.entry_id}: omitted`);
+    for (const field of REGISTER_COLUMNS) {
+      const changed = register.map(row => row === entry ? { ...row, [field]: `${row[field]} changed` } : row);
+      assert.throws(() => b30Events(changed), `${entry.entry_id}.${field}`);
+    }
+    for (const field of ['unknown_column', 'sheet_value']) {
+      const changed = { ...entry };
+      if (field === 'unknown_column') changed[field] = 'unapproved';
+      else delete changed[field];
+      assert.throws(() => b30Events(register.map(row => row === entry ? changed : row)));
+    }
+  }
+  const reordered = register.slice();
+  [reordered[1401], reordered[1402]] = [reordered[1402], reordered[1401]];
+  assert.throws(() => b30Events(reordered));
+  assert.throws(() => b30Events([...register, { ...events[0], entry_id: 'T1450' }]));
+  assert.throws(() => b30Events([{ ...events[0], batch: 'earlier' }, ...register]));
+  const correction = { ...events[0], entry_id: 'T1450', batch: 'later', status: 'APPLIED', final_value: 'Later correction' };
+  assert.deepEqual(b30Events([...register, correction]), events, 'later events do not rewrite B30');
+
+  for (const language of ['fr', 'en']) {
+    const source = read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n');
+    assert.doesNotThrow(() => beforeB30(source, language));
+    for (const entry of events.filter(row => row.language === language.toUpperCase())) {
+      const line = `  ${entry.key_or_msgid}: '${entry.final_value}',\n`;
+      for (const replacement of ['', line + line, line.replace(": '", ": 'changed ")]) {
+        assert.throws(() => beforeB30(source.replace(line, replacement), language));
+      }
+      const coordinated = register.map(row => row === entry
+        ? { ...row, initial_value: `changed ${row.initial_value}`, final_value: `changed ${row.final_value}` } : row);
+      assert.throws(() => beforeB30(source.replace(line, line.replace(": '", ": 'changed ")), language, coordinated));
+    }
+    const digest = sha256(historicalSource(source, true, language));
+    for (const key of ['donationUnapproved', 'unapprovedAddition']) {
+      const unknown = source.replace('\n}', `\n  ${key}: 'Value',\n}`);
+      assert.notEqual(sha256(historicalSource(unknown, true, language)), digest, key);
+    }
+    const line = source.split('\n').find(line => line.startsWith('  overviewEmpty: '));
+    assert.ok(line);
+    const changed = source.replace(line, line.replace(": '", ": 'changed "));
+    assert.notEqual(sha256(historicalSource(changed, true, language)), digest, 'historical values remain frozen');
+  }
+});
+
+test('B30 donation keys use English runtime fallback without Japanese approval or fabricated provenance', () => {
+  const translate = loadI18n().createTranslator('ja');
+  for (const [language, catalog] of [['FR', fr], ['EN', en]]) {
+    assert.deepEqual(Object.keys(catalog).filter(key => /^donation/.test(key)), B30_ADDED_KEYS);
+    for (const entry of b30Events().filter(row => row.language === language)) {
+      assert.equal(catalog[entry.key_or_msgid], entry.final_value, entry.entry_id);
+    }
+  }
+  for (const key of B30_ADDED_KEYS) {
+    assert.equal(Object.hasOwn(ja, key), false, key);
+    assert.equal(postBaseline.has(key), false, key);
+    assert.equal(manifest.some(row => row.identity === key), false, `${key}: no invented manifest row`);
+    assert.equal(reviewed.some(row => row.identity === key || row.key === key), false, key);
+    assert.equal(translate(key), en[key], `${key}: English runtime fallback`);
+  }
+});
 
 function b24Events(rows = register) {
   const events = rows.filter(row => row.batch === 'B24-2026-11-10');
@@ -571,6 +669,7 @@ function b28Events(rows = register) {
 }
 
 function beforeB29(source, language, rows = register) {
+  source = beforeB30(source, language, rows);
   const batch = rows.filter(row => row.batch === 'B29-2026-11-12');
   const rename = batch.find(entry => entry.key_or_msgid === 'adminTabTransfers');
   assert.deepEqual([rename.entry_id, rename.key_or_msgid, rename.language, rename.status, rename.initial_value, rename.final_value],
@@ -900,7 +999,8 @@ test('source fingerprints accept the scoped additions but reject every historica
       assert.notEqual(mutated, line, `${language}.${key}: mutation must change the value`);
       const changed = source.replace(line, mutated);
       if (B24_ADDED_KEYS.includes(key) || zoneChartKeys.includes(key) || thermalPeriodKeys.includes(key)
-          || probeAverageKeys.includes(key) || sharingKeys.includes(key) || (key === 'adminTabTransfers' && language === 'en')) {
+          || probeAverageKeys.includes(key) || sharingKeys.includes(key) || B30_ADDED_KEYS.includes(key)
+          || (key === 'adminTabTransfers' && language === 'en')) {
         assert.throws(() => historicalSource(changed, true, language), `${language}.${key}`);
         continue;
       }

@@ -200,9 +200,51 @@ def b29_events(rows):
     return events
 
 
+B30 = "B30-2026-11-18"
+B30_ROWS_SHA256 = "cd8e6091a166c53d3a746e0f129d2ef2fc413a468892b854a60a15db80fe6469"
+B30_ADDED_KEYS = [
+    "donationIncoming", "donationSend", "donationRefresh", "donationDestination", "donationSource",
+    "donationType", "donationTypeDon", "donationDate", "donationState", "donationPending",
+    "donationCancelled", "donationCancelledAt", "donationAllTypes", "donationAllStates", "donationSearch",
+    "donationDetails", "donationReference", "donationEmpty", "donationNoMatch", "donationForbidden",
+    "donationNotFound", "donationReadError", "donationSendUnavailable", "donationAcceptanceUnavailable",
+]
+
+
+def b30_events(rows):
+    """Freeze the same complete B30 events as the Japanese provenance tests."""
+    entry_ids = [f"T{i}" for i in range(1402, 1450)]
+    protected_ids = set(entry_ids)
+    events = [row for row in rows if row["batch"] == B30 or row["entry_id"] in protected_ids]
+    assert events == rows[1401:1449], "B30: events moved or gained a member"
+    assert [row["entry_id"] for row in events] == entry_ids, "B30: identities changed"
+    assert all(list(row) == reg.COLUMNS for row in events), "B30: schema changed"
+    assert [(row["key_or_msgid"], row["language"]) for row in events] == [
+        (key, language) for key in B30_ADDED_KEYS for language in ("FR", "EN")
+    ], "B30: key or language order changed"
+    assert all((row["surface"], row["source_file"], row["status"], row["initial_value"]) == (
+        "react", f"frontend/src/i18n/{row['language'].lower()}.ts", "ALREADY_MATCHING", row["final_value"],
+    ) for row in events), "B30: additive event changed"
+    assert rows_digest(events) == B30_ROWS_SHA256, "B30: history was modified"
+    return events
+
+
+def before_b30(source, rows, language="EN"):
+    """Remove only exact, frozen B30 additions; leave unregistered text visible."""
+    for row in b30_events(rows):
+        if row["language"] != language:
+            continue
+        line = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
+        assert source.count(line) == 1, row["entry_id"]
+        source = source.replace(line, "")
+    return source
+
+
 def before_b29(source, rows, language="EN"):
-    """Undo only the frozen B29 additions and changes, in reverse event order."""
-    for row in reversed(b29_events(rows)):
+    """Undo frozen B30 additions, then B29 additions and changes."""
+    events = b29_events(rows)
+    source = before_b30(source, rows, language)
+    for row in reversed(events):
         if row["language"] != language:
             continue
         line = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
@@ -330,8 +372,9 @@ class IntegrationHistoryTests(unittest.TestCase):
 
     def test_integration_has_exact_count_unique_ordered_ids_and_chronology(self):
         rows = reg.load_register()
-        self.assertEqual(len(rows), 1401)
-        self.assertEqual([row["entry_id"] for row in rows], [f"T{n:03d}" for n in range(1, 1402)])
+        self.assertEqual(len(rows), 1449)
+        self.assertEqual([row["entry_id"] for row in rows], [f"T{n:03d}" for n in range(1, 1450)])
+        self.assertEqual(len(b30_events(rows)), 48)
         self.assertEqual(rows_digest(rows[:1100]), PRE_B29_ROWS_SHA256)
         self.assertEqual(integration_integrity_errors(rows), [])
         b29 = b29_events(rows)
@@ -343,7 +386,7 @@ class IntegrationHistoryTests(unittest.TestCase):
         self.assertEqual({row["baseline_sheet_sha256"] for row in b29},
                          {"e80b409fbea485d97fbccf66d06da83eb46374883d1e3343f50e51e656b8c307"})
         self.assertEqual(Counter(row["batch"] for row in rows[1010:]),
-                         Counter({"B20-2026-11-09": 6, "B21-2026-11-09": 20, "B22-2026-11-10": 6, "B23-2026-11-10": 12, "B24-2026-11-10": 6, INTEGRATION_B25: 26, B26: 8, B27: 4, "B28-2026-11-11": 2, B29: 301}))
+                         Counter({"B20-2026-11-09": 6, "B21-2026-11-09": 20, "B22-2026-11-10": 6, "B23-2026-11-10": 12, "B24-2026-11-10": 6, INTEGRATION_B25: 26, B26: 8, B27: 4, "B28-2026-11-11": 2, B29: 301, B30: 48}))
         self.assertEqual(len(b26_events(rows)), 8)
         self.assertEqual(len(b27_events(rows)), 4)
         self.assertEqual(len({(row["batch"], reg.identity(row)) for row in rows}), len(rows))
@@ -405,7 +448,7 @@ class IntegrationHistoryTests(unittest.TestCase):
     def test_later_corrections_must_be_appended(self):
         original = reg.load_register()
         row = original[-1]
-        correction = dict(row, entry_id="T1402", batch="B30-2026-11-13", status="APPLIED",
+        correction = dict(row, entry_id="T1450", batch="B31-2026-11-19", status="APPLIED",
                           baseline_git_head=HEAD_2, decision_ref="synthetic-future-correction",
                           initial_value=row["final_value"], final_value=row["final_value"] + " corrected")
         appended = original + [correction]
@@ -417,8 +460,8 @@ class IntegrationHistoryTests(unittest.TestCase):
         variants = {
             "reopened B28": (original + [dict(correction, batch="B28-2026-11-11")], "is split"),
             "reopened B29": (original + [dict(correction, batch=B29)], "several baseline_git_head"),
-            "split B29": (appended + [dict(correction, entry_id="T1403", batch=B29)], "is split"),
-            "mixed B30 baselines": (appended + [dict(correction, entry_id="T1403", baseline_git_head=HEAD_1)],
+            "split B29": (appended + [dict(correction, entry_id="T1451", batch=B29)], "is split"),
+            "mixed B31 baselines": (appended + [dict(correction, entry_id="T1451", baseline_git_head=HEAD_1)],
                                     "several baseline_git_head"),
         }
         for label, (changed, expected) in variants.items():
@@ -939,6 +982,51 @@ class CatalogParserTests(unittest.TestCase):
 
 
 class RealRegisterTests(unittest.TestCase):
+    def test_h_b30_reconstruction_rejects_history_and_source_mutations(self):
+        rows = reg.load_register()
+        events = b30_events(rows)
+        for index in range(1401, 1449):
+            for field in reg.COLUMNS + ["unknown_column"]:
+                changed = rows.copy()
+                changed[index] = dict(rows[index])
+                changed[index][field] = changed[index].get(field, "") + " changed"
+                with self.subTest(entry=rows[index]["entry_id"], field=field):
+                    with self.assertRaises(AssertionError):
+                        b30_events(changed)
+            changed = rows.copy()
+            changed[index] = dict(rows[index])
+            changed[index].pop("sheet_value")
+            with self.assertRaises(AssertionError):
+                b30_events(changed)
+            with self.assertRaises(AssertionError):
+                b30_events(rows[:index] + rows[index + 1:])
+        reordered = rows.copy()
+        reordered[1401], reordered[1402] = reordered[1402], reordered[1401]
+        for changed in (reordered, rows + [dict(events[0], entry_id="T1450")],
+                        [dict(events[0], batch="earlier")] + rows):
+            with self.assertRaises(AssertionError):
+                b30_events(changed)
+        correction = dict(events[0], entry_id="T1450", batch="B31-2026-11-19", status="APPLIED",
+                          final_value="Later correction")
+        self.assertEqual(b30_events(rows + [correction]), events)
+        for language in ("FR", "EN"):
+            source = (reg.ROOT / reg.REACT_CATALOGS[language]).read_text(encoding="utf-8")
+            restored = before_b30(source, rows, language)
+            extra = "  unregisteredKey: 'Unapproved',\n"
+            self.assertEqual(before_b30(source + extra, rows, language), restored + extra)
+            for row in events:
+                if row["language"] != language:
+                    continue
+                line = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
+                for replacement in ("", line + line, line.replace(": '", ": 'changed ")):
+                    with self.assertRaises(AssertionError):
+                        before_b30(source.replace(line, replacement), rows, language)
+                changed = [dict(entry, initial_value="changed " + entry["initial_value"],
+                                final_value="changed " + entry["final_value"]) if entry == row else entry
+                           for entry in rows]
+                with self.assertRaises(AssertionError):
+                    before_b30(source.replace(line, line.replace(": '", ": 'changed ")), changed, language)
+
     def test_h_b01_register_is_unchanged_and_valid(self):
         rows = reg.load_register()
         b01 = [row for row in rows if row["batch"] == B01]

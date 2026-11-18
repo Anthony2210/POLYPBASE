@@ -70,7 +70,7 @@ import AccountInvitationsPanel, { type InvitationsSnapshot } from './AccountInvi
 import AdminActionPanel from './AdminActionPanel';
 import AdminAuditSection from './AdminAuditSection';
 import BoxInventoryAdminSection from './BoxInventoryAdminSection';
-import BoxSharingAdminSection from './sharing/BoxSharingAdminSection';
+import InstitutionalExchangesPage from './sharing/InstitutionalExchangesPage';
 import { useConfirmAction } from './ConfirmActionModal';
 import LabConfigurationAdminSection from './LabConfigurationAdminSection';
 import PageLoader from './PageLoader';
@@ -2535,10 +2535,9 @@ export default function AdminView({
           ) : null}
 
           {displayedSection === 'transfers' && activeOrganizationId != null ? (
-            <BoxSharingAdminSection
+            <InstitutionalExchangesPage
               key={`${profile.id}:${activeOrganizationId}`}
               organizationId={activeOrganizationId}
-              profile={profile}
               language={language}
               onOpenBox={onOpenBox}
               t={t}
