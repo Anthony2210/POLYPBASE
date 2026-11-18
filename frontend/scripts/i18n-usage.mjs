@@ -7,7 +7,9 @@ import { retainedSpeciesCopy } from './species-strains-retained-copy.mjs';
 // Exact keys only. These are retention decisions, not evidence of source use.
 export const usageExceptions = Object.freeze({
   ...retainedSpeciesCopy,
-  exchangePreviewNotice: 'B45 form preview (2026-11-18): modal notice explicitly removed at user request; retain the registered FR/EN key pending a dedicated i18n removal batch. The form remains local-only.',
+  exchangePreviewNotice: 'B45 form preview (2026-11-18): modal notice explicitly removed at user request; retain the registered FR/EN key pending a dedicated i18n removal batch.',
+  exchangePreviewBoxPlaceholder: 'B45 form preview: the functional donation form replaced the free-text box field with a scoped picker. Retain this registered FR/EN key pending a dedicated i18n removal batch.',
+  exchangePreviewInstitutionPlaceholder: 'B45 form preview: the functional donation form replaced the free-text institution field with the authorized directory select. Retain this registered FR/EN key pending a dedicated i18n removal batch.',
   donationRefresh: 'B44 institutional exchanges (2026-11-18): refresh button explicitly removed at user request; retain this exact FR/EN key registered during integration pending a dedicated i18n removal batch.',
   auditSummaryAlertResolved: 'B03/B06 preservation decision: retain the legacy alert summary; current audit rendering uses auditDescriptionAlertResolved.',
   adminTransferText: 'B01 deferred transfer introduction (register T012); B03/B06 explicitly preserve it pending a transfer-screen decision.',
