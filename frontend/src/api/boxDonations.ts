@@ -1,4 +1,5 @@
-import { apiGet, ApiResourceCancelledError, getOrganizationResourceSignal, getStoredActiveOrganizationId } from './client';
+import type { BoxItem, PaginatedResponse } from '../types';
+import { apiGet, apiPost, ApiResourceCancelledError, getOrganizationResourceSignal, getStoredActiveOrganizationId } from './client';
 
 export type DonationState = 'pending' | 'cancelled';
 export type DonationDirection = 'outgoing' | 'incoming';
@@ -38,8 +39,8 @@ export type DonationDetail = IncomingDonation | (OutgoingDonation & {
 });
 export type Donation = IncomingDonation | OutgoingDonation;
 
-// Bind reads to the integer organization PK and its resource lifetime, never a portable UUID.
-async function readDonation<T>(path: string, organizationId: number, signal: AbortSignal): Promise<T> {
+// Bind requests to the integer organization PK and its resource lifetime, never a portable UUID.
+async function donationRequest<T>(organizationId: number, signal: AbortSignal, request: (options: RequestInit) => Promise<T>): Promise<T> {
   const context = getOrganizationResourceSignal();
   const controller = new AbortController();
   const abort = () => controller.abort();
@@ -52,13 +53,43 @@ async function readDonation<T>(path: string, organizationId: number, signal: Abo
   signal.addEventListener('abort', abort, { once: true });
   context.addEventListener('abort', abort, { once: true });
   try {
-    const result = await apiGet<T>(path, { signal: controller.signal, cache: 'no-store' });
+    const result = await request({ signal: controller.signal, cache: 'no-store' });
     check();
     return result;
   } finally {
     signal.removeEventListener('abort', abort);
     context.removeEventListener('abort', abort);
   }
+}
+
+function readDonation<T>(path: string, organizationId: number, signal: AbortSignal) {
+  return donationRequest(organizationId, signal, (options) => apiGet<T>(path, options));
+}
+
+export type DonationDestination = { institution_id: string; name: string; country: string };
+export type DonationSourceBox = Pick<BoxItem, 'id' | 'global_code' | 'organization' | 'status'>;
+export type DonationSelection = { source_box_id: number; destination_institution_id: string };
+export type DonationSubmission = DonationSelection & { request_id: string; history_verified: true; history_sha256: string };
+export type DonationPreflight = { history: { sha256: string } };
+
+export function listDonationDestinations(organizationId: number, signal: AbortSignal) {
+  return readDonation<{ results: DonationDestination[] }>('/api/box-donations/destinations/', organizationId, signal);
+}
+
+export const DONATION_BOX_PAGE_SIZE = 20;
+export async function listDonationSourceBoxes(organizationId: number, query: string, offset: number, signal: AbortSignal) {
+  const params = new URLSearchParams({ organization: String(organizationId), status: 'active', q: query, limit: String(DONATION_BOX_PAGE_SIZE), offset: String(offset) });
+  const page = await readDonation<PaginatedResponse<DonationSourceBox>>(`/api/boxes/?${params}`, organizationId, signal);
+  if (page.results.some((box) => box.organization.id !== organizationId)) throw new ApiResourceCancelledError();
+  return { ...page, results: page.results.filter((box) => box.status === 'active') };
+}
+
+export function preflightDonation(selection: DonationSelection, organizationId: number, signal: AbortSignal) {
+  return donationRequest(organizationId, signal, (options) => apiPost<DonationPreflight>('/api/box-donations/preflight/', selection, options));
+}
+
+export function sendDonation(submission: DonationSubmission, organizationId: number, signal: AbortSignal) {
+  return donationRequest(organizationId, signal, (options) => apiPost<OutgoingDonation>('/api/box-donations/outgoing/', submission, options));
 }
 
 export function listDonations(direction: 'outgoing', organizationId: number, signal: AbortSignal): Promise<{ results: OutgoingDonation[] }>;

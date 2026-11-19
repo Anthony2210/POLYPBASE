@@ -88,30 +88,39 @@ assert.equal(sha256(speciesEvidenceText), '1323838b5e1ac8cfa94a0f42f5e9cf40417b3
 const speciesEvidence = JSON.parse(speciesEvidenceText);
 const speciesIntegrationKeys = speciesEvidence.catalog_additions.fr.map(line => line.trim().split(':', 1)[0]);
 
-// B47 (worms-dna-forms, appended after donation B44-B46): New box optional DNA
+// B48 (worms-dna-forms, appended after donation B47): New box optional DNA
 // evidence label, optional state moved into two strain labels, and four helper
 // texts removed. English fallbacks only; no Japanese. Reconstruction applies it
 // first, so every earlier layer still sees its own frozen catalog.
-const B47 = 'B47-2026-11-18';
-const B47_APPLIED_KEYS = ['strainGps', 'strainName'];
-const B47_REMOVED_KEYS = ['strainGpsHint', 'strainNameHint', 'speciesSearchHint', 'speciesCreateWormsTruncated'];
-const B47_ADDED_KEYS = ['createBoxDnaEvidence'];
-const B47_EXPECTED = [
-  ...B47_APPLIED_KEYS.flatMap(key => [[key, 'FR', 'APPLIED'], [key, 'EN', 'APPLIED']]),
-  ...B47_REMOVED_KEYS.flatMap(key => [[key, 'FR', 'REMOVED'], [key, 'EN', 'REMOVED']]),
-  ...B47_ADDED_KEYS.flatMap(key => [[key, 'FR', 'ALREADY_MATCHING'], [key, 'EN', 'ALREADY_MATCHING']]),
+const B48 = 'B48-2026-11-18';
+const B48_FIRST_ID = 1849;
+const B48_ROWS_DIGEST = '7175764217dab5e4a34f74199be152117327ba3266af1b1e98621eef2d55d86f';
+const B48_NEXT_KEYS = {
+  strainGpsHint: 'strainGpsInvalid',
+  strainNameHint: 'speciesCodeNameNotDerivable',
+  speciesSearchHint: 'speciesSearchSelected',
+  speciesCreateWormsTruncated: 'speciesCreateAboveSpeciesRank',
+};
+const B48_APPLIED_KEYS = ['strainGps', 'strainName'];
+const B48_REMOVED_KEYS = ['strainGpsHint', 'strainNameHint', 'speciesSearchHint', 'speciesCreateWormsTruncated'];
+const B48_ADDED_KEYS = ['createBoxDnaEvidence'];
+const B48_EXPECTED = [
+  ...B48_APPLIED_KEYS.flatMap(key => [[key, 'FR', 'APPLIED'], [key, 'EN', 'APPLIED']]),
+  ...B48_REMOVED_KEYS.flatMap(key => [[key, 'FR', 'REMOVED'], [key, 'EN', 'REMOVED']]),
+  ...B48_ADDED_KEYS.flatMap(key => [[key, 'FR', 'ALREADY_MATCHING'], [key, 'EN', 'ALREADY_MATCHING']]),
 ];
-// Species keys still present after B47.
-const currentSpeciesKeys = speciesIntegrationKeys.filter(key => !B47_REMOVED_KEYS.includes(key));
+// Species keys still present after B48.
+const currentSpeciesKeys = speciesIntegrationKeys.filter(key => !B48_REMOVED_KEYS.includes(key));
 
-function b47Events(rows = register) {
-  const entryIds = Array.from({ length: B47_EXPECTED.length }, (_, index) => `T${1813 + index}`);
+function b48Events(rows = register) {
+  const entryIds = Array.from({ length: B48_EXPECTED.length }, (_, index) => `T${B48_FIRST_ID + index}`);
   const protectedIds = new Set(entryIds);
-  const events = rows.filter(row => row.batch === B47 || protectedIds.has(row.entry_id));
-  assert.deepEqual(events, rows.slice(1812, 1812 + entryIds.length));
+  const events = rows.filter(row => row.batch === B48 || protectedIds.has(row.entry_id));
+  assert.deepEqual(events, rows.slice(B48_FIRST_ID - 1, B48_FIRST_ID - 1 + entryIds.length));
   assert.deepEqual(events.map(row => row.entry_id), entryIds);
   for (const entry of events) assert.deepEqual(Object.keys(entry), REGISTER_COLUMNS);
-  assert.deepEqual(events.map(row => [row.key_or_msgid, row.language, row.status]), B47_EXPECTED);
+  assert.deepEqual(events.map(row => [row.key_or_msgid, row.language, row.status]), B48_EXPECTED);
+  assert.equal(registerRowsDigest(events), B48_ROWS_DIGEST);
   for (const entry of events) {
     assert.equal(entry.surface, 'react');
     assert.equal(entry.source_file, `frontend/src/i18n/${entry.language.toLowerCase()}.ts`);
@@ -122,17 +131,20 @@ function b47Events(rows = register) {
   return events;
 }
 
-function beforeB47(source, language, rows = register) {
+function beforeB48(source, language, rows = register) {
   const opening = ' = {\n';
   assert.ok(source.indexOf(opening) > 0, 'catalog object start');
-  for (const entry of b47Events(rows).filter(row => row.language === language.toUpperCase())) {
+  for (const entry of b48Events(rows).filter(row => row.language === language.toUpperCase())) {
     const key = entry.key_or_msgid;
     const present = source.split('\n').filter(line => line.startsWith(`  ${key}: `));
     if (entry.status === 'REMOVED') {
       // A removed key must be absent; its exact prior line is restored for older layers.
       assert.deepEqual(present, [], key);
-      const at = source.indexOf(opening) + opening.length;
-      source = `${source.slice(0, at)}  ${key}: '${entry.initial_value}',\n${source.slice(at)}`;
+      const anchor = `  ${B48_NEXT_KEYS[key]}: `;
+      const lines = source.split('\n');
+      assert.equal(lines.filter(line => line.startsWith(anchor)).length, 1, anchor);
+      lines.splice(lines.findIndex(line => line.startsWith(anchor)), 0, `  ${key}: '${entry.initial_value}',`);
+      source = lines.join('\n');
       continue;
     }
     const line = `  ${key}: '${entry.final_value}',\n`;
@@ -151,7 +163,7 @@ function speciesOriginalProjection(rows) {
 }
 
 function beforeSpeciesIntegration(source, language, rows = register) {
-  source = beforeB47(source, language, rows);
+  source = beforeB48(source, language, rows);
   assert.equal(registerRowsDigest(rows.slice(0, 1469)), speciesEvidence.thermal_main_register_rows_sha256);
   const tail = rows.slice(1469, 1741);
   assert.equal(registerRowsDigest(tail), speciesEvidence.reallocated_register_rows_sha256);
@@ -311,8 +323,9 @@ test('deleted and obsolete keys are never restored in Japanese', () => {
 
 test('ja catalog is exactly the historical and AI-reviewed manifest union', () => {
   const react = manifest.filter(row => row.surface === 'react');
-  assert.deepEqual(react.map(row => row.identity), Object.keys(fr).filter(key => !B44_ADDED_KEYS.includes(key) && !B45_ADDED_KEYS.includes(key)),
-    'one row per historical key in canonical FR order; B44/B45 have no fabricated manifest provenance');
+  const unmanifested = new Set([...B44_ADDED_KEYS, ...B45_ADDED_KEYS, ...B47_ADDED_KEYS]);
+  assert.deepEqual(react.map(row => row.identity), Object.keys(fr).filter(key => !unmanifested.has(key)),
+    'one row per historical key in canonical FR order; B44/B45/B47 have no fabricated manifest provenance');
   const included = react.filter(row => ['REUSED', 'AI_REVIEWED'].includes(row.status));
   const expected = included.map(row => [row.identity,
     row.status === 'REUSED' ? row.ja_validated : row.ja_ai_reviewed]);
@@ -324,11 +337,11 @@ test('ja catalog is exactly the historical and AI-reviewed manifest union', () =
   const counts = react.reduce((total, row) => ({ ...total, [row.status]: (total[row.status] ?? 0) + 1 }), {});
   // Original fallbacks, movements, thermal and DNA additions, with B23 retirements and B23/B24 additions.
   assert.equal(postBaseline.size, 81);
-  assert.deepEqual(counts, { REUSED: 930, FALLBACK_EN: 257 + sharingKeys.length + DNA_KEYS.length + B32_KEYS.length + currentSpeciesKeys.length + B47_ADDED_KEYS.length, FALLBACK_EN_REVIEW: 36, AI_REVIEWED: 59 });
+  assert.deepEqual(counts, { REUSED: 930, FALLBACK_EN: 257 + sharingKeys.length + DNA_KEYS.length + B32_KEYS.length + currentSpeciesKeys.length + B48_ADDED_KEYS.length, FALLBACK_EN_REVIEW: 36, AI_REVIEWED: 59 });
   assert.equal(counts.FALLBACK_EN, 143 + postBaseline.size + potentialMovementKeys.length
     - B23_RETIRED_KEYS.length + B23_ADDED_KEYS.length + B24_ADDED_KEYS.length + zoneChartKeys.length
     + thermalPeriodKeys.length + probeAverageKeys.length + sharingKeys.length + DNA_KEYS.length + B32_KEYS.length
-    + currentSpeciesKeys.length + B47_ADDED_KEYS.length);
+    + currentSpeciesKeys.length + B48_ADDED_KEYS.length);
 });
 
 test('B13 thermal register events are immutable, even under a coordinated catalog edit', () => {
@@ -468,7 +481,7 @@ test('Species additions keep frozen source values and documentary English fallba
   assert.equal(new Set(speciesIntegrationKeys).size, 266);
   const translate = loadI18n().createTranslator('ja');
   const byKey = new Map(manifest.filter(row => row.surface === 'react').map(row => [row.identity, row]));
-  for (const key of B47_REMOVED_KEYS) {
+  for (const key of B48_REMOVED_KEYS) {
     assert.equal(byKey.has(key), false, key);
     assert.equal(Object.hasOwn(fr, key) || Object.hasOwn(en, key) || Object.hasOwn(ja, key), false, key);
   }
@@ -675,6 +688,109 @@ function b45Events(rows = register) {
   return events;
 }
 
+const B47_BATCH = 'B47-2026-11-18';
+const B47_START = 1812; // T1813 follows the B46 Django event T1812.
+const B47_ENTRY_IDS = Array.from({ length: 36 }, (_, index) => `T${1813 + index}`);
+const B47_ADDED_KEYS = [
+  'donationCountryUnspecified', 'donationChoicesError', 'donationHistoryChanged', 'donationAlreadyPending',
+  'donationDestinationUnavailable', 'donationBoxIneligible', 'donationPreflightError', 'donationSendError',
+  'donationSendUncertain', 'donationOnlyExchange', 'donationChooseBox', 'donationChooseDestination',
+  'donationNoDestination', 'donationOpenHistory', 'donationConfirmHistory', 'donationSubmitProposal',
+  'donationCheckEligibility', 'donationProposalSent',
+];
+const B47_ROWS_DIGEST = '58491e3b80254b31ea00c2105d4738dbdb01ee57b5f4e4b494853482c614b5be';
+
+function b47Events(rows = register) {
+  const ids = new Set(B47_ENTRY_IDS);
+  const events = rows.filter(row => row.batch === B47_BATCH || ids.has(row.entry_id));
+  assert.deepEqual(events, rows.slice(B47_START, B47_START + B47_ENTRY_IDS.length));
+  assert.deepEqual(events.map(row => row.entry_id), B47_ENTRY_IDS);
+  assert.deepEqual(events.map(row => [row.key_or_msgid, row.language]),
+    B47_ADDED_KEYS.flatMap(key => [[key, 'FR'], [key, 'EN']]));
+  for (const entry of events) assert.deepEqual(Object.keys(entry), REGISTER_COLUMNS);
+  assert.equal(registerRowsDigest(events), B47_ROWS_DIGEST);
+  return events;
+}
+
+function beforeB47(source, language, rows = register) {
+  const block = b47Events(rows).filter(row => row.language === language.toUpperCase())
+    .map(row => `  ${row.key_or_msgid}: '${row.final_value}',\n`).join('');
+  const parts = source.split(block);
+  assert.equal(parts.length, 2, `${language}: one exact B47 block`);
+  // B47 inserted its rows after the B44 warning, not after its separator.
+  assert.match(parts[0], /\n  donationAcceptanceUnavailable: [^\n]+\n$/);
+  return parts.join('');
+}
+
+test('B48 form events reconstruct the exact main catalogs before B47 is reversed', () => {
+  const events = b48Events();
+  for (const [language, digest] of [
+    ['fr', '3f17dfa4efcab9d687012909ceb35f13a0cf611714e1b1bbf63469c6b38e8af0'],
+    ['en', 'ec84984264a6f7eec043d05ae4b72e14e97b78112e81ca29f32aa545fdbac750'],
+  ]) {
+    const source = read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n');
+    assert.equal(sha256(beforeB48(source, language)), digest, language);
+  }
+  for (const entry of events) {
+    assert.throws(() => b48Events(register.filter(row => row !== entry)), entry.entry_id);
+    for (const field of REGISTER_COLUMNS) {
+      assert.throws(() => b48Events(register.map(row => row === entry
+        ? { ...row, [field]: `${row[field]} changed` } : row)), `${entry.entry_id}.${field}`);
+    }
+  }
+});
+
+test('B47 send form events reconstruct the pre-B47 catalogs and use English without Japanese provenance', () => {
+  const events = b47Events();
+  for (const entry of events) {
+    assert.throws(() => b47Events(register.filter(row => row !== entry)), `${entry.entry_id}: omitted`);
+    for (const field of [...REGISTER_COLUMNS, 'unknown_column']) {
+      assert.throws(() => b47Events(register.map(row => row === entry
+        ? { ...row, [field]: `${row[field] ?? ''} changed` } : row)), `${entry.entry_id}.${field}`);
+    }
+    const missing = { ...entry };
+    delete missing.sheet_value;
+    assert.throws(() => b47Events(register.map(row => row === entry ? missing : row)));
+  }
+  const reordered = register.slice();
+  [reordered[B47_START], reordered[B47_START + 1]] = [reordered[B47_START + 1], reordered[B47_START]];
+  for (const rows of [reordered, [...register, { ...events[0], entry_id: 'T1863' }],
+    [...register, { ...events[0], batch: 'later' }]]) assert.throws(() => b47Events(rows));
+
+  // The FR/EN catalog bytes at B47's registered baseline, cab5dde.
+  for (const [language, catalog, digest] of [
+    ['fr', fr, '173c15469c7419d872bcbec8a6f737eb7543dc9a05eb1288cb7e29e85296dcb6'],
+    ['en', en, 'ddb203170962693876577c64e9238daabe81ef90515b6de5b35cdbac095e44d4'],
+  ]) {
+    const source = beforeB48(read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n'), language);
+    const restored = beforeB47(source, language);
+    assert.equal(sha256(restored), digest, language);
+    const extra = "  donationUnregistered: 'Unapproved',\n";
+    assert.equal(beforeB47(source + extra, language), restored + extra);
+    for (const entry of events.filter(row => row.language === language.toUpperCase())) {
+      assert.equal(catalog[entry.key_or_msgid], entry.final_value, entry.entry_id);
+      const line = `  ${entry.key_or_msgid}: '${entry.final_value}',\n`;
+      const changed = line.replace(": '", ": 'changed ");
+      for (const replacement of ['', changed]) {
+        assert.throws(() => beforeB47(source.replace(line, replacement), language), entry.entry_id);
+      }
+      // A duplicate can leave the exact block intact, but it must survive reversal and change the hash.
+      assert.notEqual(sha256(beforeB47(source + line, language)), digest, entry.entry_id);
+      const coordinated = register.map(row => row === entry
+        ? { ...row, initial_value: `changed ${row.initial_value}`, final_value: `changed ${row.final_value}` } : row);
+      assert.throws(() => beforeB47(source.replace(line, changed), language, coordinated), entry.entry_id);
+    }
+  }
+  const translate = loadI18n().createTranslator('ja');
+  for (const key of B47_ADDED_KEYS) {
+    assert.equal(translate(key), en[key], `${key}: English runtime fallback`);
+    assert.equal(Object.hasOwn(ja, key), false, key);
+    assert.equal(postBaseline.has(key), false, key);
+    assert.equal(manifest.some(row => row.identity === key), false, key);
+    assert.equal([...reviewed, ...blocked].some(row => row.identity === key || row.key === key), false, key);
+  }
+});
+
 function beforeB45(source, language, rows = register) {
   const events = b45Events(rows).filter(row => row.language === language.toUpperCase());
   for (const entry of events.filter(row => row.status === 'ALREADY_MATCHING')) {
@@ -711,7 +827,7 @@ test('B45 preview events reconstruct exact HEAD catalogs and reject history or s
     ['fr', 'b987f50afd2504ac6b3de347ccf3a5bca4aa4abfbe8e6a2f80dc040c7e5cfb22'],
     ['en', 'f51265056ec7e3f84057b4e8405410292465240beb720bbc2e5d4e01ebf25a77'],
   ]) {
-    const source = read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n');
+    const source = beforeB47(read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n'), language);
     const layout = beforeDonationIntegrationLayout(source, language);
     assert.equal(source.split('\n').length - layout.split('\n').length, 3);
     for (const key of ['dnaMissing', 'exchangePreviewTitle', 'shareWorkspace']) {
@@ -784,7 +900,7 @@ test('B44 donation additions require exact append-only events, schema, metadata 
 
   for (const language of ['fr', 'en']) {
     const source = read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n');
-    const b44Source = beforeB45(source, language);
+    const b44Source = beforeB45(beforeB47(source, language), language);
     assert.doesNotThrow(() => beforeB44(b44Source, language));
     for (const entry of events.filter(row => row.language === language.toUpperCase())) {
       const line = `  ${entry.key_or_msgid}: '${entry.final_value}',\n`;
@@ -810,7 +926,8 @@ test('B44 donation additions require exact append-only events, schema, metadata 
 test('B44 donation keys use English runtime fallback without Japanese approval or fabricated provenance', () => {
   const translate = loadI18n().createTranslator('ja');
   for (const [language, catalog] of [['FR', fr], ['EN', en]]) {
-    assert.deepEqual(Object.keys(catalog).filter(key => /^donation/.test(key)), B44_ADDED_KEYS.filter(key => key !== 'donationSendUnavailable'));
+    assert.deepEqual(Object.keys(catalog).filter(key => /^donation/.test(key)),
+      [...B44_ADDED_KEYS.filter(key => key !== 'donationSendUnavailable'), ...B47_ADDED_KEYS]);
     for (const entry of b44Events().filter(row => row.language === language)) {
       if (entry.key_or_msgid === 'donationSendUnavailable') assert.equal(Object.hasOwn(catalog, entry.key_or_msgid), false);
       else assert.equal(catalog[entry.key_or_msgid], entry.final_value, entry.entry_id);
@@ -1131,7 +1248,7 @@ test('B30/B31 DNA additions require exact append-only events, source values and 
   assert.deepEqual(b31Events().map(row => [row.key_or_msgid, row.language, row.status]),
     [['dnaStateValidated', 'FR', 'REMOVED'], ['dnaStateValidated', 'EN', 'REMOVED']]);
   for (const language of ['fr', 'en']) {
-    const source = read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n');
+    const source = beforeB47(read(`../src/i18n/${language}.ts`).replace(/\r\n/g, '\n'), language);
     assert.doesNotThrow(() => beforeB30(source, language));
     for (const entry of [...b30Events(), ...b31Events()]) {
       const events = entry.batch === B30 ? b30Events : b31Events;
@@ -1239,7 +1356,7 @@ test('B23 reconstruction requires exact append-only events, additions and retire
 
 function historicalSource(source, current = false, language) {
   if (current) {
-    source = beforeB30(source, language);
+    source = beforeB30(beforeB47(source, language), language);
     source = beforeB24(beforeB25(beforeB26(beforeB27(beforeB28(source, language), language), language), language), language);
   }
   const lines = source.replace(/\r\n/g, '\n').split('\n');
@@ -1259,6 +1376,7 @@ function historicalSource(source, current = false, language) {
 }
 
 function beforeMovementLabelChange(source, language) {
+  source = beforeB47(source, language);
   source = beforeB32(source, language);
   source = beforeB30(source, language);
   source = beforeB23(beforeB24(beforeB25(beforeB26(beforeB27(beforeB28(source, language), language), language), language), language), language);
@@ -1373,7 +1491,7 @@ test('source fingerprints accept the scoped additions but reject every historica
       const changed = source.replace(line, mutated);
       if (B24_ADDED_KEYS.includes(key) || zoneChartKeys.includes(key) || thermalPeriodKeys.includes(key)
           || probeAverageKeys.includes(key) || sharingKeys.includes(key) || B44_ADDED_KEYS.includes(key) || B45_ADDED_KEYS.includes(key) || DNA_KEYS.includes(key)
-          || speciesIntegrationKeys.includes(key) || (key === 'firstMeasurementOn' && language === 'en')
+          || B47_ADDED_KEYS.includes(key) || speciesIntegrationKeys.includes(key) || (key === 'firstMeasurementOn' && language === 'en')
                     || (key === 'adminTabTransfers' && language === 'en')) {
         assert.throws(() => historicalSource(changed, true, language), `${language}.${key}`);
         continue;

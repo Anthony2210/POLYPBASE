@@ -9,7 +9,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / 'docs/translation-review/application'))
 from test_check_register import (  # noqa: E402
-    B47_ADDED_KEYS, B47_REMOVED_KEYS, SPECIES_EVIDENCE, before_species_integration,
+    B48_ADDED_KEYS, B48_REMOVED_KEYS, SPECIES_EVIDENCE, b44_events, b45_events, b47_events,
+    before_species_integration,
 )
 import check_register as reg  # noqa: E402
 
@@ -26,20 +27,23 @@ class SpeciesStrainsManifestTests(unittest.TestCase):
     def setUpClass(cls):
         with Path(__file__).with_name('ja-manifest.csv').open(encoding='utf-8', newline='') as stream:
             cls.manifest = list(csv.DictReader(stream))
-        # Species additions still present after B47 removed four of them.
+        # Species additions still present after B48 removed four of them.
         cls.added = {line.strip().split(':', 1)[0] for line in SPECIES_EVIDENCE['catalog_additions']['fr']}
-        cls.added -= set(B47_REMOVED_KEYS)
+        cls.added -= set(B48_REMOVED_KEYS)
 
     def test_exact_new_membership_current_values_and_plain_english_fallback(self):
         fr = reg.read_catalog(ROOT / 'frontend/src/i18n/fr.ts')
         en = reg.read_catalog(ROOT / 'frontend/src/i18n/en.ts')
         react = [row for row in self.manifest if row['surface'] == 'react']
-        self.assertEqual([row['identity'] for row in react], list(fr))
+        rows = reg.load_register()
+        donation_keys = {row['key_or_msgid'] for events in (b44_events, b45_events, b47_events)
+                         for row in events(rows) if row['status'] != 'REMOVED'}
+        self.assertEqual([row['identity'] for row in react], [key for key in fr if key not in donation_keys])
         self.assertEqual(set(fr), set(en))
         added = [row for row in react if row['identity'] in self.added]
-        self.assertEqual(len(added), 266 - len(B47_REMOVED_KEYS))
-        self.assertFalse(set(B47_REMOVED_KEYS) & {row['identity'] for row in react})
-        for key in B47_ADDED_KEYS:
+        self.assertEqual(len(added), 266 - len(B48_REMOVED_KEYS))
+        self.assertFalse(set(B48_REMOVED_KEYS) & {row['identity'] for row in react})
+        for key in B48_ADDED_KEYS:
             row = next(row for row in react if row['identity'] == key)
             self.assertEqual((row['current_fr'], row['current_en']), (fr[key], en[key]), key)
             self.assertEqual((row['status'], row['reason_code'], row['takeru_review'], row['ja_validated'],
@@ -55,7 +59,7 @@ class SpeciesStrainsManifestTests(unittest.TestCase):
 
     def test_all_main_manifest_fields_remain_frozen_except_registered_english_metadata(self):
         original = [dict(row) for row in self.manifest
-                    if not (row['surface'] == 'react' and row['identity'] in self.added | set(B47_ADDED_KEYS))]
+                    if not (row['surface'] == 'react' and row['identity'] in self.added | set(B48_ADDED_KEYS))]
         changed = next(row for row in original if row['identity'] == 'firstMeasurementOn')
         self.assertEqual(changed['current_en'], 'First record')
         self.assertEqual(changed['reason_code'], 'EN_FORM_ONLY')
@@ -73,7 +77,7 @@ class SpeciesStrainsManifestTests(unittest.TestCase):
         source = (ROOT / 'frontend/src/i18n/ja.ts').read_bytes().replace(b'\r\n', b'\n')
         self.assertEqual(hashlib.sha256(source).hexdigest(), MAIN_JA_SHA256)
         ja = reg.parse_catalog(source.decode(), 'ja')
-        self.assertFalse(self.added & ja.keys())
+        self.assertFalse((self.added | set(B48_ADDED_KEYS)) & ja.keys())
 
     def test_feature_reconstruction_keeps_unknown_changes_and_rejects_changed_values(self):
         rows = reg.load_register()

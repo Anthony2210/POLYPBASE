@@ -287,6 +287,34 @@ def before_b44(source, rows, language="EN"):
     return source
 
 
+B47 = "B47-2026-11-18"
+# Canonical digest of T1813-T1848 from the published register at 2a4c2c6.
+B47_ROWS_SHA256 = "58491e3b80254b31ea00c2105d4738dbdb01ee57b5f4e4b494853482c614b5be"
+
+
+def b47_events(rows):
+    """Freeze the 36 donation form additions before trusting their reversals."""
+    entry_ids = [f"T{i}" for i in range(1813, 1849)]
+    protected_ids = set(entry_ids)
+    events = [row for row in rows if row["batch"] == B47 or row["entry_id"] in protected_ids]
+    assert events == rows[1812:1848], "B47: events moved or gained a member"
+    assert [row["entry_id"] for row in events] == entry_ids, "B47: identities changed"
+    assert all(list(row) == reg.COLUMNS for row in events), "B47: schema changed"
+    assert rows_digest(events) == B47_ROWS_SHA256, "B47: history was modified"
+    return events
+
+
+def before_b47(source, rows, language="EN"):
+    """Remove only exact B47 lines, leaving the original Donation separator intact."""
+    lines = source.splitlines(keepends=True)
+    for row in b47_events(rows):
+        if row["language"] == language:
+            line = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
+            assert lines.count(line) == 1, f"B47: source line changed for {row['entry_id']}"
+            lines.remove(line)
+    return "".join(lines)
+
+
 def before_b29(source, rows, language="EN"):
     """Undo frozen B45 and B44 events, then B29 additions and changes."""
     events = b29_events(rows)
@@ -483,28 +511,38 @@ SPECIES_EVIDENCE = json.loads(_evidence_bytes)
 
 SPECIES_TAIL = slice(1469, 1741)
 
-# B47 (DNA forms, appended after donation B44-B46): New box optional DNA
+# B48 (DNA forms, appended after donation B47): New box optional DNA
 # evidence label, optional state moved into two strain labels, and four removed
 # helper texts. Applied first, so the species layer still sees its frozen lines.
-B47 = "B47-2026-11-18"
-B47_FIRST_ID = 1813
-B47_APPLIED_KEYS = ("strainGps", "strainName")
-B47_REMOVED_KEYS = ("strainGpsHint", "strainNameHint", "speciesSearchHint", "speciesCreateWormsTruncated")
-B47_ADDED_KEYS = ("createBoxDnaEvidence",)
-B47_EXPECTED = (
-    [(key, language, "APPLIED") for key in B47_APPLIED_KEYS for language in ("FR", "EN")]
-    + [(key, language, "REMOVED") for key in B47_REMOVED_KEYS for language in ("FR", "EN")]
-    + [(key, language, "ALREADY_MATCHING") for key in B47_ADDED_KEYS for language in ("FR", "EN")]
+B48 = "B48-2026-11-18"
+B48_FIRST_ID = 1849
+B48_ROWS_SHA256 = "7175764217dab5e4a34f74199be152117327ba3266af1b1e98621eef2d55d86f"
+# Restore removed lines at their original position, not at the start of the object.
+B48_NEXT_KEYS = {
+    "strainGpsHint": "strainGpsInvalid",
+    "strainNameHint": "speciesCodeNameNotDerivable",
+    "speciesSearchHint": "speciesSearchSelected",
+    "speciesCreateWormsTruncated": "speciesCreateAboveSpeciesRank",
+}
+B48_APPLIED_KEYS = ("strainGps", "strainName")
+B48_REMOVED_KEYS = ("strainGpsHint", "strainNameHint", "speciesSearchHint", "speciesCreateWormsTruncated")
+B48_ADDED_KEYS = ("createBoxDnaEvidence",)
+B48_EXPECTED = (
+    [(key, language, "APPLIED") for key in B48_APPLIED_KEYS for language in ("FR", "EN")]
+    + [(key, language, "REMOVED") for key in B48_REMOVED_KEYS for language in ("FR", "EN")]
+    + [(key, language, "ALREADY_MATCHING") for key in B48_ADDED_KEYS for language in ("FR", "EN")]
 )
-B47_SLICE = slice(B47_FIRST_ID - 1, B47_FIRST_ID - 1 + len(B47_EXPECTED))
+B48_SLICE = slice(B48_FIRST_ID - 1, B48_FIRST_ID - 1 + len(B48_EXPECTED))
 
 
-def b47_events(rows):
-    entry_ids = [f"T{n}" for n in range(B47_FIRST_ID, B47_FIRST_ID + len(B47_EXPECTED))]
-    events = [row for row in rows if row["batch"] == B47 or row["entry_id"] in entry_ids]
-    assert events == rows[B47_SLICE], "B47 events are not the contiguous rows after B46"
-    assert [row["entry_id"] for row in events] == entry_ids, "B47: identities changed"
-    assert [(row["key_or_msgid"], row["language"], row["status"]) for row in events] == B47_EXPECTED
+def b48_events(rows):
+    entry_ids = [f"T{n}" for n in range(B48_FIRST_ID, B48_FIRST_ID + len(B48_EXPECTED))]
+    events = [row for row in rows if row["batch"] == B48 or row["entry_id"] in entry_ids]
+    assert events == rows[B48_SLICE], "B48 events are not the contiguous rows after B47"
+    assert [row["entry_id"] for row in events] == entry_ids, "B48: identities changed"
+    assert [(row["key_or_msgid"], row["language"], row["status"]) for row in events] == B48_EXPECTED
+    assert all(list(row) == reg.COLUMNS for row in events), "B48: schema changed"
+    assert rows_digest(events) == B48_ROWS_SHA256, "B48: history was modified"
     for row in events:
         assert row["surface"] == "react" and row["source_file"] == f"frontend/src/i18n/{row['language'].lower()}.ts"
         if row["status"] == "REMOVED":
@@ -516,19 +554,22 @@ def b47_events(rows):
     return events
 
 
-def before_b47(source, rows, language="EN"):
-    """Undo the B47 catalog events exactly; a removed key must be absent first."""
+def before_b48(source, rows, language="EN"):
+    """Undo the B48 catalog events exactly; a removed key must be absent first."""
     language = language.upper()
-    opening = " = {\n"
-    assert opening in source, "catalog object start"
-    for row in b47_events(rows):
+    assert " = {\n" in source, "catalog object start"
+    for row in b48_events(rows):
         if row["language"] != language:
             continue
         key = row["key_or_msgid"]
         if row["status"] == "REMOVED":
             assert not any(line.startswith(f"  {key}: ") for line in source.split("\n")), key
-            at = source.index(opening) + len(opening)
-            source = f"{source[:at]}  {key}: '{row['initial_value']}',\n{source[at:]}"
+            anchor = f"  {B48_NEXT_KEYS[key]}: "
+            lines = source.splitlines(keepends=True)
+            matches = [index for index, line in enumerate(lines) if line.startswith(anchor)]
+            assert len(matches) == 1, anchor
+            lines.insert(matches[0], f"  {key}: '{row['initial_value']}',\n")
+            source = "".join(lines)
             continue
         line = f"  {key}: '{row['final_value']}',\n"
         assert source.count(line) == 1, key
@@ -568,7 +609,7 @@ def species_integration_errors(rows):
 
 def before_species_integration(source, rows, language="EN"):
     """Reverse exact feature lines only; unknown edits remain fingerprinted."""
-    source = before_b47(source, rows, language)
+    source = before_b48(source, rows, language)
     assert rows_digest(rows[SPECIES_TAIL]) == SPECIES_EVIDENCE["reallocated_register_rows_sha256"], "Species integration history was modified"
     language = language.lower()
     for line in SPECIES_EVIDENCE["catalog_additions"][language]:
@@ -633,20 +674,20 @@ class IntegrationHistoryTests(unittest.TestCase):
         for language in ("FR", "EN"):
             source = (reg.ROOT / f"frontend/src/i18n/{language.lower()}.ts").read_text(encoding="utf-8")
             restored = before_species_integration(source, rows, language)
-            b47_keys = set(B47_REMOVED_KEYS) | set(B47_APPLIED_KEYS)
+            b48_keys = set(B48_REMOVED_KEYS) | set(B48_APPLIED_KEYS)
             current_lines = [line for line in SPECIES_EVIDENCE["catalog_additions"][language.lower()]
-                             if line.strip().split(":", 1)[0] not in b47_keys]
-            self.assertEqual(len(current_lines), 266 - len(b47_keys))
-            # Lines B47 removed or reworded are probed through their current B47 form.
-            current_lines += [f"  {row['key_or_msgid']}: '{row['final_value']}',\n" for row in b47_events(rows)
+                             if line.strip().split(":", 1)[0] not in b48_keys]
+            self.assertEqual(len(current_lines), 266 - len(b48_keys))
+            # Lines B48 removed or reworded are probed through their current B48 form.
+            current_lines += [f"  {row['key_or_msgid']}: '{row['final_value']}',\n" for row in b48_events(rows)
                               if row["language"] == language and row["status"] != "REMOVED"]
             for line in current_lines:
                 self.assertEqual(source.count(line), 1, line)
                 for replacement in ("", line + line, line.replace(": '", ": 'changed ")):
                     with self.assertRaises(AssertionError):
                         before_species_integration(source.replace(line, replacement), rows, language)
-            for key in B47_REMOVED_KEYS:
-                row = next(row for row in b47_events(rows) if row["key_or_msgid"] == key and row["language"] == language)
+            for key in B48_REMOVED_KEYS:
+                row = next(row for row in b48_events(rows) if row["key_or_msgid"] == key and row["language"] == language)
                 with self.assertRaises(AssertionError):
                     before_species_integration(source + f"  {key}: '{row['initial_value']}',\n", rows, language)
             extra = "  unapprovedKey: 'Unapproved',\n"
@@ -676,7 +717,8 @@ class IntegrationHistoryTests(unittest.TestCase):
         self.assertEqual(len(integrated), 1811)
         self.assertEqual(len(b44_events(rows)), 48)
         self.assertEqual(len(b45_events(rows)), 22)
-        self.assertEqual(len(b47_events(rows)), 14)
+        self.assertEqual(len(b47_events(rows)), 36)
+        self.assertEqual(len(b48_events(rows)), 14)
         self.assertEqual(Counter(row["batch"] for row in integrated[1741:]), Counter({B44: 48, B45: 22}))
         self.assertEqual([row["entry_id"] for row in integrated], [f"T{n:03d}" for n in range(1, 1812)])
         self.assertEqual(species_integration_errors(rows), [])
@@ -1302,6 +1344,45 @@ class CatalogParserTests(unittest.TestCase):
 
 
 class RealRegisterTests(unittest.TestCase):
+    def test_h_b48_reconstruction_recovers_main_catalog_bytes(self):
+        rows = reg.load_register()
+        for language, digest in (
+            ("FR", "3f17dfa4efcab9d687012909ceb35f13a0cf611714e1b1bbf63469c6b38e8af0"),
+            ("EN", "ec84984264a6f7eec043d05ae4b72e14e97b78112e81ca29f32aa545fdbac750"),
+        ):
+            with self.subTest(language=language):
+                source = (reg.ROOT / reg.REACT_CATALOGS[language]).read_text(encoding="utf-8")
+                restored = before_b48(source, rows, language)
+                self.assertEqual(hashlib.sha256(restored.encode("utf-8")).hexdigest(), digest)
+        for event in b48_events(rows):
+            changed = [dict(row, reason=row["reason"] + " changed") if row is event else row for row in rows]
+            with self.assertRaisesRegex(AssertionError, "B48: history was modified"):
+                b48_events(changed)
+
+    def test_h_b47_reconstruction_rejects_source_and_coordinated_mutations(self):
+        rows = reg.load_register()
+        events = b47_events(rows)
+        for language, path in reg.REACT_CATALOGS.items():
+            with self.subTest(language=language):
+                source = (reg.ROOT / path).read_text(encoding="utf-8")
+                restored = before_b47(source, rows, language)
+                self.assertEqual(len(source.splitlines()) - len(restored.splitlines()), 18)
+                extra = "  donationUnregistered: 'Unapproved',\n"
+                self.assertEqual(before_b47(source + extra, rows, language), restored + extra)
+
+                row = next(row for row in events if row["language"] == language)
+                line = f"  {row['key_or_msgid']}: '{row['final_value']}',\n"
+                edited_line = line.replace(": '", ": 'changed ")
+                for replacement in ("", line + line, edited_line):
+                    with self.assertRaisesRegex(AssertionError, "B47: source line changed"):
+                        before_b47(source.replace(line, replacement), rows, language)
+
+                value = "changed " + row["final_value"]
+                changed = [dict(entry, initial_value=value, final_value=value) if entry == row else entry
+                           for entry in rows]
+                with self.assertRaisesRegex(AssertionError, "B47: history was modified"):
+                    before_b47(source.replace(line, edited_line), changed, language)
+
     def test_h_b45_reconstruction_rejects_history_and_source_mutations(self):
         rows = reg.load_register()
         events = b45_events(rows)
@@ -1331,6 +1412,7 @@ class RealRegisterTests(unittest.TestCase):
             ("EN", "f51265056ec7e3f84057b4e8405410292465240beb720bbc2e5d4e01ebf25a77"),
         ):
             source = (reg.ROOT / reg.REACT_CATALOGS[language]).read_text(encoding="utf-8")
+            source = before_b47(source, rows, language)
             layout = before_donation_integration_layout(source, rows, language)
             self.assertEqual(len(source.splitlines()) - len(layout.splitlines()), 3)
             for key in ("dnaMissing", "exchangePreviewTitle", "shareWorkspace"):
@@ -1396,7 +1478,7 @@ class RealRegisterTests(unittest.TestCase):
         self.assertEqual(b44_events(rows + [correction]), events)
         for language in ("FR", "EN"):
             source = (reg.ROOT / reg.REACT_CATALOGS[language]).read_text(encoding="utf-8")
-            source = before_b45(source, rows, language)
+            source = before_b45(before_b47(source, rows, language), rows, language)
             restored = before_b44(source, rows, language)
             extra = "  unregisteredKey: 'Unapproved',\n"
             self.assertEqual(before_b44(source + extra, rows, language), restored + extra)
@@ -1610,6 +1692,7 @@ class RealRegisterTests(unittest.TestCase):
         events = b29_events(rows)
         for language in ("FR", "EN"):
             source = (reg.ROOT / f"frontend/src/i18n/{language.lower()}.ts").read_text(encoding="utf-8")
+            source = before_b47(source, rows, language)
             restored = before_b29(before_b30(before_b32(source, rows, language), rows, language), rows, language)
             self.assertNotEqual(restored, source)
             self.assertEqual(hashlib.sha256(restored.encode("utf-8")).hexdigest(),
@@ -1676,14 +1759,15 @@ class RealRegisterTests(unittest.TestCase):
         removed_pairs = {(row["key_or_msgid"], row["language"]) for row in b31_events(rows)}
         for language in ("FR", "EN"):
             source = (reg.ROOT / f"frontend/src/i18n/{language.lower()}.ts").read_text(encoding="utf-8")
+            source = before_b47(source, rows, language)
             restored = before_b30(source, rows, language)
             self.assertNotEqual(restored, source)
             # Reverse the frozen feature layer, then exactly 21 active DNA keys.
             # Also reverse the three merge separators. The English rewording adds no lines; B31 stays absent.
             self.assertEqual(len(SPECIES_EVIDENCE["catalog_additions"][language.lower()]), 266)
-            # B47 later removed four of those lines and added one, all restored by its own layer.
+            # B48 later removed four of those lines and added one, all restored by its own layer.
             self.assertEqual(len(source.splitlines()) - len(restored.splitlines()),
-                             266 + 21 + 3 - len(B47_REMOVED_KEYS) + len(B47_ADDED_KEYS))
+                             266 + 21 + 3 - len(B48_REMOVED_KEYS) + len(B48_ADDED_KEYS))
             for key in active:
                 self.assertNotIn(f"  {key}: ", restored)
             self.assertNotIn("  dnaStateValidated: ", restored)
@@ -1772,7 +1856,7 @@ class RealRegisterTests(unittest.TestCase):
         en = (reg.ROOT / "frontend/src/i18n/en.ts").read_text(encoding="utf-8")
         edited = en.replace("  temperatureDailyMean: 'Daily mean',\n", "  temperatureDailyMean: 'Daily average',\n")
         self.assertNotEqual(edited, en)
-        edited = before_b29(before_b30(edited, rows), rows)
+        edited = before_b29(before_b30(before_b47(edited, rows), rows), rows)
         # Undo the latest value changes first, so earlier frozen additions still match the catalog.
         for row in reversed(rows[1098:1100]):
             if row["surface"] == "react" and row["language"] == "EN" and row["status"] == "APPLIED":
