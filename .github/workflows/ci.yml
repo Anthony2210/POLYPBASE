@@ -161,3 +161,9 @@ jobs:
           uv run --frozen python -B scripts/test_historical_temperature_production.py
           --run --pg-bin /usr/lib/postgresql/18/bin
           apps.cultures.test_box_1902_correction_v2_postgres
+
+      - name: Run species resolution retirement regressions
+        run: >-
+          uv run --frozen --no-sync python -B scripts/test_historical_temperature_production.py
+          --run --pg-bin /usr/lib/postgresql/18/bin
+          apps.taxonomy.test_species_resolution_retirement

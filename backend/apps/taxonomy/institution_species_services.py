@@ -367,6 +367,9 @@ def _prepare_species_code(*, user, organization, species):
 def resolve_institution_species(*, user, organization, data):
     """Explicitly enable an action on an already used Species, without recoding.
 
+    No HTTP route calls this any more (the resolve endpoint is retired): any
+    future caller must sit behind a distinct, explicit user confirmation.
+
     The association and, for strain preparation only, a missing code assignment
     may be created with their required audits. The allocation gate and Species
     lock serialize attachment with legacy shared-reference edits; the institution

@@ -32,7 +32,6 @@ from .institution_species_services import (
     WormsReferenceUnavailable,
     historical_species_ids,
     register_institution_species,
-    resolve_institution_species,
     update_institution_species,
 )
 from .models import Species, StrainTranslation
@@ -211,21 +210,22 @@ def _detail_response(organization, profile):
 
 
 class InstitutionSpeciesResolveAPIView(APIView):
+    """Retired: preparing a historical Species no longer persists anything.
+
+    The former POST silently created an institutional profile and could assign
+    a first Species code when an edit or Strain dialog was opened. The route
+    stays mounted so old clients get an explicit, non-mutating answer instead
+    of a generic 404; authorization is still checked first.
+    """
+
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        organization, _profiles = _authorized(request)
-
-        def resolve():
-            profile, created = resolve_institution_species(
-                user=request.user, organization=organization, data=request.data,
-            )
-            return Response(
-                _detail_response(organization, profile),
-                status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
-            )
-
-        return _service_errors(resolve)
+        _authorized(request)
+        return Response(
+            {"code": "institution_species_resolution_retired"},
+            status=status.HTTP_410_GONE,
+        )
 
 
 class InstitutionSpeciesDetailAPIView(APIView):

@@ -10,6 +10,8 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.db import close_old_connections, connection, transaction
 from django.urls import reverse
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.response import Response
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from apps.accounts.models import OrganizationMembership
@@ -17,6 +19,7 @@ from apps.audit.models import AuditLog
 from apps.cultures.models import Box, BoxLocalIdAlias, BoxTransferImport, ThermalZone
 from apps.organizations.models import Organization
 
+from . import institution_species_api as species_api
 from . import institution_species_services as services
 
 from .models import (
@@ -54,13 +57,31 @@ class InstitutionSpeciesActionTests(InstitutionSpeciesApiBase):
         self.addCleanup(network.stop)
 
     def resolve(self, action="edit", *, species=None, organization=None, user=None, payload=None):
-        self.client.force_login(user or self.admin)
-        return self.client.post(
-            reverse(RESOLVE_URL),
-            data=json.dumps(payload if payload is not None else {
-                "species_id": (species or self.species).pk, "action": action,
-            }), content_type="application/json", **self.headers(organization or self.a),
-        )
+        """Call the retained service directly: its HTTP route is retired."""
+        user = user or self.admin
+        user.refresh_from_db()
+        # Later HTTP calls in a test (edit, strain creation) expect this login.
+        self.client.force_login(user)
+        organization = Organization.objects.get(pk=(organization or self.a).pk)
+        data = payload if payload is not None else {
+            "species_id": (species or self.species).pk, "action": action,
+        }
+
+        def run():
+            if not isinstance(data, dict):
+                raise services.InstitutionSpeciesInvalid({"non_field_errors": ["invalid_payload"]})
+            profile, created = services.resolve_institution_species(
+                user=user, organization=organization, data=data,
+            )
+            return Response(species_api._detail_response(organization, profile), status=201 if created else 200)
+
+        try:
+            response = species_api._service_errors(run)
+        except PermissionDenied:
+            response = Response({"code": "forbidden"}, status=403)
+        response.json = lambda: response.data
+        response.content = json.dumps(response.data, default=str).encode()
+        return response
 
     def assert_readiness(self, body, issue=None):
         self.assertEqual(body["can_create_strain"], issue is None)
@@ -410,14 +431,9 @@ class InstitutionSpeciesActionTests(InstitutionSpeciesApiBase):
     def test_unknown_species_is_404(self):
         self.assertEqual(self.resolve(payload={"species_id": 999999, "action": "edit"}).status_code, 404)
 
-    def test_requires_active_admin_explicit_context(self):
+    def test_requires_active_admin(self):
         for user in (self.tech, self.viewer, self.b_admin):
             self.assertEqual(self.resolve(user=user).status_code, 403)
-        self.client.force_login(self.admin)
-        self.assertEqual(self.client.post(reverse(RESOLVE_URL), {}, content_type="application/json").status_code, 403)
-        self.client.logout()
-        self.assertIn(self.client.post(reverse(RESOLVE_URL), {}, content_type="application/json",
-                                      **self.headers(self.a)).status_code, (401, 403))
         OrganizationMembership.objects.filter(user=self.admin).update(is_active=False)
         self.assertEqual(self.resolve().status_code, 403)
         self.assertFalse(InstitutionSpecies.objects.exists())
@@ -425,7 +441,7 @@ class InstitutionSpeciesActionTests(InstitutionSpeciesApiBase):
     def test_inactive_user_and_organization_are_denied(self):
         self.admin.is_active = False
         self.admin.save(update_fields=["is_active"])
-        self.assertIn(self.resolve().status_code, (401, 403))
+        self.assertEqual(self.resolve().status_code, 403)
         self.admin.is_active = True
         self.admin.save(update_fields=["is_active"])
         self.a.is_active = False

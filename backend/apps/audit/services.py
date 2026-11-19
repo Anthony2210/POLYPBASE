@@ -127,14 +127,38 @@ _PERSONAL_DETAIL_FIELDS_BY_OBJECT_TYPE = {
 }
 
 
-def impactful_audit_logs(*, organization_id, actor=None):
-    """Return supported business actions within exactly one organization."""
+# Technical side effects of the retired Species "resolve" preparation. They
+# stay in the authoritative administrative audit; only the ordinary personal
+# activity journal omits them. Matched on writer-owned structured fields.
+TECHNICAL_ACTIVITY_SOURCES = ("institution_species_resolution",)
+TECHNICAL_ACTIVITY_OBJECT_TYPES = ("institution_species", "organization_species_code")
+
+
+def technical_activity_logs(*, organization_id):
+    """Return rows hidden from the personal journal, never from the admin audit."""
+    return AuditLog.objects.filter(
+        organization_id=organization_id,
+        object_type__in=TECHNICAL_ACTIVITY_OBJECT_TYPES,
+        metadata__source__in=TECHNICAL_ACTIVITY_SOURCES,
+    )
+
+
+def impactful_audit_logs(*, organization_id, actor=None, exclude_technical=False):
+    """Return supported business actions within exactly one organization.
+
+    ``exclude_technical`` is only for the ordinary activity journal; the
+    administrative audit must keep the default and see every row.
+    """
     queryset = AuditLog.objects.filter(
         organization_id=organization_id,
         action__in=IMPACTFUL_AUDIT_ACTIONS,
     )
     if actor is not None:
         queryset = queryset.filter(user=actor)
+    if exclude_technical:
+        queryset = queryset.exclude(
+            pk__in=technical_activity_logs(organization_id=organization_id).values("pk"),
+        )
     return annotate_business_family(queryset)
 
 
