@@ -1,7 +1,8 @@
 # Transfer v2 — Phase 6, jalon 2 : proposition de don de Box entière
 
-État : backend uniquement, **non revu**, sans UI, sans acceptation. Une
-proposition n'est pas un transfert. Fondations : [`TRANSFER_V2_BOX_IDENTITY.md`](TRANSFER_V2_BOX_IDENTITY.md).
+Périmètre de ce document : contrat backend de la proposition et de l'annuaire
+restreint des destinations, sans acceptation. Une proposition n'est pas un
+transfert. Fondations : [`TRANSFER_V2_BOX_IDENTITY.md`](TRANSFER_V2_BOX_IDENTITY.md).
 
 ## Ce que fait une proposition (et ce qu'elle ne fait pas)
 
@@ -55,6 +56,7 @@ l'acceptation, avec une extension de protocole approuvée.
 
 | Méthode | URL | Rôle |
 |---|---|---|
+| GET | `/api/box-donations/destinations/` | annuaire restreint des destinations de don |
 | POST | `/api/box-donations/preflight/` | éligibilité + référence d'historique, sans écriture |
 | GET | `/api/box-donations/outgoing/` | propositions émises par l'institution active |
 | POST | `/api/box-donations/outgoing/` | émission (201, ou 200 pour un rejeu identique) |
@@ -95,12 +97,23 @@ ni empreinte, ni relevé. Aucun endpoint d'acceptation.
 
 ## Destination
 
-Désignée par `Organization.portable_id`, existante, active et distincte de la
-source, vérifiée côté serveur. Jamais un e-mail. Seul son nom est renvoyé; ni
-contact, ni membres. **Il n'existe pas d'annuaire d'institutions autorisé** :
-aucun endpoint ne liste les institutions ni n'expose `portable_id`. La façon
-dont la source obtient l'identifiant de la destination est une politique
-d'annuaire à décider (voir plus bas).
+`GET /api/box-donations/destinations/` est en lecture seule. Il exige une session
+authentifiée et une appartenance Admin active dans l'institution source active,
+explicitement sélectionnée par `X-Organization-Id`, sans exception pour un
+superutilisateur. Il renvoie `Cache-Control: no-store`, y compris sur les erreurs.
+
+L'annuaire renvoie toutes les autres institutions actives enregistrées dans
+POLYPBASE, triées par nom. Aucun accord de partage, aucune relation de partenariat
+et aucune appartenance ou présence d'un Admin à la destination ne sont requis.
+La réponse se limite à `{"results": [{"institution_id": "<UUID>", "name": "<nom>", "country": "<pays>"}]}`.
+`institution_id` est la chaîne UUID de `Organization.portable_id`; `country` peut
+être une chaîne vide. Sans destination, `results` est une liste vide. L'annuaire
+n'expose ni PK locale, ni coordonnées de contact, ni comptes, ni données de Box,
+et ne donne aucun droit dans une autre institution.
+
+Le préflight et la création revérifient côté serveur que l'UUID sélectionné
+correspond à une institution active et distincte de la source. Ils n'acceptent
+pas une adresse e-mail comme identifiant de destination.
 
 ## Vérification de l'historique
 
@@ -164,8 +177,7 @@ précédentes) ne sont pas implémentées et ne sont pas stockées.
 
 - Éligibilité des Boxes `inactive` et `pending_review` (refusées
   provisoirement, `ELIGIBLE_BOX_STATUSES`).
-- Politique d'annuaire : comment une institution découvre l'identifiant
-  d'une autre, et si les institutions inactives ou sans Admin sont proposables.
+
 - Divulgation à la destination avant acceptation (aucune aujourd'hui).
 - Expiration, relance, refus par la destination, notification.
 - Les modifications hors snapshot (emplacement, lignée, notes) doivent-elles
@@ -190,7 +202,8 @@ précédentes) ne sont pas implémentées et ne sont pas stockées.
 ## Tests
 
 - `apps.cultures.test_box_donation` (SQLite) : autorité, isolation, contexte,
-  destination, éligibilité, vérification/périmé, idempotence, conflits,
+  annuaire des destinations (projection, refus et cache), éligibilité,
+  vérification/périmé, idempotence, conflits,
   annulation, échecs d'audit, gardes du modèle.
 - `apps.cultures.test_box_donation_migrations` : migration additive et garde
   de retour arrière.

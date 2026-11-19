@@ -143,6 +143,19 @@ test('repository traversal includes unmounted components but not catalogs or tes
   }
 });
 
+test('B45 donation placeholder retention expires after removal or reuse', () => {
+  const retained = ['exchangePreviewBoxPlaceholder', 'exchangePreviewInstitutionPlaceholder'];
+  const exceptions = Object.fromEntries(retained.map(key => [key, usageExceptions[key]]));
+  const result = analyze([...retained, 'exchangePreviewUnreviewed'], 'export {};', exceptions);
+  assert.equal(result.errors.length, 1);
+  assert.match(result.errors[0], /^exchangePreviewUnreviewed: no exact literal/);
+  for (const key of retained) {
+    assert.match(exceptions[key], /^B45 form preview:.*registered FR\/EN key/);
+    assert.match(analyze([], 'export {};', { [key]: exceptions[key] }).errors.join('\n'), /stale exception: key is absent/);
+    assert.match(analyze([key], `t('${key}')`, { [key]: exceptions[key] }).errors.join('\n'), /stale exception: source reference/);
+  }
+});
+
 test('thermal retention is exact and does not exempt other unused temperature keys', () => {
   const retained = ['temperatureGap', 'temperatureMeasurement', 'temperatureMissing'];
   assert.equal(usageExceptions.temperatureAverage, undefined, 'The four-hour mean reuses this key');

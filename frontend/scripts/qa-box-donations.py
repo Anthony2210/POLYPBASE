@@ -20,7 +20,8 @@ import sys
 import tempfile
 import threading
 import time
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
+from uuid import UUID
 
 from playwright.sync_api import expect, sync_playwright
 
@@ -30,6 +31,17 @@ SPEC = importlib.util.spec_from_file_location("sharing_reference", ROOT / "scrip
 REFERENCE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(REFERENCE)
 BASE = "http://[::1]:5174"
+DONATIONS = "/api/box-donations/"
+SOURCE_BOXES = "/api/boxes/"
+HISTORY_HASH = "0123456789abcdef" * 4
+DESTINATIONS = [
+    {"institution_id": f"10000000-0000-4000-8000-{index:012d}", "name": name, "country": country}
+    for index, (name, country) in enumerate([
+        ("Tokyo Lab", "Japon"), ("Zulu Lab", "France"), ("Unknown Lab", ""),
+        ("Alpha Lab", " France "), ("Blank Lab", "   "),
+    ], 1)
+]
+SELECTION = {"source_box_id": 12, "destination_institution_id": DESTINATIONS[3]["institution_id"]}
 
 
 def proposal(direction, index):
@@ -66,20 +78,43 @@ def run(screenshots=False, inspect_seconds=0, keep_screenshots=False):
     if screenshots:
         captures.mkdir(exist_ok=False)
     state = {"language": "fr", "list_error": 0, "detail_error": 0, "preview_error": 0,
-             "empty": False, "hold": False}
-    requests, unexpected, mutations, errors, checks, held = [], [], [], [], [], []
+             "empty": False, "hold": False, "choices": "ready"}
+    requests, unexpected, mutations, errors, checks, held, pending_sends = [], [], [], [], [], [], []
     rows = {direction: [proposal(direction, i) for i in range(1, 5)] for direction in ("outgoing", "incoming")}
 
     def api(route):
         request = route.request
-        path = urlparse(request.url).path
-        requests.append({"path": path, "method": request.method, "headers": request.headers})
-        if request.method != "GET":
-            mutations.append((request.method, path))
+        url = urlparse(request.url)
+        path = url.path
+        query = parse_qs(url.query, keep_blank_values=True)
+        requests.append({"path": path, "query": query, "method": request.method, "headers": request.headers})
         def respond(data, status=200):
             route.fulfill(status=status, content_type="application/json", body=json.dumps(data), headers={"Cache-Control": "no-store"})
         def error(status):
             respond({"detail": "MOCKED access failure", "code": "mocked_failure"}, status)
+        if request.method != "GET":
+            mutations.append((request.method, path, request.post_data))
+            if request.method == "POST" and path == DONATIONS + "preflight/":
+                return respond({"history": {"sha256": HISTORY_HASH}})
+            if request.method == "POST" and path == DONATIONS + "outgoing/":
+                if not pending_sends:
+                    pending_sends.append(route)
+                    return
+                created = proposal("outgoing", 5)
+                if len(rows["outgoing"]) == 4:
+                    rows["outgoing"].append(created)
+                return respond(created, 201)
+            unexpected.append((request.method, path))
+            return error(404)
+        if path in (DONATIONS + "destinations/", SOURCE_BOXES):
+            if state["choices"] == "error":
+                return error(403 if path.endswith("destinations/") else 500)
+            if path.endswith("destinations/"):
+                return respond({"results": [] if state["choices"] == "empty" else DESTINATIONS})
+            boxes = [] if state["choices"] == "empty" else [
+                {"id": 12, "global_code": "MOCK-OUT-005", "organization": REFERENCE.ORG, "status": "active"},
+            ]
+            return respond({"count": len(boxes), "next": None, "previous": None, "results": boxes})
         if path == "/api/auth/session/":
             return respond({"interface_language": state["language"]})
         if path == "/api/profile/":
@@ -149,7 +184,7 @@ def run(screenshots=False, inspect_seconds=0, keep_screenshots=False):
             context = browser.new_context(viewport={"width": 1440, "height": 1000}, service_workers="block")
             # Block all off-origin traffic; only static files reach the local server.
             context.route("**/*", lambda route: route.continue_() if route.request.url.startswith(BASE + "/") else route.abort())
-            context.route("**/api/**", api)
+            context.route(re.compile(re.escape(BASE) + r"/api/"), api)
             context.add_cookies([{"name": "csrftoken", "value": "mock-csrf", "url": BASE}])
             page = context.new_page()
             page.on("pageerror", lambda error: errors.append(str(error)))
@@ -196,59 +231,39 @@ def run(screenshots=False, inspect_seconds=0, keep_screenshots=False):
             outgoing = page.locator("#admin-transfers")
             incoming = page.locator("#admin-receipts")
             send = outgoing.get_by_role("button", name="Envoyer", exact=True)
-            before_preview = len(requests)
-            before_rows = page.locator(".exchange-row").all_text_contents()
-            storage_snapshot = "() => JSON.stringify([Object.entries(localStorage).sort(), Object.entries(sessionStorage).sort()])"
-            before_storage = page.evaluate(storage_snapshot)
+            before_choices = len(requests)
+            state["choices"] = "error"
             send.click()
             modal = page.get_by_role("dialog", name="Nouvel envoi", exact=True)
             expect(modal).to_be_visible()
-            expect(modal).not_to_contain_text("Aperçu du formulaire. Aucun envoi ne sera effectué.")
             exchange_type = modal.get_by_label("Type d’échange", exact=True)
             expect(exchange_type).to_be_focused()
-            assert exchange_type.locator("option").evaluate_all("els => els.map(el => [el.value, el.textContent])") == [
-                ["donation", "Don"],
-                ["live", "Partage de données actualisé via POLYPBASE"],
-                ["frozen", "Partage de données figé via POLYPBASE"],
-                ["email_frozen", "Partage de données figé par mail"],
+            expect(exchange_type).to_have_value("donation")
+            assert exchange_type.locator("option").evaluate_all("els => els.map(el => [el.value, el.disabled])") == [
+                ["donation", False], ["live", True], ["frozen", True], ["email_frozen", True],
             ]
             box = modal.get_by_label("Boîte concernée", exact=True)
             institution = modal.get_by_label("Institution destinataire", exact=True)
-            email = modal.locator("input[type='email']")
-            expect(box).to_have_value("")
-            expect(institution).to_have_value("")
-            box.fill("MOCK-LOCAL-0")
-            institution.fill("Local destination")
-            # Observe native submissions too: Enter must never navigate or send data.
-            modal.locator("form").evaluate("el => { window.__previewSubmits=[]; el.addEventListener('submit', event => queueMicrotask(() => window.__previewSubmits.push(event.defaultPrevented))); }")
-            for kind in ["donation", "live", "frozen", "email_frozen"]:
-                exchange_type.select_option(kind)
-                expect(exchange_type).to_have_value(kind)
-                expect(box).to_have_value("MOCK-LOCAL-0")
-                expect(institution).to_have_value("Local destination")
-                expect(email).to_have_count(1 if kind == "email_frozen" else 0)
-                if kind == "email_frozen":
-                    email.fill("recipient@example.test")
-                    expect(email).to_have_value("recipient@example.test")
-                    email.press("Enter")
-                else:
-                    box.press("Enter")
-                # Multiple text inputs can suppress implicit Enter submission; exercise the
-                # actual submit event as well, rather than mistaking that for prevention.
-                assert modal.locator("form").evaluate("el => !el.dispatchEvent(new Event('submit', {bubbles:true,cancelable:true}))")
-                expect(modal).to_be_visible()
-                expect(modal.locator("[role='status'], [role='alert'], button[type='submit']")).to_have_count(0)
-                assert page.url == BASE + "/administration/transfers"
-                assert page.locator(".exchange-row").all_text_contents() == before_rows
-                assert len(requests) == before_preview, requests[before_preview:]
-                assert page.evaluate(storage_snapshot) == before_storage
-                capture("exchange-form-" + kind)
-            assert page.evaluate("window.__previewSubmits.length >= 4 && window.__previewSubmits.every(Boolean)")
-            exchange_type.select_option("live")
-            expect(email).to_have_count(0)
-            exchange_type.select_option("email_frozen")
-            expect(email).to_have_value("recipient@example.test")
-            footer_close = modal.locator("footer button")
+            submit = modal.locator("button[type='submit']")
+
+            expect(modal.get_by_role("alert")).to_have_count(2)
+            expect(box).to_be_disabled()
+            expect(institution).to_be_disabled()
+            expect(submit).to_be_disabled()
+            state["choices"] = "empty"
+            for select, empty_message in [(box, "Aucune boîte"), (institution, "Aucune autre structure")]:
+                field = select.locator("..")
+                field.get_by_role("button", name="Recharger", exact=True).click()
+                expect(field.get_by_role("status")).to_contain_text(empty_message)
+                expect(select).to_be_disabled()
+                expect(select.locator("option")).to_have_count(1)
+            expect(modal.get_by_role("alert")).to_have_count(0)
+            expect(submit).to_be_disabled()
+            assert not mutations
+            choice_reads = requests[before_choices:]
+            assert sum(r["path"] == DONATIONS + "destinations/" for r in choice_reads) == 2
+            assert sum(r["path"] == SOURCE_BOXES for r in choice_reads) == 2
+            footer_close = modal.locator("footer button[type='button']")
             x_close = modal.locator(".modal-close-button")
             footer_close.focus()
             page.keyboard.press("Tab")
@@ -258,21 +273,68 @@ def run(screenshots=False, inspect_seconds=0, keep_screenshots=False):
             page.keyboard.press("Escape")
             expect(modal).to_have_count(0)
             expect(send).to_be_focused()
-            for close_selector in ["footer button", ".modal-close-button"]:
-                send.click()
-                expect(modal).to_be_visible()
-                expect(modal.get_by_label("Type d’échange", exact=True)).to_have_value("donation")
-                expect(modal.get_by_label("Boîte concernée", exact=True)).to_have_value("")
-                expect(modal.get_by_label("Institution destinataire", exact=True)).to_have_value("")
-                expect(modal.locator("input[type='email']")).to_have_count(0)
-                modal.locator(close_selector).click()
-                expect(modal).to_have_count(0)
-                expect(send).to_be_focused()
-            page.wait_for_load_state("networkidle")
-            assert len(requests) == before_preview, requests[before_preview:]
-            assert page.locator(".exchange-row").all_text_contents() == before_rows
-            assert page.evaluate(storage_snapshot) == before_storage
-            passed("FR active Send: four preview types, local fields, conditional email, inert Enter/submit, no success/persistence/requests/row changes, focus trap, Escape/footer/X close and focus restore")
+            passed("FR form: only Don enabled, independent choice errors and retries, distinct empty states, focus trap and restore")
+
+            state["choices"] = "ready"
+            send.click()
+            expect(box).to_be_enabled()
+            expect(institution.locator("optgroup")).to_have_count(3)
+            groups = institution.locator("optgroup").evaluate_all(
+                "els => els.map(el => [el.label, Array.from(el.children, opt => opt.textContent)])"
+            )
+            assert dict(groups)["France"] == ["Alpha Lab", "Zulu Lab"]
+            assert dict(groups)["Japon"] == ["Tokyo Lab"]
+            missing_label = next(label for label, names in groups if names == ["Blank Lab", "Unknown Lab"])
+            assert "pays" in missing_label.lower(), groups
+            assert [label for label, _ in groups] == page.evaluate(
+                "labels => labels.toSorted(new Intl.Collator('fr').compare)", ["France", "Japon", missing_label]
+            )
+            expect(box).to_have_value("")
+            expect(institution).to_have_value("")
+            expect(submit).to_be_disabled()
+            capture("donation-form")
+            box.select_option(str(SELECTION["source_box_id"]))
+            institution.select_option(SELECTION["destination_institution_id"])
+            submit.click()
+            confirmation = modal.get_by_role("checkbox")
+            expect(confirmation).to_be_visible()
+            expect(confirmation).not_to_be_checked()
+            expect(modal.get_by_role("link")).to_have_attribute("href", "/boxes/MOCK-OUT-005")
+            expect(submit).to_be_disabled()
+            assert len(mutations) == 1
+            assert mutations[0][:2] == ("POST", DONATIONS + "preflight/")
+            assert json.loads(mutations[0][2]) == SELECTION
+            confirmation.check()
+            expect(submit).to_be_enabled()
+            with page.expect_request(lambda request: request.method == "POST" and request.url == BASE + DONATIONS + "outgoing/"):
+                submit.dblclick()
+            expect(submit).to_be_disabled()
+            assert len(pending_sends) == 1 and len(mutations) == 2
+            pending_sends[0].fulfill(status=503, content_type="application/json", body='{"detail":"Mock uncertain send"}')
+            expect(modal.get_by_role("alert")).to_be_visible()
+            expect(submit).to_have_text("Recharger")
+            expect(box).to_be_disabled()
+            expect(institution).to_be_disabled()
+            expect(confirmation).to_be_disabled()
+            expect(outgoing.locator(".exchange-row")).to_have_count(4)
+            before_retry = len(requests)
+            submit.click()
+            expect(modal).to_have_count(0)
+            expect(outgoing.locator(":scope > [role='status']")).to_have_text(re.compile(r"\S+"))
+            expect(outgoing.locator(".exchange-row")).to_have_count(5)
+            expect(outgoing.locator(".exchange-row").last).to_contain_text("MOCK-OUT-005")
+            expect(incoming.locator(".exchange-row")).to_have_count(4)
+            assert [r["method"] for r in requests[before_retry:] if r["path"] == DONATIONS + "outgoing/"] == ["POST", "GET"]
+            assert len(mutations) == 3
+            assert mutations[1] == mutations[2], "retry must replay identical method, URL and raw body"
+            body = json.loads(mutations[1][2])
+            request_id = UUID(body["request_id"])
+            assert request_id.version == 4
+            assert body == {**SELECTION, "request_id": str(request_id), "history_verified": True, "history_sha256": HISTORY_HASH}
+            passed("FR form: sorted country optgroups including missing country, exact preflight and confirmed hash, duplicate click suppressed, identical retry, outgoing GET refresh")
+            rows["outgoing"].pop()
+            load()
+            ready()
             for section, term in [(outgoing, "musee"), (incoming, "source")]:
                 search = section.get_by_role("searchbox")
                 for query, count in [(term, 4), ("aurelia", 4), ("001", 1), ("no-match", 0)]:
@@ -405,17 +467,19 @@ def run(screenshots=False, inspect_seconds=0, keep_screenshots=False):
             expect(english_modal).to_be_visible()
             expect(english_modal).not_to_contain_text("Form preview. Nothing will be sent.")
             expect(english_modal.get_by_label("Exchange type", exact=True)).to_be_focused()
+            expect(english_modal.get_by_label("Box", exact=True)).to_be_enabled()
+            expect(english_modal.locator("optgroup")).to_have_count(3)
             english_modal.locator("footer").get_by_role("button", name="Close", exact=True).click()
             expect(english_modal).to_have_count(0)
             expect(outgoing.get_by_role("button", name="Send", exact=True)).to_be_focused()
-            assert len(requests) == before
+            assert sorted(r["path"] for r in requests[before:]) == sorted([DONATIONS + "destinations/", SOURCE_BOXES])
             outgoing.locator("select").nth(1).select_option("cancelled")
             expect(outgoing.locator(".exchange-row")).to_have_count(2)
             expect(outgoing.locator(".exchange-row").first).to_contain_text("Cancelled")
             outgoing.locator("select").nth(1).select_option("pending")
             expect(outgoing.locator(".exchange-row").first).to_contain_text("Pending")
             capture("english")
-            passed("EN headings, active Send opens translated preview, close restores focus, no extra requests or old warning, Pending/Cancelled labels and filters")
+            passed("EN headings, translated donation form reads only its choices, close restores focus, Pending/Cancelled labels and filters")
             load("/profile")
             expect(page.locator(".profile-identity-actions")).to_be_visible()
             expect(page.locator("a[href^='/shared-boxes']")).to_have_count(0)
@@ -427,7 +491,7 @@ def run(screenshots=False, inspect_seconds=0, keep_screenshots=False):
             passed("Profile has no personal sharing link; retired shared routes redirect home without old sharing API calls")
             tablet = browser.new_context(viewport={"width": 960, "height": 600}, has_touch=True, is_mobile=False, service_workers="block")
             tablet.route("**/*", lambda route: route.continue_() if route.request.url.startswith(BASE + "/") else route.abort())
-            tablet.route("**/api/**", api)
+            tablet.route(re.compile(re.escape(BASE) + r"/api/"), api)
             tp = tablet.new_page()
             tp.on("pageerror", lambda error: errors.append(str(error)))
             tp.add_init_script("window.__adminSeen=false; new MutationObserver(() => {if(document.querySelector('.admin-panel,.exchange-section')) window.__adminSeen=true;}).observe(document,{childList:true,subtree:true});")
@@ -442,11 +506,16 @@ def run(screenshots=False, inspect_seconds=0, keep_screenshots=False):
             tp.screenshot(path=str(captures / "tablet-960.png"), full_page=True)
             passed("960x600 touch tablet direct admin URL redirects /; no observed intermediate admin DOM, admin menu or donation fetch")
             assert not unexpected, f"Unmocked endpoints: {unexpected}"
-            assert not mutations, f"Unexpected API writes: {mutations}"
+            assert [(method, path) for method, path, _ in mutations] == [
+                ("POST", DONATIONS + "preflight/"), ("POST", DONATIONS + "outgoing/"), ("POST", DONATIONS + "outgoing/"),
+            ]
             assert not errors, f"Browser errors: {errors}"
-            donation_reads = [r for r in requests if "box-donations" in r["path"]]
-            assert all(r["headers"].get("x-organization-id") == "1" for r in donation_reads)
-            passed("No unexpected API endpoints, API writes or browser errors; all donation reads carry organization header")
+            donation_requests = [r for r in requests if r["path"].startswith(DONATIONS)]
+            assert all(r["headers"].get("x-organization-id") == "1" for r in donation_requests)
+            assert any(r["path"] == SOURCE_BOXES and r["query"] == {
+                "organization": ["1"], "status": ["active"], "q": [""], "limit": ["20"], "offset": ["0"],
+            } and r["headers"].get("x-organization-id") == "1" for r in requests)
+            passed("Only expected mocked POSTs, no unexpected API endpoints or browser errors; donation requests scoped to the mock organization")
             if screenshots:
                 print("Temporary screenshots: " + str(captures), flush=True)
                 time.sleep(max(0, min(inspect_seconds, 120)))
