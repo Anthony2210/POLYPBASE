@@ -1293,6 +1293,7 @@ class PersonalAuditLogListAPIView(APIView):
         logs_query = impactful_audit_logs(
             organization_id=organization.id,
             actor=request.user,
+            exclude_technical=True,
         )
         logs, has_more = paginate_audit_logs(
             logs_query.select_related("organization", "user", "edited_by"),
