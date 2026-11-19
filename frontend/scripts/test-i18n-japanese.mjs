@@ -88,6 +88,60 @@ assert.equal(sha256(speciesEvidenceText), '1323838b5e1ac8cfa94a0f42f5e9cf40417b3
 const speciesEvidence = JSON.parse(speciesEvidenceText);
 const speciesIntegrationKeys = speciesEvidence.catalog_additions.fr.map(line => line.trim().split(':', 1)[0]);
 
+// B47 (worms-dna-forms, appended after donation B44-B46): New box optional DNA
+// evidence label, optional state moved into two strain labels, and four helper
+// texts removed. English fallbacks only; no Japanese. Reconstruction applies it
+// first, so every earlier layer still sees its own frozen catalog.
+const B47 = 'B47-2026-11-18';
+const B47_APPLIED_KEYS = ['strainGps', 'strainName'];
+const B47_REMOVED_KEYS = ['strainGpsHint', 'strainNameHint', 'speciesSearchHint', 'speciesCreateWormsTruncated'];
+const B47_ADDED_KEYS = ['createBoxDnaEvidence'];
+const B47_EXPECTED = [
+  ...B47_APPLIED_KEYS.flatMap(key => [[key, 'FR', 'APPLIED'], [key, 'EN', 'APPLIED']]),
+  ...B47_REMOVED_KEYS.flatMap(key => [[key, 'FR', 'REMOVED'], [key, 'EN', 'REMOVED']]),
+  ...B47_ADDED_KEYS.flatMap(key => [[key, 'FR', 'ALREADY_MATCHING'], [key, 'EN', 'ALREADY_MATCHING']]),
+];
+// Species keys still present after B47.
+const currentSpeciesKeys = speciesIntegrationKeys.filter(key => !B47_REMOVED_KEYS.includes(key));
+
+function b47Events(rows = register) {
+  const entryIds = Array.from({ length: B47_EXPECTED.length }, (_, index) => `T${1813 + index}`);
+  const protectedIds = new Set(entryIds);
+  const events = rows.filter(row => row.batch === B47 || protectedIds.has(row.entry_id));
+  assert.deepEqual(events, rows.slice(1812, 1812 + entryIds.length));
+  assert.deepEqual(events.map(row => row.entry_id), entryIds);
+  for (const entry of events) assert.deepEqual(Object.keys(entry), REGISTER_COLUMNS);
+  assert.deepEqual(events.map(row => [row.key_or_msgid, row.language, row.status]), B47_EXPECTED);
+  for (const entry of events) {
+    assert.equal(entry.surface, 'react');
+    assert.equal(entry.source_file, `frontend/src/i18n/${entry.language.toLowerCase()}.ts`);
+    if (entry.status === 'REMOVED') assert.ok(entry.initial_value && entry.final_value === '', entry.entry_id);
+    else if (entry.status === 'APPLIED') assert.ok(entry.initial_value && entry.final_value && entry.initial_value !== entry.final_value, entry.entry_id);
+    else assert.ok(entry.final_value && entry.initial_value === entry.final_value, entry.entry_id);
+  }
+  return events;
+}
+
+function beforeB47(source, language, rows = register) {
+  const opening = ' = {\n';
+  assert.ok(source.indexOf(opening) > 0, 'catalog object start');
+  for (const entry of b47Events(rows).filter(row => row.language === language.toUpperCase())) {
+    const key = entry.key_or_msgid;
+    const present = source.split('\n').filter(line => line.startsWith(`  ${key}: `));
+    if (entry.status === 'REMOVED') {
+      // A removed key must be absent; its exact prior line is restored for older layers.
+      assert.deepEqual(present, [], key);
+      const at = source.indexOf(opening) + opening.length;
+      source = `${source.slice(0, at)}  ${key}: '${entry.initial_value}',\n${source.slice(at)}`;
+      continue;
+    }
+    const line = `  ${key}: '${entry.final_value}',\n`;
+    assert.equal(source.split(line).length - 1, 1, key);
+    source = source.replace(line, entry.status === 'APPLIED' ? `  ${key}: '${entry.initial_value}',\n` : '');
+  }
+  return source;
+}
+
 // Species events were reallocated after main's thermal B32 (T1460-T1469): T1470-T1741, B33-B43.
 function speciesOriginalProjection(rows) {
   const { entry_id_offset: idOffset, batch_number_offset: batchOffset } = speciesEvidence.reallocation;
@@ -97,6 +151,7 @@ function speciesOriginalProjection(rows) {
 }
 
 function beforeSpeciesIntegration(source, language, rows = register) {
+  source = beforeB47(source, language, rows);
   assert.equal(registerRowsDigest(rows.slice(0, 1469)), speciesEvidence.thermal_main_register_rows_sha256);
   const tail = rows.slice(1469, 1741);
   assert.equal(registerRowsDigest(tail), speciesEvidence.reallocated_register_rows_sha256);
@@ -269,11 +324,11 @@ test('ja catalog is exactly the historical and AI-reviewed manifest union', () =
   const counts = react.reduce((total, row) => ({ ...total, [row.status]: (total[row.status] ?? 0) + 1 }), {});
   // Original fallbacks, movements, thermal and DNA additions, with B23 retirements and B23/B24 additions.
   assert.equal(postBaseline.size, 81);
-  assert.deepEqual(counts, { REUSED: 930, FALLBACK_EN: 257 + sharingKeys.length + DNA_KEYS.length + B32_KEYS.length + speciesIntegrationKeys.length, FALLBACK_EN_REVIEW: 36, AI_REVIEWED: 59 });
+  assert.deepEqual(counts, { REUSED: 930, FALLBACK_EN: 257 + sharingKeys.length + DNA_KEYS.length + B32_KEYS.length + currentSpeciesKeys.length + B47_ADDED_KEYS.length, FALLBACK_EN_REVIEW: 36, AI_REVIEWED: 59 });
   assert.equal(counts.FALLBACK_EN, 143 + postBaseline.size + potentialMovementKeys.length
     - B23_RETIRED_KEYS.length + B23_ADDED_KEYS.length + B24_ADDED_KEYS.length + zoneChartKeys.length
     + thermalPeriodKeys.length + probeAverageKeys.length + sharingKeys.length + DNA_KEYS.length + B32_KEYS.length
-    + speciesIntegrationKeys.length);
+    + currentSpeciesKeys.length + B47_ADDED_KEYS.length);
 });
 
 test('B13 thermal register events are immutable, even under a coordinated catalog edit', () => {
@@ -413,7 +468,11 @@ test('Species additions keep frozen source values and documentary English fallba
   assert.equal(new Set(speciesIntegrationKeys).size, 266);
   const translate = loadI18n().createTranslator('ja');
   const byKey = new Map(manifest.filter(row => row.surface === 'react').map(row => [row.identity, row]));
-  for (const key of speciesIntegrationKeys) {
+  for (const key of B47_REMOVED_KEYS) {
+    assert.equal(byKey.has(key), false, key);
+    assert.equal(Object.hasOwn(fr, key) || Object.hasOwn(en, key) || Object.hasOwn(ja, key), false, key);
+  }
+  for (const key of currentSpeciesKeys) {
     const row = byKey.get(key);
     assert.deepEqual([row.current_fr, row.current_en], [fr[key], en[key]], key);
     assert.deepEqual([row.status, row.reason_code, row.takeru_review], ['FALLBACK_EN', 'ABSENT_FROM_WORKBOOK', 'no'], key);
@@ -1290,7 +1349,7 @@ test('original FR and EN source content remains frozen apart from the registered
 test('additive keys stay English fallbacks without Japanese approval or provenance', () => {
   const translate = loadI18n().createTranslator('ja');
   for (const key of [...LATER_FALLBACK_KEYS, ...potentialMovementKeys, ...B23_ADDED_KEYS, ...B24_ADDED_KEYS,
-    ...zoneChartKeys, ...thermalPeriodKeys, ...probeAverageKeys, ...DNA_KEYS, ...B32_KEYS, ...speciesIntegrationKeys]
+    ...zoneChartKeys, ...thermalPeriodKeys, ...probeAverageKeys, ...DNA_KEYS, ...B32_KEYS, ...currentSpeciesKeys, ...B47_ADDED_KEYS]
     .filter(key => !B23_RETIRED_KEYS.includes(key))) {
     const rows = manifest.filter(row => row.identity === key);
     assert.equal(rows.length, 1, key);

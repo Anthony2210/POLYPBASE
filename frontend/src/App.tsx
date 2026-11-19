@@ -2373,7 +2373,7 @@ export default function App() {
       </aside>
 
       <section className="workspace">
-        {!isBoxRoute && !isZoneRoute && !(activeTab === 'admin' && route.adminSection === 'species') ? (
+        {!isBoxRoute && !isZoneRoute && !(activeTab === 'admin' && route.adminSection === 'species' && route.adminSpecies) ? (
           <header className={activeTab === 'pilotage' ? 'page-heading pilotage-page-heading' : 'page-heading'}>
             <h1>{getTitle(activeTab, t)}</h1>
             {activeTab === 'pilotage' && !isPhoneLayout && canCreateBox ? (

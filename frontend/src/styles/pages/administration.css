@@ -3722,8 +3722,6 @@ button.account-overview-card:focus-visible {
   font-size: .78rem;
 }
 
-.species-worms-note.is-truncated { color: var(--color-ink-soft); font-weight: 650; }
-
 .species-worms-results {
   max-height: 264px;
   margin: 0;

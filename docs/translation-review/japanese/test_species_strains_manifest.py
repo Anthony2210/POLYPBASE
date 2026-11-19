@@ -8,7 +8,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / 'docs/translation-review/application'))
-from test_check_register import SPECIES_EVIDENCE, before_species_integration  # noqa: E402
+from test_check_register import (  # noqa: E402
+    B47_ADDED_KEYS, B47_REMOVED_KEYS, SPECIES_EVIDENCE, before_species_integration,
+)
 import check_register as reg  # noqa: E402
 
 # Main 5e28969 manifest (adds the five B32 thermalMonitoring rows); 5651ffb digest kept for the older prefix.
@@ -24,7 +26,9 @@ class SpeciesStrainsManifestTests(unittest.TestCase):
     def setUpClass(cls):
         with Path(__file__).with_name('ja-manifest.csv').open(encoding='utf-8', newline='') as stream:
             cls.manifest = list(csv.DictReader(stream))
+        # Species additions still present after B47 removed four of them.
         cls.added = {line.strip().split(':', 1)[0] for line in SPECIES_EVIDENCE['catalog_additions']['fr']}
+        cls.added -= set(B47_REMOVED_KEYS)
 
     def test_exact_new_membership_current_values_and_plain_english_fallback(self):
         fr = reg.read_catalog(ROOT / 'frontend/src/i18n/fr.ts')
@@ -33,7 +37,13 @@ class SpeciesStrainsManifestTests(unittest.TestCase):
         self.assertEqual([row['identity'] for row in react], list(fr))
         self.assertEqual(set(fr), set(en))
         added = [row for row in react if row['identity'] in self.added]
-        self.assertEqual(len(added), 266)
+        self.assertEqual(len(added), 266 - len(B47_REMOVED_KEYS))
+        self.assertFalse(set(B47_REMOVED_KEYS) & {row['identity'] for row in react})
+        for key in B47_ADDED_KEYS:
+            row = next(row for row in react if row['identity'] == key)
+            self.assertEqual((row['current_fr'], row['current_en']), (fr[key], en[key]), key)
+            self.assertEqual((row['status'], row['reason_code'], row['takeru_review'], row['ja_validated'],
+                              row['ja_ai_reviewed']), ('FALLBACK_EN', 'ABSENT_FROM_WORKBOOK', 'no', '', ''), key)
         self.assertEqual({row['identity'] for row in added}, self.added)
         for row in added:
             key = row['identity']
@@ -45,7 +55,7 @@ class SpeciesStrainsManifestTests(unittest.TestCase):
 
     def test_all_main_manifest_fields_remain_frozen_except_registered_english_metadata(self):
         original = [dict(row) for row in self.manifest
-                    if not (row['surface'] == 'react' and row['identity'] in self.added)]
+                    if not (row['surface'] == 'react' and row['identity'] in self.added | set(B47_ADDED_KEYS))]
         changed = next(row for row in original if row['identity'] == 'firstMeasurementOn')
         self.assertEqual(changed['current_en'], 'First record')
         self.assertEqual(changed['reason_code'], 'EN_FORM_ONLY')

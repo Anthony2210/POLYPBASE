@@ -533,6 +533,8 @@ export type BoxCreatePayload = {
   notes?: string;
   // Recorded as the Box's initial measurement on entered_on (ephyrae 0). 0 is a real count.
   initial_polyp_count: number;
+  // Optional DNA evidence for the new Box, same rule as the Box page. Omitted when absent.
+  dna_evidence_url?: string;
 };
 
 export type BoxCreationIntent = BoxCreatePayload & { resume_token: string };

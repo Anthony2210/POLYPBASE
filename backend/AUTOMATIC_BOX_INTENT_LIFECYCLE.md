@@ -29,6 +29,12 @@ and SHA-256 of the recovery token. The token hash is globally unique: a token
 cannot be rebound to another UUID, actor or institution, including racing inserts.
 A binding conflict returns generic 409 without revealing the other scope.
 
+Optional `dna_evidence_url` (Box page DNA URL rule) is stored in the intent only
+when given, so intents without evidence keep their earlier exact form; execution
+records it with its own audit in the creation transaction and requires active
+Admin/technician membership (no superuser bypass), checked at registration and
+revalidated at execution.
+
 Normalization is shared with ordinary creation: integer strain/zone, ISO date,
 two-decimal volume (zero distinct from null), stripped note and existing defaults.
 Same binding and normalized payload returns the existing receipt without writes;

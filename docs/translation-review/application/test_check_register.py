@@ -483,6 +483,58 @@ SPECIES_EVIDENCE = json.loads(_evidence_bytes)
 
 SPECIES_TAIL = slice(1469, 1741)
 
+# B47 (DNA forms, appended after donation B44-B46): New box optional DNA
+# evidence label, optional state moved into two strain labels, and four removed
+# helper texts. Applied first, so the species layer still sees its frozen lines.
+B47 = "B47-2026-11-18"
+B47_FIRST_ID = 1813
+B47_APPLIED_KEYS = ("strainGps", "strainName")
+B47_REMOVED_KEYS = ("strainGpsHint", "strainNameHint", "speciesSearchHint", "speciesCreateWormsTruncated")
+B47_ADDED_KEYS = ("createBoxDnaEvidence",)
+B47_EXPECTED = (
+    [(key, language, "APPLIED") for key in B47_APPLIED_KEYS for language in ("FR", "EN")]
+    + [(key, language, "REMOVED") for key in B47_REMOVED_KEYS for language in ("FR", "EN")]
+    + [(key, language, "ALREADY_MATCHING") for key in B47_ADDED_KEYS for language in ("FR", "EN")]
+)
+B47_SLICE = slice(B47_FIRST_ID - 1, B47_FIRST_ID - 1 + len(B47_EXPECTED))
+
+
+def b47_events(rows):
+    entry_ids = [f"T{n}" for n in range(B47_FIRST_ID, B47_FIRST_ID + len(B47_EXPECTED))]
+    events = [row for row in rows if row["batch"] == B47 or row["entry_id"] in entry_ids]
+    assert events == rows[B47_SLICE], "B47 events are not the contiguous rows after B46"
+    assert [row["entry_id"] for row in events] == entry_ids, "B47: identities changed"
+    assert [(row["key_or_msgid"], row["language"], row["status"]) for row in events] == B47_EXPECTED
+    for row in events:
+        assert row["surface"] == "react" and row["source_file"] == f"frontend/src/i18n/{row['language'].lower()}.ts"
+        if row["status"] == "REMOVED":
+            assert row["initial_value"] and row["final_value"] == "", row["entry_id"]
+        elif row["status"] == "APPLIED":
+            assert row["initial_value"] and row["final_value"] and row["initial_value"] != row["final_value"]
+        else:
+            assert row["final_value"] and row["initial_value"] == row["final_value"], row["entry_id"]
+    return events
+
+
+def before_b47(source, rows, language="EN"):
+    """Undo the B47 catalog events exactly; a removed key must be absent first."""
+    language = language.upper()
+    opening = " = {\n"
+    assert opening in source, "catalog object start"
+    for row in b47_events(rows):
+        if row["language"] != language:
+            continue
+        key = row["key_or_msgid"]
+        if row["status"] == "REMOVED":
+            assert not any(line.startswith(f"  {key}: ") for line in source.split("\n")), key
+            at = source.index(opening) + len(opening)
+            source = f"{source[:at]}  {key}: '{row['initial_value']}',\n{source[at:]}"
+            continue
+        line = f"  {key}: '{row['final_value']}',\n"
+        assert source.count(line) == 1, key
+        source = source.replace(line, f"  {key}: '{row['initial_value']}',\n" if row["status"] == "APPLIED" else "")
+    return source
+
 
 def species_original_projection(rows):
     """Map reallocated feature events back to their original T1460-T1731/B32-B42 identities."""
@@ -516,6 +568,7 @@ def species_integration_errors(rows):
 
 def before_species_integration(source, rows, language="EN"):
     """Reverse exact feature lines only; unknown edits remain fingerprinted."""
+    source = before_b47(source, rows, language)
     assert rows_digest(rows[SPECIES_TAIL]) == SPECIES_EVIDENCE["reallocated_register_rows_sha256"], "Species integration history was modified"
     language = language.lower()
     for line in SPECIES_EVIDENCE["catalog_additions"][language]:
@@ -580,10 +633,22 @@ class IntegrationHistoryTests(unittest.TestCase):
         for language in ("FR", "EN"):
             source = (reg.ROOT / f"frontend/src/i18n/{language.lower()}.ts").read_text(encoding="utf-8")
             restored = before_species_integration(source, rows, language)
-            for line in SPECIES_EVIDENCE["catalog_additions"][language.lower()]:
+            b47_keys = set(B47_REMOVED_KEYS) | set(B47_APPLIED_KEYS)
+            current_lines = [line for line in SPECIES_EVIDENCE["catalog_additions"][language.lower()]
+                             if line.strip().split(":", 1)[0] not in b47_keys]
+            self.assertEqual(len(current_lines), 266 - len(b47_keys))
+            # Lines B47 removed or reworded are probed through their current B47 form.
+            current_lines += [f"  {row['key_or_msgid']}: '{row['final_value']}',\n" for row in b47_events(rows)
+                              if row["language"] == language and row["status"] != "REMOVED"]
+            for line in current_lines:
+                self.assertEqual(source.count(line), 1, line)
                 for replacement in ("", line + line, line.replace(": '", ": 'changed ")):
                     with self.assertRaises(AssertionError):
                         before_species_integration(source.replace(line, replacement), rows, language)
+            for key in B47_REMOVED_KEYS:
+                row = next(row for row in b47_events(rows) if row["key_or_msgid"] == key and row["language"] == language)
+                with self.assertRaises(AssertionError):
+                    before_species_integration(source + f"  {key}: '{row['initial_value']}',\n", rows, language)
             extra = "  unapprovedKey: 'Unapproved',\n"
             self.assertEqual(before_species_integration(source + extra, rows, language), restored + extra)
 
@@ -611,6 +676,7 @@ class IntegrationHistoryTests(unittest.TestCase):
         self.assertEqual(len(integrated), 1811)
         self.assertEqual(len(b44_events(rows)), 48)
         self.assertEqual(len(b45_events(rows)), 22)
+        self.assertEqual(len(b47_events(rows)), 14)
         self.assertEqual(Counter(row["batch"] for row in integrated[1741:]), Counter({B44: 48, B45: 22}))
         self.assertEqual([row["entry_id"] for row in integrated], [f"T{n:03d}" for n in range(1, 1812)])
         self.assertEqual(species_integration_errors(rows), [])
@@ -1615,7 +1681,9 @@ class RealRegisterTests(unittest.TestCase):
             # Reverse the frozen feature layer, then exactly 21 active DNA keys.
             # Also reverse the three merge separators. The English rewording adds no lines; B31 stays absent.
             self.assertEqual(len(SPECIES_EVIDENCE["catalog_additions"][language.lower()]), 266)
-            self.assertEqual(len(source.splitlines()) - len(restored.splitlines()), 266 + 21 + 3)
+            # B47 later removed four of those lines and added one, all restored by its own layer.
+            self.assertEqual(len(source.splitlines()) - len(restored.splitlines()),
+                             266 + 21 + 3 - len(B47_REMOVED_KEYS) + len(B47_ADDED_KEYS))
             for key in active:
                 self.assertNotIn(f"  {key}: ", restored)
             self.assertNotIn("  dnaStateValidated: ", restored)

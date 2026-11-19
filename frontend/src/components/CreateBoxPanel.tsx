@@ -16,6 +16,7 @@ import {
 } from '../utils/boxCreationRecovery';
 import { getErrorMessage } from '../utils/errors';
 import CreatedBoxIdentifier from './CreatedBoxIdentifier';
+import { isDnaEvidenceUrl } from './DnaEvidenceLink';
 import ModalPortal from './ModalPortal';
 import PolypbaseIcon from './PolypbaseIcon';
 import StrainPicker from './StrainPicker';
@@ -30,7 +31,7 @@ const DIALOG_FOCUSABLE_SELECTOR =
 
 function hasFieldError(error: unknown) {
   const data = error instanceof ApiError ? error.data : null;
-  return Boolean(data && typeof data === 'object' && ['strain', 'thermal_zone', 'entered_on', 'notes', 'initial_polyp_count']
+  return Boolean(data && typeof data === 'object' && ['strain', 'thermal_zone', 'entered_on', 'notes', 'initial_polyp_count', 'dna_evidence_url']
     .some((field) => field in (data as Record<string, unknown>)));
 }
 
@@ -127,6 +128,12 @@ export default function CreateBoxPanel({
   );
   const [isInitialPolypsTouched, setIsInitialPolypsTouched] = useState(false);
   const initialPolypCount = parseInitialPolypCount(initialPolyps);
+  // Optional: empty means no evidence. Same URL rule and error timing as the Box page.
+  const [dnaEvidenceUrl, setDnaEvidenceUrl] = useState(initialDraft?.dna_evidence_url ?? '');
+  const [isDnaEvidenceDirty, setIsDnaEvidenceDirty] = useState(false);
+  const [isDnaEvidenceErrorShown, setIsDnaEvidenceErrorShown] = useState(false);
+  const trimmedDnaEvidenceUrl = dnaEvidenceUrl.trim();
+  const isDnaEvidenceValid = trimmedDnaEvidenceUrl === '' || isDnaEvidenceUrl(trimmedDnaEvidenceUrl);
   const [strainOptions, setStrainOptions] = useState<BoxStrainOption[] | null>(null);
   const [isStrainsLoading, setIsStrainsLoading] = useState(false);
   const [strainsError, setStrainsError] = useState<string | null>(null);
@@ -345,7 +352,7 @@ export default function CreateBoxPanel({
   const canSubmit = organizationId != null && storageKey != null && !isLocked && !createdBox
     && isOpen && isAlive() && hasCurrentStrains && strainOptions != null && !isStrainsLoading && !strainsError
     && selectedStrain?.identity.status === 'usable'
-    && selectedZone != null && enteredOn !== '' && initialPolypCount !== null && !isOptionsLoading;
+    && selectedZone != null && enteredOn !== '' && initialPolypCount !== null && isDnaEvidenceValid && !isOptionsLoading;
 
   useEffect(() => {
     // An unlocked draft never keeps a choice the server no longer offers.
@@ -419,11 +426,13 @@ export default function CreateBoxPanel({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsInitialPolypsTouched(true);
+    if (!isDnaEvidenceValid) setIsDnaEvidenceErrorShown(true);
     if (busyRef.current || pendingIntentRef.current || !canSubmit || effectiveStrainId == null || zoneId == null
       || initialPolypCount === null || !isAlive()) return;
     const intent: BoxCreationIntent = {
       strain: effectiveStrainId, thermal_zone: zoneId, entered_on: enteredOn, volume_liters: null, notes: notes.trim(),
       initial_polyp_count: initialPolypCount,
+      ...(trimmedDnaEvidenceUrl ? { dna_evidence_url: trimmedDnaEvidenceUrl } : {}),
       request_id: window.crypto.randomUUID(),
       resume_token: window.crypto.randomUUID(),
     };
@@ -469,6 +478,10 @@ export default function CreateBoxPanel({
     setNotes('');
     setInitialPolyps('');
     setIsInitialPolypsTouched(false);
+    // Evidence belongs to one Box: never carried over to the next one.
+    setDnaEvidenceUrl('');
+    setIsDnaEvidenceDirty(false);
+    setIsDnaEvidenceErrorShown(false);
     setPhase('draft');
   }
 
@@ -604,6 +617,26 @@ export default function CreateBoxPanel({
             />
             {isInitialPolypsTouched && initialPolypCount === null ? (
               <small id="create-box-initial-polyps-error" className="inline-error compact-text">{t('createBoxInitialPolypsRequired')}</small>
+            ) : null}
+          </label>
+
+          <label className="create-box-dna-field">
+            <span>{t('createBoxDnaEvidence')}</span>
+            <input
+              disabled={isLocked} type="url" name="dna_evidence_url" autoComplete="url" maxLength={2000}
+              placeholder={t('dnaEvidenceUrl')}
+              value={dnaEvidenceUrl}
+              aria-invalid={isDnaEvidenceErrorShown}
+              aria-describedby={isDnaEvidenceErrorShown ? 'create-box-dna-error' : undefined}
+              onBlur={() => { if (isDnaEvidenceDirty && !isDnaEvidenceValid) setIsDnaEvidenceErrorShown(true); }}
+              onChange={(event) => {
+                setDnaEvidenceUrl(event.target.value);
+                setIsDnaEvidenceDirty(true);
+                setIsDnaEvidenceErrorShown(false);
+              }}
+            />
+            {isDnaEvidenceErrorShown ? (
+              <small id="create-box-dna-error" className="inline-error compact-text" role="alert">{t('dnaInvalidUrl')}</small>
             ) : null}
           </label>
 

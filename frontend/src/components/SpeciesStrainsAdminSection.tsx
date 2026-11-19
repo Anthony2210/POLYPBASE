@@ -933,7 +933,6 @@ function SpeciesFormDialog({
         || Number(isWormsAccepted(b)) - Number(isWormsAccepted(a));
     });
 
-  const truncatedLimit = worms.status === 'results' && worms.truncated ? worms.limit : null;
   const record = reference?.kind === 'record' ? reference.record : null;
 
   return (
@@ -972,7 +971,6 @@ function SpeciesFormDialog({
                       {t(worms.status === 'loading' ? 'speciesCreateWormsSearching' : 'speciesCreateWormsSearch')}
                     </button>
                   </div>
-                  <p className="species-search-hint">{t(worms.status === 'loading' ? 'speciesCreateWormsSearching' : 'speciesSearchHint')}</p>
                 </div>
               ) : (
               <div className="species-name-field">
@@ -1052,9 +1050,6 @@ function SpeciesFormDialog({
                 {worms.status === 'invalid' ? <p className="species-worms-note">{t(WORMS_QUERY_PROBLEM_KEYS[worms.problem])}</p> : null}
                 {worms.status === 'unavailable' ? <p className="species-worms-note">{t('speciesCreateWormsUnavailable')}</p> : null}
                 {worms.status === 'results' && !results.length ? <p className="species-worms-note">{t('speciesCreateWormsEmpty')}</p> : null}
-                {truncatedLimit !== null ? (
-                  <p className="species-worms-note is-truncated">{renderTemplate(t('speciesCreateWormsTruncated'), { count: truncatedLimit })}</p>
-                ) : null}
               </div>
 
               {results.length > 0 ? (
@@ -1417,9 +1412,8 @@ function StrainCreateDialog({ profile, speciesCode, language, t, onClose, onCrea
                   </label>
                 ) : null}
 
-                <fieldset className="strain-location-fieldset strain-gps-fieldset" aria-describedby="strain-gps-hint">
+                <fieldset className="strain-location-fieldset strain-gps-fieldset">
                   <legend>{t('strainGps')}</legend>
-                  <small id="strain-gps-hint" className="species-search-hint">{t('strainGpsHint')}</small>
                   <div className="strain-location-new strain-gps-pair">
                     <label className="strain-location-field">
                       <span>{t('strainGpsLatitude')}</span>
@@ -1443,9 +1437,8 @@ function StrainCreateDialog({ profile, speciesCode, language, t, onClose, onCrea
                 {/* Optional and last: without a name, the server number is displayed. */}
                 <label className="strain-location-field strain-name-field">
                   <span>{t('strainName')}</span>
-                  <input value={name} maxLength={150} autoComplete="off" aria-describedby="strain-name-hint"
+                  <input value={name} maxLength={150} autoComplete="off"
                     onChange={(event) => edit(() => setName(event.target.value))} />
-                  <small id="strain-name-hint" className="species-search-hint">{t('strainNameHint')}</small>
                 </label>
               </fieldset>
 

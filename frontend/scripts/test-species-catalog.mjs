@@ -692,10 +692,13 @@ test('creation dialog: focused empty name, Enter searches WoRMS and never create
   assert.equal(h.env.document.activeElement, h.input);
   assert.equal(h.submitButton, undefined);
   assert.equal(nodeText(h.button('speciesCreateWormsSearch')).trim(), 'speciesCreateWormsSearch');
+  assert.doesNotMatch(h.text(), /speciesSearchHint/);
   h.type('Aurelia coerulea');
   h.enter();
   assert.equal(h.writes.length, 0);
   assert.equal(h.env.requests.at(-1).path, `${WORMS_PATH}?q=Aurelia+coerulea`);
+  // While searching, only the button reports progress; no separate hint line.
+  assert.equal(h.view.byClass('species-form-dialog').querySelectorAll('*').filter((node) => node.props?.className === 'species-search-hint').length, 0);
   assert.equal(h.submitButton, undefined);
 });
 
@@ -707,7 +710,8 @@ test('creation: explicit WoRMS selection, generated code shown on the new detail
     wormsRecord(135263, 'Aurelia', { rank: 'Genus', rank_id: 180, is_species_level: false }),
     wormsRecord(287206, 'Aurelia coerulea'),
   ] });
-  assert.match(h.text(), /speciesCreateWormsTruncated|25/);
+  // A truncated answer keeps the 25-result limit but shows no truncation or keyboard hint.
+  assert.doesNotMatch(h.text(), /speciesCreateWormsTruncated|speciesSearchHint/);
   // Non-species ranks are not displayed or selectable.
   assert.equal(h.results().filter((node) => node.type === 'button').length, 1);
   assert.doesNotMatch(h.text(), /speciesCreateAboveSpeciesRank|speciesCreateRankGenus|speciesSearchOtherRanks/);
@@ -1301,6 +1305,11 @@ test('strain form order: country, acquisition, donor (donation only), GPS, then 
   assert.equal(dialog.props['aria-modal'], 'true');
   const labels = () => strainDialog(h).querySelectorAll('*').filter((node) => node.type === 'label').map((node) => flatText(node).split(' ')[0]);
   assert.deepEqual(labels(), ['adminCountry', 'strainAcquisitionType', 'strainGpsLatitude', 'strainGpsLongitude', 'strainName']);
+  // Optional fields say so in their label only: no helper text below them.
+  assert.doesNotMatch(flatText(dialog), /strainGpsHint|strainNameHint/);
+  assert.equal(dialog.querySelectorAll('*').filter((node) => node.props?.id === 'strain-gps-hint' || node.props?.id === 'strain-name-hint').length, 0);
+  assert.equal(dialog.querySelectorAll('*').filter((node) => node.props?.['aria-describedby'] === 'strain-gps-hint' || node.props?.['aria-describedby'] === 'strain-name-hint').length, 0);
+  assert.equal(dialog.querySelectorAll('*').find((node) => node.type === 'legend')?.props.children, 'strainGps');
   set(h, 'strainAcquisitionType', 'donation');
   assert.deepEqual(labels(), ['adminCountry', 'strainAcquisitionType', 'strainDonorInstitution', 'strainGpsLatitude', 'strainGpsLongitude', 'strainName']);
   // The four approved acquisition types, plus "not recorded".
@@ -1591,6 +1600,11 @@ test('the Box continuation reuses the New Box form, desktop Administration only,
   assert.match(adminView, /onCreateBox=\{onCreateBoxForStrain\}/);
 });
 
+test('Administration title stays on the Species catalog and is hidden only on a Species entity page', () => {
+  assert.match(app, /\{!isBoxRoute && !isZoneRoute && !\(activeTab === 'admin' && route\.adminSection === 'species' && route\.adminSpecies\) \? \(/);
+  assert.doesNotMatch(app, /route\.adminSection === 'species'\) \? \(/);
+});
+
 test('strain creation keys exist in FR and EN; the country label stays simple', () => {
   for (const [catalog, language] of [[fr, 'fr'], [en, 'en']]) {
     for (const key of ['speciesStrainNew', 'speciesStrainCreateSubmit', 'speciesStrainRequestConflict',
@@ -1610,6 +1624,16 @@ test('strain creation keys exist in FR and EN; the country label stays simple', 
   assert.match(fr, /historyInitialMeasurement: 'Départ',/);
   assert.match(fr, /historyInitialObservedBy: 'Nombre initial de polypes observé par',/);
   assert.match(fr, /createBoxInitialPolyps: 'Nombre initial de polypes',/);
+  assert.match(fr, /strainGps: 'Coordonnées GPS \(facultatif\)',/);
+  assert.match(fr, /strainName: 'Nom de la souche \(facultatif\)',/);
+  assert.match(en, /strainGps: 'GPS coordinates \(optional\)',/);
+  assert.match(en, /strainName: 'Strain name \(optional\)',/);
+  // Removed helper texts and WoRMS hints: no key, and no remaining wording.
+  for (const key of ['strainGpsHint', 'strainNameHint', 'speciesSearchHint', 'speciesCreateWormsTruncated']) {
+    assert.doesNotMatch(fr + en, new RegExp(`^  ${key}:`, 'm'), key);
+  }
+  assert.doesNotMatch(fr, /Facultatif\. Degrés décimaux|Facultatif\. Sans nom|Entrée pour rechercher dans WoRMS|premiers résultats WoRMS/);
+  assert.doesNotMatch(en, /Optional\. Decimal degrees|Optional\. Without a name|Press Enter to search WoRMS|first \{count\} WoRMS results/);
   assert.doesNotMatch(fr + en, /·/);
 });
 

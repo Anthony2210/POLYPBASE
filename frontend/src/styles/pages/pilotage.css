@@ -518,7 +518,7 @@
     "title title"
     "strain strain"
     "location date"
-    "initial ."
+    "initial dna"
     "notes notes"
     "actions actions";
   align-items: start;
@@ -536,6 +536,7 @@
 .create-box-date-field { grid-area: date; }
 .create-box-notes-field { grid-area: notes; }
 .create-box-initial-polyps-field { grid-area: initial; }
+.create-box-dna-field { grid-area: dna; }
 
 .create-box-form > .create-box-actions { grid-area: actions; }
 
@@ -770,7 +771,7 @@
   grid-template-areas:
     "strain strain"
     "location date"
-    "initial ."
+    "initial dna"
     "notes notes"
     "actions actions";
 }
@@ -785,7 +786,7 @@
       "title title"
       "strain strain"
       "location date"
-      "initial ."
+      "initial dna"
       "notes notes"
       "actions actions";
   }
@@ -1082,6 +1083,7 @@
       "location"
       "date"
       "initial"
+      "dna"
       "notes"
       "actions";
     margin: 0;
