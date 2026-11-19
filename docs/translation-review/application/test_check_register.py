@@ -8,6 +8,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -287,9 +288,35 @@ def before_b44(source, rows, language="EN"):
     return source
 
 
+B47 = "B47-2026-11-18"
+# Canonical digest of the two B47 register rows in commit 6a0e9d9.
+B47_ROWS_SHA256 = "9418ec36675c5cc50ce70402bd2c951712549a6f827fdc1d142f1d413018dd81"
+
+
+def b47_events(rows):
+    entry_ids = ("T1813", "T1814")
+    events = [row for row in rows if row["batch"] == B47 or row["entry_id"] in entry_ids]
+    assert events == rows[1812:1814], "B47: events moved or gained a member"
+    assert [row["entry_id"] for row in events] == list(entry_ids), "B47: identities changed"
+    assert all(list(row) == reg.COLUMNS for row in events), "B47: schema changed"
+    assert rows_digest(events) == B47_ROWS_SHA256, "B47: history was modified"
+    return events
+
+
+def before_b47(source, rows, language="EN"):
+    """Remove only the exact registered demo banner, preserving all other bytes."""
+    row = next(row for row in b47_events(rows) if row["language"] == language)
+    assert len(re.findall(r'''^[ \t]*(?:demoModeBanner|"demoModeBanner"|'demoModeBanner')[ \t]*:''',
+                          source, re.MULTILINE)) == 1, "B47: expected exactly one demoModeBanner entry"
+    line = f"\n  demoModeBanner: '{row['final_value']}',\n"
+    assert source.count(line) == 1, f"{row['entry_id']}: expected exact registered line"
+    return source.replace(line, "\n", 1)
+
+
 def before_b29(source, rows, language="EN"):
-    """Undo frozen B45 and B44 events, then B29 additions and changes."""
+    """Undo frozen B47, B45 and B44 events, then B29 additions and changes."""
     events = b29_events(rows)
+    source = before_b47(source, rows, language)
     source = before_b44(before_b45(source, rows, language), rows, language)
     for row in reversed(events):
         if row["language"] != language:
@@ -1236,6 +1263,36 @@ class CatalogParserTests(unittest.TestCase):
 
 
 class RealRegisterTests(unittest.TestCase):
+    def test_h_b47_reconstruction_rejects_history_and_source_mutations(self):
+        rows = reg.load_register()
+        for entry in b47_events(rows):
+            language = entry["language"]
+            source = (reg.ROOT / reg.REACT_CATALOGS[language]).read_text(encoding="utf-8")
+            line = f"  demoModeBanner: '{entry['final_value']}',\n"
+            altered = line.replace(": '", ": 'changed ")
+            restored = before_b47(source, rows, language)
+            self.assertEqual(restored, source.replace(line, ""))
+            extra = "  unregisteredKey: 'Unapproved',\n"
+            self.assertEqual(before_b47(source.replace(line, line + extra), rows, language),
+                             source.replace(line, extra))
+            for replacement in ("", line + line, line + altered, altered):
+                with self.subTest(language=language, replacement=replacement), self.assertRaises(AssertionError):
+                    before_b47(source.replace(line, replacement), rows, language)
+            for changed in ([row for row in rows if row != entry], rows + [entry],
+                            rows + [dict(entry, entry_id="T1815", key_or_msgid="unregisteredKey")]):
+                with self.assertRaises(AssertionError):
+                    before_b47(source, changed, language)
+            for field in reg.COLUMNS + ["unknown_column"]:
+                changed = [dict(row, **{field: row.get(field, "") + " changed"}) if row == entry else row
+                           for row in rows]
+                with self.subTest(language=language, field=field), self.assertRaises(AssertionError):
+                    before_b47(source, changed, language)
+            changed_value = "changed " + entry["final_value"]
+            coordinated = [dict(row, initial_value=changed_value, final_value=changed_value) if row == entry else row
+                           for row in rows]
+            with self.assertRaisesRegex(AssertionError, "B47: history was modified"):
+                before_b47(source.replace(line, altered), coordinated, language)
+
     def test_h_b45_reconstruction_rejects_history_and_source_mutations(self):
         rows = reg.load_register()
         events = b45_events(rows)
@@ -1280,7 +1337,8 @@ class RealRegisterTests(unittest.TestCase):
                              layout.replace(unknown_space, "\n" + unknown_space))
             restored = before_b45(source, rows, language)
             # Remove main-only layers to recover the independently frozen feature B30 source.
-            feature_source = before_b32(before_b30(restored, rows, language), rows, language)
+            feature_source = before_b32(before_b30(before_b47(restored, rows, language), rows, language),
+                                        rows, language)
             self.assertEqual(hashlib.sha256(feature_source.encode()).hexdigest(), digest)
             extra = "  unregisteredKey: 'Unapproved',\n"
             self.assertEqual(before_b45(source + extra, rows, language), restored + extra)
